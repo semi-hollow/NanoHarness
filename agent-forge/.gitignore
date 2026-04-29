@@ -1,0 +1,5 @@
+__pycache__/
+*.pyc
+*.pyo
+agent_forge_trace.json
+eval_report.md
