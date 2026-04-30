@@ -1,18 +1,25 @@
 # 05-how-observation-works
 
 ## 1. 这篇解决什么问题
-解释该模块在 Agent 工程中的必要性。
+解释为什么工具结果要统一成 Observation。
+
 ## 2. 先给结论
-先给工程结论，再看代码细节。
+Observation 是 Agent 的反馈信号，决定下一轮是否重试、换工具或结束。
+
 ## 3. 最小概念
-只保留面试和实现需要的最小术语。
+本项目的 Observation 包含 `tool_name`、`success`、`content`。
+
 ## 4. 对应代码在哪里
-指向 agent_forge/ 下对应模块。
+`agent_forge/runtime/observation.py` 和 `agent_loop.py` 中的 `tool_observation` 事件。
+
 ## 5. 运行一下看效果
-给出 1-2 条命令和预期输出。
+single demo 第一次 patch 会得到失败 Observation：`old text not found`。
+
 ## 6. 常见坑
-给出真实 failure mode 和排查方式。
+只打印 stdout 不够；Agent 需要结构化知道成功还是失败。
+
 ## 7. 面试怎么说
-用第一人称说明 trade-off、风险与验证。
+Observation 让工具执行从黑盒变成可反馈、可追踪的闭环。
+
 ## 8. 下一步学什么
-给出可演进方向（真实模型、向量检索、审批系统等）。
+读 `06-how-workflow-differs-from-agent.md`。

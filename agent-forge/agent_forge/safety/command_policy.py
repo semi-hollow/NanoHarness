@@ -4,7 +4,8 @@ PYTHON_COMMANDS = {"python", "python3", "python3.11"}
 
 DENY_PREFIX = {
     "rm", "del", "rmdir", "curl", "wget", "ssh", "scp",
-    "chmod", "chown", "format", "mkfs", "powershell"
+    "chmod", "chown", "format", "mkfs", "powershell", "sudo",
+    "shutdown", "reboot"
 }
 
 DENY_EXACT = {

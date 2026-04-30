@@ -2,6 +2,8 @@
 
 Agent Forge is a compact Agent Harness for learning and interviewing: agent loop, tool calling, safety, context engineering, observability, eval, and production-readiness design in one standard-library-first Python project.
 
+It is not a model, not a Claude clone, and not an OpenCode config pack. It is a small engineering lab for one question: how can an LLM become a controlled execution system for code tasks?
+
 ## Quickstart
 
 ```bash
@@ -12,7 +14,19 @@ python3.11 -m unittest discover tests
 python3.11 -m agent_forge.eval.eval_runner
 ```
 
-Default demos use `MockLLMClient`, so no API key is required. Optional OpenAI-compatible mode reads `AGENT_FORGE_BASE_URL`, `AGENT_FORGE_API_KEY`, and `AGENT_FORGE_MODEL`.
+Default demos use `MockLLMClient`, so no API key is required. Optional OpenAI-compatible mode reads `AGENT_FORGE_BASE_URL`, `AGENT_FORGE_API_KEY`, and `AGENT_FORGE_MODEL`; it also accepts `OPENAI_BASE_URL`, `OPENAI_API_KEY`, and `OPENAI_MODEL` aliases.
+
+Verified local results are recorded in `docs/run-results.md`: 29 unittest tests passed, 16/16 eval cases passed, and single/multi/workflow demos exited successfully.
+
+## Why These Choices
+
+- Python: easy to read, common in agent tooling, and friendly for interviews.
+- `argparse`: standard-library CLI, no install step needed.
+- `unittest`: standard-library test runner, stable on a fresh machine.
+- MockLLM: deterministic demos and tests without API keys.
+- JSON trace: readable, auditable, and easy to turn into metrics.
+- keyword RAG / repo map first: teaches retrieval and context budget without vector database setup.
+- no heavy framework by default: the goal is to expose the control layer directly.
 
 ## V1 / V2 Capability Matrix
 
@@ -57,6 +71,18 @@ The benchmark currently has 16 cases. Each case includes:
 
 `eval_runner` executes each `verify.py` and writes `eval_report.md` with total, passed, failed, pass rate, failed case list, and metrics.
 
+## Project Structure
+
+- `agent_forge/runtime`: agent loop, state, planner, LLM clients, stop conditions.
+- `agent_forge/tools`: tool registry and built-in tools.
+- `agent_forge/safety`: permission, sandbox, command policy, guardrails.
+- `agent_forge/context`: repo map, memory, RAG, symbol search, file ranking, budget report.
+- `agent_forge/agents`: Supervisor and Planner/Coding/Tester/Reviewer subagents.
+- `agent_forge/observability`: trace JSON, summary writer, metrics.
+- `agent_forge/eval`: executable eval runner and report generation.
+- `docs`: design docs and interview materials.
+- `tutorials`: nanoAgent-style learning path.
+
 ## Learning Route
 
 1. Agent loop: `docs/01-agent-loop.md`
@@ -72,6 +98,18 @@ The benchmark currently has 16 cases. Each case includes:
 2. Use `docs/17-architecture-whiteboard.md` for the whiteboard story.
 3. Practice `docs/14-interview-qa.md` for 80+ follow-up questions.
 4. Run the commands in Quickstart during the demo.
+
+30-second version:
+
+> I built Agent Forge to make the control layer behind coding agents explicit: context assembly, tool routing, permission checks, observation feedback, tracing, and evaluation.
+
+1-minute version:
+
+> I built a compact Agent Harness to answer one question: how can we turn an LLM from a text generator into a controlled execution system for code tasks? The hardest part was not calling the model, but making tool execution safe, observable, and evaluatable. I implemented a single-agent loop, a supervisor/subagent workflow, permission sandboxing, trace logging, and an executable eval benchmark.
+
+Architecture whiteboard entry:
+
+> Let me draw the architecture to make sure we are aligned.
 
 ## Current Boundaries
 

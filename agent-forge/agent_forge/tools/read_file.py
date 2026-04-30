@@ -10,7 +10,7 @@ class ReadFileTool(Tool):
         self.sandbox = sandbox
 
     def schema(self):
-        return {"name": self.name, "arguments": {"path": "str"}}
+        return {"name": self.name, "description": self.description, "arguments": {"path": "str"}}
 
     def execute(self, arguments):
         p = self.sandbox.ensure_safe_path(arguments["path"])
