@@ -18,7 +18,7 @@ class TestTools(unittest.TestCase):
       self.assertTrue(obs.success)
       self.assertEqual((Path(d)/'a.py').read_text().count('return a + b'),1)
       self.assertFalse(ApplyPatchTool(s).execute({'path':'a.py','old':'nope','new':'x'}).success)
-      self.assertTrue(RunCommandTool(s).execute({'command':'python -m unittest'}).success)
+      self.assertTrue(RunCommandTool(s).execute({'command':'python3.11 -m unittest'}).success)
       self.assertFalse(RunCommandTool(s).execute({'command':'rm -rf /tmp/x'}).success)
 
 
