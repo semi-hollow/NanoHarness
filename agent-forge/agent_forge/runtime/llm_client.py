@@ -24,13 +24,16 @@ class MockLLMClient(LLMClient):
         tool_obs = [m for m in messages if m.role == "tool"]
         i = len(tool_obs)
         if self.mode == "single":
-            plan = [
-                ToolCall("1", "read_file", {"path": "examples/demo_repo/src/calculator.py"}),
-                ToolCall("2", "read_file", {"path": "examples/demo_repo/tests/test_calculator.py"}),
-                ToolCall("3", "apply_patch", {"path": "examples/demo_repo/src/calculator.py", "old": "return a - b", "new": "return a + b"}),
-                ToolCall("4", "run_command", {"command": "python -m unittest discover examples/demo_repo/tests"}),
-            ]
-            if i < len(plan):
-                return AgentResponse(None, [plan[i]])
+            if i == 0:
+                return AgentResponse(None, [ToolCall("1", "read_file", {"path": "examples/demo_repo/src/calculator.py"})])
+            if i == 1:
+                return AgentResponse(None, [ToolCall("2", "read_file", {"path": "examples/demo_repo/tests/test_calculator.py"})])
+            if i == 2:
+                # first patch intentionally fails
+                return AgentResponse(None, [ToolCall("3", "apply_patch", {"path": "examples/demo_repo/src/calculator.py", "old": "return a * b", "new": "return a + b"})])
+            if i == 3 and "old text not found" in tool_obs[-1].content:
+                return AgentResponse(None, [ToolCall("3b", "apply_patch", {"path": "examples/demo_repo/src/calculator.py", "old": "return a - b", "new": "return a + b"})])
+            if i in {3, 4}:
+                return AgentResponse(None, [ToolCall("4", "run_command", {"command": "python -m unittest discover examples/demo_repo/tests -t examples/demo_repo"})])
             return AgentResponse("已完成修复并验证测试通过。", [])
         return AgentResponse("multi mode by supervisor", [])

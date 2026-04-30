@@ -27,7 +27,7 @@ def reset_demo_repo(workspace: str):
 def build_registry(workspace: str, auto: bool):
     sandbox = WorkspaceSandbox(workspace)
     r = ToolRegistry()
-    for t in [ListFilesTool(sandbox), ReadFileTool(sandbox), WriteFileTool(sandbox), GrepTool(sandbox), ApplyPatchTool(sandbox), RunCommandTool(sandbox), GitStatusTool(sandbox), GitDiffTool(sandbox), AskHumanTool(auto)]:
+    for t in [ListFilesTool(sandbox), ReadFileTool(sandbox), WriteFileTool(sandbox,auto), GrepTool(sandbox), ApplyPatchTool(sandbox,auto), RunCommandTool(sandbox,auto), GitStatusTool(sandbox), GitDiffTool(sandbox), AskHumanTool(auto)]:
         r.register(t)
     return r
 
@@ -42,11 +42,13 @@ def main():
     p.add_argument("--trace-file", default="agent_forge_trace.json")
     p.add_argument("--no-auto-approve", action="store_true")
     a=p.parse_args()
-    reset_demo_repo(a.workspace)
+    
+    if a.workspace=="." and a.mode in {"single","multi"}:
+        reset_demo_repo(a.workspace)
     trace=TraceRecorder(a.trace_file)
     auto=not a.no_auto_approve
     if a.mode=="multi":
-        print(SupervisorAgent().run(trace,a.task))
+        print(SupervisorAgent().run(trace,a.task,build_registry(a.workspace,auto)))
     elif a.mode=="workflow":
         print(run_workflow(a.task))
     else:

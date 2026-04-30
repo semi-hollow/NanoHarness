@@ -1,6 +1,12 @@
 from .base_agent import BaseAgent, AgentResult
 
+
 class ReviewerAgent(BaseAgent):
-    name="ReviewerAgent"
+    name = "ReviewerAgent"
+
     def run(self, state):
-        return AgentResult(self.name,"Reviewed diff for scope/safety and provided go/no-go.")
+        diff = state["registry"].execute("git_diff", {})
+        conclusion = "approved" if state.get("test_pass") else "changes required"
+        summary = f"review={conclusion}; diff_len={len(diff.content)}"
+        state["review"] = summary
+        return AgentResult(self.name, summary)

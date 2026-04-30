@@ -1,6 +1,11 @@
 from .base_agent import BaseAgent, AgentResult
 
+
 class TesterAgent(BaseAgent):
-    name="TesterAgent"
+    name = "TesterAgent"
+
     def run(self, state):
-        return AgentResult(self.name,"Executed tests and collected failures/success summary.")
+        obs = state["registry"].execute("run_command", {"command": "python -m unittest discover examples/demo_repo/tests -t examples/demo_repo"})
+        state["test_result"] = obs.content
+        state["test_pass"] = obs.success
+        return AgentResult(self.name, obs.content)
