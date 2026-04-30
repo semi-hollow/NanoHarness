@@ -3,7 +3,7 @@ from agent_forge.runtime.observation import Observation
 class GrepTool(Tool):
     name='grep'; description='keyword search'
     def __init__(self,sandbox): self.sandbox=sandbox
-    def schema(self): return {"name":self.name,"arguments":{"keyword":"str"}}
+    def schema(self): return {"name":self.name,"description":self.description,"arguments":{"keyword":"str"}}
     def execute(self,arguments):
         kw=arguments['keyword']; out=[]
         for p in self.sandbox.workspace_root.rglob('*.py'):
@@ -14,3 +14,8 @@ class GrepTool(Tool):
                     out.append(f"{p.relative_to(self.sandbox.workspace_root)}:{i}:{l.strip()}")
                 if len(out)>=50: break
         return Observation(self.name,True,"\n".join(out))
+
+
+class GrepSearchTool(GrepTool):
+    name = "grep_search"
+    description = "keyword or simple substring search"

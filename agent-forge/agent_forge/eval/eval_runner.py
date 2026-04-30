@@ -18,6 +18,9 @@ def run_case(case_dir: Path) -> EvalResult:
     if trace_file.exists():
         metrics = summarize_trace_file(trace_file)
         trace_file.unlink()
+        summary_file = case_dir / "summary.md"
+        if summary_file.exists():
+            summary_file.unlink()
     else:
         metrics = summarize([])
     return EvalResult(

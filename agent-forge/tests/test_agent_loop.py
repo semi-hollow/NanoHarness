@@ -17,4 +17,5 @@ class T(unittest.TestCase):
       self.assertIn('return a + b',(Path(d)/'examples/demo_repo/src/calculator.py').read_text())
       events=json.loads(Path(d,'trace.json').read_text())['events']
       kinds={e['event_type'] for e in events}
-      self.assertTrue({'tool_call','tool_observation','final_answer'}.issubset(kinds))
+      self.assertTrue({'context_assembly','plan','action','tool_call','tool_observation','observation','final_answer'}.issubset(kinds))
+      self.assertTrue(Path(d,'summary.md').exists())
