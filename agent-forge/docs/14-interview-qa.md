@@ -1,54 +1,27 @@
-# 14-interview-qa
+# Interview Q&A (V1)
 
-Agent Forge design notes.
+### Q1：这个项目是什么？
+**面试官想看什么：** 你是否理解项目边界。  
+**推荐回答：** 这是一个 Agent Harness MVP，不是模型训练项目，重点在可控执行链路：loop、tool、safety、trace、eval。  
+**本项目里的证据：** `runtime/agent_loop.py`、`tools/*`、`safety/*`、`eval/eval_runner.py`。  
+**可能追问：** 为什么不用现成框架？
 
-Q1: 问题? A: 回答。
-Q2: 问题? A: 回答。
-Q3: 问题? A: 回答。
-Q4: 问题? A: 回答。
-Q5: 问题? A: 回答。
-Q6: 问题? A: 回答。
-Q7: 问题? A: 回答。
-Q8: 问题? A: 回答。
-Q9: 问题? A: 回答。
-Q10: 问题? A: 回答。
-Q11: 问题? A: 回答。
-Q12: 问题? A: 回答。
-Q13: 问题? A: 回答。
-Q14: 问题? A: 回答。
-Q15: 问题? A: 回答。
-Q16: 问题? A: 回答。
-Q17: 问题? A: 回答。
-Q18: 问题? A: 回答。
-Q19: 问题? A: 回答。
-Q20: 问题? A: 回答。
-Q21: 问题? A: 回答。
-Q22: 问题? A: 回答。
-Q23: 问题? A: 回答。
-Q24: 问题? A: 回答。
-Q25: 问题? A: 回答。
-Q26: 问题? A: 回答。
-Q27: 问题? A: 回答。
-Q28: 问题? A: 回答。
-Q29: 问题? A: 回答。
-Q30: 问题? A: 回答。
-Q31: 问题? A: 回答。
-Q32: 问题? A: 回答。
-Q33: 问题? A: 回答。
-Q34: 问题? A: 回答。
-Q35: 问题? A: 回答。
-Q36: 问题? A: 回答。
-Q37: 问题? A: 回答。
-Q38: 问题? A: 回答。
-Q39: 问题? A: 回答。
-Q40: 问题? A: 回答。
-Q41: 问题? A: 回答。
-Q42: 问题? A: 回答。
-Q43: 问题? A: 回答。
-Q44: 问题? A: 回答。
-Q45: 问题? A: 回答。
-Q46: 问题? A: 回答。
-Q47: 问题? A: 回答。
-Q48: 问题? A: 回答。
-Q49: 问题? A: 回答。
-Q50: 问题? A: 回答。
+### Q2：多 Agent 是真的协作吗？
+**面试官想看什么：** 是否有真实分工而非打印字符串。  
+**推荐回答：** Supervisor 按阶段 handoff，Planner 产出计划，Coding 真调用 read+patch，Tester 跑 unittest，Reviewer 看 diff+test 结果给结论。  
+**本项目里的证据：** `agents/supervisor_agent.py`、`agents/*_agent.py`。  
+**可能追问：** 失败时如何回退？
+
+### Q3：为什么强调安全？
+**面试官想看什么：** 你是否理解 production 风险。  
+**推荐回答：** Agent 最危险在工具执行，所以加 sandbox 路径边界、敏感文件拒绝、命令 allowlist/denylist、write 需 approval。  
+**本项目里的证据：** `safety/sandbox.py`、`safety/permission.py`、`tools/run_command.py`。  
+**可能追问：** shell=True 为什么不行？
+
+### Q4：怎么证明不是 demo 幻觉？
+**面试官想看什么：** 有无可验证证据。  
+**推荐回答：** 我保留 trace、跑 unittest、跑 eval cases，case 通过 verify.py 实际执行而非硬编码。  
+**本项目里的证据：** `observability/trace.py`、`tests/`、`eval_cases/*/verify.py`。  
+**可能追问：** 指标怎么扩展？
+
+> 其余问题按同样模板扩展，V1 已覆盖核心高频追问；下一版可补齐 50 条完整库。
