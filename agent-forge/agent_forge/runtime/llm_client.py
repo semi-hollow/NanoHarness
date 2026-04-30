@@ -31,9 +31,9 @@ class OpenAICompatibleLLMClient(LLMClient):
         model: str | None = None,
         timeout: int = 30,
     ):
-        self.base_url = (base_url or os.getenv("AGENT_FORGE_BASE_URL", "")).rstrip("/")
-        self.api_key = api_key or os.getenv("AGENT_FORGE_API_KEY", "")
-        self.model = model or os.getenv("AGENT_FORGE_MODEL", "")
+        self.base_url = (base_url or os.getenv("AGENT_FORGE_BASE_URL") or os.getenv("OPENAI_BASE_URL", "")).rstrip("/")
+        self.api_key = api_key or os.getenv("AGENT_FORGE_API_KEY") or os.getenv("OPENAI_API_KEY", "")
+        self.model = model or os.getenv("AGENT_FORGE_MODEL") or os.getenv("OPENAI_MODEL", "")
         self.timeout = timeout
 
     @classmethod
