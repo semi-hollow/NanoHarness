@@ -1,4 +1,5 @@
 import unittest
+from unittest.mock import patch
 
 from agent_forge.runtime.llm_client import OpenAICompatibleLLMClient
 
@@ -27,3 +28,13 @@ class TestOpenAICompatibleLLMClient(unittest.TestCase):
         response = client.parse_response({"choices": []})
         self.assertEqual(response.error["type"], "invalid_response")
         self.assertEqual(response.error["code"], "missing_choices")
+
+    def test_openai_env_aliases(self):
+        with patch.dict("os.environ", {
+            "OPENAI_BASE_URL": "http://gateway",
+            "OPENAI_API_KEY": "secret",
+            "OPENAI_MODEL": "model-a",
+        }, clear=True):
+            client = OpenAICompatibleLLMClient.from_env()
+        self.assertTrue(client.is_configured())
+        self.assertEqual(client.base_url, "http://gateway")
