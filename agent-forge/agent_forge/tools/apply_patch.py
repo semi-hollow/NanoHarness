@@ -1,3 +1,4 @@
+import os, time
 from agent_forge.runtime.observation import Observation
 from agent_forge.safety.permission import PermissionPolicy, PermissionDecision
 from .base import Tool
@@ -13,4 +14,6 @@ class ApplyPatchTool(Tool):
         p=self.sandbox.ensure_safe_path(arguments["path"]); txt=p.read_text(encoding="utf-8")
         if arguments["old"] not in txt: return Observation(self.name,False,"old text not found")
         p.write_text(txt.replace(arguments["old"],arguments["new"],1),encoding="utf-8")
+        now=time.time()+2
+        os.utime(p,(now,now))
         return Observation(self.name,True,f"patched once: {arguments['path']}")

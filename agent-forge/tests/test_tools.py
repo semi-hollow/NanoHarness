@@ -20,3 +20,11 @@ class TestTools(unittest.TestCase):
       self.assertFalse(ApplyPatchTool(s).execute({'path':'a.py','old':'nope','new':'x'}).success)
       self.assertTrue(RunCommandTool(s).execute({'command':'python -m unittest'}).success)
       self.assertFalse(RunCommandTool(s).execute({'command':'rm -rf /tmp/x'}).success)
+
+
+  def test_unittest_discover_path_sandbox(self):
+    with tempfile.TemporaryDirectory() as d:
+      s=WorkspaceSandbox(d)
+      tool=RunCommandTool(s)
+      obs=tool.execute({'command':'python -m unittest discover ../../etc'})
+      self.assertFalse(obs.success)

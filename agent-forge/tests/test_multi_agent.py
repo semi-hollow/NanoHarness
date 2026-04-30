@@ -10,5 +10,6 @@ class T(unittest.TestCase):
             out=SupervisorAgent().run(tr,'fix',build_registry('.',True))
             tr.write()
             self.assertIn('PlannerAgent',out)
+            self.assertIn('Final: pass',out)
             events=json.loads((Path(d)/'t.json').read_text())['events']
             self.assertGreaterEqual(sum(e['event_type']=='handoff' for e in events),4)

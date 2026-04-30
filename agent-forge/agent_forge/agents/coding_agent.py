@@ -13,7 +13,7 @@ class CodingAgent(BaseAgent):
             "apply_patch",
             {
                 "path": "examples/demo_repo/src/calculator.py",
-                "old": "return a - b",
+                "old": "return a * b" if state.get("retry_count",0)==0 else "return a - b",
                 "new": "return a + b",
             },
         )
