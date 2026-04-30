@@ -2,7 +2,7 @@ import argparse
 from pathlib import Path
 from .runtime.config import RuntimeConfig
 from .runtime.agent_loop import AgentLoop
-from .runtime.llm_client import MockLLMClient
+from .runtime.llm_client import MockLLMClient, OpenAICompatibleLLMClient
 from .observability.trace import TraceRecorder
 from .safety.sandbox import WorkspaceSandbox
 from .tools.registry import ToolRegistry
@@ -53,7 +53,14 @@ def main():
         print(run_workflow(a.task))
     else:
         cfg=RuntimeConfig(workspace=a.workspace,max_steps=a.max_steps,auto_approve_writes=auto,trace_file=a.trace_file)
-        print(AgentLoop(cfg,trace,build_registry(a.workspace,auto),MockLLMClient("single")).run(a.task))
+        llm = MockLLMClient("single")
+        if a.llm == "openai":
+            candidate = OpenAICompatibleLLMClient.from_env()
+            if candidate.is_configured():
+                llm = candidate
+            else:
+                print("OpenAI-compatible LLM env is incomplete; falling back to MockLLMClient.")
+        print(AgentLoop(cfg,trace,build_registry(a.workspace,auto),llm).run(a.task))
     trace.write()
 
 if __name__=="__main__":
