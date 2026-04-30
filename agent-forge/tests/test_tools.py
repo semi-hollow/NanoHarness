@@ -4,8 +4,10 @@ from agent_forge.safety.sandbox import WorkspaceSandbox
 from agent_forge.tools.read_file import ReadFileTool
 from agent_forge.tools.list_files import ListFilesTool
 from agent_forge.tools.grep import GrepTool
+from agent_forge.tools.grep import GrepSearchTool
 from agent_forge.tools.apply_patch import ApplyPatchTool
 from agent_forge.tools.run_command import RunCommandTool
+from agent_forge.tools.registry import ToolRegistry
 class TestTools(unittest.TestCase):
   def test_toolset(self):
     with tempfile.TemporaryDirectory() as d:
@@ -14,6 +16,7 @@ class TestTools(unittest.TestCase):
       self.assertTrue(ReadFileTool(s).execute({'path':'a.py'}).success)
       self.assertIn('a.py',ListFilesTool(s).execute({'path':'.'}).content)
       self.assertIn('a.py',GrepTool(s).execute({'keyword':'x=1'}).content)
+      self.assertIn('a.py',GrepSearchTool(s).execute({'keyword':'x=1'}).content)
       obs=ApplyPatchTool(s).execute({'path':'a.py','old':'return a - b','new':'return a + b'})
       self.assertTrue(obs.success)
       self.assertEqual((Path(d)/'a.py').read_text().count('return a + b'),1)
@@ -28,3 +31,12 @@ class TestTools(unittest.TestCase):
       tool=RunCommandTool(s)
       obs=tool.execute({'command':'python -m unittest discover ../../etc'})
       self.assertFalse(obs.success)
+
+  def test_registry_validates_arguments(self):
+    with tempfile.TemporaryDirectory() as d:
+      s=WorkspaceSandbox(d)
+      r=ToolRegistry()
+      r.register(ReadFileTool(s))
+      obs=r.execute('read_file',{})
+      self.assertFalse(obs.success)
+      self.assertIn('invalid arguments',obs.content)

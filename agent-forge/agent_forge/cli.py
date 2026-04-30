@@ -9,7 +9,7 @@ from .tools.registry import ToolRegistry
 from .tools.list_files import ListFilesTool
 from .tools.read_file import ReadFileTool
 from .tools.write_file import WriteFileTool
-from .tools.grep import GrepTool
+from .tools.grep import GrepSearchTool, GrepTool
 from .tools.apply_patch import ApplyPatchTool
 from .tools.run_command import RunCommandTool
 from .tools.git_status import GitStatusTool
@@ -27,7 +27,7 @@ def reset_demo_repo(workspace: str):
 def build_registry(workspace: str, auto: bool):
     sandbox = WorkspaceSandbox(workspace)
     r = ToolRegistry()
-    for t in [ListFilesTool(sandbox), ReadFileTool(sandbox), WriteFileTool(sandbox,auto), GrepTool(sandbox), ApplyPatchTool(sandbox,auto), RunCommandTool(sandbox,auto), GitStatusTool(sandbox), GitDiffTool(sandbox), AskHumanTool(auto)]:
+    for t in [ListFilesTool(sandbox), ReadFileTool(sandbox), WriteFileTool(sandbox,auto), GrepTool(sandbox), GrepSearchTool(sandbox), ApplyPatchTool(sandbox,auto), RunCommandTool(sandbox,auto), GitStatusTool(sandbox), GitDiffTool(sandbox), AskHumanTool(auto)]:
         r.register(t)
     return r
 
