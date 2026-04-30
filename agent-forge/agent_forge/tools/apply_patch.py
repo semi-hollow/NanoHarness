@@ -6,7 +6,7 @@ from .base import Tool
 class ApplyPatchTool(Tool):
     name="apply_patch"; description="replace once"
     def __init__(self, sandbox, auto_approve_writes=True): self.sandbox=sandbox; self.policy=PermissionPolicy(auto_approve_writes); self.auto=auto_approve_writes
-    def schema(self): return {"name":self.name,"arguments":{"path":"str","old":"str","new":"str"}}
+    def schema(self): return {"name":self.name,"description":self.description,"arguments":{"path":"str","old":"str","new":"str"}}
     def execute(self, arguments):
         d,r=self.policy.decide("apply_patch")
         if d==PermissionDecision.DENY: return Observation(self.name,False,r)

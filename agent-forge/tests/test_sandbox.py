@@ -9,3 +9,13 @@ class TestSandbox(unittest.TestCase):
             with self.assertRaises(PermissionError): s.ensure_safe_path('../x')
             with self.assertRaises(PermissionError): s.ensure_safe_path('.env')
             with self.assertRaises(PermissionError): s.ensure_safe_path('k.pem')
+
+    def test_prefix_bypass_rejected(self):
+        with tempfile.TemporaryDirectory() as d:
+            root=Path(d)/'work'
+            root.mkdir()
+            evil=Path(d)/'work_evil'
+            evil.mkdir()
+            s=WorkspaceSandbox(root)
+            with self.assertRaises(PermissionError):
+                s.ensure_safe_path(evil/'x.txt')

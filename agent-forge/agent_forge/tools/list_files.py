@@ -4,7 +4,7 @@ IGNORE={'.git','__pycache__','node_modules','target','dist','build'}
 class ListFilesTool(Tool):
     name='list_files'; description='list files'
     def __init__(self,sandbox): self.sandbox=sandbox
-    def schema(self): return {"name":self.name,"arguments":{"path":"str"}}
+    def schema(self): return {"name":self.name,"description":self.description,"arguments":{"path":"str"},"required":[]}
     def execute(self,arguments):
         root=self.sandbox.ensure_safe_path(arguments.get('path','.'))
         res=[]

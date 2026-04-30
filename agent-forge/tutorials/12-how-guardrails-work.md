@@ -1,18 +1,25 @@
 # 12-how-guardrails-work
 
 ## 1. 这篇解决什么问题
-解释该模块在 Agent 工程中的必要性。
+解释 guardrails 和 permission 的区别。
+
 ## 2. 先给结论
-先给工程结论，再看代码细节。
+Permission 控制动作能不能执行；Guardrail 检查输入、工具调用和最终输出是否安全可信。
+
 ## 3. 最小概念
-只保留面试和实现需要的最小术语。
+本项目有 input/tool/output 三类 guardrail，每个结果有 category、reason、severity。
+
 ## 4. 对应代码在哪里
-指向 agent_forge/ 下对应模块。
+`agent_forge/safety/guardrails.py`。
+
 ## 5. 运行一下看效果
-给出 1-2 条命令和预期输出。
+`python3.11 -m unittest tests.test_guardrails`。
+
 ## 6. 常见坑
-给出真实 failure mode 和排查方式。
+输出也要 guardrail：不能没跑测试却说“测试通过”。
+
 ## 7. 面试怎么说
-用第一人称说明 trade-off、风险与验证。
+我用多层防线处理 Agent 风险，而不是只写一句 system prompt。
+
 ## 8. 下一步学什么
-给出可演进方向（真实模型、向量检索、审批系统等）。
+读 `13-how-tracing-works.md`。
