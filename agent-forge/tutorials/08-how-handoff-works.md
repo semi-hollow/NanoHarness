@@ -1,18 +1,25 @@
 # 08-how-handoff-works
 
 ## 1. 这篇解决什么问题
-解释该模块在 Agent 工程中的必要性。
+解释 handoff 和 tool call 的区别。
+
 ## 2. 先给结论
-先给工程结论，再看代码细节。
+Tool call 是执行动作；handoff 是角色之间的责任交接。
+
 ## 3. 最小概念
-只保留面试和实现需要的最小术语。
+Handoff 包含 `from_agent`、`to_agent`、`reason`、`payload`。
+
 ## 4. 对应代码在哪里
-指向 agent_forge/ 下对应模块。
+`agent_forge/agents/handoff.py` 和 `supervisor_agent.py` 的 `_handoff()`。
+
 ## 5. 运行一下看效果
-给出 1-2 条命令和预期输出。
+multi demo 的 trace 里有 `event_type=handoff`，payload 包含 phase、task、files、test_result。
+
 ## 6. 常见坑
-给出真实 failure mode 和排查方式。
+payload 太薄会让下游 agent 缺上下文；payload 太大又会制造噪音。
+
 ## 7. 面试怎么说
-用第一人称说明 trade-off、风险与验证。
+我把 handoff 做成 traceable event，这样能排查责任交接和失败位置。
+
 ## 8. 下一步学什么
-给出可演进方向（真实模型、向量检索、审批系统等）。
+读 `09-how-context-builder-works.md`。

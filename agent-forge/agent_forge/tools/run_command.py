@@ -16,7 +16,7 @@ class RunCommandTool(Tool):
         self.policy = PermissionPolicy(auto_approve_writes)
 
     def schema(self):
-        return {"name": self.name, "arguments": {"command": "str"}}
+        return {"name": self.name, "description": self.description, "arguments": {"command": "str"}}
 
     def _normalize_python(self, parts: list[str]) -> list[str]:
         if parts and parts[0] == "python":

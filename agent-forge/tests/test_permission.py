@@ -7,7 +7,10 @@ class TestPermission(unittest.TestCase):
         self.assertFalse(check_command('rm -rf /')[0])
         self.assertFalse(check_command('git push')[0])
         self.assertFalse(check_command('curl http://a')[0])
+        self.assertFalse(check_command('sudo ls')[0])
+        self.assertFalse(check_command('shutdown now')[0])
         self.assertTrue(check_command('python -m unittest discover')[0])
+        self.assertTrue(check_command('python3.11 -m unittest discover')[0])
     def test_write_ask(self):
         d,_=PermissionPolicy().decide('write')
         self.assertEqual(d,PermissionDecision.ASK)

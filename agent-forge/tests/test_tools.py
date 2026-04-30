@@ -8,6 +8,10 @@ from agent_forge.tools.grep import GrepSearchTool
 from agent_forge.tools.apply_patch import ApplyPatchTool
 from agent_forge.tools.run_command import RunCommandTool
 from agent_forge.tools.registry import ToolRegistry
+from agent_forge.tools.write_file import WriteFileTool
+from agent_forge.tools.ask_human import AskHumanTool
+from agent_forge.tools.git_status import GitStatusTool
+from agent_forge.tools.git_diff import GitDiffTool
 class TestTools(unittest.TestCase):
   def test_toolset(self):
     with tempfile.TemporaryDirectory() as d:
@@ -23,6 +27,14 @@ class TestTools(unittest.TestCase):
       self.assertFalse(ApplyPatchTool(s).execute({'path':'a.py','old':'nope','new':'x'}).success)
       self.assertTrue(RunCommandTool(s).execute({'command':'python3.11 -m unittest'}).success)
       self.assertFalse(RunCommandTool(s).execute({'command':'rm -rf /tmp/x'}).success)
+      for tool in [ReadFileTool(s), ListFilesTool(s), GrepTool(s), GrepSearchTool(s), ApplyPatchTool(s), RunCommandTool(s), WriteFileTool(s), AskHumanTool(), GitStatusTool(s), GitDiffTool(s)]:
+        schema=tool.schema()
+        self.assertIn('name',schema)
+        self.assertIn('description',schema)
+        self.assertIn('arguments',schema)
+      self.assertIn('git', GitStatusTool(s).execute({}).content.lower())
+      self.assertTrue(AskHumanTool(auto=True).execute({'question':'ok?'}).success)
+      self.assertFalse(AskHumanTool(auto=False).execute({'question':'ok?'}).success)
 
 
   def test_unittest_discover_path_sandbox(self):

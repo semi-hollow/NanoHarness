@@ -6,7 +6,7 @@ from agent_forge.runtime.stop_condition import check_stop
 from agent_forge.context.context_builder import build_context_report
 from agent_forge.context.memory import Memory
 from agent_forge.context.repo_map import build_repo_map
-from agent_forge.safety.guardrails import input_guardrail, output_guardrail
+from agent_forge.safety.guardrails import input_guardrail, output_guardrail, tool_guardrail
 from agent_forge.safety.permission import PermissionPolicy, PermissionDecision
 
 
@@ -17,7 +17,7 @@ class AgentLoop:
     def run(self, task, agent_name="CodingAgent"):
         self.trace.set_run_context(task=task)
         g=input_guardrail(task)
-        self.trace.add(0,agent_name,"guardrail_check",guardrail={"passed":g.passed,"reason":g.reason})
+        self.trace.add(0,agent_name,"guardrail_check",guardrail={"category":g.category,"passed":g.passed,"reason":g.reason,"severity":g.severity})
         if not g.passed:
             self.trace.set_run_context(stop_reason="input_guardrail_block", final_answer=f"blocked: {g.reason}")
             return f"blocked: {g.reason}"
@@ -28,11 +28,15 @@ class AgentLoop:
         for step in range(1,self.config.max_steps+1):
             state.iteration=step
             repo_map=build_repo_map(self.config.workspace)
-            context_report=build_context_report(task,repo_map,Memory(),docs=repo_map.splitlines(),root=self.config.workspace)
+            context_report=build_context_report(task,repo_map,Memory(),docs=repo_map.splitlines(),root=self.config.workspace,tools=self.registry.schemas())
             self.trace.add(step,agent_name,"context_assembly",context={
                 "selected_files": context_report.selected_files,
+                "retrieved_docs_count": len(context_report.retrieved_docs),
                 "total_chars": context_report.total_chars,
+                "max_chars": context_report.max_chars,
                 "truncated": context_report.truncated,
+                "available_tools": context_report.available_tools,
+                "permission_summary": context_report.permission_summary,
             })
             plan=self.planner.plan(task,step,context_report)
             self.trace.add(step,agent_name,"plan",plan={
@@ -40,25 +44,28 @@ class AgentLoop:
                 "reasoning_summary": plan.reasoning_summary,
                 "next_action": plan.next_action,
             })
-            resp=self.llm.chat(messages,self.registry.schemas())
+            schemas=self.registry.schemas()
+            resp=self.llm.chat(messages,schemas)
             if resp.error:
                 self.trace.add(step,agent_name,"error",success=False,error=str(resp.error))
                 state.status="failed"; state.stop_reason="invalid_llm_response"
                 self.trace.set_run_context(stop_reason=state.stop_reason, final_answer=str(resp.error))
                 return f"blocked: invalid llm response: {resp.error}"
-            self.trace.add(step,agent_name,"llm_call",llm_response_summary=resp.content or "tool_calls")
+            self.trace.add(step,agent_name,"llm_call",llm_request_summary=f"messages={len(messages)} tools={len(schemas)}",llm_response_summary=resp.content or "tool_calls")
             if not resp.tool_calls:
                 final=(resp.content or "")+"\n未验证点: 未进行真实线上压测。"
                 og=output_guardrail(final,ran_tests,blocked)
-                self.trace.add(step,agent_name,"guardrail_check",guardrail={"passed":og.passed,"reason":og.reason})
+                self.trace.add(step,agent_name,"guardrail_check",guardrail={"category":og.category,"passed":og.passed,"reason":og.reason,"severity":og.severity})
                 self.trace.add(step,agent_name,"final_answer",observation=final)
                 state.status="completed"; state.final_answer=final; state.stop_reason="final_answer"
                 self.trace.set_run_context(stop_reason=state.stop_reason, final_answer=final)
                 return final
             for tc in resp.tool_calls:
                 key=(tc.name,str(tc.arguments))
-                if key in tool_history[-3:]:
-                    self.trace.add(step,agent_name,"error",success=False,error="repeated tool call")
+                tg=tool_guardrail(tc.name,tc.arguments,exists=self.registry.get(tc.name) is not None,repeated=key in tool_history[-3:])
+                self.trace.add(step,agent_name,"guardrail_check",guardrail={"category":tg.category,"passed":tg.passed,"reason":tg.reason,"severity":tg.severity})
+                if not tg.passed and key in tool_history[-3:]:
+                    self.trace.add(step,agent_name,"error",success=False,error=tg.reason)
                     self.trace.set_run_context(stop_reason="repeated_tool_call", final_answer="blocked: repeated tool call")
                     return "blocked: repeated tool call"
                 tool_history.append(key)

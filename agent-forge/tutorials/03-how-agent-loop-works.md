@@ -1,28 +1,25 @@
 # 03-how-agent-loop-works
 
 ## 1. 这篇解决什么问题
-解释 Agent Loop 如何让模型和工具形成闭环，而不是一次性回答。
+解释 Agent Forge 如何从任务走到最终答案。
 
 ## 2. 先给结论
-核心不是“模型更聪明”，而是“每一步可执行、可观测、可回退”。
+AgentLoop 每轮做 context assembly、plan summary、llm call、tool action、observation，然后决定继续或停止。
 
 ## 3. 最小概念
-- Message：用户/assistant/tool 消息。  
-- ToolCall：结构化工具调用。  
-- Observation：工具执行回传。  
-- Guardrail：输入输出保护。
+ReAct 在工程里不是暴露长 chain-of-thought，而是记录结构化 `plan -> action -> observation`。
 
 ## 4. 对应代码在哪里
-`agent_forge/runtime/agent_loop.py`、`agent_forge/runtime/llm_client.py`。
+`agent_forge/runtime/agent_loop.py`、`planner.py`、`state.py`、`stop_condition.py`。
 
 ## 5. 运行一下看效果
-`python run_demo.py --mode single`，你会看到第一次 patch 失败，再次 patch 成功。
+运行 single demo 后看 `agent_forge_trace.json`，确认有 `context_assembly`、`plan`、`action`、`observation`。
 
 ## 6. 常见坑
-只写固定脚本、不读取 observation 就无法做失败恢复。
+没有 max_steps 和 repeated tool call 检测，Agent 可能进入 doom loop。
 
 ## 7. 面试怎么说
-我重点展示“failure recovery”：第一次 patch 失败，第二次修正，最后测试通过。
+我把 Agent 设计成受控执行循环，而不是一次性问答；每一步都有 trace 证据。
 
 ## 8. 下一步学什么
-接真实模型时做 tool-call JSON 容错和重试策略。
+读 `04-how-tool-calling-works.md`。

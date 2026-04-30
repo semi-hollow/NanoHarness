@@ -1,18 +1,25 @@
 # 10-how-memory-and-rag-work
 
 ## 1. 这篇解决什么问题
-解释该模块在 Agent 工程中的必要性。
+解释项目里的 memory 和简化 RAG。
+
 ## 2. 先给结论
-先给工程结论，再看代码细节。
+Memory 记录最近信息和观察，RAG 用关键词召回相关文档；二者都保持轻量。
+
 ## 3. 最小概念
-只保留面试和实现需要的最小术语。
+Memory 是会话状态，RAG 是从候选文档中找相关片段。
+
 ## 4. 对应代码在哪里
-指向 agent_forge/ 下对应模块。
+`agent_forge/context/memory.py` 和 `rag.py`。
+
 ## 5. 运行一下看效果
-给出 1-2 条命令和预期输出。
+`python3.11 -m unittest tests.test_context`。
+
 ## 6. 常见坑
-给出真实 failure mode 和排查方式。
+长期记忆会带来隐私、污染和过期信息风险；第一版先做 bounded memory。
+
 ## 7. 面试怎么说
-用第一人称说明 trade-off、风险与验证。
+我没有引入向量库，是为了先讲清 retrieval 思想和 context budget。
+
 ## 8. 下一步学什么
-给出可演进方向（真实模型、向量检索、审批系统等）。
+读 `11-how-permission-sandbox-works.md`。
