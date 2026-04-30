@@ -1,18 +1,25 @@
 # 09-how-context-builder-works
 
 ## 1. 这篇解决什么问题
-解释该模块在 Agent 工程中的必要性。
+解释 Agent 每轮到底“看见”了什么。
+
 ## 2. 先给结论
-先给工程结论，再看代码细节。
+ContextBuilder 输出 system prompt、task、repo map、retrieved docs、memory、tools、permission summary 和 budget report。
+
 ## 3. 最小概念
-只保留面试和实现需要的最小术语。
+上下文不是越多越好；要选择、排序、截断并记录。
+
 ## 4. 对应代码在哪里
-指向 agent_forge/ 下对应模块。
+`agent_forge/context/context_builder.py`、`file_ranker.py`、`symbol_search.py`。
+
 ## 5. 运行一下看效果
-给出 1-2 条命令和预期输出。
+single demo trace 的 `context_assembly` 会记录 selected_files、total_chars、truncated。
+
 ## 6. 常见坑
-给出真实 failure mode 和排查方式。
+把整个 repo 塞进 prompt 会增加成本和噪音，也可能截断关键文件。
+
 ## 7. 面试怎么说
-用第一人称说明 trade-off、风险与验证。
+我用 budget report 证明 context 是被管理的，而不是无脑拼接。
+
 ## 8. 下一步学什么
-给出可演进方向（真实模型、向量检索、审批系统等）。
+读 `10-how-memory-and-rag-work.md`。

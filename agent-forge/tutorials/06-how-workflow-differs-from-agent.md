@@ -1,18 +1,25 @@
 # 06-how-workflow-differs-from-agent
 
 ## 1. 这篇解决什么问题
-解释该模块在 Agent 工程中的必要性。
+解释 workflow 和 agent mode 的区别。
+
 ## 2. 先给结论
-先给工程结论，再看代码细节。
+Workflow 是固定路径，Agent 是动态决策；生产系统常常混用。
+
 ## 3. 最小概念
-只保留面试和实现需要的最小术语。
+固定任务适合 workflow，开放问题适合 agent loop。
+
 ## 4. 对应代码在哪里
-指向 agent_forge/ 下对应模块。
+`agent_forge/workflows/coding_workflow.py` 和 `agent_forge/runtime/agent_loop.py`。
+
 ## 5. 运行一下看效果
-给出 1-2 条命令和预期输出。
+`python3.11 run_demo.py --mode workflow` 对比 `--mode single`。
+
 ## 6. 常见坑
-给出真实 failure mode 和排查方式。
+不要为了“多 agent”把简单流程复杂化；稳定路径应优先 workflow。
+
 ## 7. 面试怎么说
-用第一人称说明 trade-off、风险与验证。
+我保留两种模式，是为了说明确定性和灵活性的 trade-off。
+
 ## 8. 下一步学什么
-给出可演进方向（真实模型、向量检索、审批系统等）。
+读 `07-how-supervisor-subagent-works.md`。

@@ -17,9 +17,9 @@
 - 多 Agent：`agent_forge/agents/supervisor_agent.py`
 
 ## 5. 运行一下看效果
-- `python run_demo.py --mode single`
-- `python run_demo.py --mode multi`
-- `python -m agent_forge.eval.eval_runner`
+- `python3.11 run_demo.py --mode single`
+- `python3.11 run_demo.py --mode multi`
+- `python3.11 -m agent_forge.eval.eval_runner`
 
 ## 6. 常见坑
 - 一上来背功能列表，听起来像 README 朗读。
@@ -36,6 +36,18 @@ English template:
 - “I built a compact agent harness to answer one question: how to make tool execution safe, observable, and evaluable.”
 - “My hardest trade-off was between autonomy and control, so I implemented allow/ask/deny plus structured traces.”
 - “I validated with deterministic demos and eval cases; then I listed production gaps explicitly.”
+
+不同面试官视角：
+
+- 技术面：多讲 tool schema、sandbox、trace event、eval metrics。
+- 主管面：多讲问题拆分、风险控制、验证闭环和下一步 rollout。
+- HR/综合面：多讲学习动机、ownership、诚实边界和复盘能力。
+
+主动白板入口：
+
+> Let me draw the architecture to make sure we are aligned.
+
+画完后只强调两个关键决策：第一，工具执行不信任模型输出；第二，所有结果要能从 trace/eval 找到证据。
 
 ## 8. 下一步学什么
 把该模板映射到 `docs/15-project-deep-dive-playbook.md` 与 `docs/16-four-layer-followups.md`。

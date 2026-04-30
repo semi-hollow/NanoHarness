@@ -1,18 +1,25 @@
 # 04-how-tool-calling-works
 
 ## 1. 这篇解决什么问题
-解释该模块在 Agent 工程中的必要性。
+解释模型返回工具调用后，系统如何安全执行。
+
 ## 2. 先给结论
-先给工程结论，再看代码细节。
+LLM 只提出 tool call；真正是否执行由 ToolRegistry、参数校验、permission 和 sandbox 决定。
+
 ## 3. 最小概念
-只保留面试和实现需要的最小术语。
+Tool schema 是模型和 runtime 的契约；Observation 是工具执行后的统一反馈。
+
 ## 4. 对应代码在哪里
-指向 agent_forge/ 下对应模块。
+`agent_forge/tools/registry.py`、`tools/base.py`、各个 `tools/*.py`。
+
 ## 5. 运行一下看效果
-给出 1-2 条命令和预期输出。
+`python3.11 -m unittest tests.test_tools`。
+
 ## 6. 常见坑
-给出真实 failure mode 和排查方式。
+unknown tool 和 invalid arguments 不能让程序崩溃，应该返回失败 Observation。
+
 ## 7. 面试怎么说
-用第一人称说明 trade-off、风险与验证。
+我没有信任模型输出，而是在 runtime 层做 schema 和权限兜底。
+
 ## 8. 下一步学什么
-给出可演进方向（真实模型、向量检索、审批系统等）。
+读 `05-how-observation-works.md`。

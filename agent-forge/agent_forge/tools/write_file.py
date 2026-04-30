@@ -5,7 +5,7 @@ from .base import Tool
 class WriteFileTool(Tool):
     name="write_file"; description="write file"
     def __init__(self, sandbox, auto_approve_writes=True): self.sandbox=sandbox; self.policy=PermissionPolicy(auto_approve_writes); self.auto=auto_approve_writes
-    def schema(self): return {"name":self.name,"arguments":{"path":"str","content":"str"}}
+    def schema(self): return {"name":self.name,"description":self.description,"arguments":{"path":"str","content":"str"}}
     def execute(self, arguments):
         d,r=self.policy.decide("write")
         if d==PermissionDecision.DENY: return Observation(self.name,False,r)

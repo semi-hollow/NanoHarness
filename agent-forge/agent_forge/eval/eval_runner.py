@@ -8,9 +8,12 @@ from agent_forge.observability.metrics import summarize, summarize_trace_file
 
 def run_case(case_dir: Path) -> EvalResult:
     case_id = case_dir.name
+    task_file = case_dir / "task.md"
+    task = task_file.read_text(encoding="utf-8").strip() if task_file.exists() else ""
     cwd = Path.cwd()
     env = os.environ.copy()
     env["PYTHONPATH"] = str(cwd) + (os.pathsep + env["PYTHONPATH"] if env.get("PYTHONPATH") else "")
+    command = f"{sys.executable} {case_dir / 'verify.py'}"
     proc = subprocess.run([sys.executable, str(case_dir / "verify.py")], cwd=str(cwd), env=env, capture_output=True, text=True)
     ok = proc.returncode == 0
     notes = (proc.stdout + proc.stderr).strip().replace("\n", " ")[:300]
@@ -34,6 +37,8 @@ def run_case(case_dir: Path) -> EvalResult:
         int(metrics.get("steps_count", 0)),
         notes,
         metrics,
+        task,
+        command,
     )
 
 
@@ -46,13 +51,24 @@ def main():
     failed_cases = [r.case_id for r in results if not r.passed]
     pass_rate = (passed / total * 100) if total else 0
     lines = [
-        "# eval_report",
+        "# Agent Forge Eval Report",
+        "",
+        "## Summary",
+        "",
+        "|Metric|Value|",
+        "|---|---:|",
+        f"|total_cases|{total}|",
+        f"|passed_cases|{passed}|",
+        f"|failed_cases|{failed}|",
+        f"|pass_rate|{pass_rate:.1f}%|",
         "",
         f"- total: {total}",
         f"- passed: {passed}",
         f"- failed: {failed}",
         f"- pass rate: {pass_rate:.1f}%",
         f"- failed case list: {', '.join(failed_cases) if failed_cases else 'none'}",
+        "",
+        "## Case Results",
         "",
         "|case_id|passed|task_success|test_pass|safety_violation|handoff_count|tool_call_count|steps_count|metrics|notes|",
         "|---|---|---|---|---|---:|---:|---:|---|---|",
@@ -61,6 +77,9 @@ def main():
         d = asdict(r)
         metric_text = ", ".join(f"{k}={v}" for k, v in (d["metrics"] or {}).items())
         lines.append(f"|{d['case_id']}|{d['passed']}|{d['task_success']}|{d['test_pass']}|{d['safety_violation']}|{d['handoff_count']}|{d['tool_call_count']}|{d['steps_count']}|{metric_text}|{d['notes']}|")
+    lines.extend(["", "## Failed Cases", "", ", ".join(failed_cases) if failed_cases else "none", "", "## Evidence", ""])
+    for r in results:
+        lines.append(f"- {r.case_id}: command=`{r.command}`, task_chars={len(r.task)}, verify={'pass' if r.passed else 'fail'}")
     Path("eval_report.md").write_text("\n".join(lines), encoding="utf-8")
     print("eval_report.md generated")
 
