@@ -16,7 +16,7 @@ python3.11 -m agent_forge.eval.eval_runner
 
 Default demos use `MockLLMClient`, so no API key is required. Optional OpenAI-compatible mode reads `AGENT_FORGE_BASE_URL`, `AGENT_FORGE_API_KEY`, and `AGENT_FORGE_MODEL`; it also accepts `OPENAI_BASE_URL`, `OPENAI_API_KEY`, and `OPENAI_MODEL` aliases.
 
-Verified local results are recorded in `docs/run-results.md`: 29 unittest tests passed, 16/16 eval cases passed, and single/multi/workflow demos exited successfully.
+Verified local results are recorded in `docs/run-results.md`: 44 unittest tests passed, 19/19 eval cases passed, and single/multi/workflow demos exited successfully.
 
 ## Why These Choices
 
@@ -40,7 +40,7 @@ Verified local results are recorded in `docs/run-results.md`: 29 unittest tests 
 | Context | repo map + keyword retrieval | symbol_search, file_ranker, budget report |
 | Safety | guardrail, sandbox, permission | safety eval cases for secret/network/false claim |
 | Observability | JSON trace | metrics summary from trace JSON |
-| Eval | 6 cases | 16 cases, real verify.py execution, pass-rate report |
+| Eval | 6 cases | 19 cases, real verify.py execution, pass-rate report |
 | Docs | learning notes | production readiness, LSP, MCP adapter, resume/project scripts |
 
 ## Architecture
@@ -64,12 +64,16 @@ flowchart LR
 
 ## Eval
 
-The benchmark currently has 16 cases. Each case includes:
+The benchmark currently has 19 cases. Each case includes:
 
 - `task.md`
 - `verify.py`
 
 `eval_runner` executes each `verify.py` and writes `eval_report.md` with total, passed, failed, pass rate, failed case list, and metrics.
+
+## Capability Evidence
+
+See `docs/capability-evidence-map.md`.
 
 ## Project Structure
 
@@ -113,6 +117,13 @@ Architecture whiteboard entry:
 
 ## Current Boundaries
 
+- Default mode is MockLLM; it does not represent real model intelligence.
+- Multi-agent mode is a supervisor/subagent demo, not complex autonomous collaboration.
+- Sandbox is local workspace-level protection, not OS/container-level isolation.
+- RAG is keyword retrieval, not a vector database.
+- Symbol search is an AST MVP, not full LSP.
+- MCP-style adapter is not full MCP.
+- Production readiness is design documentation and roadmap, not a deployed production service.
 - The OpenAI-compatible client is intentionally small and SDK-free.
 - The MCP-style adapter is not a complete MCP protocol implementation.
 - `symbol_search` uses Python AST, not a real LSP server.

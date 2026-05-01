@@ -8,9 +8,9 @@ I built Agent Forge, a lightweight coding-agent harness that makes the core loop
 
 普通 chatbot 只能回答问题，但 coding agent 要真正修改代码，就需要上下文、工具、权限和反馈闭环。我做 Agent Forge 的目标，是把这个 control layer 拆成可以运行、可以测试、可以讲清楚的模块。
 
-架构上，用户任务先经过 input guardrail，然后做 context assembly：repo map、memory、retrieval、symbol search、file ranking 和 budget report。Agent loop 每轮记录 plan summary，再调用 MockLLM 或 OpenAI-compatible LLM。如果 LLM 返回 tool call，系统会先做 permission check，再通过 ToolRegistry 执行工具。工具执行受 workspace sandbox 和 command policy 限制，结果统一变成 Observation 回到 loop。最后 trace JSON 和 summary.md 记录完整过程，eval runner 用 16 个 case 做回归。
+架构上，用户任务先经过 input guardrail，然后做 context assembly：repo map、memory、retrieval、symbol search、file ranking 和 budget report。Agent loop 每轮记录 plan summary，再调用 MockLLM 或 OpenAI-compatible LLM。如果 LLM 返回 tool call，系统会先做 permission check，再通过 ToolRegistry 执行工具。工具执行受 workspace sandbox 和 command policy 限制，结果统一变成 Observation 回到 loop。最后 trace JSON 和 summary.md 记录完整过程，eval runner 用 19 个 case 做回归。
 
-我重点处理了几个 agent 常见问题：tool hallucination 用 unknown tool Observation 恢复；invalid arguments 用 registry 校验；context overflow 用 budget report 和 file ranker；无限循环用 max iteration、repeated tool call 和 failed tool stop condition；安全风险用 sandbox、permission 和 guardrail。项目结果不是线上业务指标，而是可复现证据：demo 三模式可跑，unittest 通过，eval 16/16 通过，trace 和 metrics 可审计。
+我重点处理了几个 agent 常见问题：tool hallucination 用 unknown tool Observation 恢复；invalid arguments 用 registry 校验；context overflow 用 budget report 和 file ranker；无限循环用 max iteration、repeated tool call 和 failed tool stop condition；安全风险用 sandbox、permission 和 guardrail。项目结果不是线上业务指标，而是可复现证据：demo 三模式可跑，unittest 通过，eval 19/19 通过，trace 和 metrics 可审计。
 
 ## Hardest Problems
 
