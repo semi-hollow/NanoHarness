@@ -136,7 +136,7 @@
 
 ## Eval
 
-- Layer 1：16 个 case，每个 task.md + verify.py，runner 真实执行。
+- Layer 1：19 个 case，每个 task.md + verify.py，runner 真实执行。
 - Layer 2：demo 证明能演示，eval 证明能回归。
 - Layer 3：早期指标容易硬编码，所以现在从 verify 和 trace 生成。
 - Layer 4：考虑大规模 benchmark，当前先做 smoke/regression。

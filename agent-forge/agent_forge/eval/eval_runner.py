@@ -1,9 +1,24 @@
 from dataclasses import asdict
 from pathlib import Path
+import json
 import os
 import subprocess, sys
 from .eval_case import EvalResult
 from agent_forge.observability.metrics import summarize, summarize_trace_file
+
+
+def parse_verify_json(stdout: str) -> dict:
+    for line in reversed(stdout.splitlines()):
+        text = line.strip()
+        if not (text.startswith("{") and text.endswith("}")):
+            continue
+        try:
+            data = json.loads(text)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(data, dict):
+            return data
+    return {}
 
 
 def run_case(case_dir: Path) -> EvalResult:
@@ -16,7 +31,9 @@ def run_case(case_dir: Path) -> EvalResult:
     command = f"{sys.executable} {case_dir / 'verify.py'}"
     proc = subprocess.run([sys.executable, str(case_dir / "verify.py")], cwd=str(cwd), env=env, capture_output=True, text=True)
     ok = proc.returncode == 0
-    notes = (proc.stdout + proc.stderr).strip().replace("\n", " ")[:300]
+    verify_data = parse_verify_json(proc.stdout)
+    raw_notes = verify_data.get("notes") or (proc.stdout + proc.stderr)
+    notes = str(raw_notes).strip().replace("\n", " ")[:300]
     trace_file = case_dir / "trace.json"
     if trace_file.exists():
         metrics = summarize_trace_file(trace_file)
@@ -26,15 +43,24 @@ def run_case(case_dir: Path) -> EvalResult:
             summary_file.unlink()
     else:
         metrics = summarize([])
+    task_success = bool(verify_data.get("task_success", ok))
+    test_pass = bool(verify_data.get("test_pass", ok))
+    safety_violation = bool(verify_data.get("safety_violation", False if ok else True))
+    passed = ok and task_success and test_pass and not safety_violation
+
     return EvalResult(
         case_id,
-        ok,
-        ok,
-        ok,
-        not ok,
+        passed,
+        task_success,
+        test_pass,
+        safety_violation,
         int(metrics.get("handoff_count", 0)),
         int(metrics.get("tool_call_count", 0)),
-        int(metrics.get("steps_count", 0)),
+        int(metrics.get("agent_steps_count", 0)),
+        int(metrics.get("trace_event_count", 0)),
+        int(metrics.get("permission_denied_count", 0)),
+        int(metrics.get("guardrail_block_count", 0)),
+        int(metrics.get("failed_tool_call_count", 0)),
         notes,
         metrics,
         task,
@@ -70,13 +96,12 @@ def main():
         "",
         "## Case Results",
         "",
-        "|case_id|passed|task_success|test_pass|safety_violation|handoff_count|tool_call_count|steps_count|metrics|notes|",
-        "|---|---|---|---|---|---:|---:|---:|---|---|",
+        "|case_id|passed|task_success|test_pass|safety_violation|handoff_count|tool_call_count|agent_steps_count|trace_event_count|permission_denied_count|guardrail_block_count|failed_tool_call_count|notes|",
+        "|---|---|---|---|---|---:|---:|---:|---:|---:|---:|---:|---|",
     ]
     for r in results:
         d = asdict(r)
-        metric_text = ", ".join(f"{k}={v}" for k, v in (d["metrics"] or {}).items())
-        lines.append(f"|{d['case_id']}|{d['passed']}|{d['task_success']}|{d['test_pass']}|{d['safety_violation']}|{d['handoff_count']}|{d['tool_call_count']}|{d['steps_count']}|{metric_text}|{d['notes']}|")
+        lines.append(f"|{d['case_id']}|{d['passed']}|{d['task_success']}|{d['test_pass']}|{d['safety_violation']}|{d['handoff_count']}|{d['tool_call_count']}|{d['agent_steps_count']}|{d['trace_event_count']}|{d['permission_denied_count']}|{d['guardrail_block_count']}|{d['failed_tool_call_count']}|{d['notes']}|")
     lines.extend(["", "## Failed Cases", "", ", ".join(failed_cases) if failed_cases else "none", "", "## Evidence", ""])
     for r in results:
         lines.append(f"- {r.case_id}: command=`{r.command}`, task_chars={len(r.task)}, verify={'pass' if r.passed else 'fail'}")

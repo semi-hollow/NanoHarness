@@ -24,14 +24,18 @@ class AgentLoop:
         messages=[Message("user",task)]
         state=AgentState(task=task,workspace_root=self.config.workspace,max_iterations=self.config.max_steps,messages=messages)
         policy=PermissionPolicy(self.config.auto_approve_writes)
+        memory=Memory()
+        memory.set("task", task)
         tool_history=[]; ran_tests=False; blocked=False; consecutive_failures=0
         for step in range(1,self.config.max_steps+1):
             state.iteration=step
             repo_map=build_repo_map(self.config.workspace)
-            context_report=build_context_report(task,repo_map,Memory(),docs=repo_map.splitlines(),root=self.config.workspace,tools=self.registry.schemas())
+            schemas=self.registry.schemas()
+            context_report=build_context_report(task,repo_map,memory,docs=repo_map.splitlines(),root=self.config.workspace,tools=schemas)
             self.trace.add(step,agent_name,"context_assembly",context={
                 "selected_files": context_report.selected_files,
                 "retrieved_docs_count": len(context_report.retrieved_docs),
+                "memory_summary": context_report.memory_summary,
                 "total_chars": context_report.total_chars,
                 "max_chars": context_report.max_chars,
                 "truncated": context_report.truncated,
@@ -44,14 +48,15 @@ class AgentLoop:
                 "reasoning_summary": plan.reasoning_summary,
                 "next_action": plan.next_action,
             })
-            schemas=self.registry.schemas()
-            resp=self.llm.chat(messages,schemas)
+            context_message=Message("system",context_report.render())
+            messages_for_llm=[context_message]+messages
+            resp=self.llm.chat(messages_for_llm,schemas)
             if resp.error:
                 self.trace.add(step,agent_name,"error",success=False,error=str(resp.error))
                 state.status="failed"; state.stop_reason="invalid_llm_response"
                 self.trace.set_run_context(stop_reason=state.stop_reason, final_answer=str(resp.error))
                 return f"blocked: invalid llm response: {resp.error}"
-            self.trace.add(step,agent_name,"llm_call",llm_request_summary=f"messages={len(messages)} tools={len(schemas)}",llm_response_summary=resp.content or "tool_calls")
+            self.trace.add(step,agent_name,"llm_call",llm_request_summary=f"messages={len(messages_for_llm)} tools={len(schemas)} context_chars={len(context_message.content)}",llm_response_summary=resp.content or "tool_calls")
             if not resp.tool_calls:
                 final=(resp.content or "")+"\n未验证点: 未进行真实线上压测。"
                 og=output_guardrail(final,ran_tests,blocked)
@@ -76,6 +81,7 @@ class AgentLoop:
                 if decision==PermissionDecision.DENY:
                     blocked=True
                     obs=f"blocked: {reason}"
+                    memory.add_observation(obs)
                     messages.append(Message("tool",obs,name=tc.name,tool_call_id=tc.id))
                     self.trace.add(step,agent_name,"tool_observation",success=False,observation=obs)
                     continue
@@ -84,8 +90,10 @@ class AgentLoop:
                     self.trace.add(step,agent_name,"human_approval",observation="approved" if approved else "rejected")
                     if not approved:
                         blocked=True
+                        memory.add_observation(f"{tc.name}: human approval rejected")
                         continue
                 obs=self.registry.execute(tc.name,tc.arguments)
+                memory.add_observation(obs)
                 if tc.name=="run_command" and "exit_code=0" in obs.content: ran_tests=True
                 self.trace.add(step,agent_name,"tool_call",tool_call=tc.name,tool_arguments=tc.arguments)
                 self.trace.add(step,agent_name,"tool_observation",success=obs.success,observation=obs.content)

@@ -1,6 +1,6 @@
 # 11-evaluation
 
-V2 eval benchmark 扩展到 16 个 case。每个 case 都有 `task.md` 和 `verify.py`，`eval_runner` 会真实执行 verify 脚本，而不是硬编码全通过。
+V2.1 eval benchmark 扩展到 19 个 case。每个 case 都有 `task.md` 和 `verify.py`，`eval_runner` 会真实执行 verify 脚本，而不是硬编码全通过。
 
 ## Report
 

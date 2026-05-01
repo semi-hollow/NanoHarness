@@ -51,7 +51,7 @@ python3.11 -m agent_forge.eval.eval_runner
 sed -n '1,12p' eval_report.md
 ```
 
-Expected result: 16 total, 16 passed, 0 failed.
+Expected result: 19 total, 19 passed, 0 failed.
 
 ## Interview Talk Track
 
