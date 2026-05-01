@@ -2,7 +2,7 @@
 
 ## 中文简历项目描述
 
-Agent Forge：从零到 V2 构建一个标准库优先的 Agent Harness，覆盖 agent loop、tool calling、多 agent handoff、workflow mode、context engineering、permission/sandbox、guardrail、trace、metrics 和 eval benchmark。项目保留离线 MockLLM demo，同时新增可选 OpenAI-compatible LLM client、MCP-style tool adapter、symbol search/file ranking/context budget report，并用 16 个 eval case 和 unittest 验证安全与恢复路径。
+Agent Forge：从零到 V2.1 构建一个标准库优先的 Agent Harness，覆盖 agent loop、tool calling、多 agent handoff、workflow mode、context engineering、permission/sandbox、guardrail、trace、metrics 和 eval benchmark。项目保留离线 MockLLM demo，同时新增可选 OpenAI-compatible LLM client、MCP-style tool adapter、symbol search/file ranking/context budget report，并用 19 个 eval case 和 unittest 验证安全与恢复路径。
 
 ## English Resume Bullet
 
@@ -10,11 +10,11 @@ Built Agent Forge, a standard-library-first Python agent harness with tool calli
 
 ## 1 分钟中文项目介绍
 
-Agent Forge 是我做的一个 Agent Harness 项目，目标不是训练模型，而是把一个 Agent 在工程里真正需要的控制链路拆开：LLM 输出 tool call，agent loop 做权限判断，ToolRegistry 执行工具，Observation 回到循环，同时 trace 记录每一步。V1 能跑单 agent、多 agent 和 workflow demo；V2 增加了可选真实 LLM client、context budget report、symbol search、MCP-style adapter、metrics 和 16 个 eval case。这个项目最适合面试深挖，因为每个设计都有可运行代码、测试和文档证据。
+Agent Forge 是我做的一个 Agent Harness 项目，目标不是训练模型，而是把一个 Agent 在工程里真正需要的控制链路拆开：LLM 输出 tool call，agent loop 做权限判断，ToolRegistry 执行工具，Observation 回到循环，同时 trace 记录每一步。V1 能跑单 agent、多 agent 和 workflow demo；V2.1 增加了可选真实 LLM client、context budget report、symbol search、MCP-style adapter、metrics 和 19 个 eval case。这个项目最适合面试深挖，因为每个设计都有可运行代码、测试和文档证据。
 
 ## 3 分钟中文 Project Deep-Dive
 
-我把项目分成五层。第一层是 runtime：`AgentLoop` 接收任务，调用 LLM，解析 tool calls，并把工具结果作为 Observation 放回消息流。第二层是 tool layer：内置 read/write/patch/run/git/ask_human，同时 V2 增加 MCP-style adapter，让 mock external tool 能转成统一 Tool schema 并注册执行。第三层是 safety：input/output guardrail、permission policy、workspace sandbox 和 command policy，覆盖敏感文件、危险命令、写入审批、虚假测试声明。第四层是 context：repo_map、RAG、memory、symbol_search、file_ranker 和 context budget report，说明为什么不是把全仓库塞进 prompt。第五层是 observability/eval：trace JSON 记录事件，metrics summary 统计 tool call、失败工具、handoff、guardrail block、approval、duration，eval runner 真实执行 16 个 case 的 verify.py 并生成报告。
+我把项目分成五层。第一层是 runtime：`AgentLoop` 接收任务，调用 LLM，解析 tool calls，并把工具结果作为 Observation 放回消息流。第二层是 tool layer：内置 read/write/patch/run/git/ask_human，同时 V2 增加 MCP-style adapter，让 mock external tool 能转成统一 Tool schema 并注册执行。第三层是 safety：input/output guardrail、permission policy、workspace sandbox 和 command policy，覆盖敏感文件、危险命令、写入审批、虚假测试声明。第四层是 context：repo_map、RAG、memory、symbol_search、file_ranker 和 context budget report，说明为什么不是把全仓库塞进 prompt。第五层是 observability/eval：trace JSON 记录事件，metrics summary 统计 tool call、失败工具、handoff、guardrail block、approval、duration，eval runner 真实执行 19 个 case 的 verify.py 并生成报告。
 
 这个项目的重点是工程边界。默认 MockLLM 保证离线可演示，可选 OpenAI-compatible client 通过环境变量接真实模型，并对 invalid response 返回结构化错误。MCP adapter 和 LSP 文档说明了未来扩展方向，但 V2 先实现可测试的本地 adapter 和 AST symbol search。面试时我会强调：我没有编造线上指标，项目证据来自 eval case 数、unittest、trace、metrics 和 safety case。
 
@@ -33,7 +33,7 @@ The important trade-off is that V2 stays standard-library-first and deterministi
 - Situation：Agent 项目常见问题是 demo 能跑，但无法解释安全、上下文、观测和评估。
 - Task：我希望把一个 MVP 升级成面试可深挖、文档可学习、架构可扩展的项目。
 - Action：我实现 agent loop、tool registry、sandbox、guardrail、trace、eval，并在 V2 增加 OpenAI-compatible client、MCP-style adapter、symbol search、file ranker、context budget report 和 metrics。
-- Result：项目可以通过 single/multi/workflow demo、unittest、py_compile 和 16 个 eval case；面试材料能从简历 bullet 一直讲到生产化 rollout。
+- Result：项目可以通过 single/multi/workflow demo、unittest、py_compile 和 19 个 eval case；面试材料能从简历 bullet 一直讲到生产化 rollout。
 
 ## 4 层追问清单
 

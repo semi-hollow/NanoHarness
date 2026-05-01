@@ -3,7 +3,8 @@ import tempfile
 import unittest
 from pathlib import Path
 from agent_forge.agents.handoff import Handoff
-from agent_forge.agents.supervisor_agent import SupervisorAgent, TaskPhase
+from agent_forge.agents.supervisor_agent import SupervisorAgent
+from agent_forge.agents.supervisor_phase import TaskPhase
 from agent_forge.cli import build_registry
 from agent_forge.observability.trace import TraceRecorder
 class T(unittest.TestCase):

@@ -23,7 +23,7 @@
 - LLM：`MockLLMClient` 和可选 `OpenAICompatibleLLMClient`。
 - Context：repo map、keyword retrieval、memory、symbol search、file ranker、context budget report。
 - Observability：trace JSON 与 metrics summary。
-- Eval：16 个 case，均包含 `task.md` 和 `verify.py`，runner 真实执行 verify。
+- Eval：19 个 case，均包含 `task.md` 和 `verify.py`，runner 真实执行 verify。
 - Docs：README、production readiness、LSP/symbol search、MCP-style adapter、80 条 interview Q&A、resume/project script。
 
 ## Placeholder / Thin Areas Found

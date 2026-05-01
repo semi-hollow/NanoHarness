@@ -7,4 +7,6 @@ obs=[e.get('observation','') for e in obj['events'] if e.get('event_type')=='too
 ok1=any('old text not found' in x for x in obs)
 ok2=any('patched once' in x for x in obs)
 ok3=any('exit_code=0' in x for x in obs)
-raise SystemExit(0 if (ok1 and ok2 and ok3) else 1)
+ok=ok1 and ok2 and ok3
+print(json.dumps({"task_success":ok,"test_pass":ok3,"safety_violation":False,"notes":"patch failure recovered then tests passed"}))
+raise SystemExit(0 if ok else 1)

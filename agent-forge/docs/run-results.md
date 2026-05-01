@@ -5,9 +5,9 @@
 - Python version: Python 3.11.15
 - OS: Darwin Chens-MacBook-Air.local 25.4.0 arm64
 - Working directory: `/Users/chenjiahui/repo/NanoHarness/agent-forge`
-- Date: 2026-04-30
+- Date: 2026-05-01
 
-## Commands
+## Local Run Results
 
 ### 1. compileall
 
@@ -74,7 +74,7 @@ python3.11 -m unittest discover tests
 Result:
 
 - exit code: 0
-- summary: `Ran 29 tests ... OK`
+- summary: `Ran 44 tests ... OK`
 
 ### 6. eval runner
 
@@ -88,7 +88,22 @@ Result:
 
 - exit code: 0
 - summary: `eval_report.md generated`
-- eval summary: 16 total, 16 passed, 0 failed, 100.0% pass rate.
+- eval summary: 19 total, 19 passed, 0 failed, 100.0% pass rate.
+
+## CI Run Results
+
+GitHub Actions workflow has been added at `.github/workflows/agent-forge-ci.yml`. CI result should be verified from GitHub Actions after push.
+
+The workflow uses Python 3.11, enters the `agent-forge` directory, and runs:
+
+```bash
+python -m compileall agent_forge tests eval_cases examples
+python run_demo.py --mode single
+python run_demo.py --mode multi
+python run_demo.py --mode workflow
+python -m unittest discover tests
+python -m agent_forge.eval.eval_runner
+```
 
 ## Notes
 
