@@ -6,3 +6,6 @@ class T(unittest.TestCase):
         txt=Path('eval_report.md').read_text(encoding='utf-8')
         self.assertIn('case_001_single_agent_fix_test',txt)
         self.assertIn('case_005_human_approval_required',txt)
+        self.assertIn('|total_cases|19|',txt)
+        self.assertIn('agent_steps_count',txt)
+        self.assertIn('trace_event_count',txt)

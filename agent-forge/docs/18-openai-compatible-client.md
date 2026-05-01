@@ -8,6 +8,12 @@ V2 新增 `OpenAICompatibleLLMClient`，用于连接实现 OpenAI chat completio
 - `AGENT_FORGE_API_KEY`：网关 key
 - `AGENT_FORGE_MODEL`：模型名
 
+也支持 OpenAI 风格别名：
+
+- `OPENAI_BASE_URL`
+- `OPENAI_API_KEY`
+- `OPENAI_MODEL`
+
 不设置这些变量时，默认 demo 仍使用 `MockLLMClient`。显式传 `--llm openai` 但环境变量不完整时，CLI 会回退到 MockLLMClient。
 
 ## Tool Call 解析
@@ -27,4 +33,4 @@ AgentResponse(content=None, tool_calls=[], error={"type": "invalid_response", ..
 
 ## 设计边界
 
-这不是完整 provider SDK。V2 只证明三件事：可选真实 LLM、tool call parse、invalid response recovery。生产环境建议放到 model gateway 后面统一做 auth、routing、rate limit、fallback、audit 和 cost。
+这不是完整 provider SDK，也不保证覆盖所有 provider 的 tool-calling schema。V2.1 只证明四件事：可选真实 LLM、content final answer、tool call parse、invalid response recovery。生产环境建议放到 model gateway 后面统一做 auth、routing、rate limit、fallback、audit 和 cost，并按 provider 校准 tool schema。

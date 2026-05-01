@@ -91,7 +91,7 @@ Metrics 至少包括 tool call、failed tool call、handoff、guardrail block、
 
 ## Evaluation
 
-`eval_cases/` 当前有 16 个 case。每个 case 有 `task.md` 与 `verify.py`。`eval_runner` 真实执行 verify，并输出 total、passed、failed、pass rate、failed list 和 metrics。
+`eval_cases/` 当前有 19 个 case。每个 case 有 `task.md` 与 `verify.py`。`eval_runner` 真实执行 verify，并输出 total、passed、failed、pass rate、failed list 和 metrics。
 
 ## Trade-offs
 

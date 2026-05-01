@@ -20,8 +20,12 @@ class Memory:
     def get(self, key, default=None):
         return self.store.get(key, default)
 
-    def add_observation(self, observation: Observation):
-        self.observations = (self.observations + [observation])[-self.n:]
+    def add_observation(self, observation: Observation | str):
+        if isinstance(observation, Observation):
+            obs = observation
+        else:
+            obs = Observation("memory", True, str(observation))
+        self.observations = (self.observations + [obs])[-self.n:]
 
     def recent_observations(self):
         return list(self.observations)
@@ -33,6 +37,6 @@ class Memory:
 
     def summary(self):
         recent = "; ".join(str(x) for x in self.items)
-        obs = "; ".join(f"{o.tool_name}:{'ok' if o.success else 'fail'}" for o in self.observations)
+        obs = "; ".join(f"{o.tool_name}:{'ok' if o.success else 'fail'}:{o.content[:80]}" for o in self.observations)
         kv = ", ".join(f"{k}={v}" for k, v in self.store.items())
         return " | ".join(part for part in [recent, obs, kv] if part)

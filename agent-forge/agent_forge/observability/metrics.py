@@ -3,6 +3,7 @@ from pathlib import Path
 
 
 def summarize(events: list[dict]) -> dict:
+    numeric_steps = [int(e.get("step", 0) or 0) for e in events]
     return {
         "tool_call_count": sum(e.get("event_type") == "tool_call" for e in events),
         "failed_tool_call_count": sum(e.get("event_type") == "tool_observation" and not e.get("success", True) for e in events),
@@ -13,7 +14,9 @@ def summarize(events: list[dict]) -> dict:
         "error_count": sum(e.get("event_type") == "error" for e in events),
         "test_command_count": sum(e.get("event_type") == "tool_call" and e.get("tool_call") == "run_command" for e in events),
         "duration_ms": sum(int(e.get("duration_ms", 0) or 0) for e in events),
-        "steps_count": len(events),
+        "agent_steps_count": max(numeric_steps) if numeric_steps else 0,
+        "trace_event_count": len(events),
+        "steps_count": max(numeric_steps) if numeric_steps else 0,
     }
 
 
