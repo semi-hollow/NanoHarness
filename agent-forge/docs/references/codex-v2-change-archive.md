@@ -6,9 +6,9 @@ This file records the project changes and verification history from the Codex co
 
 The original product/design target has been persisted in this repository:
 
-- `docs/references/Harness设计方案.md`
+- `00-项目原始设计方案-source-of-truth.md`
 
-That file should be treated as the long-term product reference for Agent Forge. Future work should compare implementation gaps against it instead of relying on chat history.
+That file should be treated as the long-term source of truth for Agent Forge. Future work should compare implementation gaps against it instead of relying on chat history.
 
 ## 2. User Goal
 
@@ -104,7 +104,7 @@ The project must avoid fake online business metrics. Evidence should come from l
 
 ## 4. Latest Gap Found and Fixed
 
-During the final comparison against `Harness设计方案.md`, unit tests were green but `eval_runner` showed one failing case:
+During the final comparison against `00-项目原始设计方案-source-of-truth.md`, unit tests were green but `eval_runner` showed one failing case:
 
 - `case_012_context_retrieval_ranks_correct_file`
 
@@ -181,7 +181,7 @@ It should be described as an Agent Harness / Agent Engineering Lab, not as a pro
 
 If continuing this project in a new Codex conversation, start from:
 
-1. Read `docs/references/Harness设计方案.md`.
+1. Read `00-项目原始设计方案-source-of-truth.md`.
 2. Read `docs/references/codex-v2-change-archive.md`.
 3. Run the verification commands above with `python3.11`.
 4. Inspect `docs/capability-evidence-map.md`.

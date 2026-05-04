@@ -4,6 +4,8 @@ Agent Forge is a compact Agent Harness for learning and interviewing: agent loop
 
 It is not a model, not a Claude clone, and not an OpenCode config pack. It is a small engineering lab for one question: how can an LLM become a controlled execution system for code tasks?
 
+The project source of truth is `00-项目原始设计方案-source-of-truth.md`. Read it first when comparing implementation gaps or continuing this project in a new Codex conversation.
+
 ## Quickstart
 
 ```bash
