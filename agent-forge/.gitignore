@@ -1,10 +1,9 @@
 __pycache__/
 *.pyc
 *.pyo
-agent_forge_trace.json
-eval_report.md
 
 # generated traces / reports
 *_trace.json
 agent_forge_trace.json
 eval_report.md
+summary.md

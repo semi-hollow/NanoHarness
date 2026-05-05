@@ -9,12 +9,10 @@ The project source of truth is `00-项目原始设计方案-source-of-truth.md`.
 ## Quickstart
 
 ```bash
-python3.11 run_demo.py --mode single
-python3.11 run_demo.py --mode multi
-python3.11 run_demo.py --mode workflow
-python3.11 -m unittest discover tests
-python3.11 -m agent_forge.eval.eval_runner
+scripts/verify.sh
 ```
+
+The verification script uses `python3.11` and runs compile checks, single/multi/workflow demos, unit tests, and the eval benchmark.
 
 Default demos use `MockLLMClient`, so no API key is required. Optional OpenAI-compatible mode reads `AGENT_FORGE_BASE_URL`, `AGENT_FORGE_API_KEY`, and `AGENT_FORGE_MODEL`; it also accepts `OPENAI_BASE_URL`, `OPENAI_API_KEY`, and `OPENAI_MODEL` aliases.
 
@@ -77,6 +75,15 @@ The benchmark currently has 19 cases. Each case includes:
 
 See `docs/capability-evidence-map.md`.
 
+## Five-Minute Review Path
+
+1. Read `00-项目原始设计方案-source-of-truth.md`.
+2. Read this README.
+3. Run `scripts/verify.sh`.
+4. Inspect `agent_forge/runtime/agent_loop.py`.
+5. Inspect `agent_forge/safety/` and `agent_forge/eval/eval_runner.py`.
+6. Use `docs/reviewer-guide.md` for a fuller review checklist.
+
 ## Project Structure
 
 - `agent_forge/runtime`: agent loop, state, planner, LLM clients, stop conditions.
@@ -86,6 +93,7 @@ See `docs/capability-evidence-map.md`.
 - `agent_forge/agents`: Supervisor and Planner/Coding/Tester/Reviewer subagents.
 - `agent_forge/observability`: trace JSON, summary writer, metrics.
 - `agent_forge/eval`: executable eval runner and report generation.
+- `scripts`: one-command local verification.
 - `docs`: design docs and interview materials.
 - `tutorials`: nanoAgent-style learning path.
 
@@ -131,6 +139,17 @@ Architecture whiteboard entry:
 - `symbol_search` uses Python AST, not a real LSP server.
 - The benchmark is local and deterministic; it does not claim production traffic metrics.
 - Trace metrics summarize local runs and are not a full telemetry backend.
+
+## Generated Artifacts
+
+Demo and eval runs generate local artifacts:
+
+- `eval_report.md`
+- `agent_forge_trace.json`
+- `*_trace.json`
+- `summary.md`
+
+These are ignored by git. Use `scripts/verify.sh` to regenerate them and `docs/run-results.md` for checked-in run evidence.
 
 ## Roadmap
 
