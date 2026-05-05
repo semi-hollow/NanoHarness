@@ -30,7 +30,9 @@ Long term, if this repository remains a single-project repo, a cleanup migration
    - [`agent-forge/README.md`](agent-forge/README.md)
 3. Read the capability evidence map:
    - [`agent-forge/docs/capability-evidence-map.md`](agent-forge/docs/capability-evidence-map.md)
-4. Read the V2 change archive:
+4. Read the reviewer guide:
+   - [`agent-forge/docs/reviewer-guide.md`](agent-forge/docs/reviewer-guide.md)
+5. Read the V2 change archive:
    - [`agent-forge/docs/references/codex-v2-change-archive.md`](agent-forge/docs/references/codex-v2-change-archive.md)
 
 ## What Agent Forge Covers
@@ -67,6 +69,7 @@ NanoHarness/
     agent_forge/                    # Python package
     examples/demo_repo/             # Demo coding task
     eval_cases/                     # Executable eval benchmark cases
+    scripts/verify.sh               # One-command local verification
     tests/                          # unittest test suite
     docs/                           # Design docs and interview material
     tutorials/                      # nanoAgent-style learning path
@@ -78,11 +81,7 @@ Run commands from `agent-forge/`:
 
 ```bash
 cd agent-forge
-python3.11 run_demo.py --mode single
-python3.11 run_demo.py --mode multi
-python3.11 run_demo.py --mode workflow
-python3.11 -m unittest discover tests
-python3.11 -m agent_forge.eval.eval_runner
+scripts/verify.sh
 ```
 
 The default demos use `MockLLMClient`, so no API key is required.
@@ -98,9 +97,11 @@ Latest local verification recorded during V2 work:
 - eval benchmark: 19/19 passed
 - Python compile check: passed
 
-See [`agent-forge/docs/run-results.md`](agent-forge/docs/run-results.md) and [`agent-forge/eval_report.md`](agent-forge/eval_report.md) for generated evidence.
+See [`agent-forge/docs/run-results.md`](agent-forge/docs/run-results.md) for recorded evidence. Running `scripts/verify.sh` also regenerates local ignored artifacts such as `eval_report.md` and trace JSON files.
 
 ## Review Guide
+
+For the full review path, use [`agent-forge/docs/reviewer-guide.md`](agent-forge/docs/reviewer-guide.md).
 
 If you are reviewing this project, start with these questions:
 
@@ -120,6 +121,25 @@ Relevant files:
 - Context: [`agent-forge/agent_forge/context/`](agent-forge/agent_forge/context/)
 - Observability: [`agent-forge/agent_forge/observability/`](agent-forge/agent_forge/observability/)
 - Eval runner: [`agent-forge/agent_forge/eval/eval_runner.py`](agent-forge/agent_forge/eval/eval_runner.py)
+
+## Generated Artifacts
+
+Agent demos and eval runs generate local files such as:
+
+- `agent-forge/eval_report.md`
+- `agent-forge/agent_forge_trace.json`
+- `agent-forge/*_trace.json`
+- `agent-forge/summary.md`
+
+These are ignored by git so normal demo runs do not dirty the repository. Use `agent-forge/docs/run-results.md` for checked-in evidence and `scripts/verify.sh` to regenerate local reports.
+
+## GitHub About
+
+Suggested repository description:
+
+```text
+A compact Agent Harness for coding-agent runtime, tools, safety, tracing, eval, and interview-ready documentation.
+```
 
 ## Naming Decision
 
