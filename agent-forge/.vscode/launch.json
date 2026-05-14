@@ -1,0 +1,45 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Agent Forge - single demo",
+      "type": "python",
+      "request": "launch",
+      "program": "${workspaceFolder}/run_demo.py",
+      "args": [
+        "--mode",
+        "single",
+        "--trace-file",
+        "trace-debug.json"
+      ],
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal"
+    },
+    {
+      "name": "Agent Forge - workflow demo",
+      "type": "python",
+      "request": "launch",
+      "program": "${workspaceFolder}/run_demo.py",
+      "args": [
+        "--mode",
+        "workflow"
+      ],
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal"
+    },
+    {
+      "name": "Agent Forge - multi demo",
+      "type": "python",
+      "request": "launch",
+      "program": "${workspaceFolder}/run_demo.py",
+      "args": [
+        "--mode",
+        "multi",
+        "--trace-file",
+        "trace-multi-debug.json"
+      ],
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal"
+    }
+  ]
+}

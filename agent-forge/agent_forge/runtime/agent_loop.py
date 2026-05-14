@@ -12,100 +12,274 @@ from agent_forge.safety.permission import PermissionPolicy, PermissionDecision
 
 class AgentLoop:
     def __init__(self, config, trace, registry, llm=None):
-        self.config=config; self.trace=trace; self.registry=registry; self.llm=llm or MockLLMClient("single"); self.planner=SimplePlanner()
+        self.config = config
+        self.trace = trace
+        self.registry = registry
+        self.llm = llm or MockLLMClient("single")
+        self.planner = SimplePlanner()
 
     def run(self, task, agent_name="CodingAgent"):
         self.trace.set_run_context(task=task)
-        g=input_guardrail(task)
-        self.trace.add(0,agent_name,"guardrail_check",guardrail={"category":g.category,"passed":g.passed,"reason":g.reason,"severity":g.severity})
-        if not g.passed:
-            self.trace.set_run_context(stop_reason="input_guardrail_block", final_answer=f"blocked: {g.reason}")
-            return f"blocked: {g.reason}"
-        messages=[Message("user",task)]
-        state=AgentState(task=task,workspace_root=self.config.workspace,max_iterations=self.config.max_steps,messages=messages)
-        policy=PermissionPolicy(self.config.auto_approve_writes)
-        memory=Memory()
+
+        input_check = input_guardrail(task)
+        self.trace.add(
+            0,
+            agent_name,
+            "guardrail_check",
+            guardrail={
+                "category": input_check.category,
+                "passed": input_check.passed,
+                "reason": input_check.reason,
+                "severity": input_check.severity,
+            },
+        )
+        if not input_check.passed:
+            self.trace.set_run_context(
+                stop_reason="input_guardrail_block",
+                final_answer=f"blocked: {input_check.reason}",
+            )
+            return f"blocked: {input_check.reason}"
+
+        messages = [Message("user", task)]
+        state = AgentState(
+            task=task,
+            workspace_root=self.config.workspace,
+            max_iterations=self.config.max_steps,
+            messages=messages,
+        )
+        policy = PermissionPolicy(self.config.auto_approve_writes)
+        memory = Memory()
         memory.set("task", task)
-        tool_history=[]; ran_tests=False; blocked=False; consecutive_failures=0
-        for step in range(1,self.config.max_steps+1):
-            state.iteration=step
-            repo_map=build_repo_map(self.config.workspace)
-            schemas=self.registry.schemas()
-            context_report=build_context_report(task,repo_map,memory,docs=repo_map.splitlines(),root=self.config.workspace,tools=schemas)
-            self.trace.add(step,agent_name,"context_assembly",context={
-                "selected_files": context_report.selected_files,
-                "retrieved_docs_count": len(context_report.retrieved_docs),
-                "memory_summary": context_report.memory_summary,
-                "total_chars": context_report.total_chars,
-                "max_chars": context_report.max_chars,
-                "truncated": context_report.truncated,
-                "available_tools": context_report.available_tools,
-                "permission_summary": context_report.permission_summary,
-            })
-            plan=self.planner.plan(task,step,context_report)
-            self.trace.add(step,agent_name,"plan",plan={
-                "goal": plan.goal,
-                "reasoning_summary": plan.reasoning_summary,
-                "next_action": plan.next_action,
-            })
-            context_message=Message("system",context_report.render())
-            messages_for_llm=[context_message]+messages
-            resp=self.llm.chat(messages_for_llm,schemas)
-            if resp.error:
-                self.trace.add(step,agent_name,"error",success=False,error=str(resp.error))
-                state.status="failed"; state.stop_reason="invalid_llm_response"
-                self.trace.set_run_context(stop_reason=state.stop_reason, final_answer=str(resp.error))
-                return f"blocked: invalid llm response: {resp.error}"
-            self.trace.add(step,agent_name,"llm_call",llm_request_summary=f"messages={len(messages_for_llm)} tools={len(schemas)} context_chars={len(context_message.content)}",llm_response_summary=resp.content or "tool_calls")
-            if not resp.tool_calls:
-                final=(resp.content or "")+"\n未验证点: 未进行真实线上压测。"
-                og=output_guardrail(final,ran_tests,blocked)
-                self.trace.add(step,agent_name,"guardrail_check",guardrail={"category":og.category,"passed":og.passed,"reason":og.reason,"severity":og.severity})
-                self.trace.add(step,agent_name,"final_answer",observation=final)
-                state.status="completed"; state.final_answer=final; state.stop_reason="final_answer"
-                self.trace.set_run_context(stop_reason=state.stop_reason, final_answer=final)
-                return final
-            for tc in resp.tool_calls:
-                key=(tc.name,str(tc.arguments))
-                tg=tool_guardrail(tc.name,tc.arguments,exists=self.registry.get(tc.name) is not None,repeated=key in tool_history[-3:])
-                self.trace.add(step,agent_name,"guardrail_check",guardrail={"category":tg.category,"passed":tg.passed,"reason":tg.reason,"severity":tg.severity})
-                if not tg.passed and key in tool_history[-3:]:
-                    self.trace.add(step,agent_name,"error",success=False,error=tg.reason)
-                    self.trace.set_run_context(stop_reason="repeated_tool_call", final_answer="blocked: repeated tool call")
+
+        tool_history = []
+        ran_tests = False
+        blocked = False
+        consecutive_failures = 0
+
+        for step in range(1, self.config.max_steps + 1):
+            state.iteration = step
+            repo_map = build_repo_map(self.config.workspace)
+            schemas = self.registry.schemas()
+            context_report = build_context_report(
+                task,
+                repo_map,
+                memory,
+                docs=repo_map.splitlines(),
+                root=self.config.workspace,
+                tools=schemas,
+            )
+            self.trace.add(
+                step,
+                agent_name,
+                "context_assembly",
+                context={
+                    "selected_files": context_report.selected_files,
+                    "retrieved_docs_count": len(context_report.retrieved_docs),
+                    "memory_summary": context_report.memory_summary,
+                    "total_chars": context_report.total_chars,
+                    "max_chars": context_report.max_chars,
+                    "truncated": context_report.truncated,
+                    "available_tools": context_report.available_tools,
+                    "permission_summary": context_report.permission_summary,
+                },
+            )
+
+            plan = self.planner.plan(task, step, context_report)
+            self.trace.add(
+                step,
+                agent_name,
+                "plan",
+                plan={
+                    "goal": plan.goal,
+                    "reasoning_summary": plan.reasoning_summary,
+                    "next_action": plan.next_action,
+                },
+            )
+
+            context_message = Message("system", context_report.render())
+            messages_for_llm = [context_message] + messages
+            response = self.llm.chat(messages_for_llm, schemas)
+
+            if response.error:
+                self.trace.add(step, agent_name, "error", success=False, error=str(response.error))
+                state.status = "failed"
+                state.stop_reason = "invalid_llm_response"
+                self.trace.set_run_context(
+                    stop_reason=state.stop_reason,
+                    final_answer=str(response.error),
+                )
+                return f"blocked: invalid llm response: {response.error}"
+
+            self.trace.add(
+                step,
+                agent_name,
+                "llm_call",
+                llm_request_summary=(
+                    f"messages={len(messages_for_llm)} "
+                    f"tools={len(schemas)} "
+                    f"context_chars={len(context_message.content)}"
+                ),
+                llm_response_summary=response.content or "tool_calls",
+            )
+
+            if not response.tool_calls:
+                final_answer = (response.content or "") + "\n未验证点: 未进行真实线上压测。"
+                output_check = output_guardrail(final_answer, ran_tests, blocked)
+                self.trace.add(
+                    step,
+                    agent_name,
+                    "guardrail_check",
+                    guardrail={
+                        "category": output_check.category,
+                        "passed": output_check.passed,
+                        "reason": output_check.reason,
+                        "severity": output_check.severity,
+                    },
+                )
+                self.trace.add(step, agent_name, "final_answer", observation=final_answer)
+                state.status = "completed"
+                state.final_answer = final_answer
+                state.stop_reason = "final_answer"
+                self.trace.set_run_context(stop_reason=state.stop_reason, final_answer=final_answer)
+                return final_answer
+
+            for tool_call in response.tool_calls:
+                key = (tool_call.name, str(tool_call.arguments))
+                tool_check = tool_guardrail(
+                    tool_call.name,
+                    tool_call.arguments,
+                    exists=self.registry.get(tool_call.name) is not None,
+                    repeated=key in tool_history[-3:],
+                )
+                self.trace.add(
+                    step,
+                    agent_name,
+                    "guardrail_check",
+                    guardrail={
+                        "category": tool_check.category,
+                        "passed": tool_check.passed,
+                        "reason": tool_check.reason,
+                        "severity": tool_check.severity,
+                    },
+                )
+
+                if not tool_check.passed and key in tool_history[-3:]:
+                    self.trace.add(step, agent_name, "error", success=False, error=tool_check.reason)
+                    self.trace.set_run_context(
+                        stop_reason="repeated_tool_call",
+                        final_answer="blocked: repeated tool call",
+                    )
                     return "blocked: repeated tool call"
+
                 tool_history.append(key)
-                self.trace.add(step,agent_name,"action",tool_call=tc.name,tool_arguments=tc.arguments)
-                action="run_command" if tc.name=="run_command" else ("apply_patch" if tc.name in {"apply_patch","write_file"} else "read")
-                decision,reason=policy.decide(action,tc.arguments.get("command","") if tc.arguments else "")
-                self.trace.add(step,agent_name,"permission_check",permission_decision=decision.value,tool_call=tc.name)
-                if decision==PermissionDecision.DENY:
-                    blocked=True
-                    obs=f"blocked: {reason}"
-                    memory.add_observation(obs)
-                    messages.append(Message("tool",obs,name=tc.name,tool_call_id=tc.id))
-                    self.trace.add(step,agent_name,"tool_observation",success=False,observation=obs)
+                self.trace.add(
+                    step,
+                    agent_name,
+                    "action",
+                    tool_call=tool_call.name,
+                    tool_arguments=tool_call.arguments,
+                )
+
+                action = self._permission_action(tool_call.name)
+                command = tool_call.arguments.get("command", "") if tool_call.arguments else ""
+                decision, reason = policy.decide(action, command)
+                self.trace.add(
+                    step,
+                    agent_name,
+                    "permission_check",
+                    permission_decision=decision.value,
+                    tool_call=tool_call.name,
+                )
+
+                if decision == PermissionDecision.DENY:
+                    blocked = True
+                    observation = f"blocked: {reason}"
+                    memory.add_observation(observation)
+                    messages.append(
+                        Message(
+                            "tool",
+                            observation,
+                            name=tool_call.name,
+                            tool_call_id=tool_call.id,
+                        )
+                    )
+                    self.trace.add(
+                        step,
+                        agent_name,
+                        "tool_observation",
+                        success=False,
+                        observation=observation,
+                    )
                     continue
-                if decision==PermissionDecision.ASK:
-                    approved=self.config.auto_approve_writes
-                    self.trace.add(step,agent_name,"human_approval",observation="approved" if approved else "rejected")
+
+                if decision == PermissionDecision.ASK:
+                    approved = self.config.auto_approve_writes
+                    self.trace.add(
+                        step,
+                        agent_name,
+                        "human_approval",
+                        observation="approved" if approved else "rejected",
+                    )
                     if not approved:
-                        blocked=True
-                        memory.add_observation(f"{tc.name}: human approval rejected")
+                        blocked = True
+                        memory.add_observation(f"{tool_call.name}: human approval rejected")
                         continue
-                obs=self.registry.execute(tc.name,tc.arguments)
-                memory.add_observation(obs)
-                if tc.name=="run_command" and "exit_code=0" in obs.content: ran_tests=True
-                self.trace.add(step,agent_name,"tool_call",tool_call=tc.name,tool_arguments=tc.arguments)
-                self.trace.add(step,agent_name,"tool_observation",success=obs.success,observation=obs.content)
-                self.trace.add(step,agent_name,"observation",success=obs.success,observation_summary=obs.content[:300])
-                state.observations.append(obs)
-                consecutive_failures = 0 if obs.success else consecutive_failures + 1
-                stop=check_stop(step,self.config.max_steps,consecutive_failures)
+
+                observation = self.registry.execute(tool_call.name, tool_call.arguments)
+                memory.add_observation(observation)
+                if tool_call.name == "run_command" and "exit_code=0" in observation.content:
+                    ran_tests = True
+
+                self.trace.add(
+                    step,
+                    agent_name,
+                    "tool_call",
+                    tool_call=tool_call.name,
+                    tool_arguments=tool_call.arguments,
+                )
+                self.trace.add(
+                    step,
+                    agent_name,
+                    "tool_observation",
+                    success=observation.success,
+                    observation=observation.content,
+                )
+                self.trace.add(
+                    step,
+                    agent_name,
+                    "observation",
+                    success=observation.success,
+                    observation_summary=observation.content[:300],
+                )
+                state.observations.append(observation)
+
+                consecutive_failures = 0 if observation.success else consecutive_failures + 1
+                stop = check_stop(step, self.config.max_steps, consecutive_failures)
                 if stop.should_stop:
-                    state.status="stopped"; state.stop_reason=stop.reason
-                    self.trace.set_run_context(stop_reason=stop.reason, final_answer=f"blocked: {stop.reason}")
+                    state.status = "stopped"
+                    state.stop_reason = stop.reason
+                    self.trace.set_run_context(
+                        stop_reason=stop.reason,
+                        final_answer=f"blocked: {stop.reason}",
+                    )
                     return f"blocked: {stop.reason}"
-                messages.append(Message("assistant",f"tool_call:{tc.name}"))
-                messages.append(Message("tool",obs.content,name=tc.name,tool_call_id=tc.id))
+
+                messages.append(Message("assistant", f"tool_call:{tool_call.name}"))
+                messages.append(
+                    Message(
+                        "tool",
+                        observation.content,
+                        name=tool_call.name,
+                        tool_call_id=tool_call.id,
+                    )
+                )
+
         self.trace.set_run_context(stop_reason="max_steps", final_answer="max steps reached")
         return "max steps reached"
+
+    def _permission_action(self, tool_name: str) -> str:
+        if tool_name == "run_command":
+            return "run_command"
+        if tool_name in {"apply_patch", "write_file"}:
+            return "apply_patch"
+        return "read"
