@@ -1,10 +1,18 @@
 __pycache__/
 *.pyc
 *.pyo
+.venv/
+*.egg-info/
+.env
+.env.local
+local_scripts/run_online_llm.sh
+llm_profiles.json
 agent_forge_trace.json
 eval_report.md
 
 # generated traces / reports
 *_trace.json
+trace-*.json
+trace-*.pretty.json
 agent_forge_trace.json
 eval_report.md

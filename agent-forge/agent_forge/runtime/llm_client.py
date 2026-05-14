@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from typing import Any, Optional
 
 from .message import Message
+from .llm_config import LLMConfig
 from .tool_call import ToolCall
 
 
@@ -31,7 +32,9 @@ class OpenAICompatibleLLMClient(LLMClient):
         model: str | None = None,
         timeout: int = 30,
     ):
-        self.base_url = (base_url or os.getenv("AGENT_FORGE_BASE_URL") or os.getenv("OPENAI_BASE_URL", "")).rstrip("/")
+        self.base_url = (
+            base_url or os.getenv("AGENT_FORGE_BASE_URL") or os.getenv("OPENAI_BASE_URL", "")
+        ).rstrip("/")
         self.api_key = api_key or os.getenv("AGENT_FORGE_API_KEY") or os.getenv("OPENAI_API_KEY", "")
         self.model = model or os.getenv("AGENT_FORGE_MODEL") or os.getenv("OPENAI_MODEL", "")
         self.timeout = timeout
@@ -40,12 +43,24 @@ class OpenAICompatibleLLMClient(LLMClient):
     def from_env(cls) -> "OpenAICompatibleLLMClient":
         return cls()
 
+    @classmethod
+    def from_config(cls, config: LLMConfig) -> "OpenAICompatibleLLMClient":
+        return cls(
+            base_url=config.base_url,
+            api_key=config.api_key,
+            model=config.model,
+            timeout=config.timeout,
+        )
+
     def is_configured(self) -> bool:
         return bool(self.base_url and self.api_key and self.model)
 
     def chat(self, messages: list[Message], tools: list[dict]) -> AgentResponse:
         if not self.is_configured():
-            return self._invalid("missing_config", "AGENT_FORGE_BASE_URL, AGENT_FORGE_API_KEY, and AGENT_FORGE_MODEL are required")
+            return self._invalid(
+                "missing_config",
+                "AGENT_FORGE_BASE_URL, AGENT_FORGE_API_KEY, and AGENT_FORGE_MODEL are required",
+            )
 
         payload = {
             "model": self.model,
@@ -155,7 +170,11 @@ class OpenAICompatibleLLMClient(LLMClient):
         return "string"
 
     def _invalid(self, code: str, message: str, raw: str = "") -> AgentResponse:
-        return AgentResponse(None, [], {"type": "invalid_response", "code": code, "message": message, "raw": raw})
+        return AgentResponse(
+            None,
+            [],
+            {"type": "invalid_response", "code": code, "message": message, "raw": raw},
+        )
 
 
 class MockLLMClient(LLMClient):
@@ -167,15 +186,61 @@ class MockLLMClient(LLMClient):
         i = len(tool_obs)
         if self.mode == "single":
             if i == 0:
-                return AgentResponse(None, [ToolCall("1", "read_file", {"path": "examples/demo_repo/src/calculator.py"})])
+                return AgentResponse(
+                    None,
+                    [ToolCall("1", "read_file", {"path": "examples/demo_repo/src/calculator.py"})],
+                )
             if i == 1:
-                return AgentResponse(None, [ToolCall("2", "read_file", {"path": "examples/demo_repo/tests/test_calculator.py"})])
+                return AgentResponse(
+                    None,
+                    [ToolCall("2", "read_file", {"path": "examples/demo_repo/tests/test_calculator.py"})],
+                )
             if i == 2:
-                # first patch intentionally fails
-                return AgentResponse(None, [ToolCall("3", "apply_patch", {"path": "examples/demo_repo/src/calculator.py", "old": "return a * b", "new": "return a + b"})])
+                # The first patch intentionally fails, so the loop can show recovery.
+                return AgentResponse(
+                    None,
+                    [
+                        ToolCall(
+                            "3",
+                            "apply_patch",
+                            {
+                                "path": "examples/demo_repo/src/calculator.py",
+                                "old": "return a * b",
+                                "new": "return a + b",
+                            },
+                        )
+                    ],
+                )
             if i == 3 and "old text not found" in tool_obs[-1].content:
-                return AgentResponse(None, [ToolCall("3b", "apply_patch", {"path": "examples/demo_repo/src/calculator.py", "old": "return a - b", "new": "return a + b"})])
+                return AgentResponse(
+                    None,
+                    [
+                        ToolCall(
+                            "3b",
+                            "apply_patch",
+                            {
+                                "path": "examples/demo_repo/src/calculator.py",
+                                "old": "return a - b",
+                                "new": "return a + b",
+                            },
+                        )
+                    ],
+                )
             if i in {3, 4}:
-                return AgentResponse(None, [ToolCall("4", "run_command", {"command": "python3.11 -m unittest discover examples/demo_repo/tests -t examples/demo_repo"})])
+                return AgentResponse(
+                    None,
+                    [
+                        ToolCall(
+                            "4",
+                            "run_command",
+                            {
+                                "command": (
+                                    "python3.11 -m unittest discover "
+                                    "examples/demo_repo/tests -t examples/demo_repo"
+                                )
+                            },
+                        )
+                    ],
+                )
             return AgentResponse("已完成修复并验证测试通过。", [])
         return AgentResponse("multi mode by supervisor", [])

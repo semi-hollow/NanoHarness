@@ -7,14 +7,30 @@ It is not a model, not a Claude clone, and not an OpenCode config pack. It is a 
 ## Quickstart
 
 ```bash
-python3.11 run_demo.py --mode single
-python3.11 run_demo.py --mode multi
-python3.11 run_demo.py --mode workflow
-python3.11 -m unittest discover tests
-python3.11 -m agent_forge.eval.eval_runner
+source .venv/bin/activate
+python run_demo.py --mode single
+python run_demo.py --mode multi
+python run_demo.py --mode workflow
+python -m unittest discover tests
+python -m agent_forge.eval.eval_runner
 ```
 
-Default demos use `MockLLMClient`, so no API key is required. Optional OpenAI-compatible mode reads `AGENT_FORGE_BASE_URL`, `AGENT_FORGE_API_KEY`, and `AGENT_FORGE_MODEL`; it also accepts `OPENAI_BASE_URL`, `OPENAI_API_KEY`, and `OPENAI_MODEL` aliases.
+Default demos use `MockLLMClient`, so no API key is required. Optional OpenAI-compatible mode can be configured by CLI flags, environment variables, or a local `llm_profiles.json`.
+
+```bash
+python run_demo.py --mode single --llm openai \
+  --base-url http://localhost:11434/v1 \
+  --api-key ollama \
+  --model qwen2.5-coder:7b
+```
+
+For reusable local model profiles, copy `llm_profiles.example.json` to `llm_profiles.json` and run:
+
+```bash
+python run_demo.py --mode single --llm-profile ollama-qwen
+```
+
+See `PROJECT_MASTERY_GUIDE.md` for the full run-and-learn path.
 
 Verified local results are recorded in `docs/run-results.md`: 44 unittest tests passed, 19/19 eval cases passed, and single/multi/workflow demos exited successfully.
 
