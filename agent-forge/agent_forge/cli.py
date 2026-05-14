@@ -1,7 +1,9 @@
 import argparse
 from pathlib import Path
+
 from .runtime.config import RuntimeConfig
 from .runtime.agent_loop import AgentLoop
+from .runtime.llm_config import LLMConfig, resolve_llm_config
 from .runtime.llm_client import MockLLMClient, OpenAICompatibleLLMClient
 from .observability.trace import TraceRecorder
 from .safety.sandbox import WorkspaceSandbox
@@ -19,49 +21,98 @@ from .agents.supervisor_agent import SupervisorAgent
 from .workflows.coding_workflow import run_workflow
 
 
-def reset_demo_repo(workspace: str):
-    p = Path(workspace) / "examples/demo_repo/src/calculator.py"
-    p.write_text("def add(a: int, b: int) -> int:\n    return a - b\n", encoding="utf-8")
+def reset_demo_repo(workspace: str) -> None:
+    """Reset the tiny demo repository so repeated runs start from the same bug."""
+
+    path = Path(workspace) / "examples/demo_repo/src/calculator.py"
+    path.write_text("def add(a: int, b: int) -> int:\n    return a - b\n", encoding="utf-8")
 
 
-def build_registry(workspace: str, auto: bool):
+def build_registry(workspace: str, auto: bool) -> ToolRegistry:
     sandbox = WorkspaceSandbox(workspace)
-    r = ToolRegistry()
-    for t in [ListFilesTool(sandbox), ReadFileTool(sandbox), WriteFileTool(sandbox,auto), GrepTool(sandbox), GrepSearchTool(sandbox), ApplyPatchTool(sandbox,auto), RunCommandTool(sandbox,auto), GitStatusTool(sandbox), GitDiffTool(sandbox), AskHumanTool(auto)]:
-        r.register(t)
-    return r
+    registry = ToolRegistry()
+    tools = [
+        ListFilesTool(sandbox),
+        ReadFileTool(sandbox),
+        WriteFileTool(sandbox, auto),
+        GrepTool(sandbox),
+        GrepSearchTool(sandbox),
+        ApplyPatchTool(sandbox, auto),
+        RunCommandTool(sandbox, auto),
+        GitStatusTool(sandbox),
+        GitDiffTool(sandbox),
+        AskHumanTool(auto),
+    ]
+    for tool in tools:
+        registry.register(tool)
+    return registry
 
 
-def main():
-    p=argparse.ArgumentParser()
-    p.add_argument("task", nargs="?", default="修复 examples/demo_repo 里的测试失败问题")
-    p.add_argument("--workspace", default=".")
-    p.add_argument("--mode", choices=["single","multi","workflow"], default="single")
-    p.add_argument("--llm", default="mock")
-    p.add_argument("--max-steps", type=int, default=12)
-    p.add_argument("--trace-file", default="agent_forge_trace.json")
-    p.add_argument("--no-auto-approve", action="store_true")
-    a=p.parse_args()
-    
-    if a.workspace=="." and a.mode in {"single","multi"}:
-        reset_demo_repo(a.workspace)
-    trace=TraceRecorder(a.trace_file)
-    auto=not a.no_auto_approve
-    if a.mode=="multi":
-        print(SupervisorAgent().run(trace,a.task,build_registry(a.workspace,auto)))
-    elif a.mode=="workflow":
-        print(run_workflow(a.task))
+def build_llm(config: LLMConfig):
+    if config.provider == "mock":
+        return MockLLMClient("single")
+    if config.uses_openai_compatible_api:
+        return OpenAICompatibleLLMClient.from_config(config)
+    raise ValueError(f"Unsupported LLM provider: {config.provider}")
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(description="Run Agent Forge demos and workflows.")
+    parser.add_argument("task", nargs="?", default="修复 examples/demo_repo 里的测试失败问题")
+    parser.add_argument("--workspace", default=".")
+    parser.add_argument("--mode", choices=["single", "multi", "workflow"], default="single")
+    parser.add_argument("--llm", choices=["mock", "openai", "openai-compatible"], default="mock")
+    parser.add_argument("--llm-profile", help="Named profile from llm_profiles.json.")
+    parser.add_argument("--llm-profile-file", help="Path to a JSON file containing LLM profiles.")
+    parser.add_argument("--base-url", help="OpenAI-compatible API base URL, for example http://localhost:11434/v1.")
+    parser.add_argument("--api-key", help="OpenAI-compatible API key. Prefer env vars for real secrets.")
+    parser.add_argument("--model", help="OpenAI-compatible model name.")
+    parser.add_argument("--timeout", type=int, default=30)
+    parser.add_argument("--max-steps", type=int, default=12)
+    parser.add_argument("--trace-file", default="agent_forge_trace.json")
+    parser.add_argument("--no-auto-approve", action="store_true")
+    return parser
+
+
+def main() -> None:
+    args = build_parser().parse_args()
+
+    if args.workspace == "." and args.mode in {"single", "multi"}:
+        reset_demo_repo(args.workspace)
+
+    trace = TraceRecorder(args.trace_file)
+    auto_approve = not args.no_auto_approve
+
+    if args.mode == "multi":
+        print(SupervisorAgent().run(trace, args.task, build_registry(args.workspace, auto_approve)))
+    elif args.mode == "workflow":
+        print(run_workflow(args.task))
     else:
-        cfg=RuntimeConfig(workspace=a.workspace,max_steps=a.max_steps,auto_approve_writes=auto,trace_file=a.trace_file)
-        llm = MockLLMClient("single")
-        if a.llm == "openai":
-            candidate = OpenAICompatibleLLMClient.from_env()
-            if candidate.is_configured():
-                llm = candidate
-            else:
-                print("OpenAI-compatible LLM env is incomplete; falling back to MockLLMClient.")
-        print(AgentLoop(cfg,trace,build_registry(a.workspace,auto),llm).run(a.task))
+        runtime_config = RuntimeConfig(
+            workspace=args.workspace,
+            max_steps=args.max_steps,
+            auto_approve_writes=auto_approve,
+            trace_file=args.trace_file,
+        )
+        llm_config = resolve_llm_config(
+            provider=args.llm,
+            profile=args.llm_profile,
+            profile_file=args.llm_profile_file,
+            base_url=args.base_url,
+            api_key=args.api_key,
+            model=args.model,
+            timeout=args.timeout,
+        )
+        llm = build_llm(llm_config)
+        if llm_config.provider != "mock" and not llm_config.is_configured():
+            print("OpenAI-compatible LLM config is incomplete; falling back to MockLLMClient.")
+            llm = MockLLMClient("single")
+
+        loop = AgentLoop(runtime_config, trace, build_registry(args.workspace, auto_approve), llm)
+        print(loop.run(args.task))
+
     trace.write()
 
-if __name__=="__main__":
+
+if __name__ == "__main__":
     main()

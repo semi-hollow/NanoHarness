@@ -2,6 +2,7 @@ import unittest
 import json
 from unittest.mock import patch
 
+from agent_forge.runtime.llm_config import LLMConfig
 from agent_forge.runtime.llm_client import OpenAICompatibleLLMClient
 from agent_forge.runtime.message import Message
 
@@ -61,6 +62,20 @@ class TestOpenAICompatibleLLMClient(unittest.TestCase):
             response = client.chat([Message("user", "hi")], [])
         self.assertFalse(client.is_configured())
         self.assertEqual(response.error["code"], "missing_config")
+
+    def test_from_config(self):
+        config = LLMConfig(
+            provider="openai",
+            base_url="http://gateway/v1",
+            api_key="key",
+            model="model-a",
+            timeout=10,
+        )
+        client = OpenAICompatibleLLMClient.from_config(config)
+        self.assertTrue(client.is_configured())
+        self.assertEqual(client.base_url, "http://gateway/v1")
+        self.assertEqual(client.model, "model-a")
+        self.assertEqual(client.timeout, 10)
 
     def test_fake_http_content_response(self):
         payload = {"choices": [{"message": {"content": "final answer"}}]}
