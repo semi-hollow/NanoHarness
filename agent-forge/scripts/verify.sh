@@ -1,47 +1,56 @@
 #!/usr/bin/env bash
-set -euo pipefail
+set -Eeuo pipefail
 
 cd "$(dirname "$0")/.."
 
-if ! command -v python3.11 >/dev/null 2>&1; then
-  echo "python3.11 is required but was not found on PATH." >&2
-  exit 1
+if [ -z "${PYTHON_BIN:-}" ]; then
+  if [ -x ".venv/bin/python3.11" ]; then
+    PYTHON_BIN=".venv/bin/python3.11"
+  elif [ -x ".venv/bin/python" ]; then
+    PYTHON_BIN=".venv/bin/python"
+  else
+    PYTHON_BIN="python3.11"
+  fi
+fi
+
+if ! command -v "${PYTHON_BIN}" >/dev/null 2>&1; then
+  if [ -x ".venv/bin/python3.11" ]; then
+    PYTHON_BIN=".venv/bin/python3.11"
+  elif [ -x ".venv/bin/python" ]; then
+    PYTHON_BIN=".venv/bin/python"
+  else
+    echo "Could not find ${PYTHON_BIN} or a local .venv Python." >&2
+    exit 1
+  fi
 fi
 
 echo "== Agent Forge verification =="
 echo "Working directory: $(pwd)"
+echo "Using Python: $(${PYTHON_BIN} --version 2>&1) at $(command -v "${PYTHON_BIN}" 2>/dev/null || printf '%s' "${PYTHON_BIN}")"
 echo
 
 echo "== Compile Python files =="
-python3.11 - <<'PY'
-from pathlib import Path
-import py_compile
-
-for path in Path(".").rglob("*.py"):
-    py_compile.compile(str(path), doraise=True)
-
-print("py_compile passed")
-PY
+"${PYTHON_BIN}" -m compileall agent_forge tests eval_cases examples
 echo
 
 echo "== Single-agent demo =="
-python3.11 run_demo.py --mode single
+"${PYTHON_BIN}" run_demo.py --mode single --trace-file trace-verify-single.json
 echo
 
 echo "== Multi-agent demo =="
-python3.11 run_demo.py --mode multi
+"${PYTHON_BIN}" run_demo.py --mode multi --trace-file trace-verify-multi.json
 echo
 
 echo "== Workflow demo =="
-python3.11 run_demo.py --mode workflow
+"${PYTHON_BIN}" run_demo.py --mode workflow
 echo
 
 echo "== Unit tests =="
-python3.11 -m unittest discover tests
+"${PYTHON_BIN}" -m unittest discover tests
 echo
 
 echo "== Eval benchmark =="
-python3.11 -m agent_forge.eval.eval_runner
+"${PYTHON_BIN}" -m agent_forge.eval.eval_runner
 echo
 
 echo "Verification passed."
