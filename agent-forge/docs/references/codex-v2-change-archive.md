@@ -6,9 +6,9 @@ This file records the project changes and verification history from the Codex co
 
 The original product/design target has been persisted in this repository:
 
-- `docs/references/Harness设计方案.md`
+- `00-项目原始设计方案-source-of-truth.md`
 
-That file should be treated as the long-term product reference for Agent Forge. Future work should compare implementation gaps against it instead of relying on chat history.
+That file should be treated as the long-term source of truth for Agent Forge. Future work should compare implementation gaps against it instead of relying on chat history.
 
 ## 2. User Goal
 
@@ -104,7 +104,7 @@ The project must avoid fake online business metrics. Evidence should come from l
 
 ## 4. Latest Gap Found and Fixed
 
-During the final comparison against `Harness设计方案.md`, unit tests were green but `eval_runner` showed one failing case:
+During the final comparison against `00-项目原始设计方案-source-of-truth.md`, unit tests were green but `eval_runner` showed one failing case:
 
 - `case_012_context_retrieval_ranks_correct_file`
 
@@ -181,8 +181,26 @@ It should be described as an Agent Harness / Agent Engineering Lab, not as a pro
 
 If continuing this project in a new Codex conversation, start from:
 
-1. Read `docs/references/Harness设计方案.md`.
+1. Read `00-项目原始设计方案-source-of-truth.md`.
 2. Read `docs/references/codex-v2-change-archive.md`.
 3. Run the verification commands above with `python3.11`.
 4. Inspect `docs/capability-evidence-map.md`.
 5. Then decide whether to work on real-model smoke tests, LSP integration, stronger sandboxing, or CI/PR-bot workflows.
+
+## 9. Repository Polish After V2
+
+After the V2 implementation work, the repository was polished for easier review:
+
+- Added a repository-root `README.md` under `NanoHarness/` so GitHub visitors can understand why the real implementation lives in `agent-forge/`.
+- Kept `agent-forge/` as the implementation root to avoid unnecessary path churn in code, docs, eval cases, and CI.
+- Moved the original design source of truth to `agent-forge/00-项目原始设计方案-source-of-truth.md`.
+- Added `scripts/verify.sh` as the one-command local verification entrypoint.
+- Added `docs/reviewer-guide.md` for classmates, interview reviewers, and future Codex sessions.
+- Updated READMEs to point reviewers to the source-of-truth file, reviewer guide, and verify script.
+- Clarified generated artifact policy: `eval_report.md`, trace JSON files, and `summary.md` are local generated artifacts and are ignored by git.
+- Added a suggested GitHub About description in the root README.
+
+The recommended naming structure remains:
+
+- `NanoHarness`: repository and long-term project brand.
+- `agent-forge/`: current implementation directory and project root for commands.
