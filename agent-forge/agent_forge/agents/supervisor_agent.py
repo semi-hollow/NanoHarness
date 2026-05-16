@@ -8,10 +8,16 @@ from .supervisor_policy import SupervisorPolicy
 
 
 class SupervisorAgent:
+    """Coordinate demo subagents through explicit phases and handoffs."""
+
     def __init__(self, policy: SupervisorPolicy | None = None):
+        """Allow tests to inject policy; default keeps one retry for demo clarity."""
+
         self.policy = policy or SupervisorPolicy(max_retry=1)
 
     def _payload(self, phase: TaskPhase, state: dict) -> dict:
+        """Build the auditable handoff payload written into trace events."""
+
         return {
             "phase": phase.value,
             "task": state.get("task", ""),
@@ -23,6 +29,8 @@ class SupervisorAgent:
         }
 
     def _handoff(self, trace, step: int, to_agent: str, reason: str, phase: TaskPhase, state: dict):
+        """Record one supervisor-to-subagent transition before work starts."""
+
         handoff = Handoff("SupervisorAgent", to_agent, reason, self._payload(phase, state))
         trace.add(
             step,
@@ -36,6 +44,8 @@ class SupervisorAgent:
         return handoff
 
     def run(self, trace, task: str, registry):
+        """Run planner, coder, tester, optional retry, and reviewer in order."""
+
         trace.set_run_context(task=task)
         state = {"task": task, "trace": trace, "registry": registry, "retry_count": 0, "phase": TaskPhase.PLANNING.value}
         lines = []

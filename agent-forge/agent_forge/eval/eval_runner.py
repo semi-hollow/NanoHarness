@@ -1,13 +1,17 @@
-from dataclasses import asdict
-from pathlib import Path
 import json
 import os
-import subprocess, sys
+import subprocess
+import sys
+from dataclasses import asdict
+from pathlib import Path
+
 from .eval_case import EvalResult
 from agent_forge.observability.metrics import summarize, summarize_trace_file
 
 
 def parse_verify_json(stdout: str) -> dict:
+    """Read the final JSON object emitted by a case `verify.py` script."""
+
     for line in reversed(stdout.splitlines()):
         text = line.strip()
         if not (text.startswith("{") and text.endswith("}")):
@@ -22,6 +26,8 @@ def parse_verify_json(stdout: str) -> dict:
 
 
 def run_case(case_dir: Path) -> EvalResult:
+    """Execute one eval case and convert its verify output into EvalResult."""
+
     case_id = case_dir.name
     task_file = case_dir / "task.md"
     task = task_file.read_text(encoding="utf-8").strip() if task_file.exists() else ""
@@ -29,7 +35,13 @@ def run_case(case_dir: Path) -> EvalResult:
     env = os.environ.copy()
     env["PYTHONPATH"] = str(cwd) + (os.pathsep + env["PYTHONPATH"] if env.get("PYTHONPATH") else "")
     command = f"{sys.executable} {case_dir / 'verify.py'}"
-    proc = subprocess.run([sys.executable, str(case_dir / "verify.py")], cwd=str(cwd), env=env, capture_output=True, text=True)
+    proc = subprocess.run(
+        [sys.executable, str(case_dir / "verify.py")],
+        cwd=str(cwd),
+        env=env,
+        capture_output=True,
+        text=True,
+    )
     ok = proc.returncode == 0
     verify_data = parse_verify_json(proc.stdout)
     raw_notes = verify_data.get("notes") or (proc.stdout + proc.stderr)
@@ -69,6 +81,8 @@ def run_case(case_dir: Path) -> EvalResult:
 
 
 def main():
+    """Run every eval case and write the markdown benchmark report."""
+
     root = Path("eval_cases")
     results = [run_case(p) for p in sorted(root.iterdir()) if p.is_dir()]
     total = len(results)
@@ -101,7 +115,13 @@ def main():
     ]
     for r in results:
         d = asdict(r)
-        lines.append(f"|{d['case_id']}|{d['passed']}|{d['task_success']}|{d['test_pass']}|{d['safety_violation']}|{d['handoff_count']}|{d['tool_call_count']}|{d['agent_steps_count']}|{d['trace_event_count']}|{d['permission_denied_count']}|{d['guardrail_block_count']}|{d['failed_tool_call_count']}|{d['notes']}|")
+        lines.append(
+            f"|{d['case_id']}|{d['passed']}|{d['task_success']}|{d['test_pass']}|"
+            f"{d['safety_violation']}|{d['handoff_count']}|{d['tool_call_count']}|"
+            f"{d['agent_steps_count']}|{d['trace_event_count']}|"
+            f"{d['permission_denied_count']}|{d['guardrail_block_count']}|"
+            f"{d['failed_tool_call_count']}|{d['notes']}|"
+        )
     lines.extend(["", "## Failed Cases", "", ", ".join(failed_cases) if failed_cases else "none", "", "## Evidence", ""])
     for r in results:
         lines.append(f"- {r.case_id}: command=`{r.command}`, task_chars={len(r.task)}, verify={'pass' if r.passed else 'fail'}")

@@ -7,7 +7,11 @@ from .summary import write_summary
 
 
 class TraceRecorder:
+    """Collect and write the auditable event stream for one run."""
+
     def __init__(self, path: str):
+        """Initialize run metadata and destination trace path."""
+
         self.path = path
         self.run_id = str(uuid.uuid4())
         self.events: list[dict] = []
@@ -18,6 +22,8 @@ class TraceRecorder:
         self.final_answer = ""
 
     def set_run_context(self, task: str = "", stop_reason: str = "", final_answer: str = ""):
+        """Update top-level run fields without touching existing event history."""
+
         if task:
             self.task = task
         if stop_reason:
@@ -26,6 +32,8 @@ class TraceRecorder:
             self.final_answer = final_answer
 
     def add(self, step: int, agent_name: str, event_type: str, success: bool = True, error: str = "", **kwargs):
+        """Append one timestamped event and print a short terminal breadcrumb."""
+
         now = time.time()
         event = {
             "run_id": self.run_id,
@@ -42,6 +50,8 @@ class TraceRecorder:
         print(f"[trace] step={step} agent={agent_name} event={event_type} success={success}")
 
     def write(self):
+        """Write JSON trace plus the human-readable summary file."""
+
         trace = {
             "run_id": self.run_id,
             "task": self.task,

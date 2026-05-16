@@ -3,6 +3,8 @@ from dataclasses import dataclass
 
 @dataclass
 class GuardrailResult:
+    """Structured result so guardrail checks can be traced consistently."""
+
     passed: bool
     reason: str
     severity: str
@@ -10,6 +12,8 @@ class GuardrailResult:
 
 
 def input_guardrail(task: str) -> GuardrailResult:
+    """Reject obviously risky user tasks before any LLM/tool execution."""
+
     checks = ["rm -rf", "删除", ".env", "id_rsa", "http://", "https://", "../"]
     for c in checks:
         if c in task:
@@ -18,6 +22,8 @@ def input_guardrail(task: str) -> GuardrailResult:
 
 
 def output_guardrail(final_answer: str, ran_tests: bool, had_block: bool) -> GuardrailResult:
+    """Check final answers for unverified or misleading claims."""
+
     if "测试通过" in final_answer and not ran_tests:
         return GuardrailResult(False, "claims test pass without execution", "high", "output")
     if had_block and "拦截" not in final_answer and "blocked" not in final_answer:
@@ -28,6 +34,8 @@ def output_guardrail(final_answer: str, ran_tests: bool, had_block: bool) -> Gua
 
 
 def tool_guardrail(tool_name: str, arguments: dict, exists: bool = True, repeated: bool = False) -> GuardrailResult:
+    """Validate a model-requested tool call before permission checks."""
+
     if not exists:
         return GuardrailResult(False, f"unknown tool: {tool_name}", "medium", "tool")
     if repeated:

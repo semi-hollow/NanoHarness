@@ -17,6 +17,8 @@ DENY_EXACT = {
 
 
 def check_command(command: str) -> tuple[bool, str]:
+    """Allow only a small command set that is useful for demos/tests."""
+
     if not command.strip():
         return False, "empty command"
 

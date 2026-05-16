@@ -17,9 +17,13 @@ class LLMConfig:
 
     @property
     def uses_openai_compatible_api(self) -> bool:
+        """Return whether this config should use the HTTP chat client."""
+
         return self.provider in {"openai", "openai-compatible"}
 
     def is_configured(self) -> bool:
+        """Check if all required fields exist for the selected provider."""
+
         if self.provider == "mock":
             return True
         return bool(self.base_url and self.api_key and self.model)

@@ -29,6 +29,8 @@ def reset_demo_repo(workspace: str) -> None:
 
 
 def build_registry(workspace: str, auto: bool) -> ToolRegistry:
+    """Create the tool registry used by single and multi-agent modes."""
+
     sandbox = WorkspaceSandbox(workspace)
     registry = ToolRegistry()
     tools = [
@@ -49,6 +51,8 @@ def build_registry(workspace: str, auto: bool) -> ToolRegistry:
 
 
 def build_llm(config: LLMConfig):
+    """Instantiate the concrete LLM client selected by resolved config."""
+
     if config.provider == "mock":
         return MockLLMClient("single")
     if config.uses_openai_compatible_api:
@@ -57,6 +61,8 @@ def build_llm(config: LLMConfig):
 
 
 def build_parser() -> argparse.ArgumentParser:
+    """Define CLI flags for mode selection, LLM config, and trace output."""
+
     parser = argparse.ArgumentParser(description="Run Agent Forge demos and workflows.")
     parser.add_argument("task", nargs="?", default="修复 examples/demo_repo 里的测试失败问题")
     parser.add_argument("--workspace", default=".")
@@ -75,6 +81,8 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main() -> None:
+    """CLI entry point: compose dependencies, choose mode, write trace."""
+
     args = build_parser().parse_args()
 
     if args.workspace == "." and args.mode in {"single", "multi"}:
