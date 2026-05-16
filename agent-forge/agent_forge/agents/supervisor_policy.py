@@ -2,10 +2,16 @@ from agent_forge.agents.supervisor_phase import TaskPhase
 
 
 class SupervisorPolicy:
+    """Decide the next supervised phase from shared multi-agent state."""
+
     def __init__(self, max_retry: int = 1):
+        """Limit retries so a failed tester cannot create an infinite loop."""
+
         self.max_retry = max_retry
 
     def decide_next_phase(self, state: dict) -> TaskPhase:
+        """Move planning -> coding -> testing -> reviewing/done/failed."""
+
         if state.get("safety_blocked"):
             return TaskPhase.FAILED
 

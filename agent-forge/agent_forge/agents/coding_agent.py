@@ -2,18 +2,23 @@ from .base_agent import BaseAgent, AgentResult
 
 
 class CodingAgent(BaseAgent):
+    """Perform the code edit step in the supervised multi-agent demo."""
+
     name = "CodingAgent"
 
     def run(self, state):
+        """Read the demo file and patch it; retry uses the corrected old text."""
+
         registry = state["registry"]
         trace = state["trace"]
         step = state.setdefault("step", 10)
         registry.execute("read_file", {"path": "examples/demo_repo/src/calculator.py"})
+        old_text = "return a * b" if state.get("retry_count", 0) == 0 else "return a - b"
         patch = registry.execute(
             "apply_patch",
             {
                 "path": "examples/demo_repo/src/calculator.py",
-                "old": "return a * b" if state.get("retry_count",0)==0 else "return a - b",
+                "old": old_text,
                 "new": "return a + b",
             },
         )

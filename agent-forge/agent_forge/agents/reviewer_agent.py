@@ -2,9 +2,13 @@ from .base_agent import BaseAgent, AgentResult
 
 
 class ReviewerAgent(BaseAgent):
+    """Summarize whether the tested change is acceptable."""
+
     name = "ReviewerAgent"
 
     def run(self, state):
+        """Use git diff when available, otherwise fall back to modified files."""
+
         diff = state["registry"].execute("git_diff", {})
         modified_files = state.get("modified_files", [])
         if diff.success and diff.content.strip():

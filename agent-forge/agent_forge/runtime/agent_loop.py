@@ -11,7 +11,11 @@ from agent_forge.safety.permission import PermissionPolicy, PermissionDecision
 
 
 class AgentLoop:
+    """Single-agent control loop for context, LLM calls, tools, and trace."""
+
     def __init__(self, config, trace, registry, llm=None):
+        """Receive runtime dependencies from CLI instead of constructing globals."""
+
         self.config = config
         self.trace = trace
         self.registry = registry
@@ -19,6 +23,8 @@ class AgentLoop:
         self.planner = SimplePlanner()
 
     def run(self, task, agent_name="CodingAgent"):
+        """Run one task until final answer, guardrail block, or stop condition."""
+
         self.trace.set_run_context(task=task)
 
         input_check = input_guardrail(task)
@@ -278,6 +284,8 @@ class AgentLoop:
         return "max steps reached"
 
     def _permission_action(self, tool_name: str) -> str:
+        """Map concrete tool names to coarse permission-policy actions."""
+
         if tool_name == "run_command":
             return "run_command"
         if tool_name in {"apply_patch", "write_file"}:

@@ -6,6 +6,8 @@ from agent_forge.runtime.observation import Observation
 
 @dataclass
 class AgentState:
+    """Mutable state for one AgentLoop run."""
+
     task: str
     workspace_root: str
     iteration: int = 0

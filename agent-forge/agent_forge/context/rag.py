@@ -1,2 +1,4 @@
 def retrieve(query, docs):
- return [d for d in docs if query.lower() in d.lower()][:3]
+    """Return the first docs containing the query as a tiny deterministic RAG."""
+
+    return [doc for doc in docs if query.lower() in doc.lower()][:3]
