@@ -77,8 +77,8 @@ else:
   multi    = runtime-backed supervisor orchestration
   workflow = 固定流程 demo
 
-继续生产演进：
-  TaskScheduler 并发 ready nodes + patch conflict merge + richer artifact contract
+当前生产化能力：
+  conflict-aware TaskScheduler + OwnershipPlan + TaskArtifact contract
 ```
 
 面试讲法：
@@ -288,12 +288,15 @@ PlannerAgent
   -> ReviewerAgent
 ```
 
-为什么仍然保持顺序执行：
+为什么 demo 输出仍然像顺序执行：
 
 - 让你一眼看到 supervisor 如何 handoff；
 - 让 trace 里能看到每个角色的责任边界；
 - 让 tester 失败后回到 coder 的 retry 逻辑变得明确；
-- 避免一开始就引入并发和 patch merge 导致 demo 不稳定。
+- 这个示例任务本身有 plan -> code -> test -> review 依赖；
+- TaskScheduler 已经支持 conflict-aware parallel batches；
+- 如果多个 ready nodes 写不同文件，可以并发执行；
+- 如果写同一个文件，会被拆成不同 batch，避免覆盖。
 
 它已经补上：
 
@@ -302,12 +305,14 @@ PlannerAgent
 - TaskGraph 表达依赖和 retry；
 - trace 记录每个 worker 的完整 loop。
 
-它仍然缺什么：
+它已经具备：
 
-- 并发执行；
-- 更强的动态任务拆分；
-- 没有冲突合并；
-- 没有结构化 artifact contract。
+- AgentSpec：角色、prompt、工具权限、文件读写范围；
+- AgentRuntime：每个 subagent 复用 AgentLoop；
+- TaskGraph：任务依赖、retry、状态；
+- OwnershipPlan：文件写入 ownership；
+- TaskArtifact：worker 结构化输出；
+- conflict-aware scheduler：没有写冲突的 ready nodes 可并发。
 
 所以你读这个文件时，要抓住它的面试价值：它不是完整 OpenCode，但已经展示了从 demo 向生产多 agent 演进的关键骨架。
 
@@ -324,7 +329,7 @@ PlannerAgent
 
 更完整的面试讲法：
 
-> In this project, multi mode is runtime-backed orchestration. The supervisor schedules a small TaskGraph, and each subagent is described by AgentSpec and executed through AgentRuntime, which reuses AgentLoop. It is still sequential for deterministic demos, but it demonstrates the production shape: role isolation, tool permissions, traceable handoff, test-driven retry, and review gate.
+> In this project, multi mode is runtime-backed orchestration. The supervisor schedules a TaskGraph, each subagent is described by AgentSpec and executed through AgentRuntime, and the scheduler is conflict-aware: workers with disjoint write ownership can run in parallel, while conflicting writes are isolated. The demo task is dependency-bound, but the core production contracts are present.
 
 ## 12. `agent_forge/eval/eval_runner.py`
 

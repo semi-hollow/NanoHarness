@@ -16,6 +16,9 @@ class ModelUsage:
     attempts: int = 0
     fallback_used: bool = False
     latency_ms: int = 0
+    prompt_tokens_estimate: int = 0
+    completion_tokens_estimate: int = 0
+    estimated_cost_usd: float = 0.0
     error_codes: list[str] = field(default_factory=list)
 
     def record_attempt(self, latency_ms: int, error_code: str = "") -> None:
@@ -35,5 +38,8 @@ class ModelUsage:
             "attempts": self.attempts,
             "fallback_used": self.fallback_used,
             "latency_ms": self.latency_ms,
+            "prompt_tokens_estimate": self.prompt_tokens_estimate,
+            "completion_tokens_estimate": self.completion_tokens_estimate,
+            "estimated_cost_usd": self.estimated_cost_usd,
             "error_codes": self.error_codes,
         }

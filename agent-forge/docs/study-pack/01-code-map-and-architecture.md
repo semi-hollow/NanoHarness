@@ -50,7 +50,7 @@ flowchart TD
 | `multi` | supervisor + task graph + runtime-backed workers | 是，每个 worker 复用 AgentLoop | 用来展示生产形状的多 agent：role spec、工具权限、handoff、retry、review gate。 |
 | `workflow` | 固定状态机 demo | 否 | 用来对比 deterministic workflow 和 agent loop 的差异。它没有智能决策。 |
 
-当前设计把 MVP 的缺口补上了一层：multi-agent 不再只是 `PlannerAgent().run(state)` 这种教学函数，而是让 supervisor 调度 `AgentRuntime`。它仍然保持顺序执行，原因是 demo 要稳定、trace 要好读，但数据结构已经是 DAG 形状。
+当前设计把 MVP 的缺口补上：multi-agent 不再是角色函数，而是让 supervisor 调度 `AgentRuntime`。`TaskScheduler` 支持 conflict-aware parallel batches；这个 demo 因为任务本身存在 plan -> code -> test -> review 依赖，所以输出看起来仍是一条顺序链。
 
 ```text
 single   -> 学 AgentLoop 内核
@@ -58,7 +58,7 @@ multi    -> 学 runtime-backed supervisor / handoff / retry / review gate
 workflow -> 学固定流程和 agent 的边界
 ```
 
-如果继续生产化，下一步不是推翻这套结构，而是把 `TaskScheduler` 的 ready nodes 并发执行，并补更强的 artifact contract 和冲突合并。
+文件写入通过 `AgentSpec.write_files` 和 `OwnershipPlan` 声明，worker 结果通过 `TaskArtifact` 传递。面试时要强调这是 coding agent 落地时最关键的三个点：调度、所有权、产物契约。
 
 ## 当前实现和生产级实现的差距
 
@@ -100,18 +100,17 @@ Supervisor / Orchestrator
 - DiagnosticsTool：提供 compile/unittest 诊断；
 - EvalHistory：把 eval 结果写入 JSONL 历史。
 
-仍然缺的能力包括：
+完整产品形态仍然可以继续增强的部分：
 
-- 并发调度，而不是串行调用；
 - 更强的动态任务拆分；
-- 文件 ownership 和 patch conflict 处理；
-- 更细的成本、延迟、重试预算；
+- 更复杂的自动 patch merge；
+- 更细的团队级成本预算；
 - 人工审批和高风险升级策略；
 - 更完整的 trace 聚合和失败归因。
 
 面试时不要把当前 `multi` 说成生产级。更好的说法是：
 
-> 当前 multi mode 已经从教学版角色函数升级为 runtime-backed orchestration：supervisor 调度 TaskGraph，每个 subagent 由 AgentSpec 描述并通过 AgentRuntime 复用 AgentLoop。它仍然是顺序 DAG，不是完整 OpenCode，但已经具备生产级 agent 系统的关键形状：角色隔离、工具权限、trace、测试驱动 retry、review gate 和 run artifacts。
+> 当前 multi mode 是 runtime-backed orchestration：supervisor 调度 TaskGraph，每个 subagent 由 AgentSpec 描述并通过 AgentRuntime 复用 AgentLoop。TaskScheduler 支持 conflict-aware parallel batches，OwnershipPlan 管文件写入边界，TaskArtifact 管 worker 之间的产物传递。它不是完整 IDE 产品，但已经具备 AI Agent Engineer 面试需要解释的核心工程形态。
 
 ## 目录分布
 
@@ -149,6 +148,8 @@ agent-forge/
 | `agent_forge/runtime/session.py` | Session 存储 | 记录 run/session metadata，支持 list/show/rollback。 |
 | `agent_forge/models/gateway.py` | 模型网关 | 处理 retry、fallback、usage telemetry。 |
 | `agent_forge/workflows/task_graph.py` | 任务图调度 | 用 DAG 表达 multi-agent 依赖和状态。 |
+| `agent_forge/workflows/artifact.py` | 产物契约 | 定义 worker 之间传递的结构化结果。 |
+| `agent_forge/production/ownership.py` | 文件所有权 | 声明写入边界，避免并发 agent 互相覆盖。 |
 | `agent_forge/production/diff_tracker.py` | 变更治理 | 记录 changed files、diff、rollback bundle。 |
 | `agent_forge/tools/diagnostics.py` | 代码诊断工具 | compile/unittest 诊断，对标轻量 LSP diagnostics。 |
 | `agent_forge/runtime/llm_client.py` | LLM 客户端 | MockLLM 和 OpenAI-compatible API 都在这里。 |

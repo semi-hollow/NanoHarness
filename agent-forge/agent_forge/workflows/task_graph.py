@@ -1,6 +1,9 @@
 from dataclasses import dataclass, field
 from enum import Enum
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Callable
+
+from .artifact import TaskArtifact
 
 
 class TaskStatus(Enum):
@@ -21,18 +24,18 @@ class TaskNode:
     agent_name: str
     task: str
     depends_on: list[str] = field(default_factory=list)
+    read_files: set[str] = field(default_factory=set)
+    write_files: set[str] = field(default_factory=set)
+    expected_artifacts: set[str] = field(default_factory=set)
     status: TaskStatus = TaskStatus.PENDING
     result: object | None = None
     error: str = ""
+    artifacts: list[TaskArtifact] = field(default_factory=list)
 
 
 @dataclass
 class TaskGraph:
-    """Small DAG used by SupervisorAgent before a full orchestration framework.
-
-    The scheduler is currently sequential for deterministic tests, but the data
-    model is DAG-shaped so it can grow into parallel ready-node execution.
-    """
+    """DAG used by SupervisorAgent for production-shaped orchestration."""
 
     nodes: dict[str, TaskNode] = field(default_factory=dict)
 
@@ -61,18 +64,24 @@ class TaskGraph:
 
 
 class TaskScheduler:
-    """Deterministic DAG scheduler for runtime-backed subagents.
+    """Conflict-aware DAG scheduler for runtime-backed subagents.
 
-    It runs ready nodes sequentially today. That is enough to prove dependency
-    tracking, retry insertion, and structured task state while keeping the demo
-    readable. Parallel execution can later replace the inner loop.
+    Ready nodes with disjoint write ownership can run concurrently. Nodes that
+    would write the same file are split into separate batches, which is the
+    minimal production behavior needed before adding full patch merge logic.
     """
 
-    def __init__(self, graph: TaskGraph, executors: dict[str, Callable[[TaskNode], object]]):
-        """Map agent names to executor callbacks."""
+    def __init__(
+        self,
+        graph: TaskGraph,
+        executors: dict[str, Callable[[TaskNode], object]],
+        max_workers: int = 4,
+    ):
+        """Map agent names to executor callbacks and set parallelism."""
 
         self.graph = graph
         self.executors = executors
+        self.max_workers = max(1, max_workers)
 
     def run(self) -> list[TaskNode]:
         """Run ready nodes until the graph completes or is blocked."""
@@ -86,18 +95,62 @@ class TaskScheduler:
                         node.status = TaskStatus.SKIPPED
                         node.error = "dependencies did not pass"
                 break
-            for node in ready:
-                node.status = TaskStatus.RUNNING
-                executor = self.executors.get(node.agent_name)
-                if executor is None:
-                    node.status = TaskStatus.FAILED
-                    node.error = f"missing executor for {node.agent_name}"
-                else:
-                    try:
-                        node.result = executor(node)
-                        node.status = TaskStatus.PASSED if getattr(node.result, "success", True) else TaskStatus.FAILED
-                    except Exception as exc:
-                        node.status = TaskStatus.FAILED
-                        node.error = str(exc)
-                completed.append(node)
+            for batch in self._conflict_safe_batches(ready):
+                completed.extend(self._run_batch(batch))
         return completed
+
+    def _conflict_safe_batches(self, ready: list[TaskNode]) -> list[list[TaskNode]]:
+        """Group ready nodes so no batch has overlapping write ownership."""
+
+        batches: list[list[TaskNode]] = []
+        batch_writes: list[set[str]] = []
+        for node in ready:
+            writes = set(node.write_files)
+            placed = False
+            for index, existing_writes in enumerate(batch_writes):
+                if writes and existing_writes.intersection(writes):
+                    continue
+                batches[index].append(node)
+                existing_writes.update(writes)
+                placed = True
+                break
+            if not placed:
+                batches.append([node])
+                batch_writes.append(set(writes))
+        return batches
+
+    def _run_batch(self, batch: list[TaskNode]) -> list[TaskNode]:
+        """Run one conflict-free batch sequentially or in parallel."""
+
+        if self.max_workers == 1 or len(batch) == 1:
+            return [self._run_node(node) for node in batch]
+        completed = []
+        with ThreadPoolExecutor(max_workers=min(self.max_workers, len(batch))) as pool:
+            futures = {pool.submit(self._run_node, node): node for node in batch}
+            for future in as_completed(futures):
+                completed.append(future.result())
+        return completed
+
+    def _run_node(self, node: TaskNode) -> TaskNode:
+        """Execute one node and attach result artifacts."""
+
+        node.status = TaskStatus.RUNNING
+        executor = self.executors.get(node.agent_name)
+        if executor is None:
+            node.status = TaskStatus.FAILED
+            node.error = f"missing executor for {node.agent_name}"
+            return node
+        try:
+            node.result = executor(node)
+            node.status = TaskStatus.PASSED if getattr(node.result, "success", True) else TaskStatus.FAILED
+            node.artifacts = list(getattr(node.result, "artifacts", []) or [])
+            if node.expected_artifacts:
+                produced = {artifact.kind for artifact in node.artifacts}
+                missing = node.expected_artifacts - produced
+                if missing:
+                    node.status = TaskStatus.FAILED
+                    node.error = f"missing artifacts: {', '.join(sorted(missing))}"
+        except Exception as exc:
+            node.status = TaskStatus.FAILED
+            node.error = str(exc)
+        return node

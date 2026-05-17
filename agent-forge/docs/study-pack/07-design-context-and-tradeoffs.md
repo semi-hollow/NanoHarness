@@ -59,7 +59,7 @@ Supervisor / Orchestrator
 
 ## 当前 multi mode 到底是什么
 
-当前 `multi` 是一个顺序执行的 task graph：
+当前 `multi` 是 conflict-aware task graph：
 
 ```text
 TaskGraph
@@ -81,11 +81,8 @@ TaskGraph
 
 它没有展示：
 
-- 并发；
 - 更强的动态任务拆分；
-- 文件 ownership；
-- patch 冲突合并；
-- 跨 agent artifact contract；
+- 更复杂的自动 patch merge；
 - 成本、延迟、重试预算；
 - 高风险任务升级人工审批。
 
@@ -156,7 +153,7 @@ eval_cases 可执行验证
 
 答：
 
-> 当前 multi-agent 是 runtime-backed 顺序 DAG。它不是完整生产级 scheduler，因为还没有并发、ownership 和 conflict merge；但它已经不是 toy role function，每个 subagent 都通过 AgentRuntime 复用 AgentLoop，并由 AgentSpec 限制工具权限。
+> 当前 multi-agent 是 runtime-backed DAG。每个 subagent 都通过 AgentRuntime 复用 AgentLoop，由 AgentSpec 限制工具权限和文件读写范围；TaskScheduler 支持 conflict-aware parallel batches；OwnershipPlan 和 TaskArtifact 分别解决文件所有权和产物交接。
 
 ### 质疑 2：为什么 plan -> code -> test -> review 写死？
 
@@ -164,11 +161,11 @@ eval_cases 可执行验证
 
 > 因为这是最小可解释链路。写死能让 trace 和代码一一对应，方便验证 supervisor 控制流。生产级会改成任务 DAG，由 supervisor 根据依赖、风险和资源动态调度。
 
-### 质疑 3：为什么不用并发？
+### 质疑 3：有没有并发和冲突处理？
 
 答：
 
-> 当前 demo 任务太小，并发会增加合并复杂度但不会增加学习价值。生产级在跨模块任务里会并发，比如 backend、frontend、tests、docs 分给不同 worker，但必须配套 ownership、patch merge、冲突处理和聚合验证。
+> 有。TaskScheduler 会把 ready nodes 分成 conflict-safe batches，没有写冲突的 batch 可以并发执行；如果多个 worker 要写同一个文件，会拆到不同 batch，避免覆盖。这个 demo 输出像顺序，是因为 plan、code、test、review 本身有强依赖。
 
 ### 质疑 4：MockLLM 是不是没意义？
 
@@ -180,7 +177,7 @@ eval_cases 可执行验证
 
 答：
 
-> 差并发调度、动态任务拆分、结构化 artifact contract、冲突合并、真实成本控制、容器级 sandbox、完整 LSP 和更强的 observability。
+> 作为 runtime 核心已经具备：AgentLoop、AgentRuntime、TaskGraph、OwnershipPlan、TaskArtifact、ModelGateway、SessionStore、DiffTracker、DiagnosticsTool、EvalHistory。完整产品还差 IDE/TUI、容器级 sandbox、完整 LSP、真实 provider pricing 和 MCP marketplace。
 
 ## 你看代码时的判断方式
 
