@@ -2,10 +2,14 @@ from pathlib import Path
 
 
 def _terms(query: str) -> list[str]:
+    """Split task text into simple lowercase terms for explainable scoring."""
+
     return [part.lower() for part in query.replace("/", " ").replace("_", " ").replace("-", " ").split() if part]
 
 
 def _looks_like_code_task(terms: list[str]) -> bool:
+    """Detect code-oriented tasks so source/test files rank above docs."""
+
     code_words = {
         "add",
         "bug",
@@ -24,11 +28,15 @@ def _looks_like_code_task(terms: list[str]) -> bool:
 
 
 def rank_files(query: str, files: list[str], root: str | Path = ".") -> list[str]:
+    """Rank candidate files by path/content relevance to the user task."""
+
     root_path = Path(root)
     terms = _terms(query)
     code_task = _looks_like_code_task(terms)
 
     def score(path: str) -> tuple[int, str]:
+        """Return sortable score; lower tuple means more relevant."""
+
         lowered_path = path.lower()
         path_obj = Path(path)
         suffix = path_obj.suffix.lower()

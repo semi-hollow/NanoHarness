@@ -5,6 +5,8 @@ from pathlib import Path
 
 @dataclass(frozen=True)
 class SymbolHit:
+    """One Python class/function discovered by the AST scanner."""
+
     name: str
     kind: str
     path: str
@@ -12,6 +14,8 @@ class SymbolHit:
 
 
 def scan_python_symbols(root: str | Path) -> list[SymbolHit]:
+    """Scan Python files for class/function definitions without an LSP server."""
+
     root_path = Path(root)
     hits: list[SymbolHit] = []
     for path in sorted(root_path.rglob("*.py")):
@@ -30,9 +34,13 @@ def scan_python_symbols(root: str | Path) -> list[SymbolHit]:
 
 
 def symbol_search(query: str, root: str | Path = ".") -> list[SymbolHit]:
+    """Find symbols whose name or file path contains the query."""
+
     lowered = query.lower()
     return [hit for hit in scan_python_symbols(root) if lowered in hit.name.lower() or lowered in hit.path.lower()]
 
 
 def render_symbols(hits: list[SymbolHit]) -> str:
+    """Render symbol hits into file:line snippets for docs or traces."""
+
     return "\n".join(f"{hit.path}:{hit.line}: {hit.kind} {hit.name}" for hit in hits)

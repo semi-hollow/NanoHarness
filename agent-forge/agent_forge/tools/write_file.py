@@ -1,14 +1,45 @@
 from agent_forge.runtime.observation import Observation
-from agent_forge.safety.permission import PermissionPolicy, PermissionDecision
+from agent_forge.safety.permission import PermissionDecision, PermissionPolicy
+
 from .base import Tool
 
+
 class WriteFileTool(Tool):
-    name="write_file"; description="write file"
-    def __init__(self, sandbox, auto_approve_writes=True): self.sandbox=sandbox; self.policy=PermissionPolicy(auto_approve_writes); self.auto=auto_approve_writes
-    def schema(self): return {"name":self.name,"description":self.description,"arguments":{"path":"str","content":"str"}}
+    """Write a full file when the permission policy allows it.
+
+    This tool is less common in the demo than `apply_patch`, but it exists to
+    show the harness can support both targeted edits and full-file writes.
+    """
+
+    name = "write_file"
+    description = "write file"
+
+    def __init__(self, sandbox, auto_approve_writes: bool = True):
+        """Store sandbox and write policy used before touching disk."""
+
+        self.sandbox = sandbox
+        self.policy = PermissionPolicy(auto_approve_writes)
+        self.auto_approve_writes = auto_approve_writes
+
+    def schema(self):
+        """Tell the LLM this tool needs a target path and complete content."""
+
+        return {
+            "name": self.name,
+            "description": self.description,
+            "arguments": {"path": "str", "content": "str"},
+        }
+
     def execute(self, arguments):
-        d,r=self.policy.decide("write")
-        if d==PermissionDecision.DENY: return Observation(self.name,False,r)
-        if d==PermissionDecision.ASK and not self.auto: return Observation(self.name,False,"needs_approval")
-        p=self.sandbox.ensure_safe_path(arguments["path"]); p.parent.mkdir(parents=True,exist_ok=True); p.write_text(arguments["content"],encoding="utf-8")
-        return Observation(self.name,True,f"written: {arguments['path']}")
+        """Write content after approval and workspace path validation."""
+
+        decision, reason = self.policy.decide("write")
+        if decision == PermissionDecision.DENY:
+            return Observation(self.name, False, reason)
+        if decision == PermissionDecision.ASK and not self.auto_approve_writes:
+            return Observation(self.name, False, "needs_approval")
+
+        path = self.sandbox.ensure_safe_path(arguments["path"])
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(arguments["content"], encoding="utf-8")
+        return Observation(self.name, True, f"written: {arguments['path']}")

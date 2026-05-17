@@ -14,6 +14,7 @@
 
 - [ ] 知道 `run_demo.py` 只是薄入口。
 - [ ] 能说清 `cli.py` 里 single/multi/workflow 三个分支。
+- [ ] 能说清为什么当前只有 single 走完整 `AgentLoop`。
 - [ ] 能说清 `AgentLoop.run` 的主流程。
 - [ ] 能找到 `ToolRegistry.execute`。
 - [ ] 能找到 command policy 和 workspace sandbox。
@@ -46,6 +47,7 @@
 - [ ] 能画出 CLI -> AgentLoop -> LLM -> ToolRegistry -> Observation -> Trace。
 - [ ] 能解释 workflow 和 agent 的区别。
 - [ ] 能解释 supervisor/subagent 为什么需要 handoff。
+- [ ] 能解释当前 multi mode 为什么是教学版，不是生产级 scheduler。
 - [ ] 能解释 eval 为什么不是硬编码。
 
 ## 第六阶段：能回答深挖
@@ -54,7 +56,7 @@
 - [ ] 如果问 command policy，你能说网络命令和危险命令风险。
 - [ ] 如果问 context，你能说 repo map、retrieval、memory、symbol search、file ranking。
 - [ ] 如果问 LLM provider，你能说 OpenAI-compatible 和 profile。
-- [ ] 如果问生产化，你能说 model gateway、LSP、JSON Schema、容器 sandbox、eval history。
+- [ ] 如果问生产化，你能说 AgentLoop-backed subagents、任务 DAG、model gateway、LSP、JSON Schema、容器 sandbox、eval history。
 
 ## 推荐练习顺序
 
@@ -92,6 +94,7 @@ scripts/verify.sh
 
 - `docs/study-pack/04-interview-narrative.md`
 - `docs/study-pack/05-deep-dive-prep.md`
+- `docs/study-pack/07-design-context-and-tradeoffs.md`
 
 第 5 天：
 
@@ -101,6 +104,7 @@ scripts/verify.sh
 这个项目是什么？
 single mode 怎么跑？
 multi mode 为什么要 supervisor？
+为什么当前 multi 没有复用 AgentLoop？
 workflow 和 agent 有什么区别？
 为什么默认 MockLLM？
 怎么接公司 API？

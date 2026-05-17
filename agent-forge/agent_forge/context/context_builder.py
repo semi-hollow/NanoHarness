@@ -7,6 +7,8 @@ from .token_budget import truncate
 
 @dataclass
 class ContextBuildReport:
+    """All context pieces assembled for one LLM turn."""
+
     system_prompt: str
     user_task: str
     repo_map: str
@@ -21,6 +23,8 @@ class ContextBuildReport:
     truncated: bool
 
     def render(self) -> str:
+        """Serialize context into the system message consumed by LLM clients."""
+
         docs = "\n".join(self.retrieved_docs)
         selected = "\n".join(self.selected_files)
         return (
@@ -39,7 +43,18 @@ class ContextBuildReport:
         )
 
 
-def build_context_report(task, repo_map, memory, docs=None, max_chars=2000, root=".", tools=None, permission_summary="read allowed; write asks approval; dangerous commands denied") -> ContextBuildReport:
+def build_context_report(
+    task,
+    repo_map,
+    memory,
+    docs=None,
+    max_chars=2000,
+    root=".",
+    tools=None,
+    permission_summary="read allowed; write asks approval; dangerous commands denied",
+) -> ContextBuildReport:
+    """Build the context object AgentLoop sends to the next LLM call."""
+
     files = [line for line in repo_map.splitlines() if line.strip()]
     selected_files = rank_files(task, files, root=root)[:8]
     retrieved_docs = retrieve(task, docs or files)
@@ -75,5 +90,7 @@ def build_context_report(task, repo_map, memory, docs=None, max_chars=2000, root
 
 
 def build_context(task, repo_map, memory, tools):
+    """Backward-compatible helper returning rendered context as a string."""
+
     report = build_context_report(task, repo_map, memory, tools=tools)
     return f"task:{task}\n{report.render()}\ntools:{tools}"

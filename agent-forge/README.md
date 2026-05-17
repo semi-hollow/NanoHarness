@@ -1,31 +1,63 @@
 # Agent Forge
 
-Agent Forge is a compact Agent Harness for learning and interviewing: agent loop, tool calling, safety, context engineering, observability, eval, and production-readiness design in one standard-library-first Python project.
+Agent Forge is a compact coding-agent harness for learning and interviewing. It shows how an LLM becomes a controlled execution system: context assembly, tool calling, permission checks, sandboxed execution, observation feedback, trace, and executable eval.
 
-It is not a model, not a Claude clone, and not an OpenCode config pack. It is a small engineering lab for one question: how can an LLM become a controlled execution system for code tasks?
+The project is intentionally small. Do not read it as a production platform; read it as a clear map of the core engineering pieces behind a coding agent.
 
-The project source of truth is `00-项目原始设计方案-source-of-truth.md`. Read it first when comparing implementation gaps or continuing this project in a new Codex conversation.
+## Start Here
+
+Use this order:
+
+1. Run the project.
+2. Read the code map.
+3. Read the key-file walkthrough.
+4. Run all modes and inspect trace.
+5. Practice the interview narrative.
+6. Prepare deep-dive answers.
+
+The learning pack is here:
+
+```text
+docs/study-pack/README.md
+```
 
 ## Quickstart
 
 ```bash
+cd /path/to/NanoHarness/agent-forge
 source .venv/bin/activate
 scripts/verify.sh
 ```
 
-The verification script selects the local `.venv` Python when available and runs compile checks, single/multi/workflow demos, unit tests, and the eval benchmark.
+Passing signals:
 
-To run demos one by one:
-
-```bash
-python run_demo.py --mode single
-python run_demo.py --mode multi
-python run_demo.py --mode workflow
-python -m unittest discover tests
-python -m agent_forge.eval.eval_runner
+```text
+Final: pass
+final_status='success'
+Ran 48 tests ... OK
+eval_report.md generated
+Verification passed.
 ```
 
-Default demos use `MockLLMClient`, so no API key is required. Optional OpenAI-compatible mode can be configured by CLI flags, environment variables, or a local `llm_profiles.json`.
+Run the three modes directly:
+
+```bash
+scripts/run_all_modes.sh
+```
+
+Or run one mode at a time:
+
+```bash
+python run_demo.py --mode single --trace-file trace-single.json
+python run_demo.py --mode multi --trace-file trace-multi.json
+python run_demo.py --mode workflow
+```
+
+## LLM Switching
+
+Default mode uses `MockLLMClient`, so it works offline.
+
+OpenAI-compatible API:
 
 ```bash
 python run_demo.py --mode single --llm openai \
@@ -34,155 +66,81 @@ python run_demo.py --mode single --llm openai \
   --model qwen2.5-coder:7b
 ```
 
-For reusable local model profiles, copy `llm_profiles.example.json` to `llm_profiles.json` and run:
+Reusable local profile:
 
 ```bash
+cp llm_profiles.example.json llm_profiles.json
 python run_demo.py --mode single --llm-profile ollama-qwen
 ```
 
-It also accepts `AGENT_FORGE_BASE_URL`, `AGENT_FORGE_API_KEY`, and `AGENT_FORGE_MODEL`, plus the `OPENAI_BASE_URL`, `OPENAI_API_KEY`, and `OPENAI_MODEL` aliases.
-
-See `PROJECT_MASTERY_GUIDE.md` and `docs/study-pack/` for the full run-and-learn path.
-
-Verified local results are recorded in `docs/run-results.md`: 44 unittest tests passed, 19/19 eval cases passed, and single/multi/workflow demos exited successfully.
-
-## Why These Choices
-
-- Python: easy to read, common in agent tooling, and friendly for interviews.
-- `argparse`: standard-library CLI, no install step needed.
-- `unittest`: standard-library test runner, stable on a fresh machine.
-- MockLLM: deterministic demos and tests without API keys.
-- JSON trace: readable, auditable, and easy to turn into metrics.
-- keyword RAG / repo map first: teaches retrieval and context budget without vector database setup.
-- no heavy framework by default: the goal is to expose the control layer directly.
-
-## V1 / V2 Capability Matrix
-
-| Area | V1 MVP | V2 |
-| --- | --- | --- |
-| LLM | MockLLMClient | Optional OpenAI-compatible client, tool call parsing, invalid response errors |
-| Agent loop | Single-agent loop | Preserved and documented for deeper interview discussion |
-| Multi-agent | Supervisor handoff demo | Eval and trace metrics make handoff explainable |
-| Workflow | Deterministic workflow mode | Preserved as workflow-vs-agent contrast |
-| Tools | read/write/patch/grep/run/git/ask_human | MCP-style local tool adapter |
-| Context | repo map + keyword retrieval | symbol_search, file_ranker, budget report |
-| Safety | guardrail, sandbox, permission | safety eval cases for secret/network/false claim |
-| Observability | JSON trace | metrics summary from trace JSON |
-| Eval | 6 cases | 19 cases, real verify.py execution, pass-rate report |
-| Docs | learning notes | production readiness, LSP, MCP adapter, resume/project scripts |
+Never commit real API keys. `llm_profiles.json`, `.env`, and `.env.local` are ignored.
 
 ## Architecture
 
 ```mermaid
 flowchart LR
-    User["User task"] --> Guardrail["Input guardrail"]
-    Guardrail --> Loop["AgentLoop"]
-    Loop --> LLM["MockLLM or OpenAI-compatible client"]
-    LLM --> Parser["ToolCall parser"]
-    Parser --> Policy["Permission policy"]
+    User["User task"] --> CLI["CLI / mode selection"]
+    CLI --> Loop["AgentLoop"]
+    CLI --> Supervisor["SupervisorAgent"]
+    CLI --> Workflow["Workflow"]
+    Loop --> Context["Context builder"]
+    Loop --> LLM["MockLLM / OpenAI-compatible LLM"]
+    LLM --> Tools["Tool calls"]
+    Tools --> Policy["Guardrails + Permission"]
     Policy --> Registry["ToolRegistry"]
-    Registry --> Tools["Built-in tools + MCP-style adapters"]
-    Tools --> Sandbox["Workspace sandbox"]
-    Tools --> Obs["Observation"]
-    Obs --> Loop
-    Loop --> Trace["Trace JSON"]
-    Trace --> Metrics["Metrics summary"]
-    Metrics --> Eval["Eval report"]
+    Registry --> Sandbox["Workspace sandbox"]
+    Sandbox --> Observation["Observation"]
+    Observation --> Loop
+    Loop --> Trace["Trace JSON + metrics"]
 ```
-
-## Eval
-
-The benchmark currently has 19 cases. Each case includes:
-
-- `task.md`
-- `verify.py`
-
-`eval_runner` executes each `verify.py` and writes `eval_report.md` with total, passed, failed, pass rate, failed case list, and metrics.
-
-## Capability Evidence
-
-See `docs/capability-evidence-map.md`.
-
-## Five-Minute Review Path
-
-1. Read `00-项目原始设计方案-source-of-truth.md`.
-2. Read this README.
-3. Run `scripts/verify.sh`.
-4. Inspect `agent_forge/runtime/agent_loop.py`.
-5. Inspect `agent_forge/safety/` and `agent_forge/eval/eval_runner.py`.
-6. Use `docs/reviewer-guide.md` for a fuller review checklist.
 
 ## Project Structure
 
-- `agent_forge/runtime`: agent loop, state, planner, LLM clients, stop conditions.
-- `agent_forge/tools`: tool registry and built-in tools.
-- `agent_forge/safety`: permission, sandbox, command policy, guardrails.
-- `agent_forge/context`: repo map, memory, RAG, symbol search, file ranking, budget report.
-- `agent_forge/agents`: Supervisor and Planner/Coding/Tester/Reviewer subagents.
-- `agent_forge/observability`: trace JSON, summary writer, metrics.
-- `agent_forge/eval`: executable eval runner and report generation.
-- `scripts`: one-command local verification.
-- `docs`: design docs and interview materials.
-- `tutorials`: nanoAgent-style learning path.
+```text
+agent_forge/
+  cli.py                 # CLI, mode selection, LLM config
+  runtime/               # AgentLoop, messages, tool calls, stop conditions
+  tools/                 # read/write/patch/grep/run/git/ask_human
+  safety/                # guardrails, permission, command policy, sandbox
+  context/               # repo map, memory, retrieval, symbol search, ranking
+  agents/                # Supervisor + Planner/Coding/Tester/Reviewer
+  workflows/             # deterministic workflow contrast
+  observability/         # trace, metrics, summary
+  eval/                  # eval runner and result model
+tests/                   # unit tests
+eval_cases/              # executable behavior checks
+examples/demo_repo/      # tiny repo the agent fixes
+scripts/                 # setup and verification scripts
+docs/study-pack/         # concise learning/interview docs
+```
 
-## Learning Route
+## What To Read
 
-1. Agent loop: `docs/01-agent-loop.md`
-2. Tool calling: `docs/03-tool-calling.md`
-3. Safety: `docs/08-permission-and-sandbox.md`, `docs/09-guardrails-and-human-approval.md`
-4. Context V2: `docs/06-context-engineering.md`, `docs/19-lsp-and-symbol-search.md`
-5. Observability/eval: `docs/10-observability-and-tracing.md`, `docs/11-evaluation.md`
-6. Production: `docs/12-production-readiness.md`
-
-## Interview Route
-
-1. Start with `docs/20-resume-bullet-and-project-script.md`.
-2. Use `docs/17-architecture-whiteboard.md` for the whiteboard story.
-3. Practice `docs/14-interview-qa.md` for 80+ follow-up questions.
-4. Run the commands in Quickstart during the demo.
-
-30-second version:
-
-> I built Agent Forge to make the control layer behind coding agents explicit: context assembly, tool routing, permission checks, observation feedback, tracing, and evaluation.
-
-1-minute version:
-
-> I built a compact Agent Harness to answer one question: how can we turn an LLM from a text generator into a controlled execution system for code tasks? The hardest part was not calling the model, but making tool execution safe, observable, and evaluatable. I implemented a single-agent loop, a supervisor/subagent workflow, permission sandboxing, trace logging, and an executable eval benchmark.
-
-Architecture whiteboard entry:
-
-> Let me draw the architecture to make sure we are aligned.
-
-## Current Boundaries
-
-- Default mode is MockLLM; it does not represent real model intelligence.
-- Multi-agent mode is a supervisor/subagent demo, not complex autonomous collaboration.
-- Sandbox is local workspace-level protection, not OS/container-level isolation.
-- RAG is keyword retrieval, not a vector database.
-- Symbol search is an AST MVP, not full LSP.
-- MCP-style adapter is not full MCP.
-- Production readiness is design documentation and roadmap, not a deployed production service.
-- The OpenAI-compatible client is intentionally small and SDK-free.
-- The MCP-style adapter is not a complete MCP protocol implementation.
-- `symbol_search` uses Python AST, not a real LSP server.
-- The benchmark is local and deterministic; it does not claim production traffic metrics.
-- Trace metrics summarize local runs and are not a full telemetry backend.
+```text
+docs/study-pack/01-code-map-and-architecture.md
+docs/study-pack/02-key-file-walkthrough.md
+docs/study-pack/03-run-modes-and-trace-reading.md
+docs/study-pack/04-interview-narrative.md
+docs/study-pack/05-deep-dive-prep.md
+docs/study-pack/06-personal-study-checklist.md
+docs/study-pack/07-design-context-and-tradeoffs.md
+```
 
 ## Generated Artifacts
 
-Demo and eval runs generate local artifacts:
+These files are local run output and are ignored:
 
-- `eval_report.md`
-- `agent_forge_trace.json`
-- `*_trace.json`
-- `summary.md`
+```text
+eval_report.md
+agent_forge_trace.json
+trace-*.json
+trace-*.pretty.json
+summary.md
+```
 
-These are ignored by git. Use `scripts/verify.sh` to regenerate them and `docs/run-results.md` for checked-in run evidence.
+Regenerate them with:
 
-## Roadmap
-
-- Add an LSP-backed `SymbolProvider`.
-- Add a model gateway abstraction with routing, fallback, cost tracking, and rate limits.
-- Add GitHub PR bot integration with draft PR workflow.
-- Store eval history over time for regression trends.
-- Add richer typed tool schemas and argument validation.
+```bash
+scripts/verify.sh
+scripts/run_all_modes.sh
+```

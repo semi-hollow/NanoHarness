@@ -10,6 +10,7 @@
 4. `04-interview-narrative.md`：把项目讲成一条清楚的故事线。
 5. `05-deep-dive-prep.md`：准备面试官继续追问时的细节。
 6. `06-personal-study-checklist.md`：最后用清单确认你真的掌握了。
+7. `07-design-context-and-tradeoffs.md`：看清哪些是教学实现、哪些是生产级缺口，避免误读代码。
 
 如果你只想快速复习，按这个 30 分钟路线走：
 
@@ -17,7 +18,8 @@
 01 看架构图 5 分钟
 02 看 cli.py / agent_loop.py 10 分钟
 03 跑 scripts/run_all_modes.sh 并读 trace 10 分钟
-04 背 04 的 30 秒 / 1 分钟讲法 5 分钟
+04 看 07 的实现边界 3 分钟
+05 背 04 的 30 秒 / 1 分钟讲法 2 分钟
 ```
 
 如果你要准备正式面试，至少完整跑一遍：
