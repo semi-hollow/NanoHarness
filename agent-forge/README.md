@@ -1,8 +1,8 @@
 # Agent Forge
 
-Agent Forge is a compact coding-agent harness for learning and interviewing. It shows how an LLM becomes a controlled execution system: context assembly, tool calling, permission checks, sandboxed execution, observation feedback, trace, and executable eval.
+Agent Forge is a compact coding-agent runtime for learning and interviewing. It shows how an LLM becomes a controlled execution system: context assembly, tool calling, permission checks, sandboxed execution, observation feedback, trace, and executable eval.
 
-The project is intentionally small. Do not read it as a production platform; read it as a clear map of the core engineering pieces behind a coding agent.
+The project is intentionally compact, but it now includes production-oriented slices expected in senior AI agent interviews: model gateway, runtime-backed multi-agent orchestration, task graph scheduling, session artifacts, diagnostics, diff tracking, rollback bundle, run reports, and eval history.
 
 ## Start Here
 
@@ -34,7 +34,7 @@ Passing signals:
 ```text
 Final: pass
 final_status='success'
-Ran 48 tests ... OK
+Ran 53 tests ... OK
 eval_report.md generated
 Verification passed.
 ```
@@ -51,6 +51,14 @@ Or run one mode at a time:
 python run_demo.py --mode single --trace-file trace-single.json
 python run_demo.py --mode multi --trace-file trace-multi.json
 python run_demo.py --mode workflow
+```
+
+Session and rollback commands:
+
+```bash
+python run_demo.py --list-sessions
+python run_demo.py --show-run <session_id>
+python run_demo.py --rollback-run <session_id>
 ```
 
 ## LLM Switching
@@ -100,12 +108,14 @@ flowchart LR
 agent_forge/
   cli.py                 # CLI, mode selection, LLM config
   runtime/               # AgentLoop, messages, tool calls, stop conditions
+  models/                # ModelGateway, retry/fallback, usage telemetry
   tools/                 # read/write/patch/grep/run/git/ask_human
   safety/                # guardrails, permission, command policy, sandbox
   context/               # repo map, memory, retrieval, symbol search, ranking
   agents/                # Supervisor + Planner/Coding/Tester/Reviewer
-  workflows/             # deterministic workflow contrast
+  workflows/             # task graph scheduler + deterministic workflow contrast
   observability/         # trace, metrics, summary
+  production/            # diff tracking, run reports, readiness notes
   eval/                  # eval runner and result model
 tests/                   # unit tests
 eval_cases/              # executable behavior checks
@@ -124,6 +134,7 @@ docs/study-pack/04-interview-narrative.md
 docs/study-pack/05-deep-dive-prep.md
 docs/study-pack/06-personal-study-checklist.md
 docs/study-pack/07-design-context-and-tradeoffs.md
+docs/study-pack/08-production-interview-upgrade.md
 ```
 
 ## Generated Artifacts
@@ -136,6 +147,7 @@ agent_forge_trace.json
 trace-*.json
 trace-*.pretty.json
 summary.md
+.agent_forge/runs/<run_id>/
 ```
 
 Regenerate them with:

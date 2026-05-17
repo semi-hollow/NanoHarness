@@ -6,6 +6,7 @@ from dataclasses import asdict
 from pathlib import Path
 
 from .eval_case import EvalResult
+from .eval_history import EvalHistory
 from agent_forge.observability.metrics import summarize, summarize_trace_file
 
 
@@ -126,6 +127,7 @@ def main():
     for r in results:
         lines.append(f"- {r.case_id}: command=`{r.command}`, task_chars={len(r.task)}, verify={'pass' if r.passed else 'fail'}")
     Path("eval_report.md").write_text("\n".join(lines), encoding="utf-8")
+    EvalHistory().append(results)
     print("eval_report.md generated")
 
 

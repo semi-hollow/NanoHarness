@@ -178,11 +178,11 @@
 
 必须主动补充的边界：
 
-> 当前项目里的 multi mode 是教学版 supervisor workflow。它没有并发，也没有让每个 subagent 走完整 AgentLoop。它的价值是展示 handoff、retry 和 review gate。生产级会把 AgentLoop 抽成通用 AgentRuntime，让 supervisor 调度多个 runtime-backed subagents。
+> 当前项目里的 multi mode 已经升级为 runtime-backed supervisor workflow。它没有并发，但每个 subagent 都通过 AgentRuntime 复用 AgentLoop，并且由 AgentSpec 控制 role、prompt、工具权限和 max_steps。它的价值是展示 handoff、retry、review gate 和生产形状的任务图调度。
 
 如果面试官继续问“为什么现在没这么做”，答：
 
-> 因为这个项目先把两个概念拆开：single mode 负责展示完整 agent runtime，multi mode 负责展示 supervisor orchestration。这样学习成本更低，也更容易通过 trace 验证每个机制。下一步才是把两者合并成真正的 multi-agent scheduler。
+> 因为这个项目现在选择顺序 DAG 来保证可复现。它已经把 runtime 和 supervisor 合并起来了，下一步不是重写，而是把 TaskScheduler 升级成并发 ready-node 执行，并加入 ownership 和 patch conflict merge。
 
 ## 10. Workflow 和 Agent 怎么取舍？
 
@@ -265,12 +265,12 @@
 
 短答：
 
-> 我会优先补 AgentLoop-backed subagents、任务 DAG 调度、model gateway、LSP provider、更严格 tool schema、容器级 sandbox 和 eval history。
+> 我会继续补并发 scheduler、LSP provider、更严格 tool schema、容器级 sandbox、真实 cost accounting 和更完整的 MCP/tool plugin 体系。
 
 深挖点：
 
-- AgentLoop-backed subagents：每个角色都有自己的 runtime、prompt、context、tool 权限；
-- task DAG：支持并发、依赖、ownership、冲突处理；
+- concurrent scheduler：并发执行 ready nodes；
+- ownership/conflict merge：处理多个 worker 同时改文件；
 - model gateway：routing、fallback、rate limit、cost；
 - LSP：definition/references/diagnostics；
 - schema：JSON Schema / pydantic；
