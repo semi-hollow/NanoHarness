@@ -11,7 +11,14 @@ from agent_forge.safety.permission import PermissionPolicy, PermissionDecision
 
 
 class AgentLoop:
-    """Single-agent control loop for context, LLM calls, tools, and trace."""
+    """Single-agent control loop for context, LLM calls, tools, and trace.
+
+    This is the project's real agent runtime. It is called by ``single`` mode
+    today. The ``multi`` demo does not reuse it yet because that path is focused
+    on explaining supervisor handoff separately. A production multi-agent
+    version should usually wrap this same loop as a reusable AgentRuntime for
+    each role-specific worker.
+    """
 
     def __init__(self, config, trace, registry, llm=None):
         """Receive runtime dependencies from CLI instead of constructing globals."""
@@ -23,7 +30,13 @@ class AgentLoop:
         self.planner = SimplePlanner()
 
     def run(self, task, agent_name="CodingAgent"):
-        """Run one task until final answer, guardrail block, or stop condition."""
+        """Run one task until final answer, guardrail block, or stop condition.
+
+        The loop is deliberately observation-driven: the model proposes a tool
+        call, runtime executes it under policy, and the resulting Observation is
+        fed back into the next LLM call. That is the key distinction from the
+        deterministic workflow demo.
+        """
 
         self.trace.set_run_context(task=task)
 

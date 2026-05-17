@@ -63,6 +63,24 @@ else:
     AgentLoop(...).run(...)
 ```
 
+这段分支是整个项目最重要的“实现背景”之一：
+
+- `single` 进入完整 `AgentLoop`，这是核心 runtime。
+- `multi` 没有进入 `AgentLoop`，因为它当前只演示 supervisor 如何按阶段把任务交给几个角色对象。
+- `workflow` 也没有进入 `AgentLoop`，因为它只是固定状态机，用来做对照组。
+
+不要把这个设计误读成“多 agent 不需要 agent loop”。更准确的理解是：
+
+```text
+当前版本：
+  single   = 完整 agent runtime
+  multi    = 角色编排 demo
+  workflow = 固定流程 demo
+
+生产演进：
+  supervisor 调度多个 AgentLoop-backed subagents
+```
+
 面试讲法：
 
 > CLI does not contain the agent algorithm. It composes runtime dependencies: trace recorder, tool registry, LLM client, and the selected execution mode.
@@ -257,6 +275,37 @@ input guardrail
 
 作用：multi mode 的总控。
 
+先说结论：这里是教学版 multi-agent，不是生产级 multi-agent。
+
+当前代码把顺序写死：
+
+```text
+PlannerAgent
+  -> CodingAgent
+  -> TesterAgent
+  -> CodingAgent retry if tests fail
+  -> TesterAgent retest
+  -> ReviewerAgent
+```
+
+为什么这么写：
+
+- 让你一眼看到 supervisor 如何 handoff；
+- 让 trace 里能看到每个角色的责任边界；
+- 让 tester 失败后回到 coder 的 retry 逻辑变得明确；
+- 避免一开始就引入 DAG scheduler、并发、patch merge 等复杂问题。
+
+它缺什么：
+
+- subagent 不是独立 AgentLoop；
+- 没有并发；
+- 没有动态任务拆分；
+- 没有 per-agent context；
+- 没有冲突合并；
+- 没有结构化 artifact contract。
+
+所以你读这个文件时，不要纠结“为什么这么死板”。它的作用是把最基础的 supervisor 模型摊开给你看。
+
 你要看：
 
 - phase 如何切换；
@@ -267,6 +316,10 @@ input guardrail
 面试讲法：
 
 > Subagents are coordinated by a supervisor. They do not call each other freely, which keeps control flow auditable.
+
+更完整的面试讲法：
+
+> In this project, multi mode is intentionally a minimal supervised workflow. It is not meant to prove production-grade multi-agent scheduling. The production version would make each subagent an AgentLoop-backed worker with role-specific prompts, context retrieval, tool permissions, and stop conditions, while the supervisor manages a task DAG, retries, conflicts, and aggregation.
 
 ## 12. `agent_forge/eval/eval_runner.py`
 

@@ -1,3 +1,19 @@
+"""CLI composition layer for the three demo execution modes.
+
+The three modes are intentionally not equal in sophistication:
+
+* ``single`` is the real agent-runtime path. It builds ``AgentLoop`` and shows
+  the full context -> LLM -> tool -> observation cycle.
+* ``multi`` is a supervised orchestration demo. It shows handoff, phases,
+  retry, and trace, but its subagents are lightweight role objects rather than
+  independent AgentLoop instances.
+* ``workflow`` is a deterministic baseline. It exists to contrast fixed control
+  flow with an observation-driven agent loop.
+
+This distinction is project context, not obvious Python mechanics, so it lives
+here where readers first encounter mode dispatch.
+"""
+
 import argparse
 from pathlib import Path
 
@@ -91,11 +107,23 @@ def main() -> None:
     trace = TraceRecorder(args.trace_file)
     auto_approve = not args.no_auto_approve
 
+    # Current design boundary:
+    # multi mode does not reuse AgentLoop yet. It is deliberately smaller so the
+    # study project can isolate "supervisor handoff" from "full autonomous
+    # agent runtime". A production multi-agent version would usually run each
+    # subagent through its own AgentLoop/AgentRuntime and let the supervisor
+    # schedule those loops.
     if args.mode == "multi":
         print(SupervisorAgent().run(trace, args.task, build_registry(args.workspace, auto_approve)))
     elif args.mode == "workflow":
+        # workflow mode is intentionally deterministic. It proves the shape of a
+        # plan-code-test-review state machine without LLM calls or tool
+        # observations, so it should not be read as an intelligent agent path.
         print(run_workflow(args.task))
     else:
+        # single mode is the canonical runtime path: it assembles context, calls
+        # the selected LLM, validates tool calls, executes tools through the
+        # registry, feeds observations back, and writes trace evidence.
         runtime_config = RuntimeConfig(
             workspace=args.workspace,
             max_steps=args.max_steps,

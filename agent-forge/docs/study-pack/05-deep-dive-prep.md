@@ -176,6 +176,14 @@
 - `agent_forge/agents/handoff.py`
 - `trace-multi.pretty.json`
 
+必须主动补充的边界：
+
+> 当前项目里的 multi mode 是教学版 supervisor workflow。它没有并发，也没有让每个 subagent 走完整 AgentLoop。它的价值是展示 handoff、retry 和 review gate。生产级会把 AgentLoop 抽成通用 AgentRuntime，让 supervisor 调度多个 runtime-backed subagents。
+
+如果面试官继续问“为什么现在没这么做”，答：
+
+> 因为这个项目先把两个概念拆开：single mode 负责展示完整 agent runtime，multi mode 负责展示 supervisor orchestration。这样学习成本更低，也更容易通过 trace 验证每个机制。下一步才是把两者合并成真正的 multi-agent scheduler。
+
 ## 10. Workflow 和 Agent 怎么取舍？
 
 短答：
@@ -192,7 +200,7 @@
 项目证据：
 
 - `agent_forge/workflows/coding_workflow.py`
-- `docs/02-workflow-vs-agent.md`
+- `docs/study-pack/03-run-modes-and-trace-reading.md`
 
 ## 11. Trace 的价值是什么？
 
@@ -257,10 +265,12 @@
 
 短答：
 
-> 我会优先补 model gateway、LSP provider、更严格 tool schema、容器级 sandbox 和 eval history。
+> 我会优先补 AgentLoop-backed subagents、任务 DAG 调度、model gateway、LSP provider、更严格 tool schema、容器级 sandbox 和 eval history。
 
 深挖点：
 
+- AgentLoop-backed subagents：每个角色都有自己的 runtime、prompt、context、tool 权限；
+- task DAG：支持并发、依赖、ownership、冲突处理；
 - model gateway：routing、fallback、rate limit、cost；
 - LSP：definition/references/diagnostics；
 - schema：JSON Schema / pydantic；
@@ -269,9 +279,9 @@
 
 项目证据：
 
-- `docs/12-production-readiness.md`
-- `docs/19-lsp-and-symbol-search.md`
-- `docs/limitations.md`
+- `agent_forge/production/readiness.py`
+- `agent_forge/production/risk_registry.py`
+- `docs/study-pack/01-code-map-and-architecture.md`
 
 ## 15. 面试回答模板
 

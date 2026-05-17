@@ -5,7 +5,12 @@ from .tester_agent import TesterAgent
 
 
 def build_default_agents():
-    """Return the default subagent map for experiments outside SupervisorAgent."""
+    """Return the default subagent map for experiments outside SupervisorAgent.
+
+    The current SupervisorAgent instantiates role objects directly so its order
+    is easy to read. This registry is kept as the extension point for a future
+    scheduler that chooses agents by name or capability.
+    """
 
     return {
         "PlannerAgent": PlannerAgent(),
