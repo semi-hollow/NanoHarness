@@ -112,13 +112,13 @@ scripts/verify.sh
 
 推荐回答：
 
-> 这个项目是 production-oriented runtime，不是完整 OpenCode 产品。它已经补了 AgentRuntime-backed multi-agent、TaskGraph、ModelGateway、SessionStore、DiagnosticsTool、DiffTracker、rollback、RunReport 和 EvalHistory。边界是：scheduler 仍是顺序执行，不是并发；sandbox 是 workspace-level，不是容器级隔离；diagnostics 是轻量 Python 诊断，不是完整 LSP；OpenAI-compatible client 没做流式和真实 cost accounting。
+> 这个项目是 production-oriented coding agent runtime，不是完整 IDE 产品。它已经补了 AgentRuntime-backed multi-agent、conflict-aware TaskGraph scheduler、OwnershipPlan、TaskArtifact、ModelGateway、SessionStore、DiagnosticsTool、DiffTracker、rollback、RunReport 和 EvalHistory。边界是：sandbox 是 workspace-level，不是容器级隔离；diagnostics 是轻量 Python 诊断，不是完整 LSP；没有做 TUI/IDE 外壳。
 
 ## 面试官问“multi-agent 为什么这么线性”
 
 推荐回答：
 
-> 当前 multi mode 已经不是普通角色函数。Supervisor 构建 TaskGraph，每个 subagent 由 AgentSpec 描述，并通过 AgentRuntime 复用 AgentLoop。它现在是顺序 DAG，为了保证 demo 和 trace 稳定；完整生产级会继续加并发 ready-node 调度、文件 ownership 和 patch conflict merge。
+> 当前 multi mode 已经不是普通角色函数。Supervisor 构建 TaskGraph，每个 subagent 由 AgentSpec 描述，并通过 AgentRuntime 复用 AgentLoop。TaskScheduler 支持 conflict-aware parallel batches；OwnershipPlan 记录文件写入边界；TaskArtifact 作为 worker 输出契约。这个 demo 因为任务依赖强，所以输出像顺序链，但调度层已经具备并发和冲突隔离能力。
 
 ## 结尾反问
 

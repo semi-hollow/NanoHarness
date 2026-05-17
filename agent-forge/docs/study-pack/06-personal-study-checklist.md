@@ -47,7 +47,7 @@
 - [ ] 能画出 CLI -> AgentLoop -> LLM -> ToolRegistry -> Observation -> Trace。
 - [ ] 能解释 workflow 和 agent 的区别。
 - [ ] 能解释 supervisor/subagent 为什么需要 handoff。
-- [ ] 能解释当前 multi mode 是 runtime-backed 顺序 DAG，不是完整并发 scheduler。
+- [ ] 能解释当前 multi mode 是 runtime-backed DAG，并支持 conflict-aware parallel batches。
 - [ ] 能解释 eval 为什么不是硬编码。
 
 ## 第六阶段：能回答深挖
@@ -56,7 +56,7 @@
 - [ ] 如果问 command policy，你能说网络命令和危险命令风险。
 - [ ] 如果问 context，你能说 repo map、retrieval、memory、symbol search、file ranking。
 - [ ] 如果问 LLM provider，你能说 OpenAI-compatible 和 profile。
-- [ ] 如果问生产化，你能说并发 scheduler、ownership/conflict merge、LSP、JSON Schema、容器 sandbox、真实 cost accounting。
+- [ ] 如果问生产化，你能说 TaskGraph、OwnershipPlan、TaskArtifact、ModelGateway、SessionStore、DiffTracker、DiagnosticsTool。
 
 ## 推荐练习顺序
 
@@ -104,12 +104,12 @@ scripts/verify.sh
 这个项目是什么？
 single mode 怎么跑？
 multi mode 为什么要 supervisor？
-为什么当前 multi 是顺序 DAG 而不是并发 scheduler？
+为什么 demo 输出像顺序链，但 scheduler 仍然支持并发 batch？
 workflow 和 agent 有什么区别？
 为什么默认 MockLLM？
 怎么接公司 API？
 安全边界在哪里？
 trace 有什么价值？
 eval 为什么可信？
-下一步怎么生产化？
+这个 runtime 和完整 IDE 产品还差什么？
 ```

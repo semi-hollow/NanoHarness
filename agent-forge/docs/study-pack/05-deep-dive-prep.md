@@ -178,11 +178,11 @@
 
 必须主动补充的边界：
 
-> 当前项目里的 multi mode 已经升级为 runtime-backed supervisor workflow。它没有并发，但每个 subagent 都通过 AgentRuntime 复用 AgentLoop，并且由 AgentSpec 控制 role、prompt、工具权限和 max_steps。它的价值是展示 handoff、retry、review gate 和生产形状的任务图调度。
+> 当前项目里的 multi mode 是 runtime-backed supervisor workflow。每个 subagent 都通过 AgentRuntime 复用 AgentLoop，并且由 AgentSpec 控制 role、prompt、工具权限、max_steps 和文件读写范围。TaskScheduler 支持 conflict-aware parallel batches，OwnershipPlan 管写入边界，TaskArtifact 管结构化产物。
 
 如果面试官继续问“为什么现在没这么做”，答：
 
-> 因为这个项目现在选择顺序 DAG 来保证可复现。它已经把 runtime 和 supervisor 合并起来了，下一步不是重写，而是把 TaskScheduler 升级成并发 ready-node 执行，并加入 ownership 和 patch conflict merge。
+> demo 输出像顺序，是因为这个任务天然依赖 plan -> code -> test -> review。调度器本身不是只能顺序执行：ready nodes 没有写冲突时可以并发；如果 write_files 重叠，会拆成不同 batch，避免多个 agent 覆盖同一文件。
 
 ## 10. Workflow 和 Agent 怎么取舍？
 
@@ -261,21 +261,19 @@
 - `local_scripts/run_llm_profile.sh`
 - `agent_forge/runtime/llm_config.py`
 
-## 14. 下一步怎么演进？
+## 14. 这个版本还可以怎么扩展？
 
 短答：
 
-> 我会继续补并发 scheduler、LSP provider、更严格 tool schema、容器级 sandbox、真实 cost accounting 和更完整的 MCP/tool plugin 体系。
+> 当前版本核心 runtime 已经完整。产品级扩展会放在 IDE/TUI、完整 LSP provider、容器级 sandbox、更严格 JSON Schema、真实 provider pricing 和 MCP/tool plugin 生态。
 
 深挖点：
 
-- concurrent scheduler：并发执行 ready nodes；
-- ownership/conflict merge：处理多个 worker 同时改文件；
-- model gateway：routing、fallback、rate limit、cost；
-- LSP：definition/references/diagnostics；
-- schema：JSON Schema / pydantic；
+- IDE/TUI：把 runtime 变成日常开发工具；
+- LSP provider：definition/references/diagnostics；
 - sandbox：container/firecracker/seccomp；
-- eval history：趋势和回归定位。
+- pricing：provider-specific token cost；
+- tool plugin：MCP-style marketplace；
 
 项目证据：
 

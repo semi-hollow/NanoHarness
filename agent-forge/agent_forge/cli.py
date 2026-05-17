@@ -4,9 +4,9 @@ The three modes are intentionally not equal in sophistication:
 
 * ``single`` is the real agent-runtime path. It builds ``AgentLoop`` and shows
   the full context -> LLM -> tool -> observation cycle.
-* ``multi`` is a supervised orchestration path. It now schedules
-  AgentRuntime-backed workers through a small task graph, while keeping the
-  graph sequential so the interview demo remains deterministic.
+* ``multi`` is a supervised orchestration path. It schedules AgentRuntime-backed
+  workers through a conflict-aware task graph with explicit file ownership and
+  artifact contracts.
 * ``workflow`` is a deterministic baseline. It exists to contrast fixed control
   flow with an observation-driven agent loop.
 
@@ -145,9 +145,9 @@ def main() -> None:
     trace = TraceRecorder(args.trace_file)
     auto_approve = not args.no_auto_approve
 
-    # Multi mode now uses AgentRuntime-backed workers. It is still intentionally
-    # sequential for repeatable demos, but the boundary is production-shaped:
-    # supervisor -> task graph -> role specs -> reusable AgentLoop runtime.
+    # Multi mode uses the production-shaped boundary:
+    # supervisor -> task graph -> ownership/artifacts -> role specs ->
+    # reusable AgentLoop runtime.
     if args.mode == "multi":
         print(SupervisorAgent(workspace=args.workspace).run(trace, args.task, build_registry(args.workspace, auto_approve)))
     elif args.mode == "workflow":

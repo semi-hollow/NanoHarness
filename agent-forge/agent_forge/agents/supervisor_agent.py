@@ -1,9 +1,8 @@
 """Runtime-backed supervised multi-agent orchestration.
 
-The original MVP used direct ``PlannerAgent().run(state)`` calls. That was
-useful for teaching, but too toy-like for senior AI agent interviews. This
-version keeps the same readable phase story while adding production-oriented
-structure:
+The original MVP used direct role-function calls. That was useful for learning
+but weak for senior AI agent interviews. This version keeps the readable phase
+story while adding production-oriented structure:
 
 * every subagent is described by an ``AgentSpec``;
 * each worker runs through ``AgentRuntime`` and therefore through AgentLoop;
@@ -11,16 +10,18 @@ structure:
 * failed tests trigger a retry node instead of being hidden in if/else prose;
 * handoff and scheduler events are still visible in trace.
 
-The scheduler remains sequential for determinism. The important upgrade is the
-architecture: the supervisor now coordinates runtime-backed workers, which is
-the shape that can evolve into parallel DAG execution.
+The scheduler supports conflict-aware parallel batches. This demo task is still
+mostly dependency-bound, but the orchestration layer has the production
+contracts interviewers expect: runtime-backed workers, file ownership,
+artifacts, retry, and review gates.
 """
 
 from agent_forge.models.gateway import ModelGateway
+from agent_forge.production.ownership import OwnershipPlan
 from agent_forge.runtime.agent_runtime import AgentRuntime
 from agent_forge.runtime.agent_spec import AgentRunResult, AgentSpec
 from agent_forge.runtime.llm_client import MockLLMClient
-from agent_forge.workflows.task_graph import TaskGraph, TaskNode, TaskScheduler, TaskStatus
+from agent_forge.workflows.task_graph import TaskGraph, TaskNode, TaskScheduler
 
 from .handoff import Handoff
 from .supervisor_phase import TaskPhase
@@ -84,6 +85,9 @@ class SupervisorAgent:
                 system_prompt="You are the coding worker. Read files and apply the required patch.",
                 allowed_tools={"read_file", "apply_patch"},
                 max_steps=4,
+                read_files={"examples/demo_repo/src/calculator.py"},
+                write_files={"examples/demo_repo/src/calculator.py"},
+                risk_level="medium",
             ),
             "TesterAgent": AgentSpec(
                 name="TesterAgent",
@@ -91,6 +95,7 @@ class SupervisorAgent:
                 system_prompt="You are the validation worker. Run the relevant tests and report evidence.",
                 allowed_tools={"run_command"},
                 max_steps=3,
+                read_files={"examples/demo_repo/tests/test_calculator.py"},
             ),
             "ReviewerAgent": AgentSpec(
                 name="ReviewerAgent",
@@ -98,6 +103,7 @@ class SupervisorAgent:
                 system_prompt="You are the review worker. Inspect diff evidence and summarize risk.",
                 allowed_tools={"git_diff", "git_status"},
                 max_steps=3,
+                read_files={"examples/demo_repo/src/calculator.py", "examples/demo_repo/tests/test_calculator.py"},
             ),
         }
 
@@ -129,13 +135,42 @@ class SupervisorAgent:
         trace.set_run_context(task=task)
         specs = self._specs()
         state = {"task": task, "trace": trace, "registry": registry, "retry_count": 0}
+        ownership = OwnershipPlan()
+        for spec in specs.values():
+            ownership.claim(spec.name, spec.write_files)
+        trace.add(
+            0,
+            "SupervisorAgent",
+            "ownership_plan",
+            ownership=ownership.to_dict(),
+            success=not ownership.has_conflicts(),
+        )
         lines = []
         step = 1
 
         graph = TaskGraph()
         graph.add(TaskNode("plan", "PlannerAgent", task))
-        graph.add(TaskNode("code", "CodingAgent", task, depends_on=["plan"]))
-        graph.add(TaskNode("test", "TesterAgent", task, depends_on=["code"]))
+        graph.add(
+            TaskNode(
+                "code",
+                "CodingAgent",
+                task,
+                depends_on=["plan"],
+                read_files=set(specs["CodingAgent"].read_files),
+                write_files=set(specs["CodingAgent"].write_files),
+                expected_artifacts={"agent_result"},
+            )
+        )
+        graph.add(
+            TaskNode(
+                "test",
+                "TesterAgent",
+                task,
+                depends_on=["code"],
+                read_files=set(specs["TesterAgent"].read_files),
+                expected_artifacts={"agent_result"},
+            )
+        )
 
         llm_modes = {
             "plan": "planner",
@@ -161,6 +196,7 @@ class SupervisorAgent:
             step += 1
             result = self._runtime(specs[node.agent_name], registry, trace, llm_modes[node.node_id]).run(node.task)
             state[node.agent_name] = result.final_answer
+            state.setdefault("artifacts", []).extend(artifact.to_dict() for artifact in result.artifacts)
             if node.agent_name == "CodingAgent":
                 state["code_done"] = result.success
                 if self._last_tool_success(result, "apply_patch"):
@@ -172,20 +208,46 @@ class SupervisorAgent:
                 state["review"] = "approved" if state.get("test_pass") else "changes required"
             return result
 
-        TaskScheduler(graph, {name: execute for name in specs}).run()
+        TaskScheduler(graph, {name: execute for name in specs}, max_workers=4).run()
 
         if not state.get("test_pass") and state.get("retry_count", 0) < self.policy.max_retry:
             state["retry_count"] = 1
             retry_graph = TaskGraph()
-            retry_graph.add(TaskNode("code_retry", "CodingAgent", task))
-            retry_graph.add(TaskNode("test_retry", "TesterAgent", task, depends_on=["code_retry"]))
+            retry_graph.add(
+                TaskNode(
+                    "code_retry",
+                    "CodingAgent",
+                    task,
+                    read_files=set(specs["CodingAgent"].read_files),
+                    write_files=set(specs["CodingAgent"].write_files),
+                    expected_artifacts={"agent_result"},
+                )
+            )
+            retry_graph.add(
+                TaskNode(
+                    "test_retry",
+                    "TesterAgent",
+                    task,
+                    depends_on=["code_retry"],
+                    read_files=set(specs["TesterAgent"].read_files),
+                    expected_artifacts={"agent_result"},
+                )
+            )
             llm_modes.update({"code_retry": "coder_fix", "test_retry": "tester"})
-            TaskScheduler(retry_graph, {name: execute for name in specs}).run()
+            TaskScheduler(retry_graph, {name: execute for name in specs}, max_workers=4).run()
 
         review_graph = TaskGraph()
-        review_graph.add(TaskNode("review", "ReviewerAgent", task))
+        review_graph.add(
+            TaskNode(
+                "review",
+                "ReviewerAgent",
+                task,
+                read_files=set(specs["ReviewerAgent"].read_files),
+                expected_artifacts={"agent_result"},
+            )
+        )
         llm_modes["review"] = "reviewer"
-        TaskScheduler(review_graph, {name: execute for name in specs}).run()
+        TaskScheduler(review_graph, {name: execute for name in specs}, max_workers=4).run()
 
         final_phase = TaskPhase.DONE if state.get("test_pass") and state.get("review") == "approved" else TaskPhase.FAILED
         final = "pass" if final_phase == TaskPhase.DONE else "fail"

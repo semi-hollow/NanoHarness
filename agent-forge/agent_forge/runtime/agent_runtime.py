@@ -2,6 +2,7 @@ from agent_forge.observability.metrics import summarize
 from agent_forge.runtime.agent_loop import AgentLoop
 from agent_forge.runtime.config import RuntimeConfig
 from agent_forge.runtime.observation import Observation
+from agent_forge.workflows.artifact import TaskArtifact
 
 from .agent_spec import AgentRunResult, AgentSpec
 
@@ -76,6 +77,20 @@ class AgentRuntime:
         events = self.trace.events[start_index:]
         metrics = summarize(events)
         success = not str(final_answer).startswith("blocked:")
+        artifacts = [
+            TaskArtifact(
+                kind="agent_result",
+                owner=self.spec.name,
+                summary=str(final_answer)[:300],
+                files=sorted(self.spec.write_files or self.spec.read_files),
+                data={
+                    "role": self.spec.role,
+                    "risk_level": self.spec.risk_level,
+                    "tool_call_count": int(metrics.get("tool_call_count", 0)),
+                    "failed_tool_call_count": int(metrics.get("failed_tool_call_count", 0)),
+                },
+            )
+        ]
         return AgentRunResult(
             agent_name=self.spec.name,
             final_answer=final_answer,
@@ -83,4 +98,5 @@ class AgentRuntime:
             events=events,
             tool_call_count=int(metrics.get("tool_call_count", 0)),
             failed_tool_call_count=int(metrics.get("failed_tool_call_count", 0)),
+            artifacts=artifacts,
         )

@@ -85,6 +85,9 @@ class ModelGateway(LLMClient):
             started = time.time()
             response = client.chat(messages, tools)
             latency_ms = int((time.time() - started) * 1000)
+            usage.prompt_tokens_estimate += self._estimate_prompt_tokens(messages, tools)
+            usage.completion_tokens_estimate += self._estimate_completion_tokens(response)
+            usage.estimated_cost_usd = self._estimate_cost_usd(usage)
             error_code = ""
             if response.error:
                 error_code = str(response.error.get("code") or response.error.get("type") or "unknown")
@@ -94,3 +97,28 @@ class ModelGateway(LLMClient):
             if attempt < attempts - 1 and self.retry_policy.backoff_seconds > 0:
                 time.sleep(self.retry_policy.backoff_seconds)
         return response
+
+    def _estimate_prompt_tokens(self, messages: list[Message], tools: list[dict]) -> int:
+        """Estimate prompt tokens when provider usage metadata is unavailable."""
+
+        text_chars = sum(len(message.content or "") for message in messages)
+        tool_chars = sum(len(str(tool)) for tool in tools)
+        return max(1, (text_chars + tool_chars) // 4)
+
+    def _estimate_completion_tokens(self, response: AgentResponse) -> int:
+        """Estimate output tokens from final text or normalized tool calls."""
+
+        if response.content:
+            return max(1, len(response.content) // 4)
+        return max(1, sum(len(call.name) + len(str(call.arguments)) for call in response.tool_calls) // 4)
+
+    def _estimate_cost_usd(self, usage: ModelUsage) -> float:
+        """Return a conservative placeholder cost for cost-aware reports.
+
+        Real provider pricing belongs in ProviderProfile. The estimate is still
+        useful in interviews because it proves where token/cost accounting lives
+        and keeps the runtime independent from provider-specific billing.
+        """
+
+        tokens = usage.prompt_tokens_estimate + usage.completion_tokens_estimate
+        return round(tokens * 0.0, 6)

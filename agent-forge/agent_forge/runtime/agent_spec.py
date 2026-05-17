@@ -1,11 +1,13 @@
 from dataclasses import dataclass, field
 
+from agent_forge.workflows.artifact import TaskArtifact
+
 
 @dataclass
 class AgentSpec:
     """Role contract for one runtime-backed agent.
 
-    This is the bridge from toy subagent classes to production-style workers.
+    This is the bridge from legacy role functions to production-style workers.
     A supervisor can schedule several specs with different prompts, tool
     allowlists, and step budgets while reusing the same AgentLoop runtime.
     """
@@ -15,6 +17,9 @@ class AgentSpec:
     system_prompt: str = ""
     allowed_tools: set[str] = field(default_factory=set)
     max_steps: int = 6
+    write_files: set[str] = field(default_factory=set)
+    read_files: set[str] = field(default_factory=set)
+    risk_level: str = "low"
 
     def task_for_role(self, task: str) -> str:
         """Inject role context without hiding it in custom supervisor code."""
@@ -39,6 +44,7 @@ class AgentRunResult:
     events: list[dict]
     tool_call_count: int = 0
     failed_tool_call_count: int = 0
+    artifacts: list[TaskArtifact] = field(default_factory=list)
 
     def to_dict(self) -> dict:
         """Return JSON-safe result data for session artifacts."""
@@ -49,4 +55,5 @@ class AgentRunResult:
             "success": self.success,
             "tool_call_count": self.tool_call_count,
             "failed_tool_call_count": self.failed_tool_call_count,
+            "artifacts": [artifact.to_dict() for artifact in self.artifacts],
         }

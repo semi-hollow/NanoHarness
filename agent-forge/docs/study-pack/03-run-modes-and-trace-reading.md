@@ -131,11 +131,13 @@ Final: pass
 
 - `multi` 走 `SupervisorAgent -> TaskGraph -> AgentRuntime -> AgentLoop`；
 - 每个 worker 有 `AgentSpec`，包含角色名、prompt、工具 allowlist、max_steps；
-- scheduler 当前顺序执行，保证 demo 稳定；
+- scheduler 支持 conflict-aware parallel batches；
+- 当前 demo 因为 plan -> code -> test -> review 有依赖，所以表现为顺序链路；
 - retry 是通过补充 `code_retry/test_retry` 节点完成；
-- 还没有并发执行、patch conflict merge、复杂 ownership。
+- 文件写入通过 AgentSpec.write_files 和 OwnershipPlan 显式声明；
+- worker 通过 artifact contract 交付结构化结果。
 
-这已经不是纯 toy role function。你跑它时要观察的是：
+这已经不是普通角色函数链。你跑它时要观察的是：
 
 ```text
 handoff 是否记录清楚
@@ -150,7 +152,7 @@ review 是否作为最后 gate
 
 被追问“是不是生产级”时，直接这样答：
 
-> 当前 multi mode 已经让每个 subagent 通过 AgentRuntime 复用 AgentLoop，并且由 TaskGraph 表达依赖和 retry。它不是完整 OpenCode，因为 scheduler 还是顺序的，也没有 patch conflict merge。但它已经展示了生产级 multi-agent 的关键工程切片：role spec、工具权限、runtime 复用、handoff trace、测试驱动 retry 和 review gate。
+> 当前 multi mode 让每个 subagent 通过 AgentRuntime 复用 AgentLoop，由 TaskGraph 表达依赖和 retry，由 OwnershipPlan 声明文件写入边界，并由 conflict-aware scheduler 避免并发写冲突。它不是完整 IDE 产品，但核心 agent runtime 能力已经具备：role spec、工具权限、runtime 复用、artifact contract、handoff trace、测试驱动 retry 和 review gate。
 
 ## workflow mode
 
