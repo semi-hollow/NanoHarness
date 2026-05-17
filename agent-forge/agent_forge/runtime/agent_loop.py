@@ -13,11 +13,10 @@ from agent_forge.safety.permission import PermissionPolicy, PermissionDecision
 class AgentLoop:
     """Single-agent control loop for context, LLM calls, tools, and trace.
 
-    This is the project's real agent runtime. It is called by ``single`` mode
-    today. The ``multi`` demo does not reuse it yet because that path is focused
-    on explaining supervisor handoff separately. A production multi-agent
-    version should usually wrap this same loop as a reusable AgentRuntime for
-    each role-specific worker.
+    This is the project's real agent runtime. ``single`` mode calls it
+    directly. ``multi`` mode reuses it through ``AgentRuntime`` so supervisor
+    workers share the same context, tool, permission, observation, and trace
+    semantics.
     """
 
     def __init__(self, config, trace, registry, llm=None):
@@ -139,6 +138,11 @@ class AgentLoop:
                     f"context_chars={len(context_message.content)}"
                 ),
                 llm_response_summary=response.content or "tool_calls",
+                model_usage=(
+                    self.llm.last_usage.to_dict()
+                    if hasattr(self.llm, "last_usage") and self.llm.last_usage
+                    else {}
+                ),
             )
 
             if not response.tool_calls:

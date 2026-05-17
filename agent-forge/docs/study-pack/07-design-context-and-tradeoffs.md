@@ -4,32 +4,32 @@
 
 ## 先说总原则
 
-Agent Forge 是学习和面试用的 coding-agent harness，不是生产级 agent platform。
+Agent Forge 是面试用的 production-oriented coding-agent runtime，不是完整 OpenCode 产品。
 
 它刻意把几个概念拆开：
 
 ```text
 single   -> 完整 AgentLoop
-multi    -> supervisor / handoff / retry / review gate
+multi    -> runtime-backed supervisor / handoff / retry / review gate
 workflow -> deterministic workflow baseline
 ```
 
 所以你看到某些地方“写死”“简单”“不够工业级”，通常不是因为这个方向不重要，而是因为当前版本先把核心概念拆成能跑、能测、能讲清楚的小切片。
 
-## 为什么只有 single 走 AgentLoop
+## 为什么 single 直接走 AgentLoop，multi 通过 AgentRuntime 复用 AgentLoop
 
 当前入口：
 
 ```text
 single   -> AgentLoop
-multi    -> SupervisorAgent.run
+multi    -> SupervisorAgent -> TaskGraph -> AgentRuntime -> AgentLoop
 workflow -> run_workflow
 ```
 
 原因：
 
 - `single` 用来展示完整自治 agent 的闭环：context、LLM、tool、permission、observation、trace。
-- `multi` 用来展示 supervisor 编排：phase、handoff、失败重试、review gate。
+- `multi` 用来展示 runtime-backed supervisor 编排：TaskGraph、role spec、handoff、失败重试、review gate。
 - `workflow` 用来展示确定性流程和 agent loop 的差异。
 
 如果一开始就让 `multi` 也套多个 `AgentLoop`，初学时会把两个问题混在一起：
@@ -39,13 +39,13 @@ workflow -> run_workflow
 问题 B：多个 agent 怎样被调度和协作？
 ```
 
-当前项目先把 A 放在 `single`，把 B 的最小形态放在 `multi`。
+当前项目已经把 A 和 B 接起来：`single` 展示单 runtime，`multi` 展示多个 runtime-backed workers 被 supervisor 调度。
 
 ## 这是不是说明 multi-agent 不需要 AgentLoop
 
 不是。
 
-生产级 multi-agent 更合理的结构通常是：
+当前 multi-agent 已经采用这个结构的最小实现：
 
 ```text
 Supervisor / Orchestrator
@@ -59,15 +59,16 @@ Supervisor / Orchestrator
 
 ## 当前 multi mode 到底是什么
 
-当前 `multi` 是一个线性 supervisor workflow：
+当前 `multi` 是一个顺序执行的 task graph：
 
 ```text
-PlannerAgent
-  -> CodingAgent
-  -> TesterAgent
-  -> CodingAgent retry
-  -> TesterAgent retest
-  -> ReviewerAgent
+TaskGraph
+  -> AgentRuntime(PlannerAgent)
+  -> AgentRuntime(CodingAgent)
+  -> AgentRuntime(TesterAgent)
+  -> AgentRuntime(CodingAgent retry)
+  -> AgentRuntime(TesterAgent retest)
+  -> AgentRuntime(ReviewerAgent)
 ```
 
 它展示了：
@@ -81,9 +82,7 @@ PlannerAgent
 它没有展示：
 
 - 并发；
-- 动态任务 DAG；
-- 每个 agent 独立上下文；
-- 每个 agent 独立 LLM 配置；
+- 更强的动态任务拆分；
 - 文件 ownership；
 - patch 冲突合并；
 - 跨 agent artifact contract；
@@ -92,7 +91,7 @@ PlannerAgent
 
 ## 为什么 subagent 这么简单
 
-`PlannerAgent/CodingAgent/TesterAgent/ReviewerAgent` 当前是 role object，不是完整 agent。
+`PlannerAgent/CodingAgent/TesterAgent/ReviewerAgent` 当前由 `AgentSpec` 描述，并通过 `AgentRuntime` 执行。
 
 它们简单，是为了让你先看到角色边界：
 
@@ -157,7 +156,7 @@ eval_cases 可执行验证
 
 答：
 
-> 是的，当前 multi-agent 是教学版 supervisor workflow，不是生产级 scheduler。它的目的不是并发执行，而是展示 handoff、phase transition、test failure retry、review gate 和 trace。生产化会把 AgentLoop 抽成通用 AgentRuntime，让 supervisor 调度多个 runtime-backed workers。
+> 当前 multi-agent 是 runtime-backed 顺序 DAG。它不是完整生产级 scheduler，因为还没有并发、ownership 和 conflict merge；但它已经不是 toy role function，每个 subagent 都通过 AgentRuntime 复用 AgentLoop，并由 AgentSpec 限制工具权限。
 
 ### 质疑 2：为什么 plan -> code -> test -> review 写死？
 
@@ -181,7 +180,7 @@ eval_cases 可执行验证
 
 答：
 
-> 差动态任务 DAG、AgentLoop-backed subagents、并发调度、结构化 artifact contract、冲突合并、模型网关、成本控制、容器级 sandbox、eval history 和更强的 observability。
+> 差并发调度、动态任务拆分、结构化 artifact contract、冲突合并、真实成本控制、容器级 sandbox、完整 LSP 和更强的 observability。
 
 ## 你看代码时的判断方式
 
@@ -199,11 +198,9 @@ eval_cases 可执行验证
 | `tools/` | 核心机制，认真看 |
 | `safety/` | 核心机制，认真看 |
 | `observability/trace.py` | 核心机制，认真看 |
-| `agents/supervisor_agent.py` | 教学版 multi-agent 编排 |
-| `agents/planner_agent.py` | 教学 stub |
-| `agents/coding_agent.py` | 教学 stub |
-| `agents/tester_agent.py` | 教学 stub |
-| `agents/reviewer_agent.py` | 教学 stub |
+| `agents/supervisor_agent.py` | runtime-backed multi-agent 编排 |
+| `runtime/agent_spec.py` | subagent 的角色、prompt、工具权限、步数预算 |
+| `runtime/agent_runtime.py` | subagent 复用 AgentLoop 的执行层 |
 | `workflows/coding_workflow.py` | workflow 对照组 |
 
 这样读，你不会把教学 stub 当成生产实现，也不会低估核心 runtime 的工程价值。

@@ -4,9 +4,9 @@ The three modes are intentionally not equal in sophistication:
 
 * ``single`` is the real agent-runtime path. It builds ``AgentLoop`` and shows
   the full context -> LLM -> tool -> observation cycle.
-* ``multi`` is a supervised orchestration demo. It shows handoff, phases,
-  retry, and trace, but its subagents are lightweight role objects rather than
-  independent AgentLoop instances.
+* ``multi`` is a supervised orchestration path. It now schedules
+  AgentRuntime-backed workers through a small task graph, while keeping the
+  graph sequential so the interview demo remains deterministic.
 * ``workflow`` is a deterministic baseline. It exists to contrast fixed control
   flow with an observation-driven agent loop.
 
@@ -21,7 +21,11 @@ from .runtime.config import RuntimeConfig
 from .runtime.agent_loop import AgentLoop
 from .runtime.llm_config import LLMConfig, resolve_llm_config
 from .runtime.llm_client import MockLLMClient, OpenAICompatibleLLMClient
+from .runtime.session import SessionStore
 from .observability.trace import TraceRecorder
+from .observability.metrics import summarize
+from .production.diff_tracker import DiffTracker
+from .production.run_report import RunReportWriter
 from .safety.sandbox import WorkspaceSandbox
 from .tools.registry import ToolRegistry
 from .tools.list_files import ListFilesTool
@@ -33,6 +37,7 @@ from .tools.run_command import RunCommandTool
 from .tools.git_status import GitStatusTool
 from .tools.git_diff import GitDiffTool
 from .tools.ask_human import AskHumanTool
+from .tools.diagnostics import DiagnosticsTool
 from .agents.supervisor_agent import SupervisorAgent
 from .workflows.coding_workflow import run_workflow
 
@@ -59,6 +64,7 @@ def build_registry(workspace: str, auto: bool) -> ToolRegistry:
         RunCommandTool(sandbox, auto),
         GitStatusTool(sandbox),
         GitDiffTool(sandbox),
+        DiagnosticsTool(sandbox),
         AskHumanTool(auto),
     ]
     for tool in tools:
@@ -92,6 +98,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--timeout", type=int, default=30)
     parser.add_argument("--max-steps", type=int, default=12)
     parser.add_argument("--trace-file", default="agent_forge_trace.json")
+    parser.add_argument("--session-root", default=".agent_forge/runs")
+    parser.add_argument("--no-session", action="store_true")
+    parser.add_argument("--list-sessions", action="store_true")
+    parser.add_argument("--show-run", help="Print report.md for a previous session id.")
+    parser.add_argument("--rollback-run", help="Restore files from a previous session rollback bundle.")
     parser.add_argument("--no-auto-approve", action="store_true")
     return parser
 
@@ -100,26 +111,52 @@ def main() -> None:
     """CLI entry point: compose dependencies, choose mode, write trace."""
 
     args = build_parser().parse_args()
+    store = SessionStore(args.session_root)
+
+    if args.list_sessions:
+        for run_dir in store.list_sessions()[:20]:
+            print(run_dir.name)
+        return
+
+    if args.show_run:
+        report = store.report_path(args.show_run)
+        print(report.read_text(encoding="utf-8") if report.exists() else f"run report not found: {args.show_run}")
+        return
+
+    if args.rollback_run:
+        restored = store.rollback(args.rollback_run, args.workspace)
+        print(f"restored {len(restored)} files")
+        for path in restored:
+            print(path)
+        return
 
     if args.workspace == "." and args.mode in {"single", "multi"}:
         reset_demo_repo(args.workspace)
 
+    session = None
+    run_dir = None
+    if not args.no_session:
+        session, run_dir = store.start(args.workspace, args.mode, args.task)
+        if args.trace_file == "agent_forge_trace.json":
+            args.trace_file = str(run_dir / "trace.json")
+
+    diff_tracker = DiffTracker(args.workspace)
+    diff_tracker.capture_before()
     trace = TraceRecorder(args.trace_file)
     auto_approve = not args.no_auto_approve
 
-    # Current design boundary:
-    # multi mode does not reuse AgentLoop yet. It is deliberately smaller so the
-    # study project can isolate "supervisor handoff" from "full autonomous
-    # agent runtime". A production multi-agent version would usually run each
-    # subagent through its own AgentLoop/AgentRuntime and let the supervisor
-    # schedule those loops.
+    # Multi mode now uses AgentRuntime-backed workers. It is still intentionally
+    # sequential for repeatable demos, but the boundary is production-shaped:
+    # supervisor -> task graph -> role specs -> reusable AgentLoop runtime.
     if args.mode == "multi":
-        print(SupervisorAgent().run(trace, args.task, build_registry(args.workspace, auto_approve)))
+        print(SupervisorAgent(workspace=args.workspace).run(trace, args.task, build_registry(args.workspace, auto_approve)))
     elif args.mode == "workflow":
         # workflow mode is intentionally deterministic. It proves the shape of a
         # plan-code-test-review state machine without LLM calls or tool
         # observations, so it should not be read as an intelligent agent path.
-        print(run_workflow(args.task))
+        workflow_state = run_workflow(args.task)
+        trace.set_run_context(stop_reason=workflow_state.final_status, final_answer=str(workflow_state))
+        print(workflow_state)
     else:
         # single mode is the canonical runtime path: it assembles context, calls
         # the selected LLM, validates tool calls, executes tools through the
@@ -148,6 +185,18 @@ def main() -> None:
         print(loop.run(args.task))
 
     trace.write()
+    if run_dir is not None and session is not None:
+        diff_summary = diff_tracker.summarize_after()
+        diff_tracker.write_rollback_bundle(run_dir)
+        RunReportWriter(run_dir).write(
+            task=args.task,
+            mode=args.mode,
+            trace_path=args.trace_file,
+            diff=diff_summary,
+            final_answer=trace.final_answer,
+            metrics=summarize(trace.events),
+        )
+        store.finish(session, run_dir, trace.final_answer, args.trace_file)
 
 
 if __name__ == "__main__":

@@ -10,6 +10,7 @@ llm_profiles.json
 agent_forge_trace.json
 eval_report.md
 summary.md
+.agent_forge/
 
 # generated traces / reports
 *_trace.json

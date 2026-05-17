@@ -1,7 +1,7 @@
 from pathlib import Path
 
 
-IGNORE = {".git", "__pycache__", "node_modules", "target", "dist", "build"}
+IGNORE = {".git", ".agent_forge", ".venv", "__pycache__", "node_modules", "target", "dist", "build"}
 
 
 def build_repo_map(root):

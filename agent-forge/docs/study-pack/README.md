@@ -11,6 +11,7 @@
 5. `05-deep-dive-prep.md`：准备面试官继续追问时的细节。
 6. `06-personal-study-checklist.md`：最后用清单确认你真的掌握了。
 7. `07-design-context-and-tradeoffs.md`：看清哪些是教学实现、哪些是生产级缺口，避免误读代码。
+8. `08-production-interview-upgrade.md`：面向字节/小红书社招，讲清 OpenCode-like 生产化切片。
 
 如果你只想快速复习，按这个 30 分钟路线走：
 

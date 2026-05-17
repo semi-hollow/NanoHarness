@@ -277,4 +277,72 @@ class MockLLMClient(LLMClient):
                     ],
                 )
             return AgentResponse("已完成修复并验证测试通过。", [])
+        if self.mode == "planner":
+            return AgentResponse("Plan: inspect code, patch bug, run tests, review diff.", [])
+        if self.mode == "coder_fail":
+            if i == 0:
+                return AgentResponse(
+                    None,
+                    [ToolCall("coder-read", "read_file", {"path": "examples/demo_repo/src/calculator.py"})],
+                )
+            if i == 1:
+                return AgentResponse(
+                    None,
+                    [
+                        ToolCall(
+                            "coder-bad-patch",
+                            "apply_patch",
+                            {
+                                "path": "examples/demo_repo/src/calculator.py",
+                                "old": "return a * b",
+                                "new": "return a + b",
+                            },
+                        )
+                    ],
+                )
+            return AgentResponse("Coding attempt completed; patch result is in observations.", [])
+        if self.mode == "coder_fix":
+            if i == 0:
+                return AgentResponse(
+                    None,
+                    [ToolCall("coder-read", "read_file", {"path": "examples/demo_repo/src/calculator.py"})],
+                )
+            if i == 1:
+                return AgentResponse(
+                    None,
+                    [
+                        ToolCall(
+                            "coder-good-patch",
+                            "apply_patch",
+                            {
+                                "path": "examples/demo_repo/src/calculator.py",
+                                "old": "return a - b",
+                                "new": "return a + b",
+                            },
+                        )
+                    ],
+                )
+            return AgentResponse("Coding retry completed with corrected patch.", [])
+        if self.mode == "tester":
+            if i == 0:
+                return AgentResponse(
+                    None,
+                    [
+                        ToolCall(
+                            "tester-unittest",
+                            "run_command",
+                            {
+                                "command": (
+                                    "python3.11 -m unittest discover "
+                                    "examples/demo_repo/tests -t examples/demo_repo"
+                                )
+                            },
+                        )
+                    ],
+                )
+            return AgentResponse("Tests executed; result is in observations.", [])
+        if self.mode == "reviewer":
+            if i == 0:
+                return AgentResponse(None, [ToolCall("review-diff", "git_diff", {})])
+            return AgentResponse("Review completed from diff evidence.", [])
         return AgentResponse("multi mode by supervisor", [])

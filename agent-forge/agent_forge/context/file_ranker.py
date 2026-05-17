@@ -70,6 +70,8 @@ def rank_files(query: str, files: list[str], root: str | Path = ".") -> list[str
             value -= 6
         if code_task and parts & {"eval_cases"}:
             value -= 4
+        if parts & {".agent_forge", ".venv", "__pycache__"}:
+            value -= 30
         if path_obj.name in {"agent_forge_trace.json", "eval_report.md"} or path_obj.name.endswith("_trace.json"):
             value -= 10
 

@@ -66,7 +66,7 @@ else:
 这段分支是整个项目最重要的“实现背景”之一：
 
 - `single` 进入完整 `AgentLoop`，这是核心 runtime。
-- `multi` 没有进入 `AgentLoop`，因为它当前只演示 supervisor 如何按阶段把任务交给几个角色对象。
+- `multi` 进入 `SupervisorAgent`，再通过 `TaskGraph` 调度多个 `AgentRuntime`，每个 runtime 复用 `AgentLoop`。
 - `workflow` 也没有进入 `AgentLoop`，因为它只是固定状态机，用来做对照组。
 
 不要把这个设计误读成“多 agent 不需要 agent loop”。更准确的理解是：
@@ -74,11 +74,11 @@ else:
 ```text
 当前版本：
   single   = 完整 agent runtime
-  multi    = 角色编排 demo
+  multi    = runtime-backed supervisor orchestration
   workflow = 固定流程 demo
 
-生产演进：
-  supervisor 调度多个 AgentLoop-backed subagents
+继续生产演进：
+  TaskScheduler 并发 ready nodes + patch conflict merge + richer artifact contract
 ```
 
 面试讲法：
@@ -275,9 +275,9 @@ input guardrail
 
 作用：multi mode 的总控。
 
-先说结论：这里是教学版 multi-agent，不是生产级 multi-agent。
+先说结论：这里已经不是早期教学版 multi-agent，而是 production-oriented 的 runtime-backed supervisor。
 
-当前代码把顺序写死：
+当前代码把依赖放进 TaskGraph：
 
 ```text
 PlannerAgent
@@ -288,23 +288,28 @@ PlannerAgent
   -> ReviewerAgent
 ```
 
-为什么这么写：
+为什么仍然保持顺序执行：
 
 - 让你一眼看到 supervisor 如何 handoff；
 - 让 trace 里能看到每个角色的责任边界；
 - 让 tester 失败后回到 coder 的 retry 逻辑变得明确；
-- 避免一开始就引入 DAG scheduler、并发、patch merge 等复杂问题。
+- 避免一开始就引入并发和 patch merge 导致 demo 不稳定。
 
-它缺什么：
+它已经补上：
 
-- subagent 不是独立 AgentLoop；
-- 没有并发；
-- 没有动态任务拆分；
-- 没有 per-agent context；
+- subagent 通过 AgentRuntime 复用 AgentLoop；
+- AgentSpec 定义 role/prompt/tool allowlist/max_steps；
+- TaskGraph 表达依赖和 retry；
+- trace 记录每个 worker 的完整 loop。
+
+它仍然缺什么：
+
+- 并发执行；
+- 更强的动态任务拆分；
 - 没有冲突合并；
 - 没有结构化 artifact contract。
 
-所以你读这个文件时，不要纠结“为什么这么死板”。它的作用是把最基础的 supervisor 模型摊开给你看。
+所以你读这个文件时，要抓住它的面试价值：它不是完整 OpenCode，但已经展示了从 demo 向生产多 agent 演进的关键骨架。
 
 你要看：
 
@@ -319,7 +324,7 @@ PlannerAgent
 
 更完整的面试讲法：
 
-> In this project, multi mode is intentionally a minimal supervised workflow. It is not meant to prove production-grade multi-agent scheduling. The production version would make each subagent an AgentLoop-backed worker with role-specific prompts, context retrieval, tool permissions, and stop conditions, while the supervisor manages a task DAG, retries, conflicts, and aggregation.
+> In this project, multi mode is runtime-backed orchestration. The supervisor schedules a small TaskGraph, and each subagent is described by AgentSpec and executed through AgentRuntime, which reuses AgentLoop. It is still sequential for deterministic demos, but it demonstrates the production shape: role isolation, tool permissions, traceable handoff, test-driven retry, and review gate.
 
 ## 12. `agent_forge/eval/eval_runner.py`
 

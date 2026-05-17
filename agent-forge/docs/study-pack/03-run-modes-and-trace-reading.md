@@ -129,13 +129,13 @@ Final: pass
 
 当前实现边界：
 
-- `multi` 不走 `AgentLoop`；
-- `PlannerAgent/CodingAgent/TesterAgent/ReviewerAgent` 是轻量角色对象；
-- 它们共享一个 `state` dict；
-- supervisor 按固定顺序调用它们；
-- 没有并发、DAG、冲突合并、per-agent 上下文。
+- `multi` 走 `SupervisorAgent -> TaskGraph -> AgentRuntime -> AgentLoop`；
+- 每个 worker 有 `AgentSpec`，包含角色名、prompt、工具 allowlist、max_steps；
+- scheduler 当前顺序执行，保证 demo 稳定；
+- retry 是通过补充 `code_retry/test_retry` 节点完成；
+- 还没有并发执行、patch conflict merge、复杂 ownership。
 
-这不是生产级多 agent，而是“把 supervisor 编排最小化展示出来”。你跑它时要观察的是：
+这已经不是纯 toy role function。你跑它时要观察的是：
 
 ```text
 handoff 是否记录清楚
@@ -148,9 +148,9 @@ review 是否作为最后 gate
 
 > I model multi-agent as supervised orchestration instead of free-form peer-to-peer communication, because it keeps phase transitions and failure recovery auditable.
 
-被追问“为什么不用 AgentLoop”时，直接这样答：
+被追问“是不是生产级”时，直接这样答：
 
-> 当前 multi mode 是教学版，故意没有复用 AgentLoop，这样可以单独展示 supervisor、handoff、phase policy 和 retry。生产级我会把 AgentLoop 抽成通用 AgentRuntime，每个 subagent 都有自己的 runtime，supervisor 只负责调度、并发、冲突处理和最终聚合。
+> 当前 multi mode 已经让每个 subagent 通过 AgentRuntime 复用 AgentLoop，并且由 TaskGraph 表达依赖和 retry。它不是完整 OpenCode，因为 scheduler 还是顺序的，也没有 patch conflict merge。但它已经展示了生产级 multi-agent 的关键工程切片：role spec、工具权限、runtime 复用、handoff trace、测试驱动 retry 和 review gate。
 
 ## workflow mode
 
@@ -217,7 +217,7 @@ compileall
 ```text
 Final: pass
 final_status='success'
-Ran 48 tests ... OK
+Ran 53 tests ... OK
 eval_report.md generated
 ```
 
