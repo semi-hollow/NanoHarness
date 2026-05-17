@@ -12,13 +12,19 @@ from .tool_call import ToolCall
 
 @dataclass
 class AgentResponse:
+    """Normalized LLM response: final text, tool calls, or structured error."""
+
     content: Optional[str]
     tool_calls: list[ToolCall]
     error: Optional[dict[str, Any]] = None
 
 
 class LLMClient:
+    """Interface used by AgentLoop regardless of the backing provider."""
+
     def chat(self, messages: list[Message], tools: list[dict]) -> AgentResponse:
+        """Return either final content or tool calls for the next loop step."""
+
         raise NotImplementedError
 
 
@@ -32,6 +38,8 @@ class OpenAICompatibleLLMClient(LLMClient):
         model: str | None = None,
         timeout: int = 30,
     ):
+        """Read OpenAI-compatible connection settings from args or env."""
+
         self.base_url = (
             base_url or os.getenv("AGENT_FORGE_BASE_URL") or os.getenv("OPENAI_BASE_URL", "")
         ).rstrip("/")
@@ -41,10 +49,14 @@ class OpenAICompatibleLLMClient(LLMClient):
 
     @classmethod
     def from_env(cls) -> "OpenAICompatibleLLMClient":
+        """Build a client from AGENT_FORGE_* or OPENAI_* environment variables."""
+
         return cls()
 
     @classmethod
     def from_config(cls, config: LLMConfig) -> "OpenAICompatibleLLMClient":
+        """Build a client from resolved CLI/profile/env configuration."""
+
         return cls(
             base_url=config.base_url,
             api_key=config.api_key,
@@ -53,9 +65,13 @@ class OpenAICompatibleLLMClient(LLMClient):
         )
 
     def is_configured(self) -> bool:
+        """Return whether enough connection fields exist for a real API call."""
+
         return bool(self.base_url and self.api_key and self.model)
 
     def chat(self, messages: list[Message], tools: list[dict]) -> AgentResponse:
+        """Send a chat completion request and normalize provider output."""
+
         if not self.is_configured():
             return self._invalid(
                 "missing_config",
@@ -91,6 +107,8 @@ class OpenAICompatibleLLMClient(LLMClient):
         return self.parse_response(data)
 
     def parse_response(self, data: dict[str, Any]) -> AgentResponse:
+        """Parse OpenAI-compatible response JSON into AgentResponse."""
+
         try:
             choices = data.get("choices")
             if not choices:
@@ -107,6 +125,8 @@ class OpenAICompatibleLLMClient(LLMClient):
             return self._invalid("parse_failed", str(exc))
 
     def _parse_tool_calls(self, message: dict[str, Any]) -> list[ToolCall]:
+        """Handle both modern `tool_calls` and legacy `function_call` shapes."""
+
         calls = []
         raw_calls = message.get("tool_calls") or []
         if message.get("function_call"):
@@ -128,6 +148,8 @@ class OpenAICompatibleLLMClient(LLMClient):
         return calls
 
     def _message_to_dict(self, message: Message) -> dict[str, Any]:
+        """Convert internal Message into chat-completions message format."""
+
         item = {"role": message.role, "content": message.content}
         if message.name:
             item["name"] = message.name
@@ -136,6 +158,8 @@ class OpenAICompatibleLLMClient(LLMClient):
         return item
 
     def _tool_to_openai_schema(self, schema: dict[str, Any]) -> dict[str, Any]:
+        """Convert local tool schema into OpenAI function-tool schema."""
+
         if schema.get("type") == "function":
             return schema
         properties = {}
@@ -157,6 +181,8 @@ class OpenAICompatibleLLMClient(LLMClient):
         }
 
     def _json_type(self, typ: Any) -> str:
+        """Map local shorthand argument types to JSON Schema primitive types."""
+
         if typ in {"int", "integer"}:
             return "integer"
         if typ in {"float", "number"}:
@@ -170,6 +196,8 @@ class OpenAICompatibleLLMClient(LLMClient):
         return "string"
 
     def _invalid(self, code: str, message: str, raw: str = "") -> AgentResponse:
+        """Return provider/parse failures as data instead of throwing upward."""
+
         return AgentResponse(
             None,
             [],
@@ -178,10 +206,16 @@ class OpenAICompatibleLLMClient(LLMClient):
 
 
 class MockLLMClient(LLMClient):
+    """Deterministic LLM stand-in used for offline demos and tests."""
+
     def __init__(self, mode: str = "single"):
+        """Store which scripted behavior to use."""
+
         self.mode = mode
 
     def chat(self, messages: list[Message], tools: list[dict]) -> AgentResponse:
+        """Choose the next scripted tool call from prior tool observations."""
+
         tool_obs = [m for m in messages if m.role == "tool"]
         i = len(tool_obs)
         if self.mode == "single":

@@ -2,6 +2,8 @@ from pathlib import Path
 
 
 def write_summary(path: str | Path, trace: dict) -> None:
+    """Write a human-readable sibling `summary.md` for a JSON trace."""
+
     trace_path = Path(path)
     summary_path = trace_path.with_name("summary.md")
     metrics = trace.get("metrics", {})

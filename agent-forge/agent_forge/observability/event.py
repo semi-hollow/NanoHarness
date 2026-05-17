@@ -1,16 +1,23 @@
-from dataclasses import dataclass, asdict
+from dataclasses import asdict, dataclass
 from typing import Any
+
 
 @dataclass
 class TraceEvent:
-    run_id:str
-    step:int
-    agent_name:str
-    event_type:str
-    success:bool=True
-    error:str=""
-    data:dict[str,Any]|None=None
+    """Typed event shape retained for tests and future trace refactors."""
+
+    run_id: str
+    step: int
+    agent_name: str
+    event_type: str
+    success: bool = True
+    error: str = ""
+    data: dict[str, Any] | None = None
+
     def to_dict(self):
-        d=asdict(self)
-        if d["data"] is None: d["data"]={}
-        return d
+        """Convert to a plain dict and normalize missing extra data."""
+
+        data = asdict(self)
+        if data["data"] is None:
+            data["data"] = {}
+        return data

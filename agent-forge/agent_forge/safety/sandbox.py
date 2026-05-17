@@ -2,16 +2,24 @@ from pathlib import Path
 
 
 class WorkspaceSandbox:
+    """Path-level safety boundary for all file tools."""
+
     def __init__(self, workspace_root: str | Path):
+        """Resolve the workspace once so later checks compare absolute paths."""
+
         self.workspace_root = Path(workspace_root).resolve()
 
     def resolve_path(self, path: str | Path) -> Path:
+        """Convert a user/tool path into an absolute path under workspace root."""
+
         p = Path(path)
         if not p.is_absolute():
             p = self.workspace_root / p
         return p.resolve()
 
     def is_sensitive_path(self, path: Path) -> bool:
+        """Block common secret-bearing filenames and directories."""
+
         lowered_parts = [part.lower() for part in path.parts]
         name = path.name.lower()
         return (
@@ -26,6 +34,8 @@ class WorkspaceSandbox:
         )
 
     def ensure_safe_path(self, path: str | Path) -> Path:
+        """Return a resolved path or raise if it escapes/sensitively targets."""
+
         resolved = self.resolve_path(path)
         try:
             resolved.relative_to(self.workspace_root)

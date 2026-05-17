@@ -127,9 +127,30 @@ Final: pass
 - subagent 的 handoff 可追踪；
 - tester 失败后可以回到 coding。
 
+当前实现边界：
+
+- `multi` 不走 `AgentLoop`；
+- `PlannerAgent/CodingAgent/TesterAgent/ReviewerAgent` 是轻量角色对象；
+- 它们共享一个 `state` dict；
+- supervisor 按固定顺序调用它们；
+- 没有并发、DAG、冲突合并、per-agent 上下文。
+
+这不是生产级多 agent，而是“把 supervisor 编排最小化展示出来”。你跑它时要观察的是：
+
+```text
+handoff 是否记录清楚
+phase 是否能从 testing 回到 coding
+失败后 retry 是否有证据
+review 是否作为最后 gate
+```
+
 面试讲法：
 
 > I model multi-agent as supervised orchestration instead of free-form peer-to-peer communication, because it keeps phase transitions and failure recovery auditable.
+
+被追问“为什么不用 AgentLoop”时，直接这样答：
+
+> 当前 multi mode 是教学版，故意没有复用 AgentLoop，这样可以单独展示 supervisor、handoff、phase policy 和 retry。生产级我会把 AgentLoop 抽成通用 AgentRuntime，每个 subagent 都有自己的 runtime，supervisor 只负责调度、并发、冲突处理和最终聚合。
 
 ## workflow mode
 
@@ -159,6 +180,14 @@ cli.main
 - 不需要 observation-driven planning；
 - 适合固定流程；
 - 用来和 agent loop 对比。
+
+当前实现边界：
+
+- `workflow` 只是返回一个 `WorkflowState`；
+- 它没有真的读写 demo repo；
+- 它没有调用工具；
+- 它没有 trace 里的 tool observation；
+- 它只是用来回答“什么时候普通流程就够了”。
 
 面试讲法：
 

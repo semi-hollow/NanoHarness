@@ -3,6 +3,8 @@ from dataclasses import dataclass, field
 
 @dataclass
 class EvalResult:
+    """Structured result for one executable eval case."""
+
     case_id: str
     passed: bool
     task_success: bool

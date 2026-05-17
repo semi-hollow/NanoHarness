@@ -1,21 +1,44 @@
-from .base import Tool
 from agent_forge.runtime.observation import Observation
+
+from .base import Tool
+
+
 class GrepTool(Tool):
-    name='grep'; description='keyword search'
-    def __init__(self,sandbox): self.sandbox=sandbox
-    def schema(self): return {"name":self.name,"description":self.description,"arguments":{"keyword":"str"}}
-    def execute(self,arguments):
-        kw=arguments['keyword']; out=[]
-        for p in self.sandbox.workspace_root.rglob('*.py'):
-            if '.git' in p.parts: continue
-            txt=p.read_text(encoding='utf-8',errors='ignore')
-            for i,l in enumerate(txt.splitlines(),1):
-                if kw in l:
-                    out.append(f"{p.relative_to(self.sandbox.workspace_root)}:{i}:{l.strip()}")
-                if len(out)>=50: break
-        return Observation(self.name,True,"\n".join(out))
+    """Search Python files for a keyword and return compact matches."""
+
+    name = "grep"
+    description = "keyword search"
+
+    def __init__(self, sandbox):
+        """Keep sandbox root so search stays inside the workspace."""
+
+        self.sandbox = sandbox
+
+    def schema(self):
+        """Tell the LLM this tool needs one keyword."""
+
+        return {"name": self.name, "description": self.description, "arguments": {"keyword": "str"}}
+
+    def execute(self, arguments):
+        """Return up to 50 matching lines as file:line:text snippets."""
+
+        keyword = arguments["keyword"]
+        matches = []
+        for path in self.sandbox.workspace_root.rglob("*.py"):
+            if ".git" in path.parts:
+                continue
+            text = path.read_text(encoding="utf-8", errors="ignore")
+            for line_no, line in enumerate(text.splitlines(), 1):
+                if keyword in line:
+                    rel = path.relative_to(self.sandbox.workspace_root)
+                    matches.append(f"{rel}:{line_no}:{line.strip()}")
+                if len(matches) >= 50:
+                    break
+        return Observation(self.name, True, "\n".join(matches))
 
 
 class GrepSearchTool(GrepTool):
+    """Alias kept for compatibility with plans that call `grep_search`."""
+
     name = "grep_search"
     description = "keyword or simple substring search"

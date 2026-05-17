@@ -8,22 +8,32 @@ from .base import Tool
 
 
 class RunCommandTool(Tool):
+    """Run an allowed command inside the workspace and capture its output."""
+
     name = "run_command"
     description = "safe run command"
 
     def __init__(self, sandbox, auto_approve_writes=True):
+        """Keep sandbox for cwd/path checks and policy for command allow/deny."""
+
         self.sandbox = sandbox
         self.policy = PermissionPolicy(auto_approve_writes)
 
     def schema(self):
+        """Tell the LLM this tool needs one shell-like command string."""
+
         return {"name": self.name, "description": self.description, "arguments": {"command": "str"}}
 
     def _normalize_python(self, parts: list[str]) -> list[str]:
+        """Map `python` to the active interpreter so venv runs are stable."""
+
         if parts and parts[0] == "python":
             return [sys.executable] + parts[1:]
         return parts
 
     def _validate_unittest_discover_path(self, parts: list[str]):
+        """Prevent unittest discovery from targeting a path outside workspace."""
+
         normalized = ["python" if x == sys.executable else x for x in parts]
         if normalized[:4] == ["python", "-m", "unittest", "discover"] and len(normalized) >= 5:
             candidate = normalized[4]
@@ -31,6 +41,8 @@ class RunCommandTool(Tool):
                 self.sandbox.ensure_safe_path(candidate)
 
     def execute(self, arguments):
+        """Run the command with shell=False and return stdout/stderr evidence."""
+
         cmd = arguments.get("command", "")
         decision, reason = self.policy.decide("run_command", cmd)
         if decision != PermissionDecision.ALLOW:

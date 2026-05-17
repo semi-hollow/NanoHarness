@@ -112,7 +112,13 @@ scripts/verify.sh
 
 推荐回答：
 
-> 这个项目是 harness MVP，不是生产 agent 平台。当前 sandbox 是 workspace-level，不是容器级隔离；tool schema 还不是完整 JSON Schema；symbol search 是 AST MVP，不是完整 LSP；OpenAI-compatible client 没做流式、重试、限流、成本追踪。下一步我会加 model gateway、LSP provider、eval history 和更强的 tool schema validation。
+> 这个项目是 harness MVP，不是生产 agent 平台。当前 multi-agent 是教学版 supervisor workflow，还不是 AgentLoop-backed 并发 scheduler；sandbox 是 workspace-level，不是容器级隔离；tool schema 还不是完整 JSON Schema；symbol search 是 AST MVP，不是完整 LSP；OpenAI-compatible client 没做流式、重试、限流、成本追踪。下一步我会加 runtime-backed subagents、任务 DAG 调度、model gateway、LSP provider、eval history 和更强的 tool schema validation。
+
+## 面试官问“multi-agent 为什么这么线性”
+
+推荐回答：
+
+> 当前 multi mode 是故意做成线性的教学实现。它要展示的是 supervisor handoff、phase transition、tester failure retry、review gate 和 trace，而不是宣称已经实现生产级 multi-agent。生产级我会把 AgentLoop 抽成通用 AgentRuntime，每个 subagent 都有自己的 prompt、context、tool 权限和 stop condition；supervisor 负责构建任务 DAG、并发调度、处理 patch 冲突、聚合结果和决定是否升级人工审批。
 
 ## 结尾反问
 

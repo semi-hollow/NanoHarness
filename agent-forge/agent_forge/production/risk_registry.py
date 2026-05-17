@@ -1,7 +1,9 @@
 def risk_registry():
+    """Return known production risks and the project modules that illustrate them."""
+
     return {
-      "unsafe_command":"high",
-      "prompt_overflow":"medium",
-      "silent_failure":"high",
-      "permission_bypass":"critical"
+        "tool_execution": "permission + sandbox + command policy",
+        "model_variance": "MockLLM for tests; OpenAI-compatible path for integration",
+        "context_overflow": "context budget report",
+        "false_success_claim": "output guardrail",
     }
