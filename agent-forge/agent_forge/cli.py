@@ -15,6 +15,9 @@ here where readers first encounter mode dispatch.
 """
 
 import argparse
+import os
+import shutil
+import time
 from pathlib import Path
 
 from .runtime.config import RuntimeConfig
@@ -22,6 +25,7 @@ from .runtime.agent_loop import AgentLoop
 from .runtime.llm_config import LLMConfig, resolve_llm_config
 from .runtime.llm_client import MockLLMClient, OpenAICompatibleLLMClient
 from .runtime.session import SessionStore
+from .models.gateway import ModelGateway, RetryPolicy
 from .observability.trace import TraceRecorder
 from .observability.metrics import summarize
 from .production.diff_tracker import DiffTracker
@@ -47,6 +51,9 @@ def reset_demo_repo(workspace: str) -> None:
 
     path = Path(workspace) / "examples/demo_repo/src/calculator.py"
     path.write_text("def add(a: int, b: int) -> int:\n    return a - b\n", encoding="utf-8")
+    os.utime(path, (time.time() + 2, time.time() + 2))
+    for cache_dir in (Path(workspace) / "examples/demo_repo").rglob("__pycache__"):
+        shutil.rmtree(cache_dir, ignore_errors=True)
 
 
 def build_registry(workspace: str, auto: bool) -> ToolRegistry:
@@ -76,9 +83,19 @@ def build_llm(config: LLMConfig):
     """Instantiate the concrete LLM client selected by resolved config."""
 
     if config.provider == "mock":
-        return MockLLMClient("single")
+        return ModelGateway(
+            MockLLMClient("single"),
+            provider="mock",
+            model="mock-single",
+            retry_policy=RetryPolicy(max_attempts=1),
+        )
     if config.uses_openai_compatible_api:
-        return OpenAICompatibleLLMClient.from_config(config)
+        return ModelGateway(
+            OpenAICompatibleLLMClient.from_config(config),
+            provider=config.provider,
+            model=config.model or "unknown",
+            retry_policy=RetryPolicy(max_attempts=2),
+        )
     raise ValueError(f"Unsupported LLM provider: {config.provider}")
 
 
@@ -97,13 +114,21 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--model", help="OpenAI-compatible model name.")
     parser.add_argument("--timeout", type=int, default=30)
     parser.add_argument("--max-steps", type=int, default=12)
+    parser.add_argument("--max-context-chars", type=int, default=8000)
+    parser.add_argument("--max-consecutive-failures", type=int, default=3)
+    parser.add_argument("--max-tool-repeats", type=int, default=2)
+    parser.add_argument("--timeout-seconds", type=float, default=120.0)
+    parser.add_argument("--cost-budget-usd", type=float)
     parser.add_argument("--trace-file", default="agent_forge_trace.json")
     parser.add_argument("--session-root", default=".agent_forge/runs")
     parser.add_argument("--no-session", action="store_true")
     parser.add_argument("--list-sessions", action="store_true")
     parser.add_argument("--show-run", help="Print report.md for a previous session id.")
     parser.add_argument("--rollback-run", help="Restore files from a previous session rollback bundle.")
+    parser.add_argument("--resume-run", help="Seed context from a previous session id.")
     parser.add_argument("--no-auto-approve", action="store_true")
+    parser.add_argument("--verbose-trace", action="store_true")
+    parser.add_argument("--write-summary", action="store_true")
     return parser
 
 
@@ -130,6 +155,13 @@ def main() -> None:
             print(path)
         return
 
+    previous_task = ""
+    session_summary = ""
+    if args.resume_run:
+        previous = store.load(args.resume_run)
+        previous_task = previous.task
+        session_summary = store.summary_for_resume(args.resume_run)
+
     if args.workspace == "." and args.mode in {"single", "multi"}:
         reset_demo_repo(args.workspace)
 
@@ -142,7 +174,11 @@ def main() -> None:
 
     diff_tracker = DiffTracker(args.workspace)
     diff_tracker.capture_before()
-    trace = TraceRecorder(args.trace_file)
+    trace = TraceRecorder(
+        args.trace_file,
+        verbose=args.verbose_trace,
+        write_summary_file=args.write_summary,
+    )
     auto_approve = not args.no_auto_approve
 
     # Multi mode uses the production-shaped boundary:
@@ -166,6 +202,13 @@ def main() -> None:
             max_steps=args.max_steps,
             auto_approve_writes=auto_approve,
             trace_file=args.trace_file,
+            max_context_chars=args.max_context_chars,
+            max_consecutive_failures=args.max_consecutive_failures,
+            max_tool_repeats=args.max_tool_repeats,
+            timeout_seconds=args.timeout_seconds,
+            cost_budget_usd=args.cost_budget_usd,
+            previous_task=previous_task,
+            session_summary=session_summary,
         )
         llm_config = resolve_llm_config(
             provider=args.llm,
@@ -179,7 +222,7 @@ def main() -> None:
         llm = build_llm(llm_config)
         if llm_config.provider != "mock" and not llm_config.is_configured():
             print("OpenAI-compatible LLM config is incomplete; falling back to MockLLMClient.")
-            llm = MockLLMClient("single")
+            llm = ModelGateway(MockLLMClient("single"), provider="mock", model="mock-single")
 
         loop = AgentLoop(runtime_config, trace, build_registry(args.workspace, auto_approve), llm)
         print(loop.run(args.task))

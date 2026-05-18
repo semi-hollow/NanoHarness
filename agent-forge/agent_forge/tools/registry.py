@@ -39,7 +39,7 @@ class ToolRegistry:
             return Observation(name, False, f"tool execution error: {e}")
 
     def _validate_arguments(self, tool, arguments: dict) -> str:
-        """Catch missing required arguments before concrete tools run."""
+        """Catch missing or obviously mistyped arguments before tools run."""
 
         schema = tool.schema()
         required = schema.get("required")
@@ -48,4 +48,29 @@ class ToolRegistry:
         missing = [name for name in required if name not in arguments]
         if missing:
             return f"invalid arguments: missing {', '.join(missing)}"
+        expected = schema.get("arguments", {})
+        for name, typ in expected.items():
+            if name not in arguments:
+                continue
+            if not self._matches_type(arguments[name], typ):
+                return f"invalid arguments: {name} must be {typ}"
         return ""
+
+    def _matches_type(self, value, typ: str) -> bool:
+        """Small schema checker that keeps bad tool calls inside the loop."""
+
+        if isinstance(typ, dict):
+            typ = typ.get("type", "object")
+        if typ in {"str", "string"}:
+            return isinstance(value, str)
+        if typ in {"int", "integer"}:
+            return isinstance(value, int) and not isinstance(value, bool)
+        if typ in {"float", "number"}:
+            return isinstance(value, (int, float)) and not isinstance(value, bool)
+        if typ in {"bool", "boolean"}:
+            return isinstance(value, bool)
+        if typ in {"list", "array"}:
+            return isinstance(value, list)
+        if typ in {"dict", "object"}:
+            return isinstance(value, dict)
+        return True

@@ -1,4 +1,5 @@
 import os
+import shutil
 import time
 
 from agent_forge.runtime.observation import Observation
@@ -52,4 +53,7 @@ class ApplyPatchTool(Tool):
         # Give file watchers and tests a visible mtime bump after fast edits.
         now = time.time() + 2
         os.utime(path, (now, now))
+        cache_dir = path.parent / "__pycache__"
+        if cache_dir.exists():
+            shutil.rmtree(cache_dir, ignore_errors=True)
         return Observation(self.name, True, f"patched once: {arguments['path']}")

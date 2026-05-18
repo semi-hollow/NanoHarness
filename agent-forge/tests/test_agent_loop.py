@@ -32,7 +32,7 @@ class T(unittest.TestCase):
       events=json.loads(Path(d,'trace.json').read_text())['events']
       kinds={e['event_type'] for e in events}
       self.assertTrue({'context_assembly','plan','action','tool_call','tool_observation','observation','final_answer'}.issubset(kinds))
-      self.assertTrue(Path(d,'summary.md').exists())
+      self.assertFalse(Path(d,'summary.md').exists())
 
   def test_context_is_injected_into_llm_messages(self):
     with tempfile.TemporaryDirectory() as d:
@@ -49,5 +49,7 @@ class T(unittest.TestCase):
       self.assertIn('available_tools:',content)
       self.assertIn('permission_summary:',content)
       self.assertIn('total_chars:',content)
+      self.assertIn('attention_sink:',content)
+      self.assertIn('topic_relation:',content)
       events=json.loads(Path(d,'trace.json').read_text(encoding='utf-8'))['events']
       self.assertIn('context_assembly',{e['event_type'] for e in events})

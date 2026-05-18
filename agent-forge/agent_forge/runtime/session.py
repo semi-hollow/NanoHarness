@@ -61,6 +61,26 @@ class SessionStore:
 
         return self.root / session_id / "report.md"
 
+    def load(self, session_id: str) -> RunSession:
+        """Load a previous run for resume/context inheritance."""
+
+        path = self.root / session_id / "session.json"
+        data = json.loads(path.read_text(encoding="utf-8"))
+        return RunSession(**data)
+
+    def summary_for_resume(self, session_id: str, max_chars: int = 1200) -> str:
+        """Return a compact previous-run summary for the next AgentLoop."""
+
+        report = self.report_path(session_id)
+        if report.exists():
+            text = report.read_text(encoding="utf-8")
+        else:
+            session = self.load(session_id)
+            text = f"previous_task={session.task}\nprevious_final_answer={session.final_answer}"
+        if len(text) <= max_chars:
+            return text
+        return text[: max_chars - 14] + " [compressed]"
+
     def rollback(self, session_id: str, workspace: str | Path) -> list[str]:
         """Restore files from the rollback bundle written before a run.
 

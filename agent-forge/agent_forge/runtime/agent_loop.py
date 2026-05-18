@@ -1,8 +1,10 @@
+import json
+
 from agent_forge.runtime.message import Message
 from agent_forge.runtime.llm_client import MockLLMClient
 from agent_forge.runtime.planner import SimplePlanner
 from agent_forge.runtime.state import AgentState
-from agent_forge.runtime.stop_condition import check_stop
+from agent_forge.runtime.control import StepController
 from agent_forge.context.context_builder import build_context_report
 from agent_forge.context.memory import Memory
 from agent_forge.context.repo_map import build_repo_map
@@ -67,7 +69,12 @@ class AgentLoop:
         )
         policy = PermissionPolicy(self.config.auto_approve_writes)
         memory = Memory()
+        memory.seed_session(
+            previous_task=getattr(self.config, "previous_task", ""),
+            session_summary=getattr(self.config, "session_summary", ""),
+        )
         memory.set("task", task)
+        controller = StepController.from_config(self.config)
 
         tool_history = []
         ran_tests = False
@@ -85,6 +92,7 @@ class AgentLoop:
                 docs=repo_map.splitlines(),
                 root=self.config.workspace,
                 tools=schemas,
+                max_chars=getattr(self.config, "max_context_chars", 8000),
             )
             self.trace.add(
                 step,
@@ -97,6 +105,10 @@ class AgentLoop:
                     "total_chars": context_report.total_chars,
                     "max_chars": context_report.max_chars,
                     "truncated": context_report.truncated,
+                    "topic_relation": context_report.topic_relation,
+                    "inherit_session": context_report.inherit_session,
+                    "dropped_context": context_report.dropped_context,
+                    "budget_breakdown": context_report.budget_breakdown,
                     "available_tools": context_report.available_tools,
                     "permission_summary": context_report.permission_summary,
                 },
@@ -119,7 +131,17 @@ class AgentLoop:
             response = self.llm.chat(messages_for_llm, schemas)
 
             if response.error:
+                signal = controller.model_failure(response.error)
                 self.trace.add(step, agent_name, "error", success=False, error=str(response.error))
+                self.trace.add(
+                    step,
+                    agent_name,
+                    "recovery_decision",
+                    success=signal.retryable,
+                    failure_kind=signal.kind.value,
+                    retryable=signal.retryable,
+                    recovery_hint=signal.recovery_hint,
+                )
                 state.status = "failed"
                 state.stop_reason = "invalid_llm_response"
                 self.trace.set_run_context(
@@ -167,12 +189,13 @@ class AgentLoop:
                 return final_answer
 
             for tool_call in response.tool_calls:
+                repeat_signal = controller.record_tool_intent(tool_call)
                 key = (tool_call.name, str(tool_call.arguments))
                 tool_check = tool_guardrail(
                     tool_call.name,
                     tool_call.arguments,
                     exists=self.registry.get(tool_call.name) is not None,
-                    repeated=key in tool_history[-3:],
+                    repeated=repeat_signal is not None or key in tool_history[-3:],
                 )
                 self.trace.add(
                     step,
@@ -186,8 +209,17 @@ class AgentLoop:
                     },
                 )
 
-                if not tool_check.passed and key in tool_history[-3:]:
+                if repeat_signal is not None:
                     self.trace.add(step, agent_name, "error", success=False, error=tool_check.reason)
+                    self.trace.add(
+                        step,
+                        agent_name,
+                        "recovery_decision",
+                        success=False,
+                        failure_kind=repeat_signal.kind.value,
+                        retryable=repeat_signal.retryable,
+                        recovery_hint=repeat_signal.recovery_hint,
+                    )
                     self.trace.set_run_context(
                         stop_reason="repeated_tool_call",
                         final_answer="blocked: repeated tool call",
@@ -233,6 +265,17 @@ class AgentLoop:
                         success=False,
                         observation=observation,
                     )
+                    signal = controller.classify_observation(memory.recent_observations()[-1])
+                    if signal:
+                        self.trace.add(
+                            step,
+                            agent_name,
+                            "recovery_decision",
+                            success=signal.retryable,
+                            failure_kind=signal.kind.value,
+                            retryable=signal.retryable,
+                            recovery_hint=signal.recovery_hint,
+                        )
                     continue
 
                 if decision == PermissionDecision.ASK:
@@ -277,17 +320,48 @@ class AgentLoop:
                 state.observations.append(observation)
 
                 consecutive_failures = 0 if observation.success else consecutive_failures + 1
-                stop = check_stop(step, self.config.max_steps, consecutive_failures)
-                if stop.should_stop:
-                    state.status = "stopped"
-                    state.stop_reason = stop.reason
-                    self.trace.set_run_context(
-                        stop_reason=stop.reason,
-                        final_answer=f"blocked: {stop.reason}",
+                signal = controller.classify_observation(observation)
+                if signal:
+                    memory.add(f"recovery:{signal.kind.value}:{signal.recovery_hint}")
+                    self.trace.add(
+                        step,
+                        agent_name,
+                        "recovery_decision",
+                        success=signal.retryable,
+                        failure_kind=signal.kind.value,
+                        retryable=signal.retryable,
+                        recovery_hint=signal.recovery_hint,
                     )
-                    return f"blocked: {stop.reason}"
 
-                messages.append(Message("assistant", f"tool_call:{tool_call.name}"))
+                estimated_cost = 0.0
+                if hasattr(self.llm, "last_usage") and self.llm.last_usage:
+                    estimated_cost = float(getattr(self.llm.last_usage, "estimated_cost_usd", 0.0) or 0.0)
+                stop_signal = controller.should_stop(step, estimated_cost_usd=estimated_cost)
+                if stop_signal is not None:
+                    state.status = "stopped"
+                    state.stop_reason = stop_signal.reason
+                    self.trace.set_run_context(
+                        stop_reason=stop_signal.reason,
+                        final_answer=f"blocked: {stop_signal.reason}",
+                    )
+                    return f"blocked: {stop_signal.reason}"
+
+                messages.append(
+                    Message(
+                        "assistant",
+                        "",
+                        tool_calls=[
+                            {
+                                "id": tool_call.id,
+                                "type": "function",
+                                "function": {
+                                    "name": tool_call.name,
+                                    "arguments": json.dumps(tool_call.arguments, ensure_ascii=False),
+                                },
+                            }
+                        ],
+                    )
+                )
                 messages.append(
                     Message(
                         "tool",
