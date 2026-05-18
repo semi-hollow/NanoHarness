@@ -12,7 +12,7 @@ class T(unittest.TestCase):
             event=data['events'][0]
             self.assertIn('run_id',event)
             self.assertIn('duration_ms',event)
-            self.assertTrue((Path(d)/'summary.md').exists())
+            self.assertFalse((Path(d)/'summary.md').exists())
 
     def test_metrics_extra_counts(self):
         metrics=summarize([

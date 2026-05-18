@@ -155,6 +155,8 @@ class OpenAICompatibleLLMClient(LLMClient):
             item["name"] = message.name
         if message.tool_call_id:
             item["tool_call_id"] = message.tool_call_id
+        if message.tool_calls:
+            item["tool_calls"] = message.tool_calls
         return item
 
     def _tool_to_openai_schema(self, schema: dict[str, Any]) -> dict[str, Any]:

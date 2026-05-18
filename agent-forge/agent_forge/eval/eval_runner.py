@@ -85,6 +85,8 @@ def main():
     """Run every eval case and write the markdown benchmark report."""
 
     root = Path("eval_cases")
+    report_path = Path(os.getenv("AGENT_FORGE_EVAL_REPORT", ".agent_forge/eval_report.md"))
+    report_path.parent.mkdir(parents=True, exist_ok=True)
     results = [run_case(p) for p in sorted(root.iterdir()) if p.is_dir()]
     total = len(results)
     passed = sum(r.passed for r in results)
@@ -126,9 +128,9 @@ def main():
     lines.extend(["", "## Failed Cases", "", ", ".join(failed_cases) if failed_cases else "none", "", "## Evidence", ""])
     for r in results:
         lines.append(f"- {r.case_id}: command=`{r.command}`, task_chars={len(r.task)}, verify={'pass' if r.passed else 'fail'}")
-    Path("eval_report.md").write_text("\n".join(lines), encoding="utf-8")
+    report_path.write_text("\n".join(lines), encoding="utf-8")
     EvalHistory().append(results)
-    print("eval_report.md generated")
+    print(f"{report_path} generated")
 
 
 if __name__ == "__main__":

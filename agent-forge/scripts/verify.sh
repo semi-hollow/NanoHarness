@@ -29,16 +29,19 @@ echo "Working directory: $(pwd)"
 echo "Using Python: $(${PYTHON_BIN} --version 2>&1) at $(command -v "${PYTHON_BIN}" 2>/dev/null || printf '%s' "${PYTHON_BIN}")"
 echo
 
+VERIFY_DIR="${VERIFY_DIR:-.agent_forge/verify}"
+mkdir -p "${VERIFY_DIR}"
+
 echo "== Compile Python files =="
-"${PYTHON_BIN}" -m compileall agent_forge tests eval_cases examples
+"${PYTHON_BIN}" -m compileall -q agent_forge tests eval_cases examples
 echo
 
 echo "== Single-agent demo =="
-"${PYTHON_BIN}" run_demo.py --mode single --trace-file trace-verify-single.json
+"${PYTHON_BIN}" run_demo.py --mode single --no-session --trace-file "${VERIFY_DIR}/single.json"
 echo
 
 echo "== Multi-agent demo =="
-"${PYTHON_BIN}" run_demo.py --mode multi --trace-file trace-verify-multi.json
+"${PYTHON_BIN}" run_demo.py --mode multi --no-session --trace-file "${VERIFY_DIR}/multi.json"
 echo
 
 echo "== Workflow demo =="
@@ -54,3 +57,4 @@ echo "== Eval benchmark =="
 echo
 
 echo "Verification passed."
+echo "Trace/report artifacts are under ${VERIFY_DIR} and .agent_forge/."

@@ -9,10 +9,17 @@ from .summary import write_summary
 class TraceRecorder:
     """Collect and write the auditable event stream for one run."""
 
-    def __init__(self, path: str):
-        """Initialize run metadata and destination trace path."""
+    def __init__(self, path: str, verbose: bool = False, write_summary_file: bool = False):
+        """Initialize run metadata and destination trace path.
+
+        Terminal trace spam is useful while building the runtime, but it is
+        noise for study. The JSON trace remains complete; console breadcrumbs
+        and sibling summary files are opt-in.
+        """
 
         self.path = path
+        self.verbose = verbose
+        self.write_summary_file = write_summary_file
         self.run_id = str(uuid.uuid4())
         self.events: list[dict] = []
         self.started_at = time.time()
@@ -47,7 +54,8 @@ class TraceRecorder:
         }
         self._last_event_at = now
         self.events.append(event)
-        print(f"[trace] step={step} agent={agent_name} event={event_type} success={success}")
+        if self.verbose:
+            print(f"[trace] step={step} agent={agent_name} event={event_type} success={success}")
 
     def write(self):
         """Write JSON trace plus the human-readable summary file."""
@@ -64,4 +72,5 @@ class TraceRecorder:
         }
         with open(self.path, "w", encoding="utf-8") as f:
             json.dump(trace, f, ensure_ascii=False, indent=2)
-        write_summary(self.path, trace)
+        if self.write_summary_file:
+            write_summary(self.path, trace)
