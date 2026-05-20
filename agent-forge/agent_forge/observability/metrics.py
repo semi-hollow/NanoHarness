@@ -3,7 +3,12 @@ from pathlib import Path
 
 
 def summarize(events: list[dict]) -> dict:
-    """Aggregate trace events into the counters shown in reports."""
+    """Aggregate trace events into the counters shown in reports.
+
+    These counters are intentionally simple but interview-relevant: tool count,
+    failed tool count, handoff count, approval count, guardrail blocks, and
+    duration are the first layer of Agent observability.
+    """
 
     numeric_steps = [int(event.get("step", 0) or 0) for event in events]
     return {

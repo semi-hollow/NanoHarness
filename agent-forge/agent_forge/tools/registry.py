@@ -2,7 +2,13 @@ from agent_forge.runtime.observation import Observation
 
 
 class ToolRegistry:
-    """Registry boundary between model-generated tool calls and local tools."""
+    """Registry boundary between model-generated tool calls and local tools.
+
+    Interview point: tool calling is a protocol boundary. The LLM proposes a
+    name and JSON-like args; the registry verifies the tool exists, validates
+    arguments, converts exceptions into Observations, and never lets raw tool
+    failures escape the AgentLoop.
+    """
 
     def __init__(self):
         """Start with an empty tool map; `cli.build_registry` fills it."""
@@ -12,6 +18,7 @@ class ToolRegistry:
     def register(self, tool):
         """Expose one tool by name so the LLM can request it later."""
 
+        # Last registration wins deliberately; tests can replace tools easily.
         self._tools[tool.name] = tool
 
     def schemas(self) -> list[dict]:
@@ -29,19 +36,27 @@ class ToolRegistry:
 
         tool = self.get(name)
         if not tool:
+            # Unknown tools are model/tool-routing failures, not Python errors.
             return Observation(name, False, f"unknown tool: {name}")
         validation_error = self._validate_arguments(tool, arguments or {})
         if validation_error:
+            # Invalid arguments should feed back into recovery; the model can
+            # repair them on the next turn if StepController marks retryable.
             return Observation(name, False, validation_error)
         try:
             return tool.execute(arguments)
         except Exception as e:
+            # Concrete tools should usually return Observation themselves, but
+            # this catch keeps one broken tool from crashing the whole agent run.
             return Observation(name, False, f"tool execution error: {e}")
 
     def _validate_arguments(self, tool, arguments: dict) -> str:
         """Catch missing or obviously mistyped arguments before tools run."""
 
         schema = tool.schema()
+
+        # Local tools use a compact {"arguments": {"path": "str"}} shape; MCP
+        # style tools can also expose JSON Schema-like dicts.
         required = schema.get("required")
         if required is None:
             required = list(schema.get("arguments", {}).keys())

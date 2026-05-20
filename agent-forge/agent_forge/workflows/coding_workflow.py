@@ -10,11 +10,22 @@ class WorkflowState:
     observation-driven state.
     """
 
+    # Original task.
     task: str
+
+    # Fixed plan string; no model planning happens here.
     plan: str = ""
+
+    # Files the deterministic workflow claims to touch.
     modified_files: list[str] = field(default_factory=list)
+
+    # Validation result.
     test_result: str = ""
+
+    # Review result.
     review_result: str = ""
+
+    # success/failed/pending.
     final_status: str = "pending"
 
 

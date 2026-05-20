@@ -11,7 +11,11 @@ from agent_forge.observability.metrics import summarize, summarize_trace_file
 
 
 def parse_verify_json(stdout: str) -> dict:
-    """Read the final JSON object emitted by a case `verify.py` script."""
+    """Read the final JSON object emitted by a case `verify.py` script.
+
+    Verify scripts can print debug text before their final JSON. Reading from
+    the bottom makes the protocol tolerant to those logs.
+    """
 
     for line in reversed(stdout.splitlines()):
         text = line.strip()
@@ -34,6 +38,7 @@ def run_case(case_dir: Path) -> EvalResult:
     task = task_file.read_text(encoding="utf-8").strip() if task_file.exists() else ""
     cwd = Path.cwd()
     env = os.environ.copy()
+    # Make local package importable even when a verify script runs as a file.
     env["PYTHONPATH"] = str(cwd) + (os.pathsep + env["PYTHONPATH"] if env.get("PYTHONPATH") else "")
     command = f"{sys.executable} {case_dir / 'verify.py'}"
     proc = subprocess.run(
@@ -49,6 +54,8 @@ def run_case(case_dir: Path) -> EvalResult:
     notes = str(raw_notes).strip().replace("\n", " ")[:300]
     trace_file = case_dir / "trace.json"
     if trace_file.exists():
+        # Eval cases write temporary traces next to themselves. Convert to
+        # metrics, then remove the trace so eval runs do not clutter the repo.
         metrics = summarize_trace_file(trace_file)
         trace_file.unlink()
         summary_file = case_dir / "summary.md"
@@ -82,7 +89,12 @@ def run_case(case_dir: Path) -> EvalResult:
 
 
 def main():
-    """Run every eval case and write the markdown benchmark report."""
+    """Run every eval case and write the markdown benchmark report.
+
+    This is intentionally lightweight, not a SWE-bench clone. It gives enough
+    evidence to discuss task success, test success, safety, tool count, and
+    traceability without making the study project noisy.
+    """
 
     root = Path("eval_cases")
     report_path = Path(os.getenv("AGENT_FORGE_EVAL_REPORT", ".agent_forge/eval_report.md"))

@@ -41,13 +41,27 @@ class ModelGateway(LLMClient):
     ):
         """Wire primary/fallback clients without leaking provider details upward."""
 
+        # The primary client can be mock, Ollama, company API, or any
+        # OpenAI-compatible endpoint. AgentLoop only sees ModelGateway.chat().
         self.primary = primary
+
+        # Provider/model are copied into ModelUsage so trace can answer:
+        # "which model produced this action?"
         self.provider = provider
         self.model = model
+
+        # Optional fallback is useful for offline demos and provider outages.
+        # In production, fallback should be chosen by explicit policy, not hidden.
         self.fallback = fallback
         self.fallback_provider = fallback_provider
         self.fallback_model = fallback_model
+
+        # Retry policy belongs here because it is provider-call behavior, not
+        # tool recovery behavior.
         self.retry_policy = retry_policy or RetryPolicy()
+
+        # Last logical call telemetry. AgentLoop writes this into trace after
+        # every llm_call event.
         self.last_usage = ModelUsage(provider=provider, model=model)
 
     def chat(self, messages: list[Message], tools: list[dict]) -> AgentResponse:

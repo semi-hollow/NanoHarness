@@ -2,7 +2,12 @@ from pathlib import Path
 
 
 class WorkspaceSandbox:
-    """Path-level safety boundary for all file tools."""
+    """Path-level safety boundary for all file tools.
+
+    This is the local version of "agent sandboxing": every file path produced by
+    the model is resolved under one workspace root and checked for secret-like
+    targets before tools read or write it.
+    """
 
     def __init__(self, workspace_root: str | Path):
         """Resolve the workspace once so later checks compare absolute paths."""
@@ -38,6 +43,8 @@ class WorkspaceSandbox:
 
         resolved = self.resolve_path(path)
         try:
+            # `relative_to` is the key escape check. It blocks ../ and absolute
+            # paths outside the workspace after symlink/path normalization.
             resolved.relative_to(self.workspace_root)
         except ValueError as exc:
             raise PermissionError("external_directory deny") from exc

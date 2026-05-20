@@ -6,25 +6,69 @@ from .context_strategy import build_context_strategy
 
 @dataclass
 class ContextBuildReport:
-    """All context pieces assembled for one LLM turn."""
+    """All context pieces assembled for one LLM turn.
 
+    This dataclass is intentionally verbose. In an agent interview, context
+    quality is one of the hardest parts to explain, so each field maps to a
+    trace-visible section that answers "why did the model see this?"
+    """
+
+    # Stable system instruction. This is separate from the user task so it can
+    # carry runtime policy: evidence-first, use tools, recover safely.
     system_prompt: str
+
+    # Latest user task. It is kept explicit to avoid the model over-weighting
+    # old memory in multi-turn runs.
     user_task: str
+
+    # Bounded repository file map. It helps the model understand project shape
+    # without reading the full repo.
     repo_map: str
+
+    # Lightweight lexical retrieval results, usually file paths or short docs.
     retrieved_docs: list[str]
+
+    # Recent short-term memory items selected by Memory/ContextStrategy.
     memory: list[str]
+
+    # Compressed memory summary for older observations/session seed.
     memory_summary: str
+
+    # Ranked candidate files for this task. These are trace evidence.
     selected_files: list[str]
+
+    # Bounded code snippets from the highest-ranked files.
     selected_file_previews: list[str]
+
+    # Tool names exposed to the model this turn. In multi-agent, role allowlists
+    # can shrink this list.
     available_tools: list[str]
+
+    # Human-readable permission boundary shown to the model.
     permission_summary: str
+
+    # Stable instruction anchor that survives long contexts.
     attention_sink: list[str]
+
+    # Topic continuity classification for session memory inheritance.
     topic_relation: str
+
+    # Whether previous session memory is allowed into this turn.
     inherit_session: bool
+
+    # Explanation of dropped/compressed context for trace debugging.
     dropped_context: list[str]
+
+    # Approximate character budget by section.
     budget_breakdown: dict[str, int]
+
+    # Total approximate prompt chars after assembly.
     total_chars: int
+
+    # Configured max context chars used by the strategy.
     max_chars: int
+
+    # True if the repo map had to be truncated.
     truncated: bool
 
     def render(self) -> str:
@@ -72,12 +116,24 @@ def build_context_report(
     tools=None,
     permission_summary="read allowed; write asks approval; dangerous commands denied",
 ) -> ContextBuildReport:
-    """Build the context object AgentLoop sends to the next LLM call."""
+    """Build the context object AgentLoop sends to the next LLM call.
+
+    The function is intentionally split from AgentLoop so prompt construction is
+    an auditable policy layer. If the agent behaves badly, you can inspect the
+    trace and ask whether retrieval, memory inheritance, or token budget was the
+    cause.
+    """
 
     files = [line for line in repo_map.splitlines() if line.strip()]
     raw_repo = "\n".join(files)
+
+    # Repo map gets only a fraction of the budget. A file tree is useful, but
+    # source previews and recent observations usually matter more for coding.
     shortened = truncate(raw_repo, max(1000, max_chars // 4))
     available_tools = [t.get("name", str(t)) for t in (tools or [])]
+
+    # ContextStrategy owns selection/compression. This wrapper owns rendering
+    # and trace-friendly accounting.
     strategy = build_context_strategy(
         task=task,
         files=files,

@@ -1,5 +1,9 @@
 def readiness_checklist():
-    """Return production-readiness topics this learning project documents."""
+    """Return production-readiness topics this learning project documents.
+
+    This function is not runtime logic. It is a compact map of "what production
+    concerns does this project demonstrate?" for interview preparation.
+    """
 
     return [
         "model gateway and fallback",

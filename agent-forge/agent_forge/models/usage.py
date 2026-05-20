@@ -11,14 +11,31 @@ class ModelUsage:
     attempts, fallback use, latency, and normalized error codes.
     """
 
+    # Logical provider name: mock, openai-compatible, company gateway, Ollama, etc.
     provider: str
+
+    # Concrete model id. Interview reason: model behavior/cost must be auditable.
     model: str
+
+    # Number of provider attempts across retry/fallback. Needed for reliability.
     attempts: int = 0
+
+    # True if primary failed and fallback answered. Helps debug degraded quality.
     fallback_used: bool = False
+
+    # Cumulative latency for attempts. Needed for SLO/cost-effect tradeoffs.
     latency_ms: int = 0
+
+    # Approximate input tokens when provider usage metadata is unavailable.
     prompt_tokens_estimate: int = 0
+
+    # Approximate output tokens or tool-call payload tokens.
     completion_tokens_estimate: int = 0
+
+    # Placeholder cost hook. Real systems fill it from ProviderProfile pricing.
     estimated_cost_usd: float = 0.0
+
+    # Normalized provider/runtime error codes for badcase analysis.
     error_codes: list[str] = field(default_factory=list)
 
     def record_attempt(self, latency_ms: int, error_code: str = "") -> None:

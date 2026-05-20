@@ -7,7 +7,12 @@ from .summary import write_summary
 
 
 class TraceRecorder:
-    """Collect and write the auditable event stream for one run."""
+    """Collect and write the auditable event stream for one run.
+
+    Trace is the main explainability artifact. It records not only final output,
+    but context selection, model calls, permission decisions, tool observations,
+    recovery decisions, and metrics.
+    """
 
     def __init__(self, path: str, verbose: bool = False, write_summary_file: bool = False):
         """Initialize run metadata and destination trace path.
@@ -17,13 +22,25 @@ class TraceRecorder:
         and sibling summary files are opt-in.
         """
 
+        # Destination JSON path. Session mode usually points this into a run dir.
         self.path = path
+
+        # Verbose prints breadcrumbs while developing; default stays quiet for
+        # study so the user reads trace/report intentionally.
         self.verbose = verbose
         self.write_summary_file = write_summary_file
+
+        # One id shared by every event in this trace.
         self.run_id = str(uuid.uuid4())
+
+        # Append-only in-memory event list; write() persists it at the end.
         self.events: list[dict] = []
         self.started_at = time.time()
+
+        # Used to compute per-event duration deltas.
         self._last_event_at = self.started_at
+
+        # Top-level run context, updated by AgentLoop/Supervisor.
         self.task = ""
         self.stop_reason = ""
         self.final_answer = ""
@@ -39,7 +56,11 @@ class TraceRecorder:
             self.final_answer = final_answer
 
     def add(self, step: int, agent_name: str, event_type: str, success: bool = True, error: str = "", **kwargs):
-        """Append one timestamped event and print a short terminal breadcrumb."""
+        """Append one timestamped event and print a short terminal breadcrumb.
+
+        Extra keyword fields are intentionally open-ended so each subsystem can
+        write domain evidence without changing a global event schema.
+        """
 
         now = time.time()
         event = {

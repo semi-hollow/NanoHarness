@@ -38,6 +38,8 @@ class RunCommandTool(Tool):
         if normalized[:4] == ["python", "-m", "unittest", "discover"] and len(normalized) >= 5:
             candidate = normalized[4]
             if not candidate.startswith("-"):
+                # unittest accepts a discovery directory. The model must not use
+                # that to read/execute tests outside the sandbox.
                 self.sandbox.ensure_safe_path(candidate)
 
     def execute(self, arguments):
@@ -55,6 +57,8 @@ class RunCommandTool(Tool):
             proc = subprocess.run(
                 parts,
                 cwd=str(self.sandbox.workspace_root),
+                # shell=False prevents shell injection and makes CommandPolicy's
+                # parsed executable match what subprocess actually runs.
                 shell=False,
                 text=True,
                 capture_output=True,

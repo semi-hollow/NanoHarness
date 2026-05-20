@@ -11,7 +11,14 @@ class Handoff:
     responsibility should be auditable.
     """
 
+    # Sender role.
     from_agent: str
+
+    # Receiver role.
     to_agent: str
+
+    # Why this handoff happened, usually a task/node id.
     reason: str
+
+    # Structured state excerpt passed across the boundary.
     payload: dict

@@ -41,6 +41,8 @@ class AgentLoop:
 
         self.trace.set_run_context(task=task)
 
+        # Phase 0: reject dangerous tasks before the model sees tools. This is
+        # not a replacement for tool-level policy; it is the earliest cheap stop.
         input_check = input_guardrail(task)
         self.trace.add(
             0,
@@ -60,7 +62,13 @@ class AgentLoop:
             )
             return f"blocked: {input_check.reason}"
 
+        # `messages` is the durable conversation inside this run. Each tool call
+        # appends an assistant tool_call message plus a tool observation message
+        # so the next LLM turn can reason from concrete evidence.
         messages = [Message("user", task)]
+
+        # `state` is mostly trace/debug state. It mirrors what a DB-backed agent
+        # service would persist for replay or resume.
         state = AgentState(
             task=task,
             workspace_root=self.config.workspace,
@@ -68,21 +76,40 @@ class AgentLoop:
             messages=messages,
         )
         policy = PermissionPolicy(self.config.auto_approve_writes)
+
+        # Memory is local to this run, with optional resume seed. It is separate
+        # from raw chat messages because prompt memory needs compression and
+        # topic-shift filtering.
         memory = Memory()
         memory.seed_session(
             previous_task=getattr(self.config, "previous_task", ""),
             session_summary=getattr(self.config, "session_summary", ""),
         )
         memory.set("task", task)
+
+        # StepController owns loop-control policy: retryability, repeated-action
+        # detection, timeout, cost budget, and max failure count.
         controller = StepController.from_config(self.config)
 
+        # `tool_history` keeps backward-compatible recent-repeat checks for the
+        # guardrail layer; StepController keeps the stricter stable count.
         tool_history = []
+
+        # Output guardrail uses this to prevent "tests passed" hallucinations.
         ran_tests = False
+
+        # Output guardrail uses this to force the final answer to mention blocks.
         blocked = False
+
+        # Kept for readability with older tests; StepController is the main
+        # source of failure-budget truth.
         consecutive_failures = 0
 
         for step in range(1, self.config.max_steps + 1):
             state.iteration = step
+
+            # Phase 1: assemble context every turn, not once. New observations
+            # can change memory summary, selected files, and recovery hints.
             repo_map = build_repo_map(self.config.workspace)
             schemas = self.registry.schemas()
             context_report = build_context_report(
@@ -114,6 +141,8 @@ class AgentLoop:
                 },
             )
 
+            # Phase 2: produce a small trace-only plan summary. This is not a
+            # hidden chain-of-thought; it is an auditable runtime explanation.
             plan = self.planner.plan(task, step, context_report)
             self.trace.add(
                 step,
@@ -128,9 +157,15 @@ class AgentLoop:
 
             context_message = Message("system", context_report.render())
             messages_for_llm = [context_message] + messages
+
+            # Phase 3: ask the model for either final text or tool calls. All
+            # provider-specific details are normalized behind ModelGateway/LLMClient.
             response = self.llm.chat(messages_for_llm, schemas)
 
             if response.error:
+                # Model failures are provider failures, not tool failures. The
+                # recovery decision is traced separately so you can explain why
+                # this run stopped or retried at the gateway layer.
                 signal = controller.model_failure(response.error)
                 self.trace.add(step, agent_name, "error", success=False, error=str(response.error))
                 self.trace.add(
@@ -168,6 +203,8 @@ class AgentLoop:
             )
 
             if not response.tool_calls:
+                # Phase 4a: final answer path. Output guardrail checks that the
+                # answer does not claim validation that did not happen.
                 final_answer = (response.content or "") + "\n未验证点: 未进行真实线上压测。"
                 output_check = output_guardrail(final_answer, ran_tests, blocked)
                 self.trace.add(
@@ -189,6 +226,8 @@ class AgentLoop:
                 return final_answer
 
             for tool_call in response.tool_calls:
+                # Phase 4b: action path. First catch repeated intent before any
+                # side-effectful tool can run.
                 repeat_signal = controller.record_tool_intent(tool_call)
                 key = (tool_call.name, str(tool_call.arguments))
                 tool_check = tool_guardrail(
@@ -237,6 +276,9 @@ class AgentLoop:
 
                 action = self._permission_action(tool_call.name)
                 command = tool_call.arguments.get("command", "") if tool_call.arguments else ""
+
+                # Permission works on coarse action classes instead of concrete
+                # tool names. This lets many write-like tools share one policy.
                 decision, reason = policy.decide(action, command)
                 self.trace.add(
                     step,
@@ -247,6 +289,8 @@ class AgentLoop:
                 )
 
                 if decision == PermissionDecision.DENY:
+                    # A denial is fed back as an observation. The model should
+                    # adapt or stop; it should never silently bypass policy.
                     blocked = True
                     observation = f"blocked: {reason}"
                     memory.add_observation(observation)
@@ -279,6 +323,9 @@ class AgentLoop:
                     continue
 
                 if decision == PermissionDecision.ASK:
+                    # In this local harness, "approval" is represented by the
+                    # auto_approve flag. A real product would call a UI/human
+                    # approval service here.
                     approved = self.config.auto_approve_writes
                     self.trace.add(
                         step,
@@ -291,6 +338,8 @@ class AgentLoop:
                         memory.add_observation(f"{tool_call.name}: human approval rejected")
                         continue
 
+                # Phase 5: execute the tool through the registry. The registry
+                # validates schema and concrete tools enforce sandbox/policy.
                 observation = self.registry.execute(tool_call.name, tool_call.arguments)
                 memory.add_observation(observation)
                 if tool_call.name == "run_command" and "exit_code=0" in observation.content:
@@ -320,6 +369,10 @@ class AgentLoop:
                 state.observations.append(observation)
 
                 consecutive_failures = 0 if observation.success else consecutive_failures + 1
+
+                # Phase 6: classify failure and write a recovery decision. This
+                # is the part that turns "tool failed" into an explainable next
+                # step such as reread file, fix args, or stop.
                 signal = controller.classify_observation(observation)
                 if signal:
                     memory.add(f"recovery:{signal.kind.value}:{signal.recovery_hint}")
@@ -336,6 +389,9 @@ class AgentLoop:
                 estimated_cost = 0.0
                 if hasattr(self.llm, "last_usage") and self.llm.last_usage:
                     estimated_cost = float(getattr(self.llm.last_usage, "estimated_cost_usd", 0.0) or 0.0)
+
+                # Phase 7: enforce budget after each observation, when we know
+                # whether the last action made progress.
                 stop_signal = controller.should_stop(step, estimated_cost_usd=estimated_cost)
                 if stop_signal is not None:
                     state.status = "stopped"
@@ -346,6 +402,8 @@ class AgentLoop:
                     )
                     return f"blocked: {stop_signal.reason}"
 
+                # Phase 8: append protocol-correct tool messages. The next LLM
+                # turn sees both the assistant tool call and the tool result.
                 messages.append(
                     Message(
                         "assistant",
