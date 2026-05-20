@@ -13,10 +13,19 @@ class TaskArtifact:
     artifact still has an explicit kind, owner, summary, and optional file list.
     """
 
+    # Artifact type, for example agent_result, plan, patch, diagnostics, review.
     kind: str
+
+    # Producing agent.
     owner: str
+
+    # Short human-readable explanation.
     summary: str
+
+    # Files this artifact is about.
     files: list[str] = field(default_factory=list)
+
+    # Extra machine-readable payload.
     data: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:

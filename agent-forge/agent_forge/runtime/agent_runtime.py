@@ -18,6 +18,8 @@ class FilteredToolRegistry:
     def __init__(self, registry, allowed_tools: set[str]):
         """Keep the registry plus the allowlist supplied by AgentSpec."""
 
+        # The shared registry owns real tools; this wrapper only filters what a
+        # specific role can see and execute.
         self.registry = registry
         self.allowed_tools = allowed_tools
 
@@ -65,7 +67,12 @@ class AgentRuntime:
     def run(self, task: str) -> AgentRunResult:
         """Run one role through AgentLoop and return structured evidence."""
 
+        # Capture a trace slice boundary so the returned AgentRunResult contains
+        # only this worker's events, not the entire supervisor run.
         start_index = len(self.trace.events)
+
+        # Each worker gets its own step budget and filtered tools but reuses the
+        # same AgentLoop semantics as single mode.
         config = RuntimeConfig(
             workspace=self.workspace,
             max_steps=self.spec.max_steps,
@@ -76,9 +83,14 @@ class AgentRuntime:
         final_answer = loop.run(self.spec.task_for_role(task), agent_name=self.spec.name)
         events = self.trace.events[start_index:]
         metrics = summarize(events)
+
+        # In this harness, a blocked answer is the main failure signal. More
+        # complex systems would also inspect artifacts and domain validators.
         success = not str(final_answer).startswith("blocked:")
         artifacts = [
             TaskArtifact(
+                # Every worker must return at least one typed artifact so the
+                # scheduler can verify handoff contracts.
                 kind="agent_result",
                 owner=self.spec.name,
                 summary=str(final_answer)[:300],

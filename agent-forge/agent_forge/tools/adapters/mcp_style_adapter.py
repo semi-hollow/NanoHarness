@@ -10,8 +10,13 @@ from agent_forge.tools.base import Tool
 class MCPStyleToolSpec:
     """Minimal local representation of an MCP-like tool definition."""
 
+    # External tool name.
     name: str
+
+    # Natural-language description shown to the LLM.
     description: str
+
+    # JSON Schema-like input spec.
     input_schema: dict[str, Any]
 
 
@@ -26,7 +31,11 @@ class ToolAdapter(ABC):
 
 
 class MCPStyleToolAdapter(ToolAdapter):
-    """Local adapter inspired by MCP tool specs; this is not the full MCP protocol."""
+    """Local adapter inspired by MCP tool specs; this is not the full MCP protocol.
+
+    It exists to show the extension boundary: external tools can be adapted into
+    the local Tool contract without changing AgentLoop.
+    """
 
     def __init__(self, spec: MCPStyleToolSpec, handler: Callable[[dict[str, Any]], Any]):
         """Store external spec plus callable handler."""
@@ -62,6 +71,9 @@ class MCPStyleToolAdapter(ToolAdapter):
                 missing = [name for name in required if name not in arguments]
                 if missing:
                     return Observation(spec.name, False, f"invalid arguments: missing {', '.join(missing)}")
+
+                # Handler can return a raw value or an Observation; wrapping raw
+                # values keeps adapter behavior consistent with local tools.
                 result = handler(arguments)
                 if isinstance(result, Observation):
                     return result

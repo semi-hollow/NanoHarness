@@ -103,6 +103,7 @@ docs/study-pack/02-agent-loop-context-memory.md
 docs/study-pack/03-tools-control-safety.md
 docs/study-pack/04-multi-agent-design.md
 docs/study-pack/05-interview-playbook.md
+docs/study-pack/06-interview-question-coverage.md
 ```
 
 Generated traces, reports, caches, and install artifacts are ignored and can be regenerated.

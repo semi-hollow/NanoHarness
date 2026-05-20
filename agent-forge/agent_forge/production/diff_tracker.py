@@ -8,8 +8,13 @@ from pathlib import Path
 class FileSnapshot:
     """Hash and content for one tracked source file before a run."""
 
+    # Workspace-relative path.
     path: str
+
+    # Fast equality check for before/after comparison.
     sha256: str
+
+    # Original content for rollback bundle.
     content: str
 
 
@@ -17,8 +22,13 @@ class FileSnapshot:
 class DiffSummary:
     """Machine-readable change summary for run reports and rollback."""
 
+    # Workspace-relative files whose hashes changed.
     changed_files: list[str] = field(default_factory=list)
+
+    # git diff when available, simple fallback otherwise.
     patch: str = ""
+
+    # Before/after hashes let reports detect changes even outside git.
     before_hashes: dict[str, str] = field(default_factory=dict)
     after_hashes: dict[str, str] = field(default_factory=dict)
 
@@ -75,7 +85,11 @@ class DiffTracker:
             destination.write_text(snapshot.content, encoding="utf-8")
 
     def _tracked_files(self) -> list[Path]:
-        """Return small text source files and skip generated/local folders."""
+        """Return small text source files and skip generated/local folders.
+
+        This intentionally ignores large/binary/generated files. Rollback should
+        be safe and readable for this teaching runtime, not a full backup system.
+        """
 
         skip_parts = {".git", ".venv", ".agent_forge", "__pycache__", ".pytest_cache"}
         suffixes = {".py", ".md", ".toml", ".json", ".sh", ".txt"}

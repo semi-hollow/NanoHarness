@@ -9,10 +9,19 @@ from typing import Any
 class LLMConfig:
     """Runtime LLM settings resolved from CLI flags, profiles, and env vars."""
 
+    # mock, openai, or openai-compatible. Determines which client to build.
     provider: str = "mock"
+
+    # Provider endpoint. Ollama and company gateways both use this shape.
     base_url: str = ""
+
+    # Secret credential. Should come from env/profile, not committed code.
     api_key: str = ""
+
+    # Concrete model id.
     model: str = ""
+
+    # HTTP request timeout for one provider call.
     timeout: int = 30
 
     @property
@@ -65,7 +74,11 @@ def resolve_llm_config(
     model: str | None = None,
     timeout: int = 30,
 ) -> LLMConfig:
-    """Resolve LLM settings with this priority: CLI flags > profile > env vars."""
+    """Resolve LLM settings with this priority: CLI flags > profile > env vars.
+
+    This priority lets local commands override profiles temporarily while still
+    supporting reusable company/Ollama/online provider configs.
+    """
 
     profile_data: dict[str, Any] = {}
     resolved_provider = provider

@@ -7,6 +7,11 @@ from .token_budget import truncate_middle
 
 
 ATTENTION_SINK = [
+    # These lines are deliberately stable and repeated in every context prompt.
+    # In long multi-turn agents, the model may over-focus on recent tool output
+    # and forget the task/policy. This "attention sink" is the prompt anchor
+    # that keeps the latest user task, evidence-first editing, observation
+    # feedback, and validation discipline visible on every turn.
     "Follow the latest user task, not stale session history.",
     "Inspect relevant files before editing when the task depends on code.",
     "Return tool observations to the next reasoning step before deciding.",
@@ -24,15 +29,43 @@ class ContextStrategy:
     previous session state should influence the current user request.
     """
 
+    # Ranked file paths that the runtime thinks are most relevant to the task.
+    # Interview angle: this is the "retrieval result" for coding context.
     selected_files: list[str]
+
+    # Bounded code snippets for the highest-ranked files. The LLM needs some
+    # real source text, not only file names, but previews must stay under budget.
     file_previews: list[str]
+
+    # Lightweight lexical retrieval results. This project uses transparent
+    # keyword retrieval rather than a vector DB because the repo is small and
+    # code tasks need explainable evidence.
     retrieved_docs: list[str]
+
+    # Raw recent memory items that survived topic-shift filtering.
     memory_items: list[str]
+
+    # Compressed memory string. This is what prevents long conversations from
+    # dumping every previous observation into the prompt.
     memory_summary: str
+
+    # One of: unknown, same_topic, related_topic, topic_shift. It explains
+    # whether previous session context should be trusted for this new task.
     topic_relation: str
+
+    # True means prior session memory can enter the prompt; False means the
+    # current request is treated as a fresh topic to avoid context pollution.
     inherit_session: bool
+
+    # Stable instruction anchor described above.
     attention_sink: list[str] = field(default_factory=lambda: list(ATTENTION_SINK))
+
+    # Human-readable explanation of what was intentionally not included.
+    # This is useful in trace review when the agent missed something.
     dropped_context: list[str] = field(default_factory=list)
+
+    # Character-level budget accounting by section. It is approximate, but it
+    # lets you answer "how do you know where the context window is spent?"
     budget_breakdown: dict[str, int] = field(default_factory=dict)
 
 
@@ -53,10 +86,19 @@ def build_context_strategy(
     """
 
     root_path = Path(root)
+
+    # 1. Select likely files first. This is the coding-agent equivalent of RAG
+    # recall: use task terms, path names, and file content to choose candidates.
     selected_files = rank_files(task, files, root=root_path)[:8]
+
+    # 2. Read only bounded previews for the top files. Previewing too many full
+    # files is the classic way to waste context and dilute instruction following.
     preview_budget = max(1200, max_chars // 3)
     file_previews = _read_file_previews(root_path, selected_files[:4], preview_budget)
 
+    # 3. Decide whether old session context is safe to reuse. This is deliberately
+    # a cheap heuristic; the important design point is that memory inheritance is
+    # explicit rather than automatic.
     previous_task = ""
     if hasattr(memory, "get"):
         previous_task = str(memory.get("previous_task", "") or "")
@@ -69,9 +111,13 @@ def build_context_strategy(
         memory_items = []
         memory_summary = "Previous session context intentionally ignored because the topic changed."
 
+    # 4. Retrieve lightweight docs/path evidence. In a larger system this could
+    # be BM25 + vector + reranker; here it stays deterministic for readability.
     retrieved_docs = retrieve(task, docs or files, limit=5)
     retrieved_docs = [truncate_middle(doc, 600) for doc in retrieved_docs]
 
+    # 5. Record budget usage and dropped context so trace readers can debug
+    # prompt quality without reverse-engineering the string rendering.
     used = {
         "attention_sink": sum(len(item) for item in ATTENTION_SINK),
         "file_previews": sum(len(item) for item in file_previews),
@@ -98,7 +144,13 @@ def build_context_strategy(
 
 
 def infer_topic_relation(current_task: str, previous_task: str) -> str:
-    """Classify whether current task should inherit previous conversation state."""
+    """Classify whether current task should inherit previous conversation state.
+
+    The thresholds are intentionally simple. The goal is not perfect intent
+    recognition; it is to make the runtime conservative when a user jumps from
+    one topic to another, such as "fix calculator" to "explain an interview
+    question". A real product could replace this with an intent classifier.
+    """
 
     if not previous_task:
         return "unknown"
@@ -115,7 +167,12 @@ def infer_topic_relation(current_task: str, previous_task: str) -> str:
 
 
 def _read_file_previews(root: Path, files: list[str], total_budget: int) -> list[str]:
-    """Read bounded previews for selected files without letting one file dominate."""
+    """Read bounded previews for selected files without letting one file dominate.
+
+    Keeping source snippets in the prompt helps the model produce grounded tool
+    calls. The per-file cap prevents a single large file from hiding tests,
+    configs, or the actual target file.
+    """
 
     previews = []
     if not files:

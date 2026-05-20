@@ -9,14 +9,31 @@ from pathlib import Path
 class RunSession:
     """Persistent session metadata for one agent run."""
 
+    # Unique folder/run key.
     session_id: str
+
+    # Workspace the run operated on; useful before rollback/resume.
     workspace: str
+
+    # single/multi/workflow.
     mode: str
+
+    # Original user task.
     task: str
+
+    # Epoch timestamp for sorting/audit.
     created_at: float
+
+    # running/completed; could become failed/cancelled in a larger system.
     status: str = "running"
+
+    # JSON trace path.
     trace_file: str = ""
+
+    # Final human answer.
     final_answer: str = ""
+
+    # Pointers to report/metrics/diff/trace files.
     artifacts: dict[str, str] = field(default_factory=dict)
 
 
@@ -38,6 +55,8 @@ class SessionStore:
     def start(self, workspace: str, mode: str, task: str) -> tuple[RunSession, Path]:
         """Create one new run directory and session.json."""
 
+        # Timestamp + short random suffix gives readable but collision-resistant
+        # local run ids.
         session_id = time.strftime("%Y%m%d-%H%M%S") + "-" + uuid.uuid4().hex[:8]
         run_dir = self.root / session_id
         run_dir.mkdir(parents=True, exist_ok=False)
@@ -69,7 +88,11 @@ class SessionStore:
         return RunSession(**data)
 
     def summary_for_resume(self, session_id: str, max_chars: int = 1200) -> str:
-        """Return a compact previous-run summary for the next AgentLoop."""
+        """Return a compact previous-run summary for the next AgentLoop.
+
+        Resume should seed context, not replay previous messages blindly. The
+        ContextStrategy still decides whether this summary is relevant.
+        """
 
         report = self.report_path(session_id)
         if report.exists():

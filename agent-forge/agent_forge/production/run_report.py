@@ -5,7 +5,12 @@ from agent_forge.production.diff_tracker import DiffSummary
 
 
 class RunReportWriter:
-    """Write human-readable run reports beside machine-readable artifacts."""
+    """Write human-readable run reports beside machine-readable artifacts.
+
+    Trace is complete but noisy. The report is the "what happened?" artifact a
+    user or interviewer can read quickly: task, changed files, final answer, and
+    metrics.
+    """
 
     def __init__(self, output_dir: str | Path):
         """Store the run artifact directory."""
@@ -24,6 +29,8 @@ class RunReportWriter:
     ) -> None:
         """Persist report.md, metrics.json, and diff.patch for one run."""
 
+        # Metrics and diff are saved as separate files so automation can consume
+        # them without parsing markdown.
         (self.output_dir / "metrics.json").write_text(
             json.dumps(metrics, ensure_ascii=False, indent=2),
             encoding="utf-8",

@@ -5,13 +5,22 @@ from .command_policy import check_command
 class PermissionDecision(Enum):
     """Runtime decision used before a tool can touch the workspace."""
 
+    # Safe action can run immediately.
     ALLOW = "allow"
+
+    # Human approval required. The local demo maps this to auto_approve_writes.
     ASK = "ask"
+
+    # Runtime must not execute the action.
     DENY = "deny"
 
 
 class PermissionPolicy:
-    """Central policy for read/write/command decisions."""
+    """Central policy for read/write/command decisions.
+
+    Prompt instructions should not decide whether a tool is allowed. This policy
+    is the deterministic gate used after the model proposes an action.
+    """
 
     def __init__(self, auto_approve_writes: bool = True):
         """Store whether demo write actions should be auto-approved."""
@@ -24,6 +33,8 @@ class PermissionPolicy:
         if action in {"read", "list", "grep"}:
             return PermissionDecision.ALLOW, "read/list/grep allowed"
         if action in {"write", "apply_patch"}:
+            # Writes are ASK even when auto approval is enabled; AgentLoop logs
+            # the approval event so audit shows that the action was high impact.
             return PermissionDecision.ASK, "write needs approval"
         if action == "run_command":
             ok, reason = check_command(command)

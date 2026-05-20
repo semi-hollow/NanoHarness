@@ -7,7 +7,11 @@ from .artifact import TaskArtifact
 
 
 class TaskStatus(Enum):
-    """Lifecycle state for one scheduled task node."""
+    """Lifecycle state for one scheduled task node.
+
+    The scheduler records status explicitly so supervisor decisions can be
+    audited after the run instead of inferred from printed output.
+    """
 
     PENDING = "pending"
     RUNNING = "running"
@@ -20,13 +24,27 @@ class TaskStatus(Enum):
 class TaskNode:
     """One schedulable unit in a production-style agent task graph."""
 
+    # Unique node id inside the graph, for dependency and trace references.
     node_id: str
+
+    # Which AgentSpec/AgentRuntime should execute this node.
     agent_name: str
+
+    # Natural-language task payload for the worker.
     task: str
+
+    # Node ids that must pass before this node can run.
     depends_on: list[str] = field(default_factory=list)
+
+    # Read/write sets let the scheduler reason about safe parallelism.
     read_files: set[str] = field(default_factory=set)
     write_files: set[str] = field(default_factory=set)
+
+    # Required artifact kinds. Missing artifacts fail the node even if prose
+    # sounds successful.
     expected_artifacts: set[str] = field(default_factory=set)
+
+    # Runtime fields filled by TaskScheduler.
     status: TaskStatus = TaskStatus.PENDING
     result: object | None = None
     error: str = ""
@@ -37,6 +55,7 @@ class TaskNode:
 class TaskGraph:
     """DAG used by SupervisorAgent for production-shaped orchestration."""
 
+    # Map node_id -> node so dependency lookups are O(1) and trace ids are stable.
     nodes: dict[str, TaskNode] = field(default_factory=dict)
 
     def add(self, node: TaskNode) -> None:
@@ -47,7 +66,11 @@ class TaskGraph:
         self.nodes[node.node_id] = node
 
     def ready_nodes(self) -> list[TaskNode]:
-        """Return pending nodes whose dependencies already passed."""
+        """Return pending nodes whose dependencies already passed.
+
+        Failed dependencies intentionally do not make a node ready; `run()`
+        later marks blocked nodes as SKIPPED.
+        """
 
         ready = []
         for node in self.nodes.values():
@@ -90,6 +113,8 @@ class TaskScheduler:
         while self.graph.has_pending():
             ready = self.graph.ready_nodes()
             if not ready:
+                # If nothing is ready but pending nodes remain, their upstream
+                # dependencies failed or were skipped. Mark them explicitly.
                 for node in self.graph.nodes.values():
                     if node.status == TaskStatus.PENDING:
                         node.status = TaskStatus.SKIPPED
@@ -100,7 +125,11 @@ class TaskScheduler:
         return completed
 
     def _conflict_safe_batches(self, ready: list[TaskNode]) -> list[list[TaskNode]]:
-        """Group ready nodes so no batch has overlapping write ownership."""
+        """Group ready nodes so no batch has overlapping write ownership.
+
+        This is the lightweight version of worktree/merge isolation: independent
+        readers can run together, but two writers for the same file are separated.
+        """
 
         batches: list[list[TaskNode]] = []
         batch_writes: list[set[str]] = []
@@ -145,6 +174,8 @@ class TaskScheduler:
             node.status = TaskStatus.PASSED if getattr(node.result, "success", True) else TaskStatus.FAILED
             node.artifacts = list(getattr(node.result, "artifacts", []) or [])
             if node.expected_artifacts:
+                # Artifact validation prevents a worker from passing by writing
+                # only a vague final answer without machine-readable evidence.
                 produced = {artifact.kind for artifact in node.artifacts}
                 missing = node.expected_artifacts - produced
                 if missing:

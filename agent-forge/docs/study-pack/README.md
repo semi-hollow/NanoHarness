@@ -9,6 +9,7 @@ Read in this order:
 3. `03-tools-control-safety.md`
 4. `04-multi-agent-design.md`
 5. `05-interview-playbook.md`
+6. `06-interview-question-coverage.md`
 
 Run while reading:
 

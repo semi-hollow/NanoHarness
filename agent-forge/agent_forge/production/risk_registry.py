@@ -1,5 +1,9 @@
 def risk_registry():
-    """Return known production risks and the project modules that illustrate them."""
+    """Return known production risks and the project modules that illustrate them.
+
+    Like readiness_checklist, this is a study helper. It connects interview
+    risk questions to concrete files in the repo.
+    """
 
     return {
         "tool_execution": "permission + sandbox + command policy",

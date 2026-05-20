@@ -14,8 +14,13 @@ from .tool_call import ToolCall
 class AgentResponse:
     """Normalized LLM response: final text, tool calls, or structured error."""
 
+    # Final natural-language answer. None when the model chose tools only.
     content: Optional[str]
+
+    # Normalized tool calls independent of provider wire format.
     tool_calls: list[ToolCall]
+
+    # Structured provider/parse failure. AgentLoop treats it as data, not crash.
     error: Optional[dict[str, Any]] = None
 
 
@@ -29,7 +34,11 @@ class LLMClient:
 
 
 class OpenAICompatibleLLMClient(LLMClient):
-    """Small standard-library client for OpenAI-compatible chat completions."""
+    """Small standard-library client for OpenAI-compatible chat completions.
+
+    The project avoids a provider SDK so the protocol is visible: build request,
+    parse choices/message/tool_calls, normalize into AgentResponse.
+    """
 
     def __init__(
         self,
@@ -81,6 +90,8 @@ class OpenAICompatibleLLMClient(LLMClient):
         payload = {
             "model": self.model,
             "messages": [self._message_to_dict(m) for m in messages],
+            # Local tool schemas are converted to OpenAI function-tool shape so
+            # Ollama/company gateways/OpenAI-compatible services share one path.
             "tools": [self._tool_to_openai_schema(t) for t in tools],
         }
         request = urllib.request.Request(
@@ -107,7 +118,11 @@ class OpenAICompatibleLLMClient(LLMClient):
         return self.parse_response(data)
 
     def parse_response(self, data: dict[str, Any]) -> AgentResponse:
-        """Parse OpenAI-compatible response JSON into AgentResponse."""
+        """Parse OpenAI-compatible response JSON into AgentResponse.
+
+        Provider responses are treated defensively. Missing choices/message or
+        empty output become structured errors so ModelGateway can retry/fallback.
+        """
 
         try:
             choices = data.get("choices")
@@ -139,6 +154,8 @@ class OpenAICompatibleLLMClient(LLMClient):
                 raise ValueError("tool call missing function name")
             arguments = fn.get("arguments", {})
             if isinstance(arguments, str):
+                # Providers send function arguments as JSON strings; local tools
+                # expect dicts so registry validation can inspect them.
                 arguments = json.loads(arguments or "{}")
             if arguments is None:
                 arguments = {}
@@ -208,7 +225,12 @@ class OpenAICompatibleLLMClient(LLMClient):
 
 
 class MockLLMClient(LLMClient):
-    """Deterministic LLM stand-in used for offline demos and tests."""
+    """Deterministic LLM stand-in used for offline demos and tests.
+
+    It is intentionally scripted to trigger useful runtime behaviors: failed
+    patch recovery, validation, supervisor retry, and review. This lets the user
+    study AgentLoop without paying for a model call.
+    """
 
     def __init__(self, mode: str = "single"):
         """Store which scripted behavior to use."""

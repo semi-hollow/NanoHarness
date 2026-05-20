@@ -47,20 +47,34 @@ from .workflows.coding_workflow import run_workflow
 
 
 def reset_demo_repo(workspace: str) -> None:
-    """Reset the tiny demo repository so repeated runs start from the same bug."""
+    """Reset the tiny demo repository so repeated runs start from the same bug.
+
+    This keeps local demos deterministic. Without resetting, a previous
+    successful patch would make the next run look like it "fixed" nothing.
+    """
 
     path = Path(workspace) / "examples/demo_repo/src/calculator.py"
     path.write_text("def add(a: int, b: int) -> int:\n    return a - b\n", encoding="utf-8")
+
+    # Bump mtime and clear pycache so unittest never reads stale bytecode after
+    # the agent patches the tiny demo repo quickly.
     os.utime(path, (time.time() + 2, time.time() + 2))
     for cache_dir in (Path(workspace) / "examples/demo_repo").rglob("__pycache__"):
         shutil.rmtree(cache_dir, ignore_errors=True)
 
 
 def build_registry(workspace: str, auto: bool) -> ToolRegistry:
-    """Create the tool registry used by single and multi-agent modes."""
+    """Create the tool registry used by single and multi-agent modes.
+
+    The registry is the tool gateway. Centralizing tool registration here makes
+    it easy to answer "which actions can the agent perform?" in an interview.
+    """
 
     sandbox = WorkspaceSandbox(workspace)
     registry = ToolRegistry()
+
+    # All tools share the same sandbox boundary. Role-specific allowlists are
+    # layered later by AgentRuntime/FilteredToolRegistry.
     tools = [
         ListFilesTool(sandbox),
         ReadFileTool(sandbox),
@@ -80,7 +94,12 @@ def build_registry(workspace: str, auto: bool) -> ToolRegistry:
 
 
 def build_llm(config: LLMConfig):
-    """Instantiate the concrete LLM client selected by resolved config."""
+    """Instantiate the concrete LLM client selected by resolved config.
+
+    AgentLoop depends on the ModelGateway interface, not provider-specific HTTP
+    clients. This is what makes mock, Ollama, company APIs, and online APIs
+    interchangeable without changing runtime logic.
+    """
 
     if config.provider == "mock":
         return ModelGateway(
@@ -100,7 +119,12 @@ def build_llm(config: LLMConfig):
 
 
 def build_parser() -> argparse.ArgumentParser:
-    """Define CLI flags for mode selection, LLM config, and trace output."""
+    """Define CLI flags for mode selection, LLM config, and trace output.
+
+    These flags are also documentation for runtime control: context budget,
+    failure budget, repeated-action budget, timeout, and session resume are
+    explicit knobs, not hidden constants.
+    """
 
     parser = argparse.ArgumentParser(description="Run Agent Forge demos and workflows.")
     parser.add_argument("task", nargs="?", default="修复 examples/demo_repo 里的测试失败问题")
@@ -133,12 +157,19 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main() -> None:
-    """CLI entry point: compose dependencies, choose mode, write trace."""
+    """CLI entry point: compose dependencies, choose mode, write trace.
+
+    This function is intentionally the composition root. Business logic belongs
+    in AgentLoop/Supervisor/Tools; CLI only wires config, sessions, diff tracking,
+    model gateway, and trace artifacts together.
+    """
 
     args = build_parser().parse_args()
     store = SessionStore(args.session_root)
 
     if args.list_sessions:
+        # Session commands are read-only inspection paths and should not start a
+        # new run or modify the demo repo.
         for run_dir in store.list_sessions()[:20]:
             print(run_dir.name)
         return
@@ -158,6 +189,8 @@ def main() -> None:
     previous_task = ""
     session_summary = ""
     if args.resume_run:
+        # Resume seeds context from a previous report; it does not replay old
+        # actions. ContextStrategy later decides whether to inherit it.
         previous = store.load(args.resume_run)
         previous_task = previous.task
         session_summary = store.summary_for_resume(args.resume_run)
@@ -168,11 +201,14 @@ def main() -> None:
     session = None
     run_dir = None
     if not args.no_session:
+        # Sessions create the auditable artifact folder. If the user did not
+        # choose a trace path, put trace.json inside that run directory.
         session, run_dir = store.start(args.workspace, args.mode, args.task)
         if args.trace_file == "agent_forge_trace.json":
             args.trace_file = str(run_dir / "trace.json")
 
     diff_tracker = DiffTracker(args.workspace)
+    # Capture before any mode runs so report/rollback can explain side effects.
     diff_tracker.capture_before()
     trace = TraceRecorder(
         args.trace_file,
@@ -229,6 +265,8 @@ def main() -> None:
 
     trace.write()
     if run_dir is not None and session is not None:
+        # Persist report artifacts after trace is written. The report gives a
+        # human summary; metrics/diff remain machine-readable.
         diff_summary = diff_tracker.summarize_after()
         diff_tracker.write_rollback_bundle(run_dir)
         RunReportWriter(run_dir).write(

@@ -46,6 +46,9 @@ class ApplyPatchTool(Tool):
         path = self.sandbox.ensure_safe_path(arguments["path"])
         text = path.read_text(encoding="utf-8")
         if arguments["old"] not in text:
+            # This failure is intentionally recoverable. AgentLoop/StepController
+            # classifies it as PATCH_MISMATCH, prompting the model to reread the
+            # file and repair the patch anchor.
             return Observation(self.name, False, "old text not found")
 
         path.write_text(text.replace(arguments["old"], arguments["new"], 1), encoding="utf-8")
@@ -55,5 +58,6 @@ class ApplyPatchTool(Tool):
         os.utime(path, (now, now))
         cache_dir = path.parent / "__pycache__"
         if cache_dir.exists():
+            # CPython can otherwise reuse stale bytecode in very fast demo runs.
             shutil.rmtree(cache_dir, ignore_errors=True)
         return Observation(self.name, True, f"patched once: {arguments['path']}")
