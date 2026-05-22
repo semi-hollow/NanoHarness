@@ -10,6 +10,7 @@ Read in this order:
 4. `04-multi-agent-design.md`
 5. `05-interview-playbook.md`
 6. `06-interview-question-coverage.md`
+7. `07-interview-answer-bank.md`
 
 Run while reading:
 
@@ -20,4 +21,4 @@ python run_demo.py --mode single --trace-file trace-single.json
 python run_demo.py --mode multi --trace-file trace-multi.json
 ```
 
-The project deliberately does not implement graph construction, multimodal generation, model training, or a full SWE-bench evaluation stack. Those are interview-adjacent topics, so `05-interview-playbook.md` tells you how to discuss them without polluting the CodingAgent core.
+The project deliberately does not implement graph construction, multimodal generation, model training, or a full SWE-bench evaluation stack. Those are interview-adjacent topics, so `05-interview-playbook.md` tells you how to discuss them without polluting the CodingAgent core, and `07-interview-answer-bank.md` gives you concise answers for the full question archive.
