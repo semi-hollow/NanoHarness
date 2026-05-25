@@ -1,0 +1,42 @@
+{
+  "profiles": {
+    "mock": {
+      "provider": "mock"
+    },
+    "deepseek": {
+      "provider": "deepseek",
+      "base_url": "https://api.deepseek.com",
+      "api_key": "replace-with-DEEPSEEK_API_KEY-or-local-secret",
+      "model": "deepseek-v4-flash",
+      "timeout": 60
+    },
+    "ollama-qwen": {
+      "provider": "openai",
+      "base_url": "http://localhost:11434/v1",
+      "api_key": "ollama",
+      "model": "qwen2.5-coder:7b",
+      "timeout": 60
+    },
+    "company-api": {
+      "provider": "openai",
+      "base_url": "https://your-company-gateway/v1",
+      "api_key": "replace-with-env-or-local-secret",
+      "model": "your-company-model",
+      "timeout": 60
+    },
+    "minimax": {
+      "provider": "openai",
+      "base_url": "https://your-minimax-openai-compatible-host/v1",
+      "api_key": "replace-with-env-or-local-secret",
+      "model": "your-minimax-model",
+      "timeout": 60
+    },
+    "chatgpt": {
+      "provider": "openai",
+      "base_url": "https://api.openai.com/v1",
+      "api_key": "replace-with-env-or-local-secret",
+      "model": "gpt-4.1-mini",
+      "timeout": 60
+    }
+  }
+}
