@@ -1,159 +1,208 @@
-# NanoHarness
+# Agent Forge
 
-NanoHarness is an Agent Engineering portfolio project. The repository currently contains one main implementation:
+Agent Forge is a compact production-style CodingAgent runtime for learning AI Agent system design. It is not a full Codex clone and intentionally avoids TUI, IDE plugin, PR bot, enterprise integrations, container sandbox, multimodal, and model training. The goal is to make the core runtime easy to run, read, and explain in a senior AI Agent engineering walkthrough.
 
-- [`agent-forge/`](agent-forge/) - a compact Agent Harness / Agent Engineering Lab for coding-agent interviews, learning, safety, tracing, and evaluation.
+## What This Project Teaches
 
-The repository name is **NanoHarness** because the long-term direction is a small but complete harness for understanding how agents become controlled execution systems. The current project folder is still named **agent-forge** because it was built first under that name and already has its own package, docs, tests, eval cases, and CI workflow.
+- Context engineering: repo map, file ranking, lexical retrieval, selected file previews, token budget, memory summary, and topic-shift handling.
+- Agent loop control: plan, LLM call, tool call, observation, recovery, final answer.
+- Tool governance: schema validation, permission policy, sandbox path checks, high-risk command blocking, and human approval hooks.
+- Runtime reliability: repeated-action detection, retryability classification, max steps, timeout, cost budget, trace, reports, and rollback bundle.
+- Multi-agent orchestration: supervisor, role specs, task graph, artifact handoff, ownership, validation, retry, and review.
+- Model switching: mock, Ollama, company OpenAI-compatible APIs, or online OpenAI-compatible providers.
 
-## Why Is There an `agent-forge/` Folder?
-
-This is intentional for the current stage.
-
-`agent-forge/` is the real project implementation directory. Keeping it as a subfolder avoids unnecessary churn in:
-
-- Python package paths;
-- documentation links;
-- eval case paths;
-- GitHub Actions working directories;
-- existing project history.
-
-For review purposes, treat `agent-forge/` as the project root.
-
-Long term, if this repository remains a single-project repo, a cleanup migration could move `agent-forge/` contents to the repository root or rename the folder to `nanoharness/`. That is a polish step, not a functional blocker.
-
-## Start Here
-
-1. Read the original project source of truth:
-   - [`agent-forge/00-项目原始设计方案-source-of-truth.md`](agent-forge/00-%E9%A1%B9%E7%9B%AE%E5%8E%9F%E5%A7%8B%E8%AE%BE%E8%AE%A1%E6%96%B9%E6%A1%88-source-of-truth.md)
-2. Read the implementation README:
-   - [`agent-forge/README.md`](agent-forge/README.md)
-3. Read the capability evidence map:
-   - [`agent-forge/docs/capability-evidence-map.md`](agent-forge/docs/capability-evidence-map.md)
-4. Read the reviewer guide:
-   - [`agent-forge/docs/reviewer-guide.md`](agent-forge/docs/reviewer-guide.md)
-5. Read the V2 change archive:
-   - [`agent-forge/docs/references/codex-v2-change-archive.md`](agent-forge/docs/references/codex-v2-change-archive.md)
-
-## What Agent Forge Covers
-
-Agent Forge is not a chatbot and not a Claude/OpenCode clone. It is a runnable engineering harness that demonstrates the control layer behind coding agents:
-
-- Agent Loop
-- Tool Calling
-- Observation feedback
-- Workflow vs dynamic Agent execution
-- Multi-Agent Supervisor/Subagent flow
-- Handoff
-- Context Engineering
-- Memory and simplified RAG
-- Permission and workspace sandbox
-- Guardrails
-- Human-in-the-loop approval
-- Observability and trace JSON
-- Metrics summary
-- Eval benchmark
-- Production-readiness docs
-- Interview Q&A and project storytelling material
-
-## Repository Layout
-
-```text
-NanoHarness/
-  README.md                         # This repository-level guide
-  .github/workflows/                # GitHub Actions for Agent Forge
-  agent-forge/
-    README.md                       # Main implementation README
-    00-项目原始设计方案-source-of-truth.md
-    run_demo.py
-    agent_forge/                    # Python package
-    examples/demo_repo/             # Demo coding task
-    eval_cases/                     # Executable eval benchmark cases
-    scripts/verify.sh               # One-command local verification
-    tests/                          # unittest test suite
-    docs/                           # Design docs and interview material
-    tutorials/                      # nanoAgent-style learning path
-```
-
-## Quickstart
-
-Run commands from `agent-forge/`:
+## Quick Start
 
 ```bash
-cd agent-forge
+cd /path/to/NanoHarness
+source .venv/bin/activate
+python run_demo.py --mode single --trace-file trace-single.json
+python run_demo.py --mode multi --trace-file trace-multi.json
+python run_demo.py --mode workflow
+```
+
+For one-command local verification:
+
+```bash
 scripts/verify.sh
 ```
 
-The default demos use `MockLLMClient`, so no API key is required.
+The terminal output is intentionally quiet. The detailed evidence is in the trace JSON or session report.
 
-## Verified Status
+## Core Commands
 
-Latest local verification recorded during V2 work:
+```bash
+# Single runtime path: AgentLoop + context + tools + recovery.
+python run_demo.py --mode single --trace-file trace-single.json
 
-- single-agent demo: passed
-- multi-agent demo: passed
-- workflow demo: passed
-- unit tests: 44 passed
-- eval benchmark: 19/19 passed
-- Python compile check: passed
+# Runtime-backed multi-agent path.
+python run_demo.py --mode multi --trace-file trace-multi.json
 
-See [`agent-forge/docs/run-results.md`](agent-forge/docs/run-results.md) for recorded evidence. Running `scripts/verify.sh` also regenerates local ignored artifacts such as `eval_report.md` and trace JSON files.
+# Deterministic workflow baseline, useful for comparison.
+python run_demo.py --mode workflow
 
-## Review Guide
-
-For the full review path, use [`agent-forge/docs/reviewer-guide.md`](agent-forge/docs/reviewer-guide.md).
-
-If you are reviewing this project, start with these questions:
-
-1. Can the demo actually run without a real API key?
-2. Does the Agent Loop show tool calls and observations clearly?
-3. Are unsafe actions blocked by permission, sandbox, or guardrails?
-4. Are traces detailed enough to debug an agent run?
-5. Does eval execute real `verify.py` files instead of hardcoding success?
-6. Are the current boundaries honestly documented?
-
-Relevant files:
-
-- Runtime: [`agent-forge/agent_forge/runtime/agent_loop.py`](agent-forge/agent_forge/runtime/agent_loop.py)
-- LLM clients: [`agent-forge/agent_forge/runtime/llm_client.py`](agent-forge/agent_forge/runtime/llm_client.py)
-- Tool registry: [`agent-forge/agent_forge/tools/registry.py`](agent-forge/agent_forge/tools/registry.py)
-- Safety: [`agent-forge/agent_forge/safety/`](agent-forge/agent_forge/safety/)
-- Context: [`agent-forge/agent_forge/context/`](agent-forge/agent_forge/context/)
-- Observability: [`agent-forge/agent_forge/observability/`](agent-forge/agent_forge/observability/)
-- Eval runner: [`agent-forge/agent_forge/eval/eval_runner.py`](agent-forge/agent_forge/eval/eval_runner.py)
-
-## Generated Artifacts
-
-Agent demos and eval runs generate local files such as:
-
-- `agent-forge/eval_report.md`
-- `agent-forge/agent_forge_trace.json`
-- `agent-forge/*_trace.json`
-- `agent-forge/summary.md`
-
-These are ignored by git so normal demo runs do not dirty the repository. Use `agent-forge/docs/run-results.md` for checked-in evidence and `scripts/verify.sh` to regenerate local reports.
-
-## GitHub About
-
-Suggested repository description:
-
-```text
-A compact Agent Harness for coding-agent runtime, tools, safety, tracing, eval, and interview-ready documentation.
+# Persisted run sessions.
+python run_demo.py --list-sessions
+python run_demo.py --show-run <session_id>
+python run_demo.py --resume-run <session_id> --mode single
+python run_demo.py --rollback-run <session_id>
 ```
 
-## Naming Decision
+## Validation Scenarios
 
-Current naming:
+`examples/demo_repo` is the calculator smoke test. It is intentionally tiny and
+answers one question: can the harness start, read a file, patch code, run tests,
+and write trace evidence?
 
-- **NanoHarness**: repository and long-term project brand.
-- **Agent Forge**: current implementation module / subproject.
+`examples/webhook_service_repo` is the main validation scenario. It models a
+webhook service that verifies signatures, stores events, and enqueues jobs. The
+committed fixture starts with a duplicate-delivery bug: the same `event_id`
+creates duplicate records and duplicate jobs. Running the benchmark asks the
+agent to read the issue and relevant files, add idempotency before side effects,
+run tests, and produce trace plus usage artifacts.
 
-This is acceptable for now because the implementation is coherent and documented. The most important improvement was adding this repository-level README so GitHub visitors understand where the real project lives.
+```bash
+local_scripts/run_webhook_bench.sh
+```
 
-If you want the cleanest final portfolio shape later, choose one of these:
+The script uses MockLLM by default so it works offline. To run the same scenario
+with DeepSeek on your personal Mac:
 
-- Option A: keep `agent-forge/` and describe it as the first harness implementation inside NanoHarness.
-- Option B: move `agent-forge/` contents to repo root and make NanoHarness the only visible project name.
-- Option C: rename `agent-forge/` to `nanoharness/` and update package/docs/CI paths.
+```bash
+AGENT_FORGE_WEBHOOK_LLM=deepseek local_scripts/run_webhook_bench.sh
+```
 
-Recommended now: **Option A**. It is clear, low-risk, and preserves the existing working project.
+This scenario is useful for engineering walkthroughs because it exercises
+repo-level context selection, issue-driven code modification, tool calling,
+patch application, test execution, sandbox boundaries, eval verification,
+reviewer safety checks, trace evidence, and rollback/report artifacts without
+forcing you to learn a large business system.
+
+## Model Switching
+
+Personal Mac default, using DeepSeek V4 Flash. If you already wrote the key
+into your macOS zsh environment, you only need to run the script:
+
+```bash
+cd /Users/chenjiahui/Documents/GitHub/NanoHarness
+local_scripts/run_deepseek.sh
+```
+
+One-time zsh setup on your personal Mac:
+
+```bash
+echo 'export DEEPSEEK_API_KEY="your-deepseek-api-key"' >> ~/.zshrc
+source ~/.zshrc
+```
+
+Check that the key is available in a new terminal:
+
+```bash
+echo "$DEEPSEEK_API_KEY"
+```
+
+The equivalent raw CLI command is:
+
+```bash
+python run_demo.py --mode single --llm deepseek --trace-file trace-deepseek.json
+python -m json.tool trace-deepseek.json > trace-deepseek.pretty.json
+```
+
+Mock mode works offline:
+
+```bash
+local_scripts/run_mock.sh
+```
+
+Ollama or any OpenAI-compatible API:
+
+```bash
+python run_demo.py --mode single --llm openai \
+  --base-url http://localhost:11434/v1 \
+  --api-key ollama \
+  --model qwen2.5-coder:7b
+```
+
+Profile-based usage:
+
+```bash
+cp llm_profiles.example.json llm_profiles.json
+python run_demo.py --mode single --llm-profile deepseek
+```
+
+Never commit real API keys. Keep `DEEPSEEK_API_KEY` in your personal shell
+environment or a local ignored file only. `.env`, `.env.local`,
+`llm_profiles.json`, and `local_scripts/run_online_llm.sh` are ignored.
+Company/offline verification should keep using `--llm mock` or
+`local_scripts/run_mock.sh`.
+
+## Reading Trace JSON
+
+The local scripts write compact JSON plus a formatted copy:
+
+```text
+trace-deepseek.json
+trace-deepseek.pretty.json
+trace-deepseek.usage.json
+trace-deepseek.usage_report.md
+trace-mock.json
+trace-mock.pretty.json
+trace-mock.usage.json
+trace-mock.usage_report.md
+```
+
+Open the `*.pretty.json` file when you want to read by eye. To format any JSON
+file manually:
+
+```bash
+python -m json.tool trace-deepseek.json > trace-deepseek.pretty.json
+```
+
+VS Code can format JSON with `Shift + Option + F` after opening the file.
+PyCharm can format JSON with `Option + Command + L` or `Code -> Reformat Code`.
+
+Open the `*.usage_report.md` file when you want the engineering view:
+
+- Run Summary: total LLM calls, input/output tokens, cache hit/miss, estimated cost, latency.
+- Step Breakdown: every model call by step, agent, provider/model, tokens, cost, latency, and action summary.
+- Context Breakdown: where prompt budget went, such as system context, history, tool schemas, memory, retrieved docs, and file previews.
+- Tool Efficiency: per-tool call count, success rate, failed observations, observation size, and duration.
+
+The machine-readable companion `*.usage.json` has the same data for scripts or
+future dashboards.
+
+## Project Structure
+
+```text
+agent_forge/
+  cli.py              # CLI composition and mode dispatch
+  runtime/            # AgentLoop, execution control, session, messages
+  context/            # context strategy, repo map, memory, retrieval, ranking
+  tools/              # read/write/patch/grep/run/git/diagnostics/ask_human
+  safety/             # guardrails, permission, command policy, sandbox
+  models/             # provider gateway, retry/fallback, usage telemetry
+  agents/             # SupervisorAgent and handoff policy
+  workflows/          # TaskGraph, TaskScheduler, deterministic baseline
+  observability/      # trace and metrics
+  production/         # diff tracker, run report, ownership/readiness
+docs/study-pack/      # focused study docs for code reading and engineering walkthroughs
+examples/demo_repo/   # tiny repo the agent fixes
+examples/webhook_service_repo/ # webhook idempotency benchmark fixture
+scripts/              # setup and verification scripts
+```
+
+## Study Pack
+
+Read these in order:
+
+```text
+docs/study-pack/01-code-map-and-architecture.md
+docs/study-pack/02-agent-loop-context-memory.md
+docs/study-pack/03-tools-control-safety.md
+docs/study-pack/04-multi-agent-design.md
+docs/study-pack/05-project-briefing.md
+docs/study-pack/06-technical-question-coverage.md
+docs/study-pack/07-technical-answer-bank.md
+```
+
+Generated traces, reports, caches, and install artifacts are ignored and can be regenerated.

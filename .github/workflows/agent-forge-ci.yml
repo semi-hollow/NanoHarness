@@ -1,14 +1,8 @@
 name: Agent Forge CI
 
 on:
-  push:
-    paths:
-      - "agent-forge/**"
-      - ".github/workflows/agent-forge-ci.yml"
-  pull_request:
-    paths:
-      - "agent-forge/**"
-      - ".github/workflows/agent-forge-ci.yml"
+  push: {}
+  pull_request: {}
 
 jobs:
   verify-agent-forge:
@@ -23,25 +17,19 @@ jobs:
           python-version: "3.11"
 
       - name: Compile Python files
-        working-directory: agent-forge
         run: python -m compileall agent_forge tests eval_cases examples
 
       - name: Single-agent demo
-        working-directory: agent-forge
         run: python run_demo.py --mode single
 
       - name: Multi-agent demo
-        working-directory: agent-forge
         run: python run_demo.py --mode multi
 
       - name: Workflow demo
-        working-directory: agent-forge
         run: python run_demo.py --mode workflow
 
       - name: Unit tests
-        working-directory: agent-forge
         run: python -m unittest discover tests
 
       - name: Eval benchmark
-        working-directory: agent-forge
         run: python -m agent_forge.eval.eval_runner

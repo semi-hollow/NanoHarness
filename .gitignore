@@ -1,3 +1,25 @@
 .DS_Store
 .idea/
-agent-forge/.agent_forge/
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+*.egg-info/
+.env
+.env.local
+!examples/webhook_service_repo/.env
+local_scripts/run_online_llm.sh
+llm_profiles.json
+agent_forge_trace.json
+eval_report.md
+summary.md
+.agent_forge/
+
+# generated traces / reports
+*_trace.json
+trace-*.json
+trace-*.pretty.json
+*.usage.json
+*.usage_report.md
+usage.json
+usage_report.md
