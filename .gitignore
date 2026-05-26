@@ -8,6 +8,8 @@ __pycache__/
 .env
 .env.local
 !examples/webhook_service_repo/.env
+# Personal one-off provider wrappers may contain API keys. They are not part of
+# the committed script surface, but keep them ignored as a safety net.
 local_scripts/run_online_llm.sh
 llm_profiles.json
 agent_forge_trace.json
