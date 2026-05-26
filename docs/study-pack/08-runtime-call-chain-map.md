@@ -31,7 +31,7 @@ Then ask two questions:
 ## Main Single-Agent Chain
 
 This is the canonical path for `local_scripts/run_webhook_deepseek.sh`,
-`local_scripts/run_webhook_bench.sh`, and normal `--mode single` runs.
+`local_scripts/run_deepseek.sh`, and normal `--mode single` runs.
 
 ```mermaid
 flowchart TD

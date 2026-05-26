@@ -27,7 +27,7 @@ For one-command local verification:
 scripts/verify.sh
 ```
 
-The terminal output is intentionally quiet. The detailed evidence is in the trace JSON or session report.
+The terminal output is intentionally quiet. The detailed evidence is in the trace JSON, usage report, or session report.
 
 ## Core Commands
 
@@ -62,17 +62,11 @@ agent to read the issue and relevant files, add idempotency before side effects,
 run tests, and produce trace plus usage artifacts.
 
 ```bash
-local_scripts/run_webhook_bench.sh
-```
-
-The script uses MockLLM by default so it works offline on company machines.
-On your personal Mac, the primary real-model entrypoint is:
-
-```bash
 local_scripts/run_webhook_deepseek.sh
 ```
 
-It uses DeepSeek and writes `trace-webhook-deepseek.*` artifacts.
+This is the primary real-model entrypoint. It uses DeepSeek and writes
+`trace-webhook-deepseek.*` artifacts.
 
 This scenario is useful for engineering walkthroughs because it exercises
 repo-level context selection, issue-driven code modification, tool calling,
@@ -80,13 +74,18 @@ patch application, test execution, sandbox boundaries, eval verification,
 reviewer safety checks, trace evidence, and rollback/report artifacts without
 forcing you to learn a large business system.
 
-## Model Switching
+## DeepSeek Runs
 
-Personal Mac default, using DeepSeek V4 Flash. If you already wrote the key
-into your macOS zsh environment, you only need to run the script:
+Personal Mac default, using DeepSeek V4 Flash. If you already wrote the key into
+your macOS zsh environment, use one of these two scripts:
 
 ```bash
 cd /Users/chenjiahui/Documents/GitHub/NanoHarness
+
+# Main end-to-end scenario.
+local_scripts/run_webhook_deepseek.sh
+
+# Short single-agent smoke run.
 local_scripts/run_deepseek.sh
 ```
 
@@ -110,13 +109,13 @@ python run_demo.py --mode single --llm deepseek --trace-file trace-deepseek.json
 python -m json.tool trace-deepseek.json > trace-deepseek.pretty.json
 ```
 
-Mock mode works offline:
+Mock mode still works offline through the CLI:
 
 ```bash
-local_scripts/run_mock.sh
+python run_demo.py --mode single --llm mock --trace-file trace-mock.json
 ```
 
-Ollama or any OpenAI-compatible API:
+Any OpenAI-compatible API can still be used through the raw CLI when needed:
 
 ```bash
 python run_demo.py --mode single --llm openai \
@@ -125,18 +124,10 @@ python run_demo.py --mode single --llm openai \
   --model qwen2.5-coder:7b
 ```
 
-Profile-based usage:
-
-```bash
-cp llm_profiles.example.json llm_profiles.json
-python run_demo.py --mode single --llm-profile deepseek
-```
-
 Never commit real API keys. Keep `DEEPSEEK_API_KEY` in your personal shell
 environment or a local ignored file only. `.env`, `.env.local`,
-`llm_profiles.json`, and `local_scripts/run_online_llm.sh` are ignored.
-Company/offline verification should keep using `--llm mock` or
-`local_scripts/run_mock.sh`.
+and `llm_profiles.json` are ignored. Company/offline verification should keep
+using `--llm mock` or `scripts/verify.sh`.
 
 ## Reading Trace JSON
 
@@ -147,10 +138,10 @@ trace-deepseek.json
 trace-deepseek.pretty.json
 trace-deepseek.usage.json
 trace-deepseek.usage_report.md
-trace-mock.json
-trace-mock.pretty.json
-trace-mock.usage.json
-trace-mock.usage_report.md
+trace-webhook-deepseek.json
+trace-webhook-deepseek.pretty.json
+trace-webhook-deepseek.usage.json
+trace-webhook-deepseek.usage_report.md
 ```
 
 Open the `*.pretty.json` file when you want to read by eye. To format any JSON
@@ -191,6 +182,7 @@ docs/study-pack/      # focused study docs for code reading and engineering walk
 examples/demo_repo/   # tiny repo the agent fixes
 examples/webhook_service_repo/ # webhook idempotency benchmark fixture
 scripts/              # setup and verification scripts
+local_scripts/        # two DeepSeek run shortcuts
 ```
 
 ## Study Pack

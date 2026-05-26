@@ -93,8 +93,8 @@ def reset_webhook_bench(workspace: str) -> None:
     """Reset WebhookPatchBench so repeated demo runs start from the same bug.
 
     The benchmark is committed in a buggy state on purpose. Resetting here makes
-    `local_scripts/run_webhook_bench.sh` deterministic even after a previous
-    successful agent run patched the handler.
+    repeated `local_scripts/run_webhook_deepseek.sh` runs comparable even after
+    a previous successful agent run patched the handler.
     """
 
     repo = Path(workspace) / "examples/webhook_service_repo"

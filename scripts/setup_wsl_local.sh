@@ -1,6 +1,13 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
+# Purpose:
+#   Bootstrap this repo inside Windows WSL/Ubuntu.
+#
+# This script mirrors scripts/setup_macos_local.sh but keeps WSL-friendly
+# dependency hints. It stays offline after package installation: verification
+# uses MockLLM through scripts/verify.sh, not DeepSeek.
+
 LOG_FILE="${HOME}/agent_forge_wsl_setup.log"
 
 log() {
@@ -26,6 +33,8 @@ run() {
 }
 
 find_project_dir() {
+  # Find the canonical project root from any child directory. The root is the
+  # directory containing pyproject.toml and agent_forge/.
   local start_dir
   start_dir="$(pwd)"
   local script_dir
@@ -55,6 +64,7 @@ find_project_dir() {
 }
 
 choose_python() {
+  # Python 3.11 is preferred, but any Python >= 3.10 is enough for this project.
   for candidate in python3.11 python3.12 python3.10 python3; do
     if command -v "${candidate}" >/dev/null 2>&1; then
       if "${candidate}" - <<'PY'
@@ -71,6 +81,8 @@ PY
 }
 
 ensure_setuptools_find_config() {
+  # Editable install needs explicit package discovery because the repo contains
+  # docs, examples, tests, and eval_cases next to agent_forge/.
   if grep -q '^\[tool\.setuptools\.packages\.find\]' pyproject.toml; then
     log "pyproject.toml already has setuptools package discovery config."
     return 0
@@ -146,8 +158,7 @@ main() {
     ln -sf "$(command -v python)" .venv/bin/python3.11
   fi
 
-  chmod +x scripts/verify.sh scripts/run_all_modes.sh
-  run scripts/run_all_modes.sh
+  chmod +x scripts/verify.sh
   run scripts/verify.sh
 
   log ""
@@ -157,7 +168,7 @@ main() {
   log "Daily commands:"
   log "  cd \"${PROJECT_DIR}\""
   log "  source .venv/bin/activate"
-  log "  scripts/run_all_modes.sh"
+  log "  python run_demo.py --mode single --llm mock --trace-file trace-wsl-mock.json"
   log "  scripts/verify.sh"
 }
 

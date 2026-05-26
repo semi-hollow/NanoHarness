@@ -22,14 +22,15 @@ explaining or extending a CodingAgent system.
 Run them:
 
 ```bash
-scripts/run_all_modes.sh
-local_scripts/run_webhook_bench.sh
 local_scripts/run_webhook_deepseek.sh
+local_scripts/run_deepseek.sh
+scripts/verify.sh
 ```
 
-Use `run_webhook_bench.sh` for offline MockLLM runs. Use
-`run_webhook_deepseek.sh` as the main personal-Mac run because it combines the
-real DeepSeek model with the WebhookPatchBench scenario.
+Use `run_webhook_deepseek.sh` as the main personal-Mac run because it combines
+the real DeepSeek model with the WebhookPatchBench scenario. Use
+`run_deepseek.sh` only for the shortest single-agent smoke run. Use
+`scripts/verify.sh` when you need an offline deterministic check.
 
 ## 2. Read The Runtime In This Order
 

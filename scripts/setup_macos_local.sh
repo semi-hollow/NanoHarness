@@ -1,6 +1,18 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
+# Purpose:
+#   Bootstrap this repo on a personal macOS machine.
+#
+# What it does:
+#   1. Finds the NanoHarness project root from any child directory.
+#   2. Creates/reuses .venv.
+#   3. Installs the project in editable mode.
+#   4. Runs scripts/verify.sh once as a deterministic local health check.
+#
+# What it does not do:
+#   It does not store API keys, modify global Python, or call online LLMs.
+
 LOG_FILE="${HOME}/agent_forge_macos_setup.log"
 
 log() {
@@ -26,6 +38,9 @@ run() {
 }
 
 find_project_dir() {
+  # The repo used to have a nested layout, so this finder intentionally checks
+  # the current directory, parents, and the script's parent. The canonical root
+  # today is the directory containing pyproject.toml and agent_forge/.
   local start_dir
   start_dir="$(pwd)"
   local script_dir
@@ -55,6 +70,8 @@ find_project_dir() {
 }
 
 choose_python() {
+  # Prefer Python 3.11 because earlier project scripts referenced python3.11,
+  # but accept any Python >= 3.10 so a normal macOS/Homebrew setup works.
   for candidate in python3.11 python3.12 python3.10 python3; do
     if command -v "${candidate}" >/dev/null 2>&1; then
       if "${candidate}" - <<'PY'
@@ -71,6 +88,8 @@ PY
 }
 
 ensure_setuptools_find_config() {
+  # Editable install fails in a flat repo unless setuptools is told that only
+  # agent_forge is a package. This block is idempotent and never appends twice.
   if grep -q '^\[tool\.setuptools\.packages\.find\]' pyproject.toml; then
     log "pyproject.toml already has setuptools package discovery config."
     return 0
@@ -154,26 +173,18 @@ main() {
     chmod +x scripts/verify.sh
   fi
 
-  run python run_demo.py --mode workflow
-  run python -m unittest discover tests
-  run python run_demo.py --mode single --trace-file trace-study.json
-  log ""
-  log "+ python -m json.tool trace-study.json > trace-study.pretty.json"
-  python -m json.tool trace-study.json > trace-study.pretty.json
   run scripts/verify.sh
 
   log ""
   log "Setup succeeded."
   log "Project path: ${PROJECT_DIR}"
   log "Venv python: ${PROJECT_DIR}/.venv/bin/python"
-  log "trace-study.json: ${PROJECT_DIR}/trace-study.json"
-  log "trace-study.pretty.json: ${PROJECT_DIR}/trace-study.pretty.json"
   log ""
   log "Daily commands:"
   log "  cd \"${PROJECT_DIR}\""
   log "  source .venv/bin/activate"
-  log "  python run_demo.py --mode single --trace-file trace-study.json"
-  log "  python -m unittest discover tests"
+  log "  local_scripts/run_webhook_deepseek.sh"
+  log "  local_scripts/run_deepseek.sh"
   log "  scripts/verify.sh"
 }
 
