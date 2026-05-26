@@ -61,11 +61,20 @@ class DiagnosticsTool(Tool):
         return Observation(self.name, True, f"compile ok: {len(files)} python files")
 
     def _unittest(self, target: str) -> Observation:
-        """Run unittest discovery for a workspace-relative test directory."""
+        """Run unittest diagnostics for a directory or a single test file.
 
-        self.sandbox.ensure_safe_path(target)
+        Real models often ask diagnostics to run one specific test file after a
+        patch. Supporting that here keeps validation inside the diagnostics tool
+        instead of pushing the model toward blocked shell commands.
+        """
+
+        resolved = self.sandbox.ensure_safe_path(target)
+        if resolved.is_file():
+            command = [sys.executable, str(resolved)]
+        else:
+            command = [sys.executable, "-m", "unittest", "discover", target]
         proc = subprocess.run(
-            [sys.executable, "-m", "unittest", "discover", target],
+            command,
             cwd=str(self.sandbox.workspace_root),
             text=True,
             capture_output=True,
