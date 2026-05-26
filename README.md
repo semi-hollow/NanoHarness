@@ -66,7 +66,8 @@ local_scripts/run_webhook_deepseek.sh
 ```
 
 This is the primary real-model entrypoint. It uses DeepSeek and writes
-`trace-webhook-deepseek.*` artifacts.
+`.agent_forge/latest/webhook-deepseek/usage_report.md` plus the raw
+`.agent_forge/latest/webhook-deepseek/trace.json`.
 
 This scenario is useful for engineering walkthroughs because it exercises
 repo-level context selection, issue-driven code modification, tool calling,
@@ -105,8 +106,7 @@ echo "$DEEPSEEK_API_KEY"
 The equivalent raw CLI command is:
 
 ```bash
-python run_demo.py --mode single --llm deepseek --trace-file trace-deepseek.json
-python -m json.tool trace-deepseek.json > trace-deepseek.pretty.json
+python run_demo.py --mode single --llm deepseek --trace-file .agent_forge/latest/single-deepseek/trace.json
 ```
 
 Mock mode still works offline through the CLI:
@@ -129,40 +129,42 @@ environment or a local ignored file only. `.env`, `.env.local`,
 and `llm_profiles.json` are ignored. Company/offline verification should keep
 using `--llm mock` or `scripts/verify.sh`.
 
-## Reading Trace JSON
+## Reading Run Output
 
-The local scripts write compact JSON plus a formatted copy:
+The two DeepSeek shortcuts now write into `.agent_forge/latest/` instead of the
+project root. Each new run overwrites the previous files for that shortcut.
 
 ```text
-trace-deepseek.json
-trace-deepseek.pretty.json
-trace-deepseek.usage.json
-trace-deepseek.usage_report.md
-trace-webhook-deepseek.json
-trace-webhook-deepseek.pretty.json
-trace-webhook-deepseek.usage.json
-trace-webhook-deepseek.usage_report.md
+.agent_forge/latest/webhook-deepseek/
+  usage_report.md   # read this first
+  trace.json        # raw event evidence
+
+.agent_forge/latest/single-deepseek/
+  usage_report.md   # read this first
+  trace.json        # raw event evidence
 ```
 
-Open the `*.pretty.json` file when you want to read by eye. To format any JSON
-file manually:
+The scripts also restore the teaching fixtures after each run so your Git tree
+does not stay dirty. If you want to inspect the generated code diff, run with
+`KEEP_PATCH=1`.
 
-```bash
-python -m json.tool trace-deepseek.json > trace-deepseek.pretty.json
-```
+`trace.json` is already indented JSON. The older `*.pretty.json` files were only
+formatted copies of the same trace, so the local scripts no longer generate
+them.
 
 VS Code can format JSON with `Shift + Option + F` after opening the file.
 PyCharm can format JSON with `Option + Command + L` or `Code -> Reformat Code`.
 
-Open the `*.usage_report.md` file when you want the engineering view:
+Open `usage_report.md` when you want the engineering view:
 
 - Run Summary: total LLM calls, input/output tokens, cache hit/miss, estimated cost, latency.
 - Step Breakdown: every model call by step, agent, provider/model, tokens, cost, latency, and action summary.
 - Context Breakdown: where prompt budget went, such as system context, history, tool schemas, memory, retrieved docs, and file previews.
 - Tool Efficiency: per-tool call count, success rate, failed observations, observation size, and duration.
 
-The machine-readable companion `*.usage.json` has the same data for scripts or
-future dashboards.
+`run_demo.py` can still produce machine-readable `usage.json` for raw CLI runs,
+but the local scripts remove it by default because it is not the file you should
+study by hand.
 
 ## Project Structure
 

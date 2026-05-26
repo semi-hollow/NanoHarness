@@ -247,10 +247,10 @@ flowchart TD
     A["AgentLoop / Supervisor"] --> B["TraceRecorder.add()"]
     B --> C["events[]"]
     C --> D["TraceRecorder.write()"]
-    D --> E["trace-*.json"]
+    D --> E["trace.json"]
     E --> F["write_usage_artifacts()"]
-    F --> G["trace-*.usage.json"]
-    F --> H["trace-*.usage_report.md"]
+    F --> G["usage.json"]
+    F --> H["usage_report.md"]
     D --> I["RunReportWriter"]
     I --> J[".agent_forge/runs/<id>/report.md"]
 ```
@@ -258,8 +258,7 @@ flowchart TD
 Use trace to confirm real execution, not just code references:
 
 ```bash
-python -m json.tool trace-webhook-deepseek.json > trace-webhook-deepseek.pretty.json
-rg '"event_type": "tool_call"|"event_type": "tool_observation"' trace-webhook-deepseek.pretty.json
+rg '"event_type": "tool_call"|"event_type": "tool_observation"' .agent_forge/latest/webhook-deepseek/trace.json
 ```
 
 ## Multi-Agent Chain

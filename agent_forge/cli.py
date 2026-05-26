@@ -259,6 +259,9 @@ def main() -> None:
     diff_tracker = DiffTracker(args.workspace)
     # Capture before any mode runs so report/rollback can explain side effects.
     diff_tracker.capture_before()
+    # Allow scripts to place trace files under .agent_forge/latest/... without
+    # requiring every caller to pre-create the directory.
+    Path(args.trace_file).parent.mkdir(parents=True, exist_ok=True)
     trace = TraceRecorder(
         args.trace_file,
         verbose=args.verbose_trace,
