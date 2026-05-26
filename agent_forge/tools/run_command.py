@@ -11,7 +11,10 @@ class RunCommandTool(Tool):
     """Run an allowed command inside the workspace and capture its output."""
 
     name = "run_command"
-    description = "safe run command"
+    description = (
+        "run an allowlisted command; prefer `python -m unittest discover <test_dir>`; "
+        "`pytest`, `cd`, `python -c`, and direct test-file execution are blocked"
+    )
 
     def __init__(self, sandbox, auto_approve_writes=True):
         """Keep sandbox for cwd/path checks and policy for command allow/deny."""
@@ -22,7 +25,11 @@ class RunCommandTool(Tool):
     def schema(self):
         """Tell the LLM this tool needs one shell-like command string."""
 
-        return {"name": self.name, "description": self.description, "arguments": {"command": "str"}}
+        return {
+            "name": self.name,
+            "description": self.description,
+            "arguments": {"command": "str"},
+        }
 
     def _normalize_python(self, parts: list[str]) -> list[str]:
         """Map `python` to the active interpreter so venv runs are stable."""
