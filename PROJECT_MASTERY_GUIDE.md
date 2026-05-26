@@ -59,8 +59,8 @@ can coordinate the engineering loop:
 
 After `local_scripts/run_webhook_deepseek.sh`, open:
 
-- `trace-webhook-deepseek.pretty.json`: event-by-event agent behavior
-- `trace-webhook-deepseek.usage_report.md`: token, context, cost, and tool efficiency
+- `.agent_forge/latest/webhook-deepseek/usage_report.md`: token, context, cost, and tool efficiency
+- `.agent_forge/latest/webhook-deepseek/trace.json`: event-by-event agent behavior
 - `.agent_forge/runs/<run_id>/report.md`: session-level report if session is enabled
 
 Read the trace by step:
