@@ -24,7 +24,12 @@ Run them:
 ```bash
 scripts/run_all_modes.sh
 local_scripts/run_webhook_bench.sh
+local_scripts/run_webhook_deepseek.sh
 ```
+
+Use `run_webhook_bench.sh` for offline MockLLM runs. Use
+`run_webhook_deepseek.sh` as the main personal-Mac run because it combines the
+real DeepSeek model with the WebhookPatchBench scenario.
 
 ## 2. Read The Runtime In This Order
 
@@ -51,10 +56,10 @@ can coordinate the engineering loop:
 
 ## 4. How To Study A Run
 
-After `local_scripts/run_webhook_bench.sh`, open:
+After `local_scripts/run_webhook_deepseek.sh`, open:
 
-- `trace-webhook.pretty.json`: event-by-event agent behavior
-- `trace-webhook.usage_report.md`: token, context, cost, and tool efficiency
+- `trace-webhook-deepseek.pretty.json`: event-by-event agent behavior
+- `trace-webhook-deepseek.usage_report.md`: token, context, cost, and tool efficiency
 - `.agent_forge/runs/<run_id>/report.md`: session-level report if session is enabled
 
 Read the trace by step:

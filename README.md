@@ -65,12 +65,14 @@ run tests, and produce trace plus usage artifacts.
 local_scripts/run_webhook_bench.sh
 ```
 
-The script uses MockLLM by default so it works offline. To run the same scenario
-with DeepSeek on your personal Mac:
+The script uses MockLLM by default so it works offline on company machines.
+On your personal Mac, the primary real-model entrypoint is:
 
 ```bash
-AGENT_FORGE_WEBHOOK_LLM=deepseek local_scripts/run_webhook_bench.sh
+local_scripts/run_webhook_deepseek.sh
 ```
+
+It uses DeepSeek and writes `trace-webhook-deepseek.*` artifacts.
 
 This scenario is useful for engineering walkthroughs because it exercises
 repo-level context selection, issue-driven code modification, tool calling,
