@@ -1,7 +1,17 @@
 from pathlib import Path
 
 
-IGNORE = {".git", ".agent_forge", ".venv", "__pycache__", "node_modules", "target", "dist", "build"}
+IGNORE = {
+    ".git",
+    ".agent_forge",
+    ".idea",
+    ".venv",
+    "__pycache__",
+    "node_modules",
+    "target",
+    "dist",
+    "build",
+}
 GENERATED_NAMES = {"agent_forge_trace.json", "eval_report.md", "summary.md"}
 
 
