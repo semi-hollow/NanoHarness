@@ -25,3 +25,8 @@ trace-*.pretty.json
 *.usage_report.md
 usage.json
 usage_report.md
+
+# Committed study snapshots. Runtime outputs remain ignored elsewhere, but
+# these curated reports are intentionally versioned for cross-device reading.
+!docs/run-artifacts/
+!docs/run-artifacts/**
