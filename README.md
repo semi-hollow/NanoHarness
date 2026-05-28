@@ -166,6 +166,9 @@ Open `usage_report.md` when you want the engineering view:
 but the local scripts remove it by default because it is not the file you should
 study by hand.
 
+Committed snapshots are also available under `docs/run-artifacts/` so other
+devices can read the reports without rerunning DeepSeek.
+
 ## Project Structure
 
 ```text
