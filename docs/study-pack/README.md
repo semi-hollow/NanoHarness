@@ -12,6 +12,8 @@ Read in this order:
 6. `06-technical-question-coverage.md`
 7. `07-technical-answer-bank.md`
 8. `08-runtime-call-chain-map.md`
+9. `09-field-readiness-roadmap.md`
+10. `10-technical-defense-playbook.md`
 
 Run while reading:
 
