@@ -1,5 +1,7 @@
 from dataclasses import dataclass
 
+from agent_forge.runtime.prompt_registry import PromptRegistry
+
 from .token_budget import truncate
 from .context_strategy import build_context_strategy
 
@@ -142,11 +144,8 @@ def build_context_report(
         root=root,
         max_chars=max_chars,
     )
-    system_prompt = (
-        "You are Agent Forge, a controlled coding-agent runtime. "
-        "Use ReAct-style reasoning through tools, prefer evidence over guesses, "
-        "recover from failed observations when retryable, and report unverified work."
-    )
+    prompt = PromptRegistry().get("agent_system")
+    system_prompt = f"[prompt:{prompt.header()} purpose:{prompt.purpose}]\n{prompt.content}"
     total_chars = (
         len(system_prompt)
         + len(task)

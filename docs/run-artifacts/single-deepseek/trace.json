@@ -1,13 +1,13 @@
 {
-  "run_id": "65be1dda-393a-4fd6-990e-82caa1599df7",
+  "run_id": "0f1c986c-48e9-46be-8af9-3d1816d01a51",
   "task": "修复 examples/demo_repo 里的测试失败问题",
-  "start_time": 1779984971.840128,
-  "end_time": 1779984994.752535,
+  "start_time": 1780504492.703542,
+  "end_time": 1780504509.284388,
   "stop_reason": "final_answer",
-  "final_answer": "✅ **修复完成。**\n\n**问题根因：** `examples/demo_repo/src/calculator.py` 的 `add` 函数写的是 `return a - b`（减法），但测试 `test_calculator.py` 期望 `add(2,3) == 5`（2+3=5）。\n\n**修复内容：**\n- 将 `calculator.py` 中的 `return a - b` 改为 `return a + b`\n\n**测试验证：**\n```\npython -m unittest discover -s examples/demo_repo/tests -t examples/demo_repo\n.\n----------------------------------------------------------------------\nRan 1 test in 0.000s\nOK\n```\n\n测试已通过 ✅\n未验证点: 未进行真实线上压测。",
+  "final_answer": "测试已全部通过。总结修复过程：\n\n**问题：** `examples/demo_repo/src/calculator.py` 中的 `add` 函数实现错误，用了 `return a - b`（减法）而非 `return a + b`（加法），导致 `test_add` 断言 `add(2,3)==5` 失败。\n\n**修复：** 将 `a - b` 改为 `a + b`，使函数行为与函数名和测试期望匹配。\n\n**验证结果：**\n```\ntest_add (tests.test_calculator.T.test_add) ... ok\nRan 1 test in 0.000s\nOK\n```\n证据:\n- read_file:examples/demo_repo/src/calculator.py lines=3:ok:file inspected\n- read_file:examples/demo_repo/tests/test_calculator.py lines=6:ok:file inspected\n- apply_patch:apply_patch:ok:patched once: examples/demo_repo/src/calculator.py\n- diagnostics:diagnostics:fail:exit_code=1 Traceback (most recent call last):   File \"/Users/chenjiahui/Documents/GitHub/NanoHarness/examples/demo_repo/tests/test_calculator.py\", line 2, in <\n- run_command:run_command:ok:exit_code=0 test_add (tests.test_calculator.T.test_add) ... ok  ---------------------------------------------------------------------- Ran 1 test in 0.000s  OK\n未验证点: 未进行真实线上压测。",
   "events": [
     {
-      "run_id": "65be1dda-393a-4fd6-990e-82caa1599df7",
+      "run_id": "0f1c986c-48e9-46be-8af9-3d1816d01a51",
       "step": 0,
       "agent_name": "CodingAgent",
       "event_type": "guardrail_check",
@@ -22,11 +22,41 @@
       }
     },
     {
-      "run_id": "65be1dda-393a-4fd6-990e-82caa1599df7",
+      "run_id": "0f1c986c-48e9-46be-8af9-3d1816d01a51",
+      "step": 0,
+      "agent_name": "CodingAgent",
+      "event_type": "clarification_decision",
+      "duration_ms": 0,
+      "success": true,
+      "error": "",
+      "clarification": {
+        "action": "proceed",
+        "confidence": 0.85,
+        "reason": "task is specific enough to start",
+        "question": "",
+        "missing_fields": []
+      }
+    },
+    {
+      "run_id": "0f1c986c-48e9-46be-8af9-3d1816d01a51",
+      "step": 0,
+      "agent_name": "CodingAgent",
+      "event_type": "planning_mode",
+      "duration_ms": 0,
+      "success": true,
+      "error": "",
+      "planning_mode": {
+        "mode": "react",
+        "reason": "coding task needs observation-driven tool use",
+        "complexity": "medium"
+      }
+    },
+    {
+      "run_id": "0f1c986c-48e9-46be-8af9-3d1816d01a51",
       "step": 1,
       "agent_name": "CodingAgent",
       "event_type": "context_assembly",
-      "duration_ms": 172,
+      "duration_ms": 499,
       "success": true,
       "error": "",
       "context": {
@@ -35,14 +65,14 @@
           "examples/demo_repo/tests/test_calculator.py",
           "examples/demo_repo/src/__init__.py",
           "examples/demo_repo/src/calculator.py",
+          "docs/run-artifacts/single-deepseek/trace.json",
           "agent_forge/context/repo_map.py",
-          "examples/webhook_service_repo/tests/__init__.py",
-          "examples/webhook_service_repo/tests/test_signature_verification.py",
-          "examples/webhook_service_repo/tests/test_webhook_idempotency.py"
+          "eval_cases/case_001_single_agent_fix_test/usage_report.md",
+          "eval_cases/case_005_human_approval_required/usage_report.md"
         ],
         "retrieved_docs_count": 5,
-        "memory_summary": "task=修复 examples/demo_repo 里的测试失败问题",
-        "total_chars": 3275,
+        "memory_summary": "task=修复 examples/demo_repo 里的测试失败问题 | session:task=修复 examples/demo_repo 里的测试失败问题",
+        "total_chars": 3424,
         "max_chars": 8000,
         "truncated": true,
         "topic_relation": "unknown",
@@ -52,7 +82,7 @@
           "attention_sink": 261,
           "file_previews": 387,
           "retrieved_docs": 183,
-          "memory": 35
+          "memory": 81
         },
         "available_tools": [
           "list_files",
@@ -64,14 +94,93 @@
           "run_command",
           "git_status",
           "git_diff",
-          "diagnostics",
-          "ask_human"
+          "diagnostics"
         ],
-        "permission_summary": "read allowed; write asks approval; dangerous commands denied"
+        "permission_summary": "read allowed; write asks approval; dangerous commands denied",
+        "tool_routing": {
+          "reason": "selected=10 dropped=1 step=1 agent=CodingAgent",
+          "allowed_tools": [
+            "apply_patch",
+            "diagnostics",
+            "git_diff",
+            "git_status",
+            "grep",
+            "grep_search",
+            "list_files",
+            "read_file",
+            "run_command",
+            "write_file"
+          ],
+          "dropped_tools": [
+            "ask_human"
+          ],
+          "metadata": {
+            "apply_patch": {
+              "capability": "edit",
+              "risk": "medium",
+              "latency": "low",
+              "mode": "write"
+            },
+            "diagnostics": {
+              "capability": "validate",
+              "risk": "low",
+              "latency": "medium",
+              "mode": "read"
+            },
+            "git_diff": {
+              "capability": "diff",
+              "risk": "low",
+              "latency": "low",
+              "mode": "read"
+            },
+            "git_status": {
+              "capability": "diff",
+              "risk": "low",
+              "latency": "low",
+              "mode": "read"
+            },
+            "grep": {
+              "capability": "search",
+              "risk": "low",
+              "latency": "low",
+              "mode": "read"
+            },
+            "grep_search": {
+              "capability": "search",
+              "risk": "low",
+              "latency": "low",
+              "mode": "read"
+            },
+            "list_files": {
+              "capability": "discover",
+              "risk": "low",
+              "latency": "low",
+              "mode": "read"
+            },
+            "read_file": {
+              "capability": "inspect",
+              "risk": "low",
+              "latency": "low",
+              "mode": "read"
+            },
+            "run_command": {
+              "capability": "validate",
+              "risk": "high",
+              "latency": "medium",
+              "mode": "command"
+            },
+            "write_file": {
+              "capability": "edit",
+              "risk": "high",
+              "latency": "low",
+              "mode": "write"
+            }
+          }
+        }
       }
     },
     {
-      "run_id": "65be1dda-393a-4fd6-990e-82caa1599df7",
+      "run_id": "0f1c986c-48e9-46be-8af9-3d1816d01a51",
       "step": 1,
       "agent_name": "CodingAgent",
       "event_type": "plan",
@@ -80,60 +189,60 @@
       "error": "",
       "plan": {
         "goal": "修复 examples/demo_repo 里的测试失败问题",
-        "reasoning_summary": "iteration=1; selected_context=examples/demo_repo/tests/__init__.py, examples/demo_repo/tests/test_calculator.py, examples/demo_repo/src/__init__.py; chars=3275; topic=unknown; inherit_session=True; dropped=0",
+        "reasoning_summary": "iteration=1; selected_context=examples/demo_repo/tests/__init__.py, examples/demo_repo/tests/test_calculator.py, examples/demo_repo/src/__init__.py; chars=3424; topic=unknown; inherit_session=True; dropped=0",
         "next_action": "ask llm for final answer or tool call"
       }
     },
     {
-      "run_id": "65be1dda-393a-4fd6-990e-82caa1599df7",
+      "run_id": "0f1c986c-48e9-46be-8af9-3d1816d01a51",
       "step": 1,
       "agent_name": "CodingAgent",
       "event_type": "llm_call",
-      "duration_ms": 2624,
+      "duration_ms": 2021,
       "success": true,
       "error": "",
-      "llm_request_summary": "messages=2 tools=11 context_chars=4082",
+      "llm_request_summary": "messages=2 tools=10 context_chars=4212",
       "llm_response_summary": "tool_calls",
       "llm_input_breakdown_chars": {
-        "system_context": 4082,
+        "system_context": 4212,
         "conversation_history": 30,
-        "tool_schemas": 1221
+        "tool_schemas": 1128
       },
       "model_usage": {
         "provider": "deepseek",
         "model": "deepseek-v4-flash",
         "attempts": 1,
         "fallback_used": false,
-        "latency_ms": 2624,
-        "prompt_tokens_estimate": 1333,
+        "latency_ms": 2021,
+        "prompt_tokens_estimate": 1342,
         "completion_tokens_estimate": 30,
-        "prompt_tokens": 1971,
-        "completion_tokens": 196,
-        "total_tokens": 2167,
+        "prompt_tokens": 1964,
+        "completion_tokens": 187,
+        "total_tokens": 2151,
         "cache_hit_tokens": 0,
-        "cache_miss_tokens": 1971,
-        "reasoning_tokens": 103,
-        "response_id": "af597b80-4fb3-438d-b215-d843fd8acd16",
+        "cache_miss_tokens": 1964,
+        "reasoning_tokens": 94,
+        "response_id": "c7dfcd4e-f4dc-4f26-960c-6301f317ba8c",
         "usage_source": "provider",
-        "estimated_cost_usd": 0.000331,
+        "estimated_cost_usd": 0.000327,
         "error_codes": [],
         "raw_usage": {
-          "prompt_tokens": 1971,
-          "completion_tokens": 196,
-          "total_tokens": 2167,
+          "prompt_tokens": 1964,
+          "completion_tokens": 187,
+          "total_tokens": 2151,
           "prompt_tokens_details": {
             "cached_tokens": 0
           },
           "completion_tokens_details": {
-            "reasoning_tokens": 103
+            "reasoning_tokens": 94
           },
           "prompt_cache_hit_tokens": 0,
-          "prompt_cache_miss_tokens": 1971
+          "prompt_cache_miss_tokens": 1964
         }
       }
     },
     {
-      "run_id": "65be1dda-393a-4fd6-990e-82caa1599df7",
+      "run_id": "0f1c986c-48e9-46be-8af9-3d1816d01a51",
       "step": 1,
       "agent_name": "CodingAgent",
       "event_type": "guardrail_check",
@@ -148,7 +257,7 @@
       }
     },
     {
-      "run_id": "65be1dda-393a-4fd6-990e-82caa1599df7",
+      "run_id": "0f1c986c-48e9-46be-8af9-3d1816d01a51",
       "step": 1,
       "agent_name": "CodingAgent",
       "event_type": "action",
@@ -161,7 +270,7 @@
       }
     },
     {
-      "run_id": "65be1dda-393a-4fd6-990e-82caa1599df7",
+      "run_id": "0f1c986c-48e9-46be-8af9-3d1816d01a51",
       "step": 1,
       "agent_name": "CodingAgent",
       "event_type": "permission_check",
@@ -172,7 +281,7 @@
       "tool_call": "read_file"
     },
     {
-      "run_id": "65be1dda-393a-4fd6-990e-82caa1599df7",
+      "run_id": "0f1c986c-48e9-46be-8af9-3d1816d01a51",
       "step": 1,
       "agent_name": "CodingAgent",
       "event_type": "tool_call",
@@ -185,7 +294,7 @@
       }
     },
     {
-      "run_id": "65be1dda-393a-4fd6-990e-82caa1599df7",
+      "run_id": "0f1c986c-48e9-46be-8af9-3d1816d01a51",
       "step": 1,
       "agent_name": "CodingAgent",
       "event_type": "tool_observation",
@@ -195,7 +304,7 @@
       "observation": "path=examples/demo_repo/src/calculator.py lines=3\ndef add(a: int, b: int) -> int:\n    return a - b\n"
     },
     {
-      "run_id": "65be1dda-393a-4fd6-990e-82caa1599df7",
+      "run_id": "0f1c986c-48e9-46be-8af9-3d1816d01a51",
       "step": 1,
       "agent_name": "CodingAgent",
       "event_type": "observation",
@@ -205,7 +314,17 @@
       "observation_summary": "path=examples/demo_repo/src/calculator.py lines=3\ndef add(a: int, b: int) -> int:\n    return a - b\n"
     },
     {
-      "run_id": "65be1dda-393a-4fd6-990e-82caa1599df7",
+      "run_id": "0f1c986c-48e9-46be-8af9-3d1816d01a51",
+      "step": 1,
+      "agent_name": "CodingAgent",
+      "event_type": "evidence_collected",
+      "duration_ms": 0,
+      "success": true,
+      "error": "",
+      "evidence": "read_file:examples/demo_repo/src/calculator.py lines=3:ok:file inspected"
+    },
+    {
+      "run_id": "0f1c986c-48e9-46be-8af9-3d1816d01a51",
       "step": 1,
       "agent_name": "CodingAgent",
       "event_type": "guardrail_check",
@@ -220,7 +339,7 @@
       }
     },
     {
-      "run_id": "65be1dda-393a-4fd6-990e-82caa1599df7",
+      "run_id": "0f1c986c-48e9-46be-8af9-3d1816d01a51",
       "step": 1,
       "agent_name": "CodingAgent",
       "event_type": "action",
@@ -233,7 +352,7 @@
       }
     },
     {
-      "run_id": "65be1dda-393a-4fd6-990e-82caa1599df7",
+      "run_id": "0f1c986c-48e9-46be-8af9-3d1816d01a51",
       "step": 1,
       "agent_name": "CodingAgent",
       "event_type": "permission_check",
@@ -244,7 +363,7 @@
       "tool_call": "read_file"
     },
     {
-      "run_id": "65be1dda-393a-4fd6-990e-82caa1599df7",
+      "run_id": "0f1c986c-48e9-46be-8af9-3d1816d01a51",
       "step": 1,
       "agent_name": "CodingAgent",
       "event_type": "tool_call",
@@ -257,7 +376,7 @@
       }
     },
     {
-      "run_id": "65be1dda-393a-4fd6-990e-82caa1599df7",
+      "run_id": "0f1c986c-48e9-46be-8af9-3d1816d01a51",
       "step": 1,
       "agent_name": "CodingAgent",
       "event_type": "tool_observation",
@@ -267,7 +386,7 @@
       "observation": "path=examples/demo_repo/tests/test_calculator.py lines=6\nimport unittest\nfrom src.calculator import add\nclass T(unittest.TestCase):\n    def test_add(self): self.assertEqual(add(2,3),5)\nif __name__==\"__main__\": unittest.main()\n"
     },
     {
-      "run_id": "65be1dda-393a-4fd6-990e-82caa1599df7",
+      "run_id": "0f1c986c-48e9-46be-8af9-3d1816d01a51",
       "step": 1,
       "agent_name": "CodingAgent",
       "event_type": "observation",
@@ -277,11 +396,21 @@
       "observation_summary": "path=examples/demo_repo/tests/test_calculator.py lines=6\nimport unittest\nfrom src.calculator import add\nclass T(unittest.TestCase):\n    def test_add(self): self.assertEqual(add(2,3),5)\nif __name__==\"__main__\": unittest.main()\n"
     },
     {
-      "run_id": "65be1dda-393a-4fd6-990e-82caa1599df7",
+      "run_id": "0f1c986c-48e9-46be-8af9-3d1816d01a51",
+      "step": 1,
+      "agent_name": "CodingAgent",
+      "event_type": "evidence_collected",
+      "duration_ms": 0,
+      "success": true,
+      "error": "",
+      "evidence": "read_file:examples/demo_repo/tests/test_calculator.py lines=6:ok:file inspected"
+    },
+    {
+      "run_id": "0f1c986c-48e9-46be-8af9-3d1816d01a51",
       "step": 2,
       "agent_name": "CodingAgent",
       "event_type": "context_assembly",
-      "duration_ms": 192,
+      "duration_ms": 541,
       "success": true,
       "error": "",
       "context": {
@@ -290,14 +419,14 @@
           "examples/demo_repo/tests/test_calculator.py",
           "examples/demo_repo/src/__init__.py",
           "examples/demo_repo/src/calculator.py",
+          "docs/run-artifacts/single-deepseek/trace.json",
           "agent_forge/context/repo_map.py",
-          "examples/webhook_service_repo/tests/__init__.py",
-          "examples/webhook_service_repo/tests/test_signature_verification.py",
-          "examples/webhook_service_repo/tests/test_webhook_idempotency.py"
+          "eval_cases/case_001_single_agent_fix_test/usage_report.md",
+          "eval_cases/case_005_human_approval_required/usage_report.md"
         ],
         "retrieved_docs_count": 5,
-        "memory_summary": "read_file:ok:path=examples/demo_repo/src/calculator.py lines=3\ndef add(a: int, b: int) -> int; read_file:ok:path=examples/demo_repo/tests/test_calculator.py lines=6\nimport unittest\nfrom sr | task=修复 examples/demo_repo 里的测试失败问题",
-        "total_chars": 3466,
+        "memory_summary": "read_file:ok:path=examples/demo_repo/src/calculator.py lines=3\ndef add(a: int, b: int) -> int; read_file:ok:path=examples/demo_repo/tests/test_calculator.py lines=6\nimport unittest\nfrom sr | task=修复 examples/demo_repo 里的测试失败问题 | session:task=修复 examples/demo_repo 里的测试失败问题",
+        "total_chars": 3615,
         "max_chars": 8000,
         "truncated": true,
         "topic_relation": "unknown",
@@ -307,7 +436,7 @@
           "attention_sink": 261,
           "file_previews": 387,
           "retrieved_docs": 183,
-          "memory": 226
+          "memory": 272
         },
         "available_tools": [
           "list_files",
@@ -319,14 +448,93 @@
           "run_command",
           "git_status",
           "git_diff",
-          "diagnostics",
-          "ask_human"
+          "diagnostics"
         ],
-        "permission_summary": "read allowed; write asks approval; dangerous commands denied"
+        "permission_summary": "read allowed; write asks approval; dangerous commands denied",
+        "tool_routing": {
+          "reason": "selected=10 dropped=1 step=2 agent=CodingAgent",
+          "allowed_tools": [
+            "apply_patch",
+            "diagnostics",
+            "git_diff",
+            "git_status",
+            "grep",
+            "grep_search",
+            "list_files",
+            "read_file",
+            "run_command",
+            "write_file"
+          ],
+          "dropped_tools": [
+            "ask_human"
+          ],
+          "metadata": {
+            "apply_patch": {
+              "capability": "edit",
+              "risk": "medium",
+              "latency": "low",
+              "mode": "write"
+            },
+            "diagnostics": {
+              "capability": "validate",
+              "risk": "low",
+              "latency": "medium",
+              "mode": "read"
+            },
+            "git_diff": {
+              "capability": "diff",
+              "risk": "low",
+              "latency": "low",
+              "mode": "read"
+            },
+            "git_status": {
+              "capability": "diff",
+              "risk": "low",
+              "latency": "low",
+              "mode": "read"
+            },
+            "grep": {
+              "capability": "search",
+              "risk": "low",
+              "latency": "low",
+              "mode": "read"
+            },
+            "grep_search": {
+              "capability": "search",
+              "risk": "low",
+              "latency": "low",
+              "mode": "read"
+            },
+            "list_files": {
+              "capability": "discover",
+              "risk": "low",
+              "latency": "low",
+              "mode": "read"
+            },
+            "read_file": {
+              "capability": "inspect",
+              "risk": "low",
+              "latency": "low",
+              "mode": "read"
+            },
+            "run_command": {
+              "capability": "validate",
+              "risk": "high",
+              "latency": "medium",
+              "mode": "command"
+            },
+            "write_file": {
+              "capability": "edit",
+              "risk": "high",
+              "latency": "low",
+              "mode": "write"
+            }
+          }
+        }
       }
     },
     {
-      "run_id": "65be1dda-393a-4fd6-990e-82caa1599df7",
+      "run_id": "0f1c986c-48e9-46be-8af9-3d1816d01a51",
       "step": 2,
       "agent_name": "CodingAgent",
       "event_type": "plan",
@@ -335,60 +543,60 @@
       "error": "",
       "plan": {
         "goal": "修复 examples/demo_repo 里的测试失败问题",
-        "reasoning_summary": "iteration=2; selected_context=examples/demo_repo/tests/__init__.py, examples/demo_repo/tests/test_calculator.py, examples/demo_repo/src/__init__.py; chars=3466; topic=unknown; inherit_session=True; dropped=0",
+        "reasoning_summary": "iteration=2; selected_context=examples/demo_repo/tests/__init__.py, examples/demo_repo/tests/test_calculator.py, examples/demo_repo/src/__init__.py; chars=3615; topic=unknown; inherit_session=True; dropped=0",
         "next_action": "ask llm for final answer or tool call"
       }
     },
     {
-      "run_id": "65be1dda-393a-4fd6-990e-82caa1599df7",
+      "run_id": "0f1c986c-48e9-46be-8af9-3d1816d01a51",
       "step": 2,
       "agent_name": "CodingAgent",
       "event_type": "llm_call",
-      "duration_ms": 3562,
+      "duration_ms": 2093,
       "success": true,
       "error": "",
-      "llm_request_summary": "messages=5 tools=11 context_chars=4274",
-      "llm_response_summary": "The bug is obvious: `calculator.py` implements subtraction (`a - b`) instead of addition (`a + b`). The test expects `add(2,3) == 5`, so the fix is to change the operator.",
+      "llm_request_summary": "messages=5 tools=10 context_chars=4404",
+      "llm_response_summary": "问题很明确：`calculator.py` 中的 `add` 函数实现有误 — `return a - b` 应该是 `return a + b`（减号写成了加号）。",
       "llm_input_breakdown_chars": {
-        "system_context": 4274,
-        "conversation_history": 1044,
-        "tool_schemas": 1221
+        "system_context": 4404,
+        "conversation_history": 1035,
+        "tool_schemas": 1128
       },
       "model_usage": {
         "provider": "deepseek",
         "model": "deepseek-v4-flash",
         "attempts": 1,
         "fallback_used": false,
-        "latency_ms": 3562,
-        "prompt_tokens_estimate": 1462,
-        "completion_tokens_estimate": 42,
-        "prompt_tokens": 2346,
-        "completion_tokens": 227,
-        "total_tokens": 2573,
+        "latency_ms": 2093,
+        "prompt_tokens_estimate": 1471,
+        "completion_tokens_estimate": 20,
+        "prompt_tokens": 2330,
+        "completion_tokens": 190,
+        "total_tokens": 2520,
         "cache_hit_tokens": 0,
-        "cache_miss_tokens": 2346,
-        "reasoning_tokens": 61,
-        "response_id": "84096876-49e1-4107-9b23-4823956f6923",
+        "cache_miss_tokens": 2330,
+        "reasoning_tokens": 31,
+        "response_id": "67858c84-49fe-461c-811b-a95a01c5b0f2",
         "usage_source": "provider",
-        "estimated_cost_usd": 0.000392,
+        "estimated_cost_usd": 0.000379,
         "error_codes": [],
         "raw_usage": {
-          "prompt_tokens": 2346,
-          "completion_tokens": 227,
-          "total_tokens": 2573,
+          "prompt_tokens": 2330,
+          "completion_tokens": 190,
+          "total_tokens": 2520,
           "prompt_tokens_details": {
             "cached_tokens": 0
           },
           "completion_tokens_details": {
-            "reasoning_tokens": 61
+            "reasoning_tokens": 31
           },
           "prompt_cache_hit_tokens": 0,
-          "prompt_cache_miss_tokens": 2346
+          "prompt_cache_miss_tokens": 2330
         }
       }
     },
     {
-      "run_id": "65be1dda-393a-4fd6-990e-82caa1599df7",
+      "run_id": "0f1c986c-48e9-46be-8af9-3d1816d01a51",
       "step": 2,
       "agent_name": "CodingAgent",
       "event_type": "guardrail_check",
@@ -403,7 +611,7 @@
       }
     },
     {
-      "run_id": "65be1dda-393a-4fd6-990e-82caa1599df7",
+      "run_id": "0f1c986c-48e9-46be-8af9-3d1816d01a51",
       "step": 2,
       "agent_name": "CodingAgent",
       "event_type": "action",
@@ -418,7 +626,7 @@
       }
     },
     {
-      "run_id": "65be1dda-393a-4fd6-990e-82caa1599df7",
+      "run_id": "0f1c986c-48e9-46be-8af9-3d1816d01a51",
       "step": 2,
       "agent_name": "CodingAgent",
       "event_type": "permission_check",
@@ -429,7 +637,7 @@
       "tool_call": "apply_patch"
     },
     {
-      "run_id": "65be1dda-393a-4fd6-990e-82caa1599df7",
+      "run_id": "0f1c986c-48e9-46be-8af9-3d1816d01a51",
       "step": 2,
       "agent_name": "CodingAgent",
       "event_type": "human_approval",
@@ -439,11 +647,11 @@
       "observation": "approved"
     },
     {
-      "run_id": "65be1dda-393a-4fd6-990e-82caa1599df7",
+      "run_id": "0f1c986c-48e9-46be-8af9-3d1816d01a51",
       "step": 2,
       "agent_name": "CodingAgent",
       "event_type": "tool_call",
-      "duration_ms": 1,
+      "duration_ms": 0,
       "success": true,
       "error": "",
       "tool_call": "apply_patch",
@@ -454,7 +662,7 @@
       }
     },
     {
-      "run_id": "65be1dda-393a-4fd6-990e-82caa1599df7",
+      "run_id": "0f1c986c-48e9-46be-8af9-3d1816d01a51",
       "step": 2,
       "agent_name": "CodingAgent",
       "event_type": "tool_observation",
@@ -464,7 +672,7 @@
       "observation": "patched once: examples/demo_repo/src/calculator.py"
     },
     {
-      "run_id": "65be1dda-393a-4fd6-990e-82caa1599df7",
+      "run_id": "0f1c986c-48e9-46be-8af9-3d1816d01a51",
       "step": 2,
       "agent_name": "CodingAgent",
       "event_type": "observation",
@@ -474,11 +682,21 @@
       "observation_summary": "patched once: examples/demo_repo/src/calculator.py"
     },
     {
-      "run_id": "65be1dda-393a-4fd6-990e-82caa1599df7",
+      "run_id": "0f1c986c-48e9-46be-8af9-3d1816d01a51",
+      "step": 2,
+      "agent_name": "CodingAgent",
+      "event_type": "evidence_collected",
+      "duration_ms": 0,
+      "success": true,
+      "error": "",
+      "evidence": "apply_patch:apply_patch:ok:patched once: examples/demo_repo/src/calculator.py"
+    },
+    {
+      "run_id": "0f1c986c-48e9-46be-8af9-3d1816d01a51",
       "step": 3,
       "agent_name": "CodingAgent",
       "event_type": "context_assembly",
-      "duration_ms": 207,
+      "duration_ms": 505,
       "success": true,
       "error": "",
       "context": {
@@ -487,14 +705,14 @@
           "examples/demo_repo/tests/test_calculator.py",
           "examples/demo_repo/src/__init__.py",
           "examples/demo_repo/src/calculator.py",
+          "docs/run-artifacts/single-deepseek/trace.json",
           "agent_forge/context/repo_map.py",
-          "examples/webhook_service_repo/tests/__init__.py",
-          "examples/webhook_service_repo/tests/test_signature_verification.py",
-          "examples/webhook_service_repo/tests/test_webhook_idempotency.py"
+          "eval_cases/case_001_single_agent_fix_test/usage_report.md",
+          "eval_cases/case_005_human_approval_required/usage_report.md"
         ],
         "retrieved_docs_count": 5,
-        "memory_summary": "read_file:ok:path=examples/demo_repo/src/calculator.py lines=3\ndef add(a: int, b: int) -> int; read_file:ok:path=examples/demo_repo/tests/test_calculator.py lines=6\nimport unittest\nfrom sr; apply_patch:ok:patched once: examples/demo_repo/src/calculator.py | task=修复 examples/demo_repo 里的测试失败问题",
-        "total_chars": 3533,
+        "memory_summary": "read_file:ok:path=examples/demo_repo/src/calculator.py lines=3\ndef add(a: int, b: int) -> int; read_file:ok:path=examples/demo_repo/tests/test_calculator.py lines=6\nimport unittest\nfrom sr; apply_patch:ok:patched once: examples/demo_repo/src/calculator.py | task=修复 examples/demo_repo 里的测试失败问题 | session:task=修复 examples/demo_repo 里的测试失败问题",
+        "total_chars": 3682,
         "max_chars": 8000,
         "truncated": true,
         "topic_relation": "unknown",
@@ -504,7 +722,7 @@
           "attention_sink": 261,
           "file_previews": 387,
           "retrieved_docs": 183,
-          "memory": 293
+          "memory": 339
         },
         "available_tools": [
           "list_files",
@@ -516,14 +734,93 @@
           "run_command",
           "git_status",
           "git_diff",
-          "diagnostics",
-          "ask_human"
+          "diagnostics"
         ],
-        "permission_summary": "read allowed; write asks approval; dangerous commands denied"
+        "permission_summary": "read allowed; write asks approval; dangerous commands denied",
+        "tool_routing": {
+          "reason": "selected=10 dropped=1 step=3 agent=CodingAgent",
+          "allowed_tools": [
+            "apply_patch",
+            "diagnostics",
+            "git_diff",
+            "git_status",
+            "grep",
+            "grep_search",
+            "list_files",
+            "read_file",
+            "run_command",
+            "write_file"
+          ],
+          "dropped_tools": [
+            "ask_human"
+          ],
+          "metadata": {
+            "apply_patch": {
+              "capability": "edit",
+              "risk": "medium",
+              "latency": "low",
+              "mode": "write"
+            },
+            "diagnostics": {
+              "capability": "validate",
+              "risk": "low",
+              "latency": "medium",
+              "mode": "read"
+            },
+            "git_diff": {
+              "capability": "diff",
+              "risk": "low",
+              "latency": "low",
+              "mode": "read"
+            },
+            "git_status": {
+              "capability": "diff",
+              "risk": "low",
+              "latency": "low",
+              "mode": "read"
+            },
+            "grep": {
+              "capability": "search",
+              "risk": "low",
+              "latency": "low",
+              "mode": "read"
+            },
+            "grep_search": {
+              "capability": "search",
+              "risk": "low",
+              "latency": "low",
+              "mode": "read"
+            },
+            "list_files": {
+              "capability": "discover",
+              "risk": "low",
+              "latency": "low",
+              "mode": "read"
+            },
+            "read_file": {
+              "capability": "inspect",
+              "risk": "low",
+              "latency": "low",
+              "mode": "read"
+            },
+            "run_command": {
+              "capability": "validate",
+              "risk": "high",
+              "latency": "medium",
+              "mode": "command"
+            },
+            "write_file": {
+              "capability": "edit",
+              "risk": "high",
+              "latency": "low",
+              "mode": "write"
+            }
+          }
+        }
       }
     },
     {
-      "run_id": "65be1dda-393a-4fd6-990e-82caa1599df7",
+      "run_id": "0f1c986c-48e9-46be-8af9-3d1816d01a51",
       "step": 3,
       "agent_name": "CodingAgent",
       "event_type": "plan",
@@ -532,47 +829,47 @@
       "error": "",
       "plan": {
         "goal": "修复 examples/demo_repo 里的测试失败问题",
-        "reasoning_summary": "iteration=3; selected_context=examples/demo_repo/tests/__init__.py, examples/demo_repo/tests/test_calculator.py, examples/demo_repo/src/__init__.py; chars=3533; topic=unknown; inherit_session=True; dropped=0",
+        "reasoning_summary": "iteration=3; selected_context=examples/demo_repo/tests/__init__.py, examples/demo_repo/tests/test_calculator.py, examples/demo_repo/src/__init__.py; chars=3682; topic=unknown; inherit_session=True; dropped=0",
         "next_action": "ask llm for final answer or tool call"
       }
     },
     {
-      "run_id": "65be1dda-393a-4fd6-990e-82caa1599df7",
+      "run_id": "0f1c986c-48e9-46be-8af9-3d1816d01a51",
       "step": 3,
       "agent_name": "CodingAgent",
       "event_type": "llm_call",
-      "duration_ms": 2178,
+      "duration_ms": 1577,
       "success": true,
       "error": "",
-      "llm_request_summary": "messages=7 tools=11 context_chars=4341",
-      "llm_response_summary": "tool_calls",
+      "llm_request_summary": "messages=7 tools=10 context_chars=4471",
+      "llm_response_summary": "Now let me verify the fix by running the test:",
       "llm_input_breakdown_chars": {
-        "system_context": 4341,
-        "conversation_history": 1565,
-        "tool_schemas": 1221
+        "system_context": 4471,
+        "conversation_history": 1478,
+        "tool_schemas": 1128
       },
       "model_usage": {
         "provider": "deepseek",
         "model": "deepseek-v4-flash",
         "attempts": 1,
         "fallback_used": false,
-        "latency_ms": 2177,
-        "prompt_tokens_estimate": 1491,
-        "completion_tokens_estimate": 24,
-        "prompt_tokens": 2571,
-        "completion_tokens": 76,
-        "total_tokens": 2647,
+        "latency_ms": 1577,
+        "prompt_tokens_estimate": 1501,
+        "completion_tokens_estimate": 11,
+        "prompt_tokens": 2525,
+        "completion_tokens": 79,
+        "total_tokens": 2604,
         "cache_hit_tokens": 0,
-        "cache_miss_tokens": 2571,
+        "cache_miss_tokens": 2525,
         "reasoning_tokens": 11,
-        "response_id": "dc862e8c-3ff1-45d4-9bea-9bafa76f42bd",
+        "response_id": "6f5013ba-2db9-4edc-921b-2250ffde3aa3",
         "usage_source": "provider",
-        "estimated_cost_usd": 0.000381,
+        "estimated_cost_usd": 0.000376,
         "error_codes": [],
         "raw_usage": {
-          "prompt_tokens": 2571,
-          "completion_tokens": 76,
-          "total_tokens": 2647,
+          "prompt_tokens": 2525,
+          "completion_tokens": 79,
+          "total_tokens": 2604,
           "prompt_tokens_details": {
             "cached_tokens": 0
           },
@@ -580,12 +877,12 @@
             "reasoning_tokens": 11
           },
           "prompt_cache_hit_tokens": 0,
-          "prompt_cache_miss_tokens": 2571
+          "prompt_cache_miss_tokens": 2525
         }
       }
     },
     {
-      "run_id": "65be1dda-393a-4fd6-990e-82caa1599df7",
+      "run_id": "0f1c986c-48e9-46be-8af9-3d1816d01a51",
       "step": 3,
       "agent_name": "CodingAgent",
       "event_type": "guardrail_check",
@@ -600,7 +897,7 @@
       }
     },
     {
-      "run_id": "65be1dda-393a-4fd6-990e-82caa1599df7",
+      "run_id": "0f1c986c-48e9-46be-8af9-3d1816d01a51",
       "step": 3,
       "agent_name": "CodingAgent",
       "event_type": "action",
@@ -609,56 +906,307 @@
       "error": "",
       "tool_call": "run_command",
       "tool_arguments": {
-        "command": "python -m unittest discover -s examples/demo_repo/tests -p \"test_*.py\""
+        "command": "cd examples/demo_repo && python -m unittest discover tests -v"
       }
     },
     {
-      "run_id": "65be1dda-393a-4fd6-990e-82caa1599df7",
+      "run_id": "0f1c986c-48e9-46be-8af9-3d1816d01a51",
       "step": 3,
       "agent_name": "CodingAgent",
       "event_type": "permission_check",
       "duration_ms": 0,
       "success": true,
       "error": "",
-      "permission_decision": "allow",
+      "permission_decision": "deny",
       "tool_call": "run_command"
     },
     {
-      "run_id": "65be1dda-393a-4fd6-990e-82caa1599df7",
-      "step": 3,
-      "agent_name": "CodingAgent",
-      "event_type": "tool_call",
-      "duration_ms": 56,
-      "success": true,
-      "error": "",
-      "tool_call": "run_command",
-      "tool_arguments": {
-        "command": "python -m unittest discover -s examples/demo_repo/tests -p \"test_*.py\""
-      }
-    },
-    {
-      "run_id": "65be1dda-393a-4fd6-990e-82caa1599df7",
+      "run_id": "0f1c986c-48e9-46be-8af9-3d1816d01a51",
       "step": 3,
       "agent_name": "CodingAgent",
       "event_type": "tool_observation",
       "duration_ms": 0,
       "success": false,
       "error": "",
-      "observation": "exit_code=1\nE\n======================================================================\nERROR: test_calculator (unittest.loader._FailedTest.test_calculator)\n----------------------------------------------------------------------\nImportError: Failed to import test module: test_calculator\nTraceback (most recent call last):\n  File \"/opt/homebrew/Cellar/python@3.11/3.11.15_1/Frameworks/Python.framework/Versions/3.11/lib/python3.11/unittest/loader.py\", line 419, in _find_test_path\n    module = self._get_module_from_name(name)\n             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/opt/homebrew/Cellar/python@3.11/3.11.15_1/Frameworks/Python.framework/Versions/3.11/lib/python3.11/unittest/loader.py\", line 362, in _get_module_from_name\n    __import__(name)\n  File \"/Users/chenjiahui/Documents/GitHub/NanoHarness/examples/demo_repo/tests/test_calculator.py\", line 2, in <module>\n    from src.calculator import add\nModuleNotFoundError: No module named 'src'\n\n\n----------------------------------------------------------------------\nRan 1 test in 0.000s\n\nFAILED (errors=1)"
+      "observation": "blocked: not allowlisted"
     },
     {
-      "run_id": "65be1dda-393a-4fd6-990e-82caa1599df7",
-      "step": 3,
+      "run_id": "0f1c986c-48e9-46be-8af9-3d1816d01a51",
+      "step": 4,
+      "agent_name": "CodingAgent",
+      "event_type": "context_assembly",
+      "duration_ms": 545,
+      "success": true,
+      "error": "",
+      "context": {
+        "selected_files": [
+          "examples/demo_repo/tests/__init__.py",
+          "examples/demo_repo/tests/test_calculator.py",
+          "examples/demo_repo/src/__init__.py",
+          "examples/demo_repo/src/calculator.py",
+          "docs/run-artifacts/single-deepseek/trace.json",
+          "agent_forge/context/repo_map.py",
+          "eval_cases/case_001_single_agent_fix_test/usage_report.md",
+          "eval_cases/case_005_human_approval_required/usage_report.md"
+        ],
+        "retrieved_docs_count": 5,
+        "memory_summary": "read_file:ok:path=examples/demo_repo/src/calculator.py lines=3\ndef add(a: int, b: int) -> int; read_file:ok:path=examples/demo_repo/tests/test_calculator.py lines=6\nimport unittest\nfrom sr; apply_patch:ok:patched once: examples/demo_repo/src/calculator.py; memory:ok:blocked: not allowlisted | task=修复 examples/demo_repo 里的测试失败问题 | session:task=修复 examples/demo_repo 里的测试失败问题",
+        "total_chars": 3718,
+        "max_chars": 8000,
+        "truncated": true,
+        "topic_relation": "unknown",
+        "inherit_session": true,
+        "dropped_context": [],
+        "budget_breakdown": {
+          "attention_sink": 261,
+          "file_previews": 387,
+          "retrieved_docs": 183,
+          "memory": 375
+        },
+        "available_tools": [
+          "list_files",
+          "read_file",
+          "write_file",
+          "grep",
+          "grep_search",
+          "apply_patch",
+          "run_command",
+          "git_status",
+          "git_diff",
+          "diagnostics"
+        ],
+        "permission_summary": "read allowed; write asks approval; dangerous commands denied",
+        "tool_routing": {
+          "reason": "selected=10 dropped=1 step=4 agent=CodingAgent",
+          "allowed_tools": [
+            "apply_patch",
+            "diagnostics",
+            "git_diff",
+            "git_status",
+            "grep",
+            "grep_search",
+            "list_files",
+            "read_file",
+            "run_command",
+            "write_file"
+          ],
+          "dropped_tools": [
+            "ask_human"
+          ],
+          "metadata": {
+            "apply_patch": {
+              "capability": "edit",
+              "risk": "medium",
+              "latency": "low",
+              "mode": "write"
+            },
+            "diagnostics": {
+              "capability": "validate",
+              "risk": "low",
+              "latency": "medium",
+              "mode": "read"
+            },
+            "git_diff": {
+              "capability": "diff",
+              "risk": "low",
+              "latency": "low",
+              "mode": "read"
+            },
+            "git_status": {
+              "capability": "diff",
+              "risk": "low",
+              "latency": "low",
+              "mode": "read"
+            },
+            "grep": {
+              "capability": "search",
+              "risk": "low",
+              "latency": "low",
+              "mode": "read"
+            },
+            "grep_search": {
+              "capability": "search",
+              "risk": "low",
+              "latency": "low",
+              "mode": "read"
+            },
+            "list_files": {
+              "capability": "discover",
+              "risk": "low",
+              "latency": "low",
+              "mode": "read"
+            },
+            "read_file": {
+              "capability": "inspect",
+              "risk": "low",
+              "latency": "low",
+              "mode": "read"
+            },
+            "run_command": {
+              "capability": "validate",
+              "risk": "high",
+              "latency": "medium",
+              "mode": "command"
+            },
+            "write_file": {
+              "capability": "edit",
+              "risk": "high",
+              "latency": "low",
+              "mode": "write"
+            }
+          }
+        }
+      }
+    },
+    {
+      "run_id": "0f1c986c-48e9-46be-8af9-3d1816d01a51",
+      "step": 4,
+      "agent_name": "CodingAgent",
+      "event_type": "plan",
+      "duration_ms": 0,
+      "success": true,
+      "error": "",
+      "plan": {
+        "goal": "修复 examples/demo_repo 里的测试失败问题",
+        "reasoning_summary": "iteration=4; selected_context=examples/demo_repo/tests/__init__.py, examples/demo_repo/tests/test_calculator.py, examples/demo_repo/src/__init__.py; chars=3718; topic=unknown; inherit_session=True; dropped=0",
+        "next_action": "ask llm for final answer or tool call"
+      }
+    },
+    {
+      "run_id": "0f1c986c-48e9-46be-8af9-3d1816d01a51",
+      "step": 4,
+      "agent_name": "CodingAgent",
+      "event_type": "llm_call",
+      "duration_ms": 1667,
+      "success": true,
+      "error": "",
+      "llm_request_summary": "messages=9 tools=10 context_chars=4507",
+      "llm_response_summary": "tool_calls",
+      "llm_input_breakdown_chars": {
+        "system_context": 4507,
+        "conversation_history": 1738,
+        "tool_schemas": 1128
+      },
+      "model_usage": {
+        "provider": "deepseek",
+        "model": "deepseek-v4-flash",
+        "attempts": 1,
+        "fallback_used": false,
+        "latency_ms": 1666,
+        "prompt_tokens_estimate": 1516,
+        "completion_tokens_estimate": 22,
+        "prompt_tokens": 2623,
+        "completion_tokens": 84,
+        "total_tokens": 2707,
+        "cache_hit_tokens": 768,
+        "cache_miss_tokens": 1855,
+        "reasoning_tokens": 12,
+        "response_id": "6178cfd7-b25a-43e9-bb13-753266d80bfc",
+        "usage_source": "provider",
+        "estimated_cost_usd": 0.000285,
+        "error_codes": [],
+        "raw_usage": {
+          "prompt_tokens": 2623,
+          "completion_tokens": 84,
+          "total_tokens": 2707,
+          "prompt_tokens_details": {
+            "cached_tokens": 768
+          },
+          "completion_tokens_details": {
+            "reasoning_tokens": 12
+          },
+          "prompt_cache_hit_tokens": 768,
+          "prompt_cache_miss_tokens": 1855
+        }
+      }
+    },
+    {
+      "run_id": "0f1c986c-48e9-46be-8af9-3d1816d01a51",
+      "step": 4,
+      "agent_name": "CodingAgent",
+      "event_type": "guardrail_check",
+      "duration_ms": 0,
+      "success": true,
+      "error": "",
+      "guardrail": {
+        "category": "tool",
+        "passed": true,
+        "reason": "ok",
+        "severity": "low"
+      }
+    },
+    {
+      "run_id": "0f1c986c-48e9-46be-8af9-3d1816d01a51",
+      "step": 4,
+      "agent_name": "CodingAgent",
+      "event_type": "action",
+      "duration_ms": 0,
+      "success": true,
+      "error": "",
+      "tool_call": "diagnostics",
+      "tool_arguments": {
+        "kind": "unittest",
+        "target": "examples/demo_repo/tests/test_calculator.py"
+      }
+    },
+    {
+      "run_id": "0f1c986c-48e9-46be-8af9-3d1816d01a51",
+      "step": 4,
+      "agent_name": "CodingAgent",
+      "event_type": "permission_check",
+      "duration_ms": 0,
+      "success": true,
+      "error": "",
+      "permission_decision": "allow",
+      "tool_call": "diagnostics"
+    },
+    {
+      "run_id": "0f1c986c-48e9-46be-8af9-3d1816d01a51",
+      "step": 4,
+      "agent_name": "CodingAgent",
+      "event_type": "tool_call",
+      "duration_ms": 62,
+      "success": true,
+      "error": "",
+      "tool_call": "diagnostics",
+      "tool_arguments": {
+        "kind": "unittest",
+        "target": "examples/demo_repo/tests/test_calculator.py"
+      }
+    },
+    {
+      "run_id": "0f1c986c-48e9-46be-8af9-3d1816d01a51",
+      "step": 4,
+      "agent_name": "CodingAgent",
+      "event_type": "tool_observation",
+      "duration_ms": 0,
+      "success": false,
+      "error": "",
+      "observation": "exit_code=1\nTraceback (most recent call last):\n  File \"/Users/chenjiahui/Documents/GitHub/NanoHarness/examples/demo_repo/tests/test_calculator.py\", line 2, in <module>\n    from src.calculator import add\nModuleNotFoundError: No module named 'src'"
+    },
+    {
+      "run_id": "0f1c986c-48e9-46be-8af9-3d1816d01a51",
+      "step": 4,
       "agent_name": "CodingAgent",
       "event_type": "observation",
       "duration_ms": 0,
       "success": false,
       "error": "",
-      "observation_summary": "exit_code=1\nE\n======================================================================\nERROR: test_calculator (unittest.loader._FailedTest.test_calculator)\n----------------------------------------------------------------------\nImportError: Failed to import test module: test_calculator\nTraceback (most "
+      "observation_summary": "exit_code=1\nTraceback (most recent call last):\n  File \"/Users/chenjiahui/Documents/GitHub/NanoHarness/examples/demo_repo/tests/test_calculator.py\", line 2, in <module>\n    from src.calculator import add\nModuleNotFoundError: No module named 'src'"
     },
     {
-      "run_id": "65be1dda-393a-4fd6-990e-82caa1599df7",
-      "step": 3,
+      "run_id": "0f1c986c-48e9-46be-8af9-3d1816d01a51",
+      "step": 4,
+      "agent_name": "CodingAgent",
+      "event_type": "evidence_collected",
+      "duration_ms": 0,
+      "success": true,
+      "error": "",
+      "evidence": "diagnostics:diagnostics:fail:exit_code=1 Traceback (most recent call last):   File \"/Users/chenjiahui/Documents/GitHub/NanoHarness/examples/demo_repo/tests/test_calculator.py\", line 2, in <"
+    },
+    {
+      "run_id": "0f1c986c-48e9-46be-8af9-3d1816d01a51",
+      "step": 4,
       "agent_name": "CodingAgent",
       "event_type": "recovery_decision",
       "duration_ms": 0,
@@ -669,11 +1217,11 @@
       "recovery_hint": "Inspect the failure output, patch the root cause, and rerun the smallest validation."
     },
     {
-      "run_id": "65be1dda-393a-4fd6-990e-82caa1599df7",
-      "step": 4,
+      "run_id": "0f1c986c-48e9-46be-8af9-3d1816d01a51",
+      "step": 5,
       "agent_name": "CodingAgent",
       "event_type": "context_assembly",
-      "duration_ms": 180,
+      "duration_ms": 552,
       "success": true,
       "error": "",
       "context": {
@@ -682,14 +1230,14 @@
           "examples/demo_repo/tests/test_calculator.py",
           "examples/demo_repo/src/__init__.py",
           "examples/demo_repo/src/calculator.py",
+          "docs/run-artifacts/single-deepseek/trace.json",
           "agent_forge/context/repo_map.py",
-          "examples/webhook_service_repo/tests/__init__.py",
-          "examples/webhook_service_repo/tests/test_signature_verification.py",
-          "examples/webhook_service_repo/tests/test_webhook_idempotency.py"
+          "eval_cases/case_001_single_agent_fix_test/usage_report.md",
+          "eval_cases/case_005_human_approval_required/usage_report.md"
         ],
         "retrieved_docs_count": 5,
-        "memory_summary": "recovery:command_failed:Inspect the failure output, patch the root cause, and rerun the smallest validation. | read_file:ok:path=examples/demo_repo/src/calculator.py lines=3\ndef add(a: int, b: int) -> int; read_file:ok:path=examples/demo_repo/tests/test_calculator.py lines=6\nimport unittest\nfrom sr; apply_patch:ok:patched once: examples/demo_repo/src/calculator.py; run_command:fail:exit_code=1\nE\n================================================================== | task=修复 examples/demo_repo 里的测试失败问题",
-        "total_chars": 3743,
+        "memory_summary": "recovery:command_failed:Inspect the failure output, patch the root cause, and rerun the smallest validation. | read_file:ok:path=examples/demo_repo/src/calculator.py lines=3\ndef add(a: int, b: int) -> int; read_file:ok:path=examples/demo_repo/tests/test_calculator.py lines=6\nimport unittest\nfrom sr; apply_patch:ok:patched once: examples/demo_repo/src/calculator.py; memory:ok:blocked: not allowlisted; diagnostics:fail:exit_code=1\nTraceback (most recent call last):\n  File \"/Users/chenjiahui/Documen | task=修复 examples/demo_repo 里的测试失败问题 | session:task=修复 examples/demo_repo 里的测试失败问题",
+        "total_chars": 3928,
         "max_chars": 8000,
         "truncated": true,
         "topic_relation": "unknown",
@@ -699,7 +1247,7 @@
           "attention_sink": 261,
           "file_previews": 387,
           "retrieved_docs": 183,
-          "memory": 611
+          "memory": 693
         },
         "available_tools": [
           "list_files",
@@ -711,15 +1259,94 @@
           "run_command",
           "git_status",
           "git_diff",
-          "diagnostics",
-          "ask_human"
+          "diagnostics"
         ],
-        "permission_summary": "read allowed; write asks approval; dangerous commands denied"
+        "permission_summary": "read allowed; write asks approval; dangerous commands denied",
+        "tool_routing": {
+          "reason": "selected=10 dropped=1 step=5 agent=CodingAgent",
+          "allowed_tools": [
+            "apply_patch",
+            "diagnostics",
+            "git_diff",
+            "git_status",
+            "grep",
+            "grep_search",
+            "list_files",
+            "read_file",
+            "run_command",
+            "write_file"
+          ],
+          "dropped_tools": [
+            "ask_human"
+          ],
+          "metadata": {
+            "apply_patch": {
+              "capability": "edit",
+              "risk": "medium",
+              "latency": "low",
+              "mode": "write"
+            },
+            "diagnostics": {
+              "capability": "validate",
+              "risk": "low",
+              "latency": "medium",
+              "mode": "read"
+            },
+            "git_diff": {
+              "capability": "diff",
+              "risk": "low",
+              "latency": "low",
+              "mode": "read"
+            },
+            "git_status": {
+              "capability": "diff",
+              "risk": "low",
+              "latency": "low",
+              "mode": "read"
+            },
+            "grep": {
+              "capability": "search",
+              "risk": "low",
+              "latency": "low",
+              "mode": "read"
+            },
+            "grep_search": {
+              "capability": "search",
+              "risk": "low",
+              "latency": "low",
+              "mode": "read"
+            },
+            "list_files": {
+              "capability": "discover",
+              "risk": "low",
+              "latency": "low",
+              "mode": "read"
+            },
+            "read_file": {
+              "capability": "inspect",
+              "risk": "low",
+              "latency": "low",
+              "mode": "read"
+            },
+            "run_command": {
+              "capability": "validate",
+              "risk": "high",
+              "latency": "medium",
+              "mode": "command"
+            },
+            "write_file": {
+              "capability": "edit",
+              "risk": "high",
+              "latency": "low",
+              "mode": "write"
+            }
+          }
+        }
       }
     },
     {
-      "run_id": "65be1dda-393a-4fd6-990e-82caa1599df7",
-      "step": 4,
+      "run_id": "0f1c986c-48e9-46be-8af9-3d1816d01a51",
+      "step": 5,
       "agent_name": "CodingAgent",
       "event_type": "plan",
       "duration_ms": 0,
@@ -727,61 +1354,61 @@
       "error": "",
       "plan": {
         "goal": "修复 examples/demo_repo 里的测试失败问题",
-        "reasoning_summary": "iteration=4; selected_context=examples/demo_repo/tests/__init__.py, examples/demo_repo/tests/test_calculator.py, examples/demo_repo/src/__init__.py; chars=3743; topic=unknown; inherit_session=True; dropped=0",
+        "reasoning_summary": "iteration=5; selected_context=examples/demo_repo/tests/__init__.py, examples/demo_repo/tests/test_calculator.py, examples/demo_repo/src/__init__.py; chars=3928; topic=unknown; inherit_session=True; dropped=0",
         "next_action": "ask llm for final answer or tool call"
       }
     },
     {
-      "run_id": "65be1dda-393a-4fd6-990e-82caa1599df7",
-      "step": 4,
+      "run_id": "0f1c986c-48e9-46be-8af9-3d1816d01a51",
+      "step": 5,
       "agent_name": "CodingAgent",
       "event_type": "llm_call",
-      "duration_ms": 2826,
+      "duration_ms": 1887,
       "success": true,
       "error": "",
-      "llm_request_summary": "messages=9 tools=11 context_chars=4661",
+      "llm_request_summary": "messages=11 tools=10 context_chars=4827",
       "llm_response_summary": "tool_calls",
       "llm_input_breakdown_chars": {
-        "system_context": 4661,
-        "conversation_history": 2881,
-        "tool_schemas": 1221
+        "system_context": 4827,
+        "conversation_history": 2236,
+        "tool_schemas": 1128
       },
       "model_usage": {
         "provider": "deepseek",
         "model": "deepseek-v4-flash",
         "attempts": 1,
         "fallback_used": false,
-        "latency_ms": 2826,
-        "prompt_tokens_estimate": 1838,
-        "completion_tokens_estimate": 25,
-        "prompt_tokens": 2995,
-        "completion_tokens": 137,
-        "total_tokens": 3132,
+        "latency_ms": 1887,
+        "prompt_tokens_estimate": 1657,
+        "completion_tokens_estimate": 37,
+        "prompt_tokens": 2873,
+        "completion_tokens": 120,
+        "total_tokens": 2993,
         "cache_hit_tokens": 768,
-        "cache_miss_tokens": 2227,
-        "reasoning_tokens": 71,
-        "response_id": "15ff5699-ca30-4ab4-b94a-538254a2d0fc",
+        "cache_miss_tokens": 2105,
+        "reasoning_tokens": 39,
+        "response_id": "fcd44d35-5b67-4455-b80f-38e9b7acb385",
         "usage_source": "provider",
-        "estimated_cost_usd": 0.000352,
+        "estimated_cost_usd": 0.00033,
         "error_codes": [],
         "raw_usage": {
-          "prompt_tokens": 2995,
-          "completion_tokens": 137,
-          "total_tokens": 3132,
+          "prompt_tokens": 2873,
+          "completion_tokens": 120,
+          "total_tokens": 2993,
           "prompt_tokens_details": {
             "cached_tokens": 768
           },
           "completion_tokens_details": {
-            "reasoning_tokens": 71
+            "reasoning_tokens": 39
           },
           "prompt_cache_hit_tokens": 768,
-          "prompt_cache_miss_tokens": 2227
+          "prompt_cache_miss_tokens": 2105
         }
       }
     },
     {
-      "run_id": "65be1dda-393a-4fd6-990e-82caa1599df7",
-      "step": 4,
+      "run_id": "0f1c986c-48e9-46be-8af9-3d1816d01a51",
+      "step": 5,
       "agent_name": "CodingAgent",
       "event_type": "guardrail_check",
       "duration_ms": 0,
@@ -795,8 +1422,8 @@
       }
     },
     {
-      "run_id": "65be1dda-393a-4fd6-990e-82caa1599df7",
-      "step": 4,
+      "run_id": "0f1c986c-48e9-46be-8af9-3d1816d01a51",
+      "step": 5,
       "agent_name": "CodingAgent",
       "event_type": "action",
       "duration_ms": 0,
@@ -804,12 +1431,12 @@
       "error": "",
       "tool_call": "run_command",
       "tool_arguments": {
-        "command": "cd examples/demo_repo && python -m unittest discover -s tests -p \"test_*.py\""
+        "command": "cd examples/demo_repo && python -c \"import sys; sys.path.insert(0,'.'); from src.calculator import add; print(add(2,3))\""
       }
     },
     {
-      "run_id": "65be1dda-393a-4fd6-990e-82caa1599df7",
-      "step": 4,
+      "run_id": "0f1c986c-48e9-46be-8af9-3d1816d01a51",
+      "step": 5,
       "agent_name": "CodingAgent",
       "event_type": "permission_check",
       "duration_ms": 0,
@@ -819,8 +1446,8 @@
       "tool_call": "run_command"
     },
     {
-      "run_id": "65be1dda-393a-4fd6-990e-82caa1599df7",
-      "step": 4,
+      "run_id": "0f1c986c-48e9-46be-8af9-3d1816d01a51",
+      "step": 5,
       "agent_name": "CodingAgent",
       "event_type": "tool_observation",
       "duration_ms": 0,
@@ -829,11 +1456,11 @@
       "observation": "blocked: not allowlisted"
     },
     {
-      "run_id": "65be1dda-393a-4fd6-990e-82caa1599df7",
-      "step": 5,
+      "run_id": "0f1c986c-48e9-46be-8af9-3d1816d01a51",
+      "step": 6,
       "agent_name": "CodingAgent",
       "event_type": "context_assembly",
-      "duration_ms": 235,
+      "duration_ms": 510,
       "success": true,
       "error": "",
       "context": {
@@ -842,14 +1469,14 @@
           "examples/demo_repo/tests/test_calculator.py",
           "examples/demo_repo/src/__init__.py",
           "examples/demo_repo/src/calculator.py",
+          "docs/run-artifacts/single-deepseek/trace.json",
           "agent_forge/context/repo_map.py",
-          "examples/webhook_service_repo/tests/__init__.py",
-          "examples/webhook_service_repo/tests/test_signature_verification.py",
-          "examples/webhook_service_repo/tests/test_webhook_idempotency.py"
+          "eval_cases/case_001_single_agent_fix_test/usage_report.md",
+          "eval_cases/case_005_human_approval_required/usage_report.md"
         ],
         "retrieved_docs_count": 5,
-        "memory_summary": "recovery:command_failed:Inspect the failure output, patch the root cause, and rerun the smallest validation. | read_file:ok:path=examples/demo_repo/src/calculator.py lines=3\ndef add(a: int, b: int) -> int; read_file:ok:path=examples/demo_repo/tests/test_calculator.py lines=6\nimport unittest\nfrom sr; apply_patch:ok:patched once: examples/demo_repo/src/calculator.py; run_command:fail:exit_code=1\nE\n==================================================================; memory:ok:blocked: not allowlisted | task=修复 examples/demo_repo 里的测试失败问题",
-        "total_chars": 3779,
+        "memory_summary": "recovery:command_failed:Inspect the failure output, patch the root cause, and rerun the smallest validation. | read_file:ok:path=examples/demo_repo/src/calculator.py lines=3\ndef add(a: int, b: int) -> int; read_file:ok:path=examples/demo_repo/tests/test_calculator.py lines=6\nimport unittest\nfrom sr; apply_patch:ok:patched once: examples/demo_repo/src/calculator.py; memory:ok:blocked: not allowlisted; diagnostics:fail:exit_code=1\nTraceback (most recent call last):\n  File \"/Users/chenjiahui/Documen; memory:ok:blocked: not allowlisted | task=修复 examples/demo_repo 里的测试失败问题 | session:task=修复 examples/demo_repo 里的测试失败问题",
+        "total_chars": 3964,
         "max_chars": 8000,
         "truncated": true,
         "topic_relation": "unknown",
@@ -859,7 +1486,7 @@
           "attention_sink": 261,
           "file_previews": 387,
           "retrieved_docs": 183,
-          "memory": 647
+          "memory": 729
         },
         "available_tools": [
           "list_files",
@@ -871,15 +1498,94 @@
           "run_command",
           "git_status",
           "git_diff",
-          "diagnostics",
-          "ask_human"
+          "diagnostics"
         ],
-        "permission_summary": "read allowed; write asks approval; dangerous commands denied"
+        "permission_summary": "read allowed; write asks approval; dangerous commands denied",
+        "tool_routing": {
+          "reason": "selected=10 dropped=1 step=6 agent=CodingAgent",
+          "allowed_tools": [
+            "apply_patch",
+            "diagnostics",
+            "git_diff",
+            "git_status",
+            "grep",
+            "grep_search",
+            "list_files",
+            "read_file",
+            "run_command",
+            "write_file"
+          ],
+          "dropped_tools": [
+            "ask_human"
+          ],
+          "metadata": {
+            "apply_patch": {
+              "capability": "edit",
+              "risk": "medium",
+              "latency": "low",
+              "mode": "write"
+            },
+            "diagnostics": {
+              "capability": "validate",
+              "risk": "low",
+              "latency": "medium",
+              "mode": "read"
+            },
+            "git_diff": {
+              "capability": "diff",
+              "risk": "low",
+              "latency": "low",
+              "mode": "read"
+            },
+            "git_status": {
+              "capability": "diff",
+              "risk": "low",
+              "latency": "low",
+              "mode": "read"
+            },
+            "grep": {
+              "capability": "search",
+              "risk": "low",
+              "latency": "low",
+              "mode": "read"
+            },
+            "grep_search": {
+              "capability": "search",
+              "risk": "low",
+              "latency": "low",
+              "mode": "read"
+            },
+            "list_files": {
+              "capability": "discover",
+              "risk": "low",
+              "latency": "low",
+              "mode": "read"
+            },
+            "read_file": {
+              "capability": "inspect",
+              "risk": "low",
+              "latency": "low",
+              "mode": "read"
+            },
+            "run_command": {
+              "capability": "validate",
+              "risk": "high",
+              "latency": "medium",
+              "mode": "command"
+            },
+            "write_file": {
+              "capability": "edit",
+              "risk": "high",
+              "latency": "low",
+              "mode": "write"
+            }
+          }
+        }
       }
     },
     {
-      "run_id": "65be1dda-393a-4fd6-990e-82caa1599df7",
-      "step": 5,
+      "run_id": "0f1c986c-48e9-46be-8af9-3d1816d01a51",
+      "step": 6,
       "agent_name": "CodingAgent",
       "event_type": "plan",
       "duration_ms": 0,
@@ -887,220 +1593,60 @@
       "error": "",
       "plan": {
         "goal": "修复 examples/demo_repo 里的测试失败问题",
-        "reasoning_summary": "iteration=5; selected_context=examples/demo_repo/tests/__init__.py, examples/demo_repo/tests/test_calculator.py, examples/demo_repo/src/__init__.py; chars=3779; topic=unknown; inherit_session=True; dropped=0",
+        "reasoning_summary": "iteration=6; selected_context=examples/demo_repo/tests/__init__.py, examples/demo_repo/tests/test_calculator.py, examples/demo_repo/src/__init__.py; chars=3964; topic=unknown; inherit_session=True; dropped=0",
         "next_action": "ask llm for final answer or tool call"
       }
     },
     {
-      "run_id": "65be1dda-393a-4fd6-990e-82caa1599df7",
-      "step": 5,
+      "run_id": "0f1c986c-48e9-46be-8af9-3d1816d01a51",
+      "step": 6,
       "agent_name": "CodingAgent",
       "event_type": "llm_call",
-      "duration_ms": 2334,
+      "duration_ms": 1592,
       "success": true,
       "error": "",
-      "llm_request_summary": "messages=11 tools=11 context_chars=4697",
+      "llm_request_summary": "messages=13 tools=10 context_chars=4863",
       "llm_response_summary": "tool_calls",
       "llm_input_breakdown_chars": {
-        "system_context": 4697,
-        "conversation_history": 3410,
-        "tool_schemas": 1221
+        "system_context": 4863,
+        "conversation_history": 2686,
+        "tool_schemas": 1128
       },
       "model_usage": {
         "provider": "deepseek",
         "model": "deepseek-v4-flash",
         "attempts": 1,
         "fallback_used": false,
-        "latency_ms": 2334,
-        "prompt_tokens_estimate": 1853,
-        "completion_tokens_estimate": 31,
-        "prompt_tokens": 3161,
-        "completion_tokens": 96,
-        "total_tokens": 3257,
+        "latency_ms": 1592,
+        "prompt_tokens_estimate": 1672,
+        "completion_tokens_estimate": 26,
+        "prompt_tokens": 3022,
+        "completion_tokens": 81,
+        "total_tokens": 3103,
         "cache_hit_tokens": 896,
-        "cache_miss_tokens": 2265,
-        "reasoning_tokens": 21,
-        "response_id": "9fcdbd28-b309-4892-b895-c9eea61b5eee",
+        "cache_miss_tokens": 2126,
+        "reasoning_tokens": 15,
+        "response_id": "99e6a185-46a3-46c5-b34a-96e324df2d95",
         "usage_source": "provider",
-        "estimated_cost_usd": 0.000346,
+        "estimated_cost_usd": 0.000323,
         "error_codes": [],
         "raw_usage": {
-          "prompt_tokens": 3161,
-          "completion_tokens": 96,
-          "total_tokens": 3257,
+          "prompt_tokens": 3022,
+          "completion_tokens": 81,
+          "total_tokens": 3103,
           "prompt_tokens_details": {
             "cached_tokens": 896
           },
           "completion_tokens_details": {
-            "reasoning_tokens": 21
+            "reasoning_tokens": 15
           },
           "prompt_cache_hit_tokens": 896,
-          "prompt_cache_miss_tokens": 2265
+          "prompt_cache_miss_tokens": 2126
         }
       }
     },
     {
-      "run_id": "65be1dda-393a-4fd6-990e-82caa1599df7",
-      "step": 5,
-      "agent_name": "CodingAgent",
-      "event_type": "guardrail_check",
-      "duration_ms": 0,
-      "success": true,
-      "error": "",
-      "guardrail": {
-        "category": "tool",
-        "passed": true,
-        "reason": "ok",
-        "severity": "low"
-      }
-    },
-    {
-      "run_id": "65be1dda-393a-4fd6-990e-82caa1599df7",
-      "step": 5,
-      "agent_name": "CodingAgent",
-      "event_type": "action",
-      "duration_ms": 0,
-      "success": true,
-      "error": "",
-      "tool_call": "run_command",
-      "tool_arguments": {
-        "command": "PYTHONPATH=examples/demo_repo python -m unittest discover -s examples/demo_repo/tests -p \"test_*.py\""
-      }
-    },
-    {
-      "run_id": "65be1dda-393a-4fd6-990e-82caa1599df7",
-      "step": 5,
-      "agent_name": "CodingAgent",
-      "event_type": "permission_check",
-      "duration_ms": 0,
-      "success": true,
-      "error": "",
-      "permission_decision": "deny",
-      "tool_call": "run_command"
-    },
-    {
-      "run_id": "65be1dda-393a-4fd6-990e-82caa1599df7",
-      "step": 5,
-      "agent_name": "CodingAgent",
-      "event_type": "tool_observation",
-      "duration_ms": 0,
-      "success": false,
-      "error": "",
-      "observation": "blocked: not allowlisted"
-    },
-    {
-      "run_id": "65be1dda-393a-4fd6-990e-82caa1599df7",
-      "step": 6,
-      "agent_name": "CodingAgent",
-      "event_type": "context_assembly",
-      "duration_ms": 210,
-      "success": true,
-      "error": "",
-      "context": {
-        "selected_files": [
-          "examples/demo_repo/tests/__init__.py",
-          "examples/demo_repo/tests/test_calculator.py",
-          "examples/demo_repo/src/__init__.py",
-          "examples/demo_repo/src/calculator.py",
-          "agent_forge/context/repo_map.py",
-          "examples/webhook_service_repo/tests/__init__.py",
-          "examples/webhook_service_repo/tests/test_signature_verification.py",
-          "examples/webhook_service_repo/tests/test_webhook_idempotency.py"
-        ],
-        "retrieved_docs_count": 5,
-        "memory_summary": "recovery:command_failed:Inspect the failure output, patch the root cause, and rerun the smallest validation. | read_file:ok:path=examples/demo_repo/src/calculator.py lines=3\ndef add(a: int, b: int) -> int; read_file:ok:path=examples/demo_repo/tests/test_calculator.py lines=6\nimport unittest\nfrom sr; apply_patch:ok:patched once: examples/demo_repo/src/calculator.py; run_command:fail:exit_code=1\nE\n==================================================================; memory:ok:blocked: not allowlisted; memory:ok:blocked: not allowlisted | task=修复 examples/demo_repo 里的测试失败问题",
-        "total_chars": 3815,
-        "max_chars": 8000,
-        "truncated": true,
-        "topic_relation": "unknown",
-        "inherit_session": true,
-        "dropped_context": [],
-        "budget_breakdown": {
-          "attention_sink": 261,
-          "file_previews": 387,
-          "retrieved_docs": 183,
-          "memory": 683
-        },
-        "available_tools": [
-          "list_files",
-          "read_file",
-          "write_file",
-          "grep",
-          "grep_search",
-          "apply_patch",
-          "run_command",
-          "git_status",
-          "git_diff",
-          "diagnostics",
-          "ask_human"
-        ],
-        "permission_summary": "read allowed; write asks approval; dangerous commands denied"
-      }
-    },
-    {
-      "run_id": "65be1dda-393a-4fd6-990e-82caa1599df7",
-      "step": 6,
-      "agent_name": "CodingAgent",
-      "event_type": "plan",
-      "duration_ms": 0,
-      "success": true,
-      "error": "",
-      "plan": {
-        "goal": "修复 examples/demo_repo 里的测试失败问题",
-        "reasoning_summary": "iteration=6; selected_context=examples/demo_repo/tests/__init__.py, examples/demo_repo/tests/test_calculator.py, examples/demo_repo/src/__init__.py; chars=3815; topic=unknown; inherit_session=True; dropped=0",
-        "next_action": "ask llm for final answer or tool call"
-      }
-    },
-    {
-      "run_id": "65be1dda-393a-4fd6-990e-82caa1599df7",
-      "step": 6,
-      "agent_name": "CodingAgent",
-      "event_type": "llm_call",
-      "duration_ms": 3987,
-      "success": true,
-      "error": "",
-      "llm_request_summary": "messages=13 tools=11 context_chars=4733",
-      "llm_response_summary": "tool_calls",
-      "llm_input_breakdown_chars": {
-        "system_context": 4733,
-        "conversation_history": 3748,
-        "tool_schemas": 1221
-      },
-      "model_usage": {
-        "provider": "deepseek",
-        "model": "deepseek-v4-flash",
-        "attempts": 1,
-        "fallback_used": false,
-        "latency_ms": 3986,
-        "prompt_tokens_estimate": 1868,
-        "completion_tokens_estimate": 25,
-        "prompt_tokens": 3286,
-        "completion_tokens": 239,
-        "total_tokens": 3525,
-        "cache_hit_tokens": 1024,
-        "cache_miss_tokens": 2262,
-        "reasoning_tokens": 175,
-        "response_id": "491fa055-35a2-477f-9632-2102b9900274",
-        "usage_source": "provider",
-        "estimated_cost_usd": 0.000386,
-        "error_codes": [],
-        "raw_usage": {
-          "prompt_tokens": 3286,
-          "completion_tokens": 239,
-          "total_tokens": 3525,
-          "prompt_tokens_details": {
-            "cached_tokens": 1024
-          },
-          "completion_tokens_details": {
-            "reasoning_tokens": 175
-          },
-          "prompt_cache_hit_tokens": 1024,
-          "prompt_cache_miss_tokens": 2262
-        }
-      }
-    },
-    {
-      "run_id": "65be1dda-393a-4fd6-990e-82caa1599df7",
+      "run_id": "0f1c986c-48e9-46be-8af9-3d1816d01a51",
       "step": 6,
       "agent_name": "CodingAgent",
       "event_type": "guardrail_check",
@@ -1115,7 +1661,7 @@
       }
     },
     {
-      "run_id": "65be1dda-393a-4fd6-990e-82caa1599df7",
+      "run_id": "0f1c986c-48e9-46be-8af9-3d1816d01a51",
       "step": 6,
       "agent_name": "CodingAgent",
       "event_type": "action",
@@ -1124,11 +1670,11 @@
       "error": "",
       "tool_call": "run_command",
       "tool_arguments": {
-        "command": "python -m unittest discover -s examples/demo_repo/tests -t examples/demo_repo"
+        "command": "python -m unittest discover -s examples/demo_repo/tests -t examples/demo_repo -v"
       }
     },
     {
-      "run_id": "65be1dda-393a-4fd6-990e-82caa1599df7",
+      "run_id": "0f1c986c-48e9-46be-8af9-3d1816d01a51",
       "step": 6,
       "agent_name": "CodingAgent",
       "event_type": "permission_check",
@@ -1139,44 +1685,54 @@
       "tool_call": "run_command"
     },
     {
-      "run_id": "65be1dda-393a-4fd6-990e-82caa1599df7",
+      "run_id": "0f1c986c-48e9-46be-8af9-3d1816d01a51",
       "step": 6,
       "agent_name": "CodingAgent",
       "event_type": "tool_call",
-      "duration_ms": 60,
+      "duration_ms": 62,
       "success": true,
       "error": "",
       "tool_call": "run_command",
       "tool_arguments": {
-        "command": "python -m unittest discover -s examples/demo_repo/tests -t examples/demo_repo"
+        "command": "python -m unittest discover -s examples/demo_repo/tests -t examples/demo_repo -v"
       }
     },
     {
-      "run_id": "65be1dda-393a-4fd6-990e-82caa1599df7",
+      "run_id": "0f1c986c-48e9-46be-8af9-3d1816d01a51",
       "step": 6,
       "agent_name": "CodingAgent",
       "event_type": "tool_observation",
       "duration_ms": 0,
       "success": true,
       "error": "",
-      "observation": "exit_code=0\n.\n----------------------------------------------------------------------\nRan 1 test in 0.000s\n\nOK"
+      "observation": "exit_code=0\ntest_add (tests.test_calculator.T.test_add) ... ok\n\n----------------------------------------------------------------------\nRan 1 test in 0.000s\n\nOK"
     },
     {
-      "run_id": "65be1dda-393a-4fd6-990e-82caa1599df7",
+      "run_id": "0f1c986c-48e9-46be-8af9-3d1816d01a51",
       "step": 6,
       "agent_name": "CodingAgent",
       "event_type": "observation",
       "duration_ms": 0,
       "success": true,
       "error": "",
-      "observation_summary": "exit_code=0\n.\n----------------------------------------------------------------------\nRan 1 test in 0.000s\n\nOK"
+      "observation_summary": "exit_code=0\ntest_add (tests.test_calculator.T.test_add) ... ok\n\n----------------------------------------------------------------------\nRan 1 test in 0.000s\n\nOK"
     },
     {
-      "run_id": "65be1dda-393a-4fd6-990e-82caa1599df7",
+      "run_id": "0f1c986c-48e9-46be-8af9-3d1816d01a51",
+      "step": 6,
+      "agent_name": "CodingAgent",
+      "event_type": "evidence_collected",
+      "duration_ms": 0,
+      "success": true,
+      "error": "",
+      "evidence": "run_command:run_command:ok:exit_code=0 test_add (tests.test_calculator.T.test_add) ... ok  ---------------------------------------------------------------------- Ran 1 test in 0.000s  OK"
+    },
+    {
+      "run_id": "0f1c986c-48e9-46be-8af9-3d1816d01a51",
       "step": 7,
       "agent_name": "CodingAgent",
       "event_type": "context_assembly",
-      "duration_ms": 175,
+      "duration_ms": 506,
       "success": true,
       "error": "",
       "context": {
@@ -1185,14 +1741,14 @@
           "examples/demo_repo/tests/test_calculator.py",
           "examples/demo_repo/src/__init__.py",
           "examples/demo_repo/src/calculator.py",
+          "docs/run-artifacts/single-deepseek/trace.json",
           "agent_forge/context/repo_map.py",
-          "examples/webhook_service_repo/tests/__init__.py",
-          "examples/webhook_service_repo/tests/test_signature_verification.py",
-          "examples/webhook_service_repo/tests/test_webhook_idempotency.py"
+          "eval_cases/case_001_single_agent_fix_test/usage_report.md",
+          "eval_cases/case_005_human_approval_required/usage_report.md"
         ],
         "retrieved_docs_count": 5,
-        "memory_summary": "recovery:command_failed:Inspect the failure output, patch the root cause, and rerun the smallest validation. | read_file:ok:path=examples/demo_repo/src/calculator.py lines=3\ndef add(a: int, b: int) -> int; read_file:ok:path=examples/demo_repo/tests/test_calculator.py lines=6\nimport unittest\nfrom sr; apply_patch:ok:patched once: examples/demo_repo/src/calculator.py; run_command:fail:exit_code=1\nE\n==================================================================; memory:ok:blocked: not allowlisted; memory:ok:blocked: not allowlisted; run_command:ok:exit_code=0\n.\n------------------------------------------------------------------ | task=修复 examples/demo_repo 里的测试失败问题",
-        "total_chars": 3912,
+        "memory_summary": "recovery:command_failed:Inspect the failure output, patch the root cause, and rerun the smallest validation. | read_file:ok:path=examples/demo_repo/src/calculator.py lines=3\ndef add(a: int, b: int) -> int; read_file:ok:path=examples/demo_repo/tests/test_calculator.py lines=6\nimport unittest\nfrom sr; apply_patch:ok:patched once: examples/demo_repo/src/calculator.py; memory:ok:blocked: not allowlisted; diagnostics:fail:exit_code=1\nTraceback (most recent call last):\n  File \"/Users/chenjiahui/Documen; memory:ok:blocked: not allowlisted; run_command:ok:exit_code=0\ntest_add (tests.test_calculator.T.test_add) ... ok\n\n---------------- | task=修复 examples/demo_repo 里的测试失败问题 | session:task=修复 examples/demo_repo 里的测试失败问题",
+        "total_chars": 4061,
         "max_chars": 8000,
         "truncated": true,
         "topic_relation": "unknown",
@@ -1202,7 +1758,7 @@
           "attention_sink": 261,
           "file_previews": 387,
           "retrieved_docs": 183,
-          "memory": 780
+          "memory": 826
         },
         "available_tools": [
           "list_files",
@@ -1214,14 +1770,93 @@
           "run_command",
           "git_status",
           "git_diff",
-          "diagnostics",
-          "ask_human"
+          "diagnostics"
         ],
-        "permission_summary": "read allowed; write asks approval; dangerous commands denied"
+        "permission_summary": "read allowed; write asks approval; dangerous commands denied",
+        "tool_routing": {
+          "reason": "selected=10 dropped=1 step=7 agent=CodingAgent",
+          "allowed_tools": [
+            "apply_patch",
+            "diagnostics",
+            "git_diff",
+            "git_status",
+            "grep",
+            "grep_search",
+            "list_files",
+            "read_file",
+            "run_command",
+            "write_file"
+          ],
+          "dropped_tools": [
+            "ask_human"
+          ],
+          "metadata": {
+            "apply_patch": {
+              "capability": "edit",
+              "risk": "medium",
+              "latency": "low",
+              "mode": "write"
+            },
+            "diagnostics": {
+              "capability": "validate",
+              "risk": "low",
+              "latency": "medium",
+              "mode": "read"
+            },
+            "git_diff": {
+              "capability": "diff",
+              "risk": "low",
+              "latency": "low",
+              "mode": "read"
+            },
+            "git_status": {
+              "capability": "diff",
+              "risk": "low",
+              "latency": "low",
+              "mode": "read"
+            },
+            "grep": {
+              "capability": "search",
+              "risk": "low",
+              "latency": "low",
+              "mode": "read"
+            },
+            "grep_search": {
+              "capability": "search",
+              "risk": "low",
+              "latency": "low",
+              "mode": "read"
+            },
+            "list_files": {
+              "capability": "discover",
+              "risk": "low",
+              "latency": "low",
+              "mode": "read"
+            },
+            "read_file": {
+              "capability": "inspect",
+              "risk": "low",
+              "latency": "low",
+              "mode": "read"
+            },
+            "run_command": {
+              "capability": "validate",
+              "risk": "high",
+              "latency": "medium",
+              "mode": "command"
+            },
+            "write_file": {
+              "capability": "edit",
+              "risk": "high",
+              "latency": "low",
+              "mode": "write"
+            }
+          }
+        }
       }
     },
     {
-      "run_id": "65be1dda-393a-4fd6-990e-82caa1599df7",
+      "run_id": "0f1c986c-48e9-46be-8af9-3d1816d01a51",
       "step": 7,
       "agent_name": "CodingAgent",
       "event_type": "plan",
@@ -1230,60 +1865,60 @@
       "error": "",
       "plan": {
         "goal": "修复 examples/demo_repo 里的测试失败问题",
-        "reasoning_summary": "iteration=7; selected_context=examples/demo_repo/tests/__init__.py, examples/demo_repo/tests/test_calculator.py, examples/demo_repo/src/__init__.py; chars=3912; topic=unknown; inherit_session=True; dropped=0",
+        "reasoning_summary": "iteration=7; selected_context=examples/demo_repo/tests/__init__.py, examples/demo_repo/tests/test_calculator.py, examples/demo_repo/src/__init__.py; chars=4061; topic=unknown; inherit_session=True; dropped=0",
         "next_action": "ask llm for final answer or tool call"
       }
     },
     {
-      "run_id": "65be1dda-393a-4fd6-990e-82caa1599df7",
+      "run_id": "0f1c986c-48e9-46be-8af9-3d1816d01a51",
       "step": 7,
       "agent_name": "CodingAgent",
       "event_type": "llm_call",
-      "duration_ms": 3903,
+      "duration_ms": 1953,
       "success": true,
       "error": "",
-      "llm_request_summary": "messages=15 tools=11 context_chars=4830",
-      "llm_response_summary": "✅ **修复完成。**\n\n**问题根因：** `examples/demo_repo/src/calculator.py` 的 `add` 函数写的是 `return a - b`（减法），但测试 `test_calculator.py` 期望 `add(2,3) == 5`（2+3=5）。\n\n**修复内容：**\n- 将 `calculator.py` 中的 `return a - b` 改为 `return a + b`\n\n**测试验证：**\n```\npython -m unittest discover -s examples/demo_repo/tests -t examples/demo_repo\n.\n----------------------------------------------------------------------\nRan 1 test in 0.000s\nOK\n```\n\n测试已通过 ✅",
+      "llm_request_summary": "messages=15 tools=10 context_chars=4960",
+      "llm_response_summary": "测试已全部通过。总结修复过程：\n\n**问题：** `examples/demo_repo/src/calculator.py` 中的 `add` 函数实现错误，用了 `return a - b`（减法）而非 `return a + b`（加法），导致 `test_add` 断言 `add(2,3)==5` 失败。\n\n**修复：** 将 `a - b` 改为 `a + b`，使函数行为与函数名和测试期望匹配。\n\n**验证结果：**\n```\ntest_add (tests.test_calculator.T.test_add) ... ok\nRan 1 test in 0.000s\nOK\n```",
       "llm_input_breakdown_chars": {
-        "system_context": 4830,
-        "conversation_history": 4764,
-        "tool_schemas": 1221
+        "system_context": 4960,
+        "conversation_history": 3120,
+        "tool_schemas": 1128
       },
       "model_usage": {
         "provider": "deepseek",
         "model": "deepseek-v4-flash",
         "attempts": 1,
         "fallback_used": false,
-        "latency_ms": 3903,
-        "prompt_tokens_estimate": 1919,
-        "completion_tokens_estimate": 104,
-        "prompt_tokens": 3571,
-        "completion_tokens": 250,
-        "total_tokens": 3821,
+        "latency_ms": 1953,
+        "prompt_tokens_estimate": 1736,
+        "completion_tokens_estimate": 74,
+        "prompt_tokens": 3176,
+        "completion_tokens": 139,
+        "total_tokens": 3315,
         "cache_hit_tokens": 1024,
-        "cache_miss_tokens": 2547,
-        "reasoning_tokens": 103,
-        "response_id": "cba3a28e-4c73-41ed-bb74-6696c8559196",
+        "cache_miss_tokens": 2152,
+        "reasoning_tokens": 0,
+        "response_id": "a8d832ec-46d7-49f9-8ca8-ebe4be646505",
         "usage_source": "provider",
-        "estimated_cost_usd": 0.000429,
+        "estimated_cost_usd": 0.000343,
         "error_codes": [],
         "raw_usage": {
-          "prompt_tokens": 3571,
-          "completion_tokens": 250,
-          "total_tokens": 3821,
+          "prompt_tokens": 3176,
+          "completion_tokens": 139,
+          "total_tokens": 3315,
           "prompt_tokens_details": {
             "cached_tokens": 1024
           },
           "completion_tokens_details": {
-            "reasoning_tokens": 103
+            "reasoning_tokens": 0
           },
           "prompt_cache_hit_tokens": 1024,
-          "prompt_cache_miss_tokens": 2547
+          "prompt_cache_miss_tokens": 2152
         }
       }
     },
     {
-      "run_id": "65be1dda-393a-4fd6-990e-82caa1599df7",
+      "run_id": "0f1c986c-48e9-46be-8af9-3d1816d01a51",
       "step": 7,
       "agent_name": "CodingAgent",
       "event_type": "guardrail_check",
@@ -1298,14 +1933,21 @@
       }
     },
     {
-      "run_id": "65be1dda-393a-4fd6-990e-82caa1599df7",
+      "run_id": "0f1c986c-48e9-46be-8af9-3d1816d01a51",
       "step": 7,
       "agent_name": "CodingAgent",
       "event_type": "final_answer",
       "duration_ms": 0,
       "success": true,
       "error": "",
-      "observation": "✅ **修复完成。**\n\n**问题根因：** `examples/demo_repo/src/calculator.py` 的 `add` 函数写的是 `return a - b`（减法），但测试 `test_calculator.py` 期望 `add(2,3) == 5`（2+3=5）。\n\n**修复内容：**\n- 将 `calculator.py` 中的 `return a - b` 改为 `return a + b`\n\n**测试验证：**\n```\npython -m unittest discover -s examples/demo_repo/tests -t examples/demo_repo\n.\n----------------------------------------------------------------------\nRan 1 test in 0.000s\nOK\n```\n\n测试已通过 ✅\n未验证点: 未进行真实线上压测。"
+      "observation": "测试已全部通过。总结修复过程：\n\n**问题：** `examples/demo_repo/src/calculator.py` 中的 `add` 函数实现错误，用了 `return a - b`（减法）而非 `return a + b`（加法），导致 `test_add` 断言 `add(2,3)==5` 失败。\n\n**修复：** 将 `a - b` 改为 `a + b`，使函数行为与函数名和测试期望匹配。\n\n**验证结果：**\n```\ntest_add (tests.test_calculator.T.test_add) ... ok\nRan 1 test in 0.000s\nOK\n```\n证据:\n- read_file:examples/demo_repo/src/calculator.py lines=3:ok:file inspected\n- read_file:examples/demo_repo/tests/test_calculator.py lines=6:ok:file inspected\n- apply_patch:apply_patch:ok:patched once: examples/demo_repo/src/calculator.py\n- diagnostics:diagnostics:fail:exit_code=1 Traceback (most recent call last):   File \"/Users/chenjiahui/Documents/GitHub/NanoHarness/examples/demo_repo/tests/test_calculator.py\", line 2, in <\n- run_command:run_command:ok:exit_code=0 test_add (tests.test_calculator.T.test_add) ... ok  ---------------------------------------------------------------------- Ran 1 test in 0.000s  OK\n未验证点: 未进行真实线上压测。",
+      "evidence_refs": [
+        "read_file:examples/demo_repo/src/calculator.py lines=3:ok:file inspected",
+        "read_file:examples/demo_repo/tests/test_calculator.py lines=6:ok:file inspected",
+        "apply_patch:apply_patch:ok:patched once: examples/demo_repo/src/calculator.py",
+        "diagnostics:diagnostics:fail:exit_code=1 Traceback (most recent call last):   File \"/Users/chenjiahui/Documents/GitHub/NanoHarness/examples/demo_repo/tests/test_calculator.py\", line 2, in <",
+        "run_command:run_command:ok:exit_code=0 test_add (tests.test_calculator.T.test_add) ... ok  ---------------------------------------------------------------------- Ran 1 test in 0.000s  OK"
+      ]
     }
   ],
   "metrics": {
@@ -1316,10 +1958,10 @@
     "approval_count": 1,
     "permission_denied_count": 2,
     "error_count": 0,
-    "test_command_count": 2,
-    "duration_ms": 22902,
+    "test_command_count": 1,
+    "duration_ms": 16572,
     "agent_steps_count": 7,
-    "trace_event_count": 64,
+    "trace_event_count": 71,
     "steps_count": 7
   }
 }

@@ -203,6 +203,8 @@ docs/study-pack/05-project-briefing.md
 docs/study-pack/06-technical-question-coverage.md
 docs/study-pack/07-technical-answer-bank.md
 docs/study-pack/08-runtime-call-chain-map.md
+docs/study-pack/09-field-readiness-roadmap.md
+docs/study-pack/10-technical-defense-playbook.md
 ```
 
 Generated traces, reports, caches, and install artifacts are ignored and can be regenerated.

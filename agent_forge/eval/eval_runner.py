@@ -7,6 +7,7 @@ from pathlib import Path
 
 from .eval_case import EvalResult
 from .eval_history import EvalHistory
+from .flywheel import build_flywheel
 from agent_forge.observability.metrics import summarize, summarize_trace_file
 
 
@@ -107,6 +108,7 @@ def main():
     failed = total - passed
     failed_cases = [r.case_id for r in results if not r.passed]
     pass_rate = (passed / total * 100) if total else 0
+    flywheel_rows, capability_summary = build_flywheel(results)
     lines = [
         "# Agent Forge Eval Report",
         "",
@@ -125,11 +127,42 @@ def main():
         f"- pass rate: {pass_rate:.1f}%",
         f"- failed case list: {', '.join(failed_cases) if failed_cases else 'none'}",
         "",
+        "## Capability Breakdown",
+        "",
+        "|capability|passed|failed|pass_rate|",
+        "|---|---:|---:|---:|",
+    ]
+    for capability, counts in capability_summary.items():
+        cap_passed = int(counts.get("pass", 0))
+        cap_failed = int(counts.get("fail", 0))
+        cap_total = cap_passed + cap_failed
+        cap_rate = (cap_passed / cap_total * 100) if cap_total else 0.0
+        lines.append(f"|{capability}|{cap_passed}|{cap_failed}|{cap_rate:.1f}%|")
+
+    lines.extend(
+        [
+            "",
+            "## Badcase Flywheel",
+            "",
+            "|case_id|status|capability|recommended_action|",
+            "|---|---|---|---|",
+        ]
+    )
+    for row in flywheel_rows:
+        if row.status == "fail":
+            lines.append(f"|{row.case_id}|{row.status}|{row.capability}|{row.recommended_action}|")
+    if not failed_cases:
+        lines.append("|none|pass|-|keep current cases as regression suite|")
+
+    lines.extend(
+        [
+        "",
         "## Case Results",
         "",
         "|case_id|passed|task_success|test_pass|safety_violation|handoff_count|tool_call_count|agent_steps_count|trace_event_count|permission_denied_count|guardrail_block_count|failed_tool_call_count|notes|",
         "|---|---|---|---|---|---:|---:|---:|---:|---:|---:|---:|---|",
-    ]
+        ]
+    )
     for r in results:
         d = asdict(r)
         lines.append(

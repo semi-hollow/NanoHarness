@@ -5,11 +5,16 @@ from agent_forge.runtime.llm_client import MockLLMClient
 from agent_forge.runtime.planner import SimplePlanner
 from agent_forge.runtime.state import AgentState
 from agent_forge.runtime.control import StepController
+from agent_forge.runtime.clarification import ClarificationPolicy
+from agent_forge.runtime.observation import Observation
+from agent_forge.runtime.planning_mode import PlanningModePolicy
 from agent_forge.context.context_builder import build_context_report
 from agent_forge.context.memory import Memory
 from agent_forge.context.repo_map import build_repo_map
+from agent_forge.observability.evidence import EvidenceLedger
 from agent_forge.safety.guardrails import input_guardrail, output_guardrail, tool_guardrail
 from agent_forge.safety.permission import PermissionPolicy, PermissionDecision
+from agent_forge.tools.tool_router import ToolRouter
 
 
 class AgentLoop:
@@ -29,6 +34,9 @@ class AgentLoop:
         self.registry = registry
         self.llm = llm or MockLLMClient("single")
         self.planner = SimplePlanner()
+        self.clarification_policy = ClarificationPolicy()
+        self.planning_mode_policy = PlanningModePolicy()
+        self.tool_router = ToolRouter()
 
     def run(self, task, agent_name="CodingAgent"):
         """Run one task until final answer, guardrail block, or stop condition.
@@ -62,6 +70,40 @@ class AgentLoop:
             )
             return f"blocked: {input_check.reason}"
 
+        clarification = self.clarification_policy.decide(task)
+        self.trace.add(
+            0,
+            agent_name,
+            "clarification_decision",
+            clarification={
+                "action": clarification.action,
+                "confidence": clarification.confidence,
+                "reason": clarification.reason,
+                "question": clarification.question,
+                "missing_fields": clarification.missing_fields,
+            },
+        )
+        if clarification.action == "refuse":
+            final_answer = f"blocked: {clarification.reason}"
+            self.trace.set_run_context(stop_reason="unsupported_task", final_answer=final_answer)
+            return final_answer
+        if clarification.needs_user_input():
+            final_answer = f"needs clarification: {clarification.question}"
+            self.trace.set_run_context(stop_reason="needs_clarification", final_answer=final_answer)
+            return final_answer
+
+        planning_mode = self.planning_mode_policy.decide(task)
+        self.trace.add(
+            0,
+            agent_name,
+            "planning_mode",
+            planning_mode={
+                "mode": planning_mode.mode,
+                "reason": planning_mode.reason,
+                "complexity": planning_mode.complexity,
+            },
+        )
+
         # `messages` is the durable conversation inside this run. Each tool call
         # appends an assistant tool_call message plus a tool observation message
         # so the next LLM turn can reason from concrete evidence.
@@ -85,7 +127,8 @@ class AgentLoop:
             previous_task=getattr(self.config, "previous_task", ""),
             session_summary=getattr(self.config, "session_summary", ""),
         )
-        memory.set("task", task)
+        memory.set("task", task, scope="session", source="user_task", agent_name=agent_name)
+        evidence = EvidenceLedger()
 
         # StepController owns loop-control policy: retryability, repeated-action
         # detection, timeout, cost budget, and max failure count.
@@ -111,7 +154,9 @@ class AgentLoop:
             # Phase 1: assemble context every turn, not once. New observations
             # can change memory summary, selected files, and recovery hints.
             repo_map = build_repo_map(self.config.workspace)
-            schemas = self.registry.schemas()
+            all_schemas = self.registry.schemas()
+            route = self.tool_router.route(task, all_schemas, step=step, agent_name=agent_name)
+            schemas = route.schemas
             context_report = build_context_report(
                 task,
                 repo_map,
@@ -138,6 +183,12 @@ class AgentLoop:
                     "budget_breakdown": context_report.budget_breakdown,
                     "available_tools": context_report.available_tools,
                     "permission_summary": context_report.permission_summary,
+                    "tool_routing": {
+                        "reason": route.reason,
+                        "allowed_tools": sorted(route.allowed_names),
+                        "dropped_tools": route.dropped_names,
+                        "metadata": route.metadata,
+                    },
                 },
             )
 
@@ -217,7 +268,11 @@ class AgentLoop:
             if not response.tool_calls:
                 # Phase 4a: final answer path. Output guardrail checks that the
                 # answer does not claim validation that did not happen.
-                final_answer = (response.content or "") + "\n未验证点: 未进行真实线上压测。"
+                citations = evidence.final_citations()
+                evidence_text = ""
+                if citations:
+                    evidence_text = "\n证据:\n" + "\n".join(f"- {item}" for item in citations)
+                final_answer = (response.content or "") + evidence_text + "\n未验证点: 未进行真实线上压测。"
                 output_check = output_guardrail(final_answer, ran_tests, blocked)
                 self.trace.add(
                     step,
@@ -230,7 +285,13 @@ class AgentLoop:
                         "severity": output_check.severity,
                     },
                 )
-                self.trace.add(step, agent_name, "final_answer", observation=final_answer)
+                self.trace.add(
+                    step,
+                    agent_name,
+                    "final_answer",
+                    observation=final_answer,
+                    evidence_refs=citations,
+                )
                 state.status = "completed"
                 state.final_answer = final_answer
                 state.stop_reason = "final_answer"
@@ -268,7 +329,7 @@ class AgentLoop:
                 tool_check = tool_guardrail(
                     tool_call.name,
                     tool_call.arguments,
-                    exists=self.registry.get(tool_call.name) is not None,
+                    exists=self.registry.get(tool_call.name) is not None and tool_call.name in route.allowed_names,
                     repeated=repeat_signal is not None or key in tool_history[-3:],
                 )
                 self.trace.add(
@@ -299,6 +360,42 @@ class AgentLoop:
                         final_answer="blocked: repeated tool call",
                     )
                     return "blocked: repeated tool call"
+
+                if tool_call.name not in route.allowed_names:
+                    blocked = True
+                    observation = Observation(
+                        tool_call.name,
+                        False,
+                        f"tool not routed for this turn: {tool_call.name}",
+                    )
+                    memory.add_observation(observation)
+                    messages.append(
+                        Message(
+                            "tool",
+                            observation.content,
+                            name=tool_call.name,
+                            tool_call_id=tool_call.id,
+                        )
+                    )
+                    self.trace.add(
+                        step,
+                        agent_name,
+                        "tool_observation",
+                        success=False,
+                        observation=observation.content,
+                    )
+                    signal = controller.classify_observation(observation)
+                    if signal:
+                        self.trace.add(
+                            step,
+                            agent_name,
+                            "recovery_decision",
+                            success=signal.retryable,
+                            failure_kind=signal.kind.value,
+                            retryable=signal.retryable,
+                            recovery_hint=signal.recovery_hint,
+                        )
+                    continue
 
                 tool_history.append(key)
                 self.trace.add(
@@ -386,6 +483,7 @@ class AgentLoop:
                 # validates schema and concrete tools enforce sandbox/policy.
                 observation = self.registry.execute(tool_call.name, tool_call.arguments)
                 memory.add_observation(observation)
+                evidence_item = evidence.add_observation(observation)
                 if tool_call.name == "run_command" and "exit_code=0" in observation.content:
                     ran_tests = True
 
@@ -410,6 +508,13 @@ class AgentLoop:
                     success=observation.success,
                     observation_summary=observation.content[:300],
                 )
+                if evidence_item:
+                    self.trace.add(
+                        step,
+                        agent_name,
+                        "evidence_collected",
+                        evidence=evidence_item.citation(),
+                    )
                 state.observations.append(observation)
 
                 consecutive_failures = 0 if observation.success else consecutive_failures + 1

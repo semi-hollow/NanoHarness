@@ -40,6 +40,7 @@ def build_usage_report(trace: dict[str, Any]) -> dict[str, Any]:
     events = trace.get("events", [])
     steps: dict[tuple[int, str], dict[str, Any]] = {}
     llm_call_index = 0
+    evidence_refs: list[str] = []
 
     def step_entry(event: dict[str, Any]) -> dict[str, Any]:
         key = (int(event.get("step", 0) or 0), str(event.get("agent_name") or "agent"))
@@ -118,6 +119,15 @@ def build_usage_report(trace: dict[str, Any]) -> dict[str, Any]:
         elif event_type == "error":
             entry["errors"].append(str(event.get("error") or ""))
 
+        elif event_type == "evidence_collected":
+            evidence = str(event.get("evidence") or "")
+            if evidence:
+                evidence_refs.append(evidence)
+
+        elif event_type == "final_answer":
+            for evidence in event.get("evidence_refs") or []:
+                evidence_refs.append(str(evidence))
+
     ordered_steps = [steps[key] for key in sorted(steps)]
     tool_efficiency = _tool_efficiency(ordered_steps)
     context_breakdown = _context_breakdown(ordered_steps)
@@ -131,6 +141,7 @@ def build_usage_report(trace: dict[str, Any]) -> dict[str, Any]:
         "steps": ordered_steps,
         "context_breakdown": context_breakdown,
         "tool_efficiency": tool_efficiency,
+        "evidence_refs": _dedupe_keep_order(evidence_refs),
         "optimization_notes": _optimization_notes(trace, summary, ordered_steps, context_breakdown, tool_efficiency),
     }
 
@@ -195,6 +206,14 @@ def render_usage_markdown(usage: dict[str, Any]) -> str:
         )
     if not usage["tool_efficiency"]["by_tool"]:
         lines.append("| none | 0 | 0 | 0 | 0.00% | 0 | 0 |")
+
+    lines.extend(["", "## Evidence", ""])
+    evidence_refs = usage.get("evidence_refs") or []
+    if evidence_refs:
+        for evidence in evidence_refs[:12]:
+            lines.append(f"- `{evidence}`")
+    else:
+        lines.append("- none")
 
     lines.extend(["", "## Optimization Notes", ""])
     for note in usage.get("optimization_notes", []):
@@ -373,6 +392,19 @@ def _render_counter_table(counter: dict[str, int], key_label: str, value_label: 
     if not counter:
         lines.append("| none | 0 | 0 |")
     return lines
+
+
+def _dedupe_keep_order(items: list[str]) -> list[str]:
+    """Deduplicate evidence strings without hiding their original order."""
+
+    seen = set()
+    result = []
+    for item in items:
+        if item in seen:
+            continue
+        seen.add(item)
+        result.append(item)
+    return result
 
 
 def _chars_to_tokens(chars: int) -> int:

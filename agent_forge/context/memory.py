@@ -1,4 +1,5 @@
 from agent_forge.runtime.observation import Observation
+from .memory_policy import MemoryPolicy, MemoryRecord
 
 
 class Memory:
@@ -17,6 +18,8 @@ class Memory:
         self.observations: list[Observation] = []
         self.summaries: list[str] = []
         self.store = {}
+        self.records: list[MemoryRecord] = []
+        self.policy = MemoryPolicy()
         self.n = n
 
     def add(self, item):
@@ -29,10 +32,31 @@ class Memory:
 
         return list(self.items)
 
-    def set(self, key, value):
+    def set(
+        self,
+        key,
+        value,
+        *,
+        scope: str = "session",
+        confidence: float = 1.0,
+        ttl_seconds: float | None = None,
+        source: str = "runtime",
+        agent_name: str = "agent",
+    ):
         """Store a stable fact, such as the current task."""
 
         self.store[key] = value
+        self.records.append(
+            MemoryRecord(
+                key=str(key),
+                value=str(value),
+                scope=scope,
+                confidence=confidence,
+                ttl_seconds=ttl_seconds,
+                source=source,
+                agent_name=agent_name,
+            )
+        )
 
     def seed_session(self, previous_task: str = "", session_summary: str = "") -> None:
         """Load previous run context without forcing it into every prompt.
@@ -43,9 +67,18 @@ class Memory:
         """
 
         if previous_task:
-            self.store["previous_task"] = previous_task
+            self.set("previous_task", previous_task, scope="session", source="resume")
         if session_summary:
             self.summaries.append(session_summary)
+            self.records.append(
+                MemoryRecord(
+                    key="session_summary",
+                    value=session_summary,
+                    scope="session",
+                    confidence=0.8,
+                    source="resume",
+                )
+            )
 
     def get(self, key, default=None):
         """Read a stored fact without raising if it is absent."""
@@ -75,15 +108,20 @@ class Memory:
         self.observations.clear()
         self.summaries.clear()
         self.store.clear()
+        self.records.clear()
 
-    def summary(self, max_chars: int = 800):
+    def summary(self, max_chars: int = 800, agent_name: str = "agent"):
         """Render notes, observations, and facts into a compact string."""
 
         recent = "; ".join(str(x) for x in self.items)
         obs = "; ".join(f"{o.tool_name}:{'ok' if o.success else 'fail'}:{o.content[:80]}" for o in self.observations)
         kv = ", ".join(f"{k}={v}" for k, v in self.store.items())
         summaries = "; ".join(self.summaries[-3:])
-        text = " | ".join(part for part in [summaries, recent, obs, kv] if part)
+        scoped = "; ".join(
+            f"{record.scope}:{record.key}={record.value[:80]}"
+            for record in self.policy.visible_records(self.records, agent_name=agent_name)[-5:]
+        )
+        text = " | ".join(part for part in [summaries, recent, obs, kv, scoped] if part)
         if len(text) <= max_chars:
             return text
         return text[: max_chars - 14] + " [compressed]"
