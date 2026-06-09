@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from pathlib import Path
 
 from agent_forge.runtime.prompt_registry import PromptRegistry
 
@@ -18,6 +19,11 @@ class ContextBuildReport:
     # Stable system instruction. This is separate from the user task so it can
     # carry runtime policy: evidence-first, use tools, recover safely.
     system_prompt: str
+
+    # Project-level runtime instructions loaded from FORGE.md. These are
+    # separate from model prompt text because they are repository policy, not
+    # generic agent behavior.
+    project_instructions: str
 
     # Latest user task. It is kept explicit to avoid the model over-weighting
     # old memory in multi-turn runs.
@@ -88,6 +94,7 @@ class ContextBuildReport:
         sink = "\n".join(f"- {item}" for item in self.attention_sink)
         return (
             f"system:{self.system_prompt}\n"
+            f"project_instructions:\n{self.project_instructions}\n"
             f"attention_sink:\n{sink}\n"
             f"user_task:{self.user_task}\n"
             f"repo_map:\n{self.repo_map}\n"
@@ -145,9 +152,11 @@ def build_context_report(
         max_chars=max_chars,
     )
     prompt = PromptRegistry().get("agent_system")
+    project_instructions = load_project_instructions(root)
     system_prompt = f"[prompt:{prompt.header()} purpose:{prompt.purpose}]\n{prompt.content}"
     total_chars = (
         len(system_prompt)
+        + len(project_instructions)
         + len(task)
         + len(shortened)
         + sum(len(d) for d in strategy.retrieved_docs)
@@ -159,6 +168,7 @@ def build_context_report(
     )
     return ContextBuildReport(
         system_prompt=system_prompt,
+        project_instructions=project_instructions,
         user_task=task,
         repo_map=shortened,
         retrieved_docs=strategy.retrieved_docs,
@@ -184,3 +194,21 @@ def build_context(task, repo_map, memory, tools):
 
     report = build_context_report(task, repo_map, memory, tools=tools)
     return f"task:{task}\n{report.render()}\ntools:{tools}"
+
+
+def load_project_instructions(root: str | Path, max_chars: int = 2600) -> str:
+    """Load FORGE.md as repository-specific instructions.
+
+    This is the local equivalent of project instruction files used by coding
+    agents. Keeping it in the prompt context makes repo rules auditable: if the
+    agent violates a rule, trace readers can confirm whether the rule was
+    present in context.
+    """
+
+    path = Path(root) / "FORGE.md"
+    if not path.exists():
+        return "FORGE.md not found; follow built-in runtime policy."
+    text = path.read_text(encoding="utf-8", errors="ignore")
+    if len(text) <= max_chars:
+        return text
+    return text[: max_chars - 14] + " [truncated]"

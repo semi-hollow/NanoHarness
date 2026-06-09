@@ -6,12 +6,12 @@
 
 可以这样开场：
 
-> Agent Forge 是一个轻量 CodingAgent Harness。模型不是核心卖点，核心是让 LLM 在受控 runtime 里完成代码任务：ContextStrategy 决定模型看什么，ModelGateway 接真实模型，AgentLoop 做 ReAct 循环，ToolRegistry 管工具协议，Safety 层管权限和沙箱，Trace/Eval/UsageReport 把过程变成可审计证据。
+> Agent Forge 是一个 production-style CodingAgent runtime core。它不是聊天壳，而是把 LLM 放进可控代码执行系统：ContextStrategy 决定模型看什么，ModelGateway 接真实模型，AgentLoop 做 ReAct 循环，ToolRegistry/MCP-style adapter 管工具协议，HookManager 管审批和脱敏，ExecutionEnvironment 管 local/worktree 边界，TaskStateStore 管 checkpoint/resume/replay，Trace/Eval/UsageReport 把过程变成可审计证据。
 
 主动引导到两个亮点：
 
 - 上下文工程：不是把仓库全塞给模型，而是 repo map、检索、rank、文件预览、memory、topic shift 和 token budget。
-- 执行控制：不是让模型自由执行，而是 StepController、ToolRouter、PermissionPolicy、CommandPolicy、EvidenceLedger 共同约束。
+- 执行控制：不是让模型自由执行，而是 StepController、ToolRouter、HookManager、ExecutionEnvironment、CommandPolicy、EvidenceLedger 共同约束。
 
 ## 高频追问回答
 
@@ -29,7 +29,27 @@ Coding 任务需要观察驱动：读文件后才能 patch，patch 失败后要 
 
 **上百个工具怎么选？**
 
-工具不能全量塞进 prompt。`ToolRouter` 给工具打 capability/risk/latency/mode 标签，根据 task 选候选工具，并把 dropped tools 写进 trace。真实生产里可以把这个 router 接 BM25/embedding/规则/权限系统。
+工具不能全量塞进 prompt。`ToolRouter` 给内置工具打 capability/risk/latency/mode 标签，对 MCP-style 外部工具按名称/描述和任务词做候选裁剪，并把 dropped tools 写进 trace。真实生产里可以把这个 router 接 BM25/embedding/规则/权限系统。
+
+**MCP / 外部工具怎么接？**
+
+项目用 `mcp_tools.example.json` + `MCPConfigLoader` 做本地 MCP-style 接入：配置文件描述 server、tool、input_schema、handler 和 allowlist；loader 转成统一 `Tool`；ToolRegistry 继续做 schema validation；WorkspaceSandbox 保护 read_text 类 handler。这证明工具协议和 AgentLoop 解耦。
+
+**生产里怎么做执行隔离？**
+
+`ExecutionEnvironment` 把 local/worktree 变成显式模式。local 用路径、命令、网络策略做边界；worktree 会从 HEAD 创建隔离 git worktree，把 agent 的文件修改放到独立 checkout。生产再替换成容器/VM/remote sandbox，但 AgentLoop 不需要改。
+
+**审批 hooks 怎么设计？**
+
+`HookManager` 在工具执行前运行 `ExecutionEnvironmentHook` 和 `PermissionHook`，返回 allow/ask/deny/defer；执行后运行 `SecretRedactionHook`；停止时跑 on_stop。这样审批和脱敏不是 prompt 约束，而是 runtime policy。
+
+**长任务怎么恢复和回放？**
+
+`TaskStateStore` 每轮写 checkpoint：status、step、last_tool、last_observation、stop_reason、resume_hint。`--resume-state` 把 checkpoint 压缩成下一轮上下文，`--replay-run` 从 trace 生成时间线。trace 是完整审计，task state 是恢复控制面。
+
+**代码审查怎么做？**
+
+`--mode review` 读取当前 git diff，确定 changed files、diff stat，并用 deterministic checks 标出 secret、shell=True、runtime/safety 改动、缺少 test/eval diff 等风险。它不是完整 PR 平台，但体现 review gate 的核心。
 
 **tool schema 怎么减少误调用？**
 
@@ -57,7 +77,7 @@ Supervisor 负责阶段和质量门禁，子 Agent 负责局部任务。子 Agen
 
 **评测体系怎么做？**
 
-不只看 pass rate。EvalRunner 输出 task_success/test_pass/safety_violation/tool count/trace count；Flywheel 按 capability 聚合 context/safety/tool/orchestration/coding_benchmark，并生成 badcase recommended action。
+不只看 pass rate。EvalRunner 输出 task_success/test_pass/safety_violation/tool count/trace count；Flywheel 按 capability 聚合 context/safety/tool/orchestration/coding_benchmark，并生成 badcase recommended action。EvalHistory 还会和上一轮比较 pass_rate_delta、新增失败、修复失败，避免只看一次绿色结果。
 
 **数据飞轮怎么讲？**
 

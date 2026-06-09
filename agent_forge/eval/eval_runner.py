@@ -109,6 +109,9 @@ def main():
     failed_cases = [r.case_id for r in results if not r.passed]
     pass_rate = (passed / total * 100) if total else 0
     flywheel_rows, capability_summary = build_flywheel(results)
+    history = EvalHistory()
+    current_record = history.build_record(results)
+    regression = history.compare(current_record)
     lines = [
         "# Agent Forge Eval Report",
         "",
@@ -126,6 +129,18 @@ def main():
         f"- failed: {failed}",
         f"- pass rate: {pass_rate:.1f}%",
         f"- failed case list: {', '.join(failed_cases) if failed_cases else 'none'}",
+        f"- regression: {regression['summary']}",
+        f"- new failures: {', '.join(regression['new_failures']) if regression['new_failures'] else 'none'}",
+        f"- fixed failures: {', '.join(regression['fixed_failures']) if regression['fixed_failures'] else 'none'}",
+        "",
+        "## Regression Against Previous Run",
+        "",
+        "|metric|value|",
+        "|---|---:|",
+        f"|has_previous|{regression['has_previous']}|",
+        f"|pass_rate_delta|{regression['pass_rate_delta']:+.3f}|",
+        f"|new_failures|{len(regression['new_failures'])}|",
+        f"|fixed_failures|{len(regression['fixed_failures'])}|",
         "",
         "## Capability Breakdown",
         "",
@@ -176,7 +191,7 @@ def main():
     for r in results:
         lines.append(f"- {r.case_id}: command=`{r.command}`, task_chars={len(r.task)}, verify={'pass' if r.passed else 'fail'}")
     report_path.write_text("\n".join(lines), encoding="utf-8")
-    EvalHistory().append(results)
+    history.append(results)
     print(f"{report_path} generated")
 
 

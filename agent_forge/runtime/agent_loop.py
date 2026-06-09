@@ -6,14 +6,16 @@ from agent_forge.runtime.planner import SimplePlanner
 from agent_forge.runtime.state import AgentState
 from agent_forge.runtime.control import StepController
 from agent_forge.runtime.clarification import ClarificationPolicy
+from agent_forge.runtime.execution_environment import ExecutionEnvironment, ExecutionEnvironmentConfig
+from agent_forge.runtime.hooks import HookContext, HookDecisionType, HookManager
 from agent_forge.runtime.observation import Observation
 from agent_forge.runtime.planning_mode import PlanningModePolicy
+from agent_forge.runtime.task_state import TaskRunStatus, TaskStateStore
 from agent_forge.context.context_builder import build_context_report
 from agent_forge.context.memory import Memory
 from agent_forge.context.repo_map import build_repo_map
 from agent_forge.observability.evidence import EvidenceLedger
 from agent_forge.safety.guardrails import input_guardrail, output_guardrail, tool_guardrail
-from agent_forge.safety.permission import PermissionPolicy, PermissionDecision
 from agent_forge.tools.tool_router import ToolRouter
 
 
@@ -37,6 +39,11 @@ class AgentLoop:
         self.clarification_policy = ClarificationPolicy()
         self.planning_mode_policy = PlanningModePolicy()
         self.tool_router = ToolRouter()
+        self.environment = getattr(config, "execution_environment", None) or ExecutionEnvironment(
+            ExecutionEnvironmentConfig(workspace=config.workspace)
+        )
+        self.hooks = HookManager.default(self.environment, getattr(config, "auto_approve_writes", True))
+        self.task_state_store = TaskStateStore(getattr(config, "task_state_root", ".agent_forge/task_state"))
 
     def run(self, task, agent_name="CodingAgent"):
         """Run one task until final answer, guardrail block, or stop condition.
@@ -48,6 +55,19 @@ class AgentLoop:
         """
 
         self.trace.set_run_context(task=task)
+        checkpoint = self.task_state_store.start(
+            run_id=self.trace.run_id,
+            task=task,
+            workspace=self.config.workspace,
+            agent_name=agent_name,
+            metadata={"execution_environment": self.environment.probe().to_dict()},
+        )
+        self.trace.add(
+            0,
+            agent_name,
+            "task_state_checkpoint",
+            task_state=checkpoint.to_dict(),
+        )
 
         # Phase 0: reject dangerous tasks before the model sees tools. This is
         # not a replacement for tool-level policy; it is the earliest cheap stop.
@@ -64,11 +84,9 @@ class AgentLoop:
             },
         )
         if not input_check.passed:
-            self.trace.set_run_context(
-                stop_reason="input_guardrail_block",
-                final_answer=f"blocked: {input_check.reason}",
-            )
-            return f"blocked: {input_check.reason}"
+            final_answer = f"blocked: {input_check.reason}"
+            self._stop_run(checkpoint, TaskRunStatus.BLOCKED, "input_guardrail_block", final_answer)
+            return final_answer
 
         clarification = self.clarification_policy.decide(task)
         self.trace.add(
@@ -85,11 +103,11 @@ class AgentLoop:
         )
         if clarification.action == "refuse":
             final_answer = f"blocked: {clarification.reason}"
-            self.trace.set_run_context(stop_reason="unsupported_task", final_answer=final_answer)
+            self._stop_run(checkpoint, TaskRunStatus.BLOCKED, "unsupported_task", final_answer)
             return final_answer
         if clarification.needs_user_input():
             final_answer = f"needs clarification: {clarification.question}"
-            self.trace.set_run_context(stop_reason="needs_clarification", final_answer=final_answer)
+            self._stop_run(checkpoint, TaskRunStatus.WAITING_APPROVAL, "needs_clarification", final_answer)
             return final_answer
 
         planning_mode = self.planning_mode_policy.decide(task)
@@ -117,8 +135,6 @@ class AgentLoop:
             max_iterations=self.config.max_steps,
             messages=messages,
         )
-        policy = PermissionPolicy(self.config.auto_approve_writes)
-
         # Memory is local to this run, with optional resume seed. It is separate
         # from raw chat messages because prompt memory needs compression and
         # topic-shift filtering.
@@ -150,6 +166,14 @@ class AgentLoop:
 
         for step in range(1, self.config.max_steps + 1):
             state.iteration = step
+            self._update_task_state(
+                checkpoint,
+                status=TaskRunStatus.RUNNING,
+                current_step=step,
+                messages_count=len(messages),
+                observations_count=len(state.observations),
+                resume_hint="Rerun with --resume-state to seed this task state into a continuation.",
+            )
 
             # Phase 1: assemble context every turn, not once. New observations
             # can change memory summary, selected files, and recovery hints.
@@ -165,6 +189,11 @@ class AgentLoop:
                 root=self.config.workspace,
                 tools=schemas,
                 max_chars=getattr(self.config, "max_context_chars", 8000),
+                permission_summary=(
+                    "read/list/grep allowed; write/apply_patch asks approval; "
+                    "dangerous commands denied; "
+                    f"{self.environment.describe()}"
+                ),
             )
             self.trace.add(
                 step,
@@ -237,11 +266,16 @@ class AgentLoop:
                 )
                 state.status = "failed"
                 state.stop_reason = "invalid_llm_response"
-                self.trace.set_run_context(
-                    stop_reason=state.stop_reason,
-                    final_answer=str(response.error),
+                final_answer = f"blocked: invalid llm response: {response.error}"
+                self._stop_run(
+                    checkpoint,
+                    TaskRunStatus.FAILED,
+                    state.stop_reason,
+                    final_answer,
+                    current_step=step,
+                    resume_hint=signal.recovery_hint,
                 )
-                return f"blocked: invalid llm response: {response.error}"
+                return final_answer
 
             self.trace.add(
                 step,
@@ -295,7 +329,15 @@ class AgentLoop:
                 state.status = "completed"
                 state.final_answer = final_answer
                 state.stop_reason = "final_answer"
-                self.trace.set_run_context(stop_reason=state.stop_reason, final_answer=final_answer)
+                self._stop_run(
+                    checkpoint,
+                    TaskRunStatus.COMPLETED,
+                    state.stop_reason,
+                    final_answer,
+                    current_step=step,
+                    messages_count=len(messages),
+                    observations_count=len(state.observations),
+                )
                 return final_answer
 
             # Phase 4b: action path. The provider may return multiple tool
@@ -355,9 +397,14 @@ class AgentLoop:
                         retryable=repeat_signal.retryable,
                         recovery_hint=repeat_signal.recovery_hint,
                     )
-                    self.trace.set_run_context(
-                        stop_reason="repeated_tool_call",
-                        final_answer="blocked: repeated tool call",
+                    self._stop_run(
+                        checkpoint,
+                        TaskRunStatus.BLOCKED,
+                        "repeated_tool_call",
+                        "blocked: repeated tool call",
+                        current_step=step,
+                        last_tool=tool_call.name,
+                        resume_hint=repeat_signal.recovery_hint,
                     )
                     return "blocked: repeated tool call"
 
@@ -395,6 +442,14 @@ class AgentLoop:
                             retryable=signal.retryable,
                             recovery_hint=signal.recovery_hint,
                         )
+                    self._update_task_state(
+                        checkpoint,
+                        status=TaskRunStatus.BLOCKED,
+                        current_step=step,
+                        last_tool=tool_call.name,
+                        last_observation=observation.content[:600],
+                        resume_hint=signal.recovery_hint if signal else "Tool was not available in this routed turn.",
+                    )
                     continue
 
                 tool_history.append(key)
@@ -408,28 +463,47 @@ class AgentLoop:
 
                 action = self._permission_action(tool_call.name)
                 command = tool_call.arguments.get("command", "") if tool_call.arguments else ""
+                hook_context = HookContext(
+                    run_id=self.trace.run_id,
+                    step=step,
+                    agent_name=agent_name,
+                    tool_name=tool_call.name,
+                    arguments=tool_call.arguments or {},
+                    action=action,
+                    command=command,
+                    auto_approve_writes=self.config.auto_approve_writes,
+                )
 
-                # Permission works on coarse action classes instead of concrete
-                # tool names. This lets many write-like tools share one policy.
-                decision, reason = policy.decide(action, command)
+                # Hooks are the production-style policy chain. Permission,
+                # execution environment, and redaction live here instead of
+                # being scattered through the ReAct loop.
+                hook_result = self.hooks.pre_tool(hook_context)
+                self.trace.add(
+                    step,
+                    agent_name,
+                    "hook_check",
+                    hook_result=hook_result.to_dict(),
+                    tool_call=tool_call.name,
+                )
                 self.trace.add(
                     step,
                     agent_name,
                     "permission_check",
-                    permission_decision=decision.value,
+                    permission_decision=hook_result.decision.value,
                     tool_call=tool_call.name,
+                    reason=hook_result.reason,
                 )
 
-                if decision == PermissionDecision.DENY:
+                if hook_result.decision == HookDecisionType.DENY:
                     # A denial is fed back as an observation. The model should
                     # adapt or stop; it should never silently bypass policy.
                     blocked = True
-                    observation = f"blocked: {reason}"
+                    observation = Observation(tool_call.name, False, f"blocked: {hook_result.reason}")
                     memory.add_observation(observation)
                     messages.append(
                         Message(
                             "tool",
-                            observation,
+                            observation.content,
                             name=tool_call.name,
                             tool_call_id=tool_call.id,
                         )
@@ -439,9 +513,9 @@ class AgentLoop:
                         agent_name,
                         "tool_observation",
                         success=False,
-                        observation=observation,
+                        observation=observation.content,
                     )
-                    signal = controller.classify_observation(memory.recent_observations()[-1])
+                    signal = controller.classify_observation(observation)
                     if signal:
                         self.trace.add(
                             step,
@@ -452,12 +526,27 @@ class AgentLoop:
                             retryable=signal.retryable,
                             recovery_hint=signal.recovery_hint,
                         )
+                    self._update_task_state(
+                        checkpoint,
+                        status=TaskRunStatus.BLOCKED,
+                        current_step=step,
+                        last_tool=tool_call.name,
+                        last_observation=observation.content,
+                        resume_hint=signal.recovery_hint if signal else "Action was blocked by runtime policy.",
+                    )
                     continue
 
-                if decision == PermissionDecision.ASK:
+                if hook_result.decision == HookDecisionType.ASK:
                     # In this local harness, "approval" is represented by the
                     # auto_approve flag. A real product would call a UI/human
                     # approval service here.
+                    self._update_task_state(
+                        checkpoint,
+                        status=TaskRunStatus.WAITING_APPROVAL,
+                        current_step=step,
+                        last_tool=tool_call.name,
+                        resume_hint="Approve this tool action or rerun with a safer task.",
+                    )
                     approved = self.config.auto_approve_writes
                     self.trace.add(
                         step,
@@ -467,21 +556,38 @@ class AgentLoop:
                     )
                     if not approved:
                         blocked = True
-                        observation = f"{tool_call.name}: human approval rejected"
+                        observation = Observation(tool_call.name, False, f"{tool_call.name}: human approval rejected")
                         memory.add_observation(observation)
                         messages.append(
                             Message(
                                 "tool",
-                                observation,
+                                observation.content,
                                 name=tool_call.name,
                                 tool_call_id=tool_call.id,
                             )
                         )
+                        self.trace.add(
+                            step,
+                            agent_name,
+                            "tool_observation",
+                            success=False,
+                            observation=observation.content,
+                        )
+                        self._update_task_state(
+                            checkpoint,
+                            status=TaskRunStatus.WAITING_APPROVAL,
+                            current_step=step,
+                            last_tool=tool_call.name,
+                            last_observation=observation.content,
+                            resume_hint="Human approval was rejected; rerun after narrowing the requested edit.",
+                        )
                         continue
+                    self._update_task_state(checkpoint, status=TaskRunStatus.RUNNING, current_step=step)
 
                 # Phase 5: execute the tool through the registry. The registry
                 # validates schema and concrete tools enforce sandbox/policy.
                 observation = self.registry.execute(tool_call.name, tool_call.arguments)
+                observation = self.hooks.post_tool(hook_context, observation)
                 memory.add_observation(observation)
                 evidence_item = evidence.add_observation(observation)
                 if tool_call.name == "run_command" and "exit_code=0" in observation.content:
@@ -516,6 +622,15 @@ class AgentLoop:
                         evidence=evidence_item.citation(),
                     )
                 state.observations.append(observation)
+                self._update_task_state(
+                    checkpoint,
+                    status=TaskRunStatus.RUNNING,
+                    current_step=step,
+                    last_tool=tool_call.name,
+                    last_observation=observation.content[:600],
+                    messages_count=len(messages),
+                    observations_count=len(state.observations),
+                )
 
                 consecutive_failures = 0 if observation.success else consecutive_failures + 1
 
@@ -545,11 +660,18 @@ class AgentLoop:
                 if stop_signal is not None:
                     state.status = "stopped"
                     state.stop_reason = stop_signal.reason
-                    self.trace.set_run_context(
-                        stop_reason=stop_signal.reason,
-                        final_answer=f"blocked: {stop_signal.reason}",
+                    final_answer = f"blocked: {stop_signal.reason}"
+                    self._stop_run(
+                        checkpoint,
+                        TaskRunStatus.BLOCKED,
+                        stop_signal.reason,
+                        final_answer,
+                        current_step=step,
+                        last_tool=tool_call.name,
+                        last_observation=observation.content[:600],
+                        resume_hint=stop_signal.recovery_hint,
                     )
-                    return f"blocked: {stop_signal.reason}"
+                    return final_answer
 
                 # Phase 8: append the tool result that corresponds to the
                 # assistant tool_call_id recorded before the loop.
@@ -562,8 +684,8 @@ class AgentLoop:
                     )
                 )
 
-        self.trace.set_run_context(stop_reason="max_steps", final_answer="max steps reached")
-        return "max steps reached"
+        self._stop_run(checkpoint, TaskRunStatus.BLOCKED, "max_steps", "blocked: max_steps reached")
+        return "blocked: max_steps reached"
 
     def _permission_action(self, tool_name: str) -> str:
         """Map concrete tool names to coarse permission-policy actions."""
@@ -573,3 +695,37 @@ class AgentLoop:
         if tool_name in {"apply_patch", "write_file"}:
             return "apply_patch"
         return "read"
+
+    def _update_task_state(self, checkpoint, status: TaskRunStatus | None = None, **changes):
+        """Persist a compact run checkpoint without cluttering AgentLoop logic."""
+
+        if status is not None:
+            changes["status"] = status.value
+        return self.task_state_store.update(checkpoint, **changes)
+
+    def _stop_run(
+        self,
+        checkpoint,
+        status: TaskRunStatus,
+        stop_reason: str,
+        final_answer: str,
+        **changes,
+    ) -> None:
+        """Record a terminal state in trace, task state, and stop hooks."""
+
+        self.trace.set_run_context(stop_reason=stop_reason, final_answer=final_answer)
+        self._update_task_state(
+            checkpoint,
+            status=status,
+            stop_reason=stop_reason,
+            final_answer=final_answer,
+            **changes,
+        )
+        hook_decisions = self.hooks.on_stop(self.trace.run_id, stop_reason, final_answer)
+        self.trace.add(
+            changes.get("current_step", 0),
+            checkpoint.agent_name,
+            "stop_hooks",
+            hook_decisions=[decision.to_dict() for decision in hook_decisions],
+            stop_reason=stop_reason,
+        )

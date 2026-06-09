@@ -2,7 +2,12 @@
 
 ## Project Pitch
 
-> I built Agent Forge, a lightweight production-style CodingAgent runtime. The focus is not model training or UI, but the runtime layer that turns an LLM into a controllable coding system: context engineering, tool calling, permission checks, execution control, recovery, trace, session resume, and supervised multi-agent orchestration.
+> I built Agent Forge, a production-style CodingAgent runtime core. The focus is
+> not model training or UI, but the runtime layer that turns an LLM into a
+> controllable coding system: context engineering, model gateway, tool
+> governance, runtime hooks, execution environment, task state, recovery,
+> trace, usage, eval regression, review workflow, and supervised multi-agent
+> orchestration.
 
 ## Two Strongest Design Points
 

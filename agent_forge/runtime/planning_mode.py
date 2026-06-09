@@ -9,7 +9,7 @@ class PlanningModeDecision:
     # workflow: deterministic path is enough; answer_only: no tools needed.
     mode: str
 
-    # Why this mode was selected. Written to trace for interview/debug evidence.
+    # Why this mode was selected. Written to trace for audit/debug evidence.
     reason: str
 
     # Estimated task complexity used by docs and trace.

@@ -91,7 +91,7 @@
 
 ### 1.11 你的 Agent 项目为什么做出现在这些决策？
 
-答：目标是轻量级 Codex runtime 教学版，所以没有做 TUI、IDE 插件、多模态和训练，而是集中做 AgentLoop、ContextStrategy、ToolRegistry、StepController、Trace、Session、Supervisor。这样项目小，但能讲清 CodingAgent 的核心设计。
+答：目标是 production-style CodingAgent runtime core，所以没有把 TUI、IDE 插件、多模态和训练塞进同一个仓库，而是集中做 AgentLoop、ContextStrategy、ToolRegistry、HookManager、ExecutionEnvironment、TaskStateStore、StepController、Trace、Eval 和 Supervisor。这样能讲清 CodingAgent 的核心控制面，也保留产品外壳的扩展边界。
 
 ### 1.12 如何看待 Manus / OpenClaw 这类 Agent 项目的技术落地？
 
@@ -281,7 +281,7 @@
 
 ### 4.4 Agent 框架选型怎么考虑？
 
-答：看状态管理、工具协议、可观测性、human-in-loop、并发/任务图、部署复杂度、生态集成。项目讲解材料可以自研轻量 runtime，证明你理解核心，不一定依赖框架。
+答：看状态管理、工具协议、可观测性、human-in-loop、并发/任务图、部署复杂度、生态集成。项目可以自研 runtime core，证明你理解核心边界；生产也可以按团队生态选 LangGraph、CrewAI 或 OpenAI Agents。
 
 ### 4.5 shared-state、agent team、主子结构有什么区别？
 

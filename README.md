@@ -1,6 +1,11 @@
 # Agent Forge
 
-Agent Forge is a compact production-style CodingAgent runtime for learning AI Agent system design. It is not a full Codex clone and intentionally avoids TUI, IDE plugin, PR bot, enterprise integrations, container sandbox, multimodal, and model training. The goal is to make the core runtime easy to run, read, and explain in a senior AI Agent engineering walkthrough.
+Agent Forge is a production-style CodingAgent runtime core. It focuses on the
+engineering control plane behind systems like Codex and Claude Code: context
+engineering, model gateway, tool governance, execution environment, approval
+hooks, task state, review workflow, trace, usage, and eval regression. Product
+surfaces such as TUI/IDE plugins and cloud hosting are intentionally outside the
+repo so the core runtime stays readable.
 
 ## What This Project Teaches
 
@@ -8,6 +13,11 @@ Agent Forge is a compact production-style CodingAgent runtime for learning AI Ag
 - Agent loop control: plan, LLM call, tool call, observation, recovery, final answer.
 - Tool governance: schema validation, permission policy, sandbox path checks, high-risk command blocking, and human approval hooks.
 - Runtime reliability: repeated-action detection, retryability classification, max steps, timeout, cost budget, trace, reports, and rollback bundle.
+- Execution environment: local/worktree mode, network policy, branch-risk command blocking, and observation redaction.
+- Runtime hooks: pre-tool approval, post-tool redaction, and stop-time audit hooks.
+- Task state: checkpoint, resume seeding, and trace replay for long-running tasks.
+- Review workflow: deterministic diff review for safety, runtime, and validation risk.
+- MCP-style tools: local config-driven tool discovery, schema conversion, allowlist, and sandboxed handlers.
 - Multi-agent orchestration: supervisor, role specs, task graph, artifact handoff, ownership, validation, retry, and review.
 - Model switching: mock, Ollama, company OpenAI-compatible APIs, or online OpenAI-compatible providers.
 
@@ -46,6 +56,22 @@ python run_demo.py --list-sessions
 python run_demo.py --show-run <session_id>
 python run_demo.py --resume-run <session_id> --mode single
 python run_demo.py --rollback-run <session_id>
+
+# Review current git diff.
+python run_demo.py --mode review
+
+# Run in an isolated git worktree instead of the current checkout.
+python run_demo.py --mode single --execution-env worktree
+
+# Inspect task-state checkpoints and replay traces.
+python run_demo.py --list-task-states
+python run_demo.py --show-task-state <run_id>
+python run_demo.py --resume-state <run_id> --mode single
+python run_demo.py --replay-run .agent_forge/latest/webhook-deepseek/trace.json
+
+# Load config-driven MCP-style tools.
+python run_demo.py --mcp-config mcp_tools.example.json --mcp-allowed-tool local.repo_policy \
+  "use the repo_policy tool to summarize command rules"
 ```
 
 ## Validation Scenarios
@@ -174,9 +200,9 @@ devices can read the reports without rerunning DeepSeek.
 ```text
 agent_forge/
   cli.py              # CLI composition and mode dispatch
-  runtime/            # AgentLoop, execution control, session, messages
+  runtime/            # AgentLoop, hooks, execution environment, task state
   context/            # context strategy, repo map, memory, retrieval, ranking
-  tools/              # read/write/patch/grep/run/git/diagnostics/ask_human
+  tools/              # built-in tools, MCP-style config loader, adapters
   safety/             # guardrails, permission, command policy, sandbox
   models/             # provider gateway, retry/fallback, usage telemetry
   agents/             # SupervisorAgent and handoff policy
