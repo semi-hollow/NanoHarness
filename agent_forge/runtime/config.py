@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from typing import Any
 
 
 @dataclass
@@ -42,3 +43,13 @@ class RuntimeConfig:
 
     # Compressed previous run report used only when topic inheritance is safe.
     session_summary: str = ""
+
+    # Prepared execution environment. Local runs use path/command checks;
+    # worktree runs execute in an isolated git worktree.
+    execution_environment: Any | None = None
+
+    # Filesystem root for resumable task checkpoints.
+    task_state_root: str = ".agent_forge/task_state"
+
+    # Optional prior task-state id used to seed continuation context.
+    resume_state: str = ""

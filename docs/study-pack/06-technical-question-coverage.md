@@ -21,7 +21,7 @@
 - `agent_forge/agents/supervisor_agent.py`：supervisor multi-agent。
 - `agent_forge/workflows/task_graph.py`：任务图、依赖、冲突安全调度。
 - `agent_forge/observability/trace.py`：trace、审计、回放证据。
-- `agent_forge/eval/eval_runner.py`：轻量 eval。
+- `agent_forge/eval/eval_runner.py`：本地 deterministic eval 和回归对比。
 
 ## 1. Agent 架构与项目设计
 
@@ -98,7 +98,7 @@
 | 1 | Multi-Agent 系统如何设计三层架构？ | 代码覆盖 | supervisor、runtime worker、tool/context infra 三层。 |
 | 2 | Agent 之间如何通信？ | 代码覆盖 | `Handoff`、`TaskArtifact`、shared state。 |
 | 3 | Agent 之间怎么编排？ | 代码覆盖 | `TaskGraph` + `TaskScheduler` + Supervisor。 |
-| 4 | Agent 框架选型怎么考虑？ | 部分覆盖 | 项目自研轻量 runtime，可发散到 LangGraph/CrewAI/OpenAI Agents。 |
+| 4 | Agent 框架选型怎么考虑？ | 部分覆盖 | 项目自研 runtime core，可发散到 LangGraph/CrewAI/OpenAI Agents。 |
 | 5 | shared-state、agent team、主子结构有什么区别？ | 代码覆盖 | 本项目是主子结构 + shared state。 |
 | 6 | 如何防止 Multi-Agent 互相 A2A 停不下来？ | 部分覆盖 | 用 supervisor 和 graph 限制，未实现去中心化 A2A。 |
 | 7 | 主子模式下，子 Agent 产生幻觉怎么办？ | 部分覆盖 | supervisor 看 trace/tool/test evidence，但无复杂 verifier。 |
@@ -270,7 +270,7 @@
 | 2 | Agent 系统中如何设计状态管理？ | 代码覆盖 | RunSession/AgentState/TaskNode。 |
 | 3 | Agent 系统中如何设计任务队列？ | 部分覆盖 | TaskGraph 是 DAG，非分布式队列。 |
 | 4 | Agent 系统中如何设计工具网关？ | 代码覆盖 | ToolRegistry。 |
-| 5 | Agent 系统中如何设计沙箱环境？ | 部分覆盖 | WorkspaceSandbox 是轻量 sandbox。 |
+| 5 | Agent 系统中如何设计沙箱环境？ | 部分覆盖 | WorkspaceSandbox + ExecutionEnvironment 负责路径、命令、网络和 worktree 边界。 |
 | 6 | Agent 系统中如何设计 tracing？ | 代码覆盖 | TraceRecorder。 |
 | 7 | Agent 系统中如何记录 tool call log？ | 代码覆盖 | trace tool_call/tool_observation。 |
 | 8 | Agent 系统中如何记录 handoff log？ | 代码覆盖 | Handoff event。 |

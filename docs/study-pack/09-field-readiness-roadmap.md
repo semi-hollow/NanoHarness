@@ -19,13 +19,19 @@
 | Prompt 存在哪里 | `agent_forge/runtime/prompt_registry.py` | PromptSpec 有 name/version/purpose/content，ContextBuilder 引用版本化 prompt。 |
 | Citation 怎么设计 | `agent_forge/observability/evidence.py` | EvidenceLedger 从 read/patch/command/diff observation 生成可引用证据，final answer 和 usage report 都能看到。 |
 | 评测和数据飞轮 | `agent_forge/eval/flywheel.py` | eval 不只看通过率，还按 context/safety/tool/orchestration/coding_benchmark 做能力维度和 badcase 队列。 |
+| 执行环境隔离 | `agent_forge/runtime/execution_environment.py` | local/worktree 是显式执行模式；默认阻断网络命令和高风险 git 动作，worktree 模式把修改放进独立 checkout。 |
+| 审批和脱敏 hooks | `agent_forge/runtime/hooks.py` | 工具执行前做环境/权限决策，执行后做 secret redaction，停止时保留审计 hook。 |
+| 任务状态恢复 | `agent_forge/runtime/task_state.py` | checkpoint 记录 status、step、last_tool、last_observation、resume_hint；CLI 支持 list/show/resume/replay。 |
+| MCP-style 工具生态 | `agent_forge/tools/mcp_config.py`, `mcp_tools.example.json` | 配置文件定义工具 schema、handler、allowlist，再注册进 ToolRegistry，不改 AgentLoop。 |
+| Review gate | `agent_forge/workflows/review_workflow.py` | `--mode review` 读取 git diff，标注 secret、shell、runtime/safety、缺少验证等风险。 |
+| Eval 回归 | `agent_forge/eval/eval_history.py` | eval report 对比上一轮 pass rate、新增失败、修复失败，避免只看单次结果。 |
 
 ## 已有但要重点讲的能力
 
 | 方向 | 代码证据 | 重点说法 |
 |---|---|---|
 | Context 工程 | `context_strategy.py`, `repo_map.py`, `file_ranker.py`, `rag.py` | 上下文不是拼 prompt，是策略层：repo map、检索、文件预览、memory、topic shift、token budget。 |
-| 工具治理 | `ToolRegistry`, `PermissionPolicy`, `CommandPolicy`, `WorkspaceSandbox` | LLM 只提议动作，runtime 负责 schema、权限、沙箱、命令白名单和失败 recovery。 |
+| 工具治理 | `ToolRegistry`, `HookManager`, `PermissionPolicy`, `CommandPolicy`, `WorkspaceSandbox` | LLM 只提议动作，runtime 负责 schema、hooks、权限、沙箱、命令白名单和失败 recovery。 |
 | 多 Agent | `AgentRuntime`, `AgentSpec`, `SupervisorAgent`, `TaskGraph` | 子 Agent 不直接给用户；Supervisor 看 artifact、trace、测试和 review 决定是否 retry。 |
 | 执行控制 | `StepController` | max step、timeout、cost budget、重复工具调用、失败分类是 runtime control plane。 |
 | 真实运行量化 | `usage_report.py`, `docs/run-artifacts/` | 能讲 token、cache hit/miss、latency、tool efficiency，而不是只说“跑通了”。 |
@@ -43,7 +49,7 @@
 
 ## 现场展开顺序
 
-1. 先讲一句定位：这是轻量 CodingAgent Harness，不是模型训练或 UI 产品。
+1. 先讲一句定位：这是 production-style CodingAgent runtime core，不是模型训练或 UI 产品。
 2. 再讲主链路：CLI -> Context -> ModelGateway -> AgentLoop -> ToolRegistry -> Safety -> Trace/Eval。
 3. 然后主动抛两个亮点：Context 工程、执行控制。
 4. 如果追问落地经验，就拿 WebhookPatchBench 和 `docs/run-artifacts/webhook-deepseek/usage_report.md` 讲真实 token/cost/latency/tool call。

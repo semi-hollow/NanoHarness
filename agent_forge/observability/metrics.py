@@ -24,6 +24,13 @@ def summarize(events: list[dict]) -> dict:
             for event in events
         ),
         "approval_count": sum(event.get("event_type") == "human_approval" for event in events),
+        "hook_check_count": sum(event.get("event_type") == "hook_check" for event in events),
+        "task_state_checkpoint_count": sum(
+            event.get("event_type") == "task_state_checkpoint" for event in events
+        ),
+        "execution_environment_count": sum(
+            event.get("event_type") == "execution_environment" for event in events
+        ),
         "permission_denied_count": sum(
             event.get("event_type") == "permission_check"
             and event.get("permission_decision") == "deny"

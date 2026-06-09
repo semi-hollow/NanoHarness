@@ -22,9 +22,11 @@ from pathlib import Path
 
 from .runtime.config import RuntimeConfig
 from .runtime.agent_loop import AgentLoop
+from .runtime.execution_environment import ExecutionEnvironment, ExecutionEnvironmentConfig
 from .runtime.llm_config import LLMConfig, resolve_llm_config
 from .runtime.llm_client import MockLLMClient, OpenAICompatibleLLMClient
 from .runtime.session import SessionStore
+from .runtime.task_state import TaskStateStore, replay_trace
 from .models.gateway import ModelGateway, RetryPolicy
 from .observability.trace import TraceRecorder
 from .observability.metrics import summarize
@@ -43,8 +45,10 @@ from .tools.git_status import GitStatusTool
 from .tools.git_diff import GitDiffTool
 from .tools.ask_human import AskHumanTool
 from .tools.diagnostics import DiagnosticsTool
+from .tools.mcp_config import MCPConfigLoader
 from .agents.supervisor_agent import SupervisorAgent
 from .workflows.coding_workflow import run_workflow
+from .workflows.review_workflow import run_review
 
 
 def reset_demo_repo(workspace: str) -> None:
@@ -105,7 +109,12 @@ def reset_webhook_bench(workspace: str) -> None:
         shutil.rmtree(cache_dir, ignore_errors=True)
 
 
-def build_registry(workspace: str, auto: bool) -> ToolRegistry:
+def build_registry(
+    workspace: str,
+    auto: bool,
+    mcp_config_file: str | None = None,
+    mcp_allowed_tools: list[str] | None = None,
+) -> ToolRegistry:
     """Create the tool registry used by single and multi-agent modes.
 
     The registry is the tool gateway. Centralizing tool registration here makes
@@ -132,6 +141,12 @@ def build_registry(workspace: str, auto: bool) -> ToolRegistry:
     ]
     for tool in tools:
         registry.register(tool)
+    if mcp_config_file:
+        registry.mcp_config_report = MCPConfigLoader(sandbox).load_into(
+            registry,
+            mcp_config_file,
+            allowed_tools=mcp_allowed_tools,
+        )
     return registry
 
 
@@ -171,7 +186,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Run Agent Forge demos and workflows.")
     parser.add_argument("task", nargs="?", default="修复 examples/demo_repo 里的测试失败问题")
     parser.add_argument("--workspace", default=".")
-    parser.add_argument("--mode", choices=["single", "multi", "workflow"], default="single")
+    parser.add_argument("--mode", choices=["single", "multi", "workflow", "review"], default="single")
     parser.add_argument(
         "--llm",
         choices=["mock", "deepseek", "openai", "openai-compatible"],
@@ -192,11 +207,26 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--cost-budget-usd", type=float)
     parser.add_argument("--trace-file", default="agent_forge_trace.json")
     parser.add_argument("--session-root", default=".agent_forge/runs")
+    parser.add_argument("--task-state-root", default=".agent_forge/task_state")
     parser.add_argument("--no-session", action="store_true")
     parser.add_argument("--list-sessions", action="store_true")
     parser.add_argument("--show-run", help="Print report.md for a previous session id.")
     parser.add_argument("--rollback-run", help="Restore files from a previous session rollback bundle.")
     parser.add_argument("--resume-run", help="Seed context from a previous session id.")
+    parser.add_argument("--list-task-states", action="store_true")
+    parser.add_argument("--show-task-state", help="Print one task-state checkpoint JSON.")
+    parser.add_argument("--resume-state", help="Seed context from a task-state checkpoint id.")
+    parser.add_argument("--replay-run", help="Print a compact timeline from a trace JSON file.")
+    parser.add_argument("--execution-env", choices=["local", "worktree"], default="local")
+    parser.add_argument("--allow-network", action="store_true")
+    parser.add_argument("--cleanup-worktree", action="store_true")
+    parser.add_argument("--mcp-config", help="Load local MCP-style tools from a JSON config file.")
+    parser.add_argument(
+        "--mcp-allowed-tool",
+        action="append",
+        default=[],
+        help="Allow one configured MCP-style tool; can be repeated.",
+    )
     parser.add_argument("--no-auto-approve", action="store_true")
     parser.add_argument("--verbose-trace", action="store_true")
     parser.add_argument("--write-summary", action="store_true")
@@ -213,6 +243,7 @@ def main() -> None:
 
     args = build_parser().parse_args()
     store = SessionStore(args.session_root)
+    task_store = TaskStateStore(args.task_state_root)
 
     if args.list_sessions:
         # Session commands are read-only inspection paths and should not start a
@@ -233,6 +264,21 @@ def main() -> None:
             print(path)
         return
 
+    if args.list_task_states:
+        for checkpoint in task_store.list()[:20]:
+            task = checkpoint.task.replace("\n", " ")[:90]
+            print(f"{checkpoint.run_id} {checkpoint.status} step={checkpoint.current_step} task={task}")
+        return
+
+    if args.show_task_state:
+        path = task_store.path_for(args.show_task_state)
+        print(path.read_text(encoding="utf-8") if path.exists() else f"task state not found: {args.show_task_state}")
+        return
+
+    if args.replay_run:
+        print(replay_trace(args.replay_run))
+        return
+
     previous_task = ""
     session_summary = ""
     if args.resume_run:
@@ -242,10 +288,11 @@ def main() -> None:
         previous_task = previous.task
         session_summary = store.summary_for_resume(args.resume_run)
 
-    if args.workspace == "." and args.mode in {"single", "multi"}:
-        reset_demo_repo(args.workspace)
-        if task_targets_webhook_bench(args.task):
-            reset_webhook_bench(args.workspace)
+    if args.resume_state:
+        checkpoint = task_store.load(args.resume_state)
+        previous_task = previous_task or checkpoint.task
+        state_summary = task_store.resume_summary(args.resume_state)
+        session_summary = f"{session_summary}\n{state_summary}".strip()
 
     session = None
     run_dir = None
@@ -256,9 +303,6 @@ def main() -> None:
         if args.trace_file == "agent_forge_trace.json":
             args.trace_file = str(run_dir / "trace.json")
 
-    diff_tracker = DiffTracker(args.workspace)
-    # Capture before any mode runs so report/rollback can explain side effects.
-    diff_tracker.capture_before()
     # Allow scripts to place trace files under .agent_forge/latest/... without
     # requiring every caller to pre-create the directory.
     Path(args.trace_file).parent.mkdir(parents=True, exist_ok=True)
@@ -268,12 +312,46 @@ def main() -> None:
         write_summary_file=args.write_summary,
     )
     auto_approve = not args.no_auto_approve
+    environment = ExecutionEnvironment(
+        ExecutionEnvironmentConfig(
+            mode=args.execution_env,
+            workspace=args.workspace,
+            run_id=trace.run_id,
+            network_policy="allow" if args.allow_network else "deny",
+            keep_worktree=not args.cleanup_worktree,
+        )
+    )
+    environment_probe = environment.prepare()
+    active_workspace = str(environment.active_workspace)
+    trace.add(
+        0,
+        "Runtime",
+        "execution_environment",
+        execution_environment=environment_probe.to_dict(),
+    )
+
+    if args.mode in {"single", "multi"} and (Path(active_workspace) / "examples/demo_repo/src/calculator.py").exists():
+        reset_demo_repo(active_workspace)
+        if task_targets_webhook_bench(args.task):
+            reset_webhook_bench(active_workspace)
+
+    diff_tracker = DiffTracker(active_workspace)
+    # Capture before any mode runs so report/rollback can explain side effects.
+    diff_tracker.capture_before()
+    registry = build_registry(active_workspace, auto_approve, args.mcp_config, args.mcp_allowed_tool)
+    if hasattr(registry, "mcp_config_report"):
+        trace.add(
+            0,
+            "Runtime",
+            "mcp_tools_loaded",
+            mcp_config_report=registry.mcp_config_report.to_dict(),
+        )
 
     # Multi mode uses the production-shaped boundary:
     # supervisor -> task graph -> ownership/artifacts -> role specs ->
     # reusable AgentLoop runtime.
     if args.mode == "multi":
-        print(SupervisorAgent(workspace=args.workspace).run(trace, args.task, build_registry(args.workspace, auto_approve)))
+        print(SupervisorAgent(workspace=active_workspace).run(trace, args.task, registry))
     elif args.mode == "workflow":
         # workflow mode is intentionally deterministic. It proves the shape of a
         # plan-code-test-review state machine without LLM calls or tool
@@ -281,12 +359,15 @@ def main() -> None:
         workflow_state = run_workflow(args.task)
         trace.set_run_context(stop_reason=workflow_state.final_status, final_answer=str(workflow_state))
         print(workflow_state)
+    elif args.mode == "review":
+        report = run_review(active_workspace, trace, args.task)
+        print(report.render())
     else:
         # single mode is the canonical runtime path: it assembles context, calls
         # the selected LLM, validates tool calls, executes tools through the
         # registry, feeds observations back, and writes trace evidence.
         runtime_config = RuntimeConfig(
-            workspace=args.workspace,
+            workspace=active_workspace,
             max_steps=args.max_steps,
             auto_approve_writes=auto_approve,
             trace_file=args.trace_file,
@@ -297,6 +378,9 @@ def main() -> None:
             cost_budget_usd=args.cost_budget_usd,
             previous_task=previous_task,
             session_summary=session_summary,
+            execution_environment=environment,
+            task_state_root=args.task_state_root,
+            resume_state=args.resume_state or "",
         )
         llm_config = resolve_llm_config(
             provider=args.llm,
@@ -312,8 +396,10 @@ def main() -> None:
             print(f"{llm_config.provider} LLM config is incomplete; falling back to MockLLMClient.")
             llm = ModelGateway(MockLLMClient("single"), provider="mock", model="mock-single")
 
-        loop = AgentLoop(runtime_config, trace, build_registry(args.workspace, auto_approve), llm)
+        loop = AgentLoop(runtime_config, trace, registry, llm)
         print(loop.run(args.task))
+
+    environment.cleanup()
 
     trace.write()
     usage_json_path, usage_report_path = write_usage_artifacts(args.trace_file)

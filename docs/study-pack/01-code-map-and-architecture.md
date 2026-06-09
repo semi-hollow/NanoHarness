@@ -2,7 +2,11 @@
 
 ## One-Sentence Positioning
 
-Agent Forge is a lightweight CodingAgent runtime. It turns an LLM into a controlled code-execution system by adding context engineering, tool calling, permission checks, recovery, trace, session artifacts, and supervised multi-agent orchestration.
+Agent Forge is a production-style CodingAgent runtime core. It turns an LLM into
+a controlled code-execution system by adding context engineering, model gateway,
+tool governance, runtime hooks, execution environment, task state, recovery,
+trace, usage reports, eval regression, review workflow, and supervised
+multi-agent orchestration.
 
 ## Architecture
 

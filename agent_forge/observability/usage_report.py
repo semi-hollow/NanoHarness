@@ -52,6 +52,9 @@ def build_usage_report(trace: dict[str, Any]) -> dict[str, Any]:
                 "context": {},
                 "actions": [],
                 "recoveries": [],
+                "hook_checks": [],
+                "task_states": [],
+                "runtime": {},
                 "permissions": {"allow": 0, "ask": 0, "deny": 0},
                 "guardrail_blocks": 0,
                 "errors": [],
@@ -106,6 +109,31 @@ def build_usage_report(trace: dict[str, Any]) -> dict[str, Any]:
                 }
             )
 
+        elif event_type == "hook_check":
+            hook_result = event.get("hook_result") or {}
+            entry["hook_checks"].append(
+                {
+                    "tool": event.get("tool_call", ""),
+                    "decision": hook_result.get("decision", ""),
+                    "reason": hook_result.get("reason", ""),
+                    "hooks": [item.get("hook_name", "") for item in hook_result.get("decisions", [])],
+                }
+            )
+
+        elif event_type == "task_state_checkpoint":
+            task_state = event.get("task_state") or {}
+            entry["task_states"].append(
+                {
+                    "status": task_state.get("status", ""),
+                    "step": task_state.get("current_step", 0),
+                    "last_tool": task_state.get("last_tool", ""),
+                    "stop_reason": task_state.get("stop_reason", ""),
+                }
+            )
+
+        elif event_type == "execution_environment":
+            entry["runtime"]["execution_environment"] = event.get("execution_environment") or {}
+
         elif event_type == "permission_check":
             decision = str(event.get("permission_decision") or "")
             if decision in entry["permissions"]:
@@ -142,6 +170,7 @@ def build_usage_report(trace: dict[str, Any]) -> dict[str, Any]:
         "context_breakdown": context_breakdown,
         "tool_efficiency": tool_efficiency,
         "evidence_refs": _dedupe_keep_order(evidence_refs),
+        "runtime_control": _runtime_control(ordered_steps),
         "optimization_notes": _optimization_notes(trace, summary, ordered_steps, context_breakdown, tool_efficiency),
     }
 
@@ -164,6 +193,16 @@ def render_usage_markdown(usage: dict[str, Any]) -> str:
         f"- estimated_cost_usd: ${summary['estimated_cost_usd']:.6f}",
         f"- llm_latency_ms: {summary['llm_latency_ms']}",
         f"- tool_calls: {summary['tool_calls']} failed={summary['failed_tool_calls']}",
+        f"- hook_checks: {summary['hook_checks']}",
+        f"- latest_task_status: `{summary['latest_task_status']}`",
+        "",
+        "## Runtime Control",
+        "",
+        f"- execution_environment: `{usage['runtime_control'].get('execution_environment_mode', '')}`",
+        f"- active_workspace: `{usage['runtime_control'].get('active_workspace', '')}`",
+        f"- network_policy: `{usage['runtime_control'].get('network_policy', '')}`",
+        f"- hook_decisions: {usage['runtime_control'].get('hook_decisions', {})}",
+        f"- task_statuses: {usage['runtime_control'].get('task_statuses', {})}",
         "",
         "## Step Breakdown",
         "",
@@ -324,6 +363,8 @@ def _summary(
     cache_hit = sum(call["cache_hit_tokens"] for call in calls)
     cache_miss = sum(call["cache_miss_tokens"] for call in calls)
     cache_total = cache_hit + cache_miss
+    hook_checks = [check for step in steps for check in step.get("hook_checks", [])]
+    task_states = [state for step in steps for state in step.get("task_states", [])]
     return {
         "llm_calls": len(calls),
         "prompt_tokens": prompt_tokens,
@@ -338,8 +379,32 @@ def _summary(
         "steps": len(steps),
         "tool_calls": tool_efficiency["total_calls"],
         "failed_tool_calls": tool_efficiency["failed_calls"],
+        "hook_checks": len(hook_checks),
+        "latest_task_status": task_states[-1]["status"] if task_states else "",
         "truncated_context_steps": context_breakdown["truncated_steps"],
         "trace_event_count": len(trace.get("events", [])),
+    }
+
+
+def _runtime_control(steps: list[dict[str, Any]]) -> dict[str, Any]:
+    """Aggregate environment, hook, and task-state control-plane signals."""
+
+    hook_decisions: Counter[str] = Counter()
+    task_statuses: Counter[str] = Counter()
+    environment = {}
+    for step in steps:
+        if not environment and step.get("runtime", {}).get("execution_environment"):
+            environment = step["runtime"]["execution_environment"]
+        for check in step.get("hook_checks", []):
+            hook_decisions.update([check.get("decision") or "unknown"])
+        for state in step.get("task_states", []):
+            task_statuses.update([state.get("status") or "unknown"])
+    return {
+        "execution_environment_mode": environment.get("mode", ""),
+        "active_workspace": environment.get("active_workspace", ""),
+        "network_policy": environment.get("network_policy", ""),
+        "hook_decisions": dict(sorted(hook_decisions.items())),
+        "task_statuses": dict(sorted(task_statuses.items())),
     }
 
 
@@ -359,7 +424,7 @@ def _optimization_notes(
         notes.append(f"Context was truncated in {summary['truncated_context_steps']} step(s); inspect dropped_context and selected files.")
     if tool_efficiency["failed_calls"]:
         notes.append(f"{tool_efficiency['failed_calls']} tool observation(s) failed; connect these to recovery_decision events.")
-    if trace.get("stop_reason") == "max_steps reached":
+    if trace.get("stop_reason") in {"max_steps", "max_steps reached"}:
         notes.append("Run stopped at max_steps; tune prompt, tool routing, or max_steps depending on whether progress was real.")
 
     section_chars = context_breakdown.get("section_chars") or {}

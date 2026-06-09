@@ -59,6 +59,14 @@ class ToolRouter:
         if any(token in lowered for token in ["clarify", "unclear", "ambiguous", "澄清", "不明确"]):
             selected |= names & {"ask_human"}
 
+        external_names = names - set(self.DEFAULT_METADATA)
+        task_terms = {term for term in lowered.replace("_", " ").replace(".", " ").split() if len(term) >= 3}
+        for name in external_names:
+            schema = by_name[name]
+            searchable = f"{name} {schema.get('description', '')}".lower()
+            if "mcp" in lowered or "tool" in lowered or "policy" in lowered or any(term in searchable for term in task_terms):
+                selected.add(name)
+
         # Role allowlists may leave no discovery tool. In that case preserve the
         # role's entire view; the allowlist is already a stricter boundary.
         if not selected:
@@ -75,5 +83,11 @@ class ToolRouter:
             allowed_names={schema.get("name", "") for schema in routed},
             reason=reason,
             dropped_names=dropped,
-            metadata={name: self.DEFAULT_METADATA.get(name, {}) for name in sorted(selected)},
+            metadata={
+                name: self.DEFAULT_METADATA.get(
+                    name,
+                    {"capability": "external", "risk": "configured", "latency": "unknown", "mode": "mcp_style"},
+                )
+                for name in sorted(selected)
+            },
         )

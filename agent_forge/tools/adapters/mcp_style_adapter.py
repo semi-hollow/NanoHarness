@@ -62,6 +62,7 @@ class MCPStyleToolAdapter(ToolAdapter):
                     "name": spec.name,
                     "description": spec.description,
                     "arguments": spec.input_schema.get("properties", {}),
+                    "required": spec.input_schema.get("required", []),
                 }
 
             def execute(self, arguments: dict[str, Any]) -> Observation:
