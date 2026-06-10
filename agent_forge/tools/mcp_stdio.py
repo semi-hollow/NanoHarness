@@ -22,6 +22,11 @@ class MCPStdioServerSpec:
     # Command arguments.
     args: list[str] = field(default_factory=list)
 
+    # Optional working directory for the server process. This matters for tools
+    # such as repo_policy that need a stable repository root even when the user
+    # starts the CLI from a different directory.
+    cwd: str = ""
+
     # Non-secret environment additions.
     env: dict[str, str] = field(default_factory=dict)
 
@@ -81,6 +86,7 @@ class MCPStdioClient:
             stderr=subprocess.PIPE,
             text=True,
             env=env,
+            cwd=self.spec.cwd or None,
         )
         last_response: dict[str, Any] = {}
         try:

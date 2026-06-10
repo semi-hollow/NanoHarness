@@ -1,46 +1,25 @@
 {
   "allowed_tools": [
-    "local.repo_policy",
-    "local.echo"
+    "forge.repo_policy",
+    "forge.current_time",
+    "forge.web_search",
+    "forge.web_fetch"
   ],
   "servers": [
     {
-      "name": "local",
+      "name": "forge",
       "enabled": true,
+      "transport": "stdio",
       "prefix_tool_names": true,
-      "tools": [
-        {
-          "name": "repo_policy",
-          "description": "Search or read the repository-level FORGE.md policy file.",
-          "handler": "repo_policy",
-          "input_schema": {
-            "type": "object",
-            "properties": {
-              "topic": {
-                "type": "string",
-                "description": "Optional lowercase topic to filter policy lines."
-              }
-            },
-            "required": []
-          }
-        },
-        {
-          "name": "echo",
-          "description": "Return the provided arguments as JSON for adapter smoke testing.",
-          "handler": "echo",
-          "input_schema": {
-            "type": "object",
-            "properties": {
-              "message": {
-                "type": "string"
-              }
-            },
-            "required": [
-              "message"
-            ]
-          }
-        }
-      ]
+      "command": "python",
+      "args": [
+        "-m",
+        "agent_forge.mcp.builtin_server",
+        "--workspace",
+        "."
+      ],
+      "cwd": ".",
+      "timeout_seconds": 20
     }
   ]
 }
