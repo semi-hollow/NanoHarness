@@ -1,87 +1,60 @@
-# 01 Code Map And Architecture
+# 01 Runtime Architecture
 
-## One-Sentence Positioning
+一句话：Agent Forge 是 production-style CodingAgent runtime core。它把 LLM
+放进可控代码执行系统，而不是让模型直接“自由发挥”。
 
-Agent Forge is a production-style CodingAgent runtime core. It turns an LLM into
-a controlled code-execution system by adding context engineering, model gateway,
-tool governance, runtime hooks, execution environment, task state, recovery,
-trace, usage reports, eval regression, review workflow, and supervised
-multi-agent orchestration.
-
-## Architecture
+## 主链路
 
 ```mermaid
 flowchart TD
-    U["User task / CLI"] --> C["agent_forge.cli"]
-    C --> M{"mode"}
-    M -->|single| L["AgentLoop"]
-    M -->|multi| S["SupervisorAgent"]
-    M -->|workflow| W["Deterministic workflow baseline"]
-
-    L --> CE["ContextStrategy + ContextBuildReport"]
-    CE --> RM["repo_map / file_ranker / rag / memory"]
-    L --> MG["ModelGateway"]
-    MG --> MC["MockLLM or OpenAI-compatible LLM"]
-    MC --> TC["ToolCall"]
-    TC --> GC["guardrails + StepController"]
-    GC --> PP["PermissionPolicy"]
-    PP --> TR["ToolRegistry"]
-    TR --> SB["WorkspaceSandbox / CommandPolicy"]
-    SB --> OB["Observation"]
-    OB --> L
-    L --> T["Trace JSON / metrics / session report"]
-
-    S --> TG["TaskGraph + TaskScheduler"]
-    TG --> AS["AgentSpec"]
-    AS --> AR["AgentRuntime"]
-    AR --> L
-    TG --> TA["TaskArtifact + OwnershipPlan"]
+    CLI["run_demo.py / agent_forge.cli"] --> Env["ExecutionEnvironment"]
+    Env --> Registry["ToolRegistry + MCPConfigLoader"]
+    CLI --> Trace["TraceRecorder"]
+    CLI --> Loop["AgentLoop"]
+    Loop --> Context["ContextBuilder / ContextStrategy"]
+    Context --> LLM["ModelGateway"]
+    LLM --> ToolCall["ToolCall"]
+    ToolCall --> Router["ToolRouter"]
+    Router --> Hooks["HookManager"]
+    Hooks --> Registry
+    Registry --> Tools["read/write/patch/run/git/MCP tools"]
+    Tools --> Obs["Observation"]
+    Obs --> Memory["Memory / EvidenceLedger"]
+    Memory --> Loop
+    Loop --> State["TaskStateStore"]
+    Loop --> Usage["usage_report.md"]
 ```
 
-## Directory Map
+## 目录职责
 
-```text
-agent_forge/cli.py
-```
+| path | role |
+|---|---|
+| `agent_forge/cli.py` | composition root：解析 CLI、准备环境、选择 mode、写报告。 |
+| `agent_forge/runtime/agent_loop.py` | ReAct 主循环：context -> model -> tool -> observation -> recovery。 |
+| `agent_forge/runtime/execution_environment.py` | local/worktree 边界、网络策略、git 风险命令、环境 manifest。 |
+| `agent_forge/runtime/hooks.py` | pre-tool approval、post-tool redaction、stop audit。 |
+| `agent_forge/runtime/task_state.py` | checkpoint、resume seed、trace replay。 |
+| `agent_forge/context/` | repo map、file ranker、retrieval、memory、token budget。 |
+| `agent_forge/tools/` | 本地工具、MCP-style config、stdio 外部工具 adapter。 |
+| `agent_forge/safety/` | input/output/tool guardrail、command policy、path sandbox。 |
+| `agent_forge/models/` | provider gateway、retry、fallback、token/cost telemetry。 |
+| `agent_forge/workflows/` | deterministic workflow、task graph、review gate。 |
+| `agent_forge/eval/` | local regression cases、capability breakdown、history diff。 |
 
-Composition root. It parses mode/model/session flags, builds the registry, chooses mock or OpenAI-compatible LLM, creates trace/session artifacts, and dispatches to single, multi, or workflow.
+## 三个运行模式
 
-```text
-agent_forge/runtime/
-```
+| mode | 作用 | 复杂度 |
+|---|---|---|
+| `single` | 真实主路径，完整 AgentLoop。 | 最高 |
+| `multi` | Supervisor + role agents + task graph，复用 AgentLoop。 | 中 |
+| `workflow` | 固定链路 baseline，用于对比。 | 低 |
+| `review` | 当前 git diff 的 deterministic review gate。 | 中 |
 
-Core runtime. `agent_loop.py` is the ReAct-style loop. `control.py` owns budgets, failure classification, repeated-action detection, and recovery hints. `session.py` persists resumable runs.
+## 读代码顺序
 
-```text
-agent_forge/context/
-```
-
-Context engineering layer. It ranks files, reads bounded previews, retrieves lexical matches, compresses memory, handles topic shifts, and renders a stable prompt context.
-
-```text
-agent_forge/tools/
-```
-
-Tool boundary. Tools return `Observation` objects instead of throwing uncontrolled exceptions. `ToolRegistry` validates schema and converts failures into recoverable loop evidence.
-
-```text
-agent_forge/safety/
-```
-
-Control and trust boundary. It handles input/output guardrails, permission policy, command policy, and workspace path sandboxing.
-
-```text
-agent_forge/models/
-```
-
-Provider boundary. `ModelGateway` wraps mock, Ollama, company APIs, or online OpenAI-compatible APIs with retry/fallback and usage telemetry.
-
-```text
-agent_forge/agents/ + agent_forge/workflows/
-```
-
-Multi-agent orchestration. `SupervisorAgent` creates role specs, task graph nodes, ownership claims, artifact contracts, validation, retry, and review.
-
-## Project Talking Points
-
-The project separates agent intelligence from control-plane engineering. The model proposes actions, but runtime code decides what context it sees, which tools exist, whether a tool is allowed, how failures are classified, when to retry, when to stop, and how to audit the run.
+1. `agent_forge/cli.py`：看系统如何组装。
+2. `agent_forge/runtime/agent_loop.py`：看 ReAct 执行循环。
+3. `agent_forge/context/context_strategy.py`：看上下文怎么选。
+4. `agent_forge/runtime/hooks.py`：看工具调用前后的控制面。
+5. `agent_forge/tools/registry.py` 和 `agent_forge/tools/mcp_config.py`：看工具协议。
+6. `agent_forge/observability/usage_report.py`：看运行证据如何汇总。

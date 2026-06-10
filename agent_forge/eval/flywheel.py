@@ -32,7 +32,7 @@ def infer_capability(case_id: str, task: str = "") -> str:
 def build_flywheel(results: list) -> tuple[list[FlywheelRow], dict[str, dict[str, int]]]:
     """Convert eval results into badcase and capability summaries.
 
-    This is the lightweight version of a data flywheel: each failed case becomes
+    This is the repository-local version of a data flywheel: each failed case becomes
     an actionable queue item, and each pass/fail updates capability-level health.
     """
 

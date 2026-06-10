@@ -53,3 +53,6 @@ class RuntimeConfig:
 
     # Optional prior task-state id used to seed continuation context.
     resume_state: str = ""
+
+    # trusted/on-write/on-risk/locked/dry-run approval posture.
+    approval_mode: str = "trusted"

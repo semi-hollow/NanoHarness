@@ -1,6 +1,8 @@
 # Study Pack
 
-This folder is the shortest path to understanding Agent Forge for a senior AI Agent engineering walkthrough. It keeps only high-signal material: architecture, runtime flow, context engineering, tool governance, multi-agent design, and technical answers.
+This folder is the compact reading path for Agent Forge. It keeps the material
+focused on runtime architecture and removes the older duplicate roadmap,
+call-chain, and long-form answer-bank files.
 
 Read in this order:
 
@@ -10,18 +12,20 @@ Read in this order:
 4. `04-multi-agent-design.md`
 5. `05-project-briefing.md`
 6. `06-technical-question-coverage.md`
-7. `07-technical-answer-bank.md`
-8. `08-runtime-call-chain-map.md`
-9. `09-field-readiness-roadmap.md`
-10. `10-technical-defense-playbook.md`
+7. `07-schema-delta-guide.md`
 
 Run while reading:
 
 ```bash
 cd /path/to/NanoHarness
 source .venv/bin/activate
-python run_demo.py --mode single --trace-file trace-single.json
-python run_demo.py --mode multi --trace-file trace-multi.json
+local_scripts/run_webhook_deepseek.sh
+python run_demo.py --mode review
+python run_demo.py --list-task-states
 ```
 
-The project deliberately does not implement graph construction, multimodal generation, model training, or a full SWE-bench evaluation stack. Those are adjacent topics, so `05-project-briefing.md` tells you how to discuss them without polluting the CodingAgent core, and `07-technical-answer-bank.md` gives you concise answers for the full question archive.
+Read generated evidence in this order:
+
+1. `.agent_forge/latest/webhook-deepseek/usage_report.md`
+2. `.agent_forge/latest/webhook-deepseek/trace.json`
+3. `.agent_forge/eval_report.md`

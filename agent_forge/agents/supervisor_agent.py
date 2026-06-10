@@ -1,8 +1,8 @@
 """Runtime-backed supervised multi-agent orchestration.
 
-The original MVP used direct role-function calls. That was useful for learning
-but weak for senior AI agent technical walkthroughs. This version keeps the readable phase
-story while adding production-oriented structure:
+The initial implementation used direct role-function calls. That was useful for
+understanding the phase story, but weak as an orchestration design. This version
+keeps the readable phase story while adding production-oriented structure:
 
 * every subagent is described by an ``AgentSpec``;
 * each worker runs through ``AgentRuntime`` and therefore through AgentLoop;

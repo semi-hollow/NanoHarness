@@ -1,71 +1,60 @@
-# 02 Agent Loop, Context, And Memory
+# 02 AgentLoop, Context, Memory
 
-## Runtime Path
+这份文件只回答一个问题：`single` 模式为什么是项目主线。
 
-Start from `agent_forge/cli.py`.
+## AgentLoop 八段
 
-```text
-main()
-  -> build_registry()
-  -> resolve_llm_config()
-  -> build_llm()
-  -> AgentLoop.run()
-```
+| phase | code | 作用 |
+|---|---|---|
+| input guardrail | `input_guardrail()` | 先挡明显危险/不支持任务。 |
+| clarification | `ClarificationPolicy` | 只有指代无法 grounding 时才反问。 |
+| planning mode | `PlanningModePolicy` | 记录任务适合 ReAct、plan-execute、workflow 还是 answer-only。 |
+| context assembly | `build_context_report()` | repo map、文件预览、memory、tools、FORGE.md。 |
+| model call | `ModelGateway.chat()` | provider retry、fallback、usage telemetry。 |
+| tool decision | `ToolRouter` + `tool_guardrail` | 裁剪工具候选，防止未知/重复工具调用。 |
+| execution | `HookManager` + `ToolRegistry` | 审批、环境检查、schema validation、工具执行、脱敏。 |
+| recovery/final | `StepController` + `EvidenceLedger` | 失败分类、预算控制、证据引用、最终回答。 |
 
-`AgentLoop.run()` is the canonical path:
+## Context 不是拼字符串
 
-1. input guardrail
-2. initialize messages, memory, and `StepController`
-3. build repo map
-4. build context report
-5. create a trace-only plan summary
-6. call `ModelGateway.chat()`
-7. validate tool call
-8. permission check
-9. execute tool
-10. feed `Observation` back as a tool message
-11. classify failure and recover or stop
-12. final answer with output guardrail
+`ContextBuilder` 只负责渲染，真正策略在 `ContextStrategy`：
 
-## Why Context Engineering Is Central
+- `repo_map`：给模型项目形状。
+- `file_ranker`：从任务词、路径名、内容命中选相关文件。
+- `selected_file_previews`：只放最相关文件的 bounded preview。
+- `retrieved_docs`：透明 lexical retrieval，适合代码仓库。
+- `attention_sink`：稳定提醒最新任务、证据、验证纪律。
+- `FORGE.md`：仓库级规则，不写死在 prompt 里。
+- `budget_breakdown`：每段 context 花多少字符可追踪。
 
-A coding agent fails less because the model is smarter and because the runtime gives it better context. This project implements a small but complete context policy in `agent_forge/context/context_strategy.py`.
+## Memory 分层
 
-It decides:
+| memory | 代码 | 用途 |
+|---|---|---|
+| recent notes | `Memory.items` | 保存当前 run 的短事实。 |
+| observations | `Memory.observations` | 最近工具结果进入下一轮。 |
+| summary | `Memory.summaries` | 老 observation 压缩，避免上下文爆炸。 |
+| records | `MemoryRecord` | scope/confidence/TTL/source/agent_name，避免跨 agent 污染。 |
+| resume seed | `SessionStore` / `TaskStateStore` | 只在 topic 连续时进入 context。 |
 
-- which files rank highest for the task
-- which selected files get bounded previews
-- which lexical docs are retrieved
-- whether previous session state should be inherited
-- what memory is compressed
-- what context was dropped
-- how much budget each context section consumed
+## Task State 和 Trace 的区别
 
-## Attention Sink
+| artifact | 作用 |
+|---|---|
+| `trace.json` | 完整事件流：每个 context/model/tool/hook/recovery 事件。 |
+| `task_state/*.json` | 可恢复控制面：status、step、last_tool、last_observation、resume_hint。 |
+| `usage_report.md` | 人看的量化摘要：token、cost、context、tool efficiency、runtime control。 |
 
-The `attention_sink` section is a stable prompt anchor. It reminds the model to follow the latest user task, inspect before editing, feed observations back, and avoid unverified claims. In long multi-turn conversations, this kind of anchor reduces instruction drift.
-
-## Memory Types
-
-`agent_forge/context/memory.py` models three memory layers:
-
-- Short-term memory: recent notes and observations.
-- Summary memory: compressed older observations.
-- Session memory: previous task/report seeded by `--resume-run`.
-
-The runtime does not blindly inherit memory. `infer_topic_relation()` classifies whether the current request is the same topic, related, unknown, or a topic shift. On topic shift, previous memory is ignored to avoid context pollution.
-
-## Resume Flow
+常用命令：
 
 ```bash
-python run_demo.py --list-sessions
-python run_demo.py --resume-run <session_id> --mode single
+python run_demo.py --list-task-states
+python run_demo.py --show-task-state <run_id>
+python run_demo.py --resume-state <run_id> --mode single
+python run_demo.py --replay-run .agent_forge/latest/webhook-deepseek/trace.json
 ```
 
-Resume does not replay old actions. It seeds prior task/report into memory, lets `ContextStrategy` decide whether to inherit it, and starts a new auditable run.
+## 技术口径
 
-## Technical Discussion Answer
-
-For memory and context questions, say:
-
-> I split memory into short-term observations, compressed summaries, and resumable session facts. Context assembly is a policy layer, not just concatenation. It ranks files, previews code, retrieves lexical matches, preserves an attention anchor, compresses memory, and detects topic shifts before deciding whether old context should enter the prompt.
+这个项目的核心不是“模型聪明”，而是 runtime 把模型输出变成可控动作：
+模型只提出工具调用，系统负责上下文、审批、边界、执行、恢复和审计。

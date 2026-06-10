@@ -1,86 +1,74 @@
-# 05 Project Briefing
+# 05 Technical Defense Brief
 
-## Project Pitch
+这份文件用于快速组织讲法，不重复代码细节。
 
-> I built Agent Forge, a production-style CodingAgent runtime core. The focus is
-> not model training or UI, but the runtime layer that turns an LLM into a
-> controllable coding system: context engineering, model gateway, tool
-> governance, runtime hooks, execution environment, task state, recovery,
-> trace, usage, eval regression, review workflow, and supervised multi-agent
-> orchestration.
+## 开场定位
 
-## Two Strongest Design Points
+Agent Forge 是 production-style CodingAgent runtime core。它关注的不是 UI
+外壳或模型训练，而是让 LLM 在受控代码执行系统里工作：上下文工程、模型网关、工具治理、
+执行环境、审批 hooks、任务状态、审查门禁、trace、usage 和 eval regression。
 
-1. Context is a policy layer, not prompt concatenation.
-   The runtime ranks files, previews code, retrieves lexical matches, compresses memory, preserves attention anchors, and detects topic shifts before inheriting session memory.
+## 两个最强设计点
 
-2. Tool execution is governed by runtime control, not model trust.
-   Tool calls pass schema validation, guardrails, permission, sandbox, failure classification, retryability decision, and trace.
+**1. Context Engineering**
 
-## Questions This Project Directly Answers
+不是把仓库全塞给模型，而是 repo map、file ranker、lexical retrieval、selected file preview、
+memory summary、topic relation、FORGE.md 和 budget breakdown 的组合。
 
-- Agent architecture and module split
-- Workflow vs autonomous Agent
-- Tools vs Workflow vs Agent
-- ReAct engineering implementation
-- Tool call / observation protocol
-- Tool schema design and miscall reduction
-- Agent loop deadlock and repeated-call handling
-- Timeout, max step, failure budget, and cost budget
-- Permission, approval, audit, trace, and replay
-- Short-term memory, summary memory, session memory
-- Context overflow and compression
-- Topic shift and context inheritance
-- Multi-agent supervisor, shared state, artifact handoff
-- Subagent validation and output gating
-- Agent infra: state management, tracing, tool log, resume
+**2. Runtime Control Plane**
 
-## Questions To Answer As Extensions
+模型只提出工具调用。系统用 ToolRouter、HookManager、ExecutionEnvironment、PermissionPolicy、
+CommandPolicy、ToolRegistry、StepController、TaskStateStore 把动作变成可控、可恢复、可审计的执行。
 
-These topics are relevant to senior technical walkthroughs but should not be forced into this CodingAgent codebase.
+## 高频追问速答
 
-RAG / GraphRAG:
+| question | answer |
+|---|---|
+| 为什么用 ReAct？ | Coding task 需要观察驱动：读文件、patch、看测试输出、失败恢复。 |
+| Workflow 什么时候更好？ | 固定链路、高风险业务流程、强可控节点适合 workflow。局部节点再用 ReAct。 |
+| Tools / Workflow / Agent 区别？ | Tool 是动作接口，Workflow 是确定性编排，Agent 是模型参与决策的闭环 runtime。 |
+| 上百工具怎么选？ | ToolRouter 先按 capability/risk/latency/mode 和任务词裁剪；外部工具也走同一 schema。 |
+| tool call 失败怎么办？ | ToolRegistry 返回 Observation，StepController 分类 unknown/invalid/permission/patch/command/repeated。 |
+| 怎么避免越权？ | ExecutionEnvironment + WorkspaceSandbox + CommandPolicy + ApprovalMode + HookManager。 |
+| 怎么做 human-in-loop？ | hook 返回 ASK，AgentLoop 写 human_approval event；非交互环境可 locked/dry-run。 |
+| 怎么支持长任务？ | TaskState checkpoint + trace replay + resume seed。 |
+| 子 agent 幻觉怎么办？ | Supervisor 不信文本，信 artifact、trace、test observation、review gate。 |
+| 怎么讲成本？ | usage_report 有 per-step token、cache hit/miss、cost、latency、tool efficiency。 |
+| 为什么不做训练？ | 本项目是 runtime core；训练属于模型能力层，和执行控制面分层。 |
+| 为什么不用某框架？ | 自研 runtime core 是为了把关键边界讲清；生产可迁移到 LangGraph/CrewAI/OpenAI Agents。 |
 
-> This project uses lightweight lexical retrieval because it is a coding-agent runtime, not a knowledge-base product. In production RAG I would add document parsing, chunking, metadata, BM25 + vector hybrid retrieval, reranking, versioning, freshness, and answer-grounding verification. GraphRAG is useful when the question depends on multi-hop entity relations, not just semantic similarity.
+## 不在本仓库里的产品外壳
 
-MCP / A2A / Skills:
+这些不是忽略，而是分层边界：
 
-> This project has a local ToolRegistry. MCP would externalize tool discovery and invocation across processes. Skills are higher-level packaged capabilities, usually prompt plus tools plus examples. A2A is for agent-to-agent communication, but I would not allow open-ended A2A without supervisor limits, budgets, and stop conditions.
+- IDE/TUI：产品交互层。
+- 云容器平台：部署和资源隔离层。
+- 多模态生成：任务类型扩展层。
+- SFT/RL：模型训练层。
+- 大规模 RAG/GraphRAG：知识平台层。
 
-MCTS / ToT / ReWOO:
+回答方式：本仓库实现 runtime core；这些能力可以接在 runtime 边界外，不应该全部塞进一个代码仓库。
 
-> I know these as planning patterns. For production coding tasks, I would start with ReAct plus plan-execute and add tree search only for high-value ambiguous tasks because branching multiplies cost and latency.
+## 现场演示路径
 
-Model training:
+```bash
+# 主验证场景
+local_scripts/run_webhook_deepseek.sh
 
-> This project does not train models. Agentic SFT/RL would use tool-call trajectories, mask observation tokens when training the assistant side, and optimize for task success, tool correctness, and safe action choice. That is a separate model-layer problem from this runtime-layer project.
+# 看量化结果
+open .agent_forge/latest/webhook-deepseek/usage_report.md
 
-Multimodal:
+# 看审查门禁
+python run_demo.py --mode review
 
-> Multimodal agents add media ingestion, image/video tokenization, async long-running jobs, and artifact storage. The control-plane ideas still apply, but this repository intentionally stays text/code-only.
+# 看任务状态
+python run_demo.py --list-task-states
+```
 
-## Deep Technical Follow-Ups
+讲的时候按这个顺序：
 
-Why not fully autonomous?
-
-> Coding has high blast radius. I use autonomy inside bounded loops, but deterministic runtime policy controls tools, permissions, budgets, and validation.
-
-Why not only workflow?
-
-> Fixed workflow is controllable but brittle. ReAct is useful inside nodes where the system must inspect files, adapt to tool failures, and decide the next action from observations.
-
-How do you avoid hallucination?
-
-> I reduce ungrounded generation by forcing file inspection, feeding tool observations into the next turn, checking output claims, requiring validation before saying tests passed, and recording trace for audit.
-
-How do you handle long context?
-
-> I keep an attention sink, rank files, preview bounded code, compress observations into summary memory, decide topic inheritance, and drop stale memory on topic shift.
-
-How do you stop loops?
-
-> StepController tracks max steps, consecutive failures, repeated tool calls, timeout, and cost. It classifies failures and emits recovery hints. Non-retryable failures stop instead of looping.
-
-How would you make this closer to Codex?
-
-> Add a stronger interactive CLI, worktree-based parallel edits, richer patch review, LSP diagnostics, MCP integration, enterprise sandboxing, SWE-bench-style evaluation, and IDE integration. I intentionally left those out to keep this project focused on the core runtime.
+1. 先讲 runtime core 的定位。
+2. 再讲 `single` 主链路。
+3. 主动展开 context engineering 和 runtime control plane。
+4. 用 WebhookPatchBench 的 usage report 讲真实 token/cost/tool/trace。
+5. 最后讲 review/eval/task-state 如何支持上线后的迭代。

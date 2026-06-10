@@ -20,6 +20,33 @@ class HookDecisionType(Enum):
     DEFER = "defer"
 
 
+class ApprovalMode(Enum):
+    """Operator-selected approval posture for one run.
+
+    Production coding agents need more than a boolean. A personal trusted
+    checkout can auto-approve narrow writes, while a shared/company checkout
+    often needs write approval, command approval, or a dry-run/locked posture.
+    """
+
+    # Preserve normal policy: reads allow, writes ask, allowlisted commands run.
+    TRUSTED = "trusted"
+
+    # Writes ask; allowlisted validation commands can run without extra prompt.
+    ON_WRITE = "on-write"
+
+    # Writes and commands ask. Useful when command side effects matter.
+    ON_RISK = "on-risk"
+
+    # Read-only mode. Side-effect tools are denied.
+    LOCKED = "locked"
+
+    # Same side-effect denial as locked, but named for CI/planning dry-runs.
+    DRY_RUN = "dry-run"
+
+
+SIDE_EFFECT_ACTIONS = {"apply_patch", "write", "run_command"}
+
+
 @dataclass(frozen=True)
 class HookDecision:
     """One hook's decision and audit metadata."""
@@ -74,6 +101,9 @@ class HookContext:
 
     # Whether ASK decisions can auto-approve in this local run.
     auto_approve_writes: bool = True
+
+    # Approval posture chosen by CLI/runtime config.
+    approval_mode: str = ApprovalMode.TRUSTED.value
 
 
 @dataclass(frozen=True)
@@ -135,10 +165,11 @@ class PermissionHook(RuntimeHook):
 
     name = "permission_policy"
 
-    def __init__(self, policy: PermissionPolicy):
+    def __init__(self, policy: PermissionPolicy, approval_mode: str = ApprovalMode.TRUSTED.value):
         """Store the concrete permission policy for this run."""
 
         self.policy = policy
+        self.approval_mode = ApprovalMode(approval_mode)
 
     def pre_tool(self, context: HookContext) -> HookDecision:
         """Map PermissionPolicy decisions into hook decisions."""
@@ -149,14 +180,26 @@ class PermissionHook(RuntimeHook):
             PermissionDecision.ASK: HookDecisionType.ASK,
             PermissionDecision.DENY: HookDecisionType.DENY,
         }
+        hook_decision = mapping[decision]
+        hook_reason = reason
+
+        if self.approval_mode in {ApprovalMode.LOCKED, ApprovalMode.DRY_RUN} and context.action in SIDE_EFFECT_ACTIONS:
+            hook_decision = HookDecisionType.DENY
+            hook_reason = f"{self.approval_mode.value} approval mode blocks side-effect action: {context.action}"
+        elif self.approval_mode == ApprovalMode.ON_RISK and context.action == "run_command" and hook_decision == HookDecisionType.ALLOW:
+            hook_decision = HookDecisionType.ASK
+            hook_reason = "on-risk approval mode requires approval for command execution"
+
         return HookDecision(
             self.name,
-            mapping[decision],
-            reason,
+            hook_decision,
+            hook_reason,
             {
                 "action": context.action,
                 "tool_name": context.tool_name,
                 "command": context.command,
+                "approval_mode": self.approval_mode.value,
+                "base_permission_decision": decision.value,
             },
         )
 
@@ -233,13 +276,18 @@ class HookManager:
         self.hooks = hooks or []
 
     @classmethod
-    def default(cls, environment: ExecutionEnvironment, auto_approve_writes: bool = True) -> "HookManager":
+    def default(
+        cls,
+        environment: ExecutionEnvironment,
+        auto_approve_writes: bool = True,
+        approval_mode: str = ApprovalMode.TRUSTED.value,
+    ) -> "HookManager":
         """Build the default local production-style hook chain."""
 
         return cls(
             [
                 ExecutionEnvironmentHook(environment),
-                PermissionHook(PermissionPolicy(auto_approve_writes)),
+                PermissionHook(PermissionPolicy(auto_approve_writes), approval_mode=approval_mode),
                 SecretRedactionHook(environment),
             ]
         )

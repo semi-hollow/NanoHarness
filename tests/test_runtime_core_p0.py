@@ -1,6 +1,7 @@
 import json
 import shutil
 import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -21,7 +22,8 @@ class RuntimeCoreP0Tests(unittest.TestCase):
         ok, reason = env.validate_command("curl https://example.com")
         self.assertFalse(ok)
         self.assertIn("network command blocked", reason)
-        self.assertEqual(env.redact("Authorization: Bearer abcdefghijklmnop"), "Authorization: Bearer [redacted]")
+        token = "abcd" + "efghijklmnop"
+        self.assertEqual(env.redact(f"Authorization: Bearer {token}"), "Authorization: Bearer [redacted]")
 
     def test_hook_manager_denies_environment_violation_before_permission(self):
         env = ExecutionEnvironment(ExecutionEnvironmentConfig(workspace=".", network_policy="deny"))
@@ -38,6 +40,31 @@ class RuntimeCoreP0Tests(unittest.TestCase):
             )
         )
         self.assertEqual(result.decision, HookDecisionType.DENY)
+
+    def test_hook_manager_locked_mode_blocks_side_effects(self):
+        env = ExecutionEnvironment(ExecutionEnvironmentConfig(workspace="."))
+        hooks = HookManager.default(env, approval_mode="locked")
+        result = hooks.pre_tool(
+            HookContext(
+                run_id="r1",
+                step=1,
+                agent_name="CodingAgent",
+                tool_name="apply_patch",
+                arguments={"path": "README.md", "old": "a", "new": "b"},
+                action="apply_patch",
+                approval_mode="locked",
+            )
+        )
+        self.assertEqual(result.decision, HookDecisionType.DENY)
+        self.assertIn("locked", result.reason)
+
+    def test_execution_environment_manifest_is_auditable(self):
+        with tempfile.TemporaryDirectory() as d:
+            env = ExecutionEnvironment(ExecutionEnvironmentConfig(workspace=d, network_policy="deny"))
+            manifest = env.write_manifest(Path(d) / "run")
+            data = json.loads(manifest.read_text(encoding="utf-8"))
+            self.assertEqual(data["probe"]["active_workspace"], str(Path(d).resolve()))
+            self.assertEqual(data["probe"]["network_policy"], "deny")
 
     def test_task_state_store_round_trips_checkpoint(self):
         with tempfile.TemporaryDirectory() as d:
@@ -81,6 +108,66 @@ class RuntimeCoreP0Tests(unittest.TestCase):
             observation = registry.execute("local.echo", {"message": "ok"})
             self.assertTrue(observation.success)
             self.assertIn("ok", observation.content)
+
+    def test_mcp_stdio_server_discovery_and_call(self):
+        with tempfile.TemporaryDirectory() as d:
+            server = Path(d) / "server.py"
+            server.write_text(
+                """
+import json
+import sys
+
+for line in sys.stdin:
+    req = json.loads(line)
+    method = req.get("method")
+    if method == "initialize":
+        result = {"protocolVersion": "test", "capabilities": {}}
+    elif method == "tools/list":
+        result = {
+            "tools": [
+                {
+                    "name": "lookup",
+                    "description": "lookup test value",
+                    "inputSchema": {
+                        "type": "object",
+                        "properties": {"query": {"type": "string"}},
+                        "required": ["query"],
+                    },
+                }
+            ]
+        }
+    elif method == "tools/call":
+        args = req.get("params", {}).get("arguments", {})
+        result = {"content": [{"type": "text", "text": "found:" + args.get("query", "")}]}
+    else:
+        result = {}
+    print(json.dumps({"jsonrpc": "2.0", "id": req.get("id"), "result": result}), flush=True)
+""",
+                encoding="utf-8",
+            )
+            config = Path(d) / "mcp_stdio.json"
+            config.write_text(
+                json.dumps(
+                    {
+                        "allowed_tools": ["svc.lookup"],
+                        "servers": [
+                            {
+                                "name": "svc",
+                                "transport": "stdio",
+                                "command": sys.executable,
+                                "args": [str(server)],
+                            }
+                        ],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            registry = ToolRegistry()
+            report = MCPConfigLoader(WorkspaceSandbox(d)).load_into(registry, config)
+            self.assertTrue(report.tools[0].registered)
+            observation = registry.execute("svc.lookup", {"query": "agent"})
+            self.assertTrue(observation.success)
+            self.assertEqual(observation.content, "found:agent")
 
     @unittest.skipIf(shutil.which("git") is None, "git is required for review workflow")
     def test_review_workflow_flags_shell_true(self):

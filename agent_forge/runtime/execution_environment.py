@@ -11,6 +11,7 @@ from pathlib import Path
 
 NETWORK_COMMANDS = {"curl", "wget", "ssh", "scp", "nc", "telnet"}
 PROTECTED_GIT_COMMANDS = {"push", "reset", "checkout", "switch", "merge", "rebase"}
+PROTECTED_PATH_PARTS = {".git", ".venv", ".agent_forge"}
 
 
 @dataclass(frozen=True)
@@ -68,8 +69,17 @@ class EnvironmentProbe:
     # Current branch name or detached marker.
     current_branch: str
 
+    # Current commit sha when git is available.
+    head_sha: str
+
+    # Origin remote URL, redacted if it contains credentials.
+    origin_url: str
+
     # Whether the requested checkout had uncommitted changes at prepare time.
     dirty: bool
+
+    # Dirty file paths at prepare/probe time, truncated for trace readability.
+    dirty_files: list[str]
 
     # Network policy enforced by hooks/command checks.
     network_policy: str
@@ -124,16 +134,22 @@ class ExecutionEnvironment:
     def probe(self) -> EnvironmentProbe:
         """Inspect git/python/network metadata without mutating the workspace."""
 
-        git_root = self._git_output(["git", "rev-parse", "--show-toplevel"])
-        branch = self._git_output(["git", "branch", "--show-current"]) or "detached"
-        dirty = bool(self._git_output(["git", "status", "--porcelain"]))
+        git_root = self._git_output(["git", "rev-parse", "--show-toplevel"], cwd=self.active_workspace)
+        branch = self._git_output(["git", "branch", "--show-current"], cwd=self.active_workspace) or "detached"
+        head_sha = self._git_output(["git", "rev-parse", "HEAD"], cwd=self.active_workspace)
+        origin_url = self.redact(self._git_output(["git", "remote", "get-url", "origin"], cwd=self.active_workspace))
+        dirty_files = self._dirty_files()
+        dirty = bool(dirty_files)
         return EnvironmentProbe(
             mode=self.config.mode,
             requested_workspace=str(self.requested_workspace),
             active_workspace=str(self.active_workspace),
             git_root=git_root,
             current_branch=branch,
+            head_sha=head_sha,
+            origin_url=origin_url,
             dirty=dirty,
+            dirty_files=dirty_files[:50],
             network_policy=self.config.network_policy,
             python_executable=sys.executable,
             notes=list(self._notes),
@@ -152,9 +168,11 @@ class ExecutionEnvironment:
 
         resolved = self.resolve_path(path)
         try:
-            resolved.relative_to(self.active_workspace)
+            relative = resolved.relative_to(self.active_workspace)
         except ValueError:
             return False, "path escapes execution environment"
+        if any(part in PROTECTED_PATH_PARTS for part in relative.parts):
+            return False, f"protected path blocked by execution environment: {resolved.name}"
         return True, "path allowed by execution environment"
 
     def validate_command(self, command: str) -> tuple[bool, str]:
@@ -206,6 +224,29 @@ class ExecutionEnvironment:
         if self.created_worktree.exists():
             shutil.rmtree(self.created_worktree, ignore_errors=True)
         self._git_output(["git", "worktree", "prune"], cwd=self.requested_workspace)
+
+    def write_manifest(self, output_dir: str | Path) -> Path:
+        """Write environment metadata for session reports and run audits."""
+
+        output = Path(output_dir)
+        output.mkdir(parents=True, exist_ok=True)
+        path = output / "execution_environment.json"
+        path.write_text(
+            self._json_dump(
+                {
+                    "probe": self.probe().to_dict(),
+                    "worktree_created": str(self.created_worktree or ""),
+                    "cleanup_policy": "keep" if self.config.keep_worktree else "remove",
+                }
+            ),
+            encoding="utf-8",
+        )
+        return path
+
+    def diff(self) -> str:
+        """Return git diff for the active workspace."""
+
+        return self._git_output(["git", "diff", "--", "."], cwd=self.active_workspace)
 
     def describe(self) -> str:
         """Human-readable environment summary for prompts and reports."""
@@ -266,3 +307,20 @@ class ExecutionEnvironment:
         if result.returncode != 0:
             return ""
         return result.stdout.strip()
+
+    def _dirty_files(self) -> list[str]:
+        """Return dirty paths from git status porcelain output."""
+
+        output = self._git_output(["git", "status", "--porcelain"], cwd=self.active_workspace)
+        files = []
+        for line in output.splitlines():
+            if len(line) > 3:
+                files.append(line[3:].strip())
+        return files
+
+    def _json_dump(self, data: dict) -> str:
+        """Local JSON dump helper to keep imports obvious in this module."""
+
+        import json
+
+        return json.dumps(data, ensure_ascii=False, indent=2)

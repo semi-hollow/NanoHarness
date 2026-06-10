@@ -76,8 +76,8 @@ class ExecutionBudget:
     # Wall-clock cap for one run. Production systems need this for SLO control.
     timeout_seconds: float = 120.0
 
-    # Optional cost cap. Current cost estimate is placeholder-zero, but the
-    # field shows where provider pricing enforcement belongs.
+    # Optional cost cap. Provider-backed runs populate estimated cost through
+    # ModelGateway; mock runs naturally report zero spend.
     cost_budget_usd: float | None = None
 
 

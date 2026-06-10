@@ -92,9 +92,9 @@ def run_case(case_dir: Path) -> EvalResult:
 def main():
     """Run every eval case and write the markdown benchmark report.
 
-    This is intentionally lightweight, not a SWE-bench clone. It gives enough
-    evidence to discuss task success, test success, safety, tool count, and
-    traceability without making the study project noisy.
+    This is a local regression harness rather than a public benchmark clone. It
+    gives enough evidence to discuss task success, test success, safety, tool
+    count, and traceability without turning the repository into a dataset host.
     """
 
     root = Path("eval_cases")
