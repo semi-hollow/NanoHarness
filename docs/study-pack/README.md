@@ -13,6 +13,7 @@ Read in this order:
 5. `05-project-briefing.md`
 6. `06-technical-question-coverage.md`
 7. `07-schema-delta-guide.md`
+8. `08-mcp-and-external-tools.md`
 
 Run while reading:
 
