@@ -1,4 +1,5 @@
 import json
+import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -83,7 +84,16 @@ class MCPConfigLoader:
             server_name = str(server.get("name") or "local")
             prefix = bool(server.get("prefix_tool_names", True))
             if server.get("transport") == "stdio" or server.get("command"):
-                rows.extend(self._register_stdio_server(registry, server, explicit_allowlist, server_name, prefix))
+                rows.extend(
+                    self._register_stdio_server(
+                        registry,
+                        server,
+                        explicit_allowlist,
+                        server_name,
+                        prefix,
+                        config_dir=path.parent,
+                    )
+                )
                 continue
             for raw_tool in server.get("tools", []):
                 raw_name = str(raw_tool.get("name") or "")
@@ -116,17 +126,20 @@ class MCPConfigLoader:
         explicit_allowlist: set[str],
         server_name: str,
         prefix: bool,
+        config_dir: Path,
     ) -> list[MCPToolRegistration]:
         """Discover and register tools from a command-backed stdio server."""
 
         rows: list[MCPToolRegistration] = []
-        command = str(server.get("command") or "")
+        command = self._resolve_command(str(server.get("command") or ""))
         if not command:
             return [MCPToolRegistration(server_name, False, "stdio server missing command")]
+        cwd = self._resolve_server_cwd(server.get("cwd"), config_dir)
         spec = MCPStdioServerSpec(
             name=server_name,
             command=command,
             args=[str(arg) for arg in server.get("args", [])],
+            cwd=cwd,
             env={str(k): str(v) for k, v in (server.get("env") or {}).items()},
             timeout_seconds=float(server.get("timeout_seconds") or 10.0),
             prefix_tool_names=prefix,
@@ -148,6 +161,28 @@ class MCPConfigLoader:
         if not tools:
             rows.append(MCPToolRegistration(server_name, False, "stdio server returned no tools"))
         return rows
+
+    def _resolve_command(self, command: str) -> str:
+        """Resolve portable Python command names for stdio MCP servers."""
+
+        if command in {"python", "python3"}:
+            return sys.executable
+        return command
+
+    def _resolve_server_cwd(self, raw_cwd: Any, config_dir: Path) -> str:
+        """Resolve a stdio server working directory.
+
+        Defaulting to the sandbox workspace root keeps the MCP server aligned
+        with the agent's active workspace. If a config supplies ``cwd``, relative
+        paths are resolved next to the config file so configs stay portable.
+        """
+
+        if not raw_cwd:
+            return str(self.sandbox.workspace_root)
+        cwd = Path(str(raw_cwd))
+        if not cwd.is_absolute():
+            cwd = config_dir / cwd
+        return str(cwd.resolve())
 
     def _handler(self, handler_name: str):
         """Return one supported safe local handler."""

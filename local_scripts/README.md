@@ -11,6 +11,9 @@ local_scripts/run_webhook_deepseek.sh
 Runs the main WebhookPatchBench scenario with DeepSeek. This is the default
 script to use when studying a realistic CodingAgent execution.
 
+It also loads `mcp_tools.example.json`, so the model can use the built-in MCP
+server tools such as `forge.repo_policy` and offline `forge.web_search`.
+
 Outputs are overwritten on each run:
 
 ```text

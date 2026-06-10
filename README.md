@@ -17,7 +17,7 @@ repo so the core runtime stays readable.
 - Runtime hooks: pre-tool approval, post-tool redaction, and stop-time audit hooks.
 - Task state: checkpoint, resume seeding, and trace replay for long-running tasks.
 - Review workflow: deterministic diff review for safety, runtime, and validation risk.
-- MCP-style tools: local config-driven tool discovery, schema conversion, allowlist, and sandboxed handlers.
+- MCP tools: built-in stdio MCP server, schema discovery, allowlist registration, repo policy, time, web fetch, and optional web search providers.
 - Multi-agent orchestration: supervisor, role specs, task graph, artifact handoff, ownership, validation, retry, and review.
 - Model switching: mock, Ollama, company OpenAI-compatible APIs, or online OpenAI-compatible providers.
 
@@ -69,8 +69,9 @@ python run_demo.py --show-task-state <run_id>
 python run_demo.py --resume-state <run_id> --mode single
 python run_demo.py --replay-run .agent_forge/latest/webhook-deepseek/trace.json
 
-# Load config-driven MCP-style tools.
-python run_demo.py --mcp-config mcp_tools.example.json --mcp-allowed-tool local.repo_policy \
+# Load the built-in MCP stdio server as external tools.
+scripts/verify_mcp.sh
+python run_demo.py --mcp-config mcp_tools.example.json --mcp-allowed-tool forge.repo_policy \
   "use the repo_policy tool to summarize command rules"
 ```
 
@@ -100,6 +101,38 @@ repo-level context selection, issue-driven code modification, tool calling,
 patch application, test execution, sandbox boundaries, eval verification,
 reviewer safety checks, trace evidence, and rollback/report artifacts without
 forcing you to learn a large business system.
+
+## MCP And External Tools
+
+`mcp_tools.example.json` starts the built-in stdio MCP server:
+
+```bash
+python -m agent_forge.mcp.builtin_server --workspace . --list-tools
+scripts/verify_mcp.sh
+```
+
+Available tools:
+
+```text
+forge.repo_policy   # read/search FORGE.md
+forge.current_time  # local and UTC time
+forge.web_search    # offline by default; optional DuckDuckGo/OpenAI/Claude lookup
+forge.web_fetch     # fetch one HTTP/HTTPS page when network is explicitly enabled
+```
+
+Default web search is offline so company verification does not make network
+calls. For a local live lookup:
+
+```bash
+AGENT_FORGE_MCP_ALLOW_NETWORK=1 \
+AGENT_FORGE_WEB_PROVIDER=duckduckgo \
+python run_demo.py --mcp-config mcp_tools.example.json \
+  "search the web for public MCP tool examples"
+```
+
+OpenAI and Claude hosted web search can also be wrapped behind the same MCP
+tool by setting `AGENT_FORGE_WEB_PROVIDER=openai` with `OPENAI_API_KEY`, or
+`AGENT_FORGE_WEB_PROVIDER=claude` with `ANTHROPIC_API_KEY`.
 
 ## DeepSeek Runs
 
@@ -203,6 +236,7 @@ agent_forge/
   runtime/            # AgentLoop, hooks, execution environment, task state
   context/            # context strategy, repo map, memory, retrieval, ranking
   tools/              # built-in tools, MCP-style config loader, adapters
+  mcp/                # built-in stdio MCP server and external lookup tools
   safety/             # guardrails, permission, command policy, sandbox
   models/             # provider gateway, retry/fallback, usage telemetry
   agents/             # SupervisorAgent and handoff policy

@@ -20,6 +20,7 @@ Run while reading:
 cd /path/to/NanoHarness
 source .venv/bin/activate
 local_scripts/run_webhook_deepseek.sh
+scripts/verify_mcp.sh
 python run_demo.py --mode review
 python run_demo.py --list-task-states
 ```

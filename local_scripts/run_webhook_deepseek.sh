@@ -8,7 +8,8 @@ set -Eeuo pipefail
 #   The old calculator demo only proves "read -> patch -> test" on a tiny file.
 #   WebhookPatchBench is still small, but it exercises the important CodingAgent
 #   runtime pieces together: context selection, issue reading, guarded patching,
-#   command policy, test execution, trace, usage, and recovery signals.
+#   command policy, MCP tool discovery, test execution, trace, usage, and
+#   recovery signals.
 #
 # Output:
 #   .agent_forge/latest/webhook-deepseek/trace.json
@@ -40,6 +41,14 @@ export AGENT_FORGE_BASE_URL="${AGENT_FORGE_BASE_URL:-${DEEPSEEK_BASE_URL:-https:
 export AGENT_FORGE_API_KEY="${AGENT_FORGE_API_KEY:-${DEEPSEEK_API_KEY:-}}"
 export AGENT_FORGE_MODEL="${AGENT_FORGE_MODEL:-${DEEPSEEK_MODEL:-deepseek-v4-flash}}"
 
+# MCP defaults:
+#   - mcp_tools.example.json starts the built-in stdio MCP server.
+#   - offline provider proves the MCP path without external network calls.
+#   - Set AGENT_FORGE_MCP_ALLOW_NETWORK=1 and AGENT_FORGE_WEB_PROVIDER=duckduckgo
+#     only when the task genuinely needs fresh web lookup.
+export AGENT_FORGE_WEB_PROVIDER="${AGENT_FORGE_WEB_PROVIDER:-offline}"
+MCP_CONFIG="${MCP_CONFIG:-mcp_tools.example.json}"
+
 # These knobs are intentionally visible here because they are the first things
 # you tune when a real model needs more turns or less prompt budget.
 OUTPUT_DIR="${OUTPUT_DIR:-.agent_forge/latest/webhook-deepseek}"
@@ -51,7 +60,7 @@ mkdir -p "$(dirname "${TRACE_FILE}")"
 # The task text is part of the benchmark. It tells the model which issue to fix
 # and which commands are allowed. Keeping this explicit makes command-policy
 # failures explainable when reading the raw trace.json.
-TASK=$'Resolve examples/webhook_service_repo/issues/issue_001_duplicate_webhook.md.\n\nRequirements:\n- Preserve signature verification before any side effect.\n- Add duplicate event_id handling before store.insert_event and queue.enqueue.\n- Do not read secret files.\n- Do not modify docs/security_policy.md.\n- Validate with exactly this allowed command: python -m unittest discover examples/webhook_service_repo/tests\n- Do not use pytest, cd, python -c, or direct test-file execution; those are intentionally blocked by command policy.\n- Stop only after the allowed unittest command succeeds.'
+TASK=$'Resolve examples/webhook_service_repo/issues/issue_001_duplicate_webhook.md.\n\nRequirements:\n- Preserve signature verification before any side effect.\n- Add duplicate event_id handling before store.insert_event and queue.enqueue.\n- Do not read secret files.\n- Do not modify docs/security_policy.md.\n- If MCP tools are loaded, first call forge.repo_policy with topic "command" or "safety" before editing.\n- Validate with exactly this allowed command: python -m unittest discover examples/webhook_service_repo/tests\n- Do not use pytest, cd, python -c, or direct test-file execution; those are intentionally blocked by command policy.\n- Stop only after the allowed unittest command succeeds.'
 
 # shellcheck disable=SC1091
 source .venv/bin/activate
@@ -80,6 +89,7 @@ python run_demo.py \
   --mode single \
   --llm deepseek \
   --workspace . \
+  --mcp-config "${MCP_CONFIG}" \
   --trace-file "${TRACE_FILE}" \
   --max-steps "${MAX_STEPS}" \
   --max-context-chars "${MAX_CONTEXT_CHARS}" \
