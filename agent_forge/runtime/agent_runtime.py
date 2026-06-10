@@ -48,7 +48,7 @@ class FilteredToolRegistry:
 class AgentRuntime:
     """Reusable runtime wrapper around AgentLoop for role-specific workers.
 
-    This is the key upgrade from the original MVP: multi-agent no longer has to
+    This is the key orchestration upgrade: multi-agent no longer has to
     be a set of hard-coded role functions. A supervisor can schedule workers
     that all share the same loop semantics: context assembly, LLM calls, tool
     policy, observations, stop conditions, and trace.

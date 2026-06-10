@@ -8,7 +8,7 @@ class EvalHistory:
 
     Production agent teams do not trust one green run. They keep pass rate,
     model, duration, and failure history over time. JSONL keeps this project
-    lightweight while preserving that operational shape.
+    dependency-free while preserving that operational shape.
     """
 
     def __init__(self, path: str | Path = ".agent_forge/eval_history.jsonl"):

@@ -76,8 +76,8 @@ python run_demo.py --mcp-config mcp_tools.example.json --mcp-allowed-tool local.
 
 ## Validation Scenarios
 
-`examples/demo_repo` is the calculator smoke test. It is intentionally tiny and
-answers one question: can the harness start, read a file, patch code, run tests,
+`examples/demo_repo` is the calculator bootstrap scenario. It answers one
+operational question: can the runtime start, read a file, patch code, run tests,
 and write trace evidence?
 
 `examples/webhook_service_repo` is the main validation scenario. It models a
@@ -112,7 +112,7 @@ cd /Users/chenjiahui/Documents/GitHub/NanoHarness
 # Main end-to-end scenario.
 local_scripts/run_webhook_deepseek.sh
 
-# Short single-agent smoke run.
+# Short single-agent bootstrap run.
 local_scripts/run_deepseek.sh
 ```
 
@@ -210,7 +210,7 @@ agent_forge/
   observability/      # trace and metrics
   production/         # diff tracker, run report, ownership/readiness
 docs/study-pack/      # focused study docs for code reading and engineering walkthroughs
-examples/demo_repo/   # tiny repo the agent fixes
+examples/demo_repo/   # bootstrap validation fixture
 examples/webhook_service_repo/ # webhook idempotency benchmark fixture
 scripts/              # setup and verification scripts
 local_scripts/        # two DeepSeek run shortcuts
@@ -227,10 +227,7 @@ docs/study-pack/03-tools-control-safety.md
 docs/study-pack/04-multi-agent-design.md
 docs/study-pack/05-project-briefing.md
 docs/study-pack/06-technical-question-coverage.md
-docs/study-pack/07-technical-answer-bank.md
-docs/study-pack/08-runtime-call-chain-map.md
-docs/study-pack/09-field-readiness-roadmap.md
-docs/study-pack/10-technical-defense-playbook.md
+docs/study-pack/07-schema-delta-guide.md
 ```
 
 Generated traces, reports, caches, and install artifacts are ignored and can be regenerated.

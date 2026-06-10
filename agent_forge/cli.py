@@ -220,6 +220,12 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--execution-env", choices=["local", "worktree"], default="local")
     parser.add_argument("--allow-network", action="store_true")
     parser.add_argument("--cleanup-worktree", action="store_true")
+    parser.add_argument(
+        "--approval-mode",
+        choices=["trusted", "on-write", "on-risk", "locked", "dry-run"],
+        default="trusted",
+        help="Runtime approval posture for tool execution.",
+    )
     parser.add_argument("--mcp-config", help="Load local MCP-style tools from a JSON config file.")
     parser.add_argument(
         "--mcp-allowed-tool",
@@ -381,6 +387,7 @@ def main() -> None:
             execution_environment=environment,
             task_state_root=args.task_state_root,
             resume_state=args.resume_state or "",
+            approval_mode=args.approval_mode,
         )
         llm_config = resolve_llm_config(
             provider=args.llm,
@@ -399,8 +406,6 @@ def main() -> None:
         loop = AgentLoop(runtime_config, trace, registry, llm)
         print(loop.run(args.task))
 
-    environment.cleanup()
-
     trace.write()
     usage_json_path, usage_report_path = write_usage_artifacts(args.trace_file)
     if run_dir is not None and session is not None:
@@ -408,6 +413,7 @@ def main() -> None:
         # human summary; metrics/diff/usage remain machine-readable.
         diff_summary = diff_tracker.summarize_after()
         diff_tracker.write_rollback_bundle(run_dir)
+        environment.write_manifest(run_dir)
         RunReportWriter(run_dir).write(
             task=args.task,
             mode=args.mode,
@@ -419,6 +425,8 @@ def main() -> None:
         store.finish(session, run_dir, trace.final_answer, args.trace_file)
     elif usage_report_path.exists():
         print(f"Usage report: {usage_report_path}")
+
+    environment.cleanup()
 
 
 if __name__ == "__main__":

@@ -1,3 +1,4 @@
+import re
 import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -75,10 +76,10 @@ class ReviewReport:
 def run_review(workspace: str, trace, task: str = "review current diff") -> ReviewReport:
     """Review current git diff with deterministic safety and quality checks.
 
-    This is intentionally not a full PR bot. It provides the core production
-    behavior that a coding-agent runtime needs: read the diff, classify risk,
-    emit trace evidence, and produce a stable report that can be compared across
-    runs or combined with an LLM reviewer later.
+    This is the repository-level review gate. It provides the core behavior a
+    coding-agent runtime needs before publishing changes: read the diff,
+    classify risk, emit trace evidence, and produce a stable report that can be
+    compared across runs or combined with an LLM reviewer later.
     """
 
     root = Path(workspace).resolve()
@@ -109,8 +110,9 @@ def _analyze_diff(changed_files: list[str], diff: str) -> list[ReviewFinding]:
         findings.append(ReviewFinding("info", "repo", "empty diff", "There is no code change to review."))
         return findings
 
-    lowered = diff.lower()
-    if ".env" in "\n".join(changed_files) or "api_key" in lowered or "authorization: bearer" in lowered:
+    added_by_file = _added_lines_by_file(diff)
+    added_text = "\n".join(line for lines in added_by_file.values() for line in lines)
+    if ".env" in "\n".join(changed_files) or _contains_secret_like_value(added_text):
         findings.append(
             ReviewFinding(
                 "high",
@@ -119,11 +121,21 @@ def _analyze_diff(changed_files: list[str], diff: str) -> list[ReviewFinding]:
                 "Diff mentions secret-like material; remove secrets before publishing.",
             )
         )
-    if "subprocess.run" in diff and "shell=True" in diff:
+    shell_risk_paths = [
+        path
+        for path, lines in added_by_file.items()
+        if not _is_test_path(path)
+        and any(
+            ("subprocess.run(" in line or "subprocess.Popen(" in line)
+            and "shell=True" in line
+            for line in lines
+        )
+    ]
+    if shell_risk_paths:
         findings.append(
             ReviewFinding(
                 "high",
-                "repo",
+                ", ".join(shell_risk_paths[:5]),
                 "shell execution risk",
                 "shell=True in a coding-agent tool path needs a strong justification and sandbox boundary.",
             )
@@ -175,6 +187,43 @@ def _verdict(findings: list[ReviewFinding]) -> str:
     if any(finding.severity == "medium" for finding in findings):
         return "needs_attention"
     return "pass"
+
+
+def _added_lines_by_file(diff: str) -> dict[str, list[str]]:
+    """Return added diff lines grouped by new file path."""
+
+    current = ""
+    grouped: dict[str, list[str]] = {}
+    for line in diff.splitlines():
+        if line.startswith("diff --git "):
+            parts = line.split()
+            current = parts[-1][2:] if len(parts) >= 4 and parts[-1].startswith("b/") else ""
+            if current:
+                grouped.setdefault(current, [])
+            continue
+        if line.startswith("+++") or line.startswith("---"):
+            continue
+        if current and line.startswith("+"):
+            grouped.setdefault(current, []).append(line[1:])
+    return grouped
+
+
+def _is_test_path(path: str) -> bool:
+    """Return whether a path is test-only evidence rather than runtime code."""
+
+    lowered = path.lower()
+    return lowered.startswith("tests/") or "/tests/" in lowered or lowered.endswith("_test.py") or "test_" in lowered
+
+
+def _contains_secret_like_value(text: str) -> bool:
+    """Return whether added text contains an actual secret-like value."""
+
+    patterns = [
+        r"Authorization:\s*Bearer\s+(?!\[redacted\]|your-|replace-)[A-Za-z0-9._\-]{16,}",
+        r"(?i)(api[_-]?key|token|secret)\s*[:=]\s*[\"']?(?!your-|replace-|example|test)[A-Za-z0-9._\-]{16,}",
+        r"sk-[A-Za-z0-9_\-]{16,}",
+    ]
+    return any(re.search(pattern, text) for pattern in patterns)
 
 
 def _git_lines(root: Path, command: list[str]) -> list[str]:

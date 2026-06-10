@@ -6,6 +6,7 @@ from typing import Any
 from agent_forge.runtime.observation import Observation
 from agent_forge.safety.sandbox import WorkspaceSandbox
 from agent_forge.tools.adapters.mcp_style_adapter import MCPStyleToolAdapter, MCPStyleToolSpec
+from agent_forge.tools.mcp_stdio import MCPStdioClient, MCPStdioServerSpec, MCPStdioTool
 from agent_forge.tools.registry import ToolRegistry
 
 
@@ -81,6 +82,9 @@ class MCPConfigLoader:
                 continue
             server_name = str(server.get("name") or "local")
             prefix = bool(server.get("prefix_tool_names", True))
+            if server.get("transport") == "stdio" or server.get("command"):
+                rows.extend(self._register_stdio_server(registry, server, explicit_allowlist, server_name, prefix))
+                continue
             for raw_tool in server.get("tools", []):
                 raw_name = str(raw_tool.get("name") or "")
                 if not raw_name:
@@ -104,6 +108,46 @@ class MCPConfigLoader:
                 rows.append(MCPToolRegistration(name, True, "registered"))
 
         return MCPConfigReport(str(path), rows)
+
+    def _register_stdio_server(
+        self,
+        registry: ToolRegistry,
+        server: dict[str, Any],
+        explicit_allowlist: set[str],
+        server_name: str,
+        prefix: bool,
+    ) -> list[MCPToolRegistration]:
+        """Discover and register tools from a command-backed stdio server."""
+
+        rows: list[MCPToolRegistration] = []
+        command = str(server.get("command") or "")
+        if not command:
+            return [MCPToolRegistration(server_name, False, "stdio server missing command")]
+        spec = MCPStdioServerSpec(
+            name=server_name,
+            command=command,
+            args=[str(arg) for arg in server.get("args", [])],
+            env={str(k): str(v) for k, v in (server.get("env") or {}).items()},
+            timeout_seconds=float(server.get("timeout_seconds") or 10.0),
+            prefix_tool_names=prefix,
+        )
+        client = MCPStdioClient(spec)
+        try:
+            tools = client.discover_tools()
+        except Exception as exc:
+            return [MCPToolRegistration(server_name, False, f"stdio discovery failed: {exc}")]
+
+        for remote_tool in tools:
+            remote_name = str(remote_tool.get("name") or "")
+            local_name = f"{server_name}.{remote_name}" if prefix and "." not in remote_name else remote_name
+            if explicit_allowlist and local_name not in explicit_allowlist and remote_name not in explicit_allowlist:
+                rows.append(MCPToolRegistration(local_name, False, "not in MCP allowlist"))
+                continue
+            registry.register(MCPStdioTool(client, local_name, remote_name, remote_tool))
+            rows.append(MCPToolRegistration(local_name, True, "registered stdio tool"))
+        if not tools:
+            rows.append(MCPToolRegistration(server_name, False, "stdio server returned no tools"))
+        return rows
 
     def _handler(self, handler_name: str):
         """Return one supported safe local handler."""

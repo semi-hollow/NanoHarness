@@ -42,7 +42,11 @@ class AgentLoop:
         self.environment = getattr(config, "execution_environment", None) or ExecutionEnvironment(
             ExecutionEnvironmentConfig(workspace=config.workspace)
         )
-        self.hooks = HookManager.default(self.environment, getattr(config, "auto_approve_writes", True))
+        self.hooks = HookManager.default(
+            self.environment,
+            getattr(config, "auto_approve_writes", True),
+            approval_mode=getattr(config, "approval_mode", "trusted"),
+        )
         self.task_state_store = TaskStateStore(getattr(config, "task_state_root", ".agent_forge/task_state"))
 
     def run(self, task, agent_name="CodingAgent"):
@@ -472,6 +476,7 @@ class AgentLoop:
                     action=action,
                     command=command,
                     auto_approve_writes=self.config.auto_approve_writes,
+                    approval_mode=getattr(self.config, "approval_mode", "trusted"),
                 )
 
                 # Hooks are the production-style policy chain. Permission,

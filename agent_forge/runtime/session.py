@@ -144,10 +144,13 @@ class SessionStore:
         )
         usage_json = Path(run_dir) / "usage.json"
         usage_report = Path(run_dir) / "usage_report.md"
+        environment_manifest = Path(run_dir) / "execution_environment.json"
         if usage_json.exists():
             session.artifacts["usage"] = str(usage_json)
         if usage_report.exists():
             session.artifacts["usage_report"] = str(usage_report)
+        if environment_manifest.exists():
+            session.artifacts["execution_environment"] = str(environment_manifest)
         self.write(session, run_dir)
 
     def append_event(self, run_dir: str | Path, event: dict) -> None:
