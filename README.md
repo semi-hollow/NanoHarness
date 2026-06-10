@@ -262,6 +262,7 @@ docs/study-pack/04-multi-agent-design.md
 docs/study-pack/05-project-briefing.md
 docs/study-pack/06-technical-question-coverage.md
 docs/study-pack/07-schema-delta-guide.md
+docs/study-pack/08-mcp-and-external-tools.md
 ```
 
 Generated traces, reports, caches, and install artifacts are ignored and can be regenerated.
