@@ -18,19 +18,29 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 cd "${PROJECT_DIR}"
 
-if [ ! -f ".venv/bin/activate" ]; then
-  echo "Missing .venv. Run scripts/setup_macos_local.sh first." >&2
-  exit 1
+if [ -z "${PYTHON_BIN:-}" ]; then
+  if [ -x ".venv/bin/python" ]; then
+    PYTHON_BIN=".venv/bin/python"
+  elif command -v python >/dev/null 2>&1; then
+    PYTHON_BIN="python"
+  elif command -v python3 >/dev/null 2>&1; then
+    PYTHON_BIN="python3"
+  else
+    echo "Could not find a usable Python interpreter." >&2
+    exit 1
+  fi
 fi
 
-# shellcheck disable=SC1091
-source .venv/bin/activate
+if [ -f ".venv/bin/activate" ]; then
+  # shellcheck disable=SC1091
+  source .venv/bin/activate
+fi
 
 export AGENT_FORGE_WEB_PROVIDER="${AGENT_FORGE_WEB_PROVIDER:-offline}"
 
-python -m agent_forge.mcp.builtin_server --workspace . --list-tools >/tmp/agent_forge_mcp_tools.json
+"${PYTHON_BIN}" -m agent_forge.mcp.builtin_server --workspace . --list-tools >/tmp/agent_forge_mcp_tools.json
 
-python - <<'PY'
+"${PYTHON_BIN}" - <<'PY'
 import json
 import sys
 

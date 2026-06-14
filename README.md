@@ -1,11 +1,40 @@
 # Agent Forge
 
+[![Agent Forge CI](https://github.com/semi-hollow/NanoHarness/actions/workflows/agent-forge-ci.yml/badge.svg)](https://github.com/semi-hollow/NanoHarness/actions/workflows/agent-forge-ci.yml)
+[![Python 3.11](https://img.shields.io/badge/python-3.11-blue.svg)](https://www.python.org/downloads/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+
 Agent Forge is a production-style CodingAgent runtime core. It focuses on the
 engineering control plane behind systems like Codex and Claude Code: context
 engineering, model gateway, tool governance, execution environment, approval
 hooks, task state, review workflow, trace, usage, and eval regression. Product
 surfaces such as TUI/IDE plugins and cloud hosting are intentionally outside the
 repo so the core runtime stays readable.
+
+## Architecture At A Glance
+
+```mermaid
+flowchart TD
+    User["User task / CLI"] --> CLI["run_demo.py / agent_forge.cli"]
+    CLI --> Loop["AgentLoop"]
+    CLI --> Supervisor["SupervisorAgent / TaskGraph"]
+    CLI --> Workflow["Deterministic workflow baseline"]
+
+    Loop --> Context["ContextBuilder / ContextStrategy"]
+    Context --> Retrieval["repo map / file ranker / lexical RAG / symbol search / memory"]
+    Loop --> Gateway["ModelGateway"]
+    Gateway --> LLM["Mock / DeepSeek / OpenAI-compatible LLM"]
+    Loop --> Router["ToolRouter"]
+    Router --> Registry["ToolRegistry"]
+    Registry --> Safety["HookManager / PermissionPolicy / CommandPolicy / WorkspaceSandbox"]
+    Registry --> Tools["read / write / grep / patch / run / git / diagnostics"]
+    Registry --> MCP["MCP stdio tools: repo_policy / time / web_search / web_fetch"]
+    Loop --> Trace["TraceRecorder"]
+    Trace --> Usage["usage_report.md / metrics / evidence"]
+    Loop --> Eval["eval_cases / eval_runner / regression history"]
+```
+
+![WebhookPatchBench usage report snapshot](docs/assets/webhook-usage-report-snapshot.svg)
 
 ## What This Project Teaches
 
@@ -264,6 +293,16 @@ docs/study-pack/06-technical-question-coverage.md
 docs/study-pack/07-schema-delta-guide.md
 docs/study-pack/08-mcp-and-external-tools.md
 docs/study-pack/09-project-profile.md
+```
+
+Open-source readiness artifacts:
+
+```text
+docs/open-source-readiness/README.md
+docs/open-source-readiness/benchmark-summary.md
+docs/open-source-readiness/ablation-notes.md
+docs/open-source-readiness/docker-sandbox-extension-plan.md
+docs/open-source-readiness/provider-comparison.md
 ```
 
 Generated traces, reports, caches, and install artifacts are ignored and can be regenerated.

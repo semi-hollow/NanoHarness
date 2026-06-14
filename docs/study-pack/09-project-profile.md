@@ -91,21 +91,28 @@ Designed the project as a readable systems reference for agent runtime architect
 | 成本/延迟没有长期趋势 | 有单次 usage report，缺 dashboard。 | 会被问成本优化是否可持续。 | 增加 usage history、provider comparison、per-case trend。 |
 | 工具安全不够企业级 | 有 allowlist、approval、guardrail、sandbox。 | 会被问 prompt injection、secret exfiltration、non-idempotent rollback。 | 增强 policy tests、secret scanner、dry-run plan、non-idempotent operation ledger。 |
 
-## 开源前建议补的 P0/P1
+## 当前发布面
 
-P0 是发布前最好补上的，不一定是 Agent 核心，但影响别人第一眼判断成熟度。
+这些能力已经补到仓库里，用于支撑对外阅读、复现和审查。
 
-| priority | item | why |
+| level | item | repository evidence |
 |---|---|---|
-| P0 | `LICENSE` | 没 license 的项目不算真正可复用开源项目。 |
-| P0 | GitHub Actions CI | 让别人看到每次 push 都跑 verify/unit tests。 |
-| P0 | README 顶部架构图和快速 demo GIF/screenshot | 开源项目第一屏要让人 30 秒知道价值。 |
-| P0 | CONTRIBUTING / SECURITY | 显示你理解开源协作和安全披露边界。 |
-| P0 | Release checklist | 说明如何跑 mock、DeepSeek、MCP、WebhookPatchBench。 |
-| P1 | Benchmark summary table | 把 23 个 eval case 的能力覆盖和结果做成表。 |
-| P1 | Ablation notes | 对比无 context strategy、无 tool router、无 hooks 时的失败模式。 |
-| P1 | Docker sandbox extension plan | 不必完整实现，但给出接口设计。 |
-| P1 | Provider comparison report | Mock / DeepSeek / OpenAI-compatible 的成本、延迟、失败类型对比。 |
+| P0 | License | `LICENSE` |
+| P0 | CI | `.github/workflows/agent-forge-ci.yml` |
+| P0 | README first-screen architecture and demo evidence | README badges, Mermaid architecture, `docs/assets/webhook-usage-report-snapshot.svg` |
+| P0 | Contributor and security policy | `CONTRIBUTING.md`, `SECURITY.md` |
+| P0 | Release checklist | `RELEASE_CHECKLIST.md` |
+| P1 | Benchmark summary table | `docs/open-source-readiness/benchmark-summary.md` |
+| P1 | Ablation notes | `docs/open-source-readiness/ablation-notes.md` |
+| P1 | Docker sandbox extension plan | `docs/open-source-readiness/docker-sandbox-extension-plan.md` |
+| P1 | Provider comparison report | `docs/open-source-readiness/provider-comparison.md` |
+
+仍然建议后续增强：
+
+- 把 benchmark summary 从手写表升级为自动生成。
+- 把 ablation notes 升级成可重复运行的 ablation runner。
+- 把 Docker sandbox plan 升级成可选 backend。
+- 把 provider comparison 升级成多 provider 批量运行报告。
 
 ## 技术讲解主线
 
