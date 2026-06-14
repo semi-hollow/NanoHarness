@@ -1,0 +1,25 @@
+{
+  "allowed_tools": [
+    "forge.repo_policy",
+    "forge.current_time",
+    "forge.web_search",
+    "forge.web_fetch"
+  ],
+  "servers": [
+    {
+      "name": "forge",
+      "enabled": true,
+      "transport": "stdio",
+      "prefix_tool_names": true,
+      "command": "python",
+      "args": [
+        "-m",
+        "agent_forge.mcp.builtin_server",
+        "--workspace",
+        "."
+      ],
+      "cwd": ".",
+      "timeout_seconds": 20
+    }
+  ]
+}

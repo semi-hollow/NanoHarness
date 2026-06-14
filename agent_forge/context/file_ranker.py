@@ -1,0 +1,94 @@
+from pathlib import Path
+
+
+def _terms(query: str) -> list[str]:
+    """Split task text into simple lowercase terms for explainable scoring."""
+
+    return [part.lower() for part in query.replace("/", " ").replace("_", " ").replace("-", " ").split() if part]
+
+
+def _looks_like_code_task(terms: list[str]) -> bool:
+    """Detect code-oriented tasks so source/test files rank above docs."""
+
+    code_words = {
+        "add",
+        "bug",
+        "class",
+        "def",
+        "debug",
+        "fix",
+        "function",
+        "implement",
+        "method",
+        "patch",
+        "refactor",
+        "test",
+    }
+    return any(term in code_words for term in terms)
+
+
+def rank_files(query: str, files: list[str], root: str | Path = ".") -> list[str]:
+    """Rank candidate files by path/content relevance to the user task.
+
+    This is the repo-specific retrieval stage. It deliberately uses transparent
+    heuristics instead of embeddings so a learner can explain why a file was
+    selected: path match, filename match, content match, source/test preference,
+    and generated-artifact penalty.
+    """
+
+    root_path = Path(root)
+    terms = _terms(query)
+    code_task = _looks_like_code_task(terms)
+
+    def score(path: str) -> tuple[int, str]:
+        """Return sortable score; lower tuple means more relevant."""
+
+        lowered_path = path.lower()
+        path_obj = Path(path)
+        suffix = path_obj.suffix.lower()
+        parts = set(path_obj.parts)
+        stem_terms = _terms(path_obj.stem)
+        value = 0
+
+        # Path/name matches are strong signals in coding tasks because users
+        # often mention module names, file names, or symbols in the request.
+        for term in terms:
+            if term in lowered_path:
+                value += 8
+            if term in stem_terms:
+                value += 10
+
+        # Content matching is weaker but helps when the user names a function
+        # or concept that appears inside a file but not in its path.
+        try:
+            text = (root_path / path).read_text(encoding="utf-8", errors="ignore").lower()
+        except OSError:
+            text = ""
+
+        for term in terms:
+            value += min(text.count(term), 5)
+
+        # Prefer Python source/tests for code tasks. Penalize docs/eval artifacts
+        # so prompt budget goes to executable code first.
+        if path.endswith(".py"):
+            value += 4
+        if "/tests/" in f"/{path}":
+            value += 2
+        if code_task and suffix == ".py":
+            value += 4
+        if code_task and ({"src", "agent_forge", "examples"} & parts):
+            value += 3
+        if code_task and ("docs" in parts or suffix in {".md", ".json"}):
+            value -= 6
+        if code_task and parts & {"eval_cases"}:
+            value -= 4
+        if parts & {".agent_forge", ".venv", "__pycache__"}:
+            value -= 30
+        if path_obj.name in {"agent_forge_trace.json", "eval_report.md"} or path_obj.name.endswith("_trace.json"):
+            value -= 10
+
+        # Negate score because Python sorting is ascending; keep path as a
+        # deterministic tie-breaker for stable traces.
+        return (-value, path)
+
+    return sorted(files, key=score)

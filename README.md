@@ -1,159 +1,308 @@
-# NanoHarness
+# Agent Forge
 
-NanoHarness is an Agent Engineering portfolio project. The repository currently contains one main implementation:
+[![Agent Forge CI](https://github.com/semi-hollow/NanoHarness/actions/workflows/agent-forge-ci.yml/badge.svg)](https://github.com/semi-hollow/NanoHarness/actions/workflows/agent-forge-ci.yml)
+[![Python 3.11](https://img.shields.io/badge/python-3.11-blue.svg)](https://www.python.org/downloads/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-- [`agent-forge/`](agent-forge/) - a compact Agent Harness / Agent Engineering Lab for coding-agent interviews, learning, safety, tracing, and evaluation.
+Agent Forge is a production-style CodingAgent runtime core. It focuses on the
+engineering control plane behind systems like Codex and Claude Code: context
+engineering, model gateway, tool governance, execution environment, approval
+hooks, task state, review workflow, trace, usage, and eval regression. Product
+surfaces such as TUI/IDE plugins and cloud hosting are intentionally outside the
+repo so the core runtime stays readable.
 
-The repository name is **NanoHarness** because the long-term direction is a small but complete harness for understanding how agents become controlled execution systems. The current project folder is still named **agent-forge** because it was built first under that name and already has its own package, docs, tests, eval cases, and CI workflow.
+## Architecture At A Glance
 
-## Why Is There an `agent-forge/` Folder?
+```mermaid
+flowchart TD
+    User["User task / CLI"] --> CLI["run_demo.py / agent_forge.cli"]
+    CLI --> Loop["AgentLoop"]
+    CLI --> Supervisor["SupervisorAgent / TaskGraph"]
+    CLI --> Workflow["Deterministic workflow baseline"]
 
-This is intentional for the current stage.
-
-`agent-forge/` is the real project implementation directory. Keeping it as a subfolder avoids unnecessary churn in:
-
-- Python package paths;
-- documentation links;
-- eval case paths;
-- GitHub Actions working directories;
-- existing project history.
-
-For review purposes, treat `agent-forge/` as the project root.
-
-Long term, if this repository remains a single-project repo, a cleanup migration could move `agent-forge/` contents to the repository root or rename the folder to `nanoharness/`. That is a polish step, not a functional blocker.
-
-## Start Here
-
-1. Read the original project source of truth:
-   - [`agent-forge/00-项目原始设计方案-source-of-truth.md`](agent-forge/00-%E9%A1%B9%E7%9B%AE%E5%8E%9F%E5%A7%8B%E8%AE%BE%E8%AE%A1%E6%96%B9%E6%A1%88-source-of-truth.md)
-2. Read the implementation README:
-   - [`agent-forge/README.md`](agent-forge/README.md)
-3. Read the capability evidence map:
-   - [`agent-forge/docs/capability-evidence-map.md`](agent-forge/docs/capability-evidence-map.md)
-4. Read the reviewer guide:
-   - [`agent-forge/docs/reviewer-guide.md`](agent-forge/docs/reviewer-guide.md)
-5. Read the V2 change archive:
-   - [`agent-forge/docs/references/codex-v2-change-archive.md`](agent-forge/docs/references/codex-v2-change-archive.md)
-
-## What Agent Forge Covers
-
-Agent Forge is not a chatbot and not a Claude/OpenCode clone. It is a runnable engineering harness that demonstrates the control layer behind coding agents:
-
-- Agent Loop
-- Tool Calling
-- Observation feedback
-- Workflow vs dynamic Agent execution
-- Multi-Agent Supervisor/Subagent flow
-- Handoff
-- Context Engineering
-- Memory and simplified RAG
-- Permission and workspace sandbox
-- Guardrails
-- Human-in-the-loop approval
-- Observability and trace JSON
-- Metrics summary
-- Eval benchmark
-- Production-readiness docs
-- Interview Q&A and project storytelling material
-
-## Repository Layout
-
-```text
-NanoHarness/
-  README.md                         # This repository-level guide
-  .github/workflows/                # GitHub Actions for Agent Forge
-  agent-forge/
-    README.md                       # Main implementation README
-    00-项目原始设计方案-source-of-truth.md
-    run_demo.py
-    agent_forge/                    # Python package
-    examples/demo_repo/             # Demo coding task
-    eval_cases/                     # Executable eval benchmark cases
-    scripts/verify.sh               # One-command local verification
-    tests/                          # unittest test suite
-    docs/                           # Design docs and interview material
-    tutorials/                      # nanoAgent-style learning path
+    Loop --> Context["ContextBuilder / ContextStrategy"]
+    Context --> Retrieval["repo map / file ranker / lexical RAG / symbol search / memory"]
+    Loop --> Gateway["ModelGateway"]
+    Gateway --> LLM["Mock / DeepSeek / OpenAI-compatible LLM"]
+    Loop --> Router["ToolRouter"]
+    Router --> Registry["ToolRegistry"]
+    Registry --> Safety["HookManager / PermissionPolicy / CommandPolicy / WorkspaceSandbox"]
+    Registry --> Tools["read / write / grep / patch / run / git / diagnostics"]
+    Registry --> MCP["MCP stdio tools: repo_policy / time / web_search / web_fetch"]
+    Loop --> Trace["TraceRecorder"]
+    Trace --> Usage["usage_report.md / metrics / evidence"]
+    Loop --> Eval["eval_cases / eval_runner / regression history"]
 ```
 
-## Quickstart
+![WebhookPatchBench usage report snapshot](docs/assets/webhook-usage-report-snapshot.svg)
 
-Run commands from `agent-forge/`:
+## What This Project Teaches
+
+- Context engineering: repo map, file ranking, lexical retrieval, selected file previews, token budget, memory summary, and topic-shift handling.
+- Agent loop control: plan, LLM call, tool call, observation, recovery, final answer.
+- Tool governance: schema validation, permission policy, sandbox path checks, high-risk command blocking, and human approval hooks.
+- Runtime reliability: repeated-action detection, retryability classification, max steps, timeout, cost budget, trace, reports, and rollback bundle.
+- Execution environment: local/worktree mode, network policy, branch-risk command blocking, and observation redaction.
+- Runtime hooks: pre-tool approval, post-tool redaction, and stop-time audit hooks.
+- Task state: checkpoint, resume seeding, and trace replay for long-running tasks.
+- Review workflow: deterministic diff review for safety, runtime, and validation risk.
+- MCP tools: built-in stdio MCP server, schema discovery, allowlist registration, repo policy, time, web fetch, and optional web search providers.
+- Multi-agent orchestration: supervisor, role specs, task graph, artifact handoff, ownership, validation, retry, and review.
+- Model switching: mock, Ollama, company OpenAI-compatible APIs, or online OpenAI-compatible providers.
+
+## Quick Start
 
 ```bash
-cd agent-forge
+cd /path/to/NanoHarness
+source .venv/bin/activate
+python run_demo.py --mode single --trace-file trace-single.json
+python run_demo.py --mode multi --trace-file trace-multi.json
+python run_demo.py --mode workflow
+```
+
+For one-command local verification:
+
+```bash
 scripts/verify.sh
 ```
 
-The default demos use `MockLLMClient`, so no API key is required.
+The terminal output is intentionally quiet. The detailed evidence is in the trace JSON, usage report, or session report.
 
-## Verified Status
+## Core Commands
 
-Latest local verification recorded during V2 work:
+```bash
+# Single runtime path: AgentLoop + context + tools + recovery.
+python run_demo.py --mode single --trace-file trace-single.json
 
-- single-agent demo: passed
-- multi-agent demo: passed
-- workflow demo: passed
-- unit tests: 44 passed
-- eval benchmark: 19/19 passed
-- Python compile check: passed
+# Runtime-backed multi-agent path.
+python run_demo.py --mode multi --trace-file trace-multi.json
 
-See [`agent-forge/docs/run-results.md`](agent-forge/docs/run-results.md) for recorded evidence. Running `scripts/verify.sh` also regenerates local ignored artifacts such as `eval_report.md` and trace JSON files.
+# Deterministic workflow baseline, useful for comparison.
+python run_demo.py --mode workflow
 
-## Review Guide
+# Persisted run sessions.
+python run_demo.py --list-sessions
+python run_demo.py --show-run <session_id>
+python run_demo.py --resume-run <session_id> --mode single
+python run_demo.py --rollback-run <session_id>
 
-For the full review path, use [`agent-forge/docs/reviewer-guide.md`](agent-forge/docs/reviewer-guide.md).
+# Review current git diff.
+python run_demo.py --mode review
 
-If you are reviewing this project, start with these questions:
+# Run in an isolated git worktree instead of the current checkout.
+python run_demo.py --mode single --execution-env worktree
 
-1. Can the demo actually run without a real API key?
-2. Does the Agent Loop show tool calls and observations clearly?
-3. Are unsafe actions blocked by permission, sandbox, or guardrails?
-4. Are traces detailed enough to debug an agent run?
-5. Does eval execute real `verify.py` files instead of hardcoding success?
-6. Are the current boundaries honestly documented?
+# Inspect task-state checkpoints and replay traces.
+python run_demo.py --list-task-states
+python run_demo.py --show-task-state <run_id>
+python run_demo.py --resume-state <run_id> --mode single
+python run_demo.py --replay-run .agent_forge/latest/webhook-deepseek/trace.json
 
-Relevant files:
-
-- Runtime: [`agent-forge/agent_forge/runtime/agent_loop.py`](agent-forge/agent_forge/runtime/agent_loop.py)
-- LLM clients: [`agent-forge/agent_forge/runtime/llm_client.py`](agent-forge/agent_forge/runtime/llm_client.py)
-- Tool registry: [`agent-forge/agent_forge/tools/registry.py`](agent-forge/agent_forge/tools/registry.py)
-- Safety: [`agent-forge/agent_forge/safety/`](agent-forge/agent_forge/safety/)
-- Context: [`agent-forge/agent_forge/context/`](agent-forge/agent_forge/context/)
-- Observability: [`agent-forge/agent_forge/observability/`](agent-forge/agent_forge/observability/)
-- Eval runner: [`agent-forge/agent_forge/eval/eval_runner.py`](agent-forge/agent_forge/eval/eval_runner.py)
-
-## Generated Artifacts
-
-Agent demos and eval runs generate local files such as:
-
-- `agent-forge/eval_report.md`
-- `agent-forge/agent_forge_trace.json`
-- `agent-forge/*_trace.json`
-- `agent-forge/summary.md`
-
-These are ignored by git so normal demo runs do not dirty the repository. Use `agent-forge/docs/run-results.md` for checked-in evidence and `scripts/verify.sh` to regenerate local reports.
-
-## GitHub About
-
-Suggested repository description:
-
-```text
-A compact Agent Harness for coding-agent runtime, tools, safety, tracing, eval, and interview-ready documentation.
+# Load the built-in MCP stdio server as external tools.
+scripts/verify_mcp.sh
+python run_demo.py --mcp-config mcp_tools.example.json --mcp-allowed-tool forge.repo_policy \
+  "use the repo_policy tool to summarize command rules"
 ```
 
-## Naming Decision
+## Validation Scenarios
 
-Current naming:
+`examples/demo_repo` is the calculator bootstrap scenario. It answers one
+operational question: can the runtime start, read a file, patch code, run tests,
+and write trace evidence?
 
-- **NanoHarness**: repository and long-term project brand.
-- **Agent Forge**: current implementation module / subproject.
+`examples/webhook_service_repo` is the main validation scenario. It models a
+webhook service that verifies signatures, stores events, and enqueues jobs. The
+committed fixture starts with a duplicate-delivery bug: the same `event_id`
+creates duplicate records and duplicate jobs. Running the benchmark asks the
+agent to read the issue and relevant files, add idempotency before side effects,
+run tests, and produce trace plus usage artifacts.
 
-This is acceptable for now because the implementation is coherent and documented. The most important improvement was adding this repository-level README so GitHub visitors understand where the real project lives.
+```bash
+local_scripts/run_webhook_deepseek.sh
+```
 
-If you want the cleanest final portfolio shape later, choose one of these:
+This is the primary real-model entrypoint. It uses DeepSeek and writes
+`.agent_forge/latest/webhook-deepseek/usage_report.md` plus the raw
+`.agent_forge/latest/webhook-deepseek/trace.json`.
 
-- Option A: keep `agent-forge/` and describe it as the first harness implementation inside NanoHarness.
-- Option B: move `agent-forge/` contents to repo root and make NanoHarness the only visible project name.
-- Option C: rename `agent-forge/` to `nanoharness/` and update package/docs/CI paths.
+This scenario is useful for engineering walkthroughs because it exercises
+repo-level context selection, issue-driven code modification, tool calling,
+patch application, test execution, sandbox boundaries, eval verification,
+reviewer safety checks, trace evidence, and rollback/report artifacts without
+forcing you to learn a large business system.
 
-Recommended now: **Option A**. It is clear, low-risk, and preserves the existing working project.
+## MCP And External Tools
+
+`mcp_tools.example.json` starts the built-in stdio MCP server:
+
+```bash
+python -m agent_forge.mcp.builtin_server --workspace . --list-tools
+scripts/verify_mcp.sh
+```
+
+Available tools:
+
+```text
+forge.repo_policy   # read/search FORGE.md
+forge.current_time  # local and UTC time
+forge.web_search    # offline by default; optional DuckDuckGo/OpenAI/Claude lookup
+forge.web_fetch     # fetch one HTTP/HTTPS page when network is explicitly enabled
+```
+
+Default web search is offline so company verification does not make network
+calls. For a local live lookup:
+
+```bash
+AGENT_FORGE_MCP_ALLOW_NETWORK=1 \
+AGENT_FORGE_WEB_PROVIDER=duckduckgo \
+python run_demo.py --mcp-config mcp_tools.example.json \
+  "search the web for public MCP tool examples"
+```
+
+OpenAI and Claude hosted web search can also be wrapped behind the same MCP
+tool by setting `AGENT_FORGE_WEB_PROVIDER=openai` with `OPENAI_API_KEY`, or
+`AGENT_FORGE_WEB_PROVIDER=claude` with `ANTHROPIC_API_KEY`.
+
+## DeepSeek Runs
+
+Personal Mac default, using DeepSeek V4 Flash. If you already wrote the key into
+your macOS zsh environment, use one of these two scripts:
+
+```bash
+cd /Users/chenjiahui/Documents/GitHub/NanoHarness
+
+# Main end-to-end scenario.
+local_scripts/run_webhook_deepseek.sh
+
+# Short single-agent bootstrap run.
+local_scripts/run_deepseek.sh
+```
+
+One-time zsh setup on your personal Mac:
+
+```bash
+echo 'export DEEPSEEK_API_KEY="your-deepseek-api-key"' >> ~/.zshrc
+source ~/.zshrc
+```
+
+Check that the key is available in a new terminal:
+
+```bash
+echo "$DEEPSEEK_API_KEY"
+```
+
+The equivalent raw CLI command is:
+
+```bash
+python run_demo.py --mode single --llm deepseek --trace-file .agent_forge/latest/single-deepseek/trace.json
+```
+
+Mock mode still works offline through the CLI:
+
+```bash
+python run_demo.py --mode single --llm mock --trace-file trace-mock.json
+```
+
+Any OpenAI-compatible API can still be used through the raw CLI when needed:
+
+```bash
+python run_demo.py --mode single --llm openai \
+  --base-url http://localhost:11434/v1 \
+  --api-key ollama \
+  --model qwen2.5-coder:7b
+```
+
+Never commit real API keys. Keep `DEEPSEEK_API_KEY` in your personal shell
+environment or a local ignored file only. `.env`, `.env.local`,
+and `llm_profiles.json` are ignored. Company/offline verification should keep
+using `--llm mock` or `scripts/verify.sh`.
+
+## Reading Run Output
+
+The two DeepSeek shortcuts now write into `.agent_forge/latest/` instead of the
+project root. Each new run overwrites the previous files for that shortcut.
+
+```text
+.agent_forge/latest/webhook-deepseek/
+  usage_report.md   # read this first
+  trace.json        # raw event evidence
+
+.agent_forge/latest/single-deepseek/
+  usage_report.md   # read this first
+  trace.json        # raw event evidence
+```
+
+The scripts also restore the teaching fixtures after each run so your Git tree
+does not stay dirty. If you want to inspect the generated code diff, run with
+`KEEP_PATCH=1`.
+
+`trace.json` is already indented JSON. The older `*.pretty.json` files were only
+formatted copies of the same trace, so the local scripts no longer generate
+them.
+
+VS Code can format JSON with `Shift + Option + F` after opening the file.
+PyCharm can format JSON with `Option + Command + L` or `Code -> Reformat Code`.
+
+Open `usage_report.md` when you want the engineering view:
+
+- Run Summary: total LLM calls, input/output tokens, cache hit/miss, estimated cost, latency.
+- Step Breakdown: every model call by step, agent, provider/model, tokens, cost, latency, and action summary.
+- Context Breakdown: where prompt budget went, such as system context, history, tool schemas, memory, retrieved docs, and file previews.
+- Tool Efficiency: per-tool call count, success rate, failed observations, observation size, and duration.
+
+`run_demo.py` can still produce machine-readable `usage.json` for raw CLI runs,
+but the local scripts remove it by default because it is not the file you should
+study by hand.
+
+Committed snapshots are also available under `docs/run-artifacts/` so other
+devices can read the reports without rerunning DeepSeek.
+
+## Project Structure
+
+```text
+agent_forge/
+  cli.py              # CLI composition and mode dispatch
+  runtime/            # AgentLoop, hooks, execution environment, task state
+  context/            # context strategy, repo map, memory, retrieval, ranking
+  tools/              # built-in tools, MCP-style config loader, adapters
+  mcp/                # built-in stdio MCP server and external lookup tools
+  safety/             # guardrails, permission, command policy, sandbox
+  models/             # provider gateway, retry/fallback, usage telemetry
+  agents/             # SupervisorAgent and handoff policy
+  workflows/          # TaskGraph, TaskScheduler, deterministic baseline
+  observability/      # trace and metrics
+  production/         # diff tracker, run report, ownership/readiness
+docs/study-pack/      # focused study docs for code reading and engineering walkthroughs
+examples/demo_repo/   # bootstrap validation fixture
+examples/webhook_service_repo/ # webhook idempotency benchmark fixture
+scripts/              # setup and verification scripts
+local_scripts/        # two DeepSeek run shortcuts
+```
+
+## Study Pack
+
+Read these in order:
+
+```text
+docs/study-pack/01-code-map-and-architecture.md
+docs/study-pack/02-agent-loop-context-memory.md
+docs/study-pack/03-tools-control-safety.md
+docs/study-pack/04-multi-agent-design.md
+docs/study-pack/05-project-briefing.md
+docs/study-pack/06-technical-question-coverage.md
+docs/study-pack/07-schema-delta-guide.md
+docs/study-pack/08-mcp-and-external-tools.md
+docs/study-pack/09-project-profile.md
+```
+
+Open-source readiness artifacts:
+
+```text
+docs/open-source-readiness/README.md
+docs/open-source-readiness/benchmark-summary.md
+docs/open-source-readiness/ablation-notes.md
+docs/open-source-readiness/docker-sandbox-extension-plan.md
+docs/open-source-readiness/provider-comparison.md
+```
+
+Generated traces, reports, caches, and install artifacts are ignored and can be regenerated.

@@ -1,2 +1,32 @@
 .DS_Store
 .idea/
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+*.egg-info/
+.env
+.env.local
+!examples/webhook_service_repo/.env
+# Personal one-off provider wrappers may contain API keys. They are not part of
+# the committed script surface, but keep them ignored as a safety net.
+local_scripts/run_online_llm.sh
+llm_profiles.json
+agent_forge_trace.json
+eval_report.md
+summary.md
+.agent_forge/
+
+# generated traces / reports
+*_trace.json
+trace-*.json
+trace-*.pretty.json
+*.usage.json
+*.usage_report.md
+usage.json
+usage_report.md
+
+# Committed study snapshots. Runtime outputs remain ignored elsewhere, but
+# these curated reports are intentionally versioned for cross-device reading.
+!docs/run-artifacts/
+!docs/run-artifacts/**

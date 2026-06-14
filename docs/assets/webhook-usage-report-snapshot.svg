@@ -1,0 +1,35 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="920" height="420" viewBox="0 0 920 420" role="img" aria-labelledby="title desc">
+  <title id="title">WebhookPatchBench usage report snapshot</title>
+  <desc id="desc">A compact static snapshot of the Agent Forge usage report showing tokens, cost, tool calls, and per-step actions.</desc>
+  <rect width="920" height="420" rx="16" fill="#0f172a"/>
+  <rect x="28" y="28" width="864" height="364" rx="10" fill="#111827" stroke="#334155"/>
+  <text x="54" y="72" fill="#e5e7eb" font-family="Menlo, Consolas, monospace" font-size="22" font-weight="700">Agent Forge Usage Report</text>
+  <text x="54" y="108" fill="#94a3b8" font-family="Menlo, Consolas, monospace" font-size="14">WebhookPatchBench / DeepSeek / per-step runtime evidence</text>
+
+  <g font-family="Menlo, Consolas, monospace" font-size="14">
+    <rect x="54" y="138" width="180" height="72" rx="8" fill="#1f2937" stroke="#475569"/>
+    <text x="72" y="166" fill="#a7f3d0">LLM calls</text>
+    <text x="72" y="194" fill="#f8fafc" font-size="24" font-weight="700">5</text>
+
+    <rect x="254" y="138" width="180" height="72" rx="8" fill="#1f2937" stroke="#475569"/>
+    <text x="272" y="166" fill="#a7f3d0">Total tokens</text>
+    <text x="272" y="194" fill="#f8fafc" font-size="24" font-weight="700">24,018</text>
+
+    <rect x="454" y="138" width="180" height="72" rx="8" fill="#1f2937" stroke="#475569"/>
+    <text x="472" y="166" fill="#a7f3d0">Estimated cost</text>
+    <text x="472" y="194" fill="#f8fafc" font-size="24" font-weight="700">$0.0030</text>
+
+    <rect x="654" y="138" width="180" height="72" rx="8" fill="#1f2937" stroke="#475569"/>
+    <text x="672" y="166" fill="#a7f3d0">Tool calls</text>
+    <text x="672" y="194" fill="#f8fafc" font-size="24" font-weight="700">11 / 0 failed</text>
+  </g>
+
+  <g font-family="Menlo, Consolas, monospace" font-size="13">
+    <text x="54" y="252" fill="#e2e8f0" font-weight="700">Step Breakdown</text>
+    <text x="54" y="282" fill="#94a3b8">1  context + list_files      input=2800   output=104   latency=1439ms</text>
+    <text x="54" y="310" fill="#94a3b8">2  read relevant files       input=3137   output=314   latency=2790ms</text>
+    <text x="54" y="338" fill="#94a3b8">3  apply idempotency patch   input=4822   output=779   latency=6615ms</text>
+    <text x="54" y="366" fill="#94a3b8">4  run unittest validation   input=5579   output=121   latency=1383ms</text>
+  </g>
+</svg>
+
