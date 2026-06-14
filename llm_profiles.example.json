@@ -1,0 +1,21 @@
+{
+  "profiles": {
+    "mock": {
+      "provider": "mock"
+    },
+    "deepseek": {
+      "provider": "deepseek",
+      "base_url": "https://api.deepseek.com",
+      "api_key": "replace-with-DEEPSEEK_API_KEY-or-local-secret",
+      "model": "deepseek-v4-flash",
+      "timeout": 60
+    },
+    "openai-compatible": {
+      "provider": "openai",
+      "base_url": "https://your-provider-or-company-gateway/v1",
+      "api_key": "replace-with-env-or-local-secret",
+      "model": "your-model",
+      "timeout": 60
+    }
+  }
+}
