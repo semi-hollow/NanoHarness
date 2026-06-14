@@ -168,7 +168,7 @@ python run_demo.py --mcp-config mcp_tools.example.json \
   "search latest public information about MCP tool ecosystems"
 ```
 
-面试里可以这样讲：Hosted web search 是 provider capability；MCP 是 tool protocol boundary。
+技术讲解时可以这样说：Hosted web search 是 provider capability；MCP 是 tool protocol boundary。
 本项目把 provider capability 包成 MCP tool，AgentLoop 只看到统一 tool schema、统一权限、
 统一 observation、统一 trace。这比在 agent loop 里到处写 provider if/else 更可控。
 
