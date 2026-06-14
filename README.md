@@ -263,6 +263,7 @@ docs/study-pack/05-project-briefing.md
 docs/study-pack/06-technical-question-coverage.md
 docs/study-pack/07-schema-delta-guide.md
 docs/study-pack/08-mcp-and-external-tools.md
+docs/study-pack/09-project-profile.md
 ```
 
 Generated traces, reports, caches, and install artifacts are ignored and can be regenerated.
