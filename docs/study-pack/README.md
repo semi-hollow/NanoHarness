@@ -15,6 +15,7 @@ Read in this order:
 7. `07-schema-delta-guide.md`
 8. `08-mcp-and-external-tools.md`
 9. `09-project-profile.md`
+10. `10-baseline-to-current-delta.md`
 
 Run while reading:
 

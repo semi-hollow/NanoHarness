@@ -293,6 +293,7 @@ docs/study-pack/06-technical-question-coverage.md
 docs/study-pack/07-schema-delta-guide.md
 docs/study-pack/08-mcp-and-external-tools.md
 docs/study-pack/09-project-profile.md
+docs/study-pack/10-baseline-to-current-delta.md
 ```
 
 Open-source readiness artifacts:
