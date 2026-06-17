@@ -26,6 +26,21 @@ class AgentLoop:
     directly. ``multi`` mode reuses it through ``AgentRuntime`` so supervisor
     workers share the same context, tool, permission, observation, and trace
     semantics.
+
+    Why it cannot be replaced by a simple function:
+        The loop must coordinate mutable state across many boundaries:
+        prompt context, model response parsing, tool policy, observations,
+        recovery signals, budget checks, evidence, task checkpoints, and final
+        answer guardrails. Splitting those concerns into hidden callbacks would
+        make the system harder to debug.
+
+    Method map:
+        ``__init__`` wires runtime dependencies.
+        ``run`` is the only public execution path.
+        ``_permission_action`` maps tool names to policy action classes.
+        ``_update_task_state`` persists checkpoint changes.
+        ``_stop_run`` writes terminal state, hook notifications, and trace
+        context.
     """
 
     def __init__(self, config, trace, registry, llm=None):

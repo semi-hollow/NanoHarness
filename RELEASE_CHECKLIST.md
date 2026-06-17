@@ -47,10 +47,7 @@ Do not commit `.agent_forge/` runtime outputs.
 
 ## 4. Open-Source Readiness
 
-- [ ] `docs/open-source-readiness/benchmark-summary.md` reflects current eval cases.
-- [ ] `docs/open-source-readiness/ablation-notes.md` reflects known design tradeoffs.
-- [ ] `docs/open-source-readiness/docker-sandbox-extension-plan.md` is still accurate.
-- [ ] `docs/open-source-readiness/provider-comparison.md` reflects committed run artifacts.
+- [ ] `docs/PROJECT_READINESS.md` reflects current eval cases, ablation notes, sandbox boundary, and provider artifacts.
 
 ## 5. GitHub Release
 
@@ -58,4 +55,3 @@ Do not commit `.agent_forge/` runtime outputs.
 - [ ] Tag name follows `vMAJOR.MINOR.PATCH`.
 - [ ] Release notes list runtime changes, docs changes, verification commands,
   and known limitations.
-

@@ -1,23 +1,24 @@
-# Study Pack
+# Runtime 学习包
 
-This folder is the compact reading path for Agent Forge. It keeps the material
-focused on runtime architecture and removes the older duplicate roadmap,
-call-chain, and long-form answer-bank files.
+这个目录只放 runtime 学习材料，不重复源码地图，也不放项目讲法材料。
 
-Read in this order:
+三个文档区这样区分：
 
-1. `01-code-map-and-architecture.md`
-2. `02-agent-loop-context-memory.md`
-3. `03-tools-control-safety.md`
-4. `04-multi-agent-design.md`
-5. `05-project-briefing.md`
-6. `06-technical-question-coverage.md`
-7. `07-schema-delta-guide.md`
-8. `08-mcp-and-external-tools.md`
-9. `09-project-profile.md`
-10. `10-baseline-to-current-delta.md`
+| 区域 | 用途 | 从哪里开始 |
+|---|---|---|
+| `agent_forge/README.md` | 源码地图：package、核心类、调用链。 | 在 IDE 里看代码前。 |
+| `docs/study-pack/` | runtime 概念：loop、context、tools、control、MCP。 | 系统学习项目设计时。 |
+| `docs/technical-defense/` | 项目讲法和技术追问。 | 准备对外解释项目时。 |
 
-Run while reading:
+阅读顺序：
+
+1. `01-agent-loop-context-memory.md`
+2. `02-tools-control-safety.md`
+3. `03-orchestration-review-eval.md`
+4. `04-runtime-control-and-extension-map.md`
+5. `05-mcp-and-external-tools.md`
+
+边读边跑：
 
 ```bash
 cd /path/to/NanoHarness
@@ -28,7 +29,7 @@ python run_demo.py --mode review
 python run_demo.py --list-task-states
 ```
 
-Read generated evidence in this order:
+生成证据按这个顺序看：
 
 1. `.agent_forge/latest/webhook-deepseek/usage_report.md`
 2. `.agent_forge/latest/webhook-deepseek/trace.json`

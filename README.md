@@ -272,38 +272,43 @@ agent_forge/
   workflows/          # TaskGraph, TaskScheduler, deterministic baseline
   observability/      # trace and metrics
   production/         # diff tracker, run report, ownership/readiness
-docs/study-pack/      # focused study docs for code reading and engineering walkthroughs
+docs/study-pack/      # runtime learning path
+docs/technical-defense/ # project explanation and technical Q&A material
+docs/PROJECT_READINESS.md # public maturity, benchmark, provider, and sandbox notes
 examples/demo_repo/   # bootstrap validation fixture
 examples/webhook_service_repo/ # webhook idempotency benchmark fixture
 scripts/              # setup and verification scripts
 local_scripts/        # two DeepSeek run shortcuts
 ```
 
-## Study Pack
+## 学习和技术答辩
 
-Read these in order:
-
-```text
-docs/study-pack/01-code-map-and-architecture.md
-docs/study-pack/02-agent-loop-context-memory.md
-docs/study-pack/03-tools-control-safety.md
-docs/study-pack/04-multi-agent-design.md
-docs/study-pack/05-project-briefing.md
-docs/study-pack/06-technical-question-coverage.md
-docs/study-pack/07-schema-delta-guide.md
-docs/study-pack/08-mcp-and-external-tools.md
-docs/study-pack/09-project-profile.md
-docs/study-pack/10-baseline-to-current-delta.md
-```
-
-Open-source readiness artifacts:
+源码地图：
 
 ```text
-docs/open-source-readiness/README.md
-docs/open-source-readiness/benchmark-summary.md
-docs/open-source-readiness/ablation-notes.md
-docs/open-source-readiness/docker-sandbox-extension-plan.md
-docs/open-source-readiness/provider-comparison.md
+agent_forge/README.md
 ```
 
-Generated traces, reports, caches, and install artifacts are ignored and can be regenerated.
+runtime 学习路径：
+
+```text
+docs/study-pack/01-agent-loop-context-memory.md
+docs/study-pack/02-tools-control-safety.md
+docs/study-pack/03-orchestration-review-eval.md
+docs/study-pack/04-runtime-control-and-extension-map.md
+docs/study-pack/05-mcp-and-external-tools.md
+```
+
+项目讲法和技术追问：
+
+```text
+docs/technical-defense/README.md
+```
+
+开源成熟度材料：
+
+```text
+docs/PROJECT_READINESS.md
+```
+
+生成的 trace、报告、缓存和安装产物默认忽略，需要时可以重新生成。

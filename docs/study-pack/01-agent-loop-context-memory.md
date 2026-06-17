@@ -1,4 +1,4 @@
-# 02 AgentLoop, Context, Memory
+# 01 AgentLoop, Context, Memory
 
 这份文件只回答一个问题：`single` 模式为什么是项目主线。
 
