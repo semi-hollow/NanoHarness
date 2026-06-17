@@ -43,6 +43,17 @@ class MCPStdioClient:
     The implementation supports the subset Agent Forge needs: initialize,
     tools/list, and tools/call. It keeps the process lifetime short and
     per-request so a broken tool server cannot poison the main AgentLoop.
+
+    Why it exists:
+        MCP is useful only if the agent can cross a real process/protocol
+        boundary. This client proves discovery and invocation without pulling a
+        large MCP SDK into the learning project.
+
+    Method map:
+        ``discover_tools`` reads remote schemas.
+        ``call_tool`` invokes one remote tool.
+        ``_session_call`` owns process lifetime.
+        ``_read_response`` handles newline JSON and Content-Length framing.
     """
 
     def __init__(self, spec: MCPStdioServerSpec):

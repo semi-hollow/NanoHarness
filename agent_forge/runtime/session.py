@@ -44,6 +44,18 @@ class SessionStore:
     runs. This store keeps the implementation simple with JSON/JSONL artifacts
     while modeling the same production concept as a database-backed session
     table.
+
+    Why it exists:
+        ``TraceRecorder`` stores event evidence, but a user also needs a stable
+        run folder containing metadata, report paths, rollback files, and resume
+        summaries. Keeping that here avoids scattering file naming conventions
+        across CLI and AgentLoop.
+
+    Method map:
+        ``start`` creates a new run directory.
+        ``finish`` marks it completed and attaches artifact pointers.
+        ``summary_for_resume`` compresses a previous run for context seeding.
+        ``rollback`` restores only files captured in the rollback bundle.
     """
 
     def __init__(self, root: str | Path = ".agent_forge/runs"):

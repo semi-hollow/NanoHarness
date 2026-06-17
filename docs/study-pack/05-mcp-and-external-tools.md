@@ -1,6 +1,6 @@
-# 08 MCP And External Tools
+# 05 MCP And External Tools
 
-这一篇只解释 `schema` 分支新增的 MCP / 外部工具能力。读完以后，你应该能回答三个问题：
+这一篇只解释 MCP / 外部工具能力。读完以后，你应该能回答三个问题：
 
 1. 这个项目为什么需要 MCP？
 2. Agent 是怎么启动 MCP server 并调用工具的？
@@ -254,4 +254,3 @@ local_scripts/run_webhook_deepseek.sh
 - `forge.web_search`
 - `tool_call`
 - `tool_observation`
-

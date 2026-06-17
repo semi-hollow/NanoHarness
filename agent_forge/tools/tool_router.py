@@ -5,10 +5,19 @@ from dataclasses import dataclass
 class ToolRoute:
     """Candidate tools selected for one LLM turn."""
 
+    # Schemas actually sent to the model this turn.
     schemas: list[dict]
+
+    # Tool names allowed after routing. Trace uses this to explain omissions.
     allowed_names: set[str]
+
+    # Short human-readable routing explanation.
     reason: str
+
+    # Tools withheld from the model to reduce overload or risk.
     dropped_names: list[str]
+
+    # Capability/risk/latency tags for each exposed tool.
     metadata: dict[str, dict]
 
 

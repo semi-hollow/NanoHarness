@@ -57,6 +57,17 @@ class MCPConfigLoader:
     This is a local, safe subset of the MCP idea: a config file can describe
     tools, schemas, handlers, and allowlists. The loader converts those specs
     into Agent Forge ``Tool`` objects so AgentLoop and ToolRouter stay unchanged.
+
+    Why it exists:
+        External tools should be discovered and registered at the tool boundary,
+        not hard-coded into AgentLoop. This loader is the bridge from a portable
+        config file to local ``Tool`` instances.
+
+    Method map:
+        ``load_into`` is the public entry.
+        ``_register_stdio_server`` starts discovery for command-backed servers.
+        ``_resolve_command`` keeps Python MCP servers inside the active venv.
+        ``_handler`` supports the tiny local handler subset used in examples.
     """
 
     def __init__(self, sandbox: WorkspaceSandbox):
