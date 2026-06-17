@@ -73,13 +73,24 @@ class DiffTracker:
         summary.patch = self._git_diff() or self._simple_patch(summary.changed_files)
         return summary
 
-    def write_rollback_bundle(self, output_dir: str | Path) -> None:
-        """Write before contents for changed files so a run can be reverted."""
+    def write_rollback_bundle(self, output_dir: str | Path, changed_files: list[str] | None = None) -> None:
+        """Write before contents for changed files so a run can be reverted.
+
+        `capture_before` snapshots all small source files because it cannot know
+        which files the agent will touch. The rollback bundle should be much
+        narrower: only files that actually changed need previous contents. This
+        keeps `.agent_forge/runs/*/rollback` readable instead of duplicating the
+        project on every run.
+        """
 
         output = Path(output_dir)
+        changed = set(changed_files or self.summarize_after().changed_files)
+        snapshots = {rel: snapshot for rel, snapshot in self.before.items() if rel in changed}
+        if not snapshots:
+            return
         rollback_dir = output / "rollback"
         rollback_dir.mkdir(parents=True, exist_ok=True)
-        for rel, snapshot in self.before.items():
+        for rel, snapshot in snapshots.items():
             destination = rollback_dir / rel
             destination.parent.mkdir(parents=True, exist_ok=True)
             destination.write_text(snapshot.content, encoding="utf-8")

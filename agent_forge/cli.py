@@ -412,7 +412,7 @@ def main() -> None:
         # Persist report artifacts after trace is written. The report gives a
         # human summary; metrics/diff/usage remain machine-readable.
         diff_summary = diff_tracker.summarize_after()
-        diff_tracker.write_rollback_bundle(run_dir)
+        diff_tracker.write_rollback_bundle(run_dir, diff_summary.changed_files)
         environment.write_manifest(run_dir)
         RunReportWriter(run_dir).write(
             task=args.task,

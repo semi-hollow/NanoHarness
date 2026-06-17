@@ -87,11 +87,17 @@ class T(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             root = Path(d)
             (root / "x.py").write_text("a = 1\n", encoding="utf-8")
+            (root / "y.py").write_text("b = 1\n", encoding="utf-8")
             tracker = DiffTracker(root)
             tracker.capture_before()
             (root / "x.py").write_text("a = 2\n", encoding="utf-8")
             summary = tracker.summarize_after()
             self.assertIn("x.py", summary.changed_files)
+            self.assertNotIn("y.py", summary.changed_files)
+            rollback_root = root / "rollback-output"
+            tracker.write_rollback_bundle(rollback_root, summary.changed_files)
+            self.assertEqual((rollback_root / "rollback/x.py").read_text(encoding="utf-8"), "a = 1\n")
+            self.assertFalse((rollback_root / "rollback/y.py").exists())
 
             store = SessionStore(root / ".agent_forge/runs")
             session, run_dir = store.start(str(root), "single", "task")
