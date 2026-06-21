@@ -32,7 +32,7 @@ class PlanningModePolicy:
             return PlanningModeDecision("answer_only", "question-oriented task; tools may be unnecessary", "low")
         if any(word in lowered for word in ["workflow", "deterministic", "固定流程"]):
             return PlanningModeDecision("workflow", "fixed control flow is acceptable", "low")
-        if any(word in lowered for word in ["multi", "多个", "跨文件", "端到端", "benchmark", "webhookpatchbench"]):
+        if any(word in lowered for word in ["multi", "多个", "跨文件", "端到端", "benchmark", "swe-bench", "swebench"]):
             return PlanningModeDecision("plan_execute", "multi-step task benefits from explicit plan checkpoints", "high")
         if any(word in lowered for word in ["fix", "修复", "patch", "resolve", "实现", "补充"]):
             return PlanningModeDecision("react", "coding task needs observation-driven tool use", "medium")

@@ -7,8 +7,8 @@ from .base import Tool
 class WriteFileTool(Tool):
     """Write a full file when the permission policy allows it.
 
-    This tool is less common in the demo than `apply_patch`, but it exists to
-    show the harness can support both targeted edits and full-file writes.
+    `apply_patch` is preferred for small repairs, but full-file writes are still
+    useful for generated config or small files when policy allows them.
     """
 
     name = "write_file"

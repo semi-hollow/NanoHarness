@@ -100,7 +100,7 @@ ensure_setuptools_find_config() {
     printf '\n'
     printf '[tool.setuptools.packages.find]\n'
     printf 'include = ["agent_forge*"]\n'
-    printf 'exclude = ["tests*", "tutorials*", "eval_cases*", "examples*", "docs*", "scripts*"]\n'
+    printf 'exclude = ["tests*", "tutorials*", "examples*", "docs*", "scripts*"]\n'
   } >> pyproject.toml
 }
 
@@ -160,7 +160,11 @@ main() {
 
   ensure_setuptools_find_config
 
-  run python -m pip install -e .
+  log "+ python -m pip install -e '.[bench]'"
+  if ! python -m pip install -e '.[bench]'; then
+    log "Benchmark extras failed to install; falling back to core editable install."
+    run python -m pip install -e .
+  fi
 
   if command -v python3.11 >/dev/null 2>&1; then
     log "System python3.11 is available: $(command -v python3.11)"
@@ -183,8 +187,9 @@ main() {
   log "Daily commands:"
   log "  cd \"${PROJECT_DIR}\""
   log "  source .venv/bin/activate"
-  log "  local_scripts/run_webhook_deepseek.sh"
-  log "  local_scripts/run_deepseek.sh"
+  log "  forge doctor"
+  log "  forge bench swebench --limit 1 --provider deepseek --direct-baseline"
+  log "  forge report latest"
   log "  scripts/verify.sh"
 }
 

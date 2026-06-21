@@ -2,8 +2,8 @@ import shlex
 
 PYTHON_COMMANDS = {"python", "python3", "python3.11"}
 
-# Prefix blocklist for commands that are too risky for a local coding-agent
-# demo. Production systems would use an allowlist plus sandbox/container policy.
+# Prefix blocklist for commands that are too risky for a local coding-agent run.
+# The final gate is still the allowlist below.
 DENY_PREFIX = {
     "rm", "del", "rmdir", "curl", "wget", "ssh", "scp",
     "chmod", "chown", "format", "mkfs", "powershell", "sudo",
@@ -19,12 +19,12 @@ DENY_EXACT = {
 
 
 def check_command(command: str) -> tuple[bool, str]:
-    """Allow only a small command set that is useful for demos/tests.
+    """Allow safe validation commands and read-only git inspection.
 
     Command execution is one of the highest-risk tools. This project uses an
-    allowlist because it is easier to reason about in technical walkthroughs: unittest and
-    read-only git commands are allowed; network, deletion, privilege, and push
-    commands are blocked.
+    allowlist because it is easier to reason about in technical walkthroughs:
+    common Python test commands and read-only git commands are allowed; network,
+    deletion, privilege, and push commands are blocked.
     """
 
     if not command.strip():
@@ -48,13 +48,15 @@ def check_command(command: str) -> tuple[bool, str]:
     if first in DENY_PREFIX:
         return False, "dangerous command blocked"
 
-    if first in PYTHON_COMMANDS and len(parts) >= 3 and parts[1:3] == ["-m", "unittest"]:
-        return True, "allow unittest"
+    if first in PYTHON_COMMANDS and len(parts) >= 3:
+        module = parts[2]
+        if parts[1] == "-m" and module in {"unittest", "pytest", "compileall"}:
+            return True, f"allow python -m {module}"
 
-    if parts[:2] == ["git", "status"]:
-        return True, "allow git status"
+    if first == "pytest":
+        return True, "allow pytest"
 
-    if parts[:2] == ["git", "diff"]:
-        return True, "allow git diff"
+    if len(parts) >= 2 and parts[0] == "git" and parts[1] in {"status", "diff", "show"}:
+        return True, f"allow git {parts[1]}"
 
     return False, "not allowlisted"

@@ -22,10 +22,9 @@ from agent_forge.tools.tool_router import ToolRouter
 class AgentLoop:
     """Single-agent control loop for context, LLM calls, tools, and trace.
 
-    This is the project's real agent runtime. ``single`` mode calls it
-    directly. ``multi`` mode reuses it through ``AgentRuntime`` so supervisor
-    workers share the same context, tool, permission, observation, and trace
-    semantics.
+    This is the project's real agent runtime. ``forge run`` and
+    ``forge bench swebench`` both call it so normal tasks and benchmark cases
+    share the same context, tool, permission, observation, and trace semantics.
 
     Why it cannot be replaced by a simple function:
         The loop must coordinate mutable state across many boundaries:
@@ -69,8 +68,8 @@ class AgentLoop:
 
         The loop is deliberately observation-driven: the model proposes a tool
         call, runtime executes it under policy, and the resulting Observation is
-        fed back into the next LLM call. That is the key distinction from the
-        deterministic workflow demo.
+        fed back into the next LLM call. That is the key distinction from a
+        one-shot prompt baseline.
         """
 
         self.trace.set_run_context(task=task)

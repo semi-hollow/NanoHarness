@@ -8,7 +8,8 @@ class PermissionDecision(Enum):
     # Safe action can run immediately.
     ALLOW = "allow"
 
-    # Human approval required. The local demo maps this to auto_approve_writes.
+    # Human approval required. Local runs can auto-approve, but trace still
+    # records the approval boundary.
     ASK = "ask"
 
     # Runtime must not execute the action.
@@ -23,7 +24,7 @@ class PermissionPolicy:
     """
 
     def __init__(self, auto_approve_writes: bool = True):
-        """Store whether demo write actions should be auto-approved."""
+        """Store whether write actions should be auto-approved locally."""
 
         self.auto_approve_writes = auto_approve_writes
 

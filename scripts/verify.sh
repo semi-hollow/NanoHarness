@@ -6,7 +6,8 @@ set -Eeuo pipefail
 #
 # Why it stays on MockLLM:
 #   verify.sh should be safe to run on macOS, WSL, and company machines without
-#   internet access or API keys. DeepSeek runs live in local_scripts/.
+#   internet access or API keys. Real effect validation belongs to
+#   `forge bench swebench`, not this smoke script.
 
 cd "$(dirname "$0")/.."
 
@@ -46,6 +47,17 @@ Path("examples/demo_repo/src/calculator.py").write_text(
 PY
 }
 
+reset_buggy_smoke_fixture() {
+  "${PYTHON_BIN}" - <<'PY'
+from pathlib import Path
+
+Path("examples/demo_repo/src/calculator.py").write_text(
+    "def add(a: int, b: int) -> int:\n    return a - b\n",
+    encoding="utf-8",
+)
+PY
+}
+
 trap 'status=$?; cleanup_fixtures >/dev/null 2>&1 || true; exit "${status}"' EXIT
 
 echo "== Agent Forge verification =="
@@ -62,34 +74,21 @@ mkdir -p "${VERIFY_DIR}"
 
 # Compile catches syntax/import packaging problems before any agent run starts.
 echo "== Compile Python files =="
-"${PYTHON_BIN}" -m compileall -q agent_forge tests eval_cases examples
+"${PYTHON_BIN}" -m compileall -q agent_forge examples
 echo
 
-# The three demo modes answer different questions:
-#   single   AgentLoop + context + tools + safety
-#   multi    Supervisor/role orchestration boundary
-#   workflow deterministic baseline for comparison
-echo "== Single-agent demo =="
-"${PYTHON_BIN}" run_demo.py --mode single --llm mock --no-session --trace-file "${VERIFY_DIR}/single.json"
+# This is only a smoke check. It does not prove benchmark quality.
+echo "== Public CLI doctor =="
+"${PYTHON_BIN}" -m agent_forge doctor
 echo
 
-echo "== Multi-agent demo =="
-"${PYTHON_BIN}" run_demo.py --mode multi --no-session --trace-file "${VERIFY_DIR}/multi.json"
-echo
-
-echo "== Workflow demo =="
-"${PYTHON_BIN}" run_demo.py --mode workflow
-echo
-
-echo "== Unit tests =="
-"${PYTHON_BIN}" -m unittest discover tests
-echo
-
-# Eval runner is intentionally lightweight. It proves the eval harness can
-# produce evidence without depending on a remote model provider.
-echo "== Eval benchmark =="
-"${PYTHON_BIN}" -m agent_forge.eval.eval_runner
+echo "== Mock runtime smoke =="
+reset_buggy_smoke_fixture
+"${PYTHON_BIN}" -m agent_forge run "修复 examples/demo_repo 里的测试失败问题" \
+  --provider mock \
+  --workspace . \
+  --output-root "${VERIFY_DIR}/runs"
 echo
 
 echo "Verification passed."
-echo "Trace/report artifacts are under ${VERIFY_DIR} and .agent_forge/."
+echo "Smoke artifacts are under ${VERIFY_DIR}."

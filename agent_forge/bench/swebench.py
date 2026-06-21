@@ -1,0 +1,532 @@
+from __future__ import annotations
+
+import argparse
+import importlib.util
+import json
+import os
+import platform
+import subprocess
+import sys
+import time
+import uuid
+from pathlib import Path
+from typing import Iterable
+
+from agent_forge.models.gateway import ModelGateway
+from agent_forge.observability.trace import TraceRecorder
+from agent_forge.observability.usage_report import write_usage_artifacts
+from agent_forge.runtime.agent_loop import AgentLoop
+from agent_forge.runtime.config import RuntimeConfig
+from agent_forge.runtime.llm_config import resolve_llm_config
+from agent_forge.runtime.message import Message
+from agent_forge.runtime.wiring import build_llm, build_registry
+
+from .report import write_bench_artifacts
+from .types import BenchCase, BenchCaseResult, BenchRunSummary
+
+
+DEFAULT_DATASET = "princeton-nlp/SWE-bench_Lite"
+
+
+def load_cases(
+    dataset_name: str,
+    split: str,
+    limit: int,
+    instance_ids: list[str] | None = None,
+    cases_file: str | None = None,
+) -> list[BenchCase]:
+    """Load SWE-bench rows from a local JSONL file or HuggingFace datasets.
+
+    Local JSONL is useful for dry runs and CI. HuggingFace loading is the normal
+    path for real SWE-bench Lite/Verified runs, but it is optional so the core
+    package stays lightweight.
+    """
+
+    wanted = set(instance_ids or [])
+    raw_cases = _load_cases_file(cases_file) if cases_file else _load_huggingface_cases(dataset_name, split)
+    cases = []
+    for raw in raw_cases:
+        case = BenchCase.from_mapping(raw)
+        if wanted and case.instance_id not in wanted:
+            continue
+        cases.append(case)
+        if limit and len(cases) >= limit:
+            break
+    if not cases:
+        raise RuntimeError("No SWE-bench cases matched the requested filters.")
+    return cases
+
+
+def _load_cases_file(cases_file: str | None) -> list[dict]:
+    """Read JSONL or JSON list cases from disk."""
+
+    path = Path(cases_file or "")
+    text = path.read_text(encoding="utf-8")
+    if path.suffix == ".json":
+        data = json.loads(text)
+        if not isinstance(data, list):
+            raise ValueError("JSON cases file must contain a list of objects.")
+        return [dict(item) for item in data]
+    rows = []
+    for line in text.splitlines():
+        if line.strip():
+            rows.append(json.loads(line))
+    return rows
+
+
+def _load_huggingface_cases(dataset_name: str, split: str) -> list[dict]:
+    """Load public SWE-bench data when the optional datasets package exists."""
+
+    if importlib.util.find_spec("datasets") is None:
+        raise RuntimeError(
+            "Install benchmark extras first: python -m pip install -e '.[bench]'. "
+            "Alternatively pass --cases-file with SWE-bench-shaped JSONL rows."
+        )
+    from datasets import load_dataset
+
+    dataset = load_dataset(dataset_name, split=split)
+    return [dict(row) for row in dataset]
+
+
+class SwebenchWorkspaceManager:
+    """Clone repos once and create per-case worktrees at base commits.
+
+    Why it exists:
+        SWE-bench is meaningless without exact base-commit reproduction. This
+        manager keeps cloned repositories in a cache and creates a clean
+        detached worktree for every case, so each run starts from the benchmark
+        state instead of whatever files happened to be left locally.
+    """
+
+    def __init__(self, repo_cache: Path, output_dir: Path):
+        self.repo_cache = repo_cache.resolve()
+        self.output_dir = output_dir.resolve()
+
+    def prepare(self, case: BenchCase) -> Path:
+        """Return a clean workspace checked out at the case base commit."""
+
+        source = self._ensure_repo(case.repo)
+        workspace = self.output_dir / "workspaces" / _safe_id(case.instance_id)
+        workspace.parent.mkdir(parents=True, exist_ok=True)
+        self._run(["git", "-C", str(source), "worktree", "prune"], check=False)
+        result = self._run(
+            ["git", "-C", str(source), "worktree", "add", "--detach", str(workspace), case.base_commit],
+            check=False,
+        )
+        if result.returncode != 0:
+            self._run(["git", "-C", str(source), "fetch", "origin", case.base_commit], check=False)
+            self._run(
+                ["git", "-C", str(source), "worktree", "add", "--detach", str(workspace), case.base_commit],
+                check=True,
+            )
+        return workspace
+
+    def _ensure_repo(self, repo: str) -> Path:
+        """Clone the GitHub repo into the cache if it is not present."""
+
+        self.repo_cache.mkdir(parents=True, exist_ok=True)
+        url, cache_key = _repo_url_and_cache_key(repo)
+        target = self.repo_cache / cache_key
+        if (target / ".git").exists():
+            self._run(["git", "-C", str(target), "fetch", "--all", "--tags", "--prune"], check=False)
+            return target
+        self._run(["git", "clone", url, str(target)], check=True)
+        return target
+
+    def _run(self, command: list[str], check: bool) -> subprocess.CompletedProcess[str]:
+        """Run git commands with captured output for readable errors."""
+
+        result = subprocess.run(command, text=True, capture_output=True)
+        if check and result.returncode != 0:
+            raise RuntimeError(
+                f"command failed: {' '.join(command)}\nstdout:\n{result.stdout}\nstderr:\n{result.stderr}"
+            )
+        return result
+
+
+def run_swebench(
+    dataset_name: str = DEFAULT_DATASET,
+    split: str = "test",
+    limit: int = 1,
+    instance_ids: list[str] | None = None,
+    cases_file: str | None = None,
+    provider: str = "deepseek",
+    model: str | None = None,
+    base_url: str | None = None,
+    api_key: str | None = None,
+    max_steps: int = 16,
+    max_context_chars: int = 12000,
+    repo_cache: str = ".agent_forge/bench/repos",
+    output_root: str = ".agent_forge/runs",
+    direct_baseline: bool = False,
+    evaluate: bool = False,
+    max_workers: int = 1,
+    namespace_empty: bool = False,
+) -> BenchRunSummary:
+    """Generate SWE-bench patch predictions with Agent Forge.
+
+    This function is the project effect loop: external benchmark case -> clean
+    repo checkout -> AgentLoop -> git diff -> predictions.jsonl -> optional
+    official SWE-bench Docker evaluation.
+    """
+
+    run_id = f"swebench-{time.strftime('%Y%m%d-%H%M%S')}-{uuid.uuid4().hex[:7]}"
+    output_dir = (Path(output_root) / run_id).resolve()
+    output_dir.mkdir(parents=True, exist_ok=True)
+    cases = load_cases(dataset_name, split, limit, instance_ids, cases_file)
+    predictions_path = output_dir / "predictions.jsonl"
+    baseline_predictions_path = output_dir / "direct_baseline_predictions.jsonl" if direct_baseline else None
+    manager = SwebenchWorkspaceManager(Path(repo_cache), output_dir)
+
+    summary = BenchRunSummary(
+        run_id=run_id,
+        dataset_name=dataset_name,
+        split=split,
+        provider=provider,
+        model=model or "",
+        output_dir=output_dir,
+        predictions_path=predictions_path,
+        baseline_predictions_path=baseline_predictions_path,
+        notes=[
+            "Generated patches are not resolved-rate claims until the official SWE-bench harness evaluates them.",
+            "Repo workspaces are under .agent_forge/runs so the main checkout stays clean.",
+        ],
+    )
+
+    with predictions_path.open("w", encoding="utf-8") as prediction_file:
+        baseline_file = baseline_predictions_path.open("w", encoding="utf-8") if baseline_predictions_path else None
+        try:
+            for case in cases:
+                result = _run_case(
+                    case=case,
+                    manager=manager,
+                    output_dir=output_dir,
+                    provider=provider,
+                    model=model,
+                    base_url=base_url,
+                    api_key=api_key,
+                    max_steps=max_steps,
+                    max_context_chars=max_context_chars,
+                )
+                summary.case_results.append(result)
+                prediction_file.write(
+                    json.dumps(
+                        {
+                            "instance_id": case.instance_id,
+                            "model_name_or_path": f"agent-forge-{provider}-{model or 'default'}",
+                            "model_patch": result.patch_path.read_text(encoding="utf-8")
+                            if result.patch_path.exists()
+                            else "",
+                        },
+                        ensure_ascii=False,
+                    )
+                    + "\n"
+                )
+                prediction_file.flush()
+                if baseline_file:
+                    baseline_file.write(
+                        json.dumps(
+                            _direct_baseline_prediction(case, provider, model, base_url, api_key),
+                            ensure_ascii=False,
+                        )
+                        + "\n"
+                    )
+                    baseline_file.flush()
+        finally:
+            if baseline_file:
+                baseline_file.close()
+
+    if evaluate:
+        _run_official_evaluation(summary, max_workers=max_workers, namespace_empty=namespace_empty)
+
+    write_bench_artifacts(summary)
+    _write_latest_pointer(output_dir)
+    return summary
+
+
+def _run_case(
+    case: BenchCase,
+    manager: SwebenchWorkspaceManager,
+    output_dir: Path,
+    provider: str,
+    model: str | None,
+    base_url: str | None,
+    api_key: str | None,
+    max_steps: int,
+    max_context_chars: int,
+) -> BenchCaseResult:
+    """Run AgentLoop on one clean SWE-bench workspace and capture the diff."""
+
+    workspace = manager.prepare(case)
+    case_dir = output_dir / "cases" / _safe_id(case.instance_id)
+    case_dir.mkdir(parents=True, exist_ok=True)
+    trace_path = case_dir / "trace.json"
+    patch_path = case_dir / "patch.diff"
+    final_answer = ""
+    usage_report_path = None
+    status = "blocked"
+    error = ""
+
+    try:
+        _ensure_clean_git(workspace)
+        task = _render_case_task(case)
+        trace = TraceRecorder(str(trace_path))
+        registry = build_registry(str(workspace), auto=True)
+        llm_config = resolve_llm_config(
+            provider=provider,
+            base_url=base_url,
+            api_key=api_key,
+            model=model,
+            timeout=60,
+        )
+        if provider != "mock" and not llm_config.is_configured():
+            raise RuntimeError(f"{provider} model config is incomplete; set API key/base URL/model or use --provider mock.")
+        llm = build_llm(llm_config)
+        runtime_config = RuntimeConfig(
+            workspace=str(workspace),
+            max_steps=max_steps,
+            trace_file=str(trace_path),
+            max_context_chars=max_context_chars,
+            timeout_seconds=900,
+            task_state_root=str(case_dir / "task_state"),
+        )
+        final_answer = AgentLoop(runtime_config, trace, registry, llm).run(task)
+        trace.write()
+        _, usage_report_path = write_usage_artifacts(trace_path)
+        patch = _git_diff(workspace)
+        patch_path.write_text(patch, encoding="utf-8")
+        if patch.strip():
+            status = "patch_generated"
+        elif final_answer.startswith("blocked:"):
+            status = "blocked"
+        else:
+            status = "no_patch"
+    except Exception as exc:
+        error = str(exc)
+        patch_path.write_text("", encoding="utf-8")
+        if not trace_path.exists():
+            trace_path.write_text(json.dumps({"error": error}, indent=2), encoding="utf-8")
+
+    return BenchCaseResult(
+        instance_id=case.instance_id,
+        repo=case.repo,
+        workspace=workspace,
+        trace_path=trace_path,
+        usage_report_path=usage_report_path,
+        patch_path=patch_path,
+        status=status,
+        final_answer=final_answer,
+        patch_chars=len(patch_path.read_text(encoding="utf-8")) if patch_path.exists() else 0,
+        error=error,
+    )
+
+
+def _render_case_task(case: BenchCase) -> str:
+    """Create the agent-facing SWE-bench task prompt."""
+
+    return (
+        "Resolve this SWE-bench coding issue.\n\n"
+        f"Instance: {case.instance_id}\n"
+        f"Repository: {case.repo}\n"
+        f"Base commit: {case.base_commit}\n\n"
+        "Issue:\n"
+        f"{case.problem_statement}\n\n"
+        "Operating rules:\n"
+        "- Inspect the repository before editing.\n"
+        "- Make the smallest source-code patch that addresses the issue.\n"
+        "- Do not edit tests unless the issue explicitly requires test infrastructure changes.\n"
+        "- Run a focused validation command if you can infer one; otherwise explain why validation is blocked.\n"
+        "- Finish with a concise summary grounded in files changed and commands run.\n"
+    )
+
+
+def _direct_baseline_prediction(
+    case: BenchCase,
+    provider: str,
+    model: str | None,
+    base_url: str | None,
+    api_key: str | None,
+) -> dict:
+    """Generate a no-tools baseline patch from the issue text only.
+
+    This is intentionally weaker than AgentLoop. It answers the architecture
+    question "why not just prompt the model once?" with a measured baseline.
+    """
+
+    llm_config = resolve_llm_config(
+        provider=provider,
+        base_url=base_url,
+        api_key=api_key,
+        model=model,
+        timeout=60,
+    )
+    if provider != "mock" and not llm_config.is_configured():
+        return {
+            "instance_id": case.instance_id,
+            "model_name_or_path": f"direct-{provider}-{model or 'default'}",
+            "model_patch": "",
+            "error": f"{provider} model config is incomplete",
+        }
+    llm: ModelGateway = build_llm(llm_config)
+    response = llm.chat(
+        [
+            Message(
+                "system",
+                "You are a coding model baseline. Return only a unified diff patch. Do not explain.",
+            ),
+            Message(
+                "user",
+                f"Repository: {case.repo}\nBase commit: {case.base_commit}\nIssue:\n{case.problem_statement}",
+            ),
+        ],
+        [],
+    )
+    return {
+        "instance_id": case.instance_id,
+        "model_name_or_path": f"direct-{provider}-{model or 'default'}",
+        "model_patch": _extract_diff(response.content or ""),
+        "error": response.error or "",
+    }
+
+
+def _run_official_evaluation(summary: BenchRunSummary, max_workers: int, namespace_empty: bool) -> None:
+    """Call the official SWE-bench harness when installed."""
+
+    if importlib.util.find_spec("swebench") is None:
+        summary.official_eval_exit_code = 127
+        summary.official_eval_output = "swebench package is not installed. Install SWE-bench and rerun with --evaluate."
+        for result in summary.case_results:
+            result.evaluation_status = "official_eval_unavailable"
+        return
+    cmd = [
+        sys.executable,
+        "-m",
+        "swebench.harness.run_evaluation",
+        "--dataset_name",
+        summary.dataset_name,
+        "--predictions_path",
+        str(summary.predictions_path),
+        "--max_workers",
+        str(max_workers),
+        "--run_id",
+        summary.run_id,
+    ]
+    instance_ids = [result.instance_id for result in summary.case_results]
+    if instance_ids:
+        cmd.extend(["--instance_ids", *instance_ids])
+    if namespace_empty or (platform.system() == "Darwin" and platform.machine().lower() in {"arm64", "aarch64"}):
+        cmd.extend(["--namespace", ""])
+    summary.official_eval_command = cmd
+    result = subprocess.run(cmd, text=True, capture_output=True)
+    summary.official_eval_exit_code = result.returncode
+    summary.official_eval_output = f"STDOUT:\n{result.stdout}\nSTDERR:\n{result.stderr}"
+    status = "official_eval_ran" if result.returncode == 0 else "official_eval_failed"
+    for case_result in summary.case_results:
+        case_result.evaluation_status = status
+
+
+def _ensure_clean_git(workspace: Path) -> None:
+    """Make sure a generated case workspace starts without local changes."""
+
+    subprocess.run(["git", "-C", str(workspace), "reset", "--hard"], check=True, capture_output=True, text=True)
+    subprocess.run(["git", "-C", str(workspace), "clean", "-fdx"], check=True, capture_output=True, text=True)
+
+
+def _git_diff(workspace: Path) -> str:
+    """Return the candidate SWE-bench patch."""
+
+    result = subprocess.run(
+        ["git", "-C", str(workspace), "diff", "--no-ext-diff", "--binary"],
+        text=True,
+        capture_output=True,
+        check=True,
+    )
+    return result.stdout
+
+
+def _extract_diff(text: str) -> str:
+    """Strip Markdown fences from direct baseline output when present."""
+
+    stripped = text.strip()
+    if "```" not in stripped:
+        return stripped
+    chunks = stripped.split("```")
+    for chunk in chunks:
+        candidate = chunk.strip()
+        if candidate.startswith("diff"):
+            candidate = candidate[4:].strip()
+        if candidate.startswith("--- ") or candidate.startswith("diff --git"):
+            return candidate
+    return stripped
+
+
+def _write_latest_pointer(output_dir: Path) -> None:
+    """Update a stable pointer for ``forge report latest``."""
+
+    latest = Path(".agent_forge/latest")
+    latest.mkdir(parents=True, exist_ok=True)
+    (latest / "bench.txt").write_text(str(output_dir), encoding="utf-8")
+
+
+def _repo_url_and_cache_key(repo: str) -> tuple[str, str]:
+    """Return clone URL plus cache key for GitHub ids or local smoke repos."""
+
+    if repo.startswith("file://"):
+        path = repo.removeprefix("file://")
+        return repo, f"local__{_safe_id(path)}"
+    path = Path(repo)
+    if path.exists():
+        return str(path.resolve()), f"local__{_safe_id(str(path.resolve()))}"
+    return f"https://github.com/{repo}.git", repo.replace("/", "__")
+
+
+def _safe_id(value: str) -> str:
+    """Convert benchmark ids into filesystem-safe path fragments."""
+
+    return "".join(ch if ch.isalnum() or ch in {"-", "_", "."} else "_" for ch in value)
+
+
+def build_swebench_parser(parser: argparse.ArgumentParser) -> None:
+    """Attach SWE-bench options to a subparser."""
+
+    parser.add_argument("--dataset", default=DEFAULT_DATASET)
+    parser.add_argument("--split", default="test")
+    parser.add_argument("--limit", type=int, default=1)
+    parser.add_argument("--instance-id", action="append", default=[])
+    parser.add_argument("--cases-file")
+    parser.add_argument("--provider", default=os.getenv("AGENT_FORGE_DEFAULT_LLM", "deepseek"))
+    parser.add_argument("--model")
+    parser.add_argument("--base-url")
+    parser.add_argument("--api-key")
+    parser.add_argument("--max-steps", type=int, default=16)
+    parser.add_argument("--max-context-chars", type=int, default=12000)
+    parser.add_argument("--repo-cache", default=".agent_forge/bench/repos")
+    parser.add_argument("--output-root", default=".agent_forge/runs")
+    parser.add_argument("--direct-baseline", action="store_true")
+    parser.add_argument("--evaluate", action="store_true")
+    parser.add_argument("--max-workers", type=int, default=1)
+    parser.add_argument("--namespace-empty", action="store_true")
+
+
+def run_swebench_from_args(args: argparse.Namespace) -> BenchRunSummary:
+    """CLI adapter for ``forge bench swebench``."""
+
+    return run_swebench(
+        dataset_name=args.dataset,
+        split=args.split,
+        limit=args.limit,
+        instance_ids=args.instance_id,
+        cases_file=args.cases_file,
+        provider=args.provider,
+        model=args.model,
+        base_url=args.base_url,
+        api_key=args.api_key,
+        max_steps=args.max_steps,
+        max_context_chars=args.max_context_chars,
+        repo_cache=args.repo_cache,
+        output_root=args.output_root,
+        direct_baseline=args.direct_baseline,
+        evaluate=args.evaluate,
+        max_workers=args.max_workers,
+        namespace_empty=args.namespace_empty,
+    )

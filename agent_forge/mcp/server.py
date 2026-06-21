@@ -10,7 +10,7 @@ Why keep a project-owned server instead of only documenting MCP?
 
 * It proves the full control plane: config -> subprocess -> discovery ->
   ToolRegistry -> AgentLoop -> observation.
-* It gives interview/readiness material for tool protocols without requiring a
+* It gives technical-defense material for tool protocols without requiring a
   third-party service to be running.
 * It keeps the startup path simple: ``python -m agent_forge.mcp.builtin_server``.
 """
@@ -173,4 +173,3 @@ class AgentForgeMCPServer:
         """Build a JSON-RPC protocol error response."""
 
         return {"jsonrpc": "2.0", "id": request_id, "error": {"code": code, "message": message}}
-

@@ -20,9 +20,9 @@ MockLLM during verification.
 scripts/verify.sh
 ```
 
-Runs syntax compilation, single/multi/workflow smoke checks, unit tests, and the
-lightweight eval runner. It intentionally uses MockLLM so it is safe on company
-machines and does not consume DeepSeek quota.
+Runs syntax compilation, `forge doctor`, and one MockLLM smoke run. It is safe
+on company machines and does not consume DeepSeek quota. It is not the effect
+benchmark; use `forge bench swebench ...` for that.
 
 ```bash
 scripts/verify_mcp.sh

@@ -11,8 +11,9 @@ from .base import Tool
 class ApplyPatchTool(Tool):
     """Replace one exact text block in a workspace file.
 
-    The demo uses this instead of a full patch parser because the goal is to
-    teach tool execution, permission, failure observation, and retry behavior.
+    The tool keeps edits simple and auditable: the model must name the target
+    path, the exact old text, and the replacement text. Failed matches become
+    observations the agent can recover from.
     """
 
     name = "apply_patch"

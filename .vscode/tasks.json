@@ -2,61 +2,53 @@
   "version": "2.0.0",
   "tasks": [
     {
-      "label": "Agent Forge: Run single demo",
+      "label": "Agent Forge: Doctor",
       "type": "shell",
-      "command": "source .venv/bin/activate && python run_demo.py --mode single --trace-file trace-task.json",
+      "command": "source .venv/bin/activate && forge doctor",
       "options": {
         "cwd": "${workspaceFolder}",
         "shell": {
           "executable": "/bin/zsh",
-          "args": [
-            "-lc"
-          ]
+          "args": ["-lc"]
         }
       },
       "problemMatcher": []
     },
     {
-      "label": "Agent Forge: Run tests",
+      "label": "Agent Forge: Run mock smoke",
       "type": "shell",
-      "command": "source .venv/bin/activate && python -m unittest discover tests",
+      "command": "source .venv/bin/activate && forge run \"修复 examples/demo_repo 里的测试失败问题\" --provider mock",
       "options": {
         "cwd": "${workspaceFolder}",
         "shell": {
           "executable": "/bin/zsh",
-          "args": [
-            "-lc"
-          ]
+          "args": ["-lc"]
         }
       },
       "problemMatcher": []
     },
     {
-      "label": "Agent Forge: Run verify",
+      "label": "Agent Forge: SWE-bench sample",
+      "type": "shell",
+      "command": "source .venv/bin/activate && forge bench swebench --limit 1 --provider deepseek --direct-baseline",
+      "options": {
+        "cwd": "${workspaceFolder}",
+        "shell": {
+          "executable": "/bin/zsh",
+          "args": ["-lc"]
+        }
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "Agent Forge: Verify smoke",
       "type": "shell",
       "command": "source .venv/bin/activate && scripts/verify.sh",
       "options": {
         "cwd": "${workspaceFolder}",
         "shell": {
           "executable": "/bin/zsh",
-          "args": [
-            "-lc"
-          ]
-        }
-      },
-      "problemMatcher": []
-    },
-    {
-      "label": "Agent Forge: Pretty trace",
-      "type": "shell",
-      "command": "source .venv/bin/activate && python -m json.tool trace-task.json > trace-task.pretty.json",
-      "options": {
-        "cwd": "${workspaceFolder}",
-        "shell": {
-          "executable": "/bin/zsh",
-          "args": [
-            "-lc"
-          ]
+          "args": ["-lc"]
         }
       },
       "problemMatcher": []
