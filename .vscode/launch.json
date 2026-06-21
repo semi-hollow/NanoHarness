@@ -2,41 +2,41 @@
   "version": "0.2.0",
   "configurations": [
     {
-      "name": "Agent Forge - single demo",
+      "name": "Agent Forge - CLI doctor",
       "type": "python",
       "request": "launch",
-      "program": "${workspaceFolder}/run_demo.py",
+      "module": "agent_forge",
+      "args": ["doctor"],
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal"
+    },
+    {
+      "name": "Agent Forge - mock run",
+      "type": "python",
+      "request": "launch",
+      "module": "agent_forge",
       "args": [
-        "--mode",
-        "single",
-        "--trace-file",
-        "trace-debug.json"
+        "run",
+        "修复 examples/demo_repo 里的测试失败问题",
+        "--provider",
+        "mock"
       ],
       "cwd": "${workspaceFolder}",
       "console": "integratedTerminal"
     },
     {
-      "name": "Agent Forge - workflow demo",
+      "name": "Agent Forge - SWE-bench sample",
       "type": "python",
       "request": "launch",
-      "program": "${workspaceFolder}/run_demo.py",
+      "module": "agent_forge",
       "args": [
-        "--mode",
-        "workflow"
-      ],
-      "cwd": "${workspaceFolder}",
-      "console": "integratedTerminal"
-    },
-    {
-      "name": "Agent Forge - multi demo",
-      "type": "python",
-      "request": "launch",
-      "program": "${workspaceFolder}/run_demo.py",
-      "args": [
-        "--mode",
-        "multi",
-        "--trace-file",
-        "trace-multi-debug.json"
+        "bench",
+        "swebench",
+        "--limit",
+        "1",
+        "--provider",
+        "deepseek",
+        "--direct-baseline"
       ],
       "cwd": "${workspaceFolder}",
       "console": "integratedTerminal"

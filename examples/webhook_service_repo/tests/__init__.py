@@ -1,1 +1,0 @@
-"""WebhookPatchBench unittest package."""

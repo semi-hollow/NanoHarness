@@ -82,7 +82,7 @@ PY
 
 ensure_setuptools_find_config() {
   # Editable install needs explicit package discovery because the repo contains
-  # docs, examples, tests, and eval_cases next to agent_forge/.
+  # docs, examples, and tests next to agent_forge/.
   if grep -q '^\[tool\.setuptools\.packages\.find\]' pyproject.toml; then
     log "pyproject.toml already has setuptools package discovery config."
     return 0
@@ -93,7 +93,7 @@ ensure_setuptools_find_config() {
     printf '\n'
     printf '[tool.setuptools.packages.find]\n'
     printf 'include = ["agent_forge*"]\n'
-    printf 'exclude = ["tests*", "tutorials*", "eval_cases*", "examples*", "docs*", "scripts*"]\n'
+    printf 'exclude = ["tests*", "tutorials*", "examples*", "docs*", "scripts*"]\n'
   } >> pyproject.toml
 }
 
@@ -151,7 +151,11 @@ main() {
   fi
 
   ensure_setuptools_find_config
-  run python -m pip install -e .
+  log "+ python -m pip install -e '.[bench]'"
+  if ! python -m pip install -e '.[bench]'; then
+    log "Benchmark extras failed to install; falling back to core editable install."
+    run python -m pip install -e .
+  fi
 
   if ! command -v python3.11 >/dev/null 2>&1; then
     log "System python3.11 is not available; creating .venv/bin/python3.11 compatibility symlink."
@@ -168,7 +172,8 @@ main() {
   log "Daily commands:"
   log "  cd \"${PROJECT_DIR}\""
   log "  source .venv/bin/activate"
-  log "  python run_demo.py --mode single --llm mock --trace-file trace-wsl-mock.json"
+  log "  forge doctor"
+  log "  forge run \"修复 examples/demo_repo 里的测试失败问题\" --provider mock"
   log "  scripts/verify.sh"
 }
 

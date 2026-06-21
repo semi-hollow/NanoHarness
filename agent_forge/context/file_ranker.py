@@ -68,7 +68,7 @@ def rank_files(query: str, files: list[str], root: str | Path = ".") -> list[str
         for term in terms:
             value += min(text.count(term), 5)
 
-        # Prefer Python source/tests for code tasks. Penalize docs/eval artifacts
+        # Prefer Python source/tests for code tasks. Penalize docs/artifacts
         # so prompt budget goes to executable code first.
         if path.endswith(".py"):
             value += 4
@@ -80,8 +80,6 @@ def rank_files(query: str, files: list[str], root: str | Path = ".") -> list[str
             value += 3
         if code_task and ("docs" in parts or suffix in {".md", ".json"}):
             value -= 6
-        if code_task and parts & {"eval_cases"}:
-            value -= 4
         if parts & {".agent_forge", ".venv", "__pycache__"}:
             value -= 30
         if path_obj.name in {"agent_forge_trace.json", "eval_report.md"} or path_obj.name.endswith("_trace.json"):
