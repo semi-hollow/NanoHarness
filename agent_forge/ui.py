@@ -225,7 +225,7 @@ def _action_to_command(action: str, payload: dict[str, Any]) -> tuple[str, list[
         task = str(payload.get("task") or "修复 examples/demo_repo 里的测试失败问题")
         return "Mock Agent Run", [python, "-m", "agent_forge", "run", task, "--provider", "mock"]
     if action == "deepseek_run":
-        task = str(payload.get("task") or "fix the failing test in this repository")
+        task = str(payload.get("task") or "inspect this repository and improve the requested code safely")
         return "DeepSeek Agent Run", [python, "-m", "agent_forge", "run", task, "--provider", "deepseek"]
     if action == "swebench_sample":
         limit = str(int(payload.get("limit") or 1))
@@ -288,7 +288,7 @@ def _read_latest_report(project_dir: Path) -> str:
 
     path = _latest_report_path(project_dir)
     if not path:
-        return "No report yet. Run Mock Agent Run or SWE-bench Sample first."
+        return "No report yet. Run DeepSeek Agent Run or SWE-bench Sample first."
     return Path(path).read_text(encoding="utf-8")
 
 
@@ -350,6 +350,20 @@ INDEX_HTML = r"""<!doctype html>
       font-size: 15px;
       margin: 0 0 10px;
     }
+    .help {
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.55;
+      margin: 6px 0 10px;
+    }
+    .command {
+      display: block;
+      margin-top: 6px;
+      color: #c5d7f2;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      font-size: 11px;
+      overflow-wrap: anywhere;
+    }
     label {
       display: block;
       color: var(--muted);
@@ -379,6 +393,17 @@ INDEX_HTML = r"""<!doctype html>
     }
     button.secondary { background: var(--panel-2); color: var(--text); border: 1px solid var(--line); }
     button.warn { background: var(--yellow); color: #1b1300; }
+    button.primary { background: var(--green); color: #06150f; }
+    details {
+      border-top: 1px solid var(--line);
+      margin-top: 12px;
+      padding-top: 10px;
+    }
+    summary {
+      color: var(--muted);
+      cursor: pointer;
+      font-size: 12px;
+    }
     .status {
       display: grid;
       grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -439,32 +464,73 @@ INDEX_HTML = r"""<!doctype html>
     <aside>
       <div class="card">
         <h2>1. 环境检查</h2>
+        <div class="help">
+          检查 Python、Git、DeepSeek API Key、datasets、Docker、SWE-bench harness 是否可用。
+          这是展示前第一步，用来证明本机环境已经接好。
+          <span class="command">python -m agent_forge doctor</span>
+        </div>
         <button onclick="startJob('doctor')">Run Doctor</button>
-        <button class="secondary" onclick="startJob('verify')">Run Smoke Verify</button>
       </div>
       <div class="card">
-        <h2>2. 普通 Agent Run</h2>
+        <h2>2. DeepSeek 真实 Agent Run</h2>
+        <div class="help">
+          使用 DeepSeek V4 Flash 跑当前仓库里的真实 AgentLoop：组装上下文、调用模型、选择工具、执行动作、写 trace 和 usage report。
+          这条链路适合给面试官展示“真实模型 + 真实工具治理 + 可观测证据”。
+          <span class="command">python -m agent_forge run "&lt;task&gt;" --provider deepseek</span>
+        </div>
         <label>Task</label>
-        <textarea id="task">修复 examples/demo_repo 里的测试失败问题</textarea>
-        <button onclick="startJob('mock_run')">Mock Agent Run</button>
-        <button class="warn" onclick="startJob('deepseek_run')">DeepSeek Agent Run</button>
+        <textarea id="task">检查当前仓库的 AgentLoop 调用链，给出一个小而安全的代码改进，并保留 trace 和 usage 证据。</textarea>
+        <button class="primary" onclick="startJob('deepseek_run')">Run DeepSeek Agent</button>
       </div>
       <div class="card">
-        <h2>3. SWE-bench Sample</h2>
-        <label>Provider</label>
-        <select id="provider">
-          <option value="deepseek">deepseek</option>
-          <option value="mock">mock</option>
-        </select>
+        <h2>3. SWE-bench 真实样例</h2>
+        <div class="help">
+          从 SWE-bench Lite 取真实 GitHub issue，checkout 到官方 base commit，让 Agent Forge 生成 patch prediction。
+          这是项目最重要的闭环证据；默认用 DeepSeek，不再把 Mock 放在主流程里。
+          <span class="command">python -m agent_forge bench swebench --limit N --provider deepseek --direct-baseline</span>
+        </div>
         <label>Limit</label>
         <input id="limit" type="number" min="1" max="20" value="1" />
-        <button onclick="startJob('swebench_sample')">Run SWE-bench Sample</button>
+        <button class="primary" onclick="startJob('swebench_sample')">Run SWE-bench with DeepSeek</button>
       </div>
       <div class="card">
-        <h2>4. 查看证据</h2>
+        <h2>4. 查看运行证据</h2>
+        <div class="help">
+          读取最近一次运行的报告和 trace。报告看整体结果、token/cost/工具统计；Replay 看每一步 context、LLM、tool、observation 的执行顺序。
+        </div>
+        <div class="help">
+          打印最新报告到输出区。
+          <span class="command">python -m agent_forge report latest</span>
+        </div>
         <button class="secondary" onclick="startJob('report')">Print Latest Report</button>
+        <div class="help">
+          回放最新 trace，适合解释 Agent 为什么这么做。
+          <span class="command">python -m agent_forge replay latest</span>
+        </div>
         <button class="secondary" onclick="startJob('replay')">Replay Latest Trace</button>
+        <div class="help">
+          直接读取最新 report.md / usage_report.md 文件内容。
+        </div>
         <button class="secondary" onclick="loadLatestReport()">Load Report File</button>
+      </div>
+      <div class="card">
+        <h2>离线兜底</h2>
+        <div class="help">
+          Mock 只用于公司网络不可用、CI、或不想调用外部模型时的健康检查。正式展示优先跑上面的 DeepSeek/SWE-bench。
+        </div>
+        <details>
+          <summary>展开离线按钮</summary>
+          <div class="help">
+            本地 smoke check，会用 MockLLM 验证包导入、CLI、基础运行链路，不代表真实模型效果。
+            <span class="command">bash scripts/verify.sh</span>
+          </div>
+          <button class="secondary" onclick="startJob('verify')">Run Offline Smoke Verify</button>
+          <div class="help">
+            离线 Agent run，只用于确认工具链没有坏。
+            <span class="command">python -m agent_forge run "&lt;task&gt;" --provider mock</span>
+          </div>
+          <button class="secondary" onclick="startJob('mock_run')">Run Offline Mock Agent</button>
+        </details>
       </div>
     </aside>
     <section>
@@ -477,7 +543,7 @@ INDEX_HTML = r"""<!doctype html>
         <button class="secondary" onclick="refreshStatus()">Refresh</button>
         <button class="secondary" onclick="clearOutput()">Clear Output</button>
       </div>
-      <pre id="output">Ready. Click Run Doctor first.</pre>
+      <pre id="output">Ready. 建议先点 Run Doctor，再点 Run SWE-bench with DeepSeek。</pre>
       <h2 style="font-size:16px">Recent Jobs</h2>
       <div id="jobs"></div>
     </section>
@@ -506,7 +572,7 @@ INDEX_HTML = r"""<!doctype html>
       const payload = {
         action,
         task: document.getElementById('task').value,
-        provider: document.getElementById('provider').value,
+        provider: 'deepseek',
         limit: Number(document.getElementById('limit').value || 1)
       };
       const res = await fetch('/api/jobs', {
