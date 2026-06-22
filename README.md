@@ -9,8 +9,10 @@ runtime control plane behind coding agents: context engineering, model gateway,
 tool governance, sandboxed execution, trace/replay, usage accounting, patch
 prediction, and benchmark result cards.
 
-The project intentionally avoids a heavy IDE/TUI product surface. The goal is a
-small codebase that makes the agent engineering loop easy to inspect and defend:
+The project intentionally avoids a heavy IDE product surface, but it does ship a
+small local browser UI so the full loop can be demonstrated without memorizing
+CLI commands. The goal is a compact codebase that makes the agent engineering
+loop easy to inspect and defend:
 
 ```text
 SWE-bench issue -> clean repo checkout -> AgentLoop -> tool execution
@@ -33,6 +35,16 @@ Check the local environment:
 ```bash
 forge doctor
 ```
+
+Open the local browser demo UI:
+
+```bash
+forge ui
+```
+
+It serves `http://127.0.0.1:8765` and gives you buttons for environment checks,
+Mock/DeepSeek runs, SWE-bench samples, latest report, and trace replay. This is
+the recommended way to demonstrate the project locally.
 
 Run a normal coding task in the current repository:
 

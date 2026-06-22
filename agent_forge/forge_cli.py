@@ -20,6 +20,7 @@ from agent_forge.runtime.config import RuntimeConfig
 from agent_forge.runtime.llm_config import resolve_llm_config
 from agent_forge.runtime.task_state import replay_trace
 from agent_forge.runtime.wiring import build_llm, build_registry
+from agent_forge.ui import build_ui_parser, run_ui_from_args
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -60,6 +61,8 @@ def build_parser() -> argparse.ArgumentParser:
 
     subparsers.add_parser("doctor", help="Check local benchmark/runtime environment.")
     subparsers.add_parser("tui", help="Open a lightweight terminal menu.")
+    ui_parser = subparsers.add_parser("ui", help="Open the local browser demo UI.")
+    build_ui_parser(ui_parser)
     return parser
 
 
@@ -89,6 +92,9 @@ def main(argv: list[str] | None = None) -> None:
         return
     if args.command == "tui":
         run_tui()
+        return
+    if args.command == "ui":
+        run_ui_from_args(args)
         return
 
 

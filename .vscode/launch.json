@@ -2,6 +2,15 @@
   "version": "0.2.0",
   "configurations": [
     {
+      "name": "Agent Forge - browser UI",
+      "type": "python",
+      "request": "launch",
+      "module": "agent_forge",
+      "args": ["ui", "--no-open"],
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal"
+    },
+    {
       "name": "Agent Forge - CLI doctor",
       "type": "python",
       "request": "launch",

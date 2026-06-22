@@ -19,6 +19,7 @@ class PublicCliSmokeTest(unittest.TestCase):
         )
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("bench", result.stdout)
+        self.assertIn("ui", result.stdout)
 
 
 if __name__ == "__main__":
