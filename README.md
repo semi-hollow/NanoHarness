@@ -43,10 +43,11 @@ forge ui
 ```
 
 It serves `http://127.0.0.1:8765` and gives you explained buttons for
-environment checks, DeepSeek Agent runs, SWE-bench samples, latest report, and
-trace replay. This is the recommended way to demonstrate the project locally.
-Mock is kept only as an offline fallback for company networks or CI smoke
-checks; the main demo path should use DeepSeek.
+environment checks, DeepSeek Agent runs, a fixed SWE-bench showcase case, and
+readable evidence panels. The evidence panels render result summary, token/cost
+usage, context breakdown, tool efficiency, and trace timeline as cards/tables
+instead of raw JSON logs. Mock is kept only as an offline fallback for company
+networks or CI smoke checks; the main demo path should use DeepSeek.
 
 Run a normal coding task in the current repository:
 
@@ -57,8 +58,12 @@ forge run "fix the failing test in this repository" --provider deepseek
 Run a small SWE-bench Lite prediction loop:
 
 ```bash
-forge bench swebench --limit 1 --provider deepseek --direct-baseline
+forge bench swebench --showcase --provider deepseek --direct-baseline
 ```
+
+`--showcase` fixes the case to `astropy__astropy-12907`, a real Astropy nested
+CompoundModel separability issue. Keeping the case stable makes before/after
+harness improvements visible in the same trace, usage, and patch artifacts.
 
 Read the latest report:
 
@@ -121,6 +126,12 @@ forge bench swebench \
   --limit 5 \
   --provider deepseek \
   --direct-baseline
+```
+
+Repeatable demo command:
+
+```bash
+forge bench swebench --showcase --provider deepseek --direct-baseline
 ```
 
 Official evaluation is heavier and requires the SWE-bench package plus Docker:

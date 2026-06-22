@@ -26,6 +26,12 @@ from .types import BenchCase, BenchCaseResult, BenchRunSummary
 
 
 DEFAULT_DATASET = "princeton-nlp/SWE-bench_Lite"
+SHOWCASE_INSTANCE_ID = "astropy__astropy-12907"
+SHOWCASE_INSTANCE_NOTE = (
+    "Astropy nested CompoundModel separability bug. This case is small enough "
+    "for local demos but forces real repository checkout, context retrieval, "
+    "tool use, patch generation, and trace/usage inspection."
+)
 
 
 def load_cases(
@@ -493,6 +499,11 @@ def build_swebench_parser(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--split", default="test")
     parser.add_argument("--limit", type=int, default=1)
     parser.add_argument("--instance-id", action="append", default=[])
+    parser.add_argument(
+        "--showcase",
+        action="store_true",
+        help=f"Run the fixed demo case {SHOWCASE_INSTANCE_ID} for repeatable before/after comparisons. {SHOWCASE_INSTANCE_NOTE}",
+    )
     parser.add_argument("--cases-file")
     parser.add_argument("--provider", default=os.getenv("AGENT_FORGE_DEFAULT_LLM", "deepseek"))
     parser.add_argument("--model")
@@ -511,11 +522,17 @@ def build_swebench_parser(parser: argparse.ArgumentParser) -> None:
 def run_swebench_from_args(args: argparse.Namespace) -> BenchRunSummary:
     """CLI adapter for ``forge bench swebench``."""
 
+    instance_ids = args.instance_id
+    limit = args.limit
+    if args.showcase and not instance_ids:
+        instance_ids = [SHOWCASE_INSTANCE_ID]
+        limit = 1
+
     return run_swebench(
         dataset_name=args.dataset,
         split=args.split,
-        limit=args.limit,
-        instance_ids=args.instance_id,
+        limit=limit,
+        instance_ids=instance_ids,
         cases_file=args.cases_file,
         provider=args.provider,
         model=args.model,

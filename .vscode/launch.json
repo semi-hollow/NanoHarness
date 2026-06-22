@@ -41,8 +41,7 @@
       "args": [
         "bench",
         "swebench",
-        "--limit",
-        "1",
+        "--showcase",
         "--provider",
         "deepseek",
         "--direct-baseline"

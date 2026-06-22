@@ -228,6 +228,7 @@ def run_tui() -> None:
             split="test",
             limit=int(limit),
             instance_id=[],
+            showcase=False,
             cases_file=None,
             provider=provider,
             model=None,
