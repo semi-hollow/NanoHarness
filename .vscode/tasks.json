@@ -2,6 +2,19 @@
   "version": "2.0.0",
   "tasks": [
     {
+      "label": "Agent Forge: Start browser UI",
+      "type": "shell",
+      "command": "source .venv/bin/activate && forge ui",
+      "options": {
+        "cwd": "${workspaceFolder}",
+        "shell": {
+          "executable": "/bin/zsh",
+          "args": ["-lc"]
+        }
+      },
+      "problemMatcher": []
+    },
+    {
       "label": "Agent Forge: Doctor",
       "type": "shell",
       "command": "source .venv/bin/activate && forge doctor",

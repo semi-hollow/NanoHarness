@@ -7,6 +7,7 @@ is removed.
 
 ```text
 agent_forge/forge_cli.py
+  -> ui.py for `forge ui` local browser demo
   -> bench/swebench.py for `forge bench swebench`
   -> runtime/agent_loop.py for agent execution
   -> context/* builds prompt context
@@ -31,6 +32,7 @@ entrypoints were removed so the code map stays aligned with the benchmark loop.
 | `models/` | Provider gateway, retry/fallback, token/cache/cost telemetry. | Runtime code becomes tied to one API provider and loses cost visibility. |
 | `observability/` | Trace, metrics, evidence, and usage reports. | You cannot explain why the agent chose a file, failed a tool, or spent tokens. |
 | `mcp/` | Built-in MCP-style stdio tools and external web tool wrappers. | Tool extension demos disappear, but SWE-bench patching can still run. |
+| `ui.py` | Local browser control surface for demoing doctor, agent run, SWE-bench sample, report, and replay. | Users must remember CLI commands before they can see the closed loop. |
 
 ## Important Classes
 
@@ -46,13 +48,15 @@ entrypoints were removed so the code map stays aligned with the benchmark loop.
 | `WorkspaceSandbox` | Prevents tools from escaping the target repo. |
 | `CommandPolicy` | Blocks dangerous shell commands and explains allowed validation commands. |
 | `TraceRecorder` | Writes the step-by-step evidence stream. |
+| `UiState` | Keeps browser-triggered jobs and outputs in memory for one local demo session. |
 
 ## Reading Order
 
 1. `agent_forge/forge_cli.py`
-2. `agent_forge/bench/swebench.py`
-3. `agent_forge/runtime/agent_loop.py`
-4. `agent_forge/context/context_builder.py`
-5. `agent_forge/tools/registry.py`
-6. `agent_forge/safety/command_policy.py`
-7. `agent_forge/observability/usage_report.py`
+2. `agent_forge/ui.py`
+3. `agent_forge/bench/swebench.py`
+4. `agent_forge/runtime/agent_loop.py`
+5. `agent_forge/context/context_builder.py`
+6. `agent_forge/tools/registry.py`
+7. `agent_forge/safety/command_policy.py`
+8. `agent_forge/observability/usage_report.py`
