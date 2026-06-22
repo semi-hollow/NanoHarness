@@ -42,9 +42,11 @@ Open the local browser demo UI:
 forge ui
 ```
 
-It serves `http://127.0.0.1:8765` and gives you buttons for environment checks,
-Mock/DeepSeek runs, SWE-bench samples, latest report, and trace replay. This is
-the recommended way to demonstrate the project locally.
+It serves `http://127.0.0.1:8765` and gives you explained buttons for
+environment checks, DeepSeek Agent runs, SWE-bench samples, latest report, and
+trace replay. This is the recommended way to demonstrate the project locally.
+Mock is kept only as an offline fallback for company networks or CI smoke
+checks; the main demo path should use DeepSeek.
 
 Run a normal coding task in the current repository:
 
@@ -89,7 +91,8 @@ Default DeepSeek settings are resolved in this order:
 3. `DEEPSEEK_*` environment variables
 4. built-in DeepSeek defaults: `https://api.deepseek.com`, `deepseek-v4-flash`
 
-Mock mode is still available for offline smoke checks:
+Mock mode is still available for offline smoke checks, but it is not the
+recommended demo path:
 
 ```bash
 forge run "修复 examples/demo_repo 里的测试失败问题" --provider mock
