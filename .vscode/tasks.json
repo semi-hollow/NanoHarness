@@ -43,7 +43,7 @@
     {
       "label": "Agent Forge: SWE-bench sample",
       "type": "shell",
-      "command": "source .venv/bin/activate && forge bench swebench --limit 1 --provider deepseek --direct-baseline",
+      "command": "source .venv/bin/activate && forge bench swebench --showcase --provider deepseek --direct-baseline",
       "options": {
         "cwd": "${workspaceFolder}",
         "shell": {

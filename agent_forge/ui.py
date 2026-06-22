@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import html
 import json
 import subprocess
 import sys
@@ -13,6 +14,7 @@ from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
+from urllib.parse import parse_qs, urlparse
 
 
 @dataclass
@@ -94,22 +96,29 @@ class ForgeUiHandler(BaseHTTPRequestHandler):
     def do_GET(self) -> None:
         """Serve the page and read-only JSON endpoints."""
 
-        if self.path == "/" or self.path.startswith("/index.html"):
+        parsed = urlparse(self.path)
+        path = parsed.path
+        query = parse_qs(parsed.query)
+        if path == "/" or path.startswith("/index.html"):
             self._send_html(INDEX_HTML)
             return
-        if self.path == "/api/status":
+        if path == "/api/status":
             self._send_json(self._status_payload())
             return
-        if self.path.startswith("/api/jobs/"):
-            job_id = self.path.rsplit("/", 1)[-1]
+        if path.startswith("/api/jobs/"):
+            job_id = path.rsplit("/", 1)[-1]
             job = self.state.get_job(job_id)
             if not job:
                 self._send_json({"error": "job not found"}, HTTPStatus.NOT_FOUND)
                 return
             self._send_json(_job_to_dict(job))
             return
-        if self.path == "/api/latest-report":
+        if path == "/api/latest-report":
             self._send_json({"content": _read_latest_report(self.state.project_dir)})
+            return
+        if path == "/api/evidence":
+            kind = (query.get("kind") or ["summary"])[0]
+            self._send_json({"html": _render_evidence_html(self.state.project_dir, kind)})
             return
         self._send_json({"error": "not found"}, HTTPStatus.NOT_FOUND)
 
@@ -238,10 +247,15 @@ def _action_to_command(action: str, payload: dict[str, Any]) -> tuple[str, list[
                 "agent_forge",
                 "bench",
                 "swebench",
+                "--showcase",
                 "--limit",
                 limit,
                 "--provider",
                 provider,
+                "--max-steps",
+                "24",
+                "--max-context-chars",
+                "18000",
                 "--direct-baseline",
             ],
         )
@@ -270,16 +284,12 @@ def _job_to_dict(job: UiJob) -> dict[str, Any]:
 def _latest_report_path(project_dir: Path) -> str:
     """Return latest report path if available."""
 
-    for pointer_name in ("bench.txt", "run.txt"):
-        pointer = project_dir / ".agent_forge/latest" / pointer_name
-        if pointer.exists():
-            run_dir = Path(pointer.read_text(encoding="utf-8").strip())
-            if not run_dir.is_absolute():
-                run_dir = project_dir / run_dir
-            for name in ("report.md", "usage_report.md"):
-                candidate = run_dir / name
-                if candidate.exists():
-                    return str(candidate)
+    run_dir = _latest_run_dir(project_dir)
+    if run_dir:
+        for name in ("report.md", "usage_report.md"):
+            candidate = run_dir / name
+            if candidate.exists():
+                return str(candidate)
     return ""
 
 
@@ -290,6 +300,341 @@ def _read_latest_report(project_dir: Path) -> str:
     if not path:
         return "No report yet. Run DeepSeek Agent Run or SWE-bench Sample first."
     return Path(path).read_text(encoding="utf-8")
+
+
+def _render_evidence_html(project_dir: Path, kind: str) -> str:
+    """Render human-facing evidence from trace/report artifacts.
+
+    Raw trace JSON is excellent for replayability but painful to read during a
+    demo. These views intentionally summarize the same source artifacts into
+    cards, tables, badges, and step timelines.
+    """
+
+    if kind == "summary":
+        return _render_result_summary(project_dir)
+    if kind == "usage":
+        return _render_usage_dashboard(project_dir)
+    if kind == "timeline":
+        return _render_trace_timeline(project_dir)
+    if kind == "raw_report":
+        return f"<pre class='raw-text'>{_escape(_read_latest_report(project_dir))}</pre>"
+    return _empty_evidence(f"Unsupported evidence view: {kind}")
+
+
+def _latest_run_dir(project_dir: Path) -> Path | None:
+    """Resolve the newest benchmark/run directory from stable pointers."""
+
+    latest = project_dir / ".agent_forge/latest"
+    for pointer_name in ("bench.txt", "run.txt"):
+        pointer = latest / pointer_name
+        if pointer.exists():
+            run_dir = Path(pointer.read_text(encoding="utf-8").strip())
+            if not run_dir.is_absolute():
+                run_dir = project_dir / run_dir
+            if run_dir.exists():
+                return run_dir
+    runs_dir = project_dir / ".agent_forge/runs"
+    if not runs_dir.exists():
+        return None
+    candidates = [path for path in runs_dir.iterdir() if path.is_dir()]
+    if not candidates:
+        return None
+    return max(candidates, key=lambda path: path.stat().st_mtime)
+
+
+def _latest_trace_path(project_dir: Path) -> Path | None:
+    """Return the most relevant trace for the latest run."""
+
+    run_dir = _latest_run_dir(project_dir)
+    if not run_dir:
+        return None
+    direct = run_dir / "trace.json"
+    if direct.exists():
+        return direct
+    traces = sorted(run_dir.glob("cases/*/trace.json"))
+    return traces[0] if traces else None
+
+
+def _latest_usage_path(project_dir: Path) -> Path | None:
+    """Return the most relevant usage.json for the latest run."""
+
+    run_dir = _latest_run_dir(project_dir)
+    if not run_dir:
+        return None
+    direct = run_dir / "usage.json"
+    if direct.exists():
+        return direct
+    usages = sorted(run_dir.glob("cases/*/usage.json"))
+    return usages[0] if usages else None
+
+
+def _read_json_file(path: Path | None) -> dict[str, Any]:
+    """Read JSON defensively for UI evidence rendering."""
+
+    if not path or not path.exists():
+        return {}
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except Exception as exc:
+        return {"error": str(exc), "path": str(path)}
+
+
+def _render_result_summary(project_dir: Path) -> str:
+    """Render the latest run as a readable result card."""
+
+    run_dir = _latest_run_dir(project_dir)
+    if not run_dir:
+        return _empty_evidence("No run artifacts yet. Run the fixed SWE-bench showcase first.")
+
+    results = _read_json_file(run_dir / "results.json")
+    usage = _read_json_file(_latest_usage_path(project_dir))
+    trace = _read_json_file(_latest_trace_path(project_dir))
+    summary = usage.get("summary") or {}
+    report_path = _latest_report_path(project_dir) or "not found"
+
+    if results:
+        cases = results.get("case_results") or []
+        patch_count = sum(1 for case in cases if int(case.get("patch_chars") or 0) > 0)
+        status_text = ", ".join(f"{case.get('instance_id')}: {case.get('status')}" for case in cases) or "no cases"
+        case_rows = "".join(
+            "<tr>"
+            f"<td class='mono'>{_escape(case.get('instance_id', ''))}</td>"
+            f"<td>{_escape(case.get('repo', ''))}</td>"
+            f"<td>{_badge(case.get('status', ''), _tone_for_status(case.get('status', '')))}</td>"
+            f"<td>{_badge(case.get('evaluation_status', ''), _tone_for_status(case.get('evaluation_status', '')))}</td>"
+            f"<td>{int(case.get('patch_chars') or 0)}</td>"
+            "</tr>"
+            for case in cases
+        )
+        case_rows_html = case_rows or "<tr><td colspan='5'>No cases</td></tr>"
+        body = [
+            "<h2>Result Summary</h2>",
+            "<p class='help strong'>这不是原始日志，而是从 results.json、usage.json、trace.json 提炼出的展示卡片。</p>",
+            _metric_grid(
+                [
+                    ("Run", results.get("run_id", ""), "Benchmark run id", "neutral"),
+                    ("Provider", f"{results.get('provider', '')}/{results.get('model') or 'default'}", "真实模型配置", "ok"),
+                    ("Cases", str(len(cases)), "本次跑了几个 SWE-bench case", "neutral"),
+                    ("Patch", f"{patch_count}/{len(cases)}", "是否产生候选 diff", "ok" if patch_count else "warn"),
+                    ("Status", status_text, "agent 结束状态", _tone_for_status(status_text)),
+                    ("Cost", f"${float(summary.get('estimated_cost_usd') or 0):.6f}", "DeepSeek 估算成本", "ok"),
+                ]
+            ),
+            "<h3>Fixed Showcase Case</h3>",
+            "<p>默认样例固定为 <span class='mono'>astropy__astropy-12907</span>：真实 Astropy nested CompoundModel separability bug。它足够复杂，可以稳定暴露上下文检索、工具选择、循环控制、成本统计的改进效果。</p>",
+            f"<p><span class='label'>Latest report</span><span class='mono'>{_escape(report_path)}</span></p>",
+            "<h3>Cases</h3>",
+            "<table><thead><tr><th>instance</th><th>repo</th><th>agent status</th><th>eval status</th><th>patch chars</th></tr></thead>"
+            f"<tbody>{case_rows_html}</tbody></table>",
+        ]
+    else:
+        body = [
+            "<h2>Result Summary</h2>",
+            _metric_grid(
+                [
+                    ("Run", usage.get("run_id", ""), "Normal agent run", "neutral"),
+                    ("Stop", usage.get("stop_reason", ""), "停止原因", _tone_for_status(usage.get("stop_reason", ""))),
+                    ("LLM Calls", str(summary.get("llm_calls", 0)), "模型调用次数", "neutral"),
+                    ("Tokens", str(summary.get("total_tokens", 0)), "总 token", "neutral"),
+                    ("Cost", f"${float(summary.get('estimated_cost_usd') or 0):.6f}", "估算成本", "ok"),
+                    ("Tools", f"{summary.get('tool_calls', 0)} calls", "工具调用", "neutral"),
+                ]
+            ),
+            f"<p><span class='label'>Task</span>{_escape((usage.get('task') or trace.get('task') or '')[:800])}</p>",
+        ]
+    return "<div class='evidence'>" + "".join(body) + "</div>"
+
+
+def _render_usage_dashboard(project_dir: Path) -> str:
+    """Render token/cost/context/tool efficiency as a readable dashboard."""
+
+    usage_path = _latest_usage_path(project_dir)
+    usage = _read_json_file(usage_path)
+    if not usage:
+        return _empty_evidence("No usage.json found. Run DeepSeek Agent or SWE-bench showcase first.")
+
+    summary = usage.get("summary") or {}
+    rows = []
+    for step in usage.get("steps") or []:
+        calls = step.get("llm_calls") or []
+        prompt = sum(int(call.get("prompt_tokens") or 0) for call in calls)
+        completion = sum(int(call.get("completion_tokens") or 0) for call in calls)
+        cost = sum(float(call.get("estimated_cost_usd") or 0) for call in calls)
+        actions = step.get("actions") or []
+        action_text = ", ".join(
+            f"{action.get('tool', 'tool')}:{'ok' if action.get('success') else 'fail'}"
+            for action in actions[:4]
+        )
+        if len(actions) > 4:
+            action_text += f", +{len(actions) - 4}"
+        rows.append(
+            "<tr>"
+            f"<td>{int(step.get('step') or 0)}</td>"
+            f"<td>{len(calls)}</td>"
+            f"<td>{prompt}</td>"
+            f"<td>{completion}</td>"
+            f"<td>${cost:.6f}</td>"
+            f"<td>{int((step.get('context') or {}).get('total_chars') or 0)}</td>"
+            f"<td>{_escape(action_text or 'none')}</td>"
+            "</tr>"
+        )
+
+    context_sections = (usage.get("context_breakdown") or {}).get("section_chars") or {}
+    context_rows = "".join(
+        f"<tr><td>{_escape(name)}</td><td>{int(value)}</td></tr>"
+        for name, value in sorted(context_sections.items(), key=lambda item: int(item[1]), reverse=True)
+    )
+    tools = ((usage.get("tool_efficiency") or {}).get("by_tool") or {})
+    tool_rows = "".join(
+        "<tr>"
+        f"<td>{_escape(name)}</td>"
+        f"<td>{data.get('calls', 0)}</td>"
+        f"<td>{data.get('success', 0)}</td>"
+        f"<td>{data.get('failed', 0)}</td>"
+        f"<td>{int(data.get('duration_ms', 0) or 0)}</td>"
+        "</tr>"
+        for name, data in tools.items()
+    )
+    step_rows_html = "".join(rows) or "<tr><td colspan='7'>No step data</td></tr>"
+    context_rows_html = context_rows or "<tr><td colspan='2'>No context data</td></tr>"
+    tool_rows_html = tool_rows or "<tr><td colspan='5'>No tool data</td></tr>"
+
+    body = [
+        "<h2>Usage Dashboard</h2>",
+        "<p class='help strong'>这里回答面试官最常问的工程量化问题：一次真实运行花了多少 token、多少钱、哪里消耗上下文、工具是否高效。</p>",
+        _metric_grid(
+            [
+                ("LLM Calls", str(summary.get("llm_calls", 0)), "模型调用轮数", "neutral"),
+                ("Total Tokens", str(summary.get("total_tokens", 0)), "input + output", "neutral"),
+                ("Cache Hit", f"{float(summary.get('cache_hit_rate') or 0):.2%}", "缓存命中率", "ok"),
+                ("Cost", f"${float(summary.get('estimated_cost_usd') or 0):.6f}", "估算成本", "ok"),
+                ("Latency", f"{int(summary.get('llm_latency_ms') or 0)} ms", "模型总延迟", "neutral"),
+                ("Tool Failures", str(summary.get("failed_tool_calls", 0)), "失败工具调用", "bad" if summary.get("failed_tool_calls") else "ok"),
+            ]
+        ),
+        "<h3>Step Cost Breakdown</h3>",
+        "<table><thead><tr><th>step</th><th>llm calls</th><th>input</th><th>output</th><th>cost</th><th>context chars</th><th>actions</th></tr></thead>"
+        f"<tbody>{step_rows_html}</tbody></table>",
+        "<div class='split'>",
+        "<div><h3>Context Breakdown</h3><table><thead><tr><th>section</th><th>chars</th></tr></thead>"
+        f"<tbody>{context_rows_html}</tbody></table></div>",
+        "<div><h3>Tool Efficiency</h3><table><thead><tr><th>tool</th><th>calls</th><th>ok</th><th>fail</th><th>ms</th></tr></thead>"
+        f"<tbody>{tool_rows_html}</tbody></table></div>",
+        "</div>",
+        f"<p><span class='label'>usage.json</span><span class='mono'>{_escape(str(usage_path))}</span></p>",
+    ]
+    return "<div class='evidence'>" + "".join(body) + "</div>"
+
+
+def _render_trace_timeline(project_dir: Path) -> str:
+    """Render the latest trace as a step-by-step visual timeline."""
+
+    trace_path = _latest_trace_path(project_dir)
+    trace = _read_json_file(trace_path)
+    if not trace:
+        return _empty_evidence("No trace.json found. Run DeepSeek Agent or SWE-bench showcase first.")
+
+    grouped: dict[int, list[dict[str, Any]]] = {}
+    for event in trace.get("events") or []:
+        grouped.setdefault(int(event.get("step") or 0), []).append(event)
+
+    step_blocks = []
+    for step, events in sorted(grouped.items()):
+        pills = []
+        failures = 0
+        for event in events:
+            event_type = str(event.get("event_type") or "")
+            success = bool(event.get("success", True))
+            failures += 0 if success else 1
+            label = event_type
+            if event.get("tool_call"):
+                label += f" · {event.get('tool_call')}"
+            if event.get("duration_ms"):
+                label += f" · {int(event.get('duration_ms') or 0)}ms"
+            pills.append(f"<span class='event-pill { _event_tone(event_type, success) }'>{_escape(label)}</span>")
+        step_blocks.append(
+            "<div class='timeline-step'>"
+            f"<div class='timeline-head'><strong>Step {step}</strong>{_badge('failed events: ' + str(failures), 'bad') if failures else _badge('ok', 'ok')}</div>"
+            f"<div>{''.join(pills)}</div>"
+            "</div>"
+        )
+
+    body = [
+        "<h2>Trace Timeline</h2>",
+        "<p class='help strong'>这张图把 raw trace 转成执行时间线：context 进入模型，模型产生 action，工具执行，observation 回到下一轮。</p>",
+        _metric_grid(
+            [
+                ("Run", trace.get("run_id", ""), "trace run id", "neutral"),
+                ("Stop", trace.get("stop_reason", ""), "停止原因", _tone_for_status(trace.get("stop_reason", ""))),
+                ("Events", str(len(trace.get("events") or [])), "trace 事件数", "neutral"),
+                ("Steps", str(len(grouped)), "AgentLoop 步数", "neutral"),
+            ]
+        ),
+        "<h3>Timeline</h3>",
+        "".join(step_blocks),
+        f"<p><span class='label'>trace.json</span><span class='mono'>{_escape(str(trace_path))}</span></p>",
+    ]
+    return "<div class='evidence'>" + "".join(body) + "</div>"
+
+
+def _metric_grid(items: list[tuple[str, str, str, str]]) -> str:
+    """Render reusable metric cards."""
+
+    cards = []
+    for label, value, note, tone in items:
+        cards.append(
+            f"<div class='metric-card {tone}'>"
+            f"<div class='metric-label'>{_escape(label)}</div>"
+            f"<div class='metric-value'>{_escape(value)}</div>"
+            f"<div class='metric-note'>{_escape(note)}</div>"
+            "</div>"
+        )
+    return "<div class='metric-grid'>" + "".join(cards) + "</div>"
+
+
+def _badge(text: str, tone: str) -> str:
+    """Render a colored status badge."""
+
+    return f"<span class='badge {tone}'>{_escape(text)}</span>"
+
+
+def _tone_for_status(value: str) -> str:
+    """Map status text to a display tone."""
+
+    lowered = str(value).lower()
+    if "patch_generated" in lowered or lowered in {"ok", "succeeded", "success"}:
+        return "ok"
+    if any(marker in lowered for marker in ("blocked", "failed", "error", "repeated", "deny")):
+        return "bad"
+    if any(marker in lowered for marker in ("no_patch", "not_evaluated", "unavailable", "missing")):
+        return "warn"
+    return "neutral"
+
+
+def _event_tone(event_type: str, success: bool) -> str:
+    """Map trace event type to a compact visual class."""
+
+    if not success:
+        return "bad"
+    if event_type in {"llm_call", "plan", "planning_mode"}:
+        return "blue"
+    if event_type in {"tool_call", "tool_observation", "action"}:
+        return "warn"
+    if event_type in {"guardrail_check", "permission_check", "hook_check"}:
+        return "ok"
+    return "neutral"
+
+
+def _empty_evidence(message: str) -> str:
+    """Render a friendly empty state."""
+
+    return f"<div class='evidence'><h2>No Evidence Yet</h2><p>{_escape(message)}</p></div>"
+
+
+def _escape(value: Any) -> str:
+    """Escape text before inserting it into UI HTML."""
+
+    return html.escape(str(value), quote=True)
 
 
 INDEX_HTML = r"""<!doctype html>
@@ -420,7 +765,7 @@ INDEX_HTML = r"""<!doctype html>
     .pill .v { margin-top: 4px; font-size: 14px; overflow-wrap: anywhere; }
     .tabs { display: flex; gap: 8px; margin-bottom: 12px; }
     .tabs button { width: auto; margin: 0; padding: 8px 10px; }
-    pre {
+    .output {
       white-space: pre-wrap;
       word-break: break-word;
       background: #090b10;
@@ -431,6 +776,92 @@ INDEX_HTML = r"""<!doctype html>
       max-height: 70vh;
       overflow: auto;
       color: #dce6f3;
+    }
+    .evidence { white-space: normal; color: var(--text); }
+    .evidence h2 { margin: 0 0 8px; font-size: 20px; }
+    .evidence h3 { margin: 18px 0 8px; font-size: 15px; }
+    .strong { color: #dce6f3; }
+    .metric-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 10px;
+      margin: 12px 0;
+    }
+    .metric-card {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 12px;
+      background: #111620;
+    }
+    .metric-card.ok { border-color: rgba(61, 220, 151, .45); }
+    .metric-card.warn { border-color: rgba(255, 209, 102, .55); }
+    .metric-card.bad { border-color: rgba(255, 107, 107, .55); }
+    .metric-label, .label { color: var(--muted); font-size: 12px; margin-right: 8px; }
+    .metric-value { margin-top: 4px; font-size: 18px; font-weight: 800; overflow-wrap: anywhere; }
+    .metric-note { margin-top: 4px; color: var(--muted); font-size: 12px; }
+    .mono {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      overflow-wrap: anywhere;
+    }
+    .badge {
+      display: inline-block;
+      border-radius: 999px;
+      padding: 3px 8px;
+      font-size: 12px;
+      font-weight: 700;
+      border: 1px solid var(--line);
+      color: var(--text);
+      background: var(--panel-2);
+    }
+    .badge.ok, .event-pill.ok { border-color: rgba(61, 220, 151, .5); color: var(--green); }
+    .badge.warn, .event-pill.warn { border-color: rgba(255, 209, 102, .55); color: var(--yellow); }
+    .badge.bad, .event-pill.bad { border-color: rgba(255, 107, 107, .55); color: var(--red); }
+    .event-pill.blue { border-color: rgba(106, 169, 255, .55); color: var(--blue); }
+    .event-pill.neutral { color: var(--muted); }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 8px 0 12px;
+      font-size: 13px;
+    }
+    th, td {
+      border-bottom: 1px solid var(--line);
+      padding: 8px 7px;
+      text-align: left;
+      vertical-align: top;
+    }
+    th { color: var(--muted); font-weight: 700; }
+    .split {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 14px;
+    }
+    .timeline-step {
+      border-left: 3px solid var(--line);
+      padding: 10px 0 10px 14px;
+      margin-left: 6px;
+    }
+    .timeline-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      margin-bottom: 8px;
+    }
+    .event-pill {
+      display: inline-block;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      padding: 5px 8px;
+      margin: 0 6px 6px 0;
+      font-size: 12px;
+      background: #0d1016;
+    }
+    .raw-text {
+      white-space: pre-wrap;
+      color: #dce6f3;
+      margin: 0;
+      font: inherit;
     }
     .job {
       border: 1px solid var(--line);
@@ -449,6 +880,7 @@ INDEX_HTML = r"""<!doctype html>
       main { grid-template-columns: 1fr; }
       aside { border-right: 0; border-bottom: 1px solid var(--line); }
       .status { grid-template-columns: 1fr; }
+      .metric-grid, .split { grid-template-columns: 1fr; }
     }
   </style>
 </head>
@@ -485,33 +917,34 @@ INDEX_HTML = r"""<!doctype html>
       <div class="card">
         <h2>3. SWE-bench 真实样例</h2>
         <div class="help">
-          从 SWE-bench Lite 取真实 GitHub issue，checkout 到官方 base commit，让 Agent Forge 生成 patch prediction。
-          这是项目最重要的闭环证据；默认用 DeepSeek，不再把 Mock 放在主流程里。
-          <span class="command">python -m agent_forge bench swebench --limit N --provider deepseek --direct-baseline</span>
+          固定运行 <span class="mono">astropy__astropy-12907</span>：Astropy nested CompoundModel separability bug。
+          固定 case 的好处是每次改 harness 后都能对比同一个复杂样例的 trace、token、工具效率和 patch 结果。
+          <span class="command">python -m agent_forge bench swebench --showcase --provider deepseek --direct-baseline</span>
         </div>
-        <label>Limit</label>
-        <input id="limit" type="number" min="1" max="20" value="1" />
         <button class="primary" onclick="startJob('swebench_sample')">Run SWE-bench with DeepSeek</button>
       </div>
       <div class="card">
         <h2>4. 查看运行证据</h2>
         <div class="help">
-          读取最近一次运行的报告和 trace。报告看整体结果、token/cost/工具统计；Replay 看每一步 context、LLM、tool、observation 的执行顺序。
+          这些按钮不会直接 dump 原始 JSON 或命令行日志，而是把运行产物整理成适合展示的卡片、表格和时间线。
         </div>
         <div class="help">
-          打印最新报告到输出区。
-          <span class="command">python -m agent_forge report latest</span>
+          看本次 benchmark/run 的结果、case、状态、patch 是否生成、成本摘要。
         </div>
-        <button class="secondary" onclick="startJob('report')">Print Latest Report</button>
+        <button class="secondary" onclick="loadEvidence('summary')">Show Result Summary</button>
         <div class="help">
-          回放最新 trace，适合解释 Agent 为什么这么做。
+          看 token、cost、cache、context breakdown、tool efficiency 和 step 级消耗。
+        </div>
+        <button class="secondary" onclick="loadEvidence('usage')">Show Usage Dashboard</button>
+        <div class="help">
+          看每一步 context、LLM、action、tool observation、guardrail/permission 的执行时间线。
           <span class="command">python -m agent_forge replay latest</span>
         </div>
-        <button class="secondary" onclick="startJob('replay')">Replay Latest Trace</button>
-        <div class="help">
-          直接读取最新 report.md / usage_report.md 文件内容。
-        </div>
-        <button class="secondary" onclick="loadLatestReport()">Load Report File</button>
+        <button class="secondary" onclick="loadEvidence('timeline')">Show Trace Timeline</button>
+        <details>
+          <summary>调试时查看原始报告</summary>
+          <button class="secondary" onclick="loadEvidence('raw_report')">Load Raw Report</button>
+        </details>
       </div>
       <div class="card">
         <h2>离线兜底</h2>
@@ -543,7 +976,7 @@ INDEX_HTML = r"""<!doctype html>
         <button class="secondary" onclick="refreshStatus()">Refresh</button>
         <button class="secondary" onclick="clearOutput()">Clear Output</button>
       </div>
-      <pre id="output">Ready. 建议先点 Run Doctor，再点 Run SWE-bench with DeepSeek。</pre>
+      <div id="output" class="output">Ready. 建议先点 Run Doctor，再点 Run SWE-bench with DeepSeek，然后看 Result Summary / Usage Dashboard / Trace Timeline。</div>
       <h2 style="font-size:16px">Recent Jobs</h2>
       <div id="jobs"></div>
     </section>
@@ -573,7 +1006,7 @@ INDEX_HTML = r"""<!doctype html>
         action,
         task: document.getElementById('task').value,
         provider: 'deepseek',
-        limit: Number(document.getElementById('limit').value || 1)
+        limit: 1
       };
       const res = await fetch('/api/jobs', {
         method: 'POST',
@@ -613,6 +1046,13 @@ INDEX_HTML = r"""<!doctype html>
       const res = await fetch('/api/latest-report');
       const data = await res.json();
       document.getElementById('output').textContent = data.content;
+      refreshStatus();
+    }
+
+    async function loadEvidence(kind) {
+      const res = await fetch(`/api/evidence?kind=${encodeURIComponent(kind)}`);
+      const data = await res.json();
+      document.getElementById('output').innerHTML = data.html;
       refreshStatus();
     }
 
