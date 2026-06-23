@@ -259,6 +259,27 @@ def _action_to_command(action: str, payload: dict[str, Any]) -> tuple[str, list[
                 "--direct-baseline",
             ],
         )
+    if action == "swebench_regression":
+        provider = str(payload.get("provider") or "deepseek")
+        return (
+            "SWE-bench Regression Set",
+            [
+                python,
+                "-m",
+                "agent_forge",
+                "bench",
+                "swebench",
+                "--regression-set",
+                "core",
+                "--provider",
+                provider,
+                "--max-steps",
+                "24",
+                "--max-context-chars",
+                "18000",
+                "--direct-baseline",
+            ],
+        )
     if action == "report":
         return "Latest Report", [python, "-m", "agent_forge", "report", "latest"]
     if action == "replay":
@@ -401,12 +422,15 @@ def _render_result_summary(project_dir: Path) -> str:
             f"<td class='mono'>{_escape(case.get('instance_id', ''))}</td>"
             f"<td>{_escape(case.get('repo', ''))}</td>"
             f"<td>{_badge(case.get('status', ''), _tone_for_status(case.get('status', '')))}</td>"
+            f"<td>{_badge(case.get('failure_class', 'unclassified'), _tone_for_status(case.get('failure_class', '')))}</td>"
             f"<td>{_badge(case.get('evaluation_status', ''), _tone_for_status(case.get('evaluation_status', '')))}</td>"
             f"<td>{int(case.get('patch_chars') or 0)}</td>"
+            f"<td>{_escape(case.get('diagnosis', ''))}</td>"
+            f"<td>{_escape((case.get('next_actions') or [''])[0])}</td>"
             "</tr>"
             for case in cases
         )
-        case_rows_html = case_rows or "<tr><td colspan='5'>No cases</td></tr>"
+        case_rows_html = case_rows or "<tr><td colspan='8'>No cases</td></tr>"
         body = [
             "<h2>Result Summary</h2>",
             "<p class='help strong'>这不是原始日志，而是从 results.json、usage.json、trace.json 提炼出的展示卡片。</p>",
@@ -424,7 +448,7 @@ def _render_result_summary(project_dir: Path) -> str:
             "<p>默认样例固定为 <span class='mono'>astropy__astropy-12907</span>：真实 Astropy nested CompoundModel separability bug。它足够复杂，可以稳定暴露上下文检索、工具选择、循环控制、成本统计的改进效果。</p>",
             f"<p><span class='label'>Latest report</span><span class='mono'>{_escape(report_path)}</span></p>",
             "<h3>Cases</h3>",
-            "<table><thead><tr><th>instance</th><th>repo</th><th>agent status</th><th>eval status</th><th>patch chars</th></tr></thead>"
+            "<table><thead><tr><th>instance</th><th>repo</th><th>agent status</th><th>diagnosis class</th><th>eval status</th><th>patch chars</th><th>diagnosis</th><th>next action</th></tr></thead>"
             f"<tbody>{case_rows_html}</tbody></table>",
         ]
     else:
@@ -922,6 +946,14 @@ INDEX_HTML = r"""<!doctype html>
           <span class="command">python -m agent_forge bench swebench --showcase --provider deepseek --direct-baseline</span>
         </div>
         <button class="primary" onclick="startJob('swebench_sample')">Run SWE-bench with DeepSeek</button>
+        <details>
+          <summary>跑固定回归集，成本更高</summary>
+          <div class="help">
+            固定运行 3 个真实 SWE-bench cases，用于比较 harness 改动前后的 patch rate、blocked rate、token/cost 和 failure diagnosis。
+            <span class="command">python -m agent_forge bench swebench --regression-set core --provider deepseek --direct-baseline</span>
+          </div>
+          <button class="secondary" onclick="startJob('swebench_regression')">Run Core Regression Set</button>
+        </details>
       </div>
       <div class="card">
         <h2>4. 查看运行证据</h2>

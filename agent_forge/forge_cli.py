@@ -229,6 +229,7 @@ def run_tui() -> None:
             limit=int(limit),
             instance_id=[],
             showcase=False,
+            regression_set=None,
             cases_file=None,
             provider=provider,
             model=None,

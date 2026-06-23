@@ -21,6 +21,7 @@ from agent_forge.runtime.llm_config import resolve_llm_config
 from agent_forge.runtime.message import Message
 from agent_forge.runtime.wiring import build_llm, build_registry
 
+from .diagnostics import attach_failure_diagnosis
 from .report import write_bench_artifacts
 from .types import BenchCase, BenchCaseResult, BenchRunSummary
 
@@ -32,6 +33,13 @@ SHOWCASE_INSTANCE_NOTE = (
     "for local demos but forces real repository checkout, context retrieval, "
     "tool use, patch generation, and trace/usage inspection."
 )
+REGRESSION_SETS = {
+    "core": [
+        SHOWCASE_INSTANCE_ID,
+        "django__django-11133",
+        "django__django-11999",
+    ]
+}
 
 
 def load_cases(
@@ -214,6 +222,7 @@ def run_swebench(
                     max_steps=max_steps,
                     max_context_chars=max_context_chars,
                 )
+                attach_failure_diagnosis(result)
                 summary.case_results.append(result)
                 prediction_file.write(
                     json.dumps(
@@ -244,6 +253,8 @@ def run_swebench(
 
     if evaluate:
         _run_official_evaluation(summary, max_workers=max_workers, namespace_empty=namespace_empty)
+        for result in summary.case_results:
+            attach_failure_diagnosis(result)
 
     write_bench_artifacts(summary)
     _write_latest_pointer(output_dir)
@@ -504,6 +515,11 @@ def build_swebench_parser(parser: argparse.ArgumentParser) -> None:
         action="store_true",
         help=f"Run the fixed demo case {SHOWCASE_INSTANCE_ID} for repeatable before/after comparisons. {SHOWCASE_INSTANCE_NOTE}",
     )
+    parser.add_argument(
+        "--regression-set",
+        choices=sorted(REGRESSION_SETS),
+        help="Run a named fixed SWE-bench case set for before/after harness regression checks.",
+    )
     parser.add_argument("--cases-file")
     parser.add_argument("--provider", default=os.getenv("AGENT_FORGE_DEFAULT_LLM", "deepseek"))
     parser.add_argument("--model")
@@ -524,7 +540,10 @@ def run_swebench_from_args(args: argparse.Namespace) -> BenchRunSummary:
 
     instance_ids = args.instance_id
     limit = args.limit
-    if args.showcase and not instance_ids:
+    if args.regression_set and not instance_ids:
+        instance_ids = REGRESSION_SETS[args.regression_set]
+        limit = len(instance_ids)
+    elif args.showcase and not instance_ids:
         instance_ids = [SHOWCASE_INSTANCE_ID]
         limit = 1
 

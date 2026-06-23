@@ -65,6 +65,15 @@ forge bench swebench --showcase --provider deepseek --direct-baseline
 CompoundModel separability issue. Keeping the case stable makes before/after
 harness improvements visible in the same trace, usage, and patch artifacts.
 
+Run the fixed regression set when you want a broader before/after signal:
+
+```bash
+forge bench swebench --regression-set core --provider deepseek --direct-baseline
+```
+
+The report includes `failure_class`, diagnosis evidence, and next actions for
+each case so failed runs become optimization targets instead of raw logs.
+
 Read the latest report:
 
 ```bash
@@ -132,6 +141,12 @@ Repeatable demo command:
 
 ```bash
 forge bench swebench --showcase --provider deepseek --direct-baseline
+```
+
+Regression command:
+
+```bash
+forge bench swebench --regression-set core --provider deepseek --direct-baseline
 ```
 
 Official evaluation is heavier and requires the SWE-bench package plus Docker:
@@ -216,6 +231,7 @@ agent_forge/
 - [Evaluation Guide](docs/evaluation/README.md)
 - [Architecture Notes](docs/architecture.md)
 - [Technical Defense Notes](docs/technical-defense/coding-agent-defense-zh.md)
+- [Interview Response Playbook](docs/technical-defense/interview-response-playbook-zh.md)
 
 ## Development Smoke Check
 

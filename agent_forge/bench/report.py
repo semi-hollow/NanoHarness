@@ -123,6 +123,25 @@ def render_bench_report(summary: BenchRunSummary) -> str:
             "- `blocked`: guardrail, provider config, command policy, or runtime budget stopped the case.",
             "- `official_eval_failed`: SWE-bench harness ran and rejected the patch.",
             "",
+            "## Failure Diagnosis",
+            "",
+            "| instance | class | diagnosis | next action | evidence |",
+            "| --- | --- | --- | --- | --- |",
+        ]
+    )
+    for result in summary.case_results:
+        next_action = result.next_actions[0] if result.next_actions else ""
+        evidence = "; ".join(result.diagnosis_evidence[:4])
+        lines.append(
+            "| "
+            f"`{result.instance_id}` | `{result.failure_class or 'unclassified'}` | "
+            f"{_table_cell(result.diagnosis)} | {_table_cell(next_action)} | {_table_cell(evidence)} |"
+        )
+    lines.extend(
+        [
+            "",
+            "Use this table as the first iteration target. Repeated-tool failures point to loop recovery, context misses point to retrieval/ranking, and official-eval failures point to patch correctness.",
+            "",
             "## Notes",
             "",
         ]
@@ -133,3 +152,9 @@ def render_bench_report(summary: BenchRunSummary) -> str:
         lines.append("- No additional notes.")
     lines.append("")
     return "\n".join(lines)
+
+
+def _table_cell(value: str) -> str:
+    """Keep generated Markdown tables readable."""
+
+    return (value or "").replace("|", "\\|").replace("\n", " ").strip()

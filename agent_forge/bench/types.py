@@ -73,6 +73,10 @@ class BenchCaseResult:
     patch_chars: int = 0
     error: str = ""
     evaluation_status: str = "not_evaluated"
+    failure_class: str = ""
+    diagnosis: str = ""
+    diagnosis_evidence: list[str] = field(default_factory=list)
+    next_actions: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
         """Serialize result data for ``results.json`` and reports."""
@@ -89,6 +93,10 @@ class BenchCaseResult:
             "patch_chars": self.patch_chars,
             "error": self.error,
             "evaluation_status": self.evaluation_status,
+            "failure_class": self.failure_class,
+            "diagnosis": self.diagnosis,
+            "diagnosis_evidence": self.diagnosis_evidence,
+            "next_actions": self.next_actions,
         }
 
 
