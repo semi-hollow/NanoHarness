@@ -10,7 +10,7 @@ coding-agent run reproducible and inspectable:
 3. let the agent inspect, patch, and validate through tools;
 4. emit a SWE-bench-compatible `predictions.jsonl`;
 5. optionally call the official SWE-bench harness;
-6. generate a result card with trace, usage, and failure taxonomy.
+6. generate a result card with trace, usage, failure taxonomy, and failure diagnosis.
 
 ## Why SWE-bench
 
@@ -22,11 +22,17 @@ The official evaluation harness is Docker-based and can be resource intensive.
 For local development, run small samples first:
 
 ```bash
-forge bench swebench --limit 1 --provider deepseek --direct-baseline
+forge bench swebench --showcase --provider deepseek --direct-baseline
 forge report latest
 ```
 
-Scale only after the local loop is stable:
+Use the fixed regression set after the single showcase loop is stable:
+
+```bash
+forge bench swebench --regression-set core --provider deepseek --direct-baseline
+```
+
+Scale to broader samples only after the fixed regression loop is stable:
 
 ```bash
 forge bench swebench --limit 20 --provider deepseek --direct-baseline
@@ -49,6 +55,7 @@ The result card reports:
 - context breakdown: how much prompt budget went to files, memory, tools, history.
 - tool efficiency: tool count, success rate, failed observations, observation size.
 - failure taxonomy: blocked, no patch, official eval failed, provider/config failure.
+- failure diagnosis: machine-readable failure class, evidence, and next actions for every case.
 
 ## Baseline
 
@@ -75,6 +82,7 @@ Useful local progression:
 4. direct baseline comparison exists.
 5. official harness evaluates the prediction.
 6. failed cases are grouped by failure taxonomy.
+7. repeated runs on the fixed regression set show whether a harness change improves or regresses the same cases.
 
 ## Resource Notes
 
