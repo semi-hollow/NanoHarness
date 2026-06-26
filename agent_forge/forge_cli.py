@@ -20,6 +20,7 @@ from agent_forge.runtime.config import RuntimeConfig
 from agent_forge.runtime.llm_config import resolve_llm_config
 from agent_forge.runtime.task_state import replay_trace
 from agent_forge.runtime.wiring import build_llm, build_registry
+from agent_forge.skills import SkillRegistry
 from agent_forge.ui import build_ui_parser, run_ui_from_args
 
 
@@ -59,6 +60,18 @@ def build_parser() -> argparse.ArgumentParser:
     replay_parser = subparsers.add_parser("replay", help="Replay a trace timeline.")
     replay_parser.add_argument("target", nargs="?", default="latest")
 
+    skills_parser = subparsers.add_parser("skills", help="Inspect versioned Skill manifests.")
+    skills_subparsers = skills_parser.add_subparsers(dest="skills_command", required=True)
+    skills_list_parser = skills_subparsers.add_parser("list", help="List registered Skill versions.")
+    skills_list_parser.add_argument(
+        "--manifest",
+        action="append",
+        default=[],
+        help="Path to a Skill manifest JSON file. Defaults to skill_registry.example.json.",
+    )
+    skills_list_parser.add_argument("--name", help="Filter to one skill name.")
+    skills_list_parser.add_argument("--json", action="store_true", help="Print JSON instead of a table.")
+
     subparsers.add_parser("doctor", help="Check local benchmark/runtime environment.")
     subparsers.add_parser("tui", help="Open a lightweight terminal menu.")
     ui_parser = subparsers.add_parser("ui", help="Open the local browser demo UI.")
@@ -89,6 +102,9 @@ def main(argv: list[str] | None = None) -> None:
         return
     if args.command == "replay":
         print(replay_trace(str(resolve_trace_target(args.target))))
+        return
+    if args.command == "skills":
+        print_skills(args)
         return
     if args.command == "tui":
         run_tui()
@@ -202,6 +218,45 @@ def resolve_trace_target(target: str) -> Path:
     if path.is_dir():
         return path / "trace.json"
     return path
+
+
+def print_skills(args: argparse.Namespace) -> None:
+    """Print Skill manifest registry contents.
+
+    This command is intentionally read-only. It answers production questions
+    like "which skill version is active?", "what permission scopes does it
+    need?", and "where would rollback go?" without starting an agent run.
+    """
+
+    manifests = args.manifest or ["skill_registry.example.json"]
+    registry = SkillRegistry()
+    try:
+        registry.load_manifests(manifests)
+    except ValueError as exc:
+        raise SystemExit(str(exc)) from exc
+
+    specs = registry.list_specs(name=args.name)
+    if args.json:
+        report = [spec.to_dict() for spec in specs]
+        print(json.dumps(report, ensure_ascii=False, indent=2))
+        return
+    if not specs:
+        print("No skills found.")
+        return
+
+    print("Skill Registry")
+    for spec in specs:
+        rollback = registry.rollback_target(spec.name, spec.version)
+        rollback_label = f"{rollback.name}@{rollback.version}" if rollback else "-"
+        permissions = ", ".join(spec.permissions) or "-"
+        dependencies = ", ".join(spec.dependencies) or "-"
+        print(f"- {spec.name}@{spec.version}")
+        print(f"  owner       : {spec.owner or '-'}")
+        print(f"  entrypoint  : {spec.entrypoint}")
+        print(f"  permissions : {permissions}")
+        print(f"  dependencies: {dependencies}")
+        print(f"  rollback_to : {rollback_label}")
+        print(f"  tags        : {', '.join(spec.tags) or '-'}")
 
 
 def run_tui() -> None:

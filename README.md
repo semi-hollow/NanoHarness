@@ -81,6 +81,17 @@ forge report latest
 forge replay latest
 ```
 
+Inspect versioned Skill manifests:
+
+```bash
+forge skills list
+forge skills list --manifest skill_registry.example.json --json
+```
+
+This shows Skill versions, owners, permission scopes, dependencies, and rollback
+targets. It is the lightweight local version of the governance layer a larger
+Agent platform would usually back with a registry service.
+
 If you prefer a guided terminal menu:
 
 ```bash
@@ -216,6 +227,8 @@ agent_forge/
   safety/         sandbox, command policy, permission, guardrails
   models/         provider gateway, retry/fallback, usage telemetry
   observability/  trace, metrics, usage reports
+  skills/         versioned Skill manifests, dependencies, permissions, rollback
+  mcp/            local MCP-style server/client examples for external tools
 ```
 
 ## What This Project Is Not
@@ -232,6 +245,7 @@ agent_forge/
 - [Architecture Notes](docs/architecture.md)
 - [Technical Defense Notes](docs/technical-defense/coding-agent-defense-zh.md)
 - [Interview Response Playbook](docs/technical-defense/interview-response-playbook-zh.md)
+- [Agent Engineer Question Bank](docs/technical-defense/interview-question-bank-zh.md)
 
 ## Development Smoke Check
 

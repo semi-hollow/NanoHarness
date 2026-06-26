@@ -220,10 +220,14 @@ Tool 是结构化 schema：
 
 项目状态：
 
-- 目前有 tool registry 和 MCP-style adapter。
-- 没有完整 Skill Registry、版本管理、依赖锁定和 rollback。
+- 目前有 tool registry、MCP-style adapter，以及本地 `SkillRegistry`。
+- `agent_forge/skills/registry.py` 支持 manifest 加载、同名多版本、权限/依赖/owner 元数据、latest resolve 和 rollback target。
+- `skill_registry.example.json` 提供了一个可演示的 Skill 版本升级样例。
 
-这部分有价值，但不要硬说项目已经完整实现。
+边界：
+
+- 这不是完整 SaaS 平台的发布系统，还没有线上 canary、流量切分和自动回滚服务。
+- 但它已经把面试官最关心的 Skill 治理契约落到代码里：schema、version、permission、dependency、owner、rollback。
 
 ## 自演进与评测
 
@@ -461,7 +465,7 @@ FAQ 是检索答案；客服 Agent 是带状态和工具的业务执行系统：
 工程：
 
 - Tool Router。
-- JSON schema 校验和 repair retry。
+- JSON schema 校验和 repair prompt。
 - 目录 diff。
 - Shell top 10 files。
 - 进程存活检测和拉起。
@@ -471,6 +475,10 @@ JSON 稳定返回回答：
 
 > 优先使用 provider 原生 structured output 或 tool call。runtime 用 JSON schema 校验；不合法时把 parse error 和 schema 发回模型做 repair，设置最大重试次数。仍失败就返回结构化错误，而不是让下游吃半结构化文本。
 
+项目映射：
+
+- `agent_forge/runtime/structured_output.py` 负责抽取 JSON、校验 schema、生成 repair prompt。
+
 ## 项目缺口与是否值得补
 
 | 能力 | 当前状态 | 面试价值 | 建议 |
@@ -478,11 +486,10 @@ JSON 稳定返回回答：
 | SWE-bench showcase | 已有 | 高 | 继续保留 |
 | Fixed regression set | 已补 | 高 | 后续增加趋势对比 |
 | Failure diagnosis | 已补 | 高 | 后续沉淀更多规则 |
-| Skill Registry/versioning | 未完整实现 | 高 | 可作为下一步 P1 |
+| Skill Registry/versioning | 基础实现已补 | 高 | 后续接 canary/发布系统 |
 | Resume/idempotency | 部分 task_state | 高 | 值得补 |
-| JSON repair retry | 未完整实现 | 中高 | 值得补 |
+| JSON repair prompt | 基础实现已补 | 中高 | 后续接 provider 原生 structured output |
 | Multi-agent distributed | 未实现 | 中 | 文档解释即可 |
 | C 端搜索/客服完整系统 | 未实现 | 中 | 作为系统设计题准备 |
 | 多租户 SaaS 平台 | 未实现 | 中 | 不建议硬塞代码 |
 | 离线 RL/自演进训练 | 未实现 | 中 | 文档讲架构，不硬做 |
-
