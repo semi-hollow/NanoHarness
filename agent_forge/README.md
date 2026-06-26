@@ -32,6 +32,7 @@ entrypoints were removed so the code map stays aligned with the benchmark loop.
 | `models/` | Provider gateway, retry/fallback, token/cache/cost telemetry. | Runtime code becomes tied to one API provider and loses cost visibility. |
 | `observability/` | Trace, metrics, evidence, and usage reports. | You cannot explain why the agent chose a file, failed a tool, or spent tokens. |
 | `mcp/` | Built-in MCP-style stdio tools and external web tool wrappers. | Tool extension demos disappear, but SWE-bench patching can still run. |
+| `skills/` | Versioned Skill manifest registry: schema, owner, dependency, permission, rollback metadata. | Tool capabilities cannot be promoted into governed product capabilities or safely rolled back. |
 | `ui.py` | Local browser control surface for demoing doctor, agent run, SWE-bench sample, report, and replay. | Users must remember CLI commands before they can see the closed loop. |
 
 ## Important Classes
@@ -45,6 +46,9 @@ entrypoints were removed so the code map stays aligned with the benchmark loop.
 | `ContextBuildReport` | Makes prompt assembly auditable instead of an opaque string. |
 | `ModelGateway` | Normalizes provider responses and usage across DeepSeek/OpenAI-compatible/mock clients. |
 | `ToolRegistry` | The single list of actions the agent is allowed to request. |
+| `ToolRouter` | Narrows a large tool catalog to relevant tools and records why other tools were hidden. |
+| `SkillRegistry` | Tracks Skill versions, owners, permissions, dependencies, and rollback targets. |
+| `StructuredOutputParser` | Validates model JSON output and creates a deterministic repair prompt when output is invalid. |
 | `WorkspaceSandbox` | Prevents tools from escaping the target repo. |
 | `CommandPolicy` | Blocks dangerous shell commands and explains allowed validation commands. |
 | `TraceRecorder` | Writes the step-by-step evidence stream. |
