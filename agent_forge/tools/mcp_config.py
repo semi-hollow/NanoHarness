@@ -67,7 +67,7 @@ class MCPConfigLoader:
         ``load_into`` is the public entry.
         ``_register_stdio_server`` starts discovery for command-backed servers.
         ``_resolve_command`` keeps Python MCP servers inside the active venv.
-        ``_handler`` supports the tiny local handler subset used in examples.
+        ``_handler`` supports the local handler subset used by the bundled MCP config.
     """
 
     def __init__(self, sandbox: WorkspaceSandbox):

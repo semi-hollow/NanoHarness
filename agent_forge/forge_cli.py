@@ -20,7 +20,7 @@ from agent_forge.runtime.config import RuntimeConfig
 from agent_forge.runtime.llm_config import resolve_llm_config
 from agent_forge.runtime.task_state import replay_trace
 from agent_forge.runtime.wiring import build_llm, build_registry
-from agent_forge.skills import SkillRegistry
+from agent_forge.skills import SkillRegistry, build_default_skill_registry
 from agent_forge.ui import build_ui_parser, run_ui_from_args
 
 
@@ -48,6 +48,27 @@ def build_parser() -> argparse.ArgumentParser:
     run_parser.add_argument("--max-context-chars", type=int, default=12000)
     run_parser.add_argument("--approval-mode", default="trusted", choices=["trusted", "on-write", "on-risk", "locked", "dry-run"])
     run_parser.add_argument("--output-root", default=".agent_forge/runs")
+    run_parser.add_argument(
+        "--skills",
+        default="auto",
+        help="auto, none, or comma-separated built-in/custom skill names. Default: auto.",
+    )
+    run_parser.add_argument(
+        "--skill-manifest",
+        action="append",
+        default=[],
+        help="Load additional Skill manifest JSON files for this run.",
+    )
+    run_parser.add_argument(
+        "--mcp-config",
+        help="Load MCP-style external tool config for this run.",
+    )
+    run_parser.add_argument(
+        "--mcp-tool",
+        action="append",
+        default=[],
+        help="Allow only this MCP tool name. Can be passed more than once.",
+    )
 
     bench_parser = subparsers.add_parser("bench", help="Run benchmark loops.")
     bench_subparsers = bench_parser.add_subparsers(dest="bench_name", required=True)
@@ -67,14 +88,15 @@ def build_parser() -> argparse.ArgumentParser:
         "--manifest",
         action="append",
         default=[],
-        help="Path to a Skill manifest JSON file. Defaults to skill_registry.example.json.",
+        help="Path to an additional Skill manifest JSON file.",
     )
     skills_list_parser.add_argument("--name", help="Filter to one skill name.")
     skills_list_parser.add_argument("--json", action="store_true", help="Print JSON instead of a table.")
+    skills_list_parser.add_argument("--no-builtins", action="store_true", help="Show only manifests passed with --manifest.")
 
     subparsers.add_parser("doctor", help="Check local benchmark/runtime environment.")
     subparsers.add_parser("tui", help="Open a lightweight terminal menu.")
-    ui_parser = subparsers.add_parser("ui", help="Open the local browser demo UI.")
+    ui_parser = subparsers.add_parser("ui", help="Open the local browser workbench UI.")
     build_ui_parser(ui_parser)
     return parser
 
@@ -122,7 +144,12 @@ def run_repository_task(args: argparse.Namespace) -> Path:
     run_dir.mkdir(parents=True, exist_ok=True)
     trace_path = run_dir / "trace.json"
     trace = TraceRecorder(str(trace_path))
-    registry = build_registry(args.workspace, auto=True)
+    registry = build_registry(
+        args.workspace,
+        auto=True,
+        mcp_config_file=getattr(args, "mcp_config", None),
+        mcp_allowed_tools=getattr(args, "mcp_tool", []),
+    )
     llm_config = resolve_llm_config(
         provider=args.provider,
         base_url=args.base_url,
@@ -130,9 +157,9 @@ def run_repository_task(args: argparse.Namespace) -> Path:
         model=args.model,
         timeout=60,
     )
-    if args.provider != "mock" and not llm_config.is_configured():
+    if not llm_config.is_configured():
         raise SystemExit(
-            f"{args.provider} model config is incomplete. Set provider env vars or use --provider mock."
+            f"{args.provider} model config is incomplete. Set API env vars or pass --base-url/--api-key/--model."
         )
     llm = build_llm(llm_config)
     config = RuntimeConfig(
@@ -143,6 +170,9 @@ def run_repository_task(args: argparse.Namespace) -> Path:
         timeout_seconds=900,
         task_state_root=str(run_dir / "task_state"),
         approval_mode=args.approval_mode,
+        skill_mode=_parse_skill_mode(getattr(args, "skills", "auto")),
+        skill_names=_parse_skill_names(getattr(args, "skills", "auto")),
+        skill_manifest_files=getattr(args, "skill_manifest", []),
     )
     final_answer = AgentLoop(config, trace, registry, llm).run(args.task)
     trace.write()
@@ -228,10 +258,11 @@ def print_skills(args: argparse.Namespace) -> None:
     need?", and "where would rollback go?" without starting an agent run.
     """
 
-    manifests = args.manifest or ["skill_registry.example.json"]
-    registry = SkillRegistry()
+    manifests = args.manifest or []
+    registry = SkillRegistry() if args.no_builtins else build_default_skill_registry([])
     try:
-        registry.load_manifests(manifests)
+        if manifests:
+            registry.load_manifests(manifests)
     except ValueError as exc:
         raise SystemExit(str(exc)) from exc
 
@@ -257,6 +288,22 @@ def print_skills(args: argparse.Namespace) -> None:
         print(f"  dependencies: {dependencies}")
         print(f"  rollback_to : {rollback_label}")
         print(f"  tags        : {', '.join(spec.tags) or '-'}")
+        print(f"  tools       : {', '.join(spec.tool_names) or '-'}")
+
+
+def _parse_skill_mode(value: str) -> str:
+    """Normalize CLI skill mode without exposing parser details elsewhere."""
+
+    return "none" if (value or "").strip().lower() == "none" else "auto"
+
+
+def _parse_skill_names(value: str) -> list[str]:
+    """Return explicit skill names from --skills, or empty for auto/none."""
+
+    normalized = (value or "").strip()
+    if not normalized or normalized.lower() in {"auto", "none"}:
+        return []
+    return [item.strip() for item in normalized.split(",") if item.strip()]
 
 
 def run_tui() -> None:

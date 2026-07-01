@@ -16,7 +16,7 @@ coding-agent run reproducible and inspectable:
 
 SWE-bench evaluates whether a model or agent can resolve real GitHub software
 issues by generating patches against real repositories. That directly matches
-this project better than toy unit tests or author-created demo scenarios.
+this project better than author-created fixtures.
 
 The official evaluation harness is Docker-based and can be resource intensive.
 For local development, run small samples first:

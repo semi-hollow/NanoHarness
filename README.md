@@ -10,9 +10,9 @@ tool governance, sandboxed execution, trace/replay, usage accounting, patch
 prediction, and benchmark result cards.
 
 The project intentionally avoids a heavy IDE product surface, but it does ship a
-small local browser UI so the full loop can be demonstrated without memorizing
-CLI commands. The goal is a compact codebase that makes the agent engineering
-loop easy to inspect and defend:
+local browser workbench so the full loop can be configured from a page instead
+of memorizing command flags. The goal is a compact codebase that makes the
+agent engineering loop usable for real repository work and easy to inspect:
 
 ```text
 SWE-bench issue -> clean repo checkout -> AgentLoop -> tool execution
@@ -22,8 +22,10 @@ SWE-bench issue -> clean repo checkout -> AgentLoop -> tool execution
 
 ## Quick Start
 
+Project name: Agent Forge. The Python package is `agent-forge`, the import package is `agent_forge`, and the CLI is `forge`.
+
 ```bash
-cd /path/to/NanoHarness
+cd /path/to/agent-forge
 python3 -m venv .venv
 source .venv/bin/activate
 python -m pip install -U pip setuptools wheel
@@ -36,23 +38,58 @@ Check the local environment:
 forge doctor
 ```
 
-Open the local browser demo UI:
+Open the local browser workbench:
 
 ```bash
 forge ui
 ```
 
-It serves `http://127.0.0.1:8765` and gives you explained buttons for
-environment checks, DeepSeek Agent runs, a fixed SWE-bench showcase case, and
-readable evidence panels. The evidence panels render result summary, token/cost
-usage, context breakdown, tool efficiency, and trace timeline as cards/tables
-instead of raw JSON logs. Mock is kept only as an offline fallback for company
-networks or CI smoke checks; the main demo path should use DeepSeek.
+On macOS you can also double-click:
+
+```text
+scripts/start_workbench.command
+```
+
+It serves `http://127.0.0.1:8765`. The page contains the real run parameters:
+task, provider, model, base URL, optional temporary API key, max steps, context
+budget, approval mode, output folder, Skill selection, and MCP tools. The
+evidence panels render result summary, token/cost usage, context breakdown,
+tool efficiency, and trace timeline as cards/tables instead of raw JSON logs.
+
+Daily use starts from the page:
+
+1. Click `Run Doctor` once.
+2. Fill the `CodingAgent Workbench` task and model settings.
+3. Click `Run Agent` for real repository work, or `Run Reference Case` for the
+   fixed SWE-bench closure case.
+4. Open `Result Summary`, `Usage Dashboard`, and `Trace Timeline`.
+
+The terminal commands below are still available for automation and debugging,
+but they are not the primary user entry anymore.
 
 Run a normal coding task in the current repository:
 
 ```bash
 forge run "fix the failing test in this repository" --provider deepseek
+```
+
+Use it for day-to-day code work:
+
+```bash
+# Read-only repo orientation. This activates repo_orientation and read tools only.
+forge run "阅读这个项目结构并说明入口，不要修改文件" --provider deepseek
+
+# A normal implementation task. This activates targeted_code_edit and validation tools.
+forge run "在 agent_forge 里补一个小功能并验证" --provider deepseek
+
+# A debugging task. This activates bug_fix/test_failure_triage.
+forge run "修复当前 failing test，并说明根因" --provider deepseek
+
+# Load external MCP-style tools for a run.
+forge run "读取项目策略并给出修改建议" \
+  --provider deepseek \
+  --mcp-config mcp_tools.json \
+  --mcp-tool forge.repo_policy
 ```
 
 Run a small SWE-bench Lite prediction loop:
@@ -81,16 +118,19 @@ forge report latest
 forge replay latest
 ```
 
-Inspect versioned Skill manifests:
+Inspect and control runtime Skills:
 
 ```bash
 forge skills list
-forge skills list --manifest skill_registry.example.json --json
+forge run "只阅读项目结构并说明入口，不要修改文件" --skills repo_orientation
+forge run "修复一个 failing test 并验证" --skills bug_fix,test_failure_triage
 ```
 
-This shows Skill versions, owners, permission scopes, dependencies, and rollback
-targets. It is the lightweight local version of the governance layer a larger
-Agent platform would usually back with a registry service.
+`forge run` uses built-in coding Skills by default. A selected Skill is not just
+metadata: it injects an operating procedure into the prompt, widens or narrows
+ToolRouter's allowed tools, and appears in `trace.json` as `skill_selection`.
+`--skills none` disables this layer; `--skill-manifest` loads your own local
+Skill definitions when you want to add company/repo-specific workflows.
 
 If you prefer a guided terminal menu:
 
@@ -116,18 +156,9 @@ Default DeepSeek settings are resolved in this order:
 3. `DEEPSEEK_*` environment variables
 4. built-in DeepSeek defaults: `https://api.deepseek.com`, `deepseek-v4-flash`
 
-Mock mode is still available for offline smoke checks, but it is not the
-recommended demo path:
-
-```bash
-forge run "修复 examples/demo_repo 里的测试失败问题" --provider mock
-scripts/verify.sh
-```
-
 ## SWE-bench Loop
 
-The main project proof is not an author-created demo. It is compatibility with
-the SWE-bench task shape:
+The main project proof is compatibility with the SWE-bench task shape:
 
 - load SWE-bench Lite/Verified cases;
 - clone the target GitHub repo;
@@ -148,7 +179,7 @@ forge bench swebench \
   --direct-baseline
 ```
 
-Repeatable demo command:
+Repeatable reference command:
 
 ```bash
 forge bench swebench --showcase --provider deepseek --direct-baseline
@@ -203,8 +234,11 @@ flowchart TD
     Loop --> Context["ContextBuilder / ContextStrategy"]
     Context --> Retrieval["repo map / lexical RAG / symbol search / memory"]
     Loop --> Gateway["ModelGateway"]
-    Gateway --> LLM["DeepSeek / OpenAI-compatible / Mock"]
+    Gateway --> LLM["DeepSeek / OpenAI-compatible provider"]
+    Loop --> Skills["SkillRegistry / active coding Skills"]
     Loop --> Router["ToolRouter"]
+    Skills --> Router
+    Skills --> Context
     Router --> Tools["read / grep / patch / run / git"]
     Tools --> Safety["PermissionPolicy / CommandPolicy / WorkspaceSandbox"]
     Loop --> Trace["TraceRecorder"]
@@ -228,7 +262,7 @@ agent_forge/
   models/         provider gateway, retry/fallback, usage telemetry
   observability/  trace, metrics, usage reports
   skills/         versioned Skill manifests, dependencies, permissions, rollback
-  mcp/            local MCP-style server/client examples for external tools
+  mcp/            local MCP-style server/client for external tools
 ```
 
 ## What This Project Is Not
@@ -236,8 +270,8 @@ agent_forge/
 - It is not a full Claude Code/OpenCode replacement.
 - It does not ship an IDE plugin or production SaaS backend.
 - It does not claim resolved-rate without the official SWE-bench harness.
-- It does not use self-authored webhook/calculator demos as the main evidence.
-- It keeps tests and smoke checks small; benchmark result cards are the primary evidence.
+- It does not use self-authored calculator/webhook fixtures as proof.
+- It keeps local checks small; real-model runs and benchmark result cards are the primary evidence.
 
 ## Documentation
 

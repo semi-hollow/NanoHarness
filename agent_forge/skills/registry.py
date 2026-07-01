@@ -14,7 +14,7 @@ class SkillSpec:
     Why this class exists:
         In production, "Skill" is not just a Python function. It needs a stable
         name, version, owner, input schema, dependency list, permission scope,
-        examples, and rollback target. Without this explicit contract, a prompt
+        and rollback target. Without this explicit contract, a prompt
         or tool update can silently break downstream agents and there is no
         reliable way to compare old/new behavior during a regression run.
 
@@ -32,9 +32,16 @@ class SkillSpec:
             depends on. This makes rollout risk visible.
         rollback_to: Previous known-good version. Empty means no automatic
             rollback target is declared.
-        examples: Small input/output examples used for docs and smoke checks.
         owner: Team or person responsible for review and incident handling.
         tags: Optional routing labels such as customer-service/read-only.
+        activation_terms: Task words/phrases that make the runtime select this
+            skill automatically.
+        tool_names: Tool allowlist this skill expects to use. The runtime feeds
+            these into ToolRouter so a selected skill changes real execution.
+        operating_procedure: Concrete steps shown in the prompt when the skill
+            is active.
+        done_criteria: Conditions the agent should satisfy before final answer.
+        failure_modes: Known failure patterns and recovery guidance.
     """
 
     name: str
@@ -45,9 +52,13 @@ class SkillSpec:
     permissions: list[str] = field(default_factory=list)
     dependencies: list[str] = field(default_factory=list)
     rollback_to: str = ""
-    examples: list[dict[str, Any]] = field(default_factory=list)
     owner: str = ""
     tags: list[str] = field(default_factory=list)
+    activation_terms: list[str] = field(default_factory=list)
+    tool_names: list[str] = field(default_factory=list)
+    operating_procedure: list[str] = field(default_factory=list)
+    done_criteria: list[str] = field(default_factory=list)
+    failure_modes: list[str] = field(default_factory=list)
 
     @classmethod
     def from_mapping(cls, data: dict[str, Any]) -> "SkillSpec":
@@ -67,9 +78,13 @@ class SkillSpec:
             permissions=_list_field(data, "permissions"),
             dependencies=_list_field(data, "dependencies"),
             rollback_to=str(data.get("rollback_to", "")),
-            examples=_list_of_dicts_field(data, "examples"),
             owner=str(data.get("owner", "")),
             tags=_list_field(data, "tags"),
+            activation_terms=_list_field(data, "activation_terms"),
+            tool_names=_list_field(data, "tool_names"),
+            operating_procedure=_list_field(data, "operating_procedure"),
+            done_criteria=_list_field(data, "done_criteria"),
+            failure_modes=_list_field(data, "failure_modes"),
         )
 
     def to_dict(self) -> dict[str, Any]:
@@ -84,10 +99,34 @@ class SkillSpec:
             "permissions": self.permissions,
             "dependencies": self.dependencies,
             "rollback_to": self.rollback_to,
-            "examples": self.examples,
             "owner": self.owner,
             "tags": self.tags,
+            "activation_terms": self.activation_terms,
+            "tool_names": self.tool_names,
+            "operating_procedure": self.operating_procedure,
+            "done_criteria": self.done_criteria,
+            "failure_modes": self.failure_modes,
         }
+
+    def prompt_card(self) -> str:
+        """Render this skill as runtime instructions for the active task."""
+
+        procedure = "\n".join(f"  {index}. {step}" for index, step in enumerate(self.operating_procedure, 1))
+        done = "\n".join(f"  - {item}" for item in self.done_criteria)
+        failure = "\n".join(f"  - {item}" for item in self.failure_modes)
+        tools = ", ".join(self.tool_names) or "no extra tools"
+        permissions = ", ".join(self.permissions) or "none declared"
+        dependencies = ", ".join(self.dependencies) or "none declared"
+        return (
+            f"skill:{self.name}@{self.version}\n"
+            f"description:{self.description}\n"
+            f"permissions:{permissions}\n"
+            f"dependencies:{dependencies}\n"
+            f"tools:{tools}\n"
+            f"procedure:\n{procedure or '  1. Follow the skill description.'}\n"
+            f"done_criteria:\n{done or '  - Produce a grounded final answer.'}\n"
+            f"failure_recovery:\n{failure or '  - If blocked, explain the blocker with evidence.'}"
+        )
 
 
 class SkillRegistry:
@@ -183,6 +222,60 @@ class SkillRegistry:
             return None
         return self.resolve(name, current.rollback_to)
 
+    def select_for_task(
+        self,
+        task: str,
+        *,
+        names: list[str] | None = None,
+        limit: int = 3,
+    ) -> list[SkillSpec]:
+        """Select concrete Skill versions for one agent run.
+
+        This is the bridge from "registered capability" to "runtime behavior".
+        If names are provided, exact latest versions are used. Otherwise the
+        selector scores activation terms against the task and falls back to the
+        general coding skill, so a real run always receives usable guidance.
+        """
+
+        if names:
+            return [self.resolve(name) for name in names]
+
+        task_lower = (task or "").lower()
+        read_only_requested = _read_only_requested(task_lower)
+        scored: list[tuple[int, SkillSpec]] = []
+        for spec in self.list_specs():
+            latest = self.resolve(spec.name)
+            if latest.version != spec.version:
+                continue
+            if read_only_requested and _is_write_skill(spec):
+                continue
+            score = 0
+            searchable = " ".join([spec.name, spec.description, *spec.activation_terms, *spec.tags]).lower()
+            for term in spec.activation_terms:
+                term_lower = term.lower()
+                if term_lower and term_lower in task_lower:
+                    score += 4
+            for token in task_lower.replace("_", " ").replace("-", " ").split():
+                if len(token) >= 3 and token in searchable:
+                    score += 1
+            if score:
+                scored.append((score, spec))
+
+        if scored:
+            scored.sort(key=lambda item: (-item[0], item[1].name))
+            return [spec for _, spec in scored[:limit]]
+
+        # A user may ask an unusual coding task with no obvious keyword. Give
+        # the runtime a practical default instead of an empty "skills" section.
+        fallback = []
+        fallback_names = ["repo_orientation"] if read_only_requested else ["targeted_code_edit", "repo_orientation"]
+        for name in fallback_names:
+            try:
+                fallback.append(self.resolve(name))
+            except KeyError:
+                continue
+        return fallback[:limit]
+
     def to_report(self) -> list[dict[str, Any]]:
         """Return compact audit rows instead of dumping full schemas by default."""
 
@@ -198,6 +291,7 @@ class SkillRegistry:
                     "dependencies": spec.dependencies,
                     "rollback_to": spec.rollback_to,
                     "tags": spec.tags,
+                    "tool_names": spec.tool_names,
                 }
             )
         return rows
@@ -221,19 +315,10 @@ def _list_field(data: dict[str, Any], name: str) -> list[str]:
     return list(value)
 
 
-def _list_of_dicts_field(data: dict[str, Any], name: str) -> list[dict[str, Any]]:
-    """Validate examples while keeping their nested payload flexible."""
-
-    value = data.get(name, [])
-    if not isinstance(value, list) or not all(isinstance(item, dict) for item in value):
-        raise ValueError(f"skill manifest field {name} must be a list of objects")
-    return list(value)
-
-
 def _version_key(version: str) -> tuple[Any, ...]:
     """Sort semantic-ish versions while tolerating local labels.
 
-    Examples:
+    Ordering notes:
         1.10.0 sorts after 1.2.0.
         2.0.0-rc1 sorts near 2.0.0 without needing a semver dependency.
     """
@@ -245,3 +330,31 @@ def _version_key(version: str) -> tuple[Any, ...]:
         else:
             parts.append((1, token))
     return tuple(parts)
+
+
+def _read_only_requested(task_lower: str) -> bool:
+    """Detect user intent to inspect/explain without editing."""
+
+    markers = [
+        "不要修改",
+        "不修改",
+        "不要改",
+        "不改",
+        "只读",
+        "仅阅读",
+        "不要写",
+        "do not modify",
+        "do not edit",
+        "read only",
+        "without editing",
+    ]
+    return any(marker in task_lower for marker in markers)
+
+
+def _is_write_skill(spec: SkillSpec) -> bool:
+    """Return whether a skill can write or run validation commands."""
+
+    write_tools = {"apply_patch", "write_file", "run_command"}
+    return any(tool in write_tools for tool in spec.tool_names) or any(
+        permission.startswith("write:") for permission in spec.permissions
+    )

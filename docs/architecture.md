@@ -16,11 +16,13 @@ flowchart TD
     Context --> RepoMap["repo map"]
     Context --> Ranking["file ranking / lexical retrieval / symbol search"]
     Loop --> Model["ModelGateway"]
-    Model --> Provider["DeepSeek / OpenAI-compatible / Mock"]
+    Model --> Provider["DeepSeek / OpenAI-compatible provider"]
+    Loop --> Skills["SkillRegistry + active coding Skills"]
+    Skills --> Context
+    Skills --> Tools
     Loop --> Tools["ToolRouter + ToolRegistry"]
     Loop --> Structured["StructuredOutputParser"]
     Tools --> Safety["PermissionPolicy / CommandPolicy / Sandbox"]
-    Tools --> Skills["SkillRegistry"]
     Tools --> Observation["Observation"]
     Observation --> Loop
     Loop --> Trace["TraceRecorder"]
@@ -37,17 +39,17 @@ flowchart TD
 | `agent_forge/runtime` | Runs the ReAct loop, stop conditions, task state, model/tool interaction. | Without it, tool use becomes ad hoc and unreplayable. |
 | `agent_forge/context` | Builds prompt context from repo structure, lexical retrieval, symbols, memory, and budgets. | Without it, the model sees either too little code or noisy full-repo dumps. |
 | `agent_forge/tools` | Provides file, patch, grep, command, git, and MCP-style tool access. | Without it, the model cannot inspect and modify real code safely. |
-| `agent_forge/skills` | Tracks versioned Skill manifests with schema, owner, permissions, dependencies, and rollback targets. | Without it, tool capabilities cannot become governed reusable product capabilities. |
+| `agent_forge/skills` | Provides built-in coding Skills and custom manifest loading; selected Skills inject operating procedures and expected tools into real runs. | Without it, tool capabilities cannot become governed reusable product capabilities or task-specific workflows. |
 | `agent_forge/safety` | Enforces sandbox paths, command policy, permissions, and guardrails. | Without it, a coding agent can execute unsafe or irrelevant actions. |
 | `agent_forge/models` | Normalizes provider calls, retries, usage, latency, and cost. | Without it, runtime logic is tied to one LLM provider. |
 | `agent_forge/observability` | Converts raw events into trace, metrics, and usage reports. | Without it, failures cannot be debugged or defended. |
-| `agent_forge/runtime/structured_output.py` | Extracts JSON, validates schema, and builds repair prompts for invalid model output. | Without it, downstream code may consume malformed model text as if it were reliable data. |
+| `agent_forge/runtime/structured_output.py` | Extracts JSON, validates schema, builds repair prompts, and is used by provider tool-call argument parsing. | Without it, downstream tools may consume malformed model text as if it were reliable data. |
 
 ## AgentLoop Phases
 
 1. Input guardrail and clarification check.
 2. Planning-mode decision for traceability.
-3. Context assembly with selected files, memory, tools, and budget breakdown.
+3. Skill selection with built-in/custom Skills, then context assembly with selected files, memory, active Skill cards, tools, and budget breakdown.
 4. Model call through `ModelGateway`.
 5. Tool-call validation and safety checks.
 6. Tool execution and observation recording.

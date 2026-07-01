@@ -18,4 +18,4 @@ bench = [
 
 [tool.setuptools.packages.find]
 include = ["agent_forge*"]
-exclude = ["tests*", "tutorials*", "examples*", "docs*", "scripts*"]
+exclude = ["tests*", "docs*", "scripts*"]

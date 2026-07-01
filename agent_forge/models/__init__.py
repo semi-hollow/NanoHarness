@@ -1,7 +1,7 @@
 """Model gateway package for provider routing, retry, fallback, and usage.
 
 Why this package exists:
-    AgentLoop should not care whether the backing model is MockLLM, DeepSeek,
+    AgentLoop should not care whether the backing model is DeepSeek, OpenAI,
     Ollama, a company gateway, or another OpenAI-compatible endpoint. This
     package normalizes provider calls into ``AgentResponse`` plus
     ``ModelUsage`` telemetry.

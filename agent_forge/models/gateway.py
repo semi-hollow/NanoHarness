@@ -24,25 +24,25 @@ class ModelGateway(LLMClient):
     """Provider-agnostic LLM entry point used by agent runtimes.
 
     The gateway is the layer system reviewers expect in real systems: AgentLoop
-    should not know whether it is calling Ollama, a company OpenAI-compatible
-    endpoint, MiniMax, or a mock. It should receive a normalized AgentResponse
+    should not know whether it is calling DeepSeek, OpenAI, Ollama, MiniMax, or
+    a company OpenAI-compatible endpoint. It should receive a normalized AgentResponse
     plus usage telemetry.
     """
 
     def __init__(
         self,
         primary: LLMClient,
-        provider: str = "mock",
-        model: str = "mock",
+        provider: str = "deepseek",
+        model: str = "deepseek-v4-flash",
         fallback: LLMClient | None = None,
-        fallback_provider: str = "mock",
-        fallback_model: str = "mock",
+        fallback_provider: str = "",
+        fallback_model: str = "",
         retry_policy: RetryPolicy | None = None,
     ):
         """Wire primary/fallback clients without leaking provider details upward."""
 
-        # The primary client can be mock, Ollama, company API, or any
-        # OpenAI-compatible endpoint. AgentLoop only sees ModelGateway.chat().
+        # The primary client can be DeepSeek, OpenAI, Ollama, a company API, or
+        # any OpenAI-compatible endpoint. AgentLoop only sees ModelGateway.chat().
         self.primary = primary
 
         # Provider/model are copied into ModelUsage so trace can answer:
@@ -50,8 +50,8 @@ class ModelGateway(LLMClient):
         self.provider = provider
         self.model = model
 
-        # Optional fallback is useful for offline demos and provider outages.
-        # In production, fallback should be chosen by explicit policy, not hidden.
+        # Optional fallback is useful for provider outages. In production,
+        # fallback should be chosen by explicit policy, not hidden.
         self.fallback = fallback
         self.fallback_provider = fallback_provider
         self.fallback_model = fallback_model

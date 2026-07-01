@@ -30,7 +30,7 @@ DEFAULT_DATASET = "princeton-nlp/SWE-bench_Lite"
 SHOWCASE_INSTANCE_ID = "astropy__astropy-12907"
 SHOWCASE_INSTANCE_NOTE = (
     "Astropy nested CompoundModel separability bug. This case is small enough "
-    "for local demos but forces real repository checkout, context retrieval, "
+    "for local runs but forces real repository checkout, context retrieval, "
     "tool use, patch generation, and trace/usage inspection."
 )
 REGRESSION_SETS = {
@@ -296,8 +296,8 @@ def _run_case(
             model=model,
             timeout=60,
         )
-        if provider != "mock" and not llm_config.is_configured():
-            raise RuntimeError(f"{provider} model config is incomplete; set API key/base URL/model or use --provider mock.")
+        if not llm_config.is_configured():
+            raise RuntimeError(f"{provider} model config is incomplete; set API key/base URL/model.")
         llm = build_llm(llm_config)
         runtime_config = RuntimeConfig(
             workspace=str(workspace),
@@ -377,7 +377,7 @@ def _direct_baseline_prediction(
         model=model,
         timeout=60,
     )
-    if provider != "mock" and not llm_config.is_configured():
+    if not llm_config.is_configured():
         return {
             "instance_id": case.instance_id,
             "model_name_or_path": f"direct-{provider}-{model or 'default'}",
@@ -513,7 +513,7 @@ def build_swebench_parser(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--showcase",
         action="store_true",
-        help=f"Run the fixed demo case {SHOWCASE_INSTANCE_ID} for repeatable before/after comparisons. {SHOWCASE_INSTANCE_NOTE}",
+        help=f"Run the fixed reference case {SHOWCASE_INSTANCE_ID} for repeatable before/after comparisons. {SHOWCASE_INSTANCE_NOTE}",
     )
     parser.add_argument(
         "--regression-set",

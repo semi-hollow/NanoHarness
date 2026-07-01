@@ -7,7 +7,7 @@ is removed.
 
 ```text
 agent_forge/forge_cli.py
-  -> ui.py for `forge ui` local browser demo
+  -> ui.py for `forge ui` local browser workbench
   -> bench/swebench.py for `forge bench swebench`
   -> runtime/agent_loop.py for agent execution
   -> context/* builds prompt context
@@ -17,23 +17,23 @@ agent_forge/forge_cli.py
   -> observability/* writes trace and usage
 ```
 
-The public entrypoint is `forge` / `python -m agent_forge`; old demo-mode
+The public entrypoint is `forge` / `python -m agent_forge`; old mode-based
 entrypoints were removed so the code map stays aligned with the benchmark loop.
 
 ## Packages
 
 | Package | Purpose | If removed |
 | --- | --- | --- |
-| `bench/` | Loads SWE-bench cases, prepares repo workspaces, writes predictions and result cards. | The project loses its external effect loop and falls back to anecdotal demos. |
+| `bench/` | Loads SWE-bench cases, prepares repo workspaces, writes predictions and result cards. | The project loses its external effect loop and falls back to anecdotes. |
 | `runtime/` | Owns AgentLoop, task state, control policy, planning mode, and observations. | Tool calls become scattered and replay/recovery becomes impossible. |
 | `context/` | Selects repo files, retrieved docs, symbols, memory, and token budget. | The model either gets noisy full-repo context or misses necessary files. |
 | `tools/` | Provides read, grep, patch, command, git, diagnostics, and MCP-style adapters. | The model cannot inspect or modify code through governed actions. |
 | `safety/` | Path sandbox, command policy, permissions, and guardrails. | A coding agent can perform unsafe or irrelevant operations. |
 | `models/` | Provider gateway, retry/fallback, token/cache/cost telemetry. | Runtime code becomes tied to one API provider and loses cost visibility. |
 | `observability/` | Trace, metrics, evidence, and usage reports. | You cannot explain why the agent chose a file, failed a tool, or spent tokens. |
-| `mcp/` | Built-in MCP-style stdio tools and external web tool wrappers. | Tool extension demos disappear, but SWE-bench patching can still run. |
-| `skills/` | Versioned Skill manifest registry: schema, owner, dependency, permission, rollback metadata. | Tool capabilities cannot be promoted into governed product capabilities or safely rolled back. |
-| `ui.py` | Local browser control surface for demoing doctor, agent run, SWE-bench sample, report, and replay. | Users must remember CLI commands before they can see the closed loop. |
+| `mcp/` | Built-in MCP-style stdio tools and external web tool wrappers. | External tool integration disappears, but SWE-bench patching can still run. |
+| `skills/` | Built-in coding Skills plus versioned custom Skill manifests. Active Skills inject procedures and expected tools into AgentLoop. | Tool capabilities cannot be promoted into governed product workflows or safely rolled back. |
+| `ui.py` | Local browser control surface for doctor, agent run, SWE-bench reference cases, report, and replay. | Users must remember CLI commands before they can see the closed loop. |
 
 ## Important Classes
 
@@ -44,15 +44,15 @@ entrypoints were removed so the code map stays aligned with the benchmark loop.
 | `BenchRunSummary` | Feeds `results.json` and `report.md` with one shared source of truth. |
 | `AgentLoop` | Coordinates context, model, tool calls, observations, recovery, and stop reasons. |
 | `ContextBuildReport` | Makes prompt assembly auditable instead of an opaque string. |
-| `ModelGateway` | Normalizes provider responses and usage across DeepSeek/OpenAI-compatible/mock clients. |
+| `ModelGateway` | Normalizes provider responses and usage across DeepSeek/OpenAI-compatible clients. |
 | `ToolRegistry` | The single list of actions the agent is allowed to request. |
 | `ToolRouter` | Narrows a large tool catalog to relevant tools and records why other tools were hidden. |
-| `SkillRegistry` | Tracks Skill versions, owners, permissions, dependencies, and rollback targets. |
-| `StructuredOutputParser` | Validates model JSON output and creates a deterministic repair prompt when output is invalid. |
+| `SkillRegistry` | Selects concrete coding Skills for a run and tracks versions, owners, permissions, dependencies, and rollback targets. |
+| `StructuredOutputParser` | Validates model JSON output, creates a deterministic repair prompt, and protects tool-call argument parsing. |
 | `WorkspaceSandbox` | Prevents tools from escaping the target repo. |
 | `CommandPolicy` | Blocks dangerous shell commands and explains allowed validation commands. |
 | `TraceRecorder` | Writes the step-by-step evidence stream. |
-| `UiState` | Keeps browser-triggered jobs and outputs in memory for one local demo session. |
+| `UiState` | Keeps browser-triggered jobs and outputs in memory for one local workbench session. |
 
 ## Reading Order
 

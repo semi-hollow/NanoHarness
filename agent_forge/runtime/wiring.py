@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from agent_forge.models.gateway import ModelGateway, RetryPolicy
-from agent_forge.runtime.llm_client import MockLLMClient, OpenAICompatibleLLMClient
+from agent_forge.runtime.llm_client import OpenAICompatibleLLMClient
 from agent_forge.runtime.llm_config import LLMConfig
 from agent_forge.safety.sandbox import WorkspaceSandbox
 from agent_forge.tools.apply_patch import ApplyPatchTool
@@ -61,13 +61,6 @@ def build_registry(
 def build_llm(config: LLMConfig):
     """Instantiate the provider selected by resolved LLM config."""
 
-    if config.provider == "mock":
-        return ModelGateway(
-            MockLLMClient("single"),
-            provider="mock",
-            model="mock-single",
-            retry_policy=RetryPolicy(max_attempts=1),
-        )
     if config.uses_openai_compatible_api:
         return ModelGateway(
             OpenAICompatibleLLMClient.from_config(config),
