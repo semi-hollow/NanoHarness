@@ -1,7 +1,6 @@
 import json
 
 from agent_forge.runtime.message import Message
-from agent_forge.runtime.llm_client import MockLLMClient
 from agent_forge.runtime.planner import SimplePlanner
 from agent_forge.runtime.state import AgentState
 from agent_forge.runtime.control import StepController
@@ -16,16 +15,31 @@ from agent_forge.context.memory import Memory
 from agent_forge.context.repo_map import build_repo_map
 from agent_forge.observability.evidence import EvidenceLedger
 from agent_forge.safety.guardrails import input_guardrail, output_guardrail, tool_guardrail
+from agent_forge.skills import build_default_skill_registry
 from agent_forge.tools.tool_router import ToolRouter
 
 
 class AgentLoop:
     """Single-agent control loop for context, LLM calls, tools, and trace.
 
-    This is the project's real agent runtime. ``single`` mode calls it
-    directly. ``multi`` mode reuses it through ``AgentRuntime`` so supervisor
-    workers share the same context, tool, permission, observation, and trace
-    semantics.
+    This is the project's real agent runtime. ``forge run`` and
+    ``forge bench swebench`` both call it so normal tasks and benchmark cases
+    share the same context, tool, permission, observation, and trace semantics.
+
+    Why it cannot be replaced by a simple function:
+        The loop must coordinate mutable state across many boundaries:
+        prompt context, model response parsing, tool policy, observations,
+        recovery signals, budget checks, evidence, task checkpoints, and final
+        answer guardrails. Splitting those concerns into hidden callbacks would
+        make the system harder to debug.
+
+    Method map:
+        ``__init__`` wires runtime dependencies.
+        ``run`` is the only public execution path.
+        ``_permission_action`` maps tool names to policy action classes.
+        ``_update_task_state`` persists checkpoint changes.
+        ``_stop_run`` writes terminal state, hook notifications, and trace
+        context.
     """
 
     def __init__(self, config, trace, registry, llm=None):
@@ -34,11 +48,14 @@ class AgentLoop:
         self.config = config
         self.trace = trace
         self.registry = registry
-        self.llm = llm or MockLLMClient("single")
+        if llm is None:
+            raise ValueError("AgentLoop requires a real LLM client; build it through runtime.wiring.build_llm")
+        self.llm = llm
         self.planner = SimplePlanner()
         self.clarification_policy = ClarificationPolicy()
         self.planning_mode_policy = PlanningModePolicy()
         self.tool_router = ToolRouter()
+        self.skill_registry = build_default_skill_registry(getattr(config, "skill_manifest_files", []))
         self.environment = getattr(config, "execution_environment", None) or ExecutionEnvironment(
             ExecutionEnvironmentConfig(workspace=config.workspace)
         )
@@ -54,8 +71,8 @@ class AgentLoop:
 
         The loop is deliberately observation-driven: the model proposes a tool
         call, runtime executes it under policy, and the resulting Observation is
-        fed back into the next LLM call. That is the key distinction from the
-        deterministic workflow demo.
+        fed back into the next LLM call. That is the key distinction from a
+        one-shot prompt baseline.
         """
 
         self.trace.set_run_context(task=task)
@@ -126,6 +143,25 @@ class AgentLoop:
             },
         )
 
+        active_skills = self._select_active_skills(task)
+        active_skill_cards = [skill.prompt_card() for skill in active_skills]
+        skill_tool_names = {tool_name for skill in active_skills for tool_name in skill.tool_names}
+        self.trace.add(
+            0,
+            agent_name,
+            "skill_selection",
+            skills=[
+                {
+                    "name": skill.name,
+                    "version": skill.version,
+                    "tools": skill.tool_names,
+                    "entrypoint": skill.entrypoint,
+                }
+                for skill in active_skills
+            ],
+            skill_mode=getattr(self.config, "skill_mode", "auto"),
+        )
+
         # `messages` is the durable conversation inside this run. Each tool call
         # appends an assistant tool_call message plus a tool observation message
         # so the next LLM turn can reason from concrete evidence.
@@ -183,8 +219,32 @@ class AgentLoop:
             # can change memory summary, selected files, and recovery hints.
             repo_map = build_repo_map(self.config.workspace)
             all_schemas = self.registry.schemas()
-            route = self.tool_router.route(task, all_schemas, step=step, agent_name=agent_name)
+            route = self.tool_router.route(
+                task,
+                all_schemas,
+                step=step,
+                agent_name=agent_name,
+                skill_tool_names=skill_tool_names,
+            )
             schemas = route.schemas
+            force_final_turn = step == self.config.max_steps
+            routed_allowed_names = set(route.allowed_names)
+            turn_permission_summary = (
+                "read/list/grep allowed; write/apply_patch asks approval; "
+                "dangerous commands denied; "
+                f"{self.environment.describe()}"
+            )
+            if force_final_turn:
+                # On the last allowed step, stop offering tools and ask the
+                # model to summarize evidence or name a blocker. This turns
+                # max_steps from a hard "blocked" cliff into a useful final
+                # response for real interactive use.
+                schemas = []
+                routed_allowed_names = set()
+                turn_permission_summary += (
+                    "; final step: no more tool calls are available, provide the best "
+                    "evidence-based final answer and clearly mark unverified items"
+                )
             context_report = build_context_report(
                 task,
                 repo_map,
@@ -192,12 +252,9 @@ class AgentLoop:
                 docs=repo_map.splitlines(),
                 root=self.config.workspace,
                 tools=schemas,
+                active_skill_cards=active_skill_cards,
                 max_chars=getattr(self.config, "max_context_chars", 8000),
-                permission_summary=(
-                    "read/list/grep allowed; write/apply_patch asks approval; "
-                    "dangerous commands denied; "
-                    f"{self.environment.describe()}"
-                ),
+                permission_summary=turn_permission_summary,
             )
             self.trace.add(
                 step,
@@ -215,10 +272,11 @@ class AgentLoop:
                     "dropped_context": context_report.dropped_context,
                     "budget_breakdown": context_report.budget_breakdown,
                     "available_tools": context_report.available_tools,
+                    "active_skills": [f"{skill.name}@{skill.version}" for skill in active_skills],
                     "permission_summary": context_report.permission_summary,
                     "tool_routing": {
                         "reason": route.reason,
-                        "allowed_tools": sorted(route.allowed_names),
+                        "allowed_tools": sorted(routed_allowed_names),
                         "dropped_tools": route.dropped_names,
                         "metadata": route.metadata,
                     },
@@ -375,7 +433,7 @@ class AgentLoop:
                 tool_check = tool_guardrail(
                     tool_call.name,
                     tool_call.arguments,
-                    exists=self.registry.get(tool_call.name) is not None and tool_call.name in route.allowed_names,
+                    exists=self.registry.get(tool_call.name) is not None and tool_call.name in routed_allowed_names,
                     repeated=repeat_signal is not None or key in tool_history[-3:],
                 )
                 self.trace.add(
@@ -412,7 +470,7 @@ class AgentLoop:
                     )
                     return "blocked: repeated tool call"
 
-                if tool_call.name not in route.allowed_names:
+                if tool_call.name not in routed_allowed_names:
                     blocked = True
                     observation = Observation(
                         tool_call.name,
@@ -691,6 +749,20 @@ class AgentLoop:
 
         self._stop_run(checkpoint, TaskRunStatus.BLOCKED, "max_steps", "blocked: max_steps reached")
         return "blocked: max_steps reached"
+
+    def _select_active_skills(self, task: str):
+        """Select real coding skills for this run.
+
+        Skill selection lives in AgentLoop because it affects both prompt
+        context and tool routing. Keeping it here prevents SkillRegistry from
+        becoming a passive catalog that never changes runtime behavior.
+        """
+
+        mode = getattr(self.config, "skill_mode", "auto")
+        if mode == "none":
+            return []
+        explicit_names = list(getattr(self.config, "skill_names", []) or [])
+        return self.skill_registry.select_for_task(task, names=explicit_names or None, limit=3)
 
     def _permission_action(self, tool_name: str) -> str:
         """Map concrete tool names to coarse permission-policy actions."""

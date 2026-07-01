@@ -13,7 +13,7 @@ class ModelUsage:
     usage, cache hit/miss tokens, and estimated cost.
     """
 
-    # Logical provider name: mock, openai-compatible, company gateway, Ollama, etc.
+    # Logical provider name: deepseek, openai-compatible, company gateway, Ollama, etc.
     provider: str
 
     # Concrete model id. Review reason: model behavior/cost must be auditable.

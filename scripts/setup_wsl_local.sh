@@ -6,7 +6,7 @@ set -Eeuo pipefail
 #
 # This script mirrors scripts/setup_macos_local.sh but keeps WSL-friendly
 # dependency hints. It stays offline after package installation: verification
-# uses MockLLM through scripts/verify.sh, not DeepSeek.
+# runs real-model smoke only when DEEPSEEK_API_KEY is configured.
 
 LOG_FILE="${HOME}/agent_forge_wsl_setup.log"
 
@@ -82,7 +82,7 @@ PY
 
 ensure_setuptools_find_config() {
   # Editable install needs explicit package discovery because the repo contains
-  # docs, examples, tests, and eval_cases next to agent_forge/.
+  # docs and tests next to agent_forge/.
   if grep -q '^\[tool\.setuptools\.packages\.find\]' pyproject.toml; then
     log "pyproject.toml already has setuptools package discovery config."
     return 0
@@ -93,7 +93,7 @@ ensure_setuptools_find_config() {
     printf '\n'
     printf '[tool.setuptools.packages.find]\n'
     printf 'include = ["agent_forge*"]\n'
-    printf 'exclude = ["tests*", "tutorials*", "eval_cases*", "examples*", "docs*", "scripts*"]\n'
+    printf 'exclude = ["tests*", "docs*", "scripts*"]\n'
   } >> pyproject.toml
 }
 
@@ -121,8 +121,8 @@ main() {
   log "  jq: $(command -v jq || true)"
 
   PROJECT_DIR="$(find_project_dir)" || {
-    log "Could not find the NanoHarness project root from $(pwd)."
-    log "Run this script from NanoHarness or any child directory inside the project."
+    log "Could not find the Agent Forge project root from $(pwd)."
+    log "Run this script from the Agent Forge project root or any child directory inside the project."
     exit 1
   }
   cd "${PROJECT_DIR}"
@@ -131,7 +131,7 @@ main() {
 
   PYTHON_BIN="$(choose_python)" || {
     log "Python >= 3.10 was not found."
-    log "Install dependencies first, for example:"
+    log "Install dependencies first, e.g.:"
     log "  sudo apt update"
     log "  sudo apt install -y git curl build-essential python3 python3-venv python3-pip rsync jq"
     exit 1
@@ -151,7 +151,11 @@ main() {
   fi
 
   ensure_setuptools_find_config
-  run python -m pip install -e .
+  log "+ python -m pip install -e '.[bench]'"
+  if ! python -m pip install -e '.[bench]'; then
+    log "Benchmark extras failed to install; falling back to core editable install."
+    run python -m pip install -e .
+  fi
 
   if ! command -v python3.11 >/dev/null 2>&1; then
     log "System python3.11 is not available; creating .venv/bin/python3.11 compatibility symlink."
@@ -168,7 +172,8 @@ main() {
   log "Daily commands:"
   log "  cd \"${PROJECT_DIR}\""
   log "  source .venv/bin/activate"
-  log "  python run_demo.py --mode single --llm mock --trace-file trace-wsl-mock.json"
+  log "  forge doctor"
+  log "  forge run \"阅读这个项目结构并说明入口，不要修改文件\" --provider deepseek"
   log "  scripts/verify.sh"
 }
 

@@ -22,8 +22,9 @@ scripts/verify.sh
 scripts/verify_mcp.sh
 ```
 
-`scripts/verify.sh` uses MockLLM so it does not require API keys or network
-access. `scripts/verify_mcp.sh` keeps MCP web search in offline mode by default.
+`scripts/verify.sh` checks imports, CLI wiring, Skill registration, and runs a
+read-only real-model task when `DEEPSEEK_API_KEY` is available.
+`scripts/verify_mcp.sh` keeps MCP web search in offline mode by default.
 
 ## Change Guidelines
 
@@ -32,7 +33,8 @@ access. `scripts/verify_mcp.sh` keeps MCP web search in offline mode by default.
 - Add comments where the design is not obvious from code.
 - Do not commit real API keys, local `.env` files, generated `.agent_forge/`
   artifacts, or personal IDE state.
-- Prefer deterministic fixtures and eval cases over ad hoc one-off demos.
+- Prefer real repo tasks, public benchmark cases, and trace evidence over
+  self-authored fixtures.
 - If a change affects agent behavior, update the relevant study-pack or
   readiness document so readers can understand the design.
 
@@ -43,4 +45,3 @@ access. `scripts/verify_mcp.sh` keeps MCP web search in offline mode by default.
 - [ ] README or docs are updated for user-visible behavior.
 - [ ] No real secrets or personal paths are committed.
 - [ ] New tool or safety behavior is represented in trace/eval evidence.
-

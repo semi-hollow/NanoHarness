@@ -68,7 +68,20 @@ class ClarificationPolicy:
         "新增",
         "优化",
     }
-    explicit_targets = {".py", ".md", ".json", ".toml", "/", "examples/", "agent_forge/", "tests/"}
+    explicit_targets = {
+        ".py",
+        ".md",
+        ".json",
+        ".toml",
+        "/",
+        "agent_forge/",
+        "tests/",
+        "project",
+        "repo",
+        "repository",
+        "项目",
+        "代码库",
+    }
     unsupported_topics = {"训练模型", "微调模型", "视频生成", "多模态训练", "上线支付", "真实转账"}
 
     def decide(self, task: str) -> ClarificationDecision:
@@ -99,9 +112,10 @@ class ClarificationPolicy:
         has_vague_reference = any(token in lowered or token in text for token in self.vague_references)
 
         missing = []
-        # Do not over-clarify short coding tasks such as "fix"; a coding agent
-        # can inspect the repo and tests to discover the target. Stop only when
-        # the user uses a vague reference that the runtime cannot ground.
+        # Do not over-clarify short coding tasks such as "fix" or read-only
+        # repo-orientation tasks such as "看这个项目". A coding agent can inspect
+        # the repo and tests to discover the target. Stop only when the user
+        # uses a vague reference that the runtime cannot ground.
         if has_vague_reference and not has_target:
             missing.append("referenced_object")
 

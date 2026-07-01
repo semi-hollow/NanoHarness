@@ -268,6 +268,18 @@ class HookManager:
     beats allow, and allow is used only when at least one hook explicitly allows
     and no hook blocks. If every hook defers, the tool is allowed so read-only
     extension hooks can remain optional.
+
+    Why it exists:
+        Tool implementations should not each reimplement approval, execution
+        environment checks, and redaction. HookManager gives the runtime one
+        ordered policy chain that can be inspected in trace.
+
+    Method map:
+        ``default`` builds the standard environment + permission + redaction
+        chain.
+        ``pre_tool`` decides allow/ask/deny before execution.
+        ``post_tool`` transforms observations, mainly secret redaction.
+        ``on_stop`` lets hooks record terminal audit decisions.
     """
 
     def __init__(self, hooks: list[RuntimeHook] | None = None):

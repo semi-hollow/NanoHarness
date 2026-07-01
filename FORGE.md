@@ -1,62 +1,57 @@
-# Agent Forge Project Instructions
+# Agent Forge Contributor Notes
 
-## Runtime Identity
+## Project Direction
 
-Agent Forge is a production-style CodingAgent runtime core. Treat it as an
-engineering system for controlled code editing, not as a chatbot wrapper.
+Agent Forge is now a SWE-bench-oriented CodingAgent harness. Keep the main story
+focused on:
 
-## Primary Validation Scenario
+1. public benchmark cases;
+2. clean repo checkout at base commits;
+3. AgentLoop-driven tool execution;
+4. SWE-bench-compatible `predictions.jsonl`;
+5. trace, usage, and result cards;
+6. optional official SWE-bench harness evaluation.
 
-Use `examples/webhook_service_repo` as the main end-to-end scenario. The normal
-DeepSeek entrypoint is:
+Do not reintroduce self-authored benchmark narratives, teaching fixtures, or
+simulated-model product paths as proof of capability.
+
+## Preferred Commands
 
 ```bash
-local_scripts/run_webhook_deepseek.sh
-```
-
-The deterministic offline health check is:
-
-```bash
+forge doctor
+forge run "read this project structure and explain the entrypoints without editing files" --provider deepseek
+forge run "阅读这个项目结构并说明入口，不要修改文件" --provider deepseek
+forge skills list
+forge bench swebench --limit 1 --provider deepseek --direct-baseline
+forge report latest
+forge replay latest
 scripts/verify.sh
 ```
 
-## Allowed Command Shape
+## Editing Guidelines
 
-The command policy is intentionally narrow. Prefer:
+- Keep the public entrypoint goal-based: `run`, `bench`, `report`, `replay`,
+  `doctor`, `tui`.
+- Do not reintroduce public `single/multi/workflow` modes; user-facing commands
+  should stay goal-based.
+- Do not add calculator/webhook/tutorial fixtures, simulated LLM product paths, or
+  passive sample configs. A capability must affect `forge run`, benchmark
+  execution, trace evidence, or real operator workflow.
+- Keep generated artifacts under `.agent_forge/`.
+- Do not commit API keys, provider profiles, raw run traces, or benchmark
+  workspaces.
+- If a feature does not support the SWE-bench loop or explainability of that
+  loop, question whether it belongs in the project.
 
-```bash
-python -m unittest discover tests
-python -m unittest discover examples/webhook_service_repo/tests
-git status
-git diff
-```
+## Runtime Truths
 
-Do not use `pytest`, `cd`, direct test-file execution, `python -c`, shell
-pipelines, network commands, deletion commands, `git push`, or `git reset`.
-
-## Editing Rules
-
-- Inspect relevant files before editing.
-- Keep changes scoped to the requested behavior.
-- Do not read `.env`, private keys, credentials, or secret-like paths.
-- Do not modify `examples/webhook_service_repo/docs/security_policy.md` during
-  the webhook scenario.
-- Validate behavior with the smallest allowed unittest command.
-- Do not claim validation succeeded unless a successful command observation is
-  present in trace.
-
-## Runtime Architecture Rules
-
-- AgentLoop is the canonical single-agent path.
-- ToolRegistry is the protocol boundary between model tool calls and local code.
-- Hooks are the deterministic policy layer for tool approval, environment
-  checks, and observation redaction.
-- ExecutionEnvironment owns local/worktree boundaries and network policy.
-- TaskStateStore owns resumable control state; trace owns full audit evidence.
-- Usage reports are derived from trace and should stay readable.
-
-## Output Discipline
-
-Final answers should cite concrete tool evidence when available and call out
-unverified production concerns. For local runs, do not imply cloud isolation,
-real traffic validation, or online deployment unless the trace proves it.
+- `AgentLoop` is the canonical execution path.
+- `agent_forge/bench` owns benchmark loading, checkout, predictions, and result
+  cards.
+- `TraceRecorder` is the source of truth for replay and usage reports.
+- `ModelGateway` is the only provider boundary used by the runtime.
+- `ToolRegistry`, `CommandPolicy`, and `WorkspaceSandbox` are the tool safety
+  boundary.
+- Built-in coding Skills are part of the real runtime path. They must affect
+  prompt context, tool routing, or trace evidence; do not add passive manifests
+  that are never used by `AgentLoop`.

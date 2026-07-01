@@ -1,3 +1,15 @@
+"""Derived usage and efficiency reports from a raw trace.
+
+The trace is the source of truth; this module is a read model. It answers the
+questions that are hard to see in raw event JSON: how many model calls happened,
+which step spent tokens, where cache hits appeared, how much context was sent,
+which tools failed, and what runtime controls fired.
+
+If removed:
+    The project would still run, but it would lose the quantitative evidence
+    needed for cost, latency, context-quality, and tool-efficiency discussions.
+"""
+
 import json
 from collections import Counter, defaultdict
 from pathlib import Path
@@ -43,6 +55,8 @@ def build_usage_report(trace: dict[str, Any]) -> dict[str, Any]:
     evidence_refs: list[str] = []
 
     def step_entry(event: dict[str, Any]) -> dict[str, Any]:
+        """Return the mutable aggregate row for one step and agent."""
+
         key = (int(event.get("step", 0) or 0), str(event.get("agent_name") or "agent"))
         if key not in steps:
             steps[key] = {

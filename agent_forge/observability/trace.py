@@ -12,6 +12,16 @@ class TraceRecorder:
     Trace is the main explainability artifact. It records not only final output,
     but context selection, model calls, permission decisions, tool observations,
     recovery decisions, and metrics.
+
+    Why it exists:
+        Without trace, an agent run is just a final sentence and maybe a diff.
+        Trace gives you the evidence needed to answer why a file was selected,
+        why a tool was allowed, where the model failed, and why the loop stopped.
+
+    Method map:
+        ``set_run_context`` updates top-level task/stop/final metadata.
+        ``add`` appends one structured event.
+        ``write`` persists the final JSON plus optional summary.
     """
 
     def __init__(self, path: str, verbose: bool = False, write_summary_file: bool = False):

@@ -4,305 +4,289 @@
 [![Python 3.11](https://img.shields.io/badge/python-3.11-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-Agent Forge is a production-style CodingAgent runtime core. It focuses on the
-engineering control plane behind systems like Codex and Claude Code: context
-engineering, model gateway, tool governance, execution environment, approval
-hooks, task state, review workflow, trace, usage, and eval regression. Product
-surfaces such as TUI/IDE plugins and cloud hosting are intentionally outside the
-repo so the core runtime stays readable.
+Agent Forge is a SWE-bench-oriented CodingAgent harness. It focuses on the
+runtime control plane behind coding agents: context engineering, model gateway,
+tool governance, sandboxed execution, trace/replay, usage accounting, patch
+prediction, and benchmark result cards.
 
-## Architecture At A Glance
+The project intentionally avoids a heavy IDE product surface, but it does ship a
+local browser workbench so the full loop can be configured from a page instead
+of memorizing command flags. The goal is a compact codebase that makes the
+agent engineering loop usable for real repository work and easy to inspect:
 
-```mermaid
-flowchart TD
-    User["User task / CLI"] --> CLI["run_demo.py / agent_forge.cli"]
-    CLI --> Loop["AgentLoop"]
-    CLI --> Supervisor["SupervisorAgent / TaskGraph"]
-    CLI --> Workflow["Deterministic workflow baseline"]
-
-    Loop --> Context["ContextBuilder / ContextStrategy"]
-    Context --> Retrieval["repo map / file ranker / lexical RAG / symbol search / memory"]
-    Loop --> Gateway["ModelGateway"]
-    Gateway --> LLM["Mock / DeepSeek / OpenAI-compatible LLM"]
-    Loop --> Router["ToolRouter"]
-    Router --> Registry["ToolRegistry"]
-    Registry --> Safety["HookManager / PermissionPolicy / CommandPolicy / WorkspaceSandbox"]
-    Registry --> Tools["read / write / grep / patch / run / git / diagnostics"]
-    Registry --> MCP["MCP stdio tools: repo_policy / time / web_search / web_fetch"]
-    Loop --> Trace["TraceRecorder"]
-    Trace --> Usage["usage_report.md / metrics / evidence"]
-    Loop --> Eval["eval_cases / eval_runner / regression history"]
+```text
+SWE-bench issue -> clean repo checkout -> AgentLoop -> tool execution
+               -> git patch -> predictions.jsonl -> SWE-bench harness
+               -> trace / usage / result card
 ```
-
-![WebhookPatchBench usage report snapshot](docs/assets/webhook-usage-report-snapshot.svg)
-
-## What This Project Teaches
-
-- Context engineering: repo map, file ranking, lexical retrieval, selected file previews, token budget, memory summary, and topic-shift handling.
-- Agent loop control: plan, LLM call, tool call, observation, recovery, final answer.
-- Tool governance: schema validation, permission policy, sandbox path checks, high-risk command blocking, and human approval hooks.
-- Runtime reliability: repeated-action detection, retryability classification, max steps, timeout, cost budget, trace, reports, and rollback bundle.
-- Execution environment: local/worktree mode, network policy, branch-risk command blocking, and observation redaction.
-- Runtime hooks: pre-tool approval, post-tool redaction, and stop-time audit hooks.
-- Task state: checkpoint, resume seeding, and trace replay for long-running tasks.
-- Review workflow: deterministic diff review for safety, runtime, and validation risk.
-- MCP tools: built-in stdio MCP server, schema discovery, allowlist registration, repo policy, time, web fetch, and optional web search providers.
-- Multi-agent orchestration: supervisor, role specs, task graph, artifact handoff, ownership, validation, retry, and review.
-- Model switching: mock, Ollama, company OpenAI-compatible APIs, or online OpenAI-compatible providers.
 
 ## Quick Start
 
+Project name: Agent Forge. The Python package is `agent-forge`, the import package is `agent_forge`, and the CLI is `forge`.
+
 ```bash
-cd /path/to/NanoHarness
+cd /path/to/agent-forge
+python3 -m venv .venv
 source .venv/bin/activate
-python run_demo.py --mode single --trace-file trace-single.json
-python run_demo.py --mode multi --trace-file trace-multi.json
-python run_demo.py --mode workflow
+python -m pip install -U pip setuptools wheel
+python -m pip install -e '.[bench]'
 ```
 
-For one-command local verification:
+Check the local environment:
 
 ```bash
-scripts/verify.sh
+forge doctor
 ```
 
-The terminal output is intentionally quiet. The detailed evidence is in the trace JSON, usage report, or session report.
-
-## Core Commands
+Open the local browser workbench:
 
 ```bash
-# Single runtime path: AgentLoop + context + tools + recovery.
-python run_demo.py --mode single --trace-file trace-single.json
-
-# Runtime-backed multi-agent path.
-python run_demo.py --mode multi --trace-file trace-multi.json
-
-# Deterministic workflow baseline, useful for comparison.
-python run_demo.py --mode workflow
-
-# Persisted run sessions.
-python run_demo.py --list-sessions
-python run_demo.py --show-run <session_id>
-python run_demo.py --resume-run <session_id> --mode single
-python run_demo.py --rollback-run <session_id>
-
-# Review current git diff.
-python run_demo.py --mode review
-
-# Run in an isolated git worktree instead of the current checkout.
-python run_demo.py --mode single --execution-env worktree
-
-# Inspect task-state checkpoints and replay traces.
-python run_demo.py --list-task-states
-python run_demo.py --show-task-state <run_id>
-python run_demo.py --resume-state <run_id> --mode single
-python run_demo.py --replay-run .agent_forge/latest/webhook-deepseek/trace.json
-
-# Load the built-in MCP stdio server as external tools.
-scripts/verify_mcp.sh
-python run_demo.py --mcp-config mcp_tools.example.json --mcp-allowed-tool forge.repo_policy \
-  "use the repo_policy tool to summarize command rules"
+forge ui
 ```
 
-## Validation Scenarios
-
-`examples/demo_repo` is the calculator bootstrap scenario. It answers one
-operational question: can the runtime start, read a file, patch code, run tests,
-and write trace evidence?
-
-`examples/webhook_service_repo` is the main validation scenario. It models a
-webhook service that verifies signatures, stores events, and enqueues jobs. The
-committed fixture starts with a duplicate-delivery bug: the same `event_id`
-creates duplicate records and duplicate jobs. Running the benchmark asks the
-agent to read the issue and relevant files, add idempotency before side effects,
-run tests, and produce trace plus usage artifacts.
-
-```bash
-local_scripts/run_webhook_deepseek.sh
-```
-
-This is the primary real-model entrypoint. It uses DeepSeek and writes
-`.agent_forge/latest/webhook-deepseek/usage_report.md` plus the raw
-`.agent_forge/latest/webhook-deepseek/trace.json`.
-
-This scenario is useful for engineering walkthroughs because it exercises
-repo-level context selection, issue-driven code modification, tool calling,
-patch application, test execution, sandbox boundaries, eval verification,
-reviewer safety checks, trace evidence, and rollback/report artifacts without
-forcing you to learn a large business system.
-
-## MCP And External Tools
-
-`mcp_tools.example.json` starts the built-in stdio MCP server:
-
-```bash
-python -m agent_forge.mcp.builtin_server --workspace . --list-tools
-scripts/verify_mcp.sh
-```
-
-Available tools:
+On macOS you can also double-click:
 
 ```text
-forge.repo_policy   # read/search FORGE.md
-forge.current_time  # local and UTC time
-forge.web_search    # offline by default; optional DuckDuckGo/OpenAI/Claude lookup
-forge.web_fetch     # fetch one HTTP/HTTPS page when network is explicitly enabled
+scripts/start_workbench.command
 ```
 
-Default web search is offline so company verification does not make network
-calls. For a local live lookup:
+It serves `http://127.0.0.1:8765`. The page contains the real run parameters:
+task, provider, model, base URL, optional temporary API key, max steps, context
+budget, approval mode, output folder, Skill selection, and MCP tools. The
+evidence panels render result summary, token/cost usage, context breakdown,
+tool efficiency, and trace timeline as cards/tables instead of raw JSON logs.
+
+Daily use starts from the page:
+
+1. Click `Run Doctor` once.
+2. Fill the `CodingAgent Workbench` task and model settings.
+3. Click `Run Agent` for real repository work, or `Run Reference Case` for the
+   fixed SWE-bench closure case.
+4. Open `Result Summary`, `Usage Dashboard`, and `Trace Timeline`.
+
+The terminal commands below are still available for automation and debugging,
+but they are not the primary user entry anymore.
+
+Run a normal coding task in the current repository:
 
 ```bash
-AGENT_FORGE_MCP_ALLOW_NETWORK=1 \
-AGENT_FORGE_WEB_PROVIDER=duckduckgo \
-python run_demo.py --mcp-config mcp_tools.example.json \
-  "search the web for public MCP tool examples"
+forge run "fix the failing test in this repository" --provider deepseek
 ```
 
-OpenAI and Claude hosted web search can also be wrapped behind the same MCP
-tool by setting `AGENT_FORGE_WEB_PROVIDER=openai` with `OPENAI_API_KEY`, or
-`AGENT_FORGE_WEB_PROVIDER=claude` with `ANTHROPIC_API_KEY`.
-
-## DeepSeek Runs
-
-Personal Mac default, using DeepSeek V4 Flash. If you already wrote the key into
-your macOS zsh environment, use one of these two scripts:
+Use it for day-to-day code work:
 
 ```bash
-cd /Users/chenjiahui/Documents/GitHub/NanoHarness
+# Read-only repo orientation. This activates repo_orientation and read tools only.
+forge run "阅读这个项目结构并说明入口，不要修改文件" --provider deepseek
 
-# Main end-to-end scenario.
-local_scripts/run_webhook_deepseek.sh
+# A normal implementation task. This activates targeted_code_edit and validation tools.
+forge run "在 agent_forge 里补一个小功能并验证" --provider deepseek
 
-# Short single-agent bootstrap run.
-local_scripts/run_deepseek.sh
+# A debugging task. This activates bug_fix/test_failure_triage.
+forge run "修复当前 failing test，并说明根因" --provider deepseek
+
+# Load external MCP-style tools for a run.
+forge run "读取项目策略并给出修改建议" \
+  --provider deepseek \
+  --mcp-config mcp_tools.json \
+  --mcp-tool forge.repo_policy
 ```
 
-One-time zsh setup on your personal Mac:
+Run a small SWE-bench Lite prediction loop:
 
 ```bash
-echo 'export DEEPSEEK_API_KEY="your-deepseek-api-key"' >> ~/.zshrc
+forge bench swebench --showcase --provider deepseek --direct-baseline
+```
+
+`--showcase` fixes the case to `astropy__astropy-12907`, a real Astropy nested
+CompoundModel separability issue. Keeping the case stable makes before/after
+harness improvements visible in the same trace, usage, and patch artifacts.
+
+Run the fixed regression set when you want a broader before/after signal:
+
+```bash
+forge bench swebench --regression-set core --provider deepseek --direct-baseline
+```
+
+The report includes `failure_class`, diagnosis evidence, and next actions for
+each case so failed runs become optimization targets instead of raw logs.
+
+Read the latest report:
+
+```bash
+forge report latest
+forge replay latest
+```
+
+Inspect and control runtime Skills:
+
+```bash
+forge skills list
+forge run "只阅读项目结构并说明入口，不要修改文件" --skills repo_orientation
+forge run "修复一个 failing test 并验证" --skills bug_fix,test_failure_triage
+```
+
+`forge run` uses built-in coding Skills by default. A selected Skill is not just
+metadata: it injects an operating procedure into the prompt, widens or narrows
+ToolRouter's allowed tools, and appears in `trace.json` as `skill_selection`.
+`--skills none` disables this layer; `--skill-manifest` loads your own local
+Skill definitions when you want to add company/repo-specific workflows.
+
+If you prefer a guided terminal menu:
+
+```bash
+forge tui
+```
+
+## DeepSeek
+
+DeepSeek is the default real-model provider because it is OpenAI-compatible and
+cheap enough for local benchmark experiments.
+
+```bash
+echo 'export DEEPSEEK_API_KEY="your-key"' >> ~/.zshrc
 source ~/.zshrc
+forge doctor
 ```
 
-Check that the key is available in a new terminal:
+Default DeepSeek settings are resolved in this order:
+
+1. CLI flags: `--base-url`, `--api-key`, `--model`
+2. `AGENT_FORGE_*` environment variables
+3. `DEEPSEEK_*` environment variables
+4. built-in DeepSeek defaults: `https://api.deepseek.com`, `deepseek-v4-flash`
+
+## SWE-bench Loop
+
+The main project proof is compatibility with the SWE-bench task shape:
+
+- load SWE-bench Lite/Verified cases;
+- clone the target GitHub repo;
+- checkout the exact `base_commit`;
+- run Agent Forge against the issue;
+- write a patch into `predictions.jsonl`;
+- optionally call the official SWE-bench Docker harness;
+- generate a human-readable result card.
+
+Typical local command:
 
 ```bash
-echo "$DEEPSEEK_API_KEY"
+forge bench swebench \
+  --dataset princeton-nlp/SWE-bench_Lite \
+  --split test \
+  --limit 5 \
+  --provider deepseek \
+  --direct-baseline
 ```
 
-The equivalent raw CLI command is:
+Repeatable reference command:
 
 ```bash
-python run_demo.py --mode single --llm deepseek --trace-file .agent_forge/latest/single-deepseek/trace.json
+forge bench swebench --showcase --provider deepseek --direct-baseline
 ```
 
-Mock mode still works offline through the CLI:
+Regression command:
 
 ```bash
-python run_demo.py --mode single --llm mock --trace-file trace-mock.json
+forge bench swebench --regression-set core --provider deepseek --direct-baseline
 ```
 
-Any OpenAI-compatible API can still be used through the raw CLI when needed:
+Official evaluation is heavier and requires the SWE-bench package plus Docker:
 
 ```bash
-python run_demo.py --mode single --llm openai \
-  --base-url http://localhost:11434/v1 \
-  --api-key ollama \
-  --model qwen2.5-coder:7b
+forge bench swebench --limit 5 --provider deepseek --evaluate --max-workers 1
 ```
 
-Never commit real API keys. Keep `DEEPSEEK_API_KEY` in your personal shell
-environment or a local ignored file only. `.env`, `.env.local`,
-and `llm_profiles.json` are ignored. Company/offline verification should keep
-using `--llm mock` or `scripts/verify.sh`.
+On Apple Silicon, the runner automatically adds the empty SWE-bench namespace
+flag so images can be built locally when needed.
 
-## Reading Run Output
+## Output Layout
 
-The two DeepSeek shortcuts now write into `.agent_forge/latest/` instead of the
-project root. Each new run overwrites the previous files for that shortcut.
+Runtime outputs are ignored by Git and live under `.agent_forge/`:
 
 ```text
-.agent_forge/latest/webhook-deepseek/
-  usage_report.md   # read this first
-  trace.json        # raw event evidence
-
-.agent_forge/latest/single-deepseek/
-  usage_report.md   # read this first
-  trace.json        # raw event evidence
+.agent_forge/runs/<run-id>/
+  report.md                # read first for benchmark runs
+  results.json             # machine-readable run summary
+  predictions.jsonl        # SWE-bench-compatible predictions
+  direct_baseline_predictions.jsonl
+  cases/<instance_id>/
+    trace.json             # step-by-step evidence
+    usage_report.md        # token, cost, context, and tool breakdown
+    patch.diff             # generated candidate patch
+  workspaces/<instance_id>/
+    ...                    # clean repo checkout at base_commit
 ```
 
-The scripts also restore the teaching fixtures after each run so your Git tree
-does not stay dirty. If you want to inspect the generated code diff, run with
-`KEEP_PATCH=1`.
+`forge report latest` opens the newest result card. `forge replay latest` prints
+a compact trace timeline.
 
-`trace.json` is already indented JSON. The older `*.pretty.json` files were only
-formatted copies of the same trace, so the local scripts no longer generate
-them.
+## Architecture
 
-VS Code can format JSON with `Shift + Option + F` after opening the file.
-PyCharm can format JSON with `Option + Command + L` or `Code -> Reformat Code`.
+```mermaid
+flowchart TD
+    CLI["forge CLI / TUI"] --> Bench["SWE-bench runner"]
+    Bench --> Case["Benchmark case"]
+    Case --> Checkout["Repo checkout at base_commit"]
+    CLI --> Run["forge run"]
+    Checkout --> Loop["AgentLoop"]
+    Run --> Loop
+    Loop --> Context["ContextBuilder / ContextStrategy"]
+    Context --> Retrieval["repo map / lexical RAG / symbol search / memory"]
+    Loop --> Gateway["ModelGateway"]
+    Gateway --> LLM["DeepSeek / OpenAI-compatible provider"]
+    Loop --> Skills["SkillRegistry / active coding Skills"]
+    Loop --> Router["ToolRouter"]
+    Skills --> Router
+    Skills --> Context
+    Router --> Tools["read / grep / patch / run / git"]
+    Tools --> Safety["PermissionPolicy / CommandPolicy / WorkspaceSandbox"]
+    Loop --> Trace["TraceRecorder"]
+    Trace --> Usage["usage_report.md"]
+    Checkout --> Patch["git diff patch"]
+    Patch --> Predictions["predictions.jsonl"]
+    Predictions --> Eval["SWE-bench harness"]
+    Usage --> Report["result card"]
+    Eval --> Report
+```
 
-Open `usage_report.md` when you want the engineering view:
-
-- Run Summary: total LLM calls, input/output tokens, cache hit/miss, estimated cost, latency.
-- Step Breakdown: every model call by step, agent, provider/model, tokens, cost, latency, and action summary.
-- Context Breakdown: where prompt budget went, such as system context, history, tool schemas, memory, retrieved docs, and file previews.
-- Tool Efficiency: per-tool call count, success rate, failed observations, observation size, and duration.
-
-`run_demo.py` can still produce machine-readable `usage.json` for raw CLI runs,
-but the local scripts remove it by default because it is not the file you should
-study by hand.
-
-Committed snapshots are also available under `docs/run-artifacts/` so other
-devices can read the reports without rerunning DeepSeek.
-
-## Project Structure
+Core packages:
 
 ```text
 agent_forge/
-  cli.py              # CLI composition and mode dispatch
-  runtime/            # AgentLoop, hooks, execution environment, task state
-  context/            # context strategy, repo map, memory, retrieval, ranking
-  tools/              # built-in tools, MCP-style config loader, adapters
-  mcp/                # built-in stdio MCP server and external lookup tools
-  safety/             # guardrails, permission, command policy, sandbox
-  models/             # provider gateway, retry/fallback, usage telemetry
-  agents/             # SupervisorAgent and handoff policy
-  workflows/          # TaskGraph, TaskScheduler, deterministic baseline
-  observability/      # trace and metrics
-  production/         # diff tracker, run report, ownership/readiness
-docs/study-pack/      # focused study docs for code reading and engineering walkthroughs
-examples/demo_repo/   # bootstrap validation fixture
-examples/webhook_service_repo/ # webhook idempotency benchmark fixture
-scripts/              # setup and verification scripts
-local_scripts/        # two DeepSeek run shortcuts
+  bench/          SWE-bench loading, checkout, prediction, result cards
+  runtime/        AgentLoop, control, state, session, planning
+  context/        repo map, file ranking, lexical retrieval, memory, token budget
+  tools/          read/write/grep/patch/run/git/MCP-style adapters
+  safety/         sandbox, command policy, permission, guardrails
+  models/         provider gateway, retry/fallback, usage telemetry
+  observability/  trace, metrics, usage reports
+  skills/         versioned Skill manifests, dependencies, permissions, rollback
+  mcp/            local MCP-style server/client for external tools
 ```
 
-## Study Pack
+## What This Project Is Not
 
-Read these in order:
+- It is not a full Claude Code/OpenCode replacement.
+- It does not ship an IDE plugin or production SaaS backend.
+- It does not claim resolved-rate without the official SWE-bench harness.
+- It does not use self-authored calculator/webhook fixtures as proof.
+- It keeps local checks small; real-model runs and benchmark result cards are the primary evidence.
 
-```text
-docs/study-pack/01-code-map-and-architecture.md
-docs/study-pack/02-agent-loop-context-memory.md
-docs/study-pack/03-tools-control-safety.md
-docs/study-pack/04-multi-agent-design.md
-docs/study-pack/05-project-briefing.md
-docs/study-pack/06-technical-question-coverage.md
-docs/study-pack/07-schema-delta-guide.md
-docs/study-pack/08-mcp-and-external-tools.md
-docs/study-pack/09-project-profile.md
+## Documentation
+
+- [Evaluation Guide](docs/evaluation/README.md)
+- [Architecture Notes](docs/architecture.md)
+- [Technical Defense Notes](docs/technical-defense/coding-agent-defense-zh.md)
+- [Interview Response Playbook](docs/technical-defense/interview-response-playbook-zh.md)
+- [Agent Engineer Question Bank](docs/technical-defense/interview-question-bank-zh.md)
+
+## Development Smoke Check
+
+```bash
+scripts/verify.sh
+scripts/verify_mcp.sh
 ```
 
-Open-source readiness artifacts:
-
-```text
-docs/open-source-readiness/README.md
-docs/open-source-readiness/benchmark-summary.md
-docs/open-source-readiness/ablation-notes.md
-docs/open-source-readiness/docker-sandbox-extension-plan.md
-docs/open-source-readiness/provider-comparison.md
-```
-
-Generated traces, reports, caches, and install artifacts are ignored and can be regenerated.
+These commands only verify that the local runtime starts. They are not the
+project's effect proof. Use `forge bench swebench ...` for the closed loop.

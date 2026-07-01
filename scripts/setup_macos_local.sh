@@ -5,7 +5,7 @@ set -Eeuo pipefail
 #   Bootstrap this repo on a personal macOS machine.
 #
 # What it does:
-#   1. Finds the NanoHarness project root from any child directory.
+#   1. Finds the Agent Forge project root from any child directory.
 #   2. Creates/reuses .venv.
 #   3. Installs the project in editable mode.
 #   4. Runs scripts/verify.sh once as a deterministic local health check.
@@ -100,7 +100,7 @@ ensure_setuptools_find_config() {
     printf '\n'
     printf '[tool.setuptools.packages.find]\n'
     printf 'include = ["agent_forge*"]\n'
-    printf 'exclude = ["tests*", "tutorials*", "eval_cases*", "examples*", "docs*", "scripts*"]\n'
+    printf 'exclude = ["tests*", "docs*", "scripts*"]\n'
   } >> pyproject.toml
 }
 
@@ -132,8 +132,8 @@ main() {
   log "  jq: $(command -v jq || true)"
 
   PROJECT_DIR="$(find_project_dir)" || {
-    log "Could not find the NanoHarness project root from $(pwd)."
-    log "Run this script from NanoHarness or any child directory inside the project."
+    log "Could not find the Agent Forge project root from $(pwd)."
+    log "Run this script from the Agent Forge project root or any child directory inside the project."
     exit 1
   }
   cd "${PROJECT_DIR}"
@@ -141,7 +141,7 @@ main() {
   log "Project directory: ${PROJECT_DIR}"
 
   PYTHON_BIN="$(choose_python)" || {
-    log "Python >= 3.10 was not found. Install Python 3.11 first, for example with Homebrew: brew install python@3.11"
+    log "Python >= 3.10 was not found. Install Python 3.11 first, e.g. with Homebrew: brew install python@3.11"
     exit 1
   }
   log "Selected Python: ${PYTHON_BIN}"
@@ -160,7 +160,11 @@ main() {
 
   ensure_setuptools_find_config
 
-  run python -m pip install -e .
+  log "+ python -m pip install -e '.[bench]'"
+  if ! python -m pip install -e '.[bench]'; then
+    log "Benchmark extras failed to install; falling back to core editable install."
+    run python -m pip install -e .
+  fi
 
   if command -v python3.11 >/dev/null 2>&1; then
     log "System python3.11 is available: $(command -v python3.11)"
@@ -183,8 +187,9 @@ main() {
   log "Daily commands:"
   log "  cd \"${PROJECT_DIR}\""
   log "  source .venv/bin/activate"
-  log "  local_scripts/run_webhook_deepseek.sh"
-  log "  local_scripts/run_deepseek.sh"
+  log "  forge doctor"
+  log "  forge bench swebench --limit 1 --provider deepseek --direct-baseline"
+  log "  forge report latest"
   log "  scripts/verify.sh"
 }
 
