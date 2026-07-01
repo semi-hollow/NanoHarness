@@ -52,6 +52,10 @@ class ContextBuildReport:
     # can shrink this list.
     available_tools: list[str]
 
+    # Active runtime skill cards selected for this task. These are not passive
+    # docs: AgentLoop uses the same skills to influence tool routing.
+    active_skill_cards: list[str]
+
     # Human-readable permission boundary shown to the model.
     permission_summary: str
 
@@ -91,11 +95,13 @@ class ContextBuildReport:
         docs = "\n".join(self.retrieved_docs)
         selected = "\n".join(self.selected_files)
         previews = "\n\n".join(self.selected_file_previews)
+        skills = "\n\n".join(self.active_skill_cards)
         sink = "\n".join(f"- {item}" for item in self.attention_sink)
         return (
             f"system:{self.system_prompt}\n"
             f"project_instructions:\n{self.project_instructions}\n"
             f"attention_sink:\n{sink}\n"
+            f"active_skills:\n{skills}\n"
             f"user_task:{self.user_task}\n"
             f"repo_map:\n{self.repo_map}\n"
             f"selected_file_previews:\n{previews}\n"
@@ -123,6 +129,7 @@ def build_context_report(
     max_chars=8000,
     root=".",
     tools=None,
+    active_skill_cards=None,
     permission_summary="read allowed; write asks approval; dangerous commands denied",
 ) -> ContextBuildReport:
     """Build the context object AgentLoop sends to the next LLM call.
@@ -163,6 +170,7 @@ def build_context_report(
         + sum(len(d) for d in strategy.file_previews)
         + len(strategy.memory_summary)
         + sum(len(t) for t in available_tools)
+        + sum(len(card) for card in (active_skill_cards or []))
         + len(permission_summary)
         + sum(len(t) for t in strategy.attention_sink)
     )
@@ -177,6 +185,7 @@ def build_context_report(
         selected_files=strategy.selected_files,
         selected_file_previews=strategy.file_previews,
         available_tools=available_tools,
+        active_skill_cards=active_skill_cards or [],
         permission_summary=permission_summary,
         attention_sink=strategy.attention_sink,
         topic_relation=strategy.topic_relation,

@@ -2,11 +2,9 @@
 set -Eeuo pipefail
 
 # Purpose:
-#   Deterministic local health check for the repo.
-#
-# Why it stays on MockLLM:
-#   verify.sh should be safe to run on macOS, WSL, and company machines without
-#   internet access or API keys. DeepSeek runs live in local_scripts/.
+#   Local health check for the real CodingAgent runtime. It does not use simulated
+#   model paths or teaching fixtures. If DEEPSEEK_API_KEY is available, it also
+#   performs a small read-only real-model run against this repository.
 
 cd "$(dirname "$0")/.."
 
@@ -33,63 +31,46 @@ if ! command -v "${PYTHON_BIN}" >/dev/null 2>&1; then
   fi
 fi
 
-cleanup_fixtures() {
-  # Some demos intentionally start by reintroducing a small bug so the agent has
-  # something to fix. Keep verification from leaving that teaching fixture dirty.
-  "${PYTHON_BIN}" - <<'PY'
-from pathlib import Path
-
-Path("examples/demo_repo/src/calculator.py").write_text(
-    "def add(a: int, b: int) -> int:\n    return a + b\n",
-    encoding="utf-8",
-)
-PY
-}
-
-trap 'status=$?; cleanup_fixtures >/dev/null 2>&1 || true; exit "${status}"' EXIT
-
 echo "== Agent Forge verification =="
 echo "Working directory: $(pwd)"
 echo "Using Python: $(${PYTHON_BIN} --version 2>&1) at $(command -v "${PYTHON_BIN}" 2>/dev/null || printf '%s' "${PYTHON_BIN}")"
 echo
-
-# Verification must be deterministic and free. Even if the developer's shell
-# defaults to DeepSeek for personal runs, verify/eval should stay on MockLLM.
-export AGENT_FORGE_DEFAULT_LLM="mock"
 
 VERIFY_DIR="${VERIFY_DIR:-.agent_forge/verify}"
 mkdir -p "${VERIFY_DIR}"
 
 # Compile catches syntax/import packaging problems before any agent run starts.
 echo "== Compile Python files =="
-"${PYTHON_BIN}" -m compileall -q agent_forge tests eval_cases examples
+"${PYTHON_BIN}" -m compileall -q agent_forge tests
 echo
 
-# The three demo modes answer different questions:
-#   single   AgentLoop + context + tools + safety
-#   multi    Supervisor/role orchestration boundary
-#   workflow deterministic baseline for comparison
-echo "== Single-agent demo =="
-"${PYTHON_BIN}" run_demo.py --mode single --llm mock --no-session --trace-file "${VERIFY_DIR}/single.json"
+# This is only a smoke check. It does not prove benchmark quality.
+echo "== Public CLI doctor =="
+"${PYTHON_BIN}" -m agent_forge doctor
 echo
 
-echo "== Multi-agent demo =="
-"${PYTHON_BIN}" run_demo.py --mode multi --no-session --trace-file "${VERIFY_DIR}/multi.json"
+echo "== Public CLI skills =="
+"${PYTHON_BIN}" -m agent_forge skills list >/dev/null
 echo
 
-echo "== Workflow demo =="
-"${PYTHON_BIN}" run_demo.py --mode workflow
-echo
-
-echo "== Unit tests =="
+echo "== Unit smoke =="
 "${PYTHON_BIN}" -m unittest discover tests
 echo
 
-# Eval runner is intentionally lightweight. It proves the eval harness can
-# produce evidence without depending on a remote model provider.
-echo "== Eval benchmark =="
-"${PYTHON_BIN}" -m agent_forge.eval.eval_runner
-echo
+if [ -n "${DEEPSEEK_API_KEY:-}" ]; then
+  echo "== Real-model read-only smoke =="
+  "${PYTHON_BIN}" -m agent_forge run "阅读这个项目结构并说明入口，不要修改文件" \
+    --provider deepseek \
+    --approval-mode locked \
+    --max-steps "${VERIFY_REAL_MAX_STEPS:-4}" \
+    --workspace . \
+    --output-root "${VERIFY_DIR}/runs"
+  echo
+else
+  echo "== Real-model read-only smoke skipped =="
+  echo "DEEPSEEK_API_KEY is not set; configure it to verify the full agent run path."
+  echo
+fi
 
 echo "Verification passed."
-echo "Trace/report artifacts are under ${VERIFY_DIR} and .agent_forge/."
+echo "Artifacts are under ${VERIFY_DIR}."

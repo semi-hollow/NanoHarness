@@ -11,8 +11,9 @@ from .base import Tool
 class ApplyPatchTool(Tool):
     """Replace one exact text block in a workspace file.
 
-    The demo uses this instead of a full patch parser because the goal is to
-    teach tool execution, permission, failure observation, and retry behavior.
+    The tool keeps edits simple and auditable: the model must name the target
+    path, the exact old text, and the replacement text. Failed matches become
+    observations the agent can recover from.
     """
 
     name = "apply_patch"
@@ -58,6 +59,6 @@ class ApplyPatchTool(Tool):
         os.utime(path, (now, now))
         cache_dir = path.parent / "__pycache__"
         if cache_dir.exists():
-            # CPython can otherwise reuse stale bytecode in very fast demo runs.
+            # CPython can otherwise reuse stale bytecode in very fast edit runs.
             shutil.rmtree(cache_dir, ignore_errors=True)
         return Observation(self.name, True, f"patched once: {arguments['path']}")

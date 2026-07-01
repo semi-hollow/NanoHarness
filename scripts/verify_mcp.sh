@@ -6,7 +6,7 @@ set -Eeuo pipefail
 #     1. start the built-in stdio MCP server,
 #     2. discover tool schemas,
 #     3. call a tool directly through MCPStdioClient,
-#     4. load the same server through mcp_tools.example.json into ToolRegistry.
+#     4. load the same server through mcp_tools.json into ToolRegistry.
 #
 # Network behavior:
 #   This script intentionally leaves AGENT_FORGE_WEB_PROVIDER=offline. It proves
@@ -71,7 +71,7 @@ if "provider: offline" not in search_text:
     raise SystemExit("offline web_search did not return the expected provider marker")
 
 registry = ToolRegistry()
-report = MCPConfigLoader(WorkspaceSandbox(".")).load_into(registry, "mcp_tools.example.json")
+report = MCPConfigLoader(WorkspaceSandbox(".")).load_into(registry, "mcp_tools.json")
 registered = [row.name for row in report.tools if row.registered]
 print("registered:", ", ".join(sorted(registered)))
 observation = registry.execute("forge.current_time", {})

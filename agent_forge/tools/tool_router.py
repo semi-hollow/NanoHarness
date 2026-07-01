@@ -5,10 +5,19 @@ from dataclasses import dataclass
 class ToolRoute:
     """Candidate tools selected for one LLM turn."""
 
+    # Schemas actually sent to the model this turn.
     schemas: list[dict]
+
+    # Tool names allowed after routing. Trace uses this to explain omissions.
     allowed_names: set[str]
+
+    # Short human-readable routing explanation.
     reason: str
+
+    # Tools withheld from the model to reduce overload or risk.
     dropped_names: list[str]
+
+    # Capability/risk/latency tags for each exposed tool.
     metadata: dict[str, dict]
 
 
@@ -35,12 +44,35 @@ class ToolRouter:
         "run_command": {"capability": "validate", "risk": "high", "latency": "medium", "mode": "command"},
     }
 
-    def route(self, task: str, schemas: list[dict], *, step: int = 1, agent_name: str = "") -> ToolRoute:
+    def route(
+        self,
+        task: str,
+        schemas: list[dict],
+        *,
+        step: int = 1,
+        agent_name: str = "",
+        skill_tool_names: set[str] | None = None,
+    ) -> ToolRoute:
         """Return routed tool schemas with explainable metadata."""
 
         lowered = (task or "").lower()
         by_name = {schema.get("name", ""): schema for schema in schemas}
         names = set(by_name)
+        read_only_requested = any(
+            marker in lowered
+            for marker in [
+                "不要修改",
+                "不修改",
+                "不要改",
+                "不改",
+                "只读",
+                "仅阅读",
+                "do not modify",
+                "do not edit",
+                "read only",
+                "without editing",
+            ]
+        )
 
         # Discovery tools are always useful and safe. They keep context/tool
         # selection robust even when the task text is short.
@@ -50,14 +82,24 @@ class ToolRouter:
             if self.DEFAULT_METADATA.get(name, {}).get("capability") in {"discover", "inspect", "search"}
         }
 
-        if any(token in lowered for token in ["fix", "repair", "resolve", "patch", "implement", "修复", "实现", "补充"]):
+        if not read_only_requested and any(
+            token in lowered for token in ["fix", "repair", "resolve", "patch", "implement", "修复", "实现", "补充"]
+        ):
             selected |= names & {"apply_patch", "write_file", "run_command", "diagnostics", "git_status", "git_diff"}
-        if any(token in lowered for token in ["test", "validate", "验证", "测试", "unittest"]):
+        if not read_only_requested and any(token in lowered for token in ["test", "validate", "验证", "测试", "unittest"]):
             selected |= names & {"run_command", "diagnostics"}
         if any(token in lowered for token in ["review", "diff", "审查", "回滚"]):
             selected |= names & {"git_diff", "git_status", "read_file"}
         if any(token in lowered for token in ["clarify", "unclear", "ambiguous", "澄清", "不明确"]):
             selected |= names & {"ask_human"}
+
+        # Active Skills are allowed to widen the routed tool set. This is the
+        # practical difference between a passive Skill manifest and a runtime
+        # Skill: once selected, its expected tools become available this turn.
+        if skill_tool_names:
+            selected |= names & skill_tool_names
+        if read_only_requested:
+            selected -= {"apply_patch", "write_file", "run_command"}
 
         external_names = names - set(self.DEFAULT_METADATA)
         task_terms = {term for term in lowered.replace("_", " ").replace(".", " ").split() if len(term) >= 3}
@@ -76,7 +118,7 @@ class ToolRouter:
         dropped = sorted(names - selected)
         reason = (
             f"selected={len(routed)} dropped={len(dropped)} step={step} "
-            f"agent={agent_name or 'agent'}"
+            f"agent={agent_name or 'agent'} skill_tools={len(skill_tool_names or set())}"
         )
         return ToolRoute(
             schemas=routed,

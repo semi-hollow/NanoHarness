@@ -6,11 +6,11 @@ class ProviderProfile:
     """Model provider routing contract.
 
     Technical reviewers usually ask how a production agent switches between company
-    models, OpenAI-compatible APIs, Ollama, and mock fallback. This profile is
+    models, OpenAI-compatible APIs, Ollama, and company gateways. This profile is
     the explicit routing unit consumed by ModelGateway/CLI-level wiring.
     """
 
-    # Human-readable profile key, for example "ollama-qwen" or "company-prod".
+    # Human-readable profile key, e.g. "ollama-qwen" or "company-prod".
     name: str
 
     # Provider family. The runtime uses this for routing and reporting.
@@ -39,8 +39,9 @@ class GatewayPolicy:
     # How many provider attempts before the gateway gives up or falls back.
     retry_attempts: int = 2
 
-    # Named fallback profile. Mock is safe for offline demos, not production.
-    fallback_profile: str = "mock"
+    # Named fallback profile. Leave empty unless the operator explicitly allows
+    # fallback routing for this environment.
+    fallback_profile: str = ""
 
     # Latency SLO for provider calls. Current gateway records but does not route on it.
     max_latency_ms: int = 30_000

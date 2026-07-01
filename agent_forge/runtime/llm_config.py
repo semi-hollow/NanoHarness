@@ -9,8 +9,8 @@ from typing import Any
 class LLMConfig:
     """Runtime LLM settings resolved from CLI flags, profiles, and env vars."""
 
-    # mock, deepseek, openai, or openai-compatible. Determines which client to build.
-    provider: str = "mock"
+    # deepseek, openai, or openai-compatible. Determines which client to build.
+    provider: str = "deepseek"
 
     # Provider endpoint. Ollama and company gateways both use this shape.
     base_url: str = ""
@@ -33,8 +33,6 @@ class LLMConfig:
     def is_configured(self) -> bool:
         """Check if all required fields exist for the selected provider."""
 
-        if self.provider == "mock":
-            return True
         return bool(self.base_url and self.api_key and self.model)
 
 
@@ -42,7 +40,7 @@ def load_llm_profile(profile_name: str, profile_file: str | None = None) -> dict
     """Load one named LLM profile from a local JSON file.
 
     The default file is intentionally local-first: users can keep secrets in
-    `llm_profiles.json`, while `llm_profiles.example.json` documents the shape.
+    `llm_profiles.json` without committing secrets.
     """
 
     candidates = []

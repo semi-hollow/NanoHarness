@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 
@@ -17,7 +17,7 @@ class RuntimeConfig:
     # ReAct iteration cap. Prevents the agent from running forever.
     max_steps: int = 12
 
-    # Demo convenience flag. False forces write-like actions through approval denial.
+    # Local convenience flag. False forces write-like actions through approval denial.
     auto_approve_writes: bool = True
 
     # JSON trace destination for audit/replay.
@@ -56,3 +56,12 @@ class RuntimeConfig:
 
     # trusted/on-write/on-risk/locked/dry-run approval posture.
     approval_mode: str = "trusted"
+
+    # auto selects concrete coding skills from the task; none disables them.
+    skill_mode: str = "auto"
+
+    # Explicit skill names override automatic selection. Keep empty for auto.
+    skill_names: list[str] = field(default_factory=list)
+
+    # Optional custom Skill manifests loaded after built-in coding skills.
+    skill_manifest_files: list[str] = field(default_factory=list)
