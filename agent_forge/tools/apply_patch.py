@@ -59,6 +59,6 @@ class ApplyPatchTool(Tool):
         os.utime(path, (now, now))
         cache_dir = path.parent / "__pycache__"
         if cache_dir.exists():
-            # CPython can otherwise reuse stale bytecode in very fast demo runs.
+            # CPython can otherwise reuse stale bytecode in very fast edit runs.
             shutil.rmtree(cache_dir, ignore_errors=True)
         return Observation(self.name, True, f"patched once: {arguments['path']}")

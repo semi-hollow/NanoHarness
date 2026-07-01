@@ -76,7 +76,7 @@ def rank_files(query: str, files: list[str], root: str | Path = ".") -> list[str
             value += 2
         if code_task and suffix == ".py":
             value += 4
-        if code_task and ({"src", "agent_forge", "examples"} & parts):
+        if code_task and ({"src", "agent_forge"} & parts):
             value += 3
         if code_task and ("docs" in parts or suffix in {".md", ".json"}):
             value -= 6

@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import html
 import json
+import os
 import subprocess
 import sys
 import threading
@@ -17,18 +18,35 @@ from typing import Any
 from urllib.parse import parse_qs, urlparse
 
 
+@dataclass(frozen=True)
+class UiCommand:
+    """A browser-submitted agent action after server-side validation.
+
+    The UI lets users configure real runs in a page, but the server still turns
+    those settings into a bounded command shape. Secrets are passed through
+    environment variables and never appear in ``display_command``.
+    """
+
+    title: str
+    command: list[str]
+    display_command: list[str] = field(default_factory=list)
+    env: dict[str, str] = field(default_factory=dict)
+
+
 @dataclass
 class UiJob:
-    """One background UI action.
+    """One background action started by the local browser workbench.
 
-    The UI deliberately exposes fixed actions instead of arbitrary shell input.
-    That keeps the browser useful for demos without turning it into a local
-    command-execution console.
+    ``command`` is the actual subprocess argv. ``display_command`` is the
+    redacted, human-readable equivalent shown in the page. Keeping both fields
+    separate prevents accidental API key leaks while still making runs auditable.
     """
 
     id: str
     title: str
     command: list[str]
+    display_command: list[str]
+    env_overrides: dict[str, str] = field(default_factory=dict, repr=False)
     started_at: float = field(default_factory=time.time)
     finished_at: float | None = None
     status: str = "running"
@@ -44,10 +62,16 @@ class UiState:
         self.jobs: dict[str, UiJob] = {}
         self.lock = threading.Lock()
 
-    def start_job(self, title: str, command: list[str]) -> UiJob:
+    def start_job(self, command: UiCommand) -> UiJob:
         """Start a background subprocess and keep its output available."""
 
-        job = UiJob(id=uuid.uuid4().hex[:10], title=title, command=command)
+        job = UiJob(
+            id=uuid.uuid4().hex[:10],
+            title=command.title,
+            command=command.command,
+            display_command=command.display_command or command.command,
+            env_overrides=command.env,
+        )
         with self.lock:
             self.jobs[job.id] = job
         thread = threading.Thread(target=self._run_job, args=(job,), daemon=True)
@@ -58,9 +82,12 @@ class UiState:
         """Run one fixed command and capture combined stdout/stderr."""
 
         try:
+            env = os.environ.copy()
+            env.update(job.env_overrides)
             process = subprocess.run(
                 job.command,
                 cwd=self.project_dir,
+                env=env,
                 text=True,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
@@ -131,11 +158,11 @@ class ForgeUiHandler(BaseHTTPRequestHandler):
         payload = self._read_json()
         action = str(payload.get("action") or "")
         try:
-            title, command = _action_to_command(action, payload)
+            command = _action_to_command(action, payload)
         except ValueError as exc:
             self._send_json({"error": str(exc)}, HTTPStatus.BAD_REQUEST)
             return
-        job = self.state.start_job(title, command)
+        job = self.state.start_job(command)
         self._send_json(_job_to_dict(job), HTTPStatus.CREATED)
 
     def log_message(self, fmt: str, *args: Any) -> None:
@@ -222,69 +249,179 @@ def _find_project_dir(start: Path) -> Path:
     return current
 
 
-def _action_to_command(action: str, payload: dict[str, Any]) -> tuple[str, list[str]]:
-    """Translate a safe UI action into a fixed command list."""
+def _action_to_command(action: str, payload: dict[str, Any]) -> UiCommand:
+    """Translate browser form settings into a bounded command.
+
+    This is the key product boundary for the page UI. The browser can configure
+    agent parameters, but it cannot submit arbitrary shell. Every action maps to
+    one known ``agent_forge`` entrypoint plus validated flags.
+    """
 
     python = sys.executable
     if action == "doctor":
-        return "Doctor", [python, "-m", "agent_forge", "doctor"]
+        return UiCommand("Doctor", [python, "-m", "agent_forge", "doctor"])
     if action == "verify":
-        return "Smoke Verify", ["bash", "scripts/verify.sh"]
-    if action == "mock_run":
-        task = str(payload.get("task") or "修复 examples/demo_repo 里的测试失败问题")
-        return "Mock Agent Run", [python, "-m", "agent_forge", "run", task, "--provider", "mock"]
-    if action == "deepseek_run":
-        task = str(payload.get("task") or "inspect this repository and improve the requested code safely")
-        return "DeepSeek Agent Run", [python, "-m", "agent_forge", "run", task, "--provider", "deepseek"]
+        return UiCommand("Verify", ["bash", "scripts/verify.sh"])
+    if action == "agent_run":
+        return _build_agent_run_command(python, payload)
     if action == "swebench_sample":
-        limit = str(int(payload.get("limit") or 1))
-        provider = str(payload.get("provider") or "deepseek")
-        return (
-            "SWE-bench Sample",
-            [
-                python,
-                "-m",
-                "agent_forge",
-                "bench",
-                "swebench",
-                "--showcase",
-                "--limit",
-                limit,
-                "--provider",
-                provider,
-                "--max-steps",
-                "24",
-                "--max-context-chars",
-                "18000",
-                "--direct-baseline",
-            ],
-        )
+        return _build_swebench_command(python, payload, regression=False)
     if action == "swebench_regression":
-        provider = str(payload.get("provider") or "deepseek")
-        return (
-            "SWE-bench Regression Set",
-            [
-                python,
-                "-m",
-                "agent_forge",
-                "bench",
-                "swebench",
-                "--regression-set",
-                "core",
-                "--provider",
-                provider,
-                "--max-steps",
-                "24",
-                "--max-context-chars",
-                "18000",
-                "--direct-baseline",
-            ],
-        )
+        return _build_swebench_command(python, payload, regression=True)
     if action == "report":
-        return "Latest Report", [python, "-m", "agent_forge", "report", "latest"]
+        return UiCommand("Latest Report", [python, "-m", "agent_forge", "report", "latest"])
     if action == "replay":
-        return "Latest Replay", [python, "-m", "agent_forge", "replay", "latest"]
+        return UiCommand("Latest Replay", [python, "-m", "agent_forge", "replay", "latest"])
     raise ValueError(f"unsupported action: {action}")
+
+
+def _build_agent_run_command(python: str, payload: dict[str, Any]) -> UiCommand:
+    """Build the canonical repository-agent run from page settings."""
+
+    task = _payload_text(
+        payload,
+        "task",
+        "检查当前仓库结构，找出一个小而安全的改进点，完成修改并保留 trace 和 usage 证据。",
+    )
+    if len(task) < 6:
+        raise ValueError("Task is too short. Describe what you want the agent to do.")
+    provider = _payload_choice(payload, "provider", {"deepseek", "openai", "openai-compatible"}, "deepseek")
+    command = [python, "-m", "agent_forge", "run", task]
+    command.extend(["--workspace", _payload_text(payload, "workspace", ".")])
+    command.extend(["--provider", provider])
+    _append_optional(command, "--model", _payload_text(payload, "model", ""))
+    _append_optional(command, "--base-url", _payload_text(payload, "baseUrl", ""))
+    command.extend(["--max-steps", str(_payload_int(payload, "maxSteps", 16, 1, 80))])
+    command.extend(["--max-context-chars", str(_payload_int(payload, "maxContextChars", 12000, 1000, 120000))])
+    command.extend(
+        [
+            "--approval-mode",
+            _payload_choice(payload, "approvalMode", {"trusted", "on-write", "on-risk", "locked", "dry-run"}, "trusted"),
+        ]
+    )
+    command.extend(["--output-root", _payload_text(payload, "outputRoot", ".agent_forge/runs")])
+
+    skills = _payload_text(payload, "skills", "auto")
+    if skills:
+        command.extend(["--skills", skills])
+    for manifest in _payload_csv(payload, "skillManifests"):
+        command.extend(["--skill-manifest", manifest])
+
+    mcp_config = _payload_text(payload, "mcpConfig", "")
+    if mcp_config:
+        command.extend(["--mcp-config", mcp_config])
+    for tool_name in _payload_csv(payload, "mcpTools"):
+        command.extend(["--mcp-tool", tool_name])
+
+    return UiCommand(
+        title=f"Agent Run · {provider}",
+        command=command,
+        display_command=command[:],
+        env=_api_key_env(payload, provider),
+    )
+
+
+def _build_swebench_command(python: str, payload: dict[str, Any], *, regression: bool) -> UiCommand:
+    """Build a benchmark run from the same page-level model/runtime settings."""
+
+    provider = _payload_choice(payload, "provider", {"deepseek", "openai", "openai-compatible"}, "deepseek")
+    command = [python, "-m", "agent_forge", "bench", "swebench"]
+    if regression:
+        command.extend(["--regression-set", "core"])
+    else:
+        command.extend(["--showcase", "--limit", str(_payload_int(payload, "limit", 1, 1, 20))])
+    command.extend(["--provider", provider])
+    _append_optional(command, "--model", _payload_text(payload, "model", ""))
+    _append_optional(command, "--base-url", _payload_text(payload, "baseUrl", ""))
+    command.extend(["--max-steps", str(_payload_int(payload, "maxSteps", 24, 1, 80))])
+    command.extend(["--max-context-chars", str(_payload_int(payload, "maxContextChars", 18000, 1000, 120000))])
+    command.extend(["--output-root", _payload_text(payload, "outputRoot", ".agent_forge/runs")])
+    if _payload_bool(payload, "directBaseline", True):
+        command.append("--direct-baseline")
+    if _payload_bool(payload, "officialEvaluate", False):
+        command.append("--evaluate")
+        command.extend(["--max-workers", str(_payload_int(payload, "maxWorkers", 1, 1, 8))])
+
+    title = "SWE-bench Regression Set" if regression else "SWE-bench Reference Case"
+    return UiCommand(
+        title=f"{title} · {provider}",
+        command=command,
+        display_command=command[:],
+        env=_api_key_env(payload, provider),
+    )
+
+
+def _payload_text(payload: dict[str, Any], key: str, default: str) -> str:
+    """Read one string form value and trim accidental whitespace."""
+
+    value = payload.get(key)
+    if value is None:
+        return default
+    text = str(value).strip()
+    return text if text else default
+
+
+def _payload_int(payload: dict[str, Any], key: str, default: int, min_value: int, max_value: int) -> int:
+    """Read one bounded integer form value."""
+
+    try:
+        value = int(payload.get(key) or default)
+    except (TypeError, ValueError):
+        value = default
+    return max(min_value, min(value, max_value))
+
+
+def _payload_bool(payload: dict[str, Any], key: str, default: bool) -> bool:
+    """Read one checkbox-style value from JSON."""
+
+    value = payload.get(key)
+    if value is None:
+        return default
+    if isinstance(value, bool):
+        return value
+    return str(value).lower() in {"1", "true", "yes", "on"}
+
+
+def _payload_choice(payload: dict[str, Any], key: str, allowed: set[str], default: str) -> str:
+    """Read a select value while rejecting unexpected actions."""
+
+    value = _payload_text(payload, key, default)
+    if value not in allowed:
+        raise ValueError(f"Unsupported {key}: {value}")
+    return value
+
+
+def _payload_csv(payload: dict[str, Any], key: str) -> list[str]:
+    """Read comma/newline-separated small lists from advanced fields."""
+
+    raw = str(payload.get(key) or "")
+    values = []
+    for piece in raw.replace("\n", ",").split(","):
+        value = piece.strip()
+        if value:
+            values.append(value)
+    return values
+
+
+def _append_optional(command: list[str], flag: str, value: str) -> None:
+    """Append a CLI flag only when the page supplies a value."""
+
+    if value:
+        command.extend([flag, value])
+
+
+def _api_key_env(payload: dict[str, Any], provider: str) -> dict[str, str]:
+    """Pass a page-provided API key without exposing it in argv or artifacts."""
+
+    api_key = str(payload.get("apiKey") or "").strip()
+    if not api_key:
+        return {}
+    env = {"AGENT_FORGE_API_KEY": api_key}
+    if provider == "deepseek":
+        env["DEEPSEEK_API_KEY"] = api_key
+    elif provider == "openai":
+        env["OPENAI_API_KEY"] = api_key
+    return env
 
 
 def _job_to_dict(job: UiJob) -> dict[str, Any]:
@@ -293,7 +430,7 @@ def _job_to_dict(job: UiJob) -> dict[str, Any]:
     return {
         "id": job.id,
         "title": job.title,
-        "command": " ".join(job.command),
+        "command": " ".join(job.display_command),
         "started_at": job.started_at,
         "finished_at": job.finished_at,
         "status": job.status,
@@ -327,7 +464,7 @@ def _render_evidence_html(project_dir: Path, kind: str) -> str:
     """Render human-facing evidence from trace/report artifacts.
 
     Raw trace JSON is excellent for replayability but painful to read during a
-    demo. These views intentionally summarize the same source artifacts into
+    workbench. These views intentionally summarize the same source artifacts into
     cards, tables, badges, and step timelines.
     """
 
@@ -445,7 +582,7 @@ def _render_result_summary(project_dir: Path) -> str:
                 ]
             ),
             "<h3>Fixed Showcase Case</h3>",
-            "<p>默认样例固定为 <span class='mono'>astropy__astropy-12907</span>：真实 Astropy nested CompoundModel separability bug。它足够复杂，可以稳定暴露上下文检索、工具选择、循环控制、成本统计的改进效果。</p>",
+            "<p>默认 reference case 固定为 <span class='mono'>astropy__astropy-12907</span>：真实 Astropy nested CompoundModel separability bug。它足够复杂，可以稳定暴露上下文检索、工具选择、循环控制、成本统计的改进效果。</p>",
             f"<p><span class='label'>Latest report</span><span class='mono'>{_escape(report_path)}</span></p>",
             "<h3>Cases</h3>",
             "<table><thead><tr><th>instance</th><th>repo</th><th>agent status</th><th>diagnosis class</th><th>eval status</th><th>patch chars</th><th>diagnosis</th><th>next action</th></tr></thead>"
@@ -749,6 +886,38 @@ INDEX_HTML = r"""<!doctype html>
       font: inherit;
     }
     textarea { min-height: 76px; resize: vertical; }
+    .form-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 10px;
+    }
+    .form-row {
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: 10px;
+    }
+    .wide { grid-column: 1 / -1; }
+    .checkbox-line {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-top: 10px;
+      color: var(--muted);
+      font-size: 12px;
+    }
+    .checkbox-line input { width: auto; }
+    .quick-tasks {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 8px;
+      margin-top: 10px;
+    }
+    .quick-tasks button {
+      width: auto;
+      margin: 0;
+      padding: 8px;
+      font-size: 12px;
+    }
     button {
       width: 100%;
       border: 0;
@@ -904,7 +1073,7 @@ INDEX_HTML = r"""<!doctype html>
       main { grid-template-columns: 1fr; }
       aside { border-right: 0; border-bottom: 1px solid var(--line); }
       .status { grid-template-columns: 1fr; }
-      .metric-grid, .split { grid-template-columns: 1fr; }
+      .metric-grid, .split, .form-grid, .form-row, .quick-tasks { grid-template-columns: 1fr; }
     }
   </style>
 </head>
@@ -919,44 +1088,110 @@ INDEX_HTML = r"""<!doctype html>
   <main>
     <aside>
       <div class="card">
-        <h2>1. 环境检查</h2>
+        <h2>环境检查</h2>
         <div class="help">
-          检查 Python、Git、DeepSeek API Key、datasets、Docker、SWE-bench harness 是否可用。
-          这是展示前第一步，用来证明本机环境已经接好。
-          <span class="command">python -m agent_forge doctor</span>
+          检查 Python、Git、DeepSeek API Key、datasets、Docker、SWE-bench harness 是否可用。展示前先点一次，确认本机环境接好。
         </div>
         <button onclick="startJob('doctor')">Run Doctor</button>
       </div>
       <div class="card">
-        <h2>2. DeepSeek 真实 Agent Run</h2>
+        <h2>CodingAgent Workbench</h2>
         <div class="help">
-          使用 DeepSeek V4 Flash 跑当前仓库里的真实 AgentLoop：组装上下文、调用模型、选择工具、执行动作、写 trace 和 usage report。
-          这条链路适合给面试官展示“真实模型 + 真实工具治理 + 可观测证据”。
-          <span class="command">python -m agent_forge run "&lt;task&gt;" --provider deepseek</span>
+          在这里配置一次真实 Agent 运行：任务、模型、上下文预算、审批策略、Skill、MCP 都从页面传入，不需要记命令。
         </div>
         <label>Task</label>
         <textarea id="task">检查当前仓库的 AgentLoop 调用链，给出一个小而安全的代码改进，并保留 trace 和 usage 证据。</textarea>
-        <button class="primary" onclick="startJob('deepseek_run')">Run DeepSeek Agent</button>
+        <div class="quick-tasks">
+          <button class="secondary" onclick="setTaskPreset('repo')">读懂仓库</button>
+          <button class="secondary" onclick="setTaskPreset('fix')">修复问题</button>
+          <button class="secondary" onclick="setTaskPreset('refactor')">安全重构</button>
+          <button class="secondary" onclick="setTaskPreset('doc')">补充说明</button>
+        </div>
+        <div class="form-grid">
+          <div>
+            <label>Provider</label>
+            <select id="provider">
+              <option value="deepseek">DeepSeek</option>
+              <option value="openai">OpenAI</option>
+              <option value="openai-compatible">OpenAI-compatible</option>
+            </select>
+          </div>
+          <div>
+            <label>Model</label>
+            <input id="model" value="deepseek-v4-flash" />
+          </div>
+          <div class="wide">
+            <label>Base URL</label>
+            <input id="baseUrl" value="https://api.deepseek.com" />
+          </div>
+          <div class="wide">
+            <label>API Key</label>
+            <input id="apiKey" type="password" placeholder="留空时使用本机环境变量；页面输入只用于本次运行" />
+          </div>
+        </div>
+        <div class="form-row">
+          <div>
+            <label>Max Steps</label>
+            <input id="maxSteps" type="number" min="1" max="80" value="24" />
+          </div>
+          <div>
+            <label>Context Chars</label>
+            <input id="maxContextChars" type="number" min="1000" max="120000" value="18000" />
+          </div>
+          <div>
+            <label>Approval</label>
+            <select id="approvalMode">
+              <option value="trusted">trusted</option>
+              <option value="on-risk">on-risk</option>
+              <option value="on-write">on-write</option>
+              <option value="dry-run">dry-run</option>
+              <option value="locked">locked</option>
+            </select>
+          </div>
+        </div>
+        <details>
+          <summary>高级：workspace / Skill / MCP / 输出目录</summary>
+          <label>Workspace</label>
+          <input id="workspace" value="." />
+          <label>Skills</label>
+          <input id="skills" value="auto" />
+          <label>Skill Manifests</label>
+          <input id="skillManifests" placeholder="多个文件用逗号分隔" />
+          <label>MCP Config</label>
+          <input id="mcpConfig" value="mcp_tools.json" />
+          <label>MCP Tools</label>
+          <input id="mcpTools" placeholder="forge.web_search, forge.web_fetch" />
+          <label>Output Root</label>
+          <input id="outputRoot" value=".agent_forge/runs" />
+        </details>
+        <button class="primary" onclick="startJob('agent_run')">Run Agent</button>
       </div>
       <div class="card">
-        <h2>3. SWE-bench 真实样例</h2>
+        <h2>SWE-bench 闭环</h2>
         <div class="help">
-          固定运行 <span class="mono">astropy__astropy-12907</span>：Astropy nested CompoundModel separability bug。
-          固定 case 的好处是每次改 harness 后都能对比同一个复杂样例的 trace、token、工具效率和 patch 结果。
-          <span class="command">python -m agent_forge bench swebench --showcase --provider deepseek --direct-baseline</span>
+          固定运行 <span class="mono">astropy__astropy-12907</span>，用同一个真实缺陷观察 trace、token、工具效率、patch 结果和 direct baseline 差异。
         </div>
-        <button class="primary" onclick="startJob('swebench_sample')">Run SWE-bench with DeepSeek</button>
+        <div class="checkbox-line">
+          <input id="directBaseline" type="checkbox" checked />
+          <span>同时跑 direct baseline，用来回答“为什么需要 harness 而不是只问一次模型”。</span>
+        </div>
+        <div class="checkbox-line">
+          <input id="officialEvaluate" type="checkbox" />
+          <span>调用官方 SWE-bench 评测；需要 Docker 和 swebench 包，耗时更长。</span>
+        </div>
+        <label>Official Eval Workers</label>
+        <input id="maxWorkers" type="number" min="1" max="8" value="1" />
+        <button class="primary" onclick="startJob('swebench_sample')">Run Reference Case</button>
         <details>
           <summary>跑固定回归集，成本更高</summary>
           <div class="help">
             固定运行 3 个真实 SWE-bench cases，用于比较 harness 改动前后的 patch rate、blocked rate、token/cost 和 failure diagnosis。
-            <span class="command">python -m agent_forge bench swebench --regression-set core --provider deepseek --direct-baseline</span>
           </div>
           <button class="secondary" onclick="startJob('swebench_regression')">Run Core Regression Set</button>
         </details>
       </div>
       <div class="card">
-        <h2>4. 查看运行证据</h2>
+        <h2>运行证据</h2>
         <div class="help">
           这些按钮不会直接 dump 原始 JSON 或命令行日志，而是把运行产物整理成适合展示的卡片、表格和时间线。
         </div>
@@ -970,7 +1205,6 @@ INDEX_HTML = r"""<!doctype html>
         <button class="secondary" onclick="loadEvidence('usage')">Show Usage Dashboard</button>
         <div class="help">
           看每一步 context、LLM、action、tool observation、guardrail/permission 的执行时间线。
-          <span class="command">python -m agent_forge replay latest</span>
         </div>
         <button class="secondary" onclick="loadEvidence('timeline')">Show Trace Timeline</button>
         <details>
@@ -979,23 +1213,11 @@ INDEX_HTML = r"""<!doctype html>
         </details>
       </div>
       <div class="card">
-        <h2>离线兜底</h2>
+        <h2>本地健康检查</h2>
         <div class="help">
-          Mock 只用于公司网络不可用、CI、或不想调用外部模型时的健康检查。正式展示优先跑上面的 DeepSeek/SWE-bench。
+          检查包导入、公开入口、Skill registry、MCP 配置；如果配置了 DeepSeek API key，还会跑一次真实只读 Agent 任务。
         </div>
-        <details>
-          <summary>展开离线按钮</summary>
-          <div class="help">
-            本地 smoke check，会用 MockLLM 验证包导入、CLI、基础运行链路，不代表真实模型效果。
-            <span class="command">bash scripts/verify.sh</span>
-          </div>
-          <button class="secondary" onclick="startJob('verify')">Run Offline Smoke Verify</button>
-          <div class="help">
-            离线 Agent run，只用于确认工具链没有坏。
-            <span class="command">python -m agent_forge run "&lt;task&gt;" --provider mock</span>
-          </div>
-          <button class="secondary" onclick="startJob('mock_run')">Run Offline Mock Agent</button>
-        </details>
+        <button class="secondary" onclick="startJob('verify')">Run Verify</button>
       </div>
     </aside>
     <section>
@@ -1015,6 +1237,17 @@ INDEX_HTML = r"""<!doctype html>
   </main>
   <script>
     let currentJob = null;
+    const taskPresets = {
+      repo: '阅读当前仓库结构，说明 AgentLoop、Context、ToolRouter、Skill、MCP、Trace 的主调用链，不要修改文件。',
+      fix: '定位当前仓库里一个真实的小问题，先解释根因，再做最小代码修改，并运行必要验证。',
+      refactor: '找出一个影响可读性的局部实现，做安全重构，不改变业务行为，并说明为什么这样更容易维护。',
+      doc: '检查当前仓库的用户入口和运行证据说明，补充缺失的文档内容，避免重复和空泛。'
+    };
+    const providerDefaults = {
+      deepseek: {model: 'deepseek-v4-flash', baseUrl: 'https://api.deepseek.com'},
+      openai: {model: 'gpt-4.1-mini', baseUrl: 'https://api.openai.com/v1'},
+      'openai-compatible': {model: '', baseUrl: ''}
+    };
 
     async function refreshStatus() {
       const res = await fetch('/api/status');
@@ -1036,8 +1269,23 @@ INDEX_HTML = r"""<!doctype html>
     async function startJob(action) {
       const payload = {
         action,
-        task: document.getElementById('task').value,
-        provider: 'deepseek',
+        task: valueOf('task'),
+        provider: valueOf('provider'),
+        model: valueOf('model'),
+        baseUrl: valueOf('baseUrl'),
+        apiKey: valueOf('apiKey'),
+        workspace: valueOf('workspace'),
+        maxSteps: valueOf('maxSteps'),
+        maxContextChars: valueOf('maxContextChars'),
+        approvalMode: valueOf('approvalMode'),
+        outputRoot: valueOf('outputRoot'),
+        skills: valueOf('skills'),
+        skillManifests: valueOf('skillManifests'),
+        mcpConfig: valueOf('mcpConfig'),
+        mcpTools: valueOf('mcpTools'),
+        directBaseline: checked('directBaseline'),
+        officialEvaluate: checked('officialEvaluate'),
+        maxWorkers: valueOf('maxWorkers'),
         limit: 1
       };
       const res = await fetch('/api/jobs', {
@@ -1060,8 +1308,7 @@ INDEX_HTML = r"""<!doctype html>
       const res = await fetch(`/api/jobs/${id}`);
       const job = await res.json();
       const text = [
-        `$ ${job.command}`,
-        '',
+        `${job.title}`,
         `status=${job.status} exit=${job.exit_code ?? ''}`,
         '',
         job.output || '(running...)'
@@ -1093,6 +1340,28 @@ INDEX_HTML = r"""<!doctype html>
       document.getElementById('activeJob').textContent = 'none';
     }
 
+    function setTaskPreset(name) {
+      document.getElementById('task').value = taskPresets[name] || taskPresets.repo;
+    }
+
+    function valueOf(id) {
+      const element = document.getElementById(id);
+      return element ? element.value : '';
+    }
+
+    function checked(id) {
+      const element = document.getElementById(id);
+      return element ? element.checked : false;
+    }
+
+    function applyProviderDefaults() {
+      const provider = valueOf('provider');
+      const defaults = providerDefaults[provider] || providerDefaults.deepseek;
+      document.getElementById('model').value = defaults.model;
+      document.getElementById('baseUrl').value = defaults.baseUrl;
+    }
+
+    document.getElementById('provider').addEventListener('change', applyProviderDefaults);
     refreshStatus();
   </script>
 </body>

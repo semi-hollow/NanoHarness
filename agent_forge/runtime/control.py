@@ -56,7 +56,7 @@ class FailureSignal:
     # Whether the loop should allow another attempt after changing strategy.
     retryable: bool
 
-    # Promptable guidance for the next step; also useful in project walkthrough trace demos.
+    # Promptable guidance for the next step; also useful in trace review.
     recovery_hint: str
 
 
@@ -77,7 +77,7 @@ class ExecutionBudget:
     timeout_seconds: float = 120.0
 
     # Optional cost cap. Provider-backed runs populate estimated cost through
-    # ModelGateway; mock runs naturally report zero spend.
+    # ModelGateway records spend; missing provider usage reports as zero.
     cost_budget_usd: float | None = None
 
 

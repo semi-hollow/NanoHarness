@@ -212,7 +212,7 @@ Tool 是结构化 schema：
 
 生产建议：
 
-- 每个 Skill 有 manifest：name、version、schema、owner、permission、dependency、examples。
+- 每个 Skill 有 manifest：name、version、schema、owner、permission、dependency、tool_names、operating_procedure、done_criteria。
 - 新版本先跑 regression benchmark。
 - 支持 canary 和 shadow。
 - 指标变差自动 rollback。
@@ -220,14 +220,16 @@ Tool 是结构化 schema：
 
 项目状态：
 
-- 目前有 tool registry、MCP-style adapter，以及本地 `SkillRegistry`。
+- 目前有 tool registry、MCP-style adapter、本地 `SkillRegistry`，以及默认启用的内置开发 Skills。
+- `agent_forge/skills/builtin.py` 提供 `repo_orientation`、`targeted_code_edit`、`bug_fix`、`test_failure_triage`、`safe_refactor`、`docs_update`。
+- `AgentLoop` 会写入 `skill_selection` trace，并把 active skill cards 注入 prompt；`ToolRouter` 会根据 active skills 调整本轮工具集合。
 - `agent_forge/skills/registry.py` 支持 manifest 加载、同名多版本、权限/依赖/owner 元数据、latest resolve 和 rollback target。
-- `skill_registry.example.json` 提供了一个可演示的 Skill 版本升级样例。
+- 内置 coding skills 是默认运行能力；额外 manifest 只用于接入公司或仓库特定工作流。
 
 边界：
 
 - 这不是完整 SaaS 平台的发布系统，还没有线上 canary、流量切分和自动回滚服务。
-- 但它已经把面试官最关心的 Skill 治理契约落到代码里：schema、version、permission、dependency、owner、rollback。
+- 但它已经把面试官最关心的 Skill 治理契约落到代码里：schema、version、permission、dependency、owner、rollback，并且默认 Skills 已经进入真实 `forge run` 链路。
 
 ## 自演进与评测
 
@@ -247,7 +249,7 @@ trace/usage/badcase
 
 项目新增覆盖：
 
-- `--showcase`：固定一个复杂样例。
+- `--showcase`：固定一个真实 SWE-bench reference case。
 - `--regression-set core`：固定多 case 回归集。
 - `failure_class / diagnosis / next_actions`：失败归因。
 - UI evidence dashboard：展示结果、usage、timeline。
@@ -449,7 +451,7 @@ FAQ 是检索答案；客服 Agent 是带状态和工具的业务执行系统：
 
 可以这样讲：
 
-> 我主导做了 Agent Forge，从一开始的 toy demo 收敛到真实 SWE-bench 风格闭环。我的重点不是堆很多概念，而是把 CodingAgent 的关键工程面做清楚：AgentLoop 控制、多层上下文、工具治理、安全边界、trace/usage、failure diagnosis 和固定 regression set。这样每次失败不是一句“模型不行”，而是能定位到 repeated tool、context miss、tool failure、budget exhausted 或 official eval failure。
+> 我主导做了 Agent Forge，一个面向真实仓库任务和 SWE-bench 风格闭环的 CodingAgent harness。我的重点不是堆概念，而是把 CodingAgent 的关键工程面做清楚：AgentLoop 控制、多层上下文、runtime skills、工具治理、安全边界、trace/usage、failure diagnosis 和固定 regression set。这样每次失败不是一句“模型不行”，而是能定位到 repeated tool、context miss、tool failure、budget exhausted 或 official eval failure。
 
 ## 手撕代码准备重点
 
@@ -478,6 +480,8 @@ JSON 稳定返回回答：
 项目映射：
 
 - `agent_forge/runtime/structured_output.py` 负责抽取 JSON、校验 schema、生成 repair prompt。
+- `OpenAICompatibleLLMClient` 已经在解析 tool-call arguments 时使用 `StructuredOutputParser({"type": "object"})`，所以这个能力进入了真实模型响应解析链路。
+- `forge run --mcp-config mcp_tools.json --mcp-tool forge.repo_policy` 是外部 MCP-style 工具进入真实运行的入口。
 
 ## 项目缺口与是否值得补
 
@@ -486,9 +490,9 @@ JSON 稳定返回回答：
 | SWE-bench showcase | 已有 | 高 | 继续保留 |
 | Fixed regression set | 已补 | 高 | 后续增加趋势对比 |
 | Failure diagnosis | 已补 | 高 | 后续沉淀更多规则 |
-| Skill Registry/versioning | 基础实现已补 | 高 | 后续接 canary/发布系统 |
+| Runtime Skills + versioning | 已进入 AgentLoop | 高 | 后续接 canary/发布系统 |
 | Resume/idempotency | 部分 task_state | 高 | 值得补 |
-| JSON repair prompt | 基础实现已补 | 中高 | 后续接 provider 原生 structured output |
+| JSON repair prompt | 已进入 tool-call argument 解析 | 中高 | 后续接 provider 原生 structured output |
 | Multi-agent distributed | 未实现 | 中 | 文档解释即可 |
 | C 端搜索/客服完整系统 | 未实现 | 中 | 作为系统设计题准备 |
 | 多租户 SaaS 平台 | 未实现 | 中 | 不建议硬塞代码 |

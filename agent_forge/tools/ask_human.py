@@ -4,7 +4,7 @@ from .base import Tool
 
 
 class AskHumanTool(Tool):
-    """Represent a human approval step in deterministic demos."""
+    """Represent a human approval step in controlled agent runs."""
 
     name = "ask_human"
     description = "approval simulation"

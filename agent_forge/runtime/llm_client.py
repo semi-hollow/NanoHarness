@@ -7,6 +7,7 @@ from typing import Any, Optional
 
 from .message import Message
 from .llm_config import LLMConfig
+from .structured_output import StructuredOutputParser
 from .tool_call import ToolCall
 
 
@@ -179,8 +180,17 @@ class OpenAICompatibleLLMClient(LLMClient):
             arguments = fn.get("arguments", {})
             if isinstance(arguments, str):
                 # Providers send function arguments as JSON strings; local tools
-                # expect dicts so registry validation can inspect them.
-                arguments = json.loads(arguments or "{}")
+                # expect dicts so registry validation can inspect them. Use the
+                # structured-output parser here so malformed/fenced JSON is
+                # treated the same way as other LLM structured outputs.
+                parser = StructuredOutputParser({"type": "object"})
+                result = parser.parse(arguments or "{}")
+                if not result.ok:
+                    raise ValueError(
+                        "tool call arguments are not valid JSON object: "
+                        f"{result.error}; repair_prompt={result.repair_prompt}"
+                    )
+                arguments = result.data
             if arguments is None:
                 arguments = {}
             if not isinstance(arguments, dict):
@@ -251,83 +261,3 @@ class OpenAICompatibleLLMClient(LLMClient):
             [],
             {"type": "invalid_response", "code": code, "message": message, "raw": raw},
         )
-
-
-class MockLLMClient(LLMClient):
-    """Deterministic LLM stand-in used for offline smoke checks.
-
-    It is intentionally tiny. It only exercises the AgentLoop mechanics:
-    read source, read tests, fail one patch, recover with a valid patch, run
-    unittest, then finish. It is not benchmark evidence.
-    """
-
-    def __init__(self, mode: str = "single"):
-        """Store which scripted behavior to use."""
-
-        self.mode = mode
-
-    def chat(self, messages: list[Message], tools: list[dict]) -> AgentResponse:
-        """Choose the next scripted tool call from prior tool observations."""
-
-        tool_obs = [m for m in messages if m.role == "tool"]
-        i = len(tool_obs)
-        if self.mode == "single":
-            if i == 0:
-                return AgentResponse(
-                    None,
-                    [ToolCall("1", "read_file", {"path": "examples/demo_repo/src/calculator.py"})],
-                )
-            if i == 1:
-                return AgentResponse(
-                    None,
-                    [ToolCall("2", "read_file", {"path": "examples/demo_repo/tests/test_calculator.py"})],
-                )
-            if i == 2:
-                # The first patch intentionally fails, so the loop can show recovery.
-                return AgentResponse(
-                    None,
-                    [
-                        ToolCall(
-                            "3",
-                            "apply_patch",
-                            {
-                                "path": "examples/demo_repo/src/calculator.py",
-                                "old": "return a * b",
-                                "new": "return a + b",
-                            },
-                        )
-                    ],
-                )
-            if i == 3 and "old text not found" in tool_obs[-1].content:
-                return AgentResponse(
-                    None,
-                    [
-                        ToolCall(
-                            "3b",
-                            "apply_patch",
-                            {
-                                "path": "examples/demo_repo/src/calculator.py",
-                                "old": "return a - b",
-                                "new": "return a + b",
-                            },
-                        )
-                    ],
-                )
-            if i in {3, 4}:
-                return AgentResponse(
-                    None,
-                    [
-                        ToolCall(
-                            "4",
-                            "run_command",
-                            {
-                                "command": (
-                                    "python3.11 -m unittest discover "
-                                    "examples/demo_repo/tests -t examples/demo_repo"
-                                )
-                            },
-                        )
-                    ],
-                )
-            return AgentResponse("已完成修复并验证测试通过。", [])
-        return AgentResponse("MockLLM has no scripted path for this mode.", [])

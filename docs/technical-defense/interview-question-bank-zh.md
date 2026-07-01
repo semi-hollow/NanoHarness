@@ -14,11 +14,11 @@
 | 类型 | 状态 | 应对方式 |
 | --- | --- | --- |
 | AgentLoop、上下文工程、工具调用、安全边界、trace/usage | 已实现 | 作为项目主线重点讲。 |
-| SWE-bench 闭环、失败归因、报告卡 | 已实现 | 用来证明不是纯 demo。 |
-| Skill 版本、依赖、权限、回滚元数据 | 已补基础实现 | 讲 `SkillRegistry`，边界是还没有线上 canary 服务。 |
-| 稳定 JSON 输出、schema 校验、repair prompt | 已补基础实现 | 讲 `StructuredOutputParser`，边界是后续可接 provider 原生 structured output。 |
+| SWE-bench 闭环、失败归因、报告卡 | 已实现 | 用来证明真实仓库任务闭环。 |
+| Runtime Skills、版本、依赖、权限、回滚元数据 | 已进入 AgentLoop | 讲内置 coding Skills + `SkillRegistry`，边界是还没有线上 canary 服务。 |
+| 稳定 JSON 输出、schema 校验、repair prompt | 已进入 tool-call 参数解析 | 讲 `StructuredOutputParser`，边界是后续可接 provider 原生 structured output。 |
 | 长任务恢复、idempotency、防重复副作用 | 部分实现 | 有 task state/trace，完整事务补偿仍是生产化扩展。 |
-| 多 Agent 分布式协作 | 文档应对 | 本项目不把它作为主线，避免 toy 多 Agent。 |
+| 多 Agent 分布式协作 | 文档应对 | 本项目不把它作为主线，避免无效复杂度。 |
 | 自演进、离线 RL、在线优化 | 文档应对 | 讲安全闭环，不把训练系统硬塞进 CodingAgent harness。 |
 | C 端搜索、客服、多租户平台 | 系统设计准备 | 适合面试系统设计，不适合全部塞进本 repo。 |
 
@@ -114,13 +114,13 @@
 
 - 核心回复：Skill manifest 记录 name/version/schema/permissions/dependencies/owner/rollback_to；发布前跑 regression，线上 canary，指标差回滚。
 - 面试官想听：Skill 是受治理的产品能力，不只是函数。
-- 项目映射：`agent_forge/skills/registry.py`、`skill_registry.example.json`。
+- 项目映射：`agent_forge/skills/builtin.py`、`agent_forge/skills/registry.py`、`AgentLoop` 的 `skill_selection` trace。
 
 ### Skill 自演进更新后，怎么保证新版本不会比旧版本更差？
 
 - 核心回复：固定回归集、shadow/canary、关键指标对比、失败归因和自动回滚阈值。
 - 面试官想听：自演进必须被 benchmark 和发布系统约束。
-- 项目映射：SWE-bench regression 已有；Skill 自动 canary 未实现。
+- 项目映射：SWE-bench regression 已有；Skill 已进入运行链路，但自动 canary 未实现。
 
 ## 三、自演进与评测
 
@@ -195,7 +195,7 @@
 ### 你们的多 Agent 是否支持分布式？
 
 - 核心回复：如果做分布式，需要队列、状态存储、租户隔离、幂等、超时和 tracing；本项目不做分布式。
-- 面试官想听：不要假装本地 demo 是分布式系统。
+- 面试官想听：不要假装本地单机 harness 是分布式系统。
 - 项目映射：文档应对。
 
 ### 多 Agent 协作时，如何避免互相抢状态死锁或重复执行？
@@ -274,7 +274,7 @@
 
 - 核心回复：FAQ 是检索答案，Agent 能理解意图、查订单、执行流程、处理异常并转人工。
 - 面试官想听：Agent 的价值在端到端任务闭环。
-- 项目映射：Skill Registry 示例用订单查询解释。
+- 项目映射：可以用 `bug_fix` / `repo_orientation` / `safe_refactor` 解释开发者工具 Skill。
 
 ### 客户项目的端到端链路是什么？
 
@@ -374,7 +374,7 @@
 
 - 核心回复：Tool 是底层动作，Skill 是版本化能力，Workflow 是流程编排；用 registry 管理 schema、权限、owner、版本。
 - 面试官想听：三者不是一个东西。
-- 项目映射：`ToolRegistry`、`SkillRegistry`。
+- 项目映射：`ToolRegistry`、`SkillRegistry`、active skill cards、ToolRouter skill tool widening。
 
 ### 多租户场景下，如何做权限、配额、审计和数据隔离？
 
@@ -406,7 +406,7 @@
 
 - 核心回复：按“背景-冲突-定位-方案-结果-沉淀”讲，重点讲你如何把现场问题转成可复用能力。
 - 面试官想听：不只是救火，而是沉淀平台能力。
-- 项目映射：可用“从 toy demo 转为 SWE-bench 闭环”作为项目故事。
+- 项目映射：可用“真实仓库任务 + SWE-bench reference cases + trace/usage”作为项目故事。
 
 ### 现场问题中怎么化解 gap 和矛盾？
 
@@ -417,7 +417,7 @@
 ### Agent 商业化最大的难点是效果、成本、交付，还是客户认知？
 
 - 核心回复：四者都有，但最大难点常是“稳定可控地达到业务效果”，随后才是成本和交付复制。
-- 面试官想听：知道 Agent 商业化不是 demo 炫技。
+- 面试官想听：知道 Agent 商业化不是炫技，而是稳定完成业务任务。
 - 项目映射：闭环评测是项目核心故事。
 
 ### 如果前期强依赖定制交付，后续怎么沉淀成可复制的平台能力？
@@ -574,7 +574,7 @@
 
 - 核心回复：定义 SkillSpec、输入 schema、权限、只读查询、超时、错误分类、脱敏输出。
 - 面试官想听：DB Skill 不是直接拼 SQL，必须治理权限和参数。
-- 项目映射：`skill_registry.example.json` 的 `customer_order_lookup`。
+- 项目映射：内置 `repo_orientation` / `bug_fix` / `safe_refactor` 这类开发 Skill。
 
 ### 实现一个 Tool Router，根据工具名和参数分发调用？
 
@@ -586,14 +586,14 @@
 
 - 核心回复：优先 tool call/structured output；其次固定 JSON schema 指令；runtime 抽取 JSON、schema 校验，失败生成 repair prompt，限制重试次数，仍失败返回结构化错误。
 - 面试官想听：稳定 JSON 靠协议和校验，不靠祈祷模型听话。
-- 项目映射：`runtime/structured_output.py`。
+- 项目映射：`runtime/structured_output.py`，以及 `OpenAICompatibleLLMClient` 解析 tool-call arguments 的真实使用路径。
 
 ## 最值得优先补的能力清单
 
 已在本轮补充：
 
-- `SkillRegistry`：支撑 Skill 版本、权限、依赖、owner、rollback 的面试回答。
-- `StructuredOutputParser`：支撑稳定 JSON、schema 校验、repair prompt 的工程题回答。
+- `SkillRegistry` + built-in coding Skills：支撑 Skill 版本、权限、依赖、owner、rollback，以及真实运行时选择和工具路由。
+- `StructuredOutputParser`：支撑稳定 JSON、schema 校验、repair prompt，并已进入 tool-call argument 解析。
 - `interview-question-bank-zh.md`：把问题、关键点和项目映射合在一起，方便复习。
 
 后续如果继续补，优先级建议：

@@ -4,7 +4,7 @@ from typing import Any
 
 @dataclass
 class ToolCall:
-    """Normalized tool call parsed from MockLLM or OpenAI-compatible output."""
+    """Normalized tool call parsed from OpenAI-compatible output."""
 
     # Provider/tool-call id used to pair assistant call with tool observation.
     id: str
