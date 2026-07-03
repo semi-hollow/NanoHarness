@@ -11,6 +11,8 @@ The repository currently provides:
 - Workspace path checks through `WorkspaceSandbox`.
 - Command allowlists and high-risk command blocking through `CommandPolicy`.
 - Approval modes through runtime hooks.
+- Role-level tool allowlists in the multi-agent coordinator.
+- Artifact handoff for multi-agent communication instead of hidden peer chat.
 - Optional worktree execution for isolating code changes from the main checkout.
 - Network-deny behavior for local command execution unless explicitly enabled.
 - Offline-by-default MCP web tools.
@@ -39,15 +41,17 @@ local files for:
 
 - `DEEPSEEK_API_KEY`
 - `OPENAI_API_KEY`
-- `ANTHROPIC_API_KEY`
 - `AGENT_FORGE_API_KEY`
 
 The repository intentionally ignores `.env`, `.env.local`, `llm_profiles.json`,
 and `.agent_forge/`.
+
+Agent Forge does not implement Claude / Anthropic provider compatibility in this
+version. Do not add Anthropic credentials unless a future provider module is
+explicitly implemented and reviewed.
 
 ## Disclosure Scope
 
 Security issues in external model providers, operating systems, shells, or
 package managers are outside this repository unless Agent Forge mishandles their
 responses or bypasses its own policies.
-

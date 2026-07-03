@@ -4,10 +4,11 @@
 [![Python 3.11](https://img.shields.io/badge/python-3.11-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-Agent Forge is a SWE-bench-oriented CodingAgent harness. It focuses on the
-runtime control plane behind coding agents: context engineering, model gateway,
-tool governance, sandboxed execution, trace/replay, usage accounting, patch
-prediction, and benchmark result cards.
+Agent Forge is a SWE-bench-oriented CodingAgent and multi-agent harness. It
+focuses on the runtime control plane behind coding agents: context engineering,
+model gateway, tool governance, sandboxed execution, trace/replay, usage
+accounting, patch prediction, coordinator-driven multi-agent workflows, and
+benchmark result cards.
 
 The project intentionally avoids a heavy IDE product surface, but it does ship a
 local browser workbench so the full loop can be configured from a page instead
@@ -19,6 +20,10 @@ SWE-bench issue -> clean repo checkout -> AgentLoop -> tool execution
                -> git patch -> predictions.jsonl -> SWE-bench harness
                -> trace / usage / result card
 ```
+
+The canonical execution unit is still `AgentLoop`. Multi-agent mode wraps it in
+`MultiAgentCoordinator`, where role-specific AgentLoop runs communicate through
+explicit artifacts rather than free-form agent chatter.
 
 ## Quick Start
 
@@ -71,6 +76,27 @@ Run a normal coding task in the current repository:
 
 ```bash
 forge run "fix the failing test in this repository" --provider deepseek
+```
+
+Run the coordinator-driven coding profile:
+
+```bash
+forge run "fix the failing test in this repository" \
+  --agent-mode multi \
+  --profile coding_fix \
+  --provider deepseek \
+  --max-revision-rounds 2
+```
+
+Run the non-coding research profile:
+
+```bash
+forge run "Write a cited research report on current best practices for evaluating multi-agent coding systems. If live search is unavailable, clearly mark source limitations." \
+  --agent-mode multi \
+  --profile research_report \
+  --provider deepseek \
+  --max-steps 10 \
+  --max-revision-rounds 2
 ```
 
 Use it for day-to-day code work:
@@ -185,6 +211,12 @@ Repeatable reference command:
 forge bench swebench --showcase --provider deepseek --direct-baseline
 ```
 
+Multi-agent reference command:
+
+```bash
+forge bench swebench --showcase --agent-mode multi --profile coding_fix --provider deepseek
+```
+
 Regression command:
 
 ```bash
@@ -210,6 +242,11 @@ Runtime outputs are ignored by Git and live under `.agent_forge/`:
   results.json             # machine-readable run summary
   predictions.jsonl        # SWE-bench-compatible predictions
   direct_baseline_predictions.jsonl
+  multi_agent/
+    artifact_index.json
+    multi_agent_summary.json
+    multi_agent_report.md
+    artifacts/
   cases/<instance_id>/
     trace.json             # step-by-step evidence
     usage_report.md        # token, cost, context, and tool breakdown
@@ -277,6 +314,7 @@ agent_forge/
 
 - [Evaluation Guide](docs/evaluation/README.md)
 - [Architecture Notes](docs/architecture.md)
+- [Multi-Agent Harness](docs/multi-agent.md)
 - [Technical Defense Notes](docs/technical-defense/coding-agent-defense-zh.md)
 - [Interview Response Playbook](docs/technical-defense/interview-response-playbook-zh.md)
 - [Agent Engineer Question Bank](docs/technical-defense/interview-question-bank-zh.md)

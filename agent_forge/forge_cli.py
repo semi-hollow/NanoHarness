@@ -13,6 +13,7 @@ import uuid
 from pathlib import Path
 
 from agent_forge.bench.swebench import build_swebench_parser, run_swebench_from_args
+from agent_forge.multi_agent import MultiAgentCoordinator, get_profile, list_profiles
 from agent_forge.observability.trace import TraceRecorder
 from agent_forge.observability.usage_report import write_usage_artifacts
 from agent_forge.runtime.agent_loop import AgentLoop
@@ -48,6 +49,9 @@ def build_parser() -> argparse.ArgumentParser:
     run_parser.add_argument("--max-context-chars", type=int, default=12000)
     run_parser.add_argument("--approval-mode", default="trusted", choices=["trusted", "on-write", "on-risk", "locked", "dry-run"])
     run_parser.add_argument("--output-root", default=".agent_forge/runs")
+    run_parser.add_argument("--agent-mode", default="single", choices=["single", "multi"])
+    run_parser.add_argument("--profile", default="coding_fix", choices=list_profiles())
+    run_parser.add_argument("--max-revision-rounds", type=int, default=2)
     run_parser.add_argument(
         "--skills",
         default="auto",
@@ -174,7 +178,21 @@ def run_repository_task(args: argparse.Namespace) -> Path:
         skill_names=_parse_skill_names(getattr(args, "skills", "auto")),
         skill_manifest_files=getattr(args, "skill_manifest", []),
     )
-    final_answer = AgentLoop(config, trace, registry, llm).run(args.task)
+    if getattr(args, "agent_mode", "single") == "multi":
+        profile = get_profile(getattr(args, "profile", "coding_fix"))
+        summary = MultiAgentCoordinator(
+            args.task,
+            profile,
+            config,
+            trace,
+            registry,
+            llm,
+            run_dir=run_dir,
+            max_revision_rounds=getattr(args, "max_revision_rounds", profile.default_max_revision_rounds),
+        ).run()
+        final_answer = summary.final_answer
+    else:
+        final_answer = AgentLoop(config, trace, registry, llm).run(args.task)
     trace.write()
     write_usage_artifacts(trace_path)
     (run_dir / "final_answer.txt").write_text(final_answer, encoding="utf-8")
@@ -364,6 +382,13 @@ def run_tui() -> None:
             max_context_chars=12000,
             approval_mode="trusted",
             output_root=".agent_forge/runs",
+            agent_mode="single",
+            profile="coding_fix",
+            max_revision_rounds=2,
+            skills="auto",
+            skill_manifest=[],
+            mcp_config=None,
+            mcp_tool=[],
         )
         print(f"Run directory: {run_repository_task(args)}")
     elif choice == "4":

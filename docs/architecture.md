@@ -11,7 +11,12 @@ Agent Forge is organized around one production-shaped question:
 flowchart TD
     User["forge CLI / TUI"] --> Run["run or bench command"]
     Run --> Workspace["workspace or SWE-bench checkout"]
-    Workspace --> Loop["AgentLoop"]
+    Workspace --> Mode{"agent mode"}
+    Mode --> Loop["AgentLoop"]
+    Mode --> Coordinator["MultiAgentCoordinator"]
+    Coordinator --> Roles["RoleSpec / AgentProfile"]
+    Roles --> Artifacts["ArtifactStore"]
+    Coordinator --> Loop
     Loop --> Context["ContextBuilder"]
     Context --> RepoMap["repo map"]
     Context --> Ranking["file ranking / lexical retrieval / symbol search"]
@@ -27,6 +32,7 @@ flowchart TD
     Observation --> Loop
     Loop --> Trace["TraceRecorder"]
     Trace --> Usage["usage_report.md"]
+    Artifacts --> MultiReport["multi_agent_report.md"]
     Workspace --> Diff["git diff"]
     Diff --> Prediction["predictions.jsonl"]
 ```
@@ -36,6 +42,8 @@ flowchart TD
 | Module | Responsibility | Why it exists |
 | --- | --- | --- |
 | `agent_forge/bench` | Loads SWE-bench cases, prepares clean workspaces, writes predictions and reports. | Without it, the project has no external effect loop. |
+| `agent_forge/multi_agent` | Coordinates role-specific AgentLoop runs through explicit artifacts and bounded revision rounds. | Without it, multi-agent behavior becomes prompt chaining with hidden state. |
+| `agent_forge/evaluation` | Provides data structures and reports for honest single-vs-multi comparisons. | Without it, cost/quality tradeoffs are anecdotal. |
 | `agent_forge/runtime` | Runs the ReAct loop, stop conditions, task state, model/tool interaction. | Without it, tool use becomes ad hoc and unreplayable. |
 | `agent_forge/context` | Builds prompt context from repo structure, lexical retrieval, symbols, memory, and budgets. | Without it, the model sees either too little code or noisy full-repo dumps. |
 | `agent_forge/tools` | Provides file, patch, grep, command, git, and MCP-style tool access. | Without it, the model cannot inspect and modify real code safely. |
@@ -60,6 +68,26 @@ The loop is intentionally single-agent first because the core problem is not
 "many agents talk"; it is whether one coding agent can close the
 issue-to-patch loop under control.
 
+## Multi-Agent Coordinator
+
+`MultiAgentCoordinator` is an outer workflow around `AgentLoop`.
+
+- `RoleSpec` defines role name, instructions, allowed tools, max steps, and the
+  expected artifact. It may also narrow tools on revision rounds, which is
+  useful when a role should revise from reviewer artifacts instead of collecting
+  more evidence.
+- `AgentProfile` groups roles into a profile such as `coding_fix` or
+  `research_report`.
+- `ArtifactStore` writes each role output under
+  `.agent_forge/runs/<run-id>/multi_agent/artifacts/`.
+- Reviewer/verifier roles must return `PASS`, `NEEDS_REVISION`, or `BLOCKED`.
+- `NEEDS_REVISION` triggers another primary-role round until the configured
+  revision budget is reached.
+
+The first version is deterministic and sequential. It does not implement
+parallel execution, quorum voting, decentralized agents, Raft, blockchain, or
+swarm learning.
+
 ## Result Evidence
 
 Every benchmark case should leave:
@@ -69,5 +97,7 @@ Every benchmark case should leave:
 - `patch.diff`: candidate git diff.
 - `predictions.jsonl`: SWE-bench-compatible output.
 - `report.md`: human-readable result card.
+- `multi_agent_report.md`: role/artifact/revision summary when multi-agent mode
+  is used.
 
 This evidence is more important than a large set of author-created tests.

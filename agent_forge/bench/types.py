@@ -111,6 +111,9 @@ class BenchRunSummary:
     model: str
     output_dir: Path
     predictions_path: Path
+    agent_mode: str = "single"
+    profile: str = ""
+    max_revision_rounds: int = 0
     baseline_predictions_path: Path | None = None
     official_eval_command: list[str] = field(default_factory=list)
     official_eval_exit_code: int | None = None
@@ -127,6 +130,9 @@ class BenchRunSummary:
             "split": self.split,
             "provider": self.provider,
             "model": self.model,
+            "agent_mode": self.agent_mode,
+            "profile": self.profile,
+            "max_revision_rounds": self.max_revision_rounds,
             "output_dir": str(self.output_dir),
             "predictions_path": str(self.predictions_path),
             "baseline_predictions_path": (

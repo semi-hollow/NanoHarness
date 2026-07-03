@@ -45,14 +45,23 @@ class ApplyPatchTool(Tool):
             return Observation(self.name, False, "needs_approval")
 
         path = self.sandbox.ensure_safe_path(arguments["path"])
+        old = arguments["old"]
+        new = arguments["new"]
         text = path.read_text(encoding="utf-8")
-        if arguments["old"] not in text:
+        occurrences = _count_overlapping(text, old)
+        if occurrences == 0:
             # This failure is intentionally recoverable. AgentLoop/StepController
             # classifies it as PATCH_MISMATCH, prompting the model to reread the
             # file and repair the patch anchor.
             return Observation(self.name, False, "old text not found")
+        if occurrences > 1:
+            return Observation(
+                self.name,
+                False,
+                f"old text is ambiguous: found {occurrences} occurrences; reread the file and provide a unique anchor",
+            )
 
-        path.write_text(text.replace(arguments["old"], arguments["new"], 1), encoding="utf-8")
+        path.write_text(text.replace(old, new, 1), encoding="utf-8")
 
         # Give file watchers and tests a visible mtime bump after fast edits.
         now = time.time() + 2

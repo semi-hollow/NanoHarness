@@ -336,6 +336,7 @@ def _build_swebench_command(python: str, payload: dict[str, Any], *, regression:
     command.extend(["--max-steps", str(_payload_int(payload, "maxSteps", 24, 1, 80))])
     command.extend(["--max-context-chars", str(_payload_int(payload, "maxContextChars", 18000, 1000, 120000))])
     command.extend(["--output-root", _payload_text(payload, "outputRoot", ".agent_forge/runs")])
+    command.extend(["--agent-mode", "single", "--profile", "coding_fix", "--max-revision-rounds", "2"])
     if _payload_bool(payload, "directBaseline", True):
         command.append("--direct-baseline")
     if _payload_bool(payload, "officialEvaluate", False):

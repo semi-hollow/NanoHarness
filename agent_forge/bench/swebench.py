@@ -12,6 +12,8 @@ import uuid
 from pathlib import Path
 from typing import Iterable
 
+from agent_forge.evaluation import compare_runs, extract_run_metrics, load_json_if_exists, write_evaluation_artifacts
+from agent_forge.multi_agent import MultiAgentCoordinator, get_profile
 from agent_forge.models.gateway import ModelGateway
 from agent_forge.observability.trace import TraceRecorder
 from agent_forge.observability.usage_report import write_usage_artifacts
@@ -116,11 +118,12 @@ class SwebenchWorkspaceManager:
         self.repo_cache = repo_cache.resolve()
         self.output_dir = output_dir.resolve()
 
-    def prepare(self, case: BenchCase) -> Path:
+    def prepare(self, case: BenchCase, variant: str = "") -> Path:
         """Return a clean workspace checked out at the case base commit."""
 
         source = self._ensure_repo(case.repo)
-        workspace = self.output_dir / "workspaces" / _safe_id(case.instance_id)
+        suffix = f"__{_safe_id(variant)}" if variant else ""
+        workspace = self.output_dir / "workspaces" / f"{_safe_id(case.instance_id)}{suffix}"
         workspace.parent.mkdir(parents=True, exist_ok=True)
         self._run(["git", "-C", str(source), "worktree", "prune"], check=False)
         result = self._run(
@@ -176,6 +179,9 @@ def run_swebench(
     evaluate: bool = False,
     max_workers: int = 1,
     namespace_empty: bool = False,
+    agent_mode: str = "single",
+    profile: str = "coding_fix",
+    max_revision_rounds: int = 2,
 ) -> BenchRunSummary:
     """Generate SWE-bench patch predictions with Agent Forge.
 
@@ -200,6 +206,9 @@ def run_swebench(
         model=model or "",
         output_dir=output_dir,
         predictions_path=predictions_path,
+        agent_mode=agent_mode,
+        profile=profile if agent_mode in {"multi", "compare"} else "",
+        max_revision_rounds=max_revision_rounds if agent_mode in {"multi", "compare"} else 0,
         baseline_predictions_path=baseline_predictions_path,
         notes=[
             "Generated patches are not resolved-rate claims until the official SWE-bench harness evaluates them.",
@@ -211,17 +220,35 @@ def run_swebench(
         baseline_file = baseline_predictions_path.open("w", encoding="utf-8") if baseline_predictions_path else None
         try:
             for case in cases:
-                result = _run_case(
-                    case=case,
-                    manager=manager,
-                    output_dir=output_dir,
-                    provider=provider,
-                    model=model,
-                    base_url=base_url,
-                    api_key=api_key,
-                    max_steps=max_steps,
-                    max_context_chars=max_context_chars,
-                )
+                if agent_mode == "compare":
+                    result = _run_compare_case(
+                        case=case,
+                        manager=manager,
+                        output_dir=output_dir,
+                        provider=provider,
+                        model=model,
+                        base_url=base_url,
+                        api_key=api_key,
+                        max_steps=max_steps,
+                        max_context_chars=max_context_chars,
+                        profile=profile,
+                        max_revision_rounds=max_revision_rounds,
+                    )
+                else:
+                    result = _run_case(
+                        case=case,
+                        manager=manager,
+                        output_dir=output_dir,
+                        provider=provider,
+                        model=model,
+                        base_url=base_url,
+                        api_key=api_key,
+                        max_steps=max_steps,
+                        max_context_chars=max_context_chars,
+                        agent_mode=agent_mode,
+                        profile=profile,
+                        max_revision_rounds=max_revision_rounds,
+                    )
                 attach_failure_diagnosis(result)
                 summary.case_results.append(result)
                 prediction_file.write(
@@ -271,10 +298,13 @@ def _run_case(
     api_key: str | None,
     max_steps: int,
     max_context_chars: int,
+    agent_mode: str = "single",
+    profile: str = "coding_fix",
+    max_revision_rounds: int = 2,
 ) -> BenchCaseResult:
     """Run AgentLoop on one clean SWE-bench workspace and capture the diff."""
 
-    workspace = manager.prepare(case)
+    workspace = manager.prepare(case, agent_mode if agent_mode in {"single", "multi"} else "")
     case_dir = output_dir / "cases" / _safe_id(case.instance_id)
     case_dir.mkdir(parents=True, exist_ok=True)
     trace_path = case_dir / "trace.json"
@@ -307,7 +337,20 @@ def _run_case(
             timeout_seconds=900,
             task_state_root=str(case_dir / "task_state"),
         )
-        final_answer = AgentLoop(runtime_config, trace, registry, llm).run(task)
+        if agent_mode == "multi":
+            multi_profile = get_profile(profile)
+            final_answer = MultiAgentCoordinator(
+                task,
+                multi_profile,
+                runtime_config,
+                trace,
+                registry,
+                llm,
+                run_dir=case_dir,
+                max_revision_rounds=max_revision_rounds,
+            ).run().final_answer
+        else:
+            final_answer = AgentLoop(runtime_config, trace, registry, llm).run(task)
         trace.write()
         _, usage_report_path = write_usage_artifacts(trace_path)
         patch = _git_diff(workspace)
@@ -335,6 +378,84 @@ def _run_case(
         final_answer=final_answer,
         patch_chars=len(patch_path.read_text(encoding="utf-8")) if patch_path.exists() else 0,
         error=error,
+    )
+
+
+def _run_compare_case(
+    case: BenchCase,
+    manager: SwebenchWorkspaceManager,
+    output_dir: Path,
+    provider: str,
+    model: str | None,
+    base_url: str | None,
+    api_key: str | None,
+    max_steps: int,
+    max_context_chars: int,
+    profile: str,
+    max_revision_rounds: int,
+) -> BenchCaseResult:
+    """Run one case in isolated single and multi variants and write comparison artifacts."""
+
+    case_root = output_dir / "cases" / _safe_id(case.instance_id)
+    single_result = _run_case(
+        case=case,
+        manager=manager,
+        output_dir=case_root / "single",
+        provider=provider,
+        model=model,
+        base_url=base_url,
+        api_key=api_key,
+        max_steps=max_steps,
+        max_context_chars=max_context_chars,
+        agent_mode="single",
+        profile=profile,
+        max_revision_rounds=0,
+    )
+    multi_result = _run_case(
+        case=case,
+        manager=manager,
+        output_dir=case_root / "multi",
+        provider=provider,
+        model=model,
+        base_url=base_url,
+        api_key=api_key,
+        max_steps=max_steps,
+        max_context_chars=max_context_chars,
+        agent_mode="multi",
+        profile=profile,
+        max_revision_rounds=max_revision_rounds,
+    )
+    comparison = compare_runs(
+        case.instance_id,
+        extract_run_metrics(
+            single_result.to_dict(),
+            load_json_if_exists(single_result.trace_path.parent / "usage.json"),
+        ),
+        extract_run_metrics(
+            multi_result.to_dict(),
+            load_json_if_exists(multi_result.trace_path.parent / "usage.json"),
+            load_json_if_exists(multi_result.trace_path.parent / "multi_agent" / "multi_agent_summary.json"),
+        ),
+    )
+    write_evaluation_artifacts(comparison, case_root)
+    combined_patch = case_root / "patch.diff"
+    combined_patch.write_text(multi_result.patch_path.read_text(encoding="utf-8"), encoding="utf-8")
+    return BenchCaseResult(
+        instance_id=case.instance_id,
+        repo=case.repo,
+        workspace=multi_result.workspace,
+        trace_path=multi_result.trace_path,
+        usage_report_path=multi_result.usage_report_path,
+        patch_path=combined_patch,
+        status=multi_result.status,
+        final_answer=multi_result.final_answer,
+        patch_chars=multi_result.patch_chars,
+        error=multi_result.error or single_result.error,
+        evaluation_status=multi_result.evaluation_status,
+        failure_class=multi_result.failure_class or single_result.failure_class,
+        diagnosis=multi_result.diagnosis or single_result.diagnosis,
+        diagnosis_evidence=[*single_result.diagnosis_evidence[:2], *multi_result.diagnosis_evidence[:2]],
+        next_actions=multi_result.next_actions or single_result.next_actions,
     )
 
 
@@ -533,6 +654,9 @@ def build_swebench_parser(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--evaluate", action="store_true")
     parser.add_argument("--max-workers", type=int, default=1)
     parser.add_argument("--namespace-empty", action="store_true")
+    parser.add_argument("--agent-mode", default="single", choices=["single", "multi", "compare"])
+    parser.add_argument("--profile", default="coding_fix", choices=["coding_fix"])
+    parser.add_argument("--max-revision-rounds", type=int, default=2)
 
 
 def run_swebench_from_args(args: argparse.Namespace) -> BenchRunSummary:
@@ -565,4 +689,7 @@ def run_swebench_from_args(args: argparse.Namespace) -> BenchRunSummary:
         evaluate=args.evaluate,
         max_workers=args.max_workers,
         namespace_empty=args.namespace_empty,
+        agent_mode=args.agent_mode,
+        profile=args.profile,
+        max_revision_rounds=args.max_revision_rounds,
     )

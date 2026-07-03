@@ -104,6 +104,7 @@ class OpenAICompatibleLLMClient(LLMClient):
         payload = {
             "model": self.model,
             "messages": [self._message_to_dict(m) for m in messages],
+            "stream": False,
             # Local tool schemas are converted to OpenAI function-tool shape so
             # Ollama/company gateways/OpenAI-compatible services share one path.
             "tools": [self._tool_to_openai_schema(t) for t in tools],

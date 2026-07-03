@@ -26,6 +26,12 @@ forge bench swebench --showcase --provider deepseek --direct-baseline
 forge report latest
 ```
 
+Run the same fixed reference case through the coordinator-driven coding profile:
+
+```bash
+forge bench swebench --showcase --agent-mode multi --profile coding_fix --provider deepseek
+```
+
 Use the fixed regression set after the single showcase loop is stable:
 
 ```bash
@@ -68,6 +74,18 @@ Agent Forge should be compared against that baseline on the same case subset.
 The agent loop is expected to spend more time and tokens, but it can inspect
 files, run tools, recover from failed actions, and ground final answers in trace
 evidence.
+
+## Single vs Multi-Agent Foundation
+
+`agent_forge/evaluation` provides the first comparison data model and report
+writer for single-agent vs multi-agent runs. It reports status, patch presence,
+cost, LLM calls, tool calls, failed tools, revision rounds, reviewer findings,
+verifier status, and a conservative recommendation.
+
+This pass does not complete the full SWE-bench `--agent-mode compare` runner.
+Use `--agent-mode single` and `--agent-mode multi` runs as separate evidence for
+now, then compare their stored summaries with the evaluation package. Do not
+claim multi-agent is globally better; report the quality/cost tradeoff per case.
 
 ## Interpreting Results
 

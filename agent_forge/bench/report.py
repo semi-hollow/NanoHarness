@@ -42,6 +42,8 @@ def render_bench_report(summary: BenchRunSummary) -> str:
         f"- dataset: `{summary.dataset_name}`",
         f"- split: `{summary.split}`",
         f"- provider/model: `{summary.provider}` / `{summary.model or 'default'}`",
+        f"- agent_mode/profile: `{summary.agent_mode}` / `{summary.profile or '-'}`",
+        f"- max_revision_rounds: `{summary.max_revision_rounds}`",
         f"- cases: `{total}`",
         f"- predictions: `{summary.predictions_path}`",
     ]
@@ -98,17 +100,19 @@ def render_bench_report(summary: BenchRunSummary) -> str:
             "",
             "## Cases",
             "",
-            "| instance | repo | status | eval | patch chars | trace | usage |",
-            "| --- | --- | --- | --- | ---: | --- | --- |",
+            "| instance | repo | status | eval | patch chars | trace | usage | comparison |",
+            "| --- | --- | --- | --- | ---: | --- | --- | --- |",
         ]
     )
     for result in summary.case_results:
         usage = result.usage_report_path or ""
+        comparison_report = result.patch_path.parent / "evaluation_report.md"
+        comparison = f"[comparison]({comparison_report})" if comparison_report.exists() else "-"
         lines.append(
             "| "
             f"`{result.instance_id}` | `{result.repo}` | `{result.status}` | "
             f"`{result.evaluation_status}` | {result.patch_chars} | "
-            f"[trace]({result.trace_path}) | [usage]({usage}) |"
+            f"[trace]({result.trace_path}) | [usage]({usage}) | {comparison} |"
         )
 
     lines.extend(

@@ -168,12 +168,12 @@ class StepController:
                 retryable=True,
                 recovery_hint="Repair the tool arguments using the tool schema and retry once.",
             )
-        if "old text not found" in content:
+        if "old text not found" in content or "old text is ambiguous" in content:
             return FailureSignal(
                 FailureKind.PATCH_MISMATCH,
                 observation.content,
                 retryable=True,
-                recovery_hint="Re-read the target file, update the patch anchor, then retry.",
+                recovery_hint="Re-read the target file, choose a unique patch anchor, then retry.",
             )
         if "denied" in content or "blocked" in content or "needs_approval" in content:
             return FailureSignal(
