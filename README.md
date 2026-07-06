@@ -59,15 +59,18 @@ It serves `http://127.0.0.1:8765`. The page contains the real run parameters:
 task, provider, model, base URL, optional temporary API key, max steps, context
 budget, approval mode, output folder, Skill selection, and MCP tools. The
 evidence panels render result summary, token/cost usage, context breakdown,
-tool efficiency, and trace timeline as cards/tables instead of raw JSON logs.
+tool efficiency, trace timeline, and interview evidence as cards/tables instead
+of raw JSON logs.
 
 Daily use starts from the page:
 
 1. Click `Run Doctor` once.
 2. Fill the `CodingAgent Workbench` task and model settings.
 3. Click `Run Agent` for real repository work, or `Run Reference Case` for the
-   fixed SWE-bench closure case.
-4. Open `Result Summary`, `Usage Dashboard`, and `Trace Timeline`.
+   fixed SWE-bench closure case. The reference case defaults to `compare` mode
+   so the page can generate single-vs-multi evidence.
+4. Open `Interview Evidence` first, then `Result Summary`, `Usage Dashboard`,
+   and `Trace Timeline`.
 
 The terminal commands below are still available for automation and debugging,
 but they are not the primary user entry anymore.
@@ -315,9 +318,10 @@ agent_forge/
 - [Evaluation Guide](docs/evaluation/README.md)
 - [Architecture Notes](docs/architecture.md)
 - [Multi-Agent Harness](docs/multi-agent.md)
-- [Technical Defense Notes](docs/technical-defense/coding-agent-defense-zh.md)
-- [Interview Response Playbook](docs/technical-defense/interview-response-playbook-zh.md)
-- [Agent Engineer Question Bank](docs/technical-defense/interview-question-bank-zh.md)
+- [Technical Defense Reading Path](docs/technical-defense/README.md)
+- Learn: [30-Minute Interview Pack](docs/technical-defense/learn/30min-interview-pack-zh.md), [Core Code Map](docs/technical-defense/learn/core-code-map-zh.md), [Multi-Agent Learning Guide](docs/technical-defense/learn/multi-agent-learning-guide-zh.md)
+- Demo: [5-Minute Interview Demo Script](docs/technical-defense/demo/interview-demo-script-zh.md), [Demo Evidence Pack](docs/technical-defense/demo/evidence/README.md)
+- Defense: [Project Maturity Audit](docs/technical-defense/defense/project-maturity-audit-zh.md), [AI Agent Interview Q&A](docs/technical-defense/defense/interview-qa-ai-agent-zh.md), [Agent Safety Boundaries](docs/technical-defense/defense/agent-safety-boundaries-zh.md), [Failure Taxonomy](docs/technical-defense/defense/failure-taxonomy-zh.md), [Technical Defense Notes](docs/technical-defense/defense/coding-agent-defense-zh.md), [Interview Response Playbook](docs/technical-defense/defense/interview-response-playbook-zh.md), [Agent Engineer Question Bank](docs/technical-defense/defense/interview-question-bank-zh.md)
 
 ## Development Smoke Check
 

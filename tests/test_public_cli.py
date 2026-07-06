@@ -1,8 +1,10 @@
 import subprocess
 import sys
+import tempfile
 import unittest
+from pathlib import Path
 
-from agent_forge.ui import _build_swebench_command
+from agent_forge.ui import _build_swebench_command, _render_evidence_html
 
 
 class PublicCliSmokeTest(unittest.TestCase):
@@ -26,11 +28,22 @@ class PublicCliSmokeTest(unittest.TestCase):
     def test_ui_swebench_command_includes_agent_mode_defaults(self):
         command = _build_swebench_command(sys.executable, {}, regression=False)
         self.assertIn("--agent-mode", command.command)
-        self.assertIn("single", command.command)
+        self.assertIn("compare", command.command)
         self.assertIn("--profile", command.command)
         self.assertIn("coding_fix", command.command)
         self.assertIn("--max-revision-rounds", command.command)
         self.assertIn("2", command.command)
+
+    def test_interview_evidence_view_renders_without_artifacts(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            html = _render_evidence_html(Path(tmp), "interview")
+        self.assertIn("Interview Evidence", html)
+        self.assertIn("5 分钟 Demo", html)
+        self.assertIn("Golden Demo Capsule", html)
+        self.assertIn("30 分钟学习路径", html)
+        self.assertIn("docs/technical-defense/learn/30min-interview-pack-zh.md", html)
+        self.assertIn("Single vs Multi", html)
+        self.assertIn("Safety", html)
 
 
 if __name__ == "__main__":

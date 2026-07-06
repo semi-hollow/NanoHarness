@@ -112,9 +112,20 @@ forge bench swebench --showcase \
   --provider deepseek
 ```
 
-`--agent-mode compare` is intentionally not completed in this pass. The
-evaluation package provides the data model and Markdown report foundation, but
-the clean-workspace single-vs-multi runner is still a TODO.
+SWE-bench can also compare single-agent and multi-agent variants on isolated
+workspaces:
+
+```bash
+forge bench swebench --showcase \
+  --agent-mode compare \
+  --profile coding_fix \
+  --provider deepseek \
+  --max-revision-rounds 2
+```
+
+Compare mode writes `comparison.json` and `evaluation_report.md` for each case.
+Treat the report as evidence for quality/cost tradeoffs, not as a global claim
+that multi-agent is always better.
 
 ## Non-Goals
 

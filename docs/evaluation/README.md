@@ -32,6 +32,13 @@ Run the same fixed reference case through the coordinator-driven coding profile:
 forge bench swebench --showcase --agent-mode multi --profile coding_fix --provider deepseek
 ```
 
+Run the same fixed reference case through isolated single-agent and multi-agent
+variants:
+
+```bash
+forge bench swebench --showcase --agent-mode compare --profile coding_fix --provider deepseek --max-revision-rounds 2
+```
+
 Use the fixed regression set after the single showcase loop is stable:
 
 ```bash
@@ -75,17 +82,23 @@ The agent loop is expected to spend more time and tokens, but it can inspect
 files, run tools, recover from failed actions, and ground final answers in trace
 evidence.
 
-## Single vs Multi-Agent Foundation
+## Single vs Multi-Agent Compare
 
-`agent_forge/evaluation` provides the first comparison data model and report
-writer for single-agent vs multi-agent runs. It reports status, patch presence,
-cost, LLM calls, tool calls, failed tools, revision rounds, reviewer findings,
-verifier status, and a conservative recommendation.
+`forge bench swebench --agent-mode compare` runs the same case twice:
 
-This pass does not complete the full SWE-bench `--agent-mode compare` runner.
-Use `--agent-mode single` and `--agent-mode multi` runs as separate evidence for
-now, then compare their stored summaries with the evaluation package. Do not
-claim multi-agent is globally better; report the quality/cost tradeoff per case.
+1. `single`: canonical `AgentLoop`.
+2. `multi`: `MultiAgentCoordinator(coding_fix)`.
+
+The variants use isolated workspaces so their patches do not contaminate each
+other. Each compared case writes:
+
+- `comparison.json`
+- `evaluation_report.md`
+
+The report includes status, patch presence, cost, LLM calls, tool calls, failed
+tools, revision rounds, reviewer findings, verifier status, failure lens, and a
+conservative recommendation. Do not claim multi-agent is globally better; report
+the quality/cost tradeoff per case.
 
 ## Interpreting Results
 

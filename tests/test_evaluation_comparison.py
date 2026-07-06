@@ -30,6 +30,9 @@ class EvaluationComparisonTest(unittest.TestCase):
             self.assertIn("## Side-by-Side Metrics", report)
             self.assertIn("## Multi-Agent Review Loop", report)
             self.assertIn("## Failure Taxonomy", report)
+            self.assertIn("## Failure Lens", report)
+            self.assertIn("Model / Provider", report)
+            self.assertIn("Tool / Runtime", report)
             self.assertIn("| Metric | Single | Multi | Delta |", report)
             self.assertIn("official SWE-bench", report)
 

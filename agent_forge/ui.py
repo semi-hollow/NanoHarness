@@ -336,7 +336,8 @@ def _build_swebench_command(python: str, payload: dict[str, Any], *, regression:
     command.extend(["--max-steps", str(_payload_int(payload, "maxSteps", 24, 1, 80))])
     command.extend(["--max-context-chars", str(_payload_int(payload, "maxContextChars", 18000, 1000, 120000))])
     command.extend(["--output-root", _payload_text(payload, "outputRoot", ".agent_forge/runs")])
-    command.extend(["--agent-mode", "single", "--profile", "coding_fix", "--max-revision-rounds", "2"])
+    agent_mode = _payload_choice(payload, "benchAgentMode", {"single", "multi", "compare"}, "compare")
+    command.extend(["--agent-mode", agent_mode, "--profile", "coding_fix", "--max-revision-rounds", "2"])
     if _payload_bool(payload, "directBaseline", True):
         command.append("--direct-baseline")
     if _payload_bool(payload, "officialEvaluate", False):
@@ -475,6 +476,8 @@ def _render_evidence_html(project_dir: Path, kind: str) -> str:
         return _render_usage_dashboard(project_dir)
     if kind == "timeline":
         return _render_trace_timeline(project_dir)
+    if kind == "interview":
+        return _render_interview_evidence(project_dir)
     if kind == "raw_report":
         return f"<pre class='raw-text'>{_escape(_read_latest_report(project_dir))}</pre>"
     return _empty_evidence(f"Unsupported evidence view: {kind}")
@@ -525,6 +528,36 @@ def _latest_usage_path(project_dir: Path) -> Path | None:
         return direct
     usages = sorted(run_dir.glob("cases/*/usage.json"))
     return usages[0] if usages else None
+
+
+def _latest_comparison_path(project_dir: Path) -> Path | None:
+    """Return the newest single-vs-multi comparison artifact when present."""
+
+    run_dir = _latest_run_dir(project_dir)
+    if not run_dir:
+        return None
+    candidates = [run_dir / "comparison.json"]
+    candidates.extend(sorted(run_dir.glob("cases/*/comparison.json")))
+    candidates.extend(sorted(run_dir.glob("cases/*/*/comparison.json")))
+    existing = [path for path in candidates if path.exists()]
+    if not existing:
+        return None
+    return max(existing, key=lambda path: path.stat().st_mtime)
+
+
+def _latest_multi_agent_summary_path(project_dir: Path) -> Path | None:
+    """Return the newest multi-agent artifact summary when present."""
+
+    run_dir = _latest_run_dir(project_dir)
+    if not run_dir:
+        return None
+    candidates = [run_dir / "multi_agent/multi_agent_summary.json"]
+    candidates.extend(sorted(run_dir.glob("cases/*/multi_agent/multi_agent_summary.json")))
+    candidates.extend(sorted(run_dir.glob("cases/*/*/multi_agent/multi_agent_summary.json")))
+    existing = [path for path in candidates if path.exists()]
+    if not existing:
+        return None
+    return max(existing, key=lambda path: path.stat().st_mtime)
 
 
 def _read_json_file(path: Path | None) -> dict[str, Any]:
@@ -737,6 +770,179 @@ def _render_trace_timeline(project_dir: Path) -> str:
         f"<p><span class='label'>trace.json</span><span class='mono'>{_escape(str(trace_path))}</span></p>",
     ]
     return "<div class='evidence'>" + "".join(body) + "</div>"
+
+
+def _render_interview_evidence(project_dir: Path) -> str:
+    """Render the shortest interview-facing evidence path.
+
+    Raw artifacts are useful to debug, but too expensive for an interview. This
+    view converts the same trace/usage/comparison files into a five-minute
+    narrative: what was run, which runtime boundaries were exercised, where
+    single-agent and multi-agent differ, and how failures are explained.
+    """
+
+    run_dir = _latest_run_dir(project_dir)
+    comparison_path = _latest_comparison_path(project_dir)
+    multi_path = _latest_multi_agent_summary_path(project_dir)
+    usage_path = _latest_usage_path(project_dir)
+    trace_path = _latest_trace_path(project_dir)
+
+    comparison = _read_json_file(comparison_path)
+    multi = _read_json_file(multi_path)
+    usage = _read_json_file(usage_path)
+    trace = _read_json_file(trace_path)
+    summary = usage.get("summary") or {}
+
+    single_status = comparison.get("single_status") or "-"
+    multi_status = comparison.get("multi_status") or multi.get("status") or "-"
+    failure = comparison.get("failure_taxonomy") or "unclassified"
+    cost = float(summary.get("estimated_cost_usd") or 0.0)
+    task_id = comparison.get("task_id") or multi.get("task") or trace.get("task") or "latest local run"
+    revision_rounds = comparison.get("revision_rounds", multi.get("revision_rounds", 0))
+
+    artifact_paths = [
+        ("run dir", run_dir),
+        ("comparison.json", comparison_path),
+        ("multi_agent_summary.json", multi_path),
+        ("usage.json", usage_path),
+        ("trace.json", trace_path),
+    ]
+    path_rows = "".join(
+        "<tr>"
+        f"<td>{_escape(label)}</td>"
+        f"<td class='mono'>{_escape(path if path else 'not found')}</td>"
+        "</tr>"
+        for label, path in artifact_paths
+    )
+
+    body = [
+        "<h2>Interview Evidence</h2>",
+        "<p class='help strong'>面试展示总览：先讲闭环，再讲 runtime，再讲 evidence，而不是让面试官读 raw JSON。</p>",
+        _metric_grid(
+            [
+                ("Task", str(task_id)[:90], "本次展示对象", "neutral"),
+                ("Single", str(single_status), "单 Agent 结果", _tone_for_status(str(single_status))),
+                ("Multi", str(multi_status), "多 Agent / reviewer-verifier 结果", _tone_for_status(str(multi_status))),
+                ("Revision", str(revision_rounds), "review/verifier 触发的修订轮数", "neutral"),
+                ("Cost", f"${cost:.6f}", "最新 usage 估算成本", "ok"),
+                ("Failure", str(failure), "失败归因分类", _tone_for_status(str(failure))),
+            ]
+        ),
+        "<h3>Golden Demo Capsule</h3>",
+        "<p class='help'>这块是面试专用胶囊：先帮你讲清项目证明什么，再把学习顺序、核心代码和 evidence 面板连起来。"
+        "没有最新 artifact 时也能按离线路线讲；有 artifact 时再补真实 run 证据。</p>",
+        "<table><thead><tr><th>capsule</th><th>what to show</th><th>safe claim</th></tr></thead><tbody>",
+        "<tr><td>Runtime control plane</td><td>AgentLoop Runtime Flow + Trace Timeline</td><td>复杂度在 runtime，不只靠 prompt。</td></tr>",
+        "<tr><td>Evidence loop</td><td>Result Summary + Usage Dashboard</td><td>能解释成本、工具、失败，而不是只给最终答案。</td></tr>",
+        "<tr><td>Multi-agent workflow</td><td>Role Timeline + Artifact Handoff Graph</td><td>roles 通过 artifact 交接，不自由聊天。</td></tr>",
+        "<tr><td>Evaluation honesty</td><td>Single vs Multi + Failure Taxonomy</td><td>candidate patch 不等于 official resolved rate。</td></tr>",
+        "</tbody></table>",
+        "<h3>30 分钟学习路径</h3>",
+        "<table><thead><tr><th>time</th><th>open this</th><th>why</th></tr></thead><tbody>",
+        "<tr><td>0-5 min</td><td class='mono'>docs/technical-defense/learn/30min-interview-pack-zh.md</td><td>先记住定位、边界和展示顺序。</td></tr>",
+        "<tr><td>5-10 min</td><td class='mono'>docs/technical-defense/demo/interview-demo-script-zh.md</td><td>照着 5 分钟路线讲，不临场组织。</td></tr>",
+        "<tr><td>10-18 min</td><td class='mono'>docs/technical-defense/learn/core-code-map-zh.md</td><td>只读最小 7 文件核心版，降低代码学习成本。</td></tr>",
+        "<tr><td>18-24 min</td><td class='mono'>docs/technical-defense/demo/evidence/README.md</td><td>知道 evidence 能证明什么，不能夸大什么。</td></tr>",
+        "<tr><td>24-30 min</td><td class='mono'>docs/technical-defense/defense/interview-qa-ai-agent-zh.md</td><td>准备高频追问和防守话术。</td></tr>",
+        "</tbody></table>",
+        "<h3>5 分钟 Demo</h3>",
+        "<ol class='talking-list'>",
+        "<li><strong>入口：</strong>用 <span class='mono'>forge ui</span> 打开浏览器 workbench，说明参数来自页面，不需要现场背 CLI。</li>",
+        "<li><strong>闭环：</strong>运行固定 SWE-bench reference case，展示真实 issue、clean checkout、patch、trace、usage、report。</li>",
+        "<li><strong>Runtime：</strong>打开 Trace Timeline，说明 AgentLoop 由 runtime 控制停止条件、预算、权限、工具失败恢复。</li>",
+        "<li><strong>成本：</strong>打开 Usage Dashboard，说明 token、cache、context、tool efficiency 如何定位瓶颈。</li>",
+        "<li><strong>多 Agent：</strong>说明 Coordinator 顺序调用多个 AgentLoop，靠 artifact handoff，而不是自由聊天。</li>",
+        "</ol>",
+        "<h3>AgentLoop Runtime Flow</h3>",
+        "<div class='flow-strip'>",
+        "<span>Context</span><span>LLM Plan</span><span>ToolRouter</span><span>Sandbox / Policy</span><span>Observation</span><span>Trace / Usage</span>",
+        "</div>",
+        "<p class='help'>面试时强调：复杂度从 prompt 移到 runtime，才能做权限、预算、重试、回放、审计和失败归因。</p>",
+        "<h3>Role Timeline</h3>",
+        "<table><thead><tr><th>role</th><th>decision</th><th>steps</th><th>artifact</th><th>short evidence</th></tr></thead>"
+        f"<tbody>{_render_role_rows(multi)}</tbody></table>",
+        "<h3>Artifact Handoff Graph</h3>",
+        "<table><thead><tr><th>artifact</th><th>producer</th><th>path</th><th>why it matters</th></tr></thead>"
+        f"<tbody>{_render_artifact_rows(multi)}</tbody></table>",
+        "<h3>Single vs Multi</h3>",
+        "<table><thead><tr><th>dimension</th><th>single-agent</th><th>multi-agent coordinator</th></tr></thead>",
+        "<tbody>",
+        f"<tr><td>status</td><td>{_badge(str(single_status), _tone_for_status(str(single_status)))}</td><td>{_badge(str(multi_status), _tone_for_status(str(multi_status)))}</td></tr>",
+        f"<tr><td>patch generated</td><td>{_escape(comparison.get('single_patch_generated', '-'))}</td><td>{_escape(comparison.get('multi_patch_generated', '-'))}</td></tr>",
+        f"<tr><td>LLM calls</td><td>{_escape(comparison.get('single_llm_calls', '-'))}</td><td>{_escape(comparison.get('multi_llm_calls', summary.get('llm_calls', '-')))}</td></tr>",
+        f"<tr><td>tool calls</td><td>{_escape(comparison.get('single_tool_calls', '-'))}</td><td>{_escape(comparison.get('multi_tool_calls', summary.get('tool_calls', '-')))}</td></tr>",
+        "</tbody></table>",
+        "<p class='help'>不要声称 multi-agent 一定更强。正确说法是：它增加 reviewer/verifier 控制点，代价是更多 token 和延迟，是否上线看 benchmark/eval tradeoff。</p>",
+        "<h3>Safety & Failure Taxonomy</h3>",
+        "<table><thead><tr><th>risk</th><th>runtime answer</th><th>interview wording</th></tr></thead>",
+        "<tbody>",
+        "<tr><td>危险命令</td><td>CommandPolicy + PermissionPolicy</td><td>高风险操作不能只靠 prompt，必须 runtime 拦截。</td></tr>",
+        "<tr><td>越权写文件</td><td>WorkspaceSandbox + protected paths</td><td>工具执行必须先过路径边界和权限策略。</td></tr>",
+        "<tr><td>死循环</td><td>max steps / budget / repeated-call checks</td><td>停止条件由 runtime 兜底，模型只能提出意图。</td></tr>",
+        "<tr><td>不可解释失败</td><td>failure taxonomy + trace replay</td><td>失败要能归因到 provider、context、tool、policy、eval。</td></tr>",
+        "</tbody></table>",
+        "<h3>Interview Talking Points</h3>",
+        "<ul class='talking-list'>",
+        "<li>Agent Forge 的重点不是多写几个 tool，而是把 coding agent 运行时拆成可控、可审计、可评估的 control plane。</li>",
+        "<li>AgentLoop 是 canonical runtime；multi-agent 只是 coordinator 对多个 AgentLoop 的编排，不复制 runtime 逻辑。</li>",
+        "<li>Artifacts 是 agent 间通信边界，避免自由聊天导致上下文污染和责任不清。</li>",
+        "<li>SWE-bench 是效果闭环，trace/usage/failure taxonomy 是工程闭环。</li>",
+        "<li>当前边界：本地单机、顺序 coordinator、没有宣称官方 resolved rate，适合展示核心工程设计而不是 SaaS 平台。</li>",
+        "</ul>",
+        "<h3>Artifact Paths</h3>",
+        f"<table><tbody>{path_rows}</tbody></table>",
+    ]
+    return "<div class='evidence'>" + "".join(body) + "</div>"
+
+
+def _render_role_rows(summary: dict[str, Any]) -> str:
+    """Render role-level multi-agent status rows."""
+
+    rows = []
+    for result in summary.get("role_results") or []:
+        final_answer = str(result.get("final_answer") or result.get("output") or "")
+        rows.append(
+            "<tr>"
+            f"<td>{_escape(result.get('role') or result.get('name') or '-')}</td>"
+            f"<td>{_badge(str(result.get('decision') or result.get('status') or '-'), _tone_for_status(str(result.get('decision') or result.get('status') or '')))}</td>"
+            f"<td>{_escape(result.get('steps', '-'))}</td>"
+            f"<td class='mono'>{_escape(result.get('artifact_path') or result.get('artifact') or '-')}</td>"
+            f"<td>{_escape(final_answer[:220])}</td>"
+            "</tr>"
+        )
+    if rows:
+        return "".join(rows)
+    return "<tr><td colspan='5'>No multi-agent role summary found yet. Run multi/compare mode, or use this page as the offline speaking route.</td></tr>"
+
+
+def _render_artifact_rows(summary: dict[str, Any]) -> str:
+    """Render artifact handoff rows from multi-agent summaries."""
+
+    artifacts = summary.get("artifacts") or summary.get("artifact_index") or []
+    if isinstance(artifacts, dict):
+        artifacts = artifacts.get("artifacts") or list(artifacts.values())
+    rows = []
+    for artifact in artifacts:
+        if not isinstance(artifact, dict):
+            continue
+        rows.append(
+            "<tr>"
+            f"<td>{_escape(artifact.get('name') or artifact.get('kind') or artifact.get('artifact_id') or '-')}</td>"
+            f"<td>{_escape(artifact.get('producer') or artifact.get('role') or '-')}</td>"
+            f"<td class='mono'>{_escape(artifact.get('path') or artifact.get('relative_path') or '-')}</td>"
+            "<td>后续角色只读取显式 artifact，避免把中间思考和无关上下文全部塞进 prompt。</td>"
+            "</tr>"
+        )
+    if rows:
+        return "".join(rows)
+    return (
+        "<tr><td>implementer_output</td><td>Implementer</td><td class='mono'>multi_agent/artifacts/*.md</td>"
+        "<td>候选 patch / 方案交给 reviewer。</td></tr>"
+        "<tr><td>review_findings</td><td>Reviewer</td><td class='mono'>multi_agent/artifacts/*.md</td>"
+        "<td>明确 PASS / NEEDS_REVISION / BLOCKED。</td></tr>"
+        "<tr><td>verification_result</td><td>Verifier</td><td class='mono'>multi_agent/artifacts/*.md</td>"
+        "<td>验证结果触发修订或结束。</td></tr>"
+    )
 
 
 def _metric_grid(items: list[tuple[str, str, str, str]]) -> str:
@@ -1030,6 +1236,29 @@ INDEX_HTML = r"""<!doctype html>
       grid-template-columns: repeat(2, minmax(0, 1fr));
       gap: 14px;
     }
+    .talking-list {
+      margin: 8px 0 12px;
+      padding-left: 22px;
+      color: #dce6f3;
+      line-height: 1.65;
+    }
+    .talking-list li { margin: 5px 0; }
+    .flow-strip {
+      display: grid;
+      grid-template-columns: repeat(6, minmax(0, 1fr));
+      gap: 8px;
+      margin: 10px 0 12px;
+    }
+    .flow-strip span {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #0d1016;
+      padding: 10px 8px;
+      text-align: center;
+      color: #dce6f3;
+      font-size: 12px;
+      font-weight: 700;
+    }
     .timeline-step {
       border-left: 3px solid var(--line);
       padding: 10px 0 10px 14px;
@@ -1074,7 +1303,7 @@ INDEX_HTML = r"""<!doctype html>
       main { grid-template-columns: 1fr; }
       aside { border-right: 0; border-bottom: 1px solid var(--line); }
       .status { grid-template-columns: 1fr; }
-      .metric-grid, .split, .form-grid, .form-row, .quick-tasks { grid-template-columns: 1fr; }
+      .metric-grid, .split, .form-grid, .form-row, .quick-tasks, .flow-strip { grid-template-columns: 1fr; }
     }
   </style>
 </head>
@@ -1172,6 +1401,12 @@ INDEX_HTML = r"""<!doctype html>
         <div class="help">
           固定运行 <span class="mono">astropy__astropy-12907</span>，用同一个真实缺陷观察 trace、token、工具效率、patch 结果和 direct baseline 差异。
         </div>
+        <label>Agent Mode</label>
+        <select id="benchAgentMode">
+          <option value="compare">compare: single 和 multi 分别跑，再生成 comparison</option>
+          <option value="multi">multi: coordinator + reviewer/verifier</option>
+          <option value="single">single: 只跑 AgentLoop</option>
+        </select>
         <div class="checkbox-line">
           <input id="directBaseline" type="checkbox" checked />
           <span>同时跑 direct baseline，用来回答“为什么需要 harness 而不是只问一次模型”。</span>
@@ -1196,6 +1431,10 @@ INDEX_HTML = r"""<!doctype html>
         <div class="help">
           这些按钮不会直接 dump 原始 JSON 或命令行日志，而是把运行产物整理成适合展示的卡片、表格和时间线。
         </div>
+        <div class="help">
+          面试展示总览：5 分钟路线、runtime flow、role timeline、artifact handoff、single vs multi、safety/failure 讲法。
+        </div>
+        <button class="primary" onclick="loadEvidence('interview')">Show Interview Evidence</button>
         <div class="help">
           看本次 benchmark/run 的结果、case、状态、patch 是否生成、成本摘要。
         </div>
@@ -1284,6 +1523,7 @@ INDEX_HTML = r"""<!doctype html>
         skillManifests: valueOf('skillManifests'),
         mcpConfig: valueOf('mcpConfig'),
         mcpTools: valueOf('mcpTools'),
+        benchAgentMode: valueOf('benchAgentMode'),
         directBaseline: checked('directBaseline'),
         officialEvaluate: checked('officialEvaluate'),
         maxWorkers: valueOf('maxWorkers'),

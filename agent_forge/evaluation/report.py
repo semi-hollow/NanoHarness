@@ -52,6 +52,14 @@ def render_evaluation_report(comparison: EvaluationComparison) -> str:
             f"- single_status: `{comparison.single_status or '-'}`",
             f"- multi_status: `{comparison.multi_status or '-'}`",
             "",
+            "## Failure Lens",
+            "",
+            "This section turns one failed or blocked run into concrete follow-up work. It is intentionally more useful than a binary pass/fail badge.",
+            "",
+            "| Lens | Evidence to inspect | Interview talking point |",
+            "| --- | --- | --- |",
+            *_failure_lens_rows(comparison),
+            "",
             "## Recommendation",
             "",
             comparison.recommendation,
@@ -82,3 +90,24 @@ def _quality_signal(comparison: EvaluationComparison) -> str:
     if comparison.multi_patch_generated and comparison.single_patch_generated:
         return "both modes produced patches; compare official eval or reviewer/verifier evidence"
     return "neither mode produced a patch"
+
+
+def _failure_lens_rows(comparison: EvaluationComparison) -> list[str]:
+    """Map comparison metrics to debugging lenses for the report."""
+
+    rows = [
+        "| Model / Provider | LLM status, token usage, cost, retry/fallback errors | Provider instability is separated from agent logic failure. |",
+        "| Context | selected files, context section sizes, truncation/compaction events | If the right file is absent, improve retrieval before changing prompts. |",
+        "| Tool / Runtime | tool calls, failed tool calls, command policy decisions | Tool failures are actionable runtime bugs or policy gaps, not vague model badness. |",
+        "| Safety / Policy | blocked commands, approval decisions, protected paths | High-risk actions are enforced by code, not trusted to the prompt. |",
+        "| Evaluation | patch generated, official eval status, reviewer/verifier decision | A patch is not a resolved-rate claim until official evaluation or focused validation passes. |",
+    ]
+    if comparison.reviewer_findings:
+        rows.append(
+            f"| Reviewer | {'; '.join(comparison.reviewer_findings[:3])} | Reviewer findings become targeted revision prompts instead of informal feedback. |"
+        )
+    if comparison.failure_taxonomy:
+        rows.append(
+            f"| Taxonomy | `{comparison.failure_taxonomy}` | Failure labels make badcases searchable and comparable across runs. |"
+        )
+    return rows

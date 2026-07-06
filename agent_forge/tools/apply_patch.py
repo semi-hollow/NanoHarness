@@ -71,3 +71,18 @@ class ApplyPatchTool(Tool):
             # CPython can otherwise reuse stale bytecode in very fast edit runs.
             shutil.rmtree(cache_dir, ignore_errors=True)
         return Observation(self.name, True, f"patched once: {arguments['path']}")
+
+
+def _count_overlapping(text: str, needle: str) -> int:
+    """Count matches including overlaps so patch anchors must be unique."""
+
+    if needle == "":
+        return 0
+    count = 0
+    start = 0
+    while True:
+        index = text.find(needle, start)
+        if index == -1:
+            return count
+        count += 1
+        start = index + 1
