@@ -484,24 +484,36 @@ def _render_evidence_html(project_dir: Path, kind: str) -> str:
 
 
 def _latest_run_dir(project_dir: Path) -> Path | None:
-    """Resolve the newest benchmark/run directory from stable pointers."""
+    """Resolve the newest evidence run directory.
+
+    `scripts/verify.sh` writes a lightweight smoke run under
+    `.agent_forge/verify/runs` and updates `latest/run.txt`. That run is useful
+    for health checks, but it does not contain SWE-bench comparison artifacts.
+    If `latest/bench.txt` is stale, prefer real runs under `.agent_forge/runs`
+    before falling back to the verify pointer.
+    """
 
     latest = project_dir / ".agent_forge/latest"
-    for pointer_name in ("bench.txt", "run.txt"):
-        pointer = latest / pointer_name
-        if pointer.exists():
-            run_dir = Path(pointer.read_text(encoding="utf-8").strip())
-            if not run_dir.is_absolute():
-                run_dir = project_dir / run_dir
-            if run_dir.exists():
-                return run_dir
+    bench_run = _run_dir_from_pointer(project_dir, latest / "bench.txt")
+    if bench_run:
+        return bench_run
     runs_dir = project_dir / ".agent_forge/runs"
-    if not runs_dir.exists():
+    if runs_dir.exists():
+        candidates = [path for path in runs_dir.iterdir() if path.is_dir()]
+        if candidates:
+            return max(candidates, key=lambda path: path.stat().st_mtime)
+    return _run_dir_from_pointer(project_dir, latest / "run.txt")
+
+
+def _run_dir_from_pointer(project_dir: Path, pointer: Path) -> Path | None:
+    """Resolve one latest pointer, ignoring stale paths."""
+
+    if not pointer.exists():
         return None
-    candidates = [path for path in runs_dir.iterdir() if path.is_dir()]
-    if not candidates:
-        return None
-    return max(candidates, key=lambda path: path.stat().st_mtime)
+    run_dir = Path(pointer.read_text(encoding="utf-8").strip())
+    if not run_dir.is_absolute():
+        run_dir = project_dir / run_dir
+    return run_dir if run_dir.exists() else None
 
 
 def _latest_trace_path(project_dir: Path) -> Path | None:

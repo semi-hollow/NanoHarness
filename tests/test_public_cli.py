@@ -4,7 +4,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from agent_forge.ui import _build_swebench_command, _render_evidence_html
+from agent_forge.ui import _build_swebench_command, _latest_run_dir, _render_evidence_html
 
 
 class PublicCliSmokeTest(unittest.TestCase):
@@ -44,6 +44,23 @@ class PublicCliSmokeTest(unittest.TestCase):
         self.assertIn("docs/technical-defense/learn/三十分钟面试准备包.md", html)
         self.assertIn("Single vs Multi", html)
         self.assertIn("Safety", html)
+
+    def test_latest_run_prefers_existing_swebench_over_verify_pointer(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            latest = root / ".agent_forge" / "latest"
+            latest.mkdir(parents=True)
+            runs = root / ".agent_forge" / "runs"
+            swebench = runs / "swebench-20260707-011718-4944f2e"
+            (swebench / "cases" / "case").mkdir(parents=True)
+            (swebench / "cases" / "case" / "comparison.json").write_text("{}", encoding="utf-8")
+            verify = root / ".agent_forge" / "verify" / "runs" / "run-verify"
+            verify.mkdir(parents=True)
+            (verify / "trace.json").write_text("{}", encoding="utf-8")
+            (latest / "bench.txt").write_text("/tmp/agent-forge-missing-bench-run\n", encoding="utf-8")
+            (latest / "run.txt").write_text(str(verify), encoding="utf-8")
+
+            self.assertEqual(_latest_run_dir(root), swebench)
 
 
 if __name__ == "__main__":
