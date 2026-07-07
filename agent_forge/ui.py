@@ -491,20 +491,25 @@ def _latest_run_dir(project_dir: Path) -> Path | None:
     `scripts/verify.sh` writes a lightweight smoke run under
     `.agent_forge/verify/runs` and updates `latest/run.txt`. That run is useful
     for health checks, but it does not contain SWE-bench comparison artifacts.
-    If `latest/bench.txt` is stale, prefer real runs under `.agent_forge/runs`
-    before falling back to the verify pointer.
+    UI evidence should follow the newest real run under `.agent_forge/runs`,
+    whether it came from SWE-bench or a normal future Agent run.
     """
 
     latest = project_dir / ".agent_forge/latest"
-    bench_run = _run_dir_from_pointer(project_dir, latest / "bench.txt")
-    if bench_run:
-        return bench_run
     runs_dir = project_dir / ".agent_forge/runs"
+    candidates: list[Path] = []
+    bench_run = _run_dir_from_pointer(project_dir, latest / "bench.txt")
+    if bench_run and _is_under(bench_run, runs_dir):
+        candidates.append(bench_run)
+    latest_run = _run_dir_from_pointer(project_dir, latest / "run.txt")
+    if latest_run and _is_under(latest_run, runs_dir):
+        candidates.append(latest_run)
     if runs_dir.exists():
-        candidates = [path for path in runs_dir.iterdir() if path.is_dir()]
-        if candidates:
-            return max(candidates, key=lambda path: path.stat().st_mtime)
-    return _run_dir_from_pointer(project_dir, latest / "run.txt")
+        candidates.extend(path for path in runs_dir.iterdir() if path.is_dir())
+    if candidates:
+        unique = {path.resolve(): path for path in candidates}
+        return max(unique.values(), key=lambda path: path.stat().st_mtime)
+    return latest_run
 
 
 def _run_dir_from_pointer(project_dir: Path, pointer: Path) -> Path | None:
@@ -516,6 +521,16 @@ def _run_dir_from_pointer(project_dir: Path, pointer: Path) -> Path | None:
     if not run_dir.is_absolute():
         run_dir = project_dir / run_dir
     return run_dir if run_dir.exists() else None
+
+
+def _is_under(path: Path, parent: Path) -> bool:
+    """Return whether `path` is inside `parent`, tolerating missing parents."""
+
+    try:
+        path.resolve().relative_to(parent.resolve())
+        return True
+    except ValueError:
+        return False
 
 
 def _latest_trace_path(project_dir: Path) -> Path | None:
@@ -1240,6 +1255,8 @@ INDEX_HTML = r"""<!doctype html>
     body {
       margin: 0;
       font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      -webkit-font-smoothing: antialiased;
+      text-rendering: optimizeLegibility;
       background:
         radial-gradient(circle at top left, rgba(10, 132, 255, .12), transparent 32rem),
         linear-gradient(180deg, #fbfbfd 0%, var(--bg) 38%, #f2f4f7 100%);
@@ -1258,7 +1275,7 @@ INDEX_HTML = r"""<!doctype html>
       top: 0;
       z-index: 10;
     }
-    h1 { margin: 0; font-size: 24px; letter-spacing: 0; }
+    h1 { margin: 0; font-size: 25px; font-weight: 760; letter-spacing: 0; }
     .eyebrow {
       color: var(--accent-strong);
       font-size: 12px;
@@ -1271,7 +1288,7 @@ INDEX_HTML = r"""<!doctype html>
     .project-chip {
       max-width: 420px;
       border: 1px solid var(--line);
-      border-radius: 12px;
+      border-radius: 999px;
       padding: 10px 12px;
       background: rgba(255, 255, 255, .72);
       color: var(--muted);
@@ -1335,10 +1352,10 @@ INDEX_HTML = r"""<!doctype html>
     .card {
       background: var(--panel);
       border: 1px solid var(--line);
-      border-radius: 16px;
+      border-radius: 18px;
       padding: 14px;
       margin-bottom: 14px;
-      box-shadow: 0 18px 50px var(--shadow);
+      box-shadow: 0 12px 34px var(--shadow);
     }
     .card h2 {
       font-size: 16px;
@@ -1364,7 +1381,7 @@ INDEX_HTML = r"""<!doctype html>
       gap: 10px;
       align-items: start;
       border: 1px solid var(--line);
-      border-radius: 14px;
+      border-radius: 16px;
       padding: 10px;
       background: var(--panel-3);
     }
@@ -1405,7 +1422,7 @@ INDEX_HTML = r"""<!doctype html>
       background: rgba(255, 255, 255, .9);
       color: var(--text);
       border: 1px solid var(--line);
-      border-radius: 10px;
+      border-radius: 12px;
       padding: 9px 10px;
       font: inherit;
     }
@@ -1445,15 +1462,17 @@ INDEX_HTML = r"""<!doctype html>
     button {
       width: 100%;
       border: 0;
-      border-radius: 11px;
+      border-radius: 999px;
       background: var(--blue);
       color: white;
       font-weight: 700;
       padding: 9px 12px;
       margin-top: 10px;
       cursor: pointer;
+      transition: transform .12s ease, box-shadow .12s ease, background .12s ease, filter .12s ease;
     }
-    button:hover { filter: brightness(1.08); }
+    button:hover { filter: brightness(1.03); transform: translateY(-1px); }
+    button:active { transform: translateY(0); filter: brightness(.98); }
     button.secondary { background: var(--panel-2); color: var(--text); border: 1px solid var(--line); }
     button.warn { background: #fff4d8; color: #7a4d00; }
     button.primary { background: var(--accent); color: white; }
@@ -1507,30 +1526,31 @@ INDEX_HTML = r"""<!doctype html>
     .view-tabs button {
       width: auto;
       margin: 0;
-      padding: 8px 11px;
+      padding: 8px 12px;
       font-size: 13px;
       color: var(--text);
       background: rgba(255, 255, 255, .78);
       border: 1px solid var(--line);
+      box-shadow: 0 2px 8px rgba(0, 0, 0, .04);
     }
     .view-tabs button.active {
-      color: var(--accent-strong);
-      background: rgba(10, 132, 255, .1);
-      border-color: rgba(10, 132, 255, .42);
-      box-shadow: inset 0 0 0 1px rgba(10, 132, 255, .08);
+      color: white;
+      background: var(--accent);
+      border-color: transparent;
+      box-shadow: 0 8px 18px rgba(10, 132, 255, .22);
     }
     .output {
       white-space: pre-wrap;
       word-break: break-word;
       background: rgba(255, 255, 255, .88);
       border: 1px solid var(--line);
-      border-radius: 18px;
-      padding: 22px 26px;
+      border-radius: 22px;
+      padding: 24px 28px;
       min-height: calc(100vh - 245px);
       max-height: none;
       overflow: auto;
       color: var(--text);
-      box-shadow: 0 18px 44px var(--shadow);
+      box-shadow: 0 18px 46px rgba(0, 0, 0, .07);
     }
     .evidence { white-space: normal; color: var(--text); }
     .evidence h2 { margin: 0 0 8px; font-size: 20px; }
@@ -1544,8 +1564,8 @@ INDEX_HTML = r"""<!doctype html>
     }
     .metric-card {
       border: 1px solid var(--line);
-      border-radius: 8px;
-      padding: 12px;
+      border-radius: 16px;
+      padding: 14px;
       background: rgba(250, 250, 252, .88);
     }
     .metric-card.ok { border-color: rgba(10, 132, 255, .28); }
@@ -1582,10 +1602,11 @@ INDEX_HTML = r"""<!doctype html>
     }
     th, td {
       border-bottom: 1px solid var(--line);
-      padding: 8px 7px;
+      padding: 9px 8px;
       text-align: left;
       vertical-align: top;
     }
+    tr:hover td { background: rgba(0, 0, 0, .018); }
     th { color: var(--muted); font-weight: 700; }
     .split {
       display: grid;
@@ -1607,7 +1628,7 @@ INDEX_HTML = r"""<!doctype html>
     }
     .flow-strip span {
       border: 1px solid var(--line);
-      border-radius: 8px;
+      border-radius: 12px;
       background: rgba(255, 255, 255, .72);
       padding: 10px 8px;
       text-align: center;
@@ -1623,7 +1644,7 @@ INDEX_HTML = r"""<!doctype html>
     }
     .lane-card {
       border: 1px solid var(--line);
-      border-radius: 8px;
+      border-radius: 16px;
       padding: 18px;
       background: rgba(250, 250, 252, .82);
     }
@@ -1635,7 +1656,7 @@ INDEX_HTML = r"""<!doctype html>
     }
     .mini-flow span {
       border: 1px solid var(--line);
-      border-radius: 7px;
+      border-radius: 12px;
       padding: 8px 6px;
       text-align: center;
       color: #2f3338;

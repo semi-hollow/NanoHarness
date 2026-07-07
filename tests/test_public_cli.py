@@ -1,3 +1,4 @@
+import os
 import subprocess
 import sys
 import tempfile
@@ -117,6 +118,24 @@ class PublicCliSmokeTest(unittest.TestCase):
             (latest / "run.txt").write_text(str(verify), encoding="utf-8")
 
             self.assertEqual(_latest_run_dir(root), swebench)
+
+    def test_latest_run_uses_newer_future_run_over_old_valid_bench_pointer(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            latest = root / ".agent_forge" / "latest"
+            latest.mkdir(parents=True)
+            runs = root / ".agent_forge" / "runs"
+            old_bench = runs / "swebench-old"
+            future_run = runs / "run-future-agent"
+            old_bench.mkdir(parents=True)
+            future_run.mkdir(parents=True)
+            (old_bench / "trace.json").write_text("{}", encoding="utf-8")
+            (future_run / "trace.json").write_text("{}", encoding="utf-8")
+            os.utime(old_bench, (100, 100))
+            os.utime(future_run, (200, 200))
+            (latest / "bench.txt").write_text(str(old_bench), encoding="utf-8")
+
+            self.assertEqual(_latest_run_dir(root), future_run)
 
 
 if __name__ == "__main__":
