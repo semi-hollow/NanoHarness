@@ -53,6 +53,42 @@ class PublicCliSmokeTest(unittest.TestCase):
         self.assertIn("多 Agent Coordinator", html)
         self.assertIn("不要声称 multi-agent 一定更强", html)
 
+    def test_timeline_explains_scope_order_and_color_semantics(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            run = root / ".agent_forge" / "runs" / "swebench-demo" / "cases" / "case" / "multi"
+            run.mkdir(parents=True)
+            (root / ".agent_forge" / "latest").mkdir(parents=True)
+            (root / ".agent_forge" / "latest" / "bench.txt").write_text(
+                ".agent_forge/runs/swebench-demo\n",
+                encoding="utf-8",
+            )
+            (run / "trace.json").write_text(
+                """
+{
+  "run_id": "r1",
+  "stop_reason": "final_answer",
+  "events": [
+    {"step": 1, "event_type": "context_assembly", "success": true},
+    {"step": 1, "event_type": "llm_call", "success": true, "duration_ms": 12},
+    {"step": 1, "event_type": "action", "success": true, "tool_call": "git_diff"},
+    {"step": 1, "event_type": "tool_observation", "success": false, "tool_call": "git_diff"}
+  ]
+}
+""",
+                encoding="utf-8",
+            )
+
+            html = _render_evidence_html(root, "timeline")
+
+        self.assertIn("当前展示：multi-agent trace", html)
+        self.assertIn("按 trace.json 记录顺序展示", html)
+        self.assertIn("1. 上下文组装", html)
+        self.assertIn("3. 动作解析", html)
+        self.assertIn("tool: git_diff", html)
+        self.assertIn("红色表示失败", html)
+        self.assertNotIn(" · ", html)
+
     def test_ui_labels_separate_interview_evidence_from_operations(self):
         from agent_forge.ui import INDEX_HTML
 

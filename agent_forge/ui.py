@@ -750,29 +750,34 @@ def _render_trace_timeline(project_dir: Path) -> str:
     for step, events in sorted(grouped.items()):
         pills = []
         failures = 0
-        for event in events:
+        for index, event in enumerate(events, start=1):
             event_type = str(event.get("event_type") or "")
             success = bool(event.get("success", True))
             failures += 0 if success else 1
-            label = event_type
-            if event.get("tool_call"):
-                label += f" · {event.get('tool_call')}"
-            if event.get("duration_ms"):
-                label += f" · {int(event.get('duration_ms') or 0)}ms"
+            label = _format_trace_event_label(index, event)
             pills.append(f"<span class='event-pill { _event_tone(event_type, success) }'>{_escape(label)}</span>")
         step_blocks.append(
             "<div class='timeline-step'>"
-            f"<div class='timeline-head'><strong>Step {step}</strong>{_badge('failed events: ' + str(failures), 'bad') if failures else _badge('ok', 'ok')}</div>"
+            f"<div class='timeline-head'><strong>Step {step}</strong>{_badge('failed events: ' + str(failures), 'bad') if failures else _badge('all events succeeded', 'ok')}</div>"
             f"<div>{''.join(pills)}</div>"
             "</div>"
         )
 
+    trace_scope = _trace_scope_label(trace_path)
     body = [
         "<h2>执行时间线：AgentLoop 每一步发生了什么</h2>",
-        "<p class='help strong'>这张图把 raw trace 转成执行时间线：context 进入模型，模型产生 action，工具执行，observation 回到下一轮。</p>",
+        f"<p class='help strong'>当前展示：{_escape(trace_scope)}。按 trace.json 记录顺序展示；从上到下是 step 顺序，同一个 step 内从左到右是事件发生顺序。</p>",
+        "<div class='legend-row'>"
+        "<span class='legend-item blue'>蓝色表示模型/规划</span>"
+        "<span class='legend-item purple'>紫色表示上下文/路由</span>"
+        "<span class='legend-item ok'>绿色表示工具或检查成功</span>"
+        "<span class='legend-item bad'>红色表示失败</span>"
+        "<span class='legend-item neutral'>灰色表示普通记录</span>"
+        "</div>",
         _metric_grid(
             [
                 ("Run", trace.get("run_id", ""), "trace run id", "neutral"),
+                ("Source", trace_scope, "single/multi/verify 来源", "neutral"),
                 ("Stop", trace.get("stop_reason", ""), "停止原因", _tone_for_status(trace.get("stop_reason", ""))),
                 ("Events", str(len(trace.get("events") or [])), "trace 事件数", "neutral"),
                 ("Steps", str(len(grouped)), "AgentLoop 步数", "neutral"),
@@ -1103,6 +1108,72 @@ def _tone_for_status(value: str) -> str:
     return "neutral"
 
 
+def _trace_scope_label(trace_path: Path | None) -> str:
+    """Infer whether the current trace came from single, multi, or a smoke run."""
+
+    if not trace_path:
+        return "unknown trace"
+    parts = set(trace_path.parts)
+    text = str(trace_path)
+    if "verify" in parts:
+        return "verify smoke trace"
+    if "multi" in parts or "__multi" in text:
+        return "multi-agent trace"
+    if "single" in parts or "__single" in text:
+        return "single-agent trace"
+    return "agent run trace"
+
+
+def _format_trace_event_label(index: int, event: dict[str, Any]) -> str:
+    """Format one trace event without ambiguous separator glyphs.
+
+    The UI is for learning and presentation, so each event shows a stable
+    sequence number plus explicit fields such as tool and duration.
+    """
+
+    event_type = str(event.get("event_type") or "event")
+    names = {
+        "task_state_checkpoint": "状态检查点",
+        "context_assembly": "上下文组装",
+        "plan": "模型计划",
+        "planning_mode": "规划模式",
+        "llm_call": "模型调用",
+        "guardrail_check": "安全检查",
+        "clarification_decision": "澄清判断",
+        "skill_selection": "Skill 选择",
+        "action": "动作解析",
+        "file_write": "产物写入",
+        "permission_check": "权限检查",
+        "hook_check": "工具前置检查",
+        "human_approval": "人工审批",
+        "tool_call": "工具调用",
+        "tool_observation": "工具结果",
+        "observation": "观察回填",
+        "evidence_collected": "证据记录",
+        "recovery_decision": "恢复判断",
+        "verifier_result": "验证结论",
+        "review_decision": "审查结论",
+        "final_answer": "最终回答",
+        "stop_hooks": "停止钩子",
+        "multi_agent_start": "多 Agent 开始",
+        "handoff": "角色交接",
+        "agent_stage_start": "角色开始",
+        "agent_stage_end": "角色结束",
+        "artifact_created": "产物写入",
+        "multi_agent_done": "多 Agent 完成",
+    }
+    fields = [f"{index}. {names.get(event_type, event_type)}"]
+    if event.get("agent"):
+        fields.append(f"agent: {event.get('agent')}")
+    if event.get("tool_call"):
+        fields.append(f"tool: {event.get('tool_call')}")
+    if event.get("duration_ms"):
+        fields.append(f"time: {int(event.get('duration_ms') or 0)} ms")
+    if not bool(event.get("success", True)):
+        fields.append("status: failed")
+    return " | ".join(fields)
+
+
 def _event_tone(event_type: str, success: bool) -> str:
     """Map trace event type to a compact visual class."""
 
@@ -1110,10 +1181,22 @@ def _event_tone(event_type: str, success: bool) -> str:
         return "bad"
     if event_type in {"llm_call", "plan", "planning_mode"}:
         return "blue"
-    if event_type in {"tool_call", "tool_observation", "action"}:
-        return "warn"
-    if event_type in {"guardrail_check", "permission_check", "hook_check"}:
+    if event_type in {
+        "context_assembly",
+        "observation",
+        "handoff",
+        "agent_stage_start",
+        "agent_stage_end",
+        "task_state_checkpoint",
+        "evidence_collected",
+        "multi_agent_start",
+        "multi_agent_done",
+    }:
+        return "purple"
+    if event_type in {"tool_call", "tool_observation", "guardrail_check", "permission_check", "hook_check"}:
         return "ok"
+    if event_type in {"action", "human_approval", "clarification_decision", "skill_selection", "recovery_decision"}:
+        return "warn"
     return "neutral"
 
 
@@ -1137,26 +1220,29 @@ INDEX_HTML = r"""<!doctype html>
   <title>Agent Forge</title>
   <style>
     :root {
-      --bg: #0d0f14;
-      --surface: #12151c;
-      --panel: #171b24;
-      --panel-2: #202634;
-      --panel-3: #10131a;
-      --text: #f3f6fb;
-      --muted: #9ca8b7;
-      --line: #2b3342;
-      --accent: #7dd3c7;
-      --accent-strong: #9ce7dc;
-      --blue: #8bbcff;
-      --yellow: #e8c46c;
-      --red: #f07178;
-      --shadow: rgba(0, 0, 0, .34);
+      --bg: #f5f5f7;
+      --surface: rgba(255, 255, 255, .74);
+      --panel: rgba(255, 255, 255, .84);
+      --panel-2: rgba(242, 244, 248, .94);
+      --panel-3: rgba(250, 250, 252, .92);
+      --text: #1d1d1f;
+      --muted: #6e7582;
+      --line: rgba(60, 60, 67, .16);
+      --accent: #0a84ff;
+      --accent-strong: #0066cc;
+      --blue: #0a84ff;
+      --purple: #8e8cf0;
+      --yellow: #b7791f;
+      --red: #d70015;
+      --shadow: rgba(0, 0, 0, .08);
     }
     * { box-sizing: border-box; }
     body {
       margin: 0;
       font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-      background: var(--bg);
+      background:
+        radial-gradient(circle at top left, rgba(10, 132, 255, .12), transparent 32rem),
+        linear-gradient(180deg, #fbfbfd 0%, var(--bg) 38%, #f2f4f7 100%);
       color: var(--text);
     }
     header {
@@ -1166,8 +1252,8 @@ INDEX_HTML = r"""<!doctype html>
       align-items: center;
       justify-content: space-between;
       gap: 16px;
-      background: rgba(16, 19, 26, .96);
-      backdrop-filter: blur(16px);
+      background: rgba(245, 245, 247, .82);
+      backdrop-filter: blur(22px) saturate(1.35);
       position: sticky;
       top: 0;
       z-index: 10;
@@ -1185,9 +1271,9 @@ INDEX_HTML = r"""<!doctype html>
     .project-chip {
       max-width: 420px;
       border: 1px solid var(--line);
-      border-radius: 8px;
+      border-radius: 12px;
       padding: 10px 12px;
-      background: var(--panel);
+      background: rgba(255, 255, 255, .72);
       color: var(--muted);
       font-size: 12px;
       overflow-wrap: anywhere;
@@ -1236,7 +1322,8 @@ INDEX_HTML = r"""<!doctype html>
     aside {
       border-right: 1px solid var(--line);
       padding: 20px;
-      background: var(--surface);
+      background: rgba(245, 245, 247, .66);
+      backdrop-filter: blur(20px);
       overflow-y: auto;
     }
     section {
@@ -1248,10 +1335,10 @@ INDEX_HTML = r"""<!doctype html>
     .card {
       background: var(--panel);
       border: 1px solid var(--line);
-      border-radius: 8px;
+      border-radius: 16px;
       padding: 14px;
       margin-bottom: 14px;
-      box-shadow: 0 10px 30px var(--shadow);
+      box-shadow: 0 18px 50px var(--shadow);
     }
     .card h2 {
       font-size: 16px;
@@ -1277,7 +1364,7 @@ INDEX_HTML = r"""<!doctype html>
       gap: 10px;
       align-items: start;
       border: 1px solid var(--line);
-      border-radius: 8px;
+      border-radius: 14px;
       padding: 10px;
       background: var(--panel-3);
     }
@@ -1288,7 +1375,7 @@ INDEX_HTML = r"""<!doctype html>
       display: grid;
       place-items: center;
       font-weight: 900;
-      color: #06100f;
+      color: white;
       background: var(--accent);
     }
     .route-title { font-weight: 800; }
@@ -1315,10 +1402,10 @@ INDEX_HTML = r"""<!doctype html>
     }
     input, select, textarea {
       width: 100%;
-      background: #0d1016;
+      background: rgba(255, 255, 255, .9);
       color: var(--text);
       border: 1px solid var(--line);
-      border-radius: 6px;
+      border-radius: 10px;
       padding: 9px 10px;
       font: inherit;
     }
@@ -1358,9 +1445,9 @@ INDEX_HTML = r"""<!doctype html>
     button {
       width: 100%;
       border: 0;
-      border-radius: 7px;
+      border-radius: 11px;
       background: var(--blue);
-      color: #07111f;
+      color: white;
       font-weight: 700;
       padding: 9px 12px;
       margin-top: 10px;
@@ -1368,8 +1455,8 @@ INDEX_HTML = r"""<!doctype html>
     }
     button:hover { filter: brightness(1.08); }
     button.secondary { background: var(--panel-2); color: var(--text); border: 1px solid var(--line); }
-    button.warn { background: var(--yellow); color: #1b1300; }
-    button.primary { background: var(--accent); color: #06100f; }
+    button.warn { background: #fff4d8; color: #7a4d00; }
+    button.primary { background: var(--accent); color: white; }
     button.ghost { background: transparent; color: var(--text); border: 1px solid var(--line); }
     .action-grid {
       display: grid;
@@ -1396,7 +1483,7 @@ INDEX_HTML = r"""<!doctype html>
     }
     .pill {
       padding: 12px;
-      border-radius: 8px;
+      border-radius: 16px;
       border: 1px solid var(--line);
       background: var(--panel);
     }
@@ -1414,8 +1501,8 @@ INDEX_HTML = r"""<!doctype html>
       top: 81px;
       z-index: 8;
       padding: 10px 0;
-      background: rgba(13, 15, 20, .94);
-      backdrop-filter: blur(14px);
+      background: rgba(245, 245, 247, .86);
+      backdrop-filter: blur(22px) saturate(1.35);
     }
     .view-tabs button {
       width: auto;
@@ -1423,32 +1510,32 @@ INDEX_HTML = r"""<!doctype html>
       padding: 8px 11px;
       font-size: 13px;
       color: var(--text);
-      background: var(--panel);
+      background: rgba(255, 255, 255, .78);
       border: 1px solid var(--line);
     }
     .view-tabs button.active {
       color: var(--accent-strong);
-      background: #16231f;
-      border-color: rgba(125, 211, 199, .62);
-      box-shadow: inset 0 0 0 1px rgba(125, 211, 199, .12);
+      background: rgba(10, 132, 255, .1);
+      border-color: rgba(10, 132, 255, .42);
+      box-shadow: inset 0 0 0 1px rgba(10, 132, 255, .08);
     }
     .output {
       white-space: pre-wrap;
       word-break: break-word;
-      background: #0a0c11;
+      background: rgba(255, 255, 255, .88);
       border: 1px solid var(--line);
-      border-radius: 8px;
+      border-radius: 18px;
       padding: 22px 26px;
       min-height: calc(100vh - 245px);
       max-height: none;
       overflow: auto;
-      color: #dce6f3;
+      color: var(--text);
       box-shadow: 0 18px 44px var(--shadow);
     }
     .evidence { white-space: normal; color: var(--text); }
     .evidence h2 { margin: 0 0 8px; font-size: 20px; }
     .evidence h3 { margin: 18px 0 8px; font-size: 15px; }
-    .strong { color: #dce6f3; }
+    .strong { color: #2f3338; }
     .metric-grid {
       display: grid;
       grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -1459,11 +1546,11 @@ INDEX_HTML = r"""<!doctype html>
       border: 1px solid var(--line);
       border-radius: 8px;
       padding: 12px;
-      background: #101722;
+      background: rgba(250, 250, 252, .88);
     }
-    .metric-card.ok { border-color: rgba(125, 211, 199, .44); }
-    .metric-card.warn { border-color: rgba(255, 209, 102, .55); }
-    .metric-card.bad { border-color: rgba(255, 107, 107, .55); }
+    .metric-card.ok { border-color: rgba(10, 132, 255, .28); }
+    .metric-card.warn { border-color: rgba(183, 121, 31, .26); }
+    .metric-card.bad { border-color: rgba(215, 0, 21, .24); }
     .metric-label, .label { color: var(--muted); font-size: 12px; margin-right: 8px; }
     .metric-value { margin-top: 4px; font-size: 18px; font-weight: 800; overflow-wrap: anywhere; }
     .metric-note { margin-top: 4px; color: var(--muted); font-size: 12px; }
@@ -1479,12 +1566,13 @@ INDEX_HTML = r"""<!doctype html>
       font-weight: 700;
       border: 1px solid var(--line);
       color: var(--text);
-      background: var(--panel-2);
+      background: rgba(242, 244, 248, .84);
     }
-    .badge.ok, .event-pill.ok { border-color: rgba(125, 211, 199, .5); color: var(--accent-strong); }
-    .badge.warn, .event-pill.warn { border-color: rgba(255, 209, 102, .55); color: var(--yellow); }
-    .badge.bad, .event-pill.bad { border-color: rgba(255, 107, 107, .55); color: var(--red); }
-    .event-pill.blue { border-color: rgba(106, 169, 255, .55); color: var(--blue); }
+    .badge.ok, .event-pill.ok { border-color: rgba(52, 199, 89, .34); color: #248a3d; background: rgba(52, 199, 89, .09); }
+    .badge.warn, .event-pill.warn { border-color: rgba(255, 149, 0, .34); color: #a35f00; background: rgba(255, 149, 0, .1); }
+    .badge.bad, .event-pill.bad { border-color: rgba(215, 0, 21, .28); color: var(--red); background: rgba(215, 0, 21, .08); }
+    .event-pill.blue { border-color: rgba(10, 132, 255, .32); color: #0057b8; background: rgba(10, 132, 255, .09); }
+    .event-pill.purple { border-color: rgba(142, 140, 240, .34); color: #5e5ce6; background: rgba(142, 140, 240, .1); }
     .event-pill.neutral { color: var(--muted); }
     table {
       width: 100%;
@@ -1507,7 +1595,7 @@ INDEX_HTML = r"""<!doctype html>
     .talking-list {
       margin: 8px 0 12px;
       padding-left: 22px;
-      color: #dce6f3;
+      color: #2f3338;
       line-height: 1.65;
     }
     .talking-list li { margin: 5px 0; }
@@ -1520,7 +1608,7 @@ INDEX_HTML = r"""<!doctype html>
     .flow-strip span {
       border: 1px solid var(--line);
       border-radius: 8px;
-      background: #0d1016;
+      background: rgba(255, 255, 255, .72);
       padding: 10px 8px;
       text-align: center;
       color: #dce6f3;
@@ -1537,7 +1625,7 @@ INDEX_HTML = r"""<!doctype html>
       border: 1px solid var(--line);
       border-radius: 8px;
       padding: 18px;
-      background: var(--panel-3);
+      background: rgba(250, 250, 252, .82);
     }
     .mini-flow {
       display: grid;
@@ -1550,13 +1638,13 @@ INDEX_HTML = r"""<!doctype html>
       border-radius: 7px;
       padding: 8px 6px;
       text-align: center;
-      color: #dce6f3;
+      color: #2f3338;
       font-size: 12px;
-      background: #0d1016;
+      background: rgba(255, 255, 255, .72);
     }
     .timeline-step {
-      border-left: 3px solid var(--line);
-      padding: 10px 0 10px 14px;
+      border-left: 2px solid rgba(10, 132, 255, .18);
+      padding: 12px 0 12px 16px;
       margin-left: 6px;
     }
     .timeline-head {
@@ -1570,10 +1658,31 @@ INDEX_HTML = r"""<!doctype html>
       display: inline-block;
       border: 1px solid var(--line);
       border-radius: 999px;
-      padding: 5px 8px;
-      margin: 0 6px 6px 0;
+      padding: 6px 10px;
+      margin: 0 7px 7px 0;
       font-size: 12px;
-      background: #0d1016;
+      background: rgba(255, 255, 255, .76);
+    }
+    .legend-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin: 12px 0;
+    }
+    .legend-item {
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      padding: 6px 10px;
+      font-size: 12px;
+      background: rgba(255, 255, 255, .76);
+      color: var(--muted);
+    }
+    .legend-item.blue { border-color: rgba(10, 132, 255, .32); color: #0057b8; background: rgba(10, 132, 255, .09); }
+    .legend-item.purple { border-color: rgba(142, 140, 240, .34); color: #5e5ce6; background: rgba(142, 140, 240, .1); }
+    .legend-item.ok { border-color: rgba(52, 199, 89, .34); color: #248a3d; background: rgba(52, 199, 89, .09); }
+    .legend-item.bad { border-color: rgba(215, 0, 21, .28); color: var(--red); background: rgba(215, 0, 21, .08); }
+    .legend-item.neutral {
+      color: var(--muted);
     }
     .raw-text {
       white-space: pre-wrap;
@@ -1591,7 +1700,7 @@ INDEX_HTML = r"""<!doctype html>
     }
     .job strong { display: block; }
     .job span { color: var(--muted); font-size: 12px; }
-    .succeeded { color: var(--green); }
+    .succeeded { color: var(--accent-strong); }
     .failed { color: var(--red); }
     .running { color: var(--yellow); }
     @media (max-width: 900px) {
