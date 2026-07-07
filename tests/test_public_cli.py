@@ -41,7 +41,7 @@ class PublicCliSmokeTest(unittest.TestCase):
         self.assertIn("5 分钟 Demo", html)
         self.assertIn("Golden Demo Capsule", html)
         self.assertIn("30 分钟学习路径", html)
-        self.assertIn("docs/technical-defense/learn/30min-interview-pack-zh.md", html)
+        self.assertIn("docs/technical-defense/learn/三十分钟面试准备包.md", html)
         self.assertIn("Single vs Multi", html)
         self.assertIn("Safety", html)
 

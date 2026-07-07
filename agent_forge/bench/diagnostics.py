@@ -109,6 +109,28 @@ def diagnose_case_result(result: BenchCaseResult) -> FailureDiagnosis:
             ],
             severity="low",
         )
+    if "pending_tool_call_at_stop" in lowered:
+        return FailureDiagnosis(
+            "pending_tool_call_at_stop",
+            "The model still requested a tool on the final turn, so the runtime blocked an incomplete artifact instead of treating it as done.",
+            evidence,
+            [
+                "Inspect the final llm_call event to see which tool was still pending.",
+                "Prompt or policy should force patch/edit decisions before the final turn, or increase step budget for this case.",
+            ],
+            severity="high",
+        )
+    if "incompleteread" in lowered or "request_failed" in lowered:
+        return FailureDiagnosis(
+            "provider_transport_error",
+            "The provider transport failed or returned an incomplete response before the agent could finish the role.",
+            evidence,
+            [
+                "Treat this as model/provider transport instability before tuning retrieval or prompts.",
+                "Retry the same case after confirming the LLM client converts transport failures into structured errors.",
+            ],
+            severity="high",
+        )
     if "repeated" in lowered:
         return FailureDiagnosis(
             "loop_collapse_repeated_tool",

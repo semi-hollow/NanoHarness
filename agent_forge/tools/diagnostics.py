@@ -68,11 +68,9 @@ class DiagnosticsTool(Tool):
         instead of pushing the model toward blocked shell commands.
         """
 
-        resolved = self.sandbox.ensure_safe_path(target)
-        if resolved.is_file():
-            command = [sys.executable, str(resolved)]
-        else:
-            command = [sys.executable, "-m", "unittest", "discover", target]
+        command = self._unittest_command(target)
+        if isinstance(command, Observation):
+            return command
         proc = subprocess.run(
             command,
             cwd=str(self.sandbox.workspace_root),
@@ -81,4 +79,34 @@ class DiagnosticsTool(Tool):
             timeout=30,
         )
         output = (proc.stdout + proc.stderr).strip()[:3000]
+        if "ModuleNotFoundError: No module named 'pytest'" in output:
+            return Observation(
+                self.name,
+                True,
+                "validation_blocked: pytest is not installed in this benchmark workspace; "
+                "candidate patch remains unverified by focused tests.",
+            )
         return Observation(self.name, proc.returncode == 0, f"exit_code={proc.returncode}\n{output}")
+
+    def _unittest_command(self, target: str) -> list[str] | Observation:
+        """Normalize common LLM target forms into one unittest command.
+
+        Models naturally alternate between file paths
+        (``astropy/modeling/tests/test_x.py``), path-like module stems
+        (``astropy/modeling/tests/test_x``), and dotted module names
+        (``astropy.modeling.tests.test_x``). Without this normalization the
+        agent wastes steps on validation syntax instead of the code fix itself.
+        """
+
+        target = (target or ".").strip() or "."
+        if "/" not in target and "\\" not in target and "." in target and not target.startswith(".") and not target.endswith(".py"):
+            return [sys.executable, "-m", "unittest", target]
+
+        resolved = self.sandbox.ensure_safe_path(target)
+        if not resolved.exists() and not str(resolved).endswith(".py"):
+            py_candidate = self.sandbox.ensure_safe_path(f"{target}.py")
+            if py_candidate.exists():
+                resolved = py_candidate
+        if resolved.is_file():
+            return [sys.executable, str(resolved)]
+        return [sys.executable, "-m", "unittest", "discover", str(resolved)]

@@ -333,7 +333,7 @@ def _build_swebench_command(python: str, payload: dict[str, Any], *, regression:
     command.extend(["--provider", provider])
     _append_optional(command, "--model", _payload_text(payload, "model", ""))
     _append_optional(command, "--base-url", _payload_text(payload, "baseUrl", ""))
-    command.extend(["--max-steps", str(_payload_int(payload, "maxSteps", 24, 1, 80))])
+    command.extend(["--max-steps", str(_payload_int(payload, "maxSteps", 40, 1, 80))])
     command.extend(["--max-context-chars", str(_payload_int(payload, "maxContextChars", 18000, 1000, 120000))])
     command.extend(["--output-root", _payload_text(payload, "outputRoot", ".agent_forge/runs")])
     agent_mode = _payload_choice(payload, "benchAgentMode", {"single", "multi", "compare"}, "compare")
@@ -513,8 +513,8 @@ def _latest_trace_path(project_dir: Path) -> Path | None:
     direct = run_dir / "trace.json"
     if direct.exists():
         return direct
-    traces = sorted(run_dir.glob("cases/*/trace.json"))
-    return traces[0] if traces else None
+    traces = sorted(run_dir.glob("cases/**/trace.json"))
+    return max(traces, key=lambda path: path.stat().st_mtime) if traces else None
 
 
 def _latest_usage_path(project_dir: Path) -> Path | None:
@@ -526,8 +526,8 @@ def _latest_usage_path(project_dir: Path) -> Path | None:
     direct = run_dir / "usage.json"
     if direct.exists():
         return direct
-    usages = sorted(run_dir.glob("cases/*/usage.json"))
-    return usages[0] if usages else None
+    usages = sorted(run_dir.glob("cases/**/usage.json"))
+    return max(usages, key=lambda path: path.stat().st_mtime) if usages else None
 
 
 def _latest_comparison_path(project_dir: Path) -> Path | None:
@@ -552,8 +552,7 @@ def _latest_multi_agent_summary_path(project_dir: Path) -> Path | None:
     if not run_dir:
         return None
     candidates = [run_dir / "multi_agent/multi_agent_summary.json"]
-    candidates.extend(sorted(run_dir.glob("cases/*/multi_agent/multi_agent_summary.json")))
-    candidates.extend(sorted(run_dir.glob("cases/*/*/multi_agent/multi_agent_summary.json")))
+    candidates.extend(sorted(run_dir.glob("cases/**/multi_agent/multi_agent_summary.json")))
     existing = [path for path in candidates if path.exists()]
     if not existing:
         return None
@@ -839,11 +838,11 @@ def _render_interview_evidence(project_dir: Path) -> str:
         "</tbody></table>",
         "<h3>30 分钟学习路径</h3>",
         "<table><thead><tr><th>time</th><th>open this</th><th>why</th></tr></thead><tbody>",
-        "<tr><td>0-5 min</td><td class='mono'>docs/technical-defense/learn/30min-interview-pack-zh.md</td><td>先记住定位、边界和展示顺序。</td></tr>",
-        "<tr><td>5-10 min</td><td class='mono'>docs/technical-defense/demo/interview-demo-script-zh.md</td><td>照着 5 分钟路线讲，不临场组织。</td></tr>",
-        "<tr><td>10-18 min</td><td class='mono'>docs/technical-defense/learn/core-code-map-zh.md</td><td>只读最小 7 文件核心版，降低代码学习成本。</td></tr>",
-        "<tr><td>18-24 min</td><td class='mono'>docs/technical-defense/demo/evidence/README.md</td><td>知道 evidence 能证明什么，不能夸大什么。</td></tr>",
-        "<tr><td>24-30 min</td><td class='mono'>docs/technical-defense/defense/interview-qa-ai-agent-zh.md</td><td>准备高频追问和防守话术。</td></tr>",
+        "<tr><td>0-5 min</td><td class='mono'>docs/technical-defense/learn/三十分钟面试准备包.md</td><td>先记住定位、边界和展示顺序。</td></tr>",
+        "<tr><td>5-10 min</td><td class='mono'>docs/technical-defense/demo/五分钟面试演示脚本.md</td><td>照着 5 分钟路线讲，不临场组织。</td></tr>",
+        "<tr><td>10-18 min</td><td class='mono'>docs/technical-defense/learn/核心代码阅读路线图.md</td><td>只读最小 7 文件核心版，降低代码学习成本。</td></tr>",
+        "<tr><td>18-24 min</td><td class='mono'>docs/technical-defense/demo/evidence/演示证据目录说明.md</td><td>知道 evidence 能证明什么，不能夸大什么。</td></tr>",
+        "<tr><td>24-30 min</td><td class='mono'>docs/technical-defense/defense/AI智能体项目面试问答.md</td><td>准备高频追问和防守话术。</td></tr>",
         "</tbody></table>",
         "<h3>5 分钟 Demo</h3>",
         "<ol class='talking-list'>",
@@ -1362,7 +1361,7 @@ INDEX_HTML = r"""<!doctype html>
         <div class="form-row">
           <div>
             <label>Max Steps</label>
-            <input id="maxSteps" type="number" min="1" max="80" value="24" />
+            <input id="maxSteps" type="number" min="1" max="80" value="40" />
           </div>
           <div>
             <label>Context Chars</label>

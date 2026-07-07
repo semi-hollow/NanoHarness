@@ -26,10 +26,12 @@ def coding_fix_profile() -> AgentProfile:
                     "Inspect the task and repository evidence, make the smallest safe code change, "
                     "and run a focused validation command when allowed. Do not edit tests unless the task "
                     "is explicitly about test infrastructure. If you are revising, address the review or "
-                    "verification artifact directly."
+                    "verification artifact directly. For SWE-bench-style tasks, prefer read_file/grep_search "
+                    "for inspection, apply_patch for the first concrete fix, and diagnostics for validation; "
+                    "avoid shell-style run_command exploration."
                 ),
                 allowed_tools=CODING_WRITE_TOOLS,
-                max_steps=10,
+                max_steps=20,
                 output_artifact="implementation_report",
             ),
             RoleSpec(
@@ -50,12 +52,14 @@ def coding_fix_profile() -> AgentProfile:
                 name="Verifier",
                 role="validation runner",
                 instructions=(
-                    "Run the smallest allowed validation command or explain why validation is blocked. "
+                    "Inspect the candidate patch and run the smallest allowed validation command if one is clearly available. "
                     "Start your answer with exactly one marker: PASS, NEEDS_REVISION, or BLOCKED. "
-                    "Use NEEDS_REVISION when validation fails for a likely fixable code reason."
+                    "Use PASS when the patch is present, review evidence is sound, and available diagnostics do not show a regression. "
+                    "Use NEEDS_REVISION when validation fails for a likely fixable code reason. "
+                    "Use BLOCKED when external benchmark validation is unavailable; do not spend the final turn requesting another tool."
                 ),
-                allowed_tools=["read_file", "git_status", "git_diff", "run_command", "diagnostics"],
-                max_steps=5,
+                allowed_tools=["read_file", "git_status", "git_diff", "diagnostics"],
+                max_steps=8,
                 output_artifact="verification_report",
             ),
         ],

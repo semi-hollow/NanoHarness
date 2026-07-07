@@ -473,7 +473,10 @@ def _render_case_task(case: BenchCase) -> str:
         "- Inspect the repository before editing.\n"
         "- Make the smallest source-code patch that addresses the issue.\n"
         "- Do not edit tests unless the issue explicitly requires test infrastructure changes.\n"
-        "- Run a focused validation command if you can infer one; otherwise explain why validation is blocked.\n"
+        "- Use read_file/grep_search for source inspection; do not use run_command for reading files.\n"
+        "- Prefer apply_patch once the likely target function is identified; do not keep gathering broad evidence.\n"
+        "- Prefer diagnostics for focused validation. Do not use python -c, shell pipes, redirection, or /tmp files.\n"
+        "- If validation is blocked, keep the patch and clearly explain the unverified point instead of spending more steps.\n"
         "- Finish with a concise summary grounded in files changed and commands run.\n"
     )
 

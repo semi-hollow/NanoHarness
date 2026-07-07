@@ -1,3 +1,4 @@
+import http.client
 import json
 import os
 import urllib.error
@@ -127,8 +128,8 @@ class OpenAICompatibleLLMClient(LLMClient):
             # Reading it makes provider-specific 400 messages visible in trace.
             raw = exc.read().decode("utf-8", errors="replace")
             return self._invalid("request_failed", f"HTTP Error {exc.code}: {exc.reason}", raw[:1000])
-        except (urllib.error.URLError, TimeoutError, OSError) as exc:
-            return self._invalid("request_failed", str(exc))
+        except (urllib.error.URLError, TimeoutError, OSError, http.client.IncompleteRead) as exc:
+            return self._invalid("request_failed", f"{type(exc).__name__}: {exc}")
 
         try:
             data = json.loads(raw)

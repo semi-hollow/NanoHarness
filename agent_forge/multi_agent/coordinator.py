@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import subprocess
 from dataclasses import replace
 from pathlib import Path
 
@@ -62,17 +63,31 @@ class MultiAgentCoordinator:
             primary_result = self._run_role(primary, round_index)
             summary.role_results.append(primary_result)
             if primary_result.status == "blocked":
-                summary.status = "blocked"
-                summary.final_answer = primary_result.final_answer
+                if self._candidate_patch_exists():
+                    summary.status = "patch_generated"
+                    summary.final_answer = (
+                        f"candidate patch generated; {primary.name} stopped after the patch because later "
+                        "tool or validation steps were blocked. Treat this as an unverified patch and inspect artifacts."
+                    )
+                else:
+                    summary.status = "blocked"
+                    summary.final_answer = primary_result.final_answer
                 break
             if primary_result.decision == "NEEDS_REVISION":
                 self._trace("review_decision", decision="NEEDS_REVISION", role=primary.name)
                 if round_index >= self.max_revision_rounds:
-                    summary.status = "needs_revision"
-                    summary.final_answer = (
-                        f"primary role {primary.name} produced an incomplete artifact, but "
-                        f"max_revision_rounds={self.max_revision_rounds} was reached"
-                    )
+                    if self._candidate_patch_exists():
+                        summary.status = "patch_generated"
+                        summary.final_answer = (
+                            f"candidate patch generated; primary role {primary.name} still requested revision, "
+                            f"but max_revision_rounds={self.max_revision_rounds} was reached."
+                        )
+                    else:
+                        summary.status = "needs_revision"
+                        summary.final_answer = (
+                            f"primary role {primary.name} produced an incomplete artifact, but "
+                            f"max_revision_rounds={self.max_revision_rounds} was reached"
+                        )
                     break
                 round_index += 1
                 summary.revision_rounds = round_index
@@ -91,19 +106,34 @@ class MultiAgentCoordinator:
                     revision_requested_by = role.name
 
             if blocked_by:
-                summary.status = "blocked"
-                summary.final_answer = f"blocked by {blocked_by}; see artifacts for details"
+                if self._blocked_after_candidate_patch(blocked_by):
+                    summary.status = "patch_generated"
+                    summary.final_answer = (
+                        f"candidate patch generated; {blocked_by} could not complete validation. "
+                        "Treat this as an unverified patch and inspect artifacts before claiming success."
+                    )
+                else:
+                    summary.status = "blocked"
+                    summary.final_answer = f"blocked by {blocked_by}; see artifacts for details"
                 self._trace("review_decision", success=False, decision="BLOCKED", role=blocked_by)
                 break
 
             if revision_requested_by:
                 self._trace("review_decision", decision="NEEDS_REVISION", role=revision_requested_by)
                 if round_index >= self.max_revision_rounds:
-                    summary.status = "needs_revision"
-                    summary.final_answer = (
-                        f"revision requested by {revision_requested_by}, but max_revision_rounds="
-                        f"{self.max_revision_rounds} was reached"
-                    )
+                    if self._candidate_patch_exists():
+                        summary.status = "patch_generated"
+                        summary.final_answer = (
+                            f"candidate patch generated; {revision_requested_by} still requested revision, "
+                            f"but max_revision_rounds={self.max_revision_rounds} was reached. "
+                            "Inspect artifacts before claiming official correctness."
+                        )
+                    else:
+                        summary.status = "needs_revision"
+                        summary.final_answer = (
+                            f"revision requested by {revision_requested_by}, but max_revision_rounds="
+                            f"{self.max_revision_rounds} was reached"
+                        )
                     break
                 round_index += 1
                 summary.revision_rounds = round_index
@@ -253,16 +283,20 @@ class MultiAgentCoordinator:
             return "BLOCKED"
         if self._looks_like_unfinished_tool_output(final_answer):
             return "NEEDS_REVISION"
-        text = (final_answer or "").strip().upper()
-        first_line = text.splitlines()[0].strip("*#:- `") if text else ""
-        for marker in role.pass_markers:
-            if first_line.startswith(marker):
+        lines = [line.strip() for line in (final_answer or "").splitlines() if line.strip()]
+        for line in lines[:12]:
+            normalized = _normalize_decision_line(line)
+            if _line_has_marker(normalized, role.pass_markers) or "VERDICT: PASS" in normalized or "STATUS: PASS" in normalized:
                 return "PASS"
-        for marker in role.revision_markers:
-            if first_line.startswith(marker):
+            if "裁决:通过" in normalized or "裁决: 通过" in normalized or "结论:通过" in normalized or "结论: 通过" in normalized:
+                return "PASS"
+            if _line_has_marker(normalized, role.revision_markers):
                 return "NEEDS_REVISION"
-        for marker in role.blocked_markers:
-            if first_line.startswith(marker):
+            if "VERDICT: NEEDS_REVISION" in normalized or "STATUS: NEEDS_REVISION" in normalized:
+                return "NEEDS_REVISION"
+            if _line_has_marker(normalized, role.blocked_markers):
+                return "BLOCKED"
+            if "VERDICT: BLOCKED" in normalized or "STATUS: BLOCKED" in normalized:
                 return "BLOCKED"
         if role.name in {*self.profile.review_roles, *self.profile.verifier_roles}:
             return "NEEDS_REVISION"
@@ -283,9 +317,57 @@ class MultiAgentCoordinator:
         )
         return any(marker in head for marker in raw_tool_markers)
 
+    def _blocked_after_candidate_patch(self, blocked_by: str) -> bool:
+        """Distinguish an unverified candidate patch from a total multi-agent failure.
+
+        SWE-bench showcase runs sometimes produce the right patch, then the
+        verifier hits an environment/tool limit while trying to validate it.
+        For reporting and UI purposes that is materially different from
+        "nothing happened": there is a concrete diff to inspect, but official
+        correctness is still unproven. The coordinator therefore reports
+        ``patch_generated`` only when the blocker is a verifier role and the
+        workspace has a non-empty git diff.
+        """
+
+        if blocked_by not in self.profile.verifier_roles:
+            return False
+        return self._candidate_patch_exists()
+
+    def _candidate_patch_exists(self) -> bool:
+        """Return whether the role run left a concrete workspace diff behind."""
+
+        workspace = Path(getattr(self.base_config, "workspace", "") or "")
+        if not workspace.exists():
+            return False
+        try:
+            result = subprocess.run(
+                ["git", "diff", "--no-ext-diff", "--"],
+                cwd=workspace,
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.DEVNULL,
+                timeout=10,
+                check=False,
+            )
+        except (OSError, subprocess.TimeoutExpired):
+            return False
+        return bool(result.stdout.strip())
+
     def _trace(self, event_type: str, success: bool = True, **kwargs) -> None:
         """Emit coordinator-level trace events with monotonic synthetic steps."""
 
         self._event_step += 1
         agent_name = kwargs.pop("agent_name", "MultiAgentCoordinator")
         self.trace.add(self._event_step, agent_name, event_type, success=success, **kwargs)
+
+
+def _normalize_decision_line(line: str) -> str:
+    """Normalize a role verdict line without depending on exact markdown style."""
+
+    return line.strip().strip("*#:- `").replace("：", ":").upper()
+
+
+def _line_has_marker(line: str, markers: list[str]) -> bool:
+    """Return true when a line begins with an explicit decision marker."""
+
+    return any(line.startswith(marker.upper()) for marker in markers)

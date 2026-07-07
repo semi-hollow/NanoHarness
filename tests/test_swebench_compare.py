@@ -1,10 +1,16 @@
 import json
 import tempfile
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
 from agent_forge.bench.swebench import run_swebench
 from agent_forge.bench.types import BenchCase, BenchCaseResult
+from agent_forge.ui import (
+    _latest_multi_agent_summary_path,
+    _latest_trace_path,
+    _latest_usage_path,
+)
 
 
 class SwebenchCompareTest(unittest.TestCase):
@@ -92,6 +98,32 @@ class SwebenchCompareTest(unittest.TestCase):
             bench_report = (summary.output_dir / "report.md").read_text(encoding="utf-8")
             self.assertIn("comparison", bench_report)
             self.assertIn("evaluation_report.md", bench_report)
+
+    def test_ui_latest_artifact_paths_find_compare_mode_nested_outputs(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            project_dir = Path(tmp)
+            case_dir = (
+                project_dir
+                / ".agent_forge"
+                / "runs"
+                / "swebench-local"
+                / "cases"
+                / "local__case-1"
+                / "multi"
+                / "cases"
+                / "local__case-1"
+            )
+            (case_dir / "multi_agent").mkdir(parents=True)
+            trace_path = case_dir / "trace.json"
+            usage_path = case_dir / "usage.json"
+            summary_path = case_dir / "multi_agent" / "multi_agent_summary.json"
+            trace_path.write_text(json.dumps({"events": []}), encoding="utf-8")
+            usage_path.write_text(json.dumps({"summary": {}}), encoding="utf-8")
+            summary_path.write_text(json.dumps({"status": "needs_revision"}), encoding="utf-8")
+
+            self.assertEqual(_latest_trace_path(project_dir), trace_path)
+            self.assertEqual(_latest_usage_path(project_dir), usage_path)
+            self.assertEqual(_latest_multi_agent_summary_path(project_dir), summary_path)
 
 
 if __name__ == "__main__":

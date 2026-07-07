@@ -315,13 +315,13 @@ agent_forge/
 
 ## Documentation
 
-- [Evaluation Guide](docs/evaluation/README.md)
-- [Architecture Notes](docs/architecture.md)
-- [Multi-Agent Harness](docs/multi-agent.md)
-- [Technical Defense Reading Path](docs/technical-defense/README.md)
-- Learn: [30-Minute Interview Pack](docs/technical-defense/learn/30min-interview-pack-zh.md), [Core Code Map](docs/technical-defense/learn/core-code-map-zh.md), [Multi-Agent Learning Guide](docs/technical-defense/learn/multi-agent-learning-guide-zh.md)
-- Demo: [5-Minute Interview Demo Script](docs/technical-defense/demo/interview-demo-script-zh.md), [Demo Evidence Pack](docs/technical-defense/demo/evidence/README.md)
-- Defense: [Project Maturity Audit](docs/technical-defense/defense/project-maturity-audit-zh.md), [AI Agent Interview Q&A](docs/technical-defense/defense/interview-qa-ai-agent-zh.md), [Agent Safety Boundaries](docs/technical-defense/defense/agent-safety-boundaries-zh.md), [Failure Taxonomy](docs/technical-defense/defense/failure-taxonomy-zh.md), [Technical Defense Notes](docs/technical-defense/defense/coding-agent-defense-zh.md), [Interview Response Playbook](docs/technical-defense/defense/interview-response-playbook-zh.md), [Agent Engineer Question Bank](docs/technical-defense/defense/interview-question-bank-zh.md)
+- [Evaluation Guide](docs/evaluation/评测目录说明与SWE-bench使用入口.md)
+- [Architecture Notes](docs/AgentForge总体架构与运行链路.md)
+- [Multi-Agent Harness](docs/多Agent协作机制与对比评测说明.md)
+- [Technical Defense Reading Path](docs/technical-defense/评测目录说明与SWE-bench使用入口.md)
+- Learn: [30-Minute Interview Pack](docs/technical-defense/learn/三十分钟面试准备包.md), [Core Code Map](docs/technical-defense/learn/核心代码阅读路线图.md), [Multi-Agent Learning Guide](docs/technical-defense/learn/多Agent机制学习指南.md)
+- Demo: [5-Minute Interview Demo Script](docs/technical-defense/demo/五分钟面试演示脚本.md), [Demo Evidence Pack](docs/technical-defense/demo/evidence/评测目录说明与SWE-bench使用入口.md)
+- Defense: [Project Maturity Audit](docs/technical-defense/defense/项目成熟度审计与改进清单.md), [AI Agent Interview Q&A](docs/technical-defense/defense/AI智能体项目面试问答.md), [Agent Safety Boundaries](docs/technical-defense/defense/Agent安全边界与权限防守说明.md), [Failure Taxonomy](docs/technical-defense/defense/失败分类体系与排查话术.md), [Technical Defense Notes](docs/technical-defense/defense/代码智能体技术防守说明.md), [Interview Response Playbook](docs/technical-defense/defense/面试追问应答策略手册.md), [Agent Engineer Question Bank](docs/technical-defense/defense/AI智能体项目面试题库.md)
 
 ## Development Smoke Check
 

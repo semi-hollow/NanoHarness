@@ -362,8 +362,33 @@ class AgentLoop:
             )
 
             if not response.tool_calls:
-                # Phase 4a: final answer path. Output guardrail checks that the
-                # answer does not claim validation that did not happen.
+                # Phase 4a: final answer path. A provider can occasionally leave
+                # raw tool-call markup in text on a forced-final turn; treat that
+                # as an unfinished action instead of a completed artifact.
+                if self._contains_raw_tool_call_markup(response.content or ""):
+                    final_answer = "blocked: pending_tool_call_at_stop"
+                    self.trace.add(
+                        step,
+                        agent_name,
+                        "final_answer",
+                        success=False,
+                        observation=final_answer,
+                        pending_tool_call=True,
+                    )
+                    self._stop_run(
+                        checkpoint,
+                        TaskRunStatus.BLOCKED,
+                        "pending_tool_call_at_stop",
+                        final_answer,
+                        current_step=step,
+                        messages_count=len(messages),
+                        observations_count=len(state.observations),
+                        resume_hint="Increase step budget or keep required tools routed until the pending call executes.",
+                    )
+                    return final_answer
+
+                # Output guardrail checks that the answer does not claim validation
+                # that did not happen.
                 citations = evidence.final_citations()
                 evidence_text = ""
                 if citations:
@@ -449,6 +474,47 @@ class AgentLoop:
                 )
 
                 if repeat_signal is not None:
+                    if self._is_recoverable_repeated_tool(tool_call.name):
+                        observation = Observation(
+                            tool_call.name,
+                            False,
+                            f"repeated read-only tool call: {tool_call.name}; use prior observation or choose a different tool",
+                        )
+                        memory.add_observation(observation)
+                        messages.append(
+                            Message(
+                                "tool",
+                                observation.content,
+                                name=tool_call.name,
+                                tool_call_id=tool_call.id,
+                            )
+                        )
+                        self.trace.add(
+                            step,
+                            agent_name,
+                            "tool_observation",
+                            success=False,
+                            observation=observation.content,
+                        )
+                        self.trace.add(
+                            step,
+                            agent_name,
+                            "recovery_decision",
+                            success=True,
+                            failure_kind=repeat_signal.kind.value,
+                            retryable=True,
+                            recovery_hint="Use existing read/search evidence, inspect a different symbol, or proceed to apply_patch/git_diff.",
+                        )
+                        self._update_task_state(
+                            checkpoint,
+                            status=TaskRunStatus.RUNNING,
+                            current_step=step,
+                            last_tool=tool_call.name,
+                            last_observation=observation.content,
+                            resume_hint="Repeated read/search was skipped; continue with different evidence or edit.",
+                        )
+                        continue
+
                     self.trace.add(step, agent_name, "error", success=False, error=tool_check.reason)
                     self.trace.add(
                         step,
@@ -749,6 +815,17 @@ class AgentLoop:
 
         self._stop_run(checkpoint, TaskRunStatus.BLOCKED, "max_steps", "blocked: max_steps reached")
         return "blocked: max_steps reached"
+
+    def _contains_raw_tool_call_markup(self, content: str) -> bool:
+        """Detect provider text that is really an unexecuted tool request."""
+
+        lowered = content.lower()
+        return "tool_calls" in lowered and "invoke name=" in lowered
+
+    def _is_recoverable_repeated_tool(self, tool_name: str) -> bool:
+        """Allow read/search repeats to become feedback instead of terminal blocks."""
+
+        return tool_name in {"read_file", "grep", "grep_search", "list_files", "git_status", "git_diff", "diagnostics"}
 
     def _select_active_skills(self, task: str):
         """Select real coding skills for this run.

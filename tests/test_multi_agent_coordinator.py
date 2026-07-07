@@ -1,4 +1,5 @@
 import tempfile
+import subprocess
 import unittest
 from pathlib import Path
 
@@ -19,6 +20,36 @@ class RoleAwareLLM:
         if "Verifier" in text or "FactVerifier" in text:
             return AgentResponse("PASS\nvalidation is acceptable for this test", [])
         return AgentResponse("implemented primary role output", [])
+
+
+class BlockingVerifierLLM:
+    last_usage = None
+
+    def chat(self, messages, tools):
+        text = "\n".join(message.content or "" for message in messages)
+        if "Verifier" in text:
+            return AgentResponse("blocked: pending_tool_call_at_stop", [])
+        if "Reviewer" in text:
+            return AgentResponse("PASS\nreview accepts the candidate patch", [])
+        return AgentResponse("implemented primary role output", [])
+
+
+class BlockingPrimaryLLM:
+    last_usage = None
+
+    def chat(self, messages, tools):
+        return AgentResponse("blocked: too many consecutive failed tools", [])
+
+
+def _init_git_with_modified_file(root: Path) -> None:
+    subprocess.run(["git", "init"], cwd=root, check=True, stdout=subprocess.DEVNULL)
+    subprocess.run(["git", "config", "user.email", "test@example.com"], cwd=root, check=True)
+    subprocess.run(["git", "config", "user.name", "Test User"], cwd=root, check=True)
+    source = root / "module.py"
+    source.write_text("value = 1\n", encoding="utf-8")
+    subprocess.run(["git", "add", "module.py"], cwd=root, check=True)
+    subprocess.run(["git", "commit", "-m", "baseline"], cwd=root, check=True, stdout=subprocess.DEVNULL)
+    source.write_text("value = 2\n", encoding="utf-8")
 
 
 class MultiAgentCoordinatorTest(unittest.TestCase):
@@ -65,6 +96,29 @@ class MultiAgentCoordinatorTest(unittest.TestCase):
             )
             self.assertEqual(decision, "NEEDS_REVISION")
 
+    def test_decision_parser_accepts_markdown_verdict_lines(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            profile = get_profile("coding_fix")
+            coordinator = MultiAgentCoordinator(
+                "fix",
+                profile,
+                RuntimeConfig(workspace=tmp, max_steps=1, trace_file=str(root / "trace.json")),
+                TraceRecorder(str(root / "trace.json")),
+                ToolRegistry(),
+                RoleAwareLLM(),
+                run_dir=root,
+            )
+            reviewer = profile.role_by_name("Reviewer")
+            verifier = profile.role_by_name("Verifier")
+
+            self.assertEqual(coordinator._decision_for_role(reviewer, "## Review Verdict: PASS\nLooks safe."), "PASS")
+            self.assertEqual(
+                coordinator._decision_for_role(verifier, "## Verification Report\n\n**Verdict: PASS**\nEvidence."),
+                "PASS",
+            )
+            self.assertEqual(coordinator._decision_for_role(verifier, "## 验证报告\n\n**裁决：通过**"), "PASS")
+
     def test_role_revision_tools_can_be_artifact_only(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -101,6 +155,48 @@ class MultiAgentCoordinatorTest(unittest.TestCase):
                 "<｜｜DSML｜｜tool_calls><｜｜DSML｜｜invoke name=\"read_file\">...</｜｜DSML｜｜tool_calls>",
             )
             self.assertEqual(decision, "NEEDS_REVISION")
+
+    def test_verifier_block_with_existing_diff_reports_candidate_patch(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _init_git_with_modified_file(root)
+
+            trace = TraceRecorder(str(root / "trace.json"))
+            config = RuntimeConfig(workspace=tmp, max_steps=2, trace_file=str(root / "trace.json"))
+            summary = MultiAgentCoordinator(
+                "fix a small issue",
+                get_profile("coding_fix"),
+                config,
+                trace,
+                ToolRegistry(),
+                BlockingVerifierLLM(),
+                run_dir=root,
+                max_revision_rounds=1,
+            ).run()
+
+            self.assertEqual(summary.status, "patch_generated")
+            self.assertIn("unverified patch", summary.final_answer)
+
+    def test_primary_block_with_existing_diff_reports_candidate_patch(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _init_git_with_modified_file(root)
+
+            trace = TraceRecorder(str(root / "trace.json"))
+            config = RuntimeConfig(workspace=tmp, max_steps=1, trace_file=str(root / "trace.json"))
+            summary = MultiAgentCoordinator(
+                "fix a small issue",
+                get_profile("coding_fix"),
+                config,
+                trace,
+                ToolRegistry(),
+                BlockingPrimaryLLM(),
+                run_dir=root,
+                max_revision_rounds=1,
+            ).run()
+
+            self.assertEqual(summary.status, "patch_generated")
+            self.assertIn("candidate patch generated", summary.final_answer)
 
 
 if __name__ == "__main__":

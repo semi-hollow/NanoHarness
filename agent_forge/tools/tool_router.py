@@ -58,21 +58,29 @@ class ToolRouter:
         lowered = (task or "").lower()
         by_name = {schema.get("name", ""): schema for schema in schemas}
         names = set(by_name)
-        read_only_requested = any(
+        read_only_markers = [
+            "不要修改",
+            "不修改",
+            "不要改",
+            "不改",
+            "只读",
+            "仅阅读",
+            "do not modify",
+            "do not edit",
+            "read only",
+            "without editing",
+        ]
+        read_only_requested = any(marker in lowered for marker in read_only_markers)
+        if read_only_requested and any(
             marker in lowered
             for marker in [
-                "不要修改",
-                "不修改",
-                "不要改",
-                "不改",
-                "只读",
-                "仅阅读",
-                "do not modify",
-                "do not edit",
-                "read only",
-                "without editing",
+                "do not edit tests unless",
+                "do not modify tests unless",
+                "不要修改测试，除非",
+                "不要改测试，除非",
             ]
-        )
+        ):
+            read_only_requested = False
 
         # Discovery tools are always useful and safe. They keep context/tool
         # selection robust even when the task text is short.
@@ -100,6 +108,15 @@ class ToolRouter:
             selected |= names & skill_tool_names
         if read_only_requested:
             selected -= {"apply_patch", "write_file", "run_command"}
+
+        # SWE-bench cases routinely tempt models into shell snippets, pipes,
+        # redirection, `/tmp` scratch files, or helper scripts. Those actions
+        # are either blocked or waste scarce benchmark steps. For benchmark
+        # repair, keep validation available through diagnostics and edits
+        # available through apply_patch, but hide general write_file/run_command.
+        if "swe-bench" in lowered or "swebench" in lowered:
+            selected -= {"run_command", "write_file"}
+            selected |= names & {"apply_patch", "diagnostics", "git_diff", "git_status"}
 
         external_names = names - set(self.DEFAULT_METADATA)
         task_terms = {term for term in lowered.replace("_", " ").replace(".", " ").split() if len(term) >= 3}
