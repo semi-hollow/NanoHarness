@@ -478,6 +478,8 @@ def _render_evidence_html(project_dir: Path, kind: str) -> str:
         return _render_trace_timeline(project_dir)
     if kind == "interview":
         return _render_interview_evidence(project_dir)
+    if kind == "compare":
+        return _render_compare_dashboard(project_dir)
     if kind == "raw_report":
         return f"<pre class='raw-text'>{_escape(_read_latest_report(project_dir))}</pre>"
     return _empty_evidence(f"Unsupported evidence view: {kind}")
@@ -614,7 +616,7 @@ def _render_result_summary(project_dir: Path) -> str:
         )
         case_rows_html = case_rows or "<tr><td colspan='8'>No cases</td></tr>"
         body = [
-            "<h2>Result Summary</h2>",
+            "<h2>结果摘要：这次跑成什么样</h2>",
             "<p class='help strong'>这不是原始日志，而是从 results.json、usage.json、trace.json 提炼出的展示卡片。</p>",
             _metric_grid(
                 [
@@ -635,7 +637,7 @@ def _render_result_summary(project_dir: Path) -> str:
         ]
     else:
         body = [
-            "<h2>Result Summary</h2>",
+            "<h2>结果摘要：这次跑成什么样</h2>",
             _metric_grid(
                 [
                     ("Run", usage.get("run_id", ""), "Normal agent run", "neutral"),
@@ -706,7 +708,7 @@ def _render_usage_dashboard(project_dir: Path) -> str:
     tool_rows_html = tool_rows or "<tr><td colspan='5'>No tool data</td></tr>"
 
     body = [
-        "<h2>Usage Dashboard</h2>",
+        "<h2>成本与工具效率：工程量化证据</h2>",
         "<p class='help strong'>这里回答面试官最常问的工程量化问题：一次真实运行花了多少 token、多少钱、哪里消耗上下文、工具是否高效。</p>",
         _metric_grid(
             [
@@ -766,7 +768,7 @@ def _render_trace_timeline(project_dir: Path) -> str:
         )
 
     body = [
-        "<h2>Trace Timeline</h2>",
+        "<h2>执行时间线：AgentLoop 每一步发生了什么</h2>",
         "<p class='help strong'>这张图把 raw trace 转成执行时间线：context 进入模型，模型产生 action，工具执行，observation 回到下一轮。</p>",
         _metric_grid(
             [
@@ -827,7 +829,7 @@ def _render_interview_evidence(project_dir: Path) -> str:
     )
 
     body = [
-        "<h2>Interview Evidence</h2>",
+        "<h2>Interview Evidence｜面试展示总览</h2>",
         "<p class='help strong'>面试展示总览：先讲闭环，再讲 runtime，再讲 evidence，而不是让面试官读 raw JSON。</p>",
         _metric_grid(
             [
@@ -904,6 +906,117 @@ def _render_interview_evidence(project_dir: Path) -> str:
         f"<table><tbody>{path_rows}</tbody></table>",
     ]
     return "<div class='evidence'>" + "".join(body) + "</div>"
+
+
+def _render_compare_dashboard(project_dir: Path) -> str:
+    """Render a dedicated single-agent vs multi-agent evidence view.
+
+    The interview page answers "how do I present the project?". This page
+    answers a narrower engineering question: what changed when we wrapped the
+    same AgentLoop in a coordinator with reviewer/verifier roles.
+    """
+
+    run_dir = _latest_run_dir(project_dir)
+    comparison_path = _latest_comparison_path(project_dir)
+    multi_path = _latest_multi_agent_summary_path(project_dir)
+    usage_path = _latest_usage_path(project_dir)
+
+    comparison = _read_json_file(comparison_path)
+    multi = _read_json_file(multi_path)
+    usage = _read_json_file(usage_path)
+    summary = usage.get("summary") or {}
+
+    task_id = comparison.get("task_id") or multi.get("task") or "latest local run"
+    single_status = str(comparison.get("single_status") or "-")
+    multi_status = str(comparison.get("multi_status") or multi.get("status") or "-")
+    single_patch = comparison.get("single_patch_generated", "-")
+    multi_patch = comparison.get("multi_patch_generated", "-")
+    single_cost = comparison.get("single_cost_usd")
+    multi_cost = comparison.get("multi_cost_usd")
+    cost_delta = None
+    if single_cost is not None and multi_cost is not None:
+        cost_delta = float(multi_cost) - float(single_cost)
+    verifier_status = comparison.get("verifier_status") or "-"
+    revision_rounds = comparison.get("revision_rounds", multi.get("revision_rounds", 0))
+    recommendation = comparison.get("recommendation") or "Run a compare case to generate a recommendation."
+    reviewer_findings = comparison.get("reviewer_findings") or []
+    reviewer_text = "<br>".join(_escape(item) for item in reviewer_findings[:3]) or "-"
+
+    body = [
+        "<h2>Single vs Multi 对比</h2>",
+        "<p class='help strong'>这个面板只回答一个问题：同一个真实缺陷，单 Agent 和多 Agent Coordinator 的工程取舍是什么。</p>",
+        _metric_grid(
+            [
+                ("Case", str(task_id)[:90], "固定 reference case", "neutral"),
+                ("单 Agent", single_status, "canonical AgentLoop", _tone_for_status(single_status)),
+                ("多 Agent Coordinator", multi_status, "Implementer / Reviewer / Verifier", _tone_for_status(multi_status)),
+                ("Patch", f"{single_patch} / {multi_patch}", "single / multi 是否生成 patch", "ok" if single_patch and multi_patch else "warn"),
+                ("Verifier", str(verifier_status), "多 Agent 验证角色结论", _tone_for_status(str(verifier_status))),
+                ("Cost Delta", "-" if cost_delta is None else f"${cost_delta:.6f}", "multi - single", "warn" if cost_delta and cost_delta > 0 else "ok"),
+            ]
+        ),
+        "<div class='lane-grid'>",
+        "<div class='lane-card'>",
+        "<h3>单 Agent 路径</h3>",
+        "<div class='mini-flow'><span>User task</span><span>AgentLoop</span><span>Tools</span><span>Patch</span></div>",
+        "<p class='help'>优点是成本低、路径短、容易理解；风险是缺少独立 review/verifier 控制点。</p>",
+        "<table><tbody>",
+        f"<tr><td>status</td><td>{_badge(single_status, _tone_for_status(single_status))}</td></tr>",
+        f"<tr><td>patch generated</td><td>{_escape(single_patch)}</td></tr>",
+        f"<tr><td>LLM calls</td><td>{_escape(comparison.get('single_llm_calls', '-'))}</td></tr>",
+        f"<tr><td>tool calls</td><td>{_escape(comparison.get('single_tool_calls', '-'))}</td></tr>",
+        f"<tr><td>failed tool calls</td><td>{_escape(comparison.get('single_failed_tool_calls', '-'))}</td></tr>",
+        f"<tr><td>cost</td><td>{_format_optional_cost(single_cost)}</td></tr>",
+        "</tbody></table>",
+        "</div>",
+        "<div class='lane-card'>",
+        "<h3>多 Agent Coordinator 路径</h3>",
+        "<div class='mini-flow'><span>Implementer</span><span>Reviewer</span><span>Verifier</span><span>Artifact</span></div>",
+        "<p class='help'>优点是把实现、审查、验证拆成显式控制点；代价是 token、延迟和工具调用更多。</p>",
+        "<table><tbody>",
+        f"<tr><td>status</td><td>{_badge(multi_status, _tone_for_status(multi_status))}</td></tr>",
+        f"<tr><td>patch generated</td><td>{_escape(multi_patch)}</td></tr>",
+        f"<tr><td>LLM calls</td><td>{_escape(comparison.get('multi_llm_calls', summary.get('llm_calls', '-')))}</td></tr>",
+        f"<tr><td>tool calls</td><td>{_escape(comparison.get('multi_tool_calls', summary.get('tool_calls', '-')))}</td></tr>",
+        f"<tr><td>failed tool calls</td><td>{_escape(comparison.get('multi_failed_tool_calls', summary.get('failed_tool_calls', '-')))}</td></tr>",
+        f"<tr><td>cost</td><td>{_format_optional_cost(multi_cost)}</td></tr>",
+        f"<tr><td>revision rounds</td><td>{_escape(revision_rounds)}</td></tr>",
+        "</tbody></table>",
+        "</div>",
+        "</div>",
+        "<h3>面试时怎么讲</h3>",
+        "<ul class='talking-list'>",
+        "<li>不要声称 multi-agent 一定更强；正确说法是它增加 reviewer/verifier 控制点，用更高成本换可审计性和可防守性。</li>",
+        "<li>同一个 AgentLoop 被复用，multi-agent 的价值在 coordinator、role spec、artifact handoff 和 revision budget。</li>",
+        "<li>如果 single 也能生成 patch，就如实说：这个 case 上 single 更便宜；multi 的价值是降低高风险任务的未审查输出概率。</li>",
+        "<li>如果要上线，需要继续看 official evaluation、badcase taxonomy 和成本收益，而不是只看 patch_generated。</li>",
+        "</ul>",
+        "<h3>Reviewer / Verifier Evidence</h3>",
+        "<table><tbody>",
+        f"<tr><td>verifier status</td><td>{_escape(verifier_status)}</td></tr>",
+        f"<tr><td>reviewer findings</td><td>{reviewer_text}</td></tr>",
+        f"<tr><td>recommendation</td><td>{_escape(recommendation)}</td></tr>",
+        "</tbody></table>",
+        "<h3>Artifact Paths</h3>",
+        "<table><tbody>",
+        f"<tr><td>run dir</td><td class='mono'>{_escape(str(run_dir or 'not found'))}</td></tr>",
+        f"<tr><td>comparison.json</td><td class='mono'>{_escape(str(comparison_path or 'not found'))}</td></tr>",
+        f"<tr><td>multi_agent_summary.json</td><td class='mono'>{_escape(str(multi_path or 'not found'))}</td></tr>",
+        f"<tr><td>usage.json</td><td class='mono'>{_escape(str(usage_path or 'not found'))}</td></tr>",
+        "</tbody></table>",
+    ]
+    return "<div class='evidence'>" + "".join(body) + "</div>"
+
+
+def _format_optional_cost(value: Any) -> str:
+    """Format an optional cost number for compact comparison tables."""
+
+    if value in (None, ""):
+        return "-"
+    try:
+        return f"${float(value):.6f}"
+    except (TypeError, ValueError):
+        return _escape(value)
 
 
 def _render_role_rows(summary: dict[str, Any]) -> str:
@@ -1024,16 +1137,18 @@ INDEX_HTML = r"""<!doctype html>
   <title>Agent Forge</title>
   <style>
     :root {
-      --bg: #0f1115;
-      --panel: #171b22;
-      --panel-2: #1e2430;
+      --bg: #0b0c0f;
+      --panel: #15171c;
+      --panel-2: #20242c;
+      --panel-3: #101217;
       --text: #edf2f7;
       --muted: #9aa4b2;
-      --line: #2b3340;
+      --line: #2a303a;
       --green: #3ddc97;
-      --blue: #6aa9ff;
+      --blue: #70b8ff;
       --yellow: #ffd166;
       --red: #ff6b6b;
+      --purple: #b8a5ff;
     }
     * { box-sizing: border-box; }
     body {
@@ -1043,24 +1158,44 @@ INDEX_HTML = r"""<!doctype html>
       color: var(--text);
     }
     header {
-      padding: 22px 28px;
+      padding: 24px 30px;
       border-bottom: 1px solid var(--line);
       display: flex;
       align-items: center;
       justify-content: space-between;
       gap: 16px;
+      background: #101217;
     }
-    h1 { margin: 0; font-size: 24px; letter-spacing: 0; }
+    h1 { margin: 0; font-size: 28px; letter-spacing: 0; }
+    .eyebrow {
+      color: var(--green);
+      font-size: 12px;
+      font-weight: 800;
+      text-transform: uppercase;
+      letter-spacing: .08em;
+      margin-bottom: 6px;
+    }
     .subtitle { margin-top: 4px; color: var(--muted); font-size: 14px; }
+    .project-chip {
+      max-width: 420px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 10px 12px;
+      background: var(--panel);
+      color: var(--muted);
+      font-size: 12px;
+      overflow-wrap: anywhere;
+    }
     main {
       display: grid;
-      grid-template-columns: 360px 1fr;
+      grid-template-columns: minmax(360px, 420px) minmax(0, 1fr);
       min-height: calc(100vh - 84px);
     }
     aside {
       border-right: 1px solid var(--line);
       padding: 20px;
-      background: #12161d;
+      background: #101217;
+      overflow-y: auto;
     }
     section { padding: 20px; }
     .card {
@@ -1071,9 +1206,45 @@ INDEX_HTML = r"""<!doctype html>
       margin-bottom: 14px;
     }
     .card h2 {
-      font-size: 15px;
+      font-size: 16px;
       margin: 0 0 10px;
     }
+    .section-kicker {
+      color: var(--muted);
+      font-size: 11px;
+      font-weight: 800;
+      letter-spacing: .06em;
+      text-transform: uppercase;
+      margin-bottom: 6px;
+    }
+    .route-map {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 8px;
+      margin: 10px 0 4px;
+    }
+    .route-step {
+      display: grid;
+      grid-template-columns: 34px 1fr;
+      gap: 10px;
+      align-items: start;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 10px;
+      background: var(--panel-3);
+    }
+    .route-num {
+      width: 26px;
+      height: 26px;
+      border-radius: 999px;
+      display: grid;
+      place-items: center;
+      font-weight: 900;
+      color: #07111f;
+      background: var(--green);
+    }
+    .route-title { font-weight: 800; }
+    .route-copy { color: var(--muted); font-size: 12px; line-height: 1.5; margin-top: 2px; }
     .help {
       color: var(--muted);
       font-size: 12px;
@@ -1139,7 +1310,7 @@ INDEX_HTML = r"""<!doctype html>
     button {
       width: 100%;
       border: 0;
-      border-radius: 6px;
+      border-radius: 7px;
       background: var(--blue);
       color: #07111f;
       font-weight: 700;
@@ -1147,9 +1318,18 @@ INDEX_HTML = r"""<!doctype html>
       margin-top: 10px;
       cursor: pointer;
     }
+    button:hover { filter: brightness(1.08); }
     button.secondary { background: var(--panel-2); color: var(--text); border: 1px solid var(--line); }
     button.warn { background: var(--yellow); color: #1b1300; }
     button.primary { background: var(--green); color: #06150f; }
+    button.ghost { background: transparent; color: var(--text); border: 1px solid var(--line); }
+    .action-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 8px;
+      margin-top: 10px;
+    }
+    .action-grid button { margin-top: 0; }
     details {
       border-top: 1px solid var(--line);
       margin-top: 12px;
@@ -1162,7 +1342,7 @@ INDEX_HTML = r"""<!doctype html>
     }
     .status {
       display: grid;
-      grid-template-columns: repeat(3, minmax(0, 1fr));
+      grid-template-columns: repeat(4, minmax(0, 1fr));
       gap: 12px;
       margin-bottom: 16px;
     }
@@ -1176,10 +1356,29 @@ INDEX_HTML = r"""<!doctype html>
     .pill .v { margin-top: 4px; font-size: 14px; overflow-wrap: anywhere; }
     .tabs { display: flex; gap: 8px; margin-bottom: 12px; }
     .tabs button { width: auto; margin: 0; padding: 8px 10px; }
+    .view-tabs {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-bottom: 12px;
+    }
+    .view-tabs button {
+      width: auto;
+      margin: 0;
+      padding: 9px 11px;
+      color: var(--text);
+      background: var(--panel);
+      border: 1px solid var(--line);
+    }
+    .view-tabs button.active {
+      color: #07111f;
+      background: var(--green);
+      border-color: transparent;
+    }
     .output {
       white-space: pre-wrap;
       word-break: break-word;
-      background: #090b10;
+      background: #08090c;
       border: 1px solid var(--line);
       border-radius: 8px;
       padding: 14px;
@@ -1270,6 +1469,33 @@ INDEX_HTML = r"""<!doctype html>
       font-size: 12px;
       font-weight: 700;
     }
+    .lane-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 14px;
+      margin: 12px 0;
+    }
+    .lane-card {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 12px;
+      background: var(--panel-3);
+    }
+    .mini-flow {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 6px;
+      margin: 10px 0;
+    }
+    .mini-flow span {
+      border: 1px solid var(--line);
+      border-radius: 7px;
+      padding: 8px 6px;
+      text-align: center;
+      color: #dce6f3;
+      font-size: 12px;
+      background: #0d1016;
+    }
     .timeline-step {
       border-left: 3px solid var(--line);
       padding: 10px 0 10px 14px;
@@ -1314,39 +1540,58 @@ INDEX_HTML = r"""<!doctype html>
       main { grid-template-columns: 1fr; }
       aside { border-right: 0; border-bottom: 1px solid var(--line); }
       .status { grid-template-columns: 1fr; }
-      .metric-grid, .split, .form-grid, .form-row, .quick-tasks, .flow-strip { grid-template-columns: 1fr; }
+      .metric-grid, .split, .form-grid, .form-row, .quick-tasks, .flow-strip, .lane-grid, .mini-flow, .action-grid { grid-template-columns: 1fr; }
     }
   </style>
 </head>
 <body>
   <header>
     <div>
-      <h1>Agent Forge</h1>
-      <div class="subtitle">SWE-bench-oriented CodingAgent Harness</div>
+      <div class="eyebrow">Agent Forge Workbench</div>
+      <h1>面试展示驾驶舱</h1>
+      <div class="subtitle">把真实运行、Single/Multi 对比、trace、usage 和安全边界整理成一条可讲清楚的展示路径。</div>
     </div>
-    <div class="subtitle" id="projectDir"></div>
+    <div class="project-chip" id="projectDir"></div>
   </header>
   <main>
     <aside>
       <div class="card">
-        <h2>环境检查</h2>
+        <div class="section-kicker">Recommended path</div>
+        <h2>面试展示路径</h2>
         <div class="help">
-          检查 Python、Git、DeepSeek API Key、datasets、Docker、SWE-bench harness 是否可用。展示前先点一次，确认本机环境接好。
+          展示时优先走这条线：先讲项目证明什么，再打开真实 evidence。这里的按钮只负责“看懂和讲清楚”，不启动昂贵任务。
         </div>
-        <button onclick="startJob('doctor')">Run Doctor</button>
+        <div class="route-map">
+          <div class="route-step">
+            <div class="route-num">1</div>
+            <div><div class="route-title">面试总览</div><div class="route-copy">5 分钟讲法、核心亮点、边界和证据入口。</div></div>
+          </div>
+          <div class="route-step">
+            <div class="route-num">2</div>
+            <div><div class="route-title">Single vs Multi 对比</div><div class="route-copy">讲清楚为什么需要 coordinator，以及成本 tradeoff。</div></div>
+          </div>
+          <div class="route-step">
+            <div class="route-num">3</div>
+            <div><div class="route-title">成本与工具效率</div><div class="route-copy">展示 token、cost、cache、context、tool failure。</div></div>
+          </div>
+          <div class="route-step">
+            <div class="route-num">4</div>
+            <div><div class="route-title">执行时间线</div><div class="route-copy">解释 AgentLoop 每一步怎么被 runtime 控制。</div></div>
+          </div>
+        </div>
+        <button class="primary" onclick="loadEvidence('interview')">打开面试总览</button>
+        <div class="action-grid">
+          <button class="secondary" onclick="loadEvidence('compare')">Single vs Multi 对比</button>
+          <button class="secondary" onclick="loadEvidence('summary')">结果摘要</button>
+          <button class="secondary" onclick="loadEvidence('usage')">成本与工具效率</button>
+          <button class="secondary" onclick="loadEvidence('timeline')">执行时间线</button>
+        </div>
       </div>
       <div class="card">
-        <h2>CodingAgent Workbench</h2>
+        <div class="section-kicker">Run real evidence</div>
+        <h2>真实运行操作</h2>
         <div class="help">
-          在这里配置一次真实 Agent 运行：任务、模型、上下文预算、审批策略、Skill、MCP 都从页面传入，不需要记命令。
-        </div>
-        <label>Task</label>
-        <textarea id="task">检查当前仓库的 AgentLoop 调用链，给出一个小而安全的代码改进，并保留 trace 和 usage 证据。</textarea>
-        <div class="quick-tasks">
-          <button class="secondary" onclick="setTaskPreset('repo')">读懂仓库</button>
-          <button class="secondary" onclick="setTaskPreset('fix')">修复问题</button>
-          <button class="secondary" onclick="setTaskPreset('refactor')">安全重构</button>
-          <button class="secondary" onclick="setTaskPreset('doc')">补充说明</button>
+          这里才是真正启动 Agent。展示推荐先跑固定 SWE-bench reference case；日常开发再用下面的自由任务。
         </div>
         <div class="form-grid">
           <div>
@@ -1390,6 +1635,43 @@ INDEX_HTML = r"""<!doctype html>
             </select>
           </div>
         </div>
+        <label>Agent Mode</label>
+        <select id="benchAgentMode">
+          <option value="compare">推荐展示：single + multi 分别跑，再生成 comparison</option>
+          <option value="multi">只跑多 Agent：coordinator + reviewer/verifier</option>
+          <option value="single">只跑单 Agent：canonical AgentLoop</option>
+        </select>
+        <div class="checkbox-line">
+          <input id="directBaseline" type="checkbox" checked />
+          <span>同时跑 direct baseline，用来回答“为什么需要 harness 而不是只问一次模型”。</span>
+        </div>
+        <div class="checkbox-line">
+          <input id="officialEvaluate" type="checkbox" />
+          <span>调用官方 SWE-bench 评测；需要 Docker 和 swebench 包，耗时更长。</span>
+        </div>
+        <label>Official Eval Workers</label>
+        <input id="maxWorkers" type="number" min="1" max="8" value="1" />
+        <button class="primary" onclick="startJob('swebench_sample')">运行固定 SWE-bench 案例</button>
+        <details>
+          <summary>跑固定回归集，成本更高</summary>
+          <div class="help">
+            固定运行 3 个真实 SWE-bench cases，用于比较 harness 改动前后的 patch rate、blocked rate、token/cost 和 failure diagnosis。
+          </div>
+          <button class="secondary" onclick="startJob('swebench_regression')">运行核心回归集</button>
+        </details>
+      </div>
+      <div class="card">
+        <div class="section-kicker">Daily agent task</div>
+        <h2>日常 Agent 任务</h2>
+        <div class="help">用于你自己实际开发和学习，不是面试固定展示路线。</div>
+        <label>Task</label>
+        <textarea id="task">检查当前仓库的 AgentLoop 调用链，给出一个小而安全的代码改进，并保留 trace 和 usage 证据。</textarea>
+        <div class="quick-tasks">
+          <button class="secondary" onclick="setTaskPreset('repo')">读懂仓库</button>
+          <button class="secondary" onclick="setTaskPreset('fix')">修复问题</button>
+          <button class="secondary" onclick="setTaskPreset('refactor')">安全重构</button>
+          <button class="secondary" onclick="setTaskPreset('doc')">补充说明</button>
+        </div>
         <details>
           <summary>高级：workspace / Skill / MCP / 输出目录</summary>
           <label>Workspace</label>
@@ -1405,89 +1687,53 @@ INDEX_HTML = r"""<!doctype html>
           <label>Output Root</label>
           <input id="outputRoot" value=".agent_forge/runs" />
         </details>
-        <button class="primary" onclick="startJob('agent_run')">Run Agent</button>
+        <button class="primary" onclick="startJob('agent_run')">运行自定义 Agent 任务</button>
       </div>
       <div class="card">
-        <h2>SWE-bench 闭环</h2>
+        <div class="section-kicker">Maintenance</div>
+        <h2>环境与维护</h2>
         <div class="help">
-          固定运行 <span class="mono">astropy__astropy-12907</span>，用同一个真实缺陷观察 trace、token、工具效率、patch 结果和 direct baseline 差异。
+          Doctor 只检查环境；Verify 是本地 smoke 验证。它们不是面试主证据，避免和 SWE-bench evidence 混淆。
         </div>
-        <label>Agent Mode</label>
-        <select id="benchAgentMode">
-          <option value="compare">compare: single 和 multi 分别跑，再生成 comparison</option>
-          <option value="multi">multi: coordinator + reviewer/verifier</option>
-          <option value="single">single: 只跑 AgentLoop</option>
-        </select>
-        <div class="checkbox-line">
-          <input id="directBaseline" type="checkbox" checked />
-          <span>同时跑 direct baseline，用来回答“为什么需要 harness 而不是只问一次模型”。</span>
-        </div>
-        <div class="checkbox-line">
-          <input id="officialEvaluate" type="checkbox" />
-          <span>调用官方 SWE-bench 评测；需要 Docker 和 swebench 包，耗时更长。</span>
-        </div>
-        <label>Official Eval Workers</label>
-        <input id="maxWorkers" type="number" min="1" max="8" value="1" />
-        <button class="primary" onclick="startJob('swebench_sample')">Run Reference Case</button>
-        <details>
-          <summary>跑固定回归集，成本更高</summary>
-          <div class="help">
-            固定运行 3 个真实 SWE-bench cases，用于比较 harness 改动前后的 patch rate、blocked rate、token/cost 和 failure diagnosis。
-          </div>
-          <button class="secondary" onclick="startJob('swebench_regression')">Run Core Regression Set</button>
-        </details>
-      </div>
-      <div class="card">
-        <h2>运行证据</h2>
-        <div class="help">
-          这些按钮不会直接 dump 原始 JSON 或命令行日志，而是把运行产物整理成适合展示的卡片、表格和时间线。
-        </div>
-        <div class="help">
-          面试展示总览：5 分钟路线、runtime flow、role timeline、artifact handoff、single vs multi、safety/failure 讲法。
-        </div>
-        <button class="primary" onclick="loadEvidence('interview')">Show Interview Evidence</button>
-        <div class="help">
-          看本次 benchmark/run 的结果、case、状态、patch 是否生成、成本摘要。
-        </div>
-        <button class="secondary" onclick="loadEvidence('summary')">Show Result Summary</button>
-        <div class="help">
-          看 token、cost、cache、context breakdown、tool efficiency 和 step 级消耗。
-        </div>
-        <button class="secondary" onclick="loadEvidence('usage')">Show Usage Dashboard</button>
-        <div class="help">
-          看每一步 context、LLM、action、tool observation、guardrail/permission 的执行时间线。
-        </div>
-        <button class="secondary" onclick="loadEvidence('timeline')">Show Trace Timeline</button>
+        <button class="secondary" onclick="startJob('doctor')">运行 Doctor 环境检查</button>
+        <button class="secondary" onclick="startJob('verify')">运行 Verify smoke check</button>
         <details>
           <summary>调试时查看原始报告</summary>
-          <button class="secondary" onclick="loadEvidence('raw_report')">Load Raw Report</button>
+          <button class="secondary" onclick="loadEvidence('raw_report')">查看原始 report.md</button>
         </details>
-      </div>
-      <div class="card">
-        <h2>本地健康检查</h2>
-        <div class="help">
-          检查包导入、公开入口、Skill registry、MCP 配置；如果配置了 DeepSeek API key，还会跑一次真实只读 Agent 任务。
-        </div>
-        <button class="secondary" onclick="startJob('verify')">Run Verify</button>
       </div>
     </aside>
     <section>
       <div class="status">
         <div class="pill"><div class="k">Python</div><div class="v" id="python"></div></div>
         <div class="pill"><div class="k">Latest Report</div><div class="v" id="latestReport"></div></div>
+        <div class="pill"><div class="k">Current View</div><div class="v" id="currentView">面试总览</div></div>
         <div class="pill"><div class="k">Active Job</div><div class="v" id="activeJob">none</div></div>
       </div>
-      <div class="tabs">
-        <button class="secondary" onclick="refreshStatus()">Refresh</button>
-        <button class="secondary" onclick="clearOutput()">Clear Output</button>
+      <div class="view-tabs">
+        <button data-view="interview" onclick="loadEvidence('interview')">面试总览</button>
+        <button data-view="compare" onclick="loadEvidence('compare')">Single vs Multi 对比</button>
+        <button data-view="summary" onclick="loadEvidence('summary')">结果摘要</button>
+        <button data-view="usage" onclick="loadEvidence('usage')">成本与工具效率</button>
+        <button data-view="timeline" onclick="loadEvidence('timeline')">执行时间线</button>
+        <button class="ghost" onclick="refreshStatus()">刷新状态</button>
+        <button class="ghost" onclick="clearOutput()">清空输出</button>
       </div>
-      <div id="output" class="output">Ready. 建议先点 Run Doctor，再点 Run SWE-bench with DeepSeek，然后看 Result Summary / Usage Dashboard / Trace Timeline。</div>
+      <div id="output" class="output">正在加载面试总览...</div>
       <h2 style="font-size:16px">Recent Jobs</h2>
       <div id="jobs"></div>
     </section>
   </main>
   <script>
     let currentJob = null;
+    const evidenceTitles = {
+      interview: '面试总览',
+      compare: 'Single vs Multi 对比',
+      summary: '结果摘要',
+      usage: '成本与工具效率',
+      timeline: '执行时间线',
+      raw_report: '原始报告'
+    };
     const taskPresets = {
       repo: '阅读当前仓库结构，说明 AgentLoop、Context、ToolRouter、Skill、MCP、Trace 的主调用链，不要修改文件。',
       fix: '定位当前仓库里一个真实的小问题，先解释根因，再做最小代码修改，并运行必要验证。',
@@ -1584,7 +1830,16 @@ INDEX_HTML = r"""<!doctype html>
       const res = await fetch(`/api/evidence?kind=${encodeURIComponent(kind)}`);
       const data = await res.json();
       document.getElementById('output').innerHTML = data.html;
+      setActiveEvidence(kind);
       refreshStatus();
+    }
+
+    function setActiveEvidence(kind) {
+      const title = evidenceTitles[kind] || kind;
+      document.getElementById('currentView').textContent = title;
+      for (const button of document.querySelectorAll('[data-view]')) {
+        button.classList.toggle('active', button.dataset.view === kind);
+      }
     }
 
     function clearOutput() {
@@ -1615,6 +1870,7 @@ INDEX_HTML = r"""<!doctype html>
 
     document.getElementById('provider').addEventListener('change', applyProviderDefaults);
     refreshStatus();
+    loadEvidence('interview');
   </script>
 </body>
 </html>

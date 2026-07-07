@@ -45,6 +45,23 @@ class PublicCliSmokeTest(unittest.TestCase):
         self.assertIn("Single vs Multi", html)
         self.assertIn("Safety", html)
 
+    def test_compare_evidence_view_has_clear_single_multi_story(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            html = _render_evidence_html(Path(tmp), "compare")
+        self.assertIn("Single vs Multi 对比", html)
+        self.assertIn("单 Agent", html)
+        self.assertIn("多 Agent Coordinator", html)
+        self.assertIn("不要声称 multi-agent 一定更强", html)
+
+    def test_ui_labels_separate_interview_evidence_from_operations(self):
+        from agent_forge.ui import INDEX_HTML
+
+        self.assertIn("面试展示路径", INDEX_HTML)
+        self.assertIn("真实运行操作", INDEX_HTML)
+        self.assertIn("Single vs Multi 对比", INDEX_HTML)
+        self.assertIn("成本与工具效率", INDEX_HTML)
+        self.assertIn("执行时间线", INDEX_HTML)
+
     def test_latest_run_prefers_existing_swebench_over_verify_pointer(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
