@@ -1137,18 +1137,20 @@ INDEX_HTML = r"""<!doctype html>
   <title>Agent Forge</title>
   <style>
     :root {
-      --bg: #0b0c0f;
-      --panel: #15171c;
-      --panel-2: #20242c;
-      --panel-3: #101217;
-      --text: #edf2f7;
-      --muted: #9aa4b2;
-      --line: #2a303a;
-      --green: #3ddc97;
-      --blue: #70b8ff;
-      --yellow: #ffd166;
-      --red: #ff6b6b;
-      --purple: #b8a5ff;
+      --bg: #0d0f14;
+      --surface: #12151c;
+      --panel: #171b24;
+      --panel-2: #202634;
+      --panel-3: #10131a;
+      --text: #f3f6fb;
+      --muted: #9ca8b7;
+      --line: #2b3342;
+      --accent: #7dd3c7;
+      --accent-strong: #9ce7dc;
+      --blue: #8bbcff;
+      --yellow: #e8c46c;
+      --red: #f07178;
+      --shadow: rgba(0, 0, 0, .34);
     }
     * { box-sizing: border-box; }
     body {
@@ -1158,17 +1160,21 @@ INDEX_HTML = r"""<!doctype html>
       color: var(--text);
     }
     header {
-      padding: 24px 30px;
+      padding: 18px 28px;
       border-bottom: 1px solid var(--line);
       display: flex;
       align-items: center;
       justify-content: space-between;
       gap: 16px;
-      background: #101217;
+      background: rgba(16, 19, 26, .96);
+      backdrop-filter: blur(16px);
+      position: sticky;
+      top: 0;
+      z-index: 10;
     }
-    h1 { margin: 0; font-size: 28px; letter-spacing: 0; }
+    h1 { margin: 0; font-size: 24px; letter-spacing: 0; }
     .eyebrow {
-      color: var(--green);
+      color: var(--accent-strong);
       font-size: 12px;
       font-weight: 800;
       text-transform: uppercase;
@@ -1186,24 +1192,66 @@ INDEX_HTML = r"""<!doctype html>
       font-size: 12px;
       overflow-wrap: anywhere;
     }
+    .header-actions {
+      display: flex;
+      align-items: center;
+      justify-content: flex-end;
+      gap: 10px;
+      min-width: 360px;
+    }
+    .header-actions button {
+      width: auto;
+      margin: 0;
+      white-space: nowrap;
+    }
     main {
       display: grid;
       grid-template-columns: minmax(360px, 420px) minmax(0, 1fr);
-      min-height: calc(100vh - 84px);
+      min-height: calc(100vh - 79px);
+    }
+    body.sidebar-collapsed main { grid-template-columns: minmax(0, 1fr); }
+    body.sidebar-collapsed aside { display: none; }
+    body.status-collapsed .status { display: none; }
+    body.focus-mode header {
+      padding: 10px 18px;
+    }
+    body.focus-mode .eyebrow,
+    body.focus-mode .subtitle,
+    body.focus-mode .project-chip,
+    body.focus-mode .status,
+    body.focus-mode #jobsTitle,
+    body.focus-mode #jobs {
+      display: none;
+    }
+    body.focus-mode main {
+      min-height: calc(100vh - 49px);
+    }
+    body.focus-mode section {
+      padding: 16px 22px 22px;
+    }
+    body.focus-mode .output {
+      max-height: none;
+      min-height: calc(100vh - 134px);
     }
     aside {
       border-right: 1px solid var(--line);
       padding: 20px;
-      background: #101217;
+      background: var(--surface);
       overflow-y: auto;
     }
-    section { padding: 20px; }
+    section {
+      padding: 18px 28px 28px;
+      max-width: 1720px;
+      width: 100%;
+      margin: 0 auto;
+    }
     .card {
       background: var(--panel);
       border: 1px solid var(--line);
       border-radius: 8px;
       padding: 14px;
       margin-bottom: 14px;
+      box-shadow: 0 10px 30px var(--shadow);
     }
     .card h2 {
       font-size: 16px;
@@ -1240,8 +1288,8 @@ INDEX_HTML = r"""<!doctype html>
       display: grid;
       place-items: center;
       font-weight: 900;
-      color: #07111f;
-      background: var(--green);
+      color: #06100f;
+      background: var(--accent);
     }
     .route-title { font-weight: 800; }
     .route-copy { color: var(--muted); font-size: 12px; line-height: 1.5; margin-top: 2px; }
@@ -1314,14 +1362,14 @@ INDEX_HTML = r"""<!doctype html>
       background: var(--blue);
       color: #07111f;
       font-weight: 700;
-      padding: 10px 12px;
+      padding: 9px 12px;
       margin-top: 10px;
       cursor: pointer;
     }
     button:hover { filter: brightness(1.08); }
     button.secondary { background: var(--panel-2); color: var(--text); border: 1px solid var(--line); }
     button.warn { background: var(--yellow); color: #1b1300; }
-    button.primary { background: var(--green); color: #06150f; }
+    button.primary { background: var(--accent); color: #06100f; }
     button.ghost { background: transparent; color: var(--text); border: 1px solid var(--line); }
     .action-grid {
       display: grid;
@@ -1361,31 +1409,41 @@ INDEX_HTML = r"""<!doctype html>
       flex-wrap: wrap;
       gap: 8px;
       margin-bottom: 12px;
+      align-items: center;
+      position: sticky;
+      top: 81px;
+      z-index: 8;
+      padding: 10px 0;
+      background: rgba(13, 15, 20, .94);
+      backdrop-filter: blur(14px);
     }
     .view-tabs button {
       width: auto;
       margin: 0;
-      padding: 9px 11px;
+      padding: 8px 11px;
+      font-size: 13px;
       color: var(--text);
       background: var(--panel);
       border: 1px solid var(--line);
     }
     .view-tabs button.active {
-      color: #07111f;
-      background: var(--green);
-      border-color: transparent;
+      color: var(--accent-strong);
+      background: #16231f;
+      border-color: rgba(125, 211, 199, .62);
+      box-shadow: inset 0 0 0 1px rgba(125, 211, 199, .12);
     }
     .output {
       white-space: pre-wrap;
       word-break: break-word;
-      background: #08090c;
+      background: #0a0c11;
       border: 1px solid var(--line);
       border-radius: 8px;
-      padding: 14px;
-      min-height: 360px;
-      max-height: 70vh;
+      padding: 22px 26px;
+      min-height: calc(100vh - 245px);
+      max-height: none;
       overflow: auto;
       color: #dce6f3;
+      box-shadow: 0 18px 44px var(--shadow);
     }
     .evidence { white-space: normal; color: var(--text); }
     .evidence h2 { margin: 0 0 8px; font-size: 20px; }
@@ -1401,9 +1459,9 @@ INDEX_HTML = r"""<!doctype html>
       border: 1px solid var(--line);
       border-radius: 8px;
       padding: 12px;
-      background: #111620;
+      background: #101722;
     }
-    .metric-card.ok { border-color: rgba(61, 220, 151, .45); }
+    .metric-card.ok { border-color: rgba(125, 211, 199, .44); }
     .metric-card.warn { border-color: rgba(255, 209, 102, .55); }
     .metric-card.bad { border-color: rgba(255, 107, 107, .55); }
     .metric-label, .label { color: var(--muted); font-size: 12px; margin-right: 8px; }
@@ -1423,7 +1481,7 @@ INDEX_HTML = r"""<!doctype html>
       color: var(--text);
       background: var(--panel-2);
     }
-    .badge.ok, .event-pill.ok { border-color: rgba(61, 220, 151, .5); color: var(--green); }
+    .badge.ok, .event-pill.ok { border-color: rgba(125, 211, 199, .5); color: var(--accent-strong); }
     .badge.warn, .event-pill.warn { border-color: rgba(255, 209, 102, .55); color: var(--yellow); }
     .badge.bad, .event-pill.bad { border-color: rgba(255, 107, 107, .55); color: var(--red); }
     .event-pill.blue { border-color: rgba(106, 169, 255, .55); color: var(--blue); }
@@ -1478,7 +1536,7 @@ INDEX_HTML = r"""<!doctype html>
     .lane-card {
       border: 1px solid var(--line);
       border-radius: 8px;
-      padding: 12px;
+      padding: 18px;
       background: var(--panel-3);
     }
     .mini-flow {
@@ -1544,14 +1602,19 @@ INDEX_HTML = r"""<!doctype html>
     }
   </style>
 </head>
-<body>
+<body class="sidebar-collapsed status-collapsed">
   <header>
     <div>
       <div class="eyebrow">Agent Forge Workbench</div>
       <h1>面试展示驾驶舱</h1>
       <div class="subtitle">把真实运行、Single/Multi 对比、trace、usage 和安全边界整理成一条可讲清楚的展示路径。</div>
     </div>
-    <div class="project-chip" id="projectDir"></div>
+    <div class="header-actions">
+      <button id="sidebarToggle" class="secondary" onclick="toggleSidebar()">显示操作面板</button>
+      <button id="statusToggle" class="secondary" onclick="toggleStatusBar()">显示状态栏</button>
+      <button id="focusToggle" class="primary" onclick="toggleFocusMode()">专注展示</button>
+      <div class="project-chip" id="projectDir"></div>
+    </div>
   </header>
   <main>
     <aside>
@@ -1716,11 +1779,14 @@ INDEX_HTML = r"""<!doctype html>
         <button data-view="summary" onclick="loadEvidence('summary')">结果摘要</button>
         <button data-view="usage" onclick="loadEvidence('usage')">成本与工具效率</button>
         <button data-view="timeline" onclick="loadEvidence('timeline')">执行时间线</button>
+        <button class="ghost" onclick="toggleSidebar()">显示/隐藏操作面板</button>
+        <button class="ghost" onclick="toggleStatusBar()">显示/隐藏状态栏</button>
+        <button class="ghost" onclick="toggleFocusMode()">专注展示</button>
         <button class="ghost" onclick="refreshStatus()">刷新状态</button>
         <button class="ghost" onclick="clearOutput()">清空输出</button>
       </div>
       <div id="output" class="output">正在加载面试总览...</div>
-      <h2 style="font-size:16px">Recent Jobs</h2>
+      <h2 id="jobsTitle" style="font-size:16px">Recent Jobs</h2>
       <div id="jobs"></div>
     </section>
   </main>
@@ -1847,6 +1913,46 @@ INDEX_HTML = r"""<!doctype html>
       document.getElementById('activeJob').textContent = 'none';
     }
 
+    function toggleSidebar() {
+      const collapsed = document.body.classList.toggle('sidebar-collapsed');
+      updateLayoutControls();
+      return collapsed;
+    }
+
+    function toggleFocusMode() {
+      const enabled = document.body.classList.toggle('focus-mode');
+      if (enabled) {
+        document.body.classList.add('sidebar-collapsed');
+        document.body.classList.add('status-collapsed');
+      }
+      updateLayoutControls();
+      return enabled;
+    }
+
+    function toggleStatusBar() {
+      const collapsed = document.body.classList.toggle('status-collapsed');
+      updateLayoutControls();
+      return collapsed;
+    }
+
+    function updateLayoutControls() {
+      const sidebarHidden = document.body.classList.contains('sidebar-collapsed');
+      const statusHidden = document.body.classList.contains('status-collapsed');
+      const focused = document.body.classList.contains('focus-mode');
+      const sidebarToggle = document.getElementById('sidebarToggle');
+      const statusToggle = document.getElementById('statusToggle');
+      const focusToggle = document.getElementById('focusToggle');
+      if (sidebarToggle) {
+        sidebarToggle.textContent = sidebarHidden ? '显示操作面板' : '隐藏操作面板';
+      }
+      if (statusToggle) {
+        statusToggle.textContent = statusHidden ? '显示状态栏' : '隐藏状态栏';
+      }
+      if (focusToggle) {
+        focusToggle.textContent = focused ? '退出专注' : '专注展示';
+      }
+    }
+
     function setTaskPreset(name) {
       document.getElementById('task').value = taskPresets[name] || taskPresets.repo;
     }
@@ -1869,6 +1975,7 @@ INDEX_HTML = r"""<!doctype html>
     }
 
     document.getElementById('provider').addEventListener('change', applyProviderDefaults);
+    updateLayoutControls();
     refreshStatus();
     loadEvidence('interview');
   </script>

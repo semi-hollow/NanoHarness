@@ -61,6 +61,9 @@ class PublicCliSmokeTest(unittest.TestCase):
         self.assertIn("Single vs Multi 对比", INDEX_HTML)
         self.assertIn("成本与工具效率", INDEX_HTML)
         self.assertIn("执行时间线", INDEX_HTML)
+        self.assertIn("显示操作面板", INDEX_HTML)
+        self.assertIn("专注展示", INDEX_HTML)
+        self.assertIn("显示状态栏", INDEX_HTML)
 
     def test_latest_run_prefers_existing_swebench_over_verify_pointer(self):
         with tempfile.TemporaryDirectory() as tmp:
