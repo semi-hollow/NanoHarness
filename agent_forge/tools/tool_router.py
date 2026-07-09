@@ -20,6 +20,16 @@ class ToolRoute:
     # Capability/risk/latency tags for each exposed tool.
     metadata: dict[str, dict]
 
+    def policy_summary(self) -> dict[str, object]:
+        """Return report-friendly tool routing facts for this turn."""
+
+        return {
+            "allowed_tools": sorted(self.allowed_names),
+            "hidden_tools": list(self.dropped_names),
+            "tool_count": {"allowed": len(self.allowed_names), "hidden": len(self.dropped_names)},
+            "metadata": self.metadata,
+        }
+
 
 class ToolRouter:
     """Route a large tool catalog down to task-relevant candidates.

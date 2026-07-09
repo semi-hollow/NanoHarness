@@ -1,6 +1,16 @@
 from pathlib import Path
 
 
+def sandbox_policy_summary(workspace_root: str) -> dict[str, object]:
+    """Return report-friendly workspace boundary facts."""
+
+    return {
+        "workspace_root": workspace_root,
+        "path_escape_allowed": False,
+        "side_effect_scope": "workspace-only",
+    }
+
+
 class WorkspaceSandbox:
     """Path-level safety boundary for all file tools.
 

@@ -18,6 +18,18 @@ DENY_EXACT = {
 }
 
 
+def command_policy_summary() -> dict[str, object]:
+    """Return report-friendly command safety policy facts."""
+
+    return {
+        "free_form_shell": False,
+        "path_escape_allowed": False,
+        "preferred_validation_tools": ["diagnostics", "git_diff", "git_status"],
+        "blocked_patterns": ["pipes", "redirects", "temporary script workarounds", "destructive commands"],
+    }
+
+
+
 def check_command(command: str) -> tuple[bool, str]:
     """Allow safe validation commands and read-only git inspection.
 
