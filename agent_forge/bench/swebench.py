@@ -23,6 +23,7 @@ from agent_forge.runtime.llm_config import resolve_llm_config
 from agent_forge.runtime.message import Message
 from agent_forge.runtime.wiring import build_llm, build_registry
 
+from .case_study import write_case_study
 from .diagnostics import attach_failure_diagnosis
 from .report import write_bench_artifacts
 from .types import BenchCase, BenchCaseResult, BenchRunSummary
@@ -250,6 +251,7 @@ def run_swebench(
                         max_revision_rounds=max_revision_rounds,
                     )
                 attach_failure_diagnosis(result)
+                write_case_study(result)
                 summary.case_results.append(result)
                 prediction_file.write(
                     json.dumps(
