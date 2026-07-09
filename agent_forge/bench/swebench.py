@@ -250,8 +250,6 @@ def run_swebench(
                         profile=profile,
                         max_revision_rounds=max_revision_rounds,
                     )
-                attach_failure_diagnosis(result)
-                write_case_study(result)
                 summary.case_results.append(result)
                 prediction_file.write(
                     json.dumps(
@@ -282,8 +280,10 @@ def run_swebench(
 
     if evaluate:
         _run_official_evaluation(summary, max_workers=max_workers, namespace_empty=namespace_empty)
-        for result in summary.case_results:
-            attach_failure_diagnosis(result)
+
+    for result in summary.case_results:
+        attach_failure_diagnosis(result)
+        write_case_study(result)
 
     write_bench_artifacts(summary)
     _write_latest_pointer(output_dir)
