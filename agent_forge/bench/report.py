@@ -77,6 +77,27 @@ def render_bench_report(summary: BenchRunSummary) -> str:
             "- `not_evaluated`: no correctness claim should be made beyond the available trace and patch evidence.",
         ]
     )
+    if summary.variant_comparisons:
+        lines.extend(
+            [
+                "",
+                "## Baseline Comparison",
+                "",
+                "| instance | direct_baseline | single_agent | governed_agent | recommendation |",
+                "| --- | --- | --- | --- | --- |",
+            ]
+        )
+        for instance_id, comparison in summary.variant_comparisons.items():
+            variants = comparison.get("variants") or {}
+            direct = variants.get("direct_baseline") or {}
+            single = variants.get("single_agent") or {}
+            governed = variants.get("governed_agent") or {}
+            lines.append(
+                "| "
+                f"`{instance_id}` | {_variant_cell(direct)} | {_variant_cell(single)} | "
+                f"{_variant_cell(governed)} | {_table_cell(str(comparison.get('recommendation') or ''))} |"
+            )
+
     if summary.official_eval_command:
         lines.extend(
             [
@@ -143,7 +164,8 @@ def render_bench_report(summary: BenchRunSummary) -> str:
             "- `patch_generated`: the agent produced a diff; run official evaluation before claiming resolved.",
             "- `no_patch`: the loop ended without a diff, usually context/tool/step-budget failure.",
             "- `blocked`: guardrail, provider config, command policy, or runtime budget stopped the case.",
-            "- `official_eval_failed`: SWE-bench harness ran and rejected the patch.",
+            "- `official_eval_error`: SWE-bench harness or environment failed; patch correctness is unknown.",
+            "- `official_eval_failed`: SWE-bench harness completed and rejected the patch for this case.",
             "",
             "## Failure Diagnosis",
             "",
@@ -174,6 +196,14 @@ def render_bench_report(summary: BenchRunSummary) -> str:
         lines.append("- No additional notes.")
     lines.append("")
     return "\n".join(lines)
+
+
+def _variant_cell(variant: dict) -> str:
+    """Render one variant in the baseline comparison table."""
+
+    patch = "patch" if variant.get("patch_generated") else "no patch"
+    failure = str(variant.get("failure_class") or "-")
+    return _table_cell(f"{patch}; {failure}")
 
 
 def _table_cell(value: str) -> str:

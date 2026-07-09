@@ -8,7 +8,16 @@ from agent_forge.bench.types import BenchCaseResult
 
 
 class FailureTaxonomyTest(unittest.TestCase):
-    def _result(self, root: Path, *, status="blocked", final_answer="", error="", patch_chars=0):
+    def _result(
+        self,
+        root: Path,
+        *,
+        status="blocked",
+        final_answer="",
+        error="",
+        patch_chars=0,
+        evaluation_status="not_evaluated",
+    ):
         trace_path = root / "trace.json"
         trace_path.write_text(json.dumps({"stop_reason": status}), encoding="utf-8")
         usage_json = root / "usage.json"
@@ -41,6 +50,7 @@ class FailureTaxonomyTest(unittest.TestCase):
             final_answer=final_answer,
             patch_chars=patch_chars,
             error=error,
+            evaluation_status=evaluation_status,
         )
 
     def test_patch_generated_is_not_called_resolved(self):
@@ -63,6 +73,14 @@ class FailureTaxonomyTest(unittest.TestCase):
             diagnosis = diagnose_case_result(result)
         self.assertEqual(diagnosis.failure_class, "tool_schema_mismatch")
         self.assertIn("schema", diagnosis.interview_lesson.lower())
+
+    def test_official_eval_error_is_not_reported_as_patch_rejected(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            result = self._result(Path(tmp), evaluation_status="official_eval_error", patch_chars=12)
+            diagnosis = diagnose_case_result(result)
+        self.assertEqual(diagnosis.failure_class, "official_eval_error")
+        self.assertIn("harness", diagnosis.summary.lower())
+        self.assertNotIn("rejected", diagnosis.summary.lower())
 
 
 if __name__ == "__main__":

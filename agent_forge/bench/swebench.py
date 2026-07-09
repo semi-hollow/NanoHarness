@@ -12,7 +12,7 @@ import uuid
 from pathlib import Path
 from typing import Iterable
 
-from agent_forge.evaluation import compare_runs, extract_run_metrics, load_json_if_exists, write_evaluation_artifacts
+from agent_forge.evaluation import compare_runs, compare_variants, extract_run_metrics, load_json_if_exists, write_evaluation_artifacts
 from agent_forge.multi_agent import MultiAgentCoordinator, get_profile
 from agent_forge.models.gateway import ModelGateway
 from agent_forge.observability.trace import TraceRecorder
@@ -266,14 +266,17 @@ def run_swebench(
                 )
                 prediction_file.flush()
                 if baseline_file:
-                    baseline_file.write(
-                        json.dumps(
-                            _direct_baseline_prediction(case, provider, model, base_url, api_key),
-                            ensure_ascii=False,
-                        )
-                        + "\n"
-                    )
+                    baseline_prediction = _direct_baseline_prediction(case, provider, model, base_url, api_key)
+                    baseline_file.write(json.dumps(baseline_prediction, ensure_ascii=False) + "\n")
                     baseline_file.flush()
+                    summary.variant_comparisons[case.instance_id] = compare_variants(
+                        case.instance_id,
+                        {
+                            "direct_baseline": baseline_prediction,
+                            "single_agent": result.to_dict(),
+                            "governed_agent": result.to_dict(),
+                        },
+                    )
         finally:
             if baseline_file:
                 baseline_file.close()
@@ -452,7 +455,7 @@ def _run_compare_case(
         status=multi_result.status,
         final_answer=multi_result.final_answer,
         patch_chars=multi_result.patch_chars,
-        error=multi_result.error or single_result.error,
+        error=multi_result.error,
         evaluation_status=multi_result.evaluation_status,
         failure_class=multi_result.failure_class or single_result.failure_class,
         diagnosis=multi_result.diagnosis or single_result.diagnosis,
@@ -563,7 +566,7 @@ def _run_official_evaluation(summary: BenchRunSummary, max_workers: int, namespa
     result = subprocess.run(cmd, text=True, capture_output=True)
     summary.official_eval_exit_code = result.returncode
     summary.official_eval_output = f"STDOUT:\n{result.stdout}\nSTDERR:\n{result.stderr}"
-    status = "official_eval_ran" if result.returncode == 0 else "official_eval_failed"
+    status = "official_eval_completed" if result.returncode == 0 else "official_eval_error"
     for case_result in summary.case_results:
         case_result.evaluation_status = status
 

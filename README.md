@@ -264,6 +264,7 @@ Runtime outputs are ignored by Git and live under `.agent_forge/`:
     trace.json             # step-by-step evidence
     usage_report.md        # token, cost, context, and tool breakdown
     patch.diff             # generated candidate patch
+    case_study.md          # per-case outcome, evidence, diagnosis, and next actions
   workspaces/<instance_id>/
     ...                    # clean repo checkout at base_commit
 ```

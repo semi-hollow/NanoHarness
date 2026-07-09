@@ -1,8 +1,8 @@
 # Small Regression Set
 
-NanoHarness uses a small high-signal regression set instead of chasing broad benchmark coverage during development.
+NanoHarness uses a small high-signal regression set instead of chasing broad benchmark coverage during development. The built-in `core` regression command currently runs a small SWE-bench subset; the table below is the target high-signal coverage map for offer-readiness work, including local/non-SWE-bench scenarios that may be represented by case files or docs before they become built-in IDs.
 
-## Target cases
+## Target coverage map
 
 | Case | Purpose | Primary failure mode |
 | --- | --- | --- |

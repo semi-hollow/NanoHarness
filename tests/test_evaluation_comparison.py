@@ -99,6 +99,15 @@ class EvaluationComparisonTest(unittest.TestCase):
         self.assertIn("AgentLoop", result["before_after_summary"])
         self.assertIn("governed", result["recommendation"].lower())
 
+    def test_compare_runs_treats_string_zero_patch_chars_as_no_patch(self):
+        comparison = compare_runs(
+            "case-zero",
+            {"status": "no_patch", "patch_chars": "0"},
+            {"status": "no_patch", "patch_chars": "0"},
+        )
+        self.assertFalse(comparison.single_patch_generated)
+        self.assertFalse(comparison.multi_patch_generated)
+
     def test_compare_variants_treats_model_patch_as_generated_patch(self):
         result = compare_variants(
             "case-model-patch",

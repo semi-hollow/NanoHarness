@@ -115,6 +115,7 @@ class BenchRunSummary:
     profile: str = ""
     max_revision_rounds: int = 0
     baseline_predictions_path: Path | None = None
+    variant_comparisons: dict[str, dict[str, Any]] = field(default_factory=dict)
     official_eval_command: list[str] = field(default_factory=list)
     official_eval_exit_code: int | None = None
     official_eval_output: str = ""
@@ -138,6 +139,7 @@ class BenchRunSummary:
             "baseline_predictions_path": (
                 str(self.baseline_predictions_path) if self.baseline_predictions_path else ""
             ),
+            "variant_comparisons": self.variant_comparisons,
             "official_eval_command": self.official_eval_command,
             "official_eval_exit_code": self.official_eval_exit_code,
             "official_eval_output": self.official_eval_output,

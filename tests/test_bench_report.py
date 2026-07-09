@@ -49,6 +49,51 @@ class BenchReportTests(unittest.TestCase):
         self.assertIn("patch_generated_but_unverified", report)
         self.assertIn("run official evaluation", report)
 
+    def test_report_shows_baseline_comparison_rows(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            trace = root / "trace.json"
+            usage = root / "usage_report.md"
+            patch = root / "patch.diff"
+            trace.write_text("{}", encoding="utf-8")
+            usage.write_text("usage", encoding="utf-8")
+            patch.write_text("diff", encoding="utf-8")
+            case = BenchCaseResult(
+                instance_id="case-1",
+                repo="local/repo",
+                workspace=root,
+                trace_path=trace,
+                usage_report_path=usage,
+                patch_path=patch,
+                status="patch_generated",
+                final_answer="candidate patch generated",
+                patch_chars=4,
+            )
+            summary = BenchRunSummary(
+                run_id="run-1",
+                dataset_name="local",
+                split="test",
+                provider="deepseek",
+                model="default",
+                output_dir=root,
+                predictions_path=root / "predictions.jsonl",
+                case_results=[case],
+                variant_comparisons={
+                    "case-1": {
+                        "recommendation": "governed_agent is worth the added cost for this case.",
+                        "variants": {
+                            "direct_baseline": {"patch_generated": False, "failure_class": "context_miss"},
+                            "single_agent": {"patch_generated": True, "failure_class": "patch_generated_but_unverified"},
+                        },
+                    }
+                },
+            )
+            report = render_bench_report(summary)
+        self.assertIn("## Baseline Comparison", report)
+        self.assertIn("direct_baseline", report)
+        self.assertIn("single_agent", report)
+        self.assertIn("governed_agent is worth", report)
+
 
 if __name__ == "__main__":
     unittest.main()

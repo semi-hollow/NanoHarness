@@ -4,8 +4,8 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from agent_forge.bench.swebench import run_swebench
-from agent_forge.bench.types import BenchCase, BenchCaseResult
+from agent_forge.bench.swebench import _run_official_evaluation, run_swebench
+from agent_forge.bench.types import BenchCase, BenchCaseResult, BenchRunSummary
 from agent_forge.ui import (
     _latest_multi_agent_summary_path,
     _latest_trace_path,
@@ -98,6 +98,149 @@ class SwebenchCompareTest(unittest.TestCase):
             bench_report = (summary.output_dir / "report.md").read_text(encoding="utf-8")
             self.assertIn("comparison", bench_report)
             self.assertIn("evaluation_report.md", bench_report)
+
+    def test_direct_baseline_populates_variant_comparison_and_report(self):
+        def fake_load_cases(dataset_name, split, limit, instance_ids, cases_file):
+            return [BenchCase("local__case-1", "local/repo", "abc123", "Fix local issue")]
+
+        def fake_run_case(**kwargs):
+            case = kwargs["case"]
+            output_dir = kwargs["output_dir"]
+            case_dir = output_dir / "cases" / case.instance_id
+            case_dir.mkdir(parents=True, exist_ok=True)
+            patch_path = case_dir / "patch.diff"
+            trace_path = case_dir / "trace.json"
+            patch_path.write_text("diff --git a/a.py b/a.py\n", encoding="utf-8")
+            trace_path.write_text(json.dumps({"events": []}), encoding="utf-8")
+            return BenchCaseResult(
+                instance_id=case.instance_id,
+                repo=case.repo,
+                workspace=case_dir / "workspace",
+                trace_path=trace_path,
+                usage_report_path=None,
+                patch_path=patch_path,
+                status="patch_generated",
+                final_answer="agent done",
+                patch_chars=patch_path.stat().st_size,
+            )
+
+        with tempfile.TemporaryDirectory() as tmp:
+            with patch("agent_forge.bench.swebench.load_cases", side_effect=fake_load_cases), patch(
+                "agent_forge.bench.swebench._run_case", side_effect=fake_run_case
+            ), patch(
+                "agent_forge.bench.swebench._direct_baseline_prediction",
+                return_value={
+                    "instance_id": "local__case-1",
+                    "model_name_or_path": "direct-test",
+                    "model_patch": "",
+                    "error": "baseline config missing",
+                },
+            ):
+                summary = run_swebench(
+                    agent_mode="single",
+                    output_root=tmp,
+                    provider="deepseek",
+                    direct_baseline=True,
+                )
+            self.assertIn("local__case-1", summary.variant_comparisons)
+            comparison = summary.variant_comparisons["local__case-1"]
+            self.assertFalse(comparison["variants"]["direct_baseline"]["patch_generated"])
+            self.assertTrue(comparison["variants"]["single_agent"]["patch_generated"])
+            report = (summary.output_dir / "report.md").read_text(encoding="utf-8")
+            self.assertIn("## Baseline Comparison", report)
+            self.assertIn("local__case-1", report)
+
+    def test_official_eval_process_failure_is_not_patch_rejection(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            trace = root / "trace.json"
+            patch_path = root / "patch.diff"
+            trace.write_text("{}", encoding="utf-8")
+            patch_path.write_text("diff", encoding="utf-8")
+            case = BenchCaseResult(
+                instance_id="case-1",
+                repo="local/repo",
+                workspace=root,
+                trace_path=trace,
+                usage_report_path=None,
+                patch_path=patch_path,
+                status="patch_generated",
+                final_answer="candidate",
+                patch_chars=4,
+            )
+            summary = BenchRunSummary(
+                run_id="run-1",
+                dataset_name="local",
+                split="test",
+                provider="deepseek",
+                model="default",
+                output_dir=root,
+                predictions_path=root / "predictions.jsonl",
+                case_results=[case],
+            )
+            with patch("agent_forge.bench.swebench.importlib.util.find_spec", return_value=True), patch(
+                "agent_forge.bench.swebench.subprocess.run"
+            ) as run:
+                run.return_value.returncode = 2
+                run.return_value.stdout = ""
+                run.return_value.stderr = "docker failed"
+                _run_official_evaluation(summary, max_workers=1, namespace_empty=False)
+            self.assertEqual(case.evaluation_status, "official_eval_error")
+            self.assertIn("docker failed", summary.official_eval_output)
+
+    def test_compare_mode_combined_result_uses_multi_error_not_single_error(self):
+        case = BenchCase("case-1", "local/repo", "abc123", "Fix it")
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            single_dir = root / "single"
+            multi_dir = root / "multi"
+            for directory in [single_dir, multi_dir]:
+                directory.mkdir(parents=True)
+                (directory / "trace.json").write_text("{}", encoding="utf-8")
+                (directory / "usage.json").write_text(json.dumps({"summary": {}}), encoding="utf-8")
+                (directory / "patch.diff").write_text("diff", encoding="utf-8")
+            single = BenchCaseResult(
+                instance_id="case-1",
+                repo="local/repo",
+                workspace=single_dir,
+                trace_path=single_dir / "trace.json",
+                usage_report_path=None,
+                patch_path=single_dir / "patch.diff",
+                status="blocked",
+                final_answer="single failed",
+                patch_chars=0,
+                error="single provider failed",
+            )
+            multi = BenchCaseResult(
+                instance_id="case-1",
+                repo="local/repo",
+                workspace=multi_dir,
+                trace_path=multi_dir / "trace.json",
+                usage_report_path=None,
+                patch_path=multi_dir / "patch.diff",
+                status="patch_generated",
+                final_answer="multi patched",
+                patch_chars=4,
+                error="",
+            )
+            with patch("agent_forge.bench.swebench._run_case", side_effect=[single, multi]):
+                from agent_forge.bench.swebench import _run_compare_case
+
+                combined = _run_compare_case(
+                    case=case,
+                    manager=None,
+                    output_dir=root,
+                    provider="deepseek",
+                    model=None,
+                    base_url=None,
+                    api_key=None,
+                    max_steps=1,
+                    max_context_chars=100,
+                    profile="coding_fix",
+                    max_revision_rounds=2,
+                )
+            self.assertEqual(combined.error, "")
+            self.assertEqual(combined.status, "patch_generated")
 
     def test_ui_latest_artifact_paths_find_compare_mode_nested_outputs(self):
         with tempfile.TemporaryDirectory() as tmp:

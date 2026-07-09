@@ -69,12 +69,22 @@ def classify_case_result(result: BenchCaseResult, usage: dict[str, Any], trace: 
             impact="A candidate patch may be correct, but the validation environment cannot prove it locally.",
             interview_lesson="Evaluation must distinguish code failure from environment failure so optimization targets stay accurate.",
         )
+    if result.evaluation_status == "official_eval_error":
+        return FailureDiagnosis(
+            "official_eval_error",
+            "The official SWE-bench harness or its environment failed before patch correctness could be judged.",
+            evidence,
+            ["Fix the official evaluation environment, then rerun without changing the agent patch."],
+            severity="high",
+            impact="The run cannot distinguish patch correctness from harness, Docker, or dependency failure.",
+            interview_lesson="Official evaluation process failures must not be reported as patch rejection.",
+        )
     if result.evaluation_status == "official_eval_failed":
         return FailureDiagnosis(
             "official_eval_failed",
-            "The official SWE-bench harness ran and rejected the candidate patch.",
+            "The official SWE-bench harness completed and rejected the candidate patch for this case.",
             evidence,
-            ["Read official eval output and patch.diff together; add this case to regression before tuning."],
+            ["Read official per-case output and patch.diff together; add this case to regression before tuning."],
             severity="high",
             impact="The generated patch did not satisfy benchmark correctness criteria.",
             interview_lesson="Patch generation, local validation, and official resolution are different evidence levels.",

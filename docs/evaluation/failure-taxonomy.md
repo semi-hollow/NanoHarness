@@ -7,6 +7,7 @@ NanoHarness classifies coding-agent failures so a bad run becomes an engineering
 - `patch_generated`: non-empty diff exists; this is a candidate patch only.
 - `local_verified`: project diagnostics or tests passed in the prepared workspace.
 - `official_resolved`: official SWE-bench harness accepted the patch.
+- `official_eval_error`: official harness, Docker, or environment failed; patch correctness is unknown.
 - `not_evaluated`: no correctness claim beyond trace and patch evidence.
 
 ## Failure Classes
@@ -22,7 +23,8 @@ NanoHarness classifies coding-agent failures so a bad run becomes an engineering
 | `provider_transport_error` | Provider transport failed. | Treat separately from agent logic. |
 | `validation_environment_unavailable` | Tests could not run due to environment/dependencies. | Fix environment before tuning the agent. |
 | `patch_generated_but_unverified` | A candidate patch exists but correctness is unproven. | Run local or official evaluation. |
-| `official_eval_failed` | Official harness rejected the patch. | Analyze patch and add case to regression. |
+| `official_eval_error` | Official harness process or environment failed before judging the patch. | Fix Docker/SWE-bench/environment, then rerun evaluation. |
+| `official_eval_failed` | Official harness completed and rejected the patch for this case. | Analyze patch and add case to regression. |
 
 ## Interview framing
 
