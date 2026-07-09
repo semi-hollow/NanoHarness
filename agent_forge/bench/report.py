@@ -74,28 +74,28 @@ def render_bench_report(summary: BenchRunSummary) -> str:
             "- `candidate patch`: the workspace contains a non-empty candidate diff. This is not a solved claim.",
             "- `local_verified`: project diagnostics or tests passed in the prepared workspace.",
             "- `official_resolved`: the official SWE-bench harness accepted the patch.",
+            "- `official_eval_completed`: the harness process completed, but this runner has not parsed per-case pass/fail; inspect official output before claiming resolved.",
             "- `not_evaluated`: no correctness claim should be made beyond the available trace and patch evidence.",
         ]
     )
     if summary.variant_comparisons:
+        variant_names = _variant_names(summary.variant_comparisons)
         lines.extend(
             [
                 "",
                 "## Baseline Comparison",
                 "",
-                "| instance | direct_baseline | single_agent | governed_agent | recommendation |",
-                "| --- | --- | --- | --- | --- |",
+                "| instance | " + " | ".join(variant_names) + " | recommendation |",
+                "| --- | " + " | ".join("---" for _ in variant_names) + " | --- |",
             ]
         )
         for instance_id, comparison in summary.variant_comparisons.items():
             variants = comparison.get("variants") or {}
-            direct = variants.get("direct_baseline") or {}
-            single = variants.get("single_agent") or {}
-            governed = variants.get("governed_agent") or {}
             lines.append(
                 "| "
-                f"`{instance_id}` | {_variant_cell(direct)} | {_variant_cell(single)} | "
-                f"{_variant_cell(governed)} | {_table_cell(str(comparison.get('recommendation') or ''))} |"
+                f"`{instance_id}` | "
+                + " | ".join(_variant_cell(variants.get(name) or {}) for name in variant_names)
+                + f" | {_table_cell(str(comparison.get('recommendation') or ''))} |"
             )
 
     if summary.official_eval_command:
@@ -164,6 +164,7 @@ def render_bench_report(summary: BenchRunSummary) -> str:
             "- `patch_generated`: the agent produced a diff; run official evaluation before claiming resolved.",
             "- `no_patch`: the loop ended without a diff, usually context/tool/step-budget failure.",
             "- `blocked`: guardrail, provider config, command policy, or runtime budget stopped the case.",
+            "- `official_eval_completed`: SWE-bench harness process completed; per-case resolved/failed status is not parsed here.",
             "- `official_eval_error`: SWE-bench harness or environment failed; patch correctness is unknown.",
             "- `official_eval_failed`: SWE-bench harness completed and rejected the patch for this case.",
             "",
@@ -204,6 +205,20 @@ def _variant_cell(variant: dict) -> str:
     patch = "patch" if variant.get("patch_generated") else "no patch"
     failure = str(variant.get("failure_class") or "-")
     return _table_cell(f"{patch}; {failure}")
+
+
+def _variant_names(comparisons: dict[str, dict]) -> list[str]:
+    """Return stable columns for whichever variants were actually recorded."""
+
+    preferred = ["direct_baseline", "agent_runtime", "single_agent", "multi_agent", "governed_agent"]
+    names: set[str] = set()
+    for comparison in comparisons.values():
+        variants = comparison.get("variants") if isinstance(comparison, dict) else {}
+        if isinstance(variants, dict):
+            names.update(variants)
+    ordered = [name for name in preferred if name in names]
+    ordered.extend(sorted(names - set(ordered)))
+    return ordered
 
 
 def _table_cell(value: str) -> str:

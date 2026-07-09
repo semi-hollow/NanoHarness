@@ -145,10 +145,12 @@ class SwebenchCompareTest(unittest.TestCase):
             self.assertIn("local__case-1", summary.variant_comparisons)
             comparison = summary.variant_comparisons["local__case-1"]
             self.assertFalse(comparison["variants"]["direct_baseline"]["patch_generated"])
-            self.assertTrue(comparison["variants"]["single_agent"]["patch_generated"])
+            self.assertTrue(comparison["variants"]["agent_runtime"]["patch_generated"])
+            self.assertNotIn("governed_agent", comparison["variants"])
             report = (summary.output_dir / "report.md").read_text(encoding="utf-8")
             self.assertIn("## Baseline Comparison", report)
             self.assertIn("local__case-1", report)
+            self.assertNotIn("governed_agent", report)
 
     def test_official_eval_process_failure_is_not_patch_rejection(self):
         with tempfile.TemporaryDirectory() as tmp:

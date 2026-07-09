@@ -117,6 +117,27 @@ class EvaluationComparisonTest(unittest.TestCase):
         )
         self.assertTrue(result["variants"]["direct_baseline"]["patch_generated"])
 
+    def test_compare_variants_rejects_non_diff_model_patch_text(self):
+        result = compare_variants(
+            "case-model-prose",
+            {
+                "direct_baseline": {"model_patch": "I cannot produce a patch from the issue alone."},
+            },
+        )
+        self.assertFalse(result["variants"]["direct_baseline"]["patch_generated"])
+
+    def test_compare_variants_uses_actual_agent_runtime_without_fake_governed_claim(self):
+        result = compare_variants(
+            "case-agent-runtime",
+            {
+                "direct_baseline": {"model_patch": ""},
+                "agent_runtime": {"patch_chars": 30, "failure_class": "patch_generated_but_unverified"},
+            },
+        )
+        self.assertTrue(result["variants"]["agent_runtime"]["patch_generated"])
+        self.assertIn("agent_runtime", result["recommendation"])
+        self.assertNotIn("governed_agent", result["recommendation"])
+
     def test_compare_variants_stays_conservative_when_cost_only_increases(self):
         result = compare_variants(
             "case-2",

@@ -80,10 +80,10 @@ class BenchReportTests(unittest.TestCase):
                 case_results=[case],
                 variant_comparisons={
                     "case-1": {
-                        "recommendation": "governed_agent is worth the added cost for this case.",
+                        "recommendation": "agent_runtime produced a candidate patch where direct_baseline did not.",
                         "variants": {
                             "direct_baseline": {"patch_generated": False, "failure_class": "context_miss"},
-                            "single_agent": {"patch_generated": True, "failure_class": "patch_generated_but_unverified"},
+                            "agent_runtime": {"patch_generated": True, "failure_class": "patch_generated_but_unverified"},
                         },
                     }
                 },
@@ -91,8 +91,9 @@ class BenchReportTests(unittest.TestCase):
             report = render_bench_report(summary)
         self.assertIn("## Baseline Comparison", report)
         self.assertIn("direct_baseline", report)
-        self.assertIn("single_agent", report)
-        self.assertIn("governed_agent is worth", report)
+        self.assertIn("agent_runtime", report)
+        self.assertNotIn("governed_agent", report)
+        self.assertIn("agent_runtime produced", report)
 
 
 if __name__ == "__main__":

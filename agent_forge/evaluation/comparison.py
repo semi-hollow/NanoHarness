@@ -62,14 +62,13 @@ def compare_variants(task_id: str, variants: dict[str, dict]) -> dict:
 
     normalized = {name: _normalize_variant(data) for name, data in variants.items()}
     direct = normalized.get("direct_baseline", {})
-    single = normalized.get("single_agent", {})
-    governed = normalized.get("governed_agent", {})
-    before_after = _before_after_summary(direct, single, governed)
+    agent_variants = {name: data for name, data in normalized.items() if name != "direct_baseline"}
+    before_after = _before_after_summary(direct, agent_variants)
     return {
         "task_id": task_id,
         "variants": normalized,
         "before_after_summary": before_after,
-        "recommendation": _recommend_variants(direct, single, governed),
+        "recommendation": _recommend_variants(direct, agent_variants),
     }
 
 
@@ -78,7 +77,7 @@ def _normalize_variant(data: dict) -> dict:
     patch_generated = bool(
         data.get("patch_generated")
         or _int(data, "patch_chars") > 0
-        or (isinstance(model_patch, str) and bool(model_patch.strip()))
+        or (isinstance(model_patch, str) and _looks_like_patch(model_patch))
     )
     return {
         "status": str(data.get("status") or data.get("stop_reason") or ""),
@@ -92,19 +91,50 @@ def _normalize_variant(data: dict) -> dict:
     }
 
 
-def _before_after_summary(direct: dict, single: dict, governed: dict) -> str:
+def _before_after_summary(direct: dict, agent_variants: dict[str, dict]) -> str:
     if not direct:
         return "No direct baseline was recorded; compare agent variants only."
-    if not direct.get("patch_generated") and single.get("patch_generated"):
+    if not direct.get("patch_generated") and any(
+        variant.get("patch_generated") for variant in agent_variants.values()
+    ):
         return "AgentLoop improved over one-shot baseline by reaching a candidate patch with tool-backed repository inspection."
-    if single.get("failed_tool_calls", 0) > governed.get("failed_tool_calls", 0):
+    single = agent_variants.get("single_agent", {})
+    governed = agent_variants.get("governed_agent", {})
+    if single and governed and single.get("failed_tool_calls", 0) > governed.get("failed_tool_calls", 0):
         return "Governed runtime reduced failed tool calls compared with the unguided single-agent loop."
     return "The comparison does not prove a quality improvement; read failure classes and cost before making a claim."
 
 
-def _recommend_variants(direct: dict, single: dict, governed: dict) -> str:
-    if not direct.get("patch_generated") and governed.get("patch_generated"):
-        return "governed_agent is worth the added cost for this case because it produced a candidate patch where one-shot did not."
+def _recommend_variants(direct: dict, agent_variants: dict[str, dict]) -> str:
+    if not direct.get("patch_generated"):
+        winner = _first_patch_variant(agent_variants)
+        if winner:
+            return (
+                f"{winner} produced a candidate patch where direct_baseline did not; "
+                "compare validation evidence before claiming solved."
+            )
+    single = agent_variants.get("single_agent", {})
+    governed = agent_variants.get("governed_agent", {})
     if single and governed and governed.get("failed_tool_calls", 0) < single.get("failed_tool_calls", 0):
         return "governed_agent may be preferable because tool governance reduced failed tool calls."
     return "insufficient evidence for a global claim; compare success, observability, cost, and failure mode case by case."
+
+
+def _first_patch_variant(agent_variants: dict[str, dict]) -> str:
+    """Prefer governed when it really exists, otherwise name the actual variant."""
+
+    if agent_variants.get("governed_agent", {}).get("patch_generated"):
+        return "governed_agent"
+    for name, variant in agent_variants.items():
+        if variant.get("patch_generated"):
+            return name
+    return ""
+
+
+def _looks_like_patch(text: str) -> bool:
+    """Treat only patch-shaped direct baseline output as a generated patch."""
+
+    stripped = text.strip()
+    return stripped.startswith("diff --git ") or (
+        stripped.startswith("--- ") and "\n+++ " in stripped
+    )

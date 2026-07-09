@@ -216,6 +216,7 @@ def run_swebench(
             "Repo workspaces are under .agent_forge/runs so the main checkout stays clean.",
         ],
     )
+    baseline_predictions: dict[str, dict] = {}
 
     with predictions_path.open("w", encoding="utf-8") as prediction_file:
         baseline_file = baseline_predictions_path.open("w", encoding="utf-8") if baseline_predictions_path else None
@@ -269,14 +270,7 @@ def run_swebench(
                     baseline_prediction = _direct_baseline_prediction(case, provider, model, base_url, api_key)
                     baseline_file.write(json.dumps(baseline_prediction, ensure_ascii=False) + "\n")
                     baseline_file.flush()
-                    summary.variant_comparisons[case.instance_id] = compare_variants(
-                        case.instance_id,
-                        {
-                            "direct_baseline": baseline_prediction,
-                            "single_agent": result.to_dict(),
-                            "governed_agent": result.to_dict(),
-                        },
-                    )
+                    baseline_predictions[case.instance_id] = baseline_prediction
         finally:
             if baseline_file:
                 baseline_file.close()
@@ -287,6 +281,15 @@ def run_swebench(
     for result in summary.case_results:
         attach_failure_diagnosis(result)
         write_case_study(result)
+        baseline_prediction = baseline_predictions.get(result.instance_id)
+        if baseline_prediction:
+            summary.variant_comparisons[result.instance_id] = compare_variants(
+                result.instance_id,
+                {
+                    "direct_baseline": baseline_prediction,
+                    _agent_variant_name(summary.agent_mode): result.to_dict(),
+                },
+            )
 
     write_bench_artifacts(summary)
     _write_latest_pointer(output_dir)
@@ -595,15 +598,32 @@ def _extract_diff(text: str) -> str:
 
     stripped = text.strip()
     if "```" not in stripped:
-        return stripped
+        return stripped if _looks_like_diff(stripped) else ""
     chunks = stripped.split("```")
     for chunk in chunks:
         candidate = chunk.strip()
         if candidate.startswith("diff"):
             candidate = candidate[4:].strip()
-        if candidate.startswith("--- ") or candidate.startswith("diff --git"):
+        if _looks_like_diff(candidate):
             return candidate
-    return stripped
+    return ""
+
+
+def _looks_like_diff(text: str) -> bool:
+    """Return true only for unified/git-diff-shaped model output."""
+
+    stripped = text.strip()
+    return stripped.startswith("diff --git ") or (
+        stripped.startswith("--- ") and "\n+++ " in stripped
+    )
+
+
+def _agent_variant_name(agent_mode: str) -> str:
+    """Name the actual agent run without pretending an unrun variant exists."""
+
+    if agent_mode == "multi" or agent_mode == "compare":
+        return "multi_agent"
+    return "agent_runtime"
 
 
 def _write_latest_pointer(output_dir: Path) -> None:

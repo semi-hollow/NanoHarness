@@ -7,6 +7,7 @@ NanoHarness classifies coding-agent failures so a bad run becomes an engineering
 - `patch_generated`: non-empty diff exists; this is a candidate patch only.
 - `local_verified`: project diagnostics or tests passed in the prepared workspace.
 - `official_resolved`: official SWE-bench harness accepted the patch.
+- `official_eval_completed`: official harness process completed, but Agent Forge has not parsed per-case pass/fail; inspect official output before claiming resolved.
 - `official_eval_error`: official harness, Docker, or environment failed; patch correctness is unknown.
 - `not_evaluated`: no correctness claim beyond trace and patch evidence.
 
