@@ -2,6 +2,7 @@ import tempfile
 import unittest
 
 from agent_forge.evaluation import compare_runs, extract_run_metrics, write_evaluation_artifacts
+from agent_forge.evaluation.comparison import compare_variants
 
 
 class EvaluationComparisonTest(unittest.TestCase):
@@ -82,6 +83,32 @@ class EvaluationComparisonTest(unittest.TestCase):
         self.assertEqual(metrics["tool_calls"], 0)
         self.assertEqual(metrics["failed_tool_calls"], 0)
         self.assertEqual(metrics["failure_taxonomy"], "provider_config")
+
+    def test_compare_variants_explains_agent_loop_value(self):
+        result = compare_variants(
+            "case-1",
+            {
+                "direct_baseline": {"patch_generated": False, "estimated_cost_usd": 0.01, "failure_class": "context_miss"},
+                "single_agent": {"patch_generated": True, "tool_calls": 8, "estimated_cost_usd": 0.04, "failure_class": "patch_generated_but_unverified"},
+                "governed_agent": {"patch_generated": True, "tool_calls": 6, "failed_tool_calls": 0, "estimated_cost_usd": 0.045, "failure_class": "patch_generated_but_unverified"},
+            },
+        )
+        self.assertEqual(result["task_id"], "case-1")
+        self.assertFalse(result["variants"]["direct_baseline"]["patch_generated"])
+        self.assertTrue(result["variants"]["single_agent"]["patch_generated"])
+        self.assertIn("AgentLoop", result["before_after_summary"])
+        self.assertIn("governed", result["recommendation"].lower())
+
+    def test_compare_variants_stays_conservative_when_cost_only_increases(self):
+        result = compare_variants(
+            "case-2",
+            {
+                "direct_baseline": {"patch_generated": True, "estimated_cost_usd": 0.01},
+                "single_agent": {"patch_generated": True, "estimated_cost_usd": 0.05, "failed_tool_calls": 2},
+                "governed_agent": {"patch_generated": True, "estimated_cost_usd": 0.07, "failed_tool_calls": 3},
+            },
+        )
+        self.assertIn("global claim", result["recommendation"].lower())
 
 
 if __name__ == "__main__":

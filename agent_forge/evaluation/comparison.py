@@ -55,3 +55,50 @@ def _float(data: dict, key: str) -> float:
         return float(data.get(key) or 0.0)
     except (TypeError, ValueError):
         return 0.0
+
+
+def compare_variants(task_id: str, variants: dict[str, dict]) -> dict:
+    """Compare direct baseline, single agent, and governed agent without hype."""
+
+    normalized = {name: _normalize_variant(data) for name, data in variants.items()}
+    direct = normalized.get("direct_baseline", {})
+    single = normalized.get("single_agent", {})
+    governed = normalized.get("governed_agent", {})
+    before_after = _before_after_summary(direct, single, governed)
+    return {
+        "task_id": task_id,
+        "variants": normalized,
+        "before_after_summary": before_after,
+        "recommendation": _recommend_variants(direct, single, governed),
+    }
+
+
+def _normalize_variant(data: dict) -> dict:
+    return {
+        "status": str(data.get("status") or data.get("stop_reason") or ""),
+        "patch_generated": bool(data.get("patch_generated") or data.get("patch_chars", 0)),
+        "verified": bool(data.get("verified") or data.get("local_verified") or data.get("official_resolved")),
+        "failure_class": str(data.get("failure_class") or data.get("failure_taxonomy") or ""),
+        "estimated_cost_usd": _float(data, "estimated_cost_usd"),
+        "llm_calls": _int(data, "llm_calls"),
+        "tool_calls": _int(data, "tool_calls"),
+        "failed_tool_calls": _int(data, "failed_tool_calls"),
+    }
+
+
+def _before_after_summary(direct: dict, single: dict, governed: dict) -> str:
+    if not direct:
+        return "No direct baseline was recorded; compare agent variants only."
+    if not direct.get("patch_generated") and single.get("patch_generated"):
+        return "AgentLoop improved over one-shot baseline by reaching a candidate patch with tool-backed repository inspection."
+    if single.get("failed_tool_calls", 0) > governed.get("failed_tool_calls", 0):
+        return "Governed runtime reduced failed tool calls compared with the unguided single-agent loop."
+    return "The comparison does not prove a quality improvement; read failure classes and cost before making a claim."
+
+
+def _recommend_variants(direct: dict, single: dict, governed: dict) -> str:
+    if not direct.get("patch_generated") and governed.get("patch_generated"):
+        return "governed_agent is worth the added cost for this case because it produced a candidate patch where one-shot did not."
+    if single and governed and governed.get("failed_tool_calls", 0) < single.get("failed_tool_calls", 0):
+        return "governed_agent may be preferable because tool governance reduced failed tool calls."
+    return "insufficient evidence for a global claim; compare success, observability, cost, and failure mode case by case."
