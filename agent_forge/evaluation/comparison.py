@@ -74,9 +74,15 @@ def compare_variants(task_id: str, variants: dict[str, dict]) -> dict:
 
 
 def _normalize_variant(data: dict) -> dict:
+    model_patch = data.get("model_patch")
+    patch_generated = bool(
+        data.get("patch_generated")
+        or _int(data, "patch_chars") > 0
+        or (isinstance(model_patch, str) and bool(model_patch.strip()))
+    )
     return {
         "status": str(data.get("status") or data.get("stop_reason") or ""),
-        "patch_generated": bool(data.get("patch_generated") or data.get("patch_chars", 0)),
+        "patch_generated": patch_generated,
         "verified": bool(data.get("verified") or data.get("local_verified") or data.get("official_resolved")),
         "failure_class": str(data.get("failure_class") or data.get("failure_taxonomy") or ""),
         "estimated_cost_usd": _float(data, "estimated_cost_usd"),

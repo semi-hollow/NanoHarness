@@ -99,6 +99,15 @@ class EvaluationComparisonTest(unittest.TestCase):
         self.assertIn("AgentLoop", result["before_after_summary"])
         self.assertIn("governed", result["recommendation"].lower())
 
+    def test_compare_variants_treats_model_patch_as_generated_patch(self):
+        result = compare_variants(
+            "case-model-patch",
+            {
+                "direct_baseline": {"model_patch": "diff --git a/file.py b/file.py\n+fixed\n"},
+            },
+        )
+        self.assertTrue(result["variants"]["direct_baseline"]["patch_generated"])
+
     def test_compare_variants_stays_conservative_when_cost_only_increases(self):
         result = compare_variants(
             "case-2",
