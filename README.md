@@ -10,6 +10,16 @@ model gateway, tool governance, sandboxed execution, trace/replay, usage
 accounting, patch prediction, coordinator-driven multi-agent workflows, and
 benchmark result cards.
 
+## Project Spine and Extensions
+
+Core spine:
+
+```text
+Task -> Context -> AgentLoop -> Tool Governance -> Trace -> Failure Diagnosis -> Regression
+```
+
+NanoHarness keeps optional extensions such as MCP tools, multi-agent comparison, runtime Skills, and the browser workbench, but they hang from the core spine. The main engineering claim is not that every extension is always better; it is that coding-agent behavior becomes observable, comparable, and improvable.
+
 The project intentionally avoids a heavy IDE product surface, but it does ship a
 local browser workbench so the full loop can be configured from a page instead
 of memorizing command flags. The goal is a compact codebase that makes the
