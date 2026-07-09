@@ -59,6 +59,24 @@ def render_bench_report(summary: BenchRunSummary) -> str:
             f"- official evaluation statuses: `{dict(eval_counts)}`",
         ]
     )
+    if patch_generated and not any(result.evaluation_status == "official_resolved" for result in summary.case_results):
+        lines.extend(
+            [
+                "",
+                "> Candidate patches were generated, but no official resolved claim is made in this report.",
+            ]
+        )
+    lines.extend(
+        [
+            "",
+            "## Evidence Levels",
+            "",
+            "- `candidate patch`: the workspace contains a non-empty candidate diff. This is not a solved claim.",
+            "- `local_verified`: project diagnostics or tests passed in the prepared workspace.",
+            "- `official_resolved`: the official SWE-bench harness accepted the patch.",
+            "- `not_evaluated`: no correctness claim should be made beyond the available trace and patch evidence.",
+        ]
+    )
     if summary.official_eval_command:
         lines.extend(
             [

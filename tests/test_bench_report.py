@@ -1,0 +1,54 @@
+import tempfile
+import unittest
+from pathlib import Path
+
+from agent_forge.bench.report import render_bench_report
+from agent_forge.bench.types import BenchCaseResult, BenchRunSummary
+
+
+class BenchReportTests(unittest.TestCase):
+    def test_report_separates_candidate_patch_from_official_resolution(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            trace = root / "trace.json"
+            usage = root / "usage_report.md"
+            patch = root / "patch.diff"
+            trace.write_text("{}", encoding="utf-8")
+            usage.write_text("usage", encoding="utf-8")
+            patch.write_text("diff", encoding="utf-8")
+            case = BenchCaseResult(
+                instance_id="case-1",
+                repo="local/repo",
+                workspace=root,
+                trace_path=trace,
+                usage_report_path=usage,
+                patch_path=patch,
+                status="patch_generated",
+                final_answer="candidate patch generated",
+                evaluation_status="not_evaluated",
+                patch_chars=4,
+                failure_class="patch_generated_but_unverified",
+                diagnosis="candidate patch only",
+                diagnosis_evidence=["patch_chars=4", "eval=not_evaluated"],
+                next_actions=["run official evaluation"],
+            )
+            summary = BenchRunSummary(
+                run_id="run-1",
+                dataset_name="local",
+                split="test",
+                provider="deepseek",
+                model="default",
+                output_dir=root,
+                predictions_path=root / "predictions.jsonl",
+                case_results=[case],
+            )
+            report = render_bench_report(summary)
+        self.assertIn("Evidence Levels", report)
+        self.assertIn("candidate patch", report.lower())
+        self.assertIn("official", report.lower())
+        self.assertIn("patch_generated_but_unverified", report)
+        self.assertIn("run official evaluation", report)
+
+
+if __name__ == "__main__":
+    unittest.main()
