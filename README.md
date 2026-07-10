@@ -131,6 +131,18 @@ forge run "continue the previous fix" \
 the previous checkpoint: status, last tool, last observation, stop reason, and
 resume hint.
 
+For convenience, `forge resume <run-dir>` finds the newest checkpoint under a
+previous run and starts a continuation run with that checkpoint preloaded:
+
+```bash
+forge resume .agent_forge/runs/<run-id> --provider deepseek
+```
+
+Side-effect tools also write to an operation ledger keyed by tool, arguments,
+workspace, and action. If a continuation or rerun asks for the same already
+executed operation, AgentLoop skips it and records `skipped_already_executed`
+instead of applying the side effect twice.
+
 Run the non-coding research profile:
 
 ```bash
@@ -179,6 +191,13 @@ forge bench swebench --regression-set core --provider deepseek --direct-baseline
 
 The report includes `failure_class`, diagnosis evidence, and next actions for
 each case so failed runs become optimization targets instead of raw logs.
+
+Small non-coding Agent application cases live under
+`docs/evaluation/mini-cases/` and can be loaded from
+`agent_forge.evaluation.mini_cases`. They are intentionally tiny scenarios for
+interview discussion: research citation quality and ops approval workflow. They
+reuse the same evaluation language as the coding harness: task success,
+evidence quality, tool efficiency, recovery, human intervention, and safety.
 
 Read the latest report:
 

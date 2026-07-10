@@ -2,6 +2,7 @@ import json
 
 from agent_forge.runtime.message import Message
 from agent_forge.runtime.approval import ApprovalStore
+from agent_forge.runtime.operation_ledger import OperationLedgerStore
 from agent_forge.runtime.planner import SimplePlanner
 from agent_forge.runtime.state import AgentState
 from agent_forge.runtime.control import StepController
@@ -67,6 +68,9 @@ class AgentLoop:
         )
         self.task_state_store = TaskStateStore(getattr(config, "task_state_root", ".agent_forge/task_state"))
         self.approval_store = ApprovalStore(getattr(config, "approval_root", ".agent_forge/approvals"))
+        self.operation_ledger = OperationLedgerStore(
+            getattr(config, "operation_ledger_root", ".agent_forge/operation_ledger")
+        )
 
     def run(self, task, agent_name="CodingAgent"):
         """Run one task until final answer, guardrail block, or stop condition.
@@ -597,6 +601,56 @@ class AgentLoop:
 
                 action = self._permission_action(tool_call.name)
                 command = tool_call.arguments.get("command", "") if tool_call.arguments else ""
+                side_effect = self._is_side_effect_action(action)
+                operation_key = ""
+                if side_effect:
+                    operation_key = OperationLedgerStore.operation_key(
+                        tool_call.name,
+                        tool_call.arguments or {},
+                        self.config.workspace,
+                        action,
+                    )
+                    existing_operation = self.operation_ledger.get(operation_key)
+                    if existing_operation is not None and existing_operation.status == "executed":
+                        observation = Observation(
+                            tool_call.name,
+                            True,
+                            f"skipped: operation already executed: {operation_key}",
+                        )
+                        memory.add_observation(observation)
+                        messages.append(
+                            Message(
+                                "tool",
+                                observation.content,
+                                name=tool_call.name,
+                                tool_call_id=tool_call.id,
+                            )
+                        )
+                        self.trace.add(
+                            step,
+                            agent_name,
+                            "operation_ledger",
+                            operation_key=operation_key,
+                            operation_status="skipped_already_executed",
+                            operation=existing_operation.to_dict(),
+                        )
+                        self.trace.add(
+                            step,
+                            agent_name,
+                            "tool_observation",
+                            success=True,
+                            observation=observation.content,
+                        )
+                        self._update_task_state(
+                            checkpoint,
+                            status=TaskRunStatus.RUNNING,
+                            current_step=step,
+                            last_tool=tool_call.name,
+                            last_observation=observation.content,
+                            messages_count=len(messages),
+                            observations_count=len(state.observations),
+                        )
+                        continue
                 hook_context = HookContext(
                     run_id=self.trace.run_id,
                     step=step,
@@ -672,12 +726,16 @@ class AgentLoop:
                     continue
 
                 if hook_result.decision == HookDecisionType.ASK:
-                    operation_key = ApprovalStore.operation_key(
-                        tool_call.name,
-                        tool_call.arguments or {},
-                        self.config.workspace,
-                        action,
-                    )
+                    if side_effect:
+                        self.operation_ledger.ensure_planned(
+                            operation_key,
+                            tool_call.name,
+                            tool_call.arguments or {},
+                            action,
+                            self.config.workspace,
+                            run_id=self.trace.run_id,
+                            step=step,
+                        )
                     approval = self.approval_store.get(operation_key)
                     if approval is None and not self.config.auto_approve_writes:
                         approval = self.approval_store.request(
@@ -691,6 +749,16 @@ class AgentLoop:
                             agent_name=agent_name,
                             reason=hook_result.reason,
                         )
+                        if side_effect:
+                            self.operation_ledger.record_pending(
+                                operation_key,
+                                tool_call.name,
+                                tool_call.arguments or {},
+                                action,
+                                self.config.workspace,
+                                run_id=self.trace.run_id,
+                                step=step,
+                            )
                     self._update_task_state(
                         checkpoint,
                         status=TaskRunStatus.WAITING_APPROVAL,
@@ -699,6 +767,8 @@ class AgentLoop:
                         resume_hint="Approve this tool action or rerun with a safer task.",
                     )
                     approved = self.config.auto_approve_writes if approval is None else approval.status == "approved"
+                    if side_effect and approved:
+                        self.operation_ledger.record_approved(operation_key, run_id=self.trace.run_id, step=step)
                     approval_trace = (
                         approval.to_dict()
                         if approval is not None
@@ -766,8 +836,42 @@ class AgentLoop:
 
                 # Phase 5: execute the tool through the registry. The registry
                 # validates schema and concrete tools enforce sandbox/policy.
+                if side_effect and not self.operation_ledger.get(operation_key):
+                    self.operation_ledger.ensure_planned(
+                        operation_key,
+                        tool_call.name,
+                        tool_call.arguments or {},
+                        action,
+                        self.config.workspace,
+                        run_id=self.trace.run_id,
+                        step=step,
+                        status="approved",
+                    )
                 observation = self.registry.execute(tool_call.name, tool_call.arguments)
                 observation = self.hooks.post_tool(hook_context, observation)
+                if side_effect:
+                    if observation.success:
+                        operation_record = self.operation_ledger.record_executed(
+                            operation_key,
+                            run_id=self.trace.run_id,
+                            step=step,
+                            observation=observation.content[:600],
+                        )
+                    else:
+                        operation_record = self.operation_ledger.record_failed(
+                            operation_key,
+                            run_id=self.trace.run_id,
+                            step=step,
+                            observation=observation.content[:600],
+                        )
+                    self.trace.add(
+                        step,
+                        agent_name,
+                        "operation_ledger",
+                        operation_key=operation_key,
+                        operation_status=operation_record.status,
+                        operation=operation_record.to_dict(),
+                    )
                 memory.add_observation(observation)
                 evidence_item = evidence.add_observation(observation)
                 if tool_call.name == "run_command" and "exit_code=0" in observation.content:
@@ -900,6 +1004,11 @@ class AgentLoop:
         if tool_name in {"apply_patch", "write_file"}:
             return "apply_patch"
         return "read"
+
+    def _is_side_effect_action(self, action: str) -> bool:
+        """Return whether an action should use the idempotency ledger."""
+
+        return action in {"apply_patch", "write", "run_command"}
 
     def _update_task_state(self, checkpoint, status: TaskRunStatus | None = None, **changes):
         """Persist a compact run checkpoint without cluttering AgentLoop logic."""

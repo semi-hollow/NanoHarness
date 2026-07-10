@@ -20,7 +20,7 @@ from agent_forge.observability.usage_report import write_usage_artifacts
 from agent_forge.runtime.agent_loop import AgentLoop
 from agent_forge.runtime.config import RuntimeConfig
 from agent_forge.runtime.llm_config import resolve_llm_config
-from agent_forge.runtime.task_state import replay_trace
+from agent_forge.runtime.task_state import TaskStateStore, replay_trace
 from agent_forge.runtime.wiring import build_llm, build_registry
 from agent_forge.skills import SkillRegistry, build_default_skill_registry
 from agent_forge.ui import build_ui_parser, run_ui_from_args
@@ -56,6 +56,7 @@ def build_parser() -> argparse.ArgumentParser:
         help="Auto-approve write-like tool actions. Use --no-auto-approve-writes to leave pending approval files.",
     )
     run_parser.add_argument("--approval-root", default=".agent_forge/approvals")
+    run_parser.add_argument("--operation-ledger-root", default=".agent_forge/operation_ledger")
     run_parser.add_argument(
         "--resume-state",
         default="",
@@ -117,6 +118,33 @@ def build_parser() -> argparse.ArgumentParser:
     approve_parser.add_argument("--approval-root", default=".agent_forge/approvals")
     approve_parser.add_argument("--decision", choices=["approved", "rejected"], default="approved")
     approve_parser.add_argument("--note", default="")
+    resume_parser = subparsers.add_parser("resume", help="Resume from the latest checkpoint under a run directory.")
+    resume_parser.add_argument("run_dir", help="Previous Agent Forge run directory.")
+    resume_parser.add_argument("--task", help="Override the continuation task.")
+    resume_parser.add_argument("--workspace", help="Override the checkpoint workspace.")
+    resume_parser.add_argument("--provider", default=os.getenv("AGENT_FORGE_DEFAULT_LLM", "deepseek"))
+    resume_parser.add_argument("--model")
+    resume_parser.add_argument("--base-url")
+    resume_parser.add_argument("--api-key")
+    resume_parser.add_argument("--max-steps", type=int, default=16)
+    resume_parser.add_argument("--max-context-chars", type=int, default=12000)
+    resume_parser.add_argument("--approval-mode", default="trusted", choices=["trusted", "on-write", "on-risk", "locked", "dry-run"])
+    resume_parser.add_argument(
+        "--auto-approve-writes",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Auto-approve write-like tool actions. Use --no-auto-approve-writes to leave pending approval files.",
+    )
+    resume_parser.add_argument("--approval-root", default=".agent_forge/approvals")
+    resume_parser.add_argument("--operation-ledger-root", default=".agent_forge/operation_ledger")
+    resume_parser.add_argument("--output-root", default=".agent_forge/runs")
+    resume_parser.add_argument("--agent-mode", default="single", choices=["single", "multi"])
+    resume_parser.add_argument("--profile", default="coding_fix", choices=list_profiles())
+    resume_parser.add_argument("--max-revision-rounds", type=int, default=2)
+    resume_parser.add_argument("--skills", default="auto")
+    resume_parser.add_argument("--skill-manifest", action="append", default=[])
+    resume_parser.add_argument("--mcp-config")
+    resume_parser.add_argument("--mcp-tool", action="append", default=[])
     subparsers.add_parser("tui", help="Open a lightweight terminal menu.")
     ui_parser = subparsers.add_parser("ui", help="Open the local browser workbench UI.")
     build_ui_parser(ui_parser)
@@ -132,6 +160,11 @@ def main(argv: list[str] | None = None) -> None:
         return
     if args.command == "approve":
         print(approve_request(args))
+        return
+    if args.command == "resume":
+        run_dir = resume_repository_task(args)
+        print(f"Run directory: {run_dir}")
+        print(f"Report: {run_dir / 'usage_report.md'}")
         return
     if args.command == "run":
         run_dir = run_repository_task(args)
@@ -197,6 +230,7 @@ def run_repository_task(args: argparse.Namespace) -> Path:
         resume_state=getattr(args, "resume_state", ""),
         auto_approve_writes=getattr(args, "auto_approve_writes", True),
         approval_root=getattr(args, "approval_root", ".agent_forge/approvals"),
+        operation_ledger_root=getattr(args, "operation_ledger_root", ".agent_forge/operation_ledger"),
         approval_mode=args.approval_mode,
         skill_mode=_parse_skill_mode(getattr(args, "skills", "auto")),
         skill_names=_parse_skill_names(getattr(args, "skills", "auto")),
@@ -222,6 +256,68 @@ def run_repository_task(args: argparse.Namespace) -> Path:
     (run_dir / "final_answer.txt").write_text(final_answer, encoding="utf-8")
     _write_latest_run_pointer(run_dir)
     return run_dir
+
+
+def resume_repository_task(args: argparse.Namespace) -> Path:
+    """Resume from the newest task-state checkpoint under a previous run."""
+
+    checkpoint_path = latest_checkpoint_path(args.run_dir)
+    checkpoint = TaskStateStore.load_path(checkpoint_path)
+    continuation_task = args.task or f"continue previous task: {checkpoint.task}"
+    run_args = argparse.Namespace(
+        task=continuation_task,
+        workspace=args.workspace or checkpoint.workspace,
+        provider=args.provider,
+        model=args.model,
+        base_url=args.base_url,
+        api_key=args.api_key,
+        max_steps=args.max_steps,
+        max_context_chars=args.max_context_chars,
+        approval_mode=args.approval_mode,
+        auto_approve_writes=args.auto_approve_writes,
+        approval_root=args.approval_root,
+        operation_ledger_root=args.operation_ledger_root,
+        resume_state=str(checkpoint_path),
+        output_root=args.output_root,
+        agent_mode=args.agent_mode,
+        profile=args.profile,
+        max_revision_rounds=args.max_revision_rounds,
+        skills=args.skills,
+        skill_manifest=args.skill_manifest,
+        mcp_config=args.mcp_config,
+        mcp_tool=args.mcp_tool,
+    )
+    run_dir = run_repository_task(run_args)
+    (run_dir / "resume_link.json").write_text(
+        json.dumps(
+            {
+                "resumed_from_run_dir": str(Path(args.run_dir)),
+                "resume_state": str(checkpoint_path),
+                "previous_run_id": checkpoint.run_id,
+            },
+            ensure_ascii=False,
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+    return run_dir
+
+
+def latest_checkpoint_path(run_dir: str | Path) -> Path:
+    """Return the newest task-state checkpoint JSON under a run directory."""
+
+    state_dir = Path(run_dir) / "task_state"
+    candidates = sorted(state_dir.glob("*.json"))
+    if not candidates:
+        raise FileNotFoundError(f"no task_state checkpoints found under {run_dir}")
+
+    def updated_at(path: Path) -> float:
+        try:
+            return float(json.loads(path.read_text(encoding="utf-8")).get("updated_at") or 0.0)
+        except (OSError, json.JSONDecodeError, TypeError, ValueError):
+            return path.stat().st_mtime
+
+    return max(candidates, key=updated_at)
 
 
 def approve_request(args: argparse.Namespace) -> str:

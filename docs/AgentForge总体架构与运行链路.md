@@ -29,6 +29,7 @@ flowchart TD
     Loop --> Structured["StructuredOutputParser"]
     Tools --> Safety["PermissionPolicy / CommandPolicy / Sandbox"]
     Safety --> Approval["ApprovalStore / Human Approval"]
+    Safety --> Ledger["OperationLedger / Idempotency"]
     Tools --> Observation["Observation"]
     Observation --> Loop
     Loop --> Checkpoint["TaskStateStore / Resume Seed"]
@@ -48,6 +49,8 @@ flowchart TD
 | `agent_forge/evaluation` | Provides data structures and reports for honest single-vs-multi comparisons. | Without it, cost/quality tradeoffs are anecdotal. |
 | `agent_forge/runtime` | Runs the ReAct loop, stop conditions, task state, model/tool interaction. | Without it, tool use becomes ad hoc and unreplayable. |
 | `agent_forge/runtime/approval.py` | Stores pending/approved/rejected side-effect approvals by operation key. | Without it, human-in-the-loop is only a prompt convention instead of a runtime boundary. |
+| `agent_forge/runtime/operation_ledger.py` | Records planned, pending, approved, executed, failed, and skipped side-effect operations. | Without it, resume/rerun can accidentally duplicate writes, commands, or external actions. |
+| `agent_forge/evaluation/mini_cases.py` | Loads tiny non-coding Agent application cases for research and ops workflows. | Without it, the project positioning stays overly tied to coding-only interviews. |
 | `agent_forge/context` | Builds prompt context from repo structure, lexical retrieval, symbols, memory, and budgets. | Without it, the model sees either too little code or noisy full-repo dumps. |
 | `agent_forge/tools` | Provides file, patch, grep, command, git, and MCP-style tool access. | Without it, the model cannot inspect and modify real code safely. |
 | `agent_forge/skills` | Provides built-in coding Skills and custom manifest loading; selected Skills inject operating procedures and expected tools into real runs. | Without it, tool capabilities cannot become governed reusable product capabilities or task-specific workflows. |
@@ -120,6 +123,16 @@ When approval is manual (`--no-auto-approve-writes`), `AgentLoop` writes a
 pending `ApprovalRequest` and stops at `waiting_approval` before executing the
 side effect. `forge approve <operation_key>` records the human decision; rerun
 or resume can then execute the same approved operation.
+
+`OperationLedgerStore` uses the same operation identity shape for side effects:
+tool name, normalized arguments, workspace, and action. After an operation is
+executed successfully, a later run that proposes the exact same operation gets a
+successful skipped observation instead of applying it again. This is a local
+idempotency mechanism, not a distributed transaction log.
+
+`forge resume <run-dir>` is the user-facing convenience wrapper. It finds the
+newest checkpoint under `task_state/`, starts a new run with `--resume-state`,
+and writes `resume_link.json` in the continuation run so the chain is auditable.
 
 ## Result Evidence
 

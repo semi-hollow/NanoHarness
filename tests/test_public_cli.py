@@ -27,6 +27,7 @@ class PublicCliSmokeTest(unittest.TestCase):
         self.assertIn("bench", result.stdout)
         self.assertIn("ui", result.stdout)
         self.assertIn("approve", result.stdout)
+        self.assertIn("resume", result.stdout)
 
     def test_run_help_exposes_resume_and_manual_approval_flags(self):
         result = subprocess.run(
@@ -38,6 +39,18 @@ class PublicCliSmokeTest(unittest.TestCase):
         self.assertIn("--resume-state", result.stdout)
         self.assertIn("--no-auto-approve-writes", result.stdout)
         self.assertIn("--approval-root", result.stdout)
+        self.assertIn("--operation-ledger-root", result.stdout)
+
+    def test_resume_help_exposes_resume_specific_flags(self):
+        result = subprocess.run(
+            [sys.executable, "-m", "agent_forge", "resume", "--help"],
+            text=True,
+            capture_output=True,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("run_dir", result.stdout)
+        self.assertIn("--task", result.stdout)
+        self.assertIn("--operation-ledger-root", result.stdout)
 
     def test_approve_cli_updates_pending_request(self):
         with tempfile.TemporaryDirectory() as tmp:

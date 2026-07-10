@@ -57,6 +57,9 @@ class RuntimeConfig:
     # Filesystem root for pending human approval requests.
     approval_root: str = ".agent_forge/approvals"
 
+    # Filesystem root for idempotency records of side-effectful operations.
+    operation_ledger_root: str = ".agent_forge/operation_ledger"
+
     # trusted/on-write/on-risk/locked/dry-run approval posture.
     approval_mode: str = "trusted"
 
