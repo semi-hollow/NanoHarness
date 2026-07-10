@@ -15,6 +15,7 @@ from pathlib import Path
 from agent_forge.bench.swebench import build_swebench_parser, run_swebench_from_args
 from agent_forge.multi_agent import MultiAgentCoordinator, get_profile, list_profiles
 from agent_forge.observability.trace import TraceRecorder
+from agent_forge.runtime.approval import ApprovalStore
 from agent_forge.observability.usage_report import write_usage_artifacts
 from agent_forge.runtime.agent_loop import AgentLoop
 from agent_forge.runtime.config import RuntimeConfig
@@ -48,6 +49,18 @@ def build_parser() -> argparse.ArgumentParser:
     run_parser.add_argument("--max-steps", type=int, default=16)
     run_parser.add_argument("--max-context-chars", type=int, default=12000)
     run_parser.add_argument("--approval-mode", default="trusted", choices=["trusted", "on-write", "on-risk", "locked", "dry-run"])
+    run_parser.add_argument(
+        "--auto-approve-writes",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Auto-approve write-like tool actions. Use --no-auto-approve-writes to leave pending approval files.",
+    )
+    run_parser.add_argument("--approval-root", default=".agent_forge/approvals")
+    run_parser.add_argument(
+        "--resume-state",
+        default="",
+        help="Path to a task_state checkpoint JSON used to seed a safe continuation.",
+    )
     run_parser.add_argument("--output-root", default=".agent_forge/runs")
     run_parser.add_argument("--agent-mode", default="single", choices=["single", "multi"])
     run_parser.add_argument("--profile", default="coding_fix", choices=list_profiles())
@@ -99,6 +112,11 @@ def build_parser() -> argparse.ArgumentParser:
     skills_list_parser.add_argument("--no-builtins", action="store_true", help="Show only manifests passed with --manifest.")
 
     subparsers.add_parser("doctor", help="Check local benchmark/runtime environment.")
+    approve_parser = subparsers.add_parser("approve", help="Approve or reject a pending human-in-the-loop request.")
+    approve_parser.add_argument("operation_key", help="Approval operation key printed by a waiting run.")
+    approve_parser.add_argument("--approval-root", default=".agent_forge/approvals")
+    approve_parser.add_argument("--decision", choices=["approved", "rejected"], default="approved")
+    approve_parser.add_argument("--note", default="")
     subparsers.add_parser("tui", help="Open a lightweight terminal menu.")
     ui_parser = subparsers.add_parser("ui", help="Open the local browser workbench UI.")
     build_ui_parser(ui_parser)
@@ -111,6 +129,9 @@ def main(argv: list[str] | None = None) -> None:
     args = build_parser().parse_args(argv)
     if args.command == "doctor":
         print(render_doctor())
+        return
+    if args.command == "approve":
+        print(approve_request(args))
         return
     if args.command == "run":
         run_dir = run_repository_task(args)
@@ -173,6 +194,9 @@ def run_repository_task(args: argparse.Namespace) -> Path:
         max_context_chars=args.max_context_chars,
         timeout_seconds=900,
         task_state_root=str(run_dir / "task_state"),
+        resume_state=getattr(args, "resume_state", ""),
+        auto_approve_writes=getattr(args, "auto_approve_writes", True),
+        approval_root=getattr(args, "approval_root", ".agent_forge/approvals"),
         approval_mode=args.approval_mode,
         skill_mode=_parse_skill_mode(getattr(args, "skills", "auto")),
         skill_names=_parse_skill_names(getattr(args, "skills", "auto")),
@@ -198,6 +222,20 @@ def run_repository_task(args: argparse.Namespace) -> Path:
     (run_dir / "final_answer.txt").write_text(final_answer, encoding="utf-8")
     _write_latest_run_pointer(run_dir)
     return run_dir
+
+
+def approve_request(args: argparse.Namespace) -> str:
+    """Update one pending approval request from the CLI."""
+
+    request = ApprovalStore(args.approval_root).decide(
+        args.operation_key,
+        args.decision,
+        note=getattr(args, "note", ""),
+    )
+    return (
+        f"approval {request.status}: operation_key={request.operation_key} "
+        f"tool={request.tool_name} path={request.path}"
+    )
 
 
 def render_doctor() -> str:

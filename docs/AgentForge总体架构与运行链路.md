@@ -28,8 +28,10 @@ flowchart TD
     Loop --> Tools["ToolRouter + ToolRegistry"]
     Loop --> Structured["StructuredOutputParser"]
     Tools --> Safety["PermissionPolicy / CommandPolicy / Sandbox"]
+    Safety --> Approval["ApprovalStore / Human Approval"]
     Tools --> Observation["Observation"]
     Observation --> Loop
+    Loop --> Checkpoint["TaskStateStore / Resume Seed"]
     Loop --> Trace["TraceRecorder"]
     Trace --> Usage["usage_report.md"]
     Artifacts --> MultiReport["multi_agent_report.md"]
@@ -45,6 +47,7 @@ flowchart TD
 | `agent_forge/multi_agent` | Coordinates role-specific AgentLoop runs through explicit artifacts and bounded revision rounds. | Without it, multi-agent behavior becomes prompt chaining with hidden state. |
 | `agent_forge/evaluation` | Provides data structures and reports for honest single-vs-multi comparisons. | Without it, cost/quality tradeoffs are anecdotal. |
 | `agent_forge/runtime` | Runs the ReAct loop, stop conditions, task state, model/tool interaction. | Without it, tool use becomes ad hoc and unreplayable. |
+| `agent_forge/runtime/approval.py` | Stores pending/approved/rejected side-effect approvals by operation key. | Without it, human-in-the-loop is only a prompt convention instead of a runtime boundary. |
 | `agent_forge/context` | Builds prompt context from repo structure, lexical retrieval, symbols, memory, and budgets. | Without it, the model sees either too little code or noisy full-repo dumps. |
 | `agent_forge/tools` | Provides file, patch, grep, command, git, and MCP-style tool access. | Without it, the model cannot inspect and modify real code safely. |
 | `agent_forge/skills` | Provides built-in coding Skills and custom manifest loading; selected Skills inject operating procedures and expected tools into real runs. | Without it, tool capabilities cannot become governed reusable product capabilities or task-specific workflows. |
@@ -60,9 +63,10 @@ flowchart TD
 3. Skill selection with built-in/custom Skills, then context assembly with selected files, memory, active Skill cards, tools, and budget breakdown.
 4. Model call through `ModelGateway`.
 5. Tool-call validation and safety checks.
-6. Tool execution and observation recording.
-7. Recovery/stop-condition checks.
-8. Final answer guardrail and trace write.
+6. Human approval boundary for write-like or risky actions when approval mode requires it.
+7. Tool execution and observation recording.
+8. Recovery/stop-condition checks, including checkpoint updates for later resume.
+9. Final answer guardrail and trace write.
 
 The loop is intentionally single-agent first because the core problem is not
 "many agents talk"; it is whether one coding agent can close the
@@ -87,6 +91,35 @@ issue-to-patch loop under control.
 The first version is deterministic and sequential. It does not implement
 parallel execution, quorum voting, decentralized agents, Raft, blockchain, or
 swarm learning.
+
+## Fan-Out Scheduling
+
+`agent_forge/multi_agent/fanout.py` is a small orchestration primitive for
+task-plan execution:
+
+- `SubagentTask` declares an id, dependency list, tool hints, expected artifact,
+  and write scope.
+- `build_execution_batches()` groups tasks into dependency-safe batches.
+- `run_fanout()` can run a supplied worker concurrently for tasks in the same
+  batch.
+- Overlapping declared write scopes, or overlapping worker-reported touched
+  files, produce `conflict_resolution_required` instead of silently merging.
+
+This is deliberately narrower than a full distributed runner. The current
+coordinator remains the production-shaped role workflow; fan-out exists to make
+independent task concurrency and conflict policy explicit and testable.
+
+## Resume And Human Approval
+
+`TaskStateStore` writes compact checkpoints during AgentLoop execution. A later
+run can pass `--resume-state <checkpoint.json>` to seed prompt memory with the
+previous status, last tool, last observation, stop reason, and resume hint. This
+is a safe continuation seed, not a hidden chat-state replay.
+
+When approval is manual (`--no-auto-approve-writes`), `AgentLoop` writes a
+pending `ApprovalRequest` and stops at `waiting_approval` before executing the
+side effect. `forge approve <operation_key>` records the human decision; rerun
+or resume can then execute the same approved operation.
 
 ## Result Evidence
 

@@ -5,6 +5,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from agent_forge.runtime.approval import ApprovalStore
 from agent_forge.ui import _build_swebench_command, _latest_run_dir, _render_evidence_html
 
 
@@ -25,6 +26,52 @@ class PublicCliSmokeTest(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("bench", result.stdout)
         self.assertIn("ui", result.stdout)
+        self.assertIn("approve", result.stdout)
+
+    def test_run_help_exposes_resume_and_manual_approval_flags(self):
+        result = subprocess.run(
+            [sys.executable, "-m", "agent_forge", "run", "--help"],
+            text=True,
+            capture_output=True,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("--resume-state", result.stdout)
+        self.assertIn("--no-auto-approve-writes", result.stdout)
+        self.assertIn("--approval-root", result.stdout)
+
+    def test_approve_cli_updates_pending_request(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            store = ApprovalStore(root / "approvals")
+            request = store.request(
+                tool_name="apply_patch",
+                arguments={"path": "target.py", "old": "a", "new": "b"},
+                action="apply_patch",
+                command="",
+                workspace=str(root),
+                run_id="run-1",
+                step=1,
+                agent_name="CodingAgent",
+                reason="write needs approval",
+            )
+
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    "-m",
+                    "agent_forge",
+                    "approve",
+                    request.operation_key,
+                    "--approval-root",
+                    str(root / "approvals"),
+                ],
+                text=True,
+                capture_output=True,
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn("approved", result.stdout)
+            self.assertEqual(store.get(request.operation_key).status, "approved")
 
     def test_ui_swebench_command_includes_agent_mode_defaults(self):
         command = _build_swebench_command(sys.executable, {}, regression=False)

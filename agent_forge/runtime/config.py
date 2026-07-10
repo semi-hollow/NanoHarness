@@ -54,6 +54,9 @@ class RuntimeConfig:
     # Optional prior task-state id used to seed continuation context.
     resume_state: str = ""
 
+    # Filesystem root for pending human approval requests.
+    approval_root: str = ".agent_forge/approvals"
+
     # trusted/on-write/on-risk/locked/dry-run approval posture.
     approval_mode: str = "trusted"
 

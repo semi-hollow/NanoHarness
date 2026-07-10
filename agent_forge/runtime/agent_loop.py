@@ -1,6 +1,7 @@
 import json
 
 from agent_forge.runtime.message import Message
+from agent_forge.runtime.approval import ApprovalStore
 from agent_forge.runtime.planner import SimplePlanner
 from agent_forge.runtime.state import AgentState
 from agent_forge.runtime.control import StepController
@@ -9,7 +10,7 @@ from agent_forge.runtime.execution_environment import ExecutionEnvironment, Exec
 from agent_forge.runtime.hooks import HookContext, HookDecisionType, HookManager
 from agent_forge.runtime.observation import Observation
 from agent_forge.runtime.planning_mode import PlanningModePolicy
-from agent_forge.runtime.task_state import TaskRunStatus, TaskStateStore
+from agent_forge.runtime.task_state import TaskRunStatus, TaskStateStore, summarize_checkpoint
 from agent_forge.context.context_builder import build_context_report
 from agent_forge.context.memory import Memory
 from agent_forge.context.repo_map import build_repo_map
@@ -65,6 +66,7 @@ class AgentLoop:
             approval_mode=getattr(config, "approval_mode", "trusted"),
         )
         self.task_state_store = TaskStateStore(getattr(config, "task_state_root", ".agent_forge/task_state"))
+        self.approval_store = ApprovalStore(getattr(config, "approval_root", ".agent_forge/approvals"))
 
     def run(self, task, agent_name="CodingAgent"):
         """Run one task until final answer, guardrail block, or stop condition.
@@ -76,6 +78,7 @@ class AgentLoop:
         """
 
         self.trace.set_run_context(task=task)
+        resume_summary = self._load_resume_summary(agent_name)
         checkpoint = self.task_state_store.start(
             run_id=self.trace.run_id,
             task=task,
@@ -179,9 +182,12 @@ class AgentLoop:
         # from raw chat messages because prompt memory needs compression and
         # topic-shift filtering.
         memory = Memory()
+        session_summary = getattr(self.config, "session_summary", "")
+        if resume_summary:
+            session_summary = "\n".join(part for part in [session_summary, resume_summary] if part)
         memory.seed_session(
             previous_task=getattr(self.config, "previous_task", ""),
-            session_summary=getattr(self.config, "session_summary", ""),
+            session_summary=session_summary,
         )
         memory.set("task", task, scope="session", source="user_task", agent_name=agent_name)
         evidence = EvidenceLedger()
@@ -666,9 +672,25 @@ class AgentLoop:
                     continue
 
                 if hook_result.decision == HookDecisionType.ASK:
-                    # In this local harness, "approval" is represented by the
-                    # auto_approve flag. A real product would call a UI/human
-                    # approval service here.
+                    operation_key = ApprovalStore.operation_key(
+                        tool_call.name,
+                        tool_call.arguments or {},
+                        self.config.workspace,
+                        action,
+                    )
+                    approval = self.approval_store.get(operation_key)
+                    if approval is None and not self.config.auto_approve_writes:
+                        approval = self.approval_store.request(
+                            tool_name=tool_call.name,
+                            arguments=tool_call.arguments or {},
+                            action=action,
+                            command=command,
+                            workspace=self.config.workspace,
+                            run_id=self.trace.run_id,
+                            step=step,
+                            agent_name=agent_name,
+                            reason=hook_result.reason,
+                        )
                     self._update_task_state(
                         checkpoint,
                         status=TaskRunStatus.WAITING_APPROVAL,
@@ -676,13 +698,42 @@ class AgentLoop:
                         last_tool=tool_call.name,
                         resume_hint="Approve this tool action or rerun with a safer task.",
                     )
-                    approved = self.config.auto_approve_writes
+                    approved = self.config.auto_approve_writes if approval is None else approval.status == "approved"
+                    approval_trace = (
+                        approval.to_dict()
+                        if approval is not None
+                        else {
+                            "operation_key": operation_key,
+                            "status": "auto_approved",
+                            "tool_name": tool_call.name,
+                            "arguments": tool_call.arguments or {},
+                            "action": action,
+                        }
+                    )
                     self.trace.add(
                         step,
                         agent_name,
                         "human_approval",
-                        observation="approved" if approved else "rejected",
+                        observation="approved" if approved else approval.status,
+                        approval_request=approval_trace,
                     )
+                    if approval is not None and approval.status == "pending" and not self.config.auto_approve_writes:
+                        final_answer = (
+                            f"waiting_approval: {tool_call.name} requires approval before execution. "
+                            f"operation_key={approval.operation_key} request={approval.path}"
+                        )
+                        self._stop_run(
+                            checkpoint,
+                            TaskRunStatus.WAITING_APPROVAL,
+                            "waiting_approval",
+                            final_answer,
+                            current_step=step,
+                            last_tool=tool_call.name,
+                            resume_hint=(
+                                f"Run `forge approve {approval.operation_key}` then resume or rerun the task."
+                            ),
+                        )
+                        return final_answer
                     if not approved:
                         blocked = True
                         observation = Observation(tool_call.name, False, f"{tool_call.name}: human approval rejected")
@@ -883,3 +934,21 @@ class AgentLoop:
             hook_decisions=[decision.to_dict() for decision in hook_decisions],
             stop_reason=stop_reason,
         )
+
+    def _load_resume_summary(self, agent_name: str) -> str:
+        """Load an explicit checkpoint into prompt memory and trace."""
+
+        resume_state = getattr(self.config, "resume_state", "")
+        if not resume_state:
+            return ""
+        checkpoint = TaskStateStore.load_path(resume_state)
+        summary = summarize_checkpoint(checkpoint)
+        self.trace.add(
+            0,
+            agent_name,
+            "resume_state_loaded",
+            resume_state=resume_state,
+            checkpoint=checkpoint.to_dict(),
+            resume_summary=summary,
+        )
+        return summary

@@ -11,6 +11,9 @@ NanoHarness uses a small high-signal regression set instead of chasing broad ben
 | `tool-governance-blocked-command` | Show why free-form shell/write tools should be narrowed. | `unsafe_or_blocked_command` |
 | `context-miss-file-selection` | Verify expected source files appear before edit decisions. | `context_miss` |
 | `repeated-action-loop` | Verify repeated read/search is recoverable but repeated writes are blocked. | `repeated_action_loop` |
+| `manual-approval-pending` | Verify manual approval stops before side effects and approved operations can proceed. | `human_approval_required` |
+| `resume-state-continuation` | Verify checkpoint summaries seed the next run without claiming hidden chat replay. | `partial_execution_recovery` |
+| `subagent-fanout-conflict` | Verify independent tasks batch together while overlapping write scopes require conflict resolution. | `subagent_conflict_resolution` |
 
 ## Metrics
 

@@ -35,6 +35,12 @@ The canonical execution unit is still `AgentLoop`. Multi-agent mode wraps it in
 `MultiAgentCoordinator`, where role-specific AgentLoop runs communicate through
 explicit artifacts rather than free-form agent chatter.
 
+The repo also includes a small dependency-aware fan-out scheduler for future
+subagent workers. It groups independent plan tasks into parallel batches and
+requires a conflict-resolution step when declared write scopes or worker outputs
+overlap. This is a local orchestration primitive, not a claim of distributed
+swarm execution.
+
 ## Quick Start
 
 Project name: Agent Forge. The Python package is `agent-forge`, the import package is `agent_forge`, and the CLI is `forge`.
@@ -100,6 +106,30 @@ forge run "fix the failing test in this repository" \
   --provider deepseek \
   --max-revision-rounds 2
 ```
+
+Run with manual approval for write-like actions:
+
+```bash
+forge run "fix the failing test in this repository" \
+  --provider deepseek \
+  --approval-mode on-write \
+  --no-auto-approve-writes
+```
+
+When a write, patch, or risky command needs approval, the run stops with a
+`waiting_approval` answer and prints an `operation_key`. Approve or reject the
+pending request, then rerun or resume with the checkpoint context:
+
+```bash
+forge approve <operation_key>
+forge run "continue the previous fix" \
+  --provider deepseek \
+  --resume-state .agent_forge/runs/<run-id>/task_state/<checkpoint-id>.json
+```
+
+`--resume-state` does not replay hidden model state. It seeds the next run with
+the previous checkpoint: status, last tool, last observation, stop reason, and
+resume hint.
 
 Run the non-coding research profile:
 

@@ -139,6 +139,13 @@ class TaskStateStore:
         data = json.loads(self.path_for(run_id).read_text(encoding="utf-8"))
         return TaskCheckpoint(**data)
 
+    @staticmethod
+    def load_path(path: str | Path) -> TaskCheckpoint:
+        """Load a checkpoint from an explicit JSON path."""
+
+        data = json.loads(Path(path).read_text(encoding="utf-8"))
+        return TaskCheckpoint(**data)
+
     def list(self) -> list[TaskCheckpoint]:
         """Return checkpoints newest first."""
 
@@ -154,19 +161,25 @@ class TaskStateStore:
         """Build a compact context seed for a continuation run."""
 
         checkpoint = self.load(run_id)
-        summary = (
-            f"resume_from_run={checkpoint.run_id}\n"
-            f"previous_status={checkpoint.status}\n"
-            f"previous_task={checkpoint.task}\n"
-            f"last_tool={checkpoint.last_tool}\n"
-            f"last_observation={checkpoint.last_observation}\n"
-            f"stop_reason={checkpoint.stop_reason}\n"
-            f"resume_hint={checkpoint.resume_hint}\n"
-            f"final_answer={checkpoint.final_answer}"
-        )
-        if len(summary) <= max_chars:
-            return summary
-        return summary[: max_chars - 14] + " [compressed]"
+        return summarize_checkpoint(checkpoint, max_chars=max_chars)
+
+
+def summarize_checkpoint(checkpoint: TaskCheckpoint, max_chars: int = 1400) -> str:
+    """Build a compact continuation seed from one checkpoint."""
+
+    summary = (
+        f"resume_from_run={checkpoint.run_id}\n"
+        f"previous_status={checkpoint.status}\n"
+        f"previous_task={checkpoint.task}\n"
+        f"last_tool={checkpoint.last_tool}\n"
+        f"last_observation={checkpoint.last_observation}\n"
+        f"stop_reason={checkpoint.stop_reason}\n"
+        f"resume_hint={checkpoint.resume_hint}\n"
+        f"final_answer={checkpoint.final_answer}"
+    )
+    if len(summary) <= max_chars:
+        return summary
+    return summary[: max_chars - 14] + " [compressed]"
 
 
 def replay_trace(path: str | Path) -> str:

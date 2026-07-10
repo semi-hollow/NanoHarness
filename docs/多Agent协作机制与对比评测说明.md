@@ -1,7 +1,9 @@
 # Multi-Agent Harness
 
-Agent Forge now includes a first-version coordinator-driven multi-agent harness.
-It is intentionally simple and sequential.
+Agent Forge includes a coordinator-driven multi-agent harness. The default role
+workflow is intentionally simple and sequential; a separate fan-out scheduler
+now covers dependency-safe parallel plan batches without changing the canonical
+`AgentLoop` runtime.
 
 ## Design
 
@@ -40,6 +42,25 @@ raw provider-specific tool-call markup instead of the expected artifact, the run
 does not pretend the artifact is valid; it triggers a bounded revision round.
 Artifact handoff is rendered newest-first so reviewers see the current candidate
 before older audit history consumes context budget.
+
+## Dependency-Aware Fan-Out
+
+For plan-style work, `agent_forge/multi_agent/fanout.py` provides a small
+subagent fan-out primitive:
+
+```text
+Plan tasks
+  -> dependency batches
+  -> same-batch write-scope conflict check
+  -> concurrent runner callback
+  -> touched-file conflict check
+  -> completed or conflict_resolution_required
+```
+
+This answers a different question from `coding_fix`: when a user has seven or
+eight independent tasks, which can be run together, and which require a merge or
+conflict-resolution step first? It does not claim automatic patch merge or
+distributed execution; it makes dependency and conflict policy explicit.
 
 ## Profiles
 
@@ -133,7 +154,7 @@ This version does not implement:
 
 - Claude / Anthropic provider compatibility.
 - Raft, quorum, blockchain, decentralized peer-to-peer agents, or swarm learning.
-- True parallel execution.
+- Automatic patch merging across parallel mutating workspaces.
 - Full SaaS/distributed serving.
 - Heavy frontend changes.
 
