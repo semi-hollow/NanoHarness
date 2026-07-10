@@ -603,6 +603,7 @@ class AgentLoop:
                 command = tool_call.arguments.get("command", "") if tool_call.arguments else ""
                 side_effect = self._is_side_effect_action(action)
                 operation_key = ""
+                operation_fingerprint = None
                 if side_effect:
                     operation_key = OperationLedgerStore.operation_key(
                         tool_call.name,
@@ -610,8 +611,65 @@ class AgentLoop:
                         self.config.workspace,
                         action,
                     )
+                    operation_fingerprint = OperationLedgerStore.operation_fingerprint(
+                        tool_call.name,
+                        tool_call.arguments or {},
+                        self.config.workspace,
+                        action,
+                    )
                     existing_operation = self.operation_ledger.get(operation_key)
                     if existing_operation is not None and existing_operation.status == "executed":
+                        if (
+                            existing_operation.post_fingerprint is not None
+                            and not self._same_operation_fingerprint(
+                                operation_fingerprint,
+                                existing_operation.post_fingerprint,
+                            )
+                        ):
+                            observation = Observation(
+                                tool_call.name,
+                                False,
+                                (
+                                    "stale_operation_record: operation was executed before, "
+                                    f"but target state changed since then: {operation_key}"
+                                ),
+                            )
+                            memory.add_observation(observation)
+                            messages.append(
+                                Message(
+                                    "tool",
+                                    observation.content,
+                                    name=tool_call.name,
+                                    tool_call_id=tool_call.id,
+                                )
+                            )
+                            self.trace.add(
+                                step,
+                                agent_name,
+                                "operation_ledger",
+                                operation_key=operation_key,
+                                operation_status="stale_operation_record",
+                                operation=existing_operation.to_dict(),
+                                current_fingerprint=operation_fingerprint,
+                            )
+                            self.trace.add(
+                                step,
+                                agent_name,
+                                "tool_observation",
+                                success=False,
+                                observation=observation.content,
+                            )
+                            self._update_task_state(
+                                checkpoint,
+                                status=TaskRunStatus.BLOCKED,
+                                current_step=step,
+                                last_tool=tool_call.name,
+                                last_observation=observation.content,
+                                messages_count=len(messages),
+                                observations_count=len(state.observations),
+                                resume_hint="Reread the target before reissuing a side-effect operation.",
+                            )
+                            continue
                         observation = Observation(
                             tool_call.name,
                             True,
@@ -735,6 +793,7 @@ class AgentLoop:
                             self.config.workspace,
                             run_id=self.trace.run_id,
                             step=step,
+                            pre_fingerprint=operation_fingerprint,
                         )
                     approval = self.approval_store.get(operation_key)
                     if approval is None and not self.config.auto_approve_writes:
@@ -748,6 +807,7 @@ class AgentLoop:
                             step=step,
                             agent_name=agent_name,
                             reason=hook_result.reason,
+                            operation_fingerprint=operation_fingerprint,
                         )
                         if side_effect:
                             self.operation_ledger.record_pending(
@@ -758,6 +818,7 @@ class AgentLoop:
                                 self.config.workspace,
                                 run_id=self.trace.run_id,
                                 step=step,
+                                pre_fingerprint=operation_fingerprint,
                             )
                     self._update_task_state(
                         checkpoint,
@@ -767,6 +828,42 @@ class AgentLoop:
                         resume_hint="Approve this tool action or rerun with a safer task.",
                     )
                     approved = self.config.auto_approve_writes if approval is None else approval.status == "approved"
+                    if (
+                        side_effect
+                        and approval is not None
+                        and approval.status == "approved"
+                        and approval.operation_fingerprint is not None
+                        and not self._same_operation_fingerprint(
+                            operation_fingerprint,
+                            approval.operation_fingerprint,
+                        )
+                    ):
+                        stale = self.approval_store.mark_stale(
+                            approval.operation_key,
+                            "target fingerprint changed after approval request",
+                        )
+                        self.trace.add(
+                            step,
+                            agent_name,
+                            "human_approval",
+                            observation="approval_stale",
+                            approval_request=stale.to_dict(),
+                            current_fingerprint=operation_fingerprint,
+                        )
+                        final_answer = (
+                            f"approval_stale: {tool_call.name} approval target changed before execution. "
+                            f"operation_key={approval.operation_key} request={approval.path}"
+                        )
+                        self._stop_run(
+                            checkpoint,
+                            TaskRunStatus.WAITING_APPROVAL,
+                            "approval_stale",
+                            final_answer,
+                            current_step=step,
+                            last_tool=tool_call.name,
+                            resume_hint="Rerun the task to create a fresh approval request for the current target state.",
+                        )
+                        return final_answer
                     if side_effect and approved:
                         self.operation_ledger.record_approved(operation_key, run_id=self.trace.run_id, step=step)
                     approval_trace = (
@@ -842,20 +939,28 @@ class AgentLoop:
                         tool_call.name,
                         tool_call.arguments or {},
                         action,
-                        self.config.workspace,
-                        run_id=self.trace.run_id,
-                        step=step,
-                        status="approved",
-                    )
+                            self.config.workspace,
+                            run_id=self.trace.run_id,
+                            step=step,
+                            status="approved",
+                            pre_fingerprint=operation_fingerprint,
+                        )
                 observation = self.registry.execute(tool_call.name, tool_call.arguments)
                 observation = self.hooks.post_tool(hook_context, observation)
                 if side_effect:
+                    post_fingerprint = OperationLedgerStore.operation_fingerprint(
+                        tool_call.name,
+                        tool_call.arguments or {},
+                        self.config.workspace,
+                        action,
+                    )
                     if observation.success:
                         operation_record = self.operation_ledger.record_executed(
                             operation_key,
                             run_id=self.trace.run_id,
                             step=step,
                             observation=observation.content[:600],
+                            post_fingerprint=post_fingerprint,
                         )
                     else:
                         operation_record = self.operation_ledger.record_failed(
@@ -863,6 +968,7 @@ class AgentLoop:
                             run_id=self.trace.run_id,
                             step=step,
                             observation=observation.content[:600],
+                            post_fingerprint=post_fingerprint,
                         )
                     self.trace.add(
                         step,
@@ -1009,6 +1115,17 @@ class AgentLoop:
         """Return whether an action should use the idempotency ledger."""
 
         return action in {"apply_patch", "write", "run_command"}
+
+    def _same_operation_fingerprint(
+        self,
+        left: dict | None,
+        right: dict | None,
+    ) -> bool:
+        """Return whether two captured operation target states are equivalent."""
+
+        if left is None or right is None:
+            return False
+        return left == right
 
     def _update_task_state(self, checkpoint, status: TaskRunStatus | None = None, **changes):
         """Persist a compact run checkpoint without cluttering AgentLoop logic."""

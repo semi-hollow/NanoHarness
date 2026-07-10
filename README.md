@@ -141,7 +141,10 @@ forge resume .agent_forge/runs/<run-id> --provider deepseek
 Side-effect tools also write to an operation ledger keyed by tool, arguments,
 workspace, and action. If a continuation or rerun asks for the same already
 executed operation, AgentLoop skips it and records `skipped_already_executed`
-instead of applying the side effect twice.
+instead of applying the side effect twice. The ledger stores target
+fingerprints; if the target changed after execution or after human approval,
+the runtime records `stale_operation_record` or `approval_stale` instead of
+silently reusing an old decision.
 
 Run the non-coding research profile:
 
@@ -198,6 +201,13 @@ Small non-coding Agent application cases live under
 interview discussion: research citation quality and ops approval workflow. They
 reuse the same evaluation language as the coding harness: task success,
 evidence quality, tool efficiency, recovery, human intervention, and safety.
+
+Run a deterministic mini-case scorecard from explicit evidence:
+
+```bash
+forge eval mini-cases --case research-citation-quality --evidence evidence.json
+forge eval mini-cases --case ops-approval-workflow --evidence evidence.json
+```
 
 Read the latest report:
 
@@ -379,7 +389,7 @@ agent_forge/
 - [Architecture Notes](docs/AgentForge总体架构与运行链路.md)
 - [Multi-Agent Harness](docs/多Agent协作机制与对比评测说明.md)
 - [Technical Defense Reading Path](docs/technical-defense/评测目录说明与SWE-bench使用入口.md)
-- Learn: [30-Minute Interview Pack](docs/technical-defense/learn/三十分钟面试准备包.md), [Core Code Map](docs/technical-defense/learn/核心代码阅读路线图.md), [Multi-Agent Learning Guide](docs/technical-defense/learn/多Agent机制学习指南.md)
+- Learn: [30-Minute Interview Pack](docs/technical-defense/learn/三十分钟面试准备包.md), [Recent Agent Capability Map](docs/technical-defense/learn/最近新增Agent能力代码导览.md), [Core Code Map](docs/technical-defense/learn/核心代码阅读路线图.md), [Multi-Agent Learning Guide](docs/technical-defense/learn/多Agent机制学习指南.md)
 - Demo: [5-Minute Interview Demo Script](docs/technical-defense/demo/五分钟面试演示脚本.md), [Demo Evidence Pack](docs/technical-defense/demo/evidence/评测目录说明与SWE-bench使用入口.md)
 - Defense: [Project Maturity Audit](docs/technical-defense/defense/项目成熟度审计与改进清单.md), [AI Agent Interview Q&A](docs/technical-defense/defense/AI智能体项目面试问答.md), [Agent Safety Boundaries](docs/technical-defense/defense/Agent安全边界与权限防守说明.md), [Failure Taxonomy](docs/technical-defense/defense/失败分类体系与排查话术.md), [Technical Defense Notes](docs/technical-defense/defense/代码智能体技术防守说明.md), [Interview Response Playbook](docs/technical-defense/defense/面试追问应答策略手册.md), [Agent Engineer Question Bank](docs/technical-defense/defense/AI智能体项目面试题库.md)
 

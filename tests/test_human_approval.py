@@ -105,6 +105,49 @@ class HumanApprovalTest(unittest.TestCase):
                 )
             )
 
+    def test_approved_operation_becomes_stale_when_target_fingerprint_changes(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "target.py").write_text("value = 1\n", encoding="utf-8")
+            approvals = ApprovalStore(root / "approvals")
+
+            first_trace = TraceRecorder(str(root / "first-trace.json"))
+            first_config = RuntimeConfig(
+                workspace=str(root),
+                max_steps=2,
+                trace_file=str(root / "first-trace.json"),
+                auto_approve_writes=False,
+                approval_root=str(root / "approvals"),
+            )
+            first = AgentLoop(first_config, first_trace, _registry(root), PatchThenFinalLLM()).run("fix target")
+
+            self.assertIn("waiting_approval", first)
+            pending = approvals.list_pending()
+            self.assertEqual(len(pending), 1)
+            approvals.decide(pending[0].operation_key, "approved")
+            (root / "target.py").write_text("value = 3\n", encoding="utf-8")
+
+            second_trace = TraceRecorder(str(root / "second-trace.json"))
+            second_config = RuntimeConfig(
+                workspace=str(root),
+                max_steps=3,
+                trace_file=str(root / "second-trace.json"),
+                auto_approve_writes=False,
+                approval_root=str(root / "approvals"),
+            )
+            second = AgentLoop(second_config, second_trace, _registry(root), PatchThenFinalLLM()).run("fix target")
+
+            self.assertIn("approval_stale", second)
+            self.assertEqual((root / "target.py").read_text(encoding="utf-8"), "value = 3\n")
+            self.assertEqual(approvals.get(pending[0].operation_key).status, "stale")
+            self.assertTrue(
+                any(
+                    event["event_type"] == "human_approval"
+                    and event.get("observation") == "approval_stale"
+                    for event in second_trace.events
+                )
+            )
+
 
 if __name__ == "__main__":
     unittest.main()

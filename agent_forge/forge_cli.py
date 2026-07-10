@@ -13,6 +13,7 @@ import uuid
 from pathlib import Path
 
 from agent_forge.bench.swebench import build_swebench_parser, run_swebench_from_args
+from agent_forge.evaluation.mini_cases import run_mini_cases
 from agent_forge.multi_agent import MultiAgentCoordinator, get_profile, list_profiles
 from agent_forge.observability.trace import TraceRecorder
 from agent_forge.runtime.approval import ApprovalStore
@@ -92,6 +93,19 @@ def build_parser() -> argparse.ArgumentParser:
     bench_subparsers = bench_parser.add_subparsers(dest="bench_name", required=True)
     swebench_parser = bench_subparsers.add_parser("swebench", help="Generate SWE-bench predictions.")
     build_swebench_parser(swebench_parser)
+
+    eval_parser = subparsers.add_parser("eval", help="Run lightweight evaluation utilities.")
+    eval_subparsers = eval_parser.add_subparsers(dest="eval_name", required=True)
+    mini_cases_parser = eval_subparsers.add_parser(
+        "mini-cases",
+        help="Score small non-coding Agent application cases from explicit evidence.",
+    )
+    mini_cases_parser.add_argument("--case", default="all", help="Mini case id to run, or all.")
+    mini_cases_parser.add_argument(
+        "--evidence",
+        help="JSON evidence file. Use either one evidence object or a dict keyed by case_id.",
+    )
+    mini_cases_parser.add_argument("--output-root", default=".agent_forge/mini_cases")
 
     report_parser = subparsers.add_parser("report", help="Print a benchmark or run report.")
     report_parser.add_argument("target", nargs="?", default="latest")
@@ -176,6 +190,11 @@ def main(argv: list[str] | None = None) -> None:
         print(f"Benchmark run: {summary.output_dir}")
         print(f"Result card: {summary.output_dir / 'report.md'}")
         print(f"Predictions: {summary.predictions_path}")
+        return
+    if args.command == "eval" and args.eval_name == "mini-cases":
+        report_paths = run_mini_cases_from_args(args)
+        for path in report_paths:
+            print(f"Mini case report: {path}")
         return
     if args.command == "report":
         print_report(args.target)
@@ -288,19 +307,61 @@ def resume_repository_task(args: argparse.Namespace) -> Path:
         mcp_tool=args.mcp_tool,
     )
     run_dir = run_repository_task(run_args)
-    (run_dir / "resume_link.json").write_text(
-        json.dumps(
-            {
-                "resumed_from_run_dir": str(Path(args.run_dir)),
-                "resume_state": str(checkpoint_path),
-                "previous_run_id": checkpoint.run_id,
-            },
-            ensure_ascii=False,
-            indent=2,
-        ),
-        encoding="utf-8",
+    write_resume_link(
+        run_dir,
+        resumed_from_run_dir=Path(args.run_dir),
+        resume_state=checkpoint_path,
+        previous_run_id=checkpoint.run_id,
     )
     return run_dir
+
+
+def write_resume_link(
+    run_dir: str | Path,
+    *,
+    resumed_from_run_dir: str | Path,
+    resume_state: str | Path,
+    previous_run_id: str,
+) -> tuple[Path, Path]:
+    """Write machine-readable and report-visible resume-chain artifacts."""
+
+    run_path = Path(run_dir)
+    payload = {
+        "resumed_from_run_dir": str(Path(resumed_from_run_dir)),
+        "resume_state": str(Path(resume_state)),
+        "previous_run_id": previous_run_id,
+    }
+    link_path = run_path / "resume_link.json"
+    link_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+
+    chain_path = run_path / "resume_chain.md"
+    chain_text = "\n".join(
+        [
+            "# Resume Chain",
+            "",
+            f"- resumed_from_run_dir: `{payload['resumed_from_run_dir']}`",
+            f"- resume_state: `{payload['resume_state']}`",
+            f"- previous_run_id: `{payload['previous_run_id']}`",
+            "",
+        ]
+    )
+    chain_path.write_text(chain_text, encoding="utf-8")
+
+    report_path = run_path / "usage_report.md"
+    if report_path.exists():
+        report = report_path.read_text(encoding="utf-8").rstrip()
+        chain_body = "\n".join(chain_text.splitlines()[2:]) + "\n"
+        report_path.write_text(f"{report}\n\n## Resume Chain\n\n{chain_body}", encoding="utf-8")
+    return link_path, chain_path
+
+
+def run_mini_cases_from_args(args: argparse.Namespace) -> list[Path]:
+    """Run the mini-case evaluator from CLI args."""
+
+    evidence = {}
+    if args.evidence:
+        evidence = json.loads(Path(args.evidence).read_text(encoding="utf-8"))
+    return run_mini_cases(case_id=args.case, evidence=evidence, output_dir=args.output_root)
 
 
 def latest_checkpoint_path(run_dir: str | Path) -> Path:

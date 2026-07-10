@@ -25,6 +25,7 @@ class ApprovalRequest:
     reason: str
     created_at: float = field(default_factory=time.time)
     updated_at: float = field(default_factory=time.time)
+    operation_fingerprint: dict[str, Any] | None = None
     decision_note: str = ""
     path: str = ""
 
@@ -76,11 +77,15 @@ class ApprovalStore:
         step: int,
         agent_name: str,
         reason: str,
+        operation_fingerprint: dict[str, Any] | None = None,
     ) -> ApprovalRequest:
         """Create a pending request unless an approval decision already exists."""
 
         key = self.operation_key(tool_name, arguments, workspace, action)
         existing = self.get(key)
+        if existing is not None and existing.operation_fingerprint is None and operation_fingerprint is not None:
+            existing.operation_fingerprint = operation_fingerprint
+            self._write(existing)
         if existing is not None:
             return existing
         request = ApprovalRequest(
@@ -95,6 +100,7 @@ class ApprovalStore:
             step=step,
             agent_name=agent_name,
             reason=reason,
+            operation_fingerprint=operation_fingerprint,
         )
         request.path = str(self.path_for(key))
         self._write(request)
@@ -127,6 +133,18 @@ class ApprovalStore:
         if request is None:
             raise FileNotFoundError(f"approval request not found: {operation_key}")
         request.status = status
+        request.decision_note = note
+        request.updated_at = time.time()
+        self._write(request)
+        return request
+
+    def mark_stale(self, operation_key: str, note: str = "") -> ApprovalRequest:
+        """Mark an approval unusable because target state changed after approval."""
+
+        request = self.get(operation_key)
+        if request is None:
+            raise FileNotFoundError(f"approval request not found: {operation_key}")
+        request.status = "stale"
         request.decision_note = note
         request.updated_at = time.time()
         self._write(request)

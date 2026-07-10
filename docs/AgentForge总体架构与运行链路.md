@@ -122,17 +122,23 @@ is a safe continuation seed, not a hidden chat-state replay.
 When approval is manual (`--no-auto-approve-writes`), `AgentLoop` writes a
 pending `ApprovalRequest` and stops at `waiting_approval` before executing the
 side effect. `forge approve <operation_key>` records the human decision; rerun
-or resume can then execute the same approved operation.
+or resume can then execute the same approved operation if the target fingerprint
+still matches the state that was approved. If the target changed, the approval
+is marked `stale` and the operation is not executed.
 
 `OperationLedgerStore` uses the same operation identity shape for side effects:
 tool name, normalized arguments, workspace, and action. After an operation is
 executed successfully, a later run that proposes the exact same operation gets a
 successful skipped observation instead of applying it again. This is a local
-idempotency mechanism, not a distributed transaction log.
+idempotency mechanism, not a distributed transaction log. The ledger stores
+pre/post fingerprints for path-targeted operations; if the target changed after
+execution, the runtime records `stale_operation_record` instead of pretending
+the previous skip is still safe.
 
 `forge resume <run-dir>` is the user-facing convenience wrapper. It finds the
 newest checkpoint under `task_state/`, starts a new run with `--resume-state`,
-and writes `resume_link.json` in the continuation run so the chain is auditable.
+and writes `resume_link.json`, `resume_chain.md`, and a `Resume Chain` section
+in `usage_report.md` so the continuation chain is visible in reports.
 
 ## Result Evidence
 

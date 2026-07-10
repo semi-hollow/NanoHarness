@@ -94,6 +94,42 @@ class OperationLedgerTest(unittest.TestCase):
                 )
             )
 
+    def test_agent_loop_blocks_stale_executed_operation_when_target_changed(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "target.py").write_text("value = 1\n", encoding="utf-8")
+            ledger_root = root / "ledger"
+
+            first_trace = TraceRecorder(str(root / "first-trace.json"))
+            first_config = RuntimeConfig(
+                workspace=str(root),
+                max_steps=3,
+                trace_file=str(root / "first-trace.json"),
+                operation_ledger_root=str(ledger_root),
+            )
+            AgentLoop(first_config, first_trace, _registry(root), PatchThenFinalLLM()).run("fix target")
+
+            (root / "target.py").write_text("value = 3\n", encoding="utf-8")
+
+            second_trace = TraceRecorder(str(root / "second-trace.json"))
+            second_config = RuntimeConfig(
+                workspace=str(root),
+                max_steps=3,
+                trace_file=str(root / "second-trace.json"),
+                operation_ledger_root=str(ledger_root),
+            )
+            second = AgentLoop(second_config, second_trace, _registry(root), PatchThenFinalLLM()).run("fix target")
+
+            self.assertIn("finished", second)
+            self.assertEqual((root / "target.py").read_text(encoding="utf-8"), "value = 3\n")
+            self.assertTrue(
+                any(
+                    event["event_type"] == "operation_ledger"
+                    and event.get("operation_status") == "stale_operation_record"
+                    for event in second_trace.events
+                )
+            )
+
 
 if __name__ == "__main__":
     unittest.main()

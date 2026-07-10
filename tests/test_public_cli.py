@@ -28,6 +28,7 @@ class PublicCliSmokeTest(unittest.TestCase):
         self.assertIn("ui", result.stdout)
         self.assertIn("approve", result.stdout)
         self.assertIn("resume", result.stdout)
+        self.assertIn("eval", result.stdout)
 
     def test_run_help_exposes_resume_and_manual_approval_flags(self):
         result = subprocess.run(
@@ -51,6 +52,17 @@ class PublicCliSmokeTest(unittest.TestCase):
         self.assertIn("run_dir", result.stdout)
         self.assertIn("--task", result.stdout)
         self.assertIn("--operation-ledger-root", result.stdout)
+
+    def test_eval_mini_cases_help_exposes_evidence_runner_flags(self):
+        result = subprocess.run(
+            [sys.executable, "-m", "agent_forge", "eval", "mini-cases", "--help"],
+            text=True,
+            capture_output=True,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("--case", result.stdout)
+        self.assertIn("--evidence", result.stdout)
+        self.assertIn("--output-root", result.stdout)
 
     def test_approve_cli_updates_pending_request(self):
         with tempfile.TemporaryDirectory() as tmp:
