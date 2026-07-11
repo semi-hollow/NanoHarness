@@ -16,7 +16,7 @@ class FailureDiagnosis:
     next_actions: list[str]
     severity: str = "medium"
     impact: str = ""
-    interview_lesson: str = ""
+    engineering_lesson: str = ""
 
 
 def classify_case_result(result: BenchCaseResult, usage: dict[str, Any], trace: dict[str, Any]) -> FailureDiagnosis:
@@ -57,7 +57,7 @@ def classify_case_result(result: BenchCaseResult, usage: dict[str, Any], trace: 
             ["Fix the runner/provider/environment error first, then re-run the same case."],
             severity="high",
             impact="The run cannot isolate agent behavior until the harness environment is healthy.",
-            interview_lesson="Separate harness failures from agent reasoning failures before tuning prompts or tools.",
+            engineering_lesson="Separate harness failures from agent reasoning failures before tuning prompts or tools.",
         )
     if "validation_blocked" in lowered or "missing dependency" in lowered or "no module named" in lowered:
         return FailureDiagnosis(
@@ -67,7 +67,7 @@ def classify_case_result(result: BenchCaseResult, usage: dict[str, Any], trace: 
             ["Fix or document the validation environment, then re-run without changing the agent policy."],
             severity="medium",
             impact="A candidate patch may be correct, but the validation environment cannot prove it locally.",
-            interview_lesson="Evaluation must distinguish code failure from environment failure so optimization targets stay accurate.",
+            engineering_lesson="Evaluation must distinguish code failure from environment failure so optimization targets stay accurate.",
         )
     if result.evaluation_status == "official_eval_error":
         return FailureDiagnosis(
@@ -77,7 +77,7 @@ def classify_case_result(result: BenchCaseResult, usage: dict[str, Any], trace: 
             ["Fix the official evaluation environment, then rerun without changing the agent patch."],
             severity="high",
             impact="The run cannot distinguish patch correctness from harness, Docker, or dependency failure.",
-            interview_lesson="Official evaluation process failures must not be reported as patch rejection.",
+            engineering_lesson="Official evaluation process failures must not be reported as patch rejection.",
         )
     if result.evaluation_status == "official_eval_failed":
         return FailureDiagnosis(
@@ -87,7 +87,7 @@ def classify_case_result(result: BenchCaseResult, usage: dict[str, Any], trace: 
             ["Read official per-case output and patch.diff together; add this case to regression before tuning."],
             severity="high",
             impact="The generated patch did not satisfy benchmark correctness criteria.",
-            interview_lesson="Patch generation, local validation, and official resolution are different evidence levels.",
+            engineering_lesson="Patch generation, local validation, and official resolution are different evidence levels.",
         )
     if result.patch_chars > 0:
         return FailureDiagnosis(
@@ -97,7 +97,7 @@ def classify_case_result(result: BenchCaseResult, usage: dict[str, Any], trace: 
             ["Run local diagnostics or official SWE-bench evaluation before claiming solved."],
             severity="low",
             impact="The runtime reached edit capability, but correctness remains unproven.",
-            interview_lesson="Conservative reporting prevents benchmark demos from becoming unsupported success claims.",
+            engineering_lesson="Conservative reporting prevents benchmark demos from becoming unsupported success claims.",
         )
     if "offset" in lowered and "limit" in lowered and ("ignored" in lowered or "line window" in lowered):
         return FailureDiagnosis(
@@ -107,7 +107,7 @@ def classify_case_result(result: BenchCaseResult, usage: dict[str, Any], trace: 
             ["Align tool schema and coercion with common model invocation patterns, then replay the case."],
             severity="high",
             impact="The agent can waste steps or inspect the wrong code even when the right intent is visible.",
-            interview_lesson="Agent tools are model-facing contracts; schema mismatch is an agent reliability bug, not just an API bug.",
+            engineering_lesson="Agent tools are model-facing contracts; schema mismatch is an agent reliability bug, not just an API bug.",
         )
     if "pending_tool_call_at_stop" in lowered:
         return FailureDiagnosis(
@@ -117,7 +117,7 @@ def classify_case_result(result: BenchCaseResult, usage: dict[str, Any], trace: 
             ["Inspect the final model action and increase budget or force an earlier patch/no-patch decision."],
             severity="high",
             impact="The final answer is not trustworthy because the model had unfinished tool intent.",
-            interview_lesson="Final answers need runtime validation; unfinished tool calls should not be treated as completed work.",
+            engineering_lesson="Final answers need runtime validation; unfinished tool calls should not be treated as completed work.",
         )
     if "incompleteread" in lowered or "request_failed" in lowered:
         return FailureDiagnosis(
@@ -127,7 +127,7 @@ def classify_case_result(result: BenchCaseResult, usage: dict[str, Any], trace: 
             ["Treat as provider instability; retry only after the client converts transport failures into structured observations."],
             severity="high",
             impact="The failure says little about coding ability until transport errors are isolated.",
-            interview_lesson="Runtime observability should separate model/provider transport from agent logic failures.",
+            engineering_lesson="Runtime observability should separate model/provider transport from agent logic failures.",
         )
     if "repeated" in lowered:
         return FailureDiagnosis(
@@ -137,7 +137,7 @@ def classify_case_result(result: BenchCaseResult, usage: dict[str, Any], trace: 
             ["Use trace timeline to find the first repeated action and add recovery that forces a different observation path."],
             severity="high",
             impact="The agent spent budget without gaining new information.",
-            interview_lesson="Loop control needs risk-aware repetition policy: repeated reads and repeated writes should not be handled identically.",
+            engineering_lesson="Loop control needs risk-aware repetition policy: repeated reads and repeated writes should not be handled identically.",
         )
     if "command blocked" in lowered or "unsafe" in lowered or "permission" in lowered:
         return FailureDiagnosis(
@@ -147,7 +147,7 @@ def classify_case_result(result: BenchCaseResult, usage: dict[str, Any], trace: 
             ["Replace free-form shell behavior with a narrower diagnostics tool or explicit approval path."],
             severity="medium",
             impact="The run preserved safety, but may need a better sanctioned validation path.",
-            interview_lesson="Tool governance should narrow side effects while still giving agents a valid path to complete work.",
+            engineering_lesson="Tool governance should narrow side effects while still giving agents a valid path to complete work.",
         )
     if failed_tools > 0:
         return FailureDiagnosis(
@@ -157,7 +157,7 @@ def classify_case_result(result: BenchCaseResult, usage: dict[str, Any], trace: 
             ["Classify the failed tool as retryable, hidden-by-policy, or schema-invalid."],
             severity="medium",
             impact="The agent's plan depended on an action that the runtime could not execute.",
-            interview_lesson="Tool availability and recovery policy are part of the agent control plane.",
+            engineering_lesson="Tool availability and recovery policy are part of the agent control plane.",
         )
     if max_selected_files == 0 and result.status in {"blocked", "no_patch"}:
         return FailureDiagnosis(
@@ -167,7 +167,7 @@ def classify_case_result(result: BenchCaseResult, usage: dict[str, Any], trace: 
             ["Tune file ranking, symbol search, or external context retrieval for this case."],
             severity="high",
             impact="The model likely lacked the code evidence needed to make a safe edit.",
-            interview_lesson="Context engineering should be evaluated by whether expected files appear before the agent commits to an action.",
+            engineering_lesson="Context engineering should be evaluated by whether expected files appear before the agent commits to an action.",
         )
     if result.status == "no_patch":
         return FailureDiagnosis(
@@ -177,7 +177,7 @@ def classify_case_result(result: BenchCaseResult, usage: dict[str, Any], trace: 
             ["Inspect the last two trace steps and require either a patch or a concrete blocker with evidence."],
             severity="medium",
             impact="The agent did not reach the edit phase.",
-            interview_lesson="A useful harness explains no-patch outcomes instead of treating them as generic failure.",
+            engineering_lesson="A useful harness explains no-patch outcomes instead of treating them as generic failure.",
         )
     return FailureDiagnosis(
         "unclassified",
@@ -186,7 +186,7 @@ def classify_case_result(result: BenchCaseResult, usage: dict[str, Any], trace: 
         ["Promote this pattern into a diagnosis rule if it repeats."],
         severity="low",
         impact="The current taxonomy does not yet cover this behavior.",
-        interview_lesson="Failure taxonomies should evolve from repeated bad cases, not from abstract labels alone.",
+        engineering_lesson="Failure taxonomies should evolve from repeated bad cases, not from abstract labels alone.",
     )
 
 

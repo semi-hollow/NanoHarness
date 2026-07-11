@@ -8,7 +8,7 @@ from typing import Any
 
 @dataclass(frozen=True)
 class MiniAgentCase:
-    """A small non-benchmark scenario for general Agent application interviews."""
+    """A small non-benchmark scenario for general Agent application evaluation."""
 
     case_id: str
     domain: str
@@ -204,7 +204,7 @@ def _render_mini_case_report(case: MiniAgentCase, result: MiniCaseEvaluation) ->
     lines = [
         "# Mini Case Evaluation",
         "",
-        "This is not a benchmark leaderboard. It is a small deterministic scorecard for interview discussion.",
+        "This is not a benchmark leaderboard. It is a small deterministic scorecard for explicit evidence.",
         "",
         f"- case_id: `{case.case_id}`",
         f"- domain: `{case.domain}`",

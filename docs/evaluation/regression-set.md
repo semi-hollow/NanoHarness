@@ -1,6 +1,6 @@
 # Small Regression Set
 
-NanoHarness uses a small high-signal regression set instead of chasing broad benchmark coverage during development. The built-in `core` regression command currently runs a small SWE-bench subset; the table below is the target high-signal coverage map for offer-readiness work, including local/non-SWE-bench scenarios that may be represented by case files or docs before they become built-in IDs.
+NanoHarness uses a small high-signal regression set instead of chasing broad benchmark coverage during development. The built-in `core` regression command runs a compact SWE-bench subset; the table below also records local runtime and non-coding evaluation contracts.
 
 ## Target coverage map
 
@@ -40,10 +40,10 @@ NanoHarness uses a small high-signal regression set instead of chasing broad ben
 ## Non-coding mini cases
 
 `docs/evaluation/mini-cases/` stores small JSON cases that are not full
-benchmarks. They exist to make the project explainable for broader Agent
-application interviews beyond Coding Agent roles. The loader in
-`agent_forge/evaluation/mini_cases.py` keeps them machine-readable while staying
-lightweight enough for interview walkthroughs.
+benchmarks. They exercise evaluation dimensions shared by broader Agent
+applications beyond code repair. The loader in
+`agent_forge/evaluation/mini_cases.py` keeps them machine-readable and
+deterministic.
 
 Run them with:
 

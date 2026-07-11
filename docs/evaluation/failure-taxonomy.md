@@ -27,6 +27,6 @@ NanoHarness classifies coding-agent failures so a bad run becomes an engineering
 | `official_eval_error` | Official harness process or environment failed before judging the patch. | Fix Docker/SWE-bench/environment, then rerun evaluation. |
 | `official_eval_failed` | Official harness completed and rejected the patch for this case. | Analyze patch and add case to regression. |
 
-## Interview framing
+## Engineering implications
 
 The point is not to label failures after the fact. The point is to decide whether the next improvement belongs in context selection, tool governance, sandbox policy, diagnostics, provider handling, or prompt procedure.

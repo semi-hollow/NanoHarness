@@ -13,6 +13,7 @@ import uuid
 from pathlib import Path
 
 from agent_forge.bench.swebench import build_swebench_parser, run_swebench_from_args
+from agent_forge.evaluation.feedback_dataset import export_feedback_dataset, record_feedback
 from agent_forge.evaluation.mini_cases import run_mini_cases
 from agent_forge.multi_agent import MultiAgentCoordinator, get_profile, list_profiles
 from agent_forge.observability.trace import TraceRecorder
@@ -20,6 +21,7 @@ from agent_forge.runtime.approval import ApprovalStore
 from agent_forge.observability.usage_report import write_usage_artifacts
 from agent_forge.runtime.agent_loop import AgentLoop
 from agent_forge.runtime.config import RuntimeConfig
+from agent_forge.runtime.execution_environment import ExecutionEnvironment, ExecutionEnvironmentConfig, EnvironmentProbe
 from agent_forge.runtime.llm_config import resolve_llm_config
 from agent_forge.runtime.task_state import TaskStateStore, replay_trace
 from agent_forge.runtime.wiring import build_llm, build_registry
@@ -43,6 +45,7 @@ def build_parser() -> argparse.ArgumentParser:
     run_parser = subparsers.add_parser("run", help="Run Agent Forge on a repository task.")
     run_parser.add_argument("task", help="Issue or coding task to solve.")
     run_parser.add_argument("--workspace", default=".")
+    _add_execution_environment_args(run_parser)
     run_parser.add_argument("--provider", default=os.getenv("AGENT_FORGE_DEFAULT_LLM", "deepseek"))
     run_parser.add_argument("--model")
     run_parser.add_argument("--base-url")
@@ -106,6 +109,31 @@ def build_parser() -> argparse.ArgumentParser:
         help="JSON evidence file. Use either one evidence object or a dict keyed by case_id.",
     )
     mini_cases_parser.add_argument("--output-root", default=".agent_forge/mini_cases")
+    feedback_parser = eval_subparsers.add_parser(
+        "feedback",
+        help="Attach a human outcome and labels to one run or benchmark case.",
+    )
+    feedback_parser.add_argument("target", help="Run directory, case directory, or trace.json path.")
+    feedback_parser.add_argument(
+        "--outcome",
+        required=True,
+        choices=["accepted", "needs_work", "rejected"],
+    )
+    feedback_parser.add_argument("--label", action="append", default=[])
+    feedback_parser.add_argument("--note", default="")
+    feedback_parser.add_argument("--reviewer", default="human")
+    export_parser = eval_subparsers.add_parser(
+        "export-dataset",
+        help="Export trace, policy, evaluation, and human-feedback evidence as JSONL.",
+    )
+    export_parser.add_argument("target", nargs="+", help="One or more run or case directories.")
+    export_parser.add_argument("--output", default=".agent_forge/evaluation/evidence_dataset.jsonl")
+    export_parser.add_argument("--require-feedback", action="store_true")
+    export_parser.add_argument(
+        "--include-patch",
+        action="store_true",
+        help="Include candidate patch text. By default only size and SHA-256 are exported.",
+    )
 
     report_parser = subparsers.add_parser("report", help="Print a benchmark or run report.")
     report_parser.add_argument("target", nargs="?", default="latest")
@@ -136,6 +164,7 @@ def build_parser() -> argparse.ArgumentParser:
     resume_parser.add_argument("run_dir", help="Previous Agent Forge run directory.")
     resume_parser.add_argument("--task", help="Override the continuation task.")
     resume_parser.add_argument("--workspace", help="Override the checkpoint workspace.")
+    _add_execution_environment_args(resume_parser)
     resume_parser.add_argument("--provider", default=os.getenv("AGENT_FORGE_DEFAULT_LLM", "deepseek"))
     resume_parser.add_argument("--model")
     resume_parser.add_argument("--base-url")
@@ -163,6 +192,27 @@ def build_parser() -> argparse.ArgumentParser:
     ui_parser = subparsers.add_parser("ui", help="Open the local browser workbench UI.")
     build_ui_parser(ui_parser)
     return parser
+
+
+def _add_execution_environment_args(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "--execution-mode",
+        choices=["local", "worktree"],
+        default="local",
+        help="Run in the selected checkout or an isolated detached git worktree.",
+    )
+    parser.add_argument(
+        "--network-policy",
+        choices=["deny", "allow"],
+        default="deny",
+        help="Block or allow network-oriented shell commands at the environment boundary.",
+    )
+    parser.add_argument(
+        "--keep-worktree",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Keep isolated worktrees for inspection after a run.",
+    )
 
 
 def main(argv: list[str] | None = None) -> None:
@@ -196,6 +246,32 @@ def main(argv: list[str] | None = None) -> None:
         for path in report_paths:
             print(f"Mini case report: {path}")
         return
+    if args.command == "eval" and args.eval_name == "feedback":
+        try:
+            path = record_feedback(
+                args.target,
+                outcome=args.outcome,
+                labels=args.label,
+                note=args.note,
+                reviewer=args.reviewer,
+            )
+        except ValueError as exc:
+            raise SystemExit(str(exc)) from exc
+        print(f"Feedback: {path}")
+        return
+    if args.command == "eval" and args.eval_name == "export-dataset":
+        try:
+            records = export_feedback_dataset(
+                args.target,
+                args.output,
+                require_feedback=args.require_feedback,
+                include_patch=args.include_patch,
+            )
+        except ValueError as exc:
+            raise SystemExit(str(exc)) from exc
+        print(f"Dataset: {args.output}")
+        print(f"Records: {len(records)}")
+        return
     if args.command == "report":
         print_report(args.target)
         return
@@ -221,60 +297,94 @@ def run_repository_task(args: argparse.Namespace) -> Path:
     run_dir.mkdir(parents=True, exist_ok=True)
     trace_path = run_dir / "trace.json"
     trace = TraceRecorder(str(trace_path))
-    registry = build_registry(
-        args.workspace,
-        auto=True,
-        mcp_config_file=getattr(args, "mcp_config", None),
-        mcp_allowed_tools=getattr(args, "mcp_tool", []),
+    environment, probe = prepare_execution_environment(args, run_id, run_dir)
+    trace.add(
+        0,
+        "Runtime",
+        "execution_environment",
+        execution_environment=probe.to_dict(),
     )
-    llm_config = resolve_llm_config(
-        provider=args.provider,
-        base_url=args.base_url,
-        api_key=args.api_key,
-        model=args.model,
-        timeout=60,
-    )
-    if not llm_config.is_configured():
-        raise SystemExit(
-            f"{args.provider} model config is incomplete. Set API env vars or pass --base-url/--api-key/--model."
+    try:
+        active_workspace = str(environment.active_workspace)
+        registry = build_registry(
+            active_workspace,
+            auto=True,
+            mcp_config_file=getattr(args, "mcp_config", None),
+            mcp_allowed_tools=getattr(args, "mcp_tool", []),
         )
-    llm = build_llm(llm_config)
-    config = RuntimeConfig(
-        workspace=args.workspace,
-        max_steps=args.max_steps,
-        trace_file=str(trace_path),
-        max_context_chars=args.max_context_chars,
-        timeout_seconds=900,
-        task_state_root=str(run_dir / "task_state"),
-        resume_state=getattr(args, "resume_state", ""),
-        auto_approve_writes=getattr(args, "auto_approve_writes", True),
-        approval_root=getattr(args, "approval_root", ".agent_forge/approvals"),
-        operation_ledger_root=getattr(args, "operation_ledger_root", ".agent_forge/operation_ledger"),
-        approval_mode=args.approval_mode,
-        skill_mode=_parse_skill_mode(getattr(args, "skills", "auto")),
-        skill_names=_parse_skill_names(getattr(args, "skills", "auto")),
-        skill_manifest_files=getattr(args, "skill_manifest", []),
+        llm_config = resolve_llm_config(
+            provider=args.provider,
+            base_url=args.base_url,
+            api_key=args.api_key,
+            model=args.model,
+            timeout=60,
+        )
+        if not llm_config.is_configured():
+            raise SystemExit(
+                f"{args.provider} model config is incomplete. Set API env vars or pass --base-url/--api-key/--model."
+            )
+        llm = build_llm(llm_config)
+        config = RuntimeConfig(
+            workspace=active_workspace,
+            max_steps=args.max_steps,
+            trace_file=str(trace_path),
+            max_context_chars=args.max_context_chars,
+            timeout_seconds=900,
+            execution_environment=environment,
+            task_state_root=str(run_dir / "task_state"),
+            resume_state=getattr(args, "resume_state", ""),
+            auto_approve_writes=getattr(args, "auto_approve_writes", True),
+            approval_root=getattr(args, "approval_root", ".agent_forge/approvals"),
+            operation_ledger_root=getattr(args, "operation_ledger_root", ".agent_forge/operation_ledger"),
+            approval_mode=args.approval_mode,
+            skill_mode=_parse_skill_mode(getattr(args, "skills", "auto")),
+            skill_names=_parse_skill_names(getattr(args, "skills", "auto")),
+            skill_manifest_files=getattr(args, "skill_manifest", []),
+        )
+        if getattr(args, "agent_mode", "single") == "multi":
+            profile = get_profile(getattr(args, "profile", "coding_fix"))
+            summary = MultiAgentCoordinator(
+                args.task,
+                profile,
+                config,
+                trace,
+                registry,
+                llm,
+                run_dir=run_dir,
+                max_revision_rounds=getattr(args, "max_revision_rounds", profile.default_max_revision_rounds),
+            ).run()
+            final_answer = summary.final_answer
+        else:
+            final_answer = AgentLoop(config, trace, registry, llm).run(args.task)
+        trace.write()
+        write_usage_artifacts(trace_path)
+        (run_dir / "final_answer.txt").write_text(final_answer, encoding="utf-8")
+        (run_dir / "patch.diff").write_text(environment.diff(), encoding="utf-8")
+        _write_latest_run_pointer(run_dir)
+        return run_dir
+    finally:
+        environment.cleanup()
+
+
+def prepare_execution_environment(
+    args: argparse.Namespace,
+    run_id: str,
+    run_dir: str | Path,
+) -> tuple[ExecutionEnvironment, EnvironmentProbe]:
+    """Prepare and persist the execution boundary used by a repository run."""
+
+    environment = ExecutionEnvironment(
+        ExecutionEnvironmentConfig(
+            mode=getattr(args, "execution_mode", "local"),
+            workspace=args.workspace,
+            run_id=run_id,
+            network_policy=getattr(args, "network_policy", "deny"),
+            keep_worktree=getattr(args, "keep_worktree", True),
+        )
     )
-    if getattr(args, "agent_mode", "single") == "multi":
-        profile = get_profile(getattr(args, "profile", "coding_fix"))
-        summary = MultiAgentCoordinator(
-            args.task,
-            profile,
-            config,
-            trace,
-            registry,
-            llm,
-            run_dir=run_dir,
-            max_revision_rounds=getattr(args, "max_revision_rounds", profile.default_max_revision_rounds),
-        ).run()
-        final_answer = summary.final_answer
-    else:
-        final_answer = AgentLoop(config, trace, registry, llm).run(args.task)
-    trace.write()
-    write_usage_artifacts(trace_path)
-    (run_dir / "final_answer.txt").write_text(final_answer, encoding="utf-8")
-    _write_latest_run_pointer(run_dir)
-    return run_dir
+    probe = environment.prepare()
+    environment.write_manifest(run_dir)
+    return environment, probe
 
 
 def resume_repository_task(args: argparse.Namespace) -> Path:
@@ -285,7 +395,7 @@ def resume_repository_task(args: argparse.Namespace) -> Path:
     continuation_task = args.task or f"continue previous task: {checkpoint.task}"
     run_args = argparse.Namespace(
         task=continuation_task,
-        workspace=args.workspace or checkpoint.workspace,
+        workspace=args.workspace or checkpoint_resume_workspace(checkpoint),
         provider=args.provider,
         model=args.model,
         base_url=args.base_url,
@@ -305,6 +415,9 @@ def resume_repository_task(args: argparse.Namespace) -> Path:
         skill_manifest=args.skill_manifest,
         mcp_config=args.mcp_config,
         mcp_tool=args.mcp_tool,
+        execution_mode=args.execution_mode,
+        network_policy=args.network_policy,
+        keep_worktree=args.keep_worktree,
     )
     run_dir = run_repository_task(run_args)
     write_resume_link(
@@ -314,6 +427,16 @@ def resume_repository_task(args: argparse.Namespace) -> Path:
         previous_run_id=checkpoint.run_id,
     )
     return run_dir
+
+
+def checkpoint_resume_workspace(checkpoint) -> str:
+    """Return the original checkout when a prior run used a temporary worktree."""
+
+    metadata = checkpoint.metadata if isinstance(checkpoint.metadata, dict) else {}
+    environment = metadata.get("execution_environment")
+    if isinstance(environment, dict) and environment.get("requested_workspace"):
+        return str(environment["requested_workspace"])
+    return checkpoint.workspace
 
 
 def write_resume_link(

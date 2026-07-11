@@ -50,7 +50,8 @@ flowchart TD
 | `agent_forge/runtime` | Runs the ReAct loop, stop conditions, task state, model/tool interaction. | Without it, tool use becomes ad hoc and unreplayable. |
 | `agent_forge/runtime/approval.py` | Stores pending/approved/rejected side-effect approvals by operation key. | Without it, human-in-the-loop is only a prompt convention instead of a runtime boundary. |
 | `agent_forge/runtime/operation_ledger.py` | Records planned, pending, approved, executed, failed, and skipped side-effect operations. | Without it, resume/rerun can accidentally duplicate writes, commands, or external actions. |
-| `agent_forge/evaluation/mini_cases.py` | Loads tiny non-coding Agent application cases for research and ops workflows. | Without it, the project positioning stays overly tied to coding-only interviews. |
+| `agent_forge/evaluation/mini_cases.py` | Loads tiny non-coding Agent application cases for research and ops workflows. | Without it, evaluation examples stay tied to coding tasks only. |
+| `agent_forge/evaluation/feedback_dataset.py` | Captures human outcomes and exports privacy-conscious run evidence as JSONL. | Without it, trace data cannot become a repeatable bad-case and regression input. |
 | `agent_forge/context` | Builds prompt context from repo structure, lexical retrieval, symbols, memory, and budgets. | Without it, the model sees either too little code or noisy full-repo dumps. |
 | `agent_forge/tools` | Provides file, patch, grep, command, git, and MCP-style tool access. | Without it, the model cannot inspect and modify real code safely. |
 | `agent_forge/skills` | Provides built-in coding Skills and custom manifest loading; selected Skills inject operating procedures and expected tools into real runs. | Without it, tool capabilities cannot become governed reusable product capabilities or task-specific workflows. |

@@ -13,7 +13,7 @@ artifact handoff, traceability, cost accounting, and evaluation evidence.
 
 ```text
 Issue -> repo checkout -> AgentLoop -> governed tools -> candidate patch
-      -> trace / usage / failure taxonomy / report
+      -> trace / usage / failure taxonomy / human feedback -> evaluation data
 ```
 
 ## Why This Exists
@@ -34,11 +34,13 @@ when runtime behavior is observable and comparable, not when prompts get longer.
 | Real runtime loop | `AgentLoop` coordinates context, LLM calls, tool calls, observations, recovery, stop conditions, and trace events. |
 | Real model boundary | OpenAI-compatible client with DeepSeek defaults, retry/fallback hooks, provider usage capture, and cost estimates. |
 | Governed tools | Read/grep/patch/command/git/diagnostics tools pass through routing, registry validation, permission hooks, command policy, and workspace sandboxing. |
+| Isolated execution | Repository runs can use the current checkout or a detached git worktree, with network policy and an environment manifest recorded per run. |
 | Human-in-the-loop | Write-like side effects can stop at an approval file; `forge approve` records the human decision before execution. |
 | Partial recovery | Checkpoints seed continuation runs; operation ledger prevents duplicate side effects and detects stale approvals or stale target files. |
 | SWE-bench shape | The runner loads cases, checks out the base commit, writes `predictions.jsonl`, and can call the official harness when installed. |
 | Multi-agent workflow | `MultiAgentCoordinator` reuses the same `AgentLoop` for Implementer/Reviewer/Verifier roles and passes state through explicit artifacts. |
 | Evidence reports | Each run writes trace, usage, result cards, failure taxonomy, and case-study artifacts instead of raw debug dumps only. |
+| Feedback data loop | Human outcomes and labels can be attached to runs, then exported with safe trace, policy, environment, and evaluation fields as JSONL. |
 
 For a precise green/yellow/red breakdown, read
 [Capability Reality Matrix](docs/CAPABILITY_REALITY_MATRIX.md).
@@ -48,7 +50,7 @@ For a precise green/yellow/red breakdown, read
 If you are reviewing this repository, start here:
 
 1. Read this README.
-2. Open [Recent Agent Capability Map](docs/technical-defense/learn/最近新增Agent能力代码导览.md).
+2. Open [Runtime Capability Guide](docs/architecture/runtime-capability-guide.md).
 3. Inspect the runtime core:
    - [agent_forge/runtime/agent_loop.py](agent_forge/runtime/agent_loop.py)
    - [agent_forge/runtime/approval.py](agent_forge/runtime/approval.py)
@@ -82,7 +84,7 @@ forge ui
 The workbench exposes real run parameters: task, provider, model, API endpoint,
 step budget, context budget, approval mode, output folder, Skills, and optional
 MCP-style tools. It renders result summary, usage, context budget, tool
-efficiency, trace timeline, and interview evidence.
+efficiency, trace timeline, safety boundaries, and run evidence.
 
 ## Core Commands
 
@@ -114,6 +116,15 @@ forge approve <operation_key>
 forge resume .agent_forge/runs/<run-id> --provider deepseek
 ```
 
+Run in a detached worktree and retain the environment for inspection:
+
+```bash
+forge run "fix the failing test in this repository" \
+  --provider deepseek \
+  --execution-mode worktree \
+  --network-policy deny
+```
+
 Run the fixed SWE-bench reference case:
 
 ```bash
@@ -138,6 +149,23 @@ forge eval mini-cases --case research-citation-quality --evidence evidence.json
 forge eval mini-cases --case ops-approval-workflow --evidence evidence.json
 ```
 
+Attach human feedback and export reviewed run evidence:
+
+```bash
+forge eval feedback .agent_forge/runs/<run-id> \
+  --outcome needs_work \
+  --label context_miss \
+  --note "Expected implementation file was not selected."
+
+forge eval export-dataset .agent_forge/runs/<run-id> \
+  --require-feedback \
+  --output .agent_forge/evaluation/evidence_dataset.jsonl
+```
+
+The export omits full tool arguments, observations, absolute workspaces, and
+candidate patch text by default. `--include-patch` is explicit because code and
+trace data require ownership, privacy, and secret review before reuse.
+
 ## Architecture
 
 ```mermaid
@@ -160,13 +188,18 @@ flowchart TD
     Loop --> Approval["ApprovalStore"]
     Loop --> Ledger["OperationLedger"]
     Loop --> State["TaskState checkpoints"]
+    Loop --> Environment["local / detached worktree environment"]
     Loop --> Trace["TraceRecorder"]
     Trace --> Usage["usage_report.md"]
+    Trace --> Diagnosis["failure taxonomy"]
+    Diagnosis --> Feedback["human feedback"]
+    Feedback --> Dataset["evaluation JSONL"]
     Checkout --> Patch["patch.diff"]
     Patch --> Predictions["predictions.jsonl"]
     Predictions --> Official["optional SWE-bench harness"]
     Usage --> Report["report.md / evaluation_report.md"]
     Official --> Report
+    Dataset --> Report
 ```
 
 ## Key Design Choices
@@ -187,9 +220,17 @@ still matches the approved fingerprint.
 with checkpoint summaries. It does not pretend to restore hidden model state.
 The operation ledger prevents duplicate side effects and detects target drift.
 
+**Isolation is declared and auditable.** Local mode provides path and command
+boundaries, not OS isolation. Worktree mode runs against a detached checkout and
+writes `execution_environment.json`; it is still not a container or remote VM.
+
 **Multi-agent is artifact-based.** Reviewer and verifier roles do not chat in a
 hidden shared context. They read artifacts produced by earlier roles and can
 request bounded revisions.
+
+**Feedback is data, not prose.** Human outcomes and failure labels are persisted
+beside run evidence. Exported records preserve provenance and policy context so
+bad cases can drive regression selection or later dataset curation.
 
 ## Evidence Artifacts
 
@@ -199,6 +240,8 @@ Runtime outputs are ignored by Git and live under `.agent_forge/`:
 .agent_forge/runs/<run-id>/
   report.md
   results.json
+  feedback.json
+  execution_environment.json
   predictions.jsonl
   direct_baseline_predictions.jsonl
   multi_agent/
@@ -211,6 +254,7 @@ Runtime outputs are ignored by Git and live under `.agent_forge/`:
     usage_report.md
     patch.diff
     case_study.md
+    feedback.json
   workspaces/<instance_id>/
     ...
 ```
@@ -234,6 +278,7 @@ agent_forge/
   models/         provider gateway, retry/fallback, usage telemetry
   multi_agent/    coordinator, role profiles, artifact handoff, fanout primitive
   evaluation/     comparison metrics, mini-cases, evaluation reports
+                  human feedback capture and evidence-dataset export
   observability/  trace, usage, metrics, evidence summaries
   skills/         built-in and custom runtime Skills
   mcp/            compact stdio MCP-style server/client
@@ -246,6 +291,7 @@ agent_forge/
 - Not a production SaaS backend or IDE plugin.
 - Not a distributed swarm or quorum system.
 - Not a benchmark leaderboard.
+- Not an RL training platform or a claim that raw traces are training-ready.
 - Not a claim of official resolved rate without official SWE-bench evaluation.
 - Not a collection of self-authored toy calculator fixtures as the main proof.
 
@@ -259,14 +305,15 @@ status of each capability.
 
 - [Capability Reality Matrix](docs/CAPABILITY_REALITY_MATRIX.md)
 - [Architecture Notes](docs/AgentForge总体架构与运行链路.md)
+- [Runtime Capability Guide](docs/architecture/runtime-capability-guide.md)
+- [Feedback-Driven Evaluation Loop](docs/architecture/feedback-evaluation-loop.md)
 - [Evaluation Guide](docs/evaluation/评测目录说明与SWE-bench使用入口.md)
 - [Failure Taxonomy](docs/evaluation/failure-taxonomy.md)
 - [Regression Set](docs/evaluation/regression-set.md)
-- [Recent Agent Capability Map](docs/technical-defense/learn/最近新增Agent能力代码导览.md)
-- [30-Minute Interview Pack](docs/technical-defense/learn/三十分钟面试准备包.md)
-- [Core Code Reading Map](docs/technical-defense/learn/核心代码阅读路线图.md)
-- [Multi-Agent Learning Guide](docs/technical-defense/learn/多Agent机制学习指南.md)
-- [Five-Minute Demo Script](docs/technical-defense/demo/五分钟面试演示脚本.md)
+- [Failure-Driven Improvements](docs/evaluation/failure-driven-improvements.md)
+- [Roadmap](docs/ROADMAP.md)
+- [Evidence Dataset Example](examples/evidence_dataset.sample.jsonl)
+- [Changelog](CHANGELOG.md)
 
 ## Development Verification
 

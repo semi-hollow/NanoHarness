@@ -7,7 +7,7 @@ from .types import EvaluationComparison
 
 
 def render_evaluation_report(comparison: EvaluationComparison) -> str:
-    """Render an interview-readable single-vs-multi evidence card."""
+    """Render a reviewer-readable single-vs-multi evidence card."""
 
     cost_delta = comparison.multi_cost_usd - comparison.single_cost_usd
     llm_delta = comparison.multi_llm_calls - comparison.single_llm_calls
@@ -56,7 +56,7 @@ def render_evaluation_report(comparison: EvaluationComparison) -> str:
             "",
             "This section turns one failed or blocked run into concrete follow-up work. It is intentionally more useful than a binary pass/fail badge.",
             "",
-            "| Lens | Evidence to inspect | Interview talking point |",
+            "| Lens | Evidence to inspect | Engineering implication |",
             "| --- | --- | --- |",
             *_failure_lens_rows(comparison),
             "",

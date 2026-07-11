@@ -10,7 +10,7 @@ Why keep a project-owned server instead of only documenting MCP?
 
 * It proves the full control plane: config -> subprocess -> discovery ->
   ToolRegistry -> AgentLoop -> observation.
-* It gives technical-defense material for tool protocols without requiring a
+* It gives protocol-level evidence for external tools without requiring a
   third-party service to be running.
 * It keeps the startup path simple: ``python -m agent_forge.mcp.builtin_server``.
 """

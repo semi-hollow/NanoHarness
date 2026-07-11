@@ -67,12 +67,12 @@ class FailureTaxonomyTest(unittest.TestCase):
         self.assertEqual(diagnosis.failure_class, "validation_environment_unavailable")
         self.assertIn("environment", diagnosis.impact.lower())
 
-    def test_tool_schema_mismatch_has_interview_lesson(self):
+    def test_tool_schema_mismatch_has_engineering_lesson(self):
         with tempfile.TemporaryDirectory() as tmp:
             result = self._result(Path(tmp), final_answer="read_file ignored offset limit; wrong line window")
             diagnosis = diagnose_case_result(result)
         self.assertEqual(diagnosis.failure_class, "tool_schema_mismatch")
-        self.assertIn("schema", diagnosis.interview_lesson.lower())
+        self.assertIn("schema", diagnosis.engineering_lesson.lower())
 
     def test_official_eval_error_is_not_reported_as_patch_rejected(self):
         with tempfile.TemporaryDirectory() as tmp:

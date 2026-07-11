@@ -41,6 +41,9 @@ class PublicCliSmokeTest(unittest.TestCase):
         self.assertIn("--no-auto-approve-writes", result.stdout)
         self.assertIn("--approval-root", result.stdout)
         self.assertIn("--operation-ledger-root", result.stdout)
+        self.assertIn("--execution-mode", result.stdout)
+        self.assertIn("--network-policy", result.stdout)
+        self.assertIn("--no-keep-worktree", result.stdout)
 
     def test_resume_help_exposes_resume_specific_flags(self):
         result = subprocess.run(
@@ -53,7 +56,7 @@ class PublicCliSmokeTest(unittest.TestCase):
         self.assertIn("--task", result.stdout)
         self.assertIn("--operation-ledger-root", result.stdout)
 
-    def test_eval_mini_cases_help_exposes_evidence_runner_flags(self):
+    def test_eval_commands_expose_feedback_and_dataset_export(self):
         result = subprocess.run(
             [sys.executable, "-m", "agent_forge", "eval", "mini-cases", "--help"],
             text=True,
@@ -63,6 +66,24 @@ class PublicCliSmokeTest(unittest.TestCase):
         self.assertIn("--case", result.stdout)
         self.assertIn("--evidence", result.stdout)
         self.assertIn("--output-root", result.stdout)
+
+        result = subprocess.run(
+            [sys.executable, "-m", "agent_forge", "eval", "feedback", "--help"],
+            text=True,
+            capture_output=True,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("--outcome", result.stdout)
+        self.assertIn("--label", result.stdout)
+
+        result = subprocess.run(
+            [sys.executable, "-m", "agent_forge", "eval", "export-dataset", "--help"],
+            text=True,
+            capture_output=True,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("--require-feedback", result.stdout)
+        self.assertIn("--include-patch", result.stdout)
 
     def test_approve_cli_updates_pending_request(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -107,14 +128,13 @@ class PublicCliSmokeTest(unittest.TestCase):
         self.assertIn("--max-revision-rounds", command.command)
         self.assertIn("2", command.command)
 
-    def test_interview_evidence_view_renders_without_artifacts(self):
+    def test_run_evidence_view_renders_without_artifacts(self):
         with tempfile.TemporaryDirectory() as tmp:
-            html = _render_evidence_html(Path(tmp), "interview")
-        self.assertIn("Interview Evidence", html)
-        self.assertIn("5 分钟 Demo", html)
-        self.assertIn("Golden Demo Capsule", html)
-        self.assertIn("30 分钟学习路径", html)
-        self.assertIn("docs/technical-defense/learn/三十分钟面试准备包.md", html)
+            html = _render_evidence_html(Path(tmp), "evidence")
+        self.assertIn("Run Evidence", html)
+        self.assertIn("Reviewer Path", html)
+        self.assertIn("Capability Reality Matrix", html)
+        self.assertNotIn("面试", html)
         self.assertIn("Single vs Multi", html)
         self.assertIn("Safety", html)
 
@@ -124,7 +144,7 @@ class PublicCliSmokeTest(unittest.TestCase):
         self.assertIn("Single vs Multi 对比", html)
         self.assertIn("单 Agent", html)
         self.assertIn("多 Agent Coordinator", html)
-        self.assertIn("不要声称 multi-agent 一定更强", html)
+        self.assertIn("不要假设 multi-agent 一定更强", html)
 
     def test_timeline_explains_scope_order_and_color_semantics(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -162,11 +182,12 @@ class PublicCliSmokeTest(unittest.TestCase):
         self.assertIn("红色表示失败", html)
         self.assertNotIn(" · ", html)
 
-    def test_ui_labels_separate_interview_evidence_from_operations(self):
+    def test_ui_labels_separate_run_evidence_from_operations(self):
         from agent_forge.ui import INDEX_HTML
 
-        self.assertIn("面试展示路径", INDEX_HTML)
+        self.assertIn("证据审阅路径", INDEX_HTML)
         self.assertIn("真实运行操作", INDEX_HTML)
+        self.assertNotIn("面试展示路径", INDEX_HTML)
         self.assertIn("Single vs Multi 对比", INDEX_HTML)
         self.assertIn("成本与工具效率", INDEX_HTML)
         self.assertIn("执行时间线", INDEX_HTML)

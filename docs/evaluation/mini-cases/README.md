@@ -3,8 +3,7 @@
 These cases are intentionally small. They are not benchmark leaderboards and
 they do not replace SWE-bench-shaped coding evidence.
 
-They exist so Agent Forge can discuss broader Agent application engineering in
-interviews:
+They exercise broader Agent application engineering concerns:
 
 - research workflows need citation quality, source limitations, and unsupported
   claim control;

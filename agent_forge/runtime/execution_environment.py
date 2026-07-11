@@ -114,6 +114,7 @@ class ExecutionEnvironment:
         self.active_workspace = self.requested_workspace
         self.created_worktree: Path | None = None
         self._notes: list[str] = []
+        self._requested_dirty_files: list[str] | None = None
 
     def prepare(self) -> EnvironmentProbe:
         """Prepare the active workspace and return an auditable probe.
@@ -126,6 +127,7 @@ class ExecutionEnvironment:
         if self.config.mode not in {"local", "worktree"}:
             raise ValueError(f"unsupported execution environment: {self.config.mode}")
 
+        self._requested_dirty_files = self._dirty_files(self.requested_workspace)
         if self.config.mode == "worktree":
             self._prepare_worktree()
 
@@ -138,7 +140,11 @@ class ExecutionEnvironment:
         branch = self._git_output(["git", "branch", "--show-current"], cwd=self.active_workspace) or "detached"
         head_sha = self._git_output(["git", "rev-parse", "HEAD"], cwd=self.active_workspace)
         origin_url = self.redact(self._git_output(["git", "remote", "get-url", "origin"], cwd=self.active_workspace))
-        dirty_files = self._dirty_files()
+        dirty_files = (
+            list(self._requested_dirty_files)
+            if self._requested_dirty_files is not None
+            else self._dirty_files(self.requested_workspace)
+        )
         dirty = bool(dirty_files)
         return EnvironmentProbe(
             mode=self.config.mode,
@@ -308,14 +314,16 @@ class ExecutionEnvironment:
             return ""
         return result.stdout.strip()
 
-    def _dirty_files(self) -> list[str]:
+    def _dirty_files(self, cwd: Path | None = None) -> list[str]:
         """Return dirty paths from git status porcelain output."""
 
-        output = self._git_output(["git", "status", "--porcelain"], cwd=self.active_workspace)
+        output = self._git_output(["git", "status", "--porcelain"], cwd=cwd or self.active_workspace)
         files = []
         for line in output.splitlines():
-            if len(line) > 3:
+            if len(line) > 2 and line[2] == " ":
                 files.append(line[3:].strip())
+            elif len(line) > 1 and line[1] == " ":
+                files.append(line[2:].strip())
         return files
 
     def _json_dump(self, data: dict) -> str:

@@ -476,8 +476,8 @@ def _render_evidence_html(project_dir: Path, kind: str) -> str:
         return _render_usage_dashboard(project_dir)
     if kind == "timeline":
         return _render_trace_timeline(project_dir)
-    if kind == "interview":
-        return _render_interview_evidence(project_dir)
+    if kind == "evidence":
+        return _render_run_evidence(project_dir)
     if kind == "compare":
         return _render_compare_dashboard(project_dir)
     if kind == "raw_report":
@@ -724,7 +724,7 @@ def _render_usage_dashboard(project_dir: Path) -> str:
 
     body = [
         "<h2>成本与工具效率：工程量化证据</h2>",
-        "<p class='help strong'>这里回答面试官最常问的工程量化问题：一次真实运行花了多少 token、多少钱、哪里消耗上下文、工具是否高效。</p>",
+        "<p class='help strong'>这里回答一次真实运行花了多少 token、多少钱、哪里消耗上下文，以及工具调用是否高效。</p>",
         _metric_grid(
             [
                 ("LLM Calls", str(summary.get("llm_calls", 0)), "模型调用轮数", "neutral"),
@@ -805,14 +805,8 @@ def _render_trace_timeline(project_dir: Path) -> str:
     return "<div class='evidence'>" + "".join(body) + "</div>"
 
 
-def _render_interview_evidence(project_dir: Path) -> str:
-    """Render the shortest interview-facing evidence path.
-
-    Raw artifacts are useful to debug, but too expensive for an interview. This
-    view converts the same trace/usage/comparison files into a five-minute
-    narrative: what was run, which runtime boundaries were exercised, where
-    single-agent and multi-agent differ, and how failures are explained.
-    """
+def _render_run_evidence(project_dir: Path) -> str:
+    """Render a reviewer-facing path through runtime and evaluation evidence."""
 
     run_dir = _latest_run_dir(project_dir)
     comparison_path = _latest_comparison_path(project_dir)
@@ -849,11 +843,11 @@ def _render_interview_evidence(project_dir: Path) -> str:
     )
 
     body = [
-        "<h2>Interview Evidence｜面试展示总览</h2>",
-        "<p class='help strong'>面试展示总览：先讲闭环，再讲 runtime，再讲 evidence，而不是让面试官读 raw JSON。</p>",
+        "<h2>Run Evidence｜运行证据总览</h2>",
+        "<p class='help strong'>从任务结果进入 runtime、成本、策略与失败证据；原始 JSON 保留用于回放和进一步诊断。</p>",
         _metric_grid(
             [
-                ("Task", str(task_id)[:90], "本次展示对象", "neutral"),
+                ("Task", str(task_id)[:90], "当前审阅对象", "neutral"),
                 ("Single", str(single_status), "单 Agent 结果", _tone_for_status(str(single_status))),
                 ("Multi", str(multi_status), "多 Agent / reviewer-verifier 结果", _tone_for_status(str(multi_status))),
                 ("Revision", str(revision_rounds), "review/verifier 触发的修订轮数", "neutral"),
@@ -861,36 +855,18 @@ def _render_interview_evidence(project_dir: Path) -> str:
                 ("Failure", str(failure), "失败归因分类", _tone_for_status(str(failure))),
             ]
         ),
-        "<h3>Golden Demo Capsule</h3>",
-        "<p class='help'>这块是面试专用胶囊：先帮你讲清项目证明什么，再把学习顺序、核心代码和 evidence 面板连起来。"
-        "没有最新 artifact 时也能按离线路线讲；有 artifact 时再补真实 run 证据。</p>",
-        "<table><thead><tr><th>capsule</th><th>what to show</th><th>safe claim</th></tr></thead><tbody>",
-        "<tr><td>Runtime control plane</td><td>AgentLoop Runtime Flow + Trace Timeline</td><td>复杂度在 runtime，不只靠 prompt。</td></tr>",
-        "<tr><td>Evidence loop</td><td>Result Summary + Usage Dashboard</td><td>能解释成本、工具、失败，而不是只给最终答案。</td></tr>",
-        "<tr><td>Multi-agent workflow</td><td>Role Timeline + Artifact Handoff Graph</td><td>roles 通过 artifact 交接，不自由聊天。</td></tr>",
-        "<tr><td>Evaluation honesty</td><td>Single vs Multi + Failure Taxonomy</td><td>candidate patch 不等于 official resolved rate。</td></tr>",
+        "<h3>Reviewer Path</h3>",
+        "<table><thead><tr><th>surface</th><th>evidence</th><th>claim boundary</th></tr></thead><tbody>",
+        "<tr><td>Runtime control plane</td><td>Trace Timeline + runtime modules</td><td>Policy is enforced outside the prompt.</td></tr>",
+        "<tr><td>Evaluation loop</td><td>Result Summary + Usage + Failure Taxonomy</td><td>A candidate patch is not an official resolution.</td></tr>",
+        "<tr><td>Multi-agent workflow</td><td>Role Timeline + Artifact Handoff</td><td>Sequential coordinator, not a distributed swarm.</td></tr>",
+        "<tr><td>Capability Reality Matrix</td><td class='mono'>docs/CAPABILITY_REALITY_MATRIX.md</td><td>Green, yellow, and scoped boundaries are explicit.</td></tr>",
         "</tbody></table>",
-        "<h3>30 分钟学习路径</h3>",
-        "<table><thead><tr><th>time</th><th>open this</th><th>why</th></tr></thead><tbody>",
-        "<tr><td>0-5 min</td><td class='mono'>docs/technical-defense/learn/三十分钟面试准备包.md</td><td>先记住定位、边界和展示顺序。</td></tr>",
-        "<tr><td>5-10 min</td><td class='mono'>docs/technical-defense/demo/五分钟面试演示脚本.md</td><td>照着 5 分钟路线讲，不临场组织。</td></tr>",
-        "<tr><td>10-18 min</td><td class='mono'>docs/technical-defense/learn/核心代码阅读路线图.md</td><td>只读最小 7 文件核心版，降低代码学习成本。</td></tr>",
-        "<tr><td>18-24 min</td><td class='mono'>docs/technical-defense/demo/evidence/演示证据目录说明.md</td><td>知道 evidence 能证明什么，不能夸大什么。</td></tr>",
-        "<tr><td>24-30 min</td><td class='mono'>docs/technical-defense/defense/AI智能体项目面试问答.md</td><td>准备高频追问和防守话术。</td></tr>",
-        "</tbody></table>",
-        "<h3>5 分钟 Demo</h3>",
-        "<ol class='talking-list'>",
-        "<li><strong>入口：</strong>用 <span class='mono'>forge ui</span> 打开浏览器 workbench，说明参数来自页面，不需要现场背 CLI。</li>",
-        "<li><strong>闭环：</strong>运行固定 SWE-bench reference case，展示真实 issue、clean checkout、patch、trace、usage、report。</li>",
-        "<li><strong>Runtime：</strong>打开 Trace Timeline，说明 AgentLoop 由 runtime 控制停止条件、预算、权限、工具失败恢复。</li>",
-        "<li><strong>成本：</strong>打开 Usage Dashboard，说明 token、cache、context、tool efficiency 如何定位瓶颈。</li>",
-        "<li><strong>多 Agent：</strong>说明 Coordinator 顺序调用多个 AgentLoop，靠 artifact handoff，而不是自由聊天。</li>",
-        "</ol>",
         "<h3>AgentLoop Runtime Flow</h3>",
         "<div class='flow-strip'>",
         "<span>Context</span><span>LLM Plan</span><span>ToolRouter</span><span>Sandbox / Policy</span><span>Observation</span><span>Trace / Usage</span>",
         "</div>",
-        "<p class='help'>面试时强调：复杂度从 prompt 移到 runtime，才能做权限、预算、重试、回放、审计和失败归因。</p>",
+        "<p class='help'>Runtime boundaries make permissions, budgets, retries, replay, audit, and failure attribution deterministic and inspectable.</p>",
         "<h3>Role Timeline</h3>",
         "<table><thead><tr><th>role</th><th>decision</th><th>steps</th><th>artifact</th><th>short evidence</th></tr></thead>"
         f"<tbody>{_render_role_rows(multi)}</tbody></table>",
@@ -905,22 +881,21 @@ def _render_interview_evidence(project_dir: Path) -> str:
         f"<tr><td>LLM calls</td><td>{_escape(comparison.get('single_llm_calls', '-'))}</td><td>{_escape(comparison.get('multi_llm_calls', summary.get('llm_calls', '-')))}</td></tr>",
         f"<tr><td>tool calls</td><td>{_escape(comparison.get('single_tool_calls', '-'))}</td><td>{_escape(comparison.get('multi_tool_calls', summary.get('tool_calls', '-')))}</td></tr>",
         "</tbody></table>",
-        "<p class='help'>不要声称 multi-agent 一定更强。正确说法是：它增加 reviewer/verifier 控制点，代价是更多 token 和延迟，是否上线看 benchmark/eval tradeoff。</p>",
+        "<p class='help'>Multi-agent is not assumed to be better. It adds reviewer/verifier control points at the cost of tokens and latency; comparison evidence decides whether that tradeoff is useful.</p>",
         "<h3>Safety & Failure Taxonomy</h3>",
-        "<table><thead><tr><th>risk</th><th>runtime answer</th><th>interview wording</th></tr></thead>",
+        "<table><thead><tr><th>risk</th><th>runtime boundary</th><th>evidence</th></tr></thead>",
         "<tbody>",
         "<tr><td>危险命令</td><td>CommandPolicy + PermissionPolicy</td><td>高风险操作不能只靠 prompt，必须 runtime 拦截。</td></tr>",
         "<tr><td>越权写文件</td><td>WorkspaceSandbox + protected paths</td><td>工具执行必须先过路径边界和权限策略。</td></tr>",
         "<tr><td>死循环</td><td>max steps / budget / repeated-call checks</td><td>停止条件由 runtime 兜底，模型只能提出意图。</td></tr>",
         "<tr><td>不可解释失败</td><td>failure taxonomy + trace replay</td><td>失败要能归因到 provider、context、tool、policy、eval。</td></tr>",
         "</tbody></table>",
-        "<h3>Interview Talking Points</h3>",
+        "<h3>Feedback-to-Evaluation Loop</h3>",
         "<ul class='talking-list'>",
-        "<li>Agent Forge 的重点不是多写几个 tool，而是把 coding agent 运行时拆成可控、可审计、可评估的 control plane。</li>",
-        "<li>AgentLoop 是 canonical runtime；multi-agent 只是 coordinator 对多个 AgentLoop 的编排，不复制 runtime 逻辑。</li>",
-        "<li>Artifacts 是 agent 间通信边界，避免自由聊天导致上下文污染和责任不清。</li>",
-        "<li>SWE-bench 是效果闭环，trace/usage/failure taxonomy 是工程闭环。</li>",
-        "<li>当前边界：本地单机、顺序 coordinator、没有宣称官方 resolved rate，适合展示核心工程设计而不是 SaaS 平台。</li>",
+        "<li><span class='mono'>forge eval feedback</span> records accepted, needs-work, or rejected outcomes with human labels.</li>",
+        "<li><span class='mono'>forge eval export-dataset</span> joins trace, tool policy, environment, evaluation status, failure class, and feedback into JSONL.</li>",
+        "<li>Tool arguments and observations are excluded by default; candidate patch text is opt-in and otherwise represented by size and digest.</li>",
+        "<li>The exported records support bad-case analysis and regression selection; they are evidence records, not an unsupported claim of production training data.</li>",
         "</ul>",
         "<h3>Artifact Paths</h3>",
         f"<table><tbody>{path_rows}</tbody></table>",
@@ -931,9 +906,8 @@ def _render_interview_evidence(project_dir: Path) -> str:
 def _render_compare_dashboard(project_dir: Path) -> str:
     """Render a dedicated single-agent vs multi-agent evidence view.
 
-    The interview page answers "how do I present the project?". This page
-    answers a narrower engineering question: what changed when we wrapped the
-    same AgentLoop in a coordinator with reviewer/verifier roles.
+    This page answers a narrow engineering question: what changed when the same
+    AgentLoop was wrapped in a coordinator with reviewer/verifier roles.
     """
 
     run_dir = _latest_run_dir(project_dir)
@@ -1004,9 +978,9 @@ def _render_compare_dashboard(project_dir: Path) -> str:
         "</tbody></table>",
         "</div>",
         "</div>",
-        "<h3>面试时怎么讲</h3>",
+        "<h3>How To Interpret This Comparison</h3>",
         "<ul class='talking-list'>",
-        "<li>不要声称 multi-agent 一定更强；正确说法是它增加 reviewer/verifier 控制点，用更高成本换可审计性和可防守性。</li>",
+        "<li>不要假设 multi-agent 一定更强；它增加 reviewer/verifier 控制点，用更高成本换取更强的可审计性。</li>",
         "<li>同一个 AgentLoop 被复用，multi-agent 的价值在 coordinator、role spec、artifact handoff 和 revision budget。</li>",
         "<li>如果 single 也能生成 patch，就如实说：这个 case 上 single 更便宜；multi 的价值是降低高风险任务的未审查输出概率。</li>",
         "<li>如果要上线，需要继续看 official evaluation、badcase taxonomy 和成本收益，而不是只看 patch_generated。</li>",
@@ -1736,8 +1710,8 @@ INDEX_HTML = r"""<!doctype html>
   <header>
     <div>
       <div class="eyebrow">Agent Forge Workbench</div>
-      <h1>面试展示驾驶舱</h1>
-      <div class="subtitle">把真实运行、Single/Multi 对比、trace、usage 和安全边界整理成一条可讲清楚的展示路径。</div>
+      <h1>Agent Runtime Evidence</h1>
+      <div class="subtitle">审阅真实运行、Single/Multi 对比、trace、usage、安全边界与反馈数据闭环。</div>
     </div>
     <div class="header-actions">
       <button id="sidebarToggle" class="secondary" onclick="toggleSidebar()">显示操作面板</button>
@@ -1750,14 +1724,14 @@ INDEX_HTML = r"""<!doctype html>
     <aside>
       <div class="card">
         <div class="section-kicker">Recommended path</div>
-        <h2>面试展示路径</h2>
+        <h2>证据审阅路径</h2>
         <div class="help">
-          展示时优先走这条线：先讲项目证明什么，再打开真实 evidence。这里的按钮只负责“看懂和讲清楚”，不启动昂贵任务。
+          从能力边界进入真实 evidence。这里的按钮只读取已有 artifact，不启动模型或评测任务。
         </div>
         <div class="route-map">
           <div class="route-step">
             <div class="route-num">1</div>
-            <div><div class="route-title">面试总览</div><div class="route-copy">5 分钟讲法、核心亮点、边界和证据入口。</div></div>
+            <div><div class="route-title">运行证据</div><div class="route-copy">定位、能力边界和关键 artifact 入口。</div></div>
           </div>
           <div class="route-step">
             <div class="route-num">2</div>
@@ -1772,7 +1746,7 @@ INDEX_HTML = r"""<!doctype html>
             <div><div class="route-title">执行时间线</div><div class="route-copy">解释 AgentLoop 每一步怎么被 runtime 控制。</div></div>
           </div>
         </div>
-        <button class="primary" onclick="loadEvidence('interview')">打开面试总览</button>
+        <button class="primary" onclick="loadEvidence('evidence')">打开运行证据</button>
         <div class="action-grid">
           <button class="secondary" onclick="loadEvidence('compare')">Single vs Multi 对比</button>
           <button class="secondary" onclick="loadEvidence('summary')">结果摘要</button>
@@ -1856,7 +1830,7 @@ INDEX_HTML = r"""<!doctype html>
       <div class="card">
         <div class="section-kicker">Daily agent task</div>
         <h2>日常 Agent 任务</h2>
-        <div class="help">用于你自己实际开发和学习，不是面试固定展示路线。</div>
+        <div class="help">用于仓库分析、修复、局部重构和文档维护等真实任务。</div>
         <label>Task</label>
         <textarea id="task">检查当前仓库的 AgentLoop 调用链，给出一个小而安全的代码改进，并保留 trace 和 usage 证据。</textarea>
         <div class="quick-tasks">
@@ -1886,7 +1860,7 @@ INDEX_HTML = r"""<!doctype html>
         <div class="section-kicker">Maintenance</div>
         <h2>环境与维护</h2>
         <div class="help">
-          Doctor 只检查环境；Verify 是本地 smoke 验证。它们不是面试主证据，避免和 SWE-bench evidence 混淆。
+          Doctor 检查环境；Verify 执行本地 smoke 验证。它们与 SWE-bench 效果证据分开呈现。
         </div>
         <button class="secondary" onclick="startJob('doctor')">运行 Doctor 环境检查</button>
         <button class="secondary" onclick="startJob('verify')">运行 Verify smoke check</button>
@@ -1900,11 +1874,11 @@ INDEX_HTML = r"""<!doctype html>
       <div class="status">
         <div class="pill"><div class="k">Python</div><div class="v" id="python"></div></div>
         <div class="pill"><div class="k">Latest Report</div><div class="v" id="latestReport"></div></div>
-        <div class="pill"><div class="k">Current View</div><div class="v" id="currentView">面试总览</div></div>
+        <div class="pill"><div class="k">Current View</div><div class="v" id="currentView">运行证据</div></div>
         <div class="pill"><div class="k">Active Job</div><div class="v" id="activeJob">none</div></div>
       </div>
       <div class="view-tabs">
-        <button data-view="interview" onclick="loadEvidence('interview')">面试总览</button>
+        <button data-view="evidence" onclick="loadEvidence('evidence')">运行证据</button>
         <button data-view="compare" onclick="loadEvidence('compare')">Single vs Multi 对比</button>
         <button data-view="summary" onclick="loadEvidence('summary')">结果摘要</button>
         <button data-view="usage" onclick="loadEvidence('usage')">成本与工具效率</button>
@@ -1915,7 +1889,7 @@ INDEX_HTML = r"""<!doctype html>
         <button class="ghost" onclick="refreshStatus()">刷新状态</button>
         <button class="ghost" onclick="clearOutput()">清空输出</button>
       </div>
-      <div id="output" class="output">正在加载面试总览...</div>
+      <div id="output" class="output">正在加载运行证据...</div>
       <h2 id="jobsTitle" style="font-size:16px">Recent Jobs</h2>
       <div id="jobs"></div>
     </section>
@@ -1923,7 +1897,7 @@ INDEX_HTML = r"""<!doctype html>
   <script>
     let currentJob = null;
     const evidenceTitles = {
-      interview: '面试总览',
+      evidence: '运行证据',
       compare: 'Single vs Multi 对比',
       summary: '结果摘要',
       usage: '成本与工具效率',
@@ -2107,7 +2081,7 @@ INDEX_HTML = r"""<!doctype html>
     document.getElementById('provider').addEventListener('change', applyProviderDefaults);
     updateLayoutControls();
     refreshStatus();
-    loadEvidence('interview');
+    loadEvidence('evidence');
   </script>
 </body>
 </html>

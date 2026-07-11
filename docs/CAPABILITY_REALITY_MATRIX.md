@@ -12,7 +12,7 @@ IDE, SaaS product, distributed swarm, or benchmark leaderboard.
 | Status | Meaning |
 | --- | --- |
 | Green | Implemented in the main runtime path and covered by tests or real smoke checks. |
-| Yellow | Working lightweight primitive or evaluation contract; useful for interviews but not a full product subsystem. |
+| Yellow | Working lightweight primitive or evaluation contract, but not a full product subsystem. |
 | Red | Do not present as a production capability. Use only as a demo/helper/testing boundary. |
 
 ## Matrix
@@ -23,6 +23,7 @@ IDE, SaaS product, distributed swarm, or benchmark leaderboard.
 | OpenAI-compatible model calls | Green | Real HTTP chat-completions client, normalized tool calls, retry/fallback wrapper, usage telemetry. | Do not claim broad provider SDK support beyond OpenAI-compatible APIs. | `agent_forge/runtime/llm_client.py`, `agent_forge/models/gateway.py` |
 | Tool governance | Green | Tools pass through routing, registry validation, permission hooks, command policy, and sandbox checks. | Do not claim prompt-only safety or OS-level isolation. | `agent_forge/tools/`, `agent_forge/safety/`, `agent_forge/runtime/hooks.py` |
 | Workspace sandbox | Green | Paths are resolved against the configured workspace and symlink escapes are blocked. | Do not claim container-grade isolation in local mode. | `agent_forge/safety/sandbox.py` |
+| Execution environment | Green | `forge run` can execute in local or detached-worktree mode, applies a network command policy, preserves the final patch, and writes an environment manifest. | Worktree mode is git-level change isolation, not an OS sandbox or container. | `agent_forge/runtime/execution_environment.py`, `agent_forge/forge_cli.py` |
 | Human approval for side effects | Green | Write-like actions can stop before execution, persist approval files, and resume only after `forge approve`. | Do not confuse this with the synthetic `ask_human` tool. | `agent_forge/runtime/approval.py`, `agent_forge/forge_cli.py` |
 | Stale approval detection | Green | Approval stores operation fingerprints; target drift marks the approval stale before execution. | Do not claim it prevents every race in distributed systems. | `agent_forge/runtime/approval.py`, `agent_forge/runtime/agent_loop.py` |
 | Operation ledger | Green | Side effects get stable operation keys, pre/post fingerprints, duplicate-skip behavior, and stale-target detection. | Do not call it a distributed transaction log. | `agent_forge/runtime/operation_ledger.py` |
@@ -39,8 +40,10 @@ IDE, SaaS product, distributed swarm, or benchmark leaderboard.
 | MCP-style local adapter | Yellow | Converts local MCP-like specs into local tools. | Do not call this the full MCP protocol. | `agent_forge/tools/adapters/mcp_style_adapter.py` |
 | Synthetic ask-human tool | Red | Returns synthetic approval/needs-approval observations for controlled traces and mini-case scenarios. | Do not present it as the real HITL system. Use `ApprovalStore` for real side-effect approval. | `agent_forge/tools/ask_human.py` |
 | Skills layer | Green | Built-in/custom Skills affect prompts, tool routing, and trace metadata. | Do not claim a marketplace or remote skill distribution system. | `agent_forge/skills/` |
+| Human feedback capture | Green | `forge eval feedback` stores accepted, needs-work, or rejected outcomes with labels and notes next to run evidence. | Do not call a human label an official benchmark result. | `agent_forge/evaluation/feedback_dataset.py`, `agent_forge/forge_cli.py` |
+| Evidence dataset export | Green | `forge eval export-dataset` joins trace, selected context, tool policy, environment, failure class, evaluation status, and human feedback into JSONL. Patch content is opt-in. | Do not call exported evidence production training data without curation, privacy review, and dataset governance. | `agent_forge/evaluation/feedback_dataset.py` |
 
-## Recommended Interview Wording
+## Recommended Positioning
 
 Use this:
 
@@ -59,8 +62,7 @@ Avoid this:
    at `official_eval_completed`.
 2. Wire `SubagentTask` fanout into real read-only AgentLoop worker runs for one
    narrow profile.
-3. Let `forge eval mini-cases` optionally ingest run artifacts directly instead
-   of requiring hand-written evidence JSON.
+3. Add privacy filters and dataset version manifests before using exported run
+   evidence in a real training pipeline.
 4. Keep `ask_human` labeled synthetic so it cannot be mistaken for the real
    approval system.
-

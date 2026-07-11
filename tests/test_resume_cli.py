@@ -2,11 +2,28 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from agent_forge.forge_cli import latest_checkpoint_path, write_resume_link
+from agent_forge.forge_cli import checkpoint_resume_workspace, latest_checkpoint_path, write_resume_link
+from agent_forge.runtime.task_state import TaskCheckpoint
 from agent_forge.runtime.task_state import TaskRunStatus, TaskStateStore
 
 
 class ResumeCliTest(unittest.TestCase):
+    def test_resume_uses_requested_workspace_after_temporary_worktree_cleanup(self):
+        checkpoint = TaskCheckpoint(
+            run_id="run-1",
+            task="continue",
+            workspace="/tmp/removed-worktree",
+            status="blocked",
+            metadata={
+                "execution_environment": {
+                    "mode": "worktree",
+                    "requested_workspace": "/tmp/original-repo",
+                }
+            },
+        )
+
+        self.assertEqual(checkpoint_resume_workspace(checkpoint), "/tmp/original-repo")
+
     def test_latest_checkpoint_path_returns_newest_checkpoint_under_run_dir(self):
         with tempfile.TemporaryDirectory() as tmp:
             run_dir = Path(tmp)

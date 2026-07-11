@@ -28,3 +28,6 @@ __all__ = [
     "write_mini_case_report",
     "write_evaluation_artifacts",
 ]
+from .feedback_dataset import export_feedback_dataset, record_feedback
+
+__all__ = ["export_feedback_dataset", "record_feedback"]
