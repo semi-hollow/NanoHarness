@@ -15,6 +15,7 @@ agent_forge/forge_cli.py
   -> tools/* executes controlled actions
   -> safety/* enforces boundaries
   -> observability/* writes trace and usage
+  -> evaluation/* writes scorecards and paired ablations
 ```
 
 The public entrypoint is `forge` / `python -m agent_forge`; old mode-based
@@ -31,6 +32,7 @@ entrypoints were removed so the code map stays aligned with the benchmark loop.
 | `safety/` | Path sandbox, command policy, permissions, and guardrails. | A coding agent can perform unsafe or irrelevant operations. |
 | `models/` | Provider gateway, retry/fallback, token/cache/cost telemetry. | Runtime code becomes tied to one API provider and loses cost visibility. |
 | `observability/` | Trace, metrics, evidence, and usage reports. | You cannot explain why the agent chose a file, failed a tool, or spent tokens. |
+| `evaluation/` | Run scorecards, matched ablations, mini-cases, human feedback, and safe dataset projection. | Runtime changes lose quantitative comparison and evidence denominators. |
 | `mcp/` | Built-in MCP-style stdio tools and external web tool wrappers. | External tool integration disappears, but SWE-bench patching can still run. |
 | `skills/` | Built-in coding Skills plus versioned custom Skill manifests. Active Skills inject procedures and expected tools into AgentLoop. | Tool capabilities cannot be promoted into governed product workflows or safely rolled back. |
 | `ui.py` | Local browser control surface for doctor, agent run, SWE-bench reference cases, report, and replay. | Users must remember CLI commands before they can see the closed loop. |
@@ -51,6 +53,7 @@ entrypoints were removed so the code map stays aligned with the benchmark loop.
 | `StructuredOutputParser` | Validates model JSON output, creates a deterministic repair prompt, and protects tool-call argument parsing. |
 | `WorkspaceSandbox` | Prevents tools from escaping the target repo. |
 | `CommandPolicy` | Blocks dangerous shell commands and explains allowed validation commands. |
+| `ExecutionEnvironment` | Selects local, worktree, or constrained OCI execution and records image/resource/command evidence. |
 | `TraceRecorder` | Writes the step-by-step evidence stream. |
 | `UiState` | Keeps browser-triggered jobs and outputs in memory for one local workbench session. |
 
@@ -60,7 +63,11 @@ entrypoints were removed so the code map stays aligned with the benchmark loop.
 2. `agent_forge/ui.py`
 3. `agent_forge/bench/swebench.py`
 4. `agent_forge/runtime/agent_loop.py`
-5. `agent_forge/context/context_builder.py`
-6. `agent_forge/tools/registry.py`
-7. `agent_forge/safety/command_policy.py`
-8. `agent_forge/observability/usage_report.py`
+5. `agent_forge/runtime/execution_environment.py`
+6. `agent_forge/context/context_builder.py`
+7. `agent_forge/tools/registry.py`
+8. `agent_forge/safety/command_policy.py`
+9. `agent_forge/bench/official_results.py`
+10. `agent_forge/evaluation/scorecard.py`
+11. `agent_forge/evaluation/experiment.py`
+12. `agent_forge/observability/usage_report.py`

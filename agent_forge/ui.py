@@ -1822,7 +1822,7 @@ INDEX_HTML = r"""<!doctype html>
         <details>
           <summary>跑固定回归集，成本更高</summary>
           <div class="help">
-            固定运行 3 个真实 SWE-bench cases，用于比较 harness 改动前后的 patch rate、blocked rate、token/cost 和 failure diagnosis。
+            固定运行 5 个跨仓库 SWE-bench Lite cases，用于比较 harness 改动前后的 patch、local/official evidence、token/cost、latency 和 failure diagnosis。
           </div>
           <button class="secondary" onclick="startJob('swebench_regression')">运行核心回归集</button>
         </details>

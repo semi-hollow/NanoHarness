@@ -12,8 +12,9 @@ governance, sandboxed execution, human approval, partial recovery, multi-agent
 artifact handoff, traceability, cost accounting, and evaluation evidence.
 
 ```text
-Issue -> repo checkout -> AgentLoop -> governed tools -> candidate patch
-      -> trace / usage / failure taxonomy / human feedback -> evaluation data
+Issue -> repo snapshot -> AgentLoop -> governed tools -> candidate patch
+      -> trace / usage / official per-case result -> scorecard -> paired ablation
+      -> failure taxonomy / human feedback -> evaluation data
 ```
 
 ## Why This Exists
@@ -34,12 +35,13 @@ when runtime behavior is observable and comparable, not when prompts get longer.
 | Real runtime loop | `AgentLoop` coordinates context, LLM calls, tool calls, observations, recovery, stop conditions, and trace events. |
 | Real model boundary | OpenAI-compatible client with DeepSeek defaults, retry/fallback hooks, provider usage capture, and cost estimates. |
 | Governed tools | Read/grep/patch/command/git/diagnostics tools pass through routing, registry validation, permission hooks, command policy, and workspace sandboxing. |
-| Isolated execution | Repository runs can use the current checkout or a detached git worktree, with network policy and an environment manifest recorded per run. |
+| Isolated execution | Runs can use the current checkout, a detached git worktree, or a constrained OCI container over an isolated snapshot. Container commands apply network, CPU, memory, PID, capability, and read-only-root controls. |
 | Human-in-the-loop | Write-like side effects can stop at an approval file; `forge approve` records the human decision before execution. |
 | Partial recovery | Checkpoints seed continuation runs; operation ledger prevents duplicate side effects and detects stale approvals or stale target files. |
-| SWE-bench shape | The runner loads cases, checks out the base commit, writes `predictions.jsonl`, and can call the official harness when installed. |
+| SWE-bench shape | The runner loads cases, checks out the base commit, writes `predictions.jsonl`, calls the official harness when installed, and parses per-case resolved/unresolved/error artifacts. |
 | Multi-agent workflow | `MultiAgentCoordinator` reuses the same `AgentLoop` for Implementer/Reviewer/Verifier roles and passes state through explicit artifacts. |
-| Evidence reports | Each run writes trace, usage, result cards, failure taxonomy, and case-study artifacts instead of raw debug dumps only. |
+| Evaluation experiments | A fixed five-case SWE-bench Lite set writes scorecards for patch/local/official evidence, tokens, cost, latency, tool failures, and failure classes; `forge eval ablation` compares matched runs pairwise. |
+| Evidence reports | Each run writes trace, usage, scorecard, result card, failure taxonomy, and case-study artifacts instead of raw debug dumps only. |
 | Feedback data loop | Human outcomes and labels can be attached to runs, then exported with safe trace, policy, environment, and evaluation fields as JSONL. |
 
 For a precise green/yellow/red breakdown, read
@@ -57,6 +59,9 @@ If you are reviewing this repository, start here:
    - [agent_forge/runtime/operation_ledger.py](agent_forge/runtime/operation_ledger.py)
    - [agent_forge/multi_agent/coordinator.py](agent_forge/multi_agent/coordinator.py)
    - [agent_forge/bench/swebench.py](agent_forge/bench/swebench.py)
+   - [agent_forge/bench/official_results.py](agent_forge/bench/official_results.py)
+   - [agent_forge/evaluation/scorecard.py](agent_forge/evaluation/scorecard.py)
+   - [agent_forge/evaluation/experiment.py](agent_forge/evaluation/experiment.py)
 4. Run `bash scripts/verify.sh`.
 5. Use `forge ui` for the local evidence dashboard.
 
@@ -66,7 +71,7 @@ Project name: Agent Forge. Package name: `agent-forge`. Import package:
 `agent_forge`. CLI: `forge`.
 
 ```bash
-git clone git@github.com:semi-hollow/NanoHarness.git
+git clone https://github.com/semi-hollow/NanoHarness.git
 cd NanoHarness
 python3.11 -m venv .venv
 source .venv/bin/activate
@@ -125,11 +130,68 @@ forge run "fix the failing test in this repository" \
   --network-policy deny
 ```
 
+Run commands and diagnostics in a constrained OCI container over a detached
+snapshot. The image must already exist locally and include the dependencies
+needed by the target repository:
+
+```bash
+docker pull python:3.11-slim
+forge run "fix the failing test in this repository" \
+  --provider deepseek \
+  --execution-mode container \
+  --container-image python:3.11-slim \
+  --container-cpus 1 \
+  --container-memory 1g \
+  --container-pids-limit 256 \
+  --network-policy deny \
+  --no-keep-worktree
+```
+
 Run the fixed SWE-bench reference case:
 
 ```bash
 forge bench swebench --showcase --provider deepseek --direct-baseline
 ```
+
+Run the fixed five-case cross-repository scorecard:
+
+```bash
+forge bench swebench \
+  --regression-set core \
+  --provider deepseek \
+  --model deepseek-chat \
+  --tool-routing task-aware \
+  --execution-mode local \
+  --evaluate \
+  --max-workers 1
+```
+
+The benchmark runner accepts the same `worktree` and `container` execution
+boundaries as `forge run`. For container runs, use a project image containing
+the target repository's test dependencies and add `--execution-mode container`
+plus `--container-image <image>`; the execution mode and image contract become part
+of scorecard identity and ablation comparability checks.
+
+Run a controlled tool-visibility ablation with the same model and case set,
+then compare the two generated run directories:
+
+```bash
+forge bench swebench --regression-set core --provider deepseek \
+  --model deepseek-chat --tool-routing all --evaluate
+
+forge bench swebench --regression-set core --provider deepseek \
+  --model deepseek-chat --tool-routing task-aware --evaluate
+
+forge eval ablation <all-tools-run-dir> <task-aware-run-dir> \
+  --factor tool-routing \
+  --control-label all-tools \
+  --treatment-label task-aware \
+  --output .agent_forge/evaluation/tool-routing
+```
+
+The comparator rejects mismatched dataset, split, provider/model identity, or
+case ids. A single run per variant is evidence for a case study, not a variance
+estimate; repeat runs before making a broad quality claim.
 
 Run single-vs-multi comparison evidence:
 
@@ -188,7 +250,7 @@ flowchart TD
     Loop --> Approval["ApprovalStore"]
     Loop --> Ledger["OperationLedger"]
     Loop --> State["TaskState checkpoints"]
-    Loop --> Environment["local / detached worktree environment"]
+    Loop --> Environment["local / worktree / OCI environment"]
     Loop --> Trace["TraceRecorder"]
     Trace --> Usage["usage_report.md"]
     Trace --> Diagnosis["failure taxonomy"]
@@ -197,8 +259,11 @@ flowchart TD
     Checkout --> Patch["patch.diff"]
     Patch --> Predictions["predictions.jsonl"]
     Predictions --> Official["optional SWE-bench harness"]
-    Usage --> Report["report.md / evaluation_report.md"]
-    Official --> Report
+    Official --> Parser["per-case official result parser"]
+    Usage --> Scorecard["scorecard.json / scorecard.md"]
+    Parser --> Scorecard
+    Scorecard --> Ablation["paired ablation.json / ablation.md"]
+    Scorecard --> Report["report.md / evaluation_report.md"]
     Dataset --> Report
 ```
 
@@ -209,8 +274,8 @@ policy. Tool calls go through deterministic routing, validation, permissions,
 command policy, and sandbox checks.
 
 **Candidate patch is not solved.** A generated diff is evidence, not a resolved
-claim. Official SWE-bench correctness requires the Docker-based harness or a
-focused validation result.
+claim. Focused tests can provide local evidence; an official SWE-bench resolved
+claim requires a parsed per-case result from the Docker-based harness.
 
 **Human approval is a runtime boundary.** Write-like operations can stop before
 execution, persist an approval request, and later verify that the target file
@@ -221,8 +286,15 @@ with checkpoint summaries. It does not pretend to restore hidden model state.
 The operation ledger prevents duplicate side effects and detects target drift.
 
 **Isolation is declared and auditable.** Local mode provides path and command
-boundaries, not OS isolation. Worktree mode runs against a detached checkout and
-writes `execution_environment.json`; it is still not a container or remote VM.
+boundaries, while worktree mode adds git-state isolation. Container mode executes
+commands and diagnostics inside a constrained OCI process over the same isolated
+snapshot and records image, limits, network policy, start command, and command
+history. It is not presented as hostile multi-tenant isolation.
+
+**Metrics keep their denominators.** Patch rate uses all cases. Local verification
+uses explicit test evidence. Official resolved rate uses only cases with parsed
+resolved/unresolved reports and remains `null`, not `0%`, when official evaluation
+was not run.
 
 **Multi-agent is artifact-based.** Reviewer and verifier roles do not chat in a
 hidden shared context. They read artifacts produced by earlier roles and can
@@ -240,16 +312,20 @@ Runtime outputs are ignored by Git and live under `.agent_forge/`:
 .agent_forge/runs/<run-id>/
   report.md
   results.json
+  scorecard.json
+  scorecard.md
   feedback.json
   execution_environment.json
   predictions.jsonl
   direct_baseline_predictions.jsonl
+  <model>.<run-id>.json
   multi_agent/
     artifact_index.json
     multi_agent_summary.json
     multi_agent_report.md
     artifacts/
   cases/<instance_id>/
+    execution_environment.json
     trace.json
     usage_report.md
     patch.diff
@@ -278,7 +354,7 @@ agent_forge/
   models/         provider gateway, retry/fallback, usage telemetry
   multi_agent/    coordinator, role profiles, artifact handoff, fanout primitive
   evaluation/     comparison metrics, mini-cases, evaluation reports
-                  human feedback capture and evidence-dataset export
+                  scorecards, paired ablations, feedback, dataset export
   observability/  trace, usage, metrics, evidence summaries
   skills/         built-in and custom runtime Skills
   mcp/            compact stdio MCP-style server/client
@@ -293,6 +369,7 @@ agent_forge/
 - Not a benchmark leaderboard.
 - Not an RL training platform or a claim that raw traces are training-ready.
 - Not a claim of official resolved rate without official SWE-bench evaluation.
+- Not a claim of hostile multi-tenant security from OCI mode.
 - Not a collection of self-authored toy calculator fixtures as the main proof.
 
 Some parts are intentionally lightweight. The fanout module is a scheduling
@@ -306,6 +383,7 @@ status of each capability.
 - [Capability Reality Matrix](docs/CAPABILITY_REALITY_MATRIX.md)
 - [Architecture Notes](docs/AgentForge总体架构与运行链路.md)
 - [Runtime Capability Guide](docs/architecture/runtime-capability-guide.md)
+- [Evaluation Experiments and OCI Execution](docs/architecture/evaluation-experiments-and-oci-execution.md)
 - [Feedback-Driven Evaluation Loop](docs/architecture/feedback-evaluation-loop.md)
 - [Evaluation Guide](docs/evaluation/评测目录说明与SWE-bench使用入口.md)
 - [Failure Taxonomy](docs/evaluation/failure-taxonomy.md)

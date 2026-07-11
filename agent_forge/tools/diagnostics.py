@@ -18,10 +18,11 @@ class DiagnosticsTool(Tool):
     name = "diagnostics"
     description = "run python compile or unittest diagnostics"
 
-    def __init__(self, sandbox):
+    def __init__(self, sandbox, execution_environment=None):
         """Store sandbox so target paths cannot escape the workspace."""
 
         self.sandbox = sandbox
+        self.execution_environment = execution_environment
 
     def schema(self):
         """Expose optional target and kind arguments to the LLM."""
@@ -48,6 +49,18 @@ class DiagnosticsTool(Tool):
         """Compile a Python file or every Python file under a directory."""
 
         root = self.sandbox.ensure_safe_path(target)
+        if self.execution_environment is not None:
+            relative = root.relative_to(self.sandbox.workspace_root).as_posix() or "."
+            proc = self.execution_environment.execute_command(
+                ["python", "-m", "compileall", "-q", relative],
+                timeout=30,
+            )
+            output = (proc.stdout + proc.stderr).strip()[:3000]
+            return Observation(
+                self.name,
+                proc.returncode == 0,
+                f"exit_code={proc.returncode}\n{output or f'compile ok: {relative}'}",
+            )
         files = [root] if root.is_file() else sorted(root.rglob("*.py"))
         errors = []
         for path in files:
@@ -71,13 +84,17 @@ class DiagnosticsTool(Tool):
         command = self._unittest_command(target)
         if isinstance(command, Observation):
             return command
-        proc = subprocess.run(
-            command,
-            cwd=str(self.sandbox.workspace_root),
-            text=True,
-            capture_output=True,
-            timeout=30,
-        )
+        if self.execution_environment is not None:
+            proc = self.execution_environment.execute_command(command, timeout=30)
+        else:
+            local_command = [sys.executable, *command[1:]] if command and command[0] == "python" else command
+            proc = subprocess.run(
+                local_command,
+                cwd=str(self.sandbox.workspace_root),
+                text=True,
+                capture_output=True,
+                timeout=30,
+            )
         output = (proc.stdout + proc.stderr).strip()[:3000]
         if "ModuleNotFoundError: No module named 'pytest'" in output:
             return Observation(
@@ -100,7 +117,7 @@ class DiagnosticsTool(Tool):
 
         target = (target or ".").strip() or "."
         if "/" not in target and "\\" not in target and "." in target and not target.startswith(".") and not target.endswith(".py"):
-            return [sys.executable, "-m", "unittest", target]
+            return ["python", "-m", "unittest", target]
 
         resolved = self.sandbox.ensure_safe_path(target)
         if not resolved.exists() and not str(resolved).endswith(".py"):
@@ -108,5 +125,7 @@ class DiagnosticsTool(Tool):
             if py_candidate.exists():
                 resolved = py_candidate
         if resolved.is_file():
-            return [sys.executable, str(resolved)]
-        return [sys.executable, "-m", "unittest", "discover", str(resolved)]
+            relative = resolved.relative_to(self.sandbox.workspace_root).as_posix()
+            return ["python", relative]
+        relative = resolved.relative_to(self.sandbox.workspace_root).as_posix() or "."
+        return ["python", "-m", "unittest", "discover", relative]

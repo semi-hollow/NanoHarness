@@ -62,12 +62,32 @@ class ToolRouter:
         step: int = 1,
         agent_name: str = "",
         skill_tool_names: set[str] | None = None,
+        mode: str = "task-aware",
     ) -> ToolRoute:
         """Return routed tool schemas with explainable metadata."""
 
         lowered = (task or "").lower()
         by_name = {schema.get("name", ""): schema for schema in schemas}
         names = set(by_name)
+        if mode not in {"task-aware", "all"}:
+            raise ValueError(f"unsupported tool routing mode: {mode}")
+        if mode == "all":
+            return ToolRoute(
+                schemas=list(schemas),
+                allowed_names=set(names),
+                reason=(
+                    f"mode=all selected={len(schemas)} dropped=0 step={step} "
+                    f"agent={agent_name or 'agent'}"
+                ),
+                dropped_names=[],
+                metadata={
+                    name: self.DEFAULT_METADATA.get(
+                        name,
+                        {"capability": "external", "risk": "configured", "latency": "unknown", "mode": "mcp_style"},
+                    )
+                    for name in sorted(names)
+                },
+            )
         read_only_markers = [
             "不要修改",
             "不修改",

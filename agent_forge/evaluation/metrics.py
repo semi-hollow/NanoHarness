@@ -35,9 +35,17 @@ def extract_run_metrics(
         "status": str(result.get("status") or multi_agent.get("status") or "unavailable"),
         "patch_generated": bool(result.get("patch_generated") or _int(result, "patch_chars") > 0),
         "patch_chars": _int(result, "patch_chars"),
-        "official_eval_status": str(result.get("evaluation_status") or "unavailable"),
+        "local_validation_status": str(result.get("local_validation_status") or "not_run"),
+        "official_evaluation_status": str(
+            result.get("official_evaluation_status") or result.get("evaluation_status") or "unavailable"
+        ),
+        "official_eval_status": str(
+            result.get("official_evaluation_status") or result.get("evaluation_status") or "unavailable"
+        ),
         "estimated_cost_usd": _float(totals, "estimated_cost_usd"),
         "llm_calls": _int(totals, "llm_calls"),
+        "total_tokens": _int(totals, "total_tokens"),
+        "llm_latency_ms": _int(totals, "llm_latency_ms"),
         "tool_calls": _int(totals, "tool_calls"),
         "failed_tool_calls": _int(totals, "failed_tool_calls"),
         "revision_rounds": _int(multi_agent, "revision_rounds"),

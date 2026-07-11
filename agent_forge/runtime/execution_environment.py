@@ -4,6 +4,7 @@ import shlex
 import shutil
 import subprocess
 import sys
+import time
 import uuid
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
@@ -18,15 +19,13 @@ PROTECTED_PATH_PARTS = {".git", ".venv", ".agent_forge"}
 class ExecutionEnvironmentConfig:
     """User-selected execution boundary for one run.
 
-    A production coding agent normally runs in an isolated workspace/container
-    rather than directly mutating the developer's checkout. This config keeps
-    the same control plane visible in a local project: choose local or git
-    worktree execution, decide whether network commands are allowed, and decide
-    whether the created worktree should remain for inspection.
+    Choose local, git-worktree, or OCI-container execution; decide whether
+    network access is allowed; and decide whether the isolated snapshot remains
+    available for inspection after the run.
     """
 
     # ``local`` runs against the current checkout. ``worktree`` creates an
-    # isolated git worktree under ``.agent_forge/worktrees`` and runs tools there.
+    # isolated git checkout. ``container`` mounts an isolated snapshot into OCI.
     mode: str = "local"
 
     # Workspace requested by CLI before any worktree redirection.
@@ -45,6 +44,19 @@ class ExecutionEnvironmentConfig:
     # Keep worktree folders by default so a failed run can be inspected.
     keep_worktree: bool = True
 
+    # Docker-compatible OCI CLI and a pre-pulled image used by container mode.
+    container_runtime: str = "docker"
+    container_image: str = "python:3.11-slim"
+
+    # Explicit resource limits keep one agent command from monopolizing the host.
+    container_cpus: float = 1.0
+    container_memory: str = "1g"
+    container_pids_limit: int = 256
+    container_read_only: bool = True
+
+    # Non-git workspaces use a copied snapshot under this directory.
+    snapshot_root: str = ".agent_forge/snapshots"
+
 
 @dataclass(frozen=True)
 class EnvironmentProbe:
@@ -54,7 +66,7 @@ class EnvironmentProbe:
     first production questions reviewers ask about CodingAgents.
     """
 
-    # Active mode after prepare: local or worktree.
+    # Active mode after prepare: local, worktree, or container.
     mode: str
 
     # Original user checkout path.
@@ -90,6 +102,13 @@ class EnvironmentProbe:
     # Notes explain degraded behavior such as missing git.
     notes: list[str] = field(default_factory=list)
 
+    # OCI evidence is empty for local/worktree modes.
+    container_runtime: str = ""
+    container_image: str = ""
+    container_image_id: str = ""
+    container_id: str = ""
+    resource_limits: dict[str, object] = field(default_factory=dict)
+
     def to_dict(self) -> dict:
         """Return JSON-safe metadata for trace and task-state checkpoints."""
 
@@ -97,24 +116,38 @@ class EnvironmentProbe:
 
 
 class ExecutionEnvironment:
-    """Local execution boundary used by tools and hooks.
+    """Execution boundary shared by command tools and runtime hooks.
 
-    The environment is intentionally not a fake security promise. Local mode is
-    path and command policy only. Worktree mode adds a real git-level isolation
-    boundary by running the agent in a separate checkout. A production service
-    could replace this class with a container or remote VM without changing
-    AgentLoop's control flow.
+    Local mode is path and command policy only. Worktree mode isolates repository
+    side effects in a detached checkout. Container mode additionally delegates
+    command execution to a constrained OCI container over an isolated snapshot;
+    host-side file tools remain limited by the same snapshot path boundary.
     """
 
-    def __init__(self, config: ExecutionEnvironmentConfig):
+    def __init__(
+        self,
+        config: ExecutionEnvironmentConfig,
+        *,
+        oci_runner=None,
+        executable_resolver=None,
+    ):
         """Store config and resolve the requested workspace early."""
 
         self.config = config
         self.requested_workspace = Path(config.workspace).resolve()
         self.active_workspace = self.requested_workspace
         self.created_worktree: Path | None = None
+        self.created_snapshot: Path | None = None
         self._notes: list[str] = []
         self._requested_dirty_files: list[str] | None = None
+        self._oci_runner = oci_runner or subprocess.run
+        self._executable_resolver = executable_resolver or shutil.which
+        self._container_runtime_path = ""
+        self._container_image_id = ""
+        self._container_id = ""
+        self._container_name = ""
+        self._container_start_command: list[str] = []
+        self._command_history: list[dict[str, object]] = []
 
     def prepare(self) -> EnvironmentProbe:
         """Prepare the active workspace and return an auditable probe.
@@ -124,12 +157,15 @@ class ExecutionEnvironment:
         makes dirty working-tree state visible in the probe.
         """
 
-        if self.config.mode not in {"local", "worktree"}:
+        if self.config.mode not in {"local", "worktree", "container"}:
             raise ValueError(f"unsupported execution environment: {self.config.mode}")
+        self._validate_config()
 
         self._requested_dirty_files = self._dirty_files(self.requested_workspace)
         if self.config.mode == "worktree":
             self._prepare_worktree()
+        elif self.config.mode == "container":
+            self._prepare_container()
 
         return self.probe()
 
@@ -159,6 +195,11 @@ class ExecutionEnvironment:
             network_policy=self.config.network_policy,
             python_executable=sys.executable,
             notes=list(self._notes),
+            container_runtime=self._container_runtime_path,
+            container_image=self.config.container_image if self.config.mode == "container" else "",
+            container_image_id=self._container_image_id,
+            container_id=self._container_id,
+            resource_limits=self._resource_limits() if self.config.mode == "container" else {},
         )
 
     def resolve_path(self, path: str | Path) -> Path:
@@ -223,13 +264,24 @@ class ExecutionEnvironment:
         return redacted
 
     def cleanup(self) -> None:
-        """Remove a temporary worktree only when configured to do so."""
+        """Always remove the container; remove snapshots when configured."""
 
-        if not self.created_worktree or self.config.keep_worktree:
-            return
-        if self.created_worktree.exists():
-            shutil.rmtree(self.created_worktree, ignore_errors=True)
-        self._git_output(["git", "worktree", "prune"], cwd=self.requested_workspace)
+        container_target = self._container_id or self._container_name
+        if container_target and self._container_runtime_path:
+            removed = self._oci_runner(
+                [self._container_runtime_path, "rm", "-f", container_target],
+                text=True,
+                capture_output=True,
+                timeout=30,
+            )
+            if removed.returncode == 0:
+                self._notes.append("removed OCI container")
+            else:
+                detail = self.redact((removed.stderr or removed.stdout or "unknown error").strip())
+                self._notes.append(f"OCI container cleanup failed: {detail}")
+            self._container_id = ""
+
+        self._cleanup_snapshot()
 
     def write_manifest(self, output_dir: str | Path) -> Path:
         """Write environment metadata for session reports and run audits."""
@@ -237,14 +289,38 @@ class ExecutionEnvironment:
         output = Path(output_dir)
         output.mkdir(parents=True, exist_ok=True)
         path = output / "execution_environment.json"
+        manifest = {
+            "probe": self.probe().to_dict(),
+            "worktree_created": str(self.created_worktree or ""),
+            "snapshot_created": str(self.created_snapshot or ""),
+            "cleanup_policy": "keep" if self.config.keep_worktree else "remove",
+        }
+        if self.config.mode == "container":
+            replayable_after_cleanup = bool(
+                self.config.keep_worktree
+                and (self.created_worktree or self.created_snapshot)
+                and self._container_start_command
+            )
+            manifest["container"] = {
+                "runtime": self.config.container_runtime,
+                "runtime_path": self._container_runtime_path,
+                "image": self.config.container_image,
+                "image_id": self._container_image_id,
+                "container_id": self._container_id,
+                "network_policy": self.config.network_policy,
+                "root_read_only": self.config.container_read_only,
+                "resource_limits": self._resource_limits(),
+                "start_command": self._container_start_command,
+                "recreate_command": self._container_start_command if replayable_after_cleanup else [],
+                "replayable_after_cleanup": replayable_after_cleanup,
+                "exec_prefix": [self._container_runtime_path, "exec", self._container_id],
+                "command_history": self._command_history,
+                "boundary_note": (
+                    "Commands run in the OCI container; host file tools remain constrained to the mounted snapshot."
+                ),
+            }
         path.write_text(
-            self._json_dump(
-                {
-                    "probe": self.probe().to_dict(),
-                    "worktree_created": str(self.created_worktree or ""),
-                    "cleanup_policy": "keep" if self.config.keep_worktree else "remove",
-                }
-            ),
+            self._json_dump(manifest),
             encoding="utf-8",
         )
         return path
@@ -265,12 +341,193 @@ class ExecutionEnvironment:
             f"branch={probe.current_branch}; dirty={probe.dirty}"
         )
 
-    def _prepare_worktree(self) -> None:
+    def execute_command(self, argv: list[str], timeout: float) -> subprocess.CompletedProcess[str]:
+        """Execute argv in the selected environment and record replay metadata."""
+
+        if not argv:
+            raise ValueError("empty command argv")
+        started = time.monotonic()
+        if self.config.mode == "container":
+            if not self._container_id or not self._container_runtime_path:
+                raise RuntimeError("container execution environment is not prepared")
+            runtime_command = [self._container_runtime_path, "exec", self._container_id, *argv]
+            result = self._oci_runner(
+                runtime_command,
+                text=True,
+                capture_output=True,
+                timeout=timeout,
+            )
+        else:
+            normalized = (
+                [sys.executable, *argv[1:]]
+                if argv[0] in {"python", "python3", "python3.11"}
+                else list(argv)
+            )
+            runtime_command = normalized
+            result = subprocess.run(
+                normalized,
+                cwd=str(self.active_workspace),
+                shell=False,
+                text=True,
+                capture_output=True,
+                timeout=timeout,
+            )
+        self._command_history.append(
+            {
+                "argv": list(argv),
+                "runtime_command": runtime_command,
+                "timeout_seconds": timeout,
+                "returncode": result.returncode,
+                "duration_ms": int((time.monotonic() - started) * 1000),
+                "stdout_chars": len(result.stdout or ""),
+                "stderr_chars": len(result.stderr or ""),
+            }
+        )
+        return result
+
+    def _prepare_container(self) -> None:
+        """Create an isolated snapshot and start a constrained OCI container."""
+
+        runtime = self._executable_resolver(self.config.container_runtime)
+        if not runtime:
+            raise RuntimeError(
+                f"container runtime not found: {self.config.container_runtime}; install it or use local/worktree mode"
+            )
+        self._container_runtime_path = str(runtime)
+        inspect = self._oci_runner(
+            [self._container_runtime_path, "image", "inspect", "--format", "{{.Id}}", self.config.container_image],
+            text=True,
+            capture_output=True,
+            timeout=30,
+        )
+        if inspect.returncode != 0:
+            raise RuntimeError(
+                f"container image is unavailable: {self.config.container_image}; pull it explicitly before the run"
+            )
+        self._container_image_id = (inspect.stdout or "").strip()
+        self._prepare_snapshot()
+
+        safe_run_id = re.sub(r"[^a-zA-Z0-9_.-]+", "-", self.config.run_id or uuid.uuid4().hex[:8])
+        name = f"agent-forge-{safe_run_id}"[:63]
+        self._container_name = name
+        network = "none" if self.config.network_policy == "deny" else "bridge"
+        command = [
+            self._container_runtime_path,
+            "run",
+            "--detach",
+            "--rm",
+            "--name",
+            name,
+            "--workdir",
+            "/workspace",
+            "--mount",
+            f"type=bind,src={self.active_workspace},dst=/workspace",
+            "--network",
+            network,
+            "--cpus",
+            str(self.config.container_cpus),
+            "--memory",
+            self.config.container_memory,
+            "--pids-limit",
+            str(self.config.container_pids_limit),
+            "--cap-drop",
+            "ALL",
+            "--security-opt",
+            "no-new-privileges",
+            "--tmpfs",
+            "/tmp:rw,nosuid,nodev,size=64m",
+            "--env",
+            "HOME=/tmp",
+        ]
+        if self.config.container_read_only:
+            command.append("--read-only")
+        if hasattr(os, "getuid") and hasattr(os, "getgid"):
+            command.extend(["--user", f"{os.getuid()}:{os.getgid()}"])
+        command.extend(
+            [
+                self.config.container_image,
+                "sh",
+                "-c",
+                "while :; do sleep 3600; done",
+            ]
+        )
+        self._container_start_command = command
+        started = self._oci_runner(command, text=True, capture_output=True, timeout=60)
+        if started.returncode != 0:
+            self._cleanup_snapshot()
+            raise RuntimeError(
+                f"container start failed: {(started.stderr or started.stdout).strip()}"
+            )
+        self._container_id = (started.stdout or "").strip()
+        if not self._container_id:
+            self.cleanup()
+            raise RuntimeError("container runtime returned no container id")
+        self._notes.append("started constrained OCI container over isolated workspace snapshot")
+
+    def _prepare_snapshot(self) -> None:
+        """Use a detached worktree for git repos or a bounded copy otherwise."""
+
+        git_root = self._git_output(["git", "rev-parse", "--show-toplevel"], cwd=self.requested_workspace)
+        if git_root:
+            self._prepare_worktree(required=True)
+            return
+        run_id = self.config.run_id or uuid.uuid4().hex[:8]
+        target = (self.requested_workspace / self.config.snapshot_root / run_id).resolve()
+        target.parent.mkdir(parents=True, exist_ok=True)
+        if target.exists():
+            target = target.with_name(f"{target.name}-{uuid.uuid4().hex[:6]}")
+        shutil.copytree(
+            self.requested_workspace,
+            target,
+            ignore=shutil.ignore_patterns(".git", ".agent_forge", ".venv", "__pycache__", "*.pyc"),
+        )
+        self.created_snapshot = target
+        self.active_workspace = target
+        self._notes.append("created isolated filesystem snapshot for non-git workspace")
+
+    def _resource_limits(self) -> dict[str, object]:
+        return {
+            "cpus": self.config.container_cpus,
+            "memory": self.config.container_memory,
+            "pids": self.config.container_pids_limit,
+        }
+
+    def _validate_config(self) -> None:
+        """Reject ambiguous or ineffective execution-boundary settings."""
+
+        if self.config.network_policy not in {"deny", "allow"}:
+            raise ValueError(f"unsupported network policy: {self.config.network_policy}")
+        if self.config.mode != "container":
+            return
+        if self.config.container_cpus <= 0:
+            raise ValueError("container CPU limit must be greater than zero")
+        if not self.config.container_memory.strip():
+            raise ValueError("container memory limit must not be empty")
+        if self.config.container_pids_limit <= 0:
+            raise ValueError("container PID limit must be greater than zero")
+        if not self.config.container_runtime.strip():
+            raise ValueError("container runtime must not be empty")
+        if not self.config.container_image.strip():
+            raise ValueError("container image must not be empty")
+
+    def _cleanup_snapshot(self) -> None:
+        """Remove an isolated snapshot when the configured retention policy allows it."""
+
+        snapshot = self.created_worktree or self.created_snapshot
+        if not snapshot or self.config.keep_worktree:
+            return
+        if snapshot.exists():
+            shutil.rmtree(snapshot, ignore_errors=True)
+        self._git_output(["git", "worktree", "prune"], cwd=self.requested_workspace)
+
+    def _prepare_worktree(self, required: bool = False) -> None:
         """Create a detached git worktree for side-effect isolation."""
 
         if not (self.requested_workspace / ".git").exists():
             git_root = self._git_output(["git", "rev-parse", "--show-toplevel"])
             if not git_root:
+                if required:
+                    raise RuntimeError("isolated git snapshot requested but no git repository was found")
                 self._notes.append("worktree requested but no git repository was found; using local mode")
                 self.active_workspace = self.requested_workspace
                 return
@@ -289,6 +546,8 @@ class ExecutionEnvironment:
             capture_output=True,
         )
         if result.returncode != 0:
+            if required:
+                raise RuntimeError(f"isolated worktree creation failed: {(result.stderr or result.stdout).strip()}")
             self._notes.append(f"worktree creation failed: {(result.stderr or result.stdout).strip()}")
             self.active_workspace = self.requested_workspace
             return

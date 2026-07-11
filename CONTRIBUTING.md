@@ -35,8 +35,8 @@ read-only real-model task when `DEEPSEEK_API_KEY` is available.
   artifacts, or personal IDE state.
 - Prefer real repo tasks, public benchmark cases, and trace evidence over
   self-authored fixtures.
-- If a change affects agent behavior, update the relevant study-pack or
-  readiness document so readers can understand the design.
+- If a change affects agent behavior, update the relevant architecture or
+  evaluation document so readers can understand the design and evidence.
 
 ## Pull Request Checklist
 

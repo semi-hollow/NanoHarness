@@ -79,13 +79,28 @@ def _normalize_variant(data: dict) -> dict:
         or _int(data, "patch_chars") > 0
         or (isinstance(model_patch, str) and _looks_like_patch(model_patch))
     )
+    local_status = str(data.get("local_validation_status") or "not_run")
+    official_status = str(
+        data.get("official_evaluation_status")
+        or data.get("official_eval_status")
+        or (data.get("evaluation_status") if str(data.get("evaluation_status") or "").startswith("official_") else "")
+        or "not_evaluated"
+    )
+    local_verified = bool(data.get("local_verified")) or local_status == "passed"
+    official_resolved = bool(data.get("official_resolved")) or official_status == "official_resolved"
     return {
         "status": str(data.get("status") or data.get("stop_reason") or ""),
         "patch_generated": patch_generated,
-        "verified": bool(data.get("verified") or data.get("local_verified") or data.get("official_resolved")),
+        "verified": bool(data.get("verified") or local_verified or official_resolved),
+        "local_validation_status": local_status,
+        "local_verified": local_verified,
+        "official_evaluation_status": official_status,
+        "official_resolved": official_resolved,
         "failure_class": str(data.get("failure_class") or data.get("failure_taxonomy") or ""),
         "estimated_cost_usd": _float(data, "estimated_cost_usd"),
         "llm_calls": _int(data, "llm_calls"),
+        "total_tokens": _int(data, "total_tokens"),
+        "llm_latency_ms": _int(data, "llm_latency_ms"),
         "tool_calls": _int(data, "tool_calls"),
         "failed_tool_calls": _int(data, "failed_tool_calls"),
     }

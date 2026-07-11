@@ -4,6 +4,8 @@ import json
 from collections import Counter
 from pathlib import Path
 
+from agent_forge.evaluation.scorecard import write_benchmark_scorecard
+
 from .types import BenchRunSummary
 
 
@@ -20,7 +22,9 @@ def write_bench_artifacts(summary: BenchRunSummary) -> tuple[Path, Path]:
     summary.output_dir.mkdir(parents=True, exist_ok=True)
     results_json = summary.output_dir / "results.json"
     report_md = summary.output_dir / "report.md"
-    results_json.write_text(json.dumps(summary.to_dict(), ensure_ascii=False, indent=2), encoding="utf-8")
+    serialized = summary.to_dict()
+    results_json.write_text(json.dumps(serialized, ensure_ascii=False, indent=2), encoding="utf-8")
+    write_benchmark_scorecard(serialized, summary.output_dir)
     report_md.write_text(render_bench_report(summary), encoding="utf-8")
     return results_json, report_md
 
@@ -29,7 +33,8 @@ def render_bench_report(summary: BenchRunSummary) -> str:
     """Render a concise SWE-bench result card."""
 
     status_counts = Counter(result.status for result in summary.case_results)
-    eval_counts = Counter(result.evaluation_status for result in summary.case_results)
+    local_eval_counts = Counter(result.local_validation_status for result in summary.case_results)
+    official_eval_counts = Counter(result.official_evaluation_status for result in summary.case_results)
     patch_generated = sum(1 for result in summary.case_results if result.patch_chars > 0)
     total = len(summary.case_results)
 
@@ -44,6 +49,9 @@ def render_bench_report(summary: BenchRunSummary) -> str:
         f"- provider/model: `{summary.provider}` / `{summary.model or 'default'}`",
         f"- agent_mode/profile: `{summary.agent_mode}` / `{summary.profile or '-'}`",
         f"- max_revision_rounds: `{summary.max_revision_rounds}`",
+        f"- max_steps / max_context_chars: `{summary.max_steps}` / `{summary.max_context_chars}`",
+        f"- tool_routing_mode: `{summary.tool_routing_mode}`",
+        f"- execution/network: `{summary.execution_mode}` / `{summary.network_policy}`",
         f"- cases: `{total}`",
         f"- predictions: `{summary.predictions_path}`",
     ]
@@ -56,10 +64,14 @@ def render_bench_report(summary: BenchRunSummary) -> str:
             "",
             f"- patches generated: `{patch_generated}/{total}`",
             f"- agent statuses: `{dict(status_counts)}`",
-            f"- official evaluation statuses: `{dict(eval_counts)}`",
+            f"- local validation statuses: `{dict(local_eval_counts)}`",
+            f"- official evaluation statuses: `{dict(official_eval_counts)}`",
+            "- quantitative scorecard: [scorecard.json](scorecard.json) / [scorecard.md](scorecard.md)",
         ]
     )
-    if patch_generated and not any(result.evaluation_status == "official_resolved" for result in summary.case_results):
+    if patch_generated and not any(
+        result.official_evaluation_status == "official_resolved" for result in summary.case_results
+    ):
         lines.extend(
             [
                 "",
@@ -72,9 +84,10 @@ def render_bench_report(summary: BenchRunSummary) -> str:
             "## Evidence Levels",
             "",
             "- `candidate patch`: the workspace contains a non-empty candidate diff. This is not a solved claim.",
-            "- `local_verified`: project diagnostics or tests passed in the prepared workspace.",
-            "- `official_resolved`: the official SWE-bench harness accepted the patch.",
-            "- `official_eval_completed`: the harness process completed, but this runner has not parsed per-case pass/fail; inspect official output before claiming resolved.",
+            "- `local_verified`: all recorded test-oriented local validation evidence passed; compilation alone is excluded.",
+            "- `official_resolved`: an official SWE-bench per-case JSON report recorded `resolved: true`.",
+            "- `official_eval_failed`: an official per-case report recorded an unresolved patch.",
+            "- `official_eval_incomplete`: the process did not produce an explicit outcome for this case.",
             "- `not_evaluated`: no correctness claim should be made beyond the available trace and patch evidence.",
         ]
     )
@@ -113,6 +126,10 @@ def render_bench_report(summary: BenchRunSummary) -> str:
                 f"- exit_code: `{summary.official_eval_exit_code}`",
             ]
         )
+        if summary.official_eval_report_path:
+            lines.append(f"- parsed report: `{summary.official_eval_report_path}`")
+        if summary.official_eval_warnings:
+            lines.append(f"- parser warnings: `{summary.official_eval_warnings}`")
         if summary.official_eval_output:
             lines.extend(
                 [
@@ -139,8 +156,8 @@ def render_bench_report(summary: BenchRunSummary) -> str:
             "",
             "## Cases",
             "",
-            "| instance | repo | status | eval | patch chars | trace | usage | comparison |",
-            "| --- | --- | --- | --- | ---: | --- | --- | --- |",
+            "| instance | repo | status | local validation | official evaluation | patch chars | trace | usage | comparison |",
+            "| --- | --- | --- | --- | --- | ---: | --- | --- | --- |",
         ]
     )
     for result in summary.case_results:
@@ -150,7 +167,7 @@ def render_bench_report(summary: BenchRunSummary) -> str:
         lines.append(
             "| "
             f"`{result.instance_id}` | `{result.repo}` | `{result.status}` | "
-            f"`{result.evaluation_status}` | {result.patch_chars} | "
+            f"`{result.local_validation_status}` | `{result.official_evaluation_status}` | {result.patch_chars} | "
             f"[trace]({result.trace_path}) | [usage]({usage}) | {comparison} |"
         )
 
@@ -164,7 +181,8 @@ def render_bench_report(summary: BenchRunSummary) -> str:
             "- `patch_generated`: the agent produced a diff; run official evaluation before claiming resolved.",
             "- `no_patch`: the loop ended without a diff, usually context/tool/step-budget failure.",
             "- `blocked`: guardrail, provider config, command policy, or runtime budget stopped the case.",
-            "- `official_eval_completed`: SWE-bench harness process completed; per-case resolved/failed status is not parsed here.",
+            "- `official_resolved`: parsed per-case report explicitly accepted the patch.",
+            "- `official_eval_incomplete`: no explicit per-case outcome was produced; do not infer correctness from exit code.",
             "- `official_eval_error`: SWE-bench harness or environment failed; patch correctness is unknown.",
             "- `official_eval_failed`: SWE-bench harness completed and rejected the patch for this case.",
             "",

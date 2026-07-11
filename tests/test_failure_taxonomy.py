@@ -82,6 +82,22 @@ class FailureTaxonomyTest(unittest.TestCase):
         self.assertIn("harness", diagnosis.summary.lower())
         self.assertNotIn("rejected", diagnosis.summary.lower())
 
+    def test_official_resolved_is_not_labeled_unverified(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            result = self._result(Path(tmp), evaluation_status="official_resolved", patch_chars=12)
+            result.official_evaluation_status = "official_resolved"
+            diagnosis = diagnose_case_result(result)
+        self.assertEqual(diagnosis.failure_class, "official_resolved")
+        self.assertNotIn("unverified", diagnosis.summary.lower())
+
+    def test_local_test_pass_is_not_labeled_unverified(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            result = self._result(Path(tmp), evaluation_status="local_verified", patch_chars=12)
+            result.local_validation_status = "passed"
+            diagnosis = diagnose_case_result(result)
+        self.assertEqual(diagnosis.failure_class, "locally_verified_candidate")
+        self.assertIn("official", diagnosis.summary.lower())
+
 
 if __name__ == "__main__":
     unittest.main()

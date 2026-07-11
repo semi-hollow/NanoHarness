@@ -1,5 +1,6 @@
 import tempfile
 import unittest
+import subprocess
 from pathlib import Path
 
 from agent_forge.safety.sandbox import WorkspaceSandbox
@@ -7,6 +8,29 @@ from agent_forge.tools.diagnostics import DiagnosticsTool
 
 
 class DiagnosticsToolTest(unittest.TestCase):
+    def test_unittest_delegates_relative_target_to_execution_environment(self):
+        class Environment:
+            def __init__(self):
+                self.calls = []
+
+            def execute_command(self, argv, timeout):
+                self.calls.append((argv, timeout))
+                return subprocess.CompletedProcess(argv, 0, stdout="container tests ok", stderr="")
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "tests").mkdir()
+            environment = Environment()
+            tool = DiagnosticsTool(WorkspaceSandbox(root), execution_environment=environment)
+
+            observation = tool.execute({"kind": "unittest", "target": "tests"})
+
+        self.assertTrue(observation.success)
+        self.assertEqual(
+            environment.calls,
+            [(["python", "-m", "unittest", "discover", "tests"], 30)],
+        )
+
     def test_unittest_accepts_dotted_module_target(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

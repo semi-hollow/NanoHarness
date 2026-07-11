@@ -25,6 +25,7 @@ def build_registry(
     auto: bool,
     mcp_config_file: str | None = None,
     mcp_allowed_tools: list[str] | None = None,
+    execution_environment=None,
 ) -> ToolRegistry:
     """Create the tool gateway used by AgentLoop.
 
@@ -42,10 +43,10 @@ def build_registry(
         GrepTool(sandbox),
         GrepSearchTool(sandbox),
         ApplyPatchTool(sandbox, auto),
-        RunCommandTool(sandbox, auto),
+        RunCommandTool(sandbox, auto, execution_environment=execution_environment),
         GitStatusTool(sandbox),
         GitDiffTool(sandbox),
-        DiagnosticsTool(sandbox),
+        DiagnosticsTool(sandbox, execution_environment=execution_environment),
         AskHumanTool(auto),
     ]:
         registry.register(tool)

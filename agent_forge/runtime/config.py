@@ -71,3 +71,7 @@ class RuntimeConfig:
 
     # Optional custom Skill manifests loaded after built-in coding skills.
     skill_manifest_files: list[str] = field(default_factory=list)
+
+    # task-aware narrows model-visible schemas; all is the controlled ablation
+    # while permission, command, approval, and sandbox policies stay enabled.
+    tool_routing_mode: str = "task-aware"

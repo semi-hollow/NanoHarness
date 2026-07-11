@@ -1,4 +1,5 @@
 import json
+import shlex
 
 from agent_forge.runtime.message import Message
 from agent_forge.runtime.approval import ApprovalStore
@@ -235,6 +236,7 @@ class AgentLoop:
                 step=step,
                 agent_name=agent_name,
                 skill_tool_names=skill_tool_names,
+                mode=getattr(self.config, "tool_routing_mode", "task-aware"),
             )
             schemas = route.schemas
             force_final_turn = step == self.config.max_steps
@@ -980,8 +982,20 @@ class AgentLoop:
                     )
                 memory.add_observation(observation)
                 evidence_item = evidence.add_observation(observation)
-                if tool_call.name == "run_command" and "exit_code=0" in observation.content:
-                    ran_tests = True
+                validation = self._validation_evidence(
+                    tool_call.name,
+                    tool_call.arguments or {},
+                    observation,
+                )
+                if validation:
+                    ran_tests = ran_tests or validation["status"] == "passed"
+                    self.trace.add(
+                        step,
+                        agent_name,
+                        "validation_evidence",
+                        success=validation["status"] == "passed",
+                        validation=validation,
+                    )
 
                 self.trace.add(
                     step,
@@ -1076,6 +1090,37 @@ class AgentLoop:
 
         self._stop_run(checkpoint, TaskRunStatus.BLOCKED, "max_steps", "blocked: max_steps reached")
         return "blocked: max_steps reached"
+
+    def _validation_evidence(self, tool_name: str, arguments: dict, observation: Observation) -> dict | None:
+        """Return explicit test evidence; compilation alone is not correctness."""
+
+        kind = ""
+        if tool_name == "diagnostics" and str(arguments.get("kind") or "").lower() == "unittest":
+            kind = "unittest"
+        elif tool_name == "run_command":
+            try:
+                parts = shlex.split(str(arguments.get("command") or ""))
+            except ValueError:
+                parts = []
+            if parts and parts[0].lower() == "pytest":
+                kind = "pytest"
+            elif len(parts) >= 3 and parts[1:3] in [["-m", "pytest"], ["-m", "unittest"]]:
+                kind = parts[2].lower()
+        if not kind:
+            return None
+
+        lowered = observation.content.lower()
+        unavailable = any(
+            marker in lowered
+            for marker in ["validation_blocked", "missing dependency", "no module named"]
+        )
+        status = "unavailable" if unavailable else "passed" if observation.success else "failed"
+        return {
+            "kind": kind,
+            "status": status,
+            "tool": tool_name,
+            "evidence": observation.content[:600],
+        }
 
     def _contains_raw_tool_call_markup(self, content: str) -> bool:
         """Detect provider text that is really an unexecuted tool request."""

@@ -25,6 +25,19 @@ class ToolRouterPolicySummaryTest(unittest.TestCase):
         self.assertEqual(summary["hidden_tools"], ["apply_patch", "run_command"])
         self.assertEqual(summary["tool_count"], {"allowed": 1, "hidden": 2})
 
+    def test_all_mode_is_an_observable_ablation_without_hiding_tools(self):
+        schemas = [
+            {"name": "read_file"},
+            {"name": "apply_patch"},
+            {"name": "run_command"},
+        ]
+
+        route = ToolRouter().route("read only inspect the file", schemas, mode="all")
+
+        self.assertEqual(route.allowed_names, {"read_file", "apply_patch", "run_command"})
+        self.assertEqual(route.dropped_names, [])
+        self.assertIn("mode=all", route.reason)
+
 
 if __name__ == "__main__":
     unittest.main()

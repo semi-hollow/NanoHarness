@@ -14,6 +14,7 @@ from pathlib import Path
 
 from agent_forge.bench.swebench import build_swebench_parser, run_swebench_from_args
 from agent_forge.evaluation.feedback_dataset import export_feedback_dataset, record_feedback
+from agent_forge.evaluation.experiment import write_ablation_comparison
 from agent_forge.evaluation.mini_cases import run_mini_cases
 from agent_forge.multi_agent import MultiAgentCoordinator, get_profile, list_profiles
 from agent_forge.observability.trace import TraceRecorder
@@ -52,6 +53,7 @@ def build_parser() -> argparse.ArgumentParser:
     run_parser.add_argument("--api-key")
     run_parser.add_argument("--max-steps", type=int, default=16)
     run_parser.add_argument("--max-context-chars", type=int, default=12000)
+    _add_tool_routing_arg(run_parser)
     run_parser.add_argument("--approval-mode", default="trusted", choices=["trusted", "on-write", "on-risk", "locked", "dry-run"])
     run_parser.add_argument(
         "--auto-approve-writes",
@@ -134,6 +136,16 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Include candidate patch text. By default only size and SHA-256 are exported.",
     )
+    ablation_parser = eval_subparsers.add_parser(
+        "ablation",
+        help="Compare two matched benchmark run scorecards as a paired ablation.",
+    )
+    ablation_parser.add_argument("control", help="Control benchmark run directory.")
+    ablation_parser.add_argument("treatment", help="Treatment benchmark run directory.")
+    ablation_parser.add_argument("--factor", required=True, help="Single runtime factor changed between runs.")
+    ablation_parser.add_argument("--control-label", default="control")
+    ablation_parser.add_argument("--treatment-label", default="treatment")
+    ablation_parser.add_argument("--output", default=".agent_forge/evaluation/ablation")
 
     report_parser = subparsers.add_parser("report", help="Print a benchmark or run report.")
     report_parser.add_argument("target", nargs="?", default="latest")
@@ -171,6 +183,7 @@ def build_parser() -> argparse.ArgumentParser:
     resume_parser.add_argument("--api-key")
     resume_parser.add_argument("--max-steps", type=int, default=16)
     resume_parser.add_argument("--max-context-chars", type=int, default=12000)
+    _add_tool_routing_arg(resume_parser)
     resume_parser.add_argument("--approval-mode", default="trusted", choices=["trusted", "on-write", "on-risk", "locked", "dry-run"])
     resume_parser.add_argument(
         "--auto-approve-writes",
@@ -197,9 +210,9 @@ def build_parser() -> argparse.ArgumentParser:
 def _add_execution_environment_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--execution-mode",
-        choices=["local", "worktree"],
+        choices=["local", "worktree", "container"],
         default="local",
-        help="Run in the selected checkout or an isolated detached git worktree.",
+        help="Run in the selected checkout, an isolated git worktree, or a constrained OCI container over a snapshot.",
     )
     parser.add_argument(
         "--network-policy",
@@ -211,7 +224,27 @@ def _add_execution_environment_args(parser: argparse.ArgumentParser) -> None:
         "--keep-worktree",
         action=argparse.BooleanOptionalAction,
         default=True,
-        help="Keep isolated worktrees for inspection after a run.",
+        help="Keep isolated worktree/snapshot files for inspection after a run; containers are always removed.",
+    )
+    parser.add_argument("--container-runtime", default="docker", help="Docker-compatible OCI CLI for container mode.")
+    parser.add_argument("--container-image", default="python:3.11-slim", help="Pre-pulled OCI image for container mode.")
+    parser.add_argument("--container-cpus", type=float, default=1.0)
+    parser.add_argument("--container-memory", default="1g")
+    parser.add_argument("--container-pids-limit", type=int, default=256)
+    parser.add_argument(
+        "--container-read-only",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Use a read-only container root filesystem; the /workspace snapshot remains writable.",
+    )
+
+
+def _add_tool_routing_arg(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "--tool-routing",
+        choices=["task-aware", "all"],
+        default="task-aware",
+        help="Change model-visible tool schemas for ablation; runtime safety policies remain enabled.",
     )
 
 
@@ -272,6 +305,21 @@ def main(argv: list[str] | None = None) -> None:
         print(f"Dataset: {args.output}")
         print(f"Records: {len(records)}")
         return
+    if args.command == "eval" and args.eval_name == "ablation":
+        try:
+            json_path, report_path = write_ablation_comparison(
+                args.control,
+                args.treatment,
+                factor=args.factor,
+                output_dir=args.output,
+                control_label=args.control_label,
+                treatment_label=args.treatment_label,
+            )
+        except ValueError as exc:
+            raise SystemExit(str(exc)) from exc
+        print(f"Ablation JSON: {json_path}")
+        print(f"Ablation report: {report_path}")
+        return
     if args.command == "report":
         print_report(args.target)
         return
@@ -311,6 +359,7 @@ def run_repository_task(args: argparse.Namespace) -> Path:
             auto=True,
             mcp_config_file=getattr(args, "mcp_config", None),
             mcp_allowed_tools=getattr(args, "mcp_tool", []),
+            execution_environment=environment,
         )
         llm_config = resolve_llm_config(
             provider=args.provider,
@@ -340,6 +389,7 @@ def run_repository_task(args: argparse.Namespace) -> Path:
             skill_mode=_parse_skill_mode(getattr(args, "skills", "auto")),
             skill_names=_parse_skill_names(getattr(args, "skills", "auto")),
             skill_manifest_files=getattr(args, "skill_manifest", []),
+            tool_routing_mode=getattr(args, "tool_routing", "task-aware"),
         )
         if getattr(args, "agent_mode", "single") == "multi":
             profile = get_profile(getattr(args, "profile", "coding_fix"))
@@ -363,7 +413,10 @@ def run_repository_task(args: argparse.Namespace) -> Path:
         _write_latest_run_pointer(run_dir)
         return run_dir
     finally:
-        environment.cleanup()
+        try:
+            environment.write_manifest(run_dir)
+        finally:
+            environment.cleanup()
 
 
 def prepare_execution_environment(
@@ -380,6 +433,12 @@ def prepare_execution_environment(
             run_id=run_id,
             network_policy=getattr(args, "network_policy", "deny"),
             keep_worktree=getattr(args, "keep_worktree", True),
+            container_runtime=getattr(args, "container_runtime", "docker"),
+            container_image=getattr(args, "container_image", "python:3.11-slim"),
+            container_cpus=getattr(args, "container_cpus", 1.0),
+            container_memory=getattr(args, "container_memory", "1g"),
+            container_pids_limit=getattr(args, "container_pids_limit", 256),
+            container_read_only=getattr(args, "container_read_only", True),
         )
     )
     probe = environment.prepare()
@@ -418,6 +477,13 @@ def resume_repository_task(args: argparse.Namespace) -> Path:
         execution_mode=args.execution_mode,
         network_policy=args.network_policy,
         keep_worktree=args.keep_worktree,
+        tool_routing=args.tool_routing,
+        container_runtime=args.container_runtime,
+        container_image=args.container_image,
+        container_cpus=args.container_cpus,
+        container_memory=args.container_memory,
+        container_pids_limit=args.container_pids_limit,
+        container_read_only=args.container_read_only,
     )
     run_dir = run_repository_task(run_args)
     write_resume_link(
@@ -519,7 +585,7 @@ def approve_request(args: argparse.Namespace) -> str:
 
 
 def render_doctor() -> str:
-    """Return a concise environment report for benchmark readiness."""
+    """Return a concise environment report for benchmark runs."""
 
     rows = [
         ("python", sys.version.split()[0]),

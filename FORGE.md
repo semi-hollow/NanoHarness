@@ -9,8 +9,9 @@ focused on:
 2. clean repo checkout at base commits;
 3. AgentLoop-driven tool execution;
 4. SWE-bench-compatible `predictions.jsonl`;
-5. trace, usage, and result cards;
-6. optional official SWE-bench harness evaluation.
+5. trace, usage, denominator-aware scorecards, and result cards;
+6. parsed per-case official SWE-bench harness evaluation;
+7. paired runtime ablations with matched run identity.
 
 Do not reintroduce self-authored benchmark narratives, teaching fixtures, or
 simulated-model product paths as proof of capability.
@@ -23,6 +24,8 @@ forge run "read this project structure and explain the entrypoints without editi
 forge run "阅读这个项目结构并说明入口，不要修改文件" --provider deepseek
 forge skills list
 forge bench swebench --limit 1 --provider deepseek --direct-baseline
+forge bench swebench --regression-set core --provider deepseek --tool-routing task-aware
+forge eval ablation <control-run> <treatment-run> --factor tool-routing
 forge report latest
 forge replay latest
 scripts/verify.sh

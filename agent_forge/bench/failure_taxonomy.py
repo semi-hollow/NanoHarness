@@ -48,6 +48,20 @@ def classify_case_result(result: BenchCaseResult, usage: dict[str, Any], trace: 
         evidence.append(f"runner_error={result.error[:240]}")
 
     lowered = " ".join([result.status, result.evaluation_status, stop_reason, final_answer, result.error]).lower()
+    official_status = result.official_evaluation_status
+    if official_status == "not_evaluated" and result.evaluation_status.startswith("official_"):
+        official_status = result.evaluation_status
+
+    if official_status == "official_resolved":
+        return FailureDiagnosis(
+            "official_resolved",
+            "The official SWE-bench per-case report accepted the candidate patch.",
+            evidence,
+            [],
+            severity="low",
+            impact="This case has explicit official correctness evidence.",
+            engineering_lesson="Resolved claims should be backed by parsed per-case evaluator artifacts.",
+        )
 
     if result.error:
         return FailureDiagnosis(
@@ -69,7 +83,7 @@ def classify_case_result(result: BenchCaseResult, usage: dict[str, Any], trace: 
             impact="A candidate patch may be correct, but the validation environment cannot prove it locally.",
             engineering_lesson="Evaluation must distinguish code failure from environment failure so optimization targets stay accurate.",
         )
-    if result.evaluation_status == "official_eval_error":
+    if official_status == "official_eval_error":
         return FailureDiagnosis(
             "official_eval_error",
             "The official SWE-bench harness or its environment failed before patch correctness could be judged.",
@@ -79,7 +93,7 @@ def classify_case_result(result: BenchCaseResult, usage: dict[str, Any], trace: 
             impact="The run cannot distinguish patch correctness from harness, Docker, or dependency failure.",
             engineering_lesson="Official evaluation process failures must not be reported as patch rejection.",
         )
-    if result.evaluation_status == "official_eval_failed":
+    if official_status == "official_eval_failed":
         return FailureDiagnosis(
             "official_eval_failed",
             "The official SWE-bench harness completed and rejected the candidate patch for this case.",
@@ -88,6 +102,16 @@ def classify_case_result(result: BenchCaseResult, usage: dict[str, Any], trace: 
             severity="high",
             impact="The generated patch did not satisfy benchmark correctness criteria.",
             engineering_lesson="Patch generation, local validation, and official resolution are different evidence levels.",
+        )
+    if result.local_validation_status == "passed":
+        return FailureDiagnosis(
+            "locally_verified_candidate",
+            "Local test evidence passed for the candidate patch; official SWE-bench resolution is still not claimed.",
+            evidence,
+            ["Run official SWE-bench evaluation before reporting official resolved rate."],
+            severity="low",
+            impact="The patch has local validation evidence but no official benchmark outcome.",
+            engineering_lesson="Local and official validation should remain separate evidence levels.",
         )
     if result.patch_chars > 0:
         return FailureDiagnosis(

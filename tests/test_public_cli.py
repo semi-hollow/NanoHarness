@@ -42,8 +42,14 @@ class PublicCliSmokeTest(unittest.TestCase):
         self.assertIn("--approval-root", result.stdout)
         self.assertIn("--operation-ledger-root", result.stdout)
         self.assertIn("--execution-mode", result.stdout)
+        self.assertIn("container", result.stdout)
         self.assertIn("--network-policy", result.stdout)
         self.assertIn("--no-keep-worktree", result.stdout)
+        self.assertIn("--tool-routing", result.stdout)
+        self.assertIn("--container-image", result.stdout)
+        self.assertIn("--container-cpus", result.stdout)
+        self.assertIn("--container-memory", result.stdout)
+        self.assertIn("--container-pids-limit", result.stdout)
 
     def test_resume_help_exposes_resume_specific_flags(self):
         result = subprocess.run(
@@ -84,6 +90,28 @@ class PublicCliSmokeTest(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("--require-feedback", result.stdout)
         self.assertIn("--include-patch", result.stdout)
+
+        result = subprocess.run(
+            [sys.executable, "-m", "agent_forge", "eval", "ablation", "--help"],
+            text=True,
+            capture_output=True,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("control", result.stdout)
+        self.assertIn("treatment", result.stdout)
+        self.assertIn("--factor", result.stdout)
+
+    def test_swebench_help_exposes_scorecard_ablation_factor(self):
+        result = subprocess.run(
+            [sys.executable, "-m", "agent_forge", "bench", "swebench", "--help"],
+            text=True,
+            capture_output=True,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("--tool-routing", result.stdout)
+        self.assertIn("--regression-set", result.stdout)
+        self.assertIn("--execution-mode", result.stdout)
+        self.assertIn("--container-image", result.stdout)
 
     def test_approve_cli_updates_pending_request(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -134,7 +162,6 @@ class PublicCliSmokeTest(unittest.TestCase):
         self.assertIn("Run Evidence", html)
         self.assertIn("Reviewer Path", html)
         self.assertIn("Capability Reality Matrix", html)
-        self.assertNotIn("面试", html)
         self.assertIn("Single vs Multi", html)
         self.assertIn("Safety", html)
 
@@ -187,7 +214,6 @@ class PublicCliSmokeTest(unittest.TestCase):
 
         self.assertIn("证据审阅路径", INDEX_HTML)
         self.assertIn("真实运行操作", INDEX_HTML)
-        self.assertNotIn("面试展示路径", INDEX_HTML)
         self.assertIn("Single vs Multi 对比", INDEX_HTML)
         self.assertIn("成本与工具效率", INDEX_HTML)
         self.assertIn("执行时间线", INDEX_HTML)

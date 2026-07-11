@@ -19,12 +19,15 @@ from agent_forge.observability.trace import TraceRecorder
 from agent_forge.observability.usage_report import write_usage_artifacts
 from agent_forge.runtime.agent_loop import AgentLoop
 from agent_forge.runtime.config import RuntimeConfig
+from agent_forge.runtime.execution_environment import ExecutionEnvironment, ExecutionEnvironmentConfig
 from agent_forge.runtime.llm_config import resolve_llm_config
 from agent_forge.runtime.message import Message
 from agent_forge.runtime.wiring import build_llm, build_registry
 
 from .case_study import write_case_study
 from .diagnostics import attach_failure_diagnosis
+from .evidence import read_local_validation
+from .official_results import apply_official_results, parse_official_results
 from .report import write_bench_artifacts
 from .types import BenchCase, BenchCaseResult, BenchRunSummary
 
@@ -40,7 +43,9 @@ REGRESSION_SETS = {
     "core": [
         SHOWCASE_INSTANCE_ID,
         "django__django-11133",
-        "django__django-11999",
+        "matplotlib__matplotlib-18869",
+        "pytest-dev__pytest-5103",
+        "sympy__sympy-20590",
     ]
 }
 
@@ -183,6 +188,16 @@ def run_swebench(
     agent_mode: str = "single",
     profile: str = "coding_fix",
     max_revision_rounds: int = 2,
+    tool_routing_mode: str = "task-aware",
+    execution_mode: str = "local",
+    network_policy: str = "deny",
+    keep_worktree: bool = False,
+    container_runtime: str = "docker",
+    container_image: str = "python:3.11-slim",
+    container_cpus: float = 1.0,
+    container_memory: str = "1g",
+    container_pids_limit: int = 256,
+    container_read_only: bool = True,
 ) -> BenchRunSummary:
     """Generate SWE-bench patch predictions with Agent Forge.
 
@@ -210,6 +225,18 @@ def run_swebench(
         agent_mode=agent_mode,
         profile=profile if agent_mode in {"multi", "compare"} else "",
         max_revision_rounds=max_revision_rounds if agent_mode in {"multi", "compare"} else 0,
+        tool_routing_mode=tool_routing_mode,
+        execution_mode=execution_mode,
+        network_policy=network_policy,
+        keep_worktree=keep_worktree,
+        container_runtime=container_runtime,
+        container_image=container_image,
+        container_cpus=container_cpus,
+        container_memory=container_memory,
+        container_pids_limit=container_pids_limit,
+        container_read_only=container_read_only,
+        max_steps=max_steps,
+        max_context_chars=max_context_chars,
         baseline_predictions_path=baseline_predictions_path,
         notes=[
             "Generated patches are not resolved-rate claims until the official SWE-bench harness evaluates them.",
@@ -235,6 +262,16 @@ def run_swebench(
                         max_context_chars=max_context_chars,
                         profile=profile,
                         max_revision_rounds=max_revision_rounds,
+                        tool_routing_mode=tool_routing_mode,
+                        execution_mode=execution_mode,
+                        network_policy=network_policy,
+                        keep_worktree=keep_worktree,
+                        container_runtime=container_runtime,
+                        container_image=container_image,
+                        container_cpus=container_cpus,
+                        container_memory=container_memory,
+                        container_pids_limit=container_pids_limit,
+                        container_read_only=container_read_only,
                     )
                 else:
                     result = _run_case(
@@ -250,6 +287,16 @@ def run_swebench(
                         agent_mode=agent_mode,
                         profile=profile,
                         max_revision_rounds=max_revision_rounds,
+                        tool_routing_mode=tool_routing_mode,
+                        execution_mode=execution_mode,
+                        network_policy=network_policy,
+                        keep_worktree=keep_worktree,
+                        container_runtime=container_runtime,
+                        container_image=container_image,
+                        container_cpus=container_cpus,
+                        container_memory=container_memory,
+                        container_pids_limit=container_pids_limit,
+                        container_read_only=container_read_only,
                     )
                 summary.case_results.append(result)
                 prediction_file.write(
@@ -283,11 +330,15 @@ def run_swebench(
         write_case_study(result)
         baseline_prediction = baseline_predictions.get(result.instance_id)
         if baseline_prediction:
+            agent_metrics = extract_run_metrics(
+                result.to_dict(),
+                load_json_if_exists(result.trace_path.parent / "usage.json"),
+            )
             summary.variant_comparisons[result.instance_id] = compare_variants(
                 result.instance_id,
                 {
                     "direct_baseline": baseline_prediction,
-                    _agent_variant_name(summary.agent_mode): result.to_dict(),
+                    _agent_variant_name(summary.agent_mode): agent_metrics,
                 },
             )
 
@@ -309,10 +360,21 @@ def _run_case(
     agent_mode: str = "single",
     profile: str = "coding_fix",
     max_revision_rounds: int = 2,
+    tool_routing_mode: str = "task-aware",
+    execution_mode: str = "local",
+    network_policy: str = "deny",
+    keep_worktree: bool = False,
+    container_runtime: str = "docker",
+    container_image: str = "python:3.11-slim",
+    container_cpus: float = 1.0,
+    container_memory: str = "1g",
+    container_pids_limit: int = 256,
+    container_read_only: bool = True,
 ) -> BenchCaseResult:
     """Run AgentLoop on one clean SWE-bench workspace and capture the diff."""
 
     workspace = manager.prepare(case, agent_mode if agent_mode in {"single", "multi"} else "")
+    active_workspace = workspace
     case_dir = output_dir / "cases" / _safe_id(case.instance_id)
     case_dir.mkdir(parents=True, exist_ok=True)
     trace_path = case_dir / "trace.json"
@@ -321,12 +383,30 @@ def _run_case(
     usage_report_path = None
     status = "blocked"
     error = ""
+    environment: ExecutionEnvironment | None = None
 
     try:
         _ensure_clean_git(workspace)
         task = _render_case_task(case)
         trace = TraceRecorder(str(trace_path))
-        registry = build_registry(str(workspace), auto=True)
+        environment = ExecutionEnvironment(
+            ExecutionEnvironmentConfig(
+                mode=execution_mode,
+                workspace=str(workspace),
+                run_id=f"{_safe_id(case.instance_id)}-{agent_mode}-{uuid.uuid4().hex[:7]}",
+                network_policy=network_policy,
+                keep_worktree=keep_worktree,
+                container_runtime=container_runtime,
+                container_image=container_image,
+                container_cpus=container_cpus,
+                container_memory=container_memory,
+                container_pids_limit=container_pids_limit,
+                container_read_only=container_read_only,
+            )
+        )
+        environment.prepare()
+        active_workspace = environment.active_workspace
+        registry = build_registry(str(active_workspace), auto=True, execution_environment=environment)
         llm_config = resolve_llm_config(
             provider=provider,
             base_url=base_url,
@@ -338,12 +418,14 @@ def _run_case(
             raise RuntimeError(f"{provider} model config is incomplete; set API key/base URL/model.")
         llm = build_llm(llm_config)
         runtime_config = RuntimeConfig(
-            workspace=str(workspace),
+            workspace=str(active_workspace),
             max_steps=max_steps,
             trace_file=str(trace_path),
             max_context_chars=max_context_chars,
             timeout_seconds=900,
             task_state_root=str(case_dir / "task_state"),
+            tool_routing_mode=tool_routing_mode,
+            execution_environment=environment,
         )
         if agent_mode == "multi":
             multi_profile = get_profile(profile)
@@ -361,7 +443,7 @@ def _run_case(
             final_answer = AgentLoop(runtime_config, trace, registry, llm).run(task)
         trace.write()
         _, usage_report_path = write_usage_artifacts(trace_path)
-        patch = _git_diff(workspace)
+        patch = _git_diff(active_workspace)
         patch_path.write_text(patch, encoding="utf-8")
         if patch.strip():
             status = "patch_generated"
@@ -374,11 +456,24 @@ def _run_case(
         patch_path.write_text("", encoding="utf-8")
         if not trace_path.exists():
             trace_path.write_text(json.dumps({"error": error}, indent=2), encoding="utf-8")
+    finally:
+        if environment is not None:
+            try:
+                environment.write_manifest(case_dir)
+            except Exception as exc:
+                detail = f"execution manifest failed: {exc}"
+                error = f"{error}; {detail}" if error else detail
+            try:
+                environment.cleanup()
+            except Exception as exc:
+                detail = f"execution cleanup failed: {exc}"
+                error = f"{error}; {detail}" if error else detail
 
+    local_validation = read_local_validation(trace_path)
     return BenchCaseResult(
         instance_id=case.instance_id,
         repo=case.repo,
-        workspace=workspace,
+        workspace=active_workspace,
         trace_path=trace_path,
         usage_report_path=usage_report_path,
         patch_path=patch_path,
@@ -386,6 +481,9 @@ def _run_case(
         final_answer=final_answer,
         patch_chars=len(patch_path.read_text(encoding="utf-8")) if patch_path.exists() else 0,
         error=error,
+        evaluation_status="local_verified" if local_validation.status == "passed" else "not_evaluated",
+        local_validation_status=local_validation.status,
+        local_validation_evidence=local_validation.evidence,
     )
 
 
@@ -401,6 +499,16 @@ def _run_compare_case(
     max_context_chars: int,
     profile: str,
     max_revision_rounds: int,
+    tool_routing_mode: str = "task-aware",
+    execution_mode: str = "local",
+    network_policy: str = "deny",
+    keep_worktree: bool = False,
+    container_runtime: str = "docker",
+    container_image: str = "python:3.11-slim",
+    container_cpus: float = 1.0,
+    container_memory: str = "1g",
+    container_pids_limit: int = 256,
+    container_read_only: bool = True,
 ) -> BenchCaseResult:
     """Run one case in isolated single and multi variants and write comparison artifacts."""
 
@@ -418,6 +526,16 @@ def _run_compare_case(
         agent_mode="single",
         profile=profile,
         max_revision_rounds=0,
+        tool_routing_mode=tool_routing_mode,
+        execution_mode=execution_mode,
+        network_policy=network_policy,
+        keep_worktree=keep_worktree,
+        container_runtime=container_runtime,
+        container_image=container_image,
+        container_cpus=container_cpus,
+        container_memory=container_memory,
+        container_pids_limit=container_pids_limit,
+        container_read_only=container_read_only,
     )
     multi_result = _run_case(
         case=case,
@@ -432,6 +550,16 @@ def _run_compare_case(
         agent_mode="multi",
         profile=profile,
         max_revision_rounds=max_revision_rounds,
+        tool_routing_mode=tool_routing_mode,
+        execution_mode=execution_mode,
+        network_policy=network_policy,
+        keep_worktree=keep_worktree,
+        container_runtime=container_runtime,
+        container_image=container_image,
+        container_cpus=container_cpus,
+        container_memory=container_memory,
+        container_pids_limit=container_pids_limit,
+        container_read_only=container_read_only,
     )
     comparison = compare_runs(
         case.instance_id,
@@ -460,6 +588,11 @@ def _run_compare_case(
         patch_chars=multi_result.patch_chars,
         error=multi_result.error,
         evaluation_status=multi_result.evaluation_status,
+        local_validation_status=multi_result.local_validation_status,
+        local_validation_evidence=multi_result.local_validation_evidence,
+        official_evaluation_status=multi_result.official_evaluation_status,
+        official_evaluation_report_path=multi_result.official_evaluation_report_path,
+        official_evaluation_detail=multi_result.official_evaluation_detail,
         failure_class=multi_result.failure_class or single_result.failure_class,
         diagnosis=multi_result.diagnosis or single_result.diagnosis,
         diagnosis_evidence=[*single_result.diagnosis_evidence[:2], *multi_result.diagnosis_evidence[:2]],
@@ -530,11 +663,22 @@ def _direct_baseline_prediction(
         ],
         [],
     )
+    usage = {}
+    if getattr(llm, "last_usage", None) is not None:
+        usage = llm.last_usage.to_dict()
+    model_patch = _extract_diff(response.content or "")
     return {
         "instance_id": case.instance_id,
         "model_name_or_path": f"direct-{provider}-{model or 'default'}",
-        "model_patch": _extract_diff(response.content or ""),
+        "model_patch": model_patch,
         "error": response.error or "",
+        "failure_class": "baseline_provider_error" if response.error else "" if model_patch else "no_patch_generated",
+        "estimated_cost_usd": float(usage.get("estimated_cost_usd") or 0.0),
+        "llm_calls": 1,
+        "total_tokens": int(usage.get("total_tokens") or 0),
+        "llm_latency_ms": int(usage.get("latency_ms") or 0),
+        "tool_calls": 0,
+        "failed_tool_calls": 0,
     }
 
 
@@ -545,6 +689,8 @@ def _run_official_evaluation(summary: BenchRunSummary, max_workers: int, namespa
         summary.official_eval_exit_code = 127
         summary.official_eval_output = "swebench package is not installed. Install SWE-bench and rerun with --evaluate."
         for result in summary.case_results:
+            result.official_evaluation_status = "official_eval_unavailable"
+            result.official_evaluation_detail = summary.official_eval_output
             result.evaluation_status = "official_eval_unavailable"
         return
     cmd = [
@@ -553,6 +699,8 @@ def _run_official_evaluation(summary: BenchRunSummary, max_workers: int, namespa
         "swebench.harness.run_evaluation",
         "--dataset_name",
         summary.dataset_name,
+        "--split",
+        summary.split,
         "--predictions_path",
         str(summary.predictions_path),
         "--max_workers",
@@ -566,12 +714,14 @@ def _run_official_evaluation(summary: BenchRunSummary, max_workers: int, namespa
     if namespace_empty or (platform.system() == "Darwin" and platform.machine().lower() in {"arm64", "aarch64"}):
         cmd.extend(["--namespace", ""])
     summary.official_eval_command = cmd
-    result = subprocess.run(cmd, text=True, capture_output=True)
+    result = subprocess.run(cmd, text=True, capture_output=True, cwd=str(summary.output_dir))
     summary.official_eval_exit_code = result.returncode
-    summary.official_eval_output = f"STDOUT:\n{result.stdout}\nSTDERR:\n{result.stderr}"
-    status = "official_eval_completed" if result.returncode == 0 else "official_eval_error"
-    for case_result in summary.case_results:
-        case_result.evaluation_status = status
+    output = f"STDOUT:\n{result.stdout}\nSTDERR:\n{result.stderr}"
+    summary.official_eval_output = output[-20000:]
+    parsed = parse_official_results(summary.output_dir, summary.run_id, instance_ids)
+    summary.official_eval_report_path = str(parsed.report_path or "")
+    summary.official_eval_warnings = parsed.warnings
+    apply_official_results(summary.case_results, parsed, process_exit_code=result.returncode)
 
 
 def _ensure_clean_git(workspace: Path) -> None:
@@ -685,6 +835,35 @@ def build_swebench_parser(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--agent-mode", default="single", choices=["single", "multi", "compare"])
     parser.add_argument("--profile", default="coding_fix", choices=["coding_fix"])
     parser.add_argument("--max-revision-rounds", type=int, default=2)
+    parser.add_argument(
+        "--tool-routing",
+        choices=["task-aware", "all"],
+        default="task-aware",
+        help="Select task-aware tool visibility or expose all tools for a controlled ablation; runtime safety policy remains enabled.",
+    )
+    parser.add_argument(
+        "--execution-mode",
+        choices=["local", "worktree", "container"],
+        default="local",
+        help="Run each case locally, in an extra detached worktree, or in a constrained OCI container.",
+    )
+    parser.add_argument("--network-policy", choices=["deny", "allow"], default="deny")
+    parser.add_argument(
+        "--keep-worktree",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help="Retain the extra per-case execution snapshot; benchmark base workspaces remain in the run directory.",
+    )
+    parser.add_argument("--container-runtime", default="docker")
+    parser.add_argument("--container-image", default="python:3.11-slim")
+    parser.add_argument("--container-cpus", type=float, default=1.0)
+    parser.add_argument("--container-memory", default="1g")
+    parser.add_argument("--container-pids-limit", type=int, default=256)
+    parser.add_argument(
+        "--container-read-only",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+    )
 
 
 def run_swebench_from_args(args: argparse.Namespace) -> BenchRunSummary:
@@ -720,4 +899,14 @@ def run_swebench_from_args(args: argparse.Namespace) -> BenchRunSummary:
         agent_mode=args.agent_mode,
         profile=args.profile,
         max_revision_rounds=args.max_revision_rounds,
+        tool_routing_mode=args.tool_routing,
+        execution_mode=args.execution_mode,
+        network_policy=args.network_policy,
+        keep_worktree=args.keep_worktree,
+        container_runtime=args.container_runtime,
+        container_image=args.container_image,
+        container_cpus=args.container_cpus,
+        container_memory=args.container_memory,
+        container_pids_limit=args.container_pids_limit,
+        container_read_only=args.container_read_only,
     )

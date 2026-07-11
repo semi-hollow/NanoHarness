@@ -73,6 +73,11 @@ class BenchCaseResult:
     patch_chars: int = 0
     error: str = ""
     evaluation_status: str = "not_evaluated"
+    local_validation_status: str = "not_run"
+    local_validation_evidence: list[str] = field(default_factory=list)
+    official_evaluation_status: str = "not_evaluated"
+    official_evaluation_report_path: str = ""
+    official_evaluation_detail: str = ""
     failure_class: str = ""
     diagnosis: str = ""
     diagnosis_evidence: list[str] = field(default_factory=list)
@@ -93,6 +98,11 @@ class BenchCaseResult:
             "patch_chars": self.patch_chars,
             "error": self.error,
             "evaluation_status": self.evaluation_status,
+            "local_validation_status": self.local_validation_status,
+            "local_validation_evidence": self.local_validation_evidence,
+            "official_evaluation_status": self.official_evaluation_status,
+            "official_evaluation_report_path": self.official_evaluation_report_path,
+            "official_evaluation_detail": self.official_evaluation_detail,
             "failure_class": self.failure_class,
             "diagnosis": self.diagnosis,
             "diagnosis_evidence": self.diagnosis_evidence,
@@ -114,11 +124,25 @@ class BenchRunSummary:
     agent_mode: str = "single"
     profile: str = ""
     max_revision_rounds: int = 0
+    tool_routing_mode: str = "task-aware"
+    execution_mode: str = "local"
+    network_policy: str = "deny"
+    keep_worktree: bool = False
+    container_runtime: str = "docker"
+    container_image: str = "python:3.11-slim"
+    container_cpus: float = 1.0
+    container_memory: str = "1g"
+    container_pids_limit: int = 256
+    container_read_only: bool = True
+    max_steps: int = 0
+    max_context_chars: int = 0
     baseline_predictions_path: Path | None = None
     variant_comparisons: dict[str, dict[str, Any]] = field(default_factory=dict)
     official_eval_command: list[str] = field(default_factory=list)
     official_eval_exit_code: int | None = None
     official_eval_output: str = ""
+    official_eval_report_path: str = ""
+    official_eval_warnings: list[str] = field(default_factory=list)
     case_results: list[BenchCaseResult] = field(default_factory=list)
     notes: list[str] = field(default_factory=list)
 
@@ -134,6 +158,18 @@ class BenchRunSummary:
             "agent_mode": self.agent_mode,
             "profile": self.profile,
             "max_revision_rounds": self.max_revision_rounds,
+            "tool_routing_mode": self.tool_routing_mode,
+            "execution_mode": self.execution_mode,
+            "network_policy": self.network_policy,
+            "keep_worktree": self.keep_worktree,
+            "container_runtime": self.container_runtime,
+            "container_image": self.container_image,
+            "container_cpus": self.container_cpus,
+            "container_memory": self.container_memory,
+            "container_pids_limit": self.container_pids_limit,
+            "container_read_only": self.container_read_only,
+            "max_steps": self.max_steps,
+            "max_context_chars": self.max_context_chars,
             "output_dir": str(self.output_dir),
             "predictions_path": str(self.predictions_path),
             "baseline_predictions_path": (
@@ -143,6 +179,8 @@ class BenchRunSummary:
             "official_eval_command": self.official_eval_command,
             "official_eval_exit_code": self.official_eval_exit_code,
             "official_eval_output": self.official_eval_output,
+            "official_eval_report_path": self.official_eval_report_path,
+            "official_eval_warnings": self.official_eval_warnings,
             "case_results": [result.to_dict() for result in self.case_results],
             "notes": self.notes,
         }

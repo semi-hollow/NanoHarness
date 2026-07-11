@@ -14,11 +14,22 @@ The repository currently provides:
 - Role-level tool allowlists in the multi-agent coordinator.
 - Artifact handoff for multi-agent communication instead of hidden peer chat.
 - Optional worktree execution for isolating code changes from the main checkout.
-- Network-deny behavior for local command execution unless explicitly enabled.
+- Optional OCI execution for command/diagnostics process isolation over a
+  detached snapshot, with network, CPU, memory, PID, capability, and
+  read-only-root controls.
+- Environment hooks block known network executables under `network-policy=deny`;
+  the command allowlist independently excludes network tools in every mode.
 - Offline-by-default MCP web tools.
 
-This is not a container sandbox. Do not treat it as equivalent to Docker,
-Firecracker, gVisor, or a remote isolated execution service.
+Local and worktree modes are not OS sandboxes. OCI mode uses a Docker-compatible
+runtime, but it is not a hardened hostile multi-tenant boundary equivalent to
+Firecracker, gVisor, or a managed remote execution service. File tools still run
+in the host Agent Forge process and are constrained by `WorkspaceSandbox` to the
+isolated snapshot mounted into the container.
+
+`network-policy=allow` gives the OCI container a bridge network, but it does not
+expand `RunCommandTool`'s executable allowlist. Project tests may use the
+container network only through commands already admitted by that policy.
 
 ## Reporting A Vulnerability
 

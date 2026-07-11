@@ -149,6 +149,27 @@ class EvaluationComparisonTest(unittest.TestCase):
         )
         self.assertIn("global claim", result["recommendation"].lower())
 
+    def test_compare_variants_preserves_scorecard_metrics_and_evidence_levels(self):
+        result = compare_variants(
+            "case-metrics",
+            {
+                "agent_runtime": {
+                    "patch_chars": 30,
+                    "local_validation_status": "passed",
+                    "official_evaluation_status": "official_eval_failed",
+                    "total_tokens": 1234,
+                    "llm_latency_ms": 456,
+                    "estimated_cost_usd": 0.12,
+                }
+            },
+        )
+        variant = result["variants"]["agent_runtime"]
+        self.assertTrue(variant["local_verified"])
+        self.assertFalse(variant["official_resolved"])
+        self.assertEqual(variant["official_evaluation_status"], "official_eval_failed")
+        self.assertEqual(variant["total_tokens"], 1234)
+        self.assertEqual(variant["llm_latency_ms"], 456)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -68,15 +68,18 @@ class CaseStudyTests(unittest.TestCase):
             self.assertIn("evaluation_status: `not_evaluated`", path.read_text(encoding="utf-8"))
 
             result.evaluation_status = "official_eval_failed"
+            result.official_evaluation_status = "official_eval_failed"
             result.failure_class = "official_eval_failed"
             result.diagnosis = "official evaluation failed"
             write_case_study(result)
 
             artifact = path.read_text(encoding="utf-8")
             self.assertIn("evaluation_status: `official_eval_failed`", artifact)
+            self.assertIn("official_evaluation_status: `official_eval_failed`", artifact)
             self.assertIn("- class: `official_eval_failed`", artifact)
             self.assertIn("- diagnosis: official evaluation failed", artifact)
-            self.assertNotIn("evaluation_status: `not_evaluated`", artifact)
+            self.assertNotIn("- evaluation_status: `not_evaluated`", artifact)
+            self.assertNotIn("- official_evaluation_status: `not_evaluated`", artifact)
 
 
 if __name__ == "__main__":

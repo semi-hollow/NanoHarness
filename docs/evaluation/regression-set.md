@@ -1,6 +1,24 @@
 # Small Regression Set
 
-NanoHarness uses a small high-signal regression set instead of chasing broad benchmark coverage during development. The built-in `core` regression command runs a compact SWE-bench subset; the table below also records local runtime and non-coding evaluation contracts.
+NanoHarness uses a small high-signal regression set instead of chasing broad benchmark coverage during development. The built-in `core` command pins five public SWE-bench Lite cases from five repositories; the following table also records local runtime and non-coding contracts.
+
+## Fixed SWE-bench Lite core
+
+| Case | Repository behavior | Why it is useful |
+| --- | --- | --- |
+| `astropy__astropy-12907` | Nested `CompoundModel` separability. | Small patch with non-trivial code navigation and an existing failure-driven case study. |
+| `django__django-11133` | `HttpResponse` handling of `memoryview`. | Framework compatibility fix with a focused data-type boundary. |
+| `matplotlib__matplotlib-18869` | Comparable top-level version information. | Cross-file public API behavior and backward-compatibility reasoning. |
+| `pytest-dev__pytest-5103` | Assertion rewriting for `all`/`any`. | Parser/rewrite behavior with test-report quality implications. |
+| `sympy__sympy-20590` | Unexpected `Symbol.__dict__` regression. | Object-layout and inheritance reasoning in a large symbolic codebase. |
+
+```bash
+forge bench swebench --regression-set core --provider deepseek \
+  --model deepseek-chat --tool-routing task-aware --evaluate
+```
+
+Each run writes `scorecard.json` and `scorecard.md`. Official resolved rate is
+omitted when no case has an explicit resolved/unresolved report.
 
 ## Target coverage map
 
@@ -54,3 +72,6 @@ forge eval mini-cases --case research-citation-quality --evidence evidence.json
 ## Rule
 
 A runtime change is useful only if it improves success, observability, failure localization, cost, or safety boundary on at least one case without hiding regressions on the others.
+
+For a runtime factor, compare two matched runs with `forge eval ablation`; do
+not compare runs with different models, datasets, splits, or case ids.

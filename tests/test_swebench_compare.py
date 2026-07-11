@@ -1,11 +1,20 @@
 import json
+import subprocess
 import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from agent_forge.bench.swebench import _run_official_evaluation, run_swebench
+from agent_forge.bench.swebench import (
+    REGRESSION_SETS,
+    SwebenchWorkspaceManager,
+    _direct_baseline_prediction,
+    _run_case,
+    _run_official_evaluation,
+    run_swebench,
+)
 from agent_forge.bench.types import BenchCase, BenchCaseResult, BenchRunSummary
+from agent_forge.runtime.llm_client import AgentResponse
 from agent_forge.ui import (
     _latest_multi_agent_summary_path,
     _latest_trace_path,
@@ -14,6 +23,93 @@ from agent_forge.ui import (
 
 
 class SwebenchCompareTest(unittest.TestCase):
+    def test_core_regression_set_has_five_cross_repository_cases(self):
+        cases = REGRESSION_SETS["core"]
+        self.assertEqual(len(cases), 5)
+        self.assertEqual(len({case.split("__", 1)[0] for case in cases}), 5)
+
+    def test_direct_baseline_records_provider_usage_for_scorecards(self):
+        class Config:
+            def is_configured(self):
+                return True
+
+        class Usage:
+            def to_dict(self):
+                return {
+                    "total_tokens": 321,
+                    "estimated_cost_usd": 0.012,
+                    "latency_ms": 456,
+                }
+
+        class LLM:
+            last_usage = Usage()
+
+            def chat(self, messages, tools):
+                return AgentResponse("diff --git a/a.py b/a.py\n+fixed\n", [])
+
+        case = BenchCase("case-1", "owner/repo", "abc123", "Fix it")
+        with patch("agent_forge.bench.swebench.resolve_llm_config", return_value=Config()), patch(
+            "agent_forge.bench.swebench.build_llm", return_value=LLM()
+        ):
+            prediction = _direct_baseline_prediction(case, "provider", "model", None, None)
+
+        self.assertEqual(prediction["total_tokens"], 321)
+        self.assertEqual(prediction["llm_latency_ms"], 456)
+        self.assertEqual(prediction["llm_calls"], 1)
+        self.assertEqual(prediction["tool_calls"], 0)
+
+    def test_benchmark_case_uses_isolated_active_workspace_and_cleans_it_up(self):
+        class Config:
+            def is_configured(self):
+                return True
+
+        class FakeAgentLoop:
+            def __init__(self, config, trace, registry, llm):
+                self.workspace = Path(config.workspace)
+
+            def run(self, task):
+                (self.workspace / "app.py").write_text("value = 2\n", encoding="utf-8")
+                return "candidate patch generated"
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            source = root / "source"
+            source.mkdir()
+            subprocess.run(["git", "init"], cwd=source, check=True, capture_output=True)
+            subprocess.run(["git", "config", "user.email", "test@example.com"], cwd=source, check=True)
+            subprocess.run(["git", "config", "user.name", "Test User"], cwd=source, check=True)
+            (source / "app.py").write_text("value = 1\n", encoding="utf-8")
+            subprocess.run(["git", "add", "app.py"], cwd=source, check=True)
+            subprocess.run(["git", "commit", "-m", "initial"], cwd=source, check=True, capture_output=True)
+            head = subprocess.run(
+                ["git", "rev-parse", "HEAD"], cwd=source, check=True, capture_output=True, text=True
+            ).stdout.strip()
+            case = BenchCase("local__case-1", str(source), head, "Change the value")
+            manager = SwebenchWorkspaceManager(root / "cache", root / "bench")
+            output = root / "output"
+
+            with patch("agent_forge.bench.swebench.resolve_llm_config", return_value=Config()), patch(
+                "agent_forge.bench.swebench.build_llm", return_value=object()
+            ), patch("agent_forge.bench.swebench.AgentLoop", FakeAgentLoop):
+                result = _run_case(
+                    case=case,
+                    manager=manager,
+                    output_dir=output,
+                    provider="deepseek",
+                    model="model",
+                    base_url=None,
+                    api_key=None,
+                    max_steps=2,
+                    max_context_chars=1000,
+                    execution_mode="worktree",
+                    keep_worktree=False,
+                )
+
+            self.assertEqual(result.status, "patch_generated")
+            self.assertIn("+value = 2", result.patch_path.read_text(encoding="utf-8"))
+            self.assertTrue((output / "cases" / "local__case-1" / "execution_environment.json").exists())
+            self.assertFalse(result.workspace.exists())
+
     def test_compare_mode_runs_isolated_single_and_multi_variants(self):
         calls = []
 

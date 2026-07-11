@@ -10,7 +10,7 @@ Read first:
     ``agent_loop.py`` is the main ReAct loop.
     ``control.py`` owns failure classification and budgets.
     ``hooks.py`` owns pre/post tool policies.
-    ``execution_environment.py`` owns local/worktree boundaries.
+    ``execution_environment.py`` owns local/worktree/OCI boundaries.
     ``task_state.py`` owns checkpoint/resume/replay.
 
 If removed:

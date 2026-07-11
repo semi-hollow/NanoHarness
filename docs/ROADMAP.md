@@ -6,15 +6,14 @@ not a reason to add a subsystem.
 
 ## Near Term
 
-1. Parse official SWE-bench per-case results and map them to
-   `official_eval_passed` or `official_eval_failed` without inferring outcomes
-   from process exit codes.
+1. Repeat fixed-set ablations across multiple seeds and retain confidence-aware
+   aggregate evidence instead of one-run conclusions.
 2. Add dataset manifests, explicit redaction policies, and schema migration for
    exported run evidence.
 3. Wire dependency-aware fanout into one read-only AgentLoop profile and report
    conflicts, latency, token cost, and merge decisions.
-4. Add a container-backed execution environment adapter while preserving the
-   current `ExecutionEnvironment` interface and local/worktree modes.
+4. Add a real OCI smoke lane and an image contract for project-specific
+   dependencies without making Docker a unit-test prerequisite.
 
 ## Design Debt
 
