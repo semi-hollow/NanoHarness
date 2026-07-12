@@ -216,6 +216,6 @@ def classify_case_result(result: BenchCaseResult, usage: dict[str, Any], trace: 
 
 def _int(value: object) -> int:
     try:
-        return int(value or 0)
+        return int(str(value or 0))
     except (TypeError, ValueError):
         return 0

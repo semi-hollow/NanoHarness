@@ -57,7 +57,7 @@ class UiJob:
 class UiState:
     """Shared in-memory state for the local UI server."""
 
-    def __init__(self, project_dir: Path):
+    def __init__(self, project_dir: Path) -> None:
         self.project_dir = project_dir
         self.jobs: dict[str, UiJob] = {}
         self.lock = threading.Lock()

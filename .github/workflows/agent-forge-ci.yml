@@ -23,7 +23,7 @@ jobs:
       - name: Install package
         run: |
           python -m pip install -U pip setuptools wheel
-          python -m pip install -e .
+          python -m pip install -e '.[dev]'
 
       - name: Verify runtime
         run: scripts/verify.sh

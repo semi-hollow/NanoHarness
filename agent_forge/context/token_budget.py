@@ -1,4 +1,4 @@
-def truncate(text, max_chars=2000):
+def truncate(text: str, max_chars: int = 2000) -> str:
     """Cap context text so one large repo map cannot dominate the prompt."""
 
     return text if len(text) <= max_chars else text[:max_chars] + "\n[truncated]"

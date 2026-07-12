@@ -121,7 +121,7 @@ class SwebenchWorkspaceManager:
         state instead of whatever files happened to be left locally.
     """
 
-    def __init__(self, repo_cache: Path, output_dir: Path):
+    def __init__(self, repo_cache: Path, output_dir: Path) -> None:
         self.repo_cache = repo_cache.resolve()
         self.output_dir = output_dir.resolve()
 
@@ -329,8 +329,8 @@ def run_swebench(
     for result in summary.case_results:
         attach_failure_diagnosis(result)
         write_case_study(result)
-        baseline_prediction = baseline_predictions.get(result.instance_id)
-        if baseline_prediction:
+        stored_baseline_prediction = baseline_predictions.get(result.instance_id)
+        if stored_baseline_prediction:
             agent_metrics = extract_run_metrics(
                 result.to_dict(),
                 load_json_if_exists(result.trace_path.parent / "usage.json"),
@@ -338,7 +338,7 @@ def run_swebench(
             summary.variant_comparisons[result.instance_id] = compare_variants(
                 result.instance_id,
                 {
-                    "direct_baseline": baseline_prediction,
+                    "direct_baseline": stored_baseline_prediction,
                     _agent_variant_name(summary.agent_mode): agent_metrics,
                 },
             )
@@ -650,7 +650,7 @@ def _direct_baseline_prediction(
             "model_patch": "",
             "error": f"{provider} model config is incomplete",
         }
-    llm: ModelGateway = build_llm(llm_config)
+    llm = build_llm(llm_config)
     response = llm.chat(
         [
             Message(
@@ -715,14 +715,18 @@ def _run_official_evaluation(summary: BenchRunSummary, max_workers: int, namespa
     if namespace_empty or (platform.system() == "Darwin" and platform.machine().lower() in {"arm64", "aarch64"}):
         cmd.extend(["--namespace", ""])
     summary.official_eval_command = cmd
-    result = subprocess.run(cmd, text=True, capture_output=True, cwd=str(summary.output_dir))
-    summary.official_eval_exit_code = result.returncode
-    output = f"STDOUT:\n{result.stdout}\nSTDERR:\n{result.stderr}"
+    evaluation_process = subprocess.run(cmd, text=True, capture_output=True, cwd=str(summary.output_dir))
+    summary.official_eval_exit_code = evaluation_process.returncode
+    output = f"STDOUT:\n{evaluation_process.stdout}\nSTDERR:\n{evaluation_process.stderr}"
     summary.official_eval_output = output[-20000:]
     parsed = parse_official_results(summary.output_dir, summary.run_id, instance_ids)
     summary.official_eval_report_path = str(parsed.report_path or "")
     summary.official_eval_warnings = parsed.warnings
-    apply_official_results(summary.case_results, parsed, process_exit_code=result.returncode)
+    apply_official_results(
+        summary.case_results,
+        parsed,
+        process_exit_code=evaluation_process.returncode,
+    )
 
 
 def _ensure_clean_git(workspace: Path) -> None:
@@ -783,11 +787,11 @@ def _repo_url_and_cache_key(repo: str) -> tuple[str, str]:
     """Return clone URL plus cache key for GitHub ids or local smoke repos."""
 
     if repo.startswith("file://"):
-        path = repo.removeprefix("file://")
-        return repo, f"local__{_safe_id(path)}"
-    path = Path(repo)
-    if path.exists():
-        return str(path.resolve()), f"local__{_safe_id(str(path.resolve()))}"
+        local_path_text = repo.removeprefix("file://")
+        return repo, f"local__{_safe_id(local_path_text)}"
+    local_path = Path(repo)
+    if local_path.exists():
+        return str(local_path.resolve()), f"local__{_safe_id(str(local_path.resolve()))}"
     return f"https://github.com/{repo}.git", repo.replace("/", "__")
 
 

@@ -1,3 +1,4 @@
+from agent_forge.contracts import ToolArguments, ToolSchema
 from agent_forge.runtime.observation import Observation
 
 from .base import Tool
@@ -9,7 +10,7 @@ class AskHumanTool(Tool):
     name = "ask_human"
     description = "request durable human input; the run pauses until forge respond and resume"
 
-    def schema(self):
+    def schema(self) -> ToolSchema:
         """Tell the LLM it can persist one clarification request."""
 
         return {
@@ -19,7 +20,7 @@ class AskHumanTool(Tool):
             "required": ["question"],
         }
 
-    def execute(self, arguments):
+    def execute(self, arguments: ToolArguments) -> Observation:
         """Fail closed when called outside AgentLoop's control-plane interception."""
 
         return Observation(

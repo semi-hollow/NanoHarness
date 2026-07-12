@@ -2,7 +2,7 @@ import json
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 from agent_forge.runtime.observation import Observation
 from agent_forge.safety.sandbox import WorkspaceSandbox
@@ -70,7 +70,7 @@ class MCPConfigLoader:
         ``_handler`` supports the local handler subset used by the bundled MCP config.
     """
 
-    def __init__(self, sandbox: WorkspaceSandbox):
+    def __init__(self, sandbox: WorkspaceSandbox) -> None:
         """Use the same sandbox as built-in tools for file-backed handlers."""
 
         self.sandbox = sandbox
@@ -195,7 +195,10 @@ class MCPConfigLoader:
             cwd = config_dir / cwd
         return str(cwd.resolve())
 
-    def _handler(self, handler_name: str):
+    def _handler(
+        self,
+        handler_name: str,
+    ) -> Callable[[dict[str, Any]], Observation | str] | None:
         """Return one supported safe local handler."""
 
         if handler_name == "echo":

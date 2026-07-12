@@ -1,8 +1,10 @@
 from dataclasses import dataclass
 from pathlib import Path
 
+from agent_forge.contracts import ToolSchema
 from agent_forge.runtime.prompt_registry import PromptRegistry
 
+from .memory import Memory
 from .token_budget import truncate
 from .context_strategy import build_context_strategy
 
@@ -122,15 +124,15 @@ class ContextBuildReport:
 
 
 def build_context_report(
-    task,
-    repo_map,
-    memory,
-    docs=None,
-    max_chars=8000,
-    root=".",
-    tools=None,
-    active_skill_cards=None,
-    permission_summary="read allowed; write asks approval; dangerous commands denied",
+    task: str,
+    repo_map: str,
+    memory: Memory,
+    docs: list[str] | None = None,
+    max_chars: int = 8000,
+    root: str | Path = ".",
+    tools: list[ToolSchema] | None = None,
+    active_skill_cards: list[str] | None = None,
+    permission_summary: str = "read allowed; write asks approval; dangerous commands denied",
 ) -> ContextBuildReport:
     """Build the context object AgentLoop sends to the next LLM call.
 
@@ -198,7 +200,7 @@ def build_context_report(
     )
 
 
-def build_context(task, repo_map, memory, tools):
+def build_context(task: str, repo_map: str, memory: Memory, tools: list[ToolSchema]) -> str:
     """Backward-compatible helper returning rendered context as a string."""
 
     report = build_context_report(task, repo_map, memory, tools=tools)

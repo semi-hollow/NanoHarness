@@ -1,5 +1,9 @@
 # Runtime Learning Path
 
+For the end-to-end object and call-chain map, read
+[`code-reading-map.md`](code-reading-map.md) first. This document then explains
+how to exercise each capability.
+
 This guide is the shortest complete route from starting NanoHarness to reading
 the runtime evidence behind single-agent execution, durable human input,
 sequential roles, live fanout, recovery, and evaluation.

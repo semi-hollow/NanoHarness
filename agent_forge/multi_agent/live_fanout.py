@@ -15,7 +15,9 @@ from typing import Any, Callable
 from agent_forge.observability.trace import TraceRecorder
 from agent_forge.observability.usage_report import write_usage_artifacts
 from agent_forge.runtime.agent_loop import AgentLoop
+from agent_forge.runtime.config import RuntimeConfig
 from agent_forge.runtime.execution_environment import ExecutionEnvironment, ExecutionEnvironmentConfig
+from agent_forge.runtime.llm_client import LLMClient
 from agent_forge.runtime.git_workspace import (
     collect_changed_files,
     collect_workspace_diff,
@@ -204,7 +206,7 @@ class LiveFanoutSummary:
 
 
 RegistryFactory = Callable[[Path, ExecutionEnvironment], ToolRegistry]
-LLMFactory = Callable[[], Any]
+LLMFactory = Callable[[], LLMClient]
 
 
 class LiveFanoutCoordinator:
@@ -214,14 +216,14 @@ class LiveFanoutCoordinator:
         self,
         *,
         plan: FanoutPlan,
-        base_config,
-        trace,
+        base_config: RuntimeConfig,
+        trace: TraceRecorder,
         run_dir: str | Path,
         llm_factory: LLMFactory,
         registry_factory: RegistryFactory,
         max_workers: int = 4,
         resume_from: str | Path | None = None,
-    ):
+    ) -> None:
         self.plan = plan
         self.base_config = base_config
         self.trace = trace
@@ -811,7 +813,10 @@ def _filtered_registry(full_registry: ToolRegistry, task: SubagentTask) -> ToolR
         raise ValueError(f"read-only fanout task {task.id} requested write-capable tools")
     registry = ToolRegistry()
     for name in sorted(allowed):
-        registry.register(full_registry.get(name))
+            tool = full_registry.get(name)
+            if tool is None:
+                raise ValueError(f"fanout task requested unavailable tool: {name}")
+            registry.register(tool)
     return registry
 
 

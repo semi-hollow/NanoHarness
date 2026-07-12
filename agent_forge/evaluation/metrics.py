@@ -30,7 +30,8 @@ def extract_run_metrics(
     usage = usage or {}
     multi_agent = multi_agent or {}
     totals = _metric_block(usage)
-    role_results = multi_agent.get("role_results") if isinstance(multi_agent.get("role_results"), list) else []
+    role_results_value = multi_agent.get("role_results")
+    role_results: list[Any] = role_results_value if isinstance(role_results_value, list) else []
     return {
         "status": str(result.get("status") or multi_agent.get("status") or "unavailable"),
         "patch_generated": bool(result.get("patch_generated") or _int(result, "patch_chars") > 0),

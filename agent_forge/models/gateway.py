@@ -38,7 +38,7 @@ class ModelGateway(LLMClient):
         fallback_provider: str = "",
         fallback_model: str = "",
         retry_policy: RetryPolicy | None = None,
-    ):
+    ) -> None:
         """Wire primary/fallback clients without leaking provider details upward."""
 
         # The primary client can be DeepSeek, OpenAI, Ollama, a company API, or

@@ -151,8 +151,8 @@ main() {
   fi
 
   ensure_setuptools_find_config
-  log "+ python -m pip install -e '.[bench]'"
-  if ! python -m pip install -e '.[bench]'; then
+  log "+ python -m pip install -e '.[bench,dev]'"
+  if ! python -m pip install -e '.[bench,dev]'; then
     log "Benchmark extras failed to install; falling back to core editable install."
     run python -m pip install -e .
   fi

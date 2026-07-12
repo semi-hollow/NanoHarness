@@ -79,7 +79,7 @@ class MCPToolDefinition:
 class AgentForgeMCPServer:
     """Line-oriented JSON-RPC server for built-in Agent Forge MCP tools."""
 
-    def __init__(self, tools: list[MCPToolDefinition], *, name: str = "agent-forge-mcp"):
+    def __init__(self, tools: list[MCPToolDefinition], *, name: str = "agent-forge-mcp") -> None:
         """Index tool definitions by name for fast ``tools/call`` dispatch."""
 
         self.name = name

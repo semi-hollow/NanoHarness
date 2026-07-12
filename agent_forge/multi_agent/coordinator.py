@@ -3,9 +3,15 @@ from __future__ import annotations
 import subprocess
 from dataclasses import replace
 from pathlib import Path
+from typing import Any
 
+from agent_forge.contracts import JsonValue
+from agent_forge.observability.event import TraceEventType
+from agent_forge.observability.trace import TraceRecorder
 from agent_forge.runtime.agent_loop import AgentLoop
+from agent_forge.runtime.config import RuntimeConfig
 from agent_forge.runtime.git_workspace import collect_workspace_diff
+from agent_forge.runtime.llm_client import LLMClient
 from agent_forge.tools.registry import ToolRegistry
 
 from .artifacts import ArtifactStore
@@ -24,14 +30,14 @@ class MultiAgentCoordinator:
         self,
         task: str,
         profile: AgentProfile,
-        runtime_config,
-        trace,
-        registry,
-        llm,
+        runtime_config: RuntimeConfig,
+        trace: TraceRecorder,
+        registry: ToolRegistry,
+        llm: LLMClient,
         *,
         run_dir: str | Path,
         max_revision_rounds: int | None = None,
-    ):
+    ) -> None:
         """Keep shared dependencies while leaving AgentLoop as canonical runtime."""
 
         self.task = task
@@ -219,7 +225,7 @@ class MultiAgentCoordinator:
                 error=str(exc),
             )
 
-    def _role_config(self, role: RoleSpec, round_index: int):
+    def _role_config(self, role: RoleSpec, round_index: int) -> RuntimeConfig:
         """Derive a role-specific RuntimeConfig without mutating the base config."""
 
         role_steps = min(self.base_config.max_steps, role.max_steps) if self.base_config.max_steps else role.max_steps
@@ -238,7 +244,7 @@ class MultiAgentCoordinator:
             return role.revision_allowed_tools
         return role.allowed_tools
 
-    def _role_registry(self, role: RoleSpec, round_index: int):
+    def _role_registry(self, role: RoleSpec, round_index: int) -> ToolRegistry:
         """Expose only the role allowlist while reusing concrete tool objects."""
 
         registry = ToolRegistry()
@@ -346,12 +352,23 @@ class MultiAgentCoordinator:
             return False
         return bool(patch.strip())
 
-    def _trace(self, event_type: str, success: bool = True, **kwargs) -> None:
+    def _trace(
+        self,
+        event_type: TraceEventType,
+        success: bool = True,
+        **kwargs: JsonValue,
+    ) -> None:
         """Emit coordinator-level trace events with monotonic synthetic steps."""
 
         self._event_step += 1
-        agent_name = kwargs.pop("agent_name", "MultiAgentCoordinator")
-        self.trace.add(self._event_step, agent_name, event_type, success=success, **kwargs)
+        agent_name = str(kwargs.pop("agent_name", "MultiAgentCoordinator"))
+        self.trace.record_event(
+            step=self._event_step,
+            agent_name=agent_name,
+            event_type=event_type,
+            success=success,
+            data=kwargs,
+        )
 
 
 def _normalize_decision_line(line: str) -> str:

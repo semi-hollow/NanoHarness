@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from agent_forge.models.gateway import ModelGateway, RetryPolicy
+from agent_forge.runtime.execution_environment import ExecutionEnvironment
 from agent_forge.runtime.llm_client import OpenAICompatibleLLMClient
 from agent_forge.runtime.llm_config import LLMConfig
 from agent_forge.safety.sandbox import WorkspaceSandbox
@@ -25,7 +26,7 @@ def build_registry(
     auto: bool,
     mcp_config_file: str | None = None,
     mcp_allowed_tools: list[str] | None = None,
-    execution_environment=None,
+    execution_environment: ExecutionEnvironment | None = None,
 ) -> ToolRegistry:
     """Create the tool gateway used by AgentLoop.
 
@@ -59,7 +60,7 @@ def build_registry(
     return registry
 
 
-def build_llm(config: LLMConfig):
+def build_llm(config: LLMConfig) -> ModelGateway:
     """Instantiate the provider selected by resolved LLM config."""
 
     if config.uses_openai_compatible_api:

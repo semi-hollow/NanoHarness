@@ -182,8 +182,10 @@ def render_benchmark_scorecard(scorecard: dict[str, Any]) -> str:
 def _normalize_case(case: dict[str, Any], run_dir: Path) -> dict[str, Any]:
     usage = _load_case_usage(case, run_dir)
     environment = _load_case_environment(case, run_dir)
-    probe = environment.get("probe") if isinstance(environment.get("probe"), dict) else {}
-    summary = usage.get("summary") if isinstance(usage.get("summary"), dict) else {}
+    probe_value = environment.get("probe")
+    probe: dict[str, Any] = probe_value if isinstance(probe_value, dict) else {}
+    summary_value = usage.get("summary")
+    summary: dict[str, Any] = summary_value if isinstance(summary_value, dict) else {}
     official = str(
         case.get("official_evaluation_status")
         or _official_fallback(str(case.get("evaluation_status") or ""))

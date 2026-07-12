@@ -71,6 +71,9 @@ If you are reviewing this repository, start here:
 
 ## Quick Start
 
+New to the codebase? Start with the [code reading map](docs/guides/code-reading-map.md),
+then use [CONTRIBUTING.md](CONTRIBUTING.md) as the contract and readability rules.
+
 Project name: Agent Forge. Package name: `agent-forge`. Import package:
 `agent_forge`. CLI: `forge`.
 
@@ -80,7 +83,7 @@ cd NanoHarness
 python3.11 -m venv .venv
 source .venv/bin/activate
 python -m pip install -U pip setuptools wheel
-python -m pip install -e '.[bench]'
+python -m pip install -e '.[bench,dev]'
 forge doctor
 ```
 

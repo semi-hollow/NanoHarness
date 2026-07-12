@@ -165,7 +165,7 @@ class PermissionHook(RuntimeHook):
 
     name = "permission_policy"
 
-    def __init__(self, policy: PermissionPolicy, approval_mode: str = ApprovalMode.TRUSTED.value):
+    def __init__(self, policy: PermissionPolicy, approval_mode: str = ApprovalMode.TRUSTED.value) -> None:
         """Store the concrete permission policy for this run."""
 
         self.policy = policy
@@ -209,7 +209,7 @@ class ExecutionEnvironmentHook(RuntimeHook):
 
     name = "execution_environment"
 
-    def __init__(self, environment: ExecutionEnvironment):
+    def __init__(self, environment: ExecutionEnvironment) -> None:
         """Store the active environment for path/command checks."""
 
         self.environment = environment
@@ -247,7 +247,7 @@ class SecretRedactionHook(RuntimeHook):
 
     name = "secret_redaction"
 
-    def __init__(self, environment: ExecutionEnvironment):
+    def __init__(self, environment: ExecutionEnvironment) -> None:
         """Use the environment's redaction policy."""
 
         self.environment = environment
@@ -282,7 +282,7 @@ class HookManager:
         ``on_stop`` lets hooks record terminal audit decisions.
     """
 
-    def __init__(self, hooks: list[RuntimeHook] | None = None):
+    def __init__(self, hooks: list[RuntimeHook] | None = None) -> None:
         """Keep hook order deterministic for trace review."""
 
         self.hooks = hooks or []

@@ -82,7 +82,8 @@ def export_feedback_dataset(
 
 def _build_record(root: Path, trace_path: Path, *, include_patch: bool) -> dict[str, Any]:
     trace = _read_json(trace_path)
-    events = trace.get("events") if isinstance(trace.get("events"), list) else []
+    events_value = trace.get("events")
+    events: list[Any] = events_value if isinstance(events_value, list) else []
     context_files: list[str] = []
     tool_sequence: list[str] = []
     allowed_tools: list[str] = []
@@ -94,9 +95,11 @@ def _build_record(root: Path, trace_path: Path, *, include_patch: bool) -> dict[
             continue
         event_type = str(event.get("event_type") or "")
         if event_type == "context_assembly":
-            context = event.get("context") if isinstance(event.get("context"), dict) else {}
+            context_value = event.get("context")
+            context: dict[str, Any] = context_value if isinstance(context_value, dict) else {}
             context_files.extend(_strings(context.get("selected_files")))
-            routing = context.get("tool_routing") if isinstance(context.get("tool_routing"), dict) else {}
+            routing_value = context.get("tool_routing")
+            routing: dict[str, Any] = routing_value if isinstance(routing_value, dict) else {}
             allowed_tools.extend(_strings(routing.get("allowed_tools")))
             hidden_tools.extend(_strings(routing.get("dropped_tools")))
         elif event_type == "action" and event.get("tool_call"):

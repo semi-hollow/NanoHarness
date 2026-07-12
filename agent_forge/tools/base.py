@@ -1,3 +1,6 @@
+from __future__ import annotations
+
+from agent_forge.contracts import ToolArguments, ToolSchema
 from agent_forge.runtime.observation import Observation
 
 
@@ -12,12 +15,12 @@ class Tool:
     name: str = ""
     description: str = ""
 
-    def schema(self) -> dict:
+    def schema(self) -> ToolSchema:
         """Return the minimal schema shown to the LLM before tool calling."""
 
         raise NotImplementedError
 
-    def execute(self, arguments: dict) -> Observation:
+    def execute(self, arguments: ToolArguments) -> Observation:
         """Run the tool and return an Observation for the next loop step."""
 
         raise NotImplementedError

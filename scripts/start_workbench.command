@@ -11,7 +11,7 @@ if [[ ! -x ".venv/bin/python" ]]; then
   echo "[setup] creating .venv"
   python3 -m venv .venv
   .venv/bin/python -m pip install -U pip setuptools wheel
-  .venv/bin/python -m pip install -e '.[bench]'
+  .venv/bin/python -m pip install -e '.[bench,dev]'
 fi
 
 echo "[start] Agent Forge Workbench"

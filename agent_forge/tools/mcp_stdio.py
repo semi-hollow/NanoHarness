@@ -56,7 +56,7 @@ class MCPStdioClient:
         ``_read_response`` handles newline JSON and Content-Length framing.
     """
 
-    def __init__(self, spec: MCPStdioServerSpec):
+    def __init__(self, spec: MCPStdioServerSpec) -> None:
         """Store server launch configuration."""
 
         self.spec = spec
@@ -176,7 +176,7 @@ class MCPStdioClient:
 class MCPStdioTool(Tool):
     """ToolRegistry-compatible wrapper around one remote stdio tool."""
 
-    def __init__(self, client: MCPStdioClient, local_name: str, remote_name: str, spec: dict[str, Any]):
+    def __init__(self, client: MCPStdioClient, local_name: str, remote_name: str, spec: dict[str, Any]) -> None:
         """Store remote schema and server client."""
 
         self.client = client

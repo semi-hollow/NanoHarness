@@ -1,9 +1,32 @@
 import json
 import time
-from dataclasses import asdict, dataclass, field
+from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
-from typing import Any
+from typing import TypedDict
+
+from agent_forge.contracts import JsonObject
+
+
+class TaskCheckpointData(TypedDict):
+    """Serialized checkpoint contract consumed by trace, CLI, and resume."""
+
+    run_id: str
+    task: str
+    workspace: str
+    status: str
+    current_step: int
+    agent_name: str
+    last_tool: str
+    last_observation: str
+    stop_reason: str
+    final_answer: str
+    resume_hint: str
+    messages_count: int
+    observations_count: int
+    updated_at: float
+    created_at: float
+    metadata: JsonObject
 
 
 class TaskRunStatus(Enum):
@@ -73,12 +96,29 @@ class TaskCheckpoint:
     created_at: float = field(default_factory=time.time)
 
     # Small structured metadata such as environment probe and hook decisions.
-    metadata: dict[str, Any] = field(default_factory=dict)
+    metadata: JsonObject = field(default_factory=dict)
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> TaskCheckpointData:
         """Return JSON-safe checkpoint data."""
 
-        return asdict(self)
+        return {
+            "run_id": self.run_id,
+            "task": self.task,
+            "workspace": self.workspace,
+            "status": self.status,
+            "current_step": self.current_step,
+            "agent_name": self.agent_name,
+            "last_tool": self.last_tool,
+            "last_observation": self.last_observation,
+            "stop_reason": self.stop_reason,
+            "final_answer": self.final_answer,
+            "resume_hint": self.resume_hint,
+            "messages_count": self.messages_count,
+            "observations_count": self.observations_count,
+            "updated_at": self.updated_at,
+            "created_at": self.created_at,
+            "metadata": self.metadata,
+        }
 
 
 class TaskStateStore:
@@ -90,7 +130,7 @@ class TaskStateStore:
     trace artifacts.
     """
 
-    def __init__(self, root: str | Path = ".agent_forge/task_state"):
+    def __init__(self, root: str | Path = ".agent_forge/task_state") -> None:
         """Create the state directory without deleting previous runs."""
 
         self.root = Path(root)
@@ -101,7 +141,14 @@ class TaskStateStore:
 
         return self.root / f"{run_id}.json"
 
-    def start(self, run_id: str, task: str, workspace: str, agent_name: str, metadata: dict | None = None) -> TaskCheckpoint:
+    def start(
+        self,
+        run_id: str,
+        task: str,
+        workspace: str,
+        agent_name: str,
+        metadata: JsonObject | None = None,
+    ) -> TaskCheckpoint:
         """Create the initial checkpoint."""
 
         checkpoint = TaskCheckpoint(
@@ -116,13 +163,50 @@ class TaskStateStore:
         self.save(checkpoint)
         return checkpoint
 
-    def update(self, checkpoint: TaskCheckpoint, **changes) -> TaskCheckpoint:
-        """Update selected fields and persist the checkpoint."""
+    def update(
+        self,
+        checkpoint: TaskCheckpoint,
+        *,
+        status: str | None = None,
+        current_step: int | None = None,
+        last_tool: str | None = None,
+        last_observation: str | None = None,
+        stop_reason: str | None = None,
+        final_answer: str | None = None,
+        resume_hint: str | None = None,
+        messages_count: int | None = None,
+        observations_count: int | None = None,
+        metadata: JsonObject | None = None,
+        updated_at: float | None = None,
+    ) -> TaskCheckpoint:
+        """Persist an explicit set of checkpoint fields.
 
-        for key, value in changes.items():
-            if hasattr(checkpoint, key):
-                setattr(checkpoint, key, value)
-        checkpoint.updated_at = time.time()
+        The previous ``**changes + setattr`` implementation silently ignored
+        misspelled keys. An explicit signature makes every legal transition
+        discoverable at the call site and lets static analysis reject typos.
+        """
+
+        if status is not None:
+            checkpoint.status = status
+        if current_step is not None:
+            checkpoint.current_step = current_step
+        if last_tool is not None:
+            checkpoint.last_tool = last_tool
+        if last_observation is not None:
+            checkpoint.last_observation = last_observation
+        if stop_reason is not None:
+            checkpoint.stop_reason = stop_reason
+        if final_answer is not None:
+            checkpoint.final_answer = final_answer
+        if resume_hint is not None:
+            checkpoint.resume_hint = resume_hint
+        if messages_count is not None:
+            checkpoint.messages_count = messages_count
+        if observations_count is not None:
+            checkpoint.observations_count = observations_count
+        if metadata is not None:
+            checkpoint.metadata = metadata
+        checkpoint.updated_at = updated_at if updated_at is not None else time.time()
         self.save(checkpoint)
         return checkpoint
 

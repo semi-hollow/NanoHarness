@@ -2,8 +2,10 @@ import os
 import shutil
 import time
 
+from agent_forge.contracts import ToolArguments, ToolSchema
 from agent_forge.runtime.observation import Observation
 from agent_forge.safety.permission import PermissionDecision, PermissionPolicy
+from agent_forge.safety.sandbox import WorkspaceSandbox
 
 from .base import Tool
 
@@ -19,14 +21,14 @@ class ApplyPatchTool(Tool):
     name = "apply_patch"
     description = "replace once"
 
-    def __init__(self, sandbox, auto_approve_writes: bool = True):
+    def __init__(self, sandbox: WorkspaceSandbox, auto_approve_writes: bool = True) -> None:
         """Store sandbox and policy so every edit is checked first."""
 
         self.sandbox = sandbox
         self.policy = PermissionPolicy(auto_approve_writes)
         self.auto_approve_writes = auto_approve_writes
 
-    def schema(self):
+    def schema(self) -> ToolSchema:
         """Tell the LLM this tool needs path, old text, and replacement text."""
 
         return {
@@ -35,7 +37,7 @@ class ApplyPatchTool(Tool):
             "arguments": {"path": "str", "old": "str", "new": "str"},
         }
 
-    def execute(self, arguments):
+    def execute(self, arguments: ToolArguments) -> Observation:
         """Apply the edit or return a failed Observation for loop recovery."""
 
         decision, reason = self.policy.decide("apply_patch")

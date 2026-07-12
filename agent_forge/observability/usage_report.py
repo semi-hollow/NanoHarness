@@ -405,7 +405,7 @@ def _runtime_control(steps: list[dict[str, Any]]) -> dict[str, Any]:
 
     hook_decisions: Counter[str] = Counter()
     task_statuses: Counter[str] = Counter()
-    environment = {}
+    environment: dict[str, Any] = {}
     for step in steps:
         if not environment and step.get("runtime", {}).get("execution_environment"):
             environment = step["runtime"]["execution_environment"]

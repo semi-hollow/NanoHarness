@@ -1,5 +1,6 @@
 import subprocess
 
+from agent_forge.contracts import ToolArguments, ToolSchema
 from agent_forge.runtime.git_workspace import collect_workspace_diff
 from agent_forge.runtime.observation import Observation
 
@@ -11,12 +12,12 @@ class GitDiffTool(RunCommandTool):
 
     name = "git_diff"
 
-    def schema(self):
+    def schema(self) -> ToolSchema:
         """Expose no arguments because the command is fixed."""
 
         return {"name": self.name, "description": "safe git diff", "arguments": {}, "required": []}
 
-    def execute(self, arguments):
+    def execute(self, arguments: ToolArguments) -> Observation:
         """Expose tracked and untracked candidate changes to the model."""
 
         try:

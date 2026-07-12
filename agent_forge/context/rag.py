@@ -1,4 +1,4 @@
-def retrieve(query, docs, limit: int = 3):
+def retrieve(query: str, docs: list[str], limit: int = 3) -> list[str]:
     """Return lightweight keyword matches for deterministic local retrieval.
 
     This is intentionally not a vector database. In this project it plays the

@@ -1,6 +1,7 @@
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from .memory import Memory
 from .file_ranker import rank_files
 from .rag import retrieve
 from .token_budget import truncate_middle
@@ -73,7 +74,7 @@ def build_context_strategy(
     task: str,
     files: list[str],
     docs: list[str],
-    memory,
+    memory: Memory,
     root: str | Path,
     max_chars: int,
 ) -> ContextStrategy:
@@ -99,14 +100,12 @@ def build_context_strategy(
     # 3. Decide whether old session context is safe to reuse. This is deliberately
     # a cheap heuristic; the important design point is that memory inheritance is
     # explicit rather than automatic.
-    previous_task = ""
-    if hasattr(memory, "get"):
-        previous_task = str(memory.get("previous_task", "") or "")
+    previous_task = str(memory.get("previous_task", "") or "")
     topic_relation = infer_topic_relation(task, previous_task)
     inherit_session = topic_relation in {"same_topic", "related_topic", "unknown"}
 
-    memory_items = memory.recent() if hasattr(memory, "recent") else list(memory or [])
-    memory_summary = memory.summary(max_chars=max(600, max_chars // 8)) if hasattr(memory, "summary") else ""
+    memory_items = [str(item) for item in memory.recent()]
+    memory_summary = memory.summary(max_chars=max(600, max_chars // 8))
     if not inherit_session:
         memory_items = []
         memory_summary = "Previous session context intentionally ignored because the topic changed."
@@ -174,7 +173,7 @@ def _read_file_previews(root: Path, files: list[str], total_budget: int) -> list
     configs, or the actual target file.
     """
 
-    previews = []
+    previews: list[str] = []
     if not files:
         return previews
     per_file_budget = max(400, total_budget // len(files))

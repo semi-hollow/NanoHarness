@@ -24,7 +24,7 @@ class PromptRegistry:
     are named, versioned, auditable, and not hidden inside random call sites.
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         """Load built-in prompts."""
 
         self._prompts = {

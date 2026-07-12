@@ -23,7 +23,7 @@ class PermissionPolicy:
     is the deterministic gate used after the model proposes an action.
     """
 
-    def __init__(self, auto_approve_writes: bool = True):
+    def __init__(self, auto_approve_writes: bool = True) -> None:
         """Store whether write actions should be auto-approved locally."""
 
         self.auto_approve_writes = auto_approve_writes

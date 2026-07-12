@@ -44,6 +44,14 @@ echo "== Compile Python files =="
 "${PYTHON_BIN}" -m compileall -q agent_forge tests
 echo
 
+echo "== Static type contracts =="
+if ! "${PYTHON_BIN}" -m mypy --version >/dev/null 2>&1; then
+  echo "mypy is missing; install the development tools with: python -m pip install -e '.[dev]'" >&2
+  exit 1
+fi
+"${PYTHON_BIN}" -m mypy agent_forge
+echo
+
 # This is only a smoke check. It does not prove benchmark quality.
 echo "== Public CLI doctor =="
 "${PYTHON_BIN}" -m agent_forge doctor

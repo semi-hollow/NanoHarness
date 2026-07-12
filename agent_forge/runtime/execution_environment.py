@@ -8,6 +8,7 @@ import time
 import uuid
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
+from typing import Callable
 
 from agent_forge.runtime.git_workspace import collect_workspace_diff, collect_workspace_status
 
@@ -130,9 +131,9 @@ class ExecutionEnvironment:
         self,
         config: ExecutionEnvironmentConfig,
         *,
-        oci_runner=None,
-        executable_resolver=None,
-    ):
+        oci_runner: Callable[..., subprocess.CompletedProcess[str]] | None = None,
+        executable_resolver: Callable[[str], str | None] | None = None,
+    ) -> None:
         """Store config and resolve the requested workspace early."""
 
         self.config = config

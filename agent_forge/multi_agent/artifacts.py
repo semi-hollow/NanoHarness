@@ -16,7 +16,7 @@ class ArtifactStore:
     verification traceable instead of relying on free-form agent chatter.
     """
 
-    def __init__(self, run_dir: Path):
+    def __init__(self, run_dir: Path) -> None:
         """Create the multi-agent artifact directory under one run dir."""
 
         self.run_dir = Path(run_dir)

@@ -2,8 +2,11 @@ import shlex
 import subprocess
 import sys
 
+from agent_forge.contracts import ToolArguments, ToolSchema
+from agent_forge.runtime.execution_environment import ExecutionEnvironment
 from agent_forge.runtime.observation import Observation
 from agent_forge.safety.permission import PermissionPolicy, PermissionDecision
+from agent_forge.safety.sandbox import WorkspaceSandbox
 from .base import Tool
 
 
@@ -16,14 +19,19 @@ class RunCommandTool(Tool):
         "or read-only git inspection; shell operators, `cd`, and `python -c` are blocked"
     )
 
-    def __init__(self, sandbox, auto_approve_writes=True, execution_environment=None):
+    def __init__(
+        self,
+        sandbox: WorkspaceSandbox,
+        auto_approve_writes: bool = True,
+        execution_environment: ExecutionEnvironment | None = None,
+    ) -> None:
         """Keep sandbox for cwd/path checks and policy for command allow/deny."""
 
         self.sandbox = sandbox
         self.policy = PermissionPolicy(auto_approve_writes)
         self.execution_environment = execution_environment
 
-    def schema(self):
+    def schema(self) -> ToolSchema:
         """Tell the LLM this tool needs one shell-like command string."""
 
         return {
@@ -39,7 +47,7 @@ class RunCommandTool(Tool):
             return [sys.executable] + parts[1:]
         return parts
 
-    def _validate_command_paths(self, parts: list[str]):
+    def _validate_command_paths(self, parts: list[str]) -> None:
         """Keep allowlisted test commands from reading or executing outside the workspace."""
 
         normalized = list(parts)
@@ -61,7 +69,7 @@ class RunCommandTool(Tool):
         if normalized and normalized[0] == "pytest":
             self._validate_path_like_args(normalized[1:])
 
-    def _validate_discovery_args(self, args: list[str]):
+    def _validate_discovery_args(self, args: list[str]) -> None:
         """Validate positional and option-based unittest discovery directories."""
 
         path_options = {"-s", "--start-directory", "-t", "--top-level-directory"}
@@ -89,7 +97,12 @@ class RunCommandTool(Tool):
                 self.sandbox.ensure_safe_path(value)
             index += 1
 
-    def _validate_path_like_args(self, args: list[str], *, treat_positionals_as_paths: bool = False):
+    def _validate_path_like_args(
+        self,
+        args: list[str],
+        *,
+        treat_positionals_as_paths: bool = False,
+    ) -> None:
         """Validate path-bearing arguments accepted by unittest/pytest/compileall."""
 
         path_options = {
@@ -125,7 +138,7 @@ class RunCommandTool(Tool):
                 self._ensure_safe_cli_path(value)
             index += 1
 
-    def _ensure_safe_cli_path(self, value: str):
+    def _ensure_safe_cli_path(self, value: str) -> None:
         """Strip a pytest node id before applying the workspace path boundary."""
 
         candidate = value.split("::", 1)[0]
@@ -147,7 +160,7 @@ class RunCommandTool(Tool):
             or candidate.endswith((".py", ".ini", ".toml", ".xml"))
         )
 
-    def execute(self, arguments):
+    def execute(self, arguments: ToolArguments) -> Observation:
         """Run the command with shell=False and return stdout/stderr evidence."""
 
         cmd = arguments.get("command", "")

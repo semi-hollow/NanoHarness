@@ -31,10 +31,11 @@ from agent_forge.runtime.config import RuntimeConfig
 from agent_forge.runtime.execution_environment import ExecutionEnvironment, ExecutionEnvironmentConfig, EnvironmentProbe
 from agent_forge.runtime.human_input import HumanInputStore
 from agent_forge.runtime.llm_config import resolve_llm_config
-from agent_forge.runtime.task_state import TaskStateStore, replay_trace
+from agent_forge.runtime.task_state import TaskCheckpoint, TaskStateStore, replay_trace
 from agent_forge.runtime.wiring import build_llm, build_registry
 from agent_forge.skills import SkillRegistry, build_default_skill_registry
 from agent_forge.ui import build_ui_parser, run_ui_from_args
+from agent_forge.tools.registry import ToolRegistry
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -421,7 +422,10 @@ def run_repository_task(args: argparse.Namespace) -> Path:
             tool_routing_mode=getattr(args, "tool_routing", "task-aware"),
         )
 
-        def registry_factory(workspace, worker_environment):
+        def registry_factory(
+            workspace: str | Path,
+            worker_environment: ExecutionEnvironment,
+        ) -> ToolRegistry:
             return build_registry(
                 str(workspace),
                 auto=True,
@@ -440,7 +444,7 @@ def run_repository_task(args: argparse.Namespace) -> Path:
             except (OSError, ValueError, json.JSONDecodeError) as exc:
                 raise SystemExit(f"invalid fanout plan: {exc}") from exc
             trace.set_run_context(task=args.task)
-            summary = LiveFanoutCoordinator(
+            fanout_summary = LiveFanoutCoordinator(
                 plan=plan,
                 base_config=config,
                 trace=trace,
@@ -453,15 +457,15 @@ def run_repository_task(args: argparse.Namespace) -> Path:
             final_answer = "\n".join(
                 part
                 for part in [
-                    summary.final_answer.strip(),
-                    f"fanout status: {summary.status}",
-                    f"report: {summary.report_path}",
+                    fanout_summary.final_answer.strip(),
+                    f"fanout status: {fanout_summary.status}",
+                    f"report: {fanout_summary.report_path}",
                     "The integration patch is a candidate artifact; no official benchmark resolution is implied.",
                 ]
                 if part
             )
             trace.set_run_context(
-                stop_reason=f"fanout_{summary.status}",
+                stop_reason=f"fanout_{fanout_summary.status}",
                 final_answer=final_answer,
             )
         else:
@@ -469,7 +473,7 @@ def run_repository_task(args: argparse.Namespace) -> Path:
             llm = build_llm(llm_config)
         if agent_mode == "multi":
             profile = get_profile(getattr(args, "profile", "coding_fix"))
-            summary = MultiAgentCoordinator(
+            coordinator_summary = MultiAgentCoordinator(
                 args.task,
                 profile,
                 config,
@@ -479,7 +483,7 @@ def run_repository_task(args: argparse.Namespace) -> Path:
                 run_dir=run_dir,
                 max_revision_rounds=getattr(args, "max_revision_rounds", profile.default_max_revision_rounds),
             ).run()
-            final_answer = summary.final_answer
+            final_answer = coordinator_summary.final_answer
         elif agent_mode == "single":
             final_answer = AgentLoop(config, trace, registry, llm).run(args.task)
         trace.write()
@@ -578,7 +582,7 @@ def resume_repository_task(args: argparse.Namespace) -> Path:
     return run_dir
 
 
-def checkpoint_resume_workspace(checkpoint) -> str:
+def checkpoint_resume_workspace(checkpoint: TaskCheckpoint) -> str:
     """Return the original checkout when a prior run used a temporary worktree."""
 
     metadata = checkpoint.metadata if isinstance(checkpoint.metadata, dict) else {}
@@ -681,7 +685,11 @@ def respond_to_human_input(args: argparse.Namespace) -> str:
     )
 
 
-def continuation_task_with_human_response(checkpoint, store: HumanInputStore, override_task: str = "") -> tuple[str, str]:
+def continuation_task_with_human_response(
+    checkpoint: TaskCheckpoint,
+    store: HumanInputStore,
+    override_task: str = "",
+) -> tuple[str, str]:
     """Build a continuation task and require a terminal human-input decision."""
 
     metadata = checkpoint.metadata if isinstance(checkpoint.metadata, dict) else {}

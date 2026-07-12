@@ -21,6 +21,9 @@
   capability/learning/failure documentation.
 - Tightened the local workbench for desktop/mobile evidence review with stable
   navigation, readable tables, bounded controls, and fanout artifact views.
+- Added repository-wide function type contracts, a real validated TraceEvent
+  envelope, explicit checkpoint transitions, mypy/AST regression gates, and an
+  object-first code-reading map for local reasoning.
 
 ## 0.5.0 - 2026-07-11
 

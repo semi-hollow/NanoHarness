@@ -35,7 +35,7 @@ class OperationRecord:
 class OperationLedgerStore:
     """Filesystem-backed idempotency ledger for side-effectful agent operations."""
 
-    def __init__(self, root: str | Path = ".agent_forge/operation_ledger"):
+    def __init__(self, root: str | Path = ".agent_forge/operation_ledger") -> None:
         self.root = Path(root)
         self.root.mkdir(parents=True, exist_ok=True)
 

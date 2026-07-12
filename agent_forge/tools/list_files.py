@@ -1,4 +1,6 @@
+from agent_forge.contracts import ToolArguments, ToolSchema
 from agent_forge.runtime.observation import Observation
+from agent_forge.safety.sandbox import WorkspaceSandbox
 
 from .base import Tool
 
@@ -12,12 +14,12 @@ class ListFilesTool(Tool):
     name = "list_files"
     description = "list files"
 
-    def __init__(self, sandbox):
+    def __init__(self, sandbox: WorkspaceSandbox) -> None:
         """Keep the sandbox root as the only directory this tool walks."""
 
         self.sandbox = sandbox
 
-    def schema(self):
+    def schema(self) -> ToolSchema:
         """Expose an optional `path` argument; default is workspace root."""
 
         return {
@@ -27,11 +29,11 @@ class ListFilesTool(Tool):
             "required": [],
         }
 
-    def execute(self, arguments):
+    def execute(self, arguments: ToolArguments) -> Observation:
         """Return up to 200 files, skipping generated or dependency folders."""
 
         root = self.sandbox.ensure_safe_path(arguments.get("path", "."))
-        files = []
+        files: list[str] = []
         for path in root.rglob("*"):
             if any(ignored in path.parts for ignored in IGNORE):
                 continue

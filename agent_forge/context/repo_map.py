@@ -15,11 +15,11 @@ IGNORE = {
 GENERATED_NAMES = {"agent_forge_trace.json", "eval_report.md", "summary.md"}
 
 
-def build_repo_map(root):
+def build_repo_map(root: str | Path) -> str:
     """Return a stable newline-separated file map for context assembly."""
 
     root_path = Path(root)
-    files = []
+    files: list[str] = []
     for path in root_path.rglob("*"):
         if not path.is_file():
             continue

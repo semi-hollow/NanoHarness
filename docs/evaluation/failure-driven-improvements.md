@@ -662,6 +662,43 @@ tabs backdrop filter，active 改为浅蓝底深蓝字。
 
 可追问：为什么公开项目仍保留本地 workbench，而不把它包装成 production SaaS？
 
+### 32. 动态字典让核心数据只能靠反向追调用链理解
+
+现象：在 `AgentLoop` 看到 `trace.add(..., task_state=checkpoint.to_dict())`
+时，函数签名无法说明 `task_state` 的字段、来源和消费者。类似问题还存在于
+`TaskStateStore.update(**changes)`、未标注的 tool `execute(arguments)`，以及
+coordinator/fanout 的无类型依赖注入。读者必须不断向上寻找构造点，再向下搜索
+字符串 key，才能确认一个字段的真实形状。
+
+定位过程：用 AST 统计 106 个生产模块的函数签名，并对全包运行 mypy。首次
+检查得到 183 个问题，覆盖 51 个文件。除缺失注解外，检查还发现
+`swebench.py` 在同一作用域用 `result` 同时表示 `BenchCaseResult` 和
+`CompletedProcess`、`path` 同时表示字符串和 `Path`，以及 recovery 分支引用
+旧 `signal` 变量等真实局部理解风险。
+
+根因：项目已有 `TaskCheckpoint`、`Observation` 等 dataclass，但数据一进入
+`to_dict / **kwargs / setattr` 边界就丢失类型；`TraceEvent` 虽然存在，却没有
+参与真实写入。也就是说，类型对象和运行数据流不是同一套契约。
+
+修复：新增共享 JSON/tool boundary 类型；让 `TraceEvent` 成为真实 envelope，
+拒绝 payload 覆盖 `run_id/event_type`；checkpoint 改用
+`record_task_state_checkpoint(checkpoint=...)`，序列化只发生在 recorder 内部；
+task-state 更新改成显式关键字字段。为 context、tools、AgentLoop、coordinator、
+fanout、evaluation 和 bench 全部生产函数补齐参数/返回类型，并把不同含义的
+局部变量拆成 `evaluation_process`、`local_path`、`stored_baseline_prediction`。
+
+验证：mypy 对 106 个生产模块零错误；`test_type_contracts` 用 AST 拒绝任何
+缺失完整签名的新函数，验证 checkpoint trace 继续保持兼容的 flat JSON，并
+验证 extension payload 不能伪造 envelope identity。完整行为回归继续覆盖
+runtime、HITL、fanout、evaluation 和 UI。
+
+工程结论：可读性不是注释数量，而是数据所有权能否在当前位置看见。内部状态
+应保持具名对象，外部 JSON 可以显式保留动态性，但必须在边界验证；序列化和
+字符串 key 不应提前侵入业务调用点。
+
+可追问：哪些兼容性 trace event 应继续从通用 `add` 迁移为具名 `record_*`
+方法？如何在不引入复杂泛型的前提下，让历史 JSON schema 也能版本化？
+
 ## 调试顺序模板
 
 每次 SWE-bench 失败优先看：

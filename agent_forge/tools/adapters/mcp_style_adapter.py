@@ -37,7 +37,7 @@ class MCPStyleToolAdapter(ToolAdapter):
     the local Tool contract without changing AgentLoop.
     """
 
-    def __init__(self, spec: MCPStyleToolSpec, handler: Callable[[dict[str, Any]], Any]):
+    def __init__(self, spec: MCPStyleToolSpec, handler: Callable[[dict[str, Any]], Any]) -> None:
         """Store external spec plus callable handler."""
 
         self.spec = spec

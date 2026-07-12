@@ -61,12 +61,11 @@ class OpenAICompatibleLLMClient(LLMClient):
         api_key: str | None = None,
         model: str | None = None,
         timeout: int = 30,
-    ):
+    ) -> None:
         """Read OpenAI-compatible connection settings from args or env."""
 
-        self.base_url = (
-            base_url or os.getenv("AGENT_FORGE_BASE_URL") or os.getenv("OPENAI_BASE_URL", "")
-        ).rstrip("/")
+        resolved_base_url = base_url or os.getenv("AGENT_FORGE_BASE_URL") or os.getenv("OPENAI_BASE_URL") or ""
+        self.base_url = resolved_base_url.rstrip("/")
         self.api_key = api_key or os.getenv("AGENT_FORGE_API_KEY") or os.getenv("OPENAI_API_KEY", "")
         self.model = model or os.getenv("AGENT_FORGE_MODEL") or os.getenv("OPENAI_MODEL", "")
         self.timeout = timeout
@@ -203,7 +202,7 @@ class OpenAICompatibleLLMClient(LLMClient):
     def _message_to_dict(self, message: Message) -> dict[str, Any]:
         """Convert internal Message into chat-completions message format."""
 
-        item = {"role": message.role, "content": message.content}
+        item: dict[str, Any] = {"role": message.role, "content": message.content}
         # OpenAI-compatible providers differ on whether tool-role messages may
         # include `name`. `tool_call_id` is the modern linkage; omitting `name`
         # keeps DeepSeek and stricter gateways happy.

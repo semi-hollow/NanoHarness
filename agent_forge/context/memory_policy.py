@@ -19,7 +19,7 @@ class MemoryRecord:
     agent_name: str = "agent"
     created_at: float = 0.0
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         """Fill created_at lazily so tests can construct simple records."""
 
         if not self.created_at:
@@ -40,7 +40,7 @@ class MemoryPolicy:
     cross-agent private records are dropped before ContextStrategy sees them.
     """
 
-    def __init__(self, min_confidence: float = 0.55):
+    def __init__(self, min_confidence: float = 0.55) -> None:
         """Set the minimum confidence required for prompt injection."""
 
         self.min_confidence = min_confidence

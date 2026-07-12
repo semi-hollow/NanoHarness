@@ -26,7 +26,7 @@ class EvidenceLedger:
     traceable source. The ledger converts tool observations into citeable facts.
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         """Start with no evidence."""
 
         self.items: list[EvidenceItem] = []

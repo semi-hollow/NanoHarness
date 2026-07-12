@@ -1,6 +1,13 @@
+from __future__ import annotations
+
 import json
 import shlex
+from typing import Any
 
+from agent_forge.contracts import JsonObject, ToolArguments
+from agent_forge.observability.trace import TraceRecorder
+from agent_forge.runtime.config import RuntimeConfig
+from agent_forge.runtime.llm_client import LLMClient
 from agent_forge.runtime.message import Message
 from agent_forge.runtime.approval import ApprovalStore
 from agent_forge.runtime.operation_ledger import OperationLedgerStore
@@ -9,17 +16,19 @@ from agent_forge.runtime.state import AgentState
 from agent_forge.runtime.control import StepController
 from agent_forge.runtime.clarification import ClarificationPolicy
 from agent_forge.runtime.execution_environment import ExecutionEnvironment, ExecutionEnvironmentConfig
-from agent_forge.runtime.human_input import HumanInputStore
+from agent_forge.runtime.human_input import HumanInputRequest, HumanInputStore
 from agent_forge.runtime.hooks import HookContext, HookDecisionType, HookManager
 from agent_forge.runtime.observation import Observation
 from agent_forge.runtime.planning_mode import PlanningModePolicy
-from agent_forge.runtime.task_state import TaskRunStatus, TaskStateStore, summarize_checkpoint
+from agent_forge.runtime.task_state import TaskCheckpoint, TaskRunStatus, TaskStateStore, summarize_checkpoint
 from agent_forge.context.context_builder import build_context_report
 from agent_forge.context.memory import Memory
 from agent_forge.context.repo_map import build_repo_map
 from agent_forge.observability.evidence import EvidenceLedger
 from agent_forge.safety.guardrails import input_guardrail, output_guardrail, tool_guardrail
 from agent_forge.skills import build_default_skill_registry
+from agent_forge.skills.registry import SkillSpec
+from agent_forge.tools.registry import ToolRegistry
 from agent_forge.tools.tool_router import ToolRouter
 
 
@@ -46,7 +55,13 @@ class AgentLoop:
         context.
     """
 
-    def __init__(self, config, trace, registry, llm=None):
+    def __init__(
+        self,
+        config: RuntimeConfig,
+        trace: TraceRecorder,
+        registry: ToolRegistry,
+        llm: LLMClient | None = None,
+    ) -> None:
         """Receive runtime dependencies from CLI instead of constructing globals."""
 
         self.config = config
@@ -78,7 +93,7 @@ class AgentLoop:
             getattr(config, "operation_ledger_root", ".agent_forge/operation_ledger")
         )
 
-    def run(self, task, agent_name="CodingAgent"):
+    def run(self, task: str, agent_name: str = "CodingAgent") -> str:
         """Run one task until final answer, guardrail block, or stop condition.
 
         The loop is deliberately observation-driven: the model proposes a tool
@@ -99,11 +114,10 @@ class AgentLoop:
                 "human_thread_id": self.human_thread_id,
             },
         )
-        self.trace.add(
-            0,
-            agent_name,
-            "task_state_checkpoint",
-            task_state=checkpoint.to_dict(),
+        self.trace.record_task_state_checkpoint(
+            step=0,
+            agent_name=agent_name,
+            checkpoint=checkpoint,
         )
 
         # Phase 0: reject dangerous tasks before the model sees tools. This is
@@ -235,7 +249,7 @@ class AgentLoop:
 
         # `tool_history` keeps backward-compatible recent-repeat checks for the
         # guardrail layer; StepController keeps the stricter stable count.
-        tool_history = []
+        tool_history: list[tuple[str, str]] = []
 
         # Output guardrail uses this to prevent "tests passed" hallucinations.
         ran_tests = False
@@ -619,16 +633,16 @@ class AgentLoop:
                         success=False,
                         observation=observation.content,
                     )
-                    signal = controller.classify_observation(observation)
-                    if signal:
+                    observation_signal = controller.classify_observation(observation)
+                    if observation_signal:
                         self.trace.add(
                             step,
                             agent_name,
                             "recovery_decision",
-                            success=signal.retryable,
-                            failure_kind=signal.kind.value,
-                            retryable=signal.retryable,
-                            recovery_hint=signal.recovery_hint,
+                            success=observation_signal.retryable,
+                            failure_kind=observation_signal.kind.value,
+                            retryable=observation_signal.retryable,
+                            recovery_hint=observation_signal.recovery_hint,
                         )
                     self._update_task_state(
                         checkpoint,
@@ -636,7 +650,11 @@ class AgentLoop:
                         current_step=step,
                         last_tool=tool_call.name,
                         last_observation=observation.content[:600],
-                        resume_hint=signal.recovery_hint if signal else "Tool was not available in this routed turn.",
+                        resume_hint=(
+                            observation_signal.recovery_hint
+                            if observation_signal
+                            else "Tool was not available in this routed turn."
+                        ),
                     )
                     continue
 
@@ -691,8 +709,8 @@ class AgentLoop:
                         checkpoint,
                         agent_name=agent_name,
                         kind="tool_question",
-                        question=question,
-                        choices=choices,
+                        question=str(question),
+                        choices=[str(choice) for choice in choices],
                         reason="model requested operator input",
                         step=step,
                     )
@@ -883,16 +901,16 @@ class AgentLoop:
                         success=False,
                         observation=observation.content,
                     )
-                    signal = controller.classify_observation(observation)
-                    if signal:
+                    observation_signal = controller.classify_observation(observation)
+                    if observation_signal:
                         self.trace.add(
                             step,
                             agent_name,
                             "recovery_decision",
-                            success=signal.retryable,
-                            failure_kind=signal.kind.value,
-                            retryable=signal.retryable,
-                            recovery_hint=signal.recovery_hint,
+                            success=observation_signal.retryable,
+                            failure_kind=observation_signal.kind.value,
+                            retryable=observation_signal.retryable,
+                            recovery_hint=observation_signal.recovery_hint,
                         )
                     self._update_task_state(
                         checkpoint,
@@ -998,11 +1016,12 @@ class AgentLoop:
                             "action": action,
                         }
                     )
+                    approval_observation = approval.status if approval is not None else "auto_approved"
                     self.trace.add(
                         step,
                         agent_name,
                         "human_approval",
-                        observation="approved" if approved else approval.status,
+                        observation="approved" if approved else approval_observation,
                         approval_request=approval_trace,
                     )
                     if approval is not None and approval.status == "pending" and not self.config.auto_approve_writes:
@@ -1160,17 +1179,19 @@ class AgentLoop:
                 # Phase 6: classify failure and write a recovery decision. This
                 # is the part that turns "tool failed" into an explainable next
                 # step such as reread file, fix args, or stop.
-                signal = controller.classify_observation(observation)
-                if signal:
-                    memory.add(f"recovery:{signal.kind.value}:{signal.recovery_hint}")
+                observation_signal = controller.classify_observation(observation)
+                if observation_signal:
+                    memory.add(
+                        f"recovery:{observation_signal.kind.value}:{observation_signal.recovery_hint}"
+                    )
                     self.trace.add(
                         step,
                         agent_name,
                         "recovery_decision",
-                        success=signal.retryable,
-                        failure_kind=signal.kind.value,
-                        retryable=signal.retryable,
-                        recovery_hint=signal.recovery_hint,
+                        success=observation_signal.retryable,
+                        failure_kind=observation_signal.kind.value,
+                        retryable=observation_signal.retryable,
+                        recovery_hint=observation_signal.recovery_hint,
                     )
 
                 estimated_cost = 0.0
@@ -1210,7 +1231,12 @@ class AgentLoop:
         self._stop_run(checkpoint, TaskRunStatus.BLOCKED, "max_steps", "blocked: max_steps reached")
         return "blocked: max_steps reached"
 
-    def _validation_evidence(self, tool_name: str, arguments: dict, observation: Observation) -> dict | None:
+    def _validation_evidence(
+        self,
+        tool_name: str,
+        arguments: ToolArguments,
+        observation: Observation,
+    ) -> JsonObject | None:
         """Return explicit test evidence; compilation alone is not correctness."""
 
         kind = ""
@@ -1252,7 +1278,7 @@ class AgentLoop:
 
         return tool_name in {"read_file", "grep", "grep_search", "list_files", "git_status", "git_diff", "diagnostics"}
 
-    def _select_active_skills(self, task: str):
+    def _select_active_skills(self, task: str) -> list[SkillSpec]:
         """Select real coding skills for this run.
 
         Skill selection lives in AgentLoop because it affects both prompt
@@ -1282,8 +1308,8 @@ class AgentLoop:
 
     def _same_operation_fingerprint(
         self,
-        left: dict | None,
-        right: dict | None,
+        left: dict[str, Any] | None,
+        right: dict[str, Any] | None,
     ) -> bool:
         """Return whether two captured operation target states are equivalent."""
 
@@ -1291,20 +1317,50 @@ class AgentLoop:
             return False
         return left == right
 
-    def _update_task_state(self, checkpoint, status: TaskRunStatus | None = None, **changes):
-        """Persist a compact run checkpoint without cluttering AgentLoop logic."""
+    def _update_task_state(
+        self,
+        checkpoint: TaskCheckpoint,
+        status: TaskRunStatus | None = None,
+        *,
+        current_step: int | None = None,
+        last_tool: str | None = None,
+        last_observation: str | None = None,
+        stop_reason: str | None = None,
+        final_answer: str | None = None,
+        resume_hint: str | None = None,
+        messages_count: int | None = None,
+        observations_count: int | None = None,
+        metadata: JsonObject | None = None,
+    ) -> TaskCheckpoint:
+        """Persist only the checkpoint fields listed in this signature."""
 
-        if status is not None:
-            changes["status"] = status.value
-        return self.task_state_store.update(checkpoint, **changes)
+        return self.task_state_store.update(
+            checkpoint,
+            status=status.value if status is not None else None,
+            current_step=current_step,
+            last_tool=last_tool,
+            last_observation=last_observation,
+            stop_reason=stop_reason,
+            final_answer=final_answer,
+            resume_hint=resume_hint,
+            messages_count=messages_count,
+            observations_count=observations_count,
+            metadata=metadata,
+        )
 
     def _stop_run(
         self,
-        checkpoint,
+        checkpoint: TaskCheckpoint,
         status: TaskRunStatus,
         stop_reason: str,
         final_answer: str,
-        **changes,
+        current_step: int | None = None,
+        last_tool: str | None = None,
+        last_observation: str | None = None,
+        resume_hint: str | None = None,
+        messages_count: int | None = None,
+        observations_count: int | None = None,
+        metadata: JsonObject | None = None,
     ) -> None:
         """Record a terminal state in trace, task state, and stop hooks."""
 
@@ -1314,11 +1370,17 @@ class AgentLoop:
             status=status,
             stop_reason=stop_reason,
             final_answer=final_answer,
-            **changes,
+            current_step=current_step,
+            last_tool=last_tool,
+            last_observation=last_observation,
+            resume_hint=resume_hint,
+            messages_count=messages_count,
+            observations_count=observations_count,
+            metadata=metadata,
         )
         hook_decisions = self.hooks.on_stop(self.trace.run_id, stop_reason, final_answer)
         self.trace.add(
-            changes.get("current_step", 0),
+            current_step or 0,
             checkpoint.agent_name,
             "stop_hooks",
             hook_decisions=[decision.to_dict() for decision in hook_decisions],
@@ -1345,7 +1407,7 @@ class AgentLoop:
 
     def _request_human_input(
         self,
-        checkpoint,
+        checkpoint: TaskCheckpoint,
         *,
         agent_name: str,
         kind: str,
@@ -1353,7 +1415,7 @@ class AgentLoop:
         choices: list[str],
         reason: str,
         step: int,
-    ):
+    ) -> tuple[HumanInputRequest, str]:
         """Persist a question and stop without blocking a worker thread."""
 
         request = self.human_input_store.request(

@@ -38,7 +38,7 @@ class ApprovalRequest:
 class ApprovalStore:
     """Filesystem-backed approval queue for local human-in-the-loop runs."""
 
-    def __init__(self, root: str | Path = ".agent_forge/approvals"):
+    def __init__(self, root: str | Path = ".agent_forge/approvals") -> None:
         self.root = Path(root)
         self.root.mkdir(parents=True, exist_ok=True)
 

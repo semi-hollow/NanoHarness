@@ -2,7 +2,10 @@ import py_compile
 import subprocess
 import sys
 
+from agent_forge.contracts import ToolArguments, ToolSchema
+from agent_forge.runtime.execution_environment import ExecutionEnvironment
 from agent_forge.runtime.observation import Observation
+from agent_forge.safety.sandbox import WorkspaceSandbox
 
 from .base import Tool
 
@@ -18,13 +21,17 @@ class DiagnosticsTool(Tool):
     name = "diagnostics"
     description = "run python compile or unittest diagnostics"
 
-    def __init__(self, sandbox, execution_environment=None):
+    def __init__(
+        self,
+        sandbox: WorkspaceSandbox,
+        execution_environment: ExecutionEnvironment | None = None,
+    ) -> None:
         """Store sandbox so target paths cannot escape the workspace."""
 
         self.sandbox = sandbox
         self.execution_environment = execution_environment
 
-    def schema(self):
+    def schema(self) -> ToolSchema:
         """Expose optional target and kind arguments to the LLM."""
 
         return {
@@ -34,7 +41,7 @@ class DiagnosticsTool(Tool):
             "required": ["kind"],
         }
 
-    def execute(self, arguments):
+    def execute(self, arguments: ToolArguments) -> Observation:
         """Run compile or unittest diagnostics and return concise evidence."""
 
         kind = arguments.get("kind", "compile")
@@ -62,7 +69,7 @@ class DiagnosticsTool(Tool):
                 f"exit_code={proc.returncode}\n{output or f'compile ok: {relative}'}",
             )
         files = [root] if root.is_file() else sorted(root.rglob("*.py"))
-        errors = []
+        errors: list[str] = []
         for path in files:
             try:
                 py_compile.compile(str(path), doraise=True)

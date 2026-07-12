@@ -1,47 +1,59 @@
 # Contributing
 
-Agent Forge is a runtime-core project. Contributions should keep the core
-readable and should not turn the repository into an IDE product, cloud service,
-or model-training stack.
+NanoHarness optimizes for local readability: a reader should understand a
+function from its name, signature, nearby domain types, and one level of calls.
+
+Keep the repository focused on the runtime control plane. Contributions should
+not turn it into an IDE product, hosted service, or model-training stack.
 
 ## Local Setup
 
 ```bash
-python3 -m venv .venv
+python3.11 -m venv .venv
 source .venv/bin/activate
 python -m pip install -U pip setuptools wheel
-python -m pip install -e .
+python -m pip install -e '.[bench,dev]'
 ```
+
+## Code Rules
+
+1. Give every production function complete parameter and return annotations.
+2. Prefer a named dataclass or Enum for runtime-owned state.
+3. Keep `Any` at untrusted JSON, HTTP, MCP, UI, or provider boundaries.
+4. Validate boundary data before passing it into owned runtime state.
+5. Do not use `**kwargs`, `setattr`, or string keys to hide core state transitions.
+6. Do not reuse one variable name for values of different types or meanings.
+7. Serialize with `to_dict` at the storage boundary, not in distant callers.
+8. Give high-value trace events a named `record_*` method with a typed signature.
+9. Keep side effects visible in the function that owns them.
+10. Add a regression test and update the failure-driven improvement log for behavioral changes.
 
 ## Verification
 
-Before opening a pull request, run:
-
 ```bash
+python -m pip install -e '.[dev]'
 scripts/verify.sh
-scripts/verify_mcp.sh
 ```
 
-`scripts/verify.sh` checks imports, CLI wiring, Skill registration, and runs a
-read-only real-model task when `DEEPSEEK_API_KEY` is available.
-`scripts/verify_mcp.sh` keeps MCP web search in offline mode by default.
+The verification path compiles the package, runs mypy across `agent_forge`, and
+runs the behavioral regression suite. See
+`docs/guides/code-reading-map.md` before changing runtime contracts.
 
-## Change Guidelines
+Run `scripts/verify_mcp.sh` as well when MCP behavior changes. Real-model smoke
+checks run automatically when `DEEPSEEK_API_KEY` is available.
 
-- Keep runtime changes scoped to one layer: context, model gateway, tools,
-  safety, runtime control, observability, eval, or docs.
-- Add comments where the design is not obvious from code.
-- Do not commit real API keys, local `.env` files, generated `.agent_forge/`
-  artifacts, or personal IDE state.
-- Prefer real repo tasks, public benchmark cases, and trace evidence over
-  self-authored fixtures.
-- If a change affects agent behavior, update the relevant architecture or
-  evaluation document so readers can understand the design and evidence.
+## Repository Hygiene
+
+- Keep changes scoped to one owning layer where possible.
+- Do not commit API keys, `.env`, generated `.agent_forge` artifacts, or personal IDE state.
+- Prefer public benchmark tasks and trace evidence over invented success claims.
+- Update architecture or evaluation docs when public behavior changes.
 
 ## Pull Request Checklist
 
 - [ ] `scripts/verify.sh` passes.
 - [ ] `scripts/verify_mcp.sh` passes when MCP behavior changes.
-- [ ] README or docs are updated for user-visible behavior.
-- [ ] No real secrets or personal paths are committed.
-- [ ] New tool or safety behavior is represented in trace/eval evidence.
+- [ ] Mypy and the type-contract regression test pass.
+- [ ] README or docs reflect user-visible behavior.
+- [ ] No secret, personal path, or generated run artifact is tracked.
+- [ ] New runtime behavior has trace/evaluation evidence and a failure-log case.

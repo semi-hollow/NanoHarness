@@ -1,9 +1,16 @@
+from __future__ import annotations
+
 import json
 import time
 import uuid
+from typing import TYPE_CHECKING, Any, Mapping
 
+from .event import TraceEvent, TraceEventType, TraceRecord
 from .metrics import summarize
 from .summary import write_summary
+
+if TYPE_CHECKING:
+    from agent_forge.runtime.task_state import TaskCheckpoint
 
 
 class TraceRecorder:
@@ -24,7 +31,7 @@ class TraceRecorder:
         ``write`` persists the final JSON plus optional summary.
     """
 
-    def __init__(self, path: str, verbose: bool = False, write_summary_file: bool = False):
+    def __init__(self, path: str, verbose: bool = False, write_summary_file: bool = False) -> None:
         """Initialize run metadata and destination trace path.
 
         Terminal trace spam is useful while building the runtime, but it is
@@ -44,7 +51,7 @@ class TraceRecorder:
         self.run_id = str(uuid.uuid4())
 
         # Append-only in-memory event list; write() persists it at the end.
-        self.events: list[dict] = []
+        self.events: list[TraceRecord] = []
         self.started_at = time.time()
 
         # Used to compute per-event duration deltas.
@@ -55,7 +62,7 @@ class TraceRecorder:
         self.stop_reason = ""
         self.final_answer = ""
 
-    def set_run_context(self, task: str = "", stop_reason: str = "", final_answer: str = ""):
+    def set_run_context(self, task: str = "", stop_reason: str = "", final_answer: str = "") -> None:
         """Update top-level run fields without touching existing event history."""
 
         if task:
@@ -65,30 +72,90 @@ class TraceRecorder:
         if final_answer:
             self.final_answer = final_answer
 
-    def add(self, step: int, agent_name: str, event_type: str, success: bool = True, error: str = "", **kwargs):
-        """Append one timestamped event and print a short terminal breadcrumb.
+    def add(
+        self,
+        step: int,
+        agent_name: str,
+        event_type: TraceEventType,
+        success: bool = True,
+        error: str = "",
+        **data: Any,
+    ) -> None:
+        """Compatibility path for low-frequency events.
 
-        Extra keyword fields are intentionally open-ended so each subsystem can
-        write domain evidence without changing a global event schema.
+        Core runtime events should use a named ``record_*`` method so a reader
+        can jump directly from the call site to its typed payload contract.
+        ``add`` remains for extension events while callers migrate.
         """
 
+        self._append(step, agent_name, event_type, success=success, error=error, data=data)
+
+    def record_task_state_checkpoint(
+        self,
+        *,
+        step: int,
+        agent_name: str,
+        checkpoint: "TaskCheckpoint",
+    ) -> None:
+        """Record a resumable ``TaskCheckpoint`` without erasing its type early."""
+
+        self._append(
+            step,
+            agent_name,
+            "task_state_checkpoint",
+            data={"task_state": checkpoint.to_dict()},
+        )
+
+    def record_event(
+        self,
+        *,
+        step: int,
+        agent_name: str,
+        event_type: TraceEventType,
+        success: bool = True,
+        error: str = "",
+        data: Mapping[str, Any] | None = None,
+    ) -> None:
+        """Record one extension event from an explicit payload mapping."""
+
+        self._append(
+            step,
+            agent_name,
+            event_type,
+            success=success,
+            error=error,
+            data=dict(data or {}),
+        )
+
+    def _append(
+        self,
+        step: int,
+        agent_name: str,
+        event_type: TraceEventType,
+        *,
+        success: bool = True,
+        error: str = "",
+        data: Mapping[str, Any] | None = None,
+    ) -> None:
+        """Create the validated event envelope and append its JSON form."""
+
         now = time.time()
-        event = {
-            "run_id": self.run_id,
-            "step": step,
-            "agent_name": agent_name,
-            "event_type": event_type,
-            "duration_ms": int((now - self._last_event_at) * 1000),
-            "success": success,
-            "error": error,
-            **kwargs,
-        }
+        event = TraceEvent(
+            run_id=self.run_id,
+            step=step,
+            agent_name=agent_name,
+            event_type=event_type,
+            duration_ms=int((now - self._last_event_at) * 1000),
+            success=success,
+            error=error,
+            data=data or {},
+        ).to_dict()
         self._last_event_at = now
         self.events.append(event)
         if self.verbose:
             print(f"[trace] step={step} agent={agent_name} event={event_type} success={success}")
 
-    def write(self):
+    def write(self) -> None:
         """Write JSON trace plus the human-readable summary file."""
 
         trace = {

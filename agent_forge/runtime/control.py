@@ -4,6 +4,7 @@ from dataclasses import dataclass, field
 from enum import Enum
 
 from agent_forge.runtime.observation import Observation
+from agent_forge.runtime.config import RuntimeConfig
 from agent_forge.runtime.tool_call import ToolCall
 
 
@@ -104,7 +105,7 @@ class StepController:
     failure_count: int = 0
 
     @classmethod
-    def from_config(cls, config) -> "StepController":
+    def from_config(cls, config: RuntimeConfig) -> "StepController":
         """Build controller limits from RuntimeConfig with safe defaults.
 
         Keeping this constructor here means CLI/config can grow without making

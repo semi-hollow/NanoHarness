@@ -1,4 +1,8 @@
+from typing import Any
+
+from agent_forge.contracts import ToolArguments, ToolSchema
 from agent_forge.runtime.observation import Observation
+from agent_forge.safety.sandbox import WorkspaceSandbox
 from .base import Tool
 
 
@@ -17,12 +21,12 @@ class ReadFileTool(Tool):
     name = "read_file"
     description = "read file"
 
-    def __init__(self, sandbox):
+    def __init__(self, sandbox: WorkspaceSandbox) -> None:
         """Keep the sandbox so every path read is checked first."""
 
         self.sandbox = sandbox
 
-    def schema(self):
+    def schema(self) -> ToolSchema:
         """Tell the LLM this tool needs a path and optional line window."""
 
         return {
@@ -32,7 +36,7 @@ class ReadFileTool(Tool):
             "required": ["path"],
         }
 
-    def execute(self, arguments):
+    def execute(self, arguments: ToolArguments) -> Observation:
         """Read the file after sandbox validation and cap content for context size."""
 
         path = self.sandbox.ensure_safe_path(arguments["path"])
@@ -57,7 +61,7 @@ class ReadFileTool(Tool):
         )
 
 
-def _optional_int(value, default: int) -> int:
+def _optional_int(value: Any, default: int) -> int:
     """Parse optional model-provided integers without rejecting recoverable calls."""
 
     if value is None or value == "":

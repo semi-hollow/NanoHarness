@@ -1,3 +1,7 @@
+from __future__ import annotations
+
+from typing import Any
+
 from agent_forge.runtime.observation import Observation
 from .memory_policy import MemoryPolicy, MemoryRecord
 
@@ -11,38 +15,38 @@ class Memory:
     when the user resumes a task.
     """
 
-    def __init__(self, n=8):
+    def __init__(self, n: int = 8) -> None:
         """Keep bounded recent memory so context growth is controlled."""
 
-        self.items = []
+        self.items: list[object] = []
         self.observations: list[Observation] = []
         self.summaries: list[str] = []
-        self.store = {}
+        self.store: dict[str, object] = {}
         self.records: list[MemoryRecord] = []
         self.policy = MemoryPolicy()
         self.n = n
 
-    def add(self, item):
+    def add(self, item: object) -> None:
         """Add a lightweight note that can be rendered into future context."""
 
         self.items = (self.items + [item])[-self.n:]
 
-    def recent(self):
+    def recent(self) -> list[object]:
         """Return recent lightweight notes for context construction."""
 
         return list(self.items)
 
     def set(
         self,
-        key,
-        value,
+        key: str,
+        value: object,
         *,
         scope: str = "session",
         confidence: float = 1.0,
         ttl_seconds: float | None = None,
         source: str = "runtime",
         agent_name: str = "agent",
-    ):
+    ) -> None:
         """Store a stable fact, such as the current task."""
 
         self.store[key] = value
@@ -80,12 +84,12 @@ class Memory:
                 )
             )
 
-    def get(self, key, default=None):
+    def get(self, key: str, default: object = None) -> object:
         """Read a stored fact without raising if it is absent."""
 
         return self.store.get(key, default)
 
-    def add_observation(self, observation: Observation | str):
+    def add_observation(self, observation: Observation | str) -> None:
         """Append a tool observation so the next LLM turn sees recent results."""
 
         if isinstance(observation, Observation):
@@ -96,12 +100,12 @@ class Memory:
         if len(self.observations) > self.n:
             self._compact_oldest_observation()
 
-    def recent_observations(self):
+    def recent_observations(self) -> list[Observation]:
         """Return recent Observation objects for tests or richer context."""
 
         return list(self.observations)
 
-    def clear(self):
+    def clear(self) -> None:
         """Reset memory between runs/tests."""
 
         self.items.clear()
@@ -110,7 +114,7 @@ class Memory:
         self.store.clear()
         self.records.clear()
 
-    def summary(self, max_chars: int = 800, agent_name: str = "agent"):
+    def summary(self, max_chars: int = 800, agent_name: str = "agent") -> str:
         """Render notes, observations, and facts into a compact string."""
 
         recent = "; ".join(str(x) for x in self.items)

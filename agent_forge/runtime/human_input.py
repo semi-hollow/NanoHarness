@@ -43,7 +43,7 @@ class HumanInputRequest:
 class HumanInputStore:
     """Filesystem-backed queue for non-blocking human questions."""
 
-    def __init__(self, root: str | Path = ".agent_forge/human_input"):
+    def __init__(self, root: str | Path = ".agent_forge/human_input") -> None:
         self.root = Path(root)
         self.root.mkdir(parents=True, exist_ok=True)
 

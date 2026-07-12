@@ -19,7 +19,7 @@ class WorkspaceSandbox:
     targets before tools read or write it.
     """
 
-    def __init__(self, workspace_root: str | Path):
+    def __init__(self, workspace_root: str | Path) -> None:
         """Resolve the workspace once so later checks compare absolute paths."""
 
         self.workspace_root = Path(workspace_root).resolve()

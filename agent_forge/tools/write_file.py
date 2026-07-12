@@ -1,5 +1,7 @@
+from agent_forge.contracts import ToolArguments, ToolSchema
 from agent_forge.runtime.observation import Observation
 from agent_forge.safety.permission import PermissionDecision, PermissionPolicy
+from agent_forge.safety.sandbox import WorkspaceSandbox
 
 from .base import Tool
 
@@ -14,14 +16,14 @@ class WriteFileTool(Tool):
     name = "write_file"
     description = "write file"
 
-    def __init__(self, sandbox, auto_approve_writes: bool = True):
+    def __init__(self, sandbox: WorkspaceSandbox, auto_approve_writes: bool = True) -> None:
         """Store sandbox and write policy used before touching disk."""
 
         self.sandbox = sandbox
         self.policy = PermissionPolicy(auto_approve_writes)
         self.auto_approve_writes = auto_approve_writes
 
-    def schema(self):
+    def schema(self) -> ToolSchema:
         """Tell the LLM this tool needs a target path and complete content."""
 
         return {
@@ -30,7 +32,7 @@ class WriteFileTool(Tool):
             "arguments": {"path": "str", "content": "str"},
         }
 
-    def execute(self, arguments):
+    def execute(self, arguments: ToolArguments) -> Observation:
         """Write content after approval and workspace path validation."""
 
         decision, reason = self.policy.decide("write")
