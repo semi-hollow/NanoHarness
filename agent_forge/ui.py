@@ -194,13 +194,19 @@ class ForgeUiHandler(BaseHTTPRequestHandler):
         self.send_response(status)
         self.send_header("Content-Type", "text/html; charset=utf-8")
         self.end_headers()
-        self.wfile.write(text.encode("utf-8"))
+        try:
+            self.wfile.write(text.encode("utf-8"))
+        except (BrokenPipeError, ConnectionResetError):
+            return
 
     def _send_json(self, data: dict[str, Any], status: HTTPStatus = HTTPStatus.OK) -> None:
         self.send_response(status)
         self.send_header("Content-Type", "application/json; charset=utf-8")
         self.end_headers()
-        self.wfile.write(json.dumps(data, ensure_ascii=False, indent=2).encode("utf-8"))
+        try:
+            self.wfile.write(json.dumps(data, ensure_ascii=False, indent=2).encode("utf-8"))
+        except (BrokenPipeError, ConnectionResetError):
+            return
 
 
 def run_ui(host: str = "127.0.0.1", port: int = 8765, open_browser: bool = True) -> None:
