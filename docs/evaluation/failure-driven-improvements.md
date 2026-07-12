@@ -699,6 +699,51 @@ runtime、HITL、fanout、evaluation 和 UI。
 可追问：哪些兼容性 trace event 应继续从通用 `add` 迁移为具名 `record_*`
 方法？如何在不引入复杂泛型的前提下，让历史 JSON schema 也能版本化？
 
+### 33. Evidence Console 只展示路径，后续 Harness 能力在页面中失踪
+
+现象：公开工作台能看到 `comparison.json`、`multi_agent_summary.json` 和
+`usage.json` 的绝对路径，但看不到 artifact 正文、生产者、消费方和决策内容；
+时间线只选一个最新 trace，因此 compare run 的 single AgentLoop 被隐藏。
+恢复、HITL、审批、隔离、工具路由、Skills/MCP、fanout 和反馈数据闭环虽然已在
+runtime 落地，页面仍主要展示 Single/Multi 成本表，形成“代码有能力、展示面没
+证据”的断层。
+
+定位过程：用固定 Astropy compare run 对照 `artifact_index.json`、四份角色
+Markdown、single/multi 两份 `trace.json` 与页面 DOM。确认旧 renderer 把 artifact
+压成 path table，`_latest_trace_path` 只能返回一个文件，feedback/export 只有静态
+命令说明。再以 1440x900 和 390x844 viewport 检查信息层级和横向溢出。
+浏览器验收还发现：默认收起侧栏时旧 `display:none` 与新两列 grid 叠加，桌面
+证据列宽变成 0；控制面首版又误读 `decision` 和顶层 `tool_routing`，而真实契约是
+`permission_decision` 与 `context.tool_routing`，导致权限和可见工具统计假零。
+
+根因：早期 UI 按“调试文件浏览器”组织，而 runtime 已演进为控制面和评测闭环；
+页面没有随 artifact schema 和能力边界升级。静态 capability 文案还会混淆
+“项目支持”与“本次运行观察到”。
+
+修复：工作台更名为 NanoHarness Evidence Console，主导航按 Overview、Runtime
+Controls、Orchestration、Evaluation、Single vs Multi、Efficiency、Timeline 和
+Feedback Loop 组织。artifact renderer 直接读取角色 Markdown，展示正文摘要、
+producer、consumer、round 和 provenance；Timeline 固定 Multi 在前、Single 在后。
+控制面从 trace 提取 execution environment、network、tool visibility、permission、
+checkpoint、human/recovery event，并以零值明确标记本次未触发。页面运行参数真实
+接入 isolation/network/tool-routing/manual approval；feedback 与默认不导出 patch
+正文的数据集投影成为可执行 job。Claim ladder 严格区分 candidate patch、runtime
+verifier、official evaluation 和 human judgment。
+最终以真实 trace 字段修正 permission/intervention/tool-routing 解析，并增加
+artifact 正文、嵌套 context 和 approval/recovery 的行为回归。
+
+验证：169 项 unittest 全绿；mypy 对 106 个生产模块零错误。Playwright 在
+1440x900 与 390x844 下确认页面级 `scrollWidth == innerWidth`，Overview 显示四个
+真实角色 artifact，Timeline 同时存在两条 lane 且 Multi 索引早于 Single；各新
+view 可从导航加载，控制台无应用错误。
+
+工程结论：展示面不能只是 JSON 路径目录。Agent Harness 的 UI 应直接回答：本次
+运行受什么控制、发生了什么、产出了什么证据、最多允许声称什么、反馈如何回到
+评测数据；同时必须区分 supported capability 与 observed evidence。
+
+可追问：当一个 benchmark run 有多个 case 时，evidence console 应如何提供 case
+selector，并保证 summary、trace、artifact 与 feedback 始终指向同一 case？
+
 ## 调试顺序模板
 
 每次 SWE-bench 失败优先看：

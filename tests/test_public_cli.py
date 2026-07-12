@@ -9,6 +9,7 @@ from agent_forge.forge_cli import build_parser
 from agent_forge.runtime.approval import ApprovalStore
 from agent_forge.ui import (
     INDEX_HTML,
+    _action_to_command,
     _build_agent_run_command,
     _build_swebench_command,
     _latest_report_path,
@@ -192,6 +193,12 @@ class PublicCliSmokeTest(unittest.TestCase):
         self.assertIn("coding_fix", command.command)
         self.assertIn("--max-revision-rounds", command.command)
         self.assertIn("2", command.command)
+        self.assertIn("--execution-mode", command.command)
+        self.assertIn("worktree", command.command)
+        self.assertIn("--network-policy", command.command)
+        self.assertIn("deny", command.command)
+        self.assertIn("--tool-routing", command.command)
+        self.assertIn("task-aware", command.command)
 
     def test_ui_agent_command_supports_bounded_live_fanout(self):
         command = _build_agent_run_command(
@@ -280,11 +287,75 @@ class PublicCliSmokeTest(unittest.TestCase):
     def test_run_evidence_view_renders_without_artifacts(self):
         with tempfile.TemporaryDirectory() as tmp:
             html = _render_evidence_html(Path(tmp), "evidence")
-        self.assertIn("Run Evidence", html)
-        self.assertIn("Reviewer Path", html)
-        self.assertIn("Capability Reality Matrix", html)
-        self.assertIn("Single vs Multi", html)
-        self.assertIn("Safety", html)
+        self.assertIn("Runtime Evidence Overview", html)
+        self.assertIn("Runtime Pipeline", html)
+        self.assertIn("Claim Ladder", html)
+        self.assertIn("Produced Artifacts", html)
+        self.assertIn("No multi-agent artifacts", html)
+
+    def test_run_evidence_renders_artifact_content_and_handoff(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            run_dir = root / ".agent_forge" / "runs" / "run-1"
+            multi_dir = run_dir / "cases" / "case" / "multi_agent"
+            artifact_path = multi_dir / "artifacts" / "review.md"
+            artifact_path.parent.mkdir(parents=True)
+            artifact_path.write_text("# Review\nPASS: root cause evidence is sufficient.", encoding="utf-8")
+            (multi_dir / "multi_agent_summary.json").write_text(
+                """
+{
+  "status": "passed",
+  "role_results": [{"role": "Reviewer", "decision": "PASS", "round_index": 0, "final_answer": "PASS"}],
+  "artifacts": [{"id": "review", "role": "Reviewer", "kind": "review_report", "round_index": 0, "path": "%s"}]
+}
+""" % artifact_path,
+                encoding="utf-8",
+            )
+            (run_dir / "trace.json").write_text('{"events": []}', encoding="utf-8")
+            latest = root / ".agent_forge" / "latest"
+            latest.mkdir(parents=True)
+            (latest / "run.txt").write_text(str(run_dir), encoding="utf-8")
+
+            html = _render_evidence_html(root, "evidence")
+
+        self.assertIn("root cause evidence is sufficient", html)
+        self.assertIn("producer", html)
+        self.assertIn("consumer", html)
+        self.assertIn("Coordinator + Verifier", html)
+
+    def test_runtime_controls_only_claim_events_observed_in_trace(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            run_dir = root / ".agent_forge" / "runs" / "run-1"
+            run_dir.mkdir(parents=True)
+            (run_dir / "trace.json").write_text(
+                """
+{
+  "events": [
+    {"event_type": "task_state_checkpoint", "task_state": {"metadata": {"execution_environment": {"mode": "worktree", "network_policy": "deny", "active_workspace": "/snapshot"}}}},
+    {"event_type": "context_assembly", "context": {"permission_summary": "writes ask", "active_skills": ["repo_orientation@1.0.0"], "tool_routing": {"allowed_tools": ["read_file"], "dropped_tools": ["run_command"]}}},
+    {"step": 3, "agent_name": "Implementer", "event_type": "permission_check", "permission_decision": "ask", "tool_call": "apply_patch", "reason": "write needs approval"},
+    {"event_type": "human_approval"},
+    {"event_type": "recovery_decision"}
+  ]
+}
+""",
+                encoding="utf-8",
+            )
+            latest = root / ".agent_forge" / "latest"
+            latest.mkdir(parents=True)
+            (latest / "run.txt").write_text(str(run_dir), encoding="utf-8")
+
+            html = _render_evidence_html(root, "controls")
+
+        self.assertIn("worktree", html)
+        self.assertIn("deny", html)
+        self.assertIn("read_file", html)
+        self.assertIn("run_command", html)
+        self.assertIn("repo_orientation@1.0.0", html)
+        self.assertIn("1 / 1", html)
+        self.assertIn("0 / 1 / 0", html)
+        self.assertIn("write needs approval", html)
 
     def test_compare_evidence_view_has_clear_single_multi_story(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -292,13 +363,16 @@ class PublicCliSmokeTest(unittest.TestCase):
         self.assertIn("Single vs Multi 对比", html)
         self.assertIn("单 Agent", html)
         self.assertIn("多 Agent Coordinator", html)
-        self.assertIn("不要假设 multi-agent 一定更强", html)
+        self.assertIn("Engineering Decision", html)
+        self.assertIn("Produced Artifacts", html)
 
     def test_timeline_explains_scope_order_and_color_semantics(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             run = root / ".agent_forge" / "runs" / "swebench-demo" / "cases" / "case" / "multi"
             run.mkdir(parents=True)
+            single_run = root / ".agent_forge" / "runs" / "swebench-demo" / "cases" / "case" / "single"
+            single_run.mkdir(parents=True)
             (root / ".agent_forge" / "latest").mkdir(parents=True)
             (root / ".agent_forge" / "latest" / "bench.txt").write_text(
                 ".agent_forge/runs/swebench-demo\n",
@@ -319,28 +393,75 @@ class PublicCliSmokeTest(unittest.TestCase):
 """,
                 encoding="utf-8",
             )
+            (single_run / "trace.json").write_text(
+                """
+{
+  "run_id": "r2",
+  "stop_reason": "final_answer",
+  "events": [
+    {"step": 1, "event_type": "llm_call", "success": true},
+    {"step": 1, "event_type": "action", "success": true, "tool_call": "read_file"}
+  ]
+}
+""",
+                encoding="utf-8",
+            )
 
             html = _render_evidence_html(root, "timeline")
 
-        self.assertIn("当前展示：multi-agent trace", html)
-        self.assertIn("按 trace.json 记录顺序展示", html)
+        self.assertIn("Multi-Agent Runtime", html)
+        self.assertIn("Single-Agent Runtime", html)
+        self.assertLess(html.index("Multi-Agent Runtime"), html.index("Single-Agent Runtime"))
         self.assertIn("1. 上下文组装", html)
         self.assertIn("3. 动作解析", html)
         self.assertIn("tool: git_diff", html)
-        self.assertIn("红色表示失败", html)
+        self.assertIn("failed", html)
         self.assertNotIn(" · ", html)
 
-    def test_ui_labels_separate_run_evidence_from_operations(self):
+    def test_ui_surfaces_runtime_control_and_feedback_operations(self):
         from agent_forge.ui import INDEX_HTML
 
-        self.assertIn("证据审阅路径", INDEX_HTML)
-        self.assertIn("真实运行操作", INDEX_HTML)
-        self.assertIn("Single vs Multi 对比", INDEX_HTML)
-        self.assertIn("成本与工具效率", INDEX_HTML)
-        self.assertIn("执行时间线", INDEX_HTML)
-        self.assertIn("显示操作面板", INDEX_HTML)
-        self.assertIn("专注展示", INDEX_HTML)
-        self.assertIn("显示状态栏", INDEX_HTML)
+        self.assertIn("NanoHarness Evidence Console", INDEX_HTML)
+        self.assertIn("Runtime Controls", INDEX_HTML)
+        self.assertIn("Orchestration", INDEX_HTML)
+        self.assertIn("Evaluation", INDEX_HTML)
+        self.assertIn("Feedback Loop", INDEX_HTML)
+        self.assertIn('id="executionMode"', INDEX_HTML)
+        self.assertIn('id="networkPolicy"', INDEX_HTML)
+        self.assertIn('id="toolRouting"', INDEX_HTML)
+        self.assertIn('id="feedbackOutcome"', INDEX_HTML)
+
+    def test_ui_feedback_and_dataset_actions_target_latest_evidence(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            run_dir = root / ".agent_forge" / "runs" / "run-1"
+            run_dir.mkdir(parents=True)
+            (run_dir / "trace.json").write_text('{"events": []}', encoding="utf-8")
+            latest = root / ".agent_forge" / "latest"
+            latest.mkdir(parents=True)
+            (latest / "run.txt").write_text(str(run_dir), encoding="utf-8")
+
+            feedback = _action_to_command(
+                "feedback",
+                {
+                    "feedbackOutcome": "needs_work",
+                    "feedbackLabels": "validation-gap, tool-routing",
+                    "feedbackNote": "candidate patch lacks official evaluation",
+                },
+                project_dir=root,
+            )
+            export = _action_to_command(
+                "export_dataset",
+                {"requireFeedback": True},
+                project_dir=root,
+            )
+
+        self.assertIn(str(run_dir / "trace.json"), feedback.command)
+        self.assertEqual(feedback.command.count("--label"), 2)
+        self.assertIn("--note", feedback.command)
+        self.assertIn(str(run_dir), export.command)
+        self.assertIn("--require-feedback", export.command)
+        self.assertNotIn("--include-patch", export.command)
 
     def test_latest_run_prefers_existing_swebench_over_verify_pointer(self):
         with tempfile.TemporaryDirectory() as tmp:

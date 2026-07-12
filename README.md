@@ -93,10 +93,13 @@ Open the local workbench:
 forge ui
 ```
 
-The workbench exposes real run parameters: task, provider, model, API endpoint,
-step budget, context budget, approval mode, output folder, Skills, and optional
-MCP-style tools. It renders result summary, usage, context budget, tool
-efficiency, trace timeline, safety boundaries, and run evidence.
+The local **NanoHarness Evidence Console** exposes real run controls for model,
+budget, approval, tool routing, network policy, execution isolation, Skills,
+MCP tools, sequential roles, and live fanout. Its evidence views render artifact
+content in place, show Multi and Single traces together, separate candidate,
+runtime-verifier, official-evaluation, and human-feedback claims, and provide
+real feedback/dataset-export actions. Paths remain available as provenance; they
+are not the primary presentation surface.
 
 ## Core Commands
 

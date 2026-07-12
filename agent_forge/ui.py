@@ -158,7 +158,7 @@ class ForgeUiHandler(BaseHTTPRequestHandler):
         payload = self._read_json()
         action = str(payload.get("action") or "")
         try:
-            command = _action_to_command(action, payload)
+            command = _action_to_command(action, payload, project_dir=self.state.project_dir)
         except ValueError as exc:
             self._send_json({"error": str(exc)}, HTTPStatus.BAD_REQUEST)
             return
@@ -176,7 +176,9 @@ class ForgeUiHandler(BaseHTTPRequestHandler):
         return {
             "project_dir": str(self.state.project_dir),
             "python": sys.version.split()[0],
+            "latest_run": str(_latest_run_dir(self.state.project_dir) or ""),
             "latest_report": _latest_report_path(self.state.project_dir),
+            "feedback": _latest_feedback_outcome(self.state.project_dir),
             "jobs": [_job_to_dict(job) for job in self.state.latest_jobs()],
         }
 
@@ -249,7 +251,12 @@ def _find_project_dir(start: Path) -> Path:
     return current
 
 
-def _action_to_command(action: str, payload: dict[str, Any]) -> UiCommand:
+def _action_to_command(
+    action: str,
+    payload: dict[str, Any],
+    *,
+    project_dir: Path | None = None,
+) -> UiCommand:
     """Translate browser form settings into a bounded command.
 
     This is the key product boundary for the page UI. The browser can configure
@@ -272,6 +279,53 @@ def _action_to_command(action: str, payload: dict[str, Any]) -> UiCommand:
         return UiCommand("Latest Report", [python, "-m", "agent_forge", "report", "latest"])
     if action == "replay":
         return UiCommand("Latest Replay", [python, "-m", "agent_forge", "replay", "latest"])
+    if action == "feedback":
+        if project_dir is None:
+            raise ValueError("project directory is required for feedback")
+        trace_path = _latest_trace_path(project_dir)
+        if trace_path is None:
+            raise ValueError("no trace artifact is available for feedback")
+        outcome = _payload_choice(
+            payload,
+            "feedbackOutcome",
+            {"accepted", "needs_work", "rejected"},
+            "needs_work",
+        )
+        command = [
+            python,
+            "-m",
+            "agent_forge",
+            "eval",
+            "feedback",
+            str(trace_path),
+            "--outcome",
+            outcome,
+            "--reviewer",
+            "workbench",
+        ]
+        for label in _payload_csv(payload, "feedbackLabels"):
+            command.extend(["--label", label])
+        _append_optional(command, "--note", _payload_text(payload, "feedbackNote", ""))
+        return UiCommand("Record Human Feedback", command, command[:])
+    if action == "export_dataset":
+        if project_dir is None:
+            raise ValueError("project directory is required for dataset export")
+        run_dir = _latest_run_dir(project_dir)
+        if run_dir is None:
+            raise ValueError("no run artifact is available for dataset export")
+        command = [
+            python,
+            "-m",
+            "agent_forge",
+            "eval",
+            "export-dataset",
+            str(run_dir),
+            "--output",
+            ".agent_forge/evaluation/evidence_dataset.jsonl",
+        ]
+        if _payload_bool(payload, "requireFeedback", True):
+            command.append("--require-feedback")
+        return UiCommand("Export Evidence Dataset", command, command[:])
     raise ValueError(f"unsupported action: {action}")
 
 
@@ -299,6 +353,17 @@ def _build_agent_run_command(python: str, payload: dict[str, Any]) -> UiCommand:
             _payload_choice(payload, "approvalMode", {"trusted", "on-write", "on-risk", "locked", "dry-run"}, "trusted"),
         ]
     )
+    execution_mode = _payload_choice(
+        payload,
+        "executionMode",
+        {"local", "worktree", "container"},
+        "worktree",
+    )
+    network_policy = _payload_choice(payload, "networkPolicy", {"deny", "allow"}, "deny")
+    tool_routing = _payload_choice(payload, "toolRouting", {"task-aware", "all"}, "task-aware")
+    if not _payload_bool(payload, "autoApproveWrites", False):
+        command.append("--no-auto-approve-writes")
+    command.extend(["--network-policy", network_policy, "--tool-routing", tool_routing])
     command.extend(["--output-root", _payload_text(payload, "outputRoot", ".agent_forge/runs")])
     agent_mode = _payload_choice(payload, "runAgentMode", {"single", "multi", "fanout"}, "single")
     command.extend(["--agent-mode", agent_mode])
@@ -323,6 +388,9 @@ def _build_agent_run_command(python: str, payload: dict[str, Any]) -> UiCommand:
                 "--no-keep-worktree",
             ]
         )
+    else:
+        command.extend(["--execution-mode", execution_mode])
+        command.append("--keep-worktree" if _payload_bool(payload, "keepWorktree", False) else "--no-keep-worktree")
 
     skills = _payload_text(payload, "skills", "auto")
     if skills:
@@ -359,6 +427,17 @@ def _build_swebench_command(python: str, payload: dict[str, Any], *, regression:
     command.extend(["--max-steps", str(_payload_int(payload, "maxSteps", 40, 1, 80))])
     command.extend(["--max-context-chars", str(_payload_int(payload, "maxContextChars", 18000, 1000, 120000))])
     command.extend(["--output-root", _payload_text(payload, "outputRoot", ".agent_forge/runs")])
+    command.extend(
+        [
+            "--execution-mode",
+            _payload_choice(payload, "executionMode", {"local", "worktree", "container"}, "worktree"),
+            "--network-policy",
+            _payload_choice(payload, "networkPolicy", {"deny", "allow"}, "deny"),
+            "--tool-routing",
+            _payload_choice(payload, "toolRouting", {"task-aware", "all"}, "task-aware"),
+        ]
+    )
+    command.append("--keep-worktree" if _payload_bool(payload, "keepWorktree", False) else "--no-keep-worktree")
     agent_mode = _payload_choice(payload, "benchAgentMode", {"single", "multi", "compare"}, "compare")
     command.extend(["--agent-mode", agent_mode, "--profile", "coding_fix", "--max-revision-rounds", "2"])
     if _payload_bool(payload, "directBaseline", True):
@@ -532,6 +611,14 @@ def _render_evidence_html(project_dir: Path, kind: str) -> str:
         return _render_run_evidence(project_dir)
     if kind == "compare":
         return _render_compare_dashboard(project_dir)
+    if kind == "controls":
+        return _render_runtime_controls(project_dir)
+    if kind == "orchestration":
+        return _render_orchestration_dashboard(project_dir)
+    if kind == "evaluation":
+        return _render_evaluation_dashboard(project_dir)
+    if kind == "feedback":
+        return _render_feedback_dashboard(project_dir)
     if kind == "raw_report":
         return f"<pre class='raw-text'>{_escape(_read_latest_report(project_dir))}</pre>"
     return _empty_evidence(f"Unsupported evidence view: {kind}")
@@ -648,6 +735,108 @@ def _latest_fanout_summary_path(project_dir: Path) -> Path | None:
         return None
     candidate = run_dir / "fanout" / "fanout_summary.json"
     return candidate if candidate.exists() else None
+
+
+def _trace_paths_for_latest_run(project_dir: Path) -> list[tuple[str, Path]]:
+    """Return display traces with multi-agent first and single-agent second."""
+
+    run_dir = _latest_run_dir(project_dir)
+    if run_dir is None:
+        return []
+    direct = run_dir / "trace.json"
+    if direct.exists():
+        return [("AgentLoop", direct)]
+    traces = list(run_dir.glob("cases/**/trace.json"))
+
+    def trace_order(path: Path) -> tuple[int, float]:
+        parts = set(path.parts)
+        if "multi" in parts:
+            priority = 0
+        elif "single" in parts:
+            priority = 1
+        else:
+            priority = 2
+        return priority, -path.stat().st_mtime
+
+    ordered = sorted(traces, key=trace_order)
+    labelled: list[tuple[str, Path]] = []
+    seen_labels: set[str] = set()
+    for path in ordered:
+        scope = _trace_scope_label(path)
+        label = "Multi-Agent Runtime" if "multi" in path.parts else "Single-Agent Runtime" if "single" in path.parts else scope
+        if label in seen_labels:
+            continue
+        seen_labels.add(label)
+        labelled.append((label, path))
+    return labelled
+
+
+def _latest_feedback_path(project_dir: Path) -> Path | None:
+    """Locate feedback attached to the latest displayed trace or run."""
+
+    trace_path = _latest_trace_path(project_dir)
+    run_dir = _latest_run_dir(project_dir)
+    candidates = []
+    if trace_path is not None:
+        candidates.append(trace_path.parent / "feedback.json")
+    if run_dir is not None:
+        candidates.append(run_dir / "feedback.json")
+        candidates.extend(run_dir.glob("cases/**/feedback.json"))
+    existing = [path for path in candidates if path.exists()]
+    return max(existing, key=lambda path: path.stat().st_mtime) if existing else None
+
+
+def _latest_feedback_outcome(project_dir: Path) -> str:
+    """Return the latest human judgment without equating it to evaluation."""
+
+    feedback = _read_json_file(_latest_feedback_path(project_dir))
+    return str(feedback.get("outcome") or "unreviewed")
+
+
+def _latest_result_record(project_dir: Path) -> dict[str, Any]:
+    """Return the case result corresponding to the displayed latest run."""
+
+    run_dir = _latest_run_dir(project_dir)
+    if run_dir is None:
+        return {}
+    results = _read_json_file(run_dir / "results.json")
+    case_results = results.get("case_results") or []
+    return case_results[0] if case_results and isinstance(case_results[0], dict) else {}
+
+
+def _latest_direct_baseline_record(project_dir: Path) -> dict[str, Any]:
+    """Read the one-shot model baseline paired with the latest benchmark run."""
+
+    run_dir = _latest_run_dir(project_dir)
+    path = run_dir / "direct_baseline_predictions.jsonl" if run_dir is not None else None
+    if path is None or not path.exists():
+        return {}
+    for line in path.read_text(encoding="utf-8").splitlines():
+        if not line.strip():
+            continue
+        try:
+            record = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(record, dict):
+            return record
+    return {}
+
+
+def _event_list(trace: dict[str, Any]) -> list[dict[str, Any]]:
+    """Return only typed trace-event objects from a loose JSON boundary."""
+
+    return [event for event in trace.get("events") or [] if isinstance(event, dict)]
+
+
+def _last_event(trace: dict[str, Any], *event_types: str) -> dict[str, Any]:
+    """Return the newest trace event whose type matches one of the names."""
+
+    allowed = set(event_types)
+    for event in reversed(_event_list(trace)):
+        if str(event.get("event_type") or "") in allowed:
+            return event
+    return {}
 
 
 def _read_json_file(path: Path | None) -> dict[str, Any]:
@@ -883,63 +1072,62 @@ def _render_fanout_usage_dashboard(fanout: dict[str, Any], path: Path | None) ->
 
 
 def _render_trace_timeline(project_dir: Path) -> str:
-    """Render the latest trace as a step-by-step visual timeline."""
+    """Render multi-agent and single-agent traces in an explicit order."""
 
-    trace_path = _latest_trace_path(project_dir)
-    trace = _read_json_file(trace_path)
-    if not trace:
+    trace_entries = _trace_paths_for_latest_run(project_dir)
+    if not trace_entries:
         return _empty_evidence("No trace.json found. Run DeepSeek Agent or SWE-bench showcase first.")
-
-    grouped: dict[int, list[dict[str, Any]]] = {}
-    for event in trace.get("events") or []:
-        grouped.setdefault(int(event.get("step") or 0), []).append(event)
-
-    step_blocks = []
-    for step, events in sorted(grouped.items()):
-        pills = []
-        failures = 0
-        for index, event in enumerate(events, start=1):
-            event_type = str(event.get("event_type") or "")
-            success = bool(event.get("success", True))
-            failures += 0 if success else 1
-            label = _format_trace_event_label(index, event)
-            pills.append(f"<span class='event-pill { _event_tone(event_type, success) }'>{_escape(label)}</span>")
-        step_blocks.append(
-            "<div class='timeline-step'>"
-            f"<div class='timeline-head'><strong>Step {step}</strong>{_badge('failed events: ' + str(failures), 'bad') if failures else _badge('all events succeeded', 'ok')}</div>"
-            f"<div>{''.join(pills)}</div>"
-            "</div>"
-        )
-
-    trace_scope = _trace_scope_label(trace_path)
     body = [
-        "<h2>执行时间线：AgentLoop 每一步发生了什么</h2>",
-        f"<p class='help strong'>当前展示：{_escape(trace_scope)}。按 trace.json 记录顺序展示；从上到下是 step 顺序，同一个 step 内从左到右是事件发生顺序。</p>",
+        "<div class='view-heading'><div><span class='view-kicker'>OBSERVABILITY</span><h2>Execution Timeline</h2></div>"
+        "<span class='claim-note'>Multi first, Single second</span></div>",
         "<div class='legend-row'>"
-        "<span class='legend-item blue'>蓝色表示模型/规划</span>"
-        "<span class='legend-item purple'>紫色表示上下文/路由</span>"
-        "<span class='legend-item ok'>绿色表示工具或检查成功</span>"
-        "<span class='legend-item bad'>红色表示失败</span>"
-        "<span class='legend-item neutral'>灰色表示普通记录</span>"
+        "<span class='legend-item blue'>model / plan</span>"
+        "<span class='legend-item purple'>context / routing</span>"
+        "<span class='legend-item ok'>tool / check passed</span>"
+        "<span class='legend-item bad'>failed</span>"
+        "<span class='legend-item neutral'>state</span>"
         "</div>",
-        _metric_grid(
-            [
-                ("Run", trace.get("run_id", ""), "trace run id", "neutral"),
-                ("Source", trace_scope, "single/multi/verify 来源", "neutral"),
-                ("Stop", trace.get("stop_reason", ""), "停止原因", _tone_for_status(trace.get("stop_reason", ""))),
-                ("Events", str(len(trace.get("events") or [])), "trace 事件数", "neutral"),
-                ("Steps", str(len(grouped)), "AgentLoop 步数", "neutral"),
-            ]
-        ),
-        "<h3>Timeline</h3>",
-        "".join(step_blocks),
-        f"<p><span class='label'>trace.json</span><span class='mono'>{_escape(str(trace_path))}</span></p>",
     ]
+    for label, trace_path in trace_entries:
+        body.append(_render_trace_lane(label, trace_path))
     return "<div class='evidence'>" + "".join(body) + "</div>"
 
 
+def _render_trace_lane(label: str, trace_path: Path) -> str:
+    """Render one trace without forcing readers to open its JSON."""
+
+    trace = _read_json_file(trace_path)
+    grouped: dict[int, list[dict[str, Any]]] = {}
+    for event in _event_list(trace):
+        grouped.setdefault(int(event.get("step") or 0), []).append(event)
+    step_blocks = []
+    for step, events in sorted(grouped.items()):
+        failures = sum(1 for event in events if not bool(event.get("success", True)))
+        pills = "".join(
+            f"<span class='event-pill {_event_tone(str(event.get('event_type') or ''), bool(event.get('success', True)))}'>"
+            f"{_escape(_format_trace_event_label(index, event))}</span>"
+            for index, event in enumerate(events, start=1)
+        )
+        step_blocks.append(
+            "<div class='timeline-step'>"
+            f"<div class='timeline-head'><strong>Step {step}</strong>"
+            f"{_badge(str(failures) + ' failed', 'bad') if failures else _badge('passed', 'ok')}</div>"
+            f"<div>{pills}</div></div>"
+        )
+    events = _event_list(trace)
+    return (
+        "<section class='evidence-section timeline-lane'>"
+        f"<div class='section-title'><h3>{_escape(label)}</h3>{_badge(str(trace.get('stop_reason') or 'unknown'), _tone_for_status(str(trace.get('stop_reason') or '')))}</div>"
+        f"<div class='run-facts'><span>run <b class='mono'>{_escape(trace.get('run_id', ''))}</b></span>"
+        f"<span>{len(grouped)} steps</span><span>{len(events)} events</span></div>"
+        f"{''.join(step_blocks)}"
+        f"<details class='provenance'><summary>Trace provenance</summary><code>{_escape(str(trace_path))}</code></details>"
+        "</section>"
+    )
+
+
 def _render_run_evidence(project_dir: Path) -> str:
-    """Render a reviewer-facing path through runtime and evaluation evidence."""
+    """Render one evidence chain from task input to bounded claim."""
 
     run_dir = _latest_run_dir(project_dir)
     comparison_path = _latest_comparison_path(project_dir)
@@ -960,78 +1148,356 @@ def _render_run_evidence(project_dir: Path) -> str:
     task_id = comparison.get("task_id") or multi.get("task") or trace.get("task") or "latest local run"
     revision_rounds = comparison.get("revision_rounds", multi.get("revision_rounds", 0))
 
-    artifact_paths = [
-        ("run dir", run_dir),
-        ("comparison.json", comparison_path),
-        ("multi_agent_summary.json", multi_path),
-        ("usage.json", usage_path),
-        ("trace.json", trace_path),
-    ]
-    path_rows = "".join(
-        "<tr>"
-        f"<td>{_escape(label)}</td>"
-        f"<td class='mono'>{_escape(path if path else 'not found')}</td>"
-        "</tr>"
-        for label, path in artifact_paths
-    )
-
+    result = _latest_result_record(project_dir)
+    evaluation_status = str(result.get("evaluation_status") or "not_evaluated")
+    patch_chars = int(result.get("patch_chars") or 0)
+    feedback_outcome = _latest_feedback_outcome(project_dir)
     body = [
-        "<h2>Run Evidence｜运行证据总览</h2>",
-        "<p class='help strong'>从任务结果进入 runtime、成本、策略与失败证据；原始 JSON 保留用于回放和进一步诊断。</p>",
+        "<div class='view-heading'><div><span class='view-kicker'>RUN EVIDENCE</span><h2>Runtime Evidence Overview</h2></div>"
+        f"{_badge(evaluation_status, _tone_for_status(evaluation_status))}</div>",
         _metric_grid(
             [
-                ("Task", str(task_id)[:90], "当前审阅对象", "neutral"),
-                ("Single", str(single_status), "单 Agent 结果", _tone_for_status(str(single_status))),
-                ("Multi", str(multi_status), "多 Agent / reviewer-verifier 结果", _tone_for_status(str(multi_status))),
-                ("Revision", str(revision_rounds), "review/verifier 触发的修订轮数", "neutral"),
-                ("Cost", f"${cost:.6f}", "最新 usage 估算成本", "ok"),
-                ("Failure", str(failure), "失败归因分类", _tone_for_status(str(failure))),
+                ("Case", str(task_id)[:90], "latest evidence target", "neutral"),
+                ("Single", str(single_status), "canonical AgentLoop", _tone_for_status(str(single_status))),
+                ("Multi", str(multi_status), "coordinator outcome", _tone_for_status(str(multi_status))),
+                ("Revision", str(revision_rounds), "bounded review rounds", "neutral"),
+                ("Cost", f"${cost:.6f}", "latest measured usage", "ok"),
+                ("Failure Class", str(failure), "ordered diagnosis", _tone_for_status(str(failure))),
             ]
         ),
-        "<h3>Reviewer Path</h3>",
-        "<table><thead><tr><th>surface</th><th>evidence</th><th>claim boundary</th></tr></thead><tbody>",
-        "<tr><td>Runtime control plane</td><td>Trace Timeline + runtime modules</td><td>Policy is enforced outside the prompt.</td></tr>",
-        "<tr><td>Evaluation loop</td><td>Result Summary + Usage + Failure Taxonomy</td><td>A candidate patch is not an official resolution.</td></tr>",
-        "<tr><td>Multi-agent workflow</td><td>Role Timeline + Artifact Handoff</td><td>Sequential coordinator, not a distributed swarm.</td></tr>",
-        "<tr><td>Capability Reality Matrix</td><td class='mono'>docs/CAPABILITY_REALITY_MATRIX.md</td><td>Green, yellow, and scoped boundaries are explicit.</td></tr>",
-        "</tbody></table>",
-        "<h3>AgentLoop Runtime Flow</h3>",
-        "<div class='flow-strip'>",
-        "<span>Context</span><span>LLM Plan</span><span>ToolRouter</span><span>Sandbox / Policy</span><span>Observation</span><span>Trace / Usage</span>",
-        "</div>",
-        "<p class='help'>Runtime boundaries make permissions, budgets, retries, replay, audit, and failure attribution deterministic and inspectable.</p>",
-        "<h3>Role Timeline</h3>",
-        "<table><thead><tr><th>role</th><th>decision</th><th>steps</th><th>artifact</th><th>short evidence</th></tr></thead>"
-        f"<tbody>{_render_role_rows(multi)}</tbody></table>",
-        "<h3>Artifact Handoff Graph</h3>",
-        "<table><thead><tr><th>artifact</th><th>producer</th><th>path</th><th>why it matters</th></tr></thead>"
-        f"<tbody>{_render_artifact_rows(multi)}</tbody></table>",
-        "<h3>Single vs Multi</h3>",
-        "<table><thead><tr><th>dimension</th><th>single-agent</th><th>multi-agent coordinator</th></tr></thead>",
-        "<tbody>",
-        f"<tr><td>status</td><td>{_badge(str(single_status), _tone_for_status(str(single_status)))}</td><td>{_badge(str(multi_status), _tone_for_status(str(multi_status)))}</td></tr>",
-        f"<tr><td>patch generated</td><td>{_escape(comparison.get('single_patch_generated', '-'))}</td><td>{_escape(comparison.get('multi_patch_generated', '-'))}</td></tr>",
-        f"<tr><td>LLM calls</td><td>{_escape(comparison.get('single_llm_calls', '-'))}</td><td>{_escape(comparison.get('multi_llm_calls', summary.get('llm_calls', '-')))}</td></tr>",
-        f"<tr><td>tool calls</td><td>{_escape(comparison.get('single_tool_calls', '-'))}</td><td>{_escape(comparison.get('multi_tool_calls', summary.get('tool_calls', '-')))}</td></tr>",
-        "</tbody></table>",
-        "<p class='help'>Multi-agent is not assumed to be better. It adds reviewer/verifier control points at the cost of tokens and latency; comparison evidence decides whether that tradeoff is useful.</p>",
-        "<h3>Safety & Failure Taxonomy</h3>",
-        "<table><thead><tr><th>risk</th><th>runtime boundary</th><th>evidence</th></tr></thead>",
-        "<tbody>",
-        "<tr><td>危险命令</td><td>CommandPolicy + PermissionPolicy</td><td>高风险操作不能只靠 prompt，必须 runtime 拦截。</td></tr>",
-        "<tr><td>越权写文件</td><td>WorkspaceSandbox + protected paths</td><td>工具执行必须先过路径边界和权限策略。</td></tr>",
-        "<tr><td>死循环</td><td>max steps / budget / repeated-call checks</td><td>停止条件由 runtime 兜底，模型只能提出意图。</td></tr>",
-        "<tr><td>不可解释失败</td><td>failure taxonomy + trace replay</td><td>失败要能归因到 provider、context、tool、policy、eval。</td></tr>",
-        "</tbody></table>",
-        "<h3>Feedback-to-Evaluation Loop</h3>",
-        "<ul class='talking-list'>",
-        "<li><span class='mono'>forge eval feedback</span> records accepted, needs-work, or rejected outcomes with human labels.</li>",
-        "<li><span class='mono'>forge eval export-dataset</span> joins trace, tool policy, environment, evaluation status, failure class, and feedback into JSONL.</li>",
-        "<li>Tool arguments and observations are excluded by default; candidate patch text is opt-in and otherwise represented by size and digest.</li>",
-        "<li>The exported records support bad-case analysis and regression selection; they are evidence records, not an unsupported claim of production training data.</li>",
-        "</ul>",
-        "<h3>Artifact Paths</h3>",
-        f"<table><tbody>{path_rows}</tbody></table>",
+        "<section class='evidence-section'><div class='section-title'><h3>Runtime Pipeline</h3><span>policy outside prompt</span></div>",
+        "<div class='pipeline'>"
+        "<div><b>01</b><span>Context</span><small>selection + compression</small></div>"
+        "<div><b>02</b><span>Model</span><small>plan + tool intent</small></div>"
+        "<div><b>03</b><span>Control</span><small>routing + policy + approval</small></div>"
+        "<div><b>04</b><span>Execution</span><small>sandbox + recovery</small></div>"
+        "<div><b>05</b><span>Evidence</span><small>trace + usage + artifacts</small></div>"
+        "<div><b>06</b><span>Evaluation</span><small>diagnosis + feedback</small></div>"
+        "</div></section>",
+        "<section class='evidence-section'><div class='section-title'><h3>Claim Ladder</h3><span>strongest supported statement</span></div>",
+        "<div class='claim-ladder'>",
+        _claim_step("Candidate patch", "present" if patch_chars else "absent", f"{patch_chars} chars", "ok" if patch_chars else "neutral"),
+        _claim_step("Role verification", str(comparison.get("verifier_status") or "not_observed"), "runtime verifier, not official eval", _tone_for_status(str(comparison.get("verifier_status") or ""))),
+        _claim_step("Official evaluation", evaluation_status, "authoritative benchmark boundary", _tone_for_status(evaluation_status)),
+        _claim_step("Human feedback", feedback_outcome, "operator judgment", _tone_for_status(feedback_outcome)),
+        "</div></section>",
+        "<section class='evidence-section'><div class='section-title'><h3>Role Decisions</h3><span>artifact-mediated handoff</span></div>",
+        "<table><thead><tr><th>role</th><th>decision</th><th>round</th><th>evidence excerpt</th></tr></thead>"
+        f"<tbody>{_render_role_decision_rows(multi)}</tbody></table></section>",
+        "<section class='evidence-section'><div class='section-title'><h3>Produced Artifacts</h3><span>content first, provenance second</span></div>",
+        _render_artifact_cards(multi),
+        "</section>",
+        "<details class='provenance'><summary>Artifact provenance</summary>"
+        f"<code>{_escape(str(run_dir or 'not found'))}</code><code>{_escape(str(comparison_path or 'not found'))}</code>"
+        f"<code>{_escape(str(trace_path or 'not found'))}</code></details>",
+    ]
+    return "<div class='evidence'>" + "".join(body) + "</div>"
+
+
+def _claim_step(title: str, state: str, detail: str, tone: str) -> str:
+    """Render one rung without promoting weaker evidence into a solved claim."""
+
+    return (
+        f"<div class='claim-step {tone}'><span>{_escape(title)}</span>"
+        f"<strong>{_escape(state)}</strong><small>{_escape(detail)}</small></div>"
+    )
+
+
+def _render_role_decision_rows(summary: dict[str, Any]) -> str:
+    """Show role conclusions directly instead of artifact file names."""
+
+    rows = []
+    for result in summary.get("role_results") or []:
+        excerpt = str(result.get("final_answer") or result.get("output") or "")
+        excerpt = " ".join(excerpt.replace("#", " ").split())[:360]
+        decision = str(result.get("decision") or result.get("status") or "-")
+        rows.append(
+            "<tr>"
+            f"<td><b>{_escape(result.get('role') or result.get('name') or '-')}</b></td>"
+            f"<td>{_badge(decision, _tone_for_status(decision))}</td>"
+            f"<td>{_escape(result.get('round_index', 0))}</td>"
+            f"<td>{_escape(excerpt or '-')}</td>"
+            "</tr>"
+        )
+    return "".join(rows) or "<tr><td colspan='4'>No role decisions were observed in this run.</td></tr>"
+
+
+def _render_artifact_cards(summary: dict[str, Any]) -> str:
+    """Render artifact content and handoff semantics with paths hidden by default."""
+
+    artifacts = summary.get("artifacts") or []
+    if not isinstance(artifacts, list) or not artifacts:
+        return "<div class='empty-inline'>No multi-agent artifacts were produced in this run.</div>"
+    consumers = {
+        "Implementer": "Reviewer",
+        "Reviewer": "Coordinator + Verifier",
+        "Verifier": "Coordinator",
+        "Coordinator": "Run result",
+    }
+    cards = []
+    for artifact in artifacts:
+        if not isinstance(artifact, dict):
+            continue
+        role = str(artifact.get("role") or "Unknown")
+        path = Path(str(artifact.get("path") or ""))
+        content = ""
+        if path.exists() and path.is_file():
+            content = path.read_text(encoding="utf-8", errors="replace")
+        excerpt = " ".join((content or str(artifact.get("summary") or "")).replace("#", " ").split())[:460]
+        cards.append(
+            "<article class='artifact-card'>"
+            f"<div class='artifact-head'><div><span>{_escape(role)}</span><h4>{_escape(artifact.get('kind') or artifact.get('id') or 'artifact')}</h4></div>"
+            f"{_badge('round ' + str(artifact.get('round_index', 0)), 'neutral')}</div>"
+            f"<p>{_escape(excerpt or 'No content summary available.')}</p>"
+            f"<div class='artifact-handoff'><span>producer <b>{_escape(role)}</b></span>"
+            f"<span>consumer <b>{_escape(consumers.get(role, 'next stage'))}</b></span></div>"
+            f"<details><summary>Source</summary><code>{_escape(str(path) if path else 'not found')}</code></details>"
+            "</article>"
+        )
+    return "<div class='artifact-grid'>" + "".join(cards) + "</div>"
+
+
+def _render_runtime_controls(project_dir: Path) -> str:
+    """Render controls actually observed in the latest trace."""
+
+    trace_path = _latest_trace_path(project_dir)
+    trace = _read_json_file(trace_path)
+    if not trace:
+        return _empty_evidence("No trace evidence is available for runtime controls.")
+    events = _event_list(trace)
+    checkpoint = _last_event(trace, "task_state_checkpoint")
+    task_state_value = checkpoint.get("task_state")
+    task_state: dict[str, Any] = task_state_value if isinstance(task_state_value, dict) else {}
+    metadata_value = task_state.get("metadata")
+    metadata: dict[str, Any] = metadata_value if isinstance(metadata_value, dict) else {}
+    environment_value = metadata.get("execution_environment")
+    environment: dict[str, Any] = environment_value if isinstance(environment_value, dict) else {}
+    context_event = _last_event(trace, "context_assembly")
+    context_value = context_event.get("context")
+    context_snapshot: dict[str, Any] = context_value if isinstance(context_value, dict) else context_event
+    routing_value = context_snapshot.get("tool_routing")
+    routing: dict[str, Any] = routing_value if isinstance(routing_value, dict) else {}
+    allowed = routing.get("allowed_tools") or []
+    hidden = routing.get("dropped_tools") or routing.get("hidden_tools") or []
+    permission_events = [event for event in events if event.get("event_type") == "permission_check"]
+    decisions = {"allow": 0, "ask": 0, "deny": 0}
+    for event in permission_events:
+        permission_value = event.get("permission")
+        permission: dict[str, Any] = permission_value if isinstance(permission_value, dict) else {}
+        decision = str(
+            event.get("permission_decision")
+            or event.get("decision")
+            or permission.get("decision")
+            or ""
+        ).lower()
+        if decision in decisions:
+            decisions[decision] += 1
+    checkpoints = sum(1 for event in events if event.get("event_type") == "task_state_checkpoint")
+    human_events = sum(1 for event in events if "human" in str(event.get("event_type") or ""))
+    recovery_events = sum(1 for event in events if "recovery" in str(event.get("event_type") or ""))
+    operation_events = sum(1 for event in events if "operation" in str(event.get("event_type") or ""))
+    skill_event = _last_event(trace, "skill_selection")
+    active_skills = context_snapshot.get("active_skills") or skill_event.get("selected_skills") or skill_event.get("skills") or []
+    mcp_tools = [str(tool) for tool in allowed if "." in str(tool)]
+    mode = str(environment.get("mode") or "not_observed")
+    network = str(environment.get("network_policy") or "not_observed")
+    intervention_rows = []
+    for event in events:
+        event_type = str(event.get("event_type") or "")
+        permission_decision = str(event.get("permission_decision") or "")
+        if event_type == "permission_check" and permission_decision not in {"ask", "deny"}:
+            continue
+        if event_type not in {"permission_check", "human_approval", "recovery_decision"}:
+            continue
+        state = permission_decision or str(event.get("observation") or event.get("failure_kind") or "observed")
+        evidence = str(
+            event.get("reason")
+            or event.get("recovery_hint")
+            or event.get("observation")
+            or ""
+        )
+        intervention_rows.append(
+            "<tr>"
+            f"<td>{_escape(event.get('step', 0))}</td>"
+            f"<td>{_escape(event.get('agent_name') or '-')}</td>"
+            f"<td>{_escape(event_type)}</td>"
+            f"<td>{_badge(state, _tone_for_status(state))}</td>"
+            f"<td>{_escape(event.get('tool_call') or '-')}</td>"
+            f"<td>{_escape(evidence)}</td>"
+            "</tr>"
+        )
+    intervention_html = "".join(intervention_rows) or "<tr><td colspan='6'>No approval or recovery intervention was observed.</td></tr>"
+    body = [
+        "<div class='view-heading'><div><span class='view-kicker'>CONTROL PLANE</span><h2>Runtime Controls</h2></div>"
+        f"{_badge(mode, _tone_for_status(mode))}</div>",
+        _metric_grid(
+            [
+                ("Environment", mode, "local / worktree / container", "neutral"),
+                ("Network", network, "execution boundary", "ok" if network == "deny" else "warn"),
+                ("Tool Surface", f"{len(allowed)} visible", f"{len(hidden)} hidden", "neutral"),
+                ("Permissions", f"{decisions['allow']} / {decisions['ask']} / {decisions['deny']}", "allow / ask / deny", "neutral"),
+                ("Checkpoints", str(checkpoints), "durable task state", "ok" if checkpoints else "neutral"),
+                ("HITL / Recovery", f"{human_events} / {recovery_events}", "observed trace events", "neutral"),
+            ]
+        ),
+        "<section class='evidence-section'><div class='section-title'><h3>Enforced Boundaries</h3><span>observed, not inferred</span></div>",
+        "<table><thead><tr><th>control</th><th>latest evidence</th><th>runtime owner</th></tr></thead><tbody>",
+        f"<tr><td>Execution isolation</td><td>{_escape(environment.get('active_workspace') or mode)}</td><td>ExecutionEnvironment</td></tr>",
+        f"<tr><td>Network policy</td><td>{_escape(network)}</td><td>ExecutionEnvironment + CommandPolicy</td></tr>",
+        f"<tr><td>Workspace writes</td><td>{_escape(context_snapshot.get('permission_summary') or 'not observed')}</td><td>WorkspaceSandbox + PermissionPolicy</td></tr>",
+        f"<tr><td>Tool visibility</td><td>{_escape(', '.join(str(item) for item in allowed) or 'not observed')}</td><td>ToolRouter</td></tr>",
+        f"<tr><td>Hidden tools</td><td>{_escape(', '.join(str(item) for item in hidden) or 'none observed')}</td><td>ToolRouter</td></tr>",
+        f"<tr><td>Skill injection</td><td>{_escape(active_skills or 'not observed')}</td><td>SkillRegistry + ContextStrategy</td></tr>",
+        f"<tr><td>MCP exposure</td><td>{_escape(', '.join(mcp_tools) or 'none observed')}</td><td>MCP adapter + ToolRegistry</td></tr>",
+        f"<tr><td>Human control barrier</td><td>{human_events} observed events</td><td>HumanInputStore + ApprovalStore</td></tr>",
+        f"<tr><td>Idempotent writes</td><td>{operation_events} operation events</td><td>OperationLedger</td></tr>",
+        f"<tr><td>Typed evidence contract</td><td>TraceEvent envelope + named task checkpoint</td><td>TraceRecorder + TaskCheckpoint</td></tr>",
+        "</tbody></table></section>",
+        "<section class='evidence-section'><div class='section-title'><h3>Durability & Human Control</h3><span>latest-run event coverage</span></div>",
+        "<div class='capability-strip'>"
+        f"<div><b>{checkpoints}</b><span>state checkpoints</span></div>"
+        f"<div><b>{human_events}</b><span>human-input events</span></div>"
+        f"<div><b>{recovery_events}</b><span>recovery decisions</span></div>"
+        f"<div><b>{len(permission_events)}</b><span>permission checks</span></div>"
+        "</div><p class='boundary-note'>Zero means the capability was not exercised by this run; it does not fabricate a pass.</p></section>",
+        "<section class='evidence-section'><div class='section-title'><h3>Interventions</h3><span>approval and recovery evidence</span></div>"
+        "<table><thead><tr><th>step</th><th>agent</th><th>event</th><th>state</th><th>tool</th><th>evidence</th></tr></thead>"
+        f"<tbody>{intervention_html}</tbody></table></section>",
+        f"<details class='provenance'><summary>Control provenance</summary><code>{_escape(str(trace_path))}</code></details>",
+    ]
+    return "<div class='evidence'>" + "".join(body) + "</div>"
+
+
+def _render_orchestration_dashboard(project_dir: Path) -> str:
+    """Render sequential roles or live fanout without conflating the two."""
+
+    fanout_path = _latest_fanout_summary_path(project_dir)
+    fanout = _read_json_file(fanout_path)
+    if fanout:
+        return _render_fanout_result_summary(fanout, fanout_path)
+    summary_path = _latest_multi_agent_summary_path(project_dir)
+    summary = _read_json_file(summary_path)
+    if not summary:
+        return _empty_evidence("No orchestration artifact is available in the latest run.")
+    decisions = summary.get("role_results") or []
+    body = [
+        "<div class='view-heading'><div><span class='view-kicker'>ORCHESTRATION</span><h2>Multi-Agent Coordination</h2></div>"
+        f"{_badge(str(summary.get('status') or 'unknown'), _tone_for_status(str(summary.get('status') or '')))}</div>",
+        _metric_grid(
+            [
+                ("Mode", "sequential roles", "artifact-mediated", "neutral"),
+                ("Roles", str(len(decisions)), "implement / review / verify", "neutral"),
+                ("Revisions", str(summary.get("revision_rounds", 0)), "bounded loop", "neutral"),
+                ("Artifacts", str(len(summary.get("artifacts") or [])), "explicit handoffs", "ok"),
+            ]
+        ),
+        "<section class='evidence-section'><div class='section-title'><h3>Coordination Graph</h3><span>sequential path</span></div>"
+        "<div class='coordination-graph'><div><b>Implementer</b><span>candidate + evidence</span></div>"
+        "<i>artifact</i><div><b>Reviewer</b><span>risk + revision decision</span></div>"
+        "<i>artifact</i><div><b>Verifier</b><span>independent validation</span></div>"
+        "<i>verdict</i><div><b>Coordinator</b><span>finish or revise</span></div></div></section>",
+        "<section class='evidence-section'><div class='section-title'><h3>Role Outcomes</h3><span>decisions and evidence</span></div>"
+        "<table><thead><tr><th>role</th><th>decision</th><th>round</th><th>evidence excerpt</th></tr></thead>"
+        f"<tbody>{_render_role_decision_rows(summary)}</tbody></table></section>",
+        "<section class='evidence-section'><div class='section-title'><h3>Artifact Handoffs</h3><span>content visible in place</span></div>"
+        f"{_render_artifact_cards(summary)}</section>",
+        "<section class='evidence-section'><div class='section-title'><h3>Execution Models</h3><span>support is distinct from latest-run evidence</span></div>"
+        "<table><thead><tr><th>mode</th><th>latest run</th><th>runtime contract</th></tr></thead><tbody>"
+        "<tr><td>Single Agent</td><td>observed in paired comparison</td><td>canonical AgentLoop, lowest coordination overhead</td></tr>"
+        "<tr><td>Sequential Multi-Agent</td><td>observed</td><td>role isolation, artifact handoff, bounded revision</td></tr>"
+        "<tr><td>Live Fanout</td><td>supported, not exercised by this run</td><td>validated DAG, worktree workers, scope gate, deterministic merge, isolated finalizer, selective recovery</td></tr>"
+        "</tbody></table></section>",
+        f"<details class='provenance'><summary>Orchestration provenance</summary><code>{_escape(str(summary_path))}</code></details>",
+    ]
+    return "<div class='evidence'>" + "".join(body) + "</div>"
+
+
+def _render_evaluation_dashboard(project_dir: Path) -> str:
+    """Render evaluation claims, comparison, and failure diagnosis together."""
+
+    result = _latest_result_record(project_dir)
+    comparison = _read_json_file(_latest_comparison_path(project_dir))
+    direct_baseline = _latest_direct_baseline_record(project_dir)
+    baseline_patch = str(direct_baseline.get("model_patch") or "")
+    evaluation_status = str(result.get("evaluation_status") or "not_evaluated")
+    diagnosis = str(result.get("diagnosis") or "No diagnosis artifact was found.")
+    evidence = result.get("diagnosis_evidence") or []
+    next_actions = result.get("next_actions") or []
+    body = [
+        "<div class='view-heading'><div><span class='view-kicker'>EVALUATION</span><h2>Evidence & Claim Boundary</h2></div>"
+        f"{_badge(evaluation_status, _tone_for_status(evaluation_status))}</div>",
+        _metric_grid(
+            [
+                ("Result", str(result.get("status") or "unknown"), "agent outcome", _tone_for_status(str(result.get("status") or ""))),
+                ("Failure Class", str(result.get("failure_class") or "unclassified"), "ordered taxonomy", _tone_for_status(str(result.get("failure_class") or ""))),
+                ("Patch", str(result.get("patch_chars") or 0), "candidate characters", "ok" if result.get("patch_chars") else "neutral"),
+                ("Official Eval", evaluation_status, "benchmark authority", _tone_for_status(evaluation_status)),
+                ("Verifier", str(comparison.get("verifier_status") or "not_observed"), "runtime role", _tone_for_status(str(comparison.get("verifier_status") or ""))),
+                ("Direct Baseline", str(len(baseline_patch)) if direct_baseline else "not_run", "one-shot patch chars", "neutral"),
+            ]
+        ),
+        "<section class='evidence-section'><div class='section-title'><h3>Diagnosis</h3><span>why this status occurred</span></div>"
+        f"<p class='diagnosis'>{_escape(diagnosis)}</p>"
+        f"<div class='evidence-list'>{''.join(f'<span>{_escape(item)}</span>' for item in evidence)}</div></section>",
+        "<section class='evidence-section'><div class='section-title'><h3>Next Evidence</h3><span>required before stronger claims</span></div>"
+        f"<ol class='next-actions'>{''.join(f'<li>{_escape(item)}</li>' for item in next_actions) or '<li>No next action recorded.</li>'}</ol></section>",
+        "<section class='evidence-section'><div class='section-title'><h3>Matched Comparison</h3><span>same task, different runtime design</span></div>"
+        "<table><thead><tr><th>metric</th><th>single</th><th>multi</th></tr></thead><tbody>"
+        f"<tr><td>status</td><td>{_escape(comparison.get('single_status', '-'))}</td><td>{_escape(comparison.get('multi_status', '-'))}</td></tr>"
+        f"<tr><td>LLM calls</td><td>{_escape(comparison.get('single_llm_calls', '-'))}</td><td>{_escape(comparison.get('multi_llm_calls', '-'))}</td></tr>"
+        f"<tr><td>tool calls</td><td>{_escape(comparison.get('single_tool_calls', '-'))}</td><td>{_escape(comparison.get('multi_tool_calls', '-'))}</td></tr>"
+        f"<tr><td>cost</td><td>{_format_optional_cost(comparison.get('single_cost_usd'))}</td><td>{_format_optional_cost(comparison.get('multi_cost_usd'))}</td></tr>"
+        f"<tr><td>patch generated</td><td>{_escape(comparison.get('single_patch_generated', '-'))}</td><td>{_escape(comparison.get('multi_patch_generated', '-'))}</td></tr>"
+        "</tbody></table>"
+        f"<p class='boundary-note'>{_escape(comparison.get('recommendation') or 'No comparison recommendation was recorded.')}</p></section>",
+        "<section class='evidence-section'><div class='section-title'><h3>Harness vs Direct Model</h3><span>one-shot baseline boundary</span></div>"
+        "<table><thead><tr><th>surface</th><th>direct model</th><th>governed runtime</th></tr></thead><tbody>"
+        f"<tr><td>candidate patch</td><td>{len(baseline_patch) if direct_baseline else 'not run'} chars</td><td>{_escape(result.get('patch_chars') or 0)} chars</td></tr>"
+        "<tr><td>tool execution</td><td>none</td><td>routed, policy checked, traced</td></tr>"
+        "<tr><td>validation evidence</td><td>not collected by one-shot baseline</td><td>tool observations + verifier artifacts</td></tr>"
+        "<tr><td>claim</td><td>candidate text only</td><td>candidate plus bounded runtime evidence</td></tr>"
+        "</tbody></table><p class='boundary-note'>Patch length is not quality. Official evaluation remains the common authority for both variants.</p></section>",
+    ]
+    return "<div class='evidence'>" + "".join(body) + "</div>"
+
+
+def _render_feedback_dashboard(project_dir: Path) -> str:
+    """Render the real human-feedback and privacy-conscious export state."""
+
+    feedback_path = _latest_feedback_path(project_dir)
+    feedback = _read_json_file(feedback_path)
+    dataset_path = project_dir / ".agent_forge/evaluation/evidence_dataset.jsonl"
+    records = 0
+    if dataset_path.exists():
+        records = sum(1 for line in dataset_path.read_text(encoding="utf-8").splitlines() if line.strip())
+    outcome = str(feedback.get("outcome") or "unreviewed")
+    body = [
+        "<div class='view-heading'><div><span class='view-kicker'>IMPROVEMENT LOOP</span><h2>Feedback & Dataset</h2></div>"
+        f"{_badge(outcome, _tone_for_status(outcome))}</div>",
+        _metric_grid(
+            [
+                ("Human Outcome", outcome, "operator label", _tone_for_status(outcome)),
+                ("Labels", str(len(feedback.get("labels") or [])), "curation metadata", "neutral"),
+                ("Dataset Records", str(records), "safe JSONL projection", "neutral"),
+                ("Patch Content", "excluded", "default export", "ok"),
+            ]
+        ),
+        "<section class='evidence-section'><div class='section-title'><h3>Latest Human Judgment</h3><span>not benchmark authority</span></div>"
+        "<table><tbody>"
+        f"<tr><td>outcome</td><td>{_escape(outcome)}</td></tr>"
+        f"<tr><td>labels</td><td>{_escape(', '.join(str(item) for item in feedback.get('labels') or []) or '-')}</td></tr>"
+        f"<tr><td>note</td><td>{_escape(feedback.get('note') or '-')}</td></tr>"
+        f"<tr><td>reviewer</td><td>{_escape(feedback.get('reviewer') or '-')}</td></tr>"
+        "</tbody></table></section>",
+        "<section class='evidence-section'><div class='section-title'><h3>Export Contract</h3><span>privacy-conscious by default</span></div>"
+        "<table><thead><tr><th>included</th><th>excluded by default</th><th>provenance</th></tr></thead><tbody>"
+        "<tr><td>task, stop reason, failure class, eval status</td><td>raw tool arguments and observations</td><td>trace path</td></tr>"
+        "<tr><td>selected context files, tool sequence, policy</td><td>candidate patch text</td><td>artifact-relative paths</td></tr>"
+        "<tr><td>environment, patch size + SHA-256, feedback</td><td>provider secrets</td><td>schema version</td></tr>"
+        "</tbody></table>"
+        "<p class='boundary-note'>Exported records are curation inputs for bad-case analysis and regression selection, not automatically production training data.</p></section>",
+        f"<details class='provenance'><summary>Feedback provenance</summary><code>{_escape(str(feedback_path or 'not found'))}</code>"
+        f"<code>{_escape(str(dataset_path))}</code></details>",
     ]
     return "<div class='evidence'>" + "".join(body) + "</div>"
 
@@ -1111,26 +1577,22 @@ def _render_compare_dashboard(project_dir: Path) -> str:
         "</tbody></table>",
         "</div>",
         "</div>",
-        "<h3>How To Interpret This Comparison</h3>",
-        "<ul class='talking-list'>",
-        "<li>不要假设 multi-agent 一定更强；它增加 reviewer/verifier 控制点，用更高成本换取更强的可审计性。</li>",
-        "<li>同一个 AgentLoop 被复用，multi-agent 的价值在 coordinator、role spec、artifact handoff 和 revision budget。</li>",
-        "<li>如果 single 也能生成 patch，就如实说：这个 case 上 single 更便宜；multi 的价值是降低高风险任务的未审查输出概率。</li>",
-        "<li>如果要上线，需要继续看 official evaluation、badcase taxonomy 和成本收益，而不是只看 patch_generated。</li>",
-        "</ul>",
-        "<h3>Reviewer / Verifier Evidence</h3>",
+        "<h3>Engineering Decision</h3>",
+        f"<p class='diagnosis'>{_escape(recommendation)}</p>",
+        "<p class='boundary-note'>Multi-agent adds explicit review and verification control points. Whether that trade is useful is decided by matched cost, failure, and evaluation evidence.</p>",
+        "<h3>Reviewer / Verifier Decision</h3>",
         "<table><tbody>",
         f"<tr><td>verifier status</td><td>{_escape(verifier_status)}</td></tr>",
         f"<tr><td>reviewer findings</td><td>{reviewer_text}</td></tr>",
         f"<tr><td>recommendation</td><td>{_escape(recommendation)}</td></tr>",
         "</tbody></table>",
-        "<h3>Artifact Paths</h3>",
-        "<table><tbody>",
-        f"<tr><td>run dir</td><td class='mono'>{_escape(str(run_dir or 'not found'))}</td></tr>",
-        f"<tr><td>comparison.json</td><td class='mono'>{_escape(str(comparison_path or 'not found'))}</td></tr>",
-        f"<tr><td>multi_agent_summary.json</td><td class='mono'>{_escape(str(multi_path or 'not found'))}</td></tr>",
-        f"<tr><td>usage.json</td><td class='mono'>{_escape(str(usage_path or 'not found'))}</td></tr>",
-        "</tbody></table>",
+        "<h3>Produced Artifacts</h3>",
+        _render_artifact_cards(multi),
+        "<details class='provenance'><summary>Artifact provenance</summary>"
+        f"<code>{_escape(str(run_dir or 'not found'))}</code>"
+        f"<code>{_escape(str(comparison_path or 'not found'))}</code>"
+        f"<code>{_escape(str(multi_path or 'not found'))}</code>"
+        f"<code>{_escape(str(usage_path or 'not found'))}</code></details>",
     ]
     return "<div class='evidence'>" + "".join(body) + "</div>"
 
@@ -1346,7 +1808,8 @@ INDEX_HTML = r"""<!doctype html>
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Agent Forge</title>
+  <title>NanoHarness Evidence Console</title>
+  <link rel="icon" href="data:," />
   <style>
     :root {
       --bg: #f5f5f7;
@@ -1878,62 +2341,224 @@ INDEX_HTML = r"""<!doctype html>
       .status { grid-template-columns: 1fr; }
       .metric-grid, .split, .form-grid, .form-row, .quick-tasks, .flow-strip, .lane-grid, .mini-flow, .action-grid { grid-template-columns: 1fr; }
     }
+
+    /* Evidence console v2: dense operational surface, not a marketing page. */
+    :root {
+      --bg: #eef1f4;
+      --surface: #ffffff;
+      --panel: #ffffff;
+      --panel-2: #f6f7f9;
+      --panel-3: #fafbfc;
+      --text: #17191d;
+      --muted: #66707d;
+      --line: #d9dee5;
+      --accent: #1769e0;
+      --accent-strong: #1157bb;
+      --blue: #1769e0;
+      --purple: #6d4bd1;
+      --yellow: #9a6200;
+      --red: #b4232f;
+      --green: #16794a;
+    }
+    body { background: var(--bg); }
+    header {
+      min-height: 64px;
+      padding: 0 20px;
+      background: #15181d;
+      color: #fff;
+      border: 0;
+      backdrop-filter: none;
+      box-shadow: none;
+    }
+    .brand-lockup { display: flex; align-items: center; gap: 12px; min-width: 0; }
+    .brand-mark {
+      display: grid; place-items: center; width: 34px; height: 34px;
+      border: 1px solid #4d5662; border-radius: 6px; color: #9ec2ff;
+      font-weight: 800; font-size: 13px;
+    }
+    header h1 { font-size: 17px; font-weight: 700; }
+    header .subtitle { color: #9fa8b4; font-size: 12px; margin: 2px 0 0; }
+    header .eyebrow { display: none; }
+    .header-actions { min-width: 0; gap: 6px; }
+    .header-actions button {
+      width: auto; padding: 7px 10px; background: transparent; color: #dbe2eb;
+      border-color: #424a55; font-size: 12px; box-shadow: none;
+    }
+    .header-actions button:hover { background: #252a31; }
+    .project-chip {
+      max-width: 290px; padding: 7px 9px; border-color: #424a55;
+      background: #20242a; color: #aeb8c4; white-space: nowrap;
+      overflow: hidden; text-overflow: ellipsis;
+    }
+    main { grid-template-columns: 340px minmax(0, 1fr); max-width: none; min-height: calc(100vh - 64px); }
+    aside {
+      width: 340px; padding: 14px; background: #f7f8fa;
+      border-right: 1px solid var(--line); overflow-y: auto; max-height: calc(100vh - 64px);
+    }
+    body.sidebar-collapsed main { grid-template-columns: minmax(0, 1fr); }
+    body.sidebar-collapsed aside { display: none; }
+    section { padding: 0 24px 32px; min-width: 0; }
+    aside .card { padding: 14px 0 18px; margin: 0; border: 0; border-bottom: 1px solid var(--line); background: transparent; box-shadow: none; }
+    aside .card:last-child { border-bottom: 0; }
+    aside h2 { font-size: 14px; margin: 0 0 12px; }
+    .section-kicker, .view-kicker {
+      display: block; color: #687587; font-size: 10px; font-weight: 800;
+      letter-spacing: 0; text-transform: uppercase; margin-bottom: 4px;
+    }
+    label { margin: 10px 0 5px; color: #4d5867; font-size: 11px; font-weight: 700; }
+    input, select, textarea {
+      min-height: 34px; padding: 7px 9px; border: 1px solid #cfd5dd;
+      border-radius: 5px; background: #fff; font-size: 12px; color: var(--text);
+      box-shadow: none;
+    }
+    textarea { min-height: 92px; resize: vertical; }
+    button { border-radius: 5px; box-shadow: none; font-size: 12px; min-height: 34px; }
+    button.primary { background: var(--accent); color: #fff; border-color: var(--accent); }
+    button.secondary { background: #fff; color: #303845; border-color: #cfd5dd; }
+    .checkbox-line { padding: 8px 0; gap: 7px; font-size: 11px; color: #536070; }
+    .checkbox-line input { min-height: 0; }
+    details { border-radius: 5px; }
+    details summary { cursor: pointer; font-size: 12px; font-weight: 700; }
+    .status {
+      position: sticky; top: 64px; z-index: 8; display: grid;
+      grid-template-columns: 110px minmax(220px, 1fr) 160px minmax(160px, .7fr);
+      gap: 0; margin: 0 -24px; padding: 0 24px; background: #fff;
+      border-bottom: 1px solid var(--line);
+    }
+    .status .pill { border: 0; border-right: 1px solid var(--line); border-radius: 0; padding: 10px 14px; background: transparent; }
+    .status .pill:first-child { border-left: 1px solid var(--line); }
+    .pill .k { color: #768191; font-size: 9px; text-transform: uppercase; font-weight: 800; }
+    .pill .v { margin-top: 2px; font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .view-tabs {
+      position: sticky; top: 110px; z-index: 7; display: flex; flex-wrap: nowrap;
+      gap: 0; margin: 0 -24px 20px; padding: 0 24px; overflow-x: auto;
+      background: #fff; border-bottom: 1px solid var(--line); backdrop-filter: none;
+    }
+    body.status-collapsed .view-tabs { top: 64px; }
+    .view-tabs button {
+      flex: 0 0 auto; width: auto; min-height: 42px; margin: 0; padding: 0 13px;
+      color: #5a6573; background: transparent; border: 0; border-bottom: 2px solid transparent;
+      border-radius: 0; font-weight: 650;
+    }
+    .view-tabs button.active { color: var(--accent-strong); background: transparent; border-bottom-color: var(--accent); }
+    .view-tabs .utility { margin-left: auto; color: #6c7785; }
+    .output { min-height: 620px; padding: 0; background: transparent; border: 0; border-radius: 0; box-shadow: none; }
+    .evidence { max-width: 1320px; margin: 0 auto; }
+    .evidence h2 { margin: 0; font-size: 22px; }
+    .evidence h3 { margin: 0; font-size: 15px; }
+    .evidence h4 { margin: 3px 0 0; font-size: 14px; }
+    .view-heading, .section-title {
+      display: flex; align-items: flex-start; justify-content: space-between; gap: 16px;
+    }
+    .view-heading { padding: 4px 0 18px; border-bottom: 1px solid #cfd5dd; }
+    .section-title { align-items: center; margin-bottom: 14px; }
+    .section-title > span, .claim-note { color: var(--muted); font-size: 11px; }
+    .evidence-section { padding: 22px 0; border-bottom: 1px solid var(--line); }
+    .metric-grid { grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 1px; margin: 0; background: var(--line); border-bottom: 1px solid var(--line); }
+    .metric { min-height: 96px; padding: 15px; border: 0; border-radius: 0; background: #fff; }
+    .metric .metric-value { font-size: 17px; overflow-wrap: anywhere; }
+    .metric .metric-label { font-size: 10px; text-transform: uppercase; }
+    .metric .metric-help { font-size: 10px; }
+    table { display: table; width: 100%; table-layout: fixed; border-collapse: collapse; background: #fff; border: 1px solid var(--line); }
+    th, td { padding: 10px 12px; border-bottom: 1px solid var(--line); overflow-wrap: anywhere; vertical-align: top; font-size: 12px; }
+    th { background: #f4f6f8; color: #647081; font-size: 10px; text-transform: uppercase; }
+    .pipeline { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); border: 1px solid var(--line); background: #fff; }
+    .pipeline > div { min-height: 92px; padding: 13px; border-right: 1px solid var(--line); }
+    .pipeline > div:last-child { border-right: 0; }
+    .pipeline b { display: block; color: #9aa3af; font-size: 10px; }
+    .pipeline span { display: block; margin: 10px 0 4px; font-weight: 750; font-size: 13px; }
+    .pipeline small { color: var(--muted); font-size: 10px; }
+    .claim-ladder { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
+    .claim-step { min-height: 96px; padding: 14px; border: 1px solid var(--line); border-top: 3px solid #8b95a3; background: #fff; border-radius: 5px; }
+    .claim-step.ok { border-top-color: var(--green); }
+    .claim-step.warn { border-top-color: #c17b00; }
+    .claim-step.bad { border-top-color: var(--red); }
+    .claim-step span, .claim-step small { display: block; color: var(--muted); font-size: 10px; }
+    .claim-step strong { display: block; margin: 10px 0 4px; font-size: 14px; overflow-wrap: anywhere; }
+    .artifact-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+    .artifact-card { padding: 15px; border: 1px solid var(--line); border-radius: 6px; background: #fff; }
+    .artifact-head { display: flex; justify-content: space-between; gap: 12px; }
+    .artifact-head span { color: var(--purple); font-size: 10px; font-weight: 800; text-transform: uppercase; }
+    .artifact-card p { min-height: 74px; color: #3e4753; font-size: 12px; line-height: 1.55; }
+    .artifact-handoff { display: flex; gap: 18px; padding-top: 10px; border-top: 1px solid var(--line); color: var(--muted); font-size: 10px; }
+    .artifact-card details { margin-top: 10px; padding: 0; border: 0; }
+    .artifact-card code, .provenance code { display: block; margin-top: 7px; color: #66707d; overflow-wrap: anywhere; white-space: normal; font-size: 10px; }
+    .provenance { margin-top: 16px; padding: 11px 13px; border: 1px solid var(--line); background: #f7f8fa; }
+    .capability-strip { display: grid; grid-template-columns: repeat(4, 1fr); border: 1px solid var(--line); background: #fff; }
+    .capability-strip div { padding: 16px; border-right: 1px solid var(--line); }
+    .capability-strip div:last-child { border: 0; }
+    .capability-strip b, .capability-strip span { display: block; }
+    .capability-strip b { font-size: 21px; }
+    .capability-strip span { margin-top: 4px; color: var(--muted); font-size: 10px; }
+    .coordination-graph { display: grid; grid-template-columns: 1fr auto 1fr auto 1fr auto 1fr; align-items: center; gap: 8px; }
+    .coordination-graph > div { min-height: 78px; padding: 14px; border: 1px solid var(--line); background: #fff; border-radius: 5px; }
+    .coordination-graph b, .coordination-graph span { display: block; }
+    .coordination-graph span { margin-top: 5px; color: var(--muted); font-size: 10px; }
+    .coordination-graph i { color: #8b95a3; font-size: 9px; font-style: normal; text-transform: uppercase; }
+    .diagnosis { padding: 14px; border-left: 3px solid var(--accent); background: #f4f7fc; font-size: 13px; }
+    .boundary-note { margin: 12px 0 0; color: #596575; font-size: 11px; }
+    .evidence-list { display: flex; flex-wrap: wrap; gap: 6px; }
+    .evidence-list span { padding: 5px 8px; border: 1px solid var(--line); border-radius: 4px; background: #fff; color: #526071; font-size: 10px; }
+    .next-actions { margin: 0; padding-left: 20px; }
+    .next-actions li { padding: 4px 0; font-size: 12px; }
+    .timeline-lane { margin-bottom: 8px; }
+    .run-facts { display: flex; flex-wrap: wrap; gap: 14px; margin: 10px 0 14px; color: var(--muted); font-size: 10px; }
+    .event-pill, .legend-item { border-radius: 4px; }
+    #jobsTitle, #jobs { max-width: 1320px; margin-left: auto; margin-right: auto; }
+    .empty-inline { padding: 18px; border: 1px dashed #c7cdd5; color: var(--muted); font-size: 12px; }
+    @media (max-width: 1100px) {
+      .metric-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+      .pipeline { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+      .pipeline > div:nth-child(3) { border-right: 0; }
+      .pipeline > div:nth-child(-n+3) { border-bottom: 1px solid var(--line); }
+    }
+    @media (max-width: 900px) {
+      header { position: sticky; padding: 10px 12px; flex-direction: row; align-items: center; gap: 8px; }
+      header .subtitle, .project-chip, #statusToggle, #focusToggle { display: none; }
+      .header-actions { display: flex; }
+      main, body.sidebar-collapsed main { grid-template-columns: 1fr; }
+      aside { position: fixed; inset: 58px 0 0 0; z-index: 20; width: min(340px, 92vw); max-height: none; box-shadow: 12px 0 32px rgba(0,0,0,.15); }
+      body.sidebar-collapsed aside { display: none; }
+      section { padding: 0 12px 24px; }
+      .status { top: 58px; margin: 0 -12px; padding: 0 12px; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .status .pill:nth-child(n+3) { display: none; }
+      .view-tabs { top: 105px; margin: 0 -12px 16px; padding: 0 12px; }
+      .view-tabs .utility { margin-left: 0; }
+      .metric-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .metric { min-height: 88px; }
+      .pipeline, .claim-ladder, .artifact-grid, .capability-strip { grid-template-columns: 1fr; }
+      .pipeline > div, .capability-strip div { border-right: 0; border-bottom: 1px solid var(--line); }
+      .coordination-graph { grid-template-columns: 1fr; }
+      .coordination-graph i { text-align: center; }
+      table { display: block; overflow-x: auto; table-layout: auto; }
+      table thead, table tbody { display: table; min-width: 680px; width: 100%; table-layout: auto; }
+      th, td { overflow-wrap: normal; word-break: normal; }
+      .artifact-card p { min-height: 0; }
+      .view-heading { align-items: center; }
+    }
   </style>
 </head>
 <body class="sidebar-collapsed status-collapsed">
   <header>
-    <div>
-      <div class="eyebrow">Agent Forge Workbench</div>
-      <h1>Agent Runtime Evidence</h1>
-      <div class="subtitle">审阅真实运行、Single/Multi 对比、trace、usage、安全边界与反馈数据闭环。</div>
+    <div class="brand-lockup">
+      <div class="brand-mark">NH</div>
+      <div>
+        <h1>NanoHarness Evidence Console</h1>
+        <div class="subtitle">Runtime control, orchestration, evaluation and improvement evidence</div>
+      </div>
     </div>
     <div class="header-actions">
-      <button id="sidebarToggle" class="secondary" onclick="toggleSidebar()">显示操作面板</button>
-      <button id="statusToggle" class="secondary" onclick="toggleStatusBar()">显示状态栏</button>
-      <button id="focusToggle" class="primary" onclick="toggleFocusMode()">专注展示</button>
+      <button id="sidebarToggle" onclick="toggleSidebar()" title="Toggle run controls">Run controls</button>
+      <button id="statusToggle" onclick="toggleStatusBar()" title="Toggle run status">Status</button>
+      <button id="focusToggle" onclick="toggleFocusMode()" title="Focus evidence surface">Focus</button>
       <div class="project-chip" id="projectDir"></div>
     </div>
   </header>
   <main>
     <aside>
       <div class="card">
-        <div class="section-kicker">Recommended path</div>
-        <h2>证据审阅路径</h2>
-        <div class="help">
-          从能力边界进入真实 evidence。这里的按钮只读取已有 artifact，不启动模型或评测任务。
-        </div>
-        <div class="route-map">
-          <div class="route-step">
-            <div class="route-num">1</div>
-            <div><div class="route-title">运行证据</div><div class="route-copy">定位、能力边界和关键 artifact 入口。</div></div>
-          </div>
-          <div class="route-step">
-            <div class="route-num">2</div>
-            <div><div class="route-title">Single vs Multi 对比</div><div class="route-copy">讲清楚为什么需要 coordinator，以及成本 tradeoff。</div></div>
-          </div>
-          <div class="route-step">
-            <div class="route-num">3</div>
-            <div><div class="route-title">成本与工具效率</div><div class="route-copy">展示 token、cost、cache、context、tool failure。</div></div>
-          </div>
-          <div class="route-step">
-            <div class="route-num">4</div>
-            <div><div class="route-title">执行时间线</div><div class="route-copy">解释 AgentLoop 每一步怎么被 runtime 控制。</div></div>
-          </div>
-        </div>
-        <button class="primary" onclick="loadEvidence('evidence')">打开运行证据</button>
-        <div class="action-grid">
-          <button class="secondary" onclick="loadEvidence('compare')">Single vs Multi 对比</button>
-          <button class="secondary" onclick="loadEvidence('summary')">结果摘要</button>
-          <button class="secondary" onclick="loadEvidence('usage')">成本与工具效率</button>
-          <button class="secondary" onclick="loadEvidence('timeline')">执行时间线</button>
-        </div>
-      </div>
-      <div class="card">
-        <div class="section-kicker">Run real evidence</div>
-        <h2>真实运行操作</h2>
-        <div class="help">
-          这里才是真正启动 Agent。展示推荐先跑固定 SWE-bench reference case；日常开发再用下面的自由任务。
-        </div>
+        <div class="section-kicker">BENCHMARK RUN</div>
+        <h2>Reference Case</h2>
         <div class="form-grid">
           <div>
             <label>Provider</label>
@@ -1976,35 +2601,51 @@ INDEX_HTML = r"""<!doctype html>
             </select>
           </div>
         </div>
+        <div class="form-row">
+          <div>
+            <label>Isolation</label>
+            <select id="executionMode">
+              <option value="worktree">worktree</option>
+              <option value="local">local</option>
+              <option value="container">container</option>
+            </select>
+          </div>
+          <div>
+            <label>Network</label>
+            <select id="networkPolicy"><option value="deny">deny</option><option value="allow">allow</option></select>
+          </div>
+          <div>
+            <label>Tool Routing</label>
+            <select id="toolRouting"><option value="task-aware">task-aware</option><option value="all">all (ablation)</option></select>
+          </div>
+        </div>
+        <div class="checkbox-line"><input id="autoApproveWrites" type="checkbox" checked /><span>Auto-approve writes</span></div>
+        <div class="checkbox-line"><input id="keepWorktree" type="checkbox" /><span>Keep execution snapshot</span></div>
         <label>Agent Mode</label>
         <select id="benchAgentMode">
-          <option value="compare">推荐展示：single + multi 分别跑，再生成 comparison</option>
-          <option value="multi">只跑多 Agent：coordinator + reviewer/verifier</option>
-          <option value="single">只跑单 Agent：canonical AgentLoop</option>
+          <option value="compare">single + sequential multi</option>
+          <option value="multi">sequential multi only</option>
+          <option value="single">single AgentLoop only</option>
         </select>
         <div class="checkbox-line">
           <input id="directBaseline" type="checkbox" checked />
-          <span>同时跑 direct baseline，用来回答“为什么需要 harness 而不是只问一次模型”。</span>
+          <span>Direct model baseline</span>
         </div>
         <div class="checkbox-line">
           <input id="officialEvaluate" type="checkbox" />
-          <span>调用官方 SWE-bench 评测；需要 Docker 和 swebench 包，耗时更长。</span>
+          <span>Official SWE-bench evaluation</span>
         </div>
         <label>Official Eval Workers</label>
         <input id="maxWorkers" type="number" min="1" max="8" value="1" />
-        <button class="primary" onclick="startJob('swebench_sample')">运行固定 SWE-bench 案例</button>
+        <button class="primary" onclick="startJob('swebench_sample')">Run Reference Case</button>
         <details>
-          <summary>跑固定回归集，成本更高</summary>
-          <div class="help">
-            固定运行 5 个跨仓库 SWE-bench Lite cases，用于比较 harness 改动前后的 patch、local/official evidence、token/cost、latency 和 failure diagnosis。
-          </div>
-          <button class="secondary" onclick="startJob('swebench_regression')">运行核心回归集</button>
+          <summary>Core regression set</summary>
+          <button class="secondary" onclick="startJob('swebench_regression')">Run 5 Cases</button>
         </details>
       </div>
       <div class="card">
-        <div class="section-kicker">Daily agent task</div>
-        <h2>日常 Agent 任务</h2>
-        <div class="help">用于仓库分析、修复、局部重构和文档维护等真实任务。</div>
+        <div class="section-kicker">REPOSITORY RUN</div>
+        <h2>Agent Task</h2>
         <label>Task</label>
         <textarea id="task">检查当前仓库的 AgentLoop 调用链，给出一个小而安全的代码改进，并保留 trace 和 usage 证据。</textarea>
         <div class="quick-tasks">
@@ -2026,7 +2667,7 @@ INDEX_HTML = r"""<!doctype html>
         <label>Fanout Workers</label>
         <input id="fanoutMaxWorkers" type="number" min="1" max="8" value="4" />
         <details>
-          <summary>高级：workspace / Skill / MCP / 输出目录</summary>
+          <summary>Workspace, Skills, MCP and output</summary>
           <label>Workspace</label>
           <input id="workspace" value="." />
           <label>Skills</label>
@@ -2040,55 +2681,72 @@ INDEX_HTML = r"""<!doctype html>
           <label>Output Root</label>
           <input id="outputRoot" value=".agent_forge/runs" />
         </details>
-        <button class="primary" onclick="startJob('agent_run')">运行自定义 Agent 任务</button>
+        <button class="primary" onclick="startJob('agent_run')">Run Agent Task</button>
       </div>
       <div class="card">
-        <div class="section-kicker">Maintenance</div>
-        <h2>环境与维护</h2>
-        <div class="help">
-          Doctor 检查环境；Verify 执行本地 smoke 验证。它们与 SWE-bench 效果证据分开呈现。
-        </div>
-        <button class="secondary" onclick="startJob('doctor')">运行 Doctor 环境检查</button>
-        <button class="secondary" onclick="startJob('verify')">运行 Verify smoke check</button>
+        <div class="section-kicker">IMPROVEMENT LOOP</div>
+        <h2>Human Feedback</h2>
+        <label>Outcome</label>
+        <select id="feedbackOutcome">
+          <option value="needs_work">needs_work</option>
+          <option value="accepted">accepted</option>
+          <option value="rejected">rejected</option>
+        </select>
+        <label>Labels</label>
+        <input id="feedbackLabels" placeholder="tool-routing, validation-gap" />
+        <label>Note</label>
+        <textarea id="feedbackNote" placeholder="Evidence-grounded judgment"></textarea>
+        <button class="secondary" onclick="startJob('feedback')">Record Feedback</button>
+        <div class="checkbox-line"><input id="requireFeedback" type="checkbox" checked /><span>Export reviewed runs only</span></div>
+        <button class="secondary" onclick="startJob('export_dataset')">Export Evidence Dataset</button>
+      </div>
+      <div class="card">
+        <div class="section-kicker">SYSTEM</div>
+        <h2>Environment</h2>
+        <button class="secondary" onclick="startJob('doctor')">Doctor</button>
+        <button class="secondary" onclick="startJob('verify')">Verify</button>
         <details>
-          <summary>调试时查看原始报告</summary>
-          <button class="secondary" onclick="loadEvidence('raw_report')">查看原始 report.md</button>
+          <summary>Raw report</summary>
+          <button class="secondary" onclick="loadEvidence('raw_report')">Open report.md</button>
         </details>
       </div>
     </aside>
     <section>
       <div class="status">
-        <div class="pill"><div class="k">Python</div><div class="v" id="python"></div></div>
-        <div class="pill"><div class="k">Latest Report</div><div class="v" id="latestReport"></div></div>
-        <div class="pill"><div class="k">Current View</div><div class="v" id="currentView">运行证据</div></div>
+        <div class="pill"><div class="k">Runtime</div><div class="v" id="python"></div></div>
+        <div class="pill"><div class="k">Latest Run</div><div class="v" id="latestRun"></div></div>
+        <div class="pill"><div class="k">Current View</div><div class="v" id="currentView">Overview</div></div>
         <div class="pill"><div class="k">Active Job</div><div class="v" id="activeJob">none</div></div>
       </div>
       <div class="view-tabs">
-        <button data-view="evidence" onclick="loadEvidence('evidence')">运行证据</button>
-        <button data-view="compare" onclick="loadEvidence('compare')">Single vs Multi 对比</button>
-        <button data-view="summary" onclick="loadEvidence('summary')">结果摘要</button>
-        <button data-view="usage" onclick="loadEvidence('usage')">成本与工具效率</button>
-        <button data-view="timeline" onclick="loadEvidence('timeline')">执行时间线</button>
-        <button class="ghost" onclick="toggleSidebar()">显示/隐藏操作面板</button>
-        <button class="ghost" onclick="toggleStatusBar()">显示/隐藏状态栏</button>
-        <button class="ghost" onclick="toggleFocusMode()">专注展示</button>
-        <button class="ghost" onclick="refreshStatus()">刷新状态</button>
-        <button class="ghost" onclick="clearOutput()">清空输出</button>
+        <button data-view="evidence" onclick="loadEvidence('evidence')">Overview</button>
+        <button data-view="controls" onclick="loadEvidence('controls')">Runtime Controls</button>
+        <button data-view="orchestration" onclick="loadEvidence('orchestration')">Orchestration</button>
+        <button data-view="evaluation" onclick="loadEvidence('evaluation')">Evaluation</button>
+        <button data-view="compare" onclick="loadEvidence('compare')">Single vs Multi</button>
+        <button data-view="usage" onclick="loadEvidence('usage')">Efficiency</button>
+        <button data-view="timeline" onclick="loadEvidence('timeline')">Timeline</button>
+        <button data-view="feedback" onclick="loadEvidence('feedback')">Feedback Loop</button>
+        <button class="utility" onclick="refreshStatus()" title="Refresh status">Refresh</button>
       </div>
-      <div id="output" class="output">正在加载运行证据...</div>
-      <h2 id="jobsTitle" style="font-size:16px">Recent Jobs</h2>
+      <div id="output" class="output">Loading runtime evidence...</div>
+      <h2 id="jobsTitle" style="font-size:14px">Recent Jobs</h2>
       <div id="jobs"></div>
     </section>
   </main>
   <script>
     let currentJob = null;
     const evidenceTitles = {
-      evidence: '运行证据',
-      compare: 'Single vs Multi 对比',
-      summary: '结果摘要',
-      usage: '成本与工具效率',
-      timeline: '执行时间线',
-      raw_report: '原始报告'
+      evidence: 'Overview',
+      controls: 'Runtime Controls',
+      orchestration: 'Orchestration',
+      evaluation: 'Evaluation',
+      compare: 'Single vs Multi',
+      summary: 'Result Summary',
+      usage: 'Efficiency',
+      timeline: 'Execution Timeline',
+      feedback: 'Feedback Loop',
+      raw_report: 'Raw Report'
     };
     const taskPresets = {
       repo: '阅读当前仓库结构，说明 AgentLoop、Context、ToolRouter、Skill、MCP、Trace 的主调用链，不要修改文件。',
@@ -2107,7 +2765,7 @@ INDEX_HTML = r"""<!doctype html>
       const data = await res.json();
       document.getElementById('projectDir').textContent = data.project_dir;
       document.getElementById('python').textContent = data.python;
-      document.getElementById('latestReport').textContent = data.latest_report || 'none';
+      document.getElementById('latestRun').textContent = data.latest_run || 'none';
       const jobs = document.getElementById('jobs');
       jobs.innerHTML = '';
       for (const job of data.jobs) {
@@ -2131,6 +2789,11 @@ INDEX_HTML = r"""<!doctype html>
         maxSteps: valueOf('maxSteps'),
         maxContextChars: valueOf('maxContextChars'),
         approvalMode: valueOf('approvalMode'),
+        executionMode: valueOf('executionMode'),
+        networkPolicy: valueOf('networkPolicy'),
+        toolRouting: valueOf('toolRouting'),
+        autoApproveWrites: checked('autoApproveWrites'),
+        keepWorktree: checked('keepWorktree'),
         outputRoot: valueOf('outputRoot'),
         skills: valueOf('skills'),
         skillManifests: valueOf('skillManifests'),
@@ -2144,6 +2807,10 @@ INDEX_HTML = r"""<!doctype html>
         directBaseline: checked('directBaseline'),
         officialEvaluate: checked('officialEvaluate'),
         maxWorkers: valueOf('maxWorkers'),
+        feedbackOutcome: valueOf('feedbackOutcome'),
+        feedbackLabels: valueOf('feedbackLabels'),
+        feedbackNote: valueOf('feedbackNote'),
+        requireFeedback: checked('requireFeedback'),
         limit: 1
       };
       const res = await fetch('/api/jobs', {
@@ -2237,13 +2904,13 @@ INDEX_HTML = r"""<!doctype html>
       const statusToggle = document.getElementById('statusToggle');
       const focusToggle = document.getElementById('focusToggle');
       if (sidebarToggle) {
-        sidebarToggle.textContent = sidebarHidden ? '显示操作面板' : '隐藏操作面板';
+        sidebarToggle.textContent = sidebarHidden ? 'Run controls' : 'Close controls';
       }
       if (statusToggle) {
-        statusToggle.textContent = statusHidden ? '显示状态栏' : '隐藏状态栏';
+        statusToggle.textContent = statusHidden ? 'Show status' : 'Hide status';
       }
       if (focusToggle) {
-        focusToggle.textContent = focused ? '退出专注' : '专注展示';
+        focusToggle.textContent = focused ? 'Exit focus' : 'Focus';
       }
     }
 
