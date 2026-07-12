@@ -20,6 +20,7 @@ from agent_forge.observability.usage_report import write_usage_artifacts
 from agent_forge.runtime.agent_loop import AgentLoop
 from agent_forge.runtime.config import RuntimeConfig
 from agent_forge.runtime.execution_environment import ExecutionEnvironment, ExecutionEnvironmentConfig
+from agent_forge.runtime.git_workspace import collect_workspace_diff
 from agent_forge.runtime.llm_config import resolve_llm_config
 from agent_forge.runtime.message import Message
 from agent_forge.runtime.wiring import build_llm, build_registry
@@ -734,13 +735,7 @@ def _ensure_clean_git(workspace: Path) -> None:
 def _git_diff(workspace: Path) -> str:
     """Return the candidate SWE-bench patch."""
 
-    result = subprocess.run(
-        ["git", "-C", str(workspace), "diff", "--no-ext-diff", "--binary"],
-        text=True,
-        capture_output=True,
-        check=True,
-    )
-    return result.stdout
+    return collect_workspace_diff(workspace)
 
 
 def _extract_diff(text: str) -> str:

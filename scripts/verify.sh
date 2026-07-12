@@ -59,12 +59,84 @@ echo
 
 if [ -n "${DEEPSEEK_API_KEY:-}" ]; then
   echo "== Real-model read-only smoke =="
-  "${PYTHON_BIN}" -m agent_forge run "阅读这个项目结构并说明入口，不要修改文件" \
+  SINGLE_OUTPUT="$("${PYTHON_BIN}" -m agent_forge run \
+    "只调用 read_file 一次读取 pyproject.toml，然后立即说明包入口与 Python 版本要求，不要修改文件" \
     --provider deepseek \
     --approval-mode locked \
     --max-steps "${VERIFY_REAL_MAX_STEPS:-4}" \
     --workspace . \
-    --output-root "${VERIFY_DIR}/runs"
+    --execution-mode worktree \
+    --no-keep-worktree \
+    --output-root "${VERIFY_DIR}/runs")"
+  printf '%s\n' "${SINGLE_OUTPUT}"
+  SINGLE_RUN_DIR="$(printf '%s\n' "${SINGLE_OUTPUT}" | sed -n 's/^Run directory: //p' | tail -n 1)"
+  if [ -z "${SINGLE_RUN_DIR}" ]; then
+    echo "Could not identify the single-agent run directory from this command." >&2
+    exit 1
+  fi
+  "${PYTHON_BIN}" - "${SINGLE_RUN_DIR}" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+run = Path(sys.argv[1])
+trace = json.loads((run / "trace.json").read_text(encoding="utf-8"))
+usage = json.loads((run / "usage.json").read_text(encoding="utf-8"))
+if trace.get("stop_reason") != "final_answer":
+    raise SystemExit(f"real-model smoke did not complete: {trace.get('stop_reason')}")
+if int((usage.get("summary") or {}).get("llm_calls") or 0) < 1:
+    raise SystemExit("real-model smoke recorded no LLM call")
+if (run / "patch.diff").read_text(encoding="utf-8").strip():
+    raise SystemExit("read-only real-model smoke produced a candidate patch")
+print(f"Validated single-agent evidence: {run}")
+PY
+  echo
+
+  echo "== Real-model two-worker fanout smoke =="
+  FANOUT_OUTPUT="$("${PYTHON_BIN}" -m agent_forge run \
+    "并行审查 runtime 与 safety 证据，不要修改文件" \
+    --agent-mode fanout \
+    --fanout-plan examples/fanout-plan.sample.json \
+    --max-workers 2 \
+    --provider deepseek \
+    --approval-mode locked \
+    --max-steps "${VERIFY_REAL_FANOUT_MAX_STEPS:-8}" \
+    --workspace . \
+    --execution-mode worktree \
+    --no-keep-worktree \
+    --output-root "${VERIFY_DIR}/runs")"
+  printf '%s\n' "${FANOUT_OUTPUT}"
+  FANOUT_RUN_DIR="$(printf '%s\n' "${FANOUT_OUTPUT}" | sed -n 's/^Run directory: //p' | tail -n 1)"
+  if [ -z "${FANOUT_RUN_DIR}" ]; then
+    echo "Could not identify the fanout run directory from this command." >&2
+    exit 1
+  fi
+  "${PYTHON_BIN}" - "${FANOUT_RUN_DIR}" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+run = Path(sys.argv[1])
+summary = json.loads((run / "fanout" / "fanout_summary.json").read_text(encoding="utf-8"))
+results = summary.get("results") or []
+if summary.get("status") != "passed" or summary.get("final_decision") != "PASS":
+    raise SystemExit(
+        f"real-model fanout did not pass: status={summary.get('status')} "
+        f"final_decision={summary.get('final_decision')}"
+    )
+if not results or any(result.get("status") != "completed" for result in results):
+    raise SystemExit(f"real-model fanout has incomplete workers: {results}")
+if any(result.get("touched_files") for result in results):
+    raise SystemExit("read-only real-model fanout modified a worker workspace")
+metrics = summary.get("metrics") or {}
+if int(metrics.get("llm_calls") or 0) < len(results) + 1:
+    raise SystemExit("real-model fanout is missing worker or finalizer LLM usage")
+if int(metrics.get("finalizer_llm_calls") or 0) < 1:
+    raise SystemExit("real-model fanout finalizer did not run")
+if (run / "patch.diff").read_text(encoding="utf-8").strip():
+    raise SystemExit("read-only real-model fanout produced a candidate patch")
+print(f"Validated live fanout evidence: {run}")
+PY
   echo
 else
   echo "== Real-model read-only smoke skipped =="

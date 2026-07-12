@@ -5,8 +5,18 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from agent_forge.forge_cli import build_parser
 from agent_forge.runtime.approval import ApprovalStore
-from agent_forge.ui import _build_swebench_command, _latest_run_dir, _render_evidence_html
+from agent_forge.ui import (
+    INDEX_HTML,
+    _build_agent_run_command,
+    _build_swebench_command,
+    _latest_report_path,
+    _latest_run_dir,
+    _render_evidence_html,
+    _render_result_summary,
+    _render_usage_dashboard,
+)
 
 
 class PublicCliSmokeTest(unittest.TestCase):
@@ -50,6 +60,21 @@ class PublicCliSmokeTest(unittest.TestCase):
         self.assertIn("--container-cpus", result.stdout)
         self.assertIn("--container-memory", result.stdout)
         self.assertIn("--container-pids-limit", result.stdout)
+        self.assertIn("--fanout-plan", result.stdout)
+        self.assertIn("--fanout-resume", result.stdout)
+        self.assertIn("--max-workers", result.stdout)
+
+        args = build_parser().parse_args(
+            [
+                "run",
+                "split this work",
+                "--agent-mode",
+                "fanout",
+                "--fanout-plan",
+                "examples/fanout-plan.sample.json",
+            ]
+        )
+        self.assertEqual(args.agent_mode, "fanout")
 
     def test_resume_help_exposes_resume_specific_flags(self):
         result = subprocess.run(
@@ -61,6 +86,18 @@ class PublicCliSmokeTest(unittest.TestCase):
         self.assertIn("run_dir", result.stdout)
         self.assertIn("--task", result.stdout)
         self.assertIn("--operation-ledger-root", result.stdout)
+
+    def test_respond_help_exposes_durable_human_input_flags(self):
+        result = subprocess.run(
+            [sys.executable, "-m", "agent_forge", "respond", "--help"],
+            text=True,
+            capture_output=True,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("request_id", result.stdout)
+        self.assertIn("--answer", result.stdout)
+        self.assertIn("--cancel", result.stdout)
+        self.assertIn("--human-input-root", result.stdout)
 
     def test_eval_commands_expose_feedback_and_dataset_export(self):
         result = subprocess.run(
@@ -155,6 +192,90 @@ class PublicCliSmokeTest(unittest.TestCase):
         self.assertIn("coding_fix", command.command)
         self.assertIn("--max-revision-rounds", command.command)
         self.assertIn("2", command.command)
+
+    def test_ui_agent_command_supports_bounded_live_fanout(self):
+        command = _build_agent_run_command(
+            sys.executable,
+            {
+                "task": "Update independent runtime and test modules",
+                "runAgentMode": "fanout",
+                "fanoutPlan": "examples/fanout-plan.sample.json",
+                "fanoutResume": ".agent_forge/runs/previous-run",
+                "fanoutMaxWorkers": 3,
+            },
+        )
+
+        self.assertIn("--agent-mode", command.command)
+        self.assertIn("fanout", command.command)
+        self.assertIn("--fanout-plan", command.command)
+        self.assertIn("examples/fanout-plan.sample.json", command.command)
+        self.assertIn("--fanout-resume", command.command)
+        self.assertIn("--max-workers", command.command)
+        self.assertIn("3", command.command)
+        self.assertIn("--execution-mode", command.command)
+        self.assertIn("worktree", command.command)
+        self.assertIn("--no-keep-worktree", command.command)
+
+        with self.assertRaisesRegex(ValueError, "relative project path"):
+            _build_agent_run_command(
+                sys.executable,
+                {
+                    "task": "Update independent runtime and test modules",
+                    "runAgentMode": "fanout",
+                    "fanoutPlan": "../outside.json",
+                },
+            )
+
+        self.assertIn('id="runAgentMode"', INDEX_HTML)
+        self.assertIn('id="fanoutPlan"', INDEX_HTML)
+
+    def test_ui_and_report_locator_surface_live_fanout_evidence(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            run_dir = root / ".agent_forge" / "runs" / "run-fanout"
+            fanout_dir = run_dir / "fanout"
+            fanout_dir.mkdir(parents=True)
+            latest = root / ".agent_forge" / "latest"
+            latest.mkdir(parents=True)
+            (latest / "run.txt").write_text(str(run_dir), encoding="utf-8")
+            (fanout_dir / "fanout_report.md").write_text("# Live Fanout Report\n", encoding="utf-8")
+            (fanout_dir / "fanout_summary.json").write_text(
+                """
+{
+  "goal": "audit runtime and safety",
+  "status": "passed",
+  "batches": [["runtime-audit", "safety-audit"]],
+  "merged_task_ids": ["runtime-audit", "safety-audit"],
+  "final_decision": "PASS",
+  "metrics": {
+    "task_count": 2,
+    "completed_count": 2,
+    "max_workers": 2,
+    "wall_time_ms": 1200,
+    "summed_worker_duration_ms": 2100,
+    "llm_calls": 3,
+    "total_tokens": 900,
+    "estimated_cost_usd": 0.01,
+    "tool_calls": 4,
+    "failed_tool_calls": 0
+  },
+  "results": [
+    {"task_id": "runtime-audit", "status": "completed", "resumed": false, "touched_files": []},
+    {"task_id": "safety-audit", "status": "completed", "resumed": false, "touched_files": []}
+  ]
+}
+""",
+                encoding="utf-8",
+            )
+
+            self.assertTrue(_latest_report_path(root).endswith("fanout/fanout_report.md"))
+            result_html = _render_result_summary(root)
+            usage_html = _render_usage_dashboard(root)
+
+            self.assertIn("Live Fanout", result_html)
+            self.assertIn("runtime-audit", result_html)
+            self.assertIn("Max Workers", usage_html)
+            self.assertIn("2", usage_html)
 
     def test_run_evidence_view_renders_without_artifacts(self):
         with tempfile.TemporaryDirectory() as tmp:

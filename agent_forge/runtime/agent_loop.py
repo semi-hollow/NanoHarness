@@ -9,6 +9,7 @@ from agent_forge.runtime.state import AgentState
 from agent_forge.runtime.control import StepController
 from agent_forge.runtime.clarification import ClarificationPolicy
 from agent_forge.runtime.execution_environment import ExecutionEnvironment, ExecutionEnvironmentConfig
+from agent_forge.runtime.human_input import HumanInputStore
 from agent_forge.runtime.hooks import HookContext, HookDecisionType, HookManager
 from agent_forge.runtime.observation import Observation
 from agent_forge.runtime.planning_mode import PlanningModePolicy
@@ -69,6 +70,10 @@ class AgentLoop:
         )
         self.task_state_store = TaskStateStore(getattr(config, "task_state_root", ".agent_forge/task_state"))
         self.approval_store = ApprovalStore(getattr(config, "approval_root", ".agent_forge/approvals"))
+        self.human_input_store = HumanInputStore(
+            getattr(config, "human_input_root", ".agent_forge/human_input")
+        )
+        self.human_thread_id = getattr(config, "human_thread_id", "") or self.trace.run_id
         self.operation_ledger = OperationLedgerStore(
             getattr(config, "operation_ledger_root", ".agent_forge/operation_ledger")
         )
@@ -89,7 +94,10 @@ class AgentLoop:
             task=task,
             workspace=self.config.workspace,
             agent_name=agent_name,
-            metadata={"execution_environment": self.environment.probe().to_dict()},
+            metadata={
+                "execution_environment": self.environment.probe().to_dict(),
+                "human_thread_id": self.human_thread_id,
+            },
         )
         self.trace.add(
             0,
@@ -135,9 +143,33 @@ class AgentLoop:
             self._stop_run(checkpoint, TaskRunStatus.BLOCKED, "unsupported_task", final_answer)
             return final_answer
         if clarification.needs_user_input():
-            final_answer = f"needs clarification: {clarification.question}"
-            self._stop_run(checkpoint, TaskRunStatus.WAITING_APPROVAL, "needs_clarification", final_answer)
-            return final_answer
+            request, final_answer = self._request_human_input(
+                checkpoint,
+                agent_name=agent_name,
+                kind="clarification",
+                question=clarification.question,
+                choices=[],
+                reason=clarification.reason,
+                step=0,
+            )
+            if final_answer:
+                return final_answer
+            task = "\n".join(
+                [
+                    task,
+                    "",
+                    "Resolved operator clarification:",
+                    f"Question: {request.question}",
+                    f"Answer: {request.answer}",
+                    "Continue from this answer and do not ask the same question again.",
+                ]
+            )
+            self.trace.add(
+                0,
+                agent_name,
+                "human_input_response_loaded",
+                request=request.to_dict(),
+            )
 
         planning_mode = self.planning_mode_policy.decide(task)
         self.trace.add(
@@ -443,6 +475,22 @@ class AgentLoop:
             # calls in one assistant message. OpenAI-compatible history must
             # preserve that shape: one assistant message containing all
             # tool_calls, followed by one tool message per tool_call_id.
+            calls_to_process = response.tool_calls
+            human_calls = [call for call in response.tool_calls if call.name == "ask_human"]
+            if human_calls:
+                # A human question is a control-plane barrier. Never execute a
+                # sibling side effect from the same model turn before the
+                # operator answer exists; the model must propose it again after
+                # receiving the persisted response.
+                calls_to_process = [human_calls[0]]
+                deferred_tools = [call.name for call in response.tool_calls if call is not human_calls[0]]
+                if deferred_tools:
+                    self.trace.add(
+                        step,
+                        agent_name,
+                        "tool_calls_deferred_for_human_input",
+                        deferred_tools=deferred_tools,
+                    )
             messages.append(
                 Message(
                     "assistant",
@@ -457,12 +505,12 @@ class AgentLoop:
                                 "arguments": json.dumps(call.arguments, ensure_ascii=False),
                             },
                         }
-                        for call in response.tool_calls
+                        for call in calls_to_process
                     ],
                 )
             )
 
-            for tool_call in response.tool_calls:
+            for tool_call in calls_to_process:
                 # First catch repeated intent before any
                 # side-effectful tool can run.
                 repeat_signal = controller.record_tool_intent(tool_call)
@@ -600,6 +648,77 @@ class AgentLoop:
                     tool_call=tool_call.name,
                     tool_arguments=tool_call.arguments,
                 )
+
+                if tool_call.name == "ask_human":
+                    arguments = tool_call.arguments or {}
+                    question = arguments.get("question")
+                    choices = arguments.get("choices", [])
+                    validation_error = ""
+                    if not isinstance(question, str) or not question.strip():
+                        validation_error = "invalid arguments: question must be non-empty str"
+                    elif not isinstance(choices, list) or any(
+                        not isinstance(choice, str) for choice in choices
+                    ):
+                        validation_error = "invalid arguments: choices must be list"
+                    if validation_error:
+                        observation = Observation(tool_call.name, False, validation_error)
+                        memory.add_observation(observation)
+                        messages.append(
+                            Message(
+                                "tool",
+                                observation.content,
+                                name=tool_call.name,
+                                tool_call_id=tool_call.id,
+                            )
+                        )
+                        self.trace.add(
+                            step,
+                            agent_name,
+                            "tool_observation",
+                            success=False,
+                            observation=observation.content,
+                        )
+                        self._update_task_state(
+                            checkpoint,
+                            status=TaskRunStatus.RUNNING,
+                            current_step=step,
+                            last_tool=tool_call.name,
+                            last_observation=observation.content,
+                            resume_hint="Retry ask_human with a non-empty question and a list of choices.",
+                        )
+                        continue
+                    request, waiting_answer = self._request_human_input(
+                        checkpoint,
+                        agent_name=agent_name,
+                        kind="tool_question",
+                        question=question,
+                        choices=choices,
+                        reason="model requested operator input",
+                        step=step,
+                    )
+                    if waiting_answer:
+                        return waiting_answer
+                    observation = Observation(
+                        tool_call.name,
+                        True,
+                        f"human_response: {request.answer}",
+                    )
+                    memory.add_observation(observation)
+                    messages.append(
+                        Message(
+                            "tool",
+                            observation.content,
+                            name=tool_call.name,
+                            tool_call_id=tool_call.id,
+                        )
+                    )
+                    self.trace.add(
+                        step,
+                        agent_name,
+                        "human_input_response_loaded",
+                        request=request.to_dict(),
+                    )
+                    continue
 
                 action = self._permission_action(tool_call.name)
                 command = tool_call.arguments.get("command", "") if tool_call.arguments else ""
@@ -1223,3 +1342,78 @@ class AgentLoop:
             resume_summary=summary,
         )
         return summary
+
+    def _request_human_input(
+        self,
+        checkpoint,
+        *,
+        agent_name: str,
+        kind: str,
+        question: str,
+        choices: list[str],
+        reason: str,
+        step: int,
+    ):
+        """Persist a question and stop without blocking a worker thread."""
+
+        request = self.human_input_store.request(
+            thread_id=self.human_thread_id,
+            kind=kind,
+            question=question,
+            choices=choices,
+            workspace=self.config.workspace,
+            run_id=self.trace.run_id,
+            step=step,
+            agent_name=agent_name,
+            reason=reason,
+        )
+        if request.status == "responded":
+            return request, ""
+        if request.status == "cancelled":
+            final_answer = f"blocked: human_input_cancelled request_id={request.request_id}"
+            self.trace.add(
+                step,
+                agent_name,
+                "human_input_cancelled",
+                request=request.to_dict(),
+            )
+            self._stop_run(
+                checkpoint,
+                TaskRunStatus.BLOCKED,
+                "human_input_cancelled",
+                final_answer,
+                current_step=step,
+                last_tool="ask_human" if kind == "tool_question" else "",
+                resume_hint="Start a new human-input thread if the task should be reconsidered.",
+            )
+            return request, final_answer
+        metadata = dict(checkpoint.metadata or {})
+        metadata.update(
+            {
+                "human_thread_id": self.human_thread_id,
+                "human_input_request_id": request.request_id,
+            }
+        )
+        self.trace.add(
+            step,
+            agent_name,
+            "human_input_requested",
+            request=request.to_dict(),
+        )
+        final_answer = (
+            f"waiting_human: {request.question} "
+            f"request_id={request.request_id} request={request.path}"
+        )
+        self._stop_run(
+            checkpoint,
+            TaskRunStatus.WAITING_HUMAN,
+            "waiting_human",
+            final_answer,
+            current_step=step,
+            last_tool="ask_human" if kind == "tool_question" else "",
+            resume_hint=(
+                f"Run `forge respond {request.request_id} --answer <text>` then resume this run."
+            ),
+            metadata=metadata,
+        )
+        return request, final_answer

@@ -36,7 +36,10 @@ Forge into a general distributed-agent platform:
 
 `HumanInputStore` owns `HumanInputRequest` records with a stable request id,
 thread id, question, optional choices, status, answer, run/step/agent identity,
-workspace, timestamps, and artifact path.
+workspace, timestamps, and artifact path. Request ids are restricted to the
+generated 24-character hexadecimal form, and writes use fsync plus atomic
+replacement. Normalized choices participate in identity so changed options do
+not reuse an old answer.
 
 ```text
 AgentLoop / ClarificationPolicy
@@ -70,22 +73,26 @@ The public input is JSON so dependencies and write ownership are explicit:
       "depends_on": [],
       "write_scope": ["agent_forge/runtime/"],
       "allowed_tools": ["read_file", "grep_search", "apply_patch", "diagnostics"],
-      "expected_artifact": "runtime_patch"
+      "expected_artifact": "runtime_patch",
+      "max_steps": 12
     },
     {
       "id": "tests",
       "task": "Add focused tests",
       "depends_on": [],
       "write_scope": ["tests/"],
-      "expected_artifact": "test_patch"
+      "expected_artifact": "test_patch",
+      "max_steps": 8
     }
   ]
 }
 ```
 
 The scheduler validates unique ids, known dependencies, acyclicity, bounded
-worker count, normalized relative scopes, and known tool names. Read-only tasks
-have an empty `write_scope`; a write task must declare at least one scope.
+worker count, per-task `max_steps` (2..32), normalized relative scopes, and
+known tool names. The worker uses the lower of the global and task step budgets.
+Read-only tasks have an empty `write_scope`; a write task must declare at least
+one scope.
 
 ## Worker and Merge Flow
 
@@ -109,11 +116,35 @@ overlap, scope escape, or patch-apply failure stops merging and records
 
 ## Recovery
 
-The summary records plan digest, base commit, completed/merged task ids, worker
-artifacts, and integration patch. A resume run must match plan digest and base
-commit, reapplies previously merged patches to a fresh integration workspace,
-skips completed tasks, and reruns only incomplete tasks. Dependency failures
+`fanout_checkpoint.json` is written atomically before work starts and after each
+batch. It records plan digest, base commit, accepted task ids, patch paths and
+SHA-256 values. A resume run must match plan digest and base commit, verify every
+accepted patch hash, reapply those patches to a fresh integration workspace,
+skip completed tasks, and rerun only incomplete tasks. Dependency failures
 block downstream tasks but do not discard independent completed artifacts.
+All recovered artifacts are validated and replayed in a disposable worktree
+first; only the resulting combined diff is applied to the real integration
+workspace, preventing a late invalid artifact from leaving a partial restore.
+
+Worker human threads use plan digest, base commit, and task id, so a persisted
+clarification answer survives selective worker rerun. Per-operation manual write
+approval is different: operation identity currently contains an ephemeral
+worktree path. Live write fanout therefore rejects `--no-auto-approve-writes`
+instead of claiming that such approvals can be safely replayed. Use
+single/sequential mode for that authorization boundary.
+
+Candidate patch collection is shared across run, benchmark, tool, coordinator,
+and fanout paths. It captures tracked changes plus untracked text/binary source
+files, while excluding untracked `.agent_forge` runtime artifacts. The finalizer
+runs in its own disposable worktree with the integration patch left visible to
+`git_diff`. The runtime compares the complete binary patch before and after
+verification; any verifier-created mutation blocks the decision and is discarded.
+
+Every worker worktree is created from the recorded `base_head`. It deliberately
+does not inherit uncommitted files or index state from another checkout. A write
+fanout rejects a dirty integration workspace; callers that need draft changes
+must first turn them into an explicit, versioned seed rather than relying on
+ambient filesystem state.
 
 ## Evidence and Acceptance
 
@@ -124,6 +155,8 @@ block downstream tasks but do not discard independent completed artifacts.
   resume.
 - A real-provider smoke uses two read-only workers and records concurrent
   wall-clock and aggregate usage without modifying the repository.
+- Fanout metrics separate this run's workers/finalizer from resumed historical
+  usage and full evidence-chain usage. Current worker time and wall time remain
+  separate rather than being presented as measured speedup.
 - Public docs distinguish sequential role coordination, live fanout, real
   side-effect approval, durable clarification, and official evaluation.
-

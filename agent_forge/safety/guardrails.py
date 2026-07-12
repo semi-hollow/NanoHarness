@@ -1,6 +1,9 @@
 from dataclasses import dataclass
 
 
+RISKY_INPUT_MARKERS = ("rm -rf", "删除", ".env", "id_rsa", "http://", "https://", "../")
+
+
 @dataclass
 class GuardrailResult:
     """Structured result so guardrail checks can be traced consistently."""
@@ -25,11 +28,19 @@ def input_guardrail(task: str) -> GuardrailResult:
     permission/sandbox checks still run later because prompts can be indirect.
     """
 
-    checks = ["rm -rf", "删除", ".env", "id_rsa", "http://", "https://", "../"]
-    for c in checks:
+    for c in RISKY_INPUT_MARKERS:
         if c in task:
             return GuardrailResult(False, f"blocked risky input: {c}", "high", "input")
     return GuardrailResult(True, "ok", "low", "input")
+
+
+def sanitize_quoted_evidence(text: str) -> str:
+    """Redact guardrail tokens when trusted code quotes untrusted evidence."""
+
+    sanitized = str(text or "")
+    for index, marker in enumerate(RISKY_INPUT_MARKERS, start=1):
+        sanitized = sanitized.replace(marker, f"[quoted-risk-{index}]")
+    return sanitized
 
 
 def output_guardrail(final_answer: str, ran_tests: bool, had_block: bool) -> GuardrailResult:

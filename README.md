@@ -9,10 +9,11 @@
 It is not a chatbot wrapper and it is not a full IDE. The project focuses on
 the hard engineering layer behind coding agents: context construction, tool
 governance, sandboxed execution, human approval, partial recovery, multi-agent
-artifact handoff, traceability, cost accounting, and evaluation evidence.
+artifact handoff, isolated fanout, traceability, cost accounting, and evaluation
+evidence.
 
 ```text
-Issue -> repo snapshot -> AgentLoop -> governed tools -> candidate patch
+Issue -> repo snapshot -> AgentLoop / live fanout -> governed tools -> candidate patch
       -> trace / usage / official per-case result -> scorecard -> paired ablation
       -> failure taxonomy / human feedback -> evaluation data
 ```
@@ -36,10 +37,11 @@ when runtime behavior is observable and comparable, not when prompts get longer.
 | Real model boundary | OpenAI-compatible client with DeepSeek defaults, retry/fallback hooks, provider usage capture, and cost estimates. |
 | Governed tools | Read/grep/patch/command/git/diagnostics tools pass through routing, registry validation, permission hooks, command policy, and workspace sandboxing. |
 | Isolated execution | Runs can use the current checkout, a detached git worktree, or a constrained OCI container over an isolated snapshot. Container commands apply network, CPU, memory, PID, capability, and read-only-root controls. |
-| Human-in-the-loop | Write-like side effects can stop at an approval file; `forge approve` records the human decision before execution. |
-| Partial recovery | Checkpoints seed continuation runs; operation ledger prevents duplicate side effects and detects stale approvals or stale target files. |
+| Human-in-the-loop | Informational questions persist in `HumanInputStore`, act as a same-turn barrier before sibling side effects, stop at `waiting_human`, and continue only after `forge respond` plus resume. Write approval remains a separate fingerprinted `ApprovalStore` boundary. |
+| Partial recovery | Checkpoints seed continuation runs; operation ledger prevents duplicate side effects; fanout checkpoints restore hash-verified merged patches and rerun only incomplete workers. |
 | SWE-bench shape | The runner loads cases, checks out the base commit, writes `predictions.jsonl`, calls the official harness when installed, and parses per-case resolved/unresolved/error artifacts. |
 | Multi-agent workflow | `MultiAgentCoordinator` reuses the same `AgentLoop` for Implementer/Reviewer/Verifier roles and passes state through explicit artifacts. |
+| Live task fanout | A validated task DAG runs independent `AgentLoop` workers concurrently in disposable git worktrees, enforces declared write scopes, and applies patches deterministically through a conflict gate. |
 | Evaluation experiments | A fixed five-case SWE-bench Lite set writes scorecards for patch/local/official evidence, tokens, cost, latency, tool failures, and failure classes; `forge eval ablation` compares matched runs pairwise. |
 | Evidence reports | Each run writes trace, usage, scorecard, result card, failure taxonomy, and case-study artifacts instead of raw debug dumps only. |
 | Feedback data loop | Human outcomes and labels can be attached to runs, then exported with safe trace, policy, environment, and evaluation fields as JSONL. |
@@ -56,8 +58,10 @@ If you are reviewing this repository, start here:
 3. Inspect the runtime core:
    - [agent_forge/runtime/agent_loop.py](agent_forge/runtime/agent_loop.py)
    - [agent_forge/runtime/approval.py](agent_forge/runtime/approval.py)
+   - [agent_forge/runtime/human_input.py](agent_forge/runtime/human_input.py)
    - [agent_forge/runtime/operation_ledger.py](agent_forge/runtime/operation_ledger.py)
    - [agent_forge/multi_agent/coordinator.py](agent_forge/multi_agent/coordinator.py)
+   - [agent_forge/multi_agent/live_fanout.py](agent_forge/multi_agent/live_fanout.py)
    - [agent_forge/bench/swebench.py](agent_forge/bench/swebench.py)
    - [agent_forge/bench/official_results.py](agent_forge/bench/official_results.py)
    - [agent_forge/evaluation/scorecard.py](agent_forge/evaluation/scorecard.py)
@@ -107,6 +111,42 @@ forge run "fix the failing test in this repository" \
   --profile coding_fix \
   --provider deepseek \
   --max-revision-rounds 2
+```
+
+Run two independent read-only workers through real `AgentLoop` instances:
+
+```bash
+forge run "audit runtime and safety evidence" \
+  --agent-mode fanout \
+  --fanout-plan examples/fanout-plan.sample.json \
+  --max-workers 2 \
+  --provider deepseek
+```
+
+Fanout plans carry machine-validated dependencies, write scopes, tool views,
+expected artifacts, and per-task `max_steps`; the global CLI budget remains the
+ceiling. Worker worktrees are created from the recorded committed `base_head`,
+so uncommitted files in the launching checkout are not silently inherited.
+
+For mutating fanout, use an outer worktree so the integrated candidate patch is
+isolated from the selected checkout. A later run can restore completed workers
+from the prior checkpoint:
+
+```bash
+forge run "execute the validated task DAG" \
+  --agent-mode fanout \
+  --fanout-plan path/to/plan.json \
+  --fanout-resume .agent_forge/runs/<previous-run-id> \
+  --execution-mode worktree \
+  --no-keep-worktree \
+  --provider deepseek
+```
+
+Answer a durable clarification and continue the stopped run:
+
+```bash
+forge respond <request_id> --answer "use the compatibility path"
+forge resume .agent_forge/runs/<run-id> --provider deepseek
 ```
 
 Run with explicit approval for write-like actions:
@@ -233,9 +273,12 @@ trace data require ownership, privacy, and secret review before reuse.
 ```mermaid
 flowchart TD
     CLI["forge CLI / UI"] --> Run["normal run"]
+    CLI --> Fanout["LiveFanoutCoordinator"]
     CLI --> Bench["SWE-bench runner"]
     Bench --> Checkout["repo checkout at base_commit"]
     Run --> Loop["AgentLoop"]
+    Fanout --> Worker["isolated AgentLoop workers"]
+    Worker --> Loop
     Checkout --> Loop
     Loop --> Context["ContextBuilder / memory / retrieval"]
     Loop --> Gateway["ModelGateway"]
@@ -248,6 +291,7 @@ flowchart TD
     Registry --> Tools["read / grep / patch / command / git / diagnostics / MCP"]
     Tools --> Safety["PermissionPolicy / CommandPolicy / WorkspaceSandbox"]
     Loop --> Approval["ApprovalStore"]
+    Loop --> Human["HumanInputStore"]
     Loop --> Ledger["OperationLedger"]
     Loop --> State["TaskState checkpoints"]
     Loop --> Environment["local / worktree / OCI environment"]
@@ -281,9 +325,18 @@ claim requires a parsed per-case result from the Docker-based harness.
 execution, persist an approval request, and later verify that the target file
 still matches the approved fingerprint.
 
+**Clarification is not approval.** `ask_human` is intercepted by `AgentLoop`,
+persisted atomically, and stops execution without synthesizing an answer.
+`forge respond` records information; `forge approve` authorizes a concrete side
+effect. Their state and stale-data semantics remain separate. If a model emits
+other tools in the same turn, the question wins and those actions must be
+proposed again after the recorded answer is loaded.
+
 **Recovery is explicit, not magical.** `--resume-state` seeds a continuation
 with checkpoint summaries. It does not pretend to restore hidden model state.
 The operation ledger prevents duplicate side effects and detects target drift.
+Fanout recovery separately validates plan digest, base commit, and patch hashes,
+then reapplies only accepted artifacts in a fresh integration workspace.
 
 **Isolation is declared and auditable.** Local mode provides path and command
 boundaries, while worktree mode adds git-state isolation. Container mode executes
@@ -299,6 +352,14 @@ was not run.
 **Multi-agent is artifact-based.** Reviewer and verifier roles do not chat in a
 hidden shared context. They read artifacts produced by earlier roles and can
 request bounded revisions.
+
+**Parallelism requires ownership.** Live fanout consumes an explicit task DAG.
+Declared scope overlap is serialized; undeclared overlap, scope escape, patch
+failure, or verifier mutation fails closed. There is no unconstrained model
+that silently resolves conflicting writes. Per-task step budgets are enforced
+by runtime configuration, and every worker records the commit snapshot it read.
+The isolated finalizer sees the integrated candidate diff; a pre/post binary
+patch comparison detects any verifier mutation.
 
 **Feedback is data, not prose.** Human outcomes and failure labels are persisted
 beside run evidence. Exported records preserve provenance and policy context so
@@ -324,6 +385,21 @@ Runtime outputs are ignored by Git and live under `.agent_forge/`:
     multi_agent_summary.json
     multi_agent_report.md
     artifacts/
+  fanout/
+    fanout_plan.json
+    fanout_checkpoint.json
+    fanout_summary.json
+    fanout_report.md
+    integration.patch
+    workers/<task-id>/
+      trace.json
+      usage.json
+      patch.diff
+      execution_environment.json
+    finalizer/
+      verification.md
+      trace.json
+      usage.json
   cases/<instance_id>/
     execution_environment.json
     trace.json
@@ -347,12 +423,12 @@ forge replay latest
 ```text
 agent_forge/
   bench/          SWE-bench loading, checkout, predictions, result cards
-  runtime/        AgentLoop, checkpoints, approval, operation ledger, control
+  runtime/        AgentLoop, checkpoints, human input, approval, ledger, control
   context/        repo map, file ranking, lexical retrieval, memory, token budget
   tools/          read/write/grep/patch/command/git/diagnostics/MCP wrappers
   safety/         sandbox, command policy, permissions, guardrails
   models/         provider gateway, retry/fallback, usage telemetry
-  multi_agent/    coordinator, role profiles, artifact handoff, fanout primitive
+  multi_agent/    sequential roles, live fanout, worktree merge and recovery
   evaluation/     comparison metrics, mini-cases, evaluation reports
                   scorecards, paired ablations, feedback, dataset export
   observability/  trace, usage, metrics, evidence summaries
@@ -372,9 +448,10 @@ agent_forge/
 - Not a claim of hostile multi-tenant security from OCI mode.
 - Not a collection of self-authored toy calculator fixtures as the main proof.
 
-Some parts are intentionally lightweight. The fanout module is a scheduling
-primitive, mini-cases are deterministic evaluation contracts, and the local MCP
-adapter implements the subset needed to prove the tool boundary. See
+Some parts are intentionally lightweight. Fanout is a local coordinator, not a
+distributed queue or swarm; mini-cases are deterministic evaluation contracts;
+and the local MCP adapter implements the subset needed to prove the tool
+boundary. See
 [Capability Reality Matrix](docs/CAPABILITY_REALITY_MATRIX.md) for the exact
 status of each capability.
 
@@ -383,6 +460,8 @@ status of each capability.
 - [Capability Reality Matrix](docs/CAPABILITY_REALITY_MATRIX.md)
 - [Architecture Notes](docs/AgentForge总体架构与运行链路.md)
 - [Runtime Capability Guide](docs/architecture/runtime-capability-guide.md)
+- [Runtime Learning Path](docs/guides/runtime-learning-path.md)
+- [Durable Human Input and Live Fanout](docs/architecture/human-input-and-live-fanout.md)
 - [Evaluation Experiments and OCI Execution](docs/architecture/evaluation-experiments-and-oci-execution.md)
 - [Feedback-Driven Evaluation Loop](docs/architecture/feedback-evaluation-loop.md)
 - [Evaluation Guide](docs/evaluation/评测目录说明与SWE-bench使用入口.md)
@@ -402,6 +481,6 @@ bash scripts/verify.sh
 ```
 
 `scripts/verify.sh` checks compile, CLI import paths, unit tests, and a
-real-model read-only smoke when model credentials are configured. It is a
-runtime health check. The effect proof remains the SWE-bench-shaped loop plus
+real-model single and two-worker read-only fanout smokes when model credentials
+are configured. It is a runtime health check. The effect proof remains the SWE-bench-shaped loop plus
 the generated trace, usage, report, and evaluation artifacts.

@@ -14,9 +14,14 @@ flowchart TD
     Workspace --> Mode{"agent mode"}
     Mode --> Loop["AgentLoop"]
     Mode --> Coordinator["MultiAgentCoordinator"]
+    Mode --> Fanout["LiveFanoutCoordinator"]
     Coordinator --> Roles["RoleSpec / AgentProfile"]
     Roles --> Artifacts["ArtifactStore"]
     Coordinator --> Loop
+    Fanout --> Workers["isolated AgentLoop workers"]
+    Workers --> Loop
+    Fanout --> Merge["scope gate + deterministic patch apply"]
+    Merge --> Finalizer["isolated read-only verifier"]
     Loop --> Context["ContextBuilder"]
     Context --> RepoMap["repo map"]
     Context --> Ranking["file ranking / lexical retrieval / symbol search"]
@@ -29,6 +34,7 @@ flowchart TD
     Loop --> Structured["StructuredOutputParser"]
     Tools --> Safety["PermissionPolicy / CommandPolicy / Sandbox"]
     Safety --> Approval["ApprovalStore / Human Approval"]
+    Loop --> Human["HumanInputStore / durable clarification"]
     Safety --> Ledger["OperationLedger / Idempotency"]
     Tools --> Observation["Observation"]
     Observation --> Loop
@@ -49,7 +55,10 @@ flowchart TD
 | `agent_forge/evaluation` | Provides data structures and reports for honest single-vs-multi comparisons. | Without it, cost/quality tradeoffs are anecdotal. |
 | `agent_forge/runtime` | Runs the ReAct loop, stop conditions, task state, model/tool interaction. | Without it, tool use becomes ad hoc and unreplayable. |
 | `agent_forge/runtime/approval.py` | Stores pending/approved/rejected side-effect approvals by operation key. | Without it, human-in-the-loop is only a prompt convention instead of a runtime boundary. |
+| `agent_forge/runtime/human_input.py` | Stores pending/responded/cancelled informational questions by stable thread identity. | Without it, `ask_human` is a synthetic tool response instead of a stop/respond/resume control event. |
 | `agent_forge/runtime/operation_ledger.py` | Records planned, pending, approved, executed, failed, and skipped side-effect operations. | Without it, resume/rerun can accidentally duplicate writes, commands, or external actions. |
+| `agent_forge/runtime/git_workspace.py` | Produces HEAD-relative binary patches and changed-file lists including untracked source files while excluding untracked runtime artifacts. | Without it, new files disappear from fanout, normal runs, and benchmark predictions. |
+| `agent_forge/multi_agent/live_fanout.py` | Runs validated task DAGs through isolated AgentLoop workers, deterministic integration, final verification, and selective recovery. | Without it, fanout remains only a callback scheduler. |
 | `agent_forge/evaluation/mini_cases.py` | Loads tiny non-coding Agent application cases for research and ops workflows. | Without it, evaluation examples stay tied to coding tasks only. |
 | `agent_forge/evaluation/feedback_dataset.py` | Captures human outcomes and exports privacy-conscious run evidence as JSONL. | Without it, trace data cannot become a repeatable bad-case and regression input. |
 | `agent_forge/context` | Builds prompt context from repo structure, lexical retrieval, symbols, memory, and budgets. | Without it, the model sees either too little code or noisy full-repo dumps. |
@@ -62,7 +71,8 @@ flowchart TD
 
 ## AgentLoop Phases
 
-1. Input guardrail and clarification check.
+1. Input guardrail and clarification check; unresolved input persists and stops
+   at `waiting_human`.
 2. Planning-mode decision for traceability.
 3. Skill selection with built-in/custom Skills, then context assembly with selected files, memory, active Skill cards, tools, and budget breakdown.
 4. Model call through `ModelGateway`.
@@ -98,20 +108,23 @@ swarm learning.
 
 ## Fan-Out Scheduling
 
-`agent_forge/multi_agent/fanout.py` is a small orchestration primitive for
-task-plan execution:
+`agent_forge/multi_agent/fanout.py` owns dependency and overlap algorithms;
+`agent_forge/multi_agent/live_fanout.py` owns the runtime execution path:
 
 - `SubagentTask` declares an id, dependency list, tool hints, expected artifact,
   and write scope.
 - `build_execution_batches()` groups tasks into dependency-safe batches.
-- `run_fanout()` can run a supplied worker concurrently for tasks in the same
-  batch.
-- Overlapping declared write scopes, or overlapping worker-reported touched
-  files, produce `conflict_resolution_required` instead of silently merging.
+- Each runnable task receives a disposable worktree, fresh LLM client, filtered
+  registry, AgentLoop, trace, usage report, patch, and execution manifest.
+- Overlapping declared scopes are put in serial batches. Actual scope escape,
+  dynamic overlap, or patch failure produces `conflict_resolution_required`.
+- Accepted patches are applied in task order. An isolated finalizer reads the
+  integrated candidate but cannot mutate it.
+- `fanout_checkpoint.json` is updated atomically; resume validates plan digest,
+  base commit, and patch hash before skipping a completed worker.
 
-This is deliberately narrower than a full distributed runner. The current
-coordinator remains the production-shaped role workflow; fan-out exists to make
-independent task concurrency and conflict policy explicit and testable.
+This is deliberately narrower than a distributed runner. The JSON plan is
+explicit; no model creates an unbounded swarm or silently resolves conflicts.
 
 ## Resume And Human Approval
 
@@ -141,6 +154,14 @@ newest checkpoint under `task_state/`, starts a new run with `--resume-state`,
 and writes `resume_link.json`, `resume_chain.md`, and a `Resume Chain` section
 in `usage_report.md` so the continuation chain is visible in reports.
 
+Informational human input follows a separate state machine. `AgentLoop`
+intercepts `ask_human`, writes an atomic `HumanInputRequest`, records its id in
+the checkpoint, and stops before further tools. `forge respond` records the
+answer; resume injects the question/answer pair into the continuation. A
+cancelled request remains terminal. Fanout worker threads are stable across a
+matching plan/base/task so an answered clarification can be reused when only an
+incomplete worker is rerun.
+
 ## Result Evidence
 
 Every benchmark case should leave:
@@ -152,5 +173,7 @@ Every benchmark case should leave:
 - `report.md`: human-readable result card.
 - `multi_agent_report.md`: role/artifact/revision summary when multi-agent mode
   is used.
+- `fanout_report.md`: task batches, scope/merge outcomes, resume markers,
+  worker/finalizer usage, and claim boundary when fanout mode is used.
 
 This evidence is more important than a large set of author-created tests.

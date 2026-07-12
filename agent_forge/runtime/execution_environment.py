@@ -9,6 +9,8 @@ import uuid
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
+from agent_forge.runtime.git_workspace import collect_workspace_diff, collect_workspace_status
+
 
 NETWORK_COMMANDS = {"curl", "wget", "ssh", "scp", "nc", "telnet"}
 PROTECTED_GIT_COMMANDS = {"push", "reset", "checkout", "switch", "merge", "rebase"}
@@ -328,7 +330,7 @@ class ExecutionEnvironment:
     def diff(self) -> str:
         """Return git diff for the active workspace."""
 
-        return self._git_output(["git", "diff", "--", "."], cwd=self.active_workspace)
+        return collect_workspace_diff(self.active_workspace)
 
     def describe(self) -> str:
         """Human-readable environment summary for prompts and reports."""
@@ -576,9 +578,8 @@ class ExecutionEnvironment:
     def _dirty_files(self, cwd: Path | None = None) -> list[str]:
         """Return dirty paths from git status porcelain output."""
 
-        output = self._git_output(["git", "status", "--porcelain"], cwd=cwd or self.active_workspace)
         files = []
-        for line in output.splitlines():
+        for line in collect_workspace_status(cwd or self.active_workspace):
             if len(line) > 2 and line[2] == " ":
                 files.append(line[3:].strip())
             elif len(line) > 1 and line[1] == " ":

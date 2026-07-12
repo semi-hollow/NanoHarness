@@ -1,5 +1,27 @@
 # Changelog
 
+## 0.6.0 - 2026-07-12
+
+- Replaced synthetic `ask_human` behavior with atomic pending/responded/cancelled
+  requests, a same-turn side-effect barrier, `waiting_human` checkpoints, and
+  `forge respond` plus resume.
+- Added validated live fanout over real isolated AgentLoop workers, declared and
+  actual write-scope gates, deterministic binary patch integration, and an
+  isolated read-only finalizer with candidate-diff visibility and a pre/post
+  mutation gate. Plans now carry validated per-task step budgets beneath the
+  global runtime ceiling.
+- Added incremental fanout checkpoints, plan/base identity checks, patch hashes,
+  stable worker clarification threads, selective rerun of incomplete tasks, and
+  separate current/resumed/evidence-chain usage accounting.
+- Unified candidate diff collection across runs, benchmarks, tools, and
+  coordinators so tracked and untracked source files share one evidence path
+  while untracked `.agent_forge` artifacts remain excluded.
+- Added a bounded fanout UI/CLI surface, safe sample plan, focused regression
+  coverage, semantic real-provider smoke assertions, and updated
+  capability/learning/failure documentation.
+- Tightened the local workbench for desktop/mobile evidence review with stable
+  navigation, readable tables, bounded controls, and fanout artifact views.
+
 ## 0.5.0 - 2026-07-11
 
 - Added per-case official SWE-bench result parsing with explicit resolved,

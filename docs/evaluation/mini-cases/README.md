@@ -25,6 +25,7 @@ artifacts, citations, unsupported claim count, tool-call count, human
 intervention count, recovery result, and safety violations. Missing or weak
 evidence fails the relevant dimension instead of being papered over by prose.
 
-Note: the `ask_human` tool used in mini-case specs is a synthetic checkpoint for
-controlled scenarios. Real side-effect approval in Agent Forge is implemented
-through `ApprovalStore`, persisted approval files, and `forge approve`.
+The tool names in a mini-case are declarative evaluation inputs; the evaluator
+does not execute an AgentLoop. In the runtime, `ask_human` creates durable
+informational requests through `HumanInputStore`. Concrete side-effect approval
+remains a separate `ApprovalStore` plus `forge approve` contract.

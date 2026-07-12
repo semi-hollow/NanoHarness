@@ -47,7 +47,7 @@ def build_registry(
         GitStatusTool(sandbox),
         GitDiffTool(sandbox),
         DiagnosticsTool(sandbox, execution_environment=execution_environment),
-        AskHumanTool(auto),
+        AskHumanTool(),
     ]:
         registry.register(tool)
     if mcp_config_file:

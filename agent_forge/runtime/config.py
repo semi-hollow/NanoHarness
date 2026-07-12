@@ -57,6 +57,10 @@ class RuntimeConfig:
     # Filesystem root for pending human approval requests.
     approval_root: str = ".agent_forge/approvals"
 
+    # Filesystem queue and stable conversation identity for durable questions.
+    human_input_root: str = ".agent_forge/human_input"
+    human_thread_id: str = ""
+
     # Filesystem root for idempotency records of side-effectful operations.
     operation_ledger_root: str = ".agent_forge/operation_ledger"
 

@@ -1,0 +1,23 @@
+{
+  "goal": "Audit the runtime control plane and safety boundary from independent evidence",
+  "tasks": [
+    {
+      "id": "runtime-audit",
+      "task": "Read agent_forge/runtime/config.py and agent_forge/runtime/clarification.py exactly once each, then report their execution-budget and clarification control states with concrete file references. Return the artifact immediately after those two reads.",
+      "depends_on": [],
+      "write_scope": [],
+      "allowed_tools": ["read_file", "git_status"],
+      "expected_artifact": "runtime_audit",
+      "max_steps": 4
+    },
+    {
+      "id": "safety-audit",
+      "task": "Read agent_forge/safety/command_policy.py and agent_forge/safety/sandbox.py, then report their enforced boundaries and explicit limitations with concrete file references. Use at most two read calls and then return the artifact.",
+      "depends_on": [],
+      "write_scope": [],
+      "allowed_tools": ["read_file", "git_status"],
+      "expected_artifact": "safety_audit",
+      "max_steps": 4
+    }
+  ]
+}

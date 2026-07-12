@@ -119,6 +119,9 @@ class ToolRouter:
             for name in names
             if self.DEFAULT_METADATA.get(name, {}).get("capability") in {"discover", "inspect", "search"}
         }
+        # Human input is a fail-closed control signal, not an executable side
+        # effect. Keep it visible so newly discovered ambiguity can pause a run.
+        selected |= names & {"ask_human"}
 
         if not read_only_requested and any(
             token in lowered for token in ["fix", "repair", "resolve", "patch", "implement", "修复", "实现", "补充"]

@@ -16,13 +16,20 @@ from agent_forge.bench.swebench import build_swebench_parser, run_swebench_from_
 from agent_forge.evaluation.feedback_dataset import export_feedback_dataset, record_feedback
 from agent_forge.evaluation.experiment import write_ablation_comparison
 from agent_forge.evaluation.mini_cases import run_mini_cases
-from agent_forge.multi_agent import MultiAgentCoordinator, get_profile, list_profiles
+from agent_forge.multi_agent import (
+    FanoutPlan,
+    LiveFanoutCoordinator,
+    MultiAgentCoordinator,
+    get_profile,
+    list_profiles,
+)
 from agent_forge.observability.trace import TraceRecorder
 from agent_forge.runtime.approval import ApprovalStore
 from agent_forge.observability.usage_report import write_usage_artifacts
 from agent_forge.runtime.agent_loop import AgentLoop
 from agent_forge.runtime.config import RuntimeConfig
 from agent_forge.runtime.execution_environment import ExecutionEnvironment, ExecutionEnvironmentConfig, EnvironmentProbe
+from agent_forge.runtime.human_input import HumanInputStore
 from agent_forge.runtime.llm_config import resolve_llm_config
 from agent_forge.runtime.task_state import TaskStateStore, replay_trace
 from agent_forge.runtime.wiring import build_llm, build_registry
@@ -62,6 +69,7 @@ def build_parser() -> argparse.ArgumentParser:
         help="Auto-approve write-like tool actions. Use --no-auto-approve-writes to leave pending approval files.",
     )
     run_parser.add_argument("--approval-root", default=".agent_forge/approvals")
+    run_parser.add_argument("--human-input-root", default=".agent_forge/human_input")
     run_parser.add_argument("--operation-ledger-root", default=".agent_forge/operation_ledger")
     run_parser.add_argument(
         "--resume-state",
@@ -69,9 +77,25 @@ def build_parser() -> argparse.ArgumentParser:
         help="Path to a task_state checkpoint JSON used to seed a safe continuation.",
     )
     run_parser.add_argument("--output-root", default=".agent_forge/runs")
-    run_parser.add_argument("--agent-mode", default="single", choices=["single", "multi"])
+    run_parser.add_argument("--agent-mode", default="single", choices=["single", "multi", "fanout"])
     run_parser.add_argument("--profile", default="coding_fix", choices=list_profiles())
     run_parser.add_argument("--max-revision-rounds", type=int, default=2)
+    run_parser.add_argument(
+        "--fanout-plan",
+        default="",
+        help="Validated JSON task DAG required by --agent-mode fanout.",
+    )
+    run_parser.add_argument(
+        "--fanout-resume",
+        default="",
+        help="Prior fanout run, summary, or checkpoint used to restore merged tasks.",
+    )
+    run_parser.add_argument(
+        "--max-workers",
+        type=int,
+        default=4,
+        help="Maximum concurrent live fanout workers (bounded to 1-8).",
+    )
     run_parser.add_argument(
         "--skills",
         default="auto",
@@ -172,6 +196,13 @@ def build_parser() -> argparse.ArgumentParser:
     approve_parser.add_argument("--approval-root", default=".agent_forge/approvals")
     approve_parser.add_argument("--decision", choices=["approved", "rejected"], default="approved")
     approve_parser.add_argument("--note", default="")
+    respond_parser = subparsers.add_parser("respond", help="Respond to or cancel a pending human-input request.")
+    respond_parser.add_argument("request_id")
+    response_group = respond_parser.add_mutually_exclusive_group(required=True)
+    response_group.add_argument("--answer")
+    response_group.add_argument("--cancel", action="store_true")
+    respond_parser.add_argument("--note", default="")
+    respond_parser.add_argument("--human-input-root", default=".agent_forge/human_input")
     resume_parser = subparsers.add_parser("resume", help="Resume from the latest checkpoint under a run directory.")
     resume_parser.add_argument("run_dir", help="Previous Agent Forge run directory.")
     resume_parser.add_argument("--task", help="Override the continuation task.")
@@ -192,6 +223,7 @@ def build_parser() -> argparse.ArgumentParser:
         help="Auto-approve write-like tool actions. Use --no-auto-approve-writes to leave pending approval files.",
     )
     resume_parser.add_argument("--approval-root", default=".agent_forge/approvals")
+    resume_parser.add_argument("--human-input-root", default=".agent_forge/human_input")
     resume_parser.add_argument("--operation-ledger-root", default=".agent_forge/operation_ledger")
     resume_parser.add_argument("--output-root", default=".agent_forge/runs")
     resume_parser.add_argument("--agent-mode", default="single", choices=["single", "multi"])
@@ -257,6 +289,9 @@ def main(argv: list[str] | None = None) -> None:
         return
     if args.command == "approve":
         print(approve_request(args))
+        return
+    if args.command == "respond":
+        print(respond_to_human_input(args))
         return
     if args.command == "resume":
         run_dir = resume_repository_task(args)
@@ -354,13 +389,6 @@ def run_repository_task(args: argparse.Namespace) -> Path:
     )
     try:
         active_workspace = str(environment.active_workspace)
-        registry = build_registry(
-            active_workspace,
-            auto=True,
-            mcp_config_file=getattr(args, "mcp_config", None),
-            mcp_allowed_tools=getattr(args, "mcp_tool", []),
-            execution_environment=environment,
-        )
         llm_config = resolve_llm_config(
             provider=args.provider,
             base_url=args.base_url,
@@ -372,7 +400,6 @@ def run_repository_task(args: argparse.Namespace) -> Path:
             raise SystemExit(
                 f"{args.provider} model config is incomplete. Set API env vars or pass --base-url/--api-key/--model."
             )
-        llm = build_llm(llm_config)
         config = RuntimeConfig(
             workspace=active_workspace,
             max_steps=args.max_steps,
@@ -384,6 +411,8 @@ def run_repository_task(args: argparse.Namespace) -> Path:
             resume_state=getattr(args, "resume_state", ""),
             auto_approve_writes=getattr(args, "auto_approve_writes", True),
             approval_root=getattr(args, "approval_root", ".agent_forge/approvals"),
+            human_input_root=getattr(args, "human_input_root", ".agent_forge/human_input"),
+            human_thread_id=getattr(args, "human_thread_id", ""),
             operation_ledger_root=getattr(args, "operation_ledger_root", ".agent_forge/operation_ledger"),
             approval_mode=args.approval_mode,
             skill_mode=_parse_skill_mode(getattr(args, "skills", "auto")),
@@ -391,7 +420,54 @@ def run_repository_task(args: argparse.Namespace) -> Path:
             skill_manifest_files=getattr(args, "skill_manifest", []),
             tool_routing_mode=getattr(args, "tool_routing", "task-aware"),
         )
-        if getattr(args, "agent_mode", "single") == "multi":
+
+        def registry_factory(workspace, worker_environment):
+            return build_registry(
+                str(workspace),
+                auto=True,
+                mcp_config_file=getattr(args, "mcp_config", None),
+                mcp_allowed_tools=getattr(args, "mcp_tool", []),
+                execution_environment=worker_environment,
+            )
+
+        agent_mode = getattr(args, "agent_mode", "single")
+        if agent_mode == "fanout":
+            plan_path = getattr(args, "fanout_plan", "")
+            if not plan_path:
+                raise SystemExit("--fanout-plan is required when --agent-mode fanout is selected.")
+            try:
+                plan = FanoutPlan.load(plan_path)
+            except (OSError, ValueError, json.JSONDecodeError) as exc:
+                raise SystemExit(f"invalid fanout plan: {exc}") from exc
+            trace.set_run_context(task=args.task)
+            summary = LiveFanoutCoordinator(
+                plan=plan,
+                base_config=config,
+                trace=trace,
+                run_dir=run_dir,
+                llm_factory=lambda: build_llm(llm_config),
+                registry_factory=registry_factory,
+                max_workers=getattr(args, "max_workers", 4),
+                resume_from=getattr(args, "fanout_resume", "") or None,
+            ).run()
+            final_answer = "\n".join(
+                part
+                for part in [
+                    summary.final_answer.strip(),
+                    f"fanout status: {summary.status}",
+                    f"report: {summary.report_path}",
+                    "The integration patch is a candidate artifact; no official benchmark resolution is implied.",
+                ]
+                if part
+            )
+            trace.set_run_context(
+                stop_reason=f"fanout_{summary.status}",
+                final_answer=final_answer,
+            )
+        else:
+            registry = registry_factory(active_workspace, environment)
+            llm = build_llm(llm_config)
+        if agent_mode == "multi":
             profile = get_profile(getattr(args, "profile", "coding_fix"))
             summary = MultiAgentCoordinator(
                 args.task,
@@ -404,7 +480,7 @@ def run_repository_task(args: argparse.Namespace) -> Path:
                 max_revision_rounds=getattr(args, "max_revision_rounds", profile.default_max_revision_rounds),
             ).run()
             final_answer = summary.final_answer
-        else:
+        elif agent_mode == "single":
             final_answer = AgentLoop(config, trace, registry, llm).run(args.task)
         trace.write()
         write_usage_artifacts(trace_path)
@@ -451,7 +527,12 @@ def resume_repository_task(args: argparse.Namespace) -> Path:
 
     checkpoint_path = latest_checkpoint_path(args.run_dir)
     checkpoint = TaskStateStore.load_path(checkpoint_path)
-    continuation_task = args.task or f"continue previous task: {checkpoint.task}"
+    human_store = HumanInputStore(args.human_input_root)
+    continuation_task, human_thread_id = continuation_task_with_human_response(
+        checkpoint,
+        human_store,
+        override_task=args.task or "",
+    )
     run_args = argparse.Namespace(
         task=continuation_task,
         workspace=args.workspace or checkpoint_resume_workspace(checkpoint),
@@ -464,6 +545,8 @@ def resume_repository_task(args: argparse.Namespace) -> Path:
         approval_mode=args.approval_mode,
         auto_approve_writes=args.auto_approve_writes,
         approval_root=args.approval_root,
+        human_input_root=args.human_input_root,
+        human_thread_id=human_thread_id,
         operation_ledger_root=args.operation_ledger_root,
         resume_state=str(checkpoint_path),
         output_root=args.output_root,
@@ -584,6 +667,49 @@ def approve_request(args: argparse.Namespace) -> str:
     )
 
 
+def respond_to_human_input(args: argparse.Namespace) -> str:
+    """Persist an operator response without resuming execution implicitly."""
+
+    store = HumanInputStore(args.human_input_root)
+    if getattr(args, "cancel", False):
+        request = store.cancel(args.request_id, note=getattr(args, "note", ""))
+    else:
+        request = store.respond(args.request_id, args.answer, note=getattr(args, "note", ""))
+    return (
+        f"human input {request.status}: request_id={request.request_id} "
+        f"path={request.path}"
+    )
+
+
+def continuation_task_with_human_response(checkpoint, store: HumanInputStore, override_task: str = "") -> tuple[str, str]:
+    """Build a continuation task and require a terminal human-input decision."""
+
+    metadata = checkpoint.metadata if isinstance(checkpoint.metadata, dict) else {}
+    thread_id = str(metadata.get("human_thread_id") or checkpoint.run_id)
+    task = override_task or f"continue previous task: {checkpoint.task}"
+    request_id = str(metadata.get("human_input_request_id") or "")
+    if not request_id:
+        return task, thread_id
+    request = store.get(request_id)
+    if request is None:
+        raise SystemExit(f"human input request not found: {request_id}")
+    if request.status == "pending":
+        raise SystemExit(f"human input is still pending: {request_id}")
+    if request.status == "cancelled":
+        raise SystemExit(f"human input request was cancelled: {request_id}")
+    task = "\n".join(
+        [
+            task,
+            "",
+            "Human response from the previous run:",
+            f"Question: {request.question}",
+            f"Answer: {request.answer}",
+            "Continue from this explicit operator input; do not ask the same question again.",
+        ]
+    )
+    return task, thread_id
+
+
 def render_doctor() -> str:
     """Return a concise environment report for benchmark runs."""
 
@@ -622,7 +748,12 @@ def resolve_report_target(target: str) -> Path:
         target = pointer.read_text(encoding="utf-8").strip()
     path = Path(target)
     if path.is_dir():
-        for candidate in (path / "report.md", path / "usage_report.md"):
+        for candidate in (
+            path / "report.md",
+            path / "fanout" / "fanout_report.md",
+            path / "multi_agent" / "multi_agent_report.md",
+            path / "usage_report.md",
+        ):
             if candidate.exists():
                 return candidate
     if path.exists():

@@ -15,6 +15,7 @@ class SubagentTask:
     write_scope: list[str] = field(default_factory=list)
     allowed_tools: list[str] = field(default_factory=list)
     expected_artifact: str = "task_output"
+    max_steps: int = 12
 
 
 @dataclass(frozen=True)
@@ -90,6 +91,23 @@ def build_execution_batches(tasks: list[SubagentTask]) -> list[list[SubagentTask
         ready_ids = {task.id for task in ready}
         completed |= ready_ids
         remaining = [task for task in remaining if task.id not in ready_ids]
+    return batches
+
+
+def build_conflict_free_batches(tasks: list[SubagentTask]) -> list[list[SubagentTask]]:
+    """Split topological levels so declared write overlaps never run together."""
+
+    batches: list[list[SubagentTask]] = []
+    for ready_level in build_execution_batches(tasks):
+        level_batches: list[list[SubagentTask]] = []
+        for task in ready_level:
+            for batch in level_batches:
+                if not detect_write_scope_conflicts([*batch, task]):
+                    batch.append(task)
+                    break
+            else:
+                level_batches.append([task])
+        batches.extend(level_batches)
     return batches
 
 

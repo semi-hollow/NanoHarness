@@ -12,6 +12,7 @@ class TaskRunStatus(Enum):
     CREATED = "created"
     RUNNING = "running"
     WAITING_APPROVAL = "waiting_approval"
+    WAITING_HUMAN = "waiting_human"
     BLOCKED = "blocked"
     FAILED = "failed"
     COMPLETED = "completed"

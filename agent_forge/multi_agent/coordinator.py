@@ -5,6 +5,7 @@ from dataclasses import replace
 from pathlib import Path
 
 from agent_forge.runtime.agent_loop import AgentLoop
+from agent_forge.runtime.git_workspace import collect_workspace_diff
 from agent_forge.tools.registry import ToolRegistry
 
 from .artifacts import ArtifactStore
@@ -340,18 +341,10 @@ class MultiAgentCoordinator:
         if not workspace.exists():
             return False
         try:
-            result = subprocess.run(
-                ["git", "diff", "--no-ext-diff", "--"],
-                cwd=workspace,
-                text=True,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.DEVNULL,
-                timeout=10,
-                check=False,
-            )
-        except (OSError, subprocess.TimeoutExpired):
+            patch = collect_workspace_diff(workspace)
+        except (OSError, RuntimeError, subprocess.TimeoutExpired):
             return False
-        return bool(result.stdout.strip())
+        return bool(patch.strip())
 
     def _trace(self, event_type: str, success: bool = True, **kwargs) -> None:
         """Emit coordinator-level trace events with monotonic synthetic steps."""

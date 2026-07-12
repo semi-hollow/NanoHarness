@@ -2,6 +2,7 @@
 
 from .coordinator import MultiAgentCoordinator
 from .fanout import FanoutConflict, FanoutResult, SubagentResult, SubagentTask, run_fanout
+from .live_fanout import FanoutPlan, LiveFanoutCoordinator, LiveFanoutSummary, LiveSubagentResult
 from .profiles import get_profile, list_profiles
 from .types import AgentProfile, Artifact, MultiAgentRunSummary, RoleRunResult, RoleSpec
 
@@ -10,6 +11,10 @@ __all__ = [
     "Artifact",
     "FanoutConflict",
     "FanoutResult",
+    "FanoutPlan",
+    "LiveFanoutCoordinator",
+    "LiveFanoutSummary",
+    "LiveSubagentResult",
     "MultiAgentCoordinator",
     "MultiAgentRunSummary",
     "RoleRunResult",

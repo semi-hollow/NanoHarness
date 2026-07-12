@@ -45,22 +45,29 @@ before older audit history consumes context budget.
 
 ## Dependency-Aware Fan-Out
 
-For plan-style work, `agent_forge/multi_agent/fanout.py` provides a small
-subagent fan-out primitive:
+For plan-style work, `agent_forge/multi_agent/live_fanout.py` connects the
+dependency scheduler to real isolated workers:
 
 ```text
 Plan tasks
-  -> dependency batches
-  -> same-batch write-scope conflict check
-  -> concurrent runner callback
-  -> touched-file conflict check
-  -> completed or conflict_resolution_required
+  -> validate DAG / paths / tools / artifact names
+  -> dependency-ready, conflict-free batches
+  -> one worktree + AgentLoop + LLM + trace per worker
+  -> actual touched-file and patch SHA checks
+  -> deterministic git apply into the integration workspace
+  -> isolated read-only FanoutVerifier
+  -> checkpoint / summary / report / integration.patch
 ```
 
 This answers a different question from `coding_fix`: when a user has seven or
-eight independent tasks, which can be run together, and which require a merge or
-conflict-resolution step first? It does not claim automatic patch merge or
-distributed execution; it makes dependency and conflict policy explicit.
+eight independent tasks, which can run together, and which require serial
+ownership? Declared overlap is serialized. Undeclared overlap, scope escape, or
+patch-apply failure stops at `conflict_resolution_required`; no model silently
+widens scope. Checkpoints can restore hash-verified accepted patches and rerun
+only incomplete workers.
+
+Live fanout is local concurrency, not distributed serving. It consumes an
+explicit JSON plan rather than asking a model to invent an unbounded swarm.
 
 ## Profiles
 
@@ -124,6 +131,28 @@ forge run "Write a cited research report on current best practices for evaluatin
   --max-revision-rounds 2
 ```
 
+Live read-only fanout:
+
+```bash
+forge run "audit runtime and safety evidence" \
+  --agent-mode fanout \
+  --fanout-plan examples/fanout-plan.sample.json \
+  --max-workers 2 \
+  --provider deepseek
+```
+
+Resume an incomplete fanout run:
+
+```bash
+forge run "continue the validated task DAG" \
+  --agent-mode fanout \
+  --fanout-plan path/to/plan.json \
+  --fanout-resume .agent_forge/runs/<previous-run-id> \
+  --execution-mode worktree \
+  --no-keep-worktree \
+  --provider deepseek
+```
+
 SWE-bench can run the coding profile:
 
 ```bash
@@ -154,7 +183,10 @@ This version does not implement:
 
 - Claude / Anthropic provider compatibility.
 - Raft, quorum, blockchain, decentralized peer-to-peer agents, or swarm learning.
-- Automatic patch merging across parallel mutating workspaces.
+- Distributed queues, remote workers, or peer-to-peer agent chat.
+- Automatic LLM conflict resolution across undeclared or overlapping writes.
+- Per-operation manual write approval across ephemeral fanout worktrees; use
+  single/sequential mode when that authorization boundary is required.
 - Full SaaS/distributed serving.
 - Heavy frontend changes.
 

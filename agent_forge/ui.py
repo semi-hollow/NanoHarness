@@ -13,7 +13,7 @@ import webbrowser
 from dataclasses import dataclass, field
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any
 from urllib.parse import parse_qs, urlparse
 
@@ -300,6 +300,29 @@ def _build_agent_run_command(python: str, payload: dict[str, Any]) -> UiCommand:
         ]
     )
     command.extend(["--output-root", _payload_text(payload, "outputRoot", ".agent_forge/runs")])
+    agent_mode = _payload_choice(payload, "runAgentMode", {"single", "multi", "fanout"}, "single")
+    command.extend(["--agent-mode", agent_mode])
+    if agent_mode == "multi":
+        command.extend(["--profile", "coding_fix", "--max-revision-rounds", "2"])
+    elif agent_mode == "fanout":
+        plan_path = _payload_project_path(
+            payload,
+            "fanoutPlan",
+            "examples/fanout-plan.sample.json",
+        )
+        command.extend(["--fanout-plan", plan_path])
+        resume_path = _payload_project_path(payload, "fanoutResume", "", required=False)
+        if resume_path:
+            command.extend(["--fanout-resume", resume_path])
+        command.extend(
+            [
+                "--max-workers",
+                str(_payload_int(payload, "fanoutMaxWorkers", 4, 1, 8)),
+                "--execution-mode",
+                "worktree",
+                "--no-keep-worktree",
+            ]
+        )
 
     skills = _payload_text(payload, "skills", "auto")
     if skills:
@@ -361,6 +384,30 @@ def _payload_text(payload: dict[str, Any], key: str, default: str) -> str:
         return default
     text = str(value).strip()
     return text if text else default
+
+
+def _payload_project_path(
+    payload: dict[str, Any],
+    key: str,
+    default: str,
+    *,
+    required: bool = True,
+) -> str:
+    """Accept only project-relative artifact paths from the browser."""
+
+    text = str(payload.get(key) or default).strip().replace("\\", "/")
+    if not text and not required:
+        return ""
+    path = PurePosixPath(text)
+    if (
+        not text
+        or path.is_absolute()
+        or ".." in path.parts
+        or text.startswith("~")
+        or (path.parts and ":" in path.parts[0])
+    ):
+        raise ValueError(f"{key} must be a relative project path")
+    return path.as_posix()
 
 
 def _payload_int(payload: dict[str, Any], key: str, default: int, min_value: int, max_value: int) -> int:
@@ -446,7 +493,12 @@ def _latest_report_path(project_dir: Path) -> str:
 
     run_dir = _latest_run_dir(project_dir)
     if run_dir:
-        for name in ("report.md", "usage_report.md"):
+        for name in (
+            "report.md",
+            "fanout/fanout_report.md",
+            "multi_agent/multi_agent_report.md",
+            "usage_report.md",
+        ):
             candidate = run_dir / name
             if candidate.exists():
                 return str(candidate)
@@ -588,6 +640,16 @@ def _latest_multi_agent_summary_path(project_dir: Path) -> Path | None:
     return max(existing, key=lambda path: path.stat().st_mtime)
 
 
+def _latest_fanout_summary_path(project_dir: Path) -> Path | None:
+    """Return the live fanout summary for the latest normal run."""
+
+    run_dir = _latest_run_dir(project_dir)
+    if not run_dir:
+        return None
+    candidate = run_dir / "fanout" / "fanout_summary.json"
+    return candidate if candidate.exists() else None
+
+
 def _read_json_file(path: Path | None) -> dict[str, Any]:
     """Read JSON defensively for UI evidence rendering."""
 
@@ -605,6 +667,11 @@ def _render_result_summary(project_dir: Path) -> str:
     run_dir = _latest_run_dir(project_dir)
     if not run_dir:
         return _empty_evidence("No run artifacts yet. Run the fixed SWE-bench showcase first.")
+
+    fanout_path = _latest_fanout_summary_path(project_dir)
+    fanout = _read_json_file(fanout_path)
+    if fanout:
+        return _render_fanout_result_summary(fanout, fanout_path)
 
     results = _read_json_file(run_dir / "results.json")
     usage = _read_json_file(_latest_usage_path(project_dir))
@@ -670,6 +737,11 @@ def _render_result_summary(project_dir: Path) -> str:
 
 def _render_usage_dashboard(project_dir: Path) -> str:
     """Render token/cost/context/tool efficiency as a readable dashboard."""
+
+    fanout_path = _latest_fanout_summary_path(project_dir)
+    fanout = _read_json_file(fanout_path)
+    if fanout:
+        return _render_fanout_usage_dashboard(fanout, fanout_path)
 
     usage_path = _latest_usage_path(project_dir)
     usage = _read_json_file(usage_path)
@@ -745,6 +817,67 @@ def _render_usage_dashboard(project_dir: Path) -> str:
         f"<tbody>{tool_rows_html}</tbody></table></div>",
         "</div>",
         f"<p><span class='label'>usage.json</span><span class='mono'>{_escape(str(usage_path))}</span></p>",
+    ]
+    return "<div class='evidence'>" + "".join(body) + "</div>"
+
+
+def _render_fanout_result_summary(fanout: dict[str, Any], path: Path | None) -> str:
+    """Render task and merge outcomes for one live fanout run."""
+
+    metrics = fanout.get("metrics") or {}
+    rows = "".join(
+        "<tr>"
+        f"<td class='mono'>{_escape(result.get('task_id', ''))}</td>"
+        f"<td>{_badge(str(result.get('status', '')), _tone_for_status(str(result.get('status', ''))))}</td>"
+        f"<td>{_escape(result.get('resumed', False))}</td>"
+        f"<td>{_escape(result.get('touched_files', []))}</td>"
+        "</tr>"
+        for result in fanout.get("results") or []
+    ) or "<tr><td colspan='4'>No task results</td></tr>"
+    body = [
+        "<h2>Live Fanout 结果摘要</h2>",
+        "<p class='help strong'>独立 AgentLoop workers、scope gate、确定性合并和 finalizer 的终态证据。</p>",
+        _metric_grid(
+            [
+                ("Status", str(fanout.get("status", "")), "coordinator status", _tone_for_status(str(fanout.get("status", "")))),
+                ("Tasks", str(metrics.get("task_count", 0)), "validated DAG tasks", "neutral"),
+                ("Completed", str(metrics.get("completed_count", 0)), "accepted workers", "ok"),
+                ("Max Workers", str(metrics.get("max_workers", 0)), "concurrency bound", "neutral"),
+                ("Wall Time", f"{int(metrics.get('wall_time_ms') or 0)} ms", "includes finalizer", "neutral"),
+                ("Decision", str(fanout.get("final_decision") or "not_run"), "isolated verifier", _tone_for_status(str(fanout.get("final_decision") or ""))),
+            ]
+        ),
+        f"<p><span class='label'>Goal</span>{_escape(fanout.get('goal', ''))}</p>",
+        f"<p><span class='label'>Batches</span><span class='mono'>{_escape(fanout.get('batches', []))}</span></p>",
+        "<table><thead><tr><th>task</th><th>status</th><th>resumed</th><th>touched files</th></tr></thead>",
+        f"<tbody>{rows}</tbody></table>",
+        "<p class='help'>A merged candidate and FanoutVerifier PASS are runtime evidence, not official benchmark resolution.</p>",
+        f"<p><span class='label'>fanout_summary.json</span><span class='mono'>{_escape(str(path or 'not found'))}</span></p>",
+    ]
+    return "<div class='evidence'>" + "".join(body) + "</div>"
+
+
+def _render_fanout_usage_dashboard(fanout: dict[str, Any], path: Path | None) -> str:
+    """Render aggregate worker plus finalizer usage for live fanout."""
+
+    metrics = fanout.get("metrics") or {}
+    body = [
+        "<h2>Live Fanout 成本与并发证据</h2>",
+        "<p class='help strong'>总模型指标包含 workers 与 finalizer；worker time 和 wall time 分开显示。</p>",
+        _metric_grid(
+            [
+                ("LLM Calls", str(metrics.get("llm_calls", 0)), "this run", "neutral"),
+                ("Total Tokens", str(metrics.get("total_tokens", 0)), "this run", "neutral"),
+                ("Cost", f"${float(metrics.get('estimated_cost_usd') or 0):.6f}", "this run estimate", "ok"),
+                ("Wall Time", f"{int(metrics.get('wall_time_ms') or 0)} ms", "end-to-end", "neutral"),
+                ("Current Worker", f"{int(metrics.get('current_worker_duration_ms') or 0)} ms", "this run only", "neutral"),
+                ("Recovered Worker", f"{int(metrics.get('resumed_worker_duration_ms') or 0)} ms", "historical artifacts", "neutral"),
+                ("Max Workers", str(metrics.get("max_workers", 0)), "configured bound", "neutral"),
+                ("Tool Calls", str(metrics.get("tool_calls", 0)), "worker and verifier tools", "neutral"),
+                ("Tool Failures", str(metrics.get("failed_tool_calls", 0)), "failed observations", "bad" if metrics.get("failed_tool_calls") else "ok"),
+            ]
+        ),
+        f"<p><span class='label'>fanout_summary.json</span><span class='mono'>{_escape(str(path or 'not found'))}</span></p>",
     ]
     return "<div class='evidence'>" + "".join(body) + "</div>"
 
@@ -1135,6 +1268,9 @@ def _format_trace_event_label(index: int, event: dict[str, Any]) -> str:
         "permission_check": "权限检查",
         "hook_check": "工具前置检查",
         "human_approval": "人工审批",
+        "human_input_requested": "等待人工输入",
+        "human_input_response_loaded": "载入人工回答",
+        "human_input_cancelled": "人工输入已取消",
         "tool_call": "工具调用",
         "tool_observation": "工具结果",
         "observation": "观察回填",
@@ -1150,6 +1286,10 @@ def _format_trace_event_label(index: int, event: dict[str, Any]) -> str:
         "agent_stage_end": "角色结束",
         "artifact_created": "产物写入",
         "multi_agent_done": "多 Agent 完成",
+        "fanout_start": "Fanout 开始",
+        "fanout_batch_done": "Fanout 批次完成",
+        "fanout_done": "Fanout 完成",
+        "finalizer_error": "Finalizer 失败",
     }
     fields = [f"{index}. {names.get(event_type, event_type)}"]
     if event.get("agent"):
@@ -1231,9 +1371,7 @@ INDEX_HTML = r"""<!doctype html>
       font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
       -webkit-font-smoothing: antialiased;
       text-rendering: optimizeLegibility;
-      background:
-        radial-gradient(circle at top left, rgba(10, 132, 255, .12), transparent 32rem),
-        linear-gradient(180deg, #fbfbfd 0%, var(--bg) 38%, #f2f4f7 100%);
+      background: #f4f6f8;
       color: var(--text);
     }
     header {
@@ -1262,7 +1400,7 @@ INDEX_HTML = r"""<!doctype html>
     .project-chip {
       max-width: 420px;
       border: 1px solid var(--line);
-      border-radius: 999px;
+      border-radius: 6px;
       padding: 10px 12px;
       background: rgba(255, 255, 255, .72);
       color: var(--muted);
@@ -1326,7 +1464,7 @@ INDEX_HTML = r"""<!doctype html>
     .card {
       background: var(--panel);
       border: 1px solid var(--line);
-      border-radius: 18px;
+      border-radius: 8px;
       padding: 14px;
       margin-bottom: 14px;
       box-shadow: 0 12px 34px var(--shadow);
@@ -1355,7 +1493,7 @@ INDEX_HTML = r"""<!doctype html>
       gap: 10px;
       align-items: start;
       border: 1px solid var(--line);
-      border-radius: 16px;
+      border-radius: 8px;
       padding: 10px;
       background: var(--panel-3);
     }
@@ -1380,7 +1518,7 @@ INDEX_HTML = r"""<!doctype html>
     .command {
       display: block;
       margin-top: 6px;
-      color: #c5d7f2;
+      color: #42556b;
       font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
       font-size: 11px;
       overflow-wrap: anywhere;
@@ -1396,7 +1534,7 @@ INDEX_HTML = r"""<!doctype html>
       background: rgba(255, 255, 255, .9);
       color: var(--text);
       border: 1px solid var(--line);
-      border-radius: 12px;
+      border-radius: 6px;
       padding: 9px 10px;
       font: inherit;
     }
@@ -1436,7 +1574,7 @@ INDEX_HTML = r"""<!doctype html>
     button {
       width: 100%;
       border: 0;
-      border-radius: 999px;
+      border-radius: 6px;
       background: var(--blue);
       color: white;
       font-weight: 700;
@@ -1476,7 +1614,7 @@ INDEX_HTML = r"""<!doctype html>
     }
     .pill {
       padding: 12px;
-      border-radius: 16px;
+      border-radius: 8px;
       border: 1px solid var(--line);
       background: var(--panel);
     }
@@ -1494,8 +1632,7 @@ INDEX_HTML = r"""<!doctype html>
       top: 81px;
       z-index: 8;
       padding: 10px 0;
-      background: rgba(245, 245, 247, .86);
-      backdrop-filter: blur(22px) saturate(1.35);
+      background: #f4f6f8;
     }
     .view-tabs button {
       width: auto;
@@ -1508,17 +1645,17 @@ INDEX_HTML = r"""<!doctype html>
       box-shadow: 0 2px 8px rgba(0, 0, 0, .04);
     }
     .view-tabs button.active {
-      color: white;
-      background: var(--accent);
-      border-color: transparent;
-      box-shadow: 0 8px 18px rgba(10, 132, 255, .22);
+      color: #0057b8;
+      background: #e8f3ff;
+      border-color: rgba(10, 132, 255, .34);
+      box-shadow: 0 3px 10px rgba(10, 132, 255, .12);
     }
     .output {
       white-space: pre-wrap;
       word-break: break-word;
       background: rgba(255, 255, 255, .88);
       border: 1px solid var(--line);
-      border-radius: 22px;
+      border-radius: 8px;
       padding: 24px 28px;
       min-height: calc(100vh - 245px);
       max-height: none;
@@ -1538,13 +1675,13 @@ INDEX_HTML = r"""<!doctype html>
     }
     .metric-card {
       border: 1px solid var(--line);
-      border-radius: 16px;
+      border-radius: 8px;
       padding: 14px;
       background: rgba(250, 250, 252, .88);
     }
-    .metric-card.ok { border-color: rgba(10, 132, 255, .28); }
-    .metric-card.warn { border-color: rgba(183, 121, 31, .26); }
-    .metric-card.bad { border-color: rgba(215, 0, 21, .24); }
+    .metric-card.ok { border-color: rgba(52, 199, 89, .34); background: rgba(245, 252, 247, .92); }
+    .metric-card.warn { border-color: rgba(183, 121, 31, .3); background: rgba(255, 250, 240, .92); }
+    .metric-card.bad { border-color: rgba(215, 0, 21, .28); background: rgba(255, 247, 248, .92); }
     .metric-label, .label { color: var(--muted); font-size: 12px; margin-right: 8px; }
     .metric-value { margin-top: 4px; font-size: 18px; font-weight: 800; overflow-wrap: anywhere; }
     .metric-note { margin-top: 4px; color: var(--muted); font-size: 12px; }
@@ -1581,7 +1718,8 @@ INDEX_HTML = r"""<!doctype html>
       vertical-align: top;
     }
     tr:hover td { background: rgba(0, 0, 0, .018); }
-    th { color: var(--muted); font-weight: 700; }
+    th { color: var(--muted); font-weight: 700; white-space: nowrap; word-break: normal; }
+    td { overflow-wrap: anywhere; }
     .split {
       display: grid;
       grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -1602,11 +1740,11 @@ INDEX_HTML = r"""<!doctype html>
     }
     .flow-strip span {
       border: 1px solid var(--line);
-      border-radius: 12px;
+      border-radius: 6px;
       background: rgba(255, 255, 255, .72);
       padding: 10px 8px;
       text-align: center;
-      color: #dce6f3;
+      color: #405266;
       font-size: 12px;
       font-weight: 700;
     }
@@ -1618,7 +1756,7 @@ INDEX_HTML = r"""<!doctype html>
     }
     .lane-card {
       border: 1px solid var(--line);
-      border-radius: 16px;
+      border-radius: 8px;
       padding: 18px;
       background: rgba(250, 250, 252, .82);
     }
@@ -1630,7 +1768,7 @@ INDEX_HTML = r"""<!doctype html>
     }
     .mini-flow span {
       border: 1px solid var(--line);
-      border-radius: 12px;
+      border-radius: 6px;
       padding: 8px 6px;
       text-align: center;
       color: #2f3338;
@@ -1681,7 +1819,7 @@ INDEX_HTML = r"""<!doctype html>
     }
     .raw-text {
       white-space: pre-wrap;
-      color: #dce6f3;
+      color: #2f3b49;
       margin: 0;
       font: inherit;
     }
@@ -1699,8 +1837,44 @@ INDEX_HTML = r"""<!doctype html>
     .failed { color: var(--red); }
     .running { color: var(--yellow); }
     @media (max-width: 900px) {
+      header {
+        position: static;
+        align-items: stretch;
+        flex-direction: column;
+        padding: 14px 16px;
+        gap: 12px;
+      }
+      h1 { font-size: 24px; }
+      .header-actions {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        min-width: 0;
+        gap: 8px;
+      }
+      .header-actions button {
+        width: 100%;
+        min-width: 0;
+        white-space: normal;
+        padding: 8px 6px;
+      }
+      .project-chip {
+        grid-column: 1 / -1;
+        max-width: none;
+        padding: 8px 10px;
+      }
       main { grid-template-columns: 1fr; }
       aside { border-right: 0; border-bottom: 1px solid var(--line); }
+      section { padding: 10px 12px 18px; }
+      .view-tabs {
+        top: 0;
+        flex-wrap: nowrap;
+        overflow-x: auto;
+        overscroll-behavior-x: contain;
+        padding: 8px 0;
+        scrollbar-width: thin;
+      }
+      .view-tabs button { flex: 0 0 auto; }
+      .output { padding: 18px 16px; min-height: calc(100vh - 250px); }
       .status { grid-template-columns: 1fr; }
       .metric-grid, .split, .form-grid, .form-row, .quick-tasks, .flow-strip, .lane-grid, .mini-flow, .action-grid { grid-template-columns: 1fr; }
     }
@@ -1839,6 +2013,18 @@ INDEX_HTML = r"""<!doctype html>
           <button class="secondary" onclick="setTaskPreset('refactor')">安全重构</button>
           <button class="secondary" onclick="setTaskPreset('doc')">补充说明</button>
         </div>
+        <label>Run Mode</label>
+        <select id="runAgentMode">
+          <option value="single">single</option>
+          <option value="multi">sequential multi-role</option>
+          <option value="fanout">live fanout</option>
+        </select>
+        <label>Fanout Plan</label>
+        <input id="fanoutPlan" value="examples/fanout-plan.sample.json" />
+        <label>Fanout Resume</label>
+        <input id="fanoutResume" placeholder=".agent_forge/runs/run-id" />
+        <label>Fanout Workers</label>
+        <input id="fanoutMaxWorkers" type="number" min="1" max="8" value="4" />
         <details>
           <summary>高级：workspace / Skill / MCP / 输出目录</summary>
           <label>Workspace</label>
@@ -1950,6 +2136,10 @@ INDEX_HTML = r"""<!doctype html>
         skillManifests: valueOf('skillManifests'),
         mcpConfig: valueOf('mcpConfig'),
         mcpTools: valueOf('mcpTools'),
+        runAgentMode: valueOf('runAgentMode'),
+        fanoutPlan: valueOf('fanoutPlan'),
+        fanoutResume: valueOf('fanoutResume'),
+        fanoutMaxWorkers: valueOf('fanoutMaxWorkers'),
         benchAgentMode: valueOf('benchAgentMode'),
         directBaseline: checked('directBaseline'),
         officialEvaluate: checked('officialEvaluate'),

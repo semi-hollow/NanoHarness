@@ -8,6 +8,9 @@ scope. Read it after the root README when reviewing the implementation.
 ```mermaid
 flowchart LR
     CLI["forge CLI / workbench"] --> Loop["AgentLoop"]
+    CLI --> Fanout["LiveFanoutCoordinator"]
+    Fanout --> Workers["isolated AgentLoop workers"]
+    Workers --> Loop
     Loop --> Context["ContextBuilder"]
     Loop --> Model["ModelGateway"]
     Loop --> Router["ToolRouter"]
@@ -15,11 +18,14 @@ flowchart LR
     Router --> Policy["Permissions / command policy / sandbox"]
     Policy --> Tools["Files / patch / command / diagnostics / MCP"]
     Loop --> Approval["ApprovalStore"]
+    Loop --> Human["HumanInputStore"]
     Loop --> Ledger["OperationLedger"]
     Loop --> State["TaskState checkpoints"]
     Loop --> Trace["Trace + usage"]
     Coordinator["MultiAgentCoordinator"] --> Loop
     Coordinator --> Artifacts["Role artifacts"]
+    Fanout --> Merge["scope gate + patch merge"]
+    Merge --> Finalizer["isolated verifier"]
     Trace --> Diagnosis["Failure taxonomy"]
     Trace --> Scorecard["Benchmark scorecard"]
     Scorecard --> Ablation["Paired ablation"]
@@ -37,14 +43,17 @@ flowchart LR
 | 3 | `agent_forge/tools/tool_router.py` | Tool visibility is task-aware and its allowed/hidden summary is evidence, not decoration. |
 | 4 | `agent_forge/runtime/execution_environment.py` | Local, worktree, and OCI modes expose distinct path, git-state, process, network, and resource boundaries. |
 | 5 | `agent_forge/runtime/approval.py` | Side effects can stop before execution and resume only from persisted human decisions. |
-| 6 | `agent_forge/runtime/operation_ledger.py` | Stable operation keys prevent duplicate side effects and detect stale targets. |
-| 7 | `agent_forge/runtime/task_state.py` | Resume uses checkpoint summaries and does not claim hidden model-state restoration. |
-| 8 | `agent_forge/multi_agent/coordinator.py` | Implementer, Reviewer, and Verifier reuse AgentLoop and communicate through artifacts. |
-| 9 | `agent_forge/bench/failure_taxonomy.py` | Failure priority distinguishes runner, environment, evaluation, tool, context, and loop failures. |
-| 10 | `agent_forge/evaluation/feedback_dataset.py` | Human outcomes and safe trace projections form a machine-readable improvement input. |
-| 11 | `agent_forge/bench/official_results.py` | Official quality comes from per-case JSON, never evaluator exit code. |
-| 12 | `agent_forge/evaluation/scorecard.py` | Patch, local, and official metrics retain separate denominators. |
-| 13 | `agent_forge/evaluation/experiment.py` | Matched run identity is checked before paired deltas are reported. |
+| 6 | `agent_forge/runtime/human_input.py` | Informational questions have durable pending/responded/cancelled state and safe ids. |
+| 7 | `agent_forge/runtime/operation_ledger.py` | Stable operation keys prevent duplicate side effects and detect stale targets. |
+| 8 | `agent_forge/runtime/task_state.py` | Resume uses checkpoint summaries and does not claim hidden model-state restoration. |
+| 9 | `agent_forge/multi_agent/coordinator.py` | Implementer, Reviewer, and Verifier reuse AgentLoop and communicate through artifacts. |
+| 10 | `agent_forge/multi_agent/live_fanout.py` | A task DAG becomes real worktree workers, deterministic integration, checkpoints, and a finalizer. |
+| 11 | `agent_forge/runtime/git_workspace.py` | Candidate patches include tracked and new source files without collecting runtime artifacts. |
+| 12 | `agent_forge/bench/failure_taxonomy.py` | Failure priority distinguishes runner, environment, evaluation, tool, context, and loop failures. |
+| 13 | `agent_forge/evaluation/feedback_dataset.py` | Human outcomes and safe trace projections form a machine-readable improvement input. |
+| 14 | `agent_forge/bench/official_results.py` | Official quality comes from per-case JSON, never evaluator exit code. |
+| 15 | `agent_forge/evaluation/scorecard.py` | Patch, local, and official metrics retain separate denominators. |
+| 16 | `agent_forge/evaluation/experiment.py` | Matched run identity is checked before paired deltas are reported. |
 
 ## Main Capability Relationships
 
@@ -59,19 +68,29 @@ OCI mode keeps the same hook and sandbox chain. File tools operate on the
 isolated host snapshot; command and unittest diagnostics are delegated into the
 container that mounts that snapshot at `/workspace`.
 
-### Human approval and recovery
+### Human input, approval, and recovery
 
-An approval request stores the operation fingerprint before a side effect. A
-later continuation rechecks the target fingerprint, while the operation ledger
-records planned, pending, executed, failed, or skipped states. Task checkpoints
-seed a new model call with a compact continuation summary.
+`HumanInputStore` records information needed to continue; `ApprovalStore`
+authorizes a concrete side effect. They are deliberately separate. A human
+question stops before further tools and a response is injected into a later
+continuation. An approval stores an operation fingerprint and rechecks target
+state before execution. The operation ledger records planned, pending,
+executed, failed, or skipped states. Task checkpoints seed a new model call
+with a compact continuation summary.
 
 ### Multi-agent coordination
 
 The coordinator runs role-specific AgentLoop instances sequentially and writes
 role outputs to an artifact store. Revision rounds are bounded. The separate
-fanout module currently proves dependency batching and conflict detection but is
-not presented as a live distributed swarm.
+live fanout path runs explicit DAG tasks concurrently through separate
+AgentLoop/worktree/model contexts. Scope overlap is serialized, accepted patches
+are hash-addressed, and incomplete tasks can be rerun from a checkpoint. It is
+not presented as a distributed swarm or automatic task decomposer.
+
+Per-operation manual write approval is supported by canonical and sequential
+role runs. Live fanout rejects that combination until operation identity can be
+made stable across ephemeral worktrees; durable informational questions do work
+across fanout resume.
 
 ### Evaluation and feedback
 

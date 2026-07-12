@@ -38,6 +38,18 @@ class ToolRouterPolicySummaryTest(unittest.TestCase):
         self.assertEqual(route.dropped_names, [])
         self.assertIn("mode=all", route.reason)
 
+    def test_durable_human_input_control_is_visible_without_prompt_keywords(self):
+        schemas = [
+            {"name": "read_file"},
+            {"name": "ask_human"},
+            {"name": "apply_patch"},
+        ]
+
+        route = ToolRouter().route("inspect the runtime and decide what evidence is missing", schemas)
+
+        self.assertIn("ask_human", route.allowed_names)
+        self.assertEqual(route.metadata["ask_human"]["mode"], "human")
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -1,9 +1,20 @@
 import unittest
 
-from agent_forge.multi_agent.fanout import SubagentTask, run_fanout
+from agent_forge.multi_agent.fanout import SubagentTask, build_conflict_free_batches, run_fanout
 
 
 class SubagentFanoutTest(unittest.TestCase):
+    def test_conflicting_ready_tasks_are_partitioned_into_serial_batches(self):
+        tasks = [
+            SubagentTask(id="runtime-a", task="edit A", write_scope=["agent_forge/runtime/"]),
+            SubagentTask(id="runtime-b", task="edit B", write_scope=["agent_forge/runtime/agent_loop.py"]),
+            SubagentTask(id="docs", task="read docs", write_scope=[]),
+        ]
+
+        batches = build_conflict_free_batches(tasks)
+
+        self.assertEqual([[task.id for task in batch] for batch in batches], [["runtime-a", "docs"], ["runtime-b"]])
+
     def test_independent_tasks_run_in_one_parallel_batch(self):
         tasks = [
             SubagentTask(id="docs", task="update docs", write_scope=["docs/"]),
