@@ -145,6 +145,7 @@ class OperationLedgerStore:
         record = self._require(operation_key)
         return self._transition(record, "approved", run_id=run_id, step=step)
 
+    # RUNTIME PORT: persist successful completion of a side-effect operation.
     def record_executed(
         self,
         operation_key: str,
@@ -158,6 +159,7 @@ class OperationLedgerStore:
         record.observation = observation
         return self._transition(record, "executed", run_id=run_id, step=step, post_fingerprint=post_fingerprint)
 
+    # RUNTIME PORT: persist a failed side effect so it is not mistaken for success.
     def record_failed(
         self,
         operation_key: str,
@@ -171,6 +173,7 @@ class OperationLedgerStore:
         record.observation = observation
         return self._transition(record, "failed", run_id=run_id, step=step, post_fingerprint=post_fingerprint)
 
+    # RUNTIME PORT: create or recover the stable identity for a side effect.
     def ensure_planned(
         self,
         operation_key: str,
@@ -184,6 +187,13 @@ class OperationLedgerStore:
         status: str = "planned",
         pre_fingerprint: dict[str, Any] | None = None,
     ) -> OperationRecord:
+        """Return the existing operation record or persist its planned state.
+
+        ``AgentLoop.run`` calls this before side-effect execution. The stable
+        key plus pre-fingerprint lets continuation runs skip completed work and
+        reject stale targets instead of replaying mutations blindly.
+        """
+
         existing = self.get(operation_key)
         if existing is not None:
             if existing.pre_fingerprint is None and pre_fingerprint is not None:

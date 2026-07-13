@@ -39,8 +39,14 @@ class ToolRegistry:
 
         return self._tools.get(name)
 
+    # PRIMARY ENTRYPOINT: cross the boundary from model intent to a local tool.
     def execute(self, name: str, arguments: ToolArguments) -> Observation:
-        """Validate and execute one tool call, converting failures to Observation."""
+        """Validate and execute one tool call, always returning ``Observation``.
+
+        ``AgentLoop.run`` reaches concrete tools only through this method. It
+        owns tool lookup, argument validation, exception normalization, and the
+        single result protocol fed into recovery and the next model turn.
+        """
 
         tool = self.get(name)
         if not tool:

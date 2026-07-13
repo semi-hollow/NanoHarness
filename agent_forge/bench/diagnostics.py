@@ -8,8 +8,14 @@ from .failure_taxonomy import FailureDiagnosis, classify_case_result
 from .types import BenchCaseResult
 
 
+# PRIMARY ENTRYPOINT: classify one final case after all evaluation evidence exists.
 def attach_failure_diagnosis(result: BenchCaseResult) -> BenchCaseResult:
-    """Populate diagnosis fields on one mutable case result."""
+    """Populate final diagnosis fields on one mutable benchmark case.
+
+    ``run_swebench`` calls this only after local and optional official evaluation
+    finish. It loads trace/usage evidence, delegates taxonomy classification,
+    and updates the result consumed by case studies and aggregate reports.
+    """
 
     diagnosis = diagnose_case_result(result)
     result.failure_class = diagnosis.failure_class

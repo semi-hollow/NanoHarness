@@ -36,7 +36,12 @@ class ApprovalRequest:
 
 
 class ApprovalStore:
-    """Filesystem-backed approval queue for local human-in-the-loop runs."""
+    """Filesystem-backed authorization queue for side-effect operations.
+
+    Read ``request`` for the runtime pause and ``decide`` for the operator
+    transition. This store authorizes a concrete fingerprinted operation; it is
+    intentionally separate from informational ``HumanInputStore`` questions.
+    """
 
     def __init__(self, root: str | Path = ".agent_forge/approvals") -> None:
         self.root = Path(root)
@@ -65,6 +70,7 @@ class ApprovalStore:
         data = json.loads(path.read_text(encoding="utf-8"))
         return ApprovalRequest(**data)
 
+    # RUNTIME PORT: AgentLoop records a concrete side effect before pausing.
     def request(
         self,
         *,
@@ -79,7 +85,12 @@ class ApprovalStore:
         reason: str,
         operation_fingerprint: dict[str, Any] | None = None,
     ) -> ApprovalRequest:
-        """Create a pending request unless an approval decision already exists."""
+        """Create or reuse the authorization record for one side effect.
+
+        ``AgentLoop.run`` calls this after the permission hook returns ASK. The
+        operation key and fingerprint connect the later decision to the exact
+        tool intent and target state.
+        """
 
         key = self.operation_key(tool_name, arguments, workspace, action)
         existing = self.get(key)
@@ -124,8 +135,9 @@ class ApprovalStore:
                 continue
         return sorted(requests, key=lambda request: request.updated_at, reverse=True)
 
+    # RUNTIME PORT: `forge approve` records the operator's authorization decision.
     def decide(self, operation_key: str, status: str, note: str = "") -> ApprovalRequest:
-        """Mark one operation approved or rejected."""
+        """Mark one operation approved or rejected for a later continuation."""
 
         if status not in {"approved", "rejected"}:
             raise ValueError("approval status must be 'approved' or 'rejected'")

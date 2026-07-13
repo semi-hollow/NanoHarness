@@ -17,8 +17,14 @@ NUMERIC_METRICS = (
 )
 
 
+# PRIMARY ENTRYPOINT: normalize benchmark artifacts into claim-safe metrics.
 def build_benchmark_scorecard(results: dict[str, Any], run_dir: str | Path) -> dict[str, Any]:
-    """Build one honest aggregate view from benchmark and usage artifacts."""
+    """Build one claim-safe aggregate view from benchmark and usage evidence.
+
+    Benchmark reporting calls this after case evaluation. It separates patch,
+    local-validation, and official-evaluation denominators, then returns the
+    scorecard consumed by Markdown reports and paired ablations.
+    """
 
     root = Path(run_dir)
     cases = [_normalize_case(item, root) for item in results.get("case_results", []) if isinstance(item, dict)]

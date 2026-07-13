@@ -75,6 +75,7 @@ class MCPConfigLoader:
 
         self.sandbox = sandbox
 
+    # PRIMARY ENTRYPOINT: discover and register configured MCP tools safely.
     def load_into(
         self,
         registry: ToolRegistry,

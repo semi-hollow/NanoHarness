@@ -28,6 +28,7 @@ class PermissionPolicy:
 
         self.auto_approve_writes = auto_approve_writes
 
+    # RUNTIME PORT: PermissionHook maps one proposed action to allow/ask/deny.
     def decide(self, action: str, command: str = "") -> tuple[PermissionDecision, str]:
         """Return allow/ask/deny plus a reason for trace and debugging."""
 

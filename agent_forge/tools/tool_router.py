@@ -54,6 +54,7 @@ class ToolRouter:
         "run_command": {"capability": "validate", "risk": "high", "latency": "medium", "mode": "command"},
     }
 
+    # PRIMARY ENTRYPOINT: choose the tool schemas visible to one model turn.
     def route(
         self,
         task: str,
@@ -64,7 +65,13 @@ class ToolRouter:
         skill_tool_names: set[str] | None = None,
         mode: str = "task-aware",
     ) -> ToolRoute:
-        """Return routed tool schemas with explainable metadata."""
+        """Return the governed model-visible tool set for one reasoning step.
+
+        ``AgentLoop.run`` calls this before the model. The returned ``ToolRoute``
+        carries both schemas used by the API call and allowed/hidden evidence
+        written to trace; execution remains separately guarded by hooks and the
+        registry.
+        """
 
         lowered = (task or "").lower()
         by_name = {schema.get("name", ""): schema for schema in schemas}

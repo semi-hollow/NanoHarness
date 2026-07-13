@@ -222,6 +222,7 @@ class SkillRegistry:
             return None
         return self.resolve(name, current.rollback_to)
 
+    # PRIMARY ENTRYPOINT: select the versioned Skills active for one task.
     def select_for_task(
         self,
         task: str,

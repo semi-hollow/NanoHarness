@@ -304,8 +304,9 @@ class HookManager:
             ]
         )
 
+    # RUNTIME PORT: AgentLoop asks the ordered policy chain before every tool.
     def pre_tool(self, context: HookContext) -> HookResult:
-        """Run every pre-tool hook and return the effective decision."""
+        """Return the effective allow, ask, or deny decision before execution."""
 
         decisions = [hook.pre_tool(context) for hook in self.hooks]
         for decision in decisions:

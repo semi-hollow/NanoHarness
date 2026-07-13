@@ -48,8 +48,14 @@ class WorkspaceSandbox:
             or any("secrets" in part for part in lowered_parts)
         )
 
+    # RUNTIME PORT: every file tool validates model-provided paths here.
     def ensure_safe_path(self, path: str | Path) -> Path:
-        """Return a resolved path or raise if it escapes/sensitively targets."""
+        """Return a workspace path or reject escape and sensitive targets.
+
+        Concrete file tools call this immediately before I/O. ``resolve_path``
+        and ``is_sensitive_path`` are implementation steps; this method is the
+        enforceable boundary a reader should inspect first.
+        """
 
         resolved = self.resolve_path(path)
         try:

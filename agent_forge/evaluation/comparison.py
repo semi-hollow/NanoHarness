@@ -3,6 +3,7 @@ from __future__ import annotations
 from .types import EvaluationComparison
 
 
+# PRIMARY ENTRYPOINT: compare one matched single-agent and multi-agent run.
 def compare_runs(task_id: str, single: dict, multi: dict) -> EvaluationComparison:
     """Build a conservative comparison from two run/usage summaries."""
 
@@ -57,6 +58,7 @@ def _float(data: dict, key: str) -> float:
         return 0.0
 
 
+# PRIMARY ENTRYPOINT: compare one-shot, single-agent, and governed variants.
 def compare_variants(task_id: str, variants: dict[str, dict]) -> dict:
     """Compare direct baseline, single agent, and governed agent without hype."""
 

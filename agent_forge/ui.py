@@ -209,6 +209,7 @@ class ForgeUiHandler(BaseHTTPRequestHandler):
             return
 
 
+# PRIMARY ENTRYPOINT: serve the local evidence console and bounded run controls.
 def run_ui(host: str = "127.0.0.1", port: int = 8765, open_browser: bool = True) -> None:
     """Start the local browser UI."""
 

@@ -141,12 +141,14 @@ class StepController:
             )
         return None
 
+    # PRIMARY ENTRYPOINT: turn a failed tool result into retry/stop guidance.
     def classify_observation(self, observation: Observation) -> FailureSignal | None:
         """Map a raw Observation into retryability and recovery guidance.
 
-        The classification is string-based because tools currently return text
-        observations. The design still matters: retry/stop decisions are runtime
-        policy, not ad hoc model prompting.
+        ``AgentLoop.run`` calls this after every tool result. The returned
+        ``FailureSignal`` is recorded in trace and either seeds the next model
+        turn or stops the loop; ``record_tool_intent`` and ``should_stop`` are
+        the sibling guards for repetition and budget exhaustion.
         """
 
         if observation.success:

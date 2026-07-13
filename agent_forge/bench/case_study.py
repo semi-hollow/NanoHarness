@@ -55,7 +55,10 @@ def render_case_study(result: BenchCaseResult) -> str:
     return "\n".join(lines)
 
 
+# PRIMARY ENTRYPOINT: write the human-readable evidence narrative for one final case.
 def write_case_study(result: BenchCaseResult) -> Path:
+    """Write ``case_study.md`` from a fully evaluated and diagnosed case result."""
+
     path = Path(result.patch_path).parent / "case_study.md"
     path.write_text(render_case_study(result), encoding="utf-8")
     return path

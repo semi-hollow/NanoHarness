@@ -10,6 +10,63 @@ entire repository backwards?
 CLI task -> RuntimeConfig -> AgentLoop -> LLM/ToolCall -> Observation -> Trace/Checkpoint -> Report/Evaluation
 ```
 
+## Collapsed-Code Reading Convention
+
+NanoHarness marks method importance in source so an IDE outline or an expanded
+class remains useful while method bodies stay collapsed:
+
+| Marker | Read when | Meaning |
+| --- | --- | --- |
+| `PRIMARY ENTRYPOINT` | First pass | Start here for one capability. It owns orchestration or a user-visible state transition. |
+| `RUNTIME PORT` | Second pass | A cross-module boundary called by an entry point, usually policy, persistence, or evidence. |
+| No marker | Only while debugging that branch | Supporting implementation. Its name and type contract should be enough initially. |
+| Leading `_` | Last | Private stage or storage/helper detail; it is not a supported connection point. |
+
+The markers are comments, not decorators or runtime metadata. They add no
+execution behavior. A state machine may have more than one primary entry because
+different actors enter it independently. HITL, for example, has runtime pause,
+operator response, and continuation entries.
+
+## Capability Entry Point Index
+
+Use this table as the project outline. Open the primary entry, keep all methods
+collapsed, and follow only the listed ports when that branch matters.
+
+| Capability | Start here | Follow next | Skip on the first pass | Evidence/output |
+| --- | --- | --- | --- | --- |
+| CLI dispatch | `forge_cli.main` | The selected command function | Parser argument declarations | Printed artifact locations |
+| Run assembly | `forge_cli.run_repository_task` | `ExecutionEnvironment.prepare`, then one coordinator `run` method | `registry_factory`, latest-run pointer | One run directory |
+| Single-agent runtime | `AgentLoop.run` | `build_context_report` -> `ModelGateway.chat` -> `ToolRegistry.execute` | All `_...` methods until a specific branch matters | Final answer, trace, checkpoint |
+| Context engineering | `build_context_report` | `build_context_strategy` | Ranker, preview, and truncation helpers | `ContextBuildReport` and context trace event |
+| Model boundary | `ModelGateway.chat` | `OpenAICompatibleLLMClient.chat` | Retry bookkeeping and response parsing helpers | `AgentResponse`, `last_usage` |
+| Tool governance | `ToolRouter.route` -> `HookManager.pre_tool` -> `ToolRegistry.execute` | One concrete `Tool.execute` only when debugging it | Registry schema helpers and unrelated tools | Routing, permission, tool, and observation events |
+| Path/command safety | `WorkspaceSandbox.ensure_safe_path`, `check_command`, `PermissionPolicy.decide` | `ExecutionEnvironment.execute_command` for OCI/local differences | Policy-summary renderers | Permission decisions and environment command history |
+| Execution isolation | `ExecutionEnvironment.prepare` | `probe`, `write_manifest`, `cleanup` | `_prepare_*` implementation until one mode fails | Environment probe and manifest |
+| Informational HITL | `AgentLoop.run` pause -> `respond_to_human_input` -> `resume_repository_task` | `HumanInputStore.request/respond`, `TaskStateStore.update` | Store path/list/write helpers | Human request, waiting checkpoint, resume chain |
+| Side-effect approval | `AgentLoop.run` pause -> `approve_request` -> `resume_repository_task` | `ApprovalStore.request/decide`, fingerprint check in the loop | Approval file I/O helpers | Approval record and permission trace |
+| Runtime recovery | `StepController.classify_observation`, `resume_repository_task` | `TaskStateStore.start/update`, `OperationLedgerStore.ensure_planned` | Summary rendering and record serialization | Recovery event, checkpoint, operation record |
+| Sequential roles | `MultiAgentCoordinator.run` | Repeated `AgentLoop.run`, then `ArtifactStore` | Individual role prompt formatting | Role artifacts and `MultiAgentRunSummary` |
+| Concurrent fanout | `LiveFanoutCoordinator.run` | `build_conflict_free_batches`, worker `AgentLoop.run` | Worktree/git helpers until merge or recovery fails | Fanout checkpoint, worker traces, integration patch |
+| Structured output | `StructuredOutputParser.parse` | `build_repair_prompt` only after failure | JSON extraction/schema helper methods | `StructuredOutputResult` and retry evidence |
+| Skills | `SkillRegistry.select_for_task` | Selected `SkillSpec.prompt_card` and tool names | Manifest parsing/version helpers | Active-skill context and trace metadata |
+| MCP | `MCPConfigLoader.load_into`, `AgentForgeMCPServer.run` | Registered tool -> stdio client call | JSON-RPC formatting helpers | Registration report and tool observation |
+| SWE-bench pipeline | `run_swebench` | `_run_case`, optional `parse_official_results` | Checkout helpers until a case fails | Predictions and evaluated case results |
+| Failure diagnosis/report | `attach_failure_diagnosis` -> `write_case_study` / `write_bench_artifacts` | `classify_case_result`, scorecard writer | Markdown renderers | Taxonomy, case study, result card |
+| Run/variant comparison | `compare_runs`, `compare_variants` | Normalized metrics and recommendation rules | Numeric coercion helpers | Single/multi and before/after evidence |
+| Scorecard/ablation | `build_benchmark_scorecard`, `compare_benchmark_scorecards` | Normalized cases and paired-case rows | Markdown renderers | Scorecard and paired delta artifacts |
+| Human feedback/data | `record_feedback`, `export_feedback_dataset` | `_build_record` when auditing privacy fields | Path discovery helpers | `feedback.json` and JSONL dataset |
+| Evidence console | `run_ui` | `UiState.start_job`, then the renderer for one selected view | HTML helpers and unrelated renderers | Local HTTP evidence views and bounded jobs |
+
+### Three-pass reading method
+
+1. Read only `PRIMARY ENTRYPOINT` signatures and docstrings to reconstruct the
+   whole system.
+2. Pick one scenario and follow its `RUNTIME PORT` methods. For HITL, that means
+   request -> waiting checkpoint -> response -> resume, not every store method.
+3. Open private helpers only when explaining a concrete policy or debugging a
+   failed test. Data classes can be read as field dictionaries; their persistence
+   helpers do not define the capability.
+
 The project has five kinds of objects. Learn these before reading control flow:
 
 | Kind | Meaning | Main definitions |

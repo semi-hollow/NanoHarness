@@ -466,6 +466,7 @@ status of each capability.
 - [Capability Reality Matrix](docs/CAPABILITY_REALITY_MATRIX.md)
 - [Architecture Notes](docs/AgentForge总体架构与运行链路.md)
 - [Runtime Capability Guide](docs/architecture/runtime-capability-guide.md)
+- [Capability Entry Point Index](docs/guides/code-reading-map.md#capability-entry-point-index)
 - [Runtime Learning Path](docs/guides/runtime-learning-path.md)
 - [Durable Human Input and Live Fanout](docs/architecture/human-input-and-live-fanout.md)
 - [Evaluation Experiments and OCI Execution](docs/architecture/evaluation-experiments-and-oci-execution.md)

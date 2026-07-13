@@ -7,6 +7,9 @@ The goal is simple: **do not overclaim**. Agent Forge is strongest when it is
 presented as a compact AI agent runtime and evaluation harness, not as a full
 IDE, SaaS product, distributed swarm, or benchmark leaderboard.
 
+For the method-level path through every capability below, use the
+[Capability Entry Point Index](guides/code-reading-map.md#capability-entry-point-index).
+
 ## Legend
 
 | Status | Meaning |

@@ -90,6 +90,7 @@ class TraceRecorder:
 
         self._append(step, agent_name, event_type, success=success, error=error, data=data)
 
+    # RUNTIME PORT: keep a typed checkpoint until the trace serialization boundary.
     def record_task_state_checkpoint(
         self,
         *,
@@ -155,8 +156,14 @@ class TraceRecorder:
         if self.verbose:
             print(f"[trace] step={step} agent={agent_name} event={event_type} success={success}")
 
+    # RUNTIME PORT: CLI and benchmark runners finalize the trace artifact here.
     def write(self) -> None:
-        """Write JSON trace plus the human-readable summary file."""
+        """Persist the complete event stream, metrics, and optional summary.
+
+        Execution paths call this after ``AgentLoop`` or a coordinator returns.
+        Readers interested in event creation should start at named ``record_*``
+        methods; ``_append`` is only envelope construction.
+        """
 
         trace = {
             "run_id": self.run_id,

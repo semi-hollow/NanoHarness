@@ -11,6 +11,7 @@ FEEDBACK_OUTCOMES = {"accepted", "needs_work", "rejected"}
 SCHEMA_VERSION = "agent-forge-eval-v1"
 
 
+# PRIMARY ENTRYPOINT: attach one human outcome to existing run evidence.
 def record_feedback(
     target: str | Path,
     *,
@@ -19,7 +20,12 @@ def record_feedback(
     note: str = "",
     reviewer: str = "human",
 ) -> Path:
-    """Persist a human judgment next to a run or benchmark case."""
+    """Persist a human judgment next to a run or benchmark case.
+
+    Called by ``forge eval feedback`` and the evidence console. It records human
+    review only; it never upgrades candidate or local evidence to an official
+    benchmark result.
+    """
 
     target_path = Path(target)
     target_dir = target_path.parent if target_path.is_file() else target_path
@@ -45,6 +51,7 @@ def record_feedback(
     return path
 
 
+# PRIMARY ENTRYPOINT: project trace and feedback into privacy-conscious JSONL.
 def export_feedback_dataset(
     targets: Iterable[str | Path],
     output_path: str | Path,

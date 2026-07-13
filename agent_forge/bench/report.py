@@ -9,6 +9,7 @@ from agent_forge.evaluation.scorecard import write_benchmark_scorecard
 from .types import BenchRunSummary
 
 
+# PRIMARY ENTRYPOINT: finalize machine-readable and human benchmark artifacts.
 def write_bench_artifacts(summary: BenchRunSummary) -> tuple[Path, Path]:
     """Write ``results.json`` and the human result card.
 

@@ -168,6 +168,7 @@ class SwebenchWorkspaceManager:
         return result
 
 
+# PRIMARY ENTRYPOINT: run the complete benchmark-to-evidence pipeline.
 def run_swebench(
     dataset_name: str = DEFAULT_DATASET,
     split: str = "test",
@@ -200,11 +201,12 @@ def run_swebench(
     container_pids_limit: int = 256,
     container_read_only: bool = True,
 ) -> BenchRunSummary:
-    """Generate SWE-bench patch predictions with Agent Forge.
+    """Generate SWE-bench predictions and evidence artifacts with Agent Forge.
 
-    This function is the project effect loop: external benchmark case -> clean
-    repo checkout -> AgentLoop -> git diff -> predictions.jsonl -> optional
-    official SWE-bench Docker evaluation.
+    Called by the CLI benchmark command. It owns case loading and run-level
+    aggregation, then delegates each case to the canonical runtime and optional
+    official harness. The returned ``BenchRunSummary`` points to predictions,
+    scorecard, report, diagnosis, and case-study evidence.
     """
 
     run_id = f"swebench-{time.strftime('%Y%m%d-%H%M%S')}-{uuid.uuid4().hex[:7]}"

@@ -53,8 +53,14 @@ class MultiAgentCoordinator:
         self.store = ArtifactStore(self.run_dir)
         self._event_step = 0
 
+    # PRIMARY ENTRYPOINT: run the bounded Implementer/Reviewer/Verifier workflow.
     def run(self) -> MultiAgentRunSummary:
-        """Run the profile and write multi-agent artifacts/reports."""
+        """Run the sequential role profile and write auditable artifacts.
+
+        ``run_repository_task`` calls this for ``--agent-mode multi``. Every
+        role reuses ``AgentLoop.run``; this coordinator owns only role order,
+        artifact handoff, bounded revision, and the final summary/report.
+        """
 
         summary = MultiAgentRunSummary(
             run_id=self.trace.run_id,

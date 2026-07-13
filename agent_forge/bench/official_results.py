@@ -49,6 +49,7 @@ class OfficialResults:
     warnings: list[str] = field(default_factory=list)
 
 
+# PRIMARY ENTRYPOINT: derive per-case official outcomes from harness artifacts.
 def parse_official_results(
     output_dir: str | Path,
     run_id: str,
@@ -113,6 +114,7 @@ def parse_official_results(
     return OfficialResults(run_id=run_id, report_path=report_path, outcomes=outcomes, warnings=warnings)
 
 
+# RUNTIME PORT: attach parsed official evidence without overwriting local evidence.
 def apply_official_results(
     case_results: list[BenchCaseResult],
     parsed: OfficialResults,

@@ -85,6 +85,7 @@ class AgentForgeMCPServer:
         self.name = name
         self.tools = {tool.name: tool for tool in tools}
 
+    # PRIMARY ENTRYPOINT: serve the supported MCP stdio request loop.
     def run(self, stdin: TextIO | None = None, stdout: TextIO | None = None) -> None:
         """Serve JSON-RPC requests until stdin closes.
 

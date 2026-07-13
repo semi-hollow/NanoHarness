@@ -41,7 +41,12 @@ class HumanInputRequest:
 
 
 class HumanInputStore:
-    """Filesystem-backed queue for non-blocking human questions."""
+    """Filesystem-backed queue for non-blocking human questions.
+
+    Runtime flow: ``request`` creates the pause record, ``respond`` records an
+    operator answer, and ``forge resume`` consumes it. Read those two ports;
+    path, listing, and atomic-write helpers are storage details.
+    """
 
     def __init__(self, root: str | Path = ".agent_forge/human_input") -> None:
         self.root = Path(root)
@@ -77,6 +82,7 @@ class HumanInputStore:
             return None
         return HumanInputRequest(**json.loads(path.read_text(encoding="utf-8")))
 
+    # RUNTIME PORT: AgentLoop persists a question before stopping the run.
     def request(
         self,
         *,
@@ -90,6 +96,13 @@ class HumanInputStore:
         agent_name: str,
         reason: str,
     ) -> HumanInputRequest:
+        """Create or reuse the durable question that makes a run resumable.
+
+        Called only by ``AgentLoop._request_human_input``. The stable request id
+        makes retries idempotent, while the returned object is written into the
+        checkpoint and trace before execution stops at ``waiting_human``.
+        """
+
         question = str(question or "").strip()
         if not question:
             raise ValueError("human input question must not be empty")
@@ -129,7 +142,10 @@ class HumanInputStore:
     def list_pending(self) -> list[HumanInputRequest]:
         return [request for request in self.list_all() if request.status == "pending"]
 
+    # RUNTIME PORT: `forge respond` moves a pending question to responded.
     def respond(self, request_id: str, answer: str, note: str = "") -> HumanInputRequest:
+        """Persist one validated answer for later ``forge resume`` consumption."""
+
         answer = str(answer or "").strip()
         if not answer:
             raise ValueError("human input answer must not be empty")

@@ -54,6 +54,7 @@ class StructuredOutputParser:
         self.schema = schema
         self.max_repair_attempts = max(0, max_repair_attempts)
 
+    # PRIMARY ENTRYPOINT: validate one model response against the requested schema.
     def parse(self, text: str) -> StructuredOutputResult:
         """Parse model text into validated JSON or a deterministic error."""
 

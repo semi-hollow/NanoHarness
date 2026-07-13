@@ -152,12 +152,14 @@ class ExecutionEnvironment:
         self._container_start_command: list[str] = []
         self._command_history: list[dict[str, object]] = []
 
+    # PRIMARY ENTRYPOINT: materialize the selected local, worktree, or OCI boundary.
     def prepare(self) -> EnvironmentProbe:
         """Prepare the active workspace and return an auditable probe.
 
-        Worktree mode creates an isolated checkout at HEAD. It intentionally
-        does not copy uncommitted local edits; that keeps runs reproducible and
-        makes dirty working-tree state visible in the probe.
+        CLI and benchmark setup call this before creating ``AgentLoop``. It owns
+        snapshot/worktree/container preparation and returns the probe written to
+        trace and the environment manifest. Worktree mode intentionally excludes
+        uncommitted edits so the recorded base remains reproducible.
         """
 
         if self.config.mode not in {"local", "worktree", "container"}:

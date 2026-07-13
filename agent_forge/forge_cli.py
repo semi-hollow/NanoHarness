@@ -281,8 +281,14 @@ def _add_tool_routing_arg(parser: argparse.ArgumentParser) -> None:
     )
 
 
+# PRIMARY ENTRYPOINT: map every public `forge` command to one capability entry.
 def main(argv: list[str] | None = None) -> None:
-    """Dispatch the public CLI."""
+    """Parse and dispatch the public CLI.
+
+    Start here to map a user-facing command to the owning runtime function.
+    The branches deliberately contain no agent logic; they delegate to the
+    repository run, resume, HITL, benchmark, evaluation, or UI entry point.
+    """
 
     args = build_parser().parse_args(argv)
     if args.command == "doctor":
@@ -373,8 +379,16 @@ def main(argv: list[str] | None = None) -> None:
         return
 
 
+# PRIMARY ENTRYPOINT: assemble and execute one single, sequential, or fanout run.
 def run_repository_task(args: argparse.Namespace) -> Path:
-    """Run the canonical AgentLoop on the selected workspace."""
+    """Run one repository task and return its evidence directory.
+
+    Called by ``main`` and ``resume_repository_task``. It owns environment and
+    dependency assembly, then delegates execution to ``AgentLoop.run``,
+    ``MultiAgentCoordinator.run``, or ``LiveFanoutCoordinator.run``. The run
+    directory receives trace, usage, final-answer, patch, and environment
+    artifacts.
+    """
 
     run_id = f"run-{time.strftime('%Y%m%d-%H%M%S')}-{uuid.uuid4().hex[:7]}"
     run_dir = Path(args.output_root) / run_id
@@ -499,6 +513,7 @@ def run_repository_task(args: argparse.Namespace) -> Path:
             environment.cleanup()
 
 
+# RUNTIME PORT: turn CLI isolation options into the boundary used by a run.
 def prepare_execution_environment(
     args: argparse.Namespace,
     run_id: str,
@@ -526,8 +541,15 @@ def prepare_execution_environment(
     return environment, probe
 
 
+# PRIMARY ENTRYPOINT: continue a stopped run from durable checkpoint evidence.
 def resume_repository_task(args: argparse.Namespace) -> Path:
-    """Resume from the newest task-state checkpoint under a previous run."""
+    """Start a continuation run from the newest prior checkpoint.
+
+    Called by ``main`` for ``forge resume``. It loads durable task and human
+    state, builds an explicit continuation task, delegates to
+    ``run_repository_task``, and writes ``resume_link.json`` plus
+    ``resume_chain.md``. It does not restore hidden model or process memory.
+    """
 
     checkpoint_path = latest_checkpoint_path(args.run_dir)
     checkpoint = TaskStateStore.load_path(checkpoint_path)
@@ -657,8 +679,14 @@ def latest_checkpoint_path(run_dir: str | Path) -> Path:
     return max(candidates, key=updated_at)
 
 
+# PRIMARY ENTRYPOINT: operator decision for one concrete side-effect request.
 def approve_request(args: argparse.Namespace) -> str:
-    """Update one pending approval request from the CLI."""
+    """Persist an operator approval or rejection without running the tool.
+
+    Called by ``main`` for ``forge approve`` and delegated to
+    ``ApprovalStore.decide``. A later continuation rechecks the operation
+    fingerprint before the side effect can execute.
+    """
 
     request = ApprovalStore(args.approval_root).decide(
         args.operation_key,
@@ -671,8 +699,14 @@ def approve_request(args: argparse.Namespace) -> str:
     )
 
 
+# PRIMARY ENTRYPOINT: operator answer for a durable informational question.
 def respond_to_human_input(args: argparse.Namespace) -> str:
-    """Persist an operator response without resuming execution implicitly."""
+    """Persist an operator answer without resuming execution implicitly.
+
+    Called by ``main`` for ``forge respond``. It changes only the
+    ``HumanInputRequest`` state; ``forge resume`` is the separate execution
+    entry point that consumes the answer.
+    """
 
     store = HumanInputStore(args.human_input_root)
     if getattr(args, "cancel", False):

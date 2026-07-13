@@ -746,6 +746,40 @@ view 可从导航加载，控制台无应用错误。
 可追问：当一个 benchmark run 有多个 case 时，evidence console 应如何提供 case
 selector，并保证 summary、trace、artifact 与 feedback 始终指向同一 case？
 
+### 34. 方法签名完整，但折叠阅读时所有 `def` 仍然同权
+
+现象：核心对象已经有类型标注，读者仍无法从折叠后的类快速判断先读哪个方法。
+例如 `TaskStateStore.start/update/save/load` 在视觉上权重相同，容易把 checkpoint
+持久化端口误当成 HITL 或恢复能力入口；理解一次人工暂停还要反向搜索 CLI、
+AgentLoop 和 store 的调用者。
+
+定位过程：从 Capability Reality Matrix 的每项能力出发，沿真实调用链逐一确认
+外部入口、跨模块端口和内部实现。HITL 最终确认是三个参与者动作：
+`AgentLoop.run` 发起并停机、`respond_to_human_input` 写回答、
+`resume_repository_task` 开启 continuation；`HumanInputStore.request/respond` 只是
+状态持久化端口。对工具治理、隔离、fanout、评测、反馈、Skills 和 MCP 做同样审计。
+
+根因：类型系统回答“数据是什么”，原有 method map 只存在于少数大类；项目没有
+统一回答“能力从哪里进入、下一个 owner 是谁、哪些方法第一遍可以跳过”。仅靠
+public/private 命名也不够，因为 store 的 public API 并不等于用户可见能力入口。
+
+修复：在真实编排方法上统一增加 `PRIMARY ENTRYPOINT`，在跨模块的策略、持久化、
+证据边界增加 `RUNTIME PORT`；入口 docstring 写明 caller、下一 owner 和 evidence。
+`code-reading-map.md` 新增覆盖 runtime、HITL、恢复、安全、多 Agent、评测、反馈、
+MCP、Skills 和 UI 的方法级索引，以及三遍折叠阅读法。`CONTRIBUTING.md` 将该层级
+纳入后续贡献规范；AST 回归检查确保入口标记和导航 docstring 不会静默消失。
+
+验证：`test_code_navigation` 逐文件定位指定函数，检查标记紧邻定义，并要求所有
+主入口有 docstring；完整验证继续运行 mypy、行为回归和文档/格式检查。代码标记
+只是注释，不引入 decorator、注册表或运行时分支。
+
+工程结论：可读性需要两套正交信息：类型说明局部数据契约，入口层级说明系统
+控制流。真正适合折叠阅读的代码，应允许第一遍只展开主入口，第二遍才沿端口进入
+策略和持久化，最后按具体故障打开私有实现。
+
+可追问：为什么不使用 decorator 给入口打标签？因为这里的目标是静态导航，普通
+注释在 IDE 折叠视图中更直接，也避免为了文档引入运行时元数据和额外抽象。
+
 ## 调试顺序模板
 
 每次 SWE-bench 失败优先看：

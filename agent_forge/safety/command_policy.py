@@ -28,8 +28,7 @@ def command_policy_summary() -> dict[str, object]:
         "blocked_patterns": ["pipes", "redirects", "temporary script workarounds", "destructive commands"],
     }
 
-
-
+# RUNTIME PORT: command tools ask this deterministic allowlist before execution.
 def check_command(command: str) -> tuple[bool, str]:
     """Allow safe validation commands and read-only git inspection.
 

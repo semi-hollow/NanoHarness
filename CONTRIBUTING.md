@@ -27,6 +27,14 @@ python -m pip install -e '.[bench,dev]'
 8. Give high-value trace events a named `record_*` method with a typed signature.
 9. Keep side effects visible in the function that owns them.
 10. Add a regression test and update the failure-driven improvement log for behavioral changes.
+11. Mark each user-visible capability's orchestration method with `PRIMARY ENTRYPOINT`.
+12. Mark public persistence/policy/evidence boundaries called across modules with `RUNTIME PORT`.
+13. In entrypoint docstrings, name the caller, the next owning component, and the evidence or return value.
+
+Do not mark every public method. Constructors, data accessors, renderers, and
+storage helpers remain unmarked unless they are a real cross-module boundary.
+Multi-actor state machines may have multiple primary entries; document the
+transition between them in `docs/guides/code-reading-map.md`.
 
 ## Verification
 
@@ -54,6 +62,7 @@ checks run automatically when `DEEPSEEK_API_KEY` is available.
 - [ ] `scripts/verify.sh` passes.
 - [ ] `scripts/verify_mcp.sh` passes when MCP behavior changes.
 - [ ] Mypy and the type-contract regression test pass.
+- [ ] Capability entrypoints and runtime ports remain visible with method bodies collapsed.
 - [ ] README or docs reflect user-visible behavior.
 - [ ] No secret, personal path, or generated run artifact is tracked.
 - [ ] New runtime behavior has trace/evaluation evidence and a failure-log case.

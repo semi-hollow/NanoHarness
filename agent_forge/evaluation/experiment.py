@@ -20,6 +20,7 @@ DELTA_METRICS = (
 )
 
 
+# PRIMARY ENTRYPOINT: compare matched control/treatment scorecards.
 def compare_benchmark_scorecards(
     control: dict[str, Any],
     treatment: dict[str, Any],
@@ -28,7 +29,12 @@ def compare_benchmark_scorecards(
     control_label: str = "control",
     treatment_label: str = "treatment",
 ) -> dict[str, Any]:
-    """Compare matched benchmark runs as a conservative paired ablation."""
+    """Compare matched benchmark runs as a conservative paired ablation.
+
+    ``write_ablation_comparison`` calls this after loading both scorecards. It
+    rejects identity drift before computing per-case and aggregate deltas, so
+    the result answers what one declared runtime factor changed.
+    """
 
     checks = _validate_identity(control, treatment, factor=factor)
     control_cases = {str(case.get("instance_id") or ""): case for case in control.get("cases", [])}

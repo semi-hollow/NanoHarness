@@ -141,6 +141,7 @@ class TaskStateStore:
 
         return self.root / f"{run_id}.json"
 
+    # RUNTIME PORT: AgentLoop creates the first durable state for every run.
     def start(
         self,
         run_id: str,
@@ -149,7 +150,12 @@ class TaskStateStore:
         agent_name: str,
         metadata: JsonObject | None = None,
     ) -> TaskCheckpoint:
-        """Create the initial checkpoint."""
+        """Create and persist the initial checkpoint for ``AgentLoop.run``.
+
+        Read this to understand where resumable state begins. It returns the
+        typed ``TaskCheckpoint`` used by trace and later transitions; ``save``
+        is only the storage detail below this boundary.
+        """
 
         checkpoint = TaskCheckpoint(
             run_id=run_id,
@@ -163,6 +169,7 @@ class TaskStateStore:
         self.save(checkpoint)
         return checkpoint
 
+    # RUNTIME PORT: AgentLoop persists an explicit state transition here.
     def update(
         self,
         checkpoint: TaskCheckpoint,
@@ -179,11 +186,12 @@ class TaskStateStore:
         metadata: JsonObject | None = None,
         updated_at: float | None = None,
     ) -> TaskCheckpoint:
-        """Persist an explicit set of checkpoint fields.
+        """Apply and persist one explicit checkpoint transition.
 
-        The previous ``**changes + setattr`` implementation silently ignored
-        misspelled keys. An explicit signature makes every legal transition
-        discoverable at the call site and lets static analysis reject typos.
+        Called through ``AgentLoop._update_task_state`` after model, tool, pause,
+        and stop events. The explicit keyword signature is the complete list of
+        mutable fields, so callers do not need to inspect ``save`` or ``_write``
+        behavior to understand the transition.
         """
 
         if status is not None:

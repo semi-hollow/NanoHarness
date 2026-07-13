@@ -238,7 +238,16 @@ class LiveFanoutCoordinator:
         self._git_lock = threading.Lock()
         self._base_head = ""
 
+    # PRIMARY ENTRYPOINT: execute, merge, recover, and finalize one fanout DAG.
     def run(self) -> LiveFanoutSummary:
+        """Run conflict-aware AgentLoop workers and return integration evidence.
+
+        ``run_repository_task`` calls this for ``--agent-mode fanout``. This
+        method owns batching, isolated worktrees, deterministic patch merge,
+        checkpoint recovery, and the read-only finalizer; private methods are
+        individual stages of this orchestration.
+        """
+
         started = time.monotonic()
         base_head = _git_output(self.workspace, ["rev-parse", "HEAD"])
         if not base_head:

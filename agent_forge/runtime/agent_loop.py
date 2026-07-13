@@ -93,13 +93,15 @@ class AgentLoop:
             getattr(config, "operation_ledger_root", ".agent_forge/operation_ledger")
         )
 
+    # PRIMARY ENTRYPOINT: execute the complete single-agent control loop.
     def run(self, task: str, agent_name: str = "CodingAgent") -> str:
-        """Run one task until final answer, guardrail block, or stop condition.
+        """Run one task until final answer, durable pause, or stop condition.
 
-        The loop is deliberately observation-driven: the model proposes a tool
-        call, runtime executes it under policy, and the resulting Observation is
-        fed back into the next LLM call. That is the key distinction from a
-        one-shot prompt baseline.
+        Called by the CLI, sequential coordinator, fanout workers, and benchmark
+        runner. It delegates context assembly, model calls, tool governance,
+        checkpointing, HITL, and trace recording to their owning components.
+        The returned string is only the final answer; trace and checkpoint
+        stores carry the auditable execution evidence.
         """
 
         self.trace.set_run_context(task=task)

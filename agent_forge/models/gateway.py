@@ -64,8 +64,14 @@ class ModelGateway(LLMClient):
         # every llm_call event.
         self.last_usage = ModelUsage(provider=provider, model=model)
 
+    # PRIMARY ENTRYPOINT: normalize one logical model call for AgentLoop.
     def chat(self, messages: list[Message], tools: list[dict]) -> AgentResponse:
-        """Call the primary model with retry, then optional fallback."""
+        """Call the primary model with retry, then optional fallback.
+
+        ``AgentLoop.run`` knows only this provider-agnostic method. Provider
+        clients return ``AgentResponse``; this gateway owns retry, fallback, and
+        ``last_usage`` telemetry consumed by trace and usage reports.
+        """
 
         self.last_usage = ModelUsage(provider=self.provider, model=self.model)
         response = self._call_with_retry(self.primary, self.last_usage, messages, tools)

@@ -123,6 +123,7 @@ class ContextBuildReport:
         )
 
 
+# PRIMARY ENTRYPOINT: build the exact prompt context and its audit report.
 def build_context_report(
     task: str,
     repo_map: str,
@@ -134,12 +135,11 @@ def build_context_report(
     active_skill_cards: list[str] | None = None,
     permission_summary: str = "read allowed; write asks approval; dangerous commands denied",
 ) -> ContextBuildReport:
-    """Build the context object AgentLoop sends to the next LLM call.
+    """Build the context object ``AgentLoop`` sends to the next model call.
 
-    The function is intentionally split from AgentLoop so prompt construction is
-    an auditable policy layer. If the agent behaves badly, you can inspect the
-    trace and ask whether retrieval, memory inheritance, or token budget was the
-    cause.
+    ``AgentLoop.run`` calls this once per reasoning step. It delegates selection
+    and compression to ``build_context_strategy`` and returns a typed report
+    containing the rendered prompt plus selected, dropped, and budget evidence.
     """
 
     files = [line for line in repo_map.splitlines() if line.strip()]
