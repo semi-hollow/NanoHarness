@@ -110,7 +110,7 @@ class HookContext:
 class HookResult:
     """Effective pre-tool decision after all hooks have run."""
 
-    # Final decision used by AgentLoop.
+    # Final decision consumed by ToolExecutionPipeline.
     decision: HookDecisionType
 
     # Reason for the final decision.
@@ -304,7 +304,7 @@ class HookManager:
             ]
         )
 
-    # RUNTIME PORT: AgentLoop asks the ordered policy chain before every tool.
+    # RUNTIME PORT: ToolExecutionPipeline asks the policy chain before every tool.
     def pre_tool(self, context: HookContext) -> HookResult:
         """Return the effective allow, ask, or deny decision before execution."""
 

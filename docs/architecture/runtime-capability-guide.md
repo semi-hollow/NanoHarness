@@ -39,21 +39,24 @@ flowchart LR
 | 步骤 | 文件 | 需要确认的事实 |
 | --- | --- | --- |
 | 1 | `agent_forge/forge_cli.py` | 公共命令进入统一运行路径，benchmark/evaluation utility 保持独立。 |
-| 2 | `agent_forge/runtime/agent_loop.py` | Context、model call、action parsing、policy、observation、recovery、stop 是显式阶段。 |
-| 3 | `agent_forge/tools/tool_router.py` | Tool visibility 会根据任务收敛，allowed/hidden summary 是真实证据。 |
-| 4 | `agent_forge/runtime/execution_environment.py` | Local、worktree、OCI 分别提供不同的 path、git state、process、network、resource 边界。 |
-| 5 | `agent_forge/runtime/approval.py` | 副作用可以在执行前停机，只能根据持久化人工决策继续。 |
-| 6 | `agent_forge/runtime/human_input.py` | 信息型 question 有持久化 pending/responded/cancelled 状态和安全 id。 |
-| 7 | `agent_forge/runtime/operation_ledger.py` | 稳定 operation key 防止重复副作用，并检测 stale target。 |
-| 8 | `agent_forge/runtime/task_state.py` | Resume 使用 checkpoint summary，不声称恢复隐藏 model state。 |
-| 9 | `agent_forge/multi_agent/coordinator.py` | Implementer、Reviewer、Verifier 复用 AgentLoop，只通过 artifact 协作。 |
-| 10 | `agent_forge/multi_agent/live_fanout.py` | Task DAG 变成真实 worktree worker、确定性 integration、checkpoint 和 finalizer。 |
-| 11 | `agent_forge/runtime/git_workspace.py` | Candidate patch 包含 tracked 和新 source file，同时排除 runtime artifact。 |
-| 12 | `agent_forge/bench/failure_taxonomy.py` | Failure priority 能区分 runner、environment、evaluation、tool、context 和 loop failure。 |
-| 13 | `agent_forge/evaluation/feedback_dataset.py` | Human outcome 和安全 trace projection 形成机器可读的改进输入。 |
-| 14 | `agent_forge/bench/official_results.py` | Official quality 来自 per-case JSON，不来自 evaluator exit code。 |
-| 15 | `agent_forge/evaluation/scorecard.py` | Patch、local、official metric 保留不同 denominator。 |
-| 16 | `agent_forge/evaluation/experiment.py` | 计算 paired delta 前必须验证 matched run identity。 |
+| 2 | `agent_forge/runtime/agent_loop.py` | `run` 只保留 prepare、turn、stop 的显式阶段。 |
+| 3 | `agent_forge/runtime/state.py` | `AgentRunSession` 列出一次运行的全部自有状态。 |
+| 4 | `agent_forge/runtime/tool_execution.py` | 重复、HITL、policy、approval、ledger、tool、recovery 按固定顺序执行。 |
+| 5 | `agent_forge/runtime/run_lifecycle.py` | checkpoint、人工暂停和 terminal transition 只有一个 owner。 |
+| 6 | `agent_forge/tools/tool_router.py` | Tool visibility 会根据任务收敛，allowed/hidden summary 是真实证据。 |
+| 7 | `agent_forge/runtime/execution_environment.py` | Local、worktree、OCI 分别提供不同的 path、git state、process、network、resource 边界。 |
+| 8 | `agent_forge/runtime/approval.py` | 副作用可以在执行前停机，只能根据持久化人工决策继续。 |
+| 9 | `agent_forge/runtime/human_input.py` | 信息型 question 有持久化 pending/responded/cancelled 状态和安全 id。 |
+| 10 | `agent_forge/runtime/operation_ledger.py` | 稳定 operation key 防止重复副作用，并检测 stale target。 |
+| 11 | `agent_forge/runtime/task_state.py` | Resume 使用 checkpoint summary，不声称恢复隐藏 model state。 |
+| 12 | `agent_forge/multi_agent/coordinator.py` | Implementer、Reviewer、Verifier 复用 AgentLoop，只通过 artifact 协作。 |
+| 13 | `agent_forge/multi_agent/live_fanout.py` | Task DAG 变成真实 worktree worker、确定性 integration、checkpoint 和 finalizer。 |
+| 14 | `agent_forge/runtime/git_workspace.py` | Candidate patch 包含 tracked 和新 source file，同时排除 runtime artifact。 |
+| 15 | `agent_forge/bench/failure_taxonomy.py` | Failure priority 能区分 runner、environment、evaluation、tool、context 和 loop failure。 |
+| 16 | `agent_forge/evaluation/feedback_dataset.py` | Human outcome 和安全 trace projection 形成机器可读的改进输入。 |
+| 17 | `agent_forge/bench/official_results.py` | Official quality 来自 per-case JSON，不来自 evaluator exit code。 |
+| 18 | `agent_forge/evaluation/scorecard.py` | Patch、local、official metric 保留不同 denominator。 |
+| 19 | `agent_forge/evaluation/experiment.py` | 计算 paired delta 前必须验证 matched run identity。 |
 
 ## 主要能力关系
 

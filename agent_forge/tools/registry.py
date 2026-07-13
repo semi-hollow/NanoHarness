@@ -43,7 +43,7 @@ class ToolRegistry:
     def execute(self, name: str, arguments: ToolArguments) -> Observation:
         """Validate and execute one tool call, always returning ``Observation``.
 
-        ``AgentLoop.run`` reaches concrete tools only through this method. It
+        ``ToolExecutionPipeline`` reaches concrete tools only through this method. It
         owns tool lookup, argument validation, exception normalization, and the
         single result protocol fed into recovery and the next model turn.
         """

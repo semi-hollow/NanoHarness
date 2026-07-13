@@ -70,7 +70,7 @@ class ApprovalStore:
         data = json.loads(path.read_text(encoding="utf-8"))
         return ApprovalRequest(**data)
 
-    # RUNTIME PORT: AgentLoop records a concrete side effect before pausing.
+    # RUNTIME PORT: ToolExecutionPipeline records a side effect before pausing.
     def request(
         self,
         *,
@@ -87,9 +87,8 @@ class ApprovalStore:
     ) -> ApprovalRequest:
         """Create or reuse the authorization record for one side effect.
 
-        ``AgentLoop.run`` calls this after the permission hook returns ASK. The
-        operation key and fingerprint connect the later decision to the exact
-        tool intent and target state.
+        ``ToolExecutionPipeline`` 在 permission hook 返回 ASK 后调用这里。Operation
+        key 和 fingerprint 将后续决定绑定到具体 tool intent 与 target state。
         """
 
         key = self.operation_key(tool_name, arguments, workspace, action)

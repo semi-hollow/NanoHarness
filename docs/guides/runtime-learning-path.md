@@ -37,12 +37,17 @@ flowchart TD
     Workers --> Loop
     Loop --> Context["context + memory + skills"]
     Loop --> Model["ModelGateway"]
-    Loop --> Router["ToolRouter + ToolRegistry"]
-    Router --> Safety["hooks + permission + sandbox + command policy"]
-    Loop --> Human["HumanInputStore"]
-    Loop --> Approval["ApprovalStore"]
-    Loop --> Ledger["OperationLedgerStore"]
-    Loop --> State["TaskStateStore"]
+    Loop --> Session["AgentRunSession"]
+    Loop --> Router["ToolRouter"]
+    Router --> Pipeline["ToolExecutionPipeline"]
+    Pipeline --> Registry["ToolRegistry"]
+    Pipeline --> Safety["hooks + permission + sandbox + command policy"]
+    Pipeline --> Approval["ApprovalStore"]
+    Pipeline --> Ledger["OperationLedgerStore"]
+    Loop --> Lifecycle["RunLifecycle"]
+    Pipeline --> Lifecycle
+    Lifecycle --> Human["HumanInputStore"]
+    Lifecycle --> State["TaskStateStore"]
     Loop --> Trace["TraceRecorder"]
     Fanout --> Merge["scope gate + hash + git apply"]
     Merge --> Finalizer["隔离的只读 verifier"]
@@ -56,32 +61,38 @@ flowchart TD
 | ---: | --- | --- | --- |
 | 1 | `agent_forge/forge_cli.py` | 公共参数、环境准备、模式分发、respond/resume 命令 | 所有 runtime 路径 |
 | 2 | `agent_forge/runtime/wiring.py` | registry/model 的统一构造边界 | AgentLoop 和全部 worker |
-| 3 | `agent_forge/runtime/agent_loop.py` | clarification、context、model call、routing、safety、observation、recovery、stop | 标准执行内核 |
-| 4 | `agent_forge/runtime/human_input.py` | pending/responded/cancelled 信息状态 | `ask_human`、`forge respond`、resume |
-| 5 | `agent_forge/runtime/approval.py` | 对具体副作用授权，以及 stale fingerprint 检查 | `forge approve` |
-| 6 | `agent_forge/runtime/task_state.py` 和 `operation_ledger.py` | continuation state 和副作用幂等 | single/sequential recovery |
-| 7 | `agent_forge/multi_agent/coordinator.py` | 顺序 role workflow 和有界 revision | 显式 artifact handoff |
-| 8 | `agent_forge/multi_agent/fanout.py` | 纯 DAG batching 和 overlap 算法 | Live coordinator scheduling |
-| 9 | `agent_forge/multi_agent/live_fanout.py` | 真实 worker、worktree、scope、merge、checkpoint、finalizer | 并行 plan 执行 |
-| 10 | `agent_forge/runtime/git_workspace.py` | tracked/untracked binary patch 的统一证据 | run、benchmark、tool、两种 coordinator |
-| 11 | `agent_forge/observability/trace.py` 和 `usage_report.py` | 原始 event 和量化 read model | report 和调试 |
-| 12 | `agent_forge/bench/swebench.py` 和 `evaluation/` | candidate patch、official outcome、scorecard、ablation、feedback | 改进闭环 |
+| 3 | `agent_forge/runtime/agent_loop.py` | 只看 `run` 的 start、prepare、turn、stop | 标准执行内核 |
+| 4 | `agent_forge/runtime/state.py` | `AgentRunSession` 的显式数据字段 | 一次 run 的状态所有权 |
+| 5 | `agent_forge/runtime/tool_execution.py` | 工具调用的固定治理链 | routing 后的 action 落地 |
+| 6 | `agent_forge/runtime/run_lifecycle.py` | checkpoint、HITL 和 terminal transition | pause/resume/stop |
+| 7 | `agent_forge/runtime/human_input.py` | pending/responded/cancelled 信息状态 | `ask_human`、`forge respond`、resume |
+| 8 | `agent_forge/runtime/approval.py` | 对具体副作用授权，以及 stale fingerprint 检查 | `forge approve` |
+| 9 | `agent_forge/runtime/task_state.py` 和 `operation_ledger.py` | continuation state 和副作用幂等 | single/sequential recovery |
+| 10 | `agent_forge/multi_agent/coordinator.py` | 顺序 role workflow 和有界 revision | 显式 artifact handoff |
+| 11 | `agent_forge/multi_agent/fanout.py` | 纯 DAG batching 和 overlap 算法 | Live coordinator scheduling |
+| 12 | `agent_forge/multi_agent/live_fanout.py` | 真实 worker、worktree、scope、merge、checkpoint、finalizer | 并行 plan 执行 |
+| 13 | `agent_forge/runtime/git_workspace.py` | tracked/untracked binary patch 的统一证据 | run、benchmark、tool、两种 coordinator |
+| 14 | `agent_forge/observability/trace.py` 和 `usage_report.py` | 原始 event 和量化 read model | report 和调试 |
+| 15 | `agent_forge/bench/swebench.py` 和 `evaluation/` | candidate patch、official outcome、scorecard、ablation、feedback | 改进闭环 |
 
 ## 标准 AgentLoop
 
 ```text
 task
-  -> input guardrail
-  -> clarification policy
-  -> skill and context assembly
-  -> model call
-  -> tool routing and schema validation
-  -> permission / environment hooks
-  -> approval or tool execution
-  -> observation / recovery / budget checks
-  -> checkpoint and trace
+  -> AgentLoop._prepare_run
+       -> input guardrail / clarification / skills
+  -> AgentLoop._run_turn
+       -> context / routing / model call
+  -> ToolExecutionPipeline.execute_calls
+       -> repeat / HITL / permission / approval / ledger / execute / recovery
+  -> RunLifecycle.update or stop
+       -> checkpoint / stop hooks / trace
   -> final-answer evidence guardrail
 ```
+
+折叠所有方法后，第一遍只展开 `AgentLoop.run`。第二遍打开 `AgentRunSession` 看字段，
+然后根据问题选择 `ToolExecutionPipeline.execute_calls` 或 `RunLifecycle` 的三个 port。
+不需要从任意 helper 反向搜索最初调用者。
 
 先运行这些测试：
 

@@ -30,7 +30,7 @@ Coding Agent；单纯增加 prompt 长度并不能解决这个问题。**
 
 | 能力 | 真实实现 |
 | --- | --- |
-| Agent Runtime Loop | `AgentLoop` 统一编排 context、LLM call、tool call、observation、recovery、stop condition 和 trace event。 |
+| Agent Runtime Loop | `AgentLoop` 只展示 prepare、turn、stop 主链；`ToolExecutionPipeline` 与 `RunLifecycle` 分别拥有工具治理和持久化生命周期。 |
 | 真实模型边界 | OpenAI-compatible client，默认支持 DeepSeek 配置，包含 retry/fallback、provider usage 和成本估算。 |
 | 工具治理 | read/grep/patch/command/git/diagnostics 依次经过 routing、registry validation、permission hook、command policy 和 workspace sandbox。 |
 | 隔离执行 | 支持当前 checkout、detached git worktree，以及基于隔离 snapshot 的受限 OCI container。Container command 带 network、CPU、memory、PID、capability 和 read-only root 控制。 |
@@ -283,15 +283,20 @@ flowchart TD
     Gateway --> LLM["DeepSeek / OpenAI-compatible provider"]
     Loop --> Skills["SkillRegistry"]
     Loop --> Router["ToolRouter"]
+    Loop --> Pipeline["ToolExecutionPipeline"]
+    Loop --> Session["AgentRunSession"]
     Skills --> Context
     Skills --> Router
-    Router --> Registry["ToolRegistry"]
+    Router --> Pipeline
+    Pipeline --> Registry["ToolRegistry"]
     Registry --> Tools["read / grep / patch / command / git / diagnostics / MCP"]
     Tools --> Safety["PermissionPolicy / CommandPolicy / WorkspaceSandbox"]
-    Loop --> Approval["ApprovalStore"]
-    Loop --> Human["HumanInputStore"]
-    Loop --> Ledger["OperationLedger"]
-    Loop --> State["TaskState checkpoints"]
+    Pipeline --> Approval["ApprovalStore"]
+    Pipeline --> Ledger["OperationLedger"]
+    Loop --> Lifecycle["RunLifecycle"]
+    Pipeline --> Lifecycle
+    Lifecycle --> Human["HumanInputStore"]
+    Lifecycle --> State["TaskState checkpoints"]
     Loop --> Environment["local / worktree / OCI environment"]
     Loop --> Trace["TraceRecorder"]
     Trace --> Usage["usage_report.md"]
@@ -413,7 +418,7 @@ forge replay latest
 ```text
 agent_forge/
   bench/          SWE-bench 加载、checkout、prediction、result card
-  runtime/        AgentLoop、checkpoint、human input、approval、ledger、control
+  runtime/        AgentLoop 编排、run session、tool pipeline、lifecycle 与 control
   context/        repo map、file ranking、lexical retrieval、memory、token budget
   tools/          read/write/grep/patch/command/git/diagnostics/MCP wrapper
   safety/         sandbox、command policy、permission、guardrail

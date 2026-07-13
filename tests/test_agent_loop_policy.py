@@ -83,6 +83,28 @@ class DiagnosticsThenFinalLLM:
         return AgentResponse("validation complete", [])
 
 
+class PatchThenFinalLLM:
+    last_usage = None
+
+    def __init__(self):
+        self.calls = 0
+
+    def chat(self, messages, tools):
+        self.calls += 1
+        if self.calls == 1:
+            return AgentResponse(
+                None,
+                [
+                    ToolCall(
+                        "patch-denied",
+                        "apply_patch",
+                        {"path": "target.py", "old": "value = 1", "new": "value = 2"},
+                    )
+                ],
+            )
+        return AgentResponse("reported the policy block", [])
+
+
 class SuccessfulDiagnosticsTool:
     name = "diagnostics"
 
@@ -204,6 +226,36 @@ class AgentLoopPolicyTest(unittest.TestCase):
         self.assertEqual(set(llm.tool_names), {"read_file", "apply_patch"})
         context_events = [event for event in trace.events if event["event_type"] == "context_assembly"]
         self.assertIn("mode=all", context_events[0]["context"]["tool_routing"]["reason"])
+
+    def test_policy_denial_becomes_observation_instead_of_crashing(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            target = root / "target.py"
+            target.write_text("value = 1\n", encoding="utf-8")
+            trace = TraceRecorder(str(root / "trace.json"))
+            registry = ToolRegistry()
+            registry.register(ApplyPatchTool(WorkspaceSandbox(root)))
+            config = RuntimeConfig(
+                workspace=tmp,
+                max_steps=3,
+                approval_mode="locked",
+                trace_file=str(root / "trace.json"),
+            )
+
+            final = AgentLoop(config, trace, registry, PatchThenFinalLLM()).run(
+                "implement the requested update in target.py"
+            )
+            target_content = target.read_text(encoding="utf-8")
+
+        self.assertIn("reported the policy block", final)
+        self.assertEqual(target_content, "value = 1\n")
+        denials = [
+            event
+            for event in trace.events
+            if event["event_type"] == "permission_check"
+            and event.get("permission_decision") == "deny"
+        ]
+        self.assertEqual(len(denials), 1)
 
 
 if __name__ == "__main__":

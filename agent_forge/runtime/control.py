@@ -84,12 +84,10 @@ class ExecutionBudget:
 
 @dataclass
 class StepController:
-    """Control-plane state for one AgentLoop run.
+    """一次 Agent run 的重复检测、恢复分类和预算状态。
 
-    AgentLoop should express the ReAct flow, not hide every policy branch.
-    This controller owns the production concerns system reviewers care about:
-    repeated-action detection, retryability classification, timeout, cost, and
-    recovery hints for the next LLM turn.
+    ``AgentLoop`` 只编排 turn，``ToolExecutionPipeline`` 在 action 前后调用本对象。
+    本对象只决定 repeat/retry/stop，不执行工具也不写 checkpoint。
     """
 
     # Immutable budget values for this run.
@@ -108,8 +106,7 @@ class StepController:
     def from_config(cls, config: RuntimeConfig) -> "StepController":
         """Build controller limits from RuntimeConfig with safe defaults.
 
-        Keeping this constructor here means CLI/config can grow without making
-        AgentLoop know every budget field.
+        预算字段在这里从配置收敛，避免主循环理解每个 limit。
         """
 
         return cls(
@@ -145,10 +142,9 @@ class StepController:
     def classify_observation(self, observation: Observation) -> FailureSignal | None:
         """Map a raw Observation into retryability and recovery guidance.
 
-        ``AgentLoop.run`` calls this after every tool result. The returned
-        ``FailureSignal`` is recorded in trace and either seeds the next model
-        turn or stops the loop; ``record_tool_intent`` and ``should_stop`` are
-        the sibling guards for repetition and budget exhaustion.
+        ``ToolExecutionPipeline`` 在每个工具结果后调用这里。返回的
+        ``FailureSignal`` 进入 trace，并为下一轮提供 recovery hint；另外两个入口分别
+        处理重复 intent 和预算耗尽。
         """
 
         if observation.success:
@@ -239,8 +235,8 @@ class StepController:
     def model_failure(self, error: dict) -> FailureSignal:
         """Normalize invalid or failed LLM responses.
 
-        Provider errors are separated from tool errors because retry/fallback
-        belongs in ModelGateway, while tool recovery belongs in AgentLoop.
+        Provider retry/fallback 属于 ModelGateway；tool recovery 属于工具执行管线，
+        因此两类错误保持分离。
         """
 
         code = str(error.get("code") or error.get("type") or "model_error")

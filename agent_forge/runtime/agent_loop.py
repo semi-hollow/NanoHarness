@@ -1,58 +1,63 @@
+"""Single Agent 的阶段编排。
+
+首次阅读只展开 ``AgentLoop.run``。工具分支见 ``tool_execution.py``，暂停和停止见
+``run_lifecycle.py``，一次运行的数据字段见 ``state.py``。
+"""
+
 from __future__ import annotations
 
-import json
-import shlex
-from typing import Any
+from dataclasses import dataclass
 
-from agent_forge.contracts import JsonObject, ToolArguments
+from agent_forge.context.context_builder import build_context_report
+from agent_forge.context.repo_map import build_repo_map
+from agent_forge.contracts import ToolSchema
 from agent_forge.observability.trace import TraceRecorder
-from agent_forge.runtime.config import RuntimeConfig
-from agent_forge.runtime.llm_client import LLMClient
-from agent_forge.runtime.message import Message
 from agent_forge.runtime.approval import ApprovalStore
+from agent_forge.runtime.clarification import ClarificationPolicy
+from agent_forge.runtime.config import RuntimeConfig
+from agent_forge.runtime.control import StepController
+from agent_forge.runtime.execution_environment import (
+    ExecutionEnvironment,
+    ExecutionEnvironmentConfig,
+)
+from agent_forge.runtime.hooks import HookManager
+from agent_forge.runtime.human_input import HumanInputStore
+from agent_forge.runtime.llm_client import AgentResponse, LLMClient
+from agent_forge.runtime.message import Message
 from agent_forge.runtime.operation_ledger import OperationLedgerStore
 from agent_forge.runtime.planner import SimplePlanner
-from agent_forge.runtime.state import AgentState
-from agent_forge.runtime.control import StepController
-from agent_forge.runtime.clarification import ClarificationPolicy
-from agent_forge.runtime.execution_environment import ExecutionEnvironment, ExecutionEnvironmentConfig
-from agent_forge.runtime.human_input import HumanInputRequest, HumanInputStore
-from agent_forge.runtime.hooks import HookContext, HookDecisionType, HookManager
-from agent_forge.runtime.observation import Observation
 from agent_forge.runtime.planning_mode import PlanningModePolicy
-from agent_forge.runtime.task_state import TaskCheckpoint, TaskRunStatus, TaskStateStore, summarize_checkpoint
-from agent_forge.context.context_builder import build_context_report
-from agent_forge.context.memory import Memory
-from agent_forge.context.repo_map import build_repo_map
-from agent_forge.observability.evidence import EvidenceLedger
-from agent_forge.safety.guardrails import input_guardrail, output_guardrail, tool_guardrail
+from agent_forge.runtime.run_lifecycle import RunLifecycle, StopRequest
+from agent_forge.runtime.state import AgentRunSession
+from agent_forge.runtime.task_state import TaskRunStatus, TaskStateStore, summarize_checkpoint
+from agent_forge.runtime.tool_execution import ToolExecutionPipeline
+from agent_forge.safety.guardrails import input_guardrail, output_guardrail
 from agent_forge.skills import build_default_skill_registry
 from agent_forge.skills.registry import SkillSpec
 from agent_forge.tools.registry import ToolRegistry
 from agent_forge.tools.tool_router import ToolRouter
 
 
+@dataclass(frozen=True)
+class PreparedTurn:
+    """一次 LLM 调用所需的完整输入。"""
+
+    step: int
+    context_message: Message
+    messages_for_llm: list[Message]
+    schemas: list[ToolSchema]
+    allowed_tool_names: set[str]
+    history_chars: int
+    tool_schema_chars: int
+
+
 class AgentLoop:
-    """Single-agent control loop for context, LLM calls, tools, and trace.
+    """单 Agent 控制循环。
 
-    This is the project's real agent runtime. ``forge run`` and
-    ``forge bench swebench`` both call it so normal tasks and benchmark cases
-    share the same context, tool, permission, observation, and trace semantics.
-
-    Why it cannot be replaced by a simple function:
-        The loop must coordinate mutable state across many boundaries:
-        prompt context, model response parsing, tool policy, observations,
-        recovery signals, budget checks, evidence, task checkpoints, and final
-        answer guardrails. Splitting those concerns into hidden callbacks would
-        make the system harder to debug.
-
-    Method map:
-        ``__init__`` wires runtime dependencies.
-        ``run`` is the only public execution path.
-        ``_permission_action`` maps tool names to policy action classes.
-        ``_update_task_state`` persists checkpoint changes.
-        ``_stop_run`` writes terminal state, hook notifications, and trace
-        context.
+    第一遍只读 ``run``：准备一次 run，重复执行 turn，最后统一停止。
+    第二遍按需读 ``_prepare_run``、``_run_turn`` 和 ``_prepare_turn``。
+    工具治理细节属于 ``ToolExecutionPipeline``，checkpoint/HITL/停止属于
+    ``RunLifecycle``，不再挤在本类中。
     """
 
     def __init__(
@@ -62,20 +67,30 @@ class AgentLoop:
         registry: ToolRegistry,
         llm: LLMClient | None = None,
     ) -> None:
-        """Receive runtime dependencies from CLI instead of constructing globals."""
+        """接收 CLI 装配的依赖，不在运行中创建隐式全局对象。"""
 
+        if llm is None:
+            raise ValueError(
+                "AgentLoop requires a real LLM client; "
+                "build it through runtime.wiring.build_llm"
+            )
         self.config = config
         self.trace = trace
         self.registry = registry
-        if llm is None:
-            raise ValueError("AgentLoop requires a real LLM client; build it through runtime.wiring.build_llm")
         self.llm = llm
+
         self.planner = SimplePlanner()
         self.clarification_policy = ClarificationPolicy()
         self.planning_mode_policy = PlanningModePolicy()
         self.tool_router = ToolRouter()
-        self.skill_registry = build_default_skill_registry(getattr(config, "skill_manifest_files", []))
-        self.environment = getattr(config, "execution_environment", None) or ExecutionEnvironment(
+        self.skill_registry = build_default_skill_registry(
+            getattr(config, "skill_manifest_files", [])
+        )
+        self.environment = getattr(
+            config,
+            "execution_environment",
+            None,
+        ) or ExecutionEnvironment(
             ExecutionEnvironmentConfig(workspace=config.workspace)
         )
         self.hooks = HookManager.default(
@@ -83,26 +98,65 @@ class AgentLoop:
             getattr(config, "auto_approve_writes", True),
             approval_mode=getattr(config, "approval_mode", "trusted"),
         )
-        self.task_state_store = TaskStateStore(getattr(config, "task_state_root", ".agent_forge/task_state"))
-        self.approval_store = ApprovalStore(getattr(config, "approval_root", ".agent_forge/approvals"))
+        self.task_state_store = TaskStateStore(
+            getattr(config, "task_state_root", ".agent_forge/task_state")
+        )
+        self.approval_store = ApprovalStore(
+            getattr(config, "approval_root", ".agent_forge/approvals")
+        )
         self.human_input_store = HumanInputStore(
             getattr(config, "human_input_root", ".agent_forge/human_input")
         )
-        self.human_thread_id = getattr(config, "human_thread_id", "") or self.trace.run_id
+        self.human_thread_id = (
+            getattr(config, "human_thread_id", "") or self.trace.run_id
+        )
         self.operation_ledger = OperationLedgerStore(
-            getattr(config, "operation_ledger_root", ".agent_forge/operation_ledger")
+            getattr(
+                config,
+                "operation_ledger_root",
+                ".agent_forge/operation_ledger",
+            )
+        )
+        self.tool_execution = ToolExecutionPipeline(
+            config,
+            trace,
+            registry,
+            self.hooks,
+            self.approval_store,
+            self.operation_ledger,
         )
 
+    # 第一遍：只读这个入口，掌握完整控制流。
     # PRIMARY ENTRYPOINT: execute the complete single-agent control loop.
     def run(self, task: str, agent_name: str = "CodingAgent") -> str:
-        """Run one task until final answer, durable pause, or stop condition.
+        """运行四个阶段：start -> prepare -> turn loop -> stop。
 
-        Called by the CLI, sequential coordinator, fanout workers, and benchmark
-        runner. It delegates context assembly, model calls, tool governance,
-        checkpointing, HITL, and trace recording to their owning components.
-        The returned string is only the final answer; trace and checkpoint
-        stores carry the auditable execution evidence.
+        CLI、顺序多角色、fanout worker 和 benchmark 都调用这里。返回值只是最终
+        文本；trace、checkpoint 与 operation ledger 保存可审计证据。
         """
+
+        session = self._start_session(task, agent_name)
+        stop = self._prepare_run(session)
+        if stop is not None:
+            return self._stop(session, stop)
+
+        for step in range(1, session.max_iterations + 1):
+            stop = self._run_turn(session, step)
+            if stop is not None:
+                return self._stop(session, stop)
+
+        return self._stop(
+            session,
+            StopRequest(
+                status=TaskRunStatus.BLOCKED,
+                reason="max_steps",
+                final_answer="blocked: max_steps reached",
+            ),
+        )
+
+    # 第二遍：按 start、prepare、turn 的顺序展开阶段实现。
+    def _start_session(self, task: str, agent_name: str) -> AgentRunSession:
+        """创建 checkpoint 和显式的 per-run state。"""
 
         self.trace.set_run_context(task=task)
         resume_summary = self._load_resume_summary(agent_name)
@@ -121,13 +175,32 @@ class AgentLoop:
             agent_name=agent_name,
             checkpoint=checkpoint,
         )
+        lifecycle = RunLifecycle(
+            checkpoint=checkpoint,
+            task_state_store=self.task_state_store,
+            human_input_store=self.human_input_store,
+            human_thread_id=self.human_thread_id,
+            workspace=self.config.workspace,
+            trace=self.trace,
+            hooks=self.hooks,
+        )
+        return AgentRunSession(
+            task=task,
+            agent_name=agent_name,
+            workspace_root=self.config.workspace,
+            max_iterations=self.config.max_steps,
+            lifecycle=lifecycle,
+            controller=StepController.from_config(self.config),
+            resume_summary=resume_summary,
+        )
 
-        # Phase 0: reject dangerous tasks before the model sees tools. This is
-        # not a replacement for tool-level policy; it is the earliest cheap stop.
-        input_check = input_guardrail(task)
+    def _prepare_run(self, session: AgentRunSession) -> StopRequest | None:
+        """在第一次模型调用前完成 guardrail、澄清、planning 和 Skill 选择。"""
+
+        input_check = input_guardrail(session.task)
         self.trace.add(
             0,
-            agent_name,
+            session.agent_name,
             "guardrail_check",
             guardrail={
                 "category": input_check.category,
@@ -137,14 +210,16 @@ class AgentLoop:
             },
         )
         if not input_check.passed:
-            final_answer = f"blocked: {input_check.reason}"
-            self._stop_run(checkpoint, TaskRunStatus.BLOCKED, "input_guardrail_block", final_answer)
-            return final_answer
+            return StopRequest(
+                TaskRunStatus.BLOCKED,
+                "input_guardrail_block",
+                f"blocked: {input_check.reason}",
+            )
 
-        clarification = self.clarification_policy.decide(task)
+        clarification = self.clarification_policy.decide(session.task)
         self.trace.add(
             0,
-            agent_name,
+            session.agent_name,
             "clarification_decision",
             clarification={
                 "action": clarification.action,
@@ -155,42 +230,43 @@ class AgentLoop:
             },
         )
         if clarification.action == "refuse":
-            final_answer = f"blocked: {clarification.reason}"
-            self._stop_run(checkpoint, TaskRunStatus.BLOCKED, "unsupported_task", final_answer)
-            return final_answer
+            return StopRequest(
+                TaskRunStatus.BLOCKED,
+                "unsupported_task",
+                f"blocked: {clarification.reason}",
+            )
         if clarification.needs_user_input():
-            request, final_answer = self._request_human_input(
-                checkpoint,
-                agent_name=agent_name,
+            resolution = session.lifecycle.request_human_input(
+                agent_name=session.agent_name,
                 kind="clarification",
                 question=clarification.question,
                 choices=[],
                 reason=clarification.reason,
                 step=0,
             )
-            if final_answer:
-                return final_answer
-            task = "\n".join(
+            if resolution.stop is not None:
+                return resolution.stop
+            session.task = "\n".join(
                 [
-                    task,
+                    session.task,
                     "",
                     "Resolved operator clarification:",
-                    f"Question: {request.question}",
-                    f"Answer: {request.answer}",
+                    f"Question: {resolution.request.question}",
+                    f"Answer: {resolution.request.answer}",
                     "Continue from this answer and do not ask the same question again.",
                 ]
             )
             self.trace.add(
                 0,
-                agent_name,
+                session.agent_name,
                 "human_input_response_loaded",
-                request=request.to_dict(),
+                request=resolution.request.to_dict(),
             )
 
-        planning_mode = self.planning_mode_policy.decide(task)
+        planning_mode = self.planning_mode_policy.decide(session.task)
         self.trace.add(
             0,
-            agent_name,
+            session.agent_name,
             "planning_mode",
             planning_mode={
                 "mode": planning_mode.mode,
@@ -199,12 +275,15 @@ class AgentLoop:
             },
         )
 
-        active_skills = self._select_active_skills(task)
-        active_skill_cards = [skill.prompt_card() for skill in active_skills]
-        skill_tool_names = {tool_name for skill in active_skills for tool_name in skill.tool_names}
+        session.active_skills = self._select_active_skills(session.task)
+        session.skill_tool_names = {
+            tool_name
+            for skill in session.active_skills
+            for tool_name in skill.tool_names
+        }
         self.trace.add(
             0,
-            agent_name,
+            session.agent_name,
             "skill_selection",
             skills=[
                 {
@@ -213,1184 +292,311 @@ class AgentLoop:
                     "tools": skill.tool_names,
                     "entrypoint": skill.entrypoint,
                 }
-                for skill in active_skills
+                for skill in session.active_skills
             ],
             skill_mode=getattr(self.config, "skill_mode", "auto"),
         )
 
-        # `messages` is the durable conversation inside this run. Each tool call
-        # appends an assistant tool_call message plus a tool observation message
-        # so the next LLM turn can reason from concrete evidence.
-        messages = [Message("user", task)]
-
-        # `state` is mostly trace/debug state. It mirrors what a DB-backed agent
-        # service would persist for replay or resume.
-        state = AgentState(
-            task=task,
-            workspace_root=self.config.workspace,
-            max_iterations=self.config.max_steps,
-            messages=messages,
-        )
-        # Memory is local to this run, with optional resume seed. It is separate
-        # from raw chat messages because prompt memory needs compression and
-        # topic-shift filtering.
-        memory = Memory()
+        session.messages = [Message("user", session.task)]
         session_summary = getattr(self.config, "session_summary", "")
-        if resume_summary:
-            session_summary = "\n".join(part for part in [session_summary, resume_summary] if part)
-        memory.seed_session(
+        if session.resume_summary:
+            session_summary = "\n".join(
+                part
+                for part in [session_summary, session.resume_summary]
+                if part
+            )
+        session.memory.seed_session(
             previous_task=getattr(self.config, "previous_task", ""),
             session_summary=session_summary,
         )
-        memory.set("task", task, scope="session", source="user_task", agent_name=agent_name)
-        evidence = EvidenceLedger()
+        session.memory.set(
+            "task",
+            session.task,
+            scope="session",
+            source="user_task",
+            agent_name=session.agent_name,
+        )
+        return None
 
-        # StepController owns loop-control policy: retryability, repeated-action
-        # detection, timeout, cost budget, and max failure count.
-        controller = StepController.from_config(self.config)
+    def _run_turn(
+        self,
+        session: AgentRunSession,
+        step: int,
+    ) -> StopRequest | None:
+        """执行一个 turn：上下文 -> 模型 -> final answer 或工具管线。"""
 
-        # `tool_history` keeps backward-compatible recent-repeat checks for the
-        # guardrail layer; StepController keeps the stricter stable count.
-        tool_history: list[tuple[str, str]] = []
+        session.iteration = step
+        turn = self._prepare_turn(session, step)
+        response = self.llm.chat(turn.messages_for_llm, turn.schemas)
 
-        # Output guardrail uses this to prevent "tests passed" hallucinations.
-        ran_tests = False
-
-        # Output guardrail uses this to force the final answer to mention blocks.
-        blocked = False
-
-        # Kept for readability with older tests; StepController is the main
-        # source of failure-budget truth.
-        consecutive_failures = 0
-
-        for step in range(1, self.config.max_steps + 1):
-            state.iteration = step
-            self._update_task_state(
-                checkpoint,
-                status=TaskRunStatus.RUNNING,
+        if response.error:
+            signal = session.controller.model_failure(response.error)
+            self.trace.add(
+                step,
+                session.agent_name,
+                "error",
+                success=False,
+                error=str(response.error),
+            )
+            self.trace.add(
+                step,
+                session.agent_name,
+                "recovery_decision",
+                success=signal.retryable,
+                failure_kind=signal.kind.value,
+                retryable=signal.retryable,
+                recovery_hint=signal.recovery_hint,
+            )
+            return StopRequest(
+                status=TaskRunStatus.FAILED,
+                reason="invalid_llm_response",
+                final_answer=f"blocked: invalid llm response: {response.error}",
                 current_step=step,
-                messages_count=len(messages),
-                observations_count=len(state.observations),
-                resume_hint="Rerun with --resume-state to seed this task state into a continuation.",
+                resume_hint=signal.recovery_hint,
             )
 
-            # Phase 1: assemble context every turn, not once. New observations
-            # can change memory summary, selected files, and recovery hints.
-            repo_map = build_repo_map(self.config.workspace)
-            all_schemas = self.registry.schemas()
-            route = self.tool_router.route(
-                task,
-                all_schemas,
-                step=step,
-                agent_name=agent_name,
-                skill_tool_names=skill_tool_names,
-                mode=getattr(self.config, "tool_routing_mode", "task-aware"),
+        self._record_llm_call(session, turn, response)
+        usage = getattr(self.llm, "last_usage", None)
+        session.estimated_cost_usd = float(
+            getattr(usage, "estimated_cost_usd", 0.0) or 0.0
+        )
+        if not response.tool_calls:
+            return self._finish_final_answer(session, response, step)
+        return self.tool_execution.execute_calls(
+            session,
+            response,
+            step=step,
+            allowed_tool_names=turn.allowed_tool_names,
+        )
+
+    def _prepare_turn(
+        self,
+        session: AgentRunSession,
+        step: int,
+    ) -> PreparedTurn:
+        """为当前 turn 路由工具并组装有预算的 context。"""
+
+        session.lifecycle.update(
+            status=TaskRunStatus.RUNNING,
+            current_step=step,
+            messages_count=len(session.messages),
+            observations_count=len(session.observations),
+            resume_hint=(
+                "Rerun with --resume-state to seed this task state into a continuation."
+            ),
+        )
+
+        repo_map = build_repo_map(self.config.workspace)
+        route = self.tool_router.route(
+            session.task,
+            self.registry.schemas(),
+            step=step,
+            agent_name=session.agent_name,
+            skill_tool_names=session.skill_tool_names,
+            mode=getattr(self.config, "tool_routing_mode", "task-aware"),
+        )
+        schemas: list[ToolSchema] = route.schemas
+        allowed_tool_names = set(route.allowed_names)
+        permission_summary = (
+            "read/list/grep allowed; write/apply_patch asks approval; "
+            "dangerous commands denied; "
+            f"{self.environment.describe()}"
+        )
+        if step == session.max_iterations:
+            schemas = []
+            allowed_tool_names = set()
+            permission_summary += (
+                "; final step: no more tool calls are available, provide the best "
+                "evidence-based final answer and clearly mark unverified items"
             )
-            schemas = route.schemas
-            force_final_turn = step == self.config.max_steps
-            routed_allowed_names = set(route.allowed_names)
-            turn_permission_summary = (
-                "read/list/grep allowed; write/apply_patch asks approval; "
-                "dangerous commands denied; "
-                f"{self.environment.describe()}"
-            )
-            if force_final_turn:
-                # On the last allowed step, stop offering tools and ask the
-                # model to summarize evidence or name a blocker. This turns
-                # max_steps from a hard "blocked" cliff into a useful final
-                # response for real interactive use.
-                schemas = []
-                routed_allowed_names = set()
-                turn_permission_summary += (
-                    "; final step: no more tool calls are available, provide the best "
-                    "evidence-based final answer and clearly mark unverified items"
-                )
-            context_report = build_context_report(
-                task,
-                repo_map,
-                memory,
-                docs=repo_map.splitlines(),
-                root=self.config.workspace,
-                tools=schemas,
-                active_skill_cards=active_skill_cards,
-                max_chars=getattr(self.config, "max_context_chars", 8000),
-                permission_summary=turn_permission_summary,
-            )
-            self.trace.add(
-                step,
-                agent_name,
-                "context_assembly",
-                context={
-                    "selected_files": context_report.selected_files,
-                    "retrieved_docs_count": len(context_report.retrieved_docs),
-                    "memory_summary": context_report.memory_summary,
-                    "total_chars": context_report.total_chars,
-                    "max_chars": context_report.max_chars,
-                    "truncated": context_report.truncated,
-                    "topic_relation": context_report.topic_relation,
-                    "inherit_session": context_report.inherit_session,
-                    "dropped_context": context_report.dropped_context,
-                    "budget_breakdown": context_report.budget_breakdown,
-                    "available_tools": context_report.available_tools,
-                    "active_skills": [f"{skill.name}@{skill.version}" for skill in active_skills],
-                    "permission_summary": context_report.permission_summary,
-                    "tool_routing": {
-                        "reason": route.reason,
-                        "allowed_tools": sorted(routed_allowed_names),
-                        "dropped_tools": route.dropped_names,
-                        "metadata": route.metadata,
-                    },
+
+        context_report = build_context_report(
+            session.task,
+            repo_map,
+            session.memory,
+            docs=repo_map.splitlines(),
+            root=self.config.workspace,
+            tools=schemas,
+            active_skill_cards=[
+                skill.prompt_card() for skill in session.active_skills
+            ],
+            max_chars=getattr(self.config, "max_context_chars", 8000),
+            permission_summary=permission_summary,
+        )
+        self.trace.add(
+            step,
+            session.agent_name,
+            "context_assembly",
+            context={
+                "selected_files": context_report.selected_files,
+                "retrieved_docs_count": len(context_report.retrieved_docs),
+                "memory_summary": context_report.memory_summary,
+                "total_chars": context_report.total_chars,
+                "max_chars": context_report.max_chars,
+                "truncated": context_report.truncated,
+                "topic_relation": context_report.topic_relation,
+                "inherit_session": context_report.inherit_session,
+                "dropped_context": context_report.dropped_context,
+                "budget_breakdown": context_report.budget_breakdown,
+                "available_tools": context_report.available_tools,
+                "active_skills": [
+                    f"{skill.name}@{skill.version}"
+                    for skill in session.active_skills
+                ],
+                "permission_summary": context_report.permission_summary,
+                "tool_routing": {
+                    "reason": route.reason,
+                    "allowed_tools": sorted(allowed_tool_names),
+                    "dropped_tools": route.dropped_names,
+                    "metadata": route.metadata,
                 },
-            )
+            },
+        )
+        plan = self.planner.plan(session.task, step, context_report)
+        self.trace.add(
+            step,
+            session.agent_name,
+            "plan",
+            plan={
+                "goal": plan.goal,
+                "reasoning_summary": plan.reasoning_summary,
+                "next_action": plan.next_action,
+            },
+        )
 
-            # Phase 2: produce a small trace-only plan summary. This is not a
-            # hidden chain-of-thought; it is an auditable runtime explanation.
-            plan = self.planner.plan(task, step, context_report)
-            self.trace.add(
-                step,
-                agent_name,
-                "plan",
-                plan={
-                    "goal": plan.goal,
-                    "reasoning_summary": plan.reasoning_summary,
-                    "next_action": plan.next_action,
-                },
-            )
-
-            context_message = Message("system", context_report.render())
-            messages_for_llm = [context_message] + messages
-            tool_schema_chars = sum(len(str(schema)) for schema in schemas)
-            history_chars = sum(
+        context_message = Message("system", context_report.render())
+        return PreparedTurn(
+            step=step,
+            context_message=context_message,
+            messages_for_llm=[context_message, *session.messages],
+            schemas=schemas,
+            allowed_tool_names=allowed_tool_names,
+            history_chars=sum(
                 len(message.content or "")
                 + len(str(message.tool_calls or ""))
                 + len(message.reasoning_content or "")
-                for message in messages
-            )
+                for message in session.messages
+            ),
+            tool_schema_chars=sum(len(str(schema)) for schema in schemas),
+        )
 
-            # Phase 3: ask the model for either final text or tool calls. All
-            # provider-specific details are normalized behind ModelGateway/LLMClient.
-            response = self.llm.chat(messages_for_llm, schemas)
+    # 第三遍：只有调试模型边界、final answer 或 resume 时才读以下方法。
+    def _record_llm_call(
+        self,
+        session: AgentRunSession,
+        turn: PreparedTurn,
+        response: AgentResponse,
+    ) -> None:
+        """记录模型边界的输入规模、输出摘要和 provider usage。"""
 
-            if response.error:
-                # Model failures are provider failures, not tool failures. The
-                # recovery decision is traced separately so you can explain why
-                # this run stopped or retried at the gateway layer.
-                signal = controller.model_failure(response.error)
-                self.trace.add(step, agent_name, "error", success=False, error=str(response.error))
-                self.trace.add(
-                    step,
-                    agent_name,
-                    "recovery_decision",
-                    success=signal.retryable,
-                    failure_kind=signal.kind.value,
-                    retryable=signal.retryable,
-                    recovery_hint=signal.recovery_hint,
-                )
-                state.status = "failed"
-                state.stop_reason = "invalid_llm_response"
-                final_answer = f"blocked: invalid llm response: {response.error}"
-                self._stop_run(
-                    checkpoint,
-                    TaskRunStatus.FAILED,
-                    state.stop_reason,
-                    final_answer,
-                    current_step=step,
-                    resume_hint=signal.recovery_hint,
-                )
-                return final_answer
+        usage = getattr(self.llm, "last_usage", None)
+        self.trace.add(
+            turn.step,
+            session.agent_name,
+            "llm_call",
+            llm_request_summary=(
+                f"messages={len(turn.messages_for_llm)} "
+                f"tools={len(turn.schemas)} "
+                f"context_chars={len(turn.context_message.content)}"
+            ),
+            llm_response_summary=response.content or "tool_calls",
+            llm_input_breakdown_chars={
+                "system_context": len(turn.context_message.content),
+                "conversation_history": turn.history_chars,
+                "tool_schemas": turn.tool_schema_chars,
+            },
+            model_usage=usage.to_dict() if usage is not None else {},
+        )
 
+    def _finish_final_answer(
+        self,
+        session: AgentRunSession,
+        response: AgentResponse,
+        step: int,
+    ) -> StopRequest:
+        """校验并记录不再请求工具的模型回答。"""
+
+        if self._contains_raw_tool_call_markup(response.content or ""):
+            final_answer = "blocked: pending_tool_call_at_stop"
             self.trace.add(
                 step,
-                agent_name,
-                "llm_call",
-                llm_request_summary=(
-                    f"messages={len(messages_for_llm)} "
-                    f"tools={len(schemas)} "
-                    f"context_chars={len(context_message.content)}"
-                ),
-                llm_response_summary=response.content or "tool_calls",
-                llm_input_breakdown_chars={
-                    "system_context": len(context_message.content),
-                    "conversation_history": history_chars,
-                    "tool_schemas": tool_schema_chars,
-                },
-                model_usage=(
-                    self.llm.last_usage.to_dict()
-                    if hasattr(self.llm, "last_usage") and self.llm.last_usage
-                    else {}
+                session.agent_name,
+                "final_answer",
+                success=False,
+                observation=final_answer,
+                pending_tool_call=True,
+            )
+            return StopRequest(
+                status=TaskRunStatus.BLOCKED,
+                reason="pending_tool_call_at_stop",
+                final_answer=final_answer,
+                current_step=step,
+                messages_count=len(session.messages),
+                observations_count=len(session.observations),
+                resume_hint=(
+                    "Increase step budget or keep required tools routed until the pending call executes."
                 ),
             )
 
-            if not response.tool_calls:
-                # Phase 4a: final answer path. A provider can occasionally leave
-                # raw tool-call markup in text on a forced-final turn; treat that
-                # as an unfinished action instead of a completed artifact.
-                if self._contains_raw_tool_call_markup(response.content or ""):
-                    final_answer = "blocked: pending_tool_call_at_stop"
-                    self.trace.add(
-                        step,
-                        agent_name,
-                        "final_answer",
-                        success=False,
-                        observation=final_answer,
-                        pending_tool_call=True,
-                    )
-                    self._stop_run(
-                        checkpoint,
-                        TaskRunStatus.BLOCKED,
-                        "pending_tool_call_at_stop",
-                        final_answer,
-                        current_step=step,
-                        messages_count=len(messages),
-                        observations_count=len(state.observations),
-                        resume_hint="Increase step budget or keep required tools routed until the pending call executes.",
-                    )
-                    return final_answer
-
-                # Output guardrail checks that the answer does not claim validation
-                # that did not happen.
-                citations = evidence.final_citations()
-                evidence_text = ""
-                if citations:
-                    evidence_text = "\n证据:\n" + "\n".join(f"- {item}" for item in citations)
-                final_answer = (response.content or "") + evidence_text + "\n未验证点: 未进行真实线上压测。"
-                output_check = output_guardrail(final_answer, ran_tests, blocked)
-                self.trace.add(
-                    step,
-                    agent_name,
-                    "guardrail_check",
-                    guardrail={
-                        "category": output_check.category,
-                        "passed": output_check.passed,
-                        "reason": output_check.reason,
-                        "severity": output_check.severity,
-                    },
-                )
-                self.trace.add(
-                    step,
-                    agent_name,
-                    "final_answer",
-                    observation=final_answer,
-                    evidence_refs=citations,
-                )
-                state.status = "completed"
-                state.final_answer = final_answer
-                state.stop_reason = "final_answer"
-                self._stop_run(
-                    checkpoint,
-                    TaskRunStatus.COMPLETED,
-                    state.stop_reason,
-                    final_answer,
-                    current_step=step,
-                    messages_count=len(messages),
-                    observations_count=len(state.observations),
-                )
-                return final_answer
-
-            # Phase 4b: action path. The provider may return multiple tool
-            # calls in one assistant message. OpenAI-compatible history must
-            # preserve that shape: one assistant message containing all
-            # tool_calls, followed by one tool message per tool_call_id.
-            calls_to_process = response.tool_calls
-            human_calls = [call for call in response.tool_calls if call.name == "ask_human"]
-            if human_calls:
-                # A human question is a control-plane barrier. Never execute a
-                # sibling side effect from the same model turn before the
-                # operator answer exists; the model must propose it again after
-                # receiving the persisted response.
-                calls_to_process = [human_calls[0]]
-                deferred_tools = [call.name for call in response.tool_calls if call is not human_calls[0]]
-                if deferred_tools:
-                    self.trace.add(
-                        step,
-                        agent_name,
-                        "tool_calls_deferred_for_human_input",
-                        deferred_tools=deferred_tools,
-                    )
-            messages.append(
-                Message(
-                    "assistant",
-                    "",
-                    reasoning_content=response.reasoning_content,
-                    tool_calls=[
-                        {
-                            "id": call.id,
-                            "type": "function",
-                            "function": {
-                                "name": call.name,
-                                "arguments": json.dumps(call.arguments, ensure_ascii=False),
-                            },
-                        }
-                        for call in calls_to_process
-                    ],
-                )
+        citations = session.evidence.final_citations()
+        evidence_text = ""
+        if citations:
+            evidence_text = "\n证据:\n" + "\n".join(
+                f"- {item}" for item in citations
             )
-
-            for tool_call in calls_to_process:
-                # First catch repeated intent before any
-                # side-effectful tool can run.
-                repeat_signal = controller.record_tool_intent(tool_call)
-                key = (tool_call.name, str(tool_call.arguments))
-                tool_check = tool_guardrail(
-                    tool_call.name,
-                    tool_call.arguments,
-                    exists=self.registry.get(tool_call.name) is not None and tool_call.name in routed_allowed_names,
-                    repeated=repeat_signal is not None or key in tool_history[-3:],
-                )
-                self.trace.add(
-                    step,
-                    agent_name,
-                    "guardrail_check",
-                    guardrail={
-                        "category": tool_check.category,
-                        "passed": tool_check.passed,
-                        "reason": tool_check.reason,
-                        "severity": tool_check.severity,
-                    },
-                )
-
-                if repeat_signal is not None:
-                    if self._is_recoverable_repeated_tool(tool_call.name):
-                        observation = Observation(
-                            tool_call.name,
-                            False,
-                            f"repeated read-only tool call: {tool_call.name}; use prior observation or choose a different tool",
-                        )
-                        memory.add_observation(observation)
-                        messages.append(
-                            Message(
-                                "tool",
-                                observation.content,
-                                name=tool_call.name,
-                                tool_call_id=tool_call.id,
-                            )
-                        )
-                        self.trace.add(
-                            step,
-                            agent_name,
-                            "tool_observation",
-                            success=False,
-                            observation=observation.content,
-                        )
-                        self.trace.add(
-                            step,
-                            agent_name,
-                            "recovery_decision",
-                            success=True,
-                            failure_kind=repeat_signal.kind.value,
-                            retryable=True,
-                            recovery_hint="Use existing read/search evidence, inspect a different symbol, or proceed to apply_patch/git_diff.",
-                        )
-                        self._update_task_state(
-                            checkpoint,
-                            status=TaskRunStatus.RUNNING,
-                            current_step=step,
-                            last_tool=tool_call.name,
-                            last_observation=observation.content,
-                            resume_hint="Repeated read/search was skipped; continue with different evidence or edit.",
-                        )
-                        continue
-
-                    self.trace.add(step, agent_name, "error", success=False, error=tool_check.reason)
-                    self.trace.add(
-                        step,
-                        agent_name,
-                        "recovery_decision",
-                        success=False,
-                        failure_kind=repeat_signal.kind.value,
-                        retryable=repeat_signal.retryable,
-                        recovery_hint=repeat_signal.recovery_hint,
-                    )
-                    self._stop_run(
-                        checkpoint,
-                        TaskRunStatus.BLOCKED,
-                        "repeated_tool_call",
-                        "blocked: repeated tool call",
-                        current_step=step,
-                        last_tool=tool_call.name,
-                        resume_hint=repeat_signal.recovery_hint,
-                    )
-                    return "blocked: repeated tool call"
-
-                if tool_call.name not in routed_allowed_names:
-                    blocked = True
-                    observation = Observation(
-                        tool_call.name,
-                        False,
-                        f"tool not routed for this turn: {tool_call.name}",
-                    )
-                    memory.add_observation(observation)
-                    messages.append(
-                        Message(
-                            "tool",
-                            observation.content,
-                            name=tool_call.name,
-                            tool_call_id=tool_call.id,
-                        )
-                    )
-                    self.trace.add(
-                        step,
-                        agent_name,
-                        "tool_observation",
-                        success=False,
-                        observation=observation.content,
-                    )
-                    observation_signal = controller.classify_observation(observation)
-                    if observation_signal:
-                        self.trace.add(
-                            step,
-                            agent_name,
-                            "recovery_decision",
-                            success=observation_signal.retryable,
-                            failure_kind=observation_signal.kind.value,
-                            retryable=observation_signal.retryable,
-                            recovery_hint=observation_signal.recovery_hint,
-                        )
-                    self._update_task_state(
-                        checkpoint,
-                        status=TaskRunStatus.BLOCKED,
-                        current_step=step,
-                        last_tool=tool_call.name,
-                        last_observation=observation.content[:600],
-                        resume_hint=(
-                            observation_signal.recovery_hint
-                            if observation_signal
-                            else "Tool was not available in this routed turn."
-                        ),
-                    )
-                    continue
-
-                tool_history.append(key)
-                self.trace.add(
-                    step,
-                    agent_name,
-                    "action",
-                    tool_call=tool_call.name,
-                    tool_arguments=tool_call.arguments,
-                )
-
-                if tool_call.name == "ask_human":
-                    arguments = tool_call.arguments or {}
-                    question = arguments.get("question")
-                    choices = arguments.get("choices", [])
-                    validation_error = ""
-                    if not isinstance(question, str) or not question.strip():
-                        validation_error = "invalid arguments: question must be non-empty str"
-                    elif not isinstance(choices, list) or any(
-                        not isinstance(choice, str) for choice in choices
-                    ):
-                        validation_error = "invalid arguments: choices must be list"
-                    if validation_error:
-                        observation = Observation(tool_call.name, False, validation_error)
-                        memory.add_observation(observation)
-                        messages.append(
-                            Message(
-                                "tool",
-                                observation.content,
-                                name=tool_call.name,
-                                tool_call_id=tool_call.id,
-                            )
-                        )
-                        self.trace.add(
-                            step,
-                            agent_name,
-                            "tool_observation",
-                            success=False,
-                            observation=observation.content,
-                        )
-                        self._update_task_state(
-                            checkpoint,
-                            status=TaskRunStatus.RUNNING,
-                            current_step=step,
-                            last_tool=tool_call.name,
-                            last_observation=observation.content,
-                            resume_hint="Retry ask_human with a non-empty question and a list of choices.",
-                        )
-                        continue
-                    request, waiting_answer = self._request_human_input(
-                        checkpoint,
-                        agent_name=agent_name,
-                        kind="tool_question",
-                        question=str(question),
-                        choices=[str(choice) for choice in choices],
-                        reason="model requested operator input",
-                        step=step,
-                    )
-                    if waiting_answer:
-                        return waiting_answer
-                    observation = Observation(
-                        tool_call.name,
-                        True,
-                        f"human_response: {request.answer}",
-                    )
-                    memory.add_observation(observation)
-                    messages.append(
-                        Message(
-                            "tool",
-                            observation.content,
-                            name=tool_call.name,
-                            tool_call_id=tool_call.id,
-                        )
-                    )
-                    self.trace.add(
-                        step,
-                        agent_name,
-                        "human_input_response_loaded",
-                        request=request.to_dict(),
-                    )
-                    continue
-
-                action = self._permission_action(tool_call.name)
-                command = tool_call.arguments.get("command", "") if tool_call.arguments else ""
-                side_effect = self._is_side_effect_action(action)
-                operation_key = ""
-                operation_fingerprint = None
-                if side_effect:
-                    operation_key = OperationLedgerStore.operation_key(
-                        tool_call.name,
-                        tool_call.arguments or {},
-                        self.config.workspace,
-                        action,
-                    )
-                    operation_fingerprint = OperationLedgerStore.operation_fingerprint(
-                        tool_call.name,
-                        tool_call.arguments or {},
-                        self.config.workspace,
-                        action,
-                    )
-                    existing_operation = self.operation_ledger.get(operation_key)
-                    if existing_operation is not None and existing_operation.status == "executed":
-                        if (
-                            existing_operation.post_fingerprint is not None
-                            and not self._same_operation_fingerprint(
-                                operation_fingerprint,
-                                existing_operation.post_fingerprint,
-                            )
-                        ):
-                            observation = Observation(
-                                tool_call.name,
-                                False,
-                                (
-                                    "stale_operation_record: operation was executed before, "
-                                    f"but target state changed since then: {operation_key}"
-                                ),
-                            )
-                            memory.add_observation(observation)
-                            messages.append(
-                                Message(
-                                    "tool",
-                                    observation.content,
-                                    name=tool_call.name,
-                                    tool_call_id=tool_call.id,
-                                )
-                            )
-                            self.trace.add(
-                                step,
-                                agent_name,
-                                "operation_ledger",
-                                operation_key=operation_key,
-                                operation_status="stale_operation_record",
-                                operation=existing_operation.to_dict(),
-                                current_fingerprint=operation_fingerprint,
-                            )
-                            self.trace.add(
-                                step,
-                                agent_name,
-                                "tool_observation",
-                                success=False,
-                                observation=observation.content,
-                            )
-                            self._update_task_state(
-                                checkpoint,
-                                status=TaskRunStatus.BLOCKED,
-                                current_step=step,
-                                last_tool=tool_call.name,
-                                last_observation=observation.content,
-                                messages_count=len(messages),
-                                observations_count=len(state.observations),
-                                resume_hint="Reread the target before reissuing a side-effect operation.",
-                            )
-                            continue
-                        observation = Observation(
-                            tool_call.name,
-                            True,
-                            f"skipped: operation already executed: {operation_key}",
-                        )
-                        memory.add_observation(observation)
-                        messages.append(
-                            Message(
-                                "tool",
-                                observation.content,
-                                name=tool_call.name,
-                                tool_call_id=tool_call.id,
-                            )
-                        )
-                        self.trace.add(
-                            step,
-                            agent_name,
-                            "operation_ledger",
-                            operation_key=operation_key,
-                            operation_status="skipped_already_executed",
-                            operation=existing_operation.to_dict(),
-                        )
-                        self.trace.add(
-                            step,
-                            agent_name,
-                            "tool_observation",
-                            success=True,
-                            observation=observation.content,
-                        )
-                        self._update_task_state(
-                            checkpoint,
-                            status=TaskRunStatus.RUNNING,
-                            current_step=step,
-                            last_tool=tool_call.name,
-                            last_observation=observation.content,
-                            messages_count=len(messages),
-                            observations_count=len(state.observations),
-                        )
-                        continue
-                hook_context = HookContext(
-                    run_id=self.trace.run_id,
-                    step=step,
-                    agent_name=agent_name,
-                    tool_name=tool_call.name,
-                    arguments=tool_call.arguments or {},
-                    action=action,
-                    command=command,
-                    auto_approve_writes=self.config.auto_approve_writes,
-                    approval_mode=getattr(self.config, "approval_mode", "trusted"),
-                )
-
-                # Hooks are the production-style policy chain. Permission,
-                # execution environment, and redaction live here instead of
-                # being scattered through the ReAct loop.
-                hook_result = self.hooks.pre_tool(hook_context)
-                self.trace.add(
-                    step,
-                    agent_name,
-                    "hook_check",
-                    hook_result=hook_result.to_dict(),
-                    tool_call=tool_call.name,
-                )
-                self.trace.add(
-                    step,
-                    agent_name,
-                    "permission_check",
-                    permission_decision=hook_result.decision.value,
-                    tool_call=tool_call.name,
-                    reason=hook_result.reason,
-                )
-
-                if hook_result.decision == HookDecisionType.DENY:
-                    # A denial is fed back as an observation. The model should
-                    # adapt or stop; it should never silently bypass policy.
-                    blocked = True
-                    observation = Observation(tool_call.name, False, f"blocked: {hook_result.reason}")
-                    memory.add_observation(observation)
-                    messages.append(
-                        Message(
-                            "tool",
-                            observation.content,
-                            name=tool_call.name,
-                            tool_call_id=tool_call.id,
-                        )
-                    )
-                    self.trace.add(
-                        step,
-                        agent_name,
-                        "tool_observation",
-                        success=False,
-                        observation=observation.content,
-                    )
-                    observation_signal = controller.classify_observation(observation)
-                    if observation_signal:
-                        self.trace.add(
-                            step,
-                            agent_name,
-                            "recovery_decision",
-                            success=observation_signal.retryable,
-                            failure_kind=observation_signal.kind.value,
-                            retryable=observation_signal.retryable,
-                            recovery_hint=observation_signal.recovery_hint,
-                        )
-                    self._update_task_state(
-                        checkpoint,
-                        status=TaskRunStatus.BLOCKED,
-                        current_step=step,
-                        last_tool=tool_call.name,
-                        last_observation=observation.content,
-                        resume_hint=signal.recovery_hint if signal else "Action was blocked by runtime policy.",
-                    )
-                    continue
-
-                if hook_result.decision == HookDecisionType.ASK:
-                    if side_effect:
-                        self.operation_ledger.ensure_planned(
-                            operation_key,
-                            tool_call.name,
-                            tool_call.arguments or {},
-                            action,
-                            self.config.workspace,
-                            run_id=self.trace.run_id,
-                            step=step,
-                            pre_fingerprint=operation_fingerprint,
-                        )
-                    approval = self.approval_store.get(operation_key)
-                    if approval is None and not self.config.auto_approve_writes:
-                        approval = self.approval_store.request(
-                            tool_name=tool_call.name,
-                            arguments=tool_call.arguments or {},
-                            action=action,
-                            command=command,
-                            workspace=self.config.workspace,
-                            run_id=self.trace.run_id,
-                            step=step,
-                            agent_name=agent_name,
-                            reason=hook_result.reason,
-                            operation_fingerprint=operation_fingerprint,
-                        )
-                        if side_effect:
-                            self.operation_ledger.record_pending(
-                                operation_key,
-                                tool_call.name,
-                                tool_call.arguments or {},
-                                action,
-                                self.config.workspace,
-                                run_id=self.trace.run_id,
-                                step=step,
-                                pre_fingerprint=operation_fingerprint,
-                            )
-                    self._update_task_state(
-                        checkpoint,
-                        status=TaskRunStatus.WAITING_APPROVAL,
-                        current_step=step,
-                        last_tool=tool_call.name,
-                        resume_hint="Approve this tool action or rerun with a safer task.",
-                    )
-                    approved = self.config.auto_approve_writes if approval is None else approval.status == "approved"
-                    if (
-                        side_effect
-                        and approval is not None
-                        and approval.status == "approved"
-                        and approval.operation_fingerprint is not None
-                        and not self._same_operation_fingerprint(
-                            operation_fingerprint,
-                            approval.operation_fingerprint,
-                        )
-                    ):
-                        stale = self.approval_store.mark_stale(
-                            approval.operation_key,
-                            "target fingerprint changed after approval request",
-                        )
-                        self.trace.add(
-                            step,
-                            agent_name,
-                            "human_approval",
-                            observation="approval_stale",
-                            approval_request=stale.to_dict(),
-                            current_fingerprint=operation_fingerprint,
-                        )
-                        final_answer = (
-                            f"approval_stale: {tool_call.name} approval target changed before execution. "
-                            f"operation_key={approval.operation_key} request={approval.path}"
-                        )
-                        self._stop_run(
-                            checkpoint,
-                            TaskRunStatus.WAITING_APPROVAL,
-                            "approval_stale",
-                            final_answer,
-                            current_step=step,
-                            last_tool=tool_call.name,
-                            resume_hint="Rerun the task to create a fresh approval request for the current target state.",
-                        )
-                        return final_answer
-                    if side_effect and approved:
-                        self.operation_ledger.record_approved(operation_key, run_id=self.trace.run_id, step=step)
-                    approval_trace = (
-                        approval.to_dict()
-                        if approval is not None
-                        else {
-                            "operation_key": operation_key,
-                            "status": "auto_approved",
-                            "tool_name": tool_call.name,
-                            "arguments": tool_call.arguments or {},
-                            "action": action,
-                        }
-                    )
-                    approval_observation = approval.status if approval is not None else "auto_approved"
-                    self.trace.add(
-                        step,
-                        agent_name,
-                        "human_approval",
-                        observation="approved" if approved else approval_observation,
-                        approval_request=approval_trace,
-                    )
-                    if approval is not None and approval.status == "pending" and not self.config.auto_approve_writes:
-                        final_answer = (
-                            f"waiting_approval: {tool_call.name} requires approval before execution. "
-                            f"operation_key={approval.operation_key} request={approval.path}"
-                        )
-                        self._stop_run(
-                            checkpoint,
-                            TaskRunStatus.WAITING_APPROVAL,
-                            "waiting_approval",
-                            final_answer,
-                            current_step=step,
-                            last_tool=tool_call.name,
-                            resume_hint=(
-                                f"Run `forge approve {approval.operation_key}` then resume or rerun the task."
-                            ),
-                        )
-                        return final_answer
-                    if not approved:
-                        blocked = True
-                        observation = Observation(tool_call.name, False, f"{tool_call.name}: human approval rejected")
-                        memory.add_observation(observation)
-                        messages.append(
-                            Message(
-                                "tool",
-                                observation.content,
-                                name=tool_call.name,
-                                tool_call_id=tool_call.id,
-                            )
-                        )
-                        self.trace.add(
-                            step,
-                            agent_name,
-                            "tool_observation",
-                            success=False,
-                            observation=observation.content,
-                        )
-                        self._update_task_state(
-                            checkpoint,
-                            status=TaskRunStatus.WAITING_APPROVAL,
-                            current_step=step,
-                            last_tool=tool_call.name,
-                            last_observation=observation.content,
-                            resume_hint="Human approval was rejected; rerun after narrowing the requested edit.",
-                        )
-                        continue
-                    self._update_task_state(checkpoint, status=TaskRunStatus.RUNNING, current_step=step)
-
-                # Phase 5: execute the tool through the registry. The registry
-                # validates schema and concrete tools enforce sandbox/policy.
-                if side_effect and not self.operation_ledger.get(operation_key):
-                    self.operation_ledger.ensure_planned(
-                        operation_key,
-                        tool_call.name,
-                        tool_call.arguments or {},
-                        action,
-                            self.config.workspace,
-                            run_id=self.trace.run_id,
-                            step=step,
-                            status="approved",
-                            pre_fingerprint=operation_fingerprint,
-                        )
-                observation = self.registry.execute(tool_call.name, tool_call.arguments)
-                observation = self.hooks.post_tool(hook_context, observation)
-                if side_effect:
-                    post_fingerprint = OperationLedgerStore.operation_fingerprint(
-                        tool_call.name,
-                        tool_call.arguments or {},
-                        self.config.workspace,
-                        action,
-                    )
-                    if observation.success:
-                        operation_record = self.operation_ledger.record_executed(
-                            operation_key,
-                            run_id=self.trace.run_id,
-                            step=step,
-                            observation=observation.content[:600],
-                            post_fingerprint=post_fingerprint,
-                        )
-                    else:
-                        operation_record = self.operation_ledger.record_failed(
-                            operation_key,
-                            run_id=self.trace.run_id,
-                            step=step,
-                            observation=observation.content[:600],
-                            post_fingerprint=post_fingerprint,
-                        )
-                    self.trace.add(
-                        step,
-                        agent_name,
-                        "operation_ledger",
-                        operation_key=operation_key,
-                        operation_status=operation_record.status,
-                        operation=operation_record.to_dict(),
-                    )
-                memory.add_observation(observation)
-                evidence_item = evidence.add_observation(observation)
-                validation = self._validation_evidence(
-                    tool_call.name,
-                    tool_call.arguments or {},
-                    observation,
-                )
-                if validation:
-                    ran_tests = ran_tests or validation["status"] == "passed"
-                    self.trace.add(
-                        step,
-                        agent_name,
-                        "validation_evidence",
-                        success=validation["status"] == "passed",
-                        validation=validation,
-                    )
-
-                self.trace.add(
-                    step,
-                    agent_name,
-                    "tool_call",
-                    tool_call=tool_call.name,
-                    tool_arguments=tool_call.arguments,
-                )
-                self.trace.add(
-                    step,
-                    agent_name,
-                    "tool_observation",
-                    success=observation.success,
-                    observation=observation.content,
-                )
-                self.trace.add(
-                    step,
-                    agent_name,
-                    "observation",
-                    success=observation.success,
-                    observation_summary=observation.content[:300],
-                )
-                if evidence_item:
-                    self.trace.add(
-                        step,
-                        agent_name,
-                        "evidence_collected",
-                        evidence=evidence_item.citation(),
-                    )
-                state.observations.append(observation)
-                self._update_task_state(
-                    checkpoint,
-                    status=TaskRunStatus.RUNNING,
-                    current_step=step,
-                    last_tool=tool_call.name,
-                    last_observation=observation.content[:600],
-                    messages_count=len(messages),
-                    observations_count=len(state.observations),
-                )
-
-                consecutive_failures = 0 if observation.success else consecutive_failures + 1
-
-                # Phase 6: classify failure and write a recovery decision. This
-                # is the part that turns "tool failed" into an explainable next
-                # step such as reread file, fix args, or stop.
-                observation_signal = controller.classify_observation(observation)
-                if observation_signal:
-                    memory.add(
-                        f"recovery:{observation_signal.kind.value}:{observation_signal.recovery_hint}"
-                    )
-                    self.trace.add(
-                        step,
-                        agent_name,
-                        "recovery_decision",
-                        success=observation_signal.retryable,
-                        failure_kind=observation_signal.kind.value,
-                        retryable=observation_signal.retryable,
-                        recovery_hint=observation_signal.recovery_hint,
-                    )
-
-                estimated_cost = 0.0
-                if hasattr(self.llm, "last_usage") and self.llm.last_usage:
-                    estimated_cost = float(getattr(self.llm.last_usage, "estimated_cost_usd", 0.0) or 0.0)
-
-                # Phase 7: enforce budget after each observation, when we know
-                # whether the last action made progress.
-                stop_signal = controller.should_stop(step, estimated_cost_usd=estimated_cost)
-                if stop_signal is not None:
-                    state.status = "stopped"
-                    state.stop_reason = stop_signal.reason
-                    final_answer = f"blocked: {stop_signal.reason}"
-                    self._stop_run(
-                        checkpoint,
-                        TaskRunStatus.BLOCKED,
-                        stop_signal.reason,
-                        final_answer,
-                        current_step=step,
-                        last_tool=tool_call.name,
-                        last_observation=observation.content[:600],
-                        resume_hint=stop_signal.recovery_hint,
-                    )
-                    return final_answer
-
-                # Phase 8: append the tool result that corresponds to the
-                # assistant tool_call_id recorded before the loop.
-                messages.append(
-                    Message(
-                        "tool",
-                        observation.content,
-                        name=tool_call.name,
-                        tool_call_id=tool_call.id,
-                    )
-                )
-
-        self._stop_run(checkpoint, TaskRunStatus.BLOCKED, "max_steps", "blocked: max_steps reached")
-        return "blocked: max_steps reached"
-
-    def _validation_evidence(
-        self,
-        tool_name: str,
-        arguments: ToolArguments,
-        observation: Observation,
-    ) -> JsonObject | None:
-        """Return explicit test evidence; compilation alone is not correctness."""
-
-        kind = ""
-        if tool_name == "diagnostics" and str(arguments.get("kind") or "").lower() == "unittest":
-            kind = "unittest"
-        elif tool_name == "run_command":
-            try:
-                parts = shlex.split(str(arguments.get("command") or ""))
-            except ValueError:
-                parts = []
-            if parts and parts[0].lower() == "pytest":
-                kind = "pytest"
-            elif len(parts) >= 3 and parts[1:3] in [["-m", "pytest"], ["-m", "unittest"]]:
-                kind = parts[2].lower()
-        if not kind:
-            return None
-
-        lowered = observation.content.lower()
-        unavailable = any(
-            marker in lowered
-            for marker in ["validation_blocked", "missing dependency", "no module named"]
+        final_answer = (
+            (response.content or "")
+            + evidence_text
+            + "\n未验证点: 未进行真实线上压测。"
         )
-        status = "unavailable" if unavailable else "passed" if observation.success else "failed"
-        return {
-            "kind": kind,
-            "status": status,
-            "tool": tool_name,
-            "evidence": observation.content[:600],
-        }
-
-    def _contains_raw_tool_call_markup(self, content: str) -> bool:
-        """Detect provider text that is really an unexecuted tool request."""
-
-        lowered = content.lower()
-        return "tool_calls" in lowered and "invoke name=" in lowered
-
-    def _is_recoverable_repeated_tool(self, tool_name: str) -> bool:
-        """Allow read/search repeats to become feedback instead of terminal blocks."""
-
-        return tool_name in {"read_file", "grep", "grep_search", "list_files", "git_status", "git_diff", "diagnostics"}
-
-    def _select_active_skills(self, task: str) -> list[SkillSpec]:
-        """Select real coding skills for this run.
-
-        Skill selection lives in AgentLoop because it affects both prompt
-        context and tool routing. Keeping it here prevents SkillRegistry from
-        becoming a passive catalog that never changes runtime behavior.
-        """
-
-        mode = getattr(self.config, "skill_mode", "auto")
-        if mode == "none":
-            return []
-        explicit_names = list(getattr(self.config, "skill_names", []) or [])
-        return self.skill_registry.select_for_task(task, names=explicit_names or None, limit=3)
-
-    def _permission_action(self, tool_name: str) -> str:
-        """Map concrete tool names to coarse permission-policy actions."""
-
-        if tool_name == "run_command":
-            return "run_command"
-        if tool_name in {"apply_patch", "write_file"}:
-            return "apply_patch"
-        return "read"
-
-    def _is_side_effect_action(self, action: str) -> bool:
-        """Return whether an action should use the idempotency ledger."""
-
-        return action in {"apply_patch", "write", "run_command"}
-
-    def _same_operation_fingerprint(
-        self,
-        left: dict[str, Any] | None,
-        right: dict[str, Any] | None,
-    ) -> bool:
-        """Return whether two captured operation target states are equivalent."""
-
-        if left is None or right is None:
-            return False
-        return left == right
-
-    def _update_task_state(
-        self,
-        checkpoint: TaskCheckpoint,
-        status: TaskRunStatus | None = None,
-        *,
-        current_step: int | None = None,
-        last_tool: str | None = None,
-        last_observation: str | None = None,
-        stop_reason: str | None = None,
-        final_answer: str | None = None,
-        resume_hint: str | None = None,
-        messages_count: int | None = None,
-        observations_count: int | None = None,
-        metadata: JsonObject | None = None,
-    ) -> TaskCheckpoint:
-        """Persist only the checkpoint fields listed in this signature."""
-
-        return self.task_state_store.update(
-            checkpoint,
-            status=status.value if status is not None else None,
-            current_step=current_step,
-            last_tool=last_tool,
-            last_observation=last_observation,
-            stop_reason=stop_reason,
-            final_answer=final_answer,
-            resume_hint=resume_hint,
-            messages_count=messages_count,
-            observations_count=observations_count,
-            metadata=metadata,
+        output_check = output_guardrail(
+            final_answer,
+            session.ran_tests,
+            session.blocked,
         )
-
-    def _stop_run(
-        self,
-        checkpoint: TaskCheckpoint,
-        status: TaskRunStatus,
-        stop_reason: str,
-        final_answer: str,
-        current_step: int | None = None,
-        last_tool: str | None = None,
-        last_observation: str | None = None,
-        resume_hint: str | None = None,
-        messages_count: int | None = None,
-        observations_count: int | None = None,
-        metadata: JsonObject | None = None,
-    ) -> None:
-        """Record a terminal state in trace, task state, and stop hooks."""
-
-        self.trace.set_run_context(stop_reason=stop_reason, final_answer=final_answer)
-        self._update_task_state(
-            checkpoint,
-            status=status,
-            stop_reason=stop_reason,
-            final_answer=final_answer,
-            current_step=current_step,
-            last_tool=last_tool,
-            last_observation=last_observation,
-            resume_hint=resume_hint,
-            messages_count=messages_count,
-            observations_count=observations_count,
-            metadata=metadata,
-        )
-        hook_decisions = self.hooks.on_stop(self.trace.run_id, stop_reason, final_answer)
         self.trace.add(
-            current_step or 0,
-            checkpoint.agent_name,
-            "stop_hooks",
-            hook_decisions=[decision.to_dict() for decision in hook_decisions],
-            stop_reason=stop_reason,
+            step,
+            session.agent_name,
+            "guardrail_check",
+            guardrail={
+                "category": output_check.category,
+                "passed": output_check.passed,
+                "reason": output_check.reason,
+                "severity": output_check.severity,
+            },
         )
+        self.trace.add(
+            step,
+            session.agent_name,
+            "final_answer",
+            observation=final_answer,
+            evidence_refs=citations,
+        )
+        return StopRequest(
+            status=TaskRunStatus.COMPLETED,
+            reason="final_answer",
+            final_answer=final_answer,
+            current_step=step,
+            messages_count=len(session.messages),
+            observations_count=len(session.observations),
+        )
+
+    def _stop(self, session: AgentRunSession, request: StopRequest) -> str:
+        """更新内存状态，并把唯一的 terminal transition 交给 lifecycle。"""
+
+        session.status = (
+            "completed"
+            if request.status == TaskRunStatus.COMPLETED
+            else "failed"
+            if request.status == TaskRunStatus.FAILED
+            else "stopped"
+        )
+        session.stop_reason = request.reason
+        session.final_answer = request.final_answer
+        return session.lifecycle.stop(request)
 
     def _load_resume_summary(self, agent_name: str) -> str:
-        """Load an explicit checkpoint into prompt memory and trace."""
+        """把显式 checkpoint 摘要放入 prompt memory 和 trace。"""
 
         resume_state = getattr(self.config, "resume_state", "")
         if not resume_state:
@@ -1407,77 +613,21 @@ class AgentLoop:
         )
         return summary
 
-    def _request_human_input(
-        self,
-        checkpoint: TaskCheckpoint,
-        *,
-        agent_name: str,
-        kind: str,
-        question: str,
-        choices: list[str],
-        reason: str,
-        step: int,
-    ) -> tuple[HumanInputRequest, str]:
-        """Persist a question and stop without blocking a worker thread."""
+    def _select_active_skills(self, task: str) -> list[SkillSpec]:
+        """选择会同时影响 context 和 tool routing 的 Skill。"""
 
-        request = self.human_input_store.request(
-            thread_id=self.human_thread_id,
-            kind=kind,
-            question=question,
-            choices=choices,
-            workspace=self.config.workspace,
-            run_id=self.trace.run_id,
-            step=step,
-            agent_name=agent_name,
-            reason=reason,
+        mode = getattr(self.config, "skill_mode", "auto")
+        if mode == "none":
+            return []
+        explicit_names = list(getattr(self.config, "skill_names", []) or [])
+        return self.skill_registry.select_for_task(
+            task,
+            names=explicit_names or None,
+            limit=3,
         )
-        if request.status == "responded":
-            return request, ""
-        if request.status == "cancelled":
-            final_answer = f"blocked: human_input_cancelled request_id={request.request_id}"
-            self.trace.add(
-                step,
-                agent_name,
-                "human_input_cancelled",
-                request=request.to_dict(),
-            )
-            self._stop_run(
-                checkpoint,
-                TaskRunStatus.BLOCKED,
-                "human_input_cancelled",
-                final_answer,
-                current_step=step,
-                last_tool="ask_human" if kind == "tool_question" else "",
-                resume_hint="Start a new human-input thread if the task should be reconsidered.",
-            )
-            return request, final_answer
-        metadata = dict(checkpoint.metadata or {})
-        metadata.update(
-            {
-                "human_thread_id": self.human_thread_id,
-                "human_input_request_id": request.request_id,
-            }
-        )
-        self.trace.add(
-            step,
-            agent_name,
-            "human_input_requested",
-            request=request.to_dict(),
-        )
-        final_answer = (
-            f"waiting_human: {request.question} "
-            f"request_id={request.request_id} request={request.path}"
-        )
-        self._stop_run(
-            checkpoint,
-            TaskRunStatus.WAITING_HUMAN,
-            "waiting_human",
-            final_answer,
-            current_step=step,
-            last_tool="ask_human" if kind == "tool_question" else "",
-            resume_hint=(
-                f"Run `forge respond {request.request_id} --answer <text>` then resume this run."
-            ),
-            metadata=metadata,
-        )
-        return request, final_answer
+
+    def _contains_raw_tool_call_markup(self, content: str) -> bool:
+        """识别 provider 以文本返回的未执行工具请求。"""
+
+        lowered = content.lower()
+        return "tool_calls" in lowered and "invoke name=" in lowered

@@ -189,9 +189,8 @@ class OperationLedgerStore:
     ) -> OperationRecord:
         """Return the existing operation record or persist its planned state.
 
-        ``AgentLoop.run`` calls this before side-effect execution. The stable
-        key plus pre-fingerprint lets continuation runs skip completed work and
-        reject stale targets instead of replaying mutations blindly.
+        ``ToolExecutionPipeline`` 在副作用前调用这里。稳定 key 和 pre-fingerprint
+        让 continuation 跳过已完成操作，并拒绝盲目重放已变化的目标。
         """
 
         existing = self.get(operation_key)

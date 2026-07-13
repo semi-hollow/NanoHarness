@@ -1,26 +1,12 @@
-"""Runtime control-plane package.
+"""Runtime 控制面。
 
-Why this package exists:
-    ``runtime`` owns the live execution loop and every control concern that
-    keeps an LLM from becoming an unbounded script runner: step budgets,
-    repeated-action detection, execution environment, hooks, task checkpoints,
-    provider messages, and stop reasons.
+首次阅读顺序：
+    ``agent_loop.py`` 只看四阶段编排；``state.py`` 看一次 run 的数据；
+    ``tool_execution.py`` 看工具治理；``run_lifecycle.py`` 看 checkpoint/HITL/stop。
+    ``control.py``、``hooks.py`` 和 ``execution_environment.py`` 是下一级策略 owner。
 
-Read first:
-    ``agent_loop.py`` is the main ReAct loop.
-    ``control.py`` owns failure classification and budgets.
-    ``hooks.py`` owns pre/post tool policies.
-    ``execution_environment.py`` owns local/worktree/OCI boundaries.
-    ``task_state.py`` owns checkpoint/resume/replay.
-
-If removed:
-    The project would lose its core value: converting model output into a
-    controlled, auditable, recoverable code-execution process.
-
-Keep this module free of ``AgentLoop`` imports. Several low-level modules import
-``agent_forge.runtime.observation``; importing ``AgentLoop`` from here would pull
-context/memory back in and create a circular import during IDE indexing or
-single-module tests.
+不要在这里导入 ``AgentLoop``。底层模块会导入 ``runtime.observation``；反向导入主循环
+会把 context/memory 拉回 package 初始化，造成循环依赖并拖慢 IDE 索引。
 """
 
 from .config import RuntimeConfig

@@ -169,7 +169,7 @@ class TaskStateStore:
         self.save(checkpoint)
         return checkpoint
 
-    # RUNTIME PORT: AgentLoop persists an explicit state transition here.
+    # RUNTIME PORT: RunLifecycle persists an explicit state transition here.
     def update(
         self,
         checkpoint: TaskCheckpoint,
@@ -188,10 +188,8 @@ class TaskStateStore:
     ) -> TaskCheckpoint:
         """Apply and persist one explicit checkpoint transition.
 
-        Called through ``AgentLoop._update_task_state`` after model, tool, pause,
-        and stop events. The explicit keyword signature is the complete list of
-        mutable fields, so callers do not need to inspect ``save`` or ``_write``
-        behavior to understand the transition.
+        ``RunLifecycle.update`` 在 model、tool、pause 和 stop 后调用这里。显式关键字
+        参数就是完整可变字段表，读者无需再进入 ``save`` 或 ``_write``。
         """
 
         if status is not None:

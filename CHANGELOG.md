@@ -1,5 +1,13 @@
 # 变更记录
 
+## 未发布 - 2026-07-14
+
+- 将超长 `AgentLoop.run` 收敛为 start、prepare、turn 和 stop 阶段编排。
+- 增加显式 `AgentRunSession`、`ToolExecutionPipeline` 和 `RunLifecycle`，分别拥有
+  per-run 数据、工具治理和 checkpoint/HITL/terminal persistence。
+- 修复 `locked`/`dry-run` 策略拒绝写工具时读取越界恢复变量、导致运行崩溃的问题。
+- 增加折叠阅读分层、代码导航约束和真实 permission-denial 行为回归。
+
 ## 版本 0.6.0 - 2026-07-12
 
 - 用原子 pending/responded/cancelled request、同 turn 副作用 barrier、`waiting_human`

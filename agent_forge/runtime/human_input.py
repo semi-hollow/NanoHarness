@@ -82,7 +82,7 @@ class HumanInputStore:
             return None
         return HumanInputRequest(**json.loads(path.read_text(encoding="utf-8")))
 
-    # RUNTIME PORT: AgentLoop persists a question before stopping the run.
+    # RUNTIME PORT: RunLifecycle persists a question before stopping the run.
     def request(
         self,
         *,
@@ -98,9 +98,8 @@ class HumanInputStore:
     ) -> HumanInputRequest:
         """Create or reuse the durable question that makes a run resumable.
 
-        Called only by ``AgentLoop._request_human_input``. The stable request id
-        makes retries idempotent, while the returned object is written into the
-        checkpoint and trace before execution stops at ``waiting_human``.
+        ``RunLifecycle.request_human_input`` 是当前 runtime owner。稳定 request id
+        保证重试幂等；lifecycle 再将返回对象写入 checkpoint 和 trace。
         """
 
         question = str(question or "").strip()

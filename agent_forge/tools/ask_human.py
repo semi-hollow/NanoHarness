@@ -5,7 +5,7 @@ from .base import Tool
 
 
 class AskHumanTool(Tool):
-    """Declare a human question that AgentLoop persists before pausing."""
+    """声明由 ToolExecutionPipeline 转交 RunLifecycle 的人工问题。"""
 
     name = "ask_human"
     description = "request durable human input; the run pauses until forge respond and resume"
@@ -21,7 +21,7 @@ class AskHumanTool(Tool):
         }
 
     def execute(self, arguments: ToolArguments) -> Observation:
-        """Fail closed when called outside AgentLoop's control-plane interception."""
+        """脱离工具执行管线直接调用时 fail closed。"""
 
         return Observation(
             self.name,

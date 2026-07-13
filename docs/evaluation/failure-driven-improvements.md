@@ -814,6 +814,46 @@ evidence 必须保持原样，不能为了语言统一改写 provenance。
 可追问：如果以后面向国际社区，是否应该恢复英文 README？更合理的方式是新增独立
 英文入口并明确维护责任，而不是在同一教学段落逐句中英重复。
 
+### 36. AgentLoop 主入口过长，策略拒绝分支读取了越界变量
+
+现象：`AgentLoop.run` 超过一千行，初始化、context、模型调用、HITL、approval、
+operation ledger、tool execution、recovery 和 stop 处于同一视觉层级。折叠方法后只能
+看到一个巨大入口，展开后又无法区分“阶段编排”和“某个工具失败分支”。更严重的是，
+当模型请求写工具且 `approval_mode=locked` 时，permission hook 返回 `DENY`，旧分支却
+读取只在 model-error 分支赋值的 `signal`，会触发 `UnboundLocalError`，而不是把拒绝
+作为 observation 返回模型。
+
+定位过程：先按数据所有权重画调用链，而不是机械提取短函数。确认主循环实际包含
+四种职责：一次 run 的可变数据、run/turn 阶段推进、工具请求治理、checkpoint/HITL/
+terminal persistence。随后逐一核对 trace event、message append、operation status 和
+stop reason，发现 `DENY` 分支跨越了模型错误分支的局部变量作用域。原测试只直接测
+`PermissionHook` 的 deny decision，没有让真实 `AgentLoop` 消费该 decision。
+
+根因：超长过程函数让局部变量看起来像“整个 run 都可用”，同时把 policy decision、
+state mutation 和 persistence 混在一个作用域中。已有小 helper 只处理序列化或纯判断，
+没有按 owner 划分主流程，所以方法数量增加了，阅读层级却没有形成。
+
+修复：`AgentLoop.run` 只保留 start、prepare、turn loop 和 stop；`AgentRunSession` 集中
+列出 message、observation、memory、evidence、budget 和状态；
+`ToolExecutionPipeline.execute_calls` 固定执行重复检测、HITL、permission、approval、
+ledger、tool 和 recovery；`RunLifecycle` 统一 checkpoint、人工暂停和 terminal
+transition。源码用“第一遍/第二遍/第三遍”区分折叠阅读顺序。`DENY` 分支现在使用本分支
+产生的 observation classification，不再引用 model-error 局部变量。
+
+验证：新增真实 `AgentLoop + ApplyPatchTool + approval_mode=locked` 回归，要求文件保持
+不变、trace 出现一次 deny、run 可以继续形成 final answer；代码导航测试限制
+`AgentLoop.run` 只展示阶段顺序，并要求新 lifecycle/tool pipeline port 保留标记。
+完整 suite 同时覆盖 HITL、approval stale check、operation replay、fanout、benchmark、
+report 和 UI 对原 trace/artifact 契约的消费。
+
+工程结论：可读性重构的目标不是把一个大函数随机切成许多小函数，而是让每份状态和
+每类副作用只有一个 owner。主入口负责时间顺序，session 负责数据，pipeline 负责 action，
+lifecycle 负责持久化状态迁移；变量作用域随职责收窄后，correctness 风险也更容易暴露。
+
+可追问：为什么不把每个 tool 分支都做成独立 class？当前复杂度只需要一个固定 pipeline
+和私有分支；继续拆成策略对象会增加装配和跳转成本，只有出现可替换 policy family 时才
+值得引入。
+
 ## 调试顺序模板
 
 每次 SWE-bench 失败优先看：

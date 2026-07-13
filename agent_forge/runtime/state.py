@@ -1,44 +1,47 @@
+"""一次 Agent run 的显式数据字段；本文件不决定策略。"""
+
+from __future__ import annotations
+
 from dataclasses import dataclass, field
 
+from agent_forge.context.memory import Memory
+from agent_forge.observability.evidence import EvidenceLedger
+from agent_forge.runtime.control import StepController
 from agent_forge.runtime.message import Message
 from agent_forge.runtime.observation import Observation
+from agent_forge.runtime.run_lifecycle import RunLifecycle
+from agent_forge.skills.registry import SkillSpec
 
 
 @dataclass
-class AgentState:
-    """Mutable state for one AgentLoop run.
+class AgentRunSession:
+    """一次 ``AgentLoop.run`` 的全部可变状态。
 
-    AgentLoop mostly writes trace directly, but keeping state explicit makes it
-    clear what a production service would persist in a database for resume or
-    replay.
+    第一遍只需看字段名。这里保存运行数据，不决定策略；控制流在
+    ``AgentLoop``，工具治理在 ``ToolExecutionPipeline``，持久化在
+    ``RunLifecycle``。
     """
 
-    # Original user task for this run.
     task: str
-
-    # Workspace root for tools.
+    agent_name: str
     workspace_root: str
+    max_iterations: int
+    lifecycle: RunLifecycle
+    controller: StepController
+    resume_summary: str = ""
 
-    # Current loop iteration.
     iteration: int = 0
-
-    # Configured loop cap.
-    max_iterations: int = 12
-
-    # Chat protocol messages accumulated during the run.
     messages: list[Message] = field(default_factory=list)
-
-    # Tool observations collected during the run.
     observations: list[Observation] = field(default_factory=list)
+    memory: Memory = field(default_factory=Memory)
+    evidence: EvidenceLedger = field(default_factory=EvidenceLedger)
+    active_skills: list[SkillSpec] = field(default_factory=list)
+    skill_tool_names: set[str] = field(default_factory=set)
+    tool_history: list[tuple[str, str]] = field(default_factory=list)
 
-    # Generic state bag for future extensions.
-    memory: dict[str, object] = field(default_factory=dict)
-
-    # running/completed/stopped/failed.
+    ran_tests: bool = False
+    blocked: bool = False
+    estimated_cost_usd: float = 0.0
     status: str = "running"
-
-    # Final answer if completed.
     final_answer: str = ""
-
-    # Machine-readable stop reason.
     stop_reason: str = ""

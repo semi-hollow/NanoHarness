@@ -49,6 +49,12 @@ RUNTIME_PORTS = {
         "OperationLedgerStore.ensure_planned",
     ),
     "agent_forge/runtime/hooks.py": ("HookManager.pre_tool",),
+    "agent_forge/runtime/run_lifecycle.py": (
+        "RunLifecycle.update",
+        "RunLifecycle.stop",
+        "RunLifecycle.request_human_input",
+    ),
+    "agent_forge/runtime/tool_execution.py": ("ToolExecutionPipeline.execute_calls",),
     "agent_forge/safety/permission.py": ("PermissionPolicy.decide",),
     "agent_forge/safety/sandbox.py": ("WorkspaceSandbox.ensure_safe_path",),
     "agent_forge/safety/command_policy.py": ("check_command",),
@@ -89,6 +95,23 @@ class CodeNavigationContractTest(unittest.TestCase):
 
     def test_runtime_ports_are_visible_when_bodies_are_collapsed(self) -> None:
         self._assert_markers(RUNTIME_PORTS, "# RUNTIME PORT:", require_docstring=False)
+
+    def test_agent_loop_entrypoint_only_exposes_the_phase_order(self) -> None:
+        path = PROJECT_ROOT / "agent_forge/runtime/agent_loop.py"
+        source = path.read_text(encoding="utf-8")
+        collector = _DefinitionCollector()
+        collector.visit(ast.parse(source))
+        node = collector.definitions["AgentLoop.run"]
+        self.assertIsNotNone(node.end_lineno)
+        line_count = int(node.end_lineno or node.lineno) - node.lineno + 1
+        self.assertLessEqual(line_count, 40)
+
+        body = "\n".join(source.splitlines()[node.lineno - 1 : node.end_lineno])
+        phase_calls = ["_start_session", "_prepare_run", "_run_turn", "_stop"]
+        for name in phase_calls:
+            self.assertIn(name, body)
+        self.assertLess(body.index("_start_session"), body.index("_prepare_run"))
+        self.assertLess(body.index("_prepare_run"), body.index("_run_turn"))
 
     def _assert_markers(
         self,

@@ -8,7 +8,10 @@
 agent_forge/forge_cli.py
   -> ui.py：`forge ui` 本地浏览器工作台
   -> bench/swebench.py：`forge bench swebench`
-  -> runtime/agent_loop.py：Agent 执行
+  -> runtime/agent_loop.py：Agent 阶段编排
+     -> runtime/state.py：一次 run 的显式状态
+     -> runtime/tool_execution.py：工具治理与执行
+     -> runtime/run_lifecycle.py：checkpoint、HITL 与停止
   -> context/*：构造 prompt context
   -> models/gateway.py：调用 provider
   -> tools/*：执行受控 action
@@ -43,7 +46,10 @@ agent_forge/forge_cli.py
 | `BenchCase` | 标准化 SWE-bench row，使 runner 不绑定某一种 dataset schema。 |
 | `SwebenchWorkspaceManager` | 保证每个 case 从 official base commit 开始。 |
 | `BenchRunSummary` | 为 `results.json` 和 `report.md` 提供同一 source of truth。 |
-| `AgentLoop` | 编排 context、model、tool call、observation、recovery 和 stop reason。 |
+| `AgentLoop` | 只编排 prepare、turn 和 stop，不承载工具分支细节。 |
+| `AgentRunSession` | 集中列出一次 run 的 message、observation、memory、evidence、budget 和状态。 |
+| `ToolExecutionPipeline` | 执行 routing 后的 guardrail、HITL、approval、ledger、tool 和 recovery 链。 |
+| `RunLifecycle` | 统一更新 checkpoint，并持久化人工暂停和 terminal transition。 |
 | `ContextBuildReport` | 让 prompt assembly 可审计，而不是 opaque string。 |
 | `ModelGateway` | 标准化 DeepSeek/OpenAI-compatible provider response 和 usage。 |
 | `ToolRegistry` | Agent 可以请求的 action 的唯一 registry。 |
@@ -61,12 +67,15 @@ agent_forge/forge_cli.py
 1. `agent_forge/forge_cli.py`
 2. `agent_forge/ui.py`
 3. `agent_forge/bench/swebench.py`
-4. `agent_forge/runtime/agent_loop.py`
-5. `agent_forge/runtime/execution_environment.py`
-6. `agent_forge/context/context_builder.py`
-7. `agent_forge/tools/registry.py`
-8. `agent_forge/safety/command_policy.py`
-9. `agent_forge/bench/official_results.py`
-10. `agent_forge/evaluation/scorecard.py`
-11. `agent_forge/evaluation/experiment.py`
-12. `agent_forge/observability/usage_report.py`
+4. `agent_forge/runtime/agent_loop.py`，第一遍只展开 `AgentLoop.run`
+5. `agent_forge/runtime/state.py`，把 `AgentRunSession` 当字段表阅读
+6. `agent_forge/runtime/tool_execution.py`，只展开 `execute_calls` 和命中的分支
+7. `agent_forge/runtime/run_lifecycle.py`
+8. `agent_forge/runtime/execution_environment.py`
+9. `agent_forge/context/context_builder.py`
+10. `agent_forge/tools/registry.py`
+11. `agent_forge/safety/command_policy.py`
+12. `agent_forge/bench/official_results.py`
+13. `agent_forge/evaluation/scorecard.py`
+14. `agent_forge/evaluation/experiment.py`
+15. `agent_forge/observability/usage_report.py`
