@@ -1,116 +1,108 @@
-# Runtime Capability Guide
+# Runtime 能力导览
 
-This guide maps user-visible capabilities to their runtime path, evidence, and
-scope. Read it after the root README when reviewing the implementation.
+这份文档把用户可见能力映射到真实 runtime 路径、证据和范围。快速阅读根目录
+README 后，可以从这里进入实现。
 
-## System Map
+## 系统地图
 
 ```mermaid
 flowchart LR
     CLI["forge CLI / workbench"] --> Loop["AgentLoop"]
     CLI --> Fanout["LiveFanoutCoordinator"]
-    Fanout --> Workers["isolated AgentLoop workers"]
+    Fanout --> Workers["隔离的 AgentLoop worker"]
     Workers --> Loop
     Loop --> Context["ContextBuilder"]
     Loop --> Model["ModelGateway"]
     Loop --> Router["ToolRouter"]
     Loop --> Environment["Local / Worktree / OCI"]
-    Router --> Policy["Permissions / command policy / sandbox"]
-    Policy --> Tools["Files / patch / command / diagnostics / MCP"]
+    Router --> Policy["Permission / command policy / sandbox"]
+    Policy --> Tools["File / patch / command / diagnostics / MCP"]
     Loop --> Approval["ApprovalStore"]
     Loop --> Human["HumanInputStore"]
     Loop --> Ledger["OperationLedger"]
-    Loop --> State["TaskState checkpoints"]
+    Loop --> State["TaskState checkpoint"]
     Loop --> Trace["Trace + usage"]
     Coordinator["MultiAgentCoordinator"] --> Loop
-    Coordinator --> Artifacts["Role artifacts"]
+    Coordinator --> Artifacts["Role artifact"]
     Fanout --> Merge["scope gate + patch merge"]
-    Merge --> Finalizer["isolated verifier"]
+    Merge --> Finalizer["隔离 verifier"]
     Trace --> Diagnosis["Failure taxonomy"]
     Trace --> Scorecard["Benchmark scorecard"]
     Scorecard --> Ablation["Paired ablation"]
     Diagnosis --> Feedback["Human feedback"]
     Feedback --> Dataset["Evaluation JSONL"]
-    Dataset --> Regression["Bad-case and regression selection"]
+    Dataset --> Regression["坏 case 与 regression selection"]
 ```
 
-## Reading Order
+## 阅读顺序
 
-| Step | File | What to verify |
+| 步骤 | 文件 | 需要确认的事实 |
 | --- | --- | --- |
-| 1 | `agent_forge/forge_cli.py` | Public commands enter one canonical run path and keep benchmark/evaluation utilities separate. |
-| 2 | `agent_forge/runtime/agent_loop.py` | Context, model calls, action parsing, policy checks, observations, recovery, and stopping are explicit phases. |
-| 3 | `agent_forge/tools/tool_router.py` | Tool visibility is task-aware and its allowed/hidden summary is evidence, not decoration. |
-| 4 | `agent_forge/runtime/execution_environment.py` | Local, worktree, and OCI modes expose distinct path, git-state, process, network, and resource boundaries. |
-| 5 | `agent_forge/runtime/approval.py` | Side effects can stop before execution and resume only from persisted human decisions. |
-| 6 | `agent_forge/runtime/human_input.py` | Informational questions have durable pending/responded/cancelled state and safe ids. |
-| 7 | `agent_forge/runtime/operation_ledger.py` | Stable operation keys prevent duplicate side effects and detect stale targets. |
-| 8 | `agent_forge/runtime/task_state.py` | Resume uses checkpoint summaries and does not claim hidden model-state restoration. |
-| 9 | `agent_forge/multi_agent/coordinator.py` | Implementer, Reviewer, and Verifier reuse AgentLoop and communicate through artifacts. |
-| 10 | `agent_forge/multi_agent/live_fanout.py` | A task DAG becomes real worktree workers, deterministic integration, checkpoints, and a finalizer. |
-| 11 | `agent_forge/runtime/git_workspace.py` | Candidate patches include tracked and new source files without collecting runtime artifacts. |
-| 12 | `agent_forge/bench/failure_taxonomy.py` | Failure priority distinguishes runner, environment, evaluation, tool, context, and loop failures. |
-| 13 | `agent_forge/evaluation/feedback_dataset.py` | Human outcomes and safe trace projections form a machine-readable improvement input. |
-| 14 | `agent_forge/bench/official_results.py` | Official quality comes from per-case JSON, never evaluator exit code. |
-| 15 | `agent_forge/evaluation/scorecard.py` | Patch, local, and official metrics retain separate denominators. |
-| 16 | `agent_forge/evaluation/experiment.py` | Matched run identity is checked before paired deltas are reported. |
+| 1 | `agent_forge/forge_cli.py` | 公共命令进入统一运行路径，benchmark/evaluation utility 保持独立。 |
+| 2 | `agent_forge/runtime/agent_loop.py` | Context、model call、action parsing、policy、observation、recovery、stop 是显式阶段。 |
+| 3 | `agent_forge/tools/tool_router.py` | Tool visibility 会根据任务收敛，allowed/hidden summary 是真实证据。 |
+| 4 | `agent_forge/runtime/execution_environment.py` | Local、worktree、OCI 分别提供不同的 path、git state、process、network、resource 边界。 |
+| 5 | `agent_forge/runtime/approval.py` | 副作用可以在执行前停机，只能根据持久化人工决策继续。 |
+| 6 | `agent_forge/runtime/human_input.py` | 信息型 question 有持久化 pending/responded/cancelled 状态和安全 id。 |
+| 7 | `agent_forge/runtime/operation_ledger.py` | 稳定 operation key 防止重复副作用，并检测 stale target。 |
+| 8 | `agent_forge/runtime/task_state.py` | Resume 使用 checkpoint summary，不声称恢复隐藏 model state。 |
+| 9 | `agent_forge/multi_agent/coordinator.py` | Implementer、Reviewer、Verifier 复用 AgentLoop，只通过 artifact 协作。 |
+| 10 | `agent_forge/multi_agent/live_fanout.py` | Task DAG 变成真实 worktree worker、确定性 integration、checkpoint 和 finalizer。 |
+| 11 | `agent_forge/runtime/git_workspace.py` | Candidate patch 包含 tracked 和新 source file，同时排除 runtime artifact。 |
+| 12 | `agent_forge/bench/failure_taxonomy.py` | Failure priority 能区分 runner、environment、evaluation、tool、context 和 loop failure。 |
+| 13 | `agent_forge/evaluation/feedback_dataset.py` | Human outcome 和安全 trace projection 形成机器可读的改进输入。 |
+| 14 | `agent_forge/bench/official_results.py` | Official quality 来自 per-case JSON，不来自 evaluator exit code。 |
+| 15 | `agent_forge/evaluation/scorecard.py` | Patch、local、official metric 保留不同 denominator。 |
+| 16 | `agent_forge/evaluation/experiment.py` | 计算 paired delta 前必须验证 matched run identity。 |
 
-## Main Capability Relationships
+## 主要能力关系
 
-### Governed execution
+### 受治理的执行
 
-`ToolRouter` decides visibility. Registry validation checks the model-facing
-schema. Permission hooks, command policy, workspace sandbox, and execution
-environment then evaluate the requested action. Prompt instructions are
-context, not the enforcement boundary.
+`ToolRouter` 决定模型能看见哪些工具；registry validation 检查 model-facing schema；
+permission hook、command policy、workspace sandbox 和 execution environment 再判断该
+action 是否可执行。Prompt instruction 只属于 context，不是强制执行边界。
 
-OCI mode keeps the same hook and sandbox chain. File tools operate on the
-isolated host snapshot; command and unittest diagnostics are delegated into the
-container that mounts that snapshot at `/workspace`.
+OCI mode 仍复用相同 hook 和 sandbox chain。File tool 操作隔离后的 host snapshot；
+command 和 unittest diagnostics 则被委托到挂载该 snapshot 为 `/workspace` 的 container。
 
-### Human input, approval, and recovery
+### Human Input、Approval 与 Recovery
 
-`HumanInputStore` records information needed to continue; `ApprovalStore`
-authorizes a concrete side effect. They are deliberately separate. A human
-question stops before further tools and a response is injected into a later
-continuation. An approval stores an operation fingerprint and rechecks target
-state before execution. The operation ledger records planned, pending,
-executed, failed, or skipped states. Task checkpoints seed a new model call
-with a compact continuation summary.
+`HumanInputStore` 记录继续任务所需的信息，`ApprovalStore` 授权一个具体副作用，两者
+刻意分离。Human question 会在后续工具执行前停止，并在新的 continuation 中注入
+回答。Approval 保存 operation fingerprint，执行前再次检查 target state。
+Operation ledger 记录 planned、pending、executed、failed、skipped 状态；task
+checkpoint 用紧凑 continuation summary 为新的 model call 提供上下文。
 
-### Multi-agent coordination
+### 多 Agent 编排
 
-The coordinator runs role-specific AgentLoop instances sequentially and writes
-role outputs to an artifact store. Revision rounds are bounded. The separate
-live fanout path runs explicit DAG tasks concurrently through separate
-AgentLoop/worktree/model contexts. Scope overlap is serialized, accepted patches
-are hash-addressed, and incomplete tasks can be rerun from a checkpoint. It is
-not presented as a distributed swarm or automatic task decomposer.
+Coordinator 顺序运行不同 role 的 AgentLoop，并将 role output 写入 artifact store；
+revision round 有明确上限。另一条 live fanout 路径则让显式 DAG task 在独立
+AgentLoop/worktree/model context 中并发执行。Scope overlap 会串行化，accepted patch
+通过 hash 标识，未完成任务可以从 checkpoint 重跑。它不是 distributed swarm，
+也不声称自动拆解任务。
 
-Per-operation manual write approval is supported by canonical and sequential
-role runs. Live fanout rejects that combination until operation identity can be
-made stable across ephemeral worktrees; durable informational questions do work
-across fanout resume.
+Canonical 和 sequential role run 支持逐 operation 的 manual write approval。
+Live fanout 会拒绝该组合，直到 operation identity 可以跨 ephemeral worktree 稳定；
+持久化 informational question 则可以跨 fanout resume 工作。
 
-### Evaluation and feedback
+### Evaluation 与 Feedback
 
-SWE-bench-shaped runs produce candidate patches, traces, usage, diagnoses,
-parsed official outcomes, and denominator-aware scorecards. `forge eval
-ablation` compares matched scorecards for one declared runtime factor. `forge
-eval feedback` adds a human outcome. `forge eval
-export-dataset` projects safe fields into JSONL so repeated bad cases can drive
-regression selection or later data curation.
+SWE-bench-shaped run 会生成 candidate patch、trace、usage、diagnosis、parsed official
+outcome 和 denominator-aware scorecard。`forge eval ablation` 针对一个声明的 runtime
+factor 比较 matched scorecard；`forge eval feedback` 增加 human outcome；
+`forge eval export-dataset` 将安全字段投影成 JSONL，使重复坏 case 可以进入
+regression selection 或后续 data curation。
 
-## Evidence Boundaries
+## 证据边界
 
-- Candidate patch: the agent changed the workspace; correctness is not proven.
-- Local verification: all explicit test-oriented validation events passed in
-  the current environment; compilation alone does not qualify.
-- Official evaluation: only per-case output from the official harness can
-  support an official resolved claim.
-- Human feedback: an operator judgment, not a benchmark result.
-- Exported JSONL: structured evidence requiring privacy and quality review
-  before use as training data.
+- Candidate patch：Agent 修改了 workspace，不证明修改正确。
+- Local verification：当前环境中所有明确的 test-oriented validation event 都通过；
+  只有 compile 不能算通过验证。
+- Official evaluation：只有 official harness 的 per-case 输出可以支持 official
+  resolved claim。
+- Human feedback：operator judgment，不是 benchmark result。
+- Exported JSONL：结构化证据，作为训练数据前仍需 privacy 和 quality review。
 
-The full green/yellow/scoped status is maintained in
-`docs/CAPABILITY_REALITY_MATRIX.md`.
+完整的 green/yellow/scoped 状态持续维护在
+[`docs/CAPABILITY_REALITY_MATRIX.md`](../CAPABILITY_REALITY_MATRIX.md)。

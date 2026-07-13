@@ -1,16 +1,16 @@
-# Architecture Notes
+# Agent Forge 总体架构与运行链路
 
-Agent Forge is organized around one production-shaped question:
+Agent Forge 围绕一个接近 production 的问题组织：
 
-> Can a CodingAgent take a real issue, gather enough context, execute controlled
-> tools, produce a patch, and leave behind evidence that can be evaluated?
+> CodingAgent 能否接收真实 issue，收集足够 context，执行受控 tool，生成 patch，并
+> 留下可以评测的完整证据？
 
-## Control Flow
+## 控制流
 
 ```mermaid
 flowchart TD
-    User["forge CLI / TUI"] --> Run["run or bench command"]
-    Run --> Workspace["workspace or SWE-bench checkout"]
+    User["forge CLI / TUI"] --> Run["run 或 bench command"]
+    Run --> Workspace["workspace 或 SWE-bench checkout"]
     Workspace --> Mode{"agent mode"}
     Mode --> Loop["AgentLoop"]
     Mode --> Coordinator["MultiAgentCoordinator"]
@@ -18,10 +18,10 @@ flowchart TD
     Coordinator --> Roles["RoleSpec / AgentProfile"]
     Roles --> Artifacts["ArtifactStore"]
     Coordinator --> Loop
-    Fanout --> Workers["isolated AgentLoop workers"]
+    Fanout --> Workers["隔离的 AgentLoop worker"]
     Workers --> Loop
-    Fanout --> Merge["scope gate + deterministic patch apply"]
-    Merge --> Finalizer["isolated read-only verifier"]
+    Fanout --> Merge["scope gate + 确定性 patch apply"]
+    Merge --> Finalizer["隔离的只读 verifier"]
     Loop --> Context["ContextBuilder"]
     Context --> RepoMap["repo map"]
     Context --> Ranking["file ranking / lexical retrieval / symbol search"]
@@ -46,134 +46,118 @@ flowchart TD
     Diff --> Prediction["predictions.jsonl"]
 ```
 
-## Core Modules
+## 核心模块
 
-| Module | Responsibility | Why it exists |
+| 模块 | 职责 | 为什么存在 |
 | --- | --- | --- |
-| `agent_forge/bench` | Loads SWE-bench cases, prepares clean workspaces, writes predictions and reports. | Without it, the project has no external effect loop. |
-| `agent_forge/multi_agent` | Coordinates role-specific AgentLoop runs through explicit artifacts and bounded revision rounds. | Without it, multi-agent behavior becomes prompt chaining with hidden state. |
-| `agent_forge/evaluation` | Provides data structures and reports for honest single-vs-multi comparisons. | Without it, cost/quality tradeoffs are anecdotal. |
-| `agent_forge/runtime` | Runs the ReAct loop, stop conditions, task state, model/tool interaction. | Without it, tool use becomes ad hoc and unreplayable. |
-| `agent_forge/runtime/approval.py` | Stores pending/approved/rejected side-effect approvals by operation key. | Without it, human-in-the-loop is only a prompt convention instead of a runtime boundary. |
-| `agent_forge/runtime/human_input.py` | Stores pending/responded/cancelled informational questions by stable thread identity. | Without it, `ask_human` is a synthetic tool response instead of a stop/respond/resume control event. |
-| `agent_forge/runtime/operation_ledger.py` | Records planned, pending, approved, executed, failed, and skipped side-effect operations. | Without it, resume/rerun can accidentally duplicate writes, commands, or external actions. |
-| `agent_forge/runtime/git_workspace.py` | Produces HEAD-relative binary patches and changed-file lists including untracked source files while excluding untracked runtime artifacts. | Without it, new files disappear from fanout, normal runs, and benchmark predictions. |
-| `agent_forge/multi_agent/live_fanout.py` | Runs validated task DAGs through isolated AgentLoop workers, deterministic integration, final verification, and selective recovery. | Without it, fanout remains only a callback scheduler. |
-| `agent_forge/evaluation/mini_cases.py` | Loads tiny non-coding Agent application cases for research and ops workflows. | Without it, evaluation examples stay tied to coding tasks only. |
-| `agent_forge/evaluation/feedback_dataset.py` | Captures human outcomes and exports privacy-conscious run evidence as JSONL. | Without it, trace data cannot become a repeatable bad-case and regression input. |
-| `agent_forge/context` | Builds prompt context from repo structure, lexical retrieval, symbols, memory, and budgets. | Without it, the model sees either too little code or noisy full-repo dumps. |
-| `agent_forge/tools` | Provides file, patch, grep, command, git, and MCP-style tool access. | Without it, the model cannot inspect and modify real code safely. |
-| `agent_forge/skills` | Provides built-in coding Skills and custom manifest loading; selected Skills inject operating procedures and expected tools into real runs. | Without it, tool capabilities cannot become governed reusable product capabilities or task-specific workflows. |
-| `agent_forge/safety` | Enforces sandbox paths, command policy, permissions, and guardrails. | Without it, a coding agent can execute unsafe or irrelevant actions. |
-| `agent_forge/models` | Normalizes provider calls, retries, usage, latency, and cost. | Without it, runtime logic is tied to one LLM provider. |
-| `agent_forge/observability` | Converts raw events into trace, metrics, and usage reports. | Without it, failures cannot be debugged or defended. |
-| `agent_forge/runtime/structured_output.py` | Extracts JSON, validates schema, builds repair prompts, and is used by provider tool-call argument parsing. | Without it, downstream tools may consume malformed model text as if it were reliable data. |
+| `agent_forge/bench` | 加载 SWE-bench case、准备干净 workspace、写 prediction/report。 | 没有它，项目就没有外部效果闭环。 |
+| `agent_forge/multi_agent` | 通过显式 artifact 和有界 revision 协调 role-specific AgentLoop。 | 没有它，multi-agent 只剩带隐藏状态的 prompt chaining。 |
+| `agent_forge/evaluation` | 提供诚实 Single vs Multi comparison 的 data structure 和 report。 | 没有它，cost/quality tradeoff 只能靠主观描述。 |
+| `agent_forge/runtime` | 运行 ReAct loop、stop condition、task state 和 model/tool interaction。 | 没有它，tool use 会变成零散且不可 replay 的逻辑。 |
+| `runtime/approval.py` | 按 operation key 保存 pending/approved/rejected side-effect approval。 | 没有它，HITL 只是 prompt 约定，不是 runtime boundary。 |
+| `runtime/human_input.py` | 按稳定 thread identity 保存 pending/responded/cancelled question。 | 没有它，`ask_human` 只是模拟 response，不是 stop/respond/resume event。 |
+| `runtime/operation_ledger.py` | 记录 planned、pending、approved、executed、failed、skipped side effect。 | 没有它，resume/rerun 可能重复 write、command 或 external action。 |
+| `runtime/git_workspace.py` | 生成 HEAD-relative binary patch 和 changed-file list，包含 untracked source，排除 runtime artifact。 | 没有它，新文件会从 fanout、普通 run 和 benchmark prediction 中消失。 |
+| `multi_agent/live_fanout.py` | 在隔离 AgentLoop worker 中运行 validated DAG，确定性 integration、final verification、selective recovery。 | 没有它，fanout 只是一层 callback scheduler。 |
+| `evaluation/mini_cases.py` | 加载 research/ops 的小型非 Coding Agent case。 | 没有它，evaluation example 只覆盖 coding task。 |
+| `evaluation/feedback_dataset.py` | 收集 human outcome，导出 privacy-conscious JSONL evidence。 | 没有它，trace 不能稳定进入 bad-case/regression input。 |
+| `agent_forge/context` | 根据 repo structure、lexical retrieval、symbol、memory、budget 构建 prompt context。 | 没有它，模型要么拿到过少代码，要么收到 full-repo 噪声。 |
+| `agent_forge/tools` | 提供 file、patch、grep、command、git、MCP-style tool。 | 没有它，模型无法安全检查和修改真实代码。 |
+| `agent_forge/skills` | 提供内置 Coding Skill 和 custom manifest；selected Skill 将 procedure/expected tool 注入真实 run。 | 没有它，tool capability 无法变成可治理、可复用、task-specific workflow。 |
+| `agent_forge/safety` | 强制 sandbox path、command policy、permission、guardrail。 | 没有它，Coding Agent 可能执行危险或无关 action。 |
+| `agent_forge/models` | 标准化 provider call、retry、usage、latency、cost。 | 没有它，runtime logic 会绑定单一 LLM provider。 |
+| `agent_forge/observability` | 将 raw event 转成 trace、metric、usage report。 | 没有它，failure 无法调试和解释。 |
+| `runtime/structured_output.py` | 提取 JSON、校验 schema、构造 repair prompt，并参与 provider tool-call argument parsing。 | 没有它，下游 tool 可能把 malformed model text 当成可靠数据。 |
 
-## AgentLoop Phases
+## AgentLoop 阶段
 
-1. Input guardrail and clarification check; unresolved input persists and stops
-   at `waiting_human`.
-2. Planning-mode decision for traceability.
-3. Skill selection with built-in/custom Skills, then context assembly with selected files, memory, active Skill cards, tools, and budget breakdown.
-4. Model call through `ModelGateway`.
-5. Tool-call validation and safety checks.
-6. Human approval boundary for write-like or risky actions when approval mode requires it.
-7. Tool execution and observation recording.
-8. Recovery/stop-condition checks, including checkpoint updates for later resume.
-9. Final answer guardrail and trace write.
+1. Input guardrail 和 clarification check；信息不足时持久化并停在 `waiting_human`。
+2. Planning-mode decision，写入 trace。
+3. 选择内置/custom Skill，结合 selected file、memory、active Skill card、tool、budget
+   breakdown 构建 context。
+4. 通过 `ModelGateway` 调用模型。
+5. 校验 tool call 并执行 safety check。
+6. Approval mode 要求时，在写入型或风险 action 前进入 human approval boundary。
+7. 执行 tool 并记录 observation。
+8. 执行 recovery/stop-condition check，并更新可用于 resume 的 checkpoint。
+9. Final-answer guardrail 和 trace write。
 
-The loop is intentionally single-agent first because the core problem is not
-"many agents talk"; it is whether one coding agent can close the
-issue-to-patch loop under control.
+Loop 刻意从 Single Agent 开始，因为核心问题不是“很多 Agent 对话”，而是一个 Coding
+Agent 能否在受控条件下闭合 issue-to-patch loop。
 
-## Multi-Agent Coordinator
+## Multi-Agent Coordinator（多 Agent 协调器）
 
-`MultiAgentCoordinator` is an outer workflow around `AgentLoop`.
+`MultiAgentCoordinator` 是 `AgentLoop` 外层 workflow。
 
-- `RoleSpec` defines role name, instructions, allowed tools, max steps, and the
-  expected artifact. It may also narrow tools on revision rounds, which is
-  useful when a role should revise from reviewer artifacts instead of collecting
-  more evidence.
-- `AgentProfile` groups roles into a profile such as `coding_fix` or
-  `research_report`.
-- `ArtifactStore` writes each role output under
-  `.agent_forge/runs/<run-id>/multi_agent/artifacts/`.
-- Reviewer/verifier roles must return `PASS`, `NEEDS_REVISION`, or `BLOCKED`.
-- `NEEDS_REVISION` triggers another primary-role round until the configured
-  revision budget is reached.
+- `RoleSpec` 定义 role name、instruction、allowed tool、max step 和 expected artifact；
+  revision round 还可以进一步收窄 tool，使 role 根据 reviewer artifact 修订，而不是
+  继续无限收集证据。
+- `AgentProfile` 将 role 组合成 `coding_fix`、`research_report` 等 profile。
+- `ArtifactStore` 将 role output 写到
+  `.agent_forge/runs/<run-id>/multi_agent/artifacts/`。
+- Reviewer/verifier 必须返回 `PASS`、`NEEDS_REVISION` 或 `BLOCKED`。
+- `NEEDS_REVISION` 会触发新的 primary-role round，直到达到 revision budget。
 
-The first version is deterministic and sequential. It does not implement
-parallel execution, quorum voting, decentralized agents, Raft, blockchain, or
-swarm learning.
+第一版是确定性顺序执行，不实现 parallel execution、quorum voting、decentralized
+agent、Raft、blockchain 或 swarm learning。
 
-## Fan-Out Scheduling
+## Fanout 调度
 
-`agent_forge/multi_agent/fanout.py` owns dependency and overlap algorithms;
-`agent_forge/multi_agent/live_fanout.py` owns the runtime execution path:
+`multi_agent/fanout.py` 负责 dependency 和 overlap algorithm；
+`multi_agent/live_fanout.py` 负责真实 runtime execution：
 
-- `SubagentTask` declares an id, dependency list, tool hints, expected artifact,
-  and write scope.
-- `build_execution_batches()` groups tasks into dependency-safe batches.
-- Each runnable task receives a disposable worktree, fresh LLM client, filtered
-  registry, AgentLoop, trace, usage report, patch, and execution manifest.
-- Overlapping declared scopes are put in serial batches. Actual scope escape,
-  dynamic overlap, or patch failure produces `conflict_resolution_required`.
-- Accepted patches are applied in task order. An isolated finalizer reads the
-  integrated candidate but cannot mutate it.
-- `fanout_checkpoint.json` is updated atomically; resume validates plan digest,
-  base commit, and patch hash before skipping a completed worker.
+- `SubagentTask` 声明 id、dependency、tool hint、expected artifact、write scope。
+- `build_execution_batches()` 将 task 分成 dependency-safe batch。
+- 每个 runnable task 获得 disposable worktree、独立 LLM client、filtered registry、
+  AgentLoop、trace、usage report、patch 和 execution manifest。
+- Declared scope overlap 会进入串行 batch；actual scope escape、dynamic overlap 或 patch
+  failure 产生 `conflict_resolution_required`。
+- Accepted patch 按 task 顺序 apply；隔离 finalizer 读取 integrated candidate，但不能
+  修改它。
+- `fanout_checkpoint.json` 原子更新；resume 在跳过 completed worker 前校验 plan digest、
+  base commit 和 patch hash。
 
-This is deliberately narrower than a distributed runner. The JSON plan is
-explicit; no model creates an unbounded swarm or silently resolves conflicts.
+这比 distributed runner 刻意更窄。JSON plan 是显式输入；没有模型会创建无限 swarm，
+也不会静默解决 conflict。
 
-## Resume And Human Approval
+## Resume 与 Human Approval
 
-`TaskStateStore` writes compact checkpoints during AgentLoop execution. A later
-run can pass `--resume-state <checkpoint.json>` to seed prompt memory with the
-previous status, last tool, last observation, stop reason, and resume hint. This
-is a safe continuation seed, not a hidden chat-state replay.
+`TaskStateStore` 在 AgentLoop 中写入紧凑 checkpoint。后续 run 可以传
+`--resume-state <checkpoint.json>`，将 previous status、last tool、last observation、
+stop reason 和 resume hint 注入 prompt memory。这是安全 continuation seed，不是隐藏
+chat-state replay。
 
-When approval is manual (`--no-auto-approve-writes`), `AgentLoop` writes a
-pending `ApprovalRequest` and stops at `waiting_approval` before executing the
-side effect. `forge approve <operation_key>` records the human decision; rerun
-or resume can then execute the same approved operation if the target fingerprint
-still matches the state that was approved. If the target changed, the approval
-is marked `stale` and the operation is not executed.
+Manual approval（`--no-auto-approve-writes`）下，`AgentLoop` 在副作用执行前写入 pending
+`ApprovalRequest`，并停在 `waiting_approval`。`forge approve <operation_key>` 记录人工
+决定；rerun/resume 只有在 target fingerprint 仍匹配获批状态时才执行。如果 target
+已改变，approval 标记 `stale`，operation 不执行。
 
-`OperationLedgerStore` uses the same operation identity shape for side effects:
-tool name, normalized arguments, workspace, and action. After an operation is
-executed successfully, a later run that proposes the exact same operation gets a
-successful skipped observation instead of applying it again. This is a local
-idempotency mechanism, not a distributed transaction log. The ledger stores
-pre/post fingerprints for path-targeted operations; if the target changed after
-execution, the runtime records `stale_operation_record` instead of pretending
-the previous skip is still safe.
+`OperationLedgerStore` 使用相同 operation identity：tool name、normalized argument、
+workspace、action。Operation 成功后，后续 run 提出完全相同 operation 时会获得成功的
+skipped observation，而不是重复执行。这是本地 idempotency，不是 distributed
+transaction log。Path-targeted operation 保存 pre/post fingerprint；target 变化时记录
+`stale_operation_record`，不继续假装旧 skip 安全。
 
-`forge resume <run-dir>` is the user-facing convenience wrapper. It finds the
-newest checkpoint under `task_state/`, starts a new run with `--resume-state`,
-and writes `resume_link.json`, `resume_chain.md`, and a `Resume Chain` section
-in `usage_report.md` so the continuation chain is visible in reports.
+`forge resume <run-dir>` 是用户入口：找到 `task_state/` 中最新 checkpoint，以
+`--resume-state` 启动新 run，并写入 `resume_link.json`、`resume_chain.md` 和
+`usage_report.md` 的 `Resume Chain`，使 continuation chain 在 report 中可见。
 
-Informational human input follows a separate state machine. `AgentLoop`
-intercepts `ask_human`, writes an atomic `HumanInputRequest`, records its id in
-the checkpoint, and stops before further tools. `forge respond` records the
-answer; resume injects the question/answer pair into the continuation. A
-cancelled request remains terminal. Fanout worker threads are stable across a
-matching plan/base/task so an answered clarification can be reused when only an
-incomplete worker is rerun.
+Informational human input 使用另一套状态机。`AgentLoop` 拦截 `ask_human`，原子写入
+`HumanInputRequest`，将 id 写入 checkpoint，并在更多 tool 执行前停机。`forge respond`
+记录答案；resume 注入 question/answer。Cancelled request 保持 terminal。Fanout worker
+thread 在匹配 plan/base/task 下保持稳定，因此 selective rerun 可以复用已回答 clarification。
 
-## Result Evidence
+## 结果证据
 
-Every benchmark case should leave:
+每个 benchmark case 应留下：
 
-- `trace.json`: event-level audit trail.
-- `usage_report.md`: token/cost/context/tool breakdown.
-- `patch.diff`: candidate git diff.
-- `predictions.jsonl`: SWE-bench-compatible output.
-- `report.md`: human-readable result card.
-- `multi_agent_report.md`: role/artifact/revision summary when multi-agent mode
-  is used.
-- `fanout_report.md`: task batches, scope/merge outcomes, resume markers,
-  worker/finalizer usage, and claim boundary when fanout mode is used.
+- `trace.json`：event-level audit trail。
+- `usage_report.md`：token/cost/context/tool breakdown。
+- `patch.diff`：candidate git diff。
+- `predictions.jsonl`：SWE-bench-compatible output。
+- `report.md`：人类可读 result card。
+- `multi_agent_report.md`：multi mode 的 role/artifact/revision summary。
+- `fanout_report.md`：fanout mode 的 task batch、scope/merge outcome、resume marker、
+  worker/finalizer usage 和 claim boundary。
 
-This evidence is more important than a large set of author-created tests.
+这些证据比大量作者自写测试更重要。

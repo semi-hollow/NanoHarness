@@ -1,11 +1,10 @@
-# Feedback-Driven Evaluation Loop
+# Feedback 驱动的 Evaluation Loop
 
-## Goal
+## 目标
 
-Turn a completed run into a durable improvement input without exporting raw
-trace payloads by default.
+把一次完成的 run 转成可持久化的改进输入，同时默认不导出 raw trace payload。
 
-## Data Flow
+## 数据流
 
 ```text
 task -> trace / policy / environment / patch / diagnosis
@@ -14,9 +13,9 @@ task -> trace / policy / environment / patch / diagnosis
      -> bad-case grouping / regression selection / model-runtime analysis
 ```
 
-## Commands
+## 命令
 
-Attach a human judgment to a run or one benchmark case:
+给一个 run 或 benchmark case 添加人工判断：
 
 ```bash
 forge eval feedback .agent_forge/runs/<run-id> \
@@ -25,7 +24,7 @@ forge eval feedback .agent_forge/runs/<run-id> \
   --note "Expected source file was not selected."
 ```
 
-Export reviewed records:
+导出已经 review 的记录：
 
 ```bash
 forge eval export-dataset .agent_forge/runs/<run-id> \
@@ -33,22 +32,20 @@ forge eval export-dataset .agent_forge/runs/<run-id> \
   --output .agent_forge/evaluation/evidence_dataset.jsonl
 ```
 
-Patch text is excluded by default. Use `--include-patch` only after reviewing
-repository ownership, licensing, secrets, and data policy.
+默认不导出 patch 正文。只有完成 repository ownership、license、secret 和 data policy
+检查后，才应使用 `--include-patch`。
 
-## Record Contract
+## Record 契约
 
-Each JSONL record contains task and stop state, selected file paths, tool names,
-allowed/hidden tool summaries, a safe execution-environment projection, patch
-size and SHA-256, result/evaluation/failure status, human feedback, and artifact
-provenance.
+每条 JSONL record 包含 task/stop state、selected file path、tool name、allowed/hidden
+tool summary、安全的 execution-environment projection、patch size 和 SHA-256、
+result/evaluation/failure status、human feedback 与 artifact provenance。
 
-It intentionally excludes full tool arguments, tool observations, absolute
-workspace paths, and patch text by default. This keeps the export useful for
-failure analysis while reducing accidental leakage.
+默认刻意排除完整 tool argument、tool observation、绝对 workspace path 和 patch text，
+使导出结果仍可用于 failure analysis，同时降低意外数据泄漏风险。
 
-## Non-Claims
+## 不声称什么
 
-The exporter does not make NanoHarness an RL platform. Reward design, sampling,
-deduplication, privacy review, dataset versioning, train/eval contamination
-controls, and model-training integration remain separate systems concerns.
+Exporter 不会让 NanoHarness 变成 RL platform。Reward design、sampling、deduplication、
+privacy review、dataset versioning、train/eval contamination control 和 model-training
+integration 都属于独立系统问题。

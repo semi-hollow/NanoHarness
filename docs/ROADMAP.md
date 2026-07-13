@@ -1,36 +1,32 @@
-# Roadmap
+# 路线图
 
-NanoHarness stays deliberately compact. Roadmap items must strengthen runtime
-control, reproducible evaluation, or evidence quality; feature breadth alone is
-not a reason to add a subsystem.
+NanoHarness 刻意保持精简。Roadmap item 必须增强 runtime control、reproducible
+evaluation 或 evidence quality；单纯增加功能宽度，不足以成为新增子系统的理由。
 
-## Near Term
+## 近期方向
 
-1. Repeat fixed-set ablations across multiple seeds and retain confidence-aware
-   aggregate evidence instead of one-run conclusions.
-2. Add dataset manifests, explicit redaction policies, and schema migration for
-   exported run evidence.
-3. Repeat matched serial/fanout plans across multiple runs and report confidence
-   around latency, token cost, conflict rate, and verifier outcomes.
-4. Add a real OCI smoke lane and an image contract for project-specific
-   dependencies without making Docker a unit-test prerequisite.
+1. 对固定 regression set 做多 seed ablation，保留带置信信息的 aggregate evidence，
+   避免从单次 run 得出结论。
+2. 为 exported run evidence 增加 dataset manifest、显式 redaction policy 和 schema
+   migration。
+3. 多次重复 matched serial/fanout plan，报告 latency、token cost、conflict rate 和
+   verifier outcome 的置信范围。
+4. 增加真实 OCI smoke lane 和 project-specific dependency image contract，同时保持
+   unit test 不依赖 Docker。
 
-## Design Debt
+## 设计债务
 
-- Consolidate UI, diagnostics, and reports around one artifact locator.
-- Unify overlapping command, path, and execution-environment policy summaries.
-- Promote repeated provider compatibility fixes into a versioned transport
-  compatibility layer.
-- Define a stable operation identity before allowing per-operation manual write
-  approvals to cross ephemeral fanout worktrees; current fanout fails fast for
-  that combination.
-- Detect and prune abandoned run-owned worktrees after hard process termination
-  without touching user-created worktrees.
-- Keep failure rules ordered from environment and evidence failures to agent
-  behavior failures, with a regression case for every priority conflict.
+- 让 UI、diagnostics 和 report 共用一个 artifact locator。
+- 统一有重叠的 command、path、execution-environment policy summary。
+- 将重复 provider compatibility fix 提升为 versioned transport compatibility layer。
+- 在允许 per-operation manual write approval 跨 ephemeral fanout worktree 前，定义稳定
+  operation identity；当前 fanout 对该组合 fail fast。
+- 进程被强制终止后，检测和清理 run-owned abandoned worktree，同时不碰用户创建的
+  worktree。
+- Failure rule 保持从 environment/evidence failure 到 agent behavior failure 的优先级，
+  每种优先级冲突都必须有 regression case。
 
-## Acceptance Rule
+## 完成标准
 
-A roadmap item is complete only when it changes a real runtime path, leaves a
-machine-readable artifact, has a focused regression test, and states what the
-new evidence does not prove.
+一项 roadmap 工作只有同时满足以下条件才算完成：改变真实 runtime path；留下机器
+可读 artifact；有 focused regression test；明确新证据不能证明什么。

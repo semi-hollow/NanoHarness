@@ -1,24 +1,23 @@
-# Evaluation Experiments and OCI Execution
+# Evaluation Experiment 与 OCI Execution
 
-This design connects runtime behavior to evidence that can be compared across
-runs. It deliberately avoids hard-coded benchmark claims: every number in a
-scorecard must be derived from a trace, usage artifact, candidate patch, or
-official evaluator report.
+这项设计将 runtime 行为连接到可跨 run 对比的证据，并刻意避免硬编码 benchmark
+结论：scorecard 中的每个数字都必须来自 trace、usage artifact、candidate patch 或
+official evaluator report。
 
-## Goals
+## 目标
 
-1. Turn a fixed five-case SWE-bench Lite regression set into a machine-readable
-   scorecard covering patch reachability, local validation, official outcomes,
-   tokens, cost, latency, tool failures, and failure classes.
-2. Compare two complete benchmark runs as a paired ablation only when dataset,
-   split, provider/model identity, and case ids match.
-3. Parse official SWE-bench per-case reports instead of inferring correctness
-   from the evaluator process exit code.
-4. Add an OCI-backed execution mode that keeps the existing runtime policy
-   chain while executing command and diagnostics tools inside a constrained,
-   short-lived container over an isolated repository snapshot.
+1. 将固定五 case SWE-bench Lite regression set 转成机器可读 scorecard，覆盖 patch
+   能否到达、local validation、official outcome、token、cost、latency、tool failure
+   和 failure class。
+2. 只有 dataset、split、provider/model identity 和 case id 都匹配时，才将两个完整
+   benchmark run 作为 paired ablation 比较。
+3. 解析 official SWE-bench per-case report，而不是根据 evaluator process exit code
+   推断正确性。
+4. 增加 OCI-backed execution mode，在保留现有 runtime policy chain 的同时，让
+   command/diagnostics tool 在隔离 repository snapshot 上的受限短生命周期 container
+   中运行。
 
-## Evidence Flow
+## 证据流
 
 ```text
 SWE-bench case
@@ -31,71 +30,59 @@ SWE-bench case
   -> paired ablation.json / ablation.md
 ```
 
-The evidence model keeps three levels separate:
+Evidence model 严格区分三个层级：
 
-- Candidate patch: a non-empty diff exists.
-- Local validation: a test-oriented command or unittest diagnostic completed
-  successfully. Compilation alone is not correctness evidence.
-- Official resolved: a per-case SWE-bench report explicitly records
-  `resolved: true`.
+- Candidate patch：存在非空 diff。
+- Local validation：test-oriented command 或 unittest diagnostic 成功完成；只有
+  compilation 不能证明正确。
+- Official resolved：per-case SWE-bench report 明确记录 `resolved: true`。
 
-If the official process exits successfully but no per-case result is found, the
-case is `official_eval_incomplete`, not resolved. Harness errors, missing
-reports, empty patches, and unresolved patches remain distinct outcomes.
+如果 official process 成功退出，但没有找到 per-case result，该 case 是
+`official_eval_incomplete`，不是 resolved。Harness error、missing report、empty patch
+和 unresolved patch 保持不同 outcome。
 
-## Scorecards and Ablations
+## Scorecard 与 Ablation
 
-Each benchmark run writes a scorecard with per-case rows and aggregate totals.
-Rates use explicit denominators; official resolved rate is `null` when no case
-was officially evaluated rather than the misleading value `0%`.
+每个 benchmark run 会生成包含 per-case row 和 aggregate total 的 scorecard。Rate
+使用显式 denominator；没有 case 被 official evaluate 时，official resolved rate
+保持 `null`，不能写成误导性的 `0%`。
 
-The ablation comparator consumes two run directories. It rejects mismatched
-datasets, splits, provider/model identities, or case sets. The report presents
-paired deltas and always states that a single run per variant does not estimate
-stochastic variance. Tool-routing ablations expose either all registered tools
-or task-aware routed tools, while path, command, approval, and sandbox policies
-remain enabled in both variants.
+Ablation comparator 接收两个 run directory。Dataset、split、provider/model identity
+或 case set 不一致都会被拒绝。Report 展示 paired delta，并始终说明每个 variant 只有
+一次 run 无法估计随机方差。Tool-routing ablation 可以选择 all registered tools 或
+task-aware routed tools；两侧仍启用 path、command、approval 和 sandbox policy。
 
-Official quality deltas use only cases that have resolved/unresolved evidence
-on both sides. If one run adds or loses official evaluation coverage, the report
-labels that case as an evidence change and marks full-set official correctness
-as not comparable; it never converts a denominator change into an improvement.
+Official quality delta 只使用两侧都有 resolved/unresolved evidence 的 case。如果一侧
+新增或丢失 official evaluation coverage，report 会把它标记为 evidence change，并说明
+full-set official correctness 不可比较；不能把 denominator 变化伪装成质量提升。
 
-## OCI Execution Boundary
+## OCI 执行边界
 
-`ExecutionEnvironment` remains the runtime interface. OCI mode creates an
-isolated git worktree snapshot, starts a named container with a read-only root
-filesystem, drops Linux capabilities, enables `no-new-privileges`, applies
-CPU/memory/PID limits, and disables container networking when the run policy is
-`deny`. The snapshot is mounted read-write at `/workspace` so file tools and
-container commands observe the same repository state.
+`ExecutionEnvironment` 仍是统一 runtime interface。OCI mode 会创建隔离 git worktree
+snapshot，启动 named container，使用 read-only root filesystem、drop Linux
+capability、`no-new-privileges`、CPU/memory/PID limit，并在 run policy 为 `deny` 时
+关闭 container network。Snapshot 以读写方式挂载到 `/workspace`，使 file tool 和
+container command 观察同一份 repository state。
 
-Both repository runs and SWE-bench case runs use this adapter. Benchmark
-scorecards record execution mode, network policy, retention policy, image, and
-resource limits. They also aggregate the runtime-reported immutable image IDs;
-the ablation comparator rejects drift in those fields unless execution
-environment is the explicitly declared experiment factor.
+普通 repository run 和 SWE-bench case run 都使用该 adapter。Benchmark scorecard
+记录 execution mode、network policy、retention policy、image 和 resource limit，也会
+聚合 runtime 报告的 immutable image ID。除非 execution environment 本身就是声明的
+实验 factor，否则 ablation comparator 会拒绝这些字段发生 drift。
 
-Command and unittest diagnostics execute through the environment adapter.
-Ordinary file tools still run in the host process under `WorkspaceSandbox` and
-can only access the mounted snapshot. This is stronger process isolation than
-local/worktree mode, but it is not a claim of hostile multi-tenant security.
+Command 和 unittest diagnostics 通过 environment adapter 执行。普通 file tool 仍在
+host process 中运行，并受 `WorkspaceSandbox` 限制，只能访问 mounted snapshot。这比
+local/worktree mode 提供更强 process isolation，但不声称 hostile multi-tenant security。
 
-The environment manifest records image identity, container id, resource and
-network policy, start command, command history, and cleanup policy. Cleanup
-always attempts forced container removal; the snapshot follows the existing
-keep/remove policy. A recreate command is retained only when the snapshot is
-also retained, so the manifest does not advertise a stale replay path.
+Environment manifest 会记录 image identity、container id、resource/network policy、
+start command、command history 和 cleanup policy。Cleanup 始终尝试强制移除 container；
+snapshot 则遵循现有 keep/remove policy。只有 snapshot 同时保留时才记录 recreate
+command，避免 manifest 提供已经失效的 replay path。
 
-## Verification Contract
+## 验证契约
 
-- Official result fixtures cover resolved, unresolved, error, empty-patch, and
-  missing-report outcomes.
-- Scorecard tests prove that candidate patches and official resolutions use
-  different denominators.
-- Ablation tests reject incomparable runs and compute paired metric deltas.
-- OCI tests assert the actual runtime command, limits, mount, network policy,
-  command delegation, manifest evidence, and cleanup without requiring Docker
-  in unit-test environments.
-- A real OCI smoke check remains environment-dependent and must be reported as
-  skipped when no compatible container runtime is installed.
+- Official result fixture 覆盖 resolved、unresolved、error、empty-patch、missing-report。
+- Scorecard 测试证明 candidate patch 和 official resolution 使用不同 denominator。
+- Ablation 测试拒绝不可比较 run，并计算 paired metric delta。
+- OCI 测试在不要求 unit-test 环境安装 Docker 的前提下，断言真实 runtime command、
+  limit、mount、network policy、command delegation、manifest evidence 和 cleanup。
+- Real OCI smoke 依赖环境；没有 compatible container runtime 时必须明确报告 skipped。

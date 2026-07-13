@@ -1,4 +1,4 @@
-# Failure-Driven Runtime Improvements
+# 失败驱动的 Runtime 改进记录
 
 ## 这份文档的用途
 
@@ -780,6 +780,40 @@ MCP、Skills 和 UI 的方法级索引，以及三遍折叠阅读法。`CONTRIBU
 可追问：为什么不使用 decorator 给入口打标签？因为这里的目标是静态导航，普通
 注释在 IDE 折叠视图中更直接，也避免为了文档引入运行时元数据和额外抽象。
 
+### 35. 教学文档与目标读者语言不一致，理解链路反复中断
+
+现象：README、代码阅读地图、Runtime 学习路径和多份 architecture/evaluation 文档
+主要使用英文。中文读者在“理解系统概念”和“映射源码标识符”之间不断切换语言，
+尤其容易把解释性英文和必须保留的 class/method/status 名称混在一起。
+
+定位过程：盘点仓库全部项目自有 Markdown，区分三类内容：面向读者的项目介绍与
+教学文档、源码中必须可搜索的 identifier、第三方仓库或真实运行生成的原始 evidence。
+检查发现不仅两份 guide 是英文，README、capability matrix、architecture design、
+failure taxonomy、regression set、CONTRIBUTING、SECURITY 和 package/script code map
+也会把读者重新带回英文说明。
+
+根因：仓库最初按通用开源项目默认使用英文文档，后续中文架构说明只做了局部补充，
+没有形成稳定的 documentation language policy。直接翻译所有英文又会破坏
+`AgentLoop.run`、`waiting_human`、`official_resolved` 等源码映射，以及第三方 evidence
+的原始性。
+
+修复：项目自有介绍、架构讲解、代码导览、学习路径、环境搭建和评测教学统一改为
+中文；class、method、CLI、status、artifact field 和行业术语保留源码英文。明确排除
+`docs/technical-defense/demo/evidence` 下的第三方内容与历史运行产物。README 的公开
+定位、全部核心 learning/architecture/evaluation 文档及开发说明已按该规则重写，
+`CONTRIBUTING.md` 增加长期语言规范。
+
+验证：`test_documentation_language` 维护中文优先文档清单，忽略 fenced code、command、
+badge 和 identifier，只拒绝没有中文的教学 heading 或长英文 prose；文档扫描和完整
+regression suite 共同保证翻译没有改变 CLI、链接目标或 runtime behavior。
+
+工程结论：中文教学文档不等于把所有技术词强行翻译。最有效的写法是“中文解释 +
+原始 identifier”，既降低理解成本，又能从文档直接搜索到代码。原始 benchmark
+evidence 必须保持原样，不能为了语言统一改写 provenance。
+
+可追问：如果以后面向国际社区，是否应该恢复英文 README？更合理的方式是新增独立
+英文入口并明确维护责任，而不是在同一教学段落逐句中英重复。
+
 ## 调试顺序模板
 
 每次 SWE-bench 失败优先看：
@@ -799,6 +833,6 @@ Fanout/HITL 额外看：
 10. `human_input/<request-id>.json`：问题是否 pending/responded/cancelled，thread
     identity 是否与 resumed task 一致。
 
-## Design Conclusions
+## 设计结论
 
 > 这次不是简单调 prompt，而是沿着真实 evidence 逐层修 runtime：ToolRouter 负责 task-aware 工具收敛，ReadFileTool 修正模型常用 line-window 契约，DiagnosticsTool 区分 code failure 和 validation environment unavailable，Coordinator 区分 candidate patch 与 official resolved，verdict parser 兼容真实 Markdown 输出。最终从 UI 点击 Run Reference Case，single/multi 都生成相同 candidate patch，Reviewer/Verifier 在 artifact 中给出 PASS。这个过程体现的是 agent harness 的工程闭环，而不是一次性 demo。

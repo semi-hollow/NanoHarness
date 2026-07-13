@@ -58,11 +58,11 @@ result card 会报告：
 
 - `patch_generated`：Agent Forge 是否产出了非空 git diff。
 - `official_eval_*`：SWE-bench harness 是否运行，以及是否接受或拒绝 patches。
-- token usage：prompt、completion、cache hit/miss、estimated cost。
+- token 使用：prompt、completion、cache hit/miss、estimated cost。
 - latency：model call latency 与 tool duration。
 - context breakdown：prompt budget 分别花在 files、memory、tools、history 上的比例。
-- tool efficiency：tool count、success rate、failed observations、observation size。
-- failure taxonomy：blocked、no patch、official eval failed、provider/config failure。
+- 工具效率：tool count、success rate、failed observations、observation size。
+- 失败分类：blocked、no patch、official eval failed、provider/config failure。
 - failure diagnosis：每个 case 的 machine-readable failure class、evidence 与 next actions。
 
 ## 基线（Baseline）

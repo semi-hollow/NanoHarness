@@ -1,31 +1,28 @@
-# Mini Agent Application Cases
+# Mini Agent 应用案例
 
-These cases are intentionally small. They are not benchmark leaderboards and
-they do not replace SWE-bench-shaped coding evidence.
+这些 case 刻意保持小型。它们不是 benchmark leaderboard，也不能替代 SWE-bench
+形态的 Coding Agent evidence。
 
-They exercise broader Agent application engineering concerns:
+它们覆盖更广泛的 Agent application engineering 问题：
 
-- research workflows need citation quality, source limitations, and unsupported
-  claim control;
-- ops workflows need policy-sensitive side effects, human approval, recovery,
-  and auditable execution summaries.
+- Research workflow 需要 citation quality、source limitation 和 unsupported claim
+  control。
+- Ops workflow 需要 policy-sensitive side effect、human approval、recovery 和可审计
+  execution summary。
 
-Each JSON case uses common evaluation dimensions such as `task_success`,
-`evidence_quality`, `tool_efficiency`, `recovery_success`,
-`human_intervention_count`, and `safety_violation`.
+每个 JSON case 使用 `task_success`、`evidence_quality`、`tool_efficiency`、
+`recovery_success`、`human_intervention_count`、`safety_violation` 等通用指标。
 
-Run a deterministic scorecard from explicit evidence:
+使用显式 evidence 运行确定性 scorecard：
 
 ```bash
 forge eval mini-cases --case research-citation-quality --evidence evidence.json
 ```
 
-The evaluator is not an LLM judge. It expects evidence such as produced
-artifacts, citations, unsupported claim count, tool-call count, human
-intervention count, recovery result, and safety violations. Missing or weak
-evidence fails the relevant dimension instead of being papered over by prose.
+Evaluator 不是 LLM judge。它接收 produced artifact、citation、unsupported claim
+count、tool-call count、human intervention count、recovery result 和 safety violation
+等证据。证据缺失或过弱时，对应维度直接失败，不会用描述性文字掩盖。
 
-The tool names in a mini-case are declarative evaluation inputs; the evaluator
-does not execute an AgentLoop. In the runtime, `ask_human` creates durable
-informational requests through `HumanInputStore`. Concrete side-effect approval
-remains a separate `ApprovalStore` plus `forge approve` contract.
+Mini-case 中的 tool name 是 declarative evaluation input，evaluator 不执行 AgentLoop。
+真实 runtime 中，`ask_human` 通过 `HumanInputStore` 创建持久化信息请求；具体副作用
+审批仍由独立 `ApprovalStore` 和 `forge approve` 契约负责。

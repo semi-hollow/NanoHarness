@@ -1,22 +1,21 @@
-# Agent Forge Contributor Notes
+# Agent Forge 开发说明
 
-## Project Direction
+## 项目方向
 
-Agent Forge is now a SWE-bench-oriented CodingAgent harness. Keep the main story
-focused on:
+Agent Forge 是面向 SWE-bench 的 CodingAgent Harness。主线应持续聚焦：
 
-1. public benchmark cases;
-2. clean repo checkout at base commits;
-3. AgentLoop-driven tool execution;
-4. SWE-bench-compatible `predictions.jsonl`;
-5. trace, usage, denominator-aware scorecards, and result cards;
-6. parsed per-case official SWE-bench harness evaluation;
-7. paired runtime ablations with matched run identity.
+1. 公开 benchmark case；
+2. 在 base commit 上创建干净 repo checkout；
+3. 由 AgentLoop 驱动 tool execution；
+4. SWE-bench-compatible `predictions.jsonl`；
+5. trace、usage、denominator-aware scorecard 和 result card；
+6. 解析 per-case official SWE-bench harness evaluation；
+7. 使用 matched run identity 做 paired runtime ablation。
 
-Do not reintroduce self-authored benchmark narratives, teaching fixtures, or
-simulated-model product paths as proof of capability.
+不要重新把自写 benchmark narrative、教学 fixture 或 simulated-model product path
+作为能力证据。
 
-## Preferred Commands
+## 常用命令
 
 ```bash
 forge doctor
@@ -31,30 +30,23 @@ forge replay latest
 scripts/verify.sh
 ```
 
-## Editing Guidelines
+## 编辑约定
 
-- Keep the public entrypoint goal-based: `run`, `bench`, `report`, `replay`,
-  `doctor`, `tui`.
-- Do not reintroduce public `single/multi/workflow` modes; user-facing commands
-  should stay goal-based.
-- Do not add calculator/webhook/tutorial fixtures, simulated LLM product paths, or
-  passive sample configs. A capability must affect `forge run`, benchmark
-  execution, trace evidence, or real operator workflow.
-- Keep generated artifacts under `.agent_forge/`.
-- Do not commit API keys, provider profiles, raw run traces, or benchmark
-  workspaces.
-- If a feature does not support the SWE-bench loop or explainability of that
-  loop, question whether it belongs in the project.
+- Public entrypoint 保持 goal-based：`run`、`bench`、`report`、`replay`、`doctor`、`tui`。
+- 不重新增加 public `single/multi/workflow` mode；用户命令保持 goal-based。
+- 不增加 calculator/webhook/tutorial fixture、simulated LLM product path 或 passive sample
+  config。能力必须真实影响 `forge run`、benchmark、trace evidence 或 operator workflow。
+- Generated artifact 统一放在 `.agent_forge/`。
+- 不提交 API key、provider profile、raw run trace 或 benchmark workspace。
+- 如果功能既不支持 SWE-bench loop，也不能提高该 loop 的 explainability，应重新判断
+  它是否属于本项目。
 
-## Runtime Truths
+## Runtime 事实
 
-- `AgentLoop` is the canonical execution path.
-- `agent_forge/bench` owns benchmark loading, checkout, predictions, and result
-  cards.
-- `TraceRecorder` is the source of truth for replay and usage reports.
-- `ModelGateway` is the only provider boundary used by the runtime.
-- `ToolRegistry`, `CommandPolicy`, and `WorkspaceSandbox` are the tool safety
-  boundary.
-- Built-in coding Skills are part of the real runtime path. They must affect
-  prompt context, tool routing, or trace evidence; do not add passive manifests
-  that are never used by `AgentLoop`.
+- `AgentLoop` 是标准执行路径。
+- `agent_forge/bench` 负责 benchmark loading、checkout、prediction 和 result card。
+- `TraceRecorder` 是 replay 和 usage report 的 source of truth。
+- `ModelGateway` 是 runtime 使用的唯一 provider boundary。
+- `ToolRegistry`、`CommandPolicy`、`WorkspaceSandbox` 构成 tool safety boundary。
+- 内置 Coding Skill 已接入真实 runtime，必须影响 prompt context、tool routing 或 trace
+  evidence；不要添加从未被 `AgentLoop` 使用的 passive manifest。

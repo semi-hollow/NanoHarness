@@ -1,20 +1,24 @@
-# Case Study: astropy__astropy-12907
+# 案例研究：astropy__astropy-12907
 
-## Why this case matters
+## 为什么这个 Case 重要
 
-This case is a compact real-repository example for studying Coding Agent tool contracts, candidate patch evidence, and conservative evaluation claims.
+这是一个紧凑的真实仓库案例，适合观察 Coding Agent tool contract、candidate patch
+evidence 和保守 evaluation claim。
 
-## Runtime lesson
+## Runtime 教训
 
-The agent needs to inspect a narrow code window around the separability logic. If `read_file` ignores natural `offset` / `limit` arguments, the model may repeatedly inspect the wrong part of the file. This is a tool schema mismatch, not just a prompt issue.
+Agent 需要检查 separability logic 附近的一小段代码。如果 `read_file` 不支持模型自然
+使用的 `offset` / `limit` 参数，模型可能反复读取错误位置。这是 tool schema mismatch，
+不只是 prompt 问题。
 
-## Evidence to collect
+## 需要收集的证据
 
-- `trace.json`: file inspection steps and tool arguments.
-- `patch.diff`: candidate change.
-- `usage.json`: tool calls, failed tools, and cost.
-- `report.md`: failure class and next action.
+- `trace.json`：file inspection step 和 tool argument。
+- `patch.diff`：candidate change。
+- `usage.json`：tool call、failed tool 和 cost。
+- `report.md`：failure class 和 next action。
 
-## Boundary
+## 边界
 
-A candidate patch is not an official SWE-bench resolution. Only claim `official_resolved` after official harness evaluation accepts the patch.
+Candidate patch 不等于 official SWE-bench resolution。只有 official harness evaluation
+接受 patch 后，才能声称 `official_resolved`。

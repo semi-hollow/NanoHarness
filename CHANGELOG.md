@@ -1,57 +1,49 @@
-# Changelog
+# 变更记录
 
-## 0.6.0 - 2026-07-12
+## 版本 0.6.0 - 2026-07-12
 
-- Replaced synthetic `ask_human` behavior with atomic pending/responded/cancelled
-  requests, a same-turn side-effect barrier, `waiting_human` checkpoints, and
-  `forge respond` plus resume.
-- Added validated live fanout over real isolated AgentLoop workers, declared and
-  actual write-scope gates, deterministic binary patch integration, and an
-  isolated read-only finalizer with candidate-diff visibility and a pre/post
-  mutation gate. Plans now carry validated per-task step budgets beneath the
-  global runtime ceiling.
-- Added incremental fanout checkpoints, plan/base identity checks, patch hashes,
-  stable worker clarification threads, selective rerun of incomplete tasks, and
-  separate current/resumed/evidence-chain usage accounting.
-- Unified candidate diff collection across runs, benchmarks, tools, and
-  coordinators so tracked and untracked source files share one evidence path
-  while untracked `.agent_forge` artifacts remain excluded.
-- Added a bounded fanout UI/CLI surface, safe sample plan, focused regression
-  coverage, semantic real-provider smoke assertions, and updated
-  capability/learning/failure documentation.
-- Tightened the local workbench for desktop/mobile evidence review with stable
-  navigation, readable tables, bounded controls, and fanout artifact views.
-- Added repository-wide function type contracts, a real validated TraceEvent
-  envelope, explicit checkpoint transitions, mypy/AST regression gates, and an
-  object-first code-reading map for local reasoning.
+- 用原子 pending/responded/cancelled request、同 turn 副作用 barrier、`waiting_human`
+  checkpoint、`forge respond` 加 resume，替换模拟 `ask_human` 行为。
+- 增加基于真实隔离 AgentLoop worker 的 validated live fanout，包括 declared/actual
+  write-scope gate、确定性 binary patch integration，以及能看见 candidate diff 且带
+  pre/post mutation gate 的隔离只读 finalizer；plan 支持低于 global runtime ceiling 的
+  per-task step budget。
+- 增加 incremental fanout checkpoint、plan/base identity check、patch hash、稳定 worker
+  clarification thread、未完成 task selective rerun，以及 current/resumed/evidence-chain
+  usage 分层记账。
+- 统一 run、benchmark、tool、coordinator 的 candidate diff collection，使 tracked 和
+  untracked source file 共用一条 evidence path，同时排除 untracked `.agent_forge` artifact。
+- 增加受限 fanout UI/CLI、安全 sample plan、focused regression、带语义断言的真实
+  provider smoke，并更新 capability/learning/failure 文档。
+- 优化桌面和移动端本地工作台，提供稳定导航、可读表格、受限 control 和 fanout
+  artifact view。
+- 增加全仓库 function type contract、真实 validated `TraceEvent` envelope、显式
+  checkpoint transition、mypy/AST regression gate，以及 object-first 代码阅读地图。
 
-## 0.5.0 - 2026-07-11
+## 版本 0.5.0 - 2026-07-11
 
-- Added per-case official SWE-bench result parsing with explicit resolved,
-  unresolved, error, empty-patch, and incomplete outcomes.
-- Added a fixed five-repository regression set, denominator-aware scorecards,
-  and matched-run `forge eval ablation` reports.
-- Added observable `task-aware` versus `all` tool-routing experiments while
-  preserving the same runtime safety chain.
-- Added OCI-container execution over isolated snapshots with network/resource
-  limits, capability removal, read-only roots, command delegation, and replay
-  evidence in the environment manifest.
+- 增加 per-case official SWE-bench result parsing，显式区分 resolved、unresolved、
+  error、empty-patch、incomplete。
+- 增加固定五仓库 regression set、denominator-aware scorecard 和 matched-run
+  `forge eval ablation` report。
+- 增加可观测 `task-aware` vs `all` tool-routing experiment，两侧保持相同 runtime
+  safety chain。
+- 增加隔离 snapshot 上的 OCI-container execution，包括 network/resource limit、
+  capability removal、read-only root、command delegation 和 environment manifest
+  replay evidence。
 
-## 0.4.0 - 2026-07-11
+## 版本 0.4.0 - 2026-07-11
 
-- Added human outcome and failure-label capture for completed runs.
-- Added privacy-conscious JSONL export for trace, tool-policy, environment,
-  evaluation, and feedback evidence.
-- Connected local/detached-worktree execution modes to the public run and
-  resume commands, with environment manifests and patch preservation.
-- Reframed the workbench and documentation around runtime and evaluation
-  evidence.
-- Added a stable runtime capability guide, feedback-loop design note, and
-  explicit roadmap boundaries.
+- 增加 completed run 的 human outcome 和 failure label capture。
+- 增加 trace、tool-policy、environment、evaluation 和 feedback evidence 的
+  privacy-conscious JSONL export。
+- 将 local/detached-worktree execution mode 接入 public run/resume command，保留
+  environment manifest 和 patch。
+- 将 workbench 和文档主线调整为 runtime/evaluation evidence。
+- 增加稳定 runtime capability guide、feedback-loop design note 和显式 roadmap boundary。
 
-## Earlier Development
+## 更早版本
 
-Earlier iterations established the canonical AgentLoop, context construction,
-governed tools, human approval, operation ledger, checkpoint resume,
-SWE-bench-shaped runs, failure taxonomy, direct baseline comparison, and
-artifact-based multi-agent coordination.
+早期版本建立了标准 AgentLoop、context construction、governed tools、human approval、
+operation ledger、checkpoint resume、SWE-bench-shaped run、failure taxonomy 和 direct
+baseline comparison 和 artifact-based multi-agent coordination。
