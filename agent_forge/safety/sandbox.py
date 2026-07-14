@@ -2,7 +2,6 @@ from pathlib import Path
 
 
 def sandbox_policy_summary(workspace_root: str) -> dict[str, object]:
-    """Return report-friendly workspace boundary facts."""
 
     return {
         "workspace_root": workspace_root,
@@ -12,20 +11,12 @@ def sandbox_policy_summary(workspace_root: str) -> dict[str, object]:
 
 
 class WorkspaceSandbox:
-    """Path-level safety boundary for all file tools.
-
-    This is the local version of "agent sandboxing": every file path produced by
-    the model is resolved under one workspace root and checked for secret-like
-    targets before tools read or write it.
-    """
 
     def __init__(self, workspace_root: str | Path) -> None:
-        """Resolve the workspace once so later checks compare absolute paths."""
 
         self.workspace_root = Path(workspace_root).resolve()
 
     def resolve_path(self, path: str | Path) -> Path:
-        """Convert a user/tool path into an absolute path under workspace root."""
 
         p = Path(path)
         if not p.is_absolute():
@@ -33,7 +24,6 @@ class WorkspaceSandbox:
         return p.resolve()
 
     def is_sensitive_path(self, path: Path) -> bool:
-        """Block common secret-bearing filenames and directories."""
 
         lowered_parts = [part.lower() for part in path.parts]
         name = path.name.lower()
@@ -48,19 +38,12 @@ class WorkspaceSandbox:
             or any("secrets" in part for part in lowered_parts)
         )
 
-    # RUNTIME PORT: every file tool validates model-provided paths here.
+    # 运行时端口：下方定义连接用例与外部实现。
     def ensure_safe_path(self, path: str | Path) -> Path:
-        """Return a workspace path or reject escape and sensitive targets.
-
-        Concrete file tools call this immediately before I/O. ``resolve_path``
-        and ``is_sensitive_path`` are implementation steps; this method is the
-        enforceable boundary a reader should inspect first.
-        """
 
         resolved = self.resolve_path(path)
         try:
-            # `relative_to` is the key escape check. It blocks ../ and absolute
-            # paths outside the workspace after symlink/path normalization.
+
             resolved.relative_to(self.workspace_root)
         except ValueError as exc:
             raise PermissionError("external_directory deny") from exc

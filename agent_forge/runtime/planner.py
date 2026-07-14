@@ -5,7 +5,6 @@ from agent_forge.runtime.ports.context import ContextReportView
 
 @dataclass(frozen=True)
 class PlanningStep:
-    """Trace-only planning summary for one AgentLoop iteration."""
 
     goal: str
     reasoning_summary: str
@@ -13,7 +12,6 @@ class PlanningStep:
 
 
 class SimplePlanner:
-    """Small deterministic planner used to make each loop step explainable."""
 
     def plan(
         self,
@@ -21,7 +19,6 @@ class SimplePlanner:
         iteration: int,
         context_report: ContextReportView,
     ) -> PlanningStep:
-        """Summarize current context before asking the LLM for action/final."""
 
         selected = ", ".join(context_report.selected_files[:3]) if context_report.selected_files else "no selected files"
         strategy = (

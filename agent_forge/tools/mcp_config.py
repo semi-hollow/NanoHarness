@@ -13,30 +13,19 @@ from agent_forge.tools.registry import ToolRegistry
 
 @dataclass(frozen=True)
 class MCPToolRegistration:
-    """Result of one configured MCP-style tool registration."""
 
-    # Tool name after optional server prefixing.
     name: str
-
-    # Whether the tool was registered.
     registered: bool
-
-    # Why it was accepted or skipped.
     reason: str
 
 
 @dataclass(frozen=True)
 class MCPConfigReport:
-    """Audit report for a loaded MCP-style config file."""
 
-    # Path that was loaded.
     path: str
-
-    # Registered/skipped tool rows.
     tools: list[MCPToolRegistration] = field(default_factory=list)
 
     def to_dict(self) -> dict:
-        """Return JSON-safe data for CLI/session reports."""
 
         return {
             "path": self.path,
@@ -52,37 +41,19 @@ class MCPConfigReport:
 
 
 class MCPConfigLoader:
-    """Load local MCP-style tool definitions into the ToolRegistry.
-
-    This is a local, safe subset of the MCP idea: a config file can describe
-    tools, schemas, handlers, and allowlists. The loader converts those specs
-    into Agent Forge ``Tool`` objects so AgentLoop and ToolRouter stay unchanged.
-
-    Why it exists:
-        External tools should be discovered and registered at the tool boundary,
-        not hard-coded into AgentLoop. This loader is the bridge from a portable
-        config file to local ``Tool`` instances.
-
-    Method map:
-        ``load_into`` is the public entry.
-        ``_register_stdio_server`` starts discovery for command-backed servers.
-        ``_resolve_command`` keeps Python MCP servers inside the active venv.
-        ``_handler`` supports the local handler subset used by the bundled MCP config.
-    """
 
     def __init__(self, sandbox: WorkspaceSandbox) -> None:
-        """Use the same sandbox as built-in tools for file-backed handlers."""
 
         self.sandbox = sandbox
 
-    # PRIMARY ENTRYPOINT: discover and register configured MCP tools safely.
+    # 主要入口：下方定义承接该模块的核心调用。
     def load_into(
         self,
         registry: ToolRegistry,
         config_path: str | Path,
         allowed_tools: list[str] | None = None,
     ) -> MCPConfigReport:
-        """Parse config and register allowed tools."""
+        """加载 MCP 配置并把允许的远程工具注册到本地 Registry。"""
 
         path = Path(config_path)
         data = json.loads(path.read_text(encoding="utf-8"))
@@ -140,7 +111,6 @@ class MCPConfigLoader:
         prefix: bool,
         config_dir: Path,
     ) -> list[MCPToolRegistration]:
-        """Discover and register tools from a command-backed stdio server."""
 
         rows: list[MCPToolRegistration] = []
         command = self._resolve_command(str(server.get("command") or ""))
@@ -175,19 +145,12 @@ class MCPConfigLoader:
         return rows
 
     def _resolve_command(self, command: str) -> str:
-        """Resolve portable Python command names for stdio MCP servers."""
 
         if command in {"python", "python3"}:
             return sys.executable
         return command
 
     def _resolve_server_cwd(self, raw_cwd: Any, config_dir: Path) -> str:
-        """Resolve a stdio server working directory.
-
-        Defaulting to the sandbox workspace root keeps the MCP server aligned
-        with the agent's active workspace. If a config supplies ``cwd``, relative
-        paths are resolved next to the config file so configs stay portable.
-        """
 
         if not raw_cwd:
             return str(self.sandbox.workspace_root)
@@ -200,7 +163,6 @@ class MCPConfigLoader:
         self,
         handler_name: str,
     ) -> Callable[[dict[str, Any]], Observation | str] | None:
-        """Return one supported safe local handler."""
 
         if handler_name == "echo":
             return lambda args: json.dumps(args, ensure_ascii=False, sort_keys=True)
@@ -211,7 +173,6 @@ class MCPConfigLoader:
         return None
 
     def _read_text(self, args: dict[str, Any]) -> Observation:
-        """Read one sandboxed text file through an MCP-style tool."""
 
         path = args.get("path", "")
         if not isinstance(path, str) or not path:
@@ -223,7 +184,6 @@ class MCPConfigLoader:
             return Observation("mcp.read_text", False, f"mcp read_text failed: {exc}")
 
     def _repo_policy(self, args: dict[str, Any]) -> str:
-        """Return a short project-policy answer from FORGE.md."""
 
         topic = str(args.get("topic") or "").lower()
         policy_file = self.sandbox.workspace_root / "FORGE.md"

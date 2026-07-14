@@ -2,12 +2,12 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from agent_forge.observability.trace import TraceRecorder
-from agent_forge.runtime.agent_loop import AgentLoop
-from agent_forge.runtime.approval import ApprovalStore
+from agent_forge.observability.api import TraceRecorder
+from agent_forge.runtime.adapters import JsonApprovalRepository
+from agent_forge.runtime.api import build_agent_loop
 from agent_forge.runtime.config import RuntimeConfig
 from agent_forge.runtime.llm_client import AgentResponse
-from agent_forge.runtime.tool_call import ToolCall
+from agent_forge.runtime.domain.conversation import ToolCall
 from agent_forge.safety.sandbox import WorkspaceSandbox
 from agent_forge.tools.apply_patch import ApplyPatchTool
 from agent_forge.tools.registry import ToolRegistry
@@ -46,7 +46,7 @@ class HumanApprovalTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             (root / "target.py").write_text("value = 1\n", encoding="utf-8")
-            approvals = ApprovalStore(root / "approvals")
+            approvals = JsonApprovalRepository(root / "approvals")
             trace = TraceRecorder(str(root / "trace.json"))
             config = RuntimeConfig(
                 workspace=str(root),
@@ -56,7 +56,7 @@ class HumanApprovalTest(unittest.TestCase):
                 approval_root=str(root / "approvals"),
             )
 
-            final = AgentLoop(config, trace, _registry(root), PatchThenFinalLLM()).run("fix target")
+            final = build_agent_loop(config, trace, _registry(root), PatchThenFinalLLM()).run("fix target")
 
             self.assertIn("patch applied after approval", final)
             self.assertEqual(approvals.list_pending(), [])
@@ -65,7 +65,7 @@ class HumanApprovalTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             (root / "target.py").write_text("value = 1\n", encoding="utf-8")
-            approvals = ApprovalStore(root / "approvals")
+            approvals = JsonApprovalRepository(root / "approvals")
 
             first_trace = TraceRecorder(str(root / "first-trace.json"))
             first_config = RuntimeConfig(
@@ -75,7 +75,7 @@ class HumanApprovalTest(unittest.TestCase):
                 auto_approve_writes=False,
                 approval_root=str(root / "approvals"),
             )
-            first = AgentLoop(first_config, first_trace, _registry(root), PatchThenFinalLLM()).run("fix target")
+            first = build_agent_loop(first_config, first_trace, _registry(root), PatchThenFinalLLM()).run("fix target")
 
             self.assertIn("waiting_approval", first)
             self.assertEqual((root / "target.py").read_text(encoding="utf-8"), "value = 1\n")
@@ -93,7 +93,7 @@ class HumanApprovalTest(unittest.TestCase):
                 auto_approve_writes=False,
                 approval_root=str(root / "approvals"),
             )
-            second = AgentLoop(second_config, second_trace, _registry(root), PatchThenFinalLLM()).run("fix target")
+            second = build_agent_loop(second_config, second_trace, _registry(root), PatchThenFinalLLM()).run("fix target")
 
             self.assertIn("patch applied after approval", second)
             self.assertEqual((root / "target.py").read_text(encoding="utf-8"), "value = 2\n")
@@ -109,7 +109,7 @@ class HumanApprovalTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             (root / "target.py").write_text("value = 1\n", encoding="utf-8")
-            approvals = ApprovalStore(root / "approvals")
+            approvals = JsonApprovalRepository(root / "approvals")
 
             first_trace = TraceRecorder(str(root / "first-trace.json"))
             first_config = RuntimeConfig(
@@ -119,7 +119,7 @@ class HumanApprovalTest(unittest.TestCase):
                 auto_approve_writes=False,
                 approval_root=str(root / "approvals"),
             )
-            first = AgentLoop(first_config, first_trace, _registry(root), PatchThenFinalLLM()).run("fix target")
+            first = build_agent_loop(first_config, first_trace, _registry(root), PatchThenFinalLLM()).run("fix target")
 
             self.assertIn("waiting_approval", first)
             pending = approvals.list_pending()
@@ -135,7 +135,7 @@ class HumanApprovalTest(unittest.TestCase):
                 auto_approve_writes=False,
                 approval_root=str(root / "approvals"),
             )
-            second = AgentLoop(second_config, second_trace, _registry(root), PatchThenFinalLLM()).run("fix target")
+            second = build_agent_loop(second_config, second_trace, _registry(root), PatchThenFinalLLM()).run("fix target")
 
             self.assertIn("approval_stale", second)
             self.assertEqual((root / "target.py").read_text(encoding="utf-8"), "value = 3\n")

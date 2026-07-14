@@ -10,12 +10,11 @@ from agent_forge.evaluation.api import compare_runs, compare_variants, extract_r
 
 
 class RunSwebench:
-    """Orchestrate benchmark cases while delegating every side effect to Ports."""
 
     def __init__(self, dependencies: BenchDependencies) -> None:
         self._deps = dependencies
 
-    # PRIMARY ENTRYPOINT: run cases, evaluate, then publish final evidence.
+    # 主要入口：下方定义承接该模块的核心调用。
     def execute(
         self,
         request: SwebenchRunRequest,
@@ -23,7 +22,7 @@ class RunSwebench:
         run_id: str,
         layout: BenchRunLayout,
     ) -> BenchRunSummary:
-        """Run the evidence pipeline in its claim-safe ordering."""
+        """按 case 执行、official evaluation、最终诊断和发布顺序运行评测。"""
 
         cases = self._deps.cases.load(request)
         summary = _new_summary(request, run_id, layout)
@@ -46,7 +45,6 @@ class RunSwebench:
                 baseline_predictions.append(baseline_record)
                 baseline_by_case[case.instance_id] = baseline_record
 
-        # Official evaluation consumes predictions.jsonl, so stage it first.
         self._deps.artifacts.write_predictions(
             summary,
             predictions,
@@ -55,7 +53,6 @@ class RunSwebench:
         if request.evaluate:
             self._deps.official_evaluator.evaluate(summary, request)
 
-        # Diagnosis and case studies must see final local + official evidence.
         for result in summary.case_results:
             self._deps.artifacts.finalize_case(result)
             stored_baseline = baseline_by_case.get(result.instance_id)
@@ -191,7 +188,6 @@ def _combined_result(
     multi: BenchCaseResult,
     patch_path: Path,
 ) -> BenchCaseResult:
-    """Use the multi result as candidate output while retaining comparison evidence."""
 
     return BenchCaseResult(
         instance_id=case.instance_id,

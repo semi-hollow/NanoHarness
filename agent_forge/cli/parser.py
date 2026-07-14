@@ -1,16 +1,15 @@
-"""Public ``forge`` command contract；只定义参数，不执行能力。"""
+"""公开 ``forge`` 命令契约；只定义参数，不执行能力。"""
 
 from __future__ import annotations
 
 import argparse
 import os
 
-from agent_forge.bench.swebench import build_swebench_parser
+from agent_forge.bench.presentation.cli import build_swebench_parser
 from agent_forge.multi_agent.profiles import list_profiles
 from agent_forge.workbench.api import build_ui_parser
 
-
-# PRIMARY ENTRYPOINT: define the complete public CLI contract.
+# 主要入口：下方定义承接该模块的核心调用。
 def build_parser() -> argparse.ArgumentParser:
     """构造按用户目标组织的命令面，不暴露内部 application 类。"""
 

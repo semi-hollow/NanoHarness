@@ -8,7 +8,6 @@ from agent_forge.evaluation.domain.mini_cases import MiniAgentCase, MiniCaseEval
 
 
 def load_mini_cases(root: str | Path | None = None) -> list[MiniAgentCase]:
-    """Parse mini-case definitions from JSON files."""
 
     case_root = Path(root) if root is not None else _default_case_root()
     cases: list[MiniAgentCase] = []
@@ -34,7 +33,6 @@ def write_mini_case_artifacts(
     output_dir: str | Path,
     report: str,
 ) -> Path:
-    """Persist the result DTO and its already-rendered report."""
 
     case_dir = Path(output_dir) / case.case_id
     case_dir.mkdir(parents=True, exist_ok=True)

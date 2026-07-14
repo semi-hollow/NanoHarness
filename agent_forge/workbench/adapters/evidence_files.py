@@ -6,11 +6,9 @@ from typing import Any
 
 
 class FileEvidenceCatalog:
-    """Discover immutable run artifacts for Workbench read models."""
 
     def __init__(self, project_dir: Path) -> None:
-        # Keep the caller-visible path spelling (notably /var vs /private/var
-        # on macOS) while still making relative inputs absolute.
+
         self.project_dir = project_dir.absolute()
 
     def latest_run_dir(self) -> Path | None:
@@ -97,7 +95,6 @@ class FileEvidenceCatalog:
         return candidate if candidate.exists() else None
 
     def trace_paths(self) -> list[tuple[str, Path]]:
-        """Return multi-agent evidence first, then the single-agent baseline."""
 
         run_dir = self.latest_run_dir()
         if run_dir is None:

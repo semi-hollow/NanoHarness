@@ -9,12 +9,6 @@ from agent_forge.runtime.domain.approval import ApprovalRequest
 
 
 class JsonApprovalRepository:
-    """Filesystem-backed authorization queue for side-effect operations.
-
-    Read ``request`` for the runtime pause and ``decide`` for the operator
-    transition. This store authorizes a concrete fingerprinted operation; it is
-    intentionally separate from informational ``HumanInputStore`` questions.
-    """
 
     def __init__(self, root: str | Path = ".agent_forge/approvals") -> None:
         self.root = Path(root)
@@ -22,7 +16,6 @@ class JsonApprovalRepository:
 
     @staticmethod
     def operation_key(tool_name: str, arguments: dict[str, Any], workspace: str, action: str = "") -> str:
-        """Build a stable identity for a side-effect operation."""
 
         payload = {
             "tool_name": tool_name,
@@ -43,7 +36,7 @@ class JsonApprovalRepository:
         data = json.loads(path.read_text(encoding="utf-8"))
         return ApprovalRequest(**data)
 
-    # RUNTIME PORT: ToolExecutionPipeline records a side effect before pausing.
+    # 运行时端口：下方定义连接用例与外部实现。
     def request(
         self,
         *,
@@ -58,7 +51,7 @@ class JsonApprovalRepository:
         reason: str,
         operation_fingerprint: dict[str, Any] | None = None,
     ) -> ApprovalRequest:
-        """Create or reuse the authorization record for one side effect.
+        """为一次副作用创建或复用持久化授权记录。
 
         ``ToolExecutionPipeline`` 在 permission hook 返回 ASK 后调用这里。Operation
         key 和 fingerprint 将后续决定绑定到具体 tool intent 与 target state。
@@ -90,7 +83,6 @@ class JsonApprovalRepository:
         return request
 
     def list_pending(self) -> list[ApprovalRequest]:
-        """Return pending requests newest first."""
 
         return [
             request
@@ -107,9 +99,8 @@ class JsonApprovalRepository:
                 continue
         return sorted(requests, key=lambda request: request.updated_at, reverse=True)
 
-    # RUNTIME PORT: `forge approve` records the operator's authorization decision.
+    # 运行时端口：下方定义连接用例与外部实现。
     def decide(self, operation_key: str, status: str, note: str = "") -> ApprovalRequest:
-        """Mark one operation approved or rejected for a later continuation."""
 
         request = self.get(operation_key)
         if request is None:
@@ -119,7 +110,6 @@ class JsonApprovalRepository:
         return request
 
     def mark_stale(self, operation_key: str, note: str = "") -> ApprovalRequest:
-        """Mark an approval unusable because target state changed after approval."""
 
         request = self.get(operation_key)
         if request is None:
@@ -134,6 +124,3 @@ class JsonApprovalRepository:
             json.dumps(request.to_dict(), ensure_ascii=False, indent=2, default=str),
             encoding="utf-8",
         )
-
-
-ApprovalStore = JsonApprovalRepository

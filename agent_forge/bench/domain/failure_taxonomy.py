@@ -8,7 +8,6 @@ from .models import BenchCaseResult
 
 @dataclass(frozen=True)
 class FailureDiagnosis:
-    """Actionable diagnosis derived from benchmark artifacts."""
 
     failure_class: str
     summary: str

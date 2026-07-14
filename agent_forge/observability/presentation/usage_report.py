@@ -139,5 +139,4 @@ def _render_counter_table(
 def _chars_to_tokens(chars: int) -> int:
     return max(0, int(round(chars / 4)))
 
-
 __all__ = ["render_usage_markdown"]

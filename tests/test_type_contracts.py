@@ -3,8 +3,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from agent_forge.observability.trace import TraceRecorder
-from agent_forge.runtime.task_state import TaskStateStore
+from agent_forge.observability.api import TraceRecorder
+from agent_forge.runtime.adapters import JsonTaskStateRepository
 
 
 class TypeContractTest(unittest.TestCase):
@@ -36,7 +36,7 @@ class TypeContractTest(unittest.TestCase):
 
     def test_checkpoint_trace_keeps_the_existing_flat_json_shape(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
-            store = TaskStateStore(Path(tmp) / "task-state")
+            store = JsonTaskStateRepository(Path(tmp) / "task-state")
             checkpoint = store.start("run-1", "inspect project", tmp, "CodingAgent")
             trace = TraceRecorder(str(Path(tmp) / "trace.json"))
 

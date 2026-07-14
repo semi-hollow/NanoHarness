@@ -2,14 +2,12 @@ from __future__ import annotations
 
 from .domain.models import AgentProfile, RoleSpec
 
-
 CODING_READ_TOOLS = ["list_files", "read_file", "grep", "grep_search", "git_status", "git_diff", "diagnostics"]
 CODING_WRITE_TOOLS = [*CODING_READ_TOOLS, "apply_patch", "write_file", "run_command"]
 RESEARCH_TOOLS = ["list_files", "read_file", "grep", "grep_search", "forge.web_search", "forge.web_fetch"]
 
 
 def coding_fix_profile() -> AgentProfile:
-    """Return the coordinator profile for code repair tasks."""
 
     return AgentProfile(
         name="coding_fix",
@@ -67,7 +65,6 @@ def coding_fix_profile() -> AgentProfile:
 
 
 def research_report_profile() -> AgentProfile:
-    """Return the coordinator profile for source-backed research reports."""
 
     return AgentProfile(
         name="research_report",
@@ -121,13 +118,11 @@ def research_report_profile() -> AgentProfile:
 
 
 def list_profiles() -> list[str]:
-    """Return supported profile names."""
 
     return ["coding_fix", "research_report"]
 
 
 def get_profile(name: str) -> AgentProfile:
-    """Return a profile by name with a clear error for unsupported profiles."""
 
     profiles = {
         "coding_fix": coding_fix_profile,

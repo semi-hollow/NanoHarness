@@ -5,17 +5,16 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from agent_forge.bench.swebench import (
-    REGRESSION_SETS,
-    SwebenchWorkspaceManager,
-    _direct_baseline_prediction,
-    _run_case,
-    _run_official_evaluation,
-    run_swebench,
-)
-from agent_forge.bench.types import BenchCase, BenchCaseResult, BenchRunSummary
+from agent_forge.bench.adapters.case_runtime import DirectModelBaseline, LocalCaseExecutor
+from agent_forge.bench.adapters.git_workspace import SwebenchWorkspaceManager
+from agent_forge.bench.adapters.official_evaluator import SwebenchOfficialEvaluator
+from agent_forge.bench.api import run_swebench
+from agent_forge.bench.application.swebench import _combined_result
+from agent_forge.bench.domain.catalog import REGRESSION_SETS
+from agent_forge.bench.domain.config import SwebenchRunRequest
+from agent_forge.bench.domain.models import BenchCase, BenchCaseResult, BenchRunSummary
 from agent_forge.runtime.llm_client import AgentResponse
-from agent_forge.ui import (
+from agent_forge.workbench.presentation.http import (
     _latest_multi_agent_summary_path,
     _latest_trace_path,
     _latest_usage_path,
@@ -51,7 +50,10 @@ class SwebenchCompareTest(unittest.TestCase):
         with patch("agent_forge.bench.adapters.case_runtime.resolve_llm_config", return_value=Config()), patch(
             "agent_forge.bench.adapters.case_runtime.build_llm", return_value=LLM()
         ):
-            prediction = _direct_baseline_prediction(case, "provider", "model", None, None)
+            prediction = DirectModelBaseline().predict(
+                case,
+                SwebenchRunRequest(provider="provider", model="model"),
+            )
 
         self.assertEqual(prediction["total_tokens"], 321)
         self.assertEqual(prediction["llm_latency_ms"], 456)
@@ -94,18 +96,18 @@ class SwebenchCompareTest(unittest.TestCase):
                 "agent_forge.bench.adapters.case_runtime.build_agent_loop",
                 side_effect=lambda config, _trace, _registry, _llm: FakeAgentLoop(config, None, None, None),
             ):
-                result = _run_case(
-                    case=case,
-                    manager=manager,
-                    output_dir=output,
-                    provider="deepseek",
-                    model="model",
-                    base_url=None,
-                    api_key=None,
-                    max_steps=2,
-                    max_context_chars=1000,
-                    execution_mode="worktree",
-                    keep_worktree=False,
+                result = LocalCaseExecutor(manager).run(
+                    case,
+                    case_dir=output / "cases" / case.instance_id,
+                    agent_mode="single",
+                    request=SwebenchRunRequest(
+                        provider="deepseek",
+                        model="model",
+                        max_steps=2,
+                        max_context_chars=1000,
+                        execution_mode="worktree",
+                        keep_worktree=False,
+                    ),
                 )
 
             self.assertEqual(result.status, "patch_generated")
@@ -181,7 +183,13 @@ class SwebenchCompareTest(unittest.TestCase):
             with patch("agent_forge.bench.wiring.SwebenchCaseSource", return_value=FakeSource()), patch(
                 "agent_forge.bench.wiring.LocalCaseExecutor", return_value=FakeExecutor()
             ):
-                summary = run_swebench(agent_mode="compare", output_root=tmp, provider="deepseek")
+                summary = run_swebench(
+                    SwebenchRunRequest(
+                        agent_mode="compare",
+                        output_root=tmp,
+                        provider="deepseek",
+                    )
+                )
 
             self.assertEqual(summary.agent_mode, "compare")
             self.assertEqual([mode for mode, _ in calls], ["single", "multi"])
@@ -237,10 +245,12 @@ class SwebenchCompareTest(unittest.TestCase):
                 return_value=FakeBaseline(),
             ):
                 summary = run_swebench(
-                    agent_mode="single",
-                    output_root=tmp,
-                    provider="deepseek",
-                    direct_baseline=True,
+                    SwebenchRunRequest(
+                        agent_mode="single",
+                        output_root=tmp,
+                        provider="deepseek",
+                        direct_baseline=True,
+                    )
                 )
             self.assertIn("local__case-1", summary.variant_comparisons)
             comparison = summary.variant_comparisons["local__case-1"]
@@ -286,7 +296,10 @@ class SwebenchCompareTest(unittest.TestCase):
                 run.return_value.returncode = 2
                 run.return_value.stdout = ""
                 run.return_value.stderr = "docker failed"
-                _run_official_evaluation(summary, max_workers=1, namespace_empty=False)
+                SwebenchOfficialEvaluator().evaluate(
+                    summary,
+                    SwebenchRunRequest(max_workers=1, namespace_empty=False),
+                )
             self.assertEqual(case.evaluation_status, "official_eval_error")
             self.assertIn("docker failed", summary.official_eval_output)
 
@@ -325,22 +338,9 @@ class SwebenchCompareTest(unittest.TestCase):
                 patch_chars=4,
                 error="",
             )
-            with patch("agent_forge.bench.swebench._run_case", side_effect=[single, multi]):
-                from agent_forge.bench.swebench import _run_compare_case
-
-                combined = _run_compare_case(
-                    case=case,
-                    manager=None,
-                    output_dir=root,
-                    provider="deepseek",
-                    model=None,
-                    base_url=None,
-                    api_key=None,
-                    max_steps=1,
-                    max_context_chars=100,
-                    profile="coding_fix",
-                    max_revision_rounds=2,
-                )
+            combined_patch = root / "patch.diff"
+            combined_patch.write_text("diff", encoding="utf-8")
+            combined = _combined_result(case, single, multi, combined_patch)
             self.assertEqual(combined.error, "")
             self.assertEqual(combined.status, "patch_generated")
 

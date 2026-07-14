@@ -7,7 +7,6 @@ from typing import Any
 
 from agent_forge.bench.domain.models import BenchCaseResult
 
-
 RUN_REPORT_KEYS = {
     "resolved_ids": "official_resolved",
     "unresolved_ids": "official_eval_failed",
@@ -19,7 +18,6 @@ RUN_REPORT_KEYS = {
 
 @dataclass(frozen=True)
 class OfficialCaseOutcome:
-    """One case outcome backed by an official SWE-bench JSON artifact."""
 
     instance_id: str
     status: str
@@ -41,27 +39,19 @@ class OfficialCaseOutcome:
 
 @dataclass(frozen=True)
 class OfficialResults:
-    """Parsed run report plus conservative per-case outcomes."""
 
     run_id: str
     report_path: Path | None
     outcomes: dict[str, OfficialCaseOutcome]
     warnings: list[str] = field(default_factory=list)
 
-
-# PRIMARY ENTRYPOINT: derive per-case official outcomes from harness artifacts.
+# 主要入口：下方定义承接该模块的核心调用。
 def parse_official_results(
     output_dir: str | Path,
     run_id: str,
     instance_ids: list[str],
 ) -> OfficialResults:
-    """Parse SWE-bench run/per-case JSON without using process exit as quality.
-
-    Current SWE-bench writes a run report named ``<model>.<run_id>.json`` and
-    per-case ``report.json`` files below ``logs/run_evaluation``. The parser
-    accepts both shapes so a missing aggregate report does not hide explicit
-    per-case evidence.
-    """
+    """解析 official harness 输出并保留缺失或冲突警告。"""
 
     root = Path(output_dir)
     wanted = list(dict.fromkeys(instance_ids))
@@ -113,14 +103,12 @@ def parse_official_results(
 
     return OfficialResults(run_id=run_id, report_path=report_path, outcomes=outcomes, warnings=warnings)
 
-
-# RUNTIME PORT: attach parsed official evidence without overwriting local evidence.
+# 运行时端口：下方定义连接用例与外部实现。
 def apply_official_results(
     case_results: list[BenchCaseResult],
     parsed: OfficialResults,
     process_exit_code: int,
 ) -> None:
-    """Attach parsed official evidence while preserving local validation."""
 
     for result in case_results:
         outcome = parsed.outcomes.get(result.instance_id)

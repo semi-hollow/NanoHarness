@@ -2,14 +2,15 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from agent_forge.forge_cli import build_parser, continuation_task_with_human_response
-from agent_forge.observability.trace import TraceRecorder
-from agent_forge.runtime.agent_loop import AgentLoop
+from agent_forge.cli.parser import build_parser
+from agent_forge.observability.api import TraceRecorder
+from agent_forge.runtime.adapters import JsonHumanInputRepository, JsonTaskStateRepository
+from agent_forge.runtime.api import build_agent_loop
+from agent_forge.runtime.application.operator_control import BuildContinuationPlan
 from agent_forge.runtime.config import RuntimeConfig
-from agent_forge.runtime.human_input import HumanInputStore
+from agent_forge.runtime.domain.conversation import ToolCall
+from agent_forge.runtime.domain.task import TaskRunStatus
 from agent_forge.runtime.llm_client import AgentResponse
-from agent_forge.runtime.task_state import TaskRunStatus, TaskStateStore
-from agent_forge.runtime.tool_call import ToolCall
 from agent_forge.runtime.wiring import build_registry
 from agent_forge.tools.ask_human import AskHumanTool
 from agent_forge.tools.registry import ToolRegistry
@@ -108,7 +109,7 @@ class HumanInputTest(unittest.TestCase):
                 human_input_root=str(root / "human_input"),
             )
 
-            final = AgentLoop(
+            final = build_agent_loop(
                 config,
                 trace,
                 build_registry(tmp, auto=True),
@@ -117,7 +118,7 @@ class HumanInputTest(unittest.TestCase):
 
             self.assertIn("waiting_human", final)
             self.assertFalse((root / "result.txt").exists())
-            self.assertEqual(len(HumanInputStore(root / "human_input").list_pending()), 1)
+            self.assertEqual(len(JsonHumanInputRepository(root / "human_input").list_pending()), 1)
             deferred = [
                 event
                 for event in trace.events
@@ -137,7 +138,7 @@ class HumanInputTest(unittest.TestCase):
                 human_input_root=str(root / "human_input"),
             )
 
-            final = AgentLoop(
+            final = build_agent_loop(
                 config,
                 trace,
                 build_registry(tmp, auto=True),
@@ -145,7 +146,7 @@ class HumanInputTest(unittest.TestCase):
             ).run("inspect the compatibility target and ask when needed")
 
             self.assertIn("finished after invalid arguments were rejected", final)
-            self.assertEqual(HumanInputStore(root / "human_input").list_all(), [])
+            self.assertEqual(JsonHumanInputRepository(root / "human_input").list_all(), [])
             observations = [
                 event.get("observation", "")
                 for event in trace.events
@@ -155,7 +156,7 @@ class HumanInputTest(unittest.TestCase):
 
     def test_store_persists_response_and_cancelled_requests_are_terminal(self):
         with tempfile.TemporaryDirectory() as tmp:
-            store = HumanInputStore(tmp)
+            store = JsonHumanInputRepository(tmp)
             request = store.request(
                 thread_id="thread-1",
                 kind="clarification",
@@ -220,12 +221,12 @@ class HumanInputTest(unittest.TestCase):
                 human_input_root=str(root / "human_input"),
             )
 
-            final = AgentLoop(config, trace, ToolRegistry(), llm).run("fix it")
+            final = build_agent_loop(config, trace, ToolRegistry(), llm).run("fix it")
 
             self.assertIn("waiting_human", final)
             self.assertEqual(llm.calls, 0)
-            request = HumanInputStore(root / "human_input").list_pending()[0]
-            checkpoint = TaskStateStore(root / "task_state").list()[0]
+            request = JsonHumanInputRepository(root / "human_input").list_pending()[0]
+            checkpoint = JsonTaskStateRepository(root / "task_state").list()[0]
             self.assertEqual(checkpoint.status, TaskRunStatus.WAITING_HUMAN.value)
             self.assertEqual(checkpoint.metadata["human_input_request_id"], request.request_id)
             self.assertTrue(any(event["event_type"] == "human_input_requested" for event in trace.events))
@@ -244,12 +245,12 @@ class HumanInputTest(unittest.TestCase):
                 human_input_root=str(root / "human_input"),
             )
 
-            final = AgentLoop(config, trace, registry, AskThenFinalLLM()).run(
+            final = build_agent_loop(config, trace, registry, AskThenFinalLLM()).run(
                 "clarify the API version for this project"
             )
 
             self.assertIn("waiting_human", final)
-            request = HumanInputStore(root / "human_input").list_pending()[0]
+            request = JsonHumanInputRepository(root / "human_input").list_pending()[0]
             self.assertEqual(request.question, "Which API version should be used?")
             direct = AskHumanTool().execute({"question": "unsafe direct call"})
             self.assertFalse(direct.success)
@@ -258,7 +259,7 @@ class HumanInputTest(unittest.TestCase):
     def test_respond_cli_and_resume_context_use_persisted_answer(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            store = HumanInputStore(root / "human_input")
+            store = JsonHumanInputRepository(root / "human_input")
             request = store.request(
                 thread_id="thread-1",
                 kind="clarification",
@@ -270,7 +271,7 @@ class HumanInputTest(unittest.TestCase):
                 agent_name="CodingAgent",
                 reason="ambiguous target",
             )
-            checkpoint_store = TaskStateStore(root / "task_state")
+            checkpoint_store = JsonTaskStateRepository(root / "task_state")
             checkpoint = checkpoint_store.start(
                 "run-1",
                 "fix it",
@@ -296,14 +297,13 @@ class HumanInputTest(unittest.TestCase):
             self.assertEqual(args.command, "respond")
             store.respond(args.request_id, args.answer)
 
-            continuation, thread_id = continuation_task_with_human_response(
+            plan = BuildContinuationPlan(store).execute(
                 checkpoint,
-                store,
                 override_task="",
             )
-            self.assertIn("Update agent_forge/runtime/config.py", continuation)
-            self.assertIn("Which target?", continuation)
-            self.assertEqual(thread_id, "thread-1")
+            self.assertIn("Update agent_forge/runtime/config.py", plan.task)
+            self.assertIn("Which target?", plan.task)
+            self.assertEqual(plan.human_thread_id, "thread-1")
 
     def test_existing_response_continues_but_cancelled_question_stays_terminal(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -316,15 +316,15 @@ class HumanInputTest(unittest.TestCase):
                 human_input_root=str(human_root),
                 human_thread_id="stable-thread",
             )
-            first = AgentLoop(
+            first = build_agent_loop(
                 first_config,
                 TraceRecorder(str(root / "first-trace.json")),
                 ToolRegistry(),
                 NeverCalledLLM(),
             ).run("fix it")
             self.assertIn("waiting_human", first)
-            request = HumanInputStore(human_root).list_pending()[0]
-            HumanInputStore(human_root).respond(request.request_id, "Update config.py")
+            request = JsonHumanInputRepository(human_root).list_pending()[0]
+            JsonHumanInputRepository(human_root).respond(request.request_id, "Update config.py")
 
             final_llm = FinalLLM()
             second_config = RuntimeConfig(
@@ -334,7 +334,7 @@ class HumanInputTest(unittest.TestCase):
                 human_input_root=str(human_root),
                 human_thread_id="stable-thread",
             )
-            final = AgentLoop(
+            final = build_agent_loop(
                 second_config,
                 TraceRecorder(str(root / "second-trace.json")),
                 ToolRegistry(),
@@ -351,16 +351,16 @@ class HumanInputTest(unittest.TestCase):
                 human_input_root=str(human_root),
                 human_thread_id=cancelled_thread,
             )
-            AgentLoop(
+            build_agent_loop(
                 cancelled_config,
                 TraceRecorder(str(root / "cancel-first-trace.json")),
                 ToolRegistry(),
                 NeverCalledLLM(),
             ).run("fix it")
             cancelled_request = next(
-                item for item in HumanInputStore(human_root).list_pending() if item.thread_id == cancelled_thread
+                item for item in JsonHumanInputRepository(human_root).list_pending() if item.thread_id == cancelled_thread
             )
-            HumanInputStore(human_root).cancel(cancelled_request.request_id, "operator stopped")
+            JsonHumanInputRepository(human_root).cancel(cancelled_request.request_id, "operator stopped")
             never = NeverCalledLLM()
             cancelled_retry = RuntimeConfig(
                 workspace=tmp,
@@ -369,7 +369,7 @@ class HumanInputTest(unittest.TestCase):
                 human_input_root=str(human_root),
                 human_thread_id=cancelled_thread,
             )
-            blocked = AgentLoop(
+            blocked = build_agent_loop(
                 cancelled_retry,
                 TraceRecorder(str(root / "cancel-second-trace.json")),
                 ToolRegistry(),

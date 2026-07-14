@@ -6,14 +6,6 @@ from .registry import SkillRegistry, SkillSpec
 
 
 def built_in_skill_specs() -> list[SkillSpec]:
-    """Return concrete coding skills used by real AgentLoop runs.
-
-    These are practical reusable workflows for day-to-day code development:
-    orient in a repo, fix a
-    bug, triage tests, edit code, refactor safely, and update docs. Each skill
-    carries tool expectations and done criteria so selecting a skill changes the
-    actual tools routed to the model and the prompt instructions it receives.
-    """
 
     return [
         SkillSpec(
@@ -192,11 +184,6 @@ def built_in_skill_specs() -> list[SkillSpec]:
 
 
 def build_default_skill_registry(manifest_paths: list[str] | None = None) -> SkillRegistry:
-    """Build the registry AgentLoop uses by default.
-
-    Built-ins make the agent useful immediately. Optional manifests let a user
-    add repo/company-specific skills without changing code.
-    """
 
     registry = SkillRegistry()
     for spec in built_in_skill_specs():

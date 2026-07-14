@@ -5,10 +5,11 @@ from pathlib import Path
 from subprocess import CompletedProcess
 from unittest.mock import patch
 
-from agent_forge.bench.evidence import read_local_validation
-from agent_forge.bench.official_results import apply_official_results, parse_official_results
-from agent_forge.bench.swebench import _run_official_evaluation
-from agent_forge.bench.types import BenchCaseResult, BenchRunSummary
+from agent_forge.bench.adapters.local_validation import read_local_validation
+from agent_forge.bench.adapters.official_evaluator import SwebenchOfficialEvaluator
+from agent_forge.bench.adapters.official_results import apply_official_results, parse_official_results
+from agent_forge.bench.domain.models import BenchCaseResult, BenchRunSummary
+from agent_forge.bench.domain.config import SwebenchRunRequest
 
 
 class OfficialResultsTest(unittest.TestCase):
@@ -149,7 +150,10 @@ class OfficialResultsTest(unittest.TestCase):
 
             with patch("agent_forge.bench.adapters.official_evaluator.importlib.util.find_spec", return_value=object()):
                 with patch("agent_forge.bench.adapters.official_evaluator.subprocess.run", side_effect=fake_run):
-                    _run_official_evaluation(summary, max_workers=1, namespace_empty=False)
+                    SwebenchOfficialEvaluator().evaluate(
+                        summary,
+                        SwebenchRunRequest(max_workers=1, namespace_empty=False),
+                    )
 
         self.assertEqual(observed_cwd, [root])
         self.assertIn("--split", observed_commands[0])

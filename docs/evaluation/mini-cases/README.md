@@ -24,5 +24,5 @@ count、tool-call count、human intervention count、recovery result 和 safety 
 等证据。证据缺失或过弱时，对应维度直接失败，不会用描述性文字掩盖。
 
 Mini-case 中的 tool name 是 declarative evaluation input，evaluator 不执行 AgentLoop。
-真实 runtime 中，`ask_human` 通过 `HumanInputStore` 创建持久化信息请求；具体副作用
-审批仍由独立 `ApprovalStore` 和 `forge approve` 契约负责。
+真实 runtime 中，`ask_human` 通过 `HumanInputRepository` 创建持久化信息请求；具体副作用
+审批仍由独立 `ApprovalRepository` 和 `forge approve` 契约负责。

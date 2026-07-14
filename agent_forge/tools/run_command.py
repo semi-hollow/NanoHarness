@@ -11,7 +11,6 @@ from .base import Tool
 
 
 class RunCommandTool(Tool):
-    """Run an allowed command inside the workspace and capture its output."""
 
     name = "run_command"
     description = (
@@ -25,14 +24,12 @@ class RunCommandTool(Tool):
         auto_approve_writes: bool = True,
         execution_environment: ExecutionEnvironment | None = None,
     ) -> None:
-        """Keep sandbox for cwd/path checks and policy for command allow/deny."""
 
         self.sandbox = sandbox
         self.policy = PermissionPolicy(auto_approve_writes)
         self.execution_environment = execution_environment
 
     def schema(self) -> ToolSchema:
-        """Tell the LLM this tool needs one shell-like command string."""
 
         return {
             "name": self.name,
@@ -41,14 +38,12 @@ class RunCommandTool(Tool):
         }
 
     def _normalize_python(self, parts: list[str]) -> list[str]:
-        """Map `python` to the active interpreter so venv runs are stable."""
 
         if parts and parts[0] in {"python", "python3", "python3.11"}:
             return [sys.executable] + parts[1:]
         return parts
 
     def _validate_command_paths(self, parts: list[str]) -> None:
-        """Keep allowlisted test commands from reading or executing outside the workspace."""
 
         normalized = list(parts)
         if normalized and normalized[0] in {"python", "python3", "python3.11", sys.executable}:
@@ -70,7 +65,6 @@ class RunCommandTool(Tool):
             self._validate_path_like_args(normalized[1:])
 
     def _validate_discovery_args(self, args: list[str]) -> None:
-        """Validate positional and option-based unittest discovery directories."""
 
         path_options = {"-s", "--start-directory", "-t", "--top-level-directory"}
         index = 0
@@ -91,9 +85,7 @@ class RunCommandTool(Tool):
             if any(value.startswith(f"{option}=") for option in path_options if option.startswith("--")):
                 self.sandbox.ensure_safe_path(value.split("=", 1)[1])
             elif not value.startswith("-"):
-                # Positional discover arguments are start, pattern, and top.
-                # Treating all three as paths is conservative and still permits
-                # normal in-workspace patterns such as ``test*.py``.
+
                 self.sandbox.ensure_safe_path(value)
             index += 1
 
@@ -103,7 +95,6 @@ class RunCommandTool(Tool):
         *,
         treat_positionals_as_paths: bool = False,
     ) -> None:
-        """Validate path-bearing arguments accepted by unittest/pytest/compileall."""
 
         path_options = {
             "-c",
@@ -113,7 +104,7 @@ class RunCommandTool(Tool):
             "--ignore",
             "--junitxml",
             "--junit-xml",
-            "-i",  # compileall file list
+            "-i",
         }
         index = 0
         while index < len(args):
@@ -139,7 +130,6 @@ class RunCommandTool(Tool):
             index += 1
 
     def _ensure_safe_cli_path(self, value: str) -> None:
-        """Strip a pytest node id before applying the workspace path boundary."""
 
         candidate = value.split("::", 1)[0]
         if candidate.startswith("@"):
@@ -148,7 +138,6 @@ class RunCommandTool(Tool):
             self.sandbox.ensure_safe_path(candidate)
 
     def _looks_like_path(self, value: str) -> bool:
-        """Distinguish test module names from path selectors."""
 
         candidate = value.split("::", 1)[0]
         if candidate.startswith("@"):
@@ -161,7 +150,6 @@ class RunCommandTool(Tool):
         )
 
     def execute(self, arguments: ToolArguments) -> Observation:
-        """Run the command with shell=False and return stdout/stderr evidence."""
 
         cmd = arguments.get("command", "")
         decision, reason = self.policy.decide("run_command", cmd)
@@ -178,8 +166,7 @@ class RunCommandTool(Tool):
                 proc = subprocess.run(
                     parts,
                     cwd=str(self.sandbox.workspace_root),
-                    # shell=False prevents shell injection and makes CommandPolicy's
-                    # parsed executable match what subprocess actually runs.
+
                     shell=False,
                     text=True,
                     capture_output=True,

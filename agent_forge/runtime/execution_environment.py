@@ -12,7 +12,6 @@ from typing import Callable
 
 from agent_forge.runtime.git_workspace import collect_workspace_diff, collect_workspace_status
 
-
 NETWORK_COMMANDS = {"curl", "wget", "ssh", "scp", "nc", "telnet"}
 PROTECTED_GIT_COMMANDS = {"push", "reset", "checkout", "switch", "merge", "rebase"}
 PROTECTED_PATH_PARTS = {".git", ".venv", ".agent_forge"}
@@ -20,92 +19,37 @@ PROTECTED_PATH_PARTS = {".git", ".venv", ".agent_forge"}
 
 @dataclass(frozen=True)
 class ExecutionEnvironmentConfig:
-    """User-selected execution boundary for one run.
 
-    Choose local, git-worktree, or OCI-container execution; decide whether
-    network access is allowed; and decide whether the isolated snapshot remains
-    available for inspection after the run.
-    """
-
-    # ``local`` runs against the current checkout. ``worktree`` creates an
-    # isolated git checkout. ``container`` mounts an isolated snapshot into OCI.
     mode: str = "local"
-
-    # Workspace requested by CLI before any worktree redirection.
     workspace: str = "."
-
-    # Run/session id used to name isolated worktrees and audit records.
     run_id: str = ""
-
-    # Base directory for retained worktrees.
     worktree_root: str = ".agent_forge/worktrees"
-
-    # Network is denied by default because coding-agent tools should not fetch
-    # arbitrary data unless the operator explicitly allows it.
     network_policy: str = "deny"
-
-    # Keep worktree folders by default so a failed run can be inspected.
     keep_worktree: bool = True
-
-    # Docker-compatible OCI CLI and a pre-pulled image used by container mode.
     container_runtime: str = "docker"
     container_image: str = "python:3.11-slim"
-
-    # Explicit resource limits keep one agent command from monopolizing the host.
     container_cpus: float = 1.0
     container_memory: str = "1g"
     container_pids_limit: int = 256
     container_read_only: bool = True
-
-    # Non-git workspaces use a copied snapshot under this directory.
     snapshot_root: str = ".agent_forge/snapshots"
 
 
 @dataclass(frozen=True)
 class EnvironmentProbe:
-    """Serializable snapshot of the execution environment.
 
-    This is deliberately verbose because execution isolation is one of the
-    first production questions reviewers ask about CodingAgents.
-    """
-
-    # Active mode after prepare: local, worktree, or container.
     mode: str
-
-    # Original user checkout path.
     requested_workspace: str
-
-    # Actual directory where tools run.
     active_workspace: str
-
-    # Git root for the requested workspace, if any.
     git_root: str
-
-    # Current branch name or detached marker.
     current_branch: str
-
-    # Current commit sha when git is available.
     head_sha: str
-
-    # Origin remote URL, redacted if it contains credentials.
     origin_url: str
-
-    # Whether the requested checkout had uncommitted changes at prepare time.
     dirty: bool
-
-    # Dirty file paths at prepare/probe time, truncated for trace readability.
     dirty_files: list[str]
-
-    # Network policy enforced by hooks/command checks.
     network_policy: str
-
-    # Python executable used by this process.
     python_executable: str
-
-    # Notes explain degraded behavior such as missing git.
     notes: list[str] = field(default_factory=list)
-
-    # OCI evidence is empty for local/worktree modes.
     container_runtime: str = ""
     container_image: str = ""
     container_image_id: str = ""
@@ -113,19 +57,11 @@ class EnvironmentProbe:
     resource_limits: dict[str, object] = field(default_factory=dict)
 
     def to_dict(self) -> dict:
-        """Return JSON-safe metadata for trace and task-state checkpoints."""
 
         return asdict(self)
 
 
 class ExecutionEnvironment:
-    """Execution boundary shared by command tools and runtime hooks.
-
-    Local mode is path and command policy only. Worktree mode isolates repository
-    side effects in a detached checkout. Container mode additionally delegates
-    command execution to a constrained OCI container over an isolated snapshot;
-    host-side file tools remain limited by the same snapshot path boundary.
-    """
 
     def __init__(
         self,
@@ -134,7 +70,6 @@ class ExecutionEnvironment:
         oci_runner: Callable[..., subprocess.CompletedProcess[str]] | None = None,
         executable_resolver: Callable[[str], str | None] | None = None,
     ) -> None:
-        """Store config and resolve the requested workspace early."""
 
         self.config = config
         self.requested_workspace = Path(config.workspace).resolve()
@@ -152,15 +87,9 @@ class ExecutionEnvironment:
         self._container_start_command: list[str] = []
         self._command_history: list[dict[str, object]] = []
 
-    # PRIMARY ENTRYPOINT: materialize the selected local, worktree, or OCI boundary.
+    # 主要入口：下方定义承接该模块的核心调用。
     def prepare(self) -> EnvironmentProbe:
-        """Prepare the active workspace and return an auditable probe.
-
-        CLI and benchmark setup call this before creating ``AgentLoop``. It owns
-        snapshot/worktree/container preparation and returns the probe written to
-        trace and the environment manifest. Worktree mode intentionally excludes
-        uncommitted edits so the recorded base remains reproducible.
-        """
+        """按 local、worktree 或 container 模式准备受约束执行环境。"""
 
         if self.config.mode not in {"local", "worktree", "container"}:
             raise ValueError(f"unsupported execution environment: {self.config.mode}")
@@ -175,7 +104,6 @@ class ExecutionEnvironment:
         return self.probe()
 
     def probe(self) -> EnvironmentProbe:
-        """Inspect git/python/network metadata without mutating the workspace."""
 
         git_root = self._git_output(["git", "rev-parse", "--show-toplevel"], cwd=self.active_workspace)
         branch = self._git_output(["git", "branch", "--show-current"], cwd=self.active_workspace) or "detached"
@@ -208,7 +136,6 @@ class ExecutionEnvironment:
         )
 
     def resolve_path(self, path: str | Path) -> Path:
-        """Resolve a tool path inside the active workspace."""
 
         candidate = Path(path)
         if not candidate.is_absolute():
@@ -216,7 +143,6 @@ class ExecutionEnvironment:
         return candidate.resolve()
 
     def validate_path(self, path: str | Path) -> tuple[bool, str]:
-        """Check that a model-proposed path stays inside the active workspace."""
 
         resolved = self.resolve_path(path)
         try:
@@ -228,7 +154,6 @@ class ExecutionEnvironment:
         return True, "path allowed by execution environment"
 
     def validate_command(self, command: str) -> tuple[bool, str]:
-        """Apply environment-level command checks before subprocess execution."""
 
         try:
             parts = shlex.split(command)
@@ -249,7 +174,6 @@ class ExecutionEnvironment:
         return True, "command allowed by execution environment"
 
     def redact(self, text: str) -> str:
-        """Remove obvious credential material before observations enter trace."""
 
         if not text:
             return text
@@ -269,7 +193,6 @@ class ExecutionEnvironment:
         return redacted
 
     def cleanup(self) -> None:
-        """Always remove the container; remove snapshots when configured."""
 
         container_target = self._container_id or self._container_name
         if container_target and self._container_runtime_path:
@@ -289,7 +212,6 @@ class ExecutionEnvironment:
         self._cleanup_snapshot()
 
     def write_manifest(self, output_dir: str | Path) -> Path:
-        """Write environment metadata for session reports and run audits."""
 
         output = Path(output_dir)
         output.mkdir(parents=True, exist_ok=True)
@@ -331,12 +253,10 @@ class ExecutionEnvironment:
         return path
 
     def diff(self) -> str:
-        """Return git diff for the active workspace."""
 
         return collect_workspace_diff(self.active_workspace)
 
     def describe(self) -> str:
-        """Human-readable environment summary for prompts and reports."""
 
         probe = self.probe()
         return (
@@ -347,7 +267,6 @@ class ExecutionEnvironment:
         )
 
     def execute_command(self, argv: list[str], timeout: float) -> subprocess.CompletedProcess[str]:
-        """Execute argv in the selected environment and record replay metadata."""
 
         if not argv:
             raise ValueError("empty command argv")
@@ -391,7 +310,6 @@ class ExecutionEnvironment:
         return result
 
     def _prepare_container(self) -> None:
-        """Create an isolated snapshot and start a constrained OCI container."""
 
         runtime = self._executable_resolver(self.config.container_runtime)
         if not runtime:
@@ -470,7 +388,6 @@ class ExecutionEnvironment:
         self._notes.append("started constrained OCI container over isolated workspace snapshot")
 
     def _prepare_snapshot(self) -> None:
-        """Use a detached worktree for git repos or a bounded copy otherwise."""
 
         git_root = self._git_output(["git", "rev-parse", "--show-toplevel"], cwd=self.requested_workspace)
         if git_root:
@@ -498,7 +415,6 @@ class ExecutionEnvironment:
         }
 
     def _validate_config(self) -> None:
-        """Reject ambiguous or ineffective execution-boundary settings."""
 
         if self.config.network_policy not in {"deny", "allow"}:
             raise ValueError(f"unsupported network policy: {self.config.network_policy}")
@@ -516,7 +432,6 @@ class ExecutionEnvironment:
             raise ValueError("container image must not be empty")
 
     def _cleanup_snapshot(self) -> None:
-        """Remove an isolated snapshot when the configured retention policy allows it."""
 
         snapshot = self.created_worktree or self.created_snapshot
         if not snapshot or self.config.keep_worktree:
@@ -526,7 +441,6 @@ class ExecutionEnvironment:
         self._git_output(["git", "worktree", "prune"], cwd=self.requested_workspace)
 
     def _prepare_worktree(self, required: bool = False) -> None:
-        """Create a detached git worktree for side-effect isolation."""
 
         if not (self.requested_workspace / ".git").exists():
             git_root = self._git_output(["git", "rev-parse", "--show-toplevel"])
@@ -562,7 +476,6 @@ class ExecutionEnvironment:
         self._notes.append("created isolated git worktree from HEAD")
 
     def _git_output(self, command: list[str], cwd: Path | None = None) -> str:
-        """Run a read-only git command and return stripped stdout."""
 
         try:
             result = subprocess.run(
@@ -579,7 +492,6 @@ class ExecutionEnvironment:
         return result.stdout.strip()
 
     def _dirty_files(self, cwd: Path | None = None) -> list[str]:
-        """Return dirty paths from git status porcelain output."""
 
         files = []
         for line in collect_workspace_status(cwd or self.active_workspace):
@@ -590,7 +502,6 @@ class ExecutionEnvironment:
         return files
 
     def _json_dump(self, data: dict) -> str:
-        """Local JSON dump helper to keep imports obvious in this module."""
 
         import json
 

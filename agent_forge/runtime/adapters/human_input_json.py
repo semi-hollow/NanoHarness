@@ -13,12 +13,6 @@ REQUEST_ID_PATTERN = re.compile(r"^[0-9a-f]{24}$")
 
 
 class JsonHumanInputRepository:
-    """Filesystem-backed queue for non-blocking human questions.
-
-    Runtime flow: ``request`` creates the pause record, ``respond`` records an
-    operator answer, and ``forge resume`` consumes it. Read those two ports;
-    path, listing, and atomic-write helpers are storage details.
-    """
 
     def __init__(self, root: str | Path = ".agent_forge/human_input") -> None:
         self.root = Path(root)
@@ -54,7 +48,7 @@ class JsonHumanInputRepository:
             return None
         return HumanInputRequest(**json.loads(path.read_text(encoding="utf-8")))
 
-    # RUNTIME PORT: RunLifecycle persists a question before stopping the run.
+    # 运行时端口：下方定义连接用例与外部实现。
     def request(
         self,
         *,
@@ -68,7 +62,7 @@ class JsonHumanInputRepository:
         agent_name: str,
         reason: str,
     ) -> HumanInputRequest:
-        """Create or reuse the durable question that makes a run resumable.
+        """创建或复用使当前运行可恢复的持久化问题。
 
         ``RunLifecycle.request_human_input`` 是当前 runtime owner。稳定 request id
         保证重试幂等；lifecycle 再将返回对象写入 checkpoint 和 trace。
@@ -113,9 +107,8 @@ class JsonHumanInputRepository:
     def list_pending(self) -> list[HumanInputRequest]:
         return [request for request in self.list_all() if request.status == "pending"]
 
-    # RUNTIME PORT: `forge respond` moves a pending question to responded.
+    # 运行时端口：下方定义连接用例与外部实现。
     def respond(self, request_id: str, answer: str, note: str = "") -> HumanInputRequest:
-        """Persist one validated answer for later ``forge resume`` consumption."""
 
         answer = str(answer or "").strip()
         if not answer:
@@ -150,6 +143,3 @@ class JsonHumanInputRepository:
             temporary.replace(path)
         finally:
             temporary.unlink(missing_ok=True)
-
-
-HumanInputStore = JsonHumanInputRepository

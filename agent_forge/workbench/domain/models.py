@@ -6,7 +6,6 @@ from dataclasses import dataclass, field
 
 @dataclass(frozen=True)
 class WorkbenchCommand:
-    """Validated browser action with a redacted display command."""
 
     title: str
     command: list[str]
@@ -16,7 +15,6 @@ class WorkbenchCommand:
 
 @dataclass
 class WorkbenchJob:
-    """Observable state for one bounded background command."""
 
     id: str
     title: str
@@ -28,7 +26,6 @@ class WorkbenchJob:
     status: str = "running"
     exit_code: int | None = None
     output: str = ""
-
 
 UiCommand = WorkbenchCommand
 UiJob = WorkbenchJob

@@ -1,9 +1,3 @@
-"""Agent Forge package.
-
-The package is organized around runtime boundaries rather than feature labels.
-Start with ``docs/architecture/runtime-capability-guide.md`` for the code-reading map, then follow the
-CLI -> AgentLoop -> Context -> ModelGateway -> ToolRegistry -> Observation
-chain.
-"""
+"""__init__.py 能力中的 `__init__` 模块。"""
 
 __version__ = "0.6.0"

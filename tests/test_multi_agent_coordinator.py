@@ -3,8 +3,9 @@ import subprocess
 import unittest
 from pathlib import Path
 
-from agent_forge.multi_agent import MultiAgentCoordinator, get_profile
-from agent_forge.observability.trace import TraceRecorder
+from agent_forge.multi_agent.profiles import get_profile
+from agent_forge.multi_agent.wiring import build_multi_agent_coordinator
+from agent_forge.observability.api import TraceRecorder
 from agent_forge.runtime.config import RuntimeConfig
 from agent_forge.runtime.llm_client import AgentResponse
 from agent_forge.tools.registry import ToolRegistry
@@ -58,7 +59,7 @@ class MultiAgentCoordinatorTest(unittest.TestCase):
             root = Path(tmp)
             trace = TraceRecorder(str(root / "trace.json"))
             config = RuntimeConfig(workspace=tmp, max_steps=2, trace_file=str(root / "trace.json"))
-            summary = MultiAgentCoordinator(
+            summary = build_multi_agent_coordinator(
                 "fix a small issue",
                 get_profile("coding_fix"),
                 config,
@@ -80,7 +81,7 @@ class MultiAgentCoordinatorTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             profile = get_profile("research_report")
-            coordinator = MultiAgentCoordinator(
+            coordinator = build_multi_agent_coordinator(
                 "research",
                 profile,
                 RuntimeConfig(workspace=tmp, max_steps=1, trace_file=str(root / "trace.json")),
@@ -100,7 +101,7 @@ class MultiAgentCoordinatorTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             profile = get_profile("coding_fix")
-            coordinator = MultiAgentCoordinator(
+            coordinator = build_multi_agent_coordinator(
                 "fix",
                 profile,
                 RuntimeConfig(workspace=tmp, max_steps=1, trace_file=str(root / "trace.json")),
@@ -123,7 +124,7 @@ class MultiAgentCoordinatorTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             profile = get_profile("research_report")
-            coordinator = MultiAgentCoordinator(
+            coordinator = build_multi_agent_coordinator(
                 "research",
                 profile,
                 RuntimeConfig(workspace=tmp, max_steps=1, trace_file=str(root / "trace.json")),
@@ -140,7 +141,7 @@ class MultiAgentCoordinatorTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             profile = get_profile("research_report")
-            coordinator = MultiAgentCoordinator(
+            coordinator = build_multi_agent_coordinator(
                 "research",
                 profile,
                 RuntimeConfig(workspace=tmp, max_steps=1, trace_file=str(root / "trace.json")),
@@ -163,7 +164,7 @@ class MultiAgentCoordinatorTest(unittest.TestCase):
 
             trace = TraceRecorder(str(root / "trace.json"))
             config = RuntimeConfig(workspace=tmp, max_steps=2, trace_file=str(root / "trace.json"))
-            summary = MultiAgentCoordinator(
+            summary = build_multi_agent_coordinator(
                 "fix a small issue",
                 get_profile("coding_fix"),
                 config,
@@ -184,7 +185,7 @@ class MultiAgentCoordinatorTest(unittest.TestCase):
 
             trace = TraceRecorder(str(root / "trace.json"))
             config = RuntimeConfig(workspace=tmp, max_steps=1, trace_file=str(root / "trace.json"))
-            summary = MultiAgentCoordinator(
+            summary = build_multi_agent_coordinator(
                 "fix a small issue",
                 get_profile("coding_fix"),
                 config,

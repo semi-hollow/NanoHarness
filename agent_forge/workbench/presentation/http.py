@@ -20,13 +20,14 @@ from agent_forge.workbench.wiring import (
     read_evidence_json,
 )
 
+
 class ForgeUiHandler(BaseHTTPRequestHandler):
-    """HTTP handler for the local browser UI."""
+    """Workbench 的 HTTP 入站适配器，只处理协议与展示，不编排业务。"""
 
     state: WorkbenchServices
 
     def do_GET(self) -> None:
-        """Serve the page and read-only JSON endpoints."""
+        """读取静态页面、运行状态和证据视图。"""
 
         parsed = urlparse(self.path)
         path = parsed.path
@@ -55,7 +56,7 @@ class ForgeUiHandler(BaseHTTPRequestHandler):
         self._send_json({"error": "not found"}, HTTPStatus.NOT_FOUND)
 
     def do_POST(self) -> None:
-        """Start one fixed action from the browser."""
+        """把用户动作转换为后台 Workbench 命令。"""
 
         if self.path != "/api/jobs":
             self._send_json({"error": "not found"}, HTTPStatus.NOT_FOUND)
@@ -76,12 +77,10 @@ class ForgeUiHandler(BaseHTTPRequestHandler):
         self._send_json(_job_to_dict(job), HTTPStatus.CREATED)
 
     def log_message(self, fmt: str, *args: Any) -> None:
-        """Keep the terminal quiet unless the server itself fails."""
 
         return
 
     def _status_payload(self) -> dict[str, Any]:
-        """Return lightweight project status for dashboard cards."""
 
         return {
             "project_dir": str(self.state.project_dir),
@@ -93,7 +92,6 @@ class ForgeUiHandler(BaseHTTPRequestHandler):
         }
 
     def _read_json(self) -> dict[str, Any]:
-        """Read a small JSON request body."""
 
         length = int(self.headers.get("Content-Length") or "0")
         if not length:
@@ -118,10 +116,9 @@ class ForgeUiHandler(BaseHTTPRequestHandler):
         except (BrokenPipeError, ConnectionResetError):
             return
 
-
-# PRIMARY ENTRYPOINT: serve the local evidence console and bounded run controls.
+# 主要入口：下方定义承接该模块的核心调用。
 def run_ui(host: str = "127.0.0.1", port: int = 8765, open_browser: bool = True) -> None:
-    """Start the local browser UI."""
+    """启动只访问本地证据和受限命令的 Workbench HTTP 服务。"""
 
     project_dir = _find_project_dir(Path.cwd())
     handler = type(
@@ -144,7 +141,6 @@ def run_ui(host: str = "127.0.0.1", port: int = 8765, open_browser: bool = True)
 
 
 def build_ui_parser(parser: argparse.ArgumentParser) -> None:
-    """Attach UI options to the public CLI."""
 
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=8765)
@@ -152,18 +148,11 @@ def build_ui_parser(parser: argparse.ArgumentParser) -> None:
 
 
 def run_ui_from_args(args: argparse.Namespace) -> None:
-    """CLI adapter for ``forge ui``."""
 
     run_ui(host=args.host, port=args.port, open_browser=not args.no_open)
 
 
 def _find_project_dir(start: Path) -> Path:
-    """Find the repo root used by every UI action.
-
-    Users often launch tools from a nested folder in PyCharm/VS Code. The UI is
-    meant to remove entrypoint friction, so it should not depend on the current
-    terminal already being at the project root.
-    """
 
     current = start.resolve()
     for candidate in (current, *current.parents):
@@ -178,13 +167,11 @@ def _action_to_command(
     *,
     project_dir: Path | None = None,
 ) -> UiCommand:
-    """Compatibility wrapper around the bounded Workbench command factory."""
 
     return build_workbench_command(action, payload, project_dir=project_dir)
 
 
 def _job_to_dict(job: UiJob) -> dict[str, Any]:
-    """Serialize one job for the browser."""
 
     return {
         "id": job.id,
@@ -199,24 +186,16 @@ def _job_to_dict(job: UiJob) -> dict[str, Any]:
 
 
 def _latest_report_path(project_dir: Path) -> str:
-    """Return latest report path if available."""
 
     return build_evidence_catalog(project_dir).latest_report_path()
 
 
 def _read_latest_report(project_dir: Path) -> str:
-    """Read the latest report or return a friendly placeholder."""
 
     return build_evidence_catalog(project_dir).read_latest_report()
 
 
 def _render_evidence_html(project_dir: Path, kind: str) -> str:
-    """Render human-facing evidence from trace/report artifacts.
-
-    Raw trace JSON is excellent for replayability but painful to read during a
-    workbench. These views intentionally summarize the same source artifacts into
-    cards, tables, badges, and step timelines.
-    """
 
     if kind == "summary":
         return _render_result_summary(project_dir)
@@ -242,86 +221,66 @@ def _render_evidence_html(project_dir: Path, kind: str) -> str:
 
 
 def _latest_run_dir(project_dir: Path) -> Path | None:
-    """Resolve the newest evidence run directory.
-
-    `scripts/verify.sh` writes a lightweight smoke run under
-    `.agent_forge/verify/runs` and updates `latest/run.txt`. That run is useful
-    for health checks, but it does not contain SWE-bench comparison artifacts.
-    UI evidence should follow the newest real run under `.agent_forge/runs`,
-    whether it came from SWE-bench or a normal future Agent run.
-    """
 
     return build_evidence_catalog(project_dir).latest_run_dir()
 
 
 def _latest_trace_path(project_dir: Path) -> Path | None:
-    """Return the most relevant trace for the latest run."""
 
     return build_evidence_catalog(project_dir).latest_trace_path()
 
 
 def _latest_usage_path(project_dir: Path) -> Path | None:
-    """Return the most relevant usage.json for the latest run."""
 
     return build_evidence_catalog(project_dir).latest_usage_path()
 
 
 def _latest_comparison_path(project_dir: Path) -> Path | None:
-    """Return the newest single-vs-multi comparison artifact when present."""
 
     return build_evidence_catalog(project_dir).latest_comparison_path()
 
 
 def _latest_multi_agent_summary_path(project_dir: Path) -> Path | None:
-    """Return the newest multi-agent artifact summary when present."""
 
     return build_evidence_catalog(project_dir).latest_multi_agent_summary_path()
 
 
 def _latest_fanout_summary_path(project_dir: Path) -> Path | None:
-    """Return the live fanout summary for the latest normal run."""
 
     return build_evidence_catalog(project_dir).latest_fanout_summary_path()
 
 
 def _trace_paths_for_latest_run(project_dir: Path) -> list[tuple[str, Path]]:
-    """Return display traces with multi-agent first and single-agent second."""
 
     return build_evidence_catalog(project_dir).trace_paths()
 
 
 def _latest_feedback_path(project_dir: Path) -> Path | None:
-    """Locate feedback attached to the latest displayed trace or run."""
 
     return build_evidence_catalog(project_dir).latest_feedback_path()
 
 
 def _latest_feedback_outcome(project_dir: Path) -> str:
-    """Return the latest human judgment without equating it to evaluation."""
 
     return build_evidence_catalog(project_dir).latest_feedback_outcome()
 
 
 def _latest_result_record(project_dir: Path) -> dict[str, Any]:
-    """Return the case result corresponding to the displayed latest run."""
 
     return build_evidence_catalog(project_dir).latest_result_record()
 
 
 def _latest_direct_baseline_record(project_dir: Path) -> dict[str, Any]:
-    """Read the one-shot model baseline paired with the latest benchmark run."""
 
     return build_evidence_catalog(project_dir).latest_direct_baseline_record()
 
 
 def _event_list(trace: dict[str, Any]) -> list[dict[str, Any]]:
-    """Return only typed trace-event objects from a loose JSON boundary."""
 
     return [event for event in trace.get("events") or [] if isinstance(event, dict)]
 
 
 def _last_event(trace: dict[str, Any], *event_types: str) -> dict[str, Any]:
-    """Return the newest trace event whose type matches one of the names."""
 
     allowed = set(event_types)
     for event in reversed(_event_list(trace)):
@@ -331,13 +290,11 @@ def _last_event(trace: dict[str, Any], *event_types: str) -> dict[str, Any]:
 
 
 def _read_json_file(path: Path | None) -> dict[str, Any]:
-    """Read JSON defensively for UI evidence rendering."""
 
     return read_evidence_json(path)
 
 
 def _render_result_summary(project_dir: Path) -> str:
-    """Render the latest run as a readable result card."""
 
     run_dir = _latest_run_dir(project_dir)
     if not run_dir:
@@ -411,7 +368,6 @@ def _render_result_summary(project_dir: Path) -> str:
 
 
 def _render_usage_dashboard(project_dir: Path) -> str:
-    """Render token/cost/context/tool efficiency as a readable dashboard."""
 
     fanout_path = _latest_fanout_summary_path(project_dir)
     fanout = _read_json_file(fanout_path)
@@ -497,7 +453,6 @@ def _render_usage_dashboard(project_dir: Path) -> str:
 
 
 def _render_fanout_result_summary(fanout: dict[str, Any], path: Path | None) -> str:
-    """Render task and merge outcomes for one live fanout run."""
 
     metrics = fanout.get("metrics") or {}
     rows = "".join(
@@ -533,7 +488,6 @@ def _render_fanout_result_summary(fanout: dict[str, Any], path: Path | None) -> 
 
 
 def _render_fanout_usage_dashboard(fanout: dict[str, Any], path: Path | None) -> str:
-    """Render aggregate worker plus finalizer usage for live fanout."""
 
     metrics = fanout.get("metrics") or {}
     body = [
@@ -558,7 +512,6 @@ def _render_fanout_usage_dashboard(fanout: dict[str, Any], path: Path | None) ->
 
 
 def _render_trace_timeline(project_dir: Path) -> str:
-    """Render multi-agent and single-agent traces in an explicit order."""
 
     trace_entries = _trace_paths_for_latest_run(project_dir)
     if not trace_entries:
@@ -580,7 +533,6 @@ def _render_trace_timeline(project_dir: Path) -> str:
 
 
 def _render_trace_lane(label: str, trace_path: Path) -> str:
-    """Render one trace without forcing readers to open its JSON."""
 
     trace = _read_json_file(trace_path)
     grouped: dict[int, list[dict[str, Any]]] = {}
@@ -613,7 +565,6 @@ def _render_trace_lane(label: str, trace_path: Path) -> str:
 
 
 def _render_run_evidence(project_dir: Path) -> str:
-    """Render one evidence chain from task input to bounded claim."""
 
     run_dir = _latest_run_dir(project_dir)
     comparison_path = _latest_comparison_path(project_dir)
@@ -681,7 +632,6 @@ def _render_run_evidence(project_dir: Path) -> str:
 
 
 def _claim_step(title: str, state: str, detail: str, tone: str) -> str:
-    """Render one rung without promoting weaker evidence into a solved claim."""
 
     return (
         f"<div class='claim-step {tone}'><span>{_escape(title)}</span>"
@@ -690,7 +640,6 @@ def _claim_step(title: str, state: str, detail: str, tone: str) -> str:
 
 
 def _render_role_decision_rows(summary: dict[str, Any]) -> str:
-    """Show role conclusions directly instead of artifact file names."""
 
     rows = []
     for result in summary.get("role_results") or []:
@@ -709,7 +658,6 @@ def _render_role_decision_rows(summary: dict[str, Any]) -> str:
 
 
 def _render_artifact_cards(summary: dict[str, Any]) -> str:
-    """Render artifact content and handoff semantics with paths hidden by default."""
 
     artifacts = summary.get("artifacts") or []
     if not isinstance(artifacts, list) or not artifacts:
@@ -744,7 +692,6 @@ def _render_artifact_cards(summary: dict[str, Any]) -> str:
 
 
 def _render_runtime_controls(project_dir: Path) -> str:
-    """Render controls actually observed in the latest trace."""
 
     trace_path = _latest_trace_path(project_dir)
     trace = _read_json_file(trace_path)
@@ -855,7 +802,6 @@ def _render_runtime_controls(project_dir: Path) -> str:
 
 
 def _render_orchestration_dashboard(project_dir: Path) -> str:
-    """Render sequential roles or live fanout without conflating the two."""
 
     fanout_path = _latest_fanout_summary_path(project_dir)
     fanout = _read_json_file(fanout_path)
@@ -899,7 +845,6 @@ def _render_orchestration_dashboard(project_dir: Path) -> str:
 
 
 def _render_evaluation_dashboard(project_dir: Path) -> str:
-    """Render evaluation claims, comparison, and failure diagnosis together."""
 
     result = _latest_result_record(project_dir)
     comparison = _read_json_file(_latest_comparison_path(project_dir))
@@ -948,7 +893,6 @@ def _render_evaluation_dashboard(project_dir: Path) -> str:
 
 
 def _render_feedback_dashboard(project_dir: Path) -> str:
-    """Render the real human-feedback and privacy-conscious export state."""
 
     feedback_path = _latest_feedback_path(project_dir)
     feedback = _read_json_file(feedback_path)
@@ -989,11 +933,6 @@ def _render_feedback_dashboard(project_dir: Path) -> str:
 
 
 def _render_compare_dashboard(project_dir: Path) -> str:
-    """Render a dedicated single-agent vs multi-agent evidence view.
-
-    This page answers a narrow engineering question: what changed when the same
-    AgentLoop was wrapped in a coordinator with reviewer/verifier roles.
-    """
 
     run_dir = _latest_run_dir(project_dir)
     comparison_path = _latest_comparison_path(project_dir)
@@ -1084,7 +1023,6 @@ def _render_compare_dashboard(project_dir: Path) -> str:
 
 
 def _format_optional_cost(value: Any) -> str:
-    """Format an optional cost number for compact comparison tables."""
 
     if value in (None, ""):
         return "-"
@@ -1095,7 +1033,6 @@ def _format_optional_cost(value: Any) -> str:
 
 
 def _render_role_rows(summary: dict[str, Any]) -> str:
-    """Render role-level multi-agent status rows."""
 
     rows = []
     for result in summary.get("role_results") or []:
@@ -1115,7 +1052,6 @@ def _render_role_rows(summary: dict[str, Any]) -> str:
 
 
 def _render_artifact_rows(summary: dict[str, Any]) -> str:
-    """Render artifact handoff rows from multi-agent summaries."""
 
     artifacts = summary.get("artifacts") or summary.get("artifact_index") or []
     if isinstance(artifacts, dict):
@@ -1145,7 +1081,6 @@ def _render_artifact_rows(summary: dict[str, Any]) -> str:
 
 
 def _metric_grid(items: list[tuple[str, str, str, str]]) -> str:
-    """Render reusable metric cards."""
 
     cards = []
     for label, value, note, tone in items:
@@ -1160,13 +1095,11 @@ def _metric_grid(items: list[tuple[str, str, str, str]]) -> str:
 
 
 def _badge(text: str, tone: str) -> str:
-    """Render a colored status badge."""
 
     return f"<span class='badge {tone}'>{_escape(text)}</span>"
 
 
 def _tone_for_status(value: str) -> str:
-    """Map status text to a display tone."""
 
     lowered = str(value).lower()
     if "patch_generated" in lowered or lowered in {"ok", "succeeded", "success"}:
@@ -1179,7 +1112,6 @@ def _tone_for_status(value: str) -> str:
 
 
 def _trace_scope_label(trace_path: Path | None) -> str:
-    """Infer whether the current trace came from single, multi, or a smoke run."""
 
     if not trace_path:
         return "unknown trace"
@@ -1195,11 +1127,6 @@ def _trace_scope_label(trace_path: Path | None) -> str:
 
 
 def _format_trace_event_label(index: int, event: dict[str, Any]) -> str:
-    """Format one trace event without ambiguous separator glyphs.
-
-    The UI is for learning and presentation, so each event shows a stable
-    sequence number plus explicit fields such as tool and duration.
-    """
 
     event_type = str(event.get("event_type") or "event")
     names = {
@@ -1252,7 +1179,6 @@ def _format_trace_event_label(index: int, event: dict[str, Any]) -> str:
 
 
 def _event_tone(event_type: str, success: bool) -> str:
-    """Map trace event type to a compact visual class."""
 
     if not success:
         return "bad"
@@ -1278,16 +1204,13 @@ def _event_tone(event_type: str, success: bool) -> str:
 
 
 def _empty_evidence(message: str) -> str:
-    """Render a friendly empty state."""
 
     return f"<div class='evidence'><h2>No Evidence Yet</h2><p>{_escape(message)}</p></div>"
 
 
 def _escape(value: Any) -> str:
-    """Escape text before inserting it into UI HTML."""
 
     return html.escape(str(value), quote=True)
-
 
 INDEX_HTML = r"""<!doctype html>
 <html lang="zh-CN">

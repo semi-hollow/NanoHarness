@@ -14,7 +14,8 @@ from agent_forge.bench.adapters.local_validation import read_local_validation
 from agent_forge.bench.domain.config import SwebenchRunRequest, safe_id
 from agent_forge.bench.domain.models import BenchCase, BenchCaseResult
 from agent_forge.models.gateway import ModelGateway
-from agent_forge.multi_agent import MultiAgentCoordinator, get_profile
+from agent_forge.multi_agent.profiles import get_profile
+from agent_forge.multi_agent.wiring import build_multi_agent_coordinator
 from agent_forge.observability.adapters.json_trace import TraceRecorder
 from agent_forge.observability.api import write_usage_artifacts
 from agent_forge.runtime.api import build_agent_loop
@@ -29,12 +30,11 @@ from agent_forge.runtime.wiring import build_llm, build_registry
 
 
 class LocalCaseExecutor:
-    """Execute one SWE-bench case through the real Runtime capability."""
 
     def __init__(self, workspace_manager: SwebenchWorkspaceManager) -> None:
         self._workspace_manager = workspace_manager
 
-    # PRIMARY ENTRYPOINT: execute one isolated benchmark case.
+    # 主要入口：下方定义承接该模块的核心调用。
     def run(
         self,
         case: BenchCase,
@@ -43,7 +43,7 @@ class LocalCaseExecutor:
         agent_mode: str,
         request: SwebenchRunRequest,
     ) -> BenchCaseResult:
-        """Prepare, execute, collect the patch, and preserve local evidence."""
+        """准备隔离环境、执行真实 Runtime、收集 patch 并保存证据。"""
 
         workspace = self._workspace_manager.prepare(
             case,
@@ -58,7 +58,6 @@ class LocalCaseExecutor:
         status = "blocked"
         error = ""
         environment: ExecutionEnvironment | None = None
-
         try:
             ensure_clean_git(workspace)
             task = render_case_task(case)
@@ -194,7 +193,7 @@ class LocalCaseExecutor:
         case_dir: Path,
     ) -> str:
         if agent_mode == "multi":
-            return MultiAgentCoordinator(
+            return build_multi_agent_coordinator(
                 task,
                 get_profile(request.profile),
                 runtime_config,
@@ -228,7 +227,6 @@ class LocalCaseExecutor:
 
 
 class DirectModelBaseline:
-    """Run the intentionally weaker no-tools, issue-text-only baseline."""
 
     def predict(
         self,
@@ -293,7 +291,6 @@ class DirectModelBaseline:
 
 
 def render_case_task(case: BenchCase) -> str:
-    """Create the agent-facing task contract for a SWE-bench case."""
 
     return (
         "Resolve this SWE-bench coding issue.\n\n"
@@ -315,7 +312,6 @@ def render_case_task(case: BenchCase) -> str:
 
 
 def extract_diff(text: str) -> str:
-    """Strip Markdown fences and accept only unified-diff-shaped output."""
 
     stripped = text.strip()
     if "```" not in stripped:

@@ -28,14 +28,14 @@ distributed-agent platform：
 
 ## 持久化 Human Input
 
-`HumanInputStore` 管理 `HumanInputRequest`：稳定 request id、thread id、question、可选
+`JsonHumanInputRepository` 管理 `HumanInputRequest`：稳定 request id、thread id、question、可选
 choices、status、answer、run/step/agent identity、workspace、timestamp 和 artifact path。
 Request id 只接受系统生成的 24 位十六进制格式；写入经过 fsync 和 atomic replace。
 标准化后的 choices 参与 identity，选项改变时不会错误复用旧答案。
 
 ```text
 AgentLoop / ClarificationPolicy
-  -> HumanInputStore.request(...)
+  -> HumanInputRepository.request(...)
   -> checkpoint WAITING_HUMAN + trace event
   -> 在后续 tool 前停止
   -> forge respond <request-id> --answer <text>
@@ -46,7 +46,7 @@ AgentLoop / ClarificationPolicy
 ```
 
 `ask_human` 是 runtime control signal。直接执行该 tool 会 fail closed；`AgentLoop`
-拦截调用并负责持久化和状态迁移。Side-effect approval 继续由独立 `ApprovalStore`
+拦截调用并负责持久化和状态迁移。Side-effect approval 继续由独立 `ApprovalRepository`
 负责，因为审批决定和信息回答具有不同的 stale state 与 authorization 语义。
 
 ## 结构化 Fanout Plan

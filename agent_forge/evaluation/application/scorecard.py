@@ -8,18 +8,17 @@ from agent_forge.evaluation.ports.evidence import CaseEvidenceReader
 
 
 class BuildBenchmarkScorecard:
-    """Build the claim-safe benchmark read model from raw results and evidence."""
 
     def __init__(self, evidence_reader: CaseEvidenceReader) -> None:
         self._evidence_reader = evidence_reader
 
-    # PRIMARY ENTRYPOINT: normalize evidence and aggregate one benchmark run.
+    # 主要入口：下方定义承接该模块的核心调用。
     def execute(
         self,
         results: dict[str, Any],
         run_dir: str | Path,
     ) -> dict[str, Any]:
-        """Return a scorecard while keeping artifact lookup outside Domain."""
+        """读取运行证据并构造 claim-safe benchmark scorecard。"""
 
         root = Path(run_dir)
         raw_cases = results.get("case_results")

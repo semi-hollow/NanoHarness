@@ -14,7 +14,6 @@ from agent_forge.bench.domain.models import BenchRunSummary
 
 
 class SwebenchOfficialEvaluator:
-    """Run and parse the official SWE-bench harness as one external adapter."""
 
     def evaluate(
         self,
@@ -92,19 +91,3 @@ class SwebenchOfficialEvaluator:
         if request.namespace_empty or needs_empty_namespace:
             command.extend(["--namespace", ""])
         return command
-
-
-def run_official_evaluation(
-    summary: BenchRunSummary,
-    max_workers: int,
-    namespace_empty: bool,
-) -> None:
-    """Compatibility-shaped entrypoint for focused tests and integrations."""
-
-    SwebenchOfficialEvaluator().evaluate(
-        summary,
-        SwebenchRunRequest(
-            max_workers=max_workers,
-            namespace_empty=namespace_empty,
-        ),
-    )

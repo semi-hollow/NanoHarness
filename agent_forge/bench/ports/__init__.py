@@ -1,5 +1,3 @@
-"""Contracts used by the benchmark orchestration use case."""
-
 from .benchmark import (
     BenchArtifactPort,
     CaseEvidenceReader,

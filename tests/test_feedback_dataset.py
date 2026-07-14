@@ -3,7 +3,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from agent_forge.evaluation.feedback_dataset import export_feedback_dataset, record_feedback
+from agent_forge.evaluation.api import export_feedback_dataset, record_feedback
 
 
 class FeedbackDatasetTest(unittest.TestCase):

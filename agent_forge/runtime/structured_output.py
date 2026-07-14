@@ -7,15 +7,6 @@ from typing import Any
 
 @dataclass(frozen=True)
 class StructuredOutputResult:
-    """Result of parsing and validating an LLM structured-output response.
-
-    Field meanings:
-        ok: True only when JSON was found and passed schema validation.
-        data: Parsed JSON object/list when ok is True.
-        error: Human-readable failure reason for trace and repair prompts.
-        raw: Original model text. Stored so failures are debuggable.
-        repair_prompt: Prompt fragment for one follow-up model repair attempt.
-    """
 
     ok: bool
     data: Any = None
@@ -25,38 +16,17 @@ class StructuredOutputResult:
 
 
 class StructuredOutputParser:
-    """Parse, validate, and repair-prompt LLM JSON outputs.
-
-    Why this class exists:
-        Production agents often need JSON for plans, tool arguments, routing
-        decisions, or evaluator scores. Prompting "return JSON" is not enough:
-        models may wrap JSON in Markdown, omit required fields, or use the wrong
-        type. This parser gives the runtime a deterministic layer before data is
-        trusted or passed to tools.
-
-    What it deliberately does:
-        - accepts raw JSON, fenced ```json blocks, or text containing one JSON
-          object/array;
-        - validates the subset of JSON Schema this project needs;
-        - returns a repair prompt instead of silently guessing.
-    """
 
     def __init__(self, schema: dict[str, Any], *, max_repair_attempts: int = 2) -> None:
-        """Store a JSON Schema-like contract and retry budget.
-
-        max_repair_attempts belongs here instead of being hidden in prompts so
-        callers can make the retry budget visible in trace and avoid endless
-        "please fix your JSON" loops.
-        """
 
         if not isinstance(schema, dict):
             raise TypeError("schema must be a dict")
         self.schema = schema
         self.max_repair_attempts = max(0, max_repair_attempts)
 
-    # PRIMARY ENTRYPOINT: validate one model response against the requested schema.
+    # 主要入口：下方定义承接该模块的核心调用。
     def parse(self, text: str) -> StructuredOutputResult:
-        """Parse model text into validated JSON or a deterministic error."""
+        """把模型文本和 tool call 归一化为 AgentResponse。"""
 
         raw = text or ""
         candidate = self._extract_json_candidate(raw)
@@ -74,11 +44,6 @@ class StructuredOutputParser:
         return StructuredOutputResult(ok=True, data=data, raw=raw)
 
     def json_instructions(self) -> str:
-        """Return stable prompt instructions for the model call.
-
-        Keeping this prefix stable improves provider-side prompt/cache reuse and
-        prevents each caller from inventing slightly different JSON rules.
-        """
 
         return (
             "Return only valid JSON. Do not wrap it in Markdown. "
@@ -87,17 +52,10 @@ class StructuredOutputParser:
         )
 
     def should_retry_repair(self, attempt_index: int) -> bool:
-        """Return whether another repair call is allowed.
-
-        attempt_index is zero-based for the first repair attempt. The method is
-        tiny, but naming it makes the stop condition explicit when an evaluator
-        or planner uses structured output.
-        """
 
         return attempt_index < self.max_repair_attempts
 
     def _failure(self, raw: str, error: str) -> StructuredOutputResult:
-        """Build a parse failure plus a repair prompt for one controlled retry."""
 
         return StructuredOutputResult(
             ok=False,
@@ -107,7 +65,6 @@ class StructuredOutputParser:
         )
 
     def build_repair_prompt(self, raw: str, error: str) -> str:
-        """Tell the model exactly what failed and ask for JSON only."""
 
         return (
             "Repair the response into the required JSON contract.\n"
@@ -121,7 +78,6 @@ class StructuredOutputParser:
         )
 
     def _extract_json_candidate(self, text: str) -> str:
-        """Extract JSON from raw text without using fragile regex-only parsing."""
 
         fenced = self._extract_fenced_json(text)
         if fenced:
@@ -129,7 +85,6 @@ class StructuredOutputParser:
         return self._extract_balanced_json(text)
 
     def _extract_fenced_json(self, text: str) -> str:
-        """Prefer fenced JSON blocks when the model includes Markdown."""
 
         marker = "```"
         start = text.find(marker)
@@ -148,7 +103,6 @@ class StructuredOutputParser:
         return ""
 
     def _extract_balanced_json(self, text: str) -> str:
-        """Return the first balanced object/array candidate in the text."""
 
         for index, char in enumerate(text):
             if char not in "{[":
@@ -159,7 +113,6 @@ class StructuredOutputParser:
         return ""
 
     def _scan_balanced(self, text: str) -> str:
-        """Scan one balanced JSON object/array while respecting strings."""
 
         stack: list[str] = []
         in_string = False
@@ -187,7 +140,6 @@ class StructuredOutputParser:
         return ""
 
     def _validate_schema(self, data: Any, schema: dict[str, Any], path: str) -> str:
-        """Validate the JSON Schema subset used by prompts and tool repair."""
 
         expected_type = schema.get("type")
         if expected_type and not self._matches_type(data, expected_type):
@@ -221,7 +173,6 @@ class StructuredOutputParser:
         return ""
 
     def _matches_type(self, value: Any, expected_type: str | list[str]) -> bool:
-        """Map JSON Schema primitive names to Python runtime checks."""
 
         if isinstance(expected_type, list):
             return any(self._matches_type(value, item) for item in expected_type)

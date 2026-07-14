@@ -6,7 +6,6 @@ from typing import Any
 
 
 def read_trace(path: Path) -> dict[str, Any]:
-    """Read and validate the top-level trace object."""
 
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
@@ -23,7 +22,6 @@ def usage_artifact_paths(
     trace_file: Path,
     output_dir: str | Path | None = None,
 ) -> tuple[Path, Path]:
-    """Choose stable machine and human read-model artifact names."""
 
     target_dir = Path(output_dir) if output_dir else trace_file.parent
     if trace_file.name == "trace.json":
@@ -41,7 +39,6 @@ def write_usage_files(
     markdown_path: Path,
     markdown: str,
 ) -> tuple[Path, Path]:
-    """Persist both views after projection and rendering complete."""
 
     json_path.parent.mkdir(parents=True, exist_ok=True)
     temporary = json_path.with_suffix(json_path.suffix + ".tmp")

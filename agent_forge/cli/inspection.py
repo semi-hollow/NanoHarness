@@ -12,7 +12,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-from agent_forge.bench.swebench import run_swebench_from_args
+from agent_forge.bench.presentation.cli import run_swebench_from_args
 from agent_forge.cli.repository import run_repository_task
 from agent_forge.skills import SkillRegistry, build_default_skill_registry
 

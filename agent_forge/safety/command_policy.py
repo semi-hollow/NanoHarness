@@ -2,8 +2,6 @@ import shlex
 
 PYTHON_COMMANDS = {"python", "python3", "python3.11"}
 
-# Prefix blocklist for commands that are too risky for a local coding-agent run.
-# The final gate is still the allowlist below.
 DENY_PREFIX = {
     "rm", "del", "rmdir", "curl", "wget", "ssh", "scp",
     "chmod", "chown", "format", "mkfs", "powershell", "sudo",
@@ -19,7 +17,6 @@ DENY_EXACT = {
 
 
 def command_policy_summary() -> dict[str, object]:
-    """Return report-friendly command safety policy facts."""
 
     return {
         "free_form_shell": False,
@@ -28,15 +25,8 @@ def command_policy_summary() -> dict[str, object]:
         "blocked_patterns": ["pipes", "redirects", "temporary script workarounds", "destructive commands"],
     }
 
-# RUNTIME PORT: command tools ask this deterministic allowlist before execution.
+# 运行时端口：下方定义连接用例与外部实现。
 def check_command(command: str) -> tuple[bool, str]:
-    """Allow safe validation commands and read-only git inspection.
-
-    Command execution is one of the highest-risk tools. This project uses an
-    allowlist because it is easier to reason about in technical walkthroughs:
-    common Python test commands and read-only git commands are allowed; network,
-    deletion, privilege, and push commands are blocked.
-    """
 
     if not command.strip():
         return False, "empty command"
@@ -46,8 +36,7 @@ def check_command(command: str) -> tuple[bool, str]:
         return False, "dangerous command blocked"
 
     try:
-        # shlex avoids shell=True parsing and lets us reason about the actual
-        # executable requested by the model.
+
         parts = shlex.split(command)
     except ValueError as exc:
         return False, f"invalid command: {exc}"

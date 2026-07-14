@@ -9,76 +9,42 @@ from agent_forge.runtime.domain.conversation import ToolCall
 
 
 class FailureKind(Enum):
-    """Failure classes the runtime can react to differently.
 
-    Project review point: a production Agent should not treat every failed tool call
-    as "try again". Patch mismatch, invalid arguments, permission denial, and
-    repeated actions need different recovery or stop behavior.
-    """
-
-    # Model requested a tool that the current registry/role cannot use.
     UNKNOWN_TOOL = "unknown_tool"
 
-    # Tool exists, but required args are missing or typed incorrectly.
     INVALID_ARGUMENTS = "invalid_arguments"
 
-    # Runtime policy blocked the action; retrying would be a policy bypass.
     PERMISSION_DENIED = "permission_denied"
 
-    # Patch anchor did not match file content; reread and repair is reasonable.
     PATCH_MISMATCH = "patch_mismatch"
 
-    # Shell/test command returned nonzero; inspect output before next action.
     COMMAND_FAILED = "command_failed"
 
-    # Concrete tool raised or returned an unexpected execution error.
     TOOL_EXCEPTION = "tool_exception"
 
-    # Same tool + same args repeated too often; likely loop collapse.
     REPEATED_ACTION = "repeated_action"
 
-    # Provider returned invalid/failed response before a tool was chosen.
     MODEL_RESPONSE = "model_response"
 
-    # Step/time/cost/failure budget ended the run.
     BUDGET_EXCEEDED = "budget_exceeded"
 
 
 @dataclass(frozen=True)
 class FailureSignal:
-    """Normalized failure signal emitted by tools, model calls, or loop policy."""
 
-    # Machine-readable failure class used by trace, metrics, and stop policy.
     kind: FailureKind
-
-    # Human-readable evidence, usually copied from provider/tool observation.
     reason: str
-
-    # Whether the loop should allow another attempt after changing strategy.
     retryable: bool
-
-    # Promptable guidance for the next step; also useful in trace review.
     recovery_hint: str
 
 
 @dataclass(frozen=True)
 class ExecutionBudget:
-    """Runtime limits that keep an autonomous loop controllable."""
 
-    # Hard cap on ReAct iterations. This prevents unbounded autonomous runs.
     max_steps: int = 12
-
-    # Stop after repeated failed observations. Useful for broken tools or bad plans.
     max_consecutive_failures: int = 3
-
-    # Stop when the exact same tool call repeats too often.
     max_tool_repeats: int = 2
-
-    # Wall-clock cap for one run. Production systems need this for SLO control.
     timeout_seconds: float = 120.0
-
-    # Optional cost cap. Provider-backed runs populate estimated cost through
-    # ModelGateway records spend; missing provider usage reports as zero.
     cost_budget_usd: float | None = None
 
 
@@ -90,21 +56,14 @@ class StepController:
     本对象只决定 repeat/retry/stop，不执行工具也不写 checkpoint。
     """
 
-    # Immutable budget values for this run.
     budget: ExecutionBudget
-
-    # Used for timeout enforcement.
     started_at: float = field(default_factory=time.time)
-
-    # Stable count by "tool name + normalized args" for loop detection.
     tool_counts: dict[str, int] = field(default_factory=dict)
-
-    # Consecutive failed observations, reset when a tool succeeds.
     failure_count: int = 0
 
     @classmethod
     def from_config(cls, config: RuntimeConfig) -> "StepController":
-        """Build controller limits from RuntimeConfig with safe defaults.
+        """从 RuntimeConfig 构造带安全默认值的执行预算。
 
         预算字段在这里从配置收敛，避免主循环理解每个 limit。
         """
@@ -120,12 +79,6 @@ class StepController:
         )
 
     def record_tool_intent(self, tool_call: ToolCall) -> FailureSignal | None:
-        """Return a repeated-action failure before the tool is executed.
-
-        This catches a common ReAct failure mode: the model keeps calling the
-        same tool with the same args because it cannot use the previous
-        observation. We block before execution to avoid repeated side effects.
-        """
 
         key = self._tool_key(tool_call)
         self.tool_counts[key] = self.tool_counts.get(key, 0) + 1
@@ -138,9 +91,9 @@ class StepController:
             )
         return None
 
-    # PRIMARY ENTRYPOINT: turn a failed tool result into retry/stop guidance.
+    # 主要入口：下方定义承接该模块的核心调用。
     def classify_observation(self, observation: Observation) -> FailureSignal | None:
-        """Map a raw Observation into retryability and recovery guidance.
+        """把原始 Observation 转换为重试判断和恢复建议。
 
         ``ToolExecutionPipeline`` 在每个工具结果后调用这里。返回的
         ``FailureSignal`` 进入 trace，并为下一轮提供 recovery hint；另外两个入口分别
@@ -196,11 +149,6 @@ class StepController:
         )
 
     def should_stop(self, step: int, estimated_cost_usd: float = 0.0) -> FailureSignal | None:
-        """Return the first budget stop signal, if any.
-
-        This method is called after each tool observation because tool execution
-        is where loops, costs, and time usually accumulate.
-        """
 
         if step >= self.budget.max_steps:
             return FailureSignal(
@@ -233,7 +181,7 @@ class StepController:
         return None
 
     def model_failure(self, error: dict) -> FailureSignal:
-        """Normalize invalid or failed LLM responses.
+        """把无效或失败的模型响应归一化为恢复信号。
 
         Provider retry/fallback 属于 ModelGateway；tool recovery 属于工具执行管线，
         因此两类错误保持分离。
@@ -248,7 +196,6 @@ class StepController:
         )
 
     def _tool_key(self, tool_call: ToolCall) -> str:
-        """Build a stable identity for repeated-action detection."""
 
         try:
             args = json.dumps(tool_call.arguments or {}, ensure_ascii=False, sort_keys=True)

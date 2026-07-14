@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from typing import Any
 
-
 DELTA_METRICS = (
     "patch_generated_count",
     "local_verified_count",
@@ -15,8 +14,7 @@ DELTA_METRICS = (
     "failed_tool_calls",
 )
 
-
-# PRIMARY ENTRYPOINT: compare matched control/treatment scorecards.
+# 主要入口：下方定义承接该模块的核心调用。
 def compare_benchmark_scorecards(
     control: dict[str, Any],
     treatment: dict[str, Any],
@@ -25,12 +23,7 @@ def compare_benchmark_scorecards(
     control_label: str = "control",
     treatment_label: str = "treatment",
 ) -> dict[str, Any]:
-    """Compare matched benchmark runs as a conservative paired ablation.
-
-    ``write_ablation_comparison`` calls this after loading both scorecards. It
-    rejects identity drift before computing per-case and aggregate deltas, so
-    the result answers what one declared runtime factor changed.
-    """
+    """在身份一致的前提下计算 control 与 treatment 的配对差异。"""
 
     checks = _validate_identity(control, treatment, factor=factor)
     control_cases = {str(case.get("instance_id") or ""): case for case in control.get("cases", [])}
@@ -244,7 +237,6 @@ def _conclusion(comparison: dict[str, Any]) -> str:
 
 
 def _official_coverage(paired: list[dict[str, Any]]) -> dict[str, Any]:
-    """Describe whether official quality evidence covers the same paired cases."""
 
     control_ids = [
         row["instance_id"] for row in paired if row["control"].get("official_evaluated")

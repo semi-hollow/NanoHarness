@@ -5,7 +5,6 @@ from typing import Any, Protocol
 
 
 class CaseEvidenceReader(Protocol):
-    """Read the external evidence needed to normalize one benchmark case."""
 
     def load_usage(self, case: dict[str, Any], run_dir: Path) -> dict[str, Any]: ...
 

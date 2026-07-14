@@ -1,12 +1,11 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-# Purpose:
-#   Bootstrap this repo inside Windows WSL/Ubuntu.
+# 用途：
+#   在 Windows WSL/Ubuntu 中初始化本仓库。
 #
-# This script mirrors scripts/setup_macos_local.sh but keeps WSL-friendly
-# dependency hints. It stays offline after package installation: verification
-# runs real-model smoke only when DEEPSEEK_API_KEY is configured.
+# 本脚本与 macOS 初始化脚本保持同样流程，但提供适合 WSL 的依赖提示。安装完成后默认离线；
+# 只有配置 DEEPSEEK_API_KEY 时，验证阶段才运行真实模型冒烟测试。
 
 LOG_FILE="${HOME}/agent_forge_wsl_setup.log"
 
@@ -33,8 +32,7 @@ run() {
 }
 
 find_project_dir() {
-  # Find the canonical project root from any child directory. The root is the
-  # directory containing pyproject.toml and agent_forge/.
+  # 从任意子目录定位同时包含 pyproject.toml 和 agent_forge/ 的项目根目录。
   local start_dir
   start_dir="$(pwd)"
   local script_dir
@@ -64,7 +62,7 @@ find_project_dir() {
 }
 
 choose_python() {
-  # Python 3.11 is preferred, but any Python >= 3.10 is enough for this project.
+  # 优先使用 Python 3.11；本项目也支持 Python 3.10 及以上版本。
   for candidate in python3.11 python3.12 python3.10 python3; do
     if command -v "${candidate}" >/dev/null 2>&1; then
       if "${candidate}" - <<'PY'
@@ -81,8 +79,7 @@ PY
 }
 
 ensure_setuptools_find_config() {
-  # Editable install needs explicit package discovery because the repo contains
-  # docs and tests next to agent_forge/.
+  # 仓库根目录同时包含 docs、tests 和 agent_forge，因此 editable install 需要显式包发现。
   if grep -q '^\[tool\.setuptools\.packages\.find\]' pyproject.toml; then
     log "pyproject.toml already has setuptools package discovery config."
     return 0

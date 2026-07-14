@@ -28,7 +28,6 @@ class AgentRunSession:
     lifecycle: RunLifecycle
     controller: StepController
     resume_summary: str = ""
-
     iteration: int = 0
     messages: list[Message] = field(default_factory=list)
     observations: list[Observation] = field(default_factory=list)
@@ -37,7 +36,6 @@ class AgentRunSession:
     active_skills: list[SkillView] = field(default_factory=list)
     skill_tool_names: set[str] = field(default_factory=set)
     tool_history: list[tuple[str, str]] = field(default_factory=list)
-
     ran_tests: bool = False
     blocked: bool = False
     estimated_cost_usd: float = 0.0

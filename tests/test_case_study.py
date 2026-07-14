@@ -2,8 +2,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from agent_forge.bench.case_study import render_case_study, write_case_study
-from agent_forge.bench.types import BenchCaseResult
+from agent_forge.bench.domain.models import BenchCaseResult
+from agent_forge.bench.presentation.case_study import render_case_study, write_case_study
 
 
 class CaseStudyTests(unittest.TestCase):

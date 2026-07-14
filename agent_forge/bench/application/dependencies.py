@@ -13,7 +13,6 @@ from agent_forge.bench.ports.benchmark import (
 
 @dataclass(frozen=True)
 class BenchDependencies:
-    """Every external capability required by the benchmark use case."""
 
     cases: CaseSourcePort
     executor: CaseExecutorPort

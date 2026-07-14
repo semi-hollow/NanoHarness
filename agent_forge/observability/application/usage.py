@@ -6,10 +6,9 @@ from agent_forge.observability.domain.usage import build_usage_report
 
 
 class BuildUsageReport:
-    """Project an immutable trace fact stream into usage and control metrics."""
 
-    # PRIMARY ENTRYPOINT: build the stable usage read model.
+    # 主要入口：下方定义承接该模块的核心调用。
     def execute(self, trace: dict[str, Any]) -> dict[str, Any]:
-        """Return a rebuildable read model without file or rendering concerns."""
+        """把 trace 事实投影为稳定 usage 读模型。"""
 
         return build_usage_report(trace)

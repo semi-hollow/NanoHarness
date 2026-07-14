@@ -16,13 +16,12 @@ from agent_forge.observability.domain.usage import build_usage_report
 from agent_forge.observability.presentation.usage_report import render_usage_markdown
 from agent_forge.observability.presentation.replay import render_trace_replay
 
-
-# PRIMARY ENTRYPOINT: derive and persist usage evidence from one trace.
+# 主要入口：下方定义承接该模块的核心调用。
 def write_usage_artifacts(
     trace_path: str | Path,
     output_dir: str | Path | None = None,
 ) -> tuple[Path, Path]:
-    """Build usage artifacts through explicit read, projection, and render stages."""
+    """从 trace 构造并写入 usage JSON 与 Markdown 证据。"""
 
     trace_file = Path(trace_path)
     usage = BuildUsageReport().execute(read_trace(trace_file))
@@ -43,7 +42,6 @@ def replay_trace_file(path: str | Path) -> str:
     """读取 trace artifact 并渲染终端时间线。"""
 
     return render_trace_replay(read_trace(Path(path)))
-
 
 __all__ = [
     "EvidenceItem",

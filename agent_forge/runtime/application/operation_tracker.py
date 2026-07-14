@@ -39,7 +39,7 @@ class OperationTracker:
         self.operations = operations
         self.feedback = feedback
 
-    # PRIMARY ENTRYPOINT: assign stable identity to a tool operation.
+    # 主要入口：下方定义承接该模块的核心调用。
     def describe(self, tool_call: ToolCall) -> OperationIntent:
         """把工具名与参数转换为权限动作、稳定 key 和目标指纹。"""
 

@@ -2,12 +2,12 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from agent_forge.observability.trace import TraceRecorder
-from agent_forge.runtime.agent_loop import AgentLoop
+from agent_forge.observability.api import TraceRecorder
+from agent_forge.runtime.adapters import JsonOperationLedgerRepository
+from agent_forge.runtime.api import build_agent_loop
 from agent_forge.runtime.config import RuntimeConfig
 from agent_forge.runtime.llm_client import AgentResponse
-from agent_forge.runtime.operation_ledger import OperationLedgerStore
-from agent_forge.runtime.tool_call import ToolCall
+from agent_forge.runtime.domain.conversation import ToolCall
 from agent_forge.safety.sandbox import WorkspaceSandbox
 from agent_forge.tools.apply_patch import ApplyPatchTool
 from agent_forge.tools.registry import ToolRegistry
@@ -44,8 +44,8 @@ def _registry(root: Path) -> ToolRegistry:
 class OperationLedgerTest(unittest.TestCase):
     def test_store_records_pending_approved_and_executed_states(self):
         with tempfile.TemporaryDirectory() as tmp:
-            store = OperationLedgerStore(Path(tmp) / "ledger")
-            key = OperationLedgerStore.operation_key(
+            store = JsonOperationLedgerRepository(Path(tmp) / "ledger")
+            key = JsonOperationLedgerRepository.operation_key(
                 "apply_patch",
                 {"path": "target.py", "old": "a", "new": "b"},
                 tmp,
@@ -73,7 +73,7 @@ class OperationLedgerTest(unittest.TestCase):
                 trace_file=str(root / "first-trace.json"),
                 operation_ledger_root=str(ledger_root),
             )
-            AgentLoop(first_config, first_trace, _registry(root), PatchThenFinalLLM()).run("fix target")
+            build_agent_loop(first_config, first_trace, _registry(root), PatchThenFinalLLM()).run("fix target")
 
             second_trace = TraceRecorder(str(root / "second-trace.json"))
             second_config = RuntimeConfig(
@@ -82,7 +82,7 @@ class OperationLedgerTest(unittest.TestCase):
                 trace_file=str(root / "second-trace.json"),
                 operation_ledger_root=str(ledger_root),
             )
-            second = AgentLoop(second_config, second_trace, _registry(root), PatchThenFinalLLM()).run("fix target")
+            second = build_agent_loop(second_config, second_trace, _registry(root), PatchThenFinalLLM()).run("fix target")
 
             self.assertIn("finished", second)
             self.assertEqual((root / "target.py").read_text(encoding="utf-8"), "value = 2\n")
@@ -107,7 +107,7 @@ class OperationLedgerTest(unittest.TestCase):
                 trace_file=str(root / "first-trace.json"),
                 operation_ledger_root=str(ledger_root),
             )
-            AgentLoop(first_config, first_trace, _registry(root), PatchThenFinalLLM()).run("fix target")
+            build_agent_loop(first_config, first_trace, _registry(root), PatchThenFinalLLM()).run("fix target")
 
             (root / "target.py").write_text("value = 3\n", encoding="utf-8")
 
@@ -118,7 +118,7 @@ class OperationLedgerTest(unittest.TestCase):
                 trace_file=str(root / "second-trace.json"),
                 operation_ledger_root=str(ledger_root),
             )
-            second = AgentLoop(second_config, second_trace, _registry(root), PatchThenFinalLLM()).run("fix target")
+            second = build_agent_loop(second_config, second_trace, _registry(root), PatchThenFinalLLM()).run("fix target")
 
             self.assertIn("finished", second)
             self.assertEqual((root / "target.py").read_text(encoding="utf-8"), "value = 3\n")

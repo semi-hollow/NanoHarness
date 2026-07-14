@@ -1,4 +1,4 @@
-"""Orchestration composition root。"""
+"""Multi-Agent 用例的统一依赖装配点。"""
 
 from __future__ import annotations
 
@@ -25,12 +25,10 @@ from .application.live_fanout import LiveFanoutCoordinator
 from .domain.live import FanoutPlan
 from .domain.models import AgentProfile
 
-
 RegistryFactory = Callable[[Path, ExecutionEnvironment], ToolRegistry]
 LLMFactory = Callable[[], LLMClient]
 
-
-# PRIMARY ENTRYPOINT: assemble the canonical live fanout use case.
+# 主要入口：下方定义承接该模块的核心调用。
 def build_live_fanout(
     *,
     plan: FanoutPlan,
@@ -68,8 +66,7 @@ def build_live_fanout(
         resume_from=str(resume_from) if resume_from else None,
     )
 
-
-# PRIMARY ENTRYPOINT: assemble the sequential role coordinator.
+# 主要入口：下方定义承接该模块的核心调用。
 def build_multi_agent_coordinator(
     task: str,
     profile: AgentProfile,

@@ -1,5 +1,3 @@
-"""Stable entrypoints for the local evidence Workbench."""
-
 from agent_forge.workbench.domain.models import WorkbenchCommand, WorkbenchJob
 from agent_forge.workbench.presentation.commands import build_workbench_command
 from agent_forge.workbench.presentation.http import (

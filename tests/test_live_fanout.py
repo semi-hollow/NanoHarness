@@ -5,18 +5,16 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from agent_forge.forge_cli import build_parser, run_repository_task
-from agent_forge.multi_agent.live_fanout import (
-    FanoutPlan,
-    LiveFanoutCoordinator,
-    LiveSubagentResult,
-    _finalizer_task,
-)
-from agent_forge.observability.trace import TraceRecorder
+from agent_forge.cli.parser import build_parser
+from agent_forge.cli.repository import run_repository_task
+from agent_forge.multi_agent.adapters.local_worker import _finalizer_task
+from agent_forge.multi_agent.domain.live import FanoutPlan, LiveSubagentResult
+from agent_forge.multi_agent.wiring import build_live_fanout
+from agent_forge.observability.api import TraceRecorder
+from agent_forge.runtime.adapters import JsonHumanInputRepository
 from agent_forge.runtime.config import RuntimeConfig
-from agent_forge.runtime.human_input import HumanInputStore
+from agent_forge.runtime.domain.conversation import ToolCall
 from agent_forge.runtime.llm_client import AgentResponse
-from agent_forge.runtime.tool_call import ToolCall
 from agent_forge.runtime.wiring import build_registry
 from agent_forge.safety.guardrails import input_guardrail
 
@@ -204,7 +202,7 @@ class LiveFanoutTest(unittest.TestCase):
                 }
             )
 
-            summary = LiveFanoutCoordinator(
+            summary = build_live_fanout(
                 plan=plan,
                 base_config=RuntimeConfig(workspace=str(repo), max_steps=3),
                 trace=TraceRecorder(str(root / "run" / "trace.json")),
@@ -278,7 +276,7 @@ class LiveFanoutTest(unittest.TestCase):
                 created_llms.append(llm)
                 return llm
 
-            summary = LiveFanoutCoordinator(
+            summary = build_live_fanout(
                 plan=plan,
                 base_config=RuntimeConfig(workspace=str(repo), max_steps=12),
                 trace=TraceRecorder(str(root / "run" / "trace.json")),
@@ -371,7 +369,7 @@ class LiveFanoutTest(unittest.TestCase):
                 created_llms.append(llm)
                 return llm
 
-            coordinator = LiveFanoutCoordinator(
+            coordinator = build_live_fanout(
                 plan=_plan(),
                 base_config=RuntimeConfig(workspace=str(repo), max_steps=3),
                 trace=trace,
@@ -439,7 +437,7 @@ class LiveFanoutTest(unittest.TestCase):
                     ],
                 }
             )
-            coordinator = LiveFanoutCoordinator(
+            coordinator = build_live_fanout(
                 plan=plan,
                 base_config=RuntimeConfig(workspace=str(repo), max_steps=3),
                 trace=TraceRecorder(str(root / "run" / "trace.json")),
@@ -464,7 +462,7 @@ class LiveFanoutTest(unittest.TestCase):
             repo = root / "repo"
             repo.mkdir()
             _init_repo(repo)
-            coordinator = LiveFanoutCoordinator(
+            coordinator = build_live_fanout(
                 plan=_plan(),
                 base_config=RuntimeConfig(
                     workspace=str(repo),
@@ -502,7 +500,7 @@ class LiveFanoutTest(unittest.TestCase):
                 }
             )
             run_dir = root / "run"
-            summary = LiveFanoutCoordinator(
+            summary = build_live_fanout(
                 plan=plan,
                 base_config=RuntimeConfig(workspace=str(repo), max_steps=3),
                 trace=TraceRecorder(str(run_dir / "trace.json")),
@@ -541,7 +539,7 @@ class LiveFanoutTest(unittest.TestCase):
                     ],
                 }
             )
-            coordinator = LiveFanoutCoordinator(
+            coordinator = build_live_fanout(
                 plan=plan,
                 base_config=RuntimeConfig(workspace=str(repo), max_steps=2),
                 trace=TraceRecorder(str(root / "run" / "trace.json")),
@@ -569,7 +567,7 @@ class LiveFanoutTest(unittest.TestCase):
             first_repo.mkdir()
             _init_repo(first_repo)
             first_run = root / "first-run"
-            first = LiveFanoutCoordinator(
+            first = build_live_fanout(
                 plan=_plan(),
                 base_config=RuntimeConfig(workspace=str(first_repo), max_steps=3),
                 trace=TraceRecorder(str(first_run / "trace.json")),
@@ -598,7 +596,7 @@ class LiveFanoutTest(unittest.TestCase):
                 created_llms.append(llm)
                 return llm
 
-            resumed = LiveFanoutCoordinator(
+            resumed = build_live_fanout(
                 plan=_plan(),
                 base_config=RuntimeConfig(workspace=str(resumed_repo), max_steps=3),
                 trace=TraceRecorder(str(second_run / "trace.json")),
@@ -666,7 +664,7 @@ class LiveFanoutTest(unittest.TestCase):
                 }
             )
             first_run = root / "first-run"
-            first = LiveFanoutCoordinator(
+            first = build_live_fanout(
                 plan=plan,
                 base_config=RuntimeConfig(
                     workspace=str(first_repo),
@@ -683,8 +681,8 @@ class LiveFanoutTest(unittest.TestCase):
             ).run()
             self.assertEqual(first.status, "partial_failure")
             self.assertEqual(first.results[0].status, "waiting_human")
-            request = HumanInputStore(human_root).list_pending()[0]
-            HumanInputStore(human_root).respond(request.request_id, "yes")
+            request = JsonHumanInputRepository(human_root).list_pending()[0]
+            JsonHumanInputRepository(human_root).respond(request.request_id, "yes")
 
             resumed_repo = root / "resumed-repo"
             subprocess.run(
@@ -693,7 +691,7 @@ class LiveFanoutTest(unittest.TestCase):
                 capture_output=True,
             )
             second_run = root / "second-run"
-            resumed = LiveFanoutCoordinator(
+            resumed = build_live_fanout(
                 plan=plan,
                 base_config=RuntimeConfig(
                     workspace=str(resumed_repo),
@@ -712,7 +710,7 @@ class LiveFanoutTest(unittest.TestCase):
 
             self.assertEqual(resumed.status, "passed")
             self.assertEqual((resumed_repo / "a.py").read_text(encoding="utf-8"), "value = 'approved'\n")
-            self.assertEqual(HumanInputStore(human_root).list_pending(), [])
+            self.assertEqual(JsonHumanInputRepository(human_root).list_pending(), [])
 
     def test_resume_rejects_a_different_plan(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -733,7 +731,7 @@ class LiveFanoutTest(unittest.TestCase):
                 ),
                 encoding="utf-8",
             )
-            coordinator = LiveFanoutCoordinator(
+            coordinator = build_live_fanout(
                 plan=_plan(),
                 base_config=RuntimeConfig(workspace=str(repo), max_steps=3),
                 trace=TraceRecorder(str(root / "run" / "trace.json")),
@@ -755,7 +753,7 @@ class LiveFanoutTest(unittest.TestCase):
             repo.mkdir()
             _init_repo(repo)
             first_run = root / "first-run"
-            first = LiveFanoutCoordinator(
+            first = build_live_fanout(
                 plan=_plan(),
                 base_config=RuntimeConfig(workspace=str(repo), max_steps=3),
                 trace=TraceRecorder(str(first_run / "trace.json")),
@@ -772,7 +770,7 @@ class LiveFanoutTest(unittest.TestCase):
 
             resumed_repo = root / "resumed-repo"
             subprocess.run(["git", "clone", str(repo), str(resumed_repo)], check=True, capture_output=True)
-            coordinator = LiveFanoutCoordinator(
+            coordinator = build_live_fanout(
                 plan=_plan(),
                 base_config=RuntimeConfig(workspace=str(resumed_repo), max_steps=3),
                 trace=TraceRecorder(str(root / "second-run" / "trace.json")),

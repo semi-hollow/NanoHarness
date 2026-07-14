@@ -54,10 +54,9 @@ def render_case_study(result: BenchCaseResult) -> str:
     )
     return "\n".join(lines)
 
-
-# PRIMARY ENTRYPOINT: write the human-readable evidence narrative for one final case.
+# 主要入口：下方定义承接该模块的核心调用。
 def write_case_study(result: BenchCaseResult) -> Path:
-    """Write ``case_study.md`` from a fully evaluated and diagnosed case result."""
+    """基于最终本地和官方证据写入单 case 复盘。"""
 
     path = Path(result.patch_path).parent / "case_study.md"
     path.write_text(render_case_study(result), encoding="utf-8")

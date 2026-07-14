@@ -1,6 +1,5 @@
 from pathlib import Path
 
-
 IGNORE = {
     ".git",
     ".agent_forge",
@@ -16,7 +15,6 @@ GENERATED_NAMES = {"agent_forge_trace.json", "eval_report.md", "summary.md"}
 
 
 def build_repo_map(root: str | Path) -> str:
-    """Return a stable newline-separated file map for context assembly."""
 
     root_path = Path(root)
     files: list[str] = []
@@ -32,7 +30,6 @@ def build_repo_map(root: str | Path) -> str:
 
 
 def _is_generated(path: Path) -> bool:
-    """Keep generated run artifacts out of prompt retrieval."""
 
     name = path.name
     return (

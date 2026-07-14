@@ -8,17 +8,14 @@ from .run_command import RunCommandTool
 
 
 class GitDiffTool(RunCommandTool):
-    """Specialized command tool for reading the current git diff."""
 
     name = "git_diff"
 
     def schema(self) -> ToolSchema:
-        """Expose no arguments because the command is fixed."""
 
         return {"name": self.name, "description": "safe git diff", "arguments": {}, "required": []}
 
     def execute(self, arguments: ToolArguments) -> Observation:
-        """Expose tracked and untracked candidate changes to the model."""
 
         try:
             patch = collect_workspace_diff(self.sandbox.workspace_root)

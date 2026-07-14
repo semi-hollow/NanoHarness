@@ -1,17 +1,17 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-# Purpose:
-#   Bootstrap this repo on a personal macOS machine.
+# 用途：
+#   在个人 macOS 机器上初始化本仓库。
 #
-# What it does:
-#   1. Finds the Agent Forge project root from any child directory.
-#   2. Creates/reuses .venv.
-#   3. Installs the project in editable mode.
-#   4. Runs scripts/verify.sh once as a deterministic local health check.
+# 执行内容：
+#   1. 从任意子目录定位 Agent Forge 项目根目录。
+#   2. 创建或复用 .venv。
+#   3. 以 editable 模式安装项目。
+#   4. 运行 scripts/verify.sh，完成一次确定性本地健康检查。
 #
-# What it does not do:
-#   It does not store API keys, modify global Python, or call online LLMs.
+# 不执行的内容：
+#   不保存 API key，不修改全局 Python，也不调用在线模型。
 
 LOG_FILE="${HOME}/agent_forge_macos_setup.log"
 
@@ -38,9 +38,8 @@ run() {
 }
 
 find_project_dir() {
-  # The repo used to have a nested layout, so this finder intentionally checks
-  # the current directory, parents, and the script's parent. The canonical root
-  # today is the directory containing pyproject.toml and agent_forge/.
+  # 仓库曾使用嵌套目录，因此这里会检查当前目录、父目录和脚本父目录；规范根目录必须同时
+  # 包含 pyproject.toml 和 agent_forge/。
   local start_dir
   start_dir="$(pwd)"
   local script_dir
@@ -70,8 +69,7 @@ find_project_dir() {
 }
 
 choose_python() {
-  # Prefer Python 3.11 because earlier project scripts referenced python3.11,
-  # but accept any Python >= 3.10 so a normal macOS/Homebrew setup works.
+  # 优先使用旧脚本曾引用的 Python 3.11，同时接受 Python 3.10 及以上版本。
   for candidate in python3.11 python3.12 python3.10 python3; do
     if command -v "${candidate}" >/dev/null 2>&1; then
       if "${candidate}" - <<'PY'
@@ -88,8 +86,7 @@ PY
 }
 
 ensure_setuptools_find_config() {
-  # Editable install fails in a flat repo unless setuptools is told that only
-  # agent_forge is a package. This block is idempotent and never appends twice.
+  # 平铺仓库需要显式告诉 setuptools 只发现 agent_forge；该步骤可重复执行且不会重复追加。
   if grep -q '^\[tool\.setuptools\.packages\.find\]' pyproject.toml; then
     log "pyproject.toml already has setuptools package discovery config."
     return 0

@@ -6,7 +6,6 @@ from typing import Any
 
 
 def load_json_if_exists(path: str | Path | None) -> dict[str, Any]:
-    """Read an optional JSON object at the filesystem boundary."""
 
     if not path:
         return {}
@@ -21,7 +20,6 @@ def load_json_if_exists(path: str | Path | None) -> dict[str, Any]:
 
 
 class JsonCaseEvidenceReader:
-    """Resolve usage and execution-environment evidence from run artifacts."""
 
     def load_usage(self, case: dict[str, Any], run_dir: Path) -> dict[str, Any]:
         candidates: list[Path] = []
@@ -53,7 +51,6 @@ class JsonCaseEvidenceReader:
 
 
 def read_json_object(path: Path) -> dict[str, Any]:
-    """Read a required JSON object and fail with a boundary-specific error."""
 
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
@@ -67,7 +64,6 @@ def read_json_object(path: Path) -> dict[str, Any]:
 
 
 def write_json_object(path: Path, payload: dict[str, Any]) -> None:
-    """Write a JSON object atomically enough for local benchmark artifacts."""
 
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_suffix(path.suffix + ".tmp")

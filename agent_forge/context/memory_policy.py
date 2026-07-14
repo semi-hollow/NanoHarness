@@ -4,11 +4,6 @@ from dataclasses import dataclass
 
 @dataclass
 class MemoryRecord:
-    """One scoped memory item.
-
-    Fields mirror common production memory questions: whose memory is it, how
-    confident are we, how long can it live, and what produced it?
-    """
 
     key: str
     value: str
@@ -20,13 +15,11 @@ class MemoryRecord:
     created_at: float = 0.0
 
     def __post_init__(self) -> None:
-        """Fill created_at lazily so tests can construct simple records."""
 
         if not self.created_at:
             self.created_at = time.time()
 
     def expired(self, now: float | None = None) -> bool:
-        """Return whether TTL has elapsed."""
 
         if self.ttl_seconds is None:
             return False
@@ -34,19 +27,12 @@ class MemoryRecord:
 
 
 class MemoryPolicy:
-    """Select which memory records may enter a prompt.
-
-    The policy is intentionally conservative: low-confidence, expired, or
-    cross-agent private records are dropped before ContextStrategy sees them.
-    """
 
     def __init__(self, min_confidence: float = 0.55) -> None:
-        """Set the minimum confidence required for prompt injection."""
 
         self.min_confidence = min_confidence
 
     def visible_records(self, records: list[MemoryRecord], *, agent_name: str = "agent") -> list[MemoryRecord]:
-        """Filter memory records by scope, confidence, TTL, and agent boundary."""
 
         visible = []
         for record in records:

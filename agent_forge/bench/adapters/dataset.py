@@ -10,7 +10,6 @@ from agent_forge.bench.domain.models import BenchCase
 
 
 class SwebenchCaseSource:
-    """Load SWE-bench rows from local fixtures or HuggingFace datasets."""
 
     def load(self, request: SwebenchRunRequest) -> list[BenchCase]:
         wanted = set(request.instance_ids)
@@ -73,7 +72,6 @@ def load_cases(
     instance_ids: list[str] | None = None,
     cases_file: str | None = None,
 ) -> list[BenchCase]:
-    """Compatibility-shaped helper around ``SwebenchCaseSource``."""
 
     return SwebenchCaseSource().load(
         SwebenchRunRequest(

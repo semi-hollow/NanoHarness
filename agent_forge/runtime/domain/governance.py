@@ -24,7 +24,6 @@ class ApprovalMode(Enum):
     LOCKED = "locked"
     DRY_RUN = "dry-run"
 
-
 SIDE_EFFECT_ACTIONS = {"apply_patch", "write", "run_command"}
 
 

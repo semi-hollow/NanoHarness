@@ -9,7 +9,6 @@ from agent_forge.runtime.domain.operation import OperationRecord
 
 
 class JsonOperationLedgerRepository:
-    """Filesystem-backed idempotency ledger for side-effectful agent operations."""
 
     def __init__(self, root: str | Path = ".agent_forge/operation_ledger") -> None:
         self.root = Path(root)
@@ -33,12 +32,6 @@ class JsonOperationLedgerRepository:
         workspace: str,
         action: str = "",
     ) -> dict[str, Any]:
-        """Capture the target state used to approve or replay an operation.
-
-        This is intentionally small and deterministic. It does not try to model
-        every side effect; it only gives the runtime enough evidence to avoid
-        reusing an old approval or idempotency decision after the target changed.
-        """
 
         args = arguments or {}
         root = Path(workspace).resolve()
@@ -121,7 +114,7 @@ class JsonOperationLedgerRepository:
         record = self._require(operation_key)
         return self._transition(record, "approved", run_id=run_id, step=step)
 
-    # RUNTIME PORT: persist successful completion of a side-effect operation.
+    # 运行时端口：下方定义连接用例与外部实现。
     def record_executed(
         self,
         operation_key: str,
@@ -135,7 +128,7 @@ class JsonOperationLedgerRepository:
         record.observation = observation
         return self._transition(record, "executed", run_id=run_id, step=step, post_fingerprint=post_fingerprint)
 
-    # RUNTIME PORT: persist a failed side effect so it is not mistaken for success.
+    # 运行时端口：下方定义连接用例与外部实现。
     def record_failed(
         self,
         operation_key: str,
@@ -149,7 +142,7 @@ class JsonOperationLedgerRepository:
         record.observation = observation
         return self._transition(record, "failed", run_id=run_id, step=step, post_fingerprint=post_fingerprint)
 
-    # RUNTIME PORT: create or recover the stable identity for a side effect.
+    # 运行时端口：下方定义连接用例与外部实现。
     def ensure_planned(
         self,
         operation_key: str,
@@ -163,7 +156,7 @@ class JsonOperationLedgerRepository:
         status: str = "planned",
         pre_fingerprint: dict[str, Any] | None = None,
     ) -> OperationRecord:
-        """Return the existing operation record or persist its planned state.
+        """返回已有操作记录，或持久化新的 planned 状态。
 
         ``ToolExecutionPipeline`` 在副作用前调用这里。稳定 key 和 pre-fingerprint
         让 continuation 跳过已完成操作，并拒绝盲目重放已变化的目标。
@@ -253,7 +246,6 @@ class JsonOperationLedgerRepository:
 
 
 def _target_path_value(arguments: dict[str, Any]) -> Any:
-    """Return the conventional target-path argument for write-like tools."""
 
     for key in ("path", "file", "target_path", "output_path"):
         value = arguments.get(key)
@@ -263,13 +255,9 @@ def _target_path_value(arguments: dict[str, Any]) -> Any:
 
 
 def _is_relative_to(path: Path, root: Path) -> bool:
-    """Path.is_relative_to without locking the project to one Python minor."""
 
     try:
         path.relative_to(root)
         return True
     except ValueError:
         return False
-
-
-OperationLedgerStore = JsonOperationLedgerRepository

@@ -1,4 +1,4 @@
-"""Runtime composition root shared by every inbound adapter.
+"""所有入站入口共用的 Runtime 依赖装配点。
 
 本模块是 Runtime 中唯一同时认识 Application 和具体 Adapter 的位置。
 """
@@ -54,12 +54,7 @@ def build_registry(
     mcp_allowed_tools: list[str] | None = None,
     execution_environment: ExecutionEnvironment | None = None,
 ) -> ToolRegistry:
-    """Create the tool gateway used by AgentLoop.
-
-    This is intentionally centralized. A benchmark runner, a normal repo run,
-    and a future product surface should expose the same governed tools unless
-    there is an explicit policy reason to differ.
-    """
+    """构造 AgentLoop 使用的受治理工具注册表。"""
 
     sandbox = WorkspaceSandbox(workspace)
     registry = ToolRegistry()
@@ -87,7 +82,7 @@ def build_registry(
 
 
 def build_llm(config: LLMConfig) -> ModelGateway:
-    """Instantiate the provider selected by resolved LLM config."""
+    """根据已解析配置构造统一模型网关。"""
 
     if config.uses_openai_compatible_api:
         return ModelGateway(
@@ -105,7 +100,7 @@ def build_runtime_dependencies(
     registry: ToolRegistry,
     llm: LLMClient | None,
 ) -> RuntimeDependencies:
-    """Build every outbound adapter required by one ``AgentLoop``.
+    """一次性装配 AgentLoop 需要的全部出站端口实现。
 
     CLI、benchmark 和 multi-agent 都必须通过这里装配 Runtime，避免不同入口偷偷
     创建不同的审批、恢复或幂等行为。
@@ -139,15 +134,14 @@ def build_runtime_dependencies(
         operations=JsonOperationLedgerRepository(config.operation_ledger_root),
     )
 
-
-# PRIMARY ENTRYPOINT: assemble the canonical single-agent runtime use case.
+# 主要入口：下方定义承接该模块的核心调用。
 def build_agent_loop(
     config: "RuntimeConfig",
     trace: TraceRecorder,
     registry: ToolRegistry,
     llm: LLMClient | None,
 ) -> AgentLoop:
-    """Return the canonical single-agent use case with all adapters injected."""
+    """返回已经注入全部端口实现的标准单 Agent 用例。"""
 
     return AgentLoop(config, build_runtime_dependencies(config, trace, registry, llm))
 
@@ -212,6 +206,4 @@ def latest_checkpoint_path(run_dir: str) -> str:
 
     return str(JsonTaskStateRepository.latest_path(run_dir))
 
-
-# Avoid importing RuntimeConfig during package initialization.
 from agent_forge.runtime.config import RuntimeConfig  # noqa: E402

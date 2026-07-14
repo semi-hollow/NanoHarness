@@ -75,13 +75,9 @@ class ArchitectureBoundaryTest(unittest.TestCase):
                     violations.append(f"{path.relative_to(PROJECT_ROOT)}:{line} -> {imported}")
         self.assertEqual(violations, [], "Runtime Application must depend on Ports, not adapters")
 
-    def test_only_composition_and_compatibility_modules_import_runtime_adapters(self) -> None:
+    def test_only_runtime_composition_imports_runtime_adapters(self) -> None:
         allowed = {
             Path("agent_forge/runtime/wiring.py"),
-            Path("agent_forge/runtime/approval.py"),
-            Path("agent_forge/runtime/human_input.py"),
-            Path("agent_forge/runtime/operation_ledger.py"),
-            Path("agent_forge/runtime/task_state.py"),
             Path("agent_forge/runtime/adapters/__init__.py"),
         }
         violations: list[str] = []
@@ -93,6 +89,27 @@ class ArchitectureBoundaryTest(unittest.TestCase):
                 if imported.startswith("agent_forge.runtime.adapters"):
                     violations.append(f"{relative}:{line} -> {imported}")
         self.assertEqual(violations, [], "Concrete adapters must be assembled in runtime.wiring")
+
+    def test_removed_compatibility_facades_do_not_return(self) -> None:
+        removed = [
+            "agent_forge/ui.py",
+            "agent_forge/runtime/agent_loop.py",
+            "agent_forge/runtime/approval.py",
+            "agent_forge/runtime/human_input.py",
+            "agent_forge/runtime/message.py",
+            "agent_forge/runtime/observation.py",
+            "agent_forge/runtime/operation_ledger.py",
+            "agent_forge/runtime/run_lifecycle.py",
+            "agent_forge/runtime/state.py",
+            "agent_forge/runtime/task_state.py",
+            "agent_forge/runtime/tool_call.py",
+            "agent_forge/runtime/tool_execution.py",
+            "agent_forge/bench/swebench.py",
+            "agent_forge/multi_agent/coordinator.py",
+            "agent_forge/multi_agent/live_fanout.py",
+        ]
+        present = [path for path in removed if (PROJECT_ROOT / path).exists()]
+        self.assertEqual(present, [], "旧兼容入口会让正式调用路径重新变得含糊")
 
     def test_runtime_public_api_and_layers_exist(self) -> None:
         expected = [

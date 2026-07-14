@@ -6,23 +6,19 @@ from .base import Tool
 
 
 class GrepTool(Tool):
-    """Search Python files for a keyword and return compact matches."""
 
     name = "grep"
     description = "keyword search"
 
     def __init__(self, sandbox: WorkspaceSandbox) -> None:
-        """Keep sandbox root so search stays inside the workspace."""
 
         self.sandbox = sandbox
 
     def schema(self) -> ToolSchema:
-        """Tell the LLM this tool needs one keyword."""
 
         return {"name": self.name, "description": self.description, "arguments": {"keyword": "str"}}
 
     def execute(self, arguments: ToolArguments) -> Observation:
-        """Return up to 50 matching lines as file:line:text snippets."""
 
         keyword = arguments["keyword"]
         matches: list[str] = []
@@ -40,7 +36,6 @@ class GrepTool(Tool):
 
 
 class GrepSearchTool(GrepTool):
-    """Alias kept for compatibility with plans that call `grep_search`."""
 
     name = "grep_search"
     description = "keyword or simple substring search"

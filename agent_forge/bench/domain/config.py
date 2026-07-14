@@ -6,7 +6,6 @@ from pathlib import Path
 
 @dataclass(frozen=True)
 class SwebenchRunRequest:
-    """All user-selected inputs for one reproducible benchmark run."""
 
     dataset_name: str = "princeton-nlp/SWE-bench_Lite"
     split: str = "test"
@@ -42,7 +41,6 @@ class SwebenchRunRequest:
 
 @dataclass(frozen=True)
 class BenchRunLayout:
-    """Filesystem locations allocated by the artifact adapter for one run."""
 
     output_dir: Path
     predictions_path: Path
@@ -53,6 +51,5 @@ class BenchRunLayout:
 
 
 def safe_id(value: str) -> str:
-    """Convert external benchmark identifiers into path-safe fragments."""
 
     return "".join(ch if ch.isalnum() or ch in {"-", "_", "."} else "_" for ch in value)

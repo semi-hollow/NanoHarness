@@ -2,12 +2,11 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from agent_forge.runtime.agent_loop import AgentLoop
+from agent_forge.runtime.api import build_agent_loop
 from agent_forge.runtime.config import RuntimeConfig
 from agent_forge.runtime.llm_client import AgentResponse
-from agent_forge.runtime.tool_call import ToolCall
-from agent_forge.runtime.observation import Observation
-from agent_forge.observability.trace import TraceRecorder
+from agent_forge.runtime.domain.conversation import Observation, ToolCall
+from agent_forge.observability.api import TraceRecorder
 from agent_forge.safety.sandbox import WorkspaceSandbox
 from agent_forge.tools.apply_patch import ApplyPatchTool
 from agent_forge.tools.read_file import ReadFileTool
@@ -121,7 +120,7 @@ class AgentLoopPolicyTest(unittest.TestCase):
             trace_path = Path(tmp) / "trace.json"
             trace = TraceRecorder(str(trace_path))
             config = RuntimeConfig(workspace=tmp, max_steps=2, trace_file=str(trace_path))
-            final = AgentLoop(config, trace, ToolRegistry(), FinalAnswerLLM()).run("summarize safely", agent_name="Reviewer")
+            final = build_agent_loop(config, trace, ToolRegistry(), FinalAnswerLLM()).run("summarize safely", agent_name="Reviewer")
             self.assertIn("final answer", final)
             agent_names = {event["agent_name"] for event in trace.events}
             self.assertIn("Reviewer", agent_names)
@@ -132,7 +131,7 @@ class AgentLoopPolicyTest(unittest.TestCase):
             trace_path = Path(tmp) / "trace.json"
             trace = TraceRecorder(str(trace_path))
             config = RuntimeConfig(workspace=tmp, max_steps=1, trace_file=str(trace_path))
-            final = AgentLoop(config, trace, ToolRegistry(), RawToolMarkupLLM()).run("resolve a coding issue")
+            final = build_agent_loop(config, trace, ToolRegistry(), RawToolMarkupLLM()).run("resolve a coding issue")
             self.assertIn("blocked: pending_tool_call_at_stop", final)
             stop_reasons = [event.get("stop_reason") for event in trace.events if event["event_type"] == "stop_hooks"]
             self.assertIn("pending_tool_call_at_stop", stop_reasons)
@@ -147,7 +146,7 @@ class AgentLoopPolicyTest(unittest.TestCase):
             registry.register(ReadFileTool(WorkspaceSandbox(root)))
             config = RuntimeConfig(workspace=tmp, max_steps=4, trace_file=str(trace_path))
 
-            final = AgentLoop(config, trace, registry, RepeatReadThenFinalLLM()).run("resolve a coding issue")
+            final = build_agent_loop(config, trace, registry, RepeatReadThenFinalLLM()).run("resolve a coding issue")
 
             self.assertIn("used prior observation", final)
             stop_reasons = [event.get("stop_reason") for event in trace.events if event["event_type"] == "stop_hooks"]
@@ -170,7 +169,7 @@ class AgentLoopPolicyTest(unittest.TestCase):
             registry.register(ApplyPatchTool(WorkspaceSandbox(root)))
             config = RuntimeConfig(workspace=tmp, max_steps=4, trace_file=str(trace_path))
 
-            final = AgentLoop(config, trace, registry, RepeatPatchLLM()).run("resolve a coding issue")
+            final = build_agent_loop(config, trace, registry, RepeatPatchLLM()).run("resolve a coding issue")
 
             self.assertEqual(final, "blocked: repeated tool call")
             stop_reasons = [event.get("stop_reason") for event in trace.events if event["event_type"] == "stop_hooks"]
@@ -184,7 +183,7 @@ class AgentLoopPolicyTest(unittest.TestCase):
             registry.register(SuccessfulDiagnosticsTool())
             config = RuntimeConfig(workspace=tmp, max_steps=3, trace_file=str(trace_path))
 
-            AgentLoop(config, trace, registry, DiagnosticsThenFinalLLM("unittest")).run("resolve and test a coding issue")
+            build_agent_loop(config, trace, registry, DiagnosticsThenFinalLLM("unittest")).run("resolve and test a coding issue")
 
             validation = [event for event in trace.events if event["event_type"] == "validation_evidence"]
         self.assertEqual(len(validation), 1)
@@ -199,7 +198,7 @@ class AgentLoopPolicyTest(unittest.TestCase):
             registry.register(SuccessfulDiagnosticsTool())
             config = RuntimeConfig(workspace=tmp, max_steps=3, trace_file=str(trace_path))
 
-            AgentLoop(config, trace, registry, DiagnosticsThenFinalLLM("compile")).run("resolve and test a coding issue")
+            build_agent_loop(config, trace, registry, DiagnosticsThenFinalLLM("compile")).run("resolve and test a coding issue")
 
             validation = [event for event in trace.events if event["event_type"] == "validation_evidence"]
         self.assertEqual(validation, [])
@@ -221,7 +220,7 @@ class AgentLoopPolicyTest(unittest.TestCase):
                 tool_routing_mode="all",
             )
 
-            AgentLoop(config, trace, registry, llm).run("read only inspect target.py")
+            build_agent_loop(config, trace, registry, llm).run("read only inspect target.py")
 
         self.assertEqual(set(llm.tool_names), {"read_file", "apply_patch"})
         context_events = [event for event in trace.events if event["event_type"] == "context_assembly"]
@@ -242,7 +241,7 @@ class AgentLoopPolicyTest(unittest.TestCase):
                 trace_file=str(root / "trace.json"),
             )
 
-            final = AgentLoop(config, trace, registry, PatchThenFinalLLM()).run(
+            final = build_agent_loop(config, trace, registry, PatchThenFinalLLM()).run(
                 "implement the requested update in target.py"
             )
             target_content = target.read_text(encoding="utf-8")

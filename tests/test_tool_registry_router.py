@@ -1,6 +1,6 @@
 import unittest
 
-from agent_forge.runtime.observation import Observation
+from agent_forge.runtime.domain.conversation import Observation
 from agent_forge.tools.registry import ToolRegistry
 from agent_forge.tools.tool_router import ToolRouter
 

@@ -11,7 +11,6 @@ from agent_forge.workbench.domain.models import WorkbenchCommand, WorkbenchJob
 
 
 class BackgroundJobRunner:
-    """Execute only server-validated commands and retain recent local output."""
 
     def __init__(self, project_dir: Path) -> None:
         self.project_dir = project_dir
@@ -64,6 +63,5 @@ class BackgroundJobRunner:
             job.status = "failed"
         finally:
             job.finished_at = time.time()
-
 
 UiState = BackgroundJobRunner

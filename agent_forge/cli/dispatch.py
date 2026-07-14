@@ -6,7 +6,7 @@ import argparse
 import json
 from pathlib import Path
 
-from agent_forge.bench.swebench import run_swebench_from_args
+from agent_forge.bench.presentation.cli import run_swebench_from_args
 from agent_forge.cli.inspection import (
     print_report,
     print_skills,
@@ -27,8 +27,7 @@ from agent_forge.evaluation.api import (
 from agent_forge.observability.api import replay_trace_file
 from agent_forge.workbench.api import run_ui_from_args
 
-
-# PRIMARY ENTRYPOINT: map every public `forge` command to one capability entry.
+# 主要入口：下方定义承接该模块的核心调用。
 def main(argv: list[str] | None = None) -> None:
     """解析并分发公开 CLI；本函数不包含 Agent 业务逻辑。"""
 

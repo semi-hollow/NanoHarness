@@ -31,7 +31,6 @@ from ..domain.live import (
 )
 from .git_workspace import apply_patch_to_workspace, commit_worker_baseline
 
-
 READ_TOOLS = {
     "list_files",
     "read_file",
@@ -503,6 +502,4 @@ def _decision(answer: str) -> str:
                 return marker
     return "NEEDS_REVISION"
 
-
-# Historical private helper kept for focused prompt tests.
 _finalizer_task = finalizer_task_prompt

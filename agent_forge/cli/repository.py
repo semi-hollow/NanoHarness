@@ -27,8 +27,7 @@ from agent_forge.runtime.llm_config import LLMConfig, resolve_llm_config
 from agent_forge.runtime.wiring import build_llm, build_registry
 from agent_forge.tools.registry import ToolRegistry
 
-
-# PRIMARY ENTRYPOINT: assemble and execute one single, sequential, or fanout run.
+# 主要入口：下方定义承接该模块的核心调用。
 def run_repository_task(args: argparse.Namespace) -> Path:
     """执行 repository task，并返回完整 evidence 目录。"""
 
@@ -119,8 +118,7 @@ def run_repository_task(args: argparse.Namespace) -> Path:
         finally:
             environment.cleanup()
 
-
-# RUNTIME PORT: turn CLI isolation options into the boundary used by a run.
+# 运行时端口：下方定义连接用例与外部实现。
 def prepare_execution_environment(
     args: argparse.Namespace,
     run_id: str,

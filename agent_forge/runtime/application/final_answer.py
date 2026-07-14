@@ -16,7 +16,7 @@ class FinalAnswerBuilder:
     def __init__(self, trace: EventSink) -> None:
         self.trace = trace
 
-    # PRIMARY ENTRYPOINT: validate and package one terminal model response.
+    # 主要入口：下方定义承接该模块的核心调用。
     def execute(
         self,
         session: AgentRunSession,

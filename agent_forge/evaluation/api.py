@@ -32,13 +32,12 @@ from agent_forge.evaluation.presentation.mini_case_report import render_mini_cas
 from agent_forge.evaluation.presentation.scorecard_report import render_benchmark_scorecard
 from agent_forge.evaluation.wiring import build_scorecard_use_case
 
-
-# PRIMARY ENTRYPOINT: build one benchmark evidence scorecard.
+# 主要入口：下方定义承接该模块的核心调用。
 def build_benchmark_scorecard(
     results: dict[str, Any],
     run_dir: str | Path,
 ) -> dict[str, Any]:
-    """Build the stable scorecard read model for one benchmark run."""
+    """通过正式用例构造一次 benchmark 的稳定 scorecard。"""
 
     return build_scorecard_use_case().execute(results, run_dir)
 
@@ -137,7 +136,6 @@ def run_mini_cases(
         write_mini_case_report(case, result, output_dir)
         for case, result in evaluated
     ]
-
 
 __all__ = [
     "EvaluationComparison",

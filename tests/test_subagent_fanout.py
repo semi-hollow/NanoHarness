@@ -1,13 +1,14 @@
 import unittest
 
-from agent_forge.multi_agent.fanout import SubagentTask, build_conflict_free_batches, run_fanout
+from agent_forge.multi_agent.application.fanout import run_fanout
+from agent_forge.multi_agent.domain.fanout import SubagentTask, build_conflict_free_batches
 
 
 class SubagentFanoutTest(unittest.TestCase):
     def test_conflicting_ready_tasks_are_partitioned_into_serial_batches(self):
         tasks = [
             SubagentTask(id="runtime-a", task="edit A", write_scope=["agent_forge/runtime/"]),
-            SubagentTask(id="runtime-b", task="edit B", write_scope=["agent_forge/runtime/agent_loop.py"]),
+            SubagentTask(id="runtime-b", task="edit B", write_scope=["agent_forge/runtime/application/agent_loop.py"]),
             SubagentTask(id="docs", task="read docs", write_scope=[]),
         ]
 
@@ -51,7 +52,7 @@ class SubagentFanoutTest(unittest.TestCase):
     def test_same_batch_write_scope_overlap_requires_conflict_resolution(self):
         tasks = [
             SubagentTask(id="runtime-a", task="edit runtime A", write_scope=["agent_forge/runtime/"]),
-            SubagentTask(id="runtime-b", task="edit runtime B", write_scope=["agent_forge/runtime/agent_loop.py"]),
+            SubagentTask(id="runtime-b", task="edit runtime B", write_scope=["agent_forge/runtime/application/agent_loop.py"]),
         ]
         seen = []
 

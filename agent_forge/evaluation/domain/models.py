@@ -6,12 +6,6 @@ from typing import Any
 
 @dataclass
 class EvaluationComparison:
-    """Honest single-vs-multi comparison data.
-
-    This is a reporting foundation, not a claim that multi-agent is globally
-    better. Each metric is optional because different runners expose different
-    artifacts in the first version.
-    """
 
     task_id: str
     single_status: str = ""
@@ -33,7 +27,6 @@ class EvaluationComparison:
     recommendation: str = ""
 
     def to_dict(self) -> dict[str, Any]:
-        """Serialize comparison data to JSON."""
 
         return {
             "task_id": self.task_id,

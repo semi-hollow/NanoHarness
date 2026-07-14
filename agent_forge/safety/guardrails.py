@@ -1,32 +1,18 @@
 from dataclasses import dataclass
 
-
 RISKY_INPUT_MARKERS = ("rm -rf", "删除", ".env", "id_rsa", "http://", "https://", "../")
 
 
 @dataclass
 class GuardrailResult:
-    """Structured result so guardrail checks can be traced consistently."""
 
-    # Whether runtime should continue.
     passed: bool
-
-    # Human-readable explanation written to trace.
     reason: str
-
-    # Low/medium/high risk label for audit and future policy routing.
     severity: str
-
-    # input/tool/output; lets metrics group guardrail failures.
     category: str = "general"
 
 
 def input_guardrail(task: str) -> GuardrailResult:
-    """Reject obviously risky user tasks before any LLM/tool execution.
-
-    This is a cheap first layer, not the whole security model. Tool-level
-    permission/sandbox checks still run later because prompts can be indirect.
-    """
 
     for c in RISKY_INPUT_MARKERS:
         if c in task:
@@ -35,7 +21,6 @@ def input_guardrail(task: str) -> GuardrailResult:
 
 
 def sanitize_quoted_evidence(text: str) -> str:
-    """Redact guardrail tokens when trusted code quotes untrusted evidence."""
 
     sanitized = str(text or "")
     for index, marker in enumerate(RISKY_INPUT_MARKERS, start=1):
@@ -44,11 +29,6 @@ def sanitize_quoted_evidence(text: str) -> str:
 
 
 def output_guardrail(final_answer: str, ran_tests: bool, had_block: bool) -> GuardrailResult:
-    """Check final answers for unverified or misleading claims.
-
-    This addresses a common Agent failure: saying "tests passed" because it
-    intended to run tests, even though no validation tool succeeded.
-    """
 
     if "测试通过" in final_answer and not ran_tests:
         return GuardrailResult(False, "claims test pass without execution", "high", "output")
@@ -60,12 +40,6 @@ def output_guardrail(final_answer: str, ran_tests: bool, had_block: bool) -> Gua
 
 
 def tool_guardrail(tool_name: str, arguments: dict, exists: bool = True, repeated: bool = False) -> GuardrailResult:
-    """Validate a model-requested tool call before permission checks.
-
-    This layer catches protocol problems before the heavier permission/tool
-    execution path. It is intentionally separate from schema validation in
-    ToolRegistry so trace can show model-level tool-call mistakes.
-    """
 
     if not exists:
         return GuardrailResult(False, f"unknown tool: {tool_name}", "medium", "tool")

@@ -1,5 +1,3 @@
-"""Command entry point for the built-in Agent Forge MCP server."""
-
 from __future__ import annotations
 
 import argparse
@@ -11,7 +9,6 @@ from agent_forge.mcp.web_tools import build_builtin_tools
 
 
 def build_parser() -> argparse.ArgumentParser:
-    """Expose small debug helpers without changing stdio server behavior."""
 
     parser = argparse.ArgumentParser(description="Run the Agent Forge built-in MCP stdio server.")
     parser.add_argument("--list-tools", action="store_true", help="Print available tool schemas and exit.")
@@ -22,7 +19,6 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main() -> None:
-    """Start stdio server or run one direct debug command."""
 
     args = build_parser().parse_args()
     tools = build_builtin_tools(Path(args.workspace).resolve())
@@ -43,7 +39,6 @@ def main() -> None:
         print(json.dumps(response, ensure_ascii=False, indent=2))
         return
     server.run()
-
 
 if __name__ == "__main__":
     main()

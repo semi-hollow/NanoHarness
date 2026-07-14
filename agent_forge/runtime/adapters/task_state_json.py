@@ -11,26 +11,17 @@ from agent_forge.runtime.domain.task import (
 
 
 class JsonTaskStateRepository:
-    """Filesystem-backed task-state store for resume/replay workflows.
-
-    In a production service this would be a database table with transactional
-    writes. JSON files are enough for this repository while still proving the
-    architecture: state is explicit, inspectable, resumable, and separate from
-    trace artifacts.
-    """
 
     def __init__(self, root: str | Path = ".agent_forge/task_state") -> None:
-        """Create the state directory without deleting previous runs."""
 
         self.root = Path(root)
         self.root.mkdir(parents=True, exist_ok=True)
 
     def path_for(self, run_id: str) -> Path:
-        """Return the checkpoint path for one run id."""
 
         return self.root / f"{run_id}.json"
 
-    # RUNTIME PORT: AgentLoop creates the first durable state for every run.
+    # 运行时端口：下方定义连接用例与外部实现。
     def start(
         self,
         run_id: str,
@@ -39,12 +30,6 @@ class JsonTaskStateRepository:
         agent_name: str,
         metadata: JsonObject | None = None,
     ) -> TaskCheckpoint:
-        """Create and persist the initial checkpoint for ``AgentLoop.run``.
-
-        Read this to understand where resumable state begins. It returns the
-        typed ``TaskCheckpoint`` used by trace and later transitions; ``save``
-        is only the storage detail below this boundary.
-        """
 
         checkpoint = TaskCheckpoint(
             run_id=run_id,
@@ -58,7 +43,7 @@ class JsonTaskStateRepository:
         self.save(checkpoint)
         return checkpoint
 
-    # RUNTIME PORT: RunLifecycle persists an explicit state transition here.
+    # 运行时端口：下方定义连接用例与外部实现。
     def update(
         self,
         checkpoint: TaskCheckpoint,
@@ -75,7 +60,7 @@ class JsonTaskStateRepository:
         metadata: JsonObject | None = None,
         updated_at: float | None = None,
     ) -> TaskCheckpoint:
-        """Apply and persist one explicit checkpoint transition.
+        """应用并持久化一次显式 checkpoint 状态迁移。
 
         ``RunLifecycle.update`` 在 model、tool、pause 和 stop 后调用这里。显式关键字
         参数就是完整可变字段表，读者无需再进入 ``save`` 或 ``_write``。
@@ -98,7 +83,6 @@ class JsonTaskStateRepository:
         return checkpoint
 
     def save(self, checkpoint: TaskCheckpoint) -> None:
-        """Persist one checkpoint as readable JSON."""
 
         self.path_for(checkpoint.run_id).write_text(
             json.dumps(checkpoint.to_dict(), ensure_ascii=False, indent=2),
@@ -106,14 +90,12 @@ class JsonTaskStateRepository:
         )
 
     def load(self, run_id: str) -> TaskCheckpoint:
-        """Load a checkpoint by id."""
 
         data = json.loads(self.path_for(run_id).read_text(encoding="utf-8"))
         return TaskCheckpoint(**data)
 
     @staticmethod
     def load_path(path: str | Path) -> TaskCheckpoint:
-        """Load a checkpoint from an explicit JSON path."""
 
         data = json.loads(Path(path).read_text(encoding="utf-8"))
         return TaskCheckpoint(**data)
@@ -139,7 +121,6 @@ class JsonTaskStateRepository:
         return max(candidates, key=updated_at)
 
     def list(self) -> list[TaskCheckpoint]:
-        """Return checkpoints newest first."""
 
         checkpoints = []
         for path in self.root.glob("*.json"):
@@ -150,11 +131,6 @@ class JsonTaskStateRepository:
         return sorted(checkpoints, key=lambda item: item.updated_at, reverse=True)
 
     def resume_summary(self, run_id: str, max_chars: int = 1400) -> str:
-        """Build a compact context seed for a continuation run."""
 
         checkpoint = self.load(run_id)
         return summarize_checkpoint(checkpoint, max_chars=max_chars)
-
-# Backward-compatible name for existing integrations. New wiring uses the
-# implementation-specific repository name above.
-TaskStateStore = JsonTaskStateRepository

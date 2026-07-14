@@ -6,7 +6,6 @@ from ..domain.models import MultiAgentRunSummary
 
 
 def render_multi_agent_report(summary: MultiAgentRunSummary) -> str:
-    """Render a human-readable coordinator report."""
 
     role_statuses = Counter(result.status for result in summary.role_results)
     decisions = Counter(result.decision for result in summary.role_results if result.decision)

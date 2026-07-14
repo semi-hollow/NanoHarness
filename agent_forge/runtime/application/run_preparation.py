@@ -40,7 +40,7 @@ class RunPreparation:
         self.planning_mode_policy = PlanningModePolicy()
         self.skill_selector = dependencies.skills
 
-    # PRIMARY ENTRYPOINT: create the explicit state for one AgentLoop run.
+    # 主要入口：下方定义承接该模块的核心调用。
     def start(self, task: str, agent_name: str) -> AgentRunSession:
         """创建 checkpoint、lifecycle 与内存中的 run session。"""
 
@@ -80,7 +80,7 @@ class RunPreparation:
             resume_summary=resume_summary,
         )
 
-    # PRIMARY ENTRYPOINT: finish all one-time decisions before the turn loop.
+    # 主要入口：下方定义承接该模块的核心调用。
     def execute(self, session: AgentRunSession) -> StopRequest | None:
         """准备运行；无法继续时返回统一的停止请求。"""
 

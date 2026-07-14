@@ -4,71 +4,27 @@ from typing import Any
 
 @dataclass
 class ModelUsage:
-    """Production-style telemetry for one logical model gateway call path.
 
-    Real coding agents need this layer because provider calls fail, time out,
-    and cost money. The project does not calculate real token prices yet, but
-    it records the operational signals an production-shaped system must expose:
-    attempts, fallback use, latency, normalized error codes, provider token
-    usage, cache hit/miss tokens, and estimated cost.
-    """
-
-    # Logical provider name: deepseek, openai-compatible, company gateway, Ollama, etc.
     provider: str
-
-    # Concrete model id. Review reason: model behavior/cost must be auditable.
     model: str
-
-    # Number of provider attempts across retry/fallback. Needed for reliability.
     attempts: int = 0
-
-    # True if primary failed and fallback answered. Helps debug degraded quality.
     fallback_used: bool = False
-
-    # Cumulative latency for attempts. Needed for SLO/cost-effect tradeoffs.
     latency_ms: int = 0
-
-    # Approximate input tokens when provider usage metadata is unavailable.
     prompt_tokens_estimate: int = 0
-
-    # Approximate output tokens or tool-call payload tokens.
     completion_tokens_estimate: int = 0
-
-    # Provider-reported input tokens. Prefer this over estimates when present.
     prompt_tokens: int = 0
-
-    # Provider-reported output tokens.
     completion_tokens: int = 0
-
-    # Provider-reported total tokens, usually prompt + completion.
     total_tokens: int = 0
-
-    # Provider-reported cached input tokens. DeepSeek exposes this directly.
     cache_hit_tokens: int = 0
-
-    # Provider-reported uncached input tokens. These are usually billed higher.
     cache_miss_tokens: int = 0
-
-    # Reasoning output tokens for providers that expose completion details.
     reasoning_tokens: int = 0
-
-    # Upstream response id for one model call, useful when comparing invoices.
     response_id: str = ""
-
-    # provider when usage came from API response; estimate otherwise.
     usage_source: str = "estimate"
-
-    # Placeholder cost hook. Real systems fill it from ProviderProfile pricing.
     estimated_cost_usd: float = 0.0
-
-    # Normalized provider/runtime error codes for badcase analysis.
     error_codes: list[str] = field(default_factory=list)
-
-    # Raw non-secret usage payload for debugging provider-specific fields.
     raw_usage: dict[str, Any] = field(default_factory=dict)
 
     def record_attempt(self, latency_ms: int, error_code: str = "") -> None:
-        """Add one provider attempt to the usage summary."""
 
         self.attempts += 1
         self.latency_ms += latency_ms
@@ -76,13 +32,6 @@ class ModelUsage:
             self.error_codes.append(error_code)
 
     def record_provider_usage(self, usage: dict[str, Any] | None, response_id: str | None = None) -> None:
-        """Copy provider token accounting into normalized usage fields.
-
-        DeepSeek returns `prompt_cache_hit_tokens` and
-        `prompt_cache_miss_tokens`, while OpenAI-style providers may put cache
-        details under nested token detail objects. The normalization keeps both
-        visible in trace so cost reports can explain cache behavior per step.
-        """
 
         if not usage:
             return
@@ -114,7 +63,6 @@ class ModelUsage:
         self.reasoning_tokens += int(completion_details.get("reasoning_tokens") or 0)
 
     def merge(self, other: "ModelUsage") -> None:
-        """Merge fallback telemetry into this logical model call path."""
 
         self.attempts += other.attempts
         self.latency_ms += other.latency_ms
@@ -134,7 +82,6 @@ class ModelUsage:
             self.usage_source = "provider"
 
     def to_dict(self) -> dict:
-        """Return JSON-safe data for trace/session reports."""
 
         return {
             "provider": self.provider,

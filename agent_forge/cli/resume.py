@@ -7,19 +7,9 @@ import json
 from pathlib import Path
 
 from agent_forge.cli.repository import run_repository_task
-from agent_forge.runtime.api import (
-    latest_checkpoint_path as find_latest_checkpoint_path,
-    prepare_continuation,
-)
-from agent_forge.runtime.application.operator_control import (
-    BuildContinuationPlan,
-    checkpoint_resume_workspace,
-)
-from agent_forge.runtime.domain.task import TaskCheckpoint
-from agent_forge.runtime.ports import HumanInputRepository
+from agent_forge.runtime.api import prepare_continuation
 
-
-# PRIMARY ENTRYPOINT: continue a stopped run from durable checkpoint evidence.
+# 主要入口：下方定义承接该模块的核心调用。
 def resume_repository_task(args: argparse.Namespace) -> Path:
     """加载 checkpoint/HITL 状态并启动新的 continuation run。"""
 
@@ -121,34 +111,7 @@ def write_resume_link(
         )
     return link_path, chain_path
 
-
-def latest_checkpoint_path(run_dir: str | Path) -> Path:
-    """兼容 API：返回 run 目录中最新的 checkpoint。"""
-
-    return Path(find_latest_checkpoint_path(str(run_dir)))
-
-
-def continuation_task_with_human_response(
-    checkpoint: TaskCheckpoint,
-    store: HumanInputRepository,
-    override_task: str = "",
-) -> tuple[str, str]:
-    """兼容 API：从注入的人工问题仓储构造 continuation 文本。"""
-
-    try:
-        plan = BuildContinuationPlan(store).execute(
-            checkpoint,
-            override_task=override_task,
-        )
-    except ValueError as exc:
-        raise SystemExit(str(exc)) from exc
-    return plan.task, plan.human_thread_id
-
-
 __all__ = [
-    "checkpoint_resume_workspace",
-    "continuation_task_with_human_response",
-    "latest_checkpoint_path",
     "resume_repository_task",
     "write_resume_link",
 ]

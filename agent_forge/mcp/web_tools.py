@@ -1,12 +1,3 @@
-"""Built-in MCP tools for project policy and optional web lookup.
-
-The web tools are intentionally provider-gated. By default they run in
-``offline`` mode so company machines can verify the MCP path without touching
-the network. Setting ``AGENT_FORGE_MCP_ALLOW_NETWORK=1`` plus
-``AGENT_FORGE_WEB_PROVIDER`` enables real lookup through DuckDuckGo HTML,
-OpenAI hosted web search, or Claude hosted web search.
-"""
-
 from __future__ import annotations
 
 import html
@@ -21,12 +12,10 @@ from typing import Any
 
 from agent_forge.mcp.server import MCPToolDefinition, MCPToolResult
 
-
 NETWORK_ENABLE_VALUES = {"1", "true", "yes", "on"}
 
 
 def build_builtin_tools(repo_root: Path | None = None) -> list[MCPToolDefinition]:
-    """Return the default tools served by ``agent_forge.mcp.builtin_server``."""
 
     root = repo_root or Path(os.getenv("AGENT_FORGE_WORKSPACE", ".")).resolve()
     return [
@@ -98,7 +87,6 @@ def build_builtin_tools(repo_root: Path | None = None) -> list[MCPToolDefinition
 
 
 def _repo_policy(repo_root: Path, args: dict[str, Any]) -> MCPToolResult:
-    """Return FORGE.md content or topic-filtered lines."""
 
     topic = str(args.get("topic") or "").strip().lower()
     policy_file = repo_root / "FORGE.md"
@@ -113,7 +101,6 @@ def _repo_policy(repo_root: Path, args: dict[str, Any]) -> MCPToolResult:
 
 
 def _current_time() -> MCPToolResult:
-    """Return time in a shape useful for trace/debug explanations."""
 
     local_now = datetime.now().astimezone().isoformat(timespec="seconds")
     utc_now = datetime.now(timezone.utc).isoformat(timespec="seconds")
@@ -121,7 +108,6 @@ def _current_time() -> MCPToolResult:
 
 
 def _web_fetch(args: dict[str, Any]) -> MCPToolResult:
-    """Fetch one page with network and scheme guards."""
 
     if not _network_enabled():
         return MCPToolResult.text(_network_disabled_message("web_fetch"), is_error=True)
@@ -142,7 +128,6 @@ def _web_fetch(args: dict[str, Any]) -> MCPToolResult:
 
 
 def _web_search(args: dict[str, Any]) -> MCPToolResult:
-    """Dispatch search to the configured provider."""
 
     query = str(args.get("query") or "").strip()
     if not query:
@@ -170,7 +155,6 @@ def _web_search(args: dict[str, Any]) -> MCPToolResult:
 
 
 def _duckduckgo_search(query: str, max_results: int) -> MCPToolResult:
-    """Use DuckDuckGo's lightweight HTML page as a no-key lookup provider."""
 
     url = "https://lite.duckduckgo.com/lite/?" + urllib.parse.urlencode({"q": query})
     try:
@@ -197,7 +181,6 @@ def _duckduckgo_search(query: str, max_results: int) -> MCPToolResult:
 
 
 def _openai_web_search(query: str) -> MCPToolResult:
-    """Call OpenAI Responses API with the hosted web_search tool enabled."""
 
     api_key = os.getenv("OPENAI_API_KEY") or os.getenv("AGENT_FORGE_OPENAI_API_KEY")
     if not api_key:
@@ -223,7 +206,6 @@ def _openai_web_search(query: str) -> MCPToolResult:
 
 
 def _claude_web_search(query: str, max_results: int) -> MCPToolResult:
-    """Call Anthropic Messages API with Claude's hosted web_search tool."""
 
     api_key = os.getenv("ANTHROPIC_API_KEY") or os.getenv("CLAUDE_API_KEY")
     if not api_key:
@@ -251,7 +233,6 @@ def _claude_web_search(query: str, max_results: int) -> MCPToolResult:
 
 
 def _post_json(url: str, payload: dict[str, Any], headers: dict[str, str]) -> dict[str, Any]:
-    """POST JSON with stdlib only so MCP support adds no dependencies."""
 
     body = json.dumps(payload).encode("utf-8")
     request = urllib.request.Request(url, data=body, headers=headers, method="POST")
@@ -260,7 +241,6 @@ def _post_json(url: str, payload: dict[str, Any], headers: dict[str, str]) -> di
 
 
 def _extract_openai_text(data: dict[str, Any]) -> str:
-    """Extract readable text from common Responses API shapes."""
 
     if isinstance(data.get("output_text"), str):
         return data["output_text"]
@@ -275,7 +255,6 @@ def _extract_openai_text(data: dict[str, Any]) -> str:
 
 
 def _extract_claude_text(data: dict[str, Any]) -> str:
-    """Extract text and URL citations from Claude Messages responses."""
 
     parts: list[str] = []
     citations: list[str] = []
@@ -295,13 +274,11 @@ def _extract_claude_text(data: dict[str, Any]) -> str:
 
 
 def _network_enabled() -> bool:
-    """Return whether MCP web tools may perform outbound network calls."""
 
     return os.getenv("AGENT_FORGE_MCP_ALLOW_NETWORK", "").lower() in NETWORK_ENABLE_VALUES
 
 
 def _network_disabled_message(tool_name: str) -> str:
-    """Give a fixable error instead of silently trying the network."""
 
     return (
         f"{tool_name} network access is disabled. Set AGENT_FORGE_MCP_ALLOW_NETWORK=1 "
@@ -310,7 +287,6 @@ def _network_disabled_message(tool_name: str) -> str:
 
 
 def _timeout_seconds() -> float:
-    """Bound external calls so the agent loop cannot hang on one provider."""
 
     try:
         return max(1.0, min(float(os.getenv("AGENT_FORGE_MCP_TIMEOUT", "8")), 30.0))
@@ -319,7 +295,6 @@ def _timeout_seconds() -> float:
 
 
 def _positive_int(value: Any, *, default: int, upper: int) -> int:
-    """Parse human/model-provided integer arguments defensively."""
 
     try:
         parsed = int(value)
@@ -329,7 +304,6 @@ def _positive_int(value: Any, *, default: int, upper: int) -> int:
 
 
 def _html_to_text(raw: str) -> str:
-    """Best-effort HTML to plain text conversion without adding dependencies."""
 
     text = re.sub(r"<(script|style)[^>]*>.*?</\1>", " ", raw, flags=re.I | re.S)
     text = re.sub(r"<[^>]+>", " ", text)

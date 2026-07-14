@@ -9,68 +9,46 @@ from .base import Tool
 
 
 class ToolRegistry:
-    """Registry boundary between model-generated tool calls and local tools.
-
-    Project review point: tool calling is a protocol boundary. The LLM proposes a
-    name and JSON-like args; the registry verifies the tool exists, validates
-    arguments, converts exceptions into Observations, and never lets raw tool
-    failures escape the AgentLoop.
-    """
 
     def __init__(self) -> None:
-        """Start with an empty tool map; `cli.build_registry` fills it."""
 
         self._tools: dict[str, Tool] = {}
         self.mcp_config_report: Any | None = None
 
     def register(self, tool: Tool) -> None:
-        """Expose one tool by name so the LLM can request it later."""
 
-        # Last registration wins deliberately; tests can replace tools easily.
         self._tools[tool.name] = tool
 
     def schemas(self) -> list[ToolSchema]:
-        """Return all tool schemas that will be included in the LLM call."""
 
         return [t.schema() for t in self._tools.values()]
 
     def get(self, name: str) -> Tool | None:
-        """Look up a tool without executing it; used by guardrails first."""
 
         return self._tools.get(name)
 
-    # PRIMARY ENTRYPOINT: cross the boundary from model intent to a local tool.
+    # 主要入口：下方定义承接该模块的核心调用。
     def execute(self, name: str, arguments: ToolArguments) -> Observation:
-        """Validate and execute one tool call, always returning ``Observation``.
-
-        ``ToolExecutionPipeline`` reaches concrete tools only through this method. It
-        owns tool lookup, argument validation, exception normalization, and the
-        single result protocol fed into recovery and the next model turn.
-        """
+        """执行已注册工具，并把参数错误和异常归一化为 Observation。"""
 
         tool = self.get(name)
         if not tool:
-            # Unknown tools are model/tool-routing failures, not Python errors.
+
             return Observation(name, False, f"unknown tool: {name}")
         validation_error = self._validate_arguments(tool, arguments or {})
         if validation_error:
-            # Invalid arguments should feed back into recovery; the model can
-            # repair them on the next turn if StepController marks retryable.
+
             return Observation(name, False, validation_error)
         try:
             return tool.execute(arguments)
         except Exception as e:
-            # Concrete tools should usually return Observation themselves, but
-            # this catch keeps one broken tool from crashing the whole agent run.
+
             return Observation(name, False, f"tool execution error: {e}")
 
     def _validate_arguments(self, tool: Tool, arguments: ToolArguments) -> str:
-        """Catch missing or obviously mistyped arguments before tools run."""
 
         schema = tool.schema()
 
-        # Local tools use a compact {"arguments": {"path": "str"}} shape; MCP
-        # style tools can also expose JSON Schema-like dicts.
         expected = schema.get("arguments", {})
         if not isinstance(expected, dict):
             return "invalid tool schema: arguments must be an object"
@@ -92,7 +70,6 @@ class ToolRegistry:
         return ""
 
     def _matches_type(self, value: Any, typ: Any) -> bool:
-        """Small schema checker that keeps bad tool calls inside the loop."""
 
         if isinstance(typ, dict):
             typ = typ.get("type", "object")

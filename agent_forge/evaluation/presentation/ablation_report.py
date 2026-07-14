@@ -6,7 +6,6 @@ from agent_forge.evaluation.domain.ablation import DELTA_METRICS
 
 
 def render_ablation_report(comparison: dict[str, Any]) -> str:
-    """Render a paired experiment that already passed domain validation."""
 
     control = comparison["control"]
     treatment = comparison["treatment"]

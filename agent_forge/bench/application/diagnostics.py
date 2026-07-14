@@ -9,14 +9,13 @@ from agent_forge.bench.ports.benchmark import CaseEvidenceReader
 
 
 class DiagnoseBenchCase:
-    """Classify a final case only after all evaluation evidence is available."""
 
     def __init__(self, evidence_reader: CaseEvidenceReader) -> None:
         self._evidence_reader = evidence_reader
 
-    # PRIMARY ENTRYPOINT: attach one final, evidence-backed failure diagnosis.
+    # 主要入口：下方定义承接该模块的核心调用。
     def attach(self, result: BenchCaseResult) -> BenchCaseResult:
-        """Mutate the result once so every later artifact sees one diagnosis."""
+        """把最终证据支持的唯一失败诊断写回 case result。"""
 
         diagnosis = self.diagnose(result)
         result.failure_class = diagnosis.failure_class

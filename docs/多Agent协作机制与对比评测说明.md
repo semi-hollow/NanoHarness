@@ -11,11 +11,11 @@ dependency-safe parallel plan batch。
 ```text
 MultiAgentCoordinator
   -> AgentLoop(role=Implementer 或 Researcher)
-  -> ArtifactStore 写入 role output
+  -> ArtifactRepository 写入 role output
   -> AgentLoop(role=Reviewer)
-  -> ArtifactStore 写入 review
+  -> ArtifactRepository 写入 review
   -> AgentLoop(role=Verifier)
-  -> ArtifactStore 写入 verification
+  -> ArtifactRepository 写入 verification
   -> 可选且有上限的 revision round
   -> multi_agent_summary.json + multi_agent_report.md
 ```

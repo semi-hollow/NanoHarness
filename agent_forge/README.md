@@ -7,7 +7,7 @@
 
 ```text
 __main__.py
--> forge_cli.py                 历史兼容 facade
+-> forge_cli.py                 打包工具要求的最小 main 入口
 -> cli/parser.py                参数契约
 -> cli/dispatch.py              命令分发
 -> cli/repository.py            run 装配
@@ -51,6 +51,5 @@ adapters -> ports
 presentation -> API/read model
 ```
 
-根部的 `runtime/agent_loop.py`、`multi_agent/coordinator.py`、`evaluation/scorecard.py`
-等旧路径只是薄兼容层。新代码应导入对应 capability 的 `api.py`，或在 capability 内使用
-canonical layer path。
+旧路径 facade 已删除。外围代码从对应 capability 的 `api.py` 进入；能力包内部使用明确的
+Domain、Application、Port、Adapter 或 Presentation 路径。

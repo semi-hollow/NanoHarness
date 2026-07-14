@@ -7,14 +7,12 @@ from pathlib import Path
 
 @dataclass(frozen=True)
 class LocalValidation:
-    """Conservative local test evidence derived from explicit trace events."""
 
     status: str = "not_run"
     evidence: list[str] = field(default_factory=list)
 
 
 def read_local_validation(trace_path: str | Path) -> LocalValidation:
-    """Return failed/unavailable/passed only for test-oriented trace events."""
 
     try:
         trace = json.loads(Path(trace_path).read_text(encoding="utf-8"))

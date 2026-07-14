@@ -11,7 +11,6 @@ class AskHumanTool(Tool):
     description = "request durable human input; the run pauses until forge respond and resume"
 
     def schema(self) -> ToolSchema:
-        """Tell the LLM it can persist one clarification request."""
 
         return {
             "name": self.name,

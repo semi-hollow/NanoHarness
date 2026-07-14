@@ -3,7 +3,6 @@ from typing import Protocol
 
 
 class ObservationView(Protocol):
-    """Minimum observation shape needed for citation extraction."""
 
     tool_name: str
     content: str
@@ -12,7 +11,6 @@ class ObservationView(Protocol):
 
 @dataclass(frozen=True)
 class EvidenceItem:
-    """One citeable runtime fact."""
 
     source: str
     summary: str
@@ -20,26 +18,18 @@ class EvidenceItem:
     success: bool = True
 
     def citation(self) -> str:
-        """Render a compact citation for final answers and reports."""
 
         status = "ok" if self.success else "fail"
         return f"{self.kind}:{self.source}:{status}:{self.summary}"
 
 
 class EvidenceLedger:
-    """Collect proof that final answers can cite.
-
-    Agent answers should not say "tests passed" or "file changed" without a
-    traceable source. The ledger converts tool observations into citeable facts.
-    """
 
     def __init__(self) -> None:
-        """Start with no evidence."""
 
         self.items: list[EvidenceItem] = []
 
     def add_observation(self, observation: ObservationView) -> EvidenceItem | None:
-        """Extract evidence from a tool observation when possible."""
 
         text = observation.content or ""
         source = observation.tool_name
@@ -63,6 +53,5 @@ class EvidenceLedger:
         return item
 
     def final_citations(self, limit: int = 5) -> list[str]:
-        """Return the last few compact citations for final-answer grounding."""
 
         return [item.citation() for item in self.items[-limit:]]

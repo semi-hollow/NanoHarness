@@ -18,7 +18,6 @@ from agent_forge.evaluation.api import (
 
 
 class FileBenchArtifacts:
-    """Persist benchmark predictions, diagnoses, reports, and stable pointers."""
 
     def __init__(self) -> None:
         self._diagnose = DiagnoseBenchCase(JsonCaseEvidenceReader())

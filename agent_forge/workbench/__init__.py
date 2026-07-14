@@ -1,4 +1,1 @@
-"""Stable public API for the local evidence Workbench."""
-
-from .api import *  # noqa: F403
-from .api import __all__
+"""Workbench 能力包；外围调用统一从 ``agent_forge.workbench.api`` 进入。"""

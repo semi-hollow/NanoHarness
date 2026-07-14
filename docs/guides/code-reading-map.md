@@ -8,8 +8,8 @@
 
 | 标记 | 阅读时机 | 含义 |
 | --- | --- | --- |
-| `PRIMARY ENTRYPOINT` | 第一遍 | 一项 capability 或 use case 的起点 |
-| `RUNTIME PORT` | 第二遍 | 跨模块调用的策略、持久化或证据边界 |
+| `主要入口` | 第一遍 | 一项 capability 或 use case 的起点 |
+| `运行时端口` | 第二遍 | 跨模块调用的策略、持久化或证据边界 |
 | 无标记 | 命中该分支时 | 内部步骤，先看名字和类型即可 |
 | `_` 开头 | 最后 | 私有算法或格式转换，不是稳定连接点 |
 
@@ -23,8 +23,7 @@
 
 ```mermaid
 flowchart TD
-    Main["python -m agent_forge"] --> Facade["forge_cli compatibility facade"]
-    Facade --> Dispatch["cli.dispatch.main"]
+    Main["python -m agent_forge"] --> Dispatch["cli.dispatch.main"]
     Dispatch --> Run["cli.repository.run_repository_task"]
     Dispatch --> Resume["cli.resume.resume_repository_task"]
     Dispatch --> Operator["cli.operator approve/respond"]
@@ -36,8 +35,8 @@ flowchart TD
     RuntimeAPI --> Loop["AgentLoop.run"]
 ```
 
-读一个用户命令时，从 `cli/parser.py` 确认输入契约，再到 `cli/dispatch.py` 找 owner，
-不要从 `forge_cli.py` 深挖。后者只为历史导入兼容。
+读一个用户命令时，从 `cli/parser.py` 确认输入契约，再到 `cli/dispatch.py` 找 owner。
+`forge_cli.py` 只是打包工具要求的最小控制台入口，不导出业务函数。
 
 ## 地图二：依赖图
 
@@ -188,7 +187,7 @@ AgentLoop.run                         只看完整阶段
 -> RunLifecycle.stop                  需要理解终态时再看
 ```
 
-`AgentLoop` 不再保存 TaskStateStore、ApprovalStore 等具体对象；这些通过
+`AgentLoop` 不直接保存 `JsonTaskStateRepository`、`JsonApprovalRepository` 等具体对象；这些通过
 `RuntimeDependencies` 的 Port 注入。`TurnPreparation` 不扫描文件；需要理解仓库 map、
 文件预览或 `FORGE.md` 读取时，再进入 `runtime/adapters/context_assembler.py`，随后沿调用
 进入 Context capability。

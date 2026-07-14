@@ -1,8 +1,12 @@
 import tempfile
 import unittest
 
-from agent_forge.evaluation import compare_runs, extract_run_metrics, write_evaluation_artifacts
-from agent_forge.evaluation.comparison import compare_variants
+from agent_forge.evaluation.api import (
+    compare_runs,
+    compare_variants,
+    extract_run_metrics,
+    write_evaluation_artifacts,
+)
 
 
 class EvaluationComparisonTest(unittest.TestCase):

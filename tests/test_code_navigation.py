@@ -134,10 +134,10 @@ class _DefinitionCollector(ast.NodeVisitor):
 
 class CodeNavigationContractTest(unittest.TestCase):
     def test_primary_entrypoints_are_visible_when_bodies_are_collapsed(self) -> None:
-        self._assert_markers(PRIMARY_ENTRYPOINTS, "# PRIMARY ENTRYPOINT:", require_docstring=True)
+        self._assert_markers(PRIMARY_ENTRYPOINTS, "# 主要入口：", require_docstring=True)
 
     def test_runtime_ports_are_visible_when_bodies_are_collapsed(self) -> None:
-        self._assert_markers(RUNTIME_PORTS, "# RUNTIME PORT:", require_docstring=False)
+        self._assert_markers(RUNTIME_PORTS, "# 运行时端口：", require_docstring=False)
 
     def test_agent_loop_entrypoint_only_exposes_the_phase_order(self) -> None:
         path = PROJECT_ROOT / "agent_forge/runtime/application/agent_loop.py"

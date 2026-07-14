@@ -11,7 +11,7 @@ from agent_forge.contracts import ToolSchema
 class RepositoryContextAssembler:
     """扫描 workspace，并构造 Runtime 消费的上下文报告。"""
 
-    # RUNTIME PORT: isolate repository reads behind ContextAssemblerPort.
+    # 运行时端口：下方定义连接用例与外部实现。
     def build(
         self,
         *,

@@ -7,7 +7,6 @@ from agent_forge.evaluation.domain.models import EvaluationComparison
 
 
 def render_evaluation_report(comparison: EvaluationComparison) -> str:
-    """Render a reviewer-readable single-vs-multi evidence card."""
 
     cost_delta = comparison.multi_cost_usd - comparison.single_cost_usd
     llm_delta = comparison.multi_llm_calls - comparison.single_llm_calls
@@ -69,7 +68,6 @@ def render_evaluation_report(comparison: EvaluationComparison) -> str:
 
 
 def write_evaluation_artifacts(comparison: EvaluationComparison, output_dir: str | Path) -> tuple[Path, Path]:
-    """Write comparison.json and evaluation_report.md."""
 
     output = Path(output_dir)
     output.mkdir(parents=True, exist_ok=True)
@@ -81,7 +79,6 @@ def write_evaluation_artifacts(comparison: EvaluationComparison, output_dir: str
 
 
 def _quality_signal(comparison: EvaluationComparison) -> str:
-    """Summarize quality without overstating benchmark success."""
 
     if comparison.multi_patch_generated and not comparison.single_patch_generated:
         return "multi-agent produced a patch where single-agent did not"
@@ -93,7 +90,6 @@ def _quality_signal(comparison: EvaluationComparison) -> str:
 
 
 def _failure_lens_rows(comparison: EvaluationComparison) -> list[str]:
-    """Map comparison metrics to debugging lenses for the report."""
 
     rows = [
         "| Model / Provider | LLM status, token usage, cost, retry/fallback errors | Provider instability is separated from agent logic failure. |",

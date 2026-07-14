@@ -6,12 +6,10 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable
 
-
 FEEDBACK_OUTCOMES = {"accepted", "needs_work", "rejected"}
 SCHEMA_VERSION = "agent-forge-eval-v1"
 
-
-# PRIMARY ENTRYPOINT: attach one human outcome to existing run evidence.
+# 主要入口：下方定义承接该模块的核心调用。
 def record_feedback(
     target: str | Path,
     *,
@@ -20,12 +18,7 @@ def record_feedback(
     note: str = "",
     reviewer: str = "human",
 ) -> Path:
-    """Persist a human judgment next to a run or benchmark case.
-
-    Called by ``forge eval feedback`` and the evidence console. It records human
-    review only; it never upgrades candidate or local evidence to an official
-    benchmark result.
-    """
+    """把人工 outcome、标签和备注挂接到指定运行证据。"""
 
     target_path = Path(target)
     target_dir = target_path.parent if target_path.is_file() else target_path
@@ -50,8 +43,7 @@ def record_feedback(
     temporary.replace(path)
     return path
 
-
-# PRIMARY ENTRYPOINT: project trace and feedback into privacy-conscious JSONL.
+# 主要入口：下方定义承接该模块的核心调用。
 def export_feedback_dataset(
     targets: Iterable[str | Path],
     output_path: str | Path,
@@ -59,11 +51,7 @@ def export_feedback_dataset(
     require_feedback: bool = False,
     include_patch: bool = False,
 ) -> list[dict[str, Any]]:
-    """Export privacy-conscious run evidence as one JSON object per trace.
-
-    Full tool arguments and observations are intentionally excluded. Candidate
-    patch text is opt-in; the default record keeps only its size and digest.
-    """
+    """筛选可公开字段并导出逐行反馈数据集。"""
 
     records: list[dict[str, Any]] = []
     seen_traces: set[Path] = set()

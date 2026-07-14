@@ -9,40 +9,6 @@ from typing import Any
 
 @dataclass(frozen=True)
 class SkillSpec:
-    """Versioned contract for one reusable agent capability.
-
-    Why this class exists:
-        In production, "Skill" is not just a Python function. It needs a stable
-        name, version, owner, input schema, dependency list, permission scope,
-        and rollback target. Without this explicit contract, a prompt
-        or tool update can silently break downstream agents and there is no
-        reliable way to compare old/new behavior during a regression run.
-
-    Field meanings:
-        name: Stable capability id used by routing and audit logs.
-        version: Semantic-ish version string. The registry keeps multiple
-            versions side by side so canary and rollback are possible.
-        description: Human/model-facing explanation of when the skill should be
-            selected. Bad descriptions are a common source of tool misuse.
-        entrypoint: Import path or service endpoint that implements the skill.
-        input_schema: JSON Schema-like input contract. The runtime can validate
-            or prompt-repair arguments before side effects happen.
-        permissions: Least-privilege scopes required by this skill.
-        dependencies: External systems, datasets, indexes, or tools the skill
-            depends on. This makes rollout risk visible.
-        rollback_to: Previous known-good version. Empty means no automatic
-            rollback target is declared.
-        owner: Team or person responsible for review and incident handling.
-        tags: Optional routing labels such as customer-service/read-only.
-        activation_terms: Task words/phrases that make the runtime select this
-            skill automatically.
-        tool_names: Tool allowlist this skill expects to use. The runtime feeds
-            these into ToolRouter so a selected skill changes real execution.
-        operating_procedure: Concrete steps shown in the prompt when the skill
-            is active.
-        done_criteria: Conditions the agent should satisfy before final answer.
-        failure_modes: Known failure patterns and recovery guidance.
-    """
 
     name: str
     version: str
@@ -62,7 +28,6 @@ class SkillSpec:
 
     @classmethod
     def from_mapping(cls, data: dict[str, Any]) -> "SkillSpec":
-        """Build a SkillSpec from manifest JSON with clear validation errors."""
 
         required = ["name", "version", "description", "entrypoint"]
         missing = [field_name for field_name in required if not data.get(field_name)]
@@ -88,7 +53,6 @@ class SkillSpec:
         )
 
     def to_dict(self) -> dict[str, Any]:
-        """Return a JSON-safe view used by CLI reports and audit snapshots."""
 
         return {
             "name": self.name,
@@ -109,7 +73,6 @@ class SkillSpec:
         }
 
     def prompt_card(self) -> str:
-        """Render this skill as runtime instructions for the active task."""
 
         procedure = "\n".join(f"  {index}. {step}" for index, step in enumerate(self.operating_procedure, 1))
         done = "\n".join(f"  - {item}" for item in self.done_criteria)
@@ -130,41 +93,18 @@ class SkillSpec:
 
 
 class SkillRegistry:
-    """In-memory registry for versioned Skills.
-
-    Why this class exists:
-        Agent tool catalogs grow messy fast. A registry gives the runtime and
-        the operator one place to answer: which skill version is active, what
-        permissions it needs, what it depends on, and how to roll it back. This
-        implementation is intentionally local-file based so the repo remains
-        easy to run, while the contract maps cleanly to a DB/service registry in
-        a larger platform.
-    """
 
     def __init__(self) -> None:
-        """Start with no skills; manifests make registry contents explicit."""
 
         self._skills: dict[str, list[SkillSpec]] = {}
 
     def register(self, spec: SkillSpec) -> None:
-        """Register or replace one skill version.
-
-        Registering the same name/version twice replaces the previous spec.
-        That behavior is useful for local development, while immutable storage
-        should be enforced by a production registry backend.
-        """
 
         versions = [item for item in self._skills.get(spec.name, []) if item.version != spec.version]
         versions.append(spec)
         self._skills[spec.name] = sorted(versions, key=lambda item: _version_key(item.version))
 
     def load_manifest(self, path: str | Path) -> None:
-        """Load one JSON manifest file.
-
-        The file may contain either a single object or a list of objects. Keeping
-        both shapes supported lets small projects start with one file and grow
-        into a catalog without changing the CLI.
-        """
 
         manifest_path = Path(path)
         try:
@@ -181,13 +121,11 @@ class SkillRegistry:
             self.register(SkillSpec.from_mapping(item))
 
     def load_manifests(self, paths: list[str | Path]) -> None:
-        """Load multiple manifests in order; later entries can replace versions."""
 
         for path in paths:
             self.load_manifest(path)
 
     def list_specs(self, *, name: str | None = None) -> list[SkillSpec]:
-        """List registered skills, sorted by name then version."""
 
         if name:
             return list(self._skills.get(name, []))
@@ -197,12 +135,6 @@ class SkillRegistry:
         return specs
 
     def resolve(self, name: str, version: str | None = None) -> SkillSpec:
-        """Return an exact version or the latest registered version.
-
-        The model/router usually asks for a skill by name. Runtime governance
-        resolves that to a concrete immutable version so trace and rollback can
-        reproduce the same behavior later.
-        """
 
         versions = self._skills.get(name, [])
         if not versions:
@@ -215,14 +147,13 @@ class SkillRegistry:
         raise KeyError(f"unknown skill version: {name}@{version}")
 
     def rollback_target(self, name: str, version: str | None = None) -> SkillSpec | None:
-        """Return the declared rollback target for a skill version, if any."""
 
         current = self.resolve(name, version)
         if not current.rollback_to:
             return None
         return self.resolve(name, current.rollback_to)
 
-    # PRIMARY ENTRYPOINT: select the versioned Skills active for one task.
+    # 主要入口：下方定义承接该模块的核心调用。
     def select_for_task(
         self,
         task: str,
@@ -230,13 +161,7 @@ class SkillRegistry:
         names: list[str] | None = None,
         limit: int = 3,
     ) -> list[SkillSpec]:
-        """Select concrete Skill versions for one agent run.
-
-        This is the bridge from "registered capability" to "runtime behavior".
-        If names are provided, exact latest versions are used. Otherwise the
-        selector scores activation terms against the task and falls back to the
-        general coding skill, so a real run always receives usable guidance.
-        """
+        """根据任务和只读约束选择可见 Skill。"""
 
         if names:
             return [self.resolve(name) for name in names]
@@ -266,8 +191,6 @@ class SkillRegistry:
             scored.sort(key=lambda item: (-item[0], item[1].name))
             return [spec for _, spec in scored[:limit]]
 
-        # A user may ask an unusual coding task with no obvious keyword. Give
-        # the runtime a practical default instead of an empty "skills" section.
         fallback = []
         fallback_names = ["repo_orientation"] if read_only_requested else ["targeted_code_edit", "repo_orientation"]
         for name in fallback_names:
@@ -278,7 +201,6 @@ class SkillRegistry:
         return fallback[:limit]
 
     def to_report(self) -> list[dict[str, Any]]:
-        """Return compact audit rows instead of dumping full schemas by default."""
 
         rows = []
         for spec in self.list_specs():
@@ -299,7 +221,6 @@ class SkillRegistry:
 
 
 def _dict_field(data: dict[str, Any], name: str) -> dict[str, Any]:
-    """Validate a manifest object field."""
 
     value = data.get(name, {})
     if not isinstance(value, dict):
@@ -308,7 +229,6 @@ def _dict_field(data: dict[str, Any], name: str) -> dict[str, Any]:
 
 
 def _list_field(data: dict[str, Any], name: str) -> list[str]:
-    """Validate a manifest list-of-string field."""
 
     value = data.get(name, [])
     if not isinstance(value, list) or not all(isinstance(item, str) for item in value):
@@ -317,12 +237,6 @@ def _list_field(data: dict[str, Any], name: str) -> list[str]:
 
 
 def _version_key(version: str) -> tuple[Any, ...]:
-    """Sort semantic-ish versions while tolerating local labels.
-
-    Ordering notes:
-        1.10.0 sorts after 1.2.0.
-        2.0.0-rc1 sorts near 2.0.0 without needing a semver dependency.
-    """
 
     parts: list[Any] = []
     for token in re.split(r"[\.\-\+_]", version):
@@ -334,7 +248,6 @@ def _version_key(version: str) -> tuple[Any, ...]:
 
 
 def _read_only_requested(task_lower: str) -> bool:
-    """Detect user intent to inspect/explain without editing."""
 
     markers = [
         "不要修改",
@@ -353,7 +266,6 @@ def _read_only_requested(task_lower: str) -> bool:
 
 
 def _is_write_skill(spec: SkillSpec) -> bool:
-    """Return whether a skill can write or run validation commands."""
 
     write_tools = {"apply_patch", "write_file", "run_command"}
     return any(tool in write_tools for tool in spec.tool_names) or any(

@@ -50,7 +50,7 @@ class LiveFanoutCoordinator:
         self.max_workers = max(1, min(int(max_workers), 8))
         self.resume_from = resume_from
 
-    # PRIMARY ENTRYPOINT: schedule, merge, recover, and finalize one fanout DAG.
+    # 主要入口：下方定义承接该模块的核心调用。
     def run(self) -> LiveFanoutSummary:
         """执行 dependency-aware worker，并返回可审计的集成结果。"""
 

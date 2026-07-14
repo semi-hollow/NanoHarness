@@ -5,27 +5,19 @@ import urllib.error
 import urllib.request
 from typing import Any
 
-from .domain.conversation import AgentResponse
-from .message import Message
+from .domain.conversation import AgentResponse, Message, ToolCall
 from .llm_config import LLMConfig
 from .structured_output import StructuredOutputParser
-from .tool_call import ToolCall
+
 
 class LLMClient:
-    """Interface used by AgentLoop regardless of the backing provider."""
 
     def chat(self, messages: list[Message], tools: list[dict]) -> AgentResponse:
-        """Return either final content or tool calls for the next loop step."""
 
         raise NotImplementedError
 
 
 class OpenAICompatibleLLMClient(LLMClient):
-    """Small standard-library client for OpenAI-compatible chat completions.
-
-    The project avoids a provider SDK so the protocol is visible: build request,
-    parse choices/message/tool_calls, normalize into AgentResponse.
-    """
 
     def __init__(
         self,
@@ -34,7 +26,6 @@ class OpenAICompatibleLLMClient(LLMClient):
         model: str | None = None,
         timeout: int = 30,
     ) -> None:
-        """Read OpenAI-compatible connection settings from args or env."""
 
         resolved_base_url = base_url or os.getenv("AGENT_FORGE_BASE_URL") or os.getenv("OPENAI_BASE_URL") or ""
         self.base_url = resolved_base_url.rstrip("/")
@@ -44,13 +35,11 @@ class OpenAICompatibleLLMClient(LLMClient):
 
     @classmethod
     def from_env(cls) -> "OpenAICompatibleLLMClient":
-        """Build a client from AGENT_FORGE_* or OPENAI_* environment variables."""
 
         return cls()
 
     @classmethod
     def from_config(cls, config: LLMConfig) -> "OpenAICompatibleLLMClient":
-        """Build a client from resolved CLI/profile/env configuration."""
 
         return cls(
             base_url=config.base_url,
@@ -60,12 +49,10 @@ class OpenAICompatibleLLMClient(LLMClient):
         )
 
     def is_configured(self) -> bool:
-        """Return whether enough connection fields exist for a real API call."""
 
         return bool(self.base_url and self.api_key and self.model)
 
     def chat(self, messages: list[Message], tools: list[dict]) -> AgentResponse:
-        """Send a chat completion request and normalize provider output."""
 
         if not self.is_configured():
             return self._invalid(
@@ -77,8 +64,7 @@ class OpenAICompatibleLLMClient(LLMClient):
             "model": self.model,
             "messages": [self._message_to_dict(m) for m in messages],
             "stream": False,
-            # Local tool schemas are converted to OpenAI function-tool shape so
-            # Ollama/company gateways/OpenAI-compatible services share one path.
+
             "tools": [self._tool_to_openai_schema(t) for t in tools],
         }
         request = urllib.request.Request(
@@ -95,8 +81,7 @@ class OpenAICompatibleLLMClient(LLMClient):
             with urllib.request.urlopen(request, timeout=self.timeout) as response:
                 raw = response.read().decode("utf-8")
         except urllib.error.HTTPError as exc:
-            # HTTPError is also a URLError, but it carries a response body.
-            # Reading it makes provider-specific 400 messages visible in trace.
+
             raw = exc.read().decode("utf-8", errors="replace")
             return self._invalid("request_failed", f"HTTP Error {exc.code}: {exc.reason}", raw[:1000])
         except (urllib.error.URLError, TimeoutError, OSError, http.client.IncompleteRead) as exc:
@@ -110,11 +95,6 @@ class OpenAICompatibleLLMClient(LLMClient):
         return self.parse_response(data)
 
     def parse_response(self, data: dict[str, Any]) -> AgentResponse:
-        """Parse OpenAI-compatible response JSON into AgentResponse.
-
-        Provider responses are treated defensively. Missing choices/message or
-        empty output become structured errors so ModelGateway can retry/fallback.
-        """
 
         try:
             choices = data.get("choices")
@@ -138,7 +118,6 @@ class OpenAICompatibleLLMClient(LLMClient):
             return self._invalid("parse_failed", str(exc))
 
     def _parse_tool_calls(self, message: dict[str, Any]) -> list[ToolCall]:
-        """Handle both modern `tool_calls` and legacy `function_call` shapes."""
 
         calls = []
         raw_calls = message.get("tool_calls") or []
@@ -152,10 +131,7 @@ class OpenAICompatibleLLMClient(LLMClient):
                 raise ValueError("tool call missing function name")
             arguments = fn.get("arguments", {})
             if isinstance(arguments, str):
-                # Providers send function arguments as JSON strings; local tools
-                # expect dicts so registry validation can inspect them. Use the
-                # structured-output parser here so malformed/fenced JSON is
-                # treated the same way as other LLM structured outputs.
+
                 parser = StructuredOutputParser({"type": "object"})
                 result = parser.parse(arguments or "{}")
                 if not result.ok:
@@ -172,12 +148,9 @@ class OpenAICompatibleLLMClient(LLMClient):
         return calls
 
     def _message_to_dict(self, message: Message) -> dict[str, Any]:
-        """Convert internal Message into chat-completions message format."""
 
         item: dict[str, Any] = {"role": message.role, "content": message.content}
-        # OpenAI-compatible providers differ on whether tool-role messages may
-        # include `name`. `tool_call_id` is the modern linkage; omitting `name`
-        # keeps DeepSeek and stricter gateways happy.
+
         if message.name and message.role != "tool":
             item["name"] = message.name
         if message.tool_call_id:
@@ -189,7 +162,6 @@ class OpenAICompatibleLLMClient(LLMClient):
         return item
 
     def _tool_to_openai_schema(self, schema: dict[str, Any]) -> dict[str, Any]:
-        """Convert local tool schema into OpenAI function-tool schema."""
 
         if schema.get("type") == "function":
             return schema
@@ -212,7 +184,6 @@ class OpenAICompatibleLLMClient(LLMClient):
         }
 
     def _json_type(self, typ: Any) -> str:
-        """Map local shorthand argument types to JSON Schema primitive types."""
 
         if typ in {"int", "integer"}:
             return "integer"
@@ -227,7 +198,6 @@ class OpenAICompatibleLLMClient(LLMClient):
         return "string"
 
     def _invalid(self, code: str, message: str, raw: str = "") -> AgentResponse:
-        """Return provider/parse failures as data instead of throwing upward."""
 
         return AgentResponse(
             None,

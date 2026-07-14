@@ -2,7 +2,7 @@ import unittest
 import tempfile
 from pathlib import Path
 
-from agent_forge.evaluation.mini_cases import evaluate_mini_case, load_mini_cases, write_mini_case_report
+from agent_forge.evaluation.api import evaluate_mini_case, load_mini_cases, write_mini_case_report
 
 
 class MiniCasesTest(unittest.TestCase):

@@ -3,7 +3,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from agent_forge.evaluation.scorecard import build_benchmark_scorecard, write_benchmark_scorecard
+from agent_forge.evaluation.api import build_benchmark_scorecard, write_benchmark_scorecard
 
 
 class EvaluationScorecardTest(unittest.TestCase):

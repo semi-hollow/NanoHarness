@@ -7,17 +7,6 @@ from typing import Any
 
 @dataclass
 class BenchCase:
-    """One external coding task normalized from SWE-bench.
-
-    Why every field matters:
-        ``instance_id`` is the stable benchmark id used by official evaluation.
-        ``repo`` tells the runner which GitHub repository to clone.
-        ``base_commit`` pins the exact pre-fix state; without it, results are
-        irreproducible.
-        ``problem_statement`` is the issue text given to the agent.
-        ``test_patch`` and ``hints_text`` are optional SWE-bench metadata kept
-        for reports, but the agent should not need gold patches to act.
-    """
 
     instance_id: str
     repo: str
@@ -29,7 +18,6 @@ class BenchCase:
 
     @classmethod
     def from_mapping(cls, data: dict[str, Any]) -> "BenchCase":
-        """Build from HuggingFace/JSONL row while tolerating schema variants."""
 
         instance_id = str(data.get("instance_id") or data.get("id") or "")
         repo = str(data.get("repo") or data.get("repository") or "")
@@ -60,7 +48,6 @@ class BenchCase:
 
 @dataclass
 class BenchCaseResult:
-    """Outcome for one generated prediction before or after official eval."""
 
     instance_id: str
     repo: str
@@ -84,7 +71,6 @@ class BenchCaseResult:
     next_actions: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
-        """Serialize result data for ``results.json`` and reports."""
 
         return {
             "instance_id": self.instance_id,
@@ -112,7 +98,6 @@ class BenchCaseResult:
 
 @dataclass
 class BenchRunSummary:
-    """Top-level benchmark run state used by the result card."""
 
     run_id: str
     dataset_name: str
@@ -147,7 +132,6 @@ class BenchRunSummary:
     notes: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
-        """Serialize summary data for machine-readable artifacts."""
 
         return {
             "run_id": self.run_id,

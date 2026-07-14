@@ -4,7 +4,6 @@ from typing import Any
 
 
 def render_benchmark_scorecard(scorecard: dict[str, Any]) -> str:
-    """Render a scorecard without discovering or interpreting artifacts."""
 
     metadata = scorecard.get("metadata") or {}
     metrics = scorecard.get("metrics") or {}

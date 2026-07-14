@@ -8,17 +8,9 @@ from agent_forge.evaluation.api import write_benchmark_scorecard
 
 from agent_forge.bench.domain.models import BenchRunSummary
 
-
-# PRIMARY ENTRYPOINT: finalize machine-readable and human benchmark artifacts.
+# 主要入口：下方定义承接该模块的核心调用。
 def write_bench_artifacts(summary: BenchRunSummary) -> tuple[Path, Path]:
-    """Write ``results.json`` and the human result card.
-
-    The result card is the artifact a reviewer should read first. It separates
-    three ideas that are often confused:
-        generated patch: the agent produced a diff;
-        official evaluation: SWE-bench Docker harness judged the patch;
-        runtime evidence: trace/usage explain how the patch was produced.
-    """
+    """在最终诊断完成后发布 benchmark JSON 与报告。"""
 
     summary.output_dir.mkdir(parents=True, exist_ok=True)
     results_json = summary.output_dir / "results.json"
@@ -31,7 +23,6 @@ def write_bench_artifacts(summary: BenchRunSummary) -> tuple[Path, Path]:
 
 
 def render_bench_report(summary: BenchRunSummary) -> str:
-    """Render a concise SWE-bench result card."""
 
     status_counts = Counter(result.status for result in summary.case_results)
     local_eval_counts = Counter(result.local_validation_status for result in summary.case_results)
@@ -219,7 +210,6 @@ def render_bench_report(summary: BenchRunSummary) -> str:
 
 
 def _variant_cell(variant: dict) -> str:
-    """Render one variant in the baseline comparison table."""
 
     patch = "patch" if variant.get("patch_generated") else "no patch"
     failure = str(variant.get("failure_class") or "-")
@@ -227,7 +217,6 @@ def _variant_cell(variant: dict) -> str:
 
 
 def _variant_names(comparisons: dict[str, dict]) -> list[str]:
-    """Return stable columns for whichever variants were actually recorded."""
 
     preferred = ["direct_baseline", "agent_runtime", "single_agent", "multi_agent", "governed_agent"]
     names: set[str] = set()
@@ -241,6 +230,5 @@ def _variant_names(comparisons: dict[str, dict]) -> list[str]:
 
 
 def _table_cell(value: str) -> str:
-    """Keep generated Markdown tables readable."""
 
     return (value or "").replace("|", "\\|").replace("\n", " ").strip()

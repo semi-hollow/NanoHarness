@@ -3,7 +3,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from agent_forge.evaluation.experiment import compare_benchmark_scorecards, write_ablation_comparison
+from agent_forge.evaluation.api import compare_benchmark_scorecards, write_ablation_comparison
 
 
 def _scorecard(run_id, cases, *, model="deepseek-chat", routing="task-aware"):

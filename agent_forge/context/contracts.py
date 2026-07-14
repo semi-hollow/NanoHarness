@@ -1,4 +1,4 @@
-"""Context capability 的稳定契约。
+"""Context 能力的稳定契约。
 
 Runtime 只需要读取有限的 memory 视图；检索和压缩仍由 Context 负责。Protocol 避免
 上下文组装依赖具体的进程内 ``Memory`` 实现。
@@ -20,6 +20,5 @@ class ContextMemory(Protocol):
 
     def summary(self, max_chars: int = 800, agent_name: str = "agent") -> str:
         """返回适合模型上下文的有界摘要。"""
-
 
 __all__ = ["ContextMemory"]

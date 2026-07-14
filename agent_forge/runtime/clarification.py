@@ -3,42 +3,19 @@ from dataclasses import dataclass, field
 
 @dataclass(frozen=True)
 class ClarificationDecision:
-    """Runtime decision for ambiguous or unsupported user requests.
 
-    This is a policy object, not a prompt trick. It answers a common product
-    question: when should an Agent ask the user instead of guessing?
-    """
-
-    # proceed: run normally; ask: stop and request one missing detail; refuse:
-    # reject tasks outside the harness boundary.
     action: str
-
-    # Confidence that the runtime has enough information to start safely.
     confidence: float
-
-    # Human-readable reason written to trace for debugging and walkthroughs.
     reason: str
-
-    # One concise question to ask the user when action == "ask".
     question: str = ""
-
-    # Missing fields such as target_file, desired_behavior, validation_command.
     missing_fields: list[str] = field(default_factory=list)
 
     def needs_user_input(self) -> bool:
-        """Return whether AgentLoop should stop and ask before executing."""
 
         return self.action == "ask"
 
 
 class ClarificationPolicy:
-    """Heuristic clarification gate before the first LLM/tool step.
-
-    Production systems usually combine rules, intent models, and business
-    policy. This project keeps it deterministic so the design is easy to read:
-    risky ambiguity stops early, normal coding tasks continue, and the decision
-    is always trace-visible.
-    """
 
     vague_references = {
         "这个",
@@ -85,7 +62,6 @@ class ClarificationPolicy:
     unsupported_topics = {"训练模型", "微调模型", "视频生成", "多模态训练", "上线支付", "真实转账"}
 
     def decide(self, task: str) -> ClarificationDecision:
-        """Classify the user task before any autonomous tool execution."""
 
         text = (task or "").strip()
         lowered = text.lower()
@@ -112,10 +88,9 @@ class ClarificationPolicy:
         has_vague_reference = any(token in lowered or token in text for token in self.vague_references)
 
         missing = []
-        # Do not over-clarify short coding tasks such as "fix" or read-only
-        # repo-orientation tasks such as "看这个项目". A coding agent can inspect
-        # the repo and tests to discover the target. Stop only when the user
-        # uses a vague reference that the runtime cannot ground.
+
+        # 对“看这个项目”这类仓库导览任务，Agent 可以先检查项目，再判断是否确实需要追问。
+
         if has_vague_reference and not has_target:
             missing.append("referenced_object")
 

@@ -6,7 +6,6 @@ from typing import Any
 
 @dataclass(frozen=True)
 class MiniAgentCase:
-    """Small deterministic scenario for general Agent evaluation."""
 
     case_id: str
     domain: str
@@ -19,7 +18,6 @@ class MiniAgentCase:
 
 @dataclass(frozen=True)
 class MiniCaseEvaluation:
-    """Explicit evidence scorecard for one mini case."""
 
     case_id: str
     status: str
@@ -39,7 +37,6 @@ def evaluate_mini_case(
     case: MiniAgentCase,
     evidence: dict[str, Any] | None = None,
 ) -> MiniCaseEvaluation:
-    """Score one mini case from explicit evidence instead of model judgment."""
 
     evidence = evidence or {}
     scores = {

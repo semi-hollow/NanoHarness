@@ -1,5 +1,3 @@
-"""Multi-Agent outbound ports。"""
-
 from .live import (
     FanoutArtifactPort,
     FanoutWorkerPort,

@@ -3,29 +3,15 @@ from dataclasses import dataclass
 
 @dataclass(frozen=True)
 class PlanningModeDecision:
-    """Explain whether a run should be ReAct-first or plan-first."""
 
-    # react: decide one tool at a time; plan_execute: make plan then act;
-    # workflow: deterministic path is enough; answer_only: no tools needed.
     mode: str
-
-    # Why this mode was selected. Written to trace for audit/debug evidence.
     reason: str
-
-    # Estimated task complexity used by docs and trace.
     complexity: str
 
 
 class PlanningModePolicy:
-    """Select a planning style from the task shape.
-
-    The current AgentLoop remains ReAct-driven, but exposing this policy lets
-    the project answer "when use Workflow, Plan-and-Execute, or ReAct?" with
-    code evidence instead of only prose.
-    """
 
     def decide(self, task: str) -> PlanningModeDecision:
-        """Return the planning mode that best matches the task."""
 
         lowered = (task or "").lower()
         if any(word in lowered for word in ["explain", "介绍", "讲一下", "说明"]):

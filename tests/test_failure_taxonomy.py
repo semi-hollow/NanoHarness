@@ -3,8 +3,11 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from agent_forge.bench.diagnostics import diagnose_case_result
-from agent_forge.bench.types import BenchCaseResult
+from agent_forge.bench.adapters.case_evidence import JsonCaseEvidenceReader
+from agent_forge.bench.application.diagnostics import DiagnoseBenchCase
+from agent_forge.bench.domain.models import BenchCaseResult
+
+diagnose_case_result = DiagnoseBenchCase(JsonCaseEvidenceReader()).diagnose
 
 
 class FailureTaxonomyTest(unittest.TestCase):

@@ -9,7 +9,6 @@ from agent_forge.runtime.git_workspace import collect_workspace_diff
 
 
 class SwebenchWorkspaceManager:
-    """Create exact-base-commit worktrees while reusing a repository cache."""
 
     def __init__(self, repo_cache: Path, output_dir: Path) -> None:
         self.repo_cache = repo_cache.resolve()
@@ -87,7 +86,6 @@ class SwebenchWorkspaceManager:
 
 
 def ensure_clean_git(workspace: Path) -> None:
-    """Reset a generated benchmark workspace to its exact base state."""
 
     subprocess.run(
         ["git", "-C", str(workspace), "reset", "--hard"],

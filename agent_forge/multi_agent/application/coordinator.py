@@ -12,12 +12,6 @@ from .dependencies import SequentialCoordinatorDependencies
 
 
 class MultiAgentCoordinator:
-    """Deterministic coordinator that reuses AgentLoop for each role.
-
-    The coordinator is deliberately not a swarm, quorum system, or peer-to-peer
-    chat room. It owns the workflow order, passes information through explicit
-    artifacts, and lets reviewer/verifier roles trigger bounded revision rounds.
-    """
 
     def __init__(
         self,
@@ -44,14 +38,9 @@ class MultiAgentCoordinator:
         )
         self._event_step = 0
 
-    # PRIMARY ENTRYPOINT: run the bounded Implementer/Reviewer/Verifier workflow.
+    # 主要入口：下方定义承接该模块的核心调用。
     def run(self) -> MultiAgentRunSummary:
-        """Run the sequential role profile and write auditable artifacts.
-
-        ``run_repository_task`` calls this for ``--agent-mode multi``. Every
-        role reuses ``AgentLoop.run``; this coordinator owns only role order,
-        artifact handoff, bounded revision, and the final summary/report.
-        """
+        """按角色顺序执行 Implementer、Reviewer、Verifier 和有界修订。"""
 
         summary = MultiAgentRunSummary(
             run_id=self.trace.run_id,
@@ -172,7 +161,6 @@ class MultiAgentCoordinator:
         return summary
 
     def _run_role(self, role: RoleSpec, round_index: int) -> RoleRunResult:
-        """Run one role through AgentLoop and persist its final answer."""
 
         self._trace("agent_stage_start", agent_name=role.name, role=role.to_dict(), round_index=round_index)
         role_task = self._build_role_task(role, round_index)
@@ -227,7 +215,6 @@ class MultiAgentCoordinator:
             )
 
     def _role_config(self, role: RoleSpec, round_index: int) -> RuntimeConfig:
-        """Derive a role-specific RuntimeConfig without mutating the base config."""
 
         role_steps = min(self.base_config.max_steps, role.max_steps) if self.base_config.max_steps else role.max_steps
         approval_mode = "dry-run" if role.read_only else getattr(self.base_config, "approval_mode", "trusted")
@@ -239,14 +226,12 @@ class MultiAgentCoordinator:
         )
 
     def _tools_for_role(self, role: RoleSpec, round_index: int) -> list[str]:
-        """Return the tool allowlist for this role and revision round."""
 
         if round_index > 0 and role.revision_allowed_tools is not None:
             return role.revision_allowed_tools
         return role.allowed_tools
 
     def _build_role_task(self, role: RoleSpec, round_index: int) -> str:
-        """Create the role prompt from task, role policy, and artifact handoff."""
 
         return "\n".join(
             [
@@ -275,7 +260,6 @@ class MultiAgentCoordinator:
         )
 
     def _decision_for_role(self, role: RoleSpec, final_answer: str) -> str:
-        """Parse simple decision markers from review/verifier outputs."""
 
         if final_answer.startswith("blocked:"):
             return "BLOCKED"
@@ -301,7 +285,6 @@ class MultiAgentCoordinator:
         return "COMPLETED"
 
     def _looks_like_unfinished_tool_output(self, final_answer: str) -> bool:
-        """Detect provider-specific tool markup that leaked into final output."""
 
         text = (final_answer or "").strip()
         if not text:
@@ -316,23 +299,12 @@ class MultiAgentCoordinator:
         return any(marker in head for marker in raw_tool_markers)
 
     def _blocked_after_candidate_patch(self, blocked_by: str) -> bool:
-        """Distinguish an unverified candidate patch from a total multi-agent failure.
-
-        SWE-bench showcase runs sometimes produce the right patch, then the
-        verifier hits an environment/tool limit while trying to validate it.
-        For reporting and UI purposes that is materially different from
-        "nothing happened": there is a concrete diff to inspect, but official
-        correctness is still unproven. The coordinator therefore reports
-        ``patch_generated`` only when the blocker is a verifier role and the
-        workspace has a non-empty git diff.
-        """
 
         if blocked_by not in self.profile.verifier_roles:
             return False
         return self._candidate_patch_exists()
 
     def _candidate_patch_exists(self) -> bool:
-        """Return whether the role run left a concrete workspace diff behind."""
 
         return self.candidate_patch.exists()
 
@@ -342,7 +314,6 @@ class MultiAgentCoordinator:
         success: bool = True,
         **kwargs: JsonValue,
     ) -> None:
-        """Emit coordinator-level trace events with monotonic synthetic steps."""
 
         self._event_step += 1
         agent_name = str(kwargs.pop("agent_name", "MultiAgentCoordinator"))
@@ -356,12 +327,10 @@ class MultiAgentCoordinator:
 
 
 def _normalize_decision_line(line: str) -> str:
-    """Normalize a role verdict line without depending on exact markdown style."""
 
     return line.strip().strip("*#:- `").replace("：", ":").upper()
 
 
 def _line_has_marker(line: str, markers: list[str]) -> bool:
-    """Return true when a line begins with an explicit decision marker."""
 
     return any(line.startswith(marker.upper()) for marker in markers)

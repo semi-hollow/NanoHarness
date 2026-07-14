@@ -1,4 +1,1 @@
-"""Stable public API for evaluation and evidence comparison."""
-
-from .api import *  # noqa: F403
-from .api import __all__
+"""Evaluation 能力包；外围调用统一从 ``agent_forge.evaluation.api`` 进入。"""

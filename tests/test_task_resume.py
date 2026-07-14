@@ -2,11 +2,12 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from agent_forge.observability.trace import TraceRecorder
-from agent_forge.runtime.agent_loop import AgentLoop
+from agent_forge.observability.api import TraceRecorder
+from agent_forge.runtime.adapters import JsonTaskStateRepository
+from agent_forge.runtime.api import build_agent_loop
 from agent_forge.runtime.config import RuntimeConfig
 from agent_forge.runtime.llm_client import AgentResponse
-from agent_forge.runtime.task_state import TaskRunStatus, TaskStateStore
+from agent_forge.runtime.domain.task import TaskRunStatus
 from agent_forge.tools.registry import ToolRegistry
 
 
@@ -25,7 +26,7 @@ class TaskResumeTest(unittest.TestCase):
     def test_resume_state_seeds_context_and_trace(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            old_store = TaskStateStore(root / "old_state")
+            old_store = JsonTaskStateRepository(root / "old_state")
             old_checkpoint = old_store.start(
                 "old-run",
                 "fix original failure",
@@ -52,7 +53,7 @@ class TaskResumeTest(unittest.TestCase):
                 resume_state=str(old_store.path_for("old-run")),
             )
 
-            final = AgentLoop(config, trace, ToolRegistry(), llm).run("continue the fix")
+            final = build_agent_loop(config, trace, ToolRegistry(), llm).run("continue the fix")
 
             self.assertIn("continued from checkpoint", final)
             self.assertIn("resume_from_run=old-run", llm.system_context)

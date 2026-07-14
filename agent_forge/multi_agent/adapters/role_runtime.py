@@ -53,5 +53,4 @@ class GitCandidatePatch:
         except (OSError, RuntimeError, TimeoutError):
             return False
 
-
 from .git_workspace import GitFanoutWorkspace  # noqa: E402

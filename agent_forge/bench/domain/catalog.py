@@ -1,5 +1,3 @@
-"""Named benchmark datasets used for reproducible demos and regressions."""
-
 DEFAULT_DATASET = "princeton-nlp/SWE-bench_Lite"
 SHOWCASE_INSTANCE_ID = "astropy__astropy-12907"
 SHOWCASE_INSTANCE_NOTE = (

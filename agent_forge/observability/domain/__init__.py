@@ -1,5 +1,3 @@
-"""Trace facts and pure evidence projections."""
-
 from .event import TraceEvent, TraceEventType, TraceRecord
 from .evidence import EvidenceItem, EvidenceLedger
 from .metrics import summarize, summarize_trace

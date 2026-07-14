@@ -58,7 +58,7 @@ class AgentLoop:
         )
         self.final_answer = FinalAnswerBuilder(dependencies.events)
 
-    # PRIMARY ENTRYPOINT: execute the complete single-agent control loop.
+    # 主要入口：下方定义承接该模块的核心调用。
     def run(self, task: str, agent_name: str = "CodingAgent") -> str:
         """运行四个阶段：start -> prepare -> turn loop -> stop。
 

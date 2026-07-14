@@ -286,7 +286,7 @@ Read Model；否则应使用类型化对象。
 - 每个复杂能力只有一个推荐入口文件 `api.py`。
 - `api.py` 只导出稳定 Request、Result 和 Use Case，不导出 Adapter。
 - 跨能力导入只能指向对方的 `api.py`、`contracts.py` 或 Ports。
-- 历史导入路径可以保留薄兼容层，但不能继续承载业务逻辑。
+- 内部重构直接迁移调用方和测试，不长期保留历史导入 facade。
 - `__init__.py` 不执行装配、不创建对象、不引入重量级循环依赖。
 - 入口方法使用 `# PRIMARY ENTRYPOINT:` 标记，并通过导航测试保护。
 

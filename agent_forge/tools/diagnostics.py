@@ -11,12 +11,6 @@ from .base import Tool
 
 
 class DiagnosticsTool(Tool):
-    """Run lightweight code diagnostics inside the workspace.
-
-    This is the project-level stand-in for LSP diagnostics. It gives the agent
-    structured validation beyond "run all tests": compile a file/tree, run
-    unittest discovery, and report failures as observations.
-    """
 
     name = "diagnostics"
     description = "run python compile or unittest diagnostics"
@@ -26,13 +20,11 @@ class DiagnosticsTool(Tool):
         sandbox: WorkspaceSandbox,
         execution_environment: ExecutionEnvironment | None = None,
     ) -> None:
-        """Store sandbox so target paths cannot escape the workspace."""
 
         self.sandbox = sandbox
         self.execution_environment = execution_environment
 
     def schema(self) -> ToolSchema:
-        """Expose optional target and kind arguments to the LLM."""
 
         return {
             "name": self.name,
@@ -42,7 +34,6 @@ class DiagnosticsTool(Tool):
         }
 
     def execute(self, arguments: ToolArguments) -> Observation:
-        """Run compile or unittest diagnostics and return concise evidence."""
 
         kind = arguments.get("kind", "compile")
         target = arguments.get("target", ".")
@@ -53,7 +44,6 @@ class DiagnosticsTool(Tool):
         return Observation(self.name, False, f"unknown diagnostics kind: {kind}")
 
     def _compile(self, target: str) -> Observation:
-        """Compile a Python file or every Python file under a directory."""
 
         root = self.sandbox.ensure_safe_path(target)
         if self.execution_environment is not None:
@@ -81,12 +71,6 @@ class DiagnosticsTool(Tool):
         return Observation(self.name, True, f"compile ok: {len(files)} python files")
 
     def _unittest(self, target: str) -> Observation:
-        """Run unittest diagnostics for a directory or a single test file.
-
-        Real models often ask diagnostics to run one specific test file after a
-        patch. Supporting that here keeps validation inside the diagnostics tool
-        instead of pushing the model toward blocked shell commands.
-        """
 
         command = self._unittest_command(target)
         if isinstance(command, Observation):
@@ -113,14 +97,6 @@ class DiagnosticsTool(Tool):
         return Observation(self.name, proc.returncode == 0, f"exit_code={proc.returncode}\n{output}")
 
     def _unittest_command(self, target: str) -> list[str] | Observation:
-        """Normalize common LLM target forms into one unittest command.
-
-        Models naturally alternate between file paths
-        (``astropy/modeling/tests/test_x.py``), path-like module stems
-        (``astropy/modeling/tests/test_x``), and dotted module names
-        (``astropy.modeling.tests.test_x``). Without this normalization the
-        agent wastes steps on validation syntax instead of the code fix itself.
-        """
 
         target = (target or ".").strip() or "."
         if "/" not in target and "\\" not in target and "." in target and not target.startswith(".") and not target.endswith(".py"):

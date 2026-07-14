@@ -4,12 +4,10 @@ import os
 import subprocess
 from pathlib import Path
 
-
 RESERVED_UNTRACKED_ROOTS = {".agent_forge"}
 
 
 def collect_workspace_diff(workspace: str | Path) -> str:
-    """Return a HEAD-relative binary patch including untracked files."""
 
     root = Path(workspace).resolve()
     tracked = _tracked_diff(root)
@@ -41,7 +39,6 @@ def collect_workspace_diff(workspace: str | Path) -> str:
 
 
 def collect_changed_files(workspace: str | Path) -> list[str]:
-    """Return sorted tracked and untracked paths changed from HEAD."""
 
     root = Path(workspace).resolve()
     tracked = _git_name_list(root, ["diff", "HEAD", "--name-only", "-z", "--", "."])
@@ -51,7 +48,6 @@ def collect_changed_files(workspace: str | Path) -> list[str]:
 
 
 def collect_workspace_status(workspace: str | Path) -> list[str]:
-    """Return porcelain status while ignoring untracked runtime artifacts."""
 
     root = Path(workspace).resolve()
     result = _run_git(root, ["status", "--porcelain", "--untracked-files=all"])

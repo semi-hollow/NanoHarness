@@ -1,10 +1,4 @@
 def summarize(events: list[dict]) -> dict:
-    """Aggregate trace events into the counters shown in reports.
-
-    These counters are intentionally simple but operationally relevant: tool count,
-    failed tool count, handoff count, approval count, guardrail blocks, and
-    duration are the first layer of Agent observability.
-    """
 
     numeric_steps = [int(event.get("step", 0) or 0) for event in events]
     return {
@@ -45,6 +39,5 @@ def summarize(events: list[dict]) -> dict:
 
 
 def summarize_trace(trace: dict) -> dict:
-    """Summarize a full trace dict by reading its `events` list."""
 
     return summarize(trace.get("events", []))

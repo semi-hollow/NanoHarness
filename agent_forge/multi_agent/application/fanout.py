@@ -14,11 +14,9 @@ from ..domain.fanout import (
     detect_write_scope_conflicts,
 )
 
-
 Runner = Callable[[SubagentTask], Any]
 
-
-# PRIMARY ENTRYPOINT: execute the in-process fanout prototype.
+# 主要入口：下方定义承接该模块的核心调用。
 def run_fanout(
     tasks: list[SubagentTask],
     runner: Runner,

@@ -5,13 +5,15 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from agent_forge.forge_cli import build_parser
-from agent_forge.runtime.approval import ApprovalStore
-from agent_forge.ui import (
+from agent_forge.cli.parser import build_parser
+from agent_forge.runtime.adapters import JsonApprovalRepository
+from agent_forge.workbench.presentation.commands import (
+    build_agent_run_command as _build_agent_run_command,
+    build_swebench_command as _build_swebench_command,
+)
+from agent_forge.workbench.presentation.http import (
     INDEX_HTML,
     _action_to_command,
-    _build_agent_run_command,
-    _build_swebench_command,
     _latest_report_path,
     _latest_run_dir,
     _render_evidence_html,
@@ -154,7 +156,7 @@ class PublicCliSmokeTest(unittest.TestCase):
     def test_approve_cli_updates_pending_request(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            store = ApprovalStore(root / "approvals")
+            store = JsonApprovalRepository(root / "approvals")
             request = store.request(
                 tool_name="apply_patch",
                 arguments={"path": "target.py", "old": "a", "new": "b"},
@@ -419,8 +421,6 @@ class PublicCliSmokeTest(unittest.TestCase):
         self.assertNotIn(" · ", html)
 
     def test_ui_surfaces_runtime_control_and_feedback_operations(self):
-        from agent_forge.ui import INDEX_HTML
-
         self.assertIn("NanoHarness Evidence Console", INDEX_HTML)
         self.assertIn("Runtime Controls", INDEX_HTML)
         self.assertIn("Orchestration", INDEX_HTML)

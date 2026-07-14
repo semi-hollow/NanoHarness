@@ -3,25 +3,16 @@ from dataclasses import dataclass
 
 @dataclass(frozen=True)
 class ToolRoute:
-    """Candidate tools selected for one LLM turn."""
+    """一次工具可见性决策，明确记录展示、隐藏和治理元数据。"""
 
-    # Schemas actually sent to the model this turn.
     schemas: list[dict]
-
-    # Tool names allowed after routing. Trace uses this to explain omissions.
     allowed_names: set[str]
-
-    # Short human-readable routing explanation.
     reason: str
-
-    # Tools withheld from the model to reduce overload or risk.
     dropped_names: list[str]
-
-    # Capability/risk/latency tags for each exposed tool.
     metadata: dict[str, dict]
 
     def policy_summary(self) -> dict[str, object]:
-        """Return report-friendly tool routing facts for this turn."""
+        """生成可写入 trace 和 UI 的真实路由摘要。"""
 
         return {
             "allowed_tools": sorted(self.allowed_names),
@@ -32,13 +23,7 @@ class ToolRoute:
 
 
 class ToolRouter:
-    """Route a large tool catalog down to task-relevant candidates.
-
-    The local project has only a handful of tools, but the design mirrors a
-    production tool gateway: classify tools by capability/risk, keep read-only
-    discovery cheap, and expose write/command tools only when the task needs
-    them. This is the answer to "what if there are 100+ APIs?"
-    """
+    """根据任务、Skill 和运行模式收敛模型可见的工具集合。"""
 
     DEFAULT_METADATA = {
         "list_files": {"capability": "discover", "risk": "low", "latency": "low", "mode": "read"},
@@ -54,7 +39,7 @@ class ToolRouter:
         "run_command": {"capability": "validate", "risk": "high", "latency": "medium", "mode": "command"},
     }
 
-    # PRIMARY ENTRYPOINT: choose the tool schemas visible to one model turn.
+    # 主要入口：下方定义承接该模块的核心调用。
     def route(
         self,
         task: str,
@@ -65,13 +50,7 @@ class ToolRouter:
         skill_tool_names: set[str] | None = None,
         mode: str = "task-aware",
     ) -> ToolRoute:
-        """Return the governed model-visible tool set for one reasoning step.
-
-        ``AgentLoop.run`` calls this before the model. The returned ``ToolRoute``
-        carries both schemas used by the API call and allowed/hidden evidence
-        written to trace; execution remains separately guarded by hooks and the
-        registry.
-        """
+        """返回本轮允许展示给模型的 schema，并保留隐藏原因证据。"""
 
         lowered = (task or "").lower()
         by_name = {schema.get("name", ""): schema for schema in schemas}
@@ -119,15 +98,12 @@ class ToolRouter:
         ):
             read_only_requested = False
 
-        # Discovery tools are always useful and safe. They keep context/tool
-        # selection robust even when the task text is short.
         selected = {
             name
             for name in names
             if self.DEFAULT_METADATA.get(name, {}).get("capability") in {"discover", "inspect", "search"}
         }
-        # Human input is a fail-closed control signal, not an executable side
-        # effect. Keep it visible so newly discovered ambiguity can pause a run.
+
         selected |= names & {"ask_human"}
 
         if not read_only_requested and any(
@@ -141,19 +117,11 @@ class ToolRouter:
         if any(token in lowered for token in ["clarify", "unclear", "ambiguous", "澄清", "不明确"]):
             selected |= names & {"ask_human"}
 
-        # Active Skills are allowed to widen the routed tool set. This is the
-        # practical difference between a passive Skill manifest and a runtime
-        # Skill: once selected, its expected tools become available this turn.
         if skill_tool_names:
             selected |= names & skill_tool_names
         if read_only_requested:
             selected -= {"apply_patch", "write_file", "run_command"}
 
-        # SWE-bench cases routinely tempt models into shell snippets, pipes,
-        # redirection, `/tmp` scratch files, or helper scripts. Those actions
-        # are either blocked or waste scarce benchmark steps. For benchmark
-        # repair, keep validation available through diagnostics and edits
-        # available through apply_patch, but hide general write_file/run_command.
         if "swe-bench" in lowered or "swebench" in lowered:
             selected -= {"run_command", "write_file"}
             selected |= names & {"apply_patch", "diagnostics", "git_diff", "git_status"}
@@ -166,8 +134,6 @@ class ToolRouter:
             if "mcp" in lowered or "tool" in lowered or "policy" in lowered or any(term in searchable for term in task_terms):
                 selected.add(name)
 
-        # Role allowlists may leave no discovery tool. In that case preserve the
-        # role's entire view; the allowlist is already a stricter boundary.
         if not selected:
             selected = set(names)
 

@@ -4,7 +4,6 @@ from typing import Any
 
 
 def render_trace_summary(trace: dict[str, Any]) -> str:
-    """Render one trace read model without filesystem side effects."""
 
     metrics = trace.get("metrics", {})
     lines = [

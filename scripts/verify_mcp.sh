@@ -1,17 +1,16 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-# Purpose:
-#   Verify the MCP path without requiring external services:
-#     1. start the built-in stdio MCP server,
-#     2. discover tool schemas,
-#     3. call a tool directly through MCPStdioClient,
-#     4. load the same server through mcp_tools.json into ToolRegistry.
+# 用途：
+#   在不依赖外部服务的情况下验证 MCP 路径：
+#     1. 启动内置 stdio MCP server；
+#     2. 发现工具 schema；
+#     3. 通过 MCPStdioClient 直接调用工具；
+#     4. 通过 mcp_tools.json 把同一 server 加载到 ToolRegistry。
 #
-# Network behavior:
-#   This script intentionally leaves AGENT_FORGE_WEB_PROVIDER=offline. It proves
-#   the MCP protocol and tool registration path on company machines. For live
-#   lookup, run the same config with:
+# 网络行为：
+#   本脚本有意保持 AGENT_FORGE_WEB_PROVIDER=offline，用于在受限机器上证明 MCP 协议和
+#   工具注册路径。需要真实联网查询时，使用同一配置并增加：
 #     AGENT_FORGE_MCP_ALLOW_NETWORK=1 AGENT_FORGE_WEB_PROVIDER=duckduckgo ...
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

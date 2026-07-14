@@ -2,8 +2,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from agent_forge.bench.report import render_bench_report, write_bench_artifacts
-from agent_forge.bench.types import BenchCaseResult, BenchRunSummary
+from agent_forge.bench.domain.models import BenchCaseResult, BenchRunSummary
+from agent_forge.bench.presentation.report import render_bench_report, write_bench_artifacts
 
 
 class BenchReportTests(unittest.TestCase):

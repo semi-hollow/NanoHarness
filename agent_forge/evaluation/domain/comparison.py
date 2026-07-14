@@ -2,10 +2,9 @@ from __future__ import annotations
 
 from .models import EvaluationComparison
 
-
-# PRIMARY ENTRYPOINT: compare one matched single-agent and multi-agent run.
+# 主要入口：下方定义承接该模块的核心调用。
 def compare_runs(task_id: str, single: dict, multi: dict) -> EvaluationComparison:
-    """Build a conservative comparison from two run/usage summaries."""
+    """比较同一任务的 single 与 multi 运行指标。"""
 
     comparison = EvaluationComparison(
         task_id=task_id,
@@ -31,7 +30,6 @@ def compare_runs(task_id: str, single: dict, multi: dict) -> EvaluationCompariso
 
 
 def _recommend(comparison: EvaluationComparison) -> str:
-    """Return a non-hype recommendation from observed metrics."""
 
     if comparison.multi_status in {"passed", "patch_generated", "success"} and not comparison.single_patch_generated:
         return "multi-agent may be worth the extra cost for this task because single-agent did not produce a patch."
@@ -41,7 +39,6 @@ def _recommend(comparison: EvaluationComparison) -> str:
 
 
 def _int(data: dict, key: str) -> int:
-    """Read int-like metrics defensively."""
 
     try:
         return int(data.get(key) or 0)
@@ -50,17 +47,15 @@ def _int(data: dict, key: str) -> int:
 
 
 def _float(data: dict, key: str) -> float:
-    """Read float-like metrics defensively."""
 
     try:
         return float(data.get(key) or 0.0)
     except (TypeError, ValueError):
         return 0.0
 
-
-# PRIMARY ENTRYPOINT: compare one-shot, single-agent, and governed variants.
+# 主要入口：下方定义承接该模块的核心调用。
 def compare_variants(task_id: str, variants: dict[str, dict]) -> dict:
-    """Compare direct baseline, single agent, and governed agent without hype."""
+    """归一化并比较任意命名的运行变体。"""
 
     normalized = {name: _normalize_variant(data) for name, data in variants.items()}
     direct = normalized.get("direct_baseline", {})
@@ -138,7 +133,6 @@ def _recommend_variants(direct: dict, agent_variants: dict[str, dict]) -> str:
 
 
 def _first_patch_variant(agent_variants: dict[str, dict]) -> str:
-    """Prefer governed when it really exists, otherwise name the actual variant."""
 
     if agent_variants.get("governed_agent", {}).get("patch_generated"):
         return "governed_agent"
@@ -149,7 +143,6 @@ def _first_patch_variant(agent_variants: dict[str, dict]) -> str:
 
 
 def _looks_like_patch(text: str) -> bool:
-    """Treat only patch-shaped direct baseline output as a generated patch."""
 
     stripped = text.strip()
     return stripped.startswith("diff --git ") or (

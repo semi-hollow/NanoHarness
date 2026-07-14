@@ -8,7 +8,6 @@ from agent_forge.bench.domain.models import BenchCaseResult
 
 
 class JsonCaseEvidenceReader:
-    """Read trace and usage JSON without making diagnosis generation fragile."""
 
     def load_usage(self, result: BenchCaseResult) -> dict[str, Any]:
         return self._read_json(_usage_json_path(result.usage_report_path))
@@ -36,6 +35,5 @@ def usage_json_path(usage_report_path: Path | None) -> Path | None:
     if path.suffix == ".md":
         return path.with_suffix(".json")
     return path
-
 
 _usage_json_path = usage_json_path

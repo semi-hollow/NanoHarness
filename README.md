@@ -35,7 +35,7 @@ Coding Agent；单纯增加 prompt 长度并不能解决这个问题。**
 | 真实模型边界 | OpenAI-compatible client，默认支持 DeepSeek 配置，包含 retry/fallback、provider usage 和成本估算。 |
 | 工具治理 | read/grep/patch/command/git/diagnostics 依次经过 routing、registry validation、permission hook、command policy 和 workspace sandbox。 |
 | 隔离执行 | 支持当前 checkout、detached git worktree，以及基于隔离 snapshot 的受限 OCI container。Container command 带 network、CPU、memory、PID、capability 和 read-only root 控制。 |
-| Human-in-the-loop | 信息型问题持久化到 `HumanInputStore`，在同一 turn 中优先阻断其他副作用，运行停在 `waiting_human`，只有 `forge respond` 加 resume 后才继续。写入授权由独立且带 fingerprint 的 `ApprovalStore` 负责。 |
+| Human-in-the-loop | 信息型问题通过 `JsonHumanInputRepository` 持久化，在同一 turn 中优先阻断其他副作用，运行停在 `waiting_human`，只有 `forge respond` 加 resume 后才继续。写入授权由独立且带 fingerprint 的 `JsonApprovalRepository` 负责。 |
 | 部分恢复 | Checkpoint 为 continuation 提供状态；operation ledger 防止重复副作用；fanout checkpoint 校验 patch hash，只重跑未完成 worker。 |
 | SWE-bench 运行链路 | 加载 case、checkout `base_commit`、生成 `predictions.jsonl`，安装官方 harness 后可执行评测，并解析 per-case resolved/unresolved/error artifact。 |
 | 顺序多 Agent | `MultiAgentCoordinator` 让 Implementer/Reviewer/Verifier 复用同一个 `AgentLoop`，角色之间只通过显式 artifact 传递状态。 |
@@ -52,7 +52,7 @@ Coding Agent；单纯增加 prompt 长度并不能解决这个问题。**
 如果你正在快速审查这个仓库，建议按下面顺序：
 
 1. 阅读本 README。
-2. 打开[架构契约](docs/ARCHITECTURE.md)和[代码阅读地图](docs/guides/code-reading-map.md)。
+2. 打开[架构契约](docs/ARCHITECTURE.md)、[Python 分层说明](docs/guides/Python分层与调用关系.md)和[代码阅读地图](docs/guides/code-reading-map.md)。
 3. 检查核心实现：
    - [AgentLoop](agent_forge/runtime/application/agent_loop.py)
    - [工具治理管线](agent_forge/runtime/application/tool_execution.py)
@@ -70,7 +70,8 @@ Coding Agent；单纯增加 prompt 长度并不能解决这个问题。**
 
 ## 快速开始
 
-第一次阅读代码时，先看[代码阅读地图](docs/guides/code-reading-map.md)，再用
+第一次阅读代码时，先看[Python 分层与调用关系](docs/guides/Python分层与调用关系.md)和
+[代码阅读地图](docs/guides/code-reading-map.md)，再用
 [CONTRIBUTING.md](CONTRIBUTING.md) 理解类型、入口和可读性约定。
 
 项目名是 Agent Forge，包名是 `agent-forge`，import package 是 `agent_forge`，
@@ -434,8 +435,7 @@ agent_forge/
   workbench/      Evidence Catalog、受限后台任务和本地 HTTP presentation
   skills/         内置和自定义 runtime Skills
   mcp/            精简 stdio MCP server/client
-  forge_cli.py    旧导入兼容层
-  ui.py           旧导入兼容层
+  forge_cli.py    控制台脚本要求的最小入口
 ```
 
 ## 项目不是什么

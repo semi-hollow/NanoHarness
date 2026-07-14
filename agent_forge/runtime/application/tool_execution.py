@@ -70,7 +70,7 @@ class ToolExecutionPipeline:
             self.feedback,
         )
 
-    # RUNTIME PORT: govern and execute all tool calls from one model turn.
+    # 运行时端口：下方定义连接用例与外部实现。
     def execute_calls(
         self,
         session: AgentRunSession,
@@ -487,6 +487,5 @@ class ToolExecutionPipeline:
             "git_diff",
             "diagnostics",
         }
-
 
 __all__ = ["GateResult", "OperationIntent", "ToolExecutionPipeline"]

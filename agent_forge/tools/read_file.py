@@ -7,27 +7,15 @@ from .base import Tool
 
 
 class ReadFileTool(Tool):
-    """Read a workspace file and return a bounded text preview.
-
-    Why offset/limit matter:
-        Real coding tasks often identify a function around line 200+ using grep
-        before reading it. Without line-window support the model keeps seeing
-        only the file header, then wastes steps writing helper scripts to print
-        the target range. Supporting offset/limit keeps source inspection inside
-        the governed read tool instead of pushing the model toward unsafe shell
-        commands or scratch files.
-    """
 
     name = "read_file"
     description = "read file"
 
     def __init__(self, sandbox: WorkspaceSandbox) -> None:
-        """Keep the sandbox so every path read is checked first."""
 
         self.sandbox = sandbox
 
     def schema(self) -> ToolSchema:
-        """Tell the LLM this tool needs a path and optional line window."""
 
         return {
             "name": self.name,
@@ -37,7 +25,6 @@ class ReadFileTool(Tool):
         }
 
     def execute(self, arguments: ToolArguments) -> Observation:
-        """Read the file after sandbox validation and cap content for context size."""
 
         path = self.sandbox.ensure_safe_path(arguments["path"])
         if not path.exists():
@@ -62,7 +49,6 @@ class ReadFileTool(Tool):
 
 
 def _optional_int(value: Any, default: int) -> int:
-    """Parse optional model-provided integers without rejecting recoverable calls."""
 
     if value is None or value == "":
         return default

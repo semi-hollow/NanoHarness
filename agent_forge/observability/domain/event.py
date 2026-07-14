@@ -5,7 +5,6 @@ from typing import Any, Literal, Mapping, TypeAlias
 
 TraceRecord: TypeAlias = dict[str, Any]
 
-
 TraceEventType: TypeAlias = Literal[
     "action",
     "agent_stage_end",
@@ -49,7 +48,6 @@ TraceEventType: TypeAlias = Literal[
     "verifier_result",
 ]
 
-
 RESERVED_EVENT_FIELDS = {
     "run_id",
     "step",
@@ -63,12 +61,6 @@ RESERVED_EVENT_FIELDS = {
 
 @dataclass(frozen=True)
 class TraceEvent:
-    """One validated event envelope before it is written to ``trace.json``.
-
-    Domain-specific fields remain flat in JSON for backward compatibility, but
-    they enter through ``data`` so they cannot silently overwrite envelope
-    fields such as ``run_id`` or ``event_type``.
-    """
 
     run_id: str
     step: int
@@ -80,7 +72,6 @@ class TraceEvent:
     data: Mapping[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> TraceRecord:
-        """Return the stable flattened JSON representation."""
 
         overlap = RESERVED_EVENT_FIELDS.intersection(self.data)
         if overlap:

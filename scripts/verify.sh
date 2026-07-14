@@ -1,16 +1,14 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-# Purpose:
-#   Local health check for the real CodingAgent runtime. It does not use simulated
-#   model paths or teaching fixtures. If DEEPSEEK_API_KEY is available, it also
-#   performs a small read-only real-model run against this repository.
+# 用途：
+#   检查真实 CodingAgent runtime 的本地健康状态，不使用模拟模型路径或教学 fixture。
+#   如果已配置 DEEPSEEK_API_KEY，还会对当前仓库执行一次小型真实模型只读运行。
 
 cd "$(dirname "$0")/.."
 
 if [ -z "${PYTHON_BIN:-}" ]; then
-  # Prefer the venv's python3.11 compatibility link when present because older
-  # setup flows and IDE configs may still look for that executable name.
+  # 优先使用虚拟环境中的 python3.11 链接，兼容仍查找该名称的旧配置。
   if [ -x ".venv/bin/python3.11" ]; then
     PYTHON_BIN=".venv/bin/python3.11"
   elif [ -x ".venv/bin/python" ]; then
@@ -39,7 +37,7 @@ echo
 VERIFY_DIR="${VERIFY_DIR:-.agent_forge/verify}"
 mkdir -p "${VERIFY_DIR}"
 
-# Compile catches syntax/import packaging problems before any agent run starts.
+# 在启动 Agent 之前先通过编译发现语法、导入和打包问题。
 echo "== Compile Python files =="
 "${PYTHON_BIN}" -m compileall -q agent_forge tests
 echo
@@ -52,7 +50,7 @@ fi
 "${PYTHON_BIN}" -m mypy agent_forge
 echo
 
-# This is only a smoke check. It does not prove benchmark quality.
+# 这里只做冒烟检查，不把结果当作 benchmark 质量证明。
 echo "== Public CLI doctor =="
 "${PYTHON_BIN}" -m agent_forge doctor
 echo

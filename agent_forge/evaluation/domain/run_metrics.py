@@ -8,7 +8,6 @@ def extract_run_metrics(
     usage: dict[str, Any] | None = None,
     multi_agent: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Flatten one run into metrics accepted by compare_runs()."""
 
     usage = usage or {}
     multi_agent = multi_agent or {}
@@ -40,7 +39,6 @@ def extract_run_metrics(
 
 
 def _metric_block(usage: dict[str, Any]) -> dict[str, Any]:
-    """Support both current usage.json summary and older totals fixtures."""
 
     for key in ("summary", "totals"):
         block = usage.get(key)
@@ -50,7 +48,6 @@ def _metric_block(usage: dict[str, Any]) -> dict[str, Any]:
 
 
 def _reviewer_findings(role_results: list[Any]) -> list[str]:
-    """Extract concise reviewer feedback from multi-agent role results."""
 
     findings: list[str] = []
     for item in role_results:
@@ -69,7 +66,6 @@ def _reviewer_findings(role_results: list[Any]) -> list[str]:
 
 
 def _verifier_status(role_results: list[Any]) -> str:
-    """Return the latest verifier decision marker when available."""
 
     status = ""
     for item in role_results:

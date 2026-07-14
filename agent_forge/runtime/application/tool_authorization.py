@@ -45,7 +45,7 @@ class ToolAuthorizationGate:
         self.operations = operations
         self.feedback = feedback
 
-    # PRIMARY ENTRYPOINT: decide whether one tool operation may execute.
+    # 主要入口：下方定义承接该模块的核心调用。
     def authorize(
         self,
         session: AgentRunSession,

@@ -3,7 +3,6 @@ from __future__ import annotations
 from collections import Counter
 from typing import Any
 
-
 OFFICIAL_EVALUATED = {"official_resolved", "official_eval_failed"}
 NUMERIC_METRICS = (
     "llm_calls",
@@ -21,7 +20,6 @@ def normalize_case(
     usage: dict[str, Any],
     environment: dict[str, Any],
 ) -> dict[str, Any]:
-    """Project one raw benchmark result and its evidence into stable metrics."""
 
     probe_value = environment.get("probe")
     probe: dict[str, Any] = probe_value if isinstance(probe_value, dict) else {}
@@ -62,7 +60,6 @@ def build_scorecard(
     results: dict[str, Any],
     normalized_cases: list[dict[str, Any]],
 ) -> dict[str, Any]:
-    """Aggregate normalized cases without reading files or rendering output."""
 
     cases = [dict(case) for case in normalized_cases]
     observed_models = sorted(
@@ -100,7 +97,6 @@ def build_scorecard(
 
 
 def aggregate_cases(cases: list[dict[str, Any]]) -> dict[str, Any]:
-    """Aggregate counts with separate candidate, local, and official denominators."""
 
     case_count = len(cases)
     patch_count = sum(bool(case.get("patch_generated")) for case in cases)
@@ -154,7 +150,6 @@ def aggregate_cases(cases: list[dict[str, Any]]) -> dict[str, Any]:
 
 
 def aggregate_variants(comparisons: object) -> dict[str, Any]:
-    """Aggregate like-named variants across matched benchmark cases."""
 
     if not isinstance(comparisons, dict):
         return {}

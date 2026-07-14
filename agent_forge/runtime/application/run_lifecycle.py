@@ -56,7 +56,7 @@ class RunLifecycle:
     hooks: HookPort
 
     # 第一遍：三个 public port 分别对应更新、停止和人工暂停。
-    # RUNTIME PORT: persist named checkpoint changes from runtime owners.
+    # 运行时端口：下方定义连接用例与外部实现。
     def update(
         self,
         status: TaskRunStatus | None = None,
@@ -88,7 +88,7 @@ class RunLifecycle:
         )
         return self.checkpoint
 
-    # RUNTIME PORT: persist one terminal transition across state, hooks, and trace.
+    # 运行时端口：下方定义连接用例与外部实现。
     def stop(self, request: StopRequest) -> str:
         """持久化一次停止，并返回调用方要交付的最终文本。"""
 
@@ -122,7 +122,7 @@ class RunLifecycle:
         )
         return request.final_answer
 
-    # RUNTIME PORT: resolve durable operator input without blocking a worker.
+    # 运行时端口：下方定义连接用例与外部实现。
     def request_human_input(
         self,
         *,

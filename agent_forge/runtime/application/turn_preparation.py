@@ -51,7 +51,7 @@ class TurnPreparation:
         self.planner = SimplePlanner()
         self.tool_router = ToolRouter()
 
-    # PRIMARY ENTRYPOINT: assemble one budgeted model turn.
+    # 主要入口：下方定义承接该模块的核心调用。
     def execute(self, session: AgentRunSession, step: int) -> PreparedTurn:
         """更新 checkpoint，路由工具，并生成当前 turn 的上下文。"""
 

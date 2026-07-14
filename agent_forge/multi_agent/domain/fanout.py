@@ -6,7 +6,6 @@ from typing import Any
 
 @dataclass(frozen=True)
 class SubagentTask:
-    """One task that can be scheduled for a subagent-style worker."""
 
     id: str
     task: str
@@ -19,7 +18,6 @@ class SubagentTask:
 
 @dataclass(frozen=True)
 class FanoutConflict:
-    """A conflict that requires a serial or human merge step."""
 
     task_ids: list[str]
     reason: str
@@ -27,7 +25,6 @@ class FanoutConflict:
 
 @dataclass
 class SubagentResult:
-    """Normalized result from one subagent task."""
 
     task_id: str
     status: str
@@ -38,7 +35,6 @@ class SubagentResult:
 
 @dataclass
 class FanoutResult:
-    """Top-level fan-out execution summary."""
 
     status: str
     batches: list[list[SubagentTask]]
@@ -47,7 +43,6 @@ class FanoutResult:
 
 
 def build_execution_batches(tasks: list[SubagentTask]) -> list[list[SubagentTask]]:
-    """Topologically group tasks into parallel-ready batches."""
 
     by_id = {task.id: task for task in tasks}
     if len(by_id) != len(tasks):
@@ -72,7 +67,6 @@ def build_execution_batches(tasks: list[SubagentTask]) -> list[list[SubagentTask
 
 
 def build_conflict_free_batches(tasks: list[SubagentTask]) -> list[list[SubagentTask]]:
-    """Split topological levels so declared write overlaps never run together."""
 
     batches: list[list[SubagentTask]] = []
     for ready_level in build_execution_batches(tasks):
@@ -89,7 +83,6 @@ def build_conflict_free_batches(tasks: list[SubagentTask]) -> list[list[Subagent
 
 
 def detect_write_scope_conflicts(tasks: list[SubagentTask]) -> list[FanoutConflict]:
-    """Find overlapping declared write scopes inside one parallel batch."""
 
     conflicts: list[FanoutConflict] = []
     for left_index, left in enumerate(tasks):
@@ -106,7 +99,6 @@ def detect_write_scope_conflicts(tasks: list[SubagentTask]) -> list[FanoutConfli
 
 
 def detect_result_conflicts(results: list[SubagentResult]) -> list[FanoutConflict]:
-    """Find overlapping touched files produced by workers in the same batch."""
 
     conflicts: list[FanoutConflict] = []
     for left_index, left in enumerate(results):

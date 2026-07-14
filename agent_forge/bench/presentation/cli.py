@@ -10,11 +10,11 @@ from agent_forge.bench.domain.catalog import (
     SHOWCASE_INSTANCE_ID,
     SHOWCASE_INSTANCE_NOTE,
 )
+from agent_forge.bench.domain.config import SwebenchRunRequest
 from agent_forge.bench.domain.models import BenchRunSummary
 
 
 def build_swebench_parser(parser: argparse.ArgumentParser) -> None:
-    """Attach SWE-bench options to the CLI subparser."""
 
     parser.add_argument("--dataset", default=DEFAULT_DATASET)
     parser.add_argument("--split", default="test")
@@ -97,7 +97,6 @@ def build_swebench_parser(parser: argparse.ArgumentParser) -> None:
 
 
 def run_swebench_from_args(args: argparse.Namespace) -> BenchRunSummary:
-    """Translate CLI arguments into the stable benchmark API."""
 
     instance_ids = args.instance_id
     limit = args.limit
@@ -108,11 +107,11 @@ def run_swebench_from_args(args: argparse.Namespace) -> BenchRunSummary:
         instance_ids = [SHOWCASE_INSTANCE_ID]
         limit = 1
 
-    return run_swebench(
+    return run_swebench(SwebenchRunRequest(
         dataset_name=args.dataset,
         split=args.split,
         limit=limit,
-        instance_ids=instance_ids,
+        instance_ids=tuple(instance_ids),
         cases_file=args.cases_file,
         provider=args.provider,
         model=args.model,
@@ -139,4 +138,4 @@ def run_swebench_from_args(args: argparse.Namespace) -> BenchRunSummary:
         container_memory=args.container_memory,
         container_pids_limit=args.container_pids_limit,
         container_read_only=args.container_read_only,
-    )
+    ))

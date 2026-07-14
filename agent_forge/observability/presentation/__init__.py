@@ -1,5 +1,3 @@
-"""Human-readable renderers for evidence read models."""
-
 from .trace_summary import render_trace_summary
 from .usage_report import render_usage_markdown
 

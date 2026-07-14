@@ -7,16 +7,8 @@ from .memory_policy import MemoryPolicy, MemoryRecord
 
 
 class Memory:
-    """Short-term, summary, and session memory used by AgentLoop.
-
-    The project keeps memory local and readable, but models the production
-    design: recent facts stay as short-term memory, older observations are
-    compressed into summary memory, and previous-session facts can be seeded
-    when the user resumes a task.
-    """
 
     def __init__(self, n: int = 8) -> None:
-        """Keep bounded recent memory so context growth is controlled."""
 
         self.items: list[object] = []
         self.observations: list[Observation] = []
@@ -27,12 +19,10 @@ class Memory:
         self.n = n
 
     def add(self, item: object) -> None:
-        """Add a lightweight note that can be rendered into future context."""
 
         self.items = (self.items + [item])[-self.n:]
 
     def recent(self) -> list[object]:
-        """Return recent lightweight notes for context construction."""
 
         return list(self.items)
 
@@ -47,7 +37,6 @@ class Memory:
         source: str = "runtime",
         agent_name: str = "agent",
     ) -> None:
-        """Store a stable fact, such as the current task."""
 
         self.store[key] = value
         self.records.append(
@@ -63,12 +52,6 @@ class Memory:
         )
 
     def seed_session(self, previous_task: str = "", session_summary: str = "") -> None:
-        """Load previous run context without forcing it into every prompt.
-
-        ContextStrategy decides whether this memory should be inherited for the
-        current user task. This prevents the common multi-turn bug where stale
-        history pollutes an unrelated request.
-        """
 
         if previous_task:
             self.set("previous_task", previous_task, scope="session", source="resume")
@@ -85,12 +68,10 @@ class Memory:
             )
 
     def get(self, key: str, default: object = None) -> object:
-        """Read a stored fact without raising if it is absent."""
 
         return self.store.get(key, default)
 
     def add_observation(self, observation: Observation | str) -> None:
-        """Append a tool observation so the next LLM turn sees recent results."""
 
         if isinstance(observation, Observation):
             obs = observation
@@ -101,12 +82,10 @@ class Memory:
             self._compact_oldest_observation()
 
     def recent_observations(self) -> list[Observation]:
-        """Return recent Observation objects for tests or richer context."""
 
         return list(self.observations)
 
     def clear(self) -> None:
-        """Reset memory between runs/tests."""
 
         self.items.clear()
         self.observations.clear()
@@ -115,7 +94,6 @@ class Memory:
         self.records.clear()
 
     def summary(self, max_chars: int = 800, agent_name: str = "agent") -> str:
-        """Render notes, observations, and facts into a compact string."""
 
         recent = "; ".join(str(x) for x in self.items)
         obs = "; ".join(f"{o.tool_name}:{'ok' if o.success else 'fail'}:{o.content[:80]}" for o in self.observations)
@@ -131,12 +109,6 @@ class Memory:
         return text[: max_chars - 14] + " [compressed]"
 
     def _compact_oldest_observation(self) -> None:
-        """Compress the oldest observation into summary memory.
-
-        This is the minimal version of conversation compaction: keep enough
-        detail to explain what happened, but free the prompt from a growing list
-        of raw tool outputs.
-        """
 
         if not self.observations:
             return

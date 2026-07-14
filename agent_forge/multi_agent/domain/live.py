@@ -11,7 +11,6 @@ from typing import Any
 
 from .fanout import FanoutConflict, SubagentTask, build_execution_batches
 
-
 TASK_ID_PATTERN = re.compile(r"^[A-Za-z0-9_.-]+$")
 
 

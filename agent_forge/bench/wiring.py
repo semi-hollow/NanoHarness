@@ -18,7 +18,6 @@ def build_swebench_runner(
     *,
     artifacts: FileBenchArtifacts | None = None,
 ) -> RunSwebench:
-    """Compose the benchmark use case with local filesystem/runtime adapters."""
 
     artifact_adapter = artifacts or FileBenchArtifacts()
     workspace_manager = SwebenchWorkspaceManager(

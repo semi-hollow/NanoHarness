@@ -11,88 +11,31 @@ from .context_strategy import build_context_strategy
 
 @dataclass
 class ContextBuildReport:
-    """All context pieces assembled for one LLM turn.
+    """一次上下文组装的完整读模型，可渲染给模型并写入 trace。"""
 
-    This dataclass is intentionally verbose. In an agent technical walkthrough, context
-    quality is one of the hardest parts to explain, so each field maps to a
-    trace-visible section that answers "why did the model see this?"
-    """
-
-    # Stable system instruction. This is separate from the user task so it can
-    # carry runtime policy: evidence-first, use tools, recover safely.
     system_prompt: str
-
-    # Project-level runtime instructions loaded from FORGE.md. These are
-    # separate from model prompt text because they are repository policy, not
-    # generic agent behavior.
     project_instructions: str
-
-    # Latest user task. It is kept explicit to avoid the model over-weighting
-    # old memory in multi-turn runs.
     user_task: str
-
-    # Bounded repository file map. It helps the model understand project shape
-    # without reading the full repo.
     repo_map: str
-
-    # Lightweight lexical retrieval results, usually file paths or short docs.
     retrieved_docs: list[str]
-
-    # Recent short-term memory items selected by Memory/ContextStrategy.
     memory: list[str]
-
-    # Compressed memory summary for older observations/session seed.
     memory_summary: str
-
-    # Ranked candidate files for this task. These are trace evidence.
     selected_files: list[str]
-
-    # Bounded code snippets from the highest-ranked files.
     selected_file_previews: list[str]
-
-    # Tool names exposed to the model this turn. In multi-agent, role allowlists
-    # can shrink this list.
     available_tools: list[str]
-
-    # Active runtime skill cards selected for this task. These are not passive
-    # docs: AgentLoop uses the same skills to influence tool routing.
     active_skill_cards: list[str]
-
-    # Human-readable permission boundary shown to the model.
     permission_summary: str
-
-    # Stable instruction anchor that survives long contexts.
     attention_sink: list[str]
-
-    # Topic continuity classification for session memory inheritance.
     topic_relation: str
-
-    # Whether previous session memory is allowed into this turn.
     inherit_session: bool
-
-    # Explanation of dropped/compressed context for trace debugging.
     dropped_context: list[str]
-
-    # Approximate character budget by section.
     budget_breakdown: dict[str, int]
-
-    # Total approximate prompt chars after assembly.
     total_chars: int
-
-    # Configured max context chars used by the strategy.
     max_chars: int
-
-    # True if the repo map had to be truncated.
     truncated: bool
 
     def render(self) -> str:
-        """Serialize context into the system message consumed by LLM clients.
-
-        The format is boring on purpose. It gives the model stable sections and
-        gives a human reader a direct mapping from prompt text back to runtime
-        decisions: attention anchor, selected files, memory policy, tools, and
-        permission boundaries.
-        """
+        """按稳定区段顺序渲染模型输入上下文。"""
 
         docs = "\n".join(self.retrieved_docs)
         selected = "\n".join(self.selected_files)
@@ -122,8 +65,7 @@ class ContextBuildReport:
             f"truncated:{self.truncated}"
         )
 
-
-# PRIMARY ENTRYPOINT: build the exact prompt context and its audit report.
+# 主要入口：下方定义承接该模块的核心调用。
 def build_context_report(
     task: str,
     repo_map: str,
@@ -135,23 +77,14 @@ def build_context_report(
     active_skill_cards: list[str] | None = None,
     permission_summary: str = "read allowed; write asks approval; dangerous commands denied",
 ) -> ContextBuildReport:
-    """Build the context object ``AgentLoop`` sends to the next model call.
-
-    ``AgentLoop.run`` calls this once per reasoning step. It delegates selection
-    and compression to ``build_context_strategy`` and returns a typed report
-    containing the rendered prompt plus selected, dropped, and budget evidence.
-    """
+    """汇总项目指令、仓库结构、检索结果、记忆、Skill 和工具契约。"""
 
     files = [line for line in repo_map.splitlines() if line.strip()]
     raw_repo = "\n".join(files)
 
-    # Repo map gets only a fraction of the budget. A file tree is useful, but
-    # source previews and recent observations usually matter more for coding.
     shortened = truncate(raw_repo, max(1000, max_chars // 4))
     available_tools = [t.get("name", str(t)) for t in (tools or [])]
 
-    # ContextStrategy owns selection/compression. This wrapper owns rendering
-    # and trace-friendly accounting.
     strategy = build_context_strategy(
         task=task,
         files=files,
@@ -206,20 +139,12 @@ def build_context(
     memory: ContextMemory,
     tools: list[ToolSchema],
 ) -> str:
-    """Backward-compatible helper returning rendered context as a string."""
 
     report = build_context_report(task, repo_map, memory, tools=tools)
     return f"task:{task}\n{report.render()}\ntools:{tools}"
 
 
 def load_project_instructions(root: str | Path, max_chars: int = 2600) -> str:
-    """Load FORGE.md as repository-specific instructions.
-
-    This is the local equivalent of project instruction files used by coding
-    agents. Keeping it in the prompt context makes repo rules auditable: if the
-    agent violates a rule, trace readers can confirm whether the rule was
-    present in context.
-    """
 
     path = Path(root) / "FORGE.md"
     if not path.exists():

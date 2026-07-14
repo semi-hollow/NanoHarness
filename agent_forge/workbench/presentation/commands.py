@@ -8,8 +8,7 @@ from agent_forge.workbench.domain.models import WorkbenchCommand
 from agent_forge.workbench.ports import EvidenceCatalogPort
 from agent_forge.workbench.wiring import build_evidence_catalog
 
-
-# PRIMARY ENTRYPOINT: translate one browser action into a bounded CLI command.
+# 主要入口：下方定义承接该模块的核心调用。
 def build_workbench_command(
     action: str,
     payload: dict[str, Any],
@@ -17,7 +16,7 @@ def build_workbench_command(
     project_dir: Path | None = None,
     evidence: EvidenceCatalogPort | None = None,
 ) -> WorkbenchCommand:
-    """Validate page input without accepting arbitrary shell from the browser."""
+    """把 UI 动作转换为经过白名单约束的 CLI 命令。"""
 
     python = sys.executable
     if action == "doctor":

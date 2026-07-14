@@ -25,7 +25,7 @@ class DecideApproval:
     def __init__(self, approvals: ApprovalRepository) -> None:
         self.approvals = approvals
 
-    # PRIMARY ENTRYPOINT: persist one operator decision without executing a tool.
+    # 主要入口：下方定义承接该模块的核心调用。
     def execute(
         self,
         operation_key: str,
@@ -44,7 +44,7 @@ class RespondToHumanInput:
     def __init__(self, human_inputs: HumanInputRepository) -> None:
         self.human_inputs = human_inputs
 
-    # PRIMARY ENTRYPOINT: persist one answer or cancellation without resuming.
+    # 主要入口：下方定义承接该模块的核心调用。
     def execute(
         self,
         request_id: str,
@@ -66,7 +66,7 @@ class BuildContinuationPlan:
     def __init__(self, human_inputs: HumanInputRepository) -> None:
         self.human_inputs = human_inputs
 
-    # PRIMARY ENTRYPOINT: build explicit inputs for a new continuation run.
+    # 主要入口：下方定义承接该模块的核心调用。
     def execute(
         self,
         checkpoint: TaskCheckpoint,

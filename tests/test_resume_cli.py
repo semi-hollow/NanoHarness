@@ -2,9 +2,11 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from agent_forge.forge_cli import checkpoint_resume_workspace, latest_checkpoint_path, write_resume_link
-from agent_forge.runtime.task_state import TaskCheckpoint
-from agent_forge.runtime.task_state import TaskRunStatus, TaskStateStore
+from agent_forge.cli.resume import write_resume_link
+from agent_forge.runtime.api import latest_checkpoint_path
+from agent_forge.runtime.application.operator_control import checkpoint_resume_workspace
+from agent_forge.runtime.adapters import JsonTaskStateRepository
+from agent_forge.runtime.domain.task import TaskCheckpoint, TaskRunStatus
 
 
 class ResumeCliTest(unittest.TestCase):
@@ -27,13 +29,13 @@ class ResumeCliTest(unittest.TestCase):
     def test_latest_checkpoint_path_returns_newest_checkpoint_under_run_dir(self):
         with tempfile.TemporaryDirectory() as tmp:
             run_dir = Path(tmp)
-            store = TaskStateStore(run_dir / "task_state")
+            store = JsonTaskStateRepository(run_dir / "task_state")
             first = store.start("first", "old task", tmp, "CodingAgent")
             second = store.start("second", "new task", tmp, "CodingAgent")
             store.update(first, status=TaskRunStatus.BLOCKED.value, updated_at=1)
             store.update(second, status=TaskRunStatus.WAITING_APPROVAL.value, updated_at=2)
 
-            self.assertEqual(latest_checkpoint_path(run_dir), store.path_for("second"))
+            self.assertEqual(Path(latest_checkpoint_path(str(run_dir))), store.path_for("second"))
 
     def test_write_resume_link_adds_report_visible_resume_chain(self):
         with tempfile.TemporaryDirectory() as tmp:
