@@ -3,9 +3,9 @@ import time
 from dataclasses import dataclass, field
 from enum import Enum
 
-from agent_forge.runtime.observation import Observation
+from agent_forge.runtime.domain.conversation import Observation
 from agent_forge.runtime.config import RuntimeConfig
-from agent_forge.runtime.tool_call import ToolCall
+from agent_forge.runtime.domain.conversation import ToolCall
 
 
 class FailureKind(Enum):

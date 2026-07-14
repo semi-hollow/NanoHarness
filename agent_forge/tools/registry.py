@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 from agent_forge.contracts import ToolArguments, ToolSchema
-from agent_forge.runtime.observation import Observation
+from agent_forge.runtime.domain.conversation import Observation
 
 from .base import Tool
 

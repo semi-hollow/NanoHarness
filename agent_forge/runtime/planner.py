@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 
-from agent_forge.context.context_builder import ContextBuildReport
+from agent_forge.runtime.ports.context import ContextReportView
 
 
 @dataclass(frozen=True)
@@ -15,7 +15,12 @@ class PlanningStep:
 class SimplePlanner:
     """Small deterministic planner used to make each loop step explainable."""
 
-    def plan(self, task: str, iteration: int, context_report: ContextBuildReport) -> PlanningStep:
+    def plan(
+        self,
+        task: str,
+        iteration: int,
+        context_report: ContextReportView,
+    ) -> PlanningStep:
         """Summarize current context before asking the LLM for action/final."""
 
         selected = ", ".join(context_report.selected_files[:3]) if context_report.selected_files else "no selected files"

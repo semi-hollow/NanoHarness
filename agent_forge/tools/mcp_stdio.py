@@ -5,7 +5,7 @@ import time
 from dataclasses import dataclass, field
 from typing import Any
 
-from agent_forge.runtime.observation import Observation
+from agent_forge.runtime.domain.conversation import Observation
 from agent_forge.tools.base import Tool
 
 

@@ -30,7 +30,8 @@ Coding Agent；单纯增加 prompt 长度并不能解决这个问题。**
 
 | 能力 | 真实实现 |
 | --- | --- |
-| Agent Runtime Loop | `AgentLoop` 只展示 prepare、turn、stop 主链；`ToolExecutionPipeline` 与 `RunLifecycle` 分别拥有工具治理和持久化生命周期。 |
+| Agent Runtime Loop | `AgentLoop.run` 只展示 start、prepare、turn、stop；运行前决策、turn 输入、最终答案、工具授权、幂等账本和生命周期分别由具名应用服务拥有。 |
+| Context Engineering | `TurnPreparation` 通过 `ContextAssemblerPort` 获取 repository map、候选文件预览、项目指令和有界 memory；选择、压缩、丢弃和预算进入 trace。 |
 | 真实模型边界 | OpenAI-compatible client，默认支持 DeepSeek 配置，包含 retry/fallback、provider usage 和成本估算。 |
 | 工具治理 | read/grep/patch/command/git/diagnostics 依次经过 routing、registry validation、permission hook、command policy 和 workspace sandbox。 |
 | 隔离执行 | 支持当前 checkout、detached git worktree，以及基于隔离 snapshot 的受限 OCI container。Container command 带 network、CPU、memory、PID、capability 和 read-only root 控制。 |
@@ -51,18 +52,19 @@ Coding Agent；单纯增加 prompt 长度并不能解决这个问题。**
 如果你正在快速审查这个仓库，建议按下面顺序：
 
 1. 阅读本 README。
-2. 打开 [Runtime 能力导览](docs/architecture/runtime-capability-guide.md)。
+2. 打开[架构契约](docs/ARCHITECTURE.md)和[代码阅读地图](docs/guides/code-reading-map.md)。
 3. 检查核心实现：
-   - [agent_forge/runtime/agent_loop.py](agent_forge/runtime/agent_loop.py)
-   - [agent_forge/runtime/approval.py](agent_forge/runtime/approval.py)
-   - [agent_forge/runtime/human_input.py](agent_forge/runtime/human_input.py)
-   - [agent_forge/runtime/operation_ledger.py](agent_forge/runtime/operation_ledger.py)
-   - [agent_forge/multi_agent/coordinator.py](agent_forge/multi_agent/coordinator.py)
-   - [agent_forge/multi_agent/live_fanout.py](agent_forge/multi_agent/live_fanout.py)
-   - [agent_forge/bench/swebench.py](agent_forge/bench/swebench.py)
-   - [agent_forge/bench/official_results.py](agent_forge/bench/official_results.py)
-   - [agent_forge/evaluation/scorecard.py](agent_forge/evaluation/scorecard.py)
-   - [agent_forge/evaluation/experiment.py](agent_forge/evaluation/experiment.py)
+   - [AgentLoop](agent_forge/runtime/application/agent_loop.py)
+   - [工具治理管线](agent_forge/runtime/application/tool_execution.py)
+   - [审批门禁](agent_forge/runtime/application/tool_authorization.py)
+   - [副作用幂等](agent_forge/runtime/application/operation_tracker.py)
+   - [顺序多角色](agent_forge/multi_agent/application/coordinator.py)
+   - [Live Fanout](agent_forge/multi_agent/application/live_fanout.py)
+   - [SWE-bench 用例](agent_forge/bench/application/swebench.py)
+   - [失败分类](agent_forge/bench/domain/failure_taxonomy.py)
+   - [Official result adapter](agent_forge/bench/adapters/official_results.py)
+   - [Scorecard 用例](agent_forge/evaluation/application/scorecard.py)
+   - [Paired ablation](agent_forge/evaluation/domain/ablation.py)
 4. 运行 `bash scripts/verify.sh`。
 5. 使用 `forge ui` 查看本地 Evidence Console。
 
@@ -278,10 +280,12 @@ flowchart TD
     Fanout --> Worker["隔离的 AgentLoop worker"]
     Worker --> Loop
     Checkout --> Loop
-    Loop --> Context["ContextBuilder / memory / retrieval"]
+    Loop --> ContextPort["ContextAssemblerPort"]
+    ContextPort --> Context["RepositoryContextAssembler / memory / retrieval"]
     Loop --> Gateway["ModelGateway"]
     Gateway --> LLM["DeepSeek / OpenAI-compatible provider"]
-    Loop --> Skills["SkillRegistry"]
+    Loop --> SkillPort["SkillSelectorPort"]
+    SkillPort --> Skills["SkillRegistry"]
     Loop --> Router["ToolRouter"]
     Loop --> Pipeline["ToolExecutionPipeline"]
     Loop --> Session["AgentRunSession"]
@@ -291,12 +295,12 @@ flowchart TD
     Pipeline --> Registry["ToolRegistry"]
     Registry --> Tools["read / grep / patch / command / git / diagnostics / MCP"]
     Tools --> Safety["PermissionPolicy / CommandPolicy / WorkspaceSandbox"]
-    Pipeline --> Approval["ApprovalStore"]
-    Pipeline --> Ledger["OperationLedger"]
+    Pipeline --> Approval["ApprovalRepository"]
+    Pipeline --> Ledger["OperationLedgerRepository"]
     Loop --> Lifecycle["RunLifecycle"]
     Pipeline --> Lifecycle
-    Lifecycle --> Human["HumanInputStore"]
-    Lifecycle --> State["TaskState checkpoints"]
+    Lifecycle --> Human["HumanInputRepository"]
+    Lifecycle --> State["TaskStateRepository"]
     Loop --> Environment["local / worktree / OCI environment"]
     Loop --> Trace["TraceRecorder"]
     Trace --> Usage["usage_report.md"]
@@ -417,19 +421,21 @@ forge replay latest
 
 ```text
 agent_forge/
-  bench/          SWE-bench 加载、checkout、prediction、result card
-  runtime/        AgentLoop 编排、run session、tool pipeline、lifecycle 与 control
+  cli/            参数契约、命令分发、run/resume/operator 入站适配器
+  runtime/        domain/application/ports/adapters + AgentLoop composition root
   context/        repo map、file ranking、lexical retrieval、memory、token budget
   tools/          read/write/grep/patch/command/git/diagnostics/MCP wrapper
   safety/         sandbox、command policy、permission、guardrail
   models/         provider gateway、retry/fallback、usage telemetry
-  multi_agent/    顺序角色、live fanout、worktree merge 和 recovery
-  evaluation/     comparison metric、mini-case、evaluation report
-                  scorecard、paired ablation、feedback、dataset export
-  observability/  trace、usage、metric、evidence summary
+  multi_agent/    orchestration domain/application/ports/adapters
+  bench/          SWE-bench 执行、official adapter、诊断和 artifact 发布
+  evaluation/     metric、comparison、scorecard、ablation、feedback data
+  observability/  append-only trace、usage projection 和 presentation
+  workbench/      Evidence Catalog、受限后台任务和本地 HTTP presentation
   skills/         内置和自定义 runtime Skills
   mcp/            精简 stdio MCP server/client
-  ui.py           本地 Evidence Console
+  forge_cli.py    旧导入兼容层
+  ui.py           旧导入兼容层
 ```
 
 ## 项目不是什么
@@ -450,6 +456,7 @@ boundary 所需的协议子集。精确状态见[能力真实性矩阵](docs/CAP
 ## 文档
 
 - [能力真实性矩阵](docs/CAPABILITY_REALITY_MATRIX.md)
+- [架构契约与治理标准](docs/ARCHITECTURE.md)
 - [总体架构与运行链路](docs/AgentForge总体架构与运行链路.md)
 - [Runtime 能力导览](docs/architecture/runtime-capability-guide.md)
 - [能力入口索引](docs/guides/code-reading-map.md#能力入口索引)

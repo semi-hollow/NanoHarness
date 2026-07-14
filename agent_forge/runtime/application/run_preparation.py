@@ -1,0 +1,255 @@
+"""Single Agent 运行前的会话创建与前置决策。"""
+
+from __future__ import annotations
+
+from agent_forge.runtime.application.dependencies import RuntimeDependencies
+from agent_forge.runtime.application.run_lifecycle import RunLifecycle, StopRequest
+from agent_forge.runtime.application.session import AgentRunSession
+from agent_forge.runtime.clarification import ClarificationPolicy
+from agent_forge.runtime.config import RuntimeConfig
+from agent_forge.runtime.control import StepController
+from agent_forge.runtime.domain.conversation import Message
+from agent_forge.runtime.domain.task import TaskRunStatus, summarize_checkpoint
+from agent_forge.runtime.planning_mode import PlanningModePolicy
+from agent_forge.runtime.ports import SkillView
+from agent_forge.safety.guardrails import input_guardrail
+
+
+class RunPreparation:
+    """创建 run，并在首次模型调用前完成所有一次性决策。
+
+    阅读入口只有两个：``start`` 创建显式会话，``execute`` 完成 guardrail、
+    clarification、planning mode、Skill 与 memory 初始化。
+    """
+
+    def __init__(
+        self,
+        config: RuntimeConfig,
+        dependencies: RuntimeDependencies,
+        *,
+        human_thread_id: str,
+    ) -> None:
+        self.config = config
+        self.trace = dependencies.events
+        self.environment = dependencies.environment
+        self.task_states = dependencies.task_states
+        self.human_inputs = dependencies.human_inputs
+        self.hooks = dependencies.hooks
+        self.human_thread_id = human_thread_id
+        self.clarification_policy = ClarificationPolicy()
+        self.planning_mode_policy = PlanningModePolicy()
+        self.skill_selector = dependencies.skills
+
+    # PRIMARY ENTRYPOINT: create the explicit state for one AgentLoop run.
+    def start(self, task: str, agent_name: str) -> AgentRunSession:
+        """创建 checkpoint、lifecycle 与内存中的 run session。"""
+
+        self.trace.set_run_context(task=task)
+        resume_summary = self._load_resume_summary(agent_name)
+        checkpoint = self.task_states.start(
+            run_id=self.trace.run_id,
+            task=task,
+            workspace=self.config.workspace,
+            agent_name=agent_name,
+            metadata={
+                "execution_environment": self.environment.probe().to_dict(),
+                "human_thread_id": self.human_thread_id,
+            },
+        )
+        self.trace.record_task_state_checkpoint(
+            step=0,
+            agent_name=agent_name,
+            checkpoint=checkpoint,
+        )
+        lifecycle = RunLifecycle(
+            checkpoint=checkpoint,
+            task_state_store=self.task_states,
+            human_input_store=self.human_inputs,
+            human_thread_id=self.human_thread_id,
+            workspace=self.config.workspace,
+            trace=self.trace,
+            hooks=self.hooks,
+        )
+        return AgentRunSession(
+            task=task,
+            agent_name=agent_name,
+            workspace_root=self.config.workspace,
+            max_iterations=self.config.max_steps,
+            lifecycle=lifecycle,
+            controller=StepController.from_config(self.config),
+            resume_summary=resume_summary,
+        )
+
+    # PRIMARY ENTRYPOINT: finish all one-time decisions before the turn loop.
+    def execute(self, session: AgentRunSession) -> StopRequest | None:
+        """准备运行；无法继续时返回统一的停止请求。"""
+
+        stop = self._apply_input_policy(session)
+        if stop is not None:
+            return stop
+        stop = self._resolve_clarification(session)
+        if stop is not None:
+            return stop
+        self._record_planning_mode(session)
+        self._activate_skills(session)
+        self._seed_memory(session)
+        return None
+
+    def _apply_input_policy(self, session: AgentRunSession) -> StopRequest | None:
+        check = input_guardrail(session.task)
+        self.trace.add(
+            0,
+            session.agent_name,
+            "guardrail_check",
+            guardrail={
+                "category": check.category,
+                "passed": check.passed,
+                "reason": check.reason,
+                "severity": check.severity,
+            },
+        )
+        if check.passed:
+            return None
+        return StopRequest(
+            TaskRunStatus.BLOCKED,
+            "input_guardrail_block",
+            f"blocked: {check.reason}",
+        )
+
+    def _resolve_clarification(
+        self,
+        session: AgentRunSession,
+    ) -> StopRequest | None:
+        clarification = self.clarification_policy.decide(session.task)
+        self.trace.add(
+            0,
+            session.agent_name,
+            "clarification_decision",
+            clarification={
+                "action": clarification.action,
+                "confidence": clarification.confidence,
+                "reason": clarification.reason,
+                "question": clarification.question,
+                "missing_fields": clarification.missing_fields,
+            },
+        )
+        if clarification.action == "refuse":
+            return StopRequest(
+                TaskRunStatus.BLOCKED,
+                "unsupported_task",
+                f"blocked: {clarification.reason}",
+            )
+        if not clarification.needs_user_input():
+            return None
+
+        resolution = session.lifecycle.request_human_input(
+            agent_name=session.agent_name,
+            kind="clarification",
+            question=clarification.question,
+            choices=[],
+            reason=clarification.reason,
+            step=0,
+        )
+        if resolution.stop is not None:
+            return resolution.stop
+        session.task = "\n".join(
+            [
+                session.task,
+                "",
+                "Resolved operator clarification:",
+                f"Question: {resolution.request.question}",
+                f"Answer: {resolution.request.answer}",
+                "Continue from this answer and do not ask the same question again.",
+            ]
+        )
+        self.trace.add(
+            0,
+            session.agent_name,
+            "human_input_response_loaded",
+            request=resolution.request.to_dict(),
+        )
+        return None
+
+    def _record_planning_mode(self, session: AgentRunSession) -> None:
+        decision = self.planning_mode_policy.decide(session.task)
+        self.trace.add(
+            0,
+            session.agent_name,
+            "planning_mode",
+            planning_mode={
+                "mode": decision.mode,
+                "reason": decision.reason,
+                "complexity": decision.complexity,
+            },
+        )
+
+    def _activate_skills(self, session: AgentRunSession) -> None:
+        session.active_skills = self._select_active_skills(session.task)
+        session.skill_tool_names = {
+            tool_name
+            for skill in session.active_skills
+            for tool_name in skill.tool_names
+        }
+        self.trace.add(
+            0,
+            session.agent_name,
+            "skill_selection",
+            skills=[
+                {
+                    "name": skill.name,
+                    "version": skill.version,
+                    "tools": skill.tool_names,
+                    "entrypoint": skill.entrypoint,
+                }
+                for skill in session.active_skills
+            ],
+            skill_mode=getattr(self.config, "skill_mode", "auto"),
+        )
+
+    def _seed_memory(self, session: AgentRunSession) -> None:
+        session.messages = [Message("user", session.task)]
+        session_summary = getattr(self.config, "session_summary", "")
+        if session.resume_summary:
+            session_summary = "\n".join(
+                part for part in [session_summary, session.resume_summary] if part
+            )
+        session.memory.seed_session(
+            previous_task=getattr(self.config, "previous_task", ""),
+            session_summary=session_summary,
+        )
+        session.memory.set(
+            "task",
+            session.task,
+            scope="session",
+            source="user_task",
+            agent_name=session.agent_name,
+        )
+
+    def _load_resume_summary(self, agent_name: str) -> str:
+        resume_state = getattr(self.config, "resume_state", "")
+        if not resume_state:
+            return ""
+        checkpoint = self.task_states.load_path(resume_state)
+        summary = summarize_checkpoint(checkpoint)
+        self.trace.add(
+            0,
+            agent_name,
+            "resume_state_loaded",
+            resume_state=resume_state,
+            checkpoint=checkpoint.to_dict(),
+            resume_summary=summary,
+        )
+        return summary
+
+    def _select_active_skills(self, task: str) -> list[SkillView]:
+        mode = getattr(self.config, "skill_mode", "auto")
+        if mode == "none":
+            return []
+        explicit_names = list(getattr(self.config, "skill_names", []) or [])
+        return list(
+            self.skill_selector.select_for_task(
+                task,
+                names=explicit_names or None,
+                limit=3,
+            )
+        )

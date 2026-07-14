@@ -1,0 +1,492 @@
+"""模型工具请求的确定性治理管线。
+
+首次阅读只看 ``execute_calls`` 和 ``_execute_call``。审批、幂等账本与反馈格式分别
+位于 ``tool_authorization.py``、``operation_tracker.py`` 和 ``tool_feedback.py``。
+"""
+
+from __future__ import annotations
+
+from agent_forge.runtime.application.operation_tracker import (
+    OperationIntent,
+    OperationTracker,
+)
+from agent_forge.runtime.application.run_lifecycle import StopRequest
+from agent_forge.runtime.application.session import AgentRunSession
+from agent_forge.runtime.application.tool_authorization import (
+    GateResult,
+    ToolAuthorizationGate,
+)
+from agent_forge.runtime.application.tool_feedback import ToolFeedback
+from agent_forge.runtime.config import RuntimeConfig
+from agent_forge.runtime.control import FailureSignal
+from agent_forge.runtime.domain.conversation import (
+    AgentResponse,
+    Message,
+    Observation,
+    ToolCall,
+)
+from agent_forge.runtime.domain.task import TaskRunStatus
+from agent_forge.runtime.ports import (
+    ApprovalRepository,
+    EventSink,
+    HookPort,
+    OperationLedgerRepository,
+    ToolGateway,
+)
+from agent_forge.safety.guardrails import tool_guardrail
+
+
+class ToolExecutionPipeline:
+    """把模型工具请求转换为受治理、可恢复的 Observation。
+
+    固定顺序：repeat/routing -> HITL -> operation replay -> authorization ->
+    execution -> evidence/recovery/budget。每个阶段只有一个负责对象。
+    """
+
+    def __init__(
+        self,
+        config: RuntimeConfig,
+        trace: EventSink,
+        registry: ToolGateway,
+        hooks: HookPort,
+        approval_store: ApprovalRepository,
+        operation_ledger: OperationLedgerRepository,
+    ) -> None:
+        self.trace = trace
+        self.registry = registry
+        self.feedback = ToolFeedback(trace)
+        self.operations = OperationTracker(
+            config,
+            trace,
+            operation_ledger,
+            self.feedback,
+        )
+        self.authorization = ToolAuthorizationGate(
+            config,
+            trace,
+            hooks,
+            approval_store,
+            self.operations,
+            self.feedback,
+        )
+
+    # RUNTIME PORT: govern and execute all tool calls from one model turn.
+    def execute_calls(
+        self,
+        session: AgentRunSession,
+        response: AgentResponse,
+        *,
+        step: int,
+        allowed_tool_names: set[str],
+    ) -> StopRequest | None:
+        """按顺序处理一次模型响应中的工具调用，必要时返回停止请求。"""
+
+        calls = self._select_calls_for_turn(session, response, step)
+        session.messages.append(
+            Message(
+                "assistant",
+                "",
+                reasoning_content=response.reasoning_content,
+                tool_calls=[self.feedback.message_tool_call(call) for call in calls],
+            )
+        )
+        for tool_call in calls:
+            stop = self._execute_call(
+                session,
+                tool_call,
+                step=step,
+                allowed_tool_names=allowed_tool_names,
+            )
+            if stop is not None:
+                return stop
+        return None
+
+    def _execute_call(
+        self,
+        session: AgentRunSession,
+        tool_call: ToolCall,
+        *,
+        step: int,
+        allowed_tool_names: set[str],
+    ) -> StopRequest | None:
+        """按固定治理链执行一个工具调用。"""
+
+        repeat_signal = session.controller.record_tool_intent(tool_call)
+        key = (tool_call.name, str(tool_call.arguments))
+        check = tool_guardrail(
+            tool_call.name,
+            tool_call.arguments,
+            exists=(
+                self.registry.get(tool_call.name) is not None
+                and tool_call.name in allowed_tool_names
+            ),
+            repeated=repeat_signal is not None or key in session.tool_history[-3:],
+        )
+        self.trace.add(
+            step,
+            session.agent_name,
+            "guardrail_check",
+            guardrail={
+                "category": check.category,
+                "passed": check.passed,
+                "reason": check.reason,
+                "severity": check.severity,
+            },
+        )
+
+        if repeat_signal is not None:
+            return self._handle_repeat(session, tool_call, repeat_signal, step)
+        if tool_call.name not in allowed_tool_names:
+            self._record_unrouted_tool(session, tool_call, step)
+            return None
+
+        session.tool_history.append(key)
+        self.trace.add(
+            step,
+            session.agent_name,
+            "action",
+            tool_call=tool_call.name,
+            tool_arguments=tool_call.arguments,
+        )
+        if tool_call.name == "ask_human":
+            return self._handle_human_question(session, tool_call, step)
+
+        intent = self.operations.describe(tool_call)
+        if intent.side_effect and self.operations.replay_if_executed(
+            session,
+            tool_call,
+            intent,
+            step,
+        ):
+            return None
+
+        gate = self.authorization.authorize(session, tool_call, intent, step)
+        if gate.stop is not None:
+            return gate.stop
+        if not gate.proceed:
+            return None
+        return self._run_tool(session, tool_call, intent, step)
+
+    def _select_calls_for_turn(
+        self,
+        session: AgentRunSession,
+        response: AgentResponse,
+        step: int,
+    ) -> list[ToolCall]:
+        """让人工问题成为 barrier，推迟同一响应里的其他副作用。"""
+
+        human_calls = [call for call in response.tool_calls if call.name == "ask_human"]
+        if not human_calls:
+            return response.tool_calls
+
+        selected = human_calls[0]
+        deferred = [call.name for call in response.tool_calls if call is not selected]
+        if deferred:
+            self.trace.add(
+                step,
+                session.agent_name,
+                "tool_calls_deferred_for_human_input",
+                deferred_tools=deferred,
+            )
+        return [selected]
+
+    def _handle_repeat(
+        self,
+        session: AgentRunSession,
+        tool_call: ToolCall,
+        signal: FailureSignal,
+        step: int,
+    ) -> StopRequest | None:
+        """只读重复转为反馈；副作用重复直接停止。"""
+
+        if self._is_recoverable_repeated_tool(tool_call.name):
+            observation = Observation(
+                tool_call.name,
+                False,
+                (
+                    f"repeated read-only tool call: {tool_call.name}; "
+                    "use prior observation or choose a different tool"
+                ),
+            )
+            self.feedback.append(session, tool_call, observation, step)
+            self.trace.add(
+                step,
+                session.agent_name,
+                "recovery_decision",
+                success=True,
+                failure_kind=signal.kind.value,
+                retryable=True,
+                recovery_hint=(
+                    "Use existing read/search evidence, inspect a different symbol, "
+                    "or proceed to apply_patch/git_diff."
+                ),
+            )
+            session.lifecycle.update(
+                status=TaskRunStatus.RUNNING,
+                current_step=step,
+                last_tool=tool_call.name,
+                last_observation=observation.content,
+                resume_hint=(
+                    "Repeated read/search was skipped; continue with different evidence or edit."
+                ),
+            )
+            return None
+
+        self.trace.add(
+            step,
+            session.agent_name,
+            "error",
+            success=False,
+            error=signal.reason,
+        )
+        self.trace.add(
+            step,
+            session.agent_name,
+            "recovery_decision",
+            success=False,
+            failure_kind=signal.kind.value,
+            retryable=signal.retryable,
+            recovery_hint=signal.recovery_hint,
+        )
+        return StopRequest(
+            status=TaskRunStatus.BLOCKED,
+            reason="repeated_tool_call",
+            final_answer="blocked: repeated tool call",
+            current_step=step,
+            last_tool=tool_call.name,
+            resume_hint=signal.recovery_hint,
+        )
+
+    def _record_unrouted_tool(
+        self,
+        session: AgentRunSession,
+        tool_call: ToolCall,
+        step: int,
+    ) -> None:
+        """把未路由工具作为可解释反馈返回模型。"""
+
+        session.blocked = True
+        observation = Observation(
+            tool_call.name,
+            False,
+            f"tool not routed for this turn: {tool_call.name}",
+        )
+        self.feedback.append(session, tool_call, observation, step)
+        signal = self.feedback.record_recovery(session, observation, step)
+        session.lifecycle.update(
+            status=TaskRunStatus.BLOCKED,
+            current_step=step,
+            last_tool=tool_call.name,
+            last_observation=observation.content[:600],
+            resume_hint=(
+                signal.recovery_hint
+                if signal is not None
+                else "Tool was not available in this routed turn."
+            ),
+        )
+
+    def _handle_human_question(
+        self,
+        session: AgentRunSession,
+        tool_call: ToolCall,
+        step: int,
+    ) -> StopRequest | None:
+        """校验模型问题，并转成持久化 HITL 状态。"""
+
+        arguments = tool_call.arguments or {}
+        question = arguments.get("question")
+        choices = arguments.get("choices", [])
+        validation_error = ""
+        if not isinstance(question, str) or not question.strip():
+            validation_error = "invalid arguments: question must be non-empty str"
+        elif not isinstance(choices, list) or any(
+            not isinstance(choice, str) for choice in choices
+        ):
+            validation_error = "invalid arguments: choices must be list"
+
+        if validation_error:
+            observation = Observation(tool_call.name, False, validation_error)
+            self.feedback.append(session, tool_call, observation, step)
+            session.lifecycle.update(
+                status=TaskRunStatus.RUNNING,
+                current_step=step,
+                last_tool=tool_call.name,
+                last_observation=observation.content,
+                resume_hint=(
+                    "Retry ask_human with a non-empty question and a list of choices."
+                ),
+            )
+            return None
+
+        resolution = session.lifecycle.request_human_input(
+            agent_name=session.agent_name,
+            kind="tool_question",
+            question=str(question),
+            choices=[str(choice) for choice in choices],
+            reason="model requested operator input",
+            step=step,
+        )
+        if resolution.stop is not None:
+            return resolution.stop
+
+        observation = Observation(
+            tool_call.name,
+            True,
+            f"human_response: {resolution.request.answer}",
+        )
+        self.feedback.append(session, tool_call, observation, step)
+        self.trace.add(
+            step,
+            session.agent_name,
+            "human_input_response_loaded",
+            request=resolution.request.to_dict(),
+        )
+        return None
+
+    def _run_tool(
+        self,
+        session: AgentRunSession,
+        tool_call: ToolCall,
+        intent: OperationIntent,
+        step: int,
+    ) -> StopRequest | None:
+        """执行已获授权的工具，并更新 evidence、recovery 和 budget。"""
+
+        if intent.side_effect and not self.operations.exists(intent):
+            self.operations.ensure_planned(
+                tool_call,
+                intent,
+                step=step,
+                status="approved",
+            )
+
+        observation = self.registry.execute(tool_call.name, tool_call.arguments)
+        observation = self.authorization.post_process(
+            session,
+            tool_call,
+            intent,
+            observation,
+            step,
+        )
+        if intent.side_effect:
+            self.operations.record_result(
+                session,
+                tool_call,
+                intent,
+                observation,
+                step,
+            )
+
+        session.memory.add_observation(observation)
+        evidence_item = session.evidence.add_observation(observation)
+        validation = self.feedback.validation_evidence(
+            tool_call.name,
+            tool_call.arguments or {},
+            observation,
+        )
+        if validation:
+            session.ran_tests = session.ran_tests or validation["status"] == "passed"
+            self.trace.add(
+                step,
+                session.agent_name,
+                "validation_evidence",
+                success=validation["status"] == "passed",
+                validation=validation,
+            )
+        self._record_execution_evidence(
+            session,
+            tool_call,
+            observation,
+            evidence_item.citation() if evidence_item else "",
+            step,
+        )
+
+        session.observations.append(observation)
+        session.lifecycle.update(
+            status=TaskRunStatus.RUNNING,
+            current_step=step,
+            last_tool=tool_call.name,
+            last_observation=observation.content[:600],
+            messages_count=len(session.messages),
+            observations_count=len(session.observations),
+        )
+        self.feedback.record_recovery(session, observation, step, remember=True)
+
+        stop_signal = session.controller.should_stop(
+            step,
+            estimated_cost_usd=session.estimated_cost_usd,
+        )
+        if stop_signal is not None:
+            return StopRequest(
+                status=TaskRunStatus.BLOCKED,
+                reason=stop_signal.reason,
+                final_answer=f"blocked: {stop_signal.reason}",
+                current_step=step,
+                last_tool=tool_call.name,
+                last_observation=observation.content[:600],
+                resume_hint=stop_signal.recovery_hint,
+            )
+
+        session.messages.append(
+            Message(
+                "tool",
+                observation.content,
+                name=tool_call.name,
+                tool_call_id=tool_call.id,
+            )
+        )
+        return None
+
+    def _record_execution_evidence(
+        self,
+        session: AgentRunSession,
+        tool_call: ToolCall,
+        observation: Observation,
+        citation: str,
+        step: int,
+    ) -> None:
+        """记录一次真实工具执行产生的事实事件。"""
+
+        self.trace.add(
+            step,
+            session.agent_name,
+            "tool_call",
+            tool_call=tool_call.name,
+            tool_arguments=tool_call.arguments,
+        )
+        self.trace.add(
+            step,
+            session.agent_name,
+            "tool_observation",
+            success=observation.success,
+            observation=observation.content,
+        )
+        self.trace.add(
+            step,
+            session.agent_name,
+            "observation",
+            success=observation.success,
+            observation_summary=observation.content[:300],
+        )
+        if citation:
+            self.trace.add(
+                step,
+                session.agent_name,
+                "evidence_collected",
+                evidence=citation,
+            )
+
+    @staticmethod
+    def _is_recoverable_repeated_tool(tool_name: str) -> bool:
+        return tool_name in {
+            "read_file",
+            "grep",
+            "grep_search",
+            "list_files",
+            "git_status",
+            "git_diff",
+            "diagnostics",
+        }
+
+
+__all__ = ["GateResult", "OperationIntent", "ToolExecutionPipeline"]

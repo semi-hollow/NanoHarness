@@ -6,14 +6,36 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).parents[1]
 
 PRIMARY_ENTRYPOINTS = {
-    "agent_forge/forge_cli.py": (
-        "main",
-        "run_repository_task",
-        "resume_repository_task",
+    "agent_forge/cli/parser.py": ("build_parser",),
+    "agent_forge/cli/dispatch.py": ("main",),
+    "agent_forge/cli/repository.py": ("run_repository_task",),
+    "agent_forge/cli/resume.py": ("resume_repository_task",),
+    "agent_forge/cli/operator.py": (
         "approve_request",
-        "respond_to_human_input",
+        "respond_to_human_input_request",
     ),
-    "agent_forge/runtime/agent_loop.py": ("AgentLoop.run",),
+    "agent_forge/runtime/application/agent_loop.py": ("AgentLoop.run",),
+    "agent_forge/runtime/application/run_preparation.py": (
+        "RunPreparation.start",
+        "RunPreparation.execute",
+    ),
+    "agent_forge/runtime/application/turn_preparation.py": (
+        "TurnPreparation.execute",
+    ),
+    "agent_forge/runtime/application/final_answer.py": (
+        "FinalAnswerBuilder.execute",
+    ),
+    "agent_forge/runtime/application/tool_authorization.py": (
+        "ToolAuthorizationGate.authorize",
+    ),
+    "agent_forge/runtime/application/operation_tracker.py": (
+        "OperationTracker.describe",
+    ),
+    "agent_forge/runtime/application/operator_control.py": (
+        "DecideApproval.execute",
+        "RespondToHumanInput.execute",
+        "BuildContinuationPlan.execute",
+    ),
     "agent_forge/runtime/execution_environment.py": ("ExecutionEnvironment.prepare",),
     "agent_forge/runtime/control.py": ("StepController.classify_observation",),
     "agent_forge/runtime/structured_output.py": ("StructuredOutputParser.parse",),
@@ -22,47 +44,68 @@ PRIMARY_ENTRYPOINTS = {
     "agent_forge/tools/tool_router.py": ("ToolRouter.route",),
     "agent_forge/tools/registry.py": ("ToolRegistry.execute",),
     "agent_forge/tools/mcp_config.py": ("MCPConfigLoader.load_into",),
-    "agent_forge/multi_agent/coordinator.py": ("MultiAgentCoordinator.run",),
-    "agent_forge/multi_agent/live_fanout.py": ("LiveFanoutCoordinator.run",),
-    "agent_forge/bench/swebench.py": ("run_swebench",),
-    "agent_forge/bench/diagnostics.py": ("attach_failure_diagnosis",),
-    "agent_forge/bench/official_results.py": ("parse_official_results",),
-    "agent_forge/bench/case_study.py": ("write_case_study",),
-    "agent_forge/bench/report.py": ("write_bench_artifacts",),
-    "agent_forge/evaluation/comparison.py": ("compare_runs", "compare_variants"),
-    "agent_forge/evaluation/scorecard.py": ("build_benchmark_scorecard",),
-    "agent_forge/evaluation/experiment.py": ("compare_benchmark_scorecards",),
-    "agent_forge/evaluation/feedback_dataset.py": ("record_feedback", "export_feedback_dataset"),
+    "agent_forge/multi_agent/application/coordinator.py": ("MultiAgentCoordinator.run",),
+    "agent_forge/multi_agent/application/live_fanout.py": ("LiveFanoutCoordinator.run",),
+    "agent_forge/bench/api.py": ("run_swebench",),
+    "agent_forge/bench/application/swebench.py": ("RunSwebench.execute",),
+    "agent_forge/bench/application/diagnostics.py": ("DiagnoseBenchCase.attach",),
+    "agent_forge/bench/adapters/case_runtime.py": ("LocalCaseExecutor.run",),
+    "agent_forge/bench/adapters/official_results.py": ("parse_official_results",),
+    "agent_forge/bench/presentation/case_study.py": ("write_case_study",),
+    "agent_forge/bench/presentation/report.py": ("write_bench_artifacts",),
+    "agent_forge/evaluation/api.py": ("build_benchmark_scorecard",),
+    "agent_forge/evaluation/application/scorecard.py": ("BuildBenchmarkScorecard.execute",),
+    "agent_forge/evaluation/domain/comparison.py": ("compare_runs", "compare_variants"),
+    "agent_forge/evaluation/domain/ablation.py": ("compare_benchmark_scorecards",),
+    "agent_forge/evaluation/adapters/feedback_dataset_files.py": (
+        "record_feedback",
+        "export_feedback_dataset",
+    ),
+    "agent_forge/observability/api.py": ("write_usage_artifacts",),
+    "agent_forge/observability/application/usage.py": ("BuildUsageReport.execute",),
     "agent_forge/mcp/server.py": ("AgentForgeMCPServer.run",),
     "agent_forge/skills/registry.py": ("SkillRegistry.select_for_task",),
-    "agent_forge/ui.py": ("run_ui",),
+    "agent_forge/workbench/presentation/http.py": ("run_ui",),
+    "agent_forge/workbench/presentation/commands.py": ("build_workbench_command",),
 }
 
 RUNTIME_PORTS = {
-    "agent_forge/forge_cli.py": ("prepare_execution_environment",),
-    "agent_forge/runtime/task_state.py": ("TaskStateStore.start", "TaskStateStore.update"),
-    "agent_forge/runtime/human_input.py": ("HumanInputStore.request", "HumanInputStore.respond"),
-    "agent_forge/runtime/approval.py": ("ApprovalStore.request", "ApprovalStore.decide"),
-    "agent_forge/runtime/operation_ledger.py": (
-        "OperationLedgerStore.record_executed",
-        "OperationLedgerStore.record_failed",
-        "OperationLedgerStore.ensure_planned",
+    "agent_forge/cli/repository.py": ("prepare_execution_environment",),
+    "agent_forge/runtime/adapters/task_state_json.py": (
+        "JsonTaskStateRepository.start",
+        "JsonTaskStateRepository.update",
+    ),
+    "agent_forge/runtime/adapters/context_assembler.py": (
+        "RepositoryContextAssembler.build",
+    ),
+    "agent_forge/runtime/adapters/human_input_json.py": (
+        "JsonHumanInputRepository.request",
+        "JsonHumanInputRepository.respond",
+    ),
+    "agent_forge/runtime/adapters/approval_json.py": (
+        "JsonApprovalRepository.request",
+        "JsonApprovalRepository.decide",
+    ),
+    "agent_forge/runtime/adapters/operation_ledger_json.py": (
+        "JsonOperationLedgerRepository.record_executed",
+        "JsonOperationLedgerRepository.record_failed",
+        "JsonOperationLedgerRepository.ensure_planned",
     ),
     "agent_forge/runtime/hooks.py": ("HookManager.pre_tool",),
-    "agent_forge/runtime/run_lifecycle.py": (
+    "agent_forge/runtime/application/run_lifecycle.py": (
         "RunLifecycle.update",
         "RunLifecycle.stop",
         "RunLifecycle.request_human_input",
     ),
-    "agent_forge/runtime/tool_execution.py": ("ToolExecutionPipeline.execute_calls",),
+    "agent_forge/runtime/application/tool_execution.py": ("ToolExecutionPipeline.execute_calls",),
     "agent_forge/safety/permission.py": ("PermissionPolicy.decide",),
     "agent_forge/safety/sandbox.py": ("WorkspaceSandbox.ensure_safe_path",),
     "agent_forge/safety/command_policy.py": ("check_command",),
-    "agent_forge/observability/trace.py": (
-        "TraceRecorder.record_task_state_checkpoint",
-        "TraceRecorder.write",
+    "agent_forge/observability/adapters/json_trace.py": (
+        "JsonTraceRecorder.record_task_state_checkpoint",
+        "JsonTraceRecorder.write",
     ),
-    "agent_forge/bench/official_results.py": ("apply_official_results",),
+    "agent_forge/bench/adapters/official_results.py": ("apply_official_results",),
 }
 
 
@@ -97,7 +140,7 @@ class CodeNavigationContractTest(unittest.TestCase):
         self._assert_markers(RUNTIME_PORTS, "# RUNTIME PORT:", require_docstring=False)
 
     def test_agent_loop_entrypoint_only_exposes_the_phase_order(self) -> None:
-        path = PROJECT_ROOT / "agent_forge/runtime/agent_loop.py"
+        path = PROJECT_ROOT / "agent_forge/runtime/application/agent_loop.py"
         source = path.read_text(encoding="utf-8")
         collector = _DefinitionCollector()
         collector.visit(ast.parse(source))
@@ -107,11 +150,19 @@ class CodeNavigationContractTest(unittest.TestCase):
         self.assertLessEqual(line_count, 40)
 
         body = "\n".join(source.splitlines()[node.lineno - 1 : node.end_lineno])
-        phase_calls = ["_start_session", "_prepare_run", "_run_turn", "_stop"]
+        phase_calls = [
+            "run_preparation.start",
+            "run_preparation.execute",
+            "_run_turn",
+            "_stop",
+        ]
         for name in phase_calls:
             self.assertIn(name, body)
-        self.assertLess(body.index("_start_session"), body.index("_prepare_run"))
-        self.assertLess(body.index("_prepare_run"), body.index("_run_turn"))
+        self.assertLess(
+            body.index("run_preparation.start"),
+            body.index("run_preparation.execute"),
+        )
+        self.assertLess(body.index("run_preparation.execute"), body.index("_run_turn"))
 
     def _assert_markers(
         self,

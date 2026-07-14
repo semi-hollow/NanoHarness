@@ -4,7 +4,7 @@ import sys
 
 from agent_forge.contracts import ToolArguments, ToolSchema
 from agent_forge.runtime.execution_environment import ExecutionEnvironment
-from agent_forge.runtime.observation import Observation
+from agent_forge.runtime.domain.conversation import Observation
 from agent_forge.safety.sandbox import WorkspaceSandbox
 
 from .base import Tool

@@ -1,301 +1,268 @@
 # NanoHarness 代码阅读地图
 
-这份文档只解决一个问题：打开一个函数后，怎样不必反向追完整个仓库，也能知道
-数据从哪里进入、以什么形式离开、下一步流向哪里。
-
-## 一句话模型
-
-```text
-CLI 任务 -> RuntimeConfig -> AgentLoop -> LLM/ToolCall -> Observation -> Trace/Checkpoint -> Report/Evaluation
-```
+本文用于在折叠全部方法后快速重建项目全貌。架构规则见
+[`../ARCHITECTURE.md`](../ARCHITECTURE.md)；本文只告诉你入口、依赖、数据、状态和
+所有权实际落在哪里。
 
 ## 折叠阅读约定
 
-NanoHarness 会直接在源码中标记方法的重要程度。即使你在 IDE 中折叠了全部方法，
-展开一个类后仍然能先看见系统骨架。
-
-| 标记 | 什么时候读 | 含义 |
+| 标记 | 阅读时机 | 含义 |
 | --- | --- | --- |
-| `PRIMARY ENTRYPOINT` | 第一遍 | 一项能力的起点，负责核心编排或用户可见的状态迁移。 |
-| `RUNTIME PORT` | 第二遍 | 被入口跨模块调用的边界，通常负责策略、持久化或证据。 |
-| 没有标记 | 调试对应分支时 | 辅助实现。第一遍只看名字和类型通常就够了。 |
-| `_` 开头 | 最后 | 私有步骤、存储细节或 helper，不是稳定的连接点。 |
+| `PRIMARY ENTRYPOINT` | 第一遍 | 一项 capability 或 use case 的起点 |
+| `RUNTIME PORT` | 第二遍 | 跨模块调用的策略、持久化或证据边界 |
+| 无标记 | 命中该分支时 | 内部步骤，先看名字和类型即可 |
+| `_` 开头 | 最后 | 私有算法或格式转换，不是稳定连接点 |
 
-这些标记只是注释，不是 decorator，也不是运行时元数据，不会改变程序行为。
-一个状态机可以有多个主入口，因为不同参与者会从不同位置进入。比如 HITL 同时
-包含运行时暂停、操作者回答和 continuation 三个入口。
+三遍阅读法：
 
-## 能力入口索引
+1. 只展开主入口的签名、docstring 和顶层控制流。
+2. 选择一个场景，沿 Port 或 application service 继续。
+3. 只有调试具体失败时才展开 private helper 和 Adapter 存储细节。
 
-把下面这张表当成项目目录。先打开主入口，保持所有方法体折叠；只有准备理解某条
-具体分支时，才继续打开“下一步”列出的端口。
-
-| 能力 | 从这里开始 | 下一步跟随 | 第一遍跳过 | 证据或输出 |
-| --- | --- | --- | --- | --- |
-| CLI 分发 | `forge_cli.main` | 当前命令对应的入口函数 | parser 参数声明 | 输出的 artifact 路径 |
-| 单次运行装配 | `forge_cli.run_repository_task` | `ExecutionEnvironment.prepare`，再进入一个 coordinator 的 `run` | `registry_factory`、latest pointer | 一份 run directory |
-| Single Agent runtime | `AgentLoop.run` | `_prepare_run` -> `_run_turn` -> `ToolExecutionPipeline.execute_calls` | 第一遍跳过其余 `_...` | final answer、trace、checkpoint |
-| Context Engineering | `build_context_report` | `build_context_strategy` | rank、preview、truncate helper | `ContextBuildReport` 和 context trace event |
-| 模型边界 | `ModelGateway.chat` | `OpenAICompatibleLLMClient.chat` | retry 记账和 response parsing helper | `AgentResponse`、`last_usage` |
-| 工具治理 | `ToolExecutionPipeline.execute_calls` | `_execute_call` -> 命中的治理分支 -> `_run_tool` | 未命中的 private branch 和 concrete tool | routing、permission、tool、observation event |
-| 路径与命令安全 | `WorkspaceSandbox.ensure_safe_path`、`check_command`、`PermissionPolicy.decide` | 需要区分 local/OCI 时读 `ExecutionEnvironment.execute_command` | policy summary renderer | permission decision 和 command history |
-| 执行隔离 | `ExecutionEnvironment.prepare` | `probe`、`write_manifest`、`cleanup` | 某种模式失败前先跳过 `_prepare_*` | environment probe 和 manifest |
-| 信息型 HITL | `RunLifecycle.request_human_input` -> `respond_to_human_input` -> `resume_repository_task` | `HumanInputStore.request/respond`、`RunLifecycle.stop` | store 的 path/list/write helper | human request、waiting checkpoint、resume chain |
-| 副作用审批 | `ToolExecutionPipeline.execute_calls` -> `approve_request` -> `resume_repository_task` | `_resolve_approval`、`ApprovalStore.request/decide` | approval 文件 I/O helper | approval record 和 permission trace |
-| Runtime 恢复 | `StepController.classify_observation`、`resume_repository_task` | `TaskStateStore.start/update`、`OperationLedgerStore.ensure_planned` | summary renderer 和 record 序列化 | recovery event、checkpoint、operation record |
-| 顺序多角色 | `MultiAgentCoordinator.run` | 多次 `AgentLoop.run`，然后读 `ArtifactStore` | 各 role 的 prompt 格式化 | role artifact 和 `MultiAgentRunSummary` |
-| 并发 fanout | `LiveFanoutCoordinator.run` | `build_conflict_free_batches`、worker `AgentLoop.run` | merge/recovery 失败前先跳过 worktree/git helper | fanout checkpoint、worker trace、integration patch |
-| 结构化输出 | `StructuredOutputParser.parse` | 解析失败后再读 `build_repair_prompt` | JSON 提取和 schema helper | `StructuredOutputResult` 和 retry evidence |
-| Skills | `SkillRegistry.select_for_task` | 被选中的 `SkillSpec.prompt_card` 和 tool names | manifest parsing、version helper | active-skill context 和 trace metadata |
-| MCP | `MCPConfigLoader.load_into`、`AgentForgeMCPServer.run` | 注册后的 tool -> stdio client call | JSON-RPC 格式化 helper | registration report 和 tool observation |
-| SWE-bench 主链路 | `run_swebench` | `_run_case`、可选的 `parse_official_results` | case 失败前先跳过 checkout helper | predictions 和评测后的 case result |
-| 失败诊断与报告 | `attach_failure_diagnosis` -> `write_case_study` / `write_bench_artifacts` | `classify_case_result`、scorecard writer | Markdown renderer | failure taxonomy、case study、result card |
-| Run/variant 对比 | `compare_runs`、`compare_variants` | normalized metrics 和 recommendation rules | 数值兼容 helper | single/multi 和 before/after evidence |
-| Scorecard/ablation | `build_benchmark_scorecard`、`compare_benchmark_scorecards` | normalized case 和 paired-case row | Markdown renderer | scorecard 和 paired delta artifact |
-| 人工反馈与数据 | `record_feedback`、`export_feedback_dataset` | 审计隐私字段时再读 `_build_record` | path discovery helper | `feedback.json` 和 JSONL dataset |
-| Evidence Console | `run_ui` | `UiState.start_job`，再读当前 view 对应的 renderer | HTML helper 和其他 renderer | 本地 HTTP 证据页面和受限 job |
-
-### 三遍阅读法
-
-1. 第一遍只读 `PRIMARY ENTRYPOINT` 的签名和 docstring，先重建整个系统骨架。
-2. 选择一个场景，沿它的 `RUNTIME PORT` 继续。比如 HITL 只跟 request ->
-   waiting checkpoint -> response -> resume，不要展开 store 的每个方法。
-3. 只有解释具体策略或调试失败测试时才打开私有 helper。数据类可以先当字段表看，
-   它的持久化 helper 并不定义能力本身。
-
-在阅读控制流前，先认识项目中的五类对象：
-
-| 对象类型 | 含义 | 主要定义位置 |
-| --- | --- | --- |
-| 配置 | 一次运行允许做什么 | `runtime/config.py`、`runtime/execution_environment.py` |
-| 协议 | 模型和工具之间交换什么数据 | `runtime/message.py`、`runtime/tool_call.py`、`runtime/observation.py`、`tools/base.py` |
-| 运行状态 | Agent 当前知道什么、停在什么位置 | `runtime/state.py`、`runtime/task_state.py` |
-| 证据 | 发生了什么、为什么发生 | `observability/event.py`、`observability/trace.py`、`observability/evidence.py` |
-| 结果 | 一次 run 或 benchmark 产出了什么 | `multi_agent/types.py`、`multi_agent/live_fanout.py`、`bench/types.py`、`evaluation/types.py` |
-
-## 主 Runtime 调用链
+## 地图一：运行入口图
 
 ```mermaid
 flowchart TD
-    CLI["forge_cli.run_repository_task"] --> Config["RuntimeConfig"]
-    CLI --> Environment["ExecutionEnvironment.prepare"]
-    CLI --> Wiring["build_registry + build_llm"]
-    Config --> Loop["AgentLoop.run"]
-    Environment --> Loop
-    Wiring --> Loop
-    Loop --> Context["build_context_report"]
-    Context --> Model["LLMClient.chat"]
-    Model --> Response["AgentResponse"]
-    Response --> Call["ToolCall"]
-    Call --> Pipeline["ToolExecutionPipeline.execute_calls"]
-    Pipeline --> Registry["ToolRegistry.execute"]
-    Registry --> Tool["Tool.execute"]
-    Tool --> Observation["Observation"]
-    Observation --> Pipeline
-    Pipeline --> Session["AgentRunSession"]
-    Loop --> Lifecycle["RunLifecycle"]
-    Pipeline --> Lifecycle
-    Lifecycle --> Checkpoint["TaskCheckpoint"]
-    Loop --> Trace["TraceRecorder"]
-    Trace --> Report["usage.json + usage_report.md"]
+    Main["python -m agent_forge"] --> Facade["forge_cli compatibility facade"]
+    Facade --> Dispatch["cli.dispatch.main"]
+    Dispatch --> Run["cli.repository.run_repository_task"]
+    Dispatch --> Resume["cli.resume.resume_repository_task"]
+    Dispatch --> Operator["cli.operator approve/respond"]
+    Dispatch --> Bench["bench.api.run_swebench"]
+    Dispatch --> Eval["evaluation.api"]
+    Dispatch --> UI["workbench.api"]
+    Run --> RuntimeAPI["runtime.api.build_agent_loop"]
+    Run --> MultiAPI["multi_agent.wiring"]
+    RuntimeAPI --> Loop["AgentLoop.run"]
 ```
 
-按下面的顺序理解：
+读一个用户命令时，从 `cli/parser.py` 确认输入契约，再到 `cli/dispatch.py` 找 owner，
+不要从 `forge_cli.py` 深挖。后者只为历史导入兼容。
 
-1. `forge_cli.run_repository_task` 负责运行装配和 artifact 路径。
-2. `RuntimeConfig` 是传给 `AgentLoop` 的完整控制面输入。
-3. `AgentLoop.run` 只展示 start、prepare、turn、stop；`AgentRunSession` 集中列出数据。
-4. 无论底层 provider 是什么，`LLMClient.chat` 都返回统一的 `AgentResponse`。
-5. `ToolExecutionPipeline` 先完成重复、HITL、审批和幂等检查，再进入 `ToolRegistry`。
-6. 每个工具都返回 `Observation`，异常不会形成另一套隐式协议。
-7. `RunLifecycle` 统一保存 `TaskCheckpoint` 和 terminal transition；`TraceRecorder` 保存审计时间线。
+## 地图二：依赖图
 
-### AgentLoop 四文件阅读法
+```mermaid
+flowchart LR
+    API["api.py"] --> App["application"]
+    App --> Domain["domain"]
+    App --> Ports["ports"]
+    Wiring["wiring.py"] --> App
+    Wiring --> Adapters["adapters"]
+    Adapters -. implements .-> Ports
+    Presentation["CLI / HTTP / Report"] --> API
+```
 
-| 文件 | 第一遍看什么 | 什么时候深入 |
-| --- | --- | --- |
-| `runtime/agent_loop.py` | `AgentLoop.run` 的五阶段顺序 | 调试 context、model response 或 final answer |
-| `runtime/state.py` | `AgentRunSession` 字段 | 想知道某个数据由谁持有、何时变化 |
-| `runtime/tool_execution.py` | `execute_calls`、`_execute_call` | 调试 routing、HITL、approval、ledger 或 tool observation |
-| `runtime/run_lifecycle.py` | `update`、`stop`、`request_human_input` | 调试 checkpoint、暂停、resume 或 stop trace |
+允许方向：
 
-## Trace 示例
+```text
+Presentation -> API/Application -> Domain + Ports
+Wiring -> Application + Adapters
+Adapters -> Domain + Ports
+```
 
-checkpoint 事件故意使用具名方法：
+禁止方向：Domain -> Adapter、Application -> concrete JSON/Git/process store、CLI ->
+capability adapter。`tests/test_architecture_boundaries.py` 会检查这些规则。
+
+## 地图三：数据流图
+
+```mermaid
+flowchart LR
+    Task["task: str"] --> Config["RuntimeConfig"]
+    Config --> Session["AgentRunSession"]
+    Session --> Turn["PreparedTurn"]
+    Turn --> Response["AgentResponse"]
+    Response --> Call["ToolCall"]
+    Call --> Intent["OperationIntent"]
+    Intent --> Obs["Observation"]
+    Obs --> Event["TraceEvent"]
+    Obs --> Checkpoint["TaskCheckpoint"]
+    Event --> Usage["usage read model"]
+    Checkpoint --> Resume["ContinuationPlan"]
+    Event --> Result["BenchCaseResult / Scorecard"]
+```
+
+核心字段 owner：
+
+| 数据 | 定义位置 | 谁创建 | 谁消费 |
+| --- | --- | --- | --- |
+| `RuntimeConfig` | `runtime/config.py` | CLI/Bench | Runtime application |
+| `AgentRunSession` | `runtime/application/session.py` | `RunPreparation.start` | AgentLoop、Tool pipeline、Lifecycle |
+| `PreparedTurn` | `runtime/application/turn_preparation.py` | `TurnPreparation.execute` | ModelPort、AgentLoop |
+| `AgentResponse/ToolCall/Observation` | `runtime/domain/conversation.py` | Model/Tool adapters | Runtime application |
+| `OperationIntent` | `runtime/application/operation_tracker.py` | OperationTracker | Authorization、ledger |
+| `TaskCheckpoint` | `runtime/domain/task.py` | TaskStateRepository | Lifecycle、resume、trace |
+| `TraceEvent` | `observability/domain/event.py` | Event adapter | Usage、Workbench、Evaluation |
+| `BenchCaseResult` | `bench/domain/models.py` | Bench use case | Diagnosis、report、scorecard |
+| `EvaluationComparison` | `evaluation/domain/models.py` | Comparison rules | report/API |
+
+## 地图四：状态流转图
+
+### 单 Agent 状态
+
+```mermaid
+stateDiagram-v2
+    [*] --> CREATED
+    CREATED --> RUNNING
+    RUNNING --> WAITING_HUMAN
+    RUNNING --> WAITING_APPROVAL
+    WAITING_HUMAN --> RUNNING: respond + resume
+    WAITING_APPROVAL --> RUNNING: approve + rerun/resume
+    RUNNING --> COMPLETED
+    RUNNING --> BLOCKED
+    RUNNING --> FAILED
+```
+
+`RunLifecycle` 是 checkpoint 和 terminal transition 的 owner；JSON repository 只保存，
+不能自行决定状态。
+
+### 副作用 Operation 状态
+
+```text
+planned -> pending_approval -> approved -> executed
+                                  |           |
+                                  v           v
+                                stale       failed
+```
+
+`OperationTracker` 管 operation key 和 fingerprint；`ToolAuthorizationGate` 管
+allow/deny/ask；二者不能合成一个“万能安全类”。
+
+### Fanout 编排状态
+
+```text
+validated plan -> batches -> worker accepted/rejected
+-> deterministic integration -> isolated finalizer -> completed/blocked/failed
+```
+
+## 地图五：职责与所有权图
+
+| Capability 能力 | Application owner | Domain/Port | Adapter/Presentation |
+| --- | --- | --- | --- |
+| Runtime | `application/agent_loop.py` | `runtime/domain`、`runtime/ports` | `runtime/adapters`、`runtime/wiring.py` |
+| Orchestration | `multi_agent/application` | `multi_agent/domain`、`ports` | worker/Git/artifact adapters |
+| Benchmark | `bench/application/swebench.py` | case、taxonomy、benchmark ports | 数据集/Git/model/official adapters、report |
+| Evaluation | scorecard/mini-case 用例 | comparison、metric、ablation | JSON/feedback adapters、Markdown renderers |
+| Observability | `BuildUsageReport` | TraceEvent、usage projection | JsonTrace、usage files、展示 renderer |
+| Workbench | `WorkbenchServices` | command/job models、service ports | evidence files、后台 jobs、HTTP |
+
+## 能力入口索引
+
+| 能力 | 第一入口 | 下一步 | 主要输出 |
+| --- | --- | --- | --- |
+| CLI 参数 | `cli.parser.build_parser` | `cli.dispatch.main` | typed `Namespace` boundary |
+| Repository run | `cli.repository.run_repository_task` | Runtime/Multi wiring | 运行目录 |
+| Single Agent | `AgentLoop.run` | RunPreparation -> `_run_turn` | 最终答案、trace、checkpoint |
+| Run 前置 | `RunPreparation.start/execute` | Lifecycle、policies、`SkillSelectorPort` | session、initial checkpoint |
+| Turn 输入 | `TurnPreparation.execute` | `ContextAssemblerPort`、ToolRouter | `PreparedTurn` |
+| 模型边界 | `ModelGateway.chat` | provider client | `AgentResponse`、usage |
+| 工具治理 | `ToolExecutionPipeline.execute_calls` | `_execute_call` | Observation 或 StopRequest |
+| 审批 | `ToolAuthorizationGate.authorize` | HookPort、ApprovalRepository | GateResult、approval event |
+| 幂等 | `OperationTracker.describe/replay_if_executed` | ledger port | OperationRecord |
+| 反馈恢复 | `ToolFeedback.record_recovery` | StepController | recovery event |
+| 生命周期 | `RunLifecycle.update/stop/request_human_input` | state/human ports | checkpoint、pause、stop |
+| Operator control | `cli.operator` | `runtime.application.operator_control` | approval/human record |
+| Resume | `cli.resume.resume_repository_task` | `BuildContinuationPlan` | new run + resume chain |
+| Context 上下文 | `RepositoryContextAssembler.build` | `ContextAssemblerPort` | `ContextBuildReport` |
+| Tool visibility 可见性 | `ToolRouter.route` | schemas、Skill tools | allowed/dropped tools |
+| Path/command safety 安全 | `WorkspaceSandbox.ensure_safe_path`、`check_command` | Permission/Environment | decision + manifest |
+| Sequential roles 顺序角色 | `MultiAgentCoordinator.run` | role runner、artifact port | MultiAgentRunSummary |
+| Live Fanout 并发 | `LiveFanoutCoordinator.run` | worker/workspace/artifact ports | checkpoint、integration patch、summary |
+| SWE-bench 评测 | `RunSwebench.execute` | case executor、official evaluator | predictions、case results、report |
+| Failure taxonomy 分类 | `classify_case_result` | priority rules | FailureDiagnosis |
+| Official result 官方结果 | `apply_official_results` | official JSON parser | per-case eval status |
+| Comparison 对比 | `compare_runs/compare_variants` | metric normalization | EvaluationComparison |
+| Scorecard 计分卡 | `BuildBenchmarkScorecard.execute` | evidence reader port | scorecard read model |
+| Ablation | `compare_benchmark_scorecards` | matched identity gate | paired delta |
+| Usage 用量 | `BuildUsageReport.execute` | pure usage projection | usage.json/read model |
+| Feedback data 反馈 | `record_feedback/export_feedback_dataset` | files adapter | feedback.json/JSONL |
+| Workbench 工作台 | `workbench.api.run_ui` | services -> HTTP renderer | local evidence console |
+
+## AgentLoop 最短阅读路径
+
+```text
+AgentLoop.run                         只看完整阶段
+-> RunPreparation.start/execute       只看一次性初始化
+-> AgentLoop._run_turn                只看 model/final/tool 分叉
+-> TurnPreparation.execute            需要理解 context 时再看
+-> ToolExecutionPipeline._execute_call 需要理解 action 时再看
+-> RunLifecycle.stop                  需要理解终态时再看
+```
+
+`AgentLoop` 不再保存 TaskStateStore、ApprovalStore 等具体对象；这些通过
+`RuntimeDependencies` 的 Port 注入。`TurnPreparation` 不扫描文件；需要理解仓库 map、
+文件预览或 `FORGE.md` 读取时，再进入 `runtime/adapters/context_assembler.py`，随后沿调用
+进入 Context capability。
+
+## 工具调用最短路径
+
+```mermaid
+flowchart LR
+    Response["AgentResponse.tool_calls"] --> Pipeline["ToolExecutionPipeline"]
+    Pipeline --> Barrier["repeat / route / HITL"]
+    Barrier --> Tracker["OperationTracker"]
+    Tracker --> Gate["ToolAuthorizationGate"]
+    Gate --> Registry["ToolGateway.execute"]
+    Registry --> Observation["Observation"]
+    Observation --> Feedback["ToolFeedback"]
+    Feedback --> Lifecycle["RunLifecycle"]
+```
+
+## Trace 应该怎样读
+
+高价值 checkpoint 使用具名方法：
 
 ```python
-self.trace.record_task_state_checkpoint(
+trace.record_task_state_checkpoint(
     step=0,
     agent_name=agent_name,
     checkpoint=checkpoint,
 )
 ```
 
-只看调用位置就能知道：
+`checkpoint` 是 `TaskCheckpoint`，字段在 Domain 中一次定义；序列化发生在
+`JsonTraceRecorder`。通用 `trace.add` 仍用于扩展 event payload，但 envelope 字段由
+`TraceEvent` 保护。
 
-- `step` 是 `int`。
-- `agent_name` 是 `str`。
-- `checkpoint` 是 `TaskCheckpoint`，跳到这个 dataclass 就能看到全部字段。
-- 方法会写入 `task_state_checkpoint` 事件。
-- 序列化只发生在 `TraceRecorder` 内部，而不是调用者中。
-
-数据流如下：
-
-```mermaid
-flowchart LR
-    Start["TaskStateStore.start"] --> Object["TaskCheckpoint"]
-    Object --> Method["record_task_state_checkpoint"]
-    Method --> Event["TraceEvent"]
-    Event --> JSON["trace.json"]
-    JSON --> Usage["usage_report"]
-    JSON --> Metrics["metrics"]
-    JSON --> UI["Evidence Console"]
+```text
+runtime event -> trace.json (fact)
+              -> BuildUsageReport (projection)
+              -> usage.json (read model)
+              -> Markdown/Workbench renderer (presentation)
 ```
 
-JSON 仍保持向后兼容的扁平结构：
+Renderer 不从 patch 长度推断 solved，也不把 human feedback 当 official evaluation。
 
-```json
-{
-  "run_id": "...",
-  "step": 0,
-  "agent_name": "CodingAgent",
-  "event_type": "task_state_checkpoint",
-  "success": true,
-  "task_state": {
-    "status": "created",
-    "current_step": 0,
-    "last_tool": ""
-  }
-}
+## Bench 完成顺序
+
+```text
+RunSwebench.execute
+1. execute cases
+2. stage predictions
+3. optionally run official evaluator
+4. attach final diagnosis and write case study
+5. aggregate and publish reports
 ```
 
-`TraceEvent` 会阻止扩展 payload 覆盖 `run_id`、`event_type` 等 envelope 字段。
-`TraceEventType` 定义支持的事件词表。`TraceRecorder.add` 是兼容旧事件的出口；
-高价值事件应逐步获得具名 `record_*` 方法。
+Case study 位于 final evaluation 之后，避免保存 stale `not_evaluated` 结论。
 
-## 内部数据与边界数据
+## 首次阅读清单
 
-看到类型里出现 `Any` 时，使用下面的规则判断是否合理：
+1. `docs/ARCHITECTURE.md`
+2. `agent_forge/cli/dispatch.py`
+3. `agent_forge/cli/repository.py`
+4. `agent_forge/runtime/application/agent_loop.py`
+5. `agent_forge/runtime/application/session.py`
+6. `agent_forge/runtime/application/run_preparation.py`
+7. `agent_forge/runtime/application/turn_preparation.py`
+8. `agent_forge/runtime/application/tool_execution.py`
+9. `agent_forge/runtime/application/run_lifecycle.py`
+10. `agent_forge/multi_agent/application/coordinator.py`
+11. `agent_forge/multi_agent/application/live_fanout.py`
+12. `agent_forge/bench/application/swebench.py`
+13. `agent_forge/evaluation/application/scorecard.py`
+14. `agent_forge/observability/application/usage.py`
+15. `agent_forge/workbench/presentation/http.py` 中当前需要的 renderer
 
-| 位置 | 推荐形式 | 原因 |
-| --- | --- | --- |
-| Runtime 自有状态 | dataclass、Enum、显式字段 | 项目可以控制其形状 |
-| 函数之间调用 | 具体参数和返回类型 | 读者和静态工具都应知道契约 |
-| Model/tool/MCP/HTTP JSON 输入 | 具名边界 alias + runtime validation | 外部数据在校验前不可信 |
-| 持久化 JSON artifact | typed domain object + 单一 `to_dict` 边界 | 序列化应只发生在 owner 附近 |
-| UI renderer 输入 | 校验后的 `dict[str, Any]` | 历史 artifact 可能存在版本差异 |
-
-外部边界出现 `Any` 是诚实的；项目自有 runtime 状态里出现 `Any`，通常意味着应该
-引入一个 domain model。
-
-## Tool Call 调用链
-
-```mermaid
-flowchart LR
-    Response["AgentResponse.tool_calls"] --> ToolCall["ToolCall"]
-    ToolCall --> Pipeline["ToolExecutionPipeline.execute_calls"]
-    Pipeline --> Guardrail["tool_guardrail"]
-    Guardrail --> Hook["HookManager.pre_tool"]
-    Hook --> Registry["ToolRegistry.execute"]
-    Registry --> Concrete["ReadFileTool / ApplyPatchTool / ..."]
-    Concrete --> Observation["Observation"]
-    Observation --> Recovery["StepController.classify_observation"]
-```
-
-重要的所有权边界：
-
-- `ToolExecutionPipeline` 是工具治理顺序的 owner；`AgentLoop` 只决定何时调用它。
-- `ToolCall` 保存标准化后的模型意图。
-- `ToolRegistry` 负责工具是否存在，以及参数 schema 校验。
-- `HookManager` 负责 allow、ask、deny 决策。
-- 具体工具负责自己的文件系统或命令行为。
-- `Observation` 是工具管线写回 `AgentRunSession` 的唯一结果协议。
-- `StepController` 负责 retry 或 stop 策略。
-
-## Human Input 与 Approval
-
-补充信息和副作用授权是两套不同状态机：
-
-| 需求 | 对象 | Store | 停止状态 |
-| --- | --- | --- | --- |
-| 任务信息不足 | `HumanInputRequest` | `HumanInputStore` | `WAITING_HUMAN` |
-| 授权副作用 | `ApprovalRequest` | `ApprovalStore` | `WAITING_APPROVAL` |
-| 防止重复副作用 | `OperationRecord` | `OperationLedgerStore` | replay 或 stale block |
-
-Store 负责文件持久化。`RunLifecycle` 统一管理 question/checkpoint/stop，工具管线管理
-approval 和 operation ledger；`AgentLoop` 不再直接拼装这些分支。
-
-## Live Fanout 调用链
-
-```mermaid
-flowchart TD
-    Plan["FanoutPlan"] --> Coordinator["LiveFanoutCoordinator"]
-    Coordinator --> Batches["无冲突批次"]
-    Batches --> WorkerA["隔离 worktree + AgentLoop A"]
-    Batches --> WorkerB["隔离 worktree + AgentLoop B"]
-    WorkerA --> ResultA["LiveSubagentResult"]
-    WorkerB --> ResultB["LiveSubagentResult"]
-    ResultA --> Merge["scope 检查 + patch apply"]
-    ResultB --> Merge
-    Merge --> Checkpoint["fanout_checkpoint.json"]
-    Merge --> Finalizer["只读 AgentLoop verifier"]
-    Finalizer --> Summary["LiveFanoutSummary"]
-```
-
-两个关键类型是输入 `FanoutPlan` 和输出 `LiveFanoutSummary`。Worker 内部状态不应
-以临时 dict 的形式泄漏给调用者。
-
-## Evaluation 调用链
-
-```mermaid
-flowchart LR
-    Case["BenchCase"] --> Runner["swebench._run_case"]
-    Runner --> Result["BenchCaseResult"]
-    Result --> Diagnosis["FailureDiagnosis"]
-    Result --> Scorecard["scorecard"]
-    Result --> CaseStudy["case study"]
-    Scorecard --> Report["report.md"]
-```
-
-阅读时必须分开四层 claim：
-
-- generated patch：存在 diff；
-- local validation：指定的本地检查确实执行过；
-- official evaluation：外部 harness 产生了评测结果；
-- resolved：official evidence 明确说明该 case 通过。
-
-## 静态契约门禁
-
-```bash
-.venv/bin/python -m mypy agent_forge
-.venv/bin/python -m unittest tests.test_type_contracts -v
-.venv/bin/python -m unittest tests.test_code_navigation -v
-```
-
-Mypy 检查全部生产模块。AST 回归测试会拒绝缺失完整参数或返回类型的新函数，也会
-检查主入口和 runtime port 标记，避免代码导航质量依赖开发者手动记忆。
-
-## 推荐的首次阅读顺序
-
-第一遍只读这些文件：
-
-1. `runtime/config.py`
-2. `runtime/message.py`、`runtime/tool_call.py`、`runtime/observation.py`
-3. `tools/base.py`，然后是 `tools/registry.py`
-4. `runtime/task_state.py`
-5. `observability/event.py`，然后是 `observability/trace.py`
-6. `runtime/agent_loop.py`，只展开 `run`
-7. `runtime/state.py`
-8. `runtime/tool_execution.py` 和 `runtime/run_lifecycle.py`
-9. `multi_agent/live_fanout.py`
-10. `bench/types.py`，然后是 `bench/swebench.py`
-
-读每个函数时，只回答四个问题：
-
-1. 哪些 domain object 进入？
-2. 返回的精确类型是什么？
-3. 可能发生哪些副作用？
-4. 下一步由哪个对象负责？
-
-如果这四个问题必须先搜索最初调用者才能回答，应该改善函数契约，而不是继续增加
-外围解释文档。
+读每个函数只回答四个问题：输入类型是什么、返回类型是什么、可能产生什么副作用、
+下一步由哪个 owner 接管。无法从签名和所在层回答时，优先改善代码契约，而不是继续
+增加解释性注释。

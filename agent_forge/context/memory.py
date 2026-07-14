@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from agent_forge.runtime.observation import Observation
+from agent_forge.runtime.domain.conversation import Observation
 from .memory_policy import MemoryPolicy, MemoryRecord
 
 

@@ -3,41 +3,13 @@ import json
 import os
 import urllib.error
 import urllib.request
-from dataclasses import dataclass
-from typing import Any, Optional
+from typing import Any
 
+from .domain.conversation import AgentResponse
 from .message import Message
 from .llm_config import LLMConfig
 from .structured_output import StructuredOutputParser
 from .tool_call import ToolCall
-
-
-@dataclass
-class AgentResponse:
-    """Normalized LLM response: final text, tool calls, or structured error."""
-
-    # Final natural-language answer. None when the model chose tools only.
-    content: Optional[str]
-
-    # Normalized tool calls independent of provider wire format.
-    tool_calls: list[ToolCall]
-
-    # Structured provider/parse failure. AgentLoop treats it as data, not crash.
-    error: Optional[dict[str, Any]] = None
-
-    # Provider-specific reasoning text. DeepSeek thinking-mode models require
-    # this field to be passed back in later assistant messages, so the runtime
-    # preserves it without exposing it as user-facing final answer text.
-    reasoning_content: Optional[str] = None
-
-    # Raw provider token usage, when the API returns it. DeepSeek/OpenAI put
-    # cache, prompt, completion, and total token accounting here.
-    usage: Optional[dict[str, Any]] = None
-
-    # Provider response id. This lets usage reports point from one logical
-    # AgentLoop step back to the exact upstream model response.
-    response_id: Optional[str] = None
-
 
 class LLMClient:
     """Interface used by AgentLoop regardless of the backing provider."""

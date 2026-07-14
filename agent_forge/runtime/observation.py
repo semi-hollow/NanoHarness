@@ -1,15 +1,5 @@
-from dataclasses import dataclass
+"""兼容导入：Observation 由 Runtime Domain 拥有。"""
 
+from agent_forge.runtime.domain.conversation import Observation
 
-@dataclass
-class Observation:
-    """Uniform result object returned by every tool execution."""
-
-    # Tool that produced this observation.
-    tool_name: str
-
-    # Runtime success flag used by recovery/metrics.
-    success: bool
-
-    # Human/model-readable evidence fed into the next LLM turn.
-    content: str
+__all__ = ["Observation"]

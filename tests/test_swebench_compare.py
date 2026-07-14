@@ -48,8 +48,8 @@ class SwebenchCompareTest(unittest.TestCase):
                 return AgentResponse("diff --git a/a.py b/a.py\n+fixed\n", [])
 
         case = BenchCase("case-1", "owner/repo", "abc123", "Fix it")
-        with patch("agent_forge.bench.swebench.resolve_llm_config", return_value=Config()), patch(
-            "agent_forge.bench.swebench.build_llm", return_value=LLM()
+        with patch("agent_forge.bench.adapters.case_runtime.resolve_llm_config", return_value=Config()), patch(
+            "agent_forge.bench.adapters.case_runtime.build_llm", return_value=LLM()
         ):
             prediction = _direct_baseline_prediction(case, "provider", "model", None, None)
 
@@ -88,9 +88,12 @@ class SwebenchCompareTest(unittest.TestCase):
             manager = SwebenchWorkspaceManager(root / "cache", root / "bench")
             output = root / "output"
 
-            with patch("agent_forge.bench.swebench.resolve_llm_config", return_value=Config()), patch(
-                "agent_forge.bench.swebench.build_llm", return_value=object()
-            ), patch("agent_forge.bench.swebench.AgentLoop", FakeAgentLoop):
+            with patch("agent_forge.bench.adapters.case_runtime.resolve_llm_config", return_value=Config()), patch(
+                "agent_forge.bench.adapters.case_runtime.build_llm", return_value=object()
+            ), patch(
+                "agent_forge.bench.adapters.case_runtime.build_agent_loop",
+                side_effect=lambda config, _trace, _registry, _llm: FakeAgentLoop(config, None, None, None),
+            ):
                 result = _run_case(
                     case=case,
                     manager=manager,
@@ -113,72 +116,70 @@ class SwebenchCompareTest(unittest.TestCase):
     def test_compare_mode_runs_isolated_single_and_multi_variants(self):
         calls = []
 
-        def fake_load_cases(dataset_name, split, limit, instance_ids, cases_file):
-            return [
-                BenchCase(
-                    instance_id="local__case-1",
-                    repo="local/repo",
-                    base_commit="abc123",
-                    problem_statement="Fix local issue",
-                )
-            ]
+        class FakeSource:
+            def load(self, request):
+                return [
+                    BenchCase(
+                        instance_id="local__case-1",
+                        repo="local/repo",
+                        base_commit="abc123",
+                        problem_statement="Fix local issue",
+                    )
+                ]
 
-        def fake_run_case(**kwargs):
-            case = kwargs["case"]
-            output_dir = kwargs["output_dir"]
-            agent_mode = kwargs["agent_mode"]
-            calls.append((agent_mode, output_dir))
-            case_dir = output_dir / "cases" / "local__case-1"
-            case_dir.mkdir(parents=True, exist_ok=True)
-            patch_path = case_dir / "patch.diff"
-            trace_path = case_dir / "trace.json"
-            usage_path = case_dir / "usage.json"
-            patch_path.write_text("diff --git a/a.py b/a.py\n", encoding="utf-8")
-            trace_path.write_text(json.dumps({"events": []}), encoding="utf-8")
-            usage_path.write_text(
-                json.dumps(
-                    {
-                        "summary": {
-                            "estimated_cost_usd": 0.1 if agent_mode == "single" else 0.2,
-                            "llm_calls": 1 if agent_mode == "single" else 3,
-                            "tool_calls": 2 if agent_mode == "single" else 5,
-                            "failed_tool_calls": 0,
-                        }
-                    }
-                ),
-                encoding="utf-8",
-            )
-            if agent_mode == "multi":
-                multi_dir = case_dir / "multi_agent"
-                multi_dir.mkdir(parents=True, exist_ok=True)
-                (multi_dir / "multi_agent_summary.json").write_text(
+        class FakeExecutor:
+            def run(self, case, *, case_dir, agent_mode, request):
+                calls.append((agent_mode, case_dir))
+                case_dir.mkdir(parents=True, exist_ok=True)
+                patch_path = case_dir / "patch.diff"
+                trace_path = case_dir / "trace.json"
+                usage_path = case_dir / "usage.json"
+                patch_path.write_text("diff --git a/a.py b/a.py\n", encoding="utf-8")
+                trace_path.write_text(json.dumps({"events": []}), encoding="utf-8")
+                usage_path.write_text(
                     json.dumps(
                         {
-                            "status": "passed",
-                            "revision_rounds": 1,
-                            "role_results": [
-                                {"role": "Reviewer", "decision": "PASS", "final_answer": "PASS\nlooks good"},
-                                {"role": "Verifier", "decision": "PASS", "final_answer": "PASS\nvalidated"},
-                            ],
+                            "summary": {
+                                "estimated_cost_usd": 0.1 if agent_mode == "single" else 0.2,
+                                "llm_calls": 1 if agent_mode == "single" else 3,
+                                "tool_calls": 2 if agent_mode == "single" else 5,
+                                "failed_tool_calls": 0,
+                            }
                         }
                     ),
                     encoding="utf-8",
                 )
-            return BenchCaseResult(
-                instance_id=case.instance_id,
-                repo=case.repo,
-                workspace=case_dir / "workspace",
-                trace_path=trace_path,
-                usage_report_path=case_dir / "usage_report.md",
-                patch_path=patch_path,
-                status="patch_generated",
-                final_answer=f"{agent_mode} done",
-                patch_chars=patch_path.stat().st_size,
-            )
+                if agent_mode == "multi":
+                    multi_dir = case_dir / "multi_agent"
+                    multi_dir.mkdir(parents=True, exist_ok=True)
+                    (multi_dir / "multi_agent_summary.json").write_text(
+                        json.dumps(
+                            {
+                                "status": "passed",
+                                "revision_rounds": 1,
+                                "role_results": [
+                                    {"role": "Reviewer", "decision": "PASS", "final_answer": "PASS\nlooks good"},
+                                    {"role": "Verifier", "decision": "PASS", "final_answer": "PASS\nvalidated"},
+                                ],
+                            }
+                        ),
+                        encoding="utf-8",
+                    )
+                return BenchCaseResult(
+                    instance_id=case.instance_id,
+                    repo=case.repo,
+                    workspace=case_dir / "workspace",
+                    trace_path=trace_path,
+                    usage_report_path=case_dir / "usage_report.md",
+                    patch_path=patch_path,
+                    status="patch_generated",
+                    final_answer=f"{agent_mode} done",
+                    patch_chars=patch_path.stat().st_size,
+                )
 
         with tempfile.TemporaryDirectory() as tmp:
-            with patch("agent_forge.bench.swebench.load_cases", side_effect=fake_load_cases), patch(
-                "agent_forge.bench.swebench._run_case", side_effect=fake_run_case
+            with patch("agent_forge.bench.wiring.SwebenchCaseSource", return_value=FakeSource()), patch(
+                "agent_forge.bench.wiring.LocalCaseExecutor", return_value=FakeExecutor()
             ):
                 summary = run_swebench(agent_mode="compare", output_root=tmp, provider="deepseek")
 
@@ -196,41 +197,44 @@ class SwebenchCompareTest(unittest.TestCase):
             self.assertIn("evaluation_report.md", bench_report)
 
     def test_direct_baseline_populates_variant_comparison_and_report(self):
-        def fake_load_cases(dataset_name, split, limit, instance_ids, cases_file):
-            return [BenchCase("local__case-1", "local/repo", "abc123", "Fix local issue")]
+        class FakeSource:
+            def load(self, request):
+                return [BenchCase("local__case-1", "local/repo", "abc123", "Fix local issue")]
 
-        def fake_run_case(**kwargs):
-            case = kwargs["case"]
-            output_dir = kwargs["output_dir"]
-            case_dir = output_dir / "cases" / case.instance_id
-            case_dir.mkdir(parents=True, exist_ok=True)
-            patch_path = case_dir / "patch.diff"
-            trace_path = case_dir / "trace.json"
-            patch_path.write_text("diff --git a/a.py b/a.py\n", encoding="utf-8")
-            trace_path.write_text(json.dumps({"events": []}), encoding="utf-8")
-            return BenchCaseResult(
-                instance_id=case.instance_id,
-                repo=case.repo,
-                workspace=case_dir / "workspace",
-                trace_path=trace_path,
-                usage_report_path=None,
-                patch_path=patch_path,
-                status="patch_generated",
-                final_answer="agent done",
-                patch_chars=patch_path.stat().st_size,
-            )
+        class FakeExecutor:
+            def run(self, case, *, case_dir, agent_mode, request):
+                case_dir.mkdir(parents=True, exist_ok=True)
+                patch_path = case_dir / "patch.diff"
+                trace_path = case_dir / "trace.json"
+                patch_path.write_text("diff --git a/a.py b/a.py\n", encoding="utf-8")
+                trace_path.write_text(json.dumps({"events": []}), encoding="utf-8")
+                return BenchCaseResult(
+                    instance_id=case.instance_id,
+                    repo=case.repo,
+                    workspace=case_dir / "workspace",
+                    trace_path=trace_path,
+                    usage_report_path=None,
+                    patch_path=patch_path,
+                    status="patch_generated",
+                    final_answer="agent done",
+                    patch_chars=patch_path.stat().st_size,
+                )
 
-        with tempfile.TemporaryDirectory() as tmp:
-            with patch("agent_forge.bench.swebench.load_cases", side_effect=fake_load_cases), patch(
-                "agent_forge.bench.swebench._run_case", side_effect=fake_run_case
-            ), patch(
-                "agent_forge.bench.swebench._direct_baseline_prediction",
-                return_value={
+        class FakeBaseline:
+            def predict(self, case, request):
+                return {
                     "instance_id": "local__case-1",
                     "model_name_or_path": "direct-test",
                     "model_patch": "",
                     "error": "baseline config missing",
-                },
+                }
+
+        with tempfile.TemporaryDirectory() as tmp:
+            with patch("agent_forge.bench.wiring.SwebenchCaseSource", return_value=FakeSource()), patch(
+                "agent_forge.bench.wiring.LocalCaseExecutor", return_value=FakeExecutor()
+            ), patch(
+                "agent_forge.bench.wiring.DirectModelBaseline",
+                return_value=FakeBaseline(),
             ):
                 summary = run_swebench(
                     agent_mode="single",
@@ -276,8 +280,8 @@ class SwebenchCompareTest(unittest.TestCase):
                 predictions_path=root / "predictions.jsonl",
                 case_results=[case],
             )
-            with patch("agent_forge.bench.swebench.importlib.util.find_spec", return_value=True), patch(
-                "agent_forge.bench.swebench.subprocess.run"
+            with patch("agent_forge.bench.adapters.official_evaluator.importlib.util.find_spec", return_value=True), patch(
+                "agent_forge.bench.adapters.official_evaluator.subprocess.run"
             ) as run:
                 run.return_value.returncode = 2
                 run.return_value.stdout = ""

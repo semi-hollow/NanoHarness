@@ -61,7 +61,8 @@ forge bench swebench --regression-set core --provider deepseek \
 
 `docs/evaluation/mini-cases/` 存放小型 JSON case，它们不是完整 benchmark，而是覆盖
 code repair 之外 Agent application 共用的 evaluation dimension。
-`agent_forge/evaluation/mini_cases.py` 负责机器可读、确定性加载。
+`agent_forge/evaluation/application/mini_cases.py` 负责确定性评估，case 文件加载和
+artifact 写入由 `evaluation/adapters/mini_case_files.py` 负责。
 
 运行方式：
 

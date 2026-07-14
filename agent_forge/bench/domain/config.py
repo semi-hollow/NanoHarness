@@ -1,0 +1,58 @@
+from __future__ import annotations
+
+from dataclasses import dataclass
+from pathlib import Path
+
+
+@dataclass(frozen=True)
+class SwebenchRunRequest:
+    """All user-selected inputs for one reproducible benchmark run."""
+
+    dataset_name: str = "princeton-nlp/SWE-bench_Lite"
+    split: str = "test"
+    limit: int = 1
+    instance_ids: tuple[str, ...] = ()
+    cases_file: str | None = None
+    provider: str = "deepseek"
+    model: str | None = None
+    base_url: str | None = None
+    api_key: str | None = None
+    max_steps: int = 16
+    max_context_chars: int = 12000
+    repo_cache: str = ".agent_forge/bench/repos"
+    output_root: str = ".agent_forge/runs"
+    direct_baseline: bool = False
+    evaluate: bool = False
+    max_workers: int = 1
+    namespace_empty: bool = False
+    agent_mode: str = "single"
+    profile: str = "coding_fix"
+    max_revision_rounds: int = 2
+    tool_routing_mode: str = "task-aware"
+    execution_mode: str = "local"
+    network_policy: str = "deny"
+    keep_worktree: bool = False
+    container_runtime: str = "docker"
+    container_image: str = "python:3.11-slim"
+    container_cpus: float = 1.0
+    container_memory: str = "1g"
+    container_pids_limit: int = 256
+    container_read_only: bool = True
+
+
+@dataclass(frozen=True)
+class BenchRunLayout:
+    """Filesystem locations allocated by the artifact adapter for one run."""
+
+    output_dir: Path
+    predictions_path: Path
+    baseline_predictions_path: Path | None
+
+    def case_dir(self, instance_id: str) -> Path:
+        return self.output_dir / "cases" / safe_id(instance_id)
+
+
+def safe_id(value: str) -> str:
+    """Convert external benchmark identifiers into path-safe fragments."""
+
+    return "".join(ch if ch.isalnum() or ch in {"-", "_", "."} else "_" for ch in value)

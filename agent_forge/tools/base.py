@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from agent_forge.contracts import ToolArguments, ToolSchema
-from agent_forge.runtime.observation import Observation
+from agent_forge.runtime.domain.conversation import Observation
 
 
 class Tool:

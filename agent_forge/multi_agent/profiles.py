@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from .types import AgentProfile, RoleSpec
+from .domain.models import AgentProfile, RoleSpec
 
 
 CODING_READ_TOOLS = ["list_files", "read_file", "grep", "grep_search", "git_status", "git_diff", "diagnostics"]

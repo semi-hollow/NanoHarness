@@ -1,111 +1,112 @@
 # Runtime 能力导览
 
-这份文档把用户可见能力映射到真实 runtime 路径、证据和范围。快速阅读根目录
-README 后，可以从这里进入实现。
+本文只回答“某项 Runtime 能力落在哪、入口是什么、与谁关联”。架构规则见
+[`../ARCHITECTURE.md`](../ARCHITECTURE.md)，动手练习见
+[`../guides/runtime-learning-path.md`](../guides/runtime-learning-path.md)。
 
-## 系统地图
+## Runtime 内部结构
+
+```text
+runtime/
+├── api.py                         外围稳定入口
+├── domain/                        Task、Conversation、Approval、Operation 等纯模型
+├── application/
+│   ├── agent_loop.py              主控制流
+│   ├── run_preparation.py         session 与一次性前置决策
+│   ├── turn_preparation.py        routing、context、plan
+│   ├── tool_execution.py          工具治理顺序
+│   ├── tool_authorization.py      hook + approval gate
+│   ├── operation_tracker.py       side-effect identity 与 ledger
+│   ├── tool_feedback.py           observation、recovery、validation evidence
+│   ├── final_answer.py            final claim 校验
+│   ├── run_lifecycle.py           checkpoint、HITL、terminal transition
+│   └── operator_control.py        approve/respond/resume 用例
+├── ports/                         Model、Tool、Context、Skill、State、Event、Hook、Environment 协议
+├── adapters/                      JSON repositories、repository context 读取
+└── wiring.py                      具体装配
+```
+
+## 第一遍只看这些入口
+
+| 顺序 | 方法 | 看懂什么 |
+| ---: | --- | --- |
+| 1 | `cli.dispatch.main` | 用户命令如何分发 |
+| 2 | `cli.repository.run_repository_task` | 环境、模型、工具、运行模式如何装配 |
+| 3 | `runtime.wiring.build_agent_loop` | Adapter 如何注入 Port |
+| 4 | `AgentLoop.run` | start、prepare、turn、stop 的完整骨架 |
+| 5 | `RunPreparation.start/execute` | 初始化 checkpoint，并通过 Skill Port 完成 guardrail、clarification、Skill、memory |
+| 6 | `TurnPreparation.execute` | 通过 Context Port 获取 repo context，再做 routing、budget、plan |
+| 7 | `ToolExecutionPipeline.execute_calls` | 工具治理的固定顺序 |
+| 8 | `RunLifecycle.update/stop/request_human_input` | durable state 的唯一 owner |
+
+这八个入口足以建立全貌。JSON 文件命名、原子写入和具体 fingerprint 算法只在调试
+对应分支时阅读。
+
+## 工具治理链
 
 ```mermaid
 flowchart LR
-    CLI["forge CLI / workbench"] --> Loop["AgentLoop"]
-    CLI --> Fanout["LiveFanoutCoordinator"]
-    Fanout --> Workers["隔离的 AgentLoop worker"]
-    Workers --> Loop
-    Loop --> Context["ContextBuilder"]
-    Loop --> Model["ModelGateway"]
-    Loop --> Router["ToolRouter"]
-    Loop --> Environment["Local / Worktree / OCI"]
-    Router --> Policy["Permission / command policy / sandbox"]
-    Policy --> Tools["File / patch / command / diagnostics / MCP"]
-    Loop --> Approval["ApprovalStore"]
-    Loop --> Human["HumanInputStore"]
-    Loop --> Ledger["OperationLedger"]
-    Loop --> State["TaskState checkpoint"]
-    Loop --> Trace["Trace + usage"]
-    Coordinator["MultiAgentCoordinator"] --> Loop
-    Coordinator --> Artifacts["Role artifact"]
-    Fanout --> Merge["scope gate + patch merge"]
-    Merge --> Finalizer["隔离 verifier"]
-    Trace --> Diagnosis["Failure taxonomy"]
-    Trace --> Scorecard["Benchmark scorecard"]
-    Scorecard --> Ablation["Paired ablation"]
-    Diagnosis --> Feedback["Human feedback"]
-    Feedback --> Dataset["Evaluation JSONL"]
-    Dataset --> Regression["坏 case 与 regression selection"]
+    Call["ToolCall"] --> Repeat["repeat + routing gate"]
+    Repeat --> Human["ask_human barrier"]
+    Human --> Replay["OperationTracker replay check"]
+    Replay --> Auth["ToolAuthorizationGate"]
+    Auth --> Tool["ToolGateway.execute"]
+    Tool --> Feedback["ToolFeedback"]
+    Feedback --> Evidence["Observation + Trace + Checkpoint"]
 ```
 
-## 阅读顺序
-
-| 步骤 | 文件 | 需要确认的事实 |
+| 责任 | Owner | 不负责 |
 | --- | --- | --- |
-| 1 | `agent_forge/forge_cli.py` | 公共命令进入统一运行路径，benchmark/evaluation utility 保持独立。 |
-| 2 | `agent_forge/runtime/agent_loop.py` | `run` 只保留 prepare、turn、stop 的显式阶段。 |
-| 3 | `agent_forge/runtime/state.py` | `AgentRunSession` 列出一次运行的全部自有状态。 |
-| 4 | `agent_forge/runtime/tool_execution.py` | 重复、HITL、policy、approval、ledger、tool、recovery 按固定顺序执行。 |
-| 5 | `agent_forge/runtime/run_lifecycle.py` | checkpoint、人工暂停和 terminal transition 只有一个 owner。 |
-| 6 | `agent_forge/tools/tool_router.py` | Tool visibility 会根据任务收敛，allowed/hidden summary 是真实证据。 |
-| 7 | `agent_forge/runtime/execution_environment.py` | Local、worktree、OCI 分别提供不同的 path、git state、process、network、resource 边界。 |
-| 8 | `agent_forge/runtime/approval.py` | 副作用可以在执行前停机，只能根据持久化人工决策继续。 |
-| 9 | `agent_forge/runtime/human_input.py` | 信息型 question 有持久化 pending/responded/cancelled 状态和安全 id。 |
-| 10 | `agent_forge/runtime/operation_ledger.py` | 稳定 operation key 防止重复副作用，并检测 stale target。 |
-| 11 | `agent_forge/runtime/task_state.py` | Resume 使用 checkpoint summary，不声称恢复隐藏 model state。 |
-| 12 | `agent_forge/multi_agent/coordinator.py` | Implementer、Reviewer、Verifier 复用 AgentLoop，只通过 artifact 协作。 |
-| 13 | `agent_forge/multi_agent/live_fanout.py` | Task DAG 变成真实 worktree worker、确定性 integration、checkpoint 和 finalizer。 |
-| 14 | `agent_forge/runtime/git_workspace.py` | Candidate patch 包含 tracked 和新 source file，同时排除 runtime artifact。 |
-| 15 | `agent_forge/bench/failure_taxonomy.py` | Failure priority 能区分 runner、environment、evaluation、tool、context 和 loop failure。 |
-| 16 | `agent_forge/evaluation/feedback_dataset.py` | Human outcome 和安全 trace projection 形成机器可读的改进输入。 |
-| 17 | `agent_forge/bench/official_results.py` | Official quality 来自 per-case JSON，不来自 evaluator exit code。 |
-| 18 | `agent_forge/evaluation/scorecard.py` | Patch、local、official metric 保留不同 denominator。 |
-| 19 | `agent_forge/evaluation/experiment.py` | 计算 paired delta 前必须验证 matched run identity。 |
+| 调用顺序 | `ToolExecutionPipeline` | 审批文件格式 |
+| allow/deny/ask | `ToolAuthorizationGate` | 工具实现 |
+| operation key、fingerprint、replay | `OperationTracker` | 人工回答 |
+| 模型可见 feedback、recovery、test evidence | `ToolFeedback` | terminal state |
+| checkpoint 和 pause/stop | `RunLifecycle` | 工具 routing |
 
-## 主要能力关系
+## 两类 Human-in-the-loop
 
-### 受治理的执行
+| 类型 | Domain object | Application entry | Adapter | 恢复方式 |
+| --- | --- | --- | --- | --- |
+| 信息补充 | `HumanInputRequest` | `RunLifecycle.request_human_input` | `JsonHumanInputRepository` | `forge respond` 后 `forge resume` |
+| 副作用授权 | `ApprovalRequest` | `ToolAuthorizationGate.authorize` | `JsonApprovalRepository` | `forge approve` 后重新运行或恢复 |
 
-`ToolRouter` 决定模型能看见哪些工具；registry validation 检查 model-facing schema；
-permission hook、command policy、workspace sandbox 和 execution environment 再判断该
-action 是否可执行。Prompt instruction 只属于 context，不是强制执行边界。
+二者都能暂停，但语义不同：回答问题不能授权写操作，批准一个 operation 也不能被当成
+一般任务信息。
 
-OCI mode 仍复用相同 hook 和 sandbox chain。File tool 操作隔离后的 host snapshot；
-command 和 unittest diagnostics 则被委托到挂载该 snapshot 为 `/workspace` 的 container。
+## Recovery 与幂等
 
-### Human Input、Approval 与 Recovery
+```text
+TaskCheckpoint         解释任务停在哪里
+HumanInputRequest      解释缺什么信息
+ApprovalRequest        解释哪个副作用等待授权
+OperationRecord        解释副作用是否已执行、目标是否漂移
+resume_link.json       解释新 run 从哪一个 run 继续
+```
 
-`HumanInputStore` 记录继续任务所需的信息，`ApprovalStore` 授权一个具体副作用，两者
-刻意分离。Human question 会在后续工具执行前停止，并在新的 continuation 中注入
-回答。Approval 保存 operation fingerprint，执行前再次检查 target state。
-Operation ledger 记录 planned、pending、executed、failed、skipped 状态；task
-checkpoint 用紧凑 continuation summary 为新的 model call 提供上下文。
+`forge resume` 创建的是新 run。它恢复显式 checkpoint 和人工输入，不恢复隐藏模型状态、
+Python 调用栈或进程内存。
 
-### 多 Agent 编排
+## 与其他 Capability 的连接
 
-Coordinator 顺序运行不同 role 的 AgentLoop，并将 role output 写入 artifact store；
-revision round 有明确上限。另一条 live fanout 路径则让显式 DAG task 在独立
-AgentLoop/worktree/model context 中并发执行。Scope overlap 会串行化，accepted patch
-通过 hash 标识，未完成任务可以从 checkpoint 重跑。它不是 distributed swarm，
-也不声称自动拆解任务。
+| Runtime 输出 | 消费方 | 用途 |
+| --- | --- | --- |
+| `AgentLoop` | Sequential Coordinator / Fanout worker / Benchmark | 复用同一控制内核 |
+| `TraceEvent` | Observability | 构造 usage 与 timeline read model |
+| candidate patch | Benchmark / Orchestration | official eval 或 deterministic merge |
+| checkpoint | CLI resume / Fanout recovery | 显式 continuation |
+| operation ledger | Runtime replay gate | 防止重复副作用 |
+| approval/human request | CLI operator commands | 人工控制 |
 
-Canonical 和 sequential role run 支持逐 operation 的 manual write approval。
-Live fanout 会拒绝该组合，直到 operation identity 可以跨 ephemeral worktree 稳定；
-持久化 informational question 则可以跨 fanout resume 工作。
+## 调试入口
 
-### Evaluation 与 Feedback
+| 现象 | 先看 |
+| --- | --- |
+| 模型没看到仓库内容或工具 | `TurnPreparation.execute`、`ContextAssemblerPort` 和 `ToolRouter.route` |
+| 工具被拒绝 | `ToolAuthorizationGate.authorize`、`HookManager.pre_tool` |
+| 写操作重复或 stale | `OperationTracker.replay_if_executed` |
+| 回答后仍然停住 | `BuildContinuationPlan.execute` 与 checkpoint metadata |
+| 最终答案暗示已验证 | `FinalAnswerBuilder.execute` 与 report claim ladder |
+| trace 有事件但 usage 没展示 | `BuildUsageReport.execute` 与 usage renderer |
 
-SWE-bench-shaped run 会生成 candidate patch、trace、usage、diagnosis、parsed official
-outcome 和 denominator-aware scorecard。`forge eval ablation` 针对一个声明的 runtime
-factor 比较 matched scorecard；`forge eval feedback` 增加 human outcome；
-`forge eval export-dataset` 将安全字段投影成 JSONL，使重复坏 case 可以进入
-regression selection 或后续 data curation。
-
-## 证据边界
-
-- Candidate patch：Agent 修改了 workspace，不证明修改正确。
-- Local verification：当前环境中所有明确的 test-oriented validation event 都通过；
-  只有 compile 不能算通过验证。
-- Official evaluation：只有 official harness 的 per-case 输出可以支持 official
-  resolved claim。
-- Human feedback：operator judgment，不是 benchmark result。
-- Exported JSONL：结构化证据，作为训练数据前仍需 privacy 和 quality review。
-
-完整的 green/yellow/scoped 状态持续维护在
-[`docs/CAPABILITY_REALITY_MATRIX.md`](../CAPABILITY_REALITY_MATRIX.md)。
+对应的历史 failure scenario、根因和验证记录统一维护在
+[`../evaluation/failure-driven-improvements.md`](../evaluation/failure-driven-improvements.md)。

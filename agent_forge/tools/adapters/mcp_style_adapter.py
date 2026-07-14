@@ -2,7 +2,7 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import Any, Callable
 
-from agent_forge.runtime.observation import Observation
+from agent_forge.runtime.domain.conversation import Observation
 from agent_forge.tools.base import Tool
 
 

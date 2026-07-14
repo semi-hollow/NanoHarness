@@ -1,284 +1,304 @@
 # Runtime 学习路径
 
-先阅读 [`code-reading-map.md`](code-reading-map.md) 中的对象和调用链地图；这份文档
-继续说明怎样实际运行每项能力，以及应该检查哪些证据。
+这是一份动手学习手册。先用真实命令产生 artifact，再回到代码定位 owner；不要从
+两百多个 Python 文件逐个阅读。
 
-这是从启动 NanoHarness 到理解 Single Agent、持久化 Human Input、顺序多角色、
-Live Fanout、恢复和评测证据的最短完整路径。
-
-## 启动项目
+## 0. 启动与验证
 
 ```bash
-cd /Users/chenjiahui/Documents/GitHub/NanoHarness
+cd /path/to/NanoHarness
 python3.11 -m venv .venv
 source .venv/bin/activate
-python -m pip install -e '.[bench]'
+python -m pip install -e '.[bench,dev]'
 forge doctor
-bash scripts/verify.sh
+python -m unittest discover -s tests
+forge ui --no-open
 ```
 
-启动本地工作台：
+模型配置通过环境变量或 CLI 参数提供。Worktree/OCI 能力还依赖 Git 或 Docker-compatible
+runtime。先看 [`../CAPABILITY_REALITY_MATRIX.md`](../CAPABILITY_REALITY_MATRIX.md)，
+确认每种模式能证明什么。
+
+## 1. 建立全貌
+
+只打开以下文件，并保持函数体折叠：
+
+| 顺序 | 文件 | 只看什么 |
+| ---: | --- | --- |
+| 1 | `agent_forge/cli/parser.py` | 用户输入契约 |
+| 2 | `agent_forge/cli/dispatch.py` | 命令交给哪个 capability |
+| 3 | `agent_forge/cli/repository.py` | run 的 composition 和 artifact 边界 |
+| 4 | `agent_forge/runtime/application/agent_loop.py` | `AgentLoop.run` |
+| 5 | `agent_forge/runtime/application/session.py` | 一次 run 的字段表 |
+| 6 | `agent_forge/runtime/application/run_preparation.py` | `start` 与 `execute` |
+| 7 | `agent_forge/runtime/application/turn_preparation.py` | `execute` |
+| 8 | `agent_forge/runtime/application/tool_execution.py` | `execute_calls` 与 `_execute_call` |
+| 9 | `agent_forge/runtime/application/run_lifecycle.py` | `update`、`request_human_input`、`stop` |
+
+此时你应该能口述：CLI 装配 Runtime，AgentLoop 控制阶段，Application 只依赖 Port，
+Wiring 注入 Adapter，Trace/Checkpoint 保存证据。
+
+## 2. Single Agent 实验
 
 ```bash
-source .venv/bin/activate
-forge ui
+forge run "inspect this repository and report one bounded improvement" \
+  --workspace . \
+  --provider deepseek \
+  --max-steps 6 \
+  --execution-mode worktree \
+  --network-policy deny \
+  --no-keep-worktree
 ```
 
-## 系统地图
-
-```mermaid
-flowchart TD
-    Entry["forge_cli.py / ui.py"] --> Mode{"single / multi / fanout / bench"}
-    Mode --> Loop["AgentLoop"]
-    Mode --> Roles["MultiAgentCoordinator"]
-    Mode --> Fanout["LiveFanoutCoordinator"]
-    Roles --> Loop
-    Fanout --> Workers["worktree 中的 AgentLoop worker"]
-    Workers --> Loop
-    Loop --> Context["context + memory + skills"]
-    Loop --> Model["ModelGateway"]
-    Loop --> Session["AgentRunSession"]
-    Loop --> Router["ToolRouter"]
-    Router --> Pipeline["ToolExecutionPipeline"]
-    Pipeline --> Registry["ToolRegistry"]
-    Pipeline --> Safety["hooks + permission + sandbox + command policy"]
-    Pipeline --> Approval["ApprovalStore"]
-    Pipeline --> Ledger["OperationLedgerStore"]
-    Loop --> Lifecycle["RunLifecycle"]
-    Pipeline --> Lifecycle
-    Lifecycle --> Human["HumanInputStore"]
-    Lifecycle --> State["TaskStateStore"]
-    Loop --> Trace["TraceRecorder"]
-    Fanout --> Merge["scope gate + hash + git apply"]
-    Merge --> Finalizer["隔离的只读 verifier"]
-    Trace --> Usage["usage.json / usage_report.md"]
-    Trace --> Eval["failure taxonomy / scorecard / feedback"]
-```
-
-## 阅读顺序
-
-| 顺序 | 文件 | 重点理解 | 连接到 |
-| ---: | --- | --- | --- |
-| 1 | `agent_forge/forge_cli.py` | 公共参数、环境准备、模式分发、respond/resume 命令 | 所有 runtime 路径 |
-| 2 | `agent_forge/runtime/wiring.py` | registry/model 的统一构造边界 | AgentLoop 和全部 worker |
-| 3 | `agent_forge/runtime/agent_loop.py` | 只看 `run` 的 start、prepare、turn、stop | 标准执行内核 |
-| 4 | `agent_forge/runtime/state.py` | `AgentRunSession` 的显式数据字段 | 一次 run 的状态所有权 |
-| 5 | `agent_forge/runtime/tool_execution.py` | 工具调用的固定治理链 | routing 后的 action 落地 |
-| 6 | `agent_forge/runtime/run_lifecycle.py` | checkpoint、HITL 和 terminal transition | pause/resume/stop |
-| 7 | `agent_forge/runtime/human_input.py` | pending/responded/cancelled 信息状态 | `ask_human`、`forge respond`、resume |
-| 8 | `agent_forge/runtime/approval.py` | 对具体副作用授权，以及 stale fingerprint 检查 | `forge approve` |
-| 9 | `agent_forge/runtime/task_state.py` 和 `operation_ledger.py` | continuation state 和副作用幂等 | single/sequential recovery |
-| 10 | `agent_forge/multi_agent/coordinator.py` | 顺序 role workflow 和有界 revision | 显式 artifact handoff |
-| 11 | `agent_forge/multi_agent/fanout.py` | 纯 DAG batching 和 overlap 算法 | Live coordinator scheduling |
-| 12 | `agent_forge/multi_agent/live_fanout.py` | 真实 worker、worktree、scope、merge、checkpoint、finalizer | 并行 plan 执行 |
-| 13 | `agent_forge/runtime/git_workspace.py` | tracked/untracked binary patch 的统一证据 | run、benchmark、tool、两种 coordinator |
-| 14 | `agent_forge/observability/trace.py` 和 `usage_report.py` | 原始 event 和量化 read model | report 和调试 |
-| 15 | `agent_forge/bench/swebench.py` 和 `evaluation/` | candidate patch、official outcome、scorecard、ablation、feedback | 改进闭环 |
-
-## 标准 AgentLoop
+按顺序打开新 run：
 
 ```text
-task
-  -> AgentLoop._prepare_run
-       -> input guardrail / clarification / skills
-  -> AgentLoop._run_turn
-       -> context / routing / model call
-  -> ToolExecutionPipeline.execute_calls
-       -> repeat / HITL / permission / approval / ledger / execute / recovery
-  -> RunLifecycle.update or stop
-       -> checkpoint / stop hooks / trace
-  -> final-answer evidence guardrail
+execution_environment.json   实际 workspace、隔离模式、命令历史
+trace.json                   原始事实流
+task_state/*.json            最后 checkpoint
+operation_ledger/*.json      副作用幂等记录
+usage.json                   trace 的量化投影
+usage_report.md              展示层
+patch.diff                   candidate，不等于 solved
+final_answer.txt             模型最终文本
 ```
 
-折叠所有方法后，第一遍只展开 `AgentLoop.run`。第二遍打开 `AgentRunSession` 看字段，
-然后根据问题选择 `ToolExecutionPipeline.execute_calls` 或 `RunLifecycle` 的三个 port。
-不需要从任意 helper 反向搜索最初调用者。
-
-先运行这些测试：
-
-```bash
-.venv/bin/python -m unittest \
-  tests.test_agent_loop_policy \
-  tests.test_tool_router \
-  tests.test_tool_registry_router -v
-```
-
-## 持久化 Human Input
-
-任务补充信息和副作用授权是两套状态机：
+然后回到代码跟一条最短链：
 
 ```text
-informational question
-  -> HumanInputStore.request
-  -> WAITING_HUMAN
-  -> forge respond
-  -> forge resume
-  -> question + answer 进入 continuation context
-
-write authorization
-  -> ApprovalStore.request + target fingerprint
-  -> WAITING_APPROVAL
-  -> forge approve
-  -> fingerprint recheck
-  -> execute 或 mark stale
+AgentLoop.run
+-> RunPreparation.start/execute
+-> TurnPreparation.execute
+-> ModelPort.chat
+-> ToolExecutionPipeline.execute_calls
+-> RunLifecycle.stop
 ```
 
-运行确定性行为测试：
+## 3. Tool Governance 实验
 
-```bash
-.venv/bin/python -m unittest \
-  tests.test_human_input \
-  tests.test_human_approval \
-  tests.test_resume_cli \
-  tests.test_operation_ledger -v
-```
-
-配置真实 provider 后，可以用一个故意不完整的任务观察 stop/respond/resume：
-
-```bash
-forge run "fix it" --provider deepseek
-forge respond <request-id> --answer "Update agent_forge/runtime/config.py"
-forge resume .agent_forge/runs/<run-id> --provider deepseek
-```
-
-依次检查 request JSON、最新 `TaskCheckpoint`、新 run 中的 `resume_link.json`，以及
-`usage_report.md` 的 `Resume Chain` 部分。
-
-## 顺序多角色
-
-`MultiAgentCoordinator` 是 `AgentLoop` 外层的确定性 workflow：
+重点文件：
 
 ```text
-Implementer AgentLoop
-  -> candidate artifact
-  -> Reviewer AgentLoop
-  -> PASS / NEEDS_REVISION / BLOCKED
-  -> 可选且有上限的 Implementer revision
-  -> Verifier AgentLoop
-  -> multi_agent_summary.json
+runtime/application/tool_execution.py      固定治理顺序
+runtime/application/tool_authorization.py  allow/deny/ask + approval
+runtime/application/operation_tracker.py   key/fingerprint/replay
+runtime/application/tool_feedback.py       observation/recovery/test evidence
+tools/tool_router.py                        模型可见工具
+tools/registry.py                           参数校验和执行
+safety/command_policy.py                    命令规则
+safety/sandbox.py                           路径规则
 ```
 
-运行方式：
+不要把 ToolRouter 当安全边界。它只控制 schema visibility；即使工具可见，仍需经过
+Hook、Permission、CommandPolicy 和 Sandbox。
+
+建议对照 trace 找一条工具调用：
+
+```text
+action
+-> guardrail_check
+-> hook_check
+-> permission_check
+-> optional human_approval
+-> tool_call
+-> tool_observation
+-> recovery_decision / validation_evidence
+-> task_state_checkpoint
+```
+
+## 4. Human Input 实验
+
+信息不足时，Runtime 会创建 `HumanInputRequest` 并停在 `WAITING_HUMAN`：
+
+```bash
+forge respond <request-id> \
+  --answer "Use the existing public API and keep backward compatibility."
+
+forge resume .agent_forge/runs/<previous-run-id>
+```
+
+阅读链：
+
+```text
+RunPreparation._resolve_clarification
+或 ToolExecutionPipeline._handle_human_question
+-> RunLifecycle.request_human_input
+-> HumanInputRepository
+-> cli.operator.respond_to_human_input_request
+-> BuildContinuationPlan.execute
+-> cli.resume.resume_repository_task
+```
+
+验证三个事实：原 run 没有继续执行、回答单独持久化、新 run 有 `resume_link.json` 和
+`resume_chain.md`。这不是恢复隐藏 model state。
+
+## 5. Approval 与幂等实验
+
+```bash
+forge run "make one small documented edit" \
+  --no-auto-approve-writes \
+  --approval-mode on-write
+
+forge approve <operation-key>
+forge resume .agent_forge/runs/<previous-run-id>
+```
+
+阅读链：
+
+```text
+OperationTracker.describe
+-> ToolAuthorizationGate.authorize
+-> ApprovalRepository.request
+-> WAITING_APPROVAL
+-> DecideApproval.execute
+-> fingerprint recheck
+-> OperationTracker.record_result
+```
+
+重点理解：同一个 operation 重放时会跳过；目标在批准后变化会标记 stale；回答
+`ask_human` 不能替代 approval。
+
+## 6. 顺序 Multi-Agent
 
 ```bash
 forge run "fix the failing test" \
   --agent-mode multi \
   --profile coding_fix \
-  --max-revision-rounds 2 \
-  --provider deepseek
+  --max-revision-rounds 2
 ```
 
-先读 `multi_agent/artifact_index.json`，再读 report。前者能直接说明 role 之间如何
-handoff，以及 revision 的真实顺序。
+先看：
 
-## Live Fanout 实际执行
+```text
+multi_agent/application/coordinator.py
+multi_agent/domain/models.py
+multi_agent/ports/sequential.py
+multi_agent/adapters/role_runtime.py
+multi_agent/adapters/artifact_files.py
+multi_agent/presentation/report.py
+```
 
-Fanout 接收一份显式 JSON DAG。安全示例包含两个只读 worker：
+主链：Implementer -> artifact -> Reviewer -> optional revision -> Verifier。每个角色都
+复用同一个 AgentLoop；“多 Agent”新增的是显式控制点和 artifact handoff，不是隐藏共享
+memory。
+
+## 7. 并发 Live Fanout
 
 ```bash
-forge run "audit runtime and safety evidence" \
+forge run "audit independent runtime areas" \
   --agent-mode fanout \
   --fanout-plan examples/fanout-plan.sample.json \
   --max-workers 2 \
-  --provider deepseek
+  --execution-mode worktree
 ```
 
-写入路径更严格：
+先看输入输出类型：
 
 ```text
-validate plan
-  -> topological levels
-  -> 将声明写入范围有重叠的任务拆成顺序 batch
-  -> 每个 worker 独占 detached worktree / LLM / registry / AgentLoop
-  -> 收集 tracked 和 untracked binary patch
-  -> 验证真实修改路径没有逃逸声明 scope
-  -> 检查同 batch overlap
-  -> 验证 patch SHA 和 git apply --check
-  -> 按 plan 顺序确定性 apply
-  -> 隔离 finalizer 可见 candidate diff，并经过 pre/post mutation gate
+multi_agent/domain/live.py             FanoutPlan、LiveSubagentResult、Summary
+multi_agent/application/live_fanout.py 调度、gate、merge、finalize
+multi_agent/application/fanout.py      纯 batching/conflict use case
+multi_agent/adapters/local_worker.py   真实 AgentLoop worker
+multi_agent/adapters/git_workspace.py  worktree/diff/apply
+multi_agent/adapters/fanout_files.py    checkpoint/artifact
 ```
 
-每项任务可以声明 `max_steps`，范围是 2 到 32。真实 worker budget 取任务值和
-CLI/global budget 的较小者，因此资源限制不是一句无法执行的 prompt 文案。
+Fanout 只并发无依赖且 write scope 不冲突的任务。声明 scope overlap 会串行；实际越界、
+patch apply 失败或 finalizer mutation 会 fail closed。
 
-对于写入型 plan，外层使用 worktree：
+恢复：
 
 ```bash
-forge run "execute the validated task DAG" \
+forge run "audit independent runtime areas" \
   --agent-mode fanout \
-  --fanout-plan path/to/write-plan.json \
-  --execution-mode worktree \
-  --no-keep-worktree \
-  --provider deepseek
+  --fanout-plan examples/fanout-plan.sample.json \
+  --fanout-resume .agent_forge/runs/<prior-run> \
+  --max-workers 2
 ```
 
-运行完整的确定性 fanout 规格测试：
+Resume 会校验 plan digest、base identity 和 patch hash，只复用 accepted worker artifact。
+
+## 8. Benchmark 与 Claim Boundary
 
 ```bash
-.venv/bin/python -m unittest \
-  tests.test_subagent_fanout \
-  tests.test_live_fanout \
-  tests.test_git_workspace -v
+forge bench swebench \
+  --regression-set core-five \
+  --limit 1 \
+  --provider deepseek \
+  --direct-baseline
 ```
 
-这些测试覆盖真实 AgentLoop worker、独立 worktree、新增文本和 binary 文件、
-`.github/` 范围、path escape、dependency failure、conflict gate、candidate claim
-boundary、checkpoint-only recovery、patch 篡改，以及持久化 worker question。
-
-## Fanout 恢复
+带 official harness 时再增加 `--evaluate`。阅读：
 
 ```text
-fanout_plan.json          标准化后的精确 plan
-fanout_checkpoint.json    增量 accepted-task 状态
-fanout_summary.json       终态结果
-workers/<id>/patch.diff   worker candidate patch
-workers/<id>/trace.json   worker trajectory
-integration.patch         当前已集成 candidate
+bench/api.py
+-> bench/application/swebench.py
+-> bench/adapters/case_runtime.py
+-> optional bench/adapters/official_evaluator.py
+-> bench/application/diagnostics.py
+-> bench/presentation/case_study.py/report.py
+-> evaluation/application/scorecard.py
 ```
 
-Resume 会使用新的干净 integration workspace：
+永远区分：candidate patch、local validation、runtime verifier、official resolved。
+
+## 9. Evaluation 与数据闭环
 
 ```bash
-forge run "continue the validated task DAG" \
-  --agent-mode fanout \
-  --fanout-plan path/to/plan.json \
-  --fanout-resume .agent_forge/runs/<previous-run-id> \
-  --execution-mode worktree \
-  --no-keep-worktree \
-  --provider deepseek
+forge eval feedback .agent_forge/runs/<run-id> \
+  --outcome needs_work \
+  --label context_miss
+
+forge eval export-dataset .agent_forge/runs/<run-id> \
+  --require-feedback
+
+forge eval ablation <control-run> <treatment-run> \
+  --factor tool_routing
 ```
 
-如果 plan 改变、base commit 改变、patch 缺失或 patch hash 不一致，恢复会被拒绝。
-进程被强制终止时可能遗留 orphan worktree；先用 `git worktree list` 检查，只清理
-确认属于历史 run 的 stale entry。
+阅读 owner：
 
-Worker worktree 是 committed `base_head` snapshot，看不到启动 checkout 中未提交的
-文件。这是刻意设计的 provenance boundary。应提交输入，或未来通过显式 seed
-artifact 传入，不能假设 ambient dirty state 会被自动复制。
+```text
+evaluation/domain/comparison.py     同一任务不同 variant
+evaluation/domain/ablation.py       matched identity 和 paired delta
+evaluation/application/scorecard.py denominator 与 read model
+evaluation/adapters/feedback_dataset_files.py 反馈与隐私默认值
+```
 
-## 证据阅读顺序
+## 10. Workbench 工作台
 
-一次 run 建议按下面顺序阅读：
+```bash
+forge ui --no-open
+```
 
-1. `final_answer.txt`：用户可见结果和 claim boundary。
-2. `fanout/fanout_report.md` 或 `multi_agent/multi_agent_report.md`：workflow 结果。
-3. `patch.diff` / `integration.patch`：真实 candidate change。
-4. `usage.json`：call、token、cost、latency、failed tool。
-5. `trace.json`：精确决策和 stop reason。
-6. `execution_environment.json`：workspace、network、image、resource、cleanup 事实。
-7. benchmark `scorecard.json`：带 denominator 的 patch/local/official evidence。
+```text
+workbench/api.py
+workbench/application/services.py
+workbench/ports/services.py
+workbench/adapters/evidence_files.py
+workbench/adapters/background_jobs.py
+workbench/presentation/commands.py
+workbench/presentation/http.py
+```
 
-## 能力边界
+Workbench 是本地 evidence console：它读取真实 artifact 并启动白名单 CLI command，
+不是 hosted product。页面中的结论必须可追溯到 trace、scorecard、official result 或
+human feedback。
 
-- Fanout 是本地并发编排，不是 distributed queue 或 swarm。
-- Task DAG 是显式输入，不声称支持 model-driven dynamic decomposition。
-- 已声明 overlap 会串行化；未声明 conflict 需要 operator 介入。
-- 持久化信息型 question 可以在匹配的 fanout resume 中复用。
-- Single/sequential 支持逐操作人工审批；在 operation identity 尚未脱离 workspace
-  前，写入型 fanout 与 manual approval 的组合会 fail fast。
-- Checkpoint recovery 恢复显式 artifact，不恢复 model process memory。
-- merged patch 和 verifier PASS 都不等于 official benchmark resolved。
+## 11. 学习验收问题
 
-持续维护的能力真值表见
-[`docs/CAPABILITY_REALITY_MATRIX.md`](../CAPABILITY_REALITY_MATRIX.md)，开发问题证据库见
-[`docs/evaluation/failure-driven-improvements.md`](../evaluation/failure-driven-improvements.md)。
+完成后应能不看代码回答：
+
+1. `AgentLoop.run` 为什么可以保持很短？
+2. ToolRouter、PermissionPolicy、CommandPolicy、Sandbox 各解决什么问题？
+3. HumanInput 与 Approval 为什么不能共用状态？
+4. checkpoint resume 为什么不等于恢复模型上下文？
+5. operation fingerprint 如何防止 stale approval？
+6. Sequential roles 和 Live Fanout 的权衡是什么？
+7. Fanout 为什么需要 declared scope 和 actual touched-file 双重检查？
+8. Case study 为什么必须在 official evaluation 之后写？
+9. Patch rate、local verification rate、official resolved rate 的 denominator 分别是什么？
+10. Trace、usage read model、report、Workbench 之间为什么必须分层？
+
+开发中遇到的新典型问题，按“现象、场景、根因、排查、修复、验证”追加到
+[`../evaluation/failure-driven-improvements.md`](../evaluation/failure-driven-improvements.md)。

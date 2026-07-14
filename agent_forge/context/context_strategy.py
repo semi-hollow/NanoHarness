@@ -1,7 +1,7 @@
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from .memory import Memory
+from .contracts import ContextMemory
 from .file_ranker import rank_files
 from .rag import retrieve
 from .token_budget import truncate_middle
@@ -74,7 +74,7 @@ def build_context_strategy(
     task: str,
     files: list[str],
     docs: list[str],
-    memory: Memory,
+    memory: ContextMemory,
     root: str | Path,
     max_chars: int,
 ) -> ContextStrategy:

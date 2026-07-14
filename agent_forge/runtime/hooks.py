@@ -1,132 +1,14 @@
-from dataclasses import dataclass, field
-from enum import Enum
-
+from agent_forge.runtime.domain.governance import (
+    ApprovalMode,
+    HookContext,
+    HookDecision,
+    HookDecisionType,
+    HookResult,
+    SIDE_EFFECT_ACTIONS,
+)
 from agent_forge.runtime.execution_environment import ExecutionEnvironment
-from agent_forge.runtime.observation import Observation
+from agent_forge.runtime.domain.conversation import Observation
 from agent_forge.safety.permission import PermissionDecision, PermissionPolicy
-
-
-class HookDecisionType(Enum):
-    """Decision vocabulary for runtime hooks.
-
-    ``DEFER`` means "this hook has no opinion"; the next hook or the default
-    policy decides. ``ASK`` is important because write tools can be allowed only
-    after an explicit approval step is recorded in trace.
-    """
-
-    ALLOW = "allow"
-    DENY = "deny"
-    ASK = "ask"
-    DEFER = "defer"
-
-
-class ApprovalMode(Enum):
-    """Operator-selected approval posture for one run.
-
-    Production coding agents need more than a boolean. A personal trusted
-    checkout can auto-approve narrow writes, while a shared/company checkout
-    often needs write approval, command approval, or a dry-run/locked posture.
-    """
-
-    # Preserve normal policy: reads allow, writes ask, allowlisted commands run.
-    TRUSTED = "trusted"
-
-    # Writes ask; allowlisted validation commands can run without extra prompt.
-    ON_WRITE = "on-write"
-
-    # Writes and commands ask. Useful when command side effects matter.
-    ON_RISK = "on-risk"
-
-    # Read-only mode. Side-effect tools are denied.
-    LOCKED = "locked"
-
-    # Same side-effect denial as locked, but named for CI/planning dry-runs.
-    DRY_RUN = "dry-run"
-
-
-SIDE_EFFECT_ACTIONS = {"apply_patch", "write", "run_command"}
-
-
-@dataclass(frozen=True)
-class HookDecision:
-    """One hook's decision and audit metadata."""
-
-    # Name of the hook that produced the decision.
-    hook_name: str
-
-    # allow/deny/ask/defer.
-    decision: HookDecisionType
-
-    # Human-readable reason copied into trace and task-state checkpoints.
-    reason: str
-
-    # Extra structured context for reports.
-    metadata: dict = field(default_factory=dict)
-
-    def to_dict(self) -> dict:
-        """Return JSON-safe trace data."""
-
-        return {
-            "hook_name": self.hook_name,
-            "decision": self.decision.value,
-            "reason": self.reason,
-            "metadata": self.metadata,
-        }
-
-
-@dataclass(frozen=True)
-class HookContext:
-    """Runtime facts available to hooks before a tool runs."""
-
-    # Trace run id.
-    run_id: str
-
-    # ReAct step number.
-    step: int
-
-    # Agent/role requesting the action.
-    agent_name: str
-
-    # Concrete tool name requested by the model.
-    tool_name: str
-
-    # JSON arguments after provider parsing.
-    arguments: dict
-
-    # Coarse action class: read, apply_patch, run_command.
-    action: str
-
-    # Shell command for run_command tools; empty otherwise.
-    command: str = ""
-
-    # Whether ASK decisions can auto-approve in this local run.
-    auto_approve_writes: bool = True
-
-    # Approval posture chosen by CLI/runtime config.
-    approval_mode: str = ApprovalMode.TRUSTED.value
-
-
-@dataclass(frozen=True)
-class HookResult:
-    """Effective pre-tool decision after all hooks have run."""
-
-    # Final decision consumed by ToolExecutionPipeline.
-    decision: HookDecisionType
-
-    # Reason for the final decision.
-    reason: str
-
-    # Per-hook evidence.
-    decisions: list[HookDecision]
-
-    def to_dict(self) -> dict:
-        """Return JSON-safe trace data."""
-
-        return {
-            "decision": self.decision.value,
-            "reason": self.reason,
-            "decisions": [decision.to_dict() for decision in self.decisions],
-        }
 
 
 class RuntimeHook:

@@ -1,5 +1,5 @@
 from agent_forge.contracts import ToolArguments, ToolSchema
-from agent_forge.runtime.observation import Observation
+from agent_forge.runtime.domain.conversation import Observation
 
 from .run_command import RunCommandTool
 

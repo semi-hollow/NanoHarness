@@ -147,8 +147,8 @@ class OfficialResultsTest(unittest.TestCase):
                 )
                 return CompletedProcess(command, 0, stdout="complete", stderr="")
 
-            with patch("agent_forge.bench.swebench.importlib.util.find_spec", return_value=object()):
-                with patch("agent_forge.bench.swebench.subprocess.run", side_effect=fake_run):
+            with patch("agent_forge.bench.adapters.official_evaluator.importlib.util.find_spec", return_value=object()):
+                with patch("agent_forge.bench.adapters.official_evaluator.subprocess.run", side_effect=fake_run):
                     _run_official_evaluation(summary, max_workers=1, namespace_empty=False)
 
         self.assertEqual(observed_cwd, [root])

@@ -1,81 +1,56 @@
-# agent_forge 代码地图
+# `agent_forge` 包内导航
 
-当你想知道“一个 package 为什么存在、删掉后会破坏什么”时，阅读这份文档。
+本文件只帮助从 package 目录定位代码。项目定位和命令见根目录 `README.md`，架构规则
+见 `docs/ARCHITECTURE.md`，完整阅读地图见 `docs/guides/code-reading-map.md`。
 
-## 主调用链
+## 先看入口
 
 ```text
-agent_forge/forge_cli.py
-  -> ui.py：`forge ui` 本地浏览器工作台
-  -> bench/swebench.py：`forge bench swebench`
-  -> runtime/agent_loop.py：Agent 阶段编排
-     -> runtime/state.py：一次 run 的显式状态
-     -> runtime/tool_execution.py：工具治理与执行
-     -> runtime/run_lifecycle.py：checkpoint、HITL 与停止
-  -> context/*：构造 prompt context
-  -> models/gateway.py：调用 provider
-  -> tools/*：执行受控 action
-  -> safety/*：强制边界
-  -> observability/*：写 trace 和 usage
-  -> evaluation/*：写 scorecard 和 paired ablation
+__main__.py
+-> forge_cli.py                 历史兼容 facade
+-> cli/parser.py                参数契约
+-> cli/dispatch.py              命令分发
+-> cli/repository.py            run 装配
+-> capability api.py/wiring.py
 ```
 
-公共入口是 `forge` / `python -m agent_forge`。旧的 mode-based entrypoint 已删除，
-确保代码地图与 benchmark loop 对齐。
+## Capability 地图
 
-## Package 职责
-
-| Package | 作用 | 删除后会怎样 |
+| Package | 第一入口 | 主要责任 |
 | --- | --- | --- |
-| `bench/` | 加载 SWE-bench case、准备 repo workspace、写 prediction 和 result card。 | 项目失去外部效果闭环，只剩主观案例。 |
-| `runtime/` | 管理 AgentLoop、task state、control policy、planning mode 和 observation。 | Tool call 四散，replay/recovery 无法统一。 |
-| `context/` | 选择 repo file、retrieved doc、symbol、memory 和 token budget。 | 模型要么收到噪声 full-repo context，要么遗漏必要文件。 |
-| `tools/` | 提供 read、grep、patch、command、git、diagnostics 和 MCP-style adapter。 | 模型无法通过受治理 action 检查和修改代码。 |
-| `safety/` | Path sandbox、command policy、permission 和 guardrail。 | Coding Agent 可能执行危险或无关操作。 |
-| `models/` | Provider gateway、retry/fallback、token/cache/cost telemetry。 | Runtime 与单一 provider 耦合，失去成本可见性。 |
-| `observability/` | Trace、metric、evidence 和 usage report。 | 无法解释 Agent 为什么选文件、工具为什么失败、token 花在哪里。 |
-| `evaluation/` | Run scorecard、matched ablation、mini-case、human feedback 和安全 dataset projection。 | Runtime change 失去量化比较和 evidence denominator。 |
-| `mcp/` | 内置 MCP-style stdio tool 和 external web tool wrapper。 | External tool integration 消失，但 SWE-bench patching 仍可运行。 |
-| `skills/` | 内置 Coding Skill 和 versioned custom manifest；active Skill 向 AgentLoop 注入 procedure 和 expected tool。 | Tool capability 无法提升为受治理 workflow，也无法安全 rollback。 |
-| `ui.py` | 本地浏览器控制面，支持 doctor、agent run、SWE-bench reference case、report、replay。 | 用户必须先记住 CLI 才能看完整闭环。 |
+| `runtime` | `application/agent_loop.py` | 单 Agent 控制循环、HITL、审批、恢复、幂等 |
+| `multi_agent` | `application/coordinator.py`、`live_fanout.py` | 顺序角色和并发 DAG |
+| `bench` | `application/swebench.py` | case 执行、official eval 时序、诊断和发布 |
+| `evaluation` | `api.py` | comparison、scorecard、ablation、feedback data |
+| `observability` | `application/usage.py` | trace 事实到 read model |
+| `workbench` | `api.py` | 本地 evidence console 与受限命令 |
+| `context` | `context_builder.py` | repo/context selection 与预算 |
+| `tools` | `registry.py`、`tool_router.py` | 工具可见性、schema、执行 |
+| `safety` | `permission.py`、`command_policy.py`、`sandbox.py` | 确定性安全边界 |
+| `models` | `gateway.py` | provider retry/fallback/usage |
+| `skills` | `registry.py` | versioned Skill selection |
+| `mcp` | `server.py` | 精简 stdio MCP surface |
 
-## 重要类型
+## Runtime 最短阅读顺序
 
-| 类型 | 为什么存在 |
-| --- | --- |
-| `BenchCase` | 标准化 SWE-bench row，使 runner 不绑定某一种 dataset schema。 |
-| `SwebenchWorkspaceManager` | 保证每个 case 从 official base commit 开始。 |
-| `BenchRunSummary` | 为 `results.json` 和 `report.md` 提供同一 source of truth。 |
-| `AgentLoop` | 只编排 prepare、turn 和 stop，不承载工具分支细节。 |
-| `AgentRunSession` | 集中列出一次 run 的 message、observation、memory、evidence、budget 和状态。 |
-| `ToolExecutionPipeline` | 执行 routing 后的 guardrail、HITL、approval、ledger、tool 和 recovery 链。 |
-| `RunLifecycle` | 统一更新 checkpoint，并持久化人工暂停和 terminal transition。 |
-| `ContextBuildReport` | 让 prompt assembly 可审计，而不是 opaque string。 |
-| `ModelGateway` | 标准化 DeepSeek/OpenAI-compatible provider response 和 usage。 |
-| `ToolRegistry` | Agent 可以请求的 action 的唯一 registry。 |
-| `ToolRouter` | 将大 tool catalog 收敛为相关工具，并记录其他工具为何隐藏。 |
-| `SkillRegistry` | 选择具体 Coding Skill，跟踪 version、owner、permission、dependency 和 rollback target。 |
-| `StructuredOutputParser` | 校验 model JSON output、构造确定性 repair prompt、保护 tool-call argument parsing。 |
-| `WorkspaceSandbox` | 防止 tool 逃逸 target repo。 |
-| `CommandPolicy` | 阻断危险 shell command，并解释允许的 validation command。 |
-| `ExecutionEnvironment` | 选择 local/worktree/OCI execution，记录 image/resource/command evidence。 |
-| `TraceRecorder` | 写入逐 step evidence stream。 |
-| `UiState` | 保存一次本地工作台 session 中由浏览器触发的 job 和 output。 |
+1. `runtime/application/agent_loop.py`：只展开 `AgentLoop.run`。
+2. `runtime/application/session.py`：把 `AgentRunSession` 当字段表。
+3. `runtime/application/run_preparation.py`：看 `start/execute`。
+4. `runtime/application/turn_preparation.py`：看 context 和 tool routing。
+5. `runtime/application/tool_execution.py`：看两个入口。
+6. 根据场景选择 `tool_authorization.py`、`operation_tracker.py`、
+   `tool_feedback.py` 或 `run_lifecycle.py`。
+7. 只有需要存储细节时才进入 `runtime/adapters/`。
 
-## 阅读顺序
+## 分层约定
 
-1. `agent_forge/forge_cli.py`
-2. `agent_forge/ui.py`
-3. `agent_forge/bench/swebench.py`
-4. `agent_forge/runtime/agent_loop.py`，第一遍只展开 `AgentLoop.run`
-5. `agent_forge/runtime/state.py`，把 `AgentRunSession` 当字段表阅读
-6. `agent_forge/runtime/tool_execution.py`，只展开 `execute_calls` 和命中的分支
-7. `agent_forge/runtime/run_lifecycle.py`
-8. `agent_forge/runtime/execution_environment.py`
-9. `agent_forge/context/context_builder.py`
-10. `agent_forge/tools/registry.py`
-11. `agent_forge/safety/command_policy.py`
-12. `agent_forge/bench/official_results.py`
-13. `agent_forge/evaluation/scorecard.py`
-14. `agent_forge/evaluation/experiment.py`
-15. `agent_forge/observability/usage_report.py`
+```text
+api.py -> application -> domain + ports
+wiring.py -> application + adapters
+adapters -> ports
+presentation -> API/read model
+```
+
+根部的 `runtime/agent_loop.py`、`multi_agent/coordinator.py`、`evaluation/scorecard.py`
+等旧路径只是薄兼容层。新代码应导入对应 capability 的 `api.py`，或在 capability 内使用
+canonical layer path。

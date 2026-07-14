@@ -1,16 +1,5 @@
-from dataclasses import dataclass
-from typing import Any
+"""兼容导入：ToolCall 由 Runtime Domain 拥有。"""
 
+from agent_forge.runtime.domain.conversation import ToolCall
 
-@dataclass
-class ToolCall:
-    """Normalized tool call parsed from OpenAI-compatible output."""
-
-    # Provider/tool-call id used to pair assistant call with tool observation.
-    id: str
-
-    # Local tool name.
-    name: str
-
-    # JSON-like arguments after provider parsing.
-    arguments: dict[str, Any]
+__all__ = ["ToolCall"]

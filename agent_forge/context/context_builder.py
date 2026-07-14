@@ -4,7 +4,7 @@ from pathlib import Path
 from agent_forge.contracts import ToolSchema
 from agent_forge.runtime.prompt_registry import PromptRegistry
 
-from .memory import Memory
+from .contracts import ContextMemory
 from .token_budget import truncate
 from .context_strategy import build_context_strategy
 
@@ -127,7 +127,7 @@ class ContextBuildReport:
 def build_context_report(
     task: str,
     repo_map: str,
-    memory: Memory,
+    memory: ContextMemory,
     docs: list[str] | None = None,
     max_chars: int = 8000,
     root: str | Path = ".",
@@ -200,7 +200,12 @@ def build_context_report(
     )
 
 
-def build_context(task: str, repo_map: str, memory: Memory, tools: list[ToolSchema]) -> str:
+def build_context(
+    task: str,
+    repo_map: str,
+    memory: ContextMemory,
+    tools: list[ToolSchema],
+) -> str:
     """Backward-compatible helper returning rendered context as a string."""
 
     report = build_context_report(task, repo_map, memory, tools=tools)

@@ -2,7 +2,7 @@ import time
 from dataclasses import dataclass
 
 from agent_forge.runtime.llm_client import AgentResponse, LLMClient
-from agent_forge.runtime.message import Message
+from agent_forge.runtime.domain.conversation import Message
 
 from .usage import ModelUsage
 

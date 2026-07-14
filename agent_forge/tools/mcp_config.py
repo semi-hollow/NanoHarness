@@ -4,7 +4,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable
 
-from agent_forge.runtime.observation import Observation
+from agent_forge.runtime.domain.conversation import Observation
 from agent_forge.safety.sandbox import WorkspaceSandbox
 from agent_forge.tools.adapters.mcp_style_adapter import MCPStyleToolAdapter, MCPStyleToolSpec
 from agent_forge.tools.mcp_stdio import MCPStdioClient, MCPStdioServerSpec, MCPStdioTool

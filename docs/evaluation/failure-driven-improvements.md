@@ -854,6 +854,60 @@ lifecycle 负责持久化状态迁移；变量作用域随职责收窄后，corr
 和私有分支；继续拆成策略对象会增加装配和跳转成本，只有出现可替换 policy family 时才
 值得引入。
 
+### 37. Capability 拆包完成，但模块内部继续发生 Architectural Erosion
+
+现象：项目已经按 Runtime、Multi-Agent、Bench、Evaluation 和 Observability 拆包，表面
+上具备模块化结构；但同一个文件仍同时拥有流程编排、状态变化、JSON 文件、Git/process、
+报告渲染和 CLI 参数。`AgentLoop` 初步提取后仍有 594 行，`ToolExecutionPipeline` 有
+1021 行，`forge_cli.py` 有 975 行。读者即使知道功能在哪，也必须在同一类中区分哪些是
+核心 use case、哪些是 repository 细节、哪些只是 renderer。新增审批或评测字段时，修改
+会横跨多个无依赖约束的模块，容易让基础设施细节重新渗回主流程。
+
+Failure scenario：如果直接在 CLI 中实例化 `ApprovalStore/HumanInputStore`，CLI 会拥有
+Runtime 状态语义；如果 Usage Domain 同时拼 Markdown，报告格式变化会迫使领域投影变化；
+如果 Bench 在 official evaluator 之前写 case study，后续 official result 会让已落盘的
+诊断 stale。这些问题单独看都能靠测试补丁修复，但在继续增加 HITL、fanout 和 evaluation
+能力后会反复出现。
+
+定位过程：先建立运行入口、依赖、数据、状态和所有权五张地图，再用 AST import scan
+检查 Domain、Application、Presentation 对 concrete Adapter 的反向依赖。按真实 run
+顺序标注每个状态 owner，并对超长模块的每个方法按“流程、规则、端口、外部副作用、
+呈现”分类。结果表明问题不是按 capability 拆包方向错误，而是 capability 内部缺少稳定
+的 Domain/Application/Ports/Adapters 边界和公共 API。
+
+根因：文件夹表达了功能归属，却没有表达依赖方向。Python 动态导入和结构化 typing
+允许任何模块直接拿到 concrete Store，已有测试主要保护行为，没有保护 architecture。
+随着功能增长，兼容路径、真实实现和 composition root 同时承载逻辑，形成“模块化方向
+正确、边界治理不足”的架构侵蚀。
+
+修复：采用 capability-first modular monolith + hexagonal boundaries。Runtime 将主控制流
+收敛到 189 行 `AgentLoop`，并按 owner 拆为 `RunPreparation`、`TurnPreparation`、
+`ToolAuthorizationGate`、`OperationTracker`、`ToolFeedback`、`FinalAnswerBuilder` 和
+`RunLifecycle`；Application 只依赖 Protocol，JSON repository 只在 `runtime/wiring.py`
+装配。最终审计还发现 `TurnPreparation` 会直接扫描仓库、读取候选文件和 `FORGE.md`；
+该 IO 已收敛到 `RepositoryContextAssembler`，Application 只调用
+`ContextAssemblerPort`；Skill manifest 的文件读取也移到 wiring，`RunPreparation`
+只通过 `SkillSelectorPort` 获取只读 `SkillView`。Multi-Agent、Bench、Evaluation、Observability 和 Workbench 同样建立
+domain/application/ports/adapters/presentation 边界。CLI 拆为 parser、dispatch、repository、
+resume、operator 和 inspection 入站适配器；旧模块只保留薄兼容导出。Bench 把 official
+evaluation 放在 final diagnosis/case study 之前，Observability 把 usage projection 和
+Markdown renderer 分开，Workbench 通过 evidence/job Port 查询外部状态。
+
+验证：`tests/test_architecture_boundaries.py` 使用 AST 检查 Domain 纯度、Application 不
+导入 Adapter、CLI 不越过 capability API、Workbench Presentation 不直接依赖文件实现，
+并禁止 Observability Domain 再出现 report renderer。`tests/test_code_navigation.py` 保护
+主入口标记和 `AgentLoop.run` 的阶段长度。Runtime/HITL/approval/fanout/benchmark/UI 的
+原行为测试、全量 unittest 和全包 mypy 共同验证迁移没有把“目录正确”误当成“行为正确”。
+
+工程结论：大型 Python 项目不需要照搬 Java DDD，但必须让目录表达所有权、Port 表达
+依赖、Application 表达时间顺序、Adapter 表达外部副作用。文件数量增加是明确 trade-off；
+它只有在主入口变短、单元测试可隔离、反向依赖可自动拒绝时才值得。兼容层应有退出策略，
+不能演化成第二套实现。
+
+可追问：为什么不拆微服务？这些 capability 共享同一进程、artifact 和本地 workspace，
+当前变化边界不需要网络事务与独立部署。模块化单体保留强一致调用和低运维成本，同时已
+通过 Port 为将来替换模型、存储、Git workspace 或 worker 实现留下边界。
+
 ## 调试顺序模板
 
 每次 SWE-bench 失败优先看：

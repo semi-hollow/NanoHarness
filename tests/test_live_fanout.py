@@ -822,7 +822,10 @@ class LiveFanoutTest(unittest.TestCase):
                 ]
             )
 
-            with patch("agent_forge.forge_cli.build_llm", side_effect=lambda _config: EditingLLM()):
+            with patch(
+                "agent_forge.cli.repository.build_llm",
+                side_effect=lambda _config: EditingLLM(),
+            ):
                 run_dir = run_repository_task(args)
 
             summary = json.loads((run_dir / "fanout" / "fanout_summary.json").read_text(encoding="utf-8"))
