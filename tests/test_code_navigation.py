@@ -28,6 +28,9 @@ PRIMARY_ENTRYPOINTS = {
     "agent_forge/runtime/application/tool_authorization.py": (
         "ToolAuthorizationGate.authorize",
     ),
+    "agent_forge/runtime/application/tool_execution.py": (
+        "ToolExecutionPipeline.execute_calls",
+    ),
     "agent_forge/runtime/application/operation_tracker.py": (
         "OperationTracker.describe",
     ),
@@ -67,6 +70,10 @@ PRIMARY_ENTRYPOINTS = {
     "agent_forge/skills/registry.py": ("SkillRegistry.select_for_task",),
     "agent_forge/workbench/presentation/http.py": ("run_ui",),
     "agent_forge/workbench/presentation/commands.py": ("build_workbench_command",),
+    "agent_forge/showcase/control_plane.py": (
+        "start_control_plane_showcase",
+        "continue_control_plane_showcase",
+    ),
 }
 
 RUNTIME_PORTS = {
@@ -97,7 +104,6 @@ RUNTIME_PORTS = {
         "RunLifecycle.stop",
         "RunLifecycle.request_human_input",
     ),
-    "agent_forge/runtime/application/tool_execution.py": ("ToolExecutionPipeline.execute_calls",),
     "agent_forge/safety/permission.py": ("PermissionPolicy.decide",),
     "agent_forge/safety/sandbox.py": ("WorkspaceSandbox.ensure_safe_path",),
     "agent_forge/safety/command_policy.py": ("check_command",),

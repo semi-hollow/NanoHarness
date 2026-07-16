@@ -1,7 +1,14 @@
 """模型工具请求的确定性治理管线。
 
-首次阅读只看 ``execute_calls`` 和 ``_execute_call``。审批、幂等账本与反馈格式分别
-位于 ``tool_authorization.py``、``operation_tracker.py`` 和 ``tool_feedback.py``。
+折叠阅读顺序只有两个方法：
+
+1. ``execute_calls``：一次模型响应的公开入口，决定本轮真正处理哪些调用。
+2. ``_execute_call``：单个调用的主干，按治理顺序把请求送到工具或暂停点。
+
+其余私有方法都是这条主干的叶子规则，不会被外围直接调用。完整链路是：
+``选择调用 -> 重复/路由检查 -> HITL 屏障 -> 幂等重放 -> 授权 -> 执行 -> 证据``。
+审批、账本和反馈格式分别由 ``tool_authorization.py``、
+``operation_tracker.py`` 和 ``tool_feedback.py`` 拥有。
 """
 
 from __future__ import annotations
@@ -12,10 +19,7 @@ from agent_forge.runtime.application.operation_tracker import (
 )
 from agent_forge.runtime.application.run_lifecycle import StopRequest
 from agent_forge.runtime.application.session import AgentRunSession
-from agent_forge.runtime.application.tool_authorization import (
-    GateResult,
-    ToolAuthorizationGate,
-)
+from agent_forge.runtime.application.tool_authorization import ToolAuthorizationGate
 from agent_forge.runtime.application.tool_feedback import ToolFeedback
 from agent_forge.runtime.config import RuntimeConfig
 from agent_forge.runtime.control import FailureSignal
@@ -39,8 +43,8 @@ from agent_forge.safety.guardrails import tool_guardrail
 class ToolExecutionPipeline:
     """把模型工具请求转换为受治理、可恢复的 Observation。
 
-    固定顺序：repeat/routing -> HITL -> operation replay -> authorization ->
-    execution -> evidence/recovery/budget。每个阶段只有一个负责对象。
+    本类只有 ``execute_calls`` 是外围入口。下划线方法是按执行阶段命名的内部步骤，
+    每个步骤只拥有一种决策；它们不是一组需要分别学习的公共 API。
     """
 
     def __init__(
@@ -74,7 +78,7 @@ class ToolExecutionPipeline:
             self.feedback,
         )
 
-    # 运行时端口：下方定义连接用例与外部实现。
+    # 主要入口：AgentLoop 每个 turn 最多调用一次。
     def execute_calls(
         self,
         session: AgentRunSession,
@@ -83,7 +87,7 @@ class ToolExecutionPipeline:
         step: int,
         allowed_tool_names: set[str],
     ) -> StopRequest | None:
-        """按顺序处理一次模型响应中的工具调用，必要时返回停止请求。"""
+        """处理一次模型响应；返回值为空表示 AgentLoop 可以进入下一 turn。"""
 
         calls = self._select_calls_for_turn(session, response, step)
         session.messages.append(
@@ -113,7 +117,7 @@ class ToolExecutionPipeline:
         step: int,
         allowed_tool_names: set[str],
     ) -> StopRequest | None:
-        """按固定治理链执行一个工具调用。"""
+        """核心主干：检查 -> 控制信号 -> 幂等 -> 授权 -> 执行。"""
 
         repeat_signal = session.controller.record_tool_intent(tool_call)
         key = (tool_call.name, str(tool_call.arguments))
@@ -177,7 +181,7 @@ class ToolExecutionPipeline:
         response: AgentResponse,
         step: int,
     ) -> list[ToolCall]:
-        """让人工问题成为 barrier，推迟同一响应里的其他副作用。"""
+        """阶段 1：限制调用数量；HITL 出现时只保留第一个人工问题。"""
 
         human_calls = [call for call in response.tool_calls if call.name == "ask_human"]
         if not human_calls:
@@ -216,7 +220,7 @@ class ToolExecutionPipeline:
         signal: FailureSignal,
         step: int,
     ) -> StopRequest | None:
-        """只读重复转为反馈；副作用重复直接停止。"""
+        """异常分支：只读重复可恢复，副作用重复则阻断当前 run。"""
 
         if self._is_recoverable_repeated_tool(tool_call.name):
             observation = Observation(
@@ -282,7 +286,7 @@ class ToolExecutionPipeline:
         tool_call: ToolCall,
         step: int,
     ) -> None:
-        """把未路由工具作为可解释反馈返回模型。"""
+        """异常分支：记录模型调用了本轮不可见工具，不触发真实工具。"""
 
         session.blocked = True
         observation = Observation(
@@ -310,7 +314,7 @@ class ToolExecutionPipeline:
         tool_call: ToolCall,
         step: int,
     ) -> StopRequest | None:
-        """校验模型问题，并转成持久化 HITL 状态。"""
+        """阶段 2：把 ask_human 转成持久化回答或 waiting_human 暂停。"""
 
         arguments = tool_call.arguments or {}
         question = arguments.get("question")
@@ -369,7 +373,7 @@ class ToolExecutionPipeline:
         intent: OperationIntent,
         step: int,
     ) -> StopRequest | None:
-        """执行已获授权的工具，并更新 evidence、recovery 和 budget。"""
+        """阶段 5：执行已获授权工具，再提交账本、证据和 checkpoint。"""
 
         if intent.side_effect and not self.operations.exists(intent):
             self.operations.ensure_planned(
@@ -464,7 +468,7 @@ class ToolExecutionPipeline:
         citation: str,
         step: int,
     ) -> None:
-        """记录一次真实工具执行产生的事实事件。"""
+        """证据叶子：把一次真实执行拆成 call、observation 与 citation。"""
 
         self.trace.add(
             step,
@@ -497,6 +501,8 @@ class ToolExecutionPipeline:
 
     @staticmethod
     def _is_recoverable_repeated_tool(tool_name: str) -> bool:
+        """规则叶子：只有无副作用的重复读取可以反馈后继续。"""
+
         return tool_name in {
             "read_file",
             "grep",
@@ -507,4 +513,4 @@ class ToolExecutionPipeline:
             "diagnostics",
         }
 
-__all__ = ["GateResult", "OperationIntent", "ToolExecutionPipeline"]
+__all__ = ["ToolExecutionPipeline"]

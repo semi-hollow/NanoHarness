@@ -23,6 +23,7 @@ def build_parser() -> argparse.ArgumentParser:
     _add_evaluation_command(subparsers)
     _add_inspection_commands(subparsers)
     _add_operator_commands(subparsers)
+    _add_showcase_command(subparsers)
     _add_resume_command(subparsers)
     _add_memory_command(subparsers)
     subparsers.add_parser("tui", help="Open a lightweight terminal menu.")
@@ -222,6 +223,34 @@ def _add_operator_commands(subparsers: argparse._SubParsersAction) -> None:
     group.add_argument("--cancel", action="store_true")
     respond.add_argument("--note", default="")
     respond.add_argument("--human-input-root", default=".agent_forge/human_input")
+
+
+def _add_showcase_command(subparsers: argparse._SubParsersAction) -> None:
+    """注册两步式控制面展示，不混入生产 ``run`` 参数。"""
+
+    parser = subparsers.add_parser(
+        "showcase",
+        help="Run deterministic HITL and approval control-plane showcases.",
+    )
+    scenarios = parser.add_subparsers(dest="showcase_scenario", required=True)
+    for scenario in ("hitl", "approval"):
+        scenario_parser = scenarios.add_parser(scenario)
+        actions = scenario_parser.add_subparsers(
+            dest="showcase_action",
+            required=True,
+        )
+        start = actions.add_parser(
+            "start",
+            help="Start and stop at the human control point.",
+        )
+        start.add_argument("--output-root", default=".agent_forge/showcases")
+        continuation = actions.add_parser(
+            "continue",
+            help="Persist the human decision and continue from checkpoint.",
+        )
+        continuation.add_argument("run_dir")
+        if scenario == "hitl":
+            continuation.add_argument("--answer", required=True)
 
 
 def _add_memory_command(subparsers: argparse._SubParsersAction) -> None:

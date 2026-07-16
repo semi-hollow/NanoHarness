@@ -72,6 +72,7 @@ Coding Agent；单纯增加 prompt 长度并不能解决这个问题。**
    - [Paired ablation](agent_forge/evaluation/domain/ablation.py)
 4. 运行 `bash scripts/verify.sh`。
 5. 使用 `forge ui` 查看本地 Evidence Console。
+6. 使用[控制面展示](docs/architecture/runtime-control-plane.md)现场运行 HITL 与审批恢复。
 
 ## 快速开始
 
@@ -96,6 +97,17 @@ forge doctor
 ```bash
 forge ui
 ```
+
+不依赖在线模型、可重复展示真实暂停与恢复控制面：
+
+```bash
+forge showcase hitl start
+forge showcase approval start
+```
+
+每条命令都会停在人工控制点，并打印 checkpoint、trace 和下一条可直接执行的
+continuation 命令。Showcase 只固定模型的 tool call；HITL、审批、账本和工具执行仍走
+正式 Runtime。完整说明见[Runtime 控制面](docs/architecture/runtime-control-plane.md)。
 
 本地 **NanoHarness Evidence Console** 提供真实运行控制，包括 model、budget、
 approval、tool routing、network policy、execution isolation、Skills、MCP、顺序角色和
@@ -340,6 +352,10 @@ request；continuation 执行前还会确认目标文件仍匹配已批准 finge
 运行停止且不会合成虚假答案。`forge respond` 记录信息；`forge approve` 授权一个
 具体副作用。二者的状态和 stale 语义完全分离。如果模型同一 turn 还输出其他工具，
 human question 优先，回答加载后必须由模型重新提出那些副作用。
+
+**Request Cancel 不等于 Task Cancel。** 当前一次命令只拥有一个 task/run，不提供
+会话级 active-task 切换或进程抢占。取消 human request 会阻断其 continuation，拒绝
+approval 会保证对应工具未执行；更早 turn 已完成的副作用不会被自动回滚。
 
 **Recovery 是显式的，不是魔法。** `--resume-state` 用 checkpoint summary 为新 run
 提供 continuation context，不声称恢复隐藏 model state。Operation ledger 防止重复

@@ -48,5 +48,9 @@ scripts/verify.sh
 - `TraceRecorder` 是 replay 和 usage report 的 source of truth。
 - `ModelGateway` 是 runtime 使用的唯一 provider boundary。
 - `ToolRegistry`、`CommandPolicy`、`WorkspaceSandbox` 构成 tool safety boundary。
+- `forge showcase hitl start` 与 `forge showcase approval start` 是控制面现场入口；
+  它们固定模型 tool call，但复用真实 AgentLoop、checkpoint、审批和工具执行。
+- 当前没有会话级 Task switch 或全局 Task cancel；不要把 human request cancel 说成
+  active-task 调度或副作用回滚。
 - 内置 Coding Skill 已接入真实 runtime，必须影响 prompt context、tool routing 或 trace
   evidence；不要添加从未被 `AgentLoop` 使用的 passive manifest。

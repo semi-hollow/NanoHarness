@@ -42,6 +42,7 @@ class PublicCliSmokeTest(unittest.TestCase):
         self.assertIn("approve", result.stdout)
         self.assertIn("resume", result.stdout)
         self.assertIn("eval", result.stdout)
+        self.assertIn("showcase", result.stdout)
 
     def test_run_help_exposes_resume_and_manual_approval_flags(self):
         result = subprocess.run(
@@ -105,6 +106,24 @@ class PublicCliSmokeTest(unittest.TestCase):
         self.assertIn("--answer", result.stdout)
         self.assertIn("--cancel", result.stdout)
         self.assertIn("--human-input-root", result.stdout)
+
+    def test_showcase_cli_exposes_two_step_hitl_and_approval_flows(self):
+        hitl = subprocess.run(
+            [sys.executable, "-m", "agent_forge", "showcase", "hitl", "continue", "--help"],
+            text=True,
+            capture_output=True,
+        )
+        self.assertEqual(hitl.returncode, 0, hitl.stderr)
+        self.assertIn("run_dir", hitl.stdout)
+        self.assertIn("--answer", hitl.stdout)
+
+        approval = subprocess.run(
+            [sys.executable, "-m", "agent_forge", "showcase", "approval", "start", "--help"],
+            text=True,
+            capture_output=True,
+        )
+        self.assertEqual(approval.returncode, 0, approval.stderr)
+        self.assertIn("--output-root", approval.stdout)
 
     def test_memory_cli_exposes_authority_lifecycle(self):
         result = subprocess.run(

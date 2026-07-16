@@ -33,8 +33,8 @@ from agent_forge.runtime.execution_environment import ExecutionEnvironment
 from agent_forge.runtime.execution_environment import ExecutionEnvironmentConfig
 from agent_forge.runtime.hooks import HookManager
 from agent_forge.runtime.llm_client import OpenAICompatibleLLMClient
-from agent_forge.runtime.llm_client import LLMClient
 from agent_forge.runtime.llm_config import LLMConfig
+from agent_forge.runtime.ports import ModelPort
 from agent_forge.safety.sandbox import WorkspaceSandbox
 from agent_forge.skills import build_default_skill_registry
 from agent_forge.tools.apply_patch import ApplyPatchTool
@@ -102,7 +102,7 @@ def build_runtime_dependencies(
     config: "RuntimeConfig",
     trace: TraceRecorder,
     registry: ToolRegistry,
-    llm: LLMClient | None,
+    llm: ModelPort | None,
 ) -> RuntimeDependencies:
     """一次性装配 AgentLoop 需要的全部出站端口实现。
 
@@ -149,7 +149,7 @@ def build_agent_loop(
     config: "RuntimeConfig",
     trace: TraceRecorder,
     registry: ToolRegistry,
-    llm: LLMClient | None,
+    llm: ModelPort | None,
 ) -> AgentLoop:
     """返回已经注入全部端口实现的标准单 Agent 用例。"""
 
@@ -215,5 +215,23 @@ def latest_checkpoint_path(run_dir: str) -> str:
     """通过 Runtime 文件适配器定位一个 run 的最新 checkpoint。"""
 
     return str(JsonTaskStateRepository.latest_path(run_dir))
+
+
+def load_task_checkpoint(path: str) -> TaskCheckpoint:
+    """通过 Runtime 文件适配器加载一个类型化 checkpoint。"""
+
+    return JsonTaskStateRepository.load_path(path)
+
+
+def list_pending_human_inputs(root: str) -> list[HumanInputRequest]:
+    """查询指定控制面目录中的待回答问题。"""
+
+    return JsonHumanInputRepository(root).list_pending()
+
+
+def list_pending_approvals(root: str) -> list[ApprovalRequest]:
+    """查询指定控制面目录中的待审批副作用。"""
+
+    return JsonApprovalRepository(root).list_pending()
 
 from agent_forge.runtime.config import RuntimeConfig  # noqa: E402

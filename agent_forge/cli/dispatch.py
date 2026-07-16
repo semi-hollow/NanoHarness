@@ -33,6 +33,11 @@ from agent_forge.evaluation.api import (
     write_ablation_comparison,
 )
 from agent_forge.observability.api import replay_trace_file
+from agent_forge.showcase import (
+    ControlPlaneShowcaseResult,
+    continue_control_plane_showcase,
+    start_control_plane_showcase,
+)
 from agent_forge.workbench.api import run_ui_from_args
 
 # 主要入口：下方定义承接该模块的核心调用。
@@ -46,6 +51,8 @@ def main(argv: list[str] | None = None) -> None:
         print(approve_request(args))
     elif args.command == "respond":
         print(respond_to_human_input(args))
+    elif args.command == "showcase":
+        _dispatch_showcase(args)
     elif args.command == "resume":
         _print_run_location(resume_repository_task(args))
     elif args.command == "run":
@@ -134,6 +141,41 @@ def _dispatch_evaluation(args: argparse.Namespace) -> None:
 def _print_run_location(run_dir: Path) -> None:
     print(f"Run directory: {run_dir}")
     print(f"Report: {run_dir / 'usage_report.md'}")
+
+
+def _dispatch_showcase(args: argparse.Namespace) -> None:
+    """运行两步式控制面展示，并打印下一条可直接执行的命令。"""
+
+    try:
+        if args.showcase_action == "start":
+            result = start_control_plane_showcase(
+                args.showcase_scenario,
+                output_root=args.output_root,
+            )
+        else:
+            result = continue_control_plane_showcase(
+                args.showcase_scenario,
+                args.run_dir,
+                answer=getattr(args, "answer", ""),
+            )
+    except (FileNotFoundError, ValueError) as exc:
+        raise SystemExit(str(exc)) from exc
+    _print_showcase_result(result)
+
+
+def _print_showcase_result(result: ControlPlaneShowcaseResult) -> None:
+    print(f"Scenario: {result.scenario}")
+    print(f"State: {result.status}")
+    print(f"Run directory: {result.run_dir}")
+    print(f"Checkpoint: {result.checkpoint_path}")
+    print(f"Trace: {result.trace_path}")
+    print(f"Showcase report: {result.run_dir / 'showcase.md'}")
+    if result.request_id:
+        print(f"Human request: {result.request_id}")
+    if result.operation_key:
+        print(f"Approval operation: {result.operation_key}")
+    if result.next_command:
+        print(f"Next command: {result.next_command}")
 
 
 def _dispatch_memory(args: argparse.Namespace) -> None:

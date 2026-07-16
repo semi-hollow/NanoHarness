@@ -13,6 +13,9 @@ from agent_forge.runtime.wiring import (
     build_runtime_dependencies,
     decide_approval,
     latest_checkpoint_path,
+    list_pending_approvals,
+    list_pending_human_inputs,
+    load_task_checkpoint,
     prepare_continuation,
     respond_to_human_input,
 )
@@ -27,6 +30,9 @@ __all__ = [
     "build_runtime_dependencies",
     "decide_approval",
     "latest_checkpoint_path",
+    "list_pending_approvals",
+    "list_pending_human_inputs",
+    "load_task_checkpoint",
     "prepare_continuation",
     "respond_to_human_input",
 ]
