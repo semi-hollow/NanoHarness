@@ -1,7 +1,7 @@
 # `agent_forge` 包内导航
 
 本文件只帮助从 package 目录定位代码。项目定位和命令见根目录 `README.md`，架构规则
-见 `docs/ARCHITECTURE.md`，完整阅读地图见 `docs/guides/code-reading-map.md`。
+见 `docs/ARCHITECTURE.md`，能力状态见 `docs/CAPABILITY_REALITY_MATRIX.md`。
 
 ## 先看入口
 

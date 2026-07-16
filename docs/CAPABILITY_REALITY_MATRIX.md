@@ -5,7 +5,7 @@
 目标很简单：**不夸大。** Agent Forge 最适合被描述为精简 AI Agent Runtime 与
 Evaluation Harness，而不是完整 IDE、SaaS、distributed swarm 或 benchmark leaderboard。
 
-每项能力的方法级入口见[能力入口索引](guides/code-reading-map.md#能力入口索引)。
+每项能力的主要实现入口列在矩阵最后一列；跨 Capability 调用以具名 API、Port 和类型签名为准。
 
 ## 状态说明
 

@@ -33,7 +33,7 @@ python -m pip install -e '.[bench,dev]'
 
 不要给所有 public method 都打标记。Constructor、data accessor、renderer 和 storage
 helper 默认不标记，除非它们是真实跨模块边界。Multi-actor state machine 可以有多个
-primary entry，但必须在 `docs/guides/code-reading-map.md` 中说明它们之间的 transition。
+primary entry，但必须在 `docs/ARCHITECTURE.md` 或对应 ADR 中说明它们之间的 transition。
 
 ## 验证
 
@@ -43,17 +43,17 @@ scripts/verify.sh
 ```
 
 验证流程会 compile package、对 `agent_forge` 运行 mypy，并执行 behavior regression
-suite。修改 runtime contract 前先阅读 `docs/guides/code-reading-map.md`。
+suite。修改 runtime contract 前先阅读 `docs/ARCHITECTURE.md` 和对应 Capability API。
 
 MCP behavior 改变时同时运行 `scripts/verify_mcp.sh`。配置 `DEEPSEEK_API_KEY` 后，
 real-model smoke 会自动执行。
 
 ## 文档语言
 
-- 项目介绍、架构说明、代码导览、学习路径、环境搭建和评测教学文档统一使用中文。
+- 项目介绍、架构契约、能力边界、环境搭建和评测证据文档统一使用中文。
 - 类名、方法名、CLI、状态值、artifact 字段和行业术语保留源码中的英文，确保可搜索。
 - 第三方仓库原文、真实 benchmark 输出和历史运行 artifact 保持原样，不改写证据。
-- 新增教学文档时，将它加入 `tests/test_documentation_language.py` 的中文优先清单。
+- 个人学习路径、代码阅读笔记和面试材料不属于本仓库范围。
 
 ## 仓库卫生
 
@@ -67,7 +67,7 @@ real-model smoke 会自动执行。
 - [ ] `scripts/verify.sh` 通过。
 - [ ] MCP behavior 改变时，`scripts/verify_mcp.sh` 通过。
 - [ ] Mypy 和 type-contract regression test 通过。
-- [ ] 项目自有教学文档通过中文优先检查。
+- [ ] 项目公开文档通过中文优先检查。
 - [ ] Method body 折叠后，capability entrypoint 和 runtime port 仍清晰可见。
 - [ ] README 或 docs 已反映用户可见行为。
 - [ ] 没有 tracked secret、personal path 或 generated run artifact。
