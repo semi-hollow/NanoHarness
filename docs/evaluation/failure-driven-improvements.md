@@ -960,6 +960,108 @@ benchmark、evaluation 或 Workbench 行为。
 指向的最小入口，不是业务 facade；后者是稳定且有领域含义的公共名称，并没有同时保留两套
 构造语义。
 
+### 39. 文件 Context 有预算，但完整会话仍能无限增长，旧 Memory 也不是真正长期记忆
+
+现象：`ContextBuilder` 会限制 repository preview 和 memory 字符数，但 `AgentLoop` 仍把
+全部历史消息与全部 tool schema 直接发送给模型。旧 `Memory` 的所谓记录只存在当前
+Python 对象中，下一次 run 无法召回，也没有 candidate、证据、失效或隔离语义。
+
+Failure scenario：长任务先执行数十次 read/grep，文件 context 看似没有超限，但完整
+request 被历史 tool transaction 撑爆；如果简单裁掉旧消息，Agent 又会重复失败工具调用。
+另一个风险是把模型生成的摘要直接当长期事实，下次任务静默继承错误结论。
+
+根因：预算对象选错了，只治理了 system context，没有治理模型真正收到的 request；同时
+working memory、恢复 checkpoint 和长期知识共用模糊概念，缺少权威生命周期。
+
+修复：Context Builder 先按区段权重治理 system policy、FORGE.md、Skill、长期记忆、文件
+preview、retrieval 和 working memory，保证静态 system message 自身不超过
+`max_context_chars`；用户任务只保留在原始 user message，不在 system 中重复。随后
+`ContextWindowManager` 对 system、history、tool schema 和 output reserve 统一估算，在安全
+切点将旧历史转换成 `SessionDigest`，不拆分 tool intent/result，保留失败与 source hash，
+raw trace 不删除。长期记忆另建 `LongTermMemoryRecord`，candidate 必须通过 evidence 晋升才
+可召回，并执行 namespace、agent scope、TTL、supersede/retire 规则。Benchmark 默认关闭
+召回，显式实验记录 frozen snapshot SHA-256。
+
+验证：`tests/test_context_window.py` 覆盖主动/强制压缩、工具事务原子性和失败保留；
+`tests/test_long_term_memory.py` 覆盖候选不可见、证据晋升、隔离、替代和过期；Context
+Assembler 测试使用超大 FORGE/Skill/文件/working memory，确认完整静态渲染仍不超过预算；
+resume 测试确认 digest 写入 checkpoint。工程结论是：摘要是模型输入视图，不是新的真相源。
+
+### 40. 弱模型 Tool Calling 异常只能失败，盲重试又会重复同一错误
+
+现象：OpenAI-compatible provider 可能返回 Python dict 风格参数、把完整 tool call 放在文本
+里，或给出无法解析的 arguments。旧 client 要么直接失败，要么 Gateway 用相同 request
+重试；context overflow 也会在没有缩短输入时重复调用。
+
+Failure scenario：模型返回 `{'path': 'target.py'}`，语义明确却因非 JSON 被丢弃；模型返回
+未知工具时如果 Harness 猜测最相近名称，可能越过本轮 tool visibility；窗口溢出若盲重试，
+只增加成本而不会改变结果。
+
+修复：`ToolCallNormalizer` 只做确定性修复：JSON object、`ast.literal_eval` 的 dict，以及
+工具名属于本轮可见集合的完整文本调用。无法确认时返回带 repair contract 的
+`invalid_tool_call`，Gateway 用专用 prompt 有界修复；context overflow 交给 AgentLoop，
+只有压缩后 token 估算下降才重试。HTTP 边界先把窗口错误、429、timeout 和 5xx 分类，
+窗口错误不得转发给 fallback；实际 fallback provider/model 写入 usage 和 scorecard。
+每 turn 工具 burst 在执行前截断，HITL 保持优先 barrier。
+
+验证：`tests/test_model_adaptation.py` 覆盖安全修复、未知工具不提升、repair retry 与 overflow
+不盲重试；`tests/test_agent_loop_policy.py` 确认超额工具没有执行。不能声称任意坏格式都能
+恢复，系统刻意拒绝猜测业务参数。
+
+### 41. 失败模型调用不进 usage，run 成本又被最后一次调用覆盖
+
+现象：只有成功响应会写 `llm_call`，provider error 和 overflow 的首次调用不进入报告；
+`session.estimated_cost_usd` 还会被最后一次 gateway usage 覆盖。UI 与 budget 因而低估失败
+成本，甚至在累计费用已经超限后仍返回 final answer。
+
+根因：telemetry 记录点放在成功分支之后，run budget 没有作为跨 turn 累计状态处理；
+Gateway 内部 repair retry 只出现在 `error_codes`，usage 又只数最终响应的 normalization。
+
+修复：每次 `chat` 返回后立即累计成本并写 `llm_call`，包括失败和 overflow；每次调用后检查
+cost/timeout，再决定重试、执行工具或接受 final answer。Usage 同时读取 normalization 和
+Gateway `invalid_tool_call` error code，避免内部修复被漏报。
+
+验证：成本回归测试使用两次各 `$0.06` 的调用与 `$0.10` 预算，第二次响应被正确阻断；
+失败调用测试确认 `$0.02` provider error 仍计为一次 LLM call。工程结论是：失败调用也是
+真实资源消耗，不能为了让报告好看而隐去。
+
+### 42. Memory 与 Skill 能触发，但实验输入漂移会制造虚假的 before/after
+
+现象：只比较 `skill_mode` 或 `memory_recall_limit`，无法确认两边读取的是同一份 Skill
+manifest 或长期记忆。Recall count 上升也容易被误写成质量提升。
+
+Failure scenario：control 与 treatment 使用同一 Skill 名称但文件内容不同；Memory treatment
+在两次 run 之间新增了一条答案提示。即使 official resolved 改善，也不能归因于声明的单一
+factor。
+
+修复：benchmark 记录 Skill manifest 和 Memory directory 的内容 SHA-256；Memory 默认关闭，
+启用时使用稳定 namespace。Paired identity gate 只允许声明 factor 对应字段变化：Memory 只
+允许 recall limit，Context Window 只允许窗口预算，Skill 才允许 manifest hash，tool burst
+只允许每 turn 上限。Scorecard 增加 compaction、recall、repair 和 bounded-burst 指标，但
+claim boundary 明确这些只是机制证据。
+
+验证：实验测试确认相同 frozen snapshot 的 Memory on/off 可比较，snapshot hash 改变会被
+拒绝；Context 与 Skill 也执行单因素约束。最终质量仍必须看 matched official per-case
+结果，多次重复前不外推一般结论。
+
+### 43. Planning trace 看起来完整，但不改变任何 Runtime 行为
+
+现象：`SimplePlanner` 每 turn 生成固定的 “ask llm for final answer or tool call”，
+`PlanningModePolicy` 按关键词写入 `react/plan_execute` 标签。二者既不进入模型上下文，也不
+限制工具、更新计划状态或影响终止条件，却在 Workbench 以“模型计划”展示。
+
+Failure scenario：面试或调试时看到 `planning_mode=plan_execute`，误以为系统执行了显式
+任务分解；实际删除该事件后运行结果完全不变。这是装饰性 observability，不能作为能力证据。
+
+修复：删除两个无行为 owner 的模块及其 trace event。Single Agent 诚实定位为受治理的
+ReAct loop；复杂并行任务只使用真实 `FanoutPlan`，其 dependency、scope、artifact、budget、
+plan digest 和恢复行为均被 Runtime 校验。自动 model-driven decomposition 保持为未实现
+边界，不用关键词标签冒充。
+
+验证：全量源码搜索不再存在 `SimplePlanner`、`PlanningModePolicy`、`plan` 或
+`planning_mode` runtime event；原有 AgentLoop、fanout 与 Workbench 行为回归继续通过。
+工程结论：trace 必须记录发生过的事实，不能用一个有名词但无控制效果的事件制造能力感。
+
 ## 调试顺序模板
 
 每次 SWE-bench 失败优先看：

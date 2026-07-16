@@ -12,6 +12,11 @@ DELTA_METRICS = (
     "llm_latency_ms",
     "tool_calls",
     "failed_tool_calls",
+    "compacted_context_turns",
+    "context_overflow_recoveries",
+    "memory_recalled",
+    "tool_call_repairs",
+    "bounded_tool_call_bursts",
 )
 
 # 主要入口：下方定义承接该模块的核心调用。
@@ -107,7 +112,25 @@ def _validate_identity(
         raise ValueError(f"model identity differs: control={left_model!r} treatment={right_model!r}")
     checks.append({"field": "model_identity", "control": left_model, "treatment": right_model, "matched": True})
     normalized_factor = factor.strip().lower().replace("_", "-")
-    allowed_differences = {"tool_routing_mode"} if normalized_factor == "tool-routing" else set()
+    if normalized_factor == "tool-routing":
+        allowed_differences = {"tool_routing_mode"}
+    elif normalized_factor in {"skill", "skills"}:
+        allowed_differences = {
+            "skill_mode",
+            "skill_names",
+            "skill_manifest_sha256",
+        }
+    elif normalized_factor in {"memory", "long-term-memory"}:
+        allowed_differences = {"memory_recall_limit"}
+    elif normalized_factor in {"context", "context-window", "compaction"}:
+        allowed_differences = {
+            "max_prompt_tokens",
+            "reserved_output_tokens",
+        }
+    elif normalized_factor in {"tool-call-budget", "tool-burst"}:
+        allowed_differences = {"max_tool_calls_per_turn"}
+    else:
+        allowed_differences = set()
     if normalized_factor in {"execution-mode", "execution-environment", "isolation"}:
         allowed_differences.update(
             {
@@ -130,6 +153,17 @@ def _validate_identity(
         "max_context_chars",
         "max_revision_rounds",
         "tool_routing_mode",
+        "skill_mode",
+        "skill_names",
+        "skill_manifest_sha256",
+        "max_prompt_tokens",
+        "reserved_output_tokens",
+        "max_tool_calls_per_turn",
+        "cost_budget_usd",
+        "timeout_seconds",
+        "memory_namespace",
+        "memory_recall_limit",
+        "memory_snapshot_sha256",
         "execution_mode",
         "network_policy",
         "keep_worktree",
@@ -197,6 +231,14 @@ def _paired_case(instance_id: str, control: dict[str, Any], treatment: dict[str,
             ),
             "llm_latency_ms": _numeric(treatment.get("llm_latency_ms")) - _numeric(control.get("llm_latency_ms")),
             "failed_tool_calls": _numeric(treatment.get("failed_tool_calls")) - _numeric(control.get("failed_tool_calls")),
+            "memory_recalled": _numeric(treatment.get("memory_recalled"))
+            - _numeric(control.get("memory_recalled")),
+            "tool_call_repairs": _numeric(treatment.get("tool_call_repairs"))
+            - _numeric(control.get("tool_call_repairs")),
+            "compacted_context_turns": _numeric(
+                treatment.get("compacted_context_turns")
+            )
+            - _numeric(control.get("compacted_context_turns")),
         },
         "outcome": outcome,
     }

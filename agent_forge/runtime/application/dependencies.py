@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from agent_forge.context.ports import LongTermMemoryRecallPort
 from agent_forge.runtime.ports import (
     ApprovalRepository,
     ContextAssemblerPort,
@@ -34,3 +35,4 @@ class RuntimeDependencies:
     approvals: ApprovalRepository
     human_inputs: HumanInputRepository
     operations: OperationLedgerRepository
+    long_term_memory: LongTermMemoryRecallPort

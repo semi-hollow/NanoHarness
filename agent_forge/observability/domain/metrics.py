@@ -21,6 +21,29 @@ def summarize(events: list[dict]) -> dict:
         "execution_environment_count": sum(
             event.get("event_type") == "execution_environment" for event in events
         ),
+        "context_compaction_count": sum(
+            event.get("event_type") == "context_window"
+            and bool((event.get("context_window") or {}).get("compacted"))
+            for event in events
+        ),
+        "context_overflow_recovery_count": sum(
+            event.get("event_type") == "context_overflow_recovery"
+            and bool(event.get("success"))
+            for event in events
+        ),
+        "memory_recalled_count": sum(
+            int((event.get("memory") or {}).get("recalled_count") or 0)
+            for event in events
+            if event.get("event_type") == "memory_recall"
+        ),
+        "skill_activation_count": sum(
+            len(event.get("skills") or [])
+            for event in events
+            if event.get("event_type") == "skill_selection"
+        ),
+        "tool_call_burst_count": sum(
+            event.get("event_type") == "tool_calls_bounded" for event in events
+        ),
         "permission_denied_count": sum(
             event.get("event_type") == "permission_check"
             and event.get("permission_decision") == "deny"

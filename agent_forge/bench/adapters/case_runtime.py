@@ -80,9 +80,25 @@ class LocalCaseExecutor:
                 max_steps=request.max_steps,
                 trace_file=str(trace_path),
                 max_context_chars=request.max_context_chars,
-                timeout_seconds=900,
+                max_prompt_tokens=request.max_prompt_tokens,
+                reserved_output_tokens=request.reserved_output_tokens,
+                max_tool_calls_per_turn=request.max_tool_calls_per_turn,
+                timeout_seconds=request.timeout_seconds,
+                cost_budget_usd=request.cost_budget_usd,
                 task_state_root=str(case_dir / "task_state"),
                 tool_routing_mode=request.tool_routing_mode,
+                skill_mode=request.skill_mode,
+                skill_names=list(request.skill_names),
+                skill_manifest_files=list(request.skill_manifest_files),
+                memory_root=(
+                    request.memory_root
+                    or str(case_dir / "disabled_memory")
+                ),
+                memory_namespace=(
+                    request.memory_namespace
+                    or f"swebench:{case.instance_id}"
+                ),
+                memory_recall_limit=request.memory_recall_limit,
                 execution_environment=environment,
             )
             final_answer = self._execute_runtime(

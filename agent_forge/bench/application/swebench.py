@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 from pathlib import Path
 from typing import Any
 
@@ -24,6 +25,7 @@ class RunSwebench:
     ) -> BenchRunSummary:
         """按 case 执行、official evaluation、最终诊断和发布顺序运行评测。"""
 
+        _validate_frozen_inputs(request)
         cases = self._deps.cases.load(request)
         summary = _new_summary(request, run_id, layout)
         predictions: list[dict[str, Any]] = []
@@ -70,6 +72,7 @@ class RunSwebench:
                     },
                 )
 
+        _verify_frozen_inputs(request, summary)
         self._deps.artifacts.publish_run(
             summary,
             predictions,
@@ -163,6 +166,9 @@ def _new_summary(
             else 0
         ),
         tool_routing_mode=request.tool_routing_mode,
+        skill_mode=request.skill_mode,
+        skill_names=list(request.skill_names),
+        skill_manifest_sha256=_files_sha256(request.skill_manifest_files),
         execution_mode=request.execution_mode,
         network_policy=request.network_policy,
         keep_worktree=request.keep_worktree,
@@ -174,6 +180,14 @@ def _new_summary(
         container_read_only=request.container_read_only,
         max_steps=request.max_steps,
         max_context_chars=request.max_context_chars,
+        max_prompt_tokens=request.max_prompt_tokens,
+        reserved_output_tokens=request.reserved_output_tokens,
+        max_tool_calls_per_turn=request.max_tool_calls_per_turn,
+        cost_budget_usd=request.cost_budget_usd,
+        timeout_seconds=request.timeout_seconds,
+        memory_namespace=request.memory_namespace or "swebench:<instance_id>",
+        memory_recall_limit=request.memory_recall_limit,
+        memory_snapshot_sha256=_directory_sha256(request.memory_root),
         baseline_predictions_path=layout.baseline_predictions_path,
         notes=[
             "Generated patches are not resolved-rate claims until the official SWE-bench harness evaluates them.",
@@ -220,3 +234,65 @@ def _agent_variant_name(agent_mode: str) -> str:
     if agent_mode in {"multi", "compare"}:
         return "multi_agent"
     return "agent_runtime"
+
+
+def _directory_sha256(root: str) -> str:
+    """固定长期记忆输入的内容指纹，供配对实验检查漂移。"""
+
+    if not root:
+        return "disabled"
+    path = Path(root).expanduser()
+    if not path.is_dir():
+        return "missing"
+    digest = hashlib.sha256()
+    for item in sorted(candidate for candidate in path.rglob("*") if candidate.is_file()):
+        digest.update(str(item.relative_to(path)).encode("utf-8"))
+        digest.update(b"\0")
+        digest.update(item.read_bytes())
+        digest.update(b"\0")
+    return digest.hexdigest()
+
+
+def _files_sha256(paths: tuple[str, ...]) -> str:
+    """记录 Skill manifest 的实际内容，而不只比较显示名称。"""
+
+    if not paths:
+        return "builtins_only"
+    digest = hashlib.sha256()
+    resolved_paths = [Path(raw_path).expanduser() for raw_path in paths]
+    for path in sorted(resolved_paths, key=lambda item: (item.name, str(item))):
+        digest.update(path.name.encode("utf-8"))
+        digest.update(b"\0")
+        if not path.is_file():
+            digest.update(b"missing")
+        else:
+            digest.update(path.read_bytes())
+        digest.update(b"\0")
+    return digest.hexdigest()
+
+
+def _validate_frozen_inputs(request: SwebenchRunRequest) -> None:
+    """启用 Memory 召回时拒绝缺失快照，避免跑出无效 treatment。"""
+
+    if request.memory_recall_limit <= 0:
+        return
+    if not request.memory_root:
+        raise ValueError(
+            "memory_root is required when memory_recall_limit is positive"
+        )
+    if not Path(request.memory_root).expanduser().is_dir():
+        raise ValueError("memory_root must point to an existing frozen directory")
+
+
+def _verify_frozen_inputs(
+    request: SwebenchRunRequest,
+    summary: BenchRunSummary,
+) -> None:
+    """运行结束时再次校验实验输入，检测外部并发修改。"""
+
+    memory_hash = _directory_sha256(request.memory_root)
+    if memory_hash != summary.memory_snapshot_sha256:
+        raise RuntimeError("long-term memory snapshot changed during benchmark run")
+    skill_hash = _files_sha256(request.skill_manifest_files)
+    if skill_hash != summary.skill_manifest_sha256:
+        raise RuntimeError("skill manifest changed during benchmark run")

@@ -42,7 +42,22 @@ def render_bench_report(summary: BenchRunSummary) -> str:
         f"- agent_mode/profile: `{summary.agent_mode}` / `{summary.profile or '-'}`",
         f"- max_revision_rounds: `{summary.max_revision_rounds}`",
         f"- max_steps / max_context_chars: `{summary.max_steps}` / `{summary.max_context_chars}`",
+        (
+            "- prompt budget: "
+            f"max=`{summary.max_prompt_tokens}` reserved_output=`{summary.reserved_output_tokens}`"
+        ),
+        f"- max_tool_calls_per_turn: `{summary.max_tool_calls_per_turn}`",
+        f"- cost / timeout budget: `{summary.cost_budget_usd}` / `{summary.timeout_seconds}s`",
         f"- tool_routing_mode: `{summary.tool_routing_mode}`",
+        (
+            f"- skills: mode=`{summary.skill_mode}` names=`{summary.skill_names}` "
+            f"manifest_sha256=`{summary.skill_manifest_sha256}`"
+        ),
+        (
+            "- long-term memory: "
+            f"namespace=`{summary.memory_namespace}` limit=`{summary.memory_recall_limit}` "
+            f"snapshot_sha256=`{summary.memory_snapshot_sha256}`"
+        ),
         f"- execution/network: `{summary.execution_mode}` / `{summary.network_policy}`",
         f"- cases: `{total}`",
         f"- predictions: `{summary.predictions_path}`",

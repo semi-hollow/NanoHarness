@@ -10,8 +10,11 @@ class RuntimeConfig:
     auto_approve_writes: bool = True
     trace_file: str = "agent_forge_trace.json"
     max_context_chars: int = 8000
+    max_prompt_tokens: int = 32_768
+    reserved_output_tokens: int = 4_096
     max_consecutive_failures: int = 3
     max_tool_repeats: int = 2
+    max_tool_calls_per_turn: int = 4
     timeout_seconds: float = 120.0
     cost_budget_usd: float | None = None
     previous_task: str = ""
@@ -28,3 +31,6 @@ class RuntimeConfig:
     skill_names: list[str] = field(default_factory=list)
     skill_manifest_files: list[str] = field(default_factory=list)
     tool_routing_mode: str = "task-aware"
+    memory_root: str = ""
+    memory_namespace: str = ""
+    memory_recall_limit: int = 6

@@ -46,3 +46,4 @@ class AgentResponse:
     reasoning_content: str | None = None
     usage: dict[str, Any] | None = None
     response_id: str | None = None
+    normalization: dict[str, Any] | None = None

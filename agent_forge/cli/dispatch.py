@@ -7,6 +7,14 @@ import json
 from pathlib import Path
 
 from agent_forge.bench.presentation.cli import run_swebench_from_args
+from agent_forge.context.api import (
+    build_evidence_reference,
+    list_memories,
+    promote_memory,
+    propose_memory,
+    reject_memory,
+    retire_memory,
+)
 from agent_forge.cli.inspection import (
     print_report,
     print_skills,
@@ -55,6 +63,8 @@ def main(argv: list[str] | None = None) -> None:
         print(replay_trace_file(str(resolve_trace_target(args.target))))
     elif args.command == "skills":
         print_skills(args)
+    elif args.command == "memory":
+        _dispatch_memory(args)
     elif args.command == "tui":
         run_tui()
     elif args.command == "ui":
@@ -124,3 +134,60 @@ def _dispatch_evaluation(args: argparse.Namespace) -> None:
 def _print_run_location(run_dir: Path) -> None:
     print(f"Run directory: {run_dir}")
     print(f"Report: {run_dir / 'usage_report.md'}")
+
+
+def _dispatch_memory(args: argparse.Namespace) -> None:
+    """把 CLI 参数转换成长期记忆公共 API 调用。"""
+
+    try:
+        if args.memory_command == "propose":
+            record = propose_memory(
+                memory_root=args.memory_root,
+                workspace=args.workspace,
+                namespace=args.namespace,
+                key=args.key,
+                kind=args.kind,
+                content=args.content,
+                scope=args.scope,
+                agent_name=args.agent_name,
+                confidence=args.confidence,
+                importance=args.importance,
+                tags=args.tag,
+                ttl_seconds=args.ttl_seconds,
+            )
+            print(json.dumps(record.to_dict(), ensure_ascii=False, indent=2))
+            return
+        if args.memory_command == "promote":
+            evidence = [build_evidence_reference(item) for item in args.evidence]
+            record = promote_memory(args.memory_root, args.memory_id, evidence)
+            print(json.dumps(record.to_dict(), ensure_ascii=False, indent=2))
+            return
+        if args.memory_command == "retire":
+            record = retire_memory(args.memory_root, args.memory_id)
+            print(json.dumps(record.to_dict(), ensure_ascii=False, indent=2))
+            return
+        if args.memory_command == "reject":
+            record = reject_memory(args.memory_root, args.memory_id)
+            print(json.dumps(record.to_dict(), ensure_ascii=False, indent=2))
+            return
+        records = list_memories(
+            args.memory_root,
+            args.workspace,
+            namespace=args.namespace,
+        )
+        if args.json:
+            print(
+                json.dumps(
+                    [record.to_dict() for record in records],
+                    ensure_ascii=False,
+                    indent=2,
+                )
+            )
+            return
+        for record in records:
+            print(
+                f"{record.memory_id}\t{record.status}\t{record.kind}\t"
+                f"{record.scope}\t{record.key}"
+            )
+    except ValueError as exc:
+        raise SystemExit(str(exc)) from exc

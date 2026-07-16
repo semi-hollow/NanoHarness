@@ -157,7 +157,10 @@ def _build_runtime_config(
         max_steps=args.max_steps,
         trace_file=str(trace_path),
         max_context_chars=args.max_context_chars,
-        timeout_seconds=900,
+        max_prompt_tokens=getattr(args, "max_prompt_tokens", 32_768),
+        reserved_output_tokens=getattr(args, "reserved_output_tokens", 4_096),
+        timeout_seconds=getattr(args, "timeout_seconds", 900.0),
+        cost_budget_usd=getattr(args, "cost_budget_usd", None),
         execution_environment=environment,
         task_state_root=str(trace_path.parent / "task_state"),
         resume_state=getattr(args, "resume_state", ""),
@@ -179,6 +182,10 @@ def _build_runtime_config(
         skill_names=parse_skill_names(getattr(args, "skills", "auto")),
         skill_manifest_files=getattr(args, "skill_manifest", []),
         tool_routing_mode=getattr(args, "tool_routing", "task-aware"),
+        memory_root=getattr(args, "memory_root", ".agent_forge/memory"),
+        memory_namespace=str(Path(getattr(args, "workspace", ".")).resolve()),
+        memory_recall_limit=getattr(args, "memory_recall_limit", 6),
+        max_tool_calls_per_turn=getattr(args, "max_tool_calls_per_turn", 4),
     )
 
 

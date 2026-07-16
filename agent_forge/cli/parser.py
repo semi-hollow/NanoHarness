@@ -24,6 +24,7 @@ def build_parser() -> argparse.ArgumentParser:
     _add_inspection_commands(subparsers)
     _add_operator_commands(subparsers)
     _add_resume_command(subparsers)
+    _add_memory_command(subparsers)
     subparsers.add_parser("tui", help="Open a lightweight terminal menu.")
     ui_parser = subparsers.add_parser(
         "ui",
@@ -223,6 +224,62 @@ def _add_operator_commands(subparsers: argparse._SubParsersAction) -> None:
     respond.add_argument("--human-input-root", default=".agent_forge/human_input")
 
 
+def _add_memory_command(subparsers: argparse._SubParsersAction) -> None:
+    parser = subparsers.add_parser(
+        "memory",
+        help="Manage evidence-backed long-term memory.",
+    )
+    commands = parser.add_subparsers(dest="memory_command", required=True)
+
+    propose = commands.add_parser(
+        "propose",
+        help="Create a candidate that is not recalled until promoted.",
+    )
+    propose.add_argument("--workspace", default=".")
+    propose.add_argument(
+        "--namespace",
+        default="",
+        help="Stable logical namespace; defaults to the resolved workspace path.",
+    )
+    propose.add_argument("--memory-root", default=".agent_forge/memory")
+    propose.add_argument("--key", required=True)
+    propose.add_argument(
+        "--kind",
+        required=True,
+        choices=["fact", "decision", "constraint", "preference", "failure_pattern"],
+    )
+    propose.add_argument("--content", required=True)
+    propose.add_argument(
+        "--scope",
+        default="workspace",
+        choices=["workspace", "agent_private"],
+    )
+    propose.add_argument("--agent-name", default="")
+    propose.add_argument("--confidence", type=float, default=0.5)
+    propose.add_argument("--importance", type=float, default=0.5)
+    propose.add_argument("--tag", action="append", default=[])
+    propose.add_argument("--ttl-seconds", type=float)
+
+    promote = commands.add_parser(
+        "promote",
+        help="Promote a candidate with one or more evidence references.",
+    )
+    promote.add_argument("memory_id")
+    promote.add_argument("--memory-root", default=".agent_forge/memory")
+    promote.add_argument("--evidence", action="append", required=True)
+
+    for command_name in ["retire", "reject"]:
+        command = commands.add_parser(command_name)
+        command.add_argument("memory_id")
+        command.add_argument("--memory-root", default=".agent_forge/memory")
+
+    list_parser = commands.add_parser("list")
+    list_parser.add_argument("--workspace")
+    list_parser.add_argument("--namespace", default="")
+    list_parser.add_argument("--memory-root", default=".agent_forge/memory")
+    list_parser.add_argument("--json", action="store_true")
+
+
 def _add_resume_command(subparsers: argparse._SubParsersAction) -> None:
     parser = subparsers.add_parser(
         "resume",
@@ -254,6 +311,18 @@ def _add_model_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--api-key")
     parser.add_argument("--max-steps", type=int, default=16)
     parser.add_argument("--max-context-chars", type=int, default=12000)
+    parser.add_argument(
+        "--max-prompt-tokens",
+        type=int,
+        default=32768,
+        help="Total model context window used by request budgeting.",
+    )
+    parser.add_argument(
+        "--reserved-output-tokens",
+        type=int,
+        default=4096,
+        help="Tokens reserved for model output before compacting history.",
+    )
 
 
 def _add_runtime_policy_args(parser: argparse.ArgumentParser) -> None:
@@ -274,6 +343,30 @@ def _add_runtime_policy_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--operation-ledger-root",
         default=".agent_forge/operation_ledger",
+    )
+    parser.add_argument("--memory-root", default=".agent_forge/memory")
+    parser.add_argument(
+        "--memory-recall-limit",
+        type=int,
+        default=6,
+        help="Maximum active long-term memories injected into one run.",
+    )
+    parser.add_argument(
+        "--max-tool-calls-per-turn",
+        type=int,
+        default=4,
+        help="Bound tool-call bursts from unstable model responses.",
+    )
+    parser.add_argument(
+        "--cost-budget-usd",
+        type=float,
+        help="Stop one AgentLoop after its cumulative estimated model cost exceeds this value.",
+    )
+    parser.add_argument(
+        "--timeout-seconds",
+        type=float,
+        default=900.0,
+        help="Wall-clock budget for one AgentLoop.",
     )
 
 

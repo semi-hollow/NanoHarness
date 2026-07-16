@@ -35,12 +35,17 @@ runtime/
 | 3 | `runtime.wiring.build_agent_loop` | Adapter 如何注入 Port |
 | 4 | `AgentLoop.run` | start、prepare、turn、stop 的完整骨架 |
 | 5 | `RunPreparation.start/execute` | 初始化 checkpoint，并通过 Skill Port 完成 guardrail、clarification、Skill、memory |
-| 6 | `TurnPreparation.execute` | 通过 Context Port 获取 repo context，再做 routing、budget、plan |
+| 6 | `TurnPreparation.execute` | 通过 Context Port 获取 repo context，并调用完整请求窗口治理 |
 | 7 | `ToolExecutionPipeline.execute_calls` | 工具治理的固定顺序 |
 | 8 | `RunLifecycle.update/stop/request_human_input` | durable state 的唯一 owner |
 
 这八个入口足以建立全貌。JSON 文件命名、原子写入和具体 fingerprint 算法只在调试
 对应分支时阅读。
+
+Context 与 Memory 的单独链路见
+[`上下文、记忆与模型适配.md`](上下文、记忆与模型适配.md)。最重要的三个入口是
+`LongTermMemoryService.recall`、`ContextWindowManager.prepare` 和
+`ToolCallNormalizer.normalize`。
 
 ## 工具治理链
 
@@ -102,6 +107,9 @@ Python 调用栈或进程内存。
 | 现象 | 先看 |
 | --- | --- |
 | 模型没看到仓库内容或工具 | `TurnPreparation.execute`、`ContextAssemblerPort` 和 `ToolRouter.route` |
+| 长会话溢出或压缩丢信息 | `ContextWindowManager.prepare`、`SessionDigest` 和 `context_window` event |
+| 长期记忆未召回或串项目 | `LongTermMemoryService.recall`、namespace/scope/status/TTL |
+| 弱模型工具参数异常 | `ModelGateway.chat`、`ToolCallNormalizer.normalize` 和 response normalization |
 | 工具被拒绝 | `ToolAuthorizationGate.authorize`、`HookManager.pre_tool` |
 | 写操作重复或 stale | `OperationTracker.replay_if_executed` |
 | 回答后仍然停住 | `BuildContinuationPlan.execute` 与 checkpoint metadata |

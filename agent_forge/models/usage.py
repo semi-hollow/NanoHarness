@@ -9,6 +9,8 @@ class ModelUsage:
     model: str
     attempts: int = 0
     fallback_used: bool = False
+    fallback_provider: str = ""
+    fallback_model: str = ""
     latency_ms: int = 0
     prompt_tokens_estimate: int = 0
     completion_tokens_estimate: int = 0
@@ -88,6 +90,8 @@ class ModelUsage:
             "model": self.model,
             "attempts": self.attempts,
             "fallback_used": self.fallback_used,
+            "fallback_provider": self.fallback_provider,
+            "fallback_model": self.fallback_model,
             "latency_ms": self.latency_ms,
             "prompt_tokens_estimate": self.prompt_tokens_estimate,
             "completion_tokens_estimate": self.completion_tokens_estimate,

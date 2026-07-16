@@ -43,6 +43,11 @@ def build_swebench_parser(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--api-key")
     parser.add_argument("--max-steps", type=int, default=16)
     parser.add_argument("--max-context-chars", type=int, default=12000)
+    parser.add_argument("--max-prompt-tokens", type=int, default=32_768)
+    parser.add_argument("--reserved-output-tokens", type=int, default=4_096)
+    parser.add_argument("--max-tool-calls-per-turn", type=int, default=4)
+    parser.add_argument("--cost-budget-usd", type=float)
+    parser.add_argument("--timeout-seconds", type=float, default=900.0)
     parser.add_argument("--repo-cache", default=".agent_forge/bench/repos")
     parser.add_argument("--output-root", default=".agent_forge/runs")
     parser.add_argument("--direct-baseline", action="store_true")
@@ -64,6 +69,28 @@ def build_swebench_parser(parser: argparse.ArgumentParser) -> None:
             "Select task-aware tool visibility or expose all tools for a controlled "
             "ablation; runtime safety policy remains enabled."
         ),
+    )
+    parser.add_argument(
+        "--skills",
+        default="auto",
+        help="auto, none, or comma-separated skill names for matched ablation.",
+    )
+    parser.add_argument("--skill-manifest", action="append", default=[])
+    parser.add_argument(
+        "--memory-root",
+        default="",
+        help="Frozen evidence-backed memory store; empty keeps benchmark recall disabled.",
+    )
+    parser.add_argument(
+        "--memory-namespace",
+        default="",
+        help="Stable namespace, or swebench:<instance_id> when omitted.",
+    )
+    parser.add_argument(
+        "--memory-recall-limit",
+        type=int,
+        default=0,
+        help="Enable matched memory ablation explicitly; default 0 prevents leakage.",
     )
     parser.add_argument(
         "--execution-mode",
@@ -107,6 +134,12 @@ def run_swebench_from_args(args: argparse.Namespace) -> BenchRunSummary:
         instance_ids = [SHOWCASE_INSTANCE_ID]
         limit = 1
 
+    skill_value = str(args.skills or "auto")
+    skill_names = (
+        ()
+        if skill_value in {"auto", "none"}
+        else tuple(item.strip() for item in skill_value.split(",") if item.strip())
+    )
     return run_swebench(SwebenchRunRequest(
         dataset_name=args.dataset,
         split=args.split,
@@ -119,6 +152,11 @@ def run_swebench_from_args(args: argparse.Namespace) -> BenchRunSummary:
         api_key=args.api_key,
         max_steps=args.max_steps,
         max_context_chars=args.max_context_chars,
+        max_prompt_tokens=args.max_prompt_tokens,
+        reserved_output_tokens=args.reserved_output_tokens,
+        max_tool_calls_per_turn=args.max_tool_calls_per_turn,
+        cost_budget_usd=args.cost_budget_usd,
+        timeout_seconds=args.timeout_seconds,
         repo_cache=args.repo_cache,
         output_root=args.output_root,
         direct_baseline=args.direct_baseline,
@@ -129,6 +167,12 @@ def run_swebench_from_args(args: argparse.Namespace) -> BenchRunSummary:
         profile=args.profile,
         max_revision_rounds=args.max_revision_rounds,
         tool_routing_mode=args.tool_routing,
+        skill_mode="none" if skill_value == "none" else "auto",
+        skill_names=skill_names,
+        skill_manifest_files=tuple(args.skill_manifest),
+        memory_root=args.memory_root,
+        memory_namespace=args.memory_namespace,
+        memory_recall_limit=args.memory_recall_limit,
         execution_mode=args.execution_mode,
         network_policy=args.network_policy,
         keep_worktree=args.keep_worktree,

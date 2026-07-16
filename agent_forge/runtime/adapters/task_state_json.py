@@ -57,6 +57,7 @@ class JsonTaskStateRepository:
         resume_hint: str | None = None,
         messages_count: int | None = None,
         observations_count: int | None = None,
+        context_digest: JsonObject | None = None,
         metadata: JsonObject | None = None,
         updated_at: float | None = None,
     ) -> TaskCheckpoint:
@@ -76,6 +77,7 @@ class JsonTaskStateRepository:
             resume_hint=resume_hint,
             messages_count=messages_count,
             observations_count=observations_count,
+            context_digest=context_digest,
             metadata=metadata,
             updated_at=updated_at,
         )

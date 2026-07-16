@@ -424,6 +424,31 @@ def _render_usage_dashboard(project_dir: Path) -> str:
     step_rows_html = "".join(rows) or "<tr><td colspan='7'>No step data</td></tr>"
     context_rows_html = context_rows or "<tr><td colspan='2'>No context data</td></tr>"
     tool_rows_html = tool_rows or "<tr><td colspan='5'>No tool data</td></tr>"
+    active_skills = summary.get("active_skills") or []
+    adaptive_rows = "".join(
+        [
+            "<tr><td>Structured context compaction</td>"
+            f"<td>{int(summary.get('compacted_context_turns') or 0)} turn(s)</td>"
+            f"<td>{int(summary.get('context_overflow_recoveries') or 0)} provider-overflow recovery</td>"
+            "<td>SessionDigest + raw trace provenance</td></tr>",
+            "<tr><td>Evidence-backed memory recall</td>"
+            f"<td>{int(summary.get('memory_recalled') or 0)} record(s)</td>"
+            "<td>candidate records excluded; active records only</td>"
+            "<td>LongTermMemoryService</td></tr>",
+            "<tr><td>Tool-call normalization</td>"
+            f"<td>{int(summary.get('tool_call_repairs') or 0)} repair(s)</td>"
+            "<td>visible tool names + deterministic argument repair</td>"
+            "<td>ModelGateway + ToolCallNormalizer</td></tr>",
+            "<tr><td>Tool burst governance</td>"
+            f"<td>{int(summary.get('bounded_tool_call_bursts') or 0)} bounded burst(s)</td>"
+            "<td>excess calls are not executed</td>"
+            "<td>ToolExecutionPipeline</td></tr>",
+            "<tr><td>Skill activation</td>"
+            f"<td>{_escape(', '.join(str(item) for item in active_skills) or 'none observed')}</td>"
+            "<td>prompt and tool visibility can be ablated</td>"
+            "<td>SkillRegistry + scorecard</td></tr>",
+        ]
+    )
 
     body = [
         "<h2>成本与工具效率：工程量化证据</h2>",
@@ -438,6 +463,10 @@ def _render_usage_dashboard(project_dir: Path) -> str:
                 ("Tool Failures", str(summary.get("failed_tool_calls", 0)), "失败工具调用", "bad" if summary.get("failed_tool_calls") else "ok"),
             ]
         ),
+        "<section class='evidence-section'><div class='section-title'><h3>Adaptive Harness Signals</h3><span>observed in this run</span></div>",
+        "<table><thead><tr><th>capability</th><th>observed</th><th>enforced boundary</th><th>runtime owner</th></tr></thead>",
+        f"<tbody>{adaptive_rows}</tbody></table>",
+        "<p class='boundary-note'>Zero means this run did not exercise the capability. It is not rendered as a synthetic pass.</p></section>",
         "<h3>Step Cost Breakdown</h3>",
         "<table><thead><tr><th>step</th><th>llm calls</th><th>input</th><th>output</th><th>cost</th><th>context chars</th><th>actions</th></tr></thead>"
         f"<tbody>{step_rows_html}</tbody></table>",
@@ -520,7 +549,7 @@ def _render_trace_timeline(project_dir: Path) -> str:
         "<div class='view-heading'><div><span class='view-kicker'>OBSERVABILITY</span><h2>Execution Timeline</h2></div>"
         "<span class='claim-note'>Multi first, Single second</span></div>",
         "<div class='legend-row'>"
-        "<span class='legend-item blue'>model / plan</span>"
+        "<span class='legend-item blue'>model response</span>"
         "<span class='legend-item purple'>context / routing</span>"
         "<span class='legend-item ok'>tool / check passed</span>"
         "<span class='legend-item bad'>failed</span>"
@@ -589,6 +618,7 @@ def _render_run_evidence(project_dir: Path) -> str:
     evaluation_status = str(result.get("evaluation_status") or "not_evaluated")
     patch_chars = int(result.get("patch_chars") or 0)
     feedback_outcome = _latest_feedback_outcome(project_dir)
+    active_skills = summary.get("active_skills") or []
     body = [
         "<div class='view-heading'><div><span class='view-kicker'>RUN EVIDENCE</span><h2>Runtime Evidence Overview</h2></div>"
         f"{_badge(evaluation_status, _tone_for_status(evaluation_status))}</div>",
@@ -605,12 +635,21 @@ def _render_run_evidence(project_dir: Path) -> str:
         "<section class='evidence-section'><div class='section-title'><h3>Runtime Pipeline</h3><span>policy outside prompt</span></div>",
         "<div class='pipeline'>"
         "<div><b>01</b><span>Context</span><small>selection + compression</small></div>"
-        "<div><b>02</b><span>Model</span><small>plan + tool intent</small></div>"
+        "<div><b>02</b><span>Model</span><small>response + tool intent</small></div>"
         "<div><b>03</b><span>Control</span><small>routing + policy + approval</small></div>"
         "<div><b>04</b><span>Execution</span><small>sandbox + recovery</small></div>"
         "<div><b>05</b><span>Evidence</span><small>trace + usage + artifacts</small></div>"
         "<div><b>06</b><span>Evaluation</span><small>diagnosis + feedback</small></div>"
         "</div></section>",
+        "<section class='evidence-section'><div class='section-title'><h3>Adaptive Runtime Evidence</h3><span>actual latest-run signals</span></div>",
+        "<div class='capability-strip'>"
+        f"<div><b>{int(summary.get('compacted_context_turns') or 0)}</b><span>compacted turns</span></div>"
+        f"<div><b>{int(summary.get('memory_recalled') or 0)}</b><span>recalled memories</span></div>"
+        f"<div><b>{int(summary.get('tool_call_repairs') or 0)}</b><span>tool-call repairs</span></div>"
+        f"<div><b>{int(summary.get('bounded_tool_call_bursts') or 0)}</b><span>bounded bursts</span></div>"
+        "</div>"
+        f"<p><span class='label'>Active Skills</span>{_escape(', '.join(str(item) for item in active_skills) or 'none observed')}</p>"
+        "<p class='boundary-note'>These counters come from trace-derived usage evidence. Capability availability alone is never shown as a successful exercise.</p></section>",
         "<section class='evidence-section'><div class='section-title'><h3>Claim Ladder</h3><span>strongest supported statement</span></div>",
         "<div class='claim-ladder'>",
         _claim_step("Candidate patch", "present" if patch_chars else "absent", f"{patch_chars} chars", "ok" if patch_chars else "neutral"),
@@ -731,6 +770,29 @@ def _render_runtime_controls(project_dir: Path) -> str:
     operation_events = sum(1 for event in events if "operation" in str(event.get("event_type") or ""))
     skill_event = _last_event(trace, "skill_selection")
     active_skills = context_snapshot.get("active_skills") or skill_event.get("selected_skills") or skill_event.get("skills") or []
+    context_window_event = _last_event(trace, "context_window")
+    context_window_value = context_window_event.get("context_window")
+    context_window: dict[str, Any] = (
+        context_window_value if isinstance(context_window_value, dict) else {}
+    )
+    memory_event = _last_event(trace, "memory_recall")
+    memory_value = memory_event.get("memory")
+    memory_recall: dict[str, Any] = (
+        memory_value if isinstance(memory_value, dict) else {}
+    )
+    llm_events = [
+        event for event in events if event.get("event_type") == "llm_call"
+    ]
+    normalization_repairs = [
+        str(repair)
+        for event in llm_events
+        for repair in (
+            (event.get("response_normalization") or {}).get("repairs") or []
+        )
+    ]
+    burst_event = _last_event(trace, "tool_calls_bounded")
+    burst_value = burst_event.get("tool_call_budget")
+    burst: dict[str, Any] = burst_value if isinstance(burst_value, dict) else {}
     mcp_tools = [str(tool) for tool in allowed if "." in str(tool)]
     mode = str(environment.get("mode") or "not_observed")
     network = str(environment.get("network_policy") or "not_observed")
@@ -786,6 +848,33 @@ def _render_runtime_controls(project_dir: Path) -> str:
         f"<tr><td>Idempotent writes</td><td>{operation_events} operation events</td><td>OperationLedger</td></tr>",
         f"<tr><td>Typed evidence contract</td><td>TraceEvent envelope + named task checkpoint</td><td>TraceRecorder + TaskCheckpoint</td></tr>",
         "</tbody></table></section>",
+        "<section class='evidence-section'><div class='section-title'><h3>Context, Memory & Model Adaptation</h3><span>latest trace provenance</span></div>",
+        "<table><thead><tr><th>signal</th><th>observed value</th><th>provenance</th></tr></thead><tbody>",
+        (
+            "<tr><td>Context window</td>"
+            f"<td>compacted={_escape(context_window.get('compacted', False))}; "
+            f"tokens={_escape(context_window.get('estimated_tokens_before', 0))} -> "
+            f"{_escape(context_window.get('estimated_tokens_after', 0))}</td>"
+            f"<td class='mono'>{_escape(context_window.get('source_hash') or 'raw history')}</td></tr>"
+        ),
+        (
+            "<tr><td>Long-term memory</td>"
+            f"<td>{_escape(memory_recall.get('recalled_count', 0))} recalled; "
+            f"kinds={_escape(memory_recall.get('kinds') or [])}</td>"
+            f"<td class='mono'>{_escape(memory_recall.get('memory_ids') or 'none')}</td></tr>"
+        ),
+        (
+            "<tr><td>Tool-call repair</td>"
+            f"<td>{_escape(normalization_repairs or 'none observed')}</td>"
+            f"<td>{len(llm_events)} model invocation(s)</td></tr>"
+        ),
+        (
+            "<tr><td>Tool burst bound</td>"
+            f"<td>limit={_escape(burst.get('limit', 'not triggered'))}; "
+            f"dropped={_escape(burst.get('dropped') or [])}</td>"
+            "<td>ToolExecutionPipeline trace</td></tr>"
+        ),
+        "</tbody></table><p class='boundary-note'>Memory IDs and digest hashes expose provenance without pretending the derived summary is the raw source.</p></section>",
         "<section class='evidence-section'><div class='section-title'><h3>Durability & Human Control</h3><span>latest-run event coverage</span></div>",
         "<div class='capability-strip'>"
         f"<div><b>{checkpoints}</b><span>state checkpoints</span></div>"
@@ -1132,8 +1221,6 @@ def _format_trace_event_label(index: int, event: dict[str, Any]) -> str:
     names = {
         "task_state_checkpoint": "状态检查点",
         "context_assembly": "上下文组装",
-        "plan": "模型计划",
-        "planning_mode": "规划模式",
         "llm_call": "模型调用",
         "guardrail_check": "安全检查",
         "clarification_decision": "澄清判断",
@@ -1182,7 +1269,7 @@ def _event_tone(event_type: str, success: bool) -> str:
 
     if not success:
         return "bad"
-    if event_type in {"llm_call", "plan", "planning_mode"}:
+    if event_type == "llm_call":
         return "blue"
     if event_type in {
         "context_assembly",
@@ -1563,10 +1650,12 @@ INDEX_HTML = r"""<!doctype html>
     }
     .badge {
       display: inline-block;
+      flex: 0 0 auto;
       border-radius: 999px;
       padding: 3px 8px;
       font-size: 12px;
       font-weight: 700;
+      white-space: nowrap;
       border: 1px solid var(--line);
       color: var(--text);
       background: rgba(242, 244, 248, .84);

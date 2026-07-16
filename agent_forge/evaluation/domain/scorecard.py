@@ -11,6 +11,11 @@ NUMERIC_METRICS = (
     "llm_latency_ms",
     "tool_calls",
     "failed_tool_calls",
+    "compacted_context_turns",
+    "context_overflow_recoveries",
+    "memory_recalled",
+    "tool_call_repairs",
+    "bounded_tool_call_bursts",
 )
 
 
@@ -51,6 +56,17 @@ def normalize_case(
         "llm_latency_ms": _int(summary.get("llm_latency_ms")),
         "tool_calls": _int(summary.get("tool_calls")),
         "failed_tool_calls": _int(summary.get("failed_tool_calls")),
+        "compacted_context_turns": _int(
+            summary.get("compacted_context_turns")
+        ),
+        "context_overflow_recoveries": _int(
+            summary.get("context_overflow_recoveries")
+        ),
+        "memory_recalled": _int(summary.get("memory_recalled")),
+        "tool_call_repairs": _int(summary.get("tool_call_repairs")),
+        "bounded_tool_call_bursts": _int(
+            summary.get("bounded_tool_call_bursts")
+        ),
         "_observed_models": _observed_models(usage),
         "_observed_container_image_id": str(probe.get("container_image_id") or ""),
     }
@@ -184,6 +200,29 @@ def _metadata(
         "max_context_chars": _int(results.get("max_context_chars")),
         "max_revision_rounds": _int(results.get("max_revision_rounds")),
         "tool_routing_mode": str(results.get("tool_routing_mode") or "task-aware"),
+        "skill_mode": str(results.get("skill_mode") or "auto"),
+        "skill_names": sorted(str(item) for item in (results.get("skill_names") or [])),
+        "skill_manifest_sha256": str(
+            results.get("skill_manifest_sha256") or "builtins_only"
+        ),
+        "max_prompt_tokens": _int(results.get("max_prompt_tokens") or 32_768),
+        "reserved_output_tokens": _int(
+            results.get("reserved_output_tokens") or 4_096
+        ),
+        "max_tool_calls_per_turn": _int(
+            results.get("max_tool_calls_per_turn") or 4
+        ),
+        "cost_budget_usd": (
+            _float(results.get("cost_budget_usd"))
+            if results.get("cost_budget_usd") is not None
+            else None
+        ),
+        "timeout_seconds": _float(results.get("timeout_seconds") or 900.0),
+        "memory_namespace": str(results.get("memory_namespace") or ""),
+        "memory_recall_limit": _int(results.get("memory_recall_limit")),
+        "memory_snapshot_sha256": str(
+            results.get("memory_snapshot_sha256") or "disabled"
+        ),
         "execution_mode": str(results.get("execution_mode") or "local"),
         "network_policy": str(results.get("network_policy") or "deny"),
         "keep_worktree": bool(results.get("keep_worktree")),
@@ -208,8 +247,12 @@ def _observed_models(usage: dict[str, Any]) -> list[str]:
         if not isinstance(calls, list):
             continue
         for call in calls:
-            if isinstance(call, dict) and call.get("model"):
+            if not isinstance(call, dict):
+                continue
+            if call.get("model"):
                 models.add(str(call["model"]))
+            if call.get("fallback_model"):
+                models.add(str(call["fallback_model"]))
     return sorted(models)
 
 

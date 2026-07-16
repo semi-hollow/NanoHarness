@@ -7,8 +7,9 @@
 **Agent Forge 是一个面向 SWE-bench 形态软件工程任务的精简 AI Agent Runtime。**
 
 它不是 chatbot wrapper，也不是完整 IDE。项目聚焦 Coding Agent 背后的工程控制层：
-context construction、tool governance、隔离执行、人工审批、部分恢复、多 Agent
-artifact handoff、隔离 fanout、trace、成本核算和评测证据。
+context construction、结构化会话压缩、证据化长期记忆、弱模型 Tool Calling 适配、
+tool governance、隔离执行、人工审批、部分恢复、多 Agent artifact handoff、隔离
+fanout、trace、成本核算和评测证据。
 
 ```text
 Issue -> repo snapshot -> AgentLoop / live fanout -> governed tools -> candidate patch
@@ -31,8 +32,9 @@ Coding Agent；单纯增加 prompt 长度并不能解决这个问题。**
 | 能力 | 真实实现 |
 | --- | --- |
 | Agent Runtime Loop | `AgentLoop.run` 只展示 start、prepare、turn、stop；运行前决策、turn 输入、最终答案、工具授权、幂等账本和生命周期分别由具名应用服务拥有。 |
-| Context Engineering | `TurnPreparation` 通过 `ContextAssemblerPort` 获取 repository map、候选文件预览、项目指令和有界 memory；选择、压缩、丢弃和预算进入 trace。 |
-| 真实模型边界 | OpenAI-compatible client，默认支持 DeepSeek 配置，包含 retry/fallback、provider usage 和成本估算。 |
+| Context Engineering | `ContextAssemblerPort` 按区段预算治理 policy、Skill、长期记忆、项目指令、文件与 retrieval；`ContextWindowManager` 再对完整请求计预算，并在不拆分 tool transaction 的前提下生成带 source hash 的 `SessionDigest`。 |
+| 分层 Memory | Run 内 working memory、checkpoint digest 与长期记忆使用不同结构。长期记录必须经过 candidate -> evidence-backed active 生命周期，按 workspace/agent 隔离和任务相关性召回；原始 trace 始终是权威证据。 |
+| 真实模型边界 | OpenAI-compatible client，包含 retry/fallback、provider usage 和累计成本。`ToolCallNormalizer` 只做可确定验证的参数/文本修复；context overflow 交给 Runtime 压缩，异常工具 burst 在执行前限流。 |
 | 工具治理 | read/grep/patch/command/git/diagnostics 依次经过 routing、registry validation、permission hook、command policy 和 workspace sandbox。 |
 | 隔离执行 | 支持当前 checkout、detached git worktree，以及基于隔离 snapshot 的受限 OCI container。Container command 带 network、CPU、memory、PID、capability 和 read-only root 控制。 |
 | Human-in-the-loop | 信息型问题通过 `JsonHumanInputRepository` 持久化，在同一 turn 中优先阻断其他副作用，运行停在 `waiting_human`，只有 `forge respond` 加 resume 后才继续。写入授权由独立且带 fingerprint 的 `JsonApprovalRepository` 负责。 |
@@ -40,7 +42,7 @@ Coding Agent；单纯增加 prompt 长度并不能解决这个问题。**
 | SWE-bench 运行链路 | 加载 case、checkout `base_commit`、生成 `predictions.jsonl`，安装官方 harness 后可执行评测，并解析 per-case resolved/unresolved/error artifact。 |
 | 顺序多 Agent | `MultiAgentCoordinator` 让 Implementer/Reviewer/Verifier 复用同一个 `AgentLoop`，角色之间只通过显式 artifact 传递状态。 |
 | Live Fanout | 校验后的任务 DAG 在 disposable worktree 中并发运行独立 `AgentLoop` worker，强制检查 write scope，并通过 conflict gate 确定性合并 patch。 |
-| Evaluation Experiment | 固定五个 SWE-bench Lite case，记录 patch/local/official evidence、token、cost、latency、tool failure 和 failure class；`forge eval ablation` 对 matched run 做 paired comparison。 |
+| Evaluation Experiment | 固定五个 SWE-bench Lite case，记录 patch/local/official evidence、token、cost、latency、tool failure、context compaction、memory recall 和 model repair；`forge eval ablation` 对 routing、Skill、Memory、Context Window 等单因素 matched run 做 identity-gated paired comparison。 |
 | Evidence Report | 每次运行生成 trace、usage、scorecard、result card、failure taxonomy 和 case study，而不是只输出 debug dump。 |
 | Feedback Data Loop | 人工 outcome 和 label 可以挂到 run 上，再将安全筛选后的 trace、policy、environment 和 evaluation 字段导出为 JSONL。 |
 
@@ -55,6 +57,9 @@ Coding Agent；单纯增加 prompt 长度并不能解决这个问题。**
 2. 打开[架构契约](docs/ARCHITECTURE.md)、[Python 分层说明](docs/guides/Python分层与调用关系.md)和[代码阅读地图](docs/guides/code-reading-map.md)。
 3. 检查核心实现：
    - [AgentLoop](agent_forge/runtime/application/agent_loop.py)
+   - [完整请求预算与压缩](agent_forge/context/application/compaction.py)
+   - [长期记忆生命周期](agent_forge/context/application/memory_service.py)
+   - [Tool Calling 标准化](agent_forge/models/tool_call_normalizer.py)
    - [工具治理管线](agent_forge/runtime/application/tool_execution.py)
    - [审批门禁](agent_forge/runtime/application/tool_authorization.py)
    - [副作用幂等](agent_forge/runtime/application/operation_tracker.py)
@@ -95,7 +100,8 @@ forge ui
 
 本地 **NanoHarness Evidence Console** 提供真实运行控制，包括 model、budget、
 approval、tool routing、network policy、execution isolation、Skills、MCP、顺序角色和
-live fanout。Evidence view 会直接渲染 artifact 内容，同时展示 Multi 与 Single
+live fanout。Evidence view 会直接渲染 artifact 内容，同时展示 Memory 召回、Context
+压缩、Tool Calling 修复、工具 burst 治理以及 Multi 与 Single
 trace，区分 candidate、runtime verifier、official evaluation 和 human feedback，
 并提供真实 feedback/dataset export 操作。路径保留用于 provenance，但不再是主要
 展示内容。
@@ -424,10 +430,10 @@ forge replay latest
 agent_forge/
   cli/            参数契约、命令分发、run/resume/operator 入站适配器
   runtime/        domain/application/ports/adapters + AgentLoop composition root
-  context/        repo map、file ranking、lexical retrieval、memory、token budget
+  context/        repo retrieval、working/session/long-term memory、完整请求预算与压缩
   tools/          read/write/grep/patch/command/git/diagnostics/MCP wrapper
   safety/         sandbox、command policy、permission、guardrail
-  models/         provider gateway、retry/fallback、usage telemetry
+  models/         provider gateway、Tool Calling 标准化、retry/fallback、usage telemetry
   multi_agent/    orchestration domain/application/ports/adapters
   bench/          SWE-bench 执行、official adapter、诊断和 artifact 发布
   evaluation/     metric、comparison、scorecard、ablation、feedback data
@@ -459,6 +465,7 @@ boundary 所需的协议子集。精确状态见[能力真实性矩阵](docs/CAP
 - [架构契约与治理标准](docs/ARCHITECTURE.md)
 - [总体架构与运行链路](docs/AgentForge总体架构与运行链路.md)
 - [Runtime 能力导览](docs/architecture/runtime-capability-guide.md)
+- [上下文、记忆与模型适配](docs/architecture/上下文记忆与模型适配.md)
 - [能力入口索引](docs/guides/code-reading-map.md#能力入口索引)
 - [Runtime 学习路径](docs/guides/runtime-learning-path.md)
 - [持久化 Human Input 与 Live Fanout](docs/architecture/human-input-and-live-fanout.md)

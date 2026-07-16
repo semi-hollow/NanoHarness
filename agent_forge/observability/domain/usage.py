@@ -18,6 +18,11 @@ def build_usage_report(trace: dict[str, Any]) -> dict[str, Any]:
                 "agent": key[1],
                 "llm_calls": [],
                 "context": {},
+                "context_windows": [],
+                "context_overflow_recoveries": [],
+                "memory_recall": {},
+                "skills": [],
+                "tool_call_bursts": [],
                 "actions": [],
                 "recoveries": [],
                 "hook_checks": [],
@@ -36,6 +41,26 @@ def build_usage_report(trace: dict[str, Any]) -> dict[str, Any]:
         if event_type == "context_assembly":
             context = event.get("context") or {}
             entry["context"] = _context_summary(context)
+
+        elif event_type == "context_window":
+            entry["context_windows"].append(event.get("context_window") or {})
+
+        elif event_type == "context_overflow_recovery":
+            entry["context_overflow_recoveries"].append(
+                {
+                    "success": bool(event.get("success", False)),
+                    **(event.get("context_overflow") or {}),
+                }
+            )
+
+        elif event_type == "memory_recall":
+            entry["memory_recall"] = event.get("memory") or {}
+
+        elif event_type == "skill_selection":
+            entry["skills"] = list(event.get("skills") or [])
+
+        elif event_type == "tool_calls_bounded":
+            entry["tool_call_bursts"].append(event.get("tool_call_budget") or {})
 
         elif event_type == "llm_call":
             llm_call_index += 1
@@ -167,10 +192,13 @@ def _llm_call_summary(event: dict[str, Any], call_index: int, run_id: str) -> di
         "latency_ms": _int(usage.get("latency_ms")),
         "attempts": _int(usage.get("attempts")),
         "fallback_used": bool(usage.get("fallback_used", False)),
+        "fallback_provider": str(usage.get("fallback_provider") or ""),
+        "fallback_model": str(usage.get("fallback_model") or ""),
         "error_codes": list(usage.get("error_codes") or []),
         "request_summary": event.get("llm_request_summary", ""),
         "response_summary": event.get("llm_response_summary", ""),
         "input_breakdown_chars": event.get("llm_input_breakdown_chars") or {},
+        "response_normalization": event.get("response_normalization") or {},
     }
 
 
@@ -248,6 +276,22 @@ def _summary(
     cache_total = cache_hit + cache_miss
     hook_checks = [check for step in steps for check in step.get("hook_checks", [])]
     task_states = [state for step in steps for state in step.get("task_states", [])]
+    context_windows = [
+        window for step in steps for window in step.get("context_windows", [])
+    ]
+    memory_recalled = sum(
+        _int((step.get("memory_recall") or {}).get("recalled_count"))
+        for step in steps
+    )
+    active_skills = sorted(
+        {
+            str(skill.get("name") or "")
+            for step in steps
+            for skill in step.get("skills", [])
+            if isinstance(skill, dict) and skill.get("name")
+        }
+    )
+    repair_count = sum(_tool_call_repair_count(call) for call in calls)
     return {
         "llm_calls": len(calls),
         "prompt_tokens": prompt_tokens,
@@ -265,8 +309,38 @@ def _summary(
         "hook_checks": len(hook_checks),
         "latest_task_status": task_states[-1]["status"] if task_states else "",
         "truncated_context_steps": context_breakdown["truncated_steps"],
+        "compacted_context_turns": sum(
+            bool(window.get("compacted")) for window in context_windows
+        ),
+        "context_overflow_recoveries": sum(
+            bool(recovery.get("success"))
+            for step in steps
+            for recovery in step.get("context_overflow_recoveries", [])
+        ),
+        "hard_context_limit_exceeded_turns": sum(
+            bool(window.get("hard_limit_exceeded"))
+            for window in context_windows
+        ),
+        "memory_recalled": memory_recalled,
+        "active_skills": active_skills,
+        "tool_call_repairs": repair_count,
+        "bounded_tool_call_bursts": sum(
+            len(step.get("tool_call_bursts", [])) for step in steps
+        ),
         "trace_event_count": len(trace.get("events", [])),
     }
+
+
+def _tool_call_repair_count(call: dict[str, Any]) -> int:
+    """同时计算响应内标准化和网关 repair retry，避免内部重试被漏报。"""
+
+    normalization_repairs = len(
+        (call.get("response_normalization") or {}).get("repairs") or []
+    )
+    gateway_repairs = sum(
+        str(code) == "invalid_tool_call" for code in call.get("error_codes", [])
+    )
+    return max(normalization_repairs, gateway_repairs)
 
 
 def _runtime_control(steps: list[dict[str, Any]]) -> dict[str, Any]:

@@ -148,9 +148,16 @@ class StepController:
             recovery_hint="Use the observation text as evidence, adjust the next action, and avoid repeating blindly.",
         )
 
-    def should_stop(self, step: int, estimated_cost_usd: float = 0.0) -> FailureSignal | None:
+    def should_stop(
+        self,
+        step: int,
+        estimated_cost_usd: float = 0.0,
+        *,
+        include_step_limit: bool = True,
+    ) -> FailureSignal | None:
+        """检查累计预算；最终回答前可以跳过 step 上限。"""
 
-        if step >= self.budget.max_steps:
+        if include_step_limit and step >= self.budget.max_steps:
             return FailureSignal(
                 FailureKind.BUDGET_EXCEEDED,
                 "max_steps reached",
@@ -191,7 +198,15 @@ class StepController:
         return FailureSignal(
             FailureKind.MODEL_RESPONSE,
             code,
-            retryable=code in {"request_failed", "temporary_failure", "timeout"},
+            retryable=code
+            in {
+                "request_failed",
+                "request_timeout",
+                "rate_limited",
+                "server_error",
+                "temporary_failure",
+                "timeout",
+            },
             recovery_hint="Retry through ModelGateway fallback if configured; otherwise stop with provider diagnostics.",
         )
 

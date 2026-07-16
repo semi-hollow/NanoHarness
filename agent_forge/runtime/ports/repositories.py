@@ -37,6 +37,7 @@ class TaskStateRepository(Protocol):
         resume_hint: str | None = None,
         messages_count: int | None = None,
         observations_count: int | None = None,
+        context_digest: JsonObject | None = None,
         metadata: JsonObject | None = None,
         updated_at: float | None = None,
     ) -> TaskCheckpoint:

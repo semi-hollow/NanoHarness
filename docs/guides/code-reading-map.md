@@ -138,6 +138,7 @@ validated plan -> batches -> worker accepted/rejected
 | Capability 能力 | Application owner | Domain/Port | Adapter/Presentation |
 | --- | --- | --- | --- |
 | Runtime | `application/agent_loop.py` | `runtime/domain`、`runtime/ports` | `runtime/adapters`、`runtime/wiring.py` |
+| 上下文与记忆 | `ContextWindowManager`、`LongTermMemoryService` | `context/domain`、`context/ports` | JSON 记忆适配器、上下文公共 API |
 | Orchestration | `multi_agent/application` | `multi_agent/domain`、`ports` | worker/Git/artifact adapters |
 | Benchmark | `bench/application/swebench.py` | case、taxonomy、benchmark ports | 数据集/Git/model/official adapters、report |
 | Evaluation | scorecard/mini-case 用例 | comparison、metric、ablation | JSON/feedback adapters、Markdown renderers |
@@ -162,7 +163,10 @@ validated plan -> batches -> worker accepted/rejected
 | Operator control | `cli.operator` | `runtime.application.operator_control` | approval/human record |
 | Resume | `cli.resume.resume_repository_task` | `BuildContinuationPlan` | new run + resume chain |
 | Context 上下文 | `RepositoryContextAssembler.build` | `ContextAssemblerPort` | `ContextBuildReport` |
+| 完整请求预算 | `ContextWindowManager.prepare` | `PromptBudget`、`SessionDigest` | `ContextWindowResult`、checkpoint digest |
+| 长期记忆 | `LongTermMemoryService.propose/promote/recall` | `LongTermMemoryRecord`、repository port | JSON record、模型只读召回视图 |
 | Tool visibility 可见性 | `ToolRouter.route` | schemas、Skill tools | allowed/dropped tools |
+| 弱模型 Tool Calling | `ModelGateway.chat` | `ToolCallNormalizer.normalize` | normalized call、repair retry、usage |
 | Path/command safety 安全 | `WorkspaceSandbox.ensure_safe_path`、`check_command` | Permission/Environment | decision + manifest |
 | Sequential roles 顺序角色 | `MultiAgentCoordinator.run` | role runner、artifact port | MultiAgentRunSummary |
 | Live Fanout 并发 | `LiveFanoutCoordinator.run` | worker/workspace/artifact ports | checkpoint、integration patch、summary |
@@ -183,6 +187,7 @@ AgentLoop.run                         只看完整阶段
 -> RunPreparation.start/execute       只看一次性初始化
 -> AgentLoop._run_turn                只看 model/final/tool 分叉
 -> TurnPreparation.execute            需要理解 context 时再看
+-> ContextWindowManager.prepare       需要理解历史压缩时再看
 -> ToolExecutionPipeline._execute_call 需要理解 action 时再看
 -> RunLifecycle.stop                  需要理解终态时再看
 ```
@@ -191,6 +196,21 @@ AgentLoop.run                         只看完整阶段
 `RuntimeDependencies` 的 Port 注入。`TurnPreparation` 不扫描文件；需要理解仓库 map、
 文件预览或 `FORGE.md` 读取时，再进入 `runtime/adapters/context_assembler.py`，随后沿调用
 进入 Context capability。
+
+## Context 与 Memory 最短阅读路径
+
+```text
+RunPreparation._seed_memory           召回入口
+-> LongTermMemoryService.recall       权威、隔离、相关性规则
+-> Memory.seed_long_term              当前 run 的只读视图
+-> RepositoryContextAssembler.build   repo 与 memory 组装
+-> TurnPreparation.execute            完整 turn 输入
+-> ContextWindowManager.prepare       压缩旧会话但保留工具事务
+-> TaskCheckpoint.context_digest      continuation 状态
+```
+
+第一遍只读 `context/domain/memory.py` 的字段和三个主要入口。JSON 文件布局、原子写入、
+词项生成等实现细节不影响主链路理解，可以最后展开。
 
 ## 工具调用最短路径
 

@@ -5,6 +5,10 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
+from agent_forge.context.adapters import JsonLongTermMemoryRepository
+from agent_forge.context.application import LongTermMemoryService
 from agent_forge.models.gateway import ModelGateway, RetryPolicy
 from agent_forge.observability.adapters.json_trace import TraceRecorder
 from agent_forge.runtime.adapters import (
@@ -132,6 +136,12 @@ def build_runtime_dependencies(
         approvals=JsonApprovalRepository(config.approval_root),
         human_inputs=JsonHumanInputRepository(config.human_input_root),
         operations=JsonOperationLedgerRepository(config.operation_ledger_root),
+        long_term_memory=LongTermMemoryService(
+            JsonLongTermMemoryRepository(
+                config.memory_root
+                or str(Path(config.workspace) / ".agent_forge" / "memory")
+            )
+        ),
     )
 
 # 主要入口：下方定义承接该模块的核心调用。

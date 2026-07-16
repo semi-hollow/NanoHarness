@@ -5,9 +5,10 @@ import urllib.error
 import urllib.request
 from typing import Any
 
-from .domain.conversation import AgentResponse, Message, ToolCall
+from agent_forge.models.tool_call_normalizer import ToolCallNormalizer
+
+from .domain.conversation import AgentResponse, Message
 from .llm_config import LLMConfig
-from .structured_output import StructuredOutputParser
 
 
 class LLMClient:
@@ -32,6 +33,7 @@ class OpenAICompatibleLLMClient(LLMClient):
         self.api_key = api_key or os.getenv("AGENT_FORGE_API_KEY") or os.getenv("OPENAI_API_KEY", "")
         self.model = model or os.getenv("AGENT_FORGE_MODEL") or os.getenv("OPENAI_MODEL", "")
         self.timeout = timeout
+        self.tool_calls = ToolCallNormalizer()
 
     @classmethod
     def from_env(cls) -> "OpenAICompatibleLLMClient":
@@ -83,7 +85,11 @@ class OpenAICompatibleLLMClient(LLMClient):
         except urllib.error.HTTPError as exc:
 
             raw = exc.read().decode("utf-8", errors="replace")
-            return self._invalid("request_failed", f"HTTP Error {exc.code}: {exc.reason}", raw[:1000])
+            return self._invalid(
+                self._classify_http_error(exc.code, raw),
+                f"HTTP Error {exc.code}: {exc.reason}",
+                raw[:1000],
+            )
         except (urllib.error.URLError, TimeoutError, OSError, http.client.IncompleteRead) as exc:
             return self._invalid("request_failed", f"{type(exc).__name__}: {exc}")
 
@@ -92,9 +98,14 @@ class OpenAICompatibleLLMClient(LLMClient):
         except json.JSONDecodeError as exc:
             return self._invalid("invalid_json", str(exc), raw[:500])
 
-        return self.parse_response(data)
+        return self.parse_response(data, tools=tools)
 
-    def parse_response(self, data: dict[str, Any]) -> AgentResponse:
+    def parse_response(
+        self,
+        data: dict[str, Any],
+        tools: list[dict[str, Any]] | None = None,
+    ) -> AgentResponse:
+        """归一化 provider 响应，并对弱模型格式做受限修复。"""
 
         try:
             choices = data.get("choices")
@@ -103,8 +114,39 @@ class OpenAICompatibleLLMClient(LLMClient):
             message = choices[0].get("message")
             if not isinstance(message, dict):
                 return self._invalid("missing_message", "first choice has no message")
-            content = message.get("content")
-            tool_calls = self._parse_tool_calls(message)
+            raw_content = message.get("content")
+            content = str(raw_content) if raw_content is not None else None
+            raw_calls = message.get("tool_calls") or []
+            if not isinstance(raw_calls, list) or not all(
+                isinstance(item, dict) for item in raw_calls
+            ):
+                return self._invalid(
+                    "invalid_tool_call",
+                    "tool_calls must be a list of objects",
+                    json.dumps(message, ensure_ascii=False)[:1000],
+                )
+            legacy = message.get("function_call")
+            if legacy is not None and not isinstance(legacy, dict):
+                return self._invalid(
+                    "invalid_tool_call",
+                    "function_call must be an object",
+                    json.dumps(message, ensure_ascii=False)[:1000],
+                )
+            normalized = self.tool_calls.normalize(
+                raw_calls=raw_calls,
+                legacy_function_call=legacy,
+                content=content,
+                allowed_tool_names=self._allowed_tool_names(tools or []),
+            )
+            if normalized.error:
+                return self._invalid(
+                    "invalid_tool_call",
+                    normalized.error,
+                    json.dumps(message, ensure_ascii=False)[:1000],
+                    repair_prompt=normalized.repair_prompt,
+                )
+            content = normalized.content
+            tool_calls = normalized.calls
             if content is None and not tool_calls:
                 return self._invalid("empty_message", "message has neither content nor tool calls")
             return AgentResponse(
@@ -113,39 +155,22 @@ class OpenAICompatibleLLMClient(LLMClient):
                 reasoning_content=message.get("reasoning_content"),
                 usage=data.get("usage"),
                 response_id=data.get("id"),
+                normalization={
+                    "tool_call_source": normalized.source,
+                    "repairs": normalized.repairs,
+                },
             )
         except Exception as exc:
             return self._invalid("parse_failed", str(exc))
 
-    def _parse_tool_calls(self, message: dict[str, Any]) -> list[ToolCall]:
-
-        calls = []
-        raw_calls = message.get("tool_calls") or []
-        if message.get("function_call"):
-            raw_calls = [{"id": "function_call", "function": message["function_call"]}] + list(raw_calls)
-
-        for index, raw in enumerate(raw_calls):
-            fn = raw.get("function", raw)
-            name = fn.get("name")
-            if not name:
-                raise ValueError("tool call missing function name")
-            arguments = fn.get("arguments", {})
-            if isinstance(arguments, str):
-
-                parser = StructuredOutputParser({"type": "object"})
-                result = parser.parse(arguments or "{}")
-                if not result.ok:
-                    raise ValueError(
-                        "tool call arguments are not valid JSON object: "
-                        f"{result.error}; repair_prompt={result.repair_prompt}"
-                    )
-                arguments = result.data
-            if arguments is None:
-                arguments = {}
-            if not isinstance(arguments, dict):
-                raise ValueError("tool call arguments must be an object")
-            calls.append(ToolCall(str(raw.get("id", f"call_{index}")), name, arguments))
-        return calls
+    @staticmethod
+    def _allowed_tool_names(tools: list[dict[str, Any]]) -> set[str]:
+        names: set[str] = set()
+        for tool in tools:
+            function = tool.get("function") if tool.get("type") == "function" else tool
+            if isinstance(function, dict) and function.get("name"):
+                names.add(str(function["name"]))
+        return names
 
     def _message_to_dict(self, message: Message) -> dict[str, Any]:
 
@@ -197,10 +222,44 @@ class OpenAICompatibleLLMClient(LLMClient):
             return "object"
         return "string"
 
-    def _invalid(self, code: str, message: str, raw: str = "") -> AgentResponse:
+    @staticmethod
+    def _classify_http_error(status: int, raw: str) -> str:
+        """先识别需要改变请求的错误，再区分可重试 transport 状态。"""
+
+        lowered = raw.lower()
+        context_markers = (
+            "context_length_exceeded",
+            "maximum context length",
+            "context window",
+            "too many tokens",
+            "prompt is too long",
+        )
+        if any(marker in lowered for marker in context_markers):
+            return "context_length_exceeded"
+        if status == 408:
+            return "request_timeout"
+        if status == 429:
+            return "rate_limited"
+        if status >= 500:
+            return "server_error"
+        return "request_failed"
+
+    def _invalid(
+        self,
+        code: str,
+        message: str,
+        raw: str = "",
+        **details: Any,
+    ) -> AgentResponse:
 
         return AgentResponse(
             None,
             [],
-            {"type": "invalid_response", "code": code, "message": message, "raw": raw},
+            {
+                "type": "invalid_response",
+                "code": code,
+                "message": message,
+                "raw": raw,
+                **details,
+            },
         )

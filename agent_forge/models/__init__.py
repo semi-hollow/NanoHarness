@@ -1,5 +1,3 @@
-from .gateway import ModelGateway, RetryPolicy
-from .profile import GatewayPolicy, ProviderProfile
-from .usage import ModelUsage
+"""模型适配能力；外围从具体模块或 Runtime wiring 进入。"""
 
-__all__ = ["GatewayPolicy", "ModelGateway", "ProviderProfile", "RetryPolicy", "ModelUsage"]
+__all__: list[str] = []

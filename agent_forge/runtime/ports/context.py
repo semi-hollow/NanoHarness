@@ -14,6 +14,7 @@ class ContextReportView(Protocol):
     selected_files: list[str]
     retrieved_docs: list[str]
     memory_summary: str
+    long_term_memory: list[str]
     total_chars: int
     max_chars: int
     truncated: bool

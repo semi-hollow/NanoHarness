@@ -10,7 +10,6 @@ from agent_forge.runtime.config import RuntimeConfig
 from agent_forge.runtime.control import StepController
 from agent_forge.runtime.domain.conversation import Message
 from agent_forge.runtime.domain.task import TaskRunStatus, summarize_checkpoint
-from agent_forge.runtime.planning_mode import PlanningModePolicy
 from agent_forge.runtime.ports import SkillView
 from agent_forge.safety.guardrails import input_guardrail
 
@@ -35,9 +34,9 @@ class RunPreparation:
         self.task_states = dependencies.task_states
         self.human_inputs = dependencies.human_inputs
         self.hooks = dependencies.hooks
+        self.long_term_memory = dependencies.long_term_memory
         self.human_thread_id = human_thread_id
         self.clarification_policy = ClarificationPolicy()
-        self.planning_mode_policy = PlanningModePolicy()
         self.skill_selector = dependencies.skills
 
     # 主要入口：下方定义承接该模块的核心调用。
@@ -90,7 +89,6 @@ class RunPreparation:
         stop = self._resolve_clarification(session)
         if stop is not None:
             return stop
-        self._record_planning_mode(session)
         self._activate_skills(session)
         self._seed_memory(session)
         return None
@@ -170,19 +168,6 @@ class RunPreparation:
         )
         return None
 
-    def _record_planning_mode(self, session: AgentRunSession) -> None:
-        decision = self.planning_mode_policy.decide(session.task)
-        self.trace.add(
-            0,
-            session.agent_name,
-            "planning_mode",
-            planning_mode={
-                "mode": decision.mode,
-                "reason": decision.reason,
-                "complexity": decision.complexity,
-            },
-        )
-
     def _activate_skills(self, session: AgentRunSession) -> None:
         session.active_skills = self._select_active_skills(session.task)
         session.skill_tool_names = {
@@ -217,12 +202,27 @@ class RunPreparation:
             previous_task=getattr(self.config, "previous_task", ""),
             session_summary=session_summary,
         )
-        session.memory.set(
-            "task",
+        namespace = getattr(self.config, "memory_namespace", "") or str(
+            self.config.workspace
+        )
+        recalled = self.long_term_memory.recall(
             session.task,
-            scope="session",
-            source="user_task",
+            namespace=namespace,
             agent_name=session.agent_name,
+            limit=max(0, int(getattr(self.config, "memory_recall_limit", 6))),
+        )
+        session.memory.seed_long_term(recalled)
+        session.memory.set("task", session.task)
+        self.trace.add(
+            0,
+            session.agent_name,
+            "memory_recall",
+            memory={
+                "namespace": namespace,
+                "recalled_count": len(recalled),
+                "memory_ids": [item.memory_id for item in recalled],
+                "kinds": [item.kind for item in recalled],
+            },
         )
 
     def _load_resume_summary(self, agent_name: str) -> str:

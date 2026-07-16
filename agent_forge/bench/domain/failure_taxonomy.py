@@ -142,7 +142,37 @@ def classify_case_result(result: BenchCaseResult, usage: dict[str, Any], trace: 
             impact="The final answer is not trustworthy because the model had unfinished tool intent.",
             engineering_lesson="Final answers need runtime validation; unfinished tool calls should not be treated as completed work.",
         )
-    if "incompleteread" in lowered or "request_failed" in lowered:
+    if any(
+        marker in lowered
+        for marker in (
+            "context_length_exceeded",
+            "maximum context length",
+            "context window",
+            "too many tokens",
+            "prompt is too long",
+        )
+    ):
+        return FailureDiagnosis(
+            "context_window_exceeded",
+            "The complete model request still exceeded the provider window after the available structured compaction path.",
+            evidence,
+            [
+                "Inspect context_window events for static section size, tool-schema cost, safe compaction boundaries, and overflow recovery outcome."
+            ],
+            severity="high",
+            impact="The model could not continue even if repository file selection itself was correct.",
+            engineering_lesson="Full-request window failures must be separated from repository retrieval misses and transport instability.",
+        )
+    if any(
+        marker in lowered
+        for marker in (
+            "incompleteread",
+            "request_failed",
+            "request_timeout",
+            "rate_limited",
+            "server_error",
+        )
+    ):
         return FailureDiagnosis(
             "provider_transport_error",
             "The provider transport failed or returned an incomplete response before the agent finished.",

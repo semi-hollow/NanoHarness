@@ -69,6 +69,7 @@ class RunLifecycle:
         resume_hint: str | None = None,
         messages_count: int | None = None,
         observations_count: int | None = None,
+        context_digest: JsonObject | None = None,
         metadata: JsonObject | None = None,
     ) -> TaskCheckpoint:
         """只更新签名中明确列出的 checkpoint 字段。"""
@@ -84,6 +85,7 @@ class RunLifecycle:
             resume_hint=resume_hint,
             messages_count=messages_count,
             observations_count=observations_count,
+            context_digest=context_digest,
             metadata=metadata,
         )
         return self.checkpoint

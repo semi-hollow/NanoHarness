@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import time
 from dataclasses import dataclass, field
 from enum import Enum
@@ -26,6 +27,7 @@ class TaskCheckpointData(TypedDict):
     resume_hint: str
     messages_count: int
     observations_count: int
+    context_digest: JsonObject
     updated_at: float
     created_at: float
     metadata: JsonObject
@@ -64,6 +66,7 @@ class TaskCheckpoint:
     resume_hint: str = ""
     messages_count: int = 0
     observations_count: int = 0
+    context_digest: JsonObject = field(default_factory=dict)
     updated_at: float = field(default_factory=time.time)
     created_at: float = field(default_factory=time.time)
     metadata: JsonObject = field(default_factory=dict)
@@ -80,6 +83,7 @@ class TaskCheckpoint:
         resume_hint: str | None = None,
         messages_count: int | None = None,
         observations_count: int | None = None,
+        context_digest: JsonObject | None = None,
         metadata: JsonObject | None = None,
         updated_at: float | None = None,
     ) -> None:
@@ -103,6 +107,8 @@ class TaskCheckpoint:
             self.messages_count = messages_count
         if observations_count is not None:
             self.observations_count = observations_count
+        if context_digest is not None:
+            self.context_digest = context_digest
         if metadata is not None:
             self.metadata = metadata
         self.updated_at = updated_at if updated_at is not None else time.time()
@@ -124,6 +130,7 @@ class TaskCheckpoint:
             "resume_hint": self.resume_hint,
             "messages_count": self.messages_count,
             "observations_count": self.observations_count,
+            "context_digest": self.context_digest,
             "updated_at": self.updated_at,
             "created_at": self.created_at,
             "metadata": self.metadata,
@@ -141,6 +148,7 @@ def summarize_checkpoint(checkpoint: TaskCheckpoint, max_chars: int = 1400) -> s
         f"last_observation={checkpoint.last_observation}\n"
         f"stop_reason={checkpoint.stop_reason}\n"
         f"resume_hint={checkpoint.resume_hint}\n"
+        f"context_digest={json.dumps(checkpoint.context_digest, ensure_ascii=False)}\n"
         f"final_answer={checkpoint.final_answer}"
     )
     if len(summary) <= max_chars:

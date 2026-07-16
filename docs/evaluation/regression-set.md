@@ -34,6 +34,11 @@ forge bench swebench --regression-set core --provider deepseek \
 | `manual-approval-pending` | 确认 manual approval 在副作用前停机，批准后可以继续。 | `human_approval_required` |
 | `stale-approval-fingerprint` | Target 在审批后改变时，已批准副作用不能执行。 | `approval_stale` |
 | `resume-state-continuation` | Checkpoint summary 为 next run 提供上下文，但不声称 hidden chat replay。 | `partial_execution_recovery` |
+| `context-window-tool-transaction` | 压缩旧历史时 assistant tool intent 与对应 result 不被拆开，失败仍保留。 | `context_compaction_loss` |
+| `long-term-memory-authority` | Candidate 不召回；带证据的 active 记录受 namespace、agent 和 TTL 约束。 | `memory_contamination` |
+| `model-tool-call-repair` | 只修复可确定的参数格式，可见工具外的文本调用不提升。 | `tool_schema_mismatch` |
+| `tool-call-burst-bound` | 单次模型响应超额调用不会全部执行，HITL 仍是 barrier。 | `unbounded_tool_burst` |
+| `failed-model-usage-accounting` | Provider 失败与 overflow 首次调用仍进入累计成本和 usage。 | `usage_underreporting` |
 | `subagent-fanout-conflict` | 独立 task 可同 batch；write scope 重叠需要 conflict resolution。 | `subagent_conflict_resolution` |
 | `operation-ledger-idempotency` | 已执行 side effect 在 rerun/resume 时被跳过。 | `duplicate_side_effect_prevented` |
 | `operation-ledger-stale-target` | Target drift 后，历史 executed operation 不能被安全跳过。 | `stale_operation_record` |
@@ -50,6 +55,10 @@ forge bench swebench --regression-set core --provider deepseek \
 - failed tool calls
 - repeated actions
 - context files selected
+- context compacted / overflow recovered
+- active long-term memories recalled
+- model tool-call repairs
+- bounded tool-call bursts
 - estimated cost
 - latency
 - human intervention count
@@ -76,4 +85,5 @@ Runtime change 只有在至少一个 case 上改进 success、observability、fa
 cost 或 safety boundary，同时没有隐藏其他 case regression，才算有价值。
 
 比较 runtime factor 时使用 `forge eval ablation` 和 matched run；不同 model、dataset、
-split 或 case id 的 run 不应直接比较。
+split 或 case id 的 run 不应直接比较。Memory 实验还必须固定 snapshot SHA-256，Skill
+实验必须记录 manifest SHA-256；召回或激活次数只能证明机制被触发。

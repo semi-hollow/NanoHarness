@@ -95,15 +95,51 @@ class AgentLoop:
         session.iteration = step
         turn = self.turn_preparation.execute(session, step)
         response = self.llm.chat(turn.messages_for_llm, turn.schemas)
+        self._accumulate_model_cost(session)
+        self._record_llm_call(session, turn, response)
+
+        budget_stop = self._budget_stop_request(session, step)
+        if budget_stop is not None:
+            return budget_stop
+
+        if response.error and _is_context_overflow(response.error):
+            recovered_turn = self.turn_preparation.execute(
+                session,
+                step,
+                force_compaction=True,
+            )
+            self.trace.add(
+                step,
+                session.agent_name,
+                "context_overflow_recovery",
+                success=(
+                    recovered_turn.compacted
+                    and recovered_turn.estimated_prompt_tokens
+                    < turn.estimated_prompt_tokens
+                ),
+                context_overflow={
+                    "initial_error": response.error,
+                    "tokens_before": turn.estimated_prompt_tokens,
+                    "tokens_after": recovered_turn.estimated_prompt_tokens,
+                    "compacted": recovered_turn.compacted,
+                },
+            )
+            if (
+                recovered_turn.compacted
+                and recovered_turn.estimated_prompt_tokens
+                < turn.estimated_prompt_tokens
+            ):
+                turn = recovered_turn
+                response = self.llm.chat(turn.messages_for_llm, turn.schemas)
+                self._accumulate_model_cost(session)
+                self._record_llm_call(session, turn, response)
+                budget_stop = self._budget_stop_request(session, step)
+                if budget_stop is not None:
+                    return budget_stop
 
         if response.error:
             return self._handle_model_failure(session, response, step)
 
-        self._record_llm_call(session, turn, response)
-        usage = getattr(self.llm, "last_usage", None)
-        session.estimated_cost_usd = float(
-            getattr(usage, "estimated_cost_usd", 0.0) or 0.0
-        )
         if not response.tool_calls:
             return self.final_answer.execute(session, response, step)
         return self.tool_execution.execute_calls(
@@ -111,6 +147,36 @@ class AgentLoop:
             response,
             step=step,
             allowed_tool_names=turn.allowed_tool_names,
+        )
+
+    def _budget_stop_request(
+        self,
+        session: AgentRunSession,
+        step: int,
+    ) -> StopRequest | None:
+        """每次模型调用后立即检查累计成本和 wall-clock 预算。"""
+
+        signal = session.controller.should_stop(
+            step,
+            estimated_cost_usd=session.estimated_cost_usd,
+            include_step_limit=False,
+        )
+        if signal is None:
+            return None
+        return StopRequest(
+            status=TaskRunStatus.BLOCKED,
+            reason=signal.reason.replace(" ", "_"),
+            final_answer=f"blocked: {signal.reason}",
+            current_step=step,
+            resume_hint=signal.recovery_hint,
+        )
+
+    def _accumulate_model_cost(self, session: AgentRunSession) -> None:
+        """将每次 gateway 调用成本累加到 run，而不是只保留最后一次。"""
+
+        usage = getattr(self.llm, "last_usage", None)
+        session.estimated_cost_usd += float(
+            getattr(usage, "estimated_cost_usd", 0.0) or 0.0
         )
 
     def _handle_model_failure(
@@ -163,15 +229,23 @@ class AgentLoop:
             llm_request_summary=(
                 f"messages={len(turn.messages_for_llm)} "
                 f"tools={len(turn.schemas)} "
-                f"context_chars={len(turn.context_message.content)}"
+                f"context_chars={len(turn.context_message.content)} "
+                f"prompt_tokens_estimate={turn.estimated_prompt_tokens} "
+                f"compacted={turn.compacted}"
             ),
-            llm_response_summary=response.content or "tool_calls",
+            llm_response_summary=(
+                f"error:{response.error.get('code', 'unknown')}"
+                if response.error
+                else response.content
+                or ("tool_calls" if response.tool_calls else "empty_response")
+            ),
             llm_input_breakdown_chars={
                 "system_context": len(turn.context_message.content),
                 "conversation_history": turn.history_chars,
                 "tool_schemas": turn.tool_schema_chars,
             },
             model_usage=usage.to_dict() if usage is not None else {},
+            response_normalization=response.normalization or {},
         )
 
     @staticmethod
@@ -188,3 +262,17 @@ class AgentLoop:
         session.stop_reason = request.reason
         session.final_answer = request.final_answer
         return session.lifecycle.stop(request)
+
+
+def _is_context_overflow(error: dict[str, object]) -> bool:
+    """识别主流 OpenAI-compatible 网关返回的窗口溢出错误。"""
+
+    text = " ".join(str(value) for value in error.values()).lower()
+    markers = [
+        "context_length_exceeded",
+        "maximum context length",
+        "context window",
+        "too many tokens",
+        "prompt is too long",
+    ]
+    return any(marker in text for marker in markers)

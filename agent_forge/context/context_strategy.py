@@ -23,6 +23,7 @@ class ContextStrategy:
     retrieved_docs: list[str]
     memory_items: list[str]
     memory_summary: str
+    long_term_memory: list[str]
     topic_relation: str
     inherit_session: bool
     attention_sink: list[str] = field(default_factory=lambda: list(ATTENTION_SINK))
@@ -52,6 +53,7 @@ def build_context_strategy(
 
     memory_items = [str(item) for item in memory.recent()]
     memory_summary = memory.summary(max_chars=max(600, max_chars // 8))
+    long_term_memory = [item.render_prompt_line() for item in memory.long_term()]
     if not inherit_session:
         memory_items = []
         memory_summary = "Previous session context intentionally ignored because the topic changed."
@@ -63,7 +65,8 @@ def build_context_strategy(
         "attention_sink": sum(len(item) for item in ATTENTION_SINK),
         "file_previews": sum(len(item) for item in file_previews),
         "retrieved_docs": sum(len(item) for item in retrieved_docs),
-        "memory": len(memory_summary) + sum(len(item) for item in memory_items),
+        "working_memory": len(memory_summary) + sum(len(item) for item in memory_items),
+        "long_term_memory": sum(len(item) for item in long_term_memory),
     }
     dropped = []
     if used["file_previews"] >= preview_budget:
@@ -77,6 +80,7 @@ def build_context_strategy(
         retrieved_docs=retrieved_docs,
         memory_items=memory_items,
         memory_summary=memory_summary,
+        long_term_memory=long_term_memory,
         topic_relation=topic_relation,
         inherit_session=inherit_session,
         dropped_context=dropped,

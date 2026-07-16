@@ -36,6 +36,17 @@ def render_usage_markdown(usage: dict[str, Any]) -> str:
         ),
         f"- hook_checks: {summary['hook_checks']}",
         f"- latest_task_status: `{summary['latest_task_status']}`",
+        (
+            f"- context_control: compacted_turns={summary['compacted_context_turns']} "
+            f"overflow_recoveries={summary['context_overflow_recoveries']} "
+            f"hard_limit_exceeded={summary['hard_context_limit_exceeded_turns']} "
+            f"memory_recalled={summary['memory_recalled']}"
+        ),
+        (
+            f"- model_adaptation: tool_call_repairs={summary['tool_call_repairs']} "
+            f"bounded_bursts={summary['bounded_tool_call_bursts']}"
+        ),
+        f"- active_skills: {summary['active_skills']}",
         "",
         "## Runtime Control",
         "",
@@ -61,6 +72,12 @@ def render_usage_markdown(usage: dict[str, Any]) -> str:
         actions = _action_summary_text(step.get("actions", []))
         for call in step.get("llm_calls", []):
             model = f"{call.get('provider', '')}/{call.get('model', '')}".strip("/")
+            if call.get("fallback_used"):
+                fallback = (
+                    f"{call.get('fallback_provider', '')}/"
+                    f"{call.get('fallback_model', '')}"
+                ).strip("/")
+                model = f"{model} -> {fallback or 'fallback'}"
             lines.append(
                 "|{call_index}|{step}|{agent}|{model}|{prompt}|{completion}|"
                 "{hit}|{miss}|${cost:.6f}|{latency}|{context_chars}|{actions}|".format(

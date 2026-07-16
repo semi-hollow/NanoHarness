@@ -54,6 +54,10 @@ class ToolExecutionPipeline:
     ) -> None:
         self.trace = trace
         self.registry = registry
+        self.max_tool_calls_per_turn = max(
+            1,
+            int(getattr(config, "max_tool_calls_per_turn", 4)),
+        )
         self.feedback = ToolFeedback(trace)
         self.operations = OperationTracker(
             config,
@@ -177,10 +181,25 @@ class ToolExecutionPipeline:
 
         human_calls = [call for call in response.tool_calls if call.name == "ask_human"]
         if not human_calls:
-            return response.tool_calls
+            selected_calls = response.tool_calls[: self.max_tool_calls_per_turn]
+            dropped = response.tool_calls[self.max_tool_calls_per_turn :]
+            if dropped:
+                self.trace.add(
+                    step,
+                    session.agent_name,
+                    "tool_calls_bounded",
+                    tool_call_budget={
+                        "limit": self.max_tool_calls_per_turn,
+                        "selected": [call.name for call in selected_calls],
+                        "dropped": [call.name for call in dropped],
+                    },
+                )
+            return selected_calls
 
-        selected = human_calls[0]
-        deferred = [call.name for call in response.tool_calls if call is not selected]
+        selected_human = human_calls[0]
+        deferred = [
+            call.name for call in response.tool_calls if call is not selected_human
+        ]
         if deferred:
             self.trace.add(
                 step,
@@ -188,7 +207,7 @@ class ToolExecutionPipeline:
                 "tool_calls_deferred_for_human_input",
                 deferred_tools=deferred,
             )
-        return [selected]
+        return [selected_human]
 
     def _handle_repeat(
         self,

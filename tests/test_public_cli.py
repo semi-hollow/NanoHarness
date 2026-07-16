@@ -66,6 +66,10 @@ class PublicCliSmokeTest(unittest.TestCase):
         self.assertIn("--fanout-plan", result.stdout)
         self.assertIn("--fanout-resume", result.stdout)
         self.assertIn("--max-workers", result.stdout)
+        self.assertIn("--max-prompt-tokens", result.stdout)
+        self.assertIn("--reserved-output-tokens", result.stdout)
+        self.assertIn("--memory-root", result.stdout)
+        self.assertIn("--max-tool-calls-per-turn", result.stdout)
 
         args = build_parser().parse_args(
             [
@@ -101,6 +105,25 @@ class PublicCliSmokeTest(unittest.TestCase):
         self.assertIn("--answer", result.stdout)
         self.assertIn("--cancel", result.stdout)
         self.assertIn("--human-input-root", result.stdout)
+
+    def test_memory_cli_exposes_authority_lifecycle(self):
+        result = subprocess.run(
+            [sys.executable, "-m", "agent_forge", "memory", "propose", "--help"],
+            text=True,
+            capture_output=True,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("--kind", result.stdout)
+        self.assertIn("--scope", result.stdout)
+        self.assertIn("--confidence", result.stdout)
+
+        result = subprocess.run(
+            [sys.executable, "-m", "agent_forge", "memory", "promote", "--help"],
+            text=True,
+            capture_output=True,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("--evidence", result.stdout)
 
     def test_eval_commands_expose_feedback_and_dataset_export(self):
         result = subprocess.run(
@@ -152,6 +175,10 @@ class PublicCliSmokeTest(unittest.TestCase):
         self.assertIn("--regression-set", result.stdout)
         self.assertIn("--execution-mode", result.stdout)
         self.assertIn("--container-image", result.stdout)
+        self.assertIn("--skills", result.stdout)
+        self.assertIn("--memory-recall-limit", result.stdout)
+        self.assertIn("--max-prompt-tokens", result.stdout)
+        self.assertIn("--max-tool-calls-per-turn", result.stdout)
 
     def test_approve_cli_updates_pending_request(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -291,9 +318,50 @@ class PublicCliSmokeTest(unittest.TestCase):
             html = _render_evidence_html(Path(tmp), "evidence")
         self.assertIn("Runtime Evidence Overview", html)
         self.assertIn("Runtime Pipeline", html)
+        self.assertIn("Adaptive Runtime Evidence", html)
         self.assertIn("Claim Ladder", html)
         self.assertIn("Produced Artifacts", html)
         self.assertIn("No multi-agent artifacts", html)
+
+    def test_usage_dashboard_exposes_observed_adaptive_harness_signals(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            run_dir = root / ".agent_forge" / "runs" / "run-adaptive"
+            run_dir.mkdir(parents=True)
+            latest = root / ".agent_forge" / "latest"
+            latest.mkdir(parents=True)
+            (latest / "run.txt").write_text(str(run_dir), encoding="utf-8")
+            (run_dir / "usage.json").write_text(
+                """
+{
+  "summary": {
+    "llm_calls": 2,
+    "total_tokens": 120,
+    "cache_hit_rate": 0,
+    "estimated_cost_usd": 0.01,
+    "llm_latency_ms": 20,
+    "failed_tool_calls": 0,
+    "compacted_context_turns": 1,
+    "context_overflow_recoveries": 1,
+    "memory_recalled": 2,
+    "tool_call_repairs": 1,
+    "bounded_tool_call_bursts": 1,
+    "active_skills": ["targeted_code_edit"]
+  },
+  "steps": [],
+  "context_breakdown": {"section_chars": {}},
+  "tool_efficiency": {"by_tool": {}}
+}
+""",
+                encoding="utf-8",
+            )
+
+            html = _render_usage_dashboard(root)
+
+        self.assertIn("Adaptive Harness Signals", html)
+        self.assertIn("Evidence-backed memory recall", html)
+        self.assertIn("Tool-call normalization", html)
+        self.assertIn("targeted_code_edit", html)
 
     def test_run_evidence_renders_artifact_content_and_handoff(self):
         with tempfile.TemporaryDirectory() as tmp:

@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from agent_forge.context.application import ContextWindowManager, PromptBudget
+from agent_forge.context.domain import SessionDigest
 from agent_forge.contracts import ToolSchema
 from agent_forge.runtime.application.session import AgentRunSession
 from agent_forge.runtime.config import RuntimeConfig
@@ -15,7 +17,6 @@ from agent_forge.runtime.ports import (
     EventSink,
     ToolGateway,
 )
-from agent_forge.runtime.planner import SimplePlanner
 from agent_forge.tools.tool_router import ToolRouter
 
 
@@ -30,6 +31,9 @@ class PreparedTurn:
     allowed_tool_names: set[str]
     history_chars: int
     tool_schema_chars: int
+    estimated_prompt_tokens: int
+    compacted: bool
+    session_digest: SessionDigest | None
 
 
 class TurnPreparation:
@@ -48,11 +52,28 @@ class TurnPreparation:
         self.context = context
         self.tools = tools
         self.environment = environment
-        self.planner = SimplePlanner()
         self.tool_router = ToolRouter()
+        self.context_window = ContextWindowManager(
+            PromptBudget(
+                max_prompt_tokens=max(
+                    512,
+                    int(getattr(config, "max_prompt_tokens", 32_768)),
+                ),
+                reserved_output_tokens=max(
+                    0,
+                    int(getattr(config, "reserved_output_tokens", 4_096)),
+                ),
+            )
+        )
 
     # 主要入口：下方定义承接该模块的核心调用。
-    def execute(self, session: AgentRunSession, step: int) -> PreparedTurn:
+    def execute(
+        self,
+        session: AgentRunSession,
+        step: int,
+        *,
+        force_compaction: bool = False,
+    ) -> PreparedTurn:
         """更新 checkpoint，路由工具，并生成当前 turn 的上下文。"""
 
         session.lifecycle.update(
@@ -127,23 +148,40 @@ class TurnPreparation:
                 },
             },
         )
-        plan = self.planner.plan(session.task, step, context_report)
+        context_message = Message("system", context_report.render())
+        window = self.context_window.prepare(
+            system_message=context_message,
+            history=session.messages,
+            observations=session.observations,
+            tools=schemas,
+            task=session.task,
+            force_compaction=force_compaction,
+        )
         self.trace.add(
             step,
             session.agent_name,
-            "plan",
-            plan={
-                "goal": plan.goal,
-                "reasoning_summary": plan.reasoning_summary,
-                "next_action": plan.next_action,
+            "context_window",
+            context_window={
+                "compacted": window.compacted,
+                "reason": window.reason,
+                "covered_message_count": window.covered_message_count,
+                "estimated_tokens_before": window.estimated_tokens_before,
+                "estimated_tokens_after": window.estimated_tokens_after,
+                "hard_input_limit": window.hard_input_limit,
+                "hard_limit_exceeded": (
+                    window.estimated_tokens_after > window.hard_input_limit
+                ),
+                "source_hash": (
+                    window.digest.source_hash if window.digest is not None else ""
+                ),
             },
         )
-
-        context_message = Message("system", context_report.render())
+        if window.digest is not None:
+            session.lifecycle.update(context_digest=window.digest.to_dict())
         return PreparedTurn(
             step=step,
             context_message=context_message,
-            messages_for_llm=[context_message, *session.messages],
+            messages_for_llm=window.messages,
             schemas=schemas,
             allowed_tool_names=allowed_tool_names,
             history_chars=sum(
@@ -153,4 +191,7 @@ class TurnPreparation:
                 for message in session.messages
             ),
             tool_schema_chars=sum(len(str(schema)) for schema in schemas),
+            estimated_prompt_tokens=window.estimated_tokens_after,
+            compacted=window.compacted,
+            session_digest=window.digest,
         )

@@ -12,6 +12,29 @@ class RetryPolicy:
 
     max_attempts: int = 1
     backoff_seconds: float = 0.0
+    retryable_error_codes: tuple[str, ...] = (
+        "request_failed",
+        "request_timeout",
+        "rate_limited",
+        "server_error",
+        "invalid_json",
+        "missing_choices",
+        "missing_message",
+        "empty_message",
+    )
+    repairable_error_codes: tuple[str, ...] = ("invalid_tool_call",)
+    fallback_error_codes: tuple[str, ...] = (
+        "request_failed",
+        "request_timeout",
+        "rate_limited",
+        "server_error",
+        "invalid_json",
+        "missing_choices",
+        "missing_message",
+        "empty_message",
+        "invalid_tool_call",
+        "parse_failed",
+    )
 
 
 class ModelGateway(LLMClient):
@@ -49,15 +72,24 @@ class ModelGateway(LLMClient):
         if not response.error:
             return response
 
-        if not self.fallback:
+        if not self.fallback or not self._should_fallback(response):
             return response
 
         fallback_usage = ModelUsage(provider=self.fallback_provider, model=self.fallback_model)
         fallback_usage.fallback_used = True
         fallback_response = self._call_with_retry(self.fallback, fallback_usage, messages, tools)
         self.last_usage.fallback_used = True
+        self.last_usage.fallback_provider = self.fallback_provider
+        self.last_usage.fallback_model = self.fallback_model
         self.last_usage.merge(fallback_usage)
         return fallback_response
+
+    def _should_fallback(self, response: AgentResponse) -> bool:
+        """只对换模型可能改变结果的错误回退，窗口溢出交给 Runtime。"""
+
+        error = response.error or {}
+        code = str(error.get("code") or error.get("type") or "")
+        return code in self.retry_policy.fallback_error_codes
 
     def _call_with_retry(
         self,
@@ -69,11 +101,12 @@ class ModelGateway(LLMClient):
 
         attempts = max(1, self.retry_policy.max_attempts)
         response = AgentResponse(None, [], {"code": "not_called", "message": "model not called"})
+        attempt_messages = list(messages)
         for attempt in range(attempts):
             started = time.time()
-            response = client.chat(messages, tools)
+            response = client.chat(attempt_messages, tools)
             latency_ms = int((time.time() - started) * 1000)
-            usage.prompt_tokens_estimate += self._estimate_prompt_tokens(messages, tools)
+            usage.prompt_tokens_estimate += self._estimate_prompt_tokens(attempt_messages, tools)
             usage.completion_tokens_estimate += self._estimate_completion_tokens(response)
             usage.record_provider_usage(response.usage, response.response_id)
             usage.estimated_cost_usd = self._estimate_cost_usd(usage)
@@ -83,9 +116,33 @@ class ModelGateway(LLMClient):
             usage.record_attempt(latency_ms, error_code)
             if not response.error:
                 return response
-            if attempt < attempts - 1 and self.retry_policy.backoff_seconds > 0:
+            if attempt >= attempts - 1:
+                break
+            next_messages = self._retry_messages(response, attempt_messages)
+            if next_messages is None:
+                break
+            attempt_messages = next_messages
+            if self.retry_policy.backoff_seconds > 0:
                 time.sleep(self.retry_policy.backoff_seconds)
         return response
+
+    def _retry_messages(
+        self,
+        response: AgentResponse,
+        messages: list[Message],
+    ) -> list[Message] | None:
+        """区分 transport 重试、格式修复和必须交回 Runtime 的错误。"""
+
+        error = response.error or {}
+        code = str(error.get("code") or "")
+        if code in self.retry_policy.repairable_error_codes:
+            repair_prompt = str(error.get("repair_prompt") or "")
+            if not repair_prompt:
+                return None
+            return [*messages, Message("system", repair_prompt)]
+        if code in self.retry_policy.retryable_error_codes:
+            return list(messages)
+        return None
 
     def _estimate_prompt_tokens(self, messages: list[Message], tools: list[dict]) -> int:
 

@@ -77,6 +77,20 @@ class FailureTaxonomyTest(unittest.TestCase):
         self.assertEqual(diagnosis.failure_class, "tool_schema_mismatch")
         self.assertIn("schema", diagnosis.engineering_lesson.lower())
 
+    def test_context_window_overflow_beats_repository_context_miss(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            result = self._result(
+                Path(tmp),
+                final_answer=(
+                    "blocked: invalid llm response: "
+                    "context_length_exceeded after compaction"
+                ),
+            )
+            diagnosis = diagnose_case_result(result)
+
+        self.assertEqual(diagnosis.failure_class, "context_window_exceeded")
+        self.assertIn("complete model request", diagnosis.summary.lower())
+
     def test_official_eval_error_is_not_reported_as_patch_rejected(self):
         with tempfile.TemporaryDirectory() as tmp:
             result = self._result(Path(tmp), evaluation_status="official_eval_error", patch_chars=12)

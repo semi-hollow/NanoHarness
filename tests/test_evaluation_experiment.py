@@ -6,7 +6,18 @@ from pathlib import Path
 from agent_forge.evaluation.api import compare_benchmark_scorecards, write_ablation_comparison
 
 
-def _scorecard(run_id, cases, *, model="deepseek-chat", routing="task-aware"):
+def _scorecard(
+    run_id,
+    cases,
+    *,
+    model="deepseek-chat",
+    routing="task-aware",
+    skill_mode="auto",
+    skill_names=None,
+    memory_recall_limit=0,
+    memory_snapshot_sha256="snapshot-a",
+    max_prompt_tokens=32768,
+):
     official_evaluated = sum(case["official_evaluated"] for case in cases)
     official_resolved = sum(case["official_resolved"] for case in cases)
     return {
@@ -19,6 +30,17 @@ def _scorecard(run_id, cases, *, model="deepseek-chat", routing="task-aware"):
             "requested_model": model,
             "observed_models": [model],
             "tool_routing_mode": routing,
+            "skill_mode": skill_mode,
+            "skill_names": list(skill_names or []),
+            "skill_manifest_sha256": "builtins_only",
+            "max_prompt_tokens": max_prompt_tokens,
+            "reserved_output_tokens": 4096,
+            "max_tool_calls_per_turn": 4,
+            "cost_budget_usd": None,
+            "timeout_seconds": 900.0,
+            "memory_namespace": "swebench:<instance_id>",
+            "memory_recall_limit": memory_recall_limit,
+            "memory_snapshot_sha256": memory_snapshot_sha256,
             "execution_mode": "local",
             "network_policy": "deny",
             "agent_mode": "single",
@@ -90,12 +112,84 @@ class EvaluationExperimentTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "model identity"):
             compare_benchmark_scorecards(control, treatment, factor="prompt")
 
+    def test_skill_ablation_allows_only_skill_configuration_to_change(self):
+        control = _scorecard(
+            "control",
+            [_case("case-1", official=False)],
+            skill_mode="none",
+        )
+        treatment = _scorecard(
+            "treatment",
+            [_case("case-1", official=True)],
+            skill_mode="auto",
+            skill_names=["targeted_code_edit"],
+        )
+
+        comparison = compare_benchmark_scorecards(
+            control,
+            treatment,
+            factor="skills",
+        )
+
+        self.assertTrue(comparison["validity"]["comparable"])
+        self.assertEqual(
+            comparison["aggregate_delta"]["official_resolved_count"],
+            1,
+        )
+
     def test_ablation_rejects_undeclared_runtime_config_drift(self):
         control = _scorecard("control", [_case("case-1")], routing="all")
         treatment = _scorecard("treatment", [_case("case-1")], routing="task-aware")
         treatment["metadata"]["max_steps"] = 8
         with self.assertRaisesRegex(ValueError, "max_steps"):
             compare_benchmark_scorecards(control, treatment, factor="tool-routing")
+
+    def test_memory_ablation_requires_same_frozen_snapshot(self):
+        control = _scorecard(
+            "control",
+            [_case("case-1")],
+            memory_recall_limit=0,
+        )
+        treatment = _scorecard(
+            "treatment",
+            [_case("case-1")],
+            memory_recall_limit=6,
+        )
+
+        comparison = compare_benchmark_scorecards(
+            control,
+            treatment,
+            factor="memory",
+        )
+        self.assertTrue(comparison["validity"]["comparable"])
+
+        treatment["metadata"]["memory_snapshot_sha256"] = "snapshot-b"
+        with self.assertRaisesRegex(ValueError, "memory_snapshot_sha256"):
+            compare_benchmark_scorecards(
+                control,
+                treatment,
+                factor="memory",
+            )
+
+    def test_context_ablation_allows_only_window_budget_to_change(self):
+        control = _scorecard(
+            "control",
+            [_case("case-1")],
+            max_prompt_tokens=8192,
+        )
+        treatment = _scorecard(
+            "treatment",
+            [_case("case-1")],
+            max_prompt_tokens=32768,
+        )
+
+        comparison = compare_benchmark_scorecards(
+            control,
+            treatment,
+            factor="context-window",
+        )
+
+        self.assertTrue(comparison["validity"]["comparable"])
 
     def test_ablation_rejects_undeclared_execution_environment_drift(self):
         control = _scorecard("control", [_case("case-1")])

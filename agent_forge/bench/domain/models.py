@@ -110,6 +110,9 @@ class BenchRunSummary:
     profile: str = ""
     max_revision_rounds: int = 0
     tool_routing_mode: str = "task-aware"
+    skill_mode: str = "auto"
+    skill_names: list[str] = field(default_factory=list)
+    skill_manifest_sha256: str = ""
     execution_mode: str = "local"
     network_policy: str = "deny"
     keep_worktree: bool = False
@@ -121,6 +124,14 @@ class BenchRunSummary:
     container_read_only: bool = True
     max_steps: int = 0
     max_context_chars: int = 0
+    max_prompt_tokens: int = 0
+    reserved_output_tokens: int = 0
+    max_tool_calls_per_turn: int = 0
+    cost_budget_usd: float | None = None
+    timeout_seconds: float = 0.0
+    memory_namespace: str = ""
+    memory_recall_limit: int = 0
+    memory_snapshot_sha256: str = ""
     baseline_predictions_path: Path | None = None
     variant_comparisons: dict[str, dict[str, Any]] = field(default_factory=dict)
     official_eval_command: list[str] = field(default_factory=list)
@@ -143,6 +154,9 @@ class BenchRunSummary:
             "profile": self.profile,
             "max_revision_rounds": self.max_revision_rounds,
             "tool_routing_mode": self.tool_routing_mode,
+            "skill_mode": self.skill_mode,
+            "skill_names": self.skill_names,
+            "skill_manifest_sha256": self.skill_manifest_sha256,
             "execution_mode": self.execution_mode,
             "network_policy": self.network_policy,
             "keep_worktree": self.keep_worktree,
@@ -154,6 +168,14 @@ class BenchRunSummary:
             "container_read_only": self.container_read_only,
             "max_steps": self.max_steps,
             "max_context_chars": self.max_context_chars,
+            "max_prompt_tokens": self.max_prompt_tokens,
+            "reserved_output_tokens": self.reserved_output_tokens,
+            "max_tool_calls_per_turn": self.max_tool_calls_per_turn,
+            "cost_budget_usd": self.cost_budget_usd,
+            "timeout_seconds": self.timeout_seconds,
+            "memory_namespace": self.memory_namespace,
+            "memory_recall_limit": self.memory_recall_limit,
+            "memory_snapshot_sha256": self.memory_snapshot_sha256,
             "output_dir": str(self.output_dir),
             "predictions_path": str(self.predictions_path),
             "baseline_predictions_path": (

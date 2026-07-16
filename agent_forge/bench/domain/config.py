@@ -18,6 +18,11 @@ class SwebenchRunRequest:
     api_key: str | None = None
     max_steps: int = 16
     max_context_chars: int = 12000
+    max_prompt_tokens: int = 32_768
+    reserved_output_tokens: int = 4_096
+    max_tool_calls_per_turn: int = 4
+    cost_budget_usd: float | None = None
+    timeout_seconds: float = 900.0
     repo_cache: str = ".agent_forge/bench/repos"
     output_root: str = ".agent_forge/runs"
     direct_baseline: bool = False
@@ -28,6 +33,12 @@ class SwebenchRunRequest:
     profile: str = "coding_fix"
     max_revision_rounds: int = 2
     tool_routing_mode: str = "task-aware"
+    skill_mode: str = "auto"
+    skill_names: tuple[str, ...] = ()
+    skill_manifest_files: tuple[str, ...] = ()
+    memory_root: str = ""
+    memory_namespace: str = ""
+    memory_recall_limit: int = 0
     execution_mode: str = "local"
     network_policy: str = "deny"
     keep_worktree: bool = False
