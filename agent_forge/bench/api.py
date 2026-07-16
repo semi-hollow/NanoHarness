@@ -4,7 +4,19 @@ import time
 import uuid
 
 from agent_forge.bench.adapters.artifact_files import FileBenchArtifacts
-from agent_forge.bench.domain.catalog import DEFAULT_DATASET, REGRESSION_SETS
+from agent_forge.bench.adapters.dataset import SwebenchCaseSource
+from agent_forge.bench.application.case_inspection import InspectBenchCase
+from agent_forge.bench.domain.case_inspection import (
+    BenchmarkCaseInspection,
+    BenchmarkCaseProfile,
+    BenchmarkSetProfile,
+)
+from agent_forge.bench.domain.catalog import (
+    CASE_PROFILES,
+    DEFAULT_DATASET,
+    REGRESSION_SETS,
+    REGRESSION_SET_PROFILES,
+)
 from agent_forge.bench.domain.config import SwebenchRunRequest
 from agent_forge.bench.domain.models import BenchRunSummary
 from agent_forge.bench.wiring import build_swebench_runner
@@ -25,4 +37,62 @@ def run_swebench(request: SwebenchRunRequest) -> BenchRunSummary:
         artifacts=artifacts,
     ).execute(request, run_id=run_id, layout=layout)
 
-__all__ = ["DEFAULT_DATASET", "REGRESSION_SETS", "SwebenchRunRequest", "run_swebench"]
+
+# 主要入口：读取一个 benchmark case，但不执行 Agent 或评测。
+def inspect_swebench_case(
+    instance_id: str,
+    *,
+    dataset_name: str = DEFAULT_DATASET,
+    split: str = "test",
+    cases_file: str | None = None,
+) -> BenchmarkCaseInspection:
+    """返回问题输入、测试契约和默认隐藏的复盘材料。"""
+
+    cases = SwebenchCaseSource().load(
+        SwebenchRunRequest(
+            dataset_name=dataset_name,
+            split=split,
+            limit=1,
+            instance_ids=(instance_id,),
+            cases_file=cases_file,
+        )
+    )
+    return InspectBenchCase.execute(
+        cases[0],
+        profile=CASE_PROFILES.get(instance_id),
+    )
+
+
+def list_regression_case_profiles(
+    regression_set: str = "smoke-5",
+) -> tuple[BenchmarkCaseProfile, ...]:
+    """返回固定回归集合的人类可读目录，不访问数据集或模型。"""
+
+    try:
+        instance_ids = REGRESSION_SETS[regression_set]
+    except KeyError as exc:
+        raise ValueError(f"Unknown regression set: {regression_set}") from exc
+    return tuple(CASE_PROFILES[instance_id] for instance_id in instance_ids)
+
+
+# 主要入口：读取固定回归集合的选择依据和结论边界。
+def get_regression_set_profile(
+    regression_set: str = "smoke-5",
+) -> BenchmarkSetProfile:
+    """返回集合级评测契约，不访问数据集或模型。"""
+
+    try:
+        return REGRESSION_SET_PROFILES[regression_set]
+    except KeyError as exc:
+        raise ValueError(f"Unknown regression set: {regression_set}") from exc
+
+
+__all__ = [
+    "DEFAULT_DATASET",
+    "REGRESSION_SETS",
+    "SwebenchRunRequest",
+    "get_regression_set_profile",
+    "inspect_swebench_case",
+    "list_regression_case_profiles",
+    "run_swebench",
+]

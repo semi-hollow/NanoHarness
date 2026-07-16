@@ -1,3 +1,9 @@
+from .case_inspection import (
+    BenchmarkCaseInspection,
+    BenchmarkCaseProfile,
+    BenchmarkSetProfile,
+    PatchSummary,
+)
 from .config import BenchRunLayout, SwebenchRunRequest
 from .failure_taxonomy import FailureDiagnosis, classify_case_result
 from .models import BenchCase, BenchCaseResult, BenchRunSummary
@@ -7,7 +13,11 @@ __all__ = [
     "BenchCaseResult",
     "BenchRunLayout",
     "BenchRunSummary",
+    "BenchmarkCaseInspection",
+    "BenchmarkCaseProfile",
+    "BenchmarkSetProfile",
     "FailureDiagnosis",
+    "PatchSummary",
     "SwebenchRunRequest",
     "classify_case_result",
 ]

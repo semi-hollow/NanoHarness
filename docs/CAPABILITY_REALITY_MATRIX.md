@@ -34,11 +34,11 @@ Evaluation Harness，而不是完整 IDE、SaaS、distributed swarm 或 benchmar
 | Checkpoint resume | Green | Checkpoint 为 continuation 提供 context，包含已回答 human input；`forge resume` 会写入 report 可见的 resume-chain artifact。 | 不恢复隐藏 model state 或完整 process memory。 | `agent_forge/runtime/application/operator_control.py`、`agent_forge/runtime/adapters/task_state_json.py`、`agent_forge/cli/resume.py` |
 | 控制面现场展示 | Green | `forge showcase hitl/approval` 用确定性模型请求驱动正式 AgentLoop，真实产生 waiting checkpoint、人工决定、continuation trace 和工具副作用。 | 固定的 model tool call 不证明模型推理质量；showcase 证明的是 Harness 控制面。 | `agent_forge/showcase/control_plane.py`、`docs/architecture/runtime-control-plane.md` |
 | 会话级 Task switch / Task cancel | Red | 当前 one command 对应 one run/one task；request cancel 和 approval rejection 有明确局部语义。 | 不声称存在 `active_task`、`PAUSED`、运行中进程抢占、全局 task cancel 或已执行副作用自动回滚。 | `agent_forge/runtime/domain/task.py`、`agent_forge/runtime/application/run_lifecycle.py` |
-| SWE-bench-shaped runner | Green | 加载 case、checkout base commit、运行 Agent、写 patch 和 `predictions.jsonl`。 | 没有执行和解析 official harness 时，不声称 official resolved rate。 | `agent_forge/bench/application/swebench.py` |
+| SWE-bench-shaped runner | Green | 加载 case、checkout base commit、运行 Agent、写 patch 和 `predictions.jsonl`；`forge bench cases/case` 公开 Smoke-5 的 300-case 候选全集、选择契约、issue 和测试名称，并默认隐藏 test/gold patch。 | Smoke-5 是机制回归样本，不代表 Lite 总体表现；没有 official harness 时，不声称 official resolved rate。 | `agent_forge/bench/application/swebench.py`、`application/case_inspection.py`、`presentation/case_inspection.py` |
 | Official SWE-bench per-case evaluation | Green | `--evaluate` 在 benchmark output directory 中运行，解析 aggregate/per-case JSON，区分 resolved、unresolved、error、empty-patch、incomplete。 | Process exit code 不证明 resolved；official denominator 为空时不能声称 resolved rate。 | `agent_forge/bench/adapters/official_evaluator.py`、`official_results.py` |
 | Direct baseline | Green | 使用同一模型但不提供工具，并提取 diff 用于比较。 | 它刻意更弱，不是 competitive baseline。 | `agent_forge/bench/adapters/case_runtime.py` |
 | Quantitative scorecard | Green | 每个 benchmark 写入 per-case 和 aggregate patch/local/official evidence，以及有明确 denominator 的 token、cost、latency、tool failure、context compaction、memory recall、tool-call repair 和 taxonomy metric。 | Recall、repair、Skill activation 和 patch rate 都不是 correctness；local verification 不是 official resolution。 | `agent_forge/evaluation/application/scorecard.py`、`agent_forge/bench/presentation/report.py` |
-| Paired runtime ablation | Green | `forge eval ablation` 比较 matched scorecard，并拒绝 dataset、case、provider/model 与未声明 runtime drift；支持 routing、Skill manifest、frozen Memory snapshot、Context Window 和 tool burst 单因素。 | 每个 variant 一次 run 不能估计随机方差；只触发能力不能证明质量提升。 | `agent_forge/evaluation/domain/ablation.py`、`agent_forge/bench/application/swebench.py`、`agent_forge/cli/dispatch.py` |
+| Paired runtime ablation | Green | `forge eval ablation` 比较 matched scorecard，并拒绝 dataset、case、provider/model、sampling temperature 与未声明 runtime drift；支持 routing、Skill manifest、frozen Memory snapshot、Context Window、tool burst 和 temperature 单因素。 | 每个 variant 一次 run 不能估计随机方差；当前不承诺 provider-independent seed。 | `agent_forge/evaluation/domain/ablation.py`、`agent_forge/bench/application/swebench.py`、`agent_forge/cli/dispatch.py` |
 | Multi-agent coordinator | Green | 顺序 Implementer/Reviewer/Verifier workflow 复用 `AgentLoop`，通过 artifact 交换信息。 | 不是 peer-to-peer swarm 或 distributed multi-agent runtime。 | `agent_forge/multi_agent/application/coordinator.py` |
 | Artifact handoff | Green | Role output 被持久化，后续 role 通过显式 artifact context 读取。 | 不暗示 Agent 共享隐藏 memory。 | `agent_forge/multi_agent/adapters/artifact_files.py`、`application/coordinator.py` |
 | Live subagent fanout | Green | Validated DAG 在 disposable worktree 中运行独立 `AgentLoop`/LLM/registry，执行 per-task step budget、声明 scope 分批、实际 touched-file 校验、确定性 patch apply；隔离 finalizer 能看到 candidate diff，pre/post gate 检测 verifier mutation。 | 它是 local coordinator，不是 distributed worker service、peer swarm 或自动 model-driven task decomposition；worker 读取 committed `base_head`，不是 ambient uncommitted file。 | `agent_forge/multi_agent/domain/live.py`、`application/live_fanout.py`、`adapters/local_worker.py` |
@@ -66,8 +66,8 @@ Evaluation Harness，而不是完整 IDE、SaaS、distributed swarm 或 benchmar
 
 ## 当前最高价值的下一步
 
-1. 对 Memory、Skill、Context Window 和 tool routing 的 matched ablation 做多 seed 重复
-   实验，只发布有 artifact 和 official denominator 支撑的结果。
+1. 对 Memory、Skill、Context Window 和 tool routing 做 matched repetition；仅在 provider
+   明确支持时固定 seed，只发布有 artifact 和 official denominator 支撑的结果。
 2. 将多次 fanout run 与 matched serial plan 比较，再讨论 latency 或 quality improvement。
 3. 在真实训练 pipeline 使用 exported run evidence 前，补 privacy filter 和 dataset
    version manifest。

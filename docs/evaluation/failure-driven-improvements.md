@@ -1107,6 +1107,34 @@ ApplyPatchTool 全部复用正式 Runtime。命令输出当前状态、artifact 
 `target.py` 保持 `value = 1`，批准后才变为 `value = 2`。工程结论：稳定演示可以替换模型
 刺激，但不能替换被证明的 Runtime 路径。
 
+### 46. Benchmark 能运行 case ID，但选择依据、验收契约和采样配置不可审计
+
+现象：固定五个 case 可以直接执行，scorecard 也有大量运行指标，但操作者必须打开原始
+dataset JSON 才能回答“候选全集有多少、为什么选这五个、每题具体怎样验收”。模型请求
+没有显式 temperature，paired comparison 也无法发现两边 sampling configuration 漂移。
+
+Failure scenario：开发者把五题结果表述成 SWE-bench Lite 一般表现；调试时提前读取 test
+patch 或 gold patch，形成数据泄漏；control 使用 temperature 0，treatment 使用 0.7，却仍将
+差异归因于 tool routing。三种情况都会产生看似量化、实际不可归因的结论。
+
+根因：`REGRESSION_SETS` 只有 ID 列表，没有集合目标、300-case 候选全集、分层选择约束和
+claim boundary；单题 loader 服务执行器，不提供面向人的 issue/test contract；LLM sampling
+参数既未进入 transport，也未进入 run identity。
+
+修复：将固定集合命名为诚实的 `smoke-5`，新增类型化 `BenchmarkSetProfile` 与每题
+`selection_reason`。`forge bench cases` 输出选择方法和结论边界，`forge bench case <id>`
+输出 issue、base commit、`FAIL_TO_PASS`、`PASS_TO_PASS`，默认隐藏 official test patch 和
+gold patch，只有显式复盘开关才展示。Temperature 进入 OpenAI-compatible 请求、CLI、
+Workbench、`results.json`、report、scorecard 与 ablation identity；未声明的 temperature
+漂移会被拒绝。
+
+验证：Case inspection 测试使用带唯一 secret 的 synthetic test/gold patch，确认默认 Markdown
+和 JSON 均不泄漏，显式开关才可见；catalog 测试确认 300-case universe、五题选择理由和
+非代表性边界。Transport 测试捕获真实 HTTP payload 中的 temperature，ablation 测试同时
+覆盖未声明漂移拒绝和 temperature 单因素实验。真实 `astropy__astropy-12907` 数据可由
+`forge bench case` 展开 2 个 F2P 与 13 个 P2P。工程结论：benchmark 首先是可审计的实验
+契约，其次才是一个可运行命令；Smoke-5 只证明机制回归，不证明总体解决率。
+
 ## 调试顺序模板
 
 每次 SWE-bench 失败优先看：

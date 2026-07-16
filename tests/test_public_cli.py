@@ -71,6 +71,7 @@ class PublicCliSmokeTest(unittest.TestCase):
         self.assertIn("--reserved-output-tokens", result.stdout)
         self.assertIn("--memory-root", result.stdout)
         self.assertIn("--max-tool-calls-per-turn", result.stdout)
+        self.assertIn("--temperature", result.stdout)
 
         args = build_parser().parse_args(
             [
@@ -198,6 +199,26 @@ class PublicCliSmokeTest(unittest.TestCase):
         self.assertIn("--memory-recall-limit", result.stdout)
         self.assertIn("--max-prompt-tokens", result.stdout)
         self.assertIn("--max-tool-calls-per-turn", result.stdout)
+        self.assertIn("--temperature", result.stdout)
+
+    def test_benchmark_case_explorer_is_public_and_non_executing(self):
+        catalog = subprocess.run(
+            [sys.executable, "-m", "agent_forge", "bench", "cases"],
+            text=True,
+            capture_output=True,
+        )
+        self.assertEqual(catalog.returncode, 0, catalog.stderr)
+        self.assertIn("候选全集：`300`", catalog.stdout)
+        self.assertIn("astropy__astropy-12907", catalog.stdout)
+
+        case_help = subprocess.run(
+            [sys.executable, "-m", "agent_forge", "bench", "case", "--help"],
+            text=True,
+            capture_output=True,
+        )
+        self.assertEqual(case_help.returncode, 0, case_help.stderr)
+        self.assertIn("--show-test-patch", case_help.stdout)
+        self.assertIn("--show-gold", case_help.stdout)
 
     def test_approve_cli_updates_pending_request(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -247,6 +268,8 @@ class PublicCliSmokeTest(unittest.TestCase):
         self.assertIn("deny", command.command)
         self.assertIn("--tool-routing", command.command)
         self.assertIn("task-aware", command.command)
+        self.assertIn("--temperature", command.command)
+        self.assertIn("0.0", command.command)
 
     def test_ui_agent_command_supports_bounded_live_fanout(self):
         command = _build_agent_run_command(

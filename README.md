@@ -42,7 +42,7 @@ Coding Agent；单纯增加 prompt 长度并不能解决这个问题。**
 | SWE-bench 运行链路 | 加载 case、checkout `base_commit`、生成 `predictions.jsonl`，安装官方 harness 后可执行评测，并解析 per-case resolved/unresolved/error artifact。 |
 | 顺序多 Agent | `MultiAgentCoordinator` 让 Implementer/Reviewer/Verifier 复用同一个 `AgentLoop`，角色之间只通过显式 artifact 传递状态。 |
 | Live Fanout | 校验后的任务 DAG 在 disposable worktree 中并发运行独立 `AgentLoop` worker，强制检查 write scope，并通过 conflict gate 确定性合并 patch。 |
-| Evaluation Experiment | 固定五个 SWE-bench Lite case，记录 patch/local/official evidence、token、cost、latency、tool failure、context compaction、memory recall 和 model repair；`forge eval ablation` 对 routing、Skill、Memory、Context Window 等单因素 matched run 做 identity-gated paired comparison。 |
+| Evaluation Experiment | `forge bench cases/case` 公开 300-case 候选全集、Smoke-5 选择契约、单题 issue 和验收测试；运行记录 sampling temperature、patch/local/official evidence、token、cost、latency、tool failure、context compaction、memory recall 和 model repair，`forge eval ablation` 对单因素 matched run 做 identity-gated paired comparison。 |
 | Evidence Report | 每次运行生成 trace、usage、scorecard、result card、failure taxonomy 和 case study，而不是只输出 debug dump。 |
 | Feedback Data Loop | 人工 outcome 和 label 可以挂到 run 上，再将安全筛选后的 trace、policy、environment 和 evaluation 字段导出为 JSONL。 |
 
@@ -213,13 +213,25 @@ forge run "fix the failing test in this repository" \
 forge bench swebench --showcase --provider deepseek --direct-baseline
 ```
 
+先查看固定集合为什么选、每题测什么；这两条命令不运行 Agent：
+
+```bash
+forge bench cases
+forge bench case astropy__astropy-12907
+```
+
+默认只显示 Agent 输入和测试名称。`--show-test-patch`、`--show-gold` 只应用于运行后
+复盘，避免把验收实现或参考答案带入 prompt。完整目录见
+[Smoke-5 Case Catalog](docs/evaluation/smoke-5-case-catalog.md)。
+
 运行固定五 case 跨仓库 scorecard：
 
 ```bash
 forge bench swebench \
-  --regression-set core \
+  --regression-set smoke-5 \
   --provider deepseek \
   --model deepseek-chat \
+  --temperature 0 \
   --tool-routing task-aware \
   --execution-mode local \
   --evaluate \
@@ -234,11 +246,11 @@ contract 会进入 scorecard identity 和 ablation comparability 检查。
 使用相同模型和 case set 做 tool visibility ablation，再比较两个 run directory：
 
 ```bash
-forge bench swebench --regression-set core --provider deepseek \
-  --model deepseek-chat --tool-routing all --evaluate
+forge bench swebench --regression-set smoke-5 --provider deepseek \
+  --model deepseek-chat --temperature 0 --tool-routing all --evaluate
 
-forge bench swebench --regression-set core --provider deepseek \
-  --model deepseek-chat --tool-routing task-aware --evaluate
+forge bench swebench --regression-set smoke-5 --provider deepseek \
+  --model deepseek-chat --temperature 0 --tool-routing task-aware --evaluate
 
 forge eval ablation <all-tools-run-dir> <task-aware-run-dir> \
   --factor tool-routing \
@@ -247,7 +259,8 @@ forge eval ablation <all-tools-run-dir> <task-aware-run-dir> \
   --output .agent_forge/evaluation/tool-routing
 ```
 
-Comparator 会拒绝 dataset、split、provider/model identity 或 case id 不匹配的 run。
+Comparator 会拒绝 dataset、split、provider/model、temperature identity 或 case id
+不匹配的 run，除非 temperature 本身就是声明的实验变量。
 每个 variant 只运行一次，只足以形成 case study，不足以估计随机方差；更广泛的
 质量结论必须基于重复运行。
 

@@ -5,7 +5,11 @@ from __future__ import annotations
 import argparse
 import os
 
-from agent_forge.bench.presentation.cli import build_swebench_parser
+from agent_forge.bench.presentation.cli import (
+    build_case_catalog_parser,
+    build_case_inspection_parser,
+    build_swebench_parser,
+)
 from agent_forge.multi_agent.profiles import list_profiles
 from agent_forge.workbench.api import build_ui_parser
 
@@ -87,6 +91,16 @@ def _add_benchmark_command(subparsers: argparse._SubParsersAction) -> None:
         help="Generate SWE-bench predictions.",
     )
     build_swebench_parser(swebench_parser)
+    cases_parser = bench_subparsers.add_parser(
+        "cases",
+        help="Explain a fixed benchmark set and why each case was selected.",
+    )
+    build_case_catalog_parser(cases_parser)
+    case_parser = bench_subparsers.add_parser(
+        "case",
+        help="Inspect one case's task and test contract without running an agent.",
+    )
+    build_case_inspection_parser(case_parser)
 
 
 def _add_evaluation_command(subparsers: argparse._SubParsersAction) -> None:
@@ -338,6 +352,12 @@ def _add_model_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--model")
     parser.add_argument("--base-url")
     parser.add_argument("--api-key")
+    parser.add_argument(
+        "--temperature",
+        type=float,
+        default=0.0,
+        help="Sampling temperature sent to the model (0.0-2.0).",
+    )
     parser.add_argument("--max-steps", type=int, default=16)
     parser.add_argument("--max-context-chars", type=int, default=12000)
     parser.add_argument(

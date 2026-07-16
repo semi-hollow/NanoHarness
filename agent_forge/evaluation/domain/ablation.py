@@ -129,6 +129,8 @@ def _validate_identity(
         }
     elif normalized_factor in {"tool-call-budget", "tool-burst"}:
         allowed_differences = {"max_tool_calls_per_turn"}
+    elif normalized_factor in {"temperature", "sampling-temperature"}:
+        allowed_differences = {"temperature"}
     else:
         allowed_differences = set()
     if normalized_factor in {"execution-mode", "execution-environment", "isolation"}:
@@ -149,6 +151,7 @@ def _validate_identity(
     for key in (
         "agent_mode",
         "profile",
+        "temperature",
         "max_steps",
         "max_context_chars",
         "max_revision_rounds",

@@ -39,6 +39,7 @@ def render_bench_report(summary: BenchRunSummary) -> str:
         f"- dataset: `{summary.dataset_name}`",
         f"- split: `{summary.split}`",
         f"- provider/model: `{summary.provider}` / `{summary.model or 'default'}`",
+        f"- sampling temperature: `{summary.temperature}`",
         f"- agent_mode/profile: `{summary.agent_mode}` / `{summary.profile or '-'}`",
         f"- max_revision_rounds: `{summary.max_revision_rounds}`",
         f"- max_steps / max_context_chars: `{summary.max_steps}` / `{summary.max_context_chars}`",

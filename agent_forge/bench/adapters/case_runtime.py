@@ -189,6 +189,7 @@ class LocalCaseExecutor:
             api_key=request.api_key,
             model=request.model,
             timeout=60,
+            temperature=request.temperature,
         )
         if not llm_config.is_configured():
             raise RuntimeError(
@@ -255,6 +256,7 @@ class DirectModelBaseline:
             api_key=request.api_key,
             model=request.model,
             timeout=60,
+            temperature=request.temperature,
         )
         model_name = f"direct-{request.provider}-{request.model or 'default'}"
         if not llm_config.is_configured():

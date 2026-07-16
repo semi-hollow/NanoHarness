@@ -13,6 +13,7 @@ class LLMConfig:
     api_key: str = ""
     model: str = ""
     timeout: int = 30
+    temperature: float = 0.0
 
     @property
     def uses_openai_compatible_api(self) -> bool:
@@ -54,6 +55,7 @@ def resolve_llm_config(
     api_key: str | None = None,
     model: str | None = None,
     timeout: int = 30,
+    temperature: float | None = None,
 ) -> LLMConfig:
 
     profile_data: dict[str, Any] = {}
@@ -65,6 +67,16 @@ def resolve_llm_config(
     deepseek_defaults = resolved_provider == "deepseek"
     default_base_url = "https://api.deepseek.com" if deepseek_defaults else ""
     default_model = "deepseek-v4-flash" if deepseek_defaults else ""
+    resolved_temperature = float(
+        temperature
+        if temperature is not None
+        else profile_data.get(
+            "temperature",
+            os.getenv("AGENT_FORGE_TEMPERATURE", "0.0"),
+        )
+    )
+    if not 0.0 <= resolved_temperature <= 2.0:
+        raise ValueError("temperature must be between 0.0 and 2.0")
 
     return LLMConfig(
         provider=resolved_provider,
@@ -95,4 +107,5 @@ def resolve_llm_config(
             or ""
         ),
         timeout=int(profile_data.get("timeout", timeout)),
+        temperature=resolved_temperature,
     )

@@ -22,8 +22,8 @@ from agent_forge.workbench.presentation.http import (
 
 
 class SwebenchCompareTest(unittest.TestCase):
-    def test_core_regression_set_has_five_cross_repository_cases(self):
-        cases = REGRESSION_SETS["core"]
+    def test_smoke_5_regression_set_has_five_cross_repository_cases(self):
+        cases = REGRESSION_SETS["smoke-5"]
         self.assertEqual(len(cases), 5)
         self.assertEqual(len({case.split("__", 1)[0] for case in cases}), 5)
 

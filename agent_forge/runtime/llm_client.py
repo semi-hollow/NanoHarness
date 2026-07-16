@@ -26,6 +26,7 @@ class OpenAICompatibleLLMClient(LLMClient):
         api_key: str | None = None,
         model: str | None = None,
         timeout: int = 30,
+        temperature: float = 0.0,
     ) -> None:
 
         resolved_base_url = base_url or os.getenv("AGENT_FORGE_BASE_URL") or os.getenv("OPENAI_BASE_URL") or ""
@@ -33,6 +34,7 @@ class OpenAICompatibleLLMClient(LLMClient):
         self.api_key = api_key or os.getenv("AGENT_FORGE_API_KEY") or os.getenv("OPENAI_API_KEY", "")
         self.model = model or os.getenv("AGENT_FORGE_MODEL") or os.getenv("OPENAI_MODEL", "")
         self.timeout = timeout
+        self.temperature = temperature
         self.tool_calls = ToolCallNormalizer()
 
     @classmethod
@@ -48,6 +50,7 @@ class OpenAICompatibleLLMClient(LLMClient):
             api_key=config.api_key,
             model=config.model,
             timeout=config.timeout,
+            temperature=config.temperature,
         )
 
     def is_configured(self) -> bool:
@@ -66,7 +69,7 @@ class OpenAICompatibleLLMClient(LLMClient):
             "model": self.model,
             "messages": [self._message_to_dict(m) for m in messages],
             "stream": False,
-
+            "temperature": self.temperature,
             "tools": [self._tool_to_openai_schema(t) for t in tools],
         }
         request = urllib.request.Request(

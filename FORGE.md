@@ -23,7 +23,9 @@ forge run "read this project structure and explain the entrypoints without editi
 forge run "阅读这个项目结构并说明入口，不要修改文件" --provider deepseek
 forge skills list
 forge bench swebench --limit 1 --provider deepseek --direct-baseline
-forge bench swebench --regression-set core --provider deepseek --tool-routing task-aware
+forge bench cases
+forge bench case astropy__astropy-12907
+forge bench swebench --regression-set smoke-5 --provider deepseek --temperature 0 --tool-routing task-aware
 forge eval ablation <control-run> <treatment-run> --factor tool-routing
 forge report latest
 forge replay latest

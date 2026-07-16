@@ -17,6 +17,7 @@ def _scorecard(
     memory_recall_limit=0,
     memory_snapshot_sha256="snapshot-a",
     max_prompt_tokens=32768,
+    temperature=0.0,
 ):
     official_evaluated = sum(case["official_evaluated"] for case in cases)
     official_resolved = sum(case["official_resolved"] for case in cases)
@@ -29,6 +30,7 @@ def _scorecard(
             "provider": "deepseek",
             "requested_model": model,
             "observed_models": [model],
+            "temperature": temperature,
             "tool_routing_mode": routing,
             "skill_mode": skill_mode,
             "skill_names": list(skill_names or []),
@@ -111,6 +113,24 @@ class EvaluationExperimentTest(unittest.TestCase):
         treatment = _scorecard("treatment", [_case("case-1")], model="model-b")
         with self.assertRaisesRegex(ValueError, "model identity"):
             compare_benchmark_scorecards(control, treatment, factor="prompt")
+
+    def test_ablation_rejects_undeclared_temperature_drift(self):
+        control = _scorecard("control", [_case("case-1")], temperature=0.0)
+        treatment = _scorecard("treatment", [_case("case-1")], temperature=0.7)
+        with self.assertRaisesRegex(ValueError, "temperature"):
+            compare_benchmark_scorecards(control, treatment, factor="tool-routing")
+
+    def test_temperature_ablation_allows_only_sampling_temperature_to_change(self):
+        control = _scorecard("control", [_case("case-1")], temperature=0.0)
+        treatment = _scorecard("treatment", [_case("case-1")], temperature=0.7)
+
+        comparison = compare_benchmark_scorecards(
+            control,
+            treatment,
+            factor="temperature",
+        )
+
+        self.assertTrue(comparison["validity"]["comparable"])
 
     def test_skill_ablation_allows_only_skill_configuration_to_change(self):
         control = _scorecard(

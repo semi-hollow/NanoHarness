@@ -109,6 +109,9 @@ def build_agent_run_command(
     command.extend(["--provider", provider])
     append_optional(command, "--model", payload_text(payload, "model", ""))
     append_optional(command, "--base-url", payload_text(payload, "baseUrl", ""))
+    command.extend(
+        ["--temperature", str(payload_float(payload, "temperature", 0.0, 0.0, 2.0))]
+    )
     command.extend(["--max-steps", str(payload_int(payload, "maxSteps", 16, 1, 80))])
     command.extend(
         [
@@ -229,7 +232,7 @@ def build_swebench_command(
     )
     command = [python, "-m", "agent_forge", "bench", "swebench"]
     if regression:
-        command.extend(["--regression-set", "core"])
+        command.extend(["--regression-set", "smoke-5"])
     else:
         command.extend(
             ["--showcase", "--limit", str(payload_int(payload, "limit", 1, 1, 20))]
@@ -237,6 +240,9 @@ def build_swebench_command(
     command.extend(["--provider", provider])
     append_optional(command, "--model", payload_text(payload, "model", ""))
     append_optional(command, "--base-url", payload_text(payload, "baseUrl", ""))
+    command.extend(
+        ["--temperature", str(payload_float(payload, "temperature", 0.0, 0.0, 2.0))]
+    )
     command.extend(["--max-steps", str(payload_int(payload, "maxSteps", 40, 1, 80))])
     command.extend(
         [
@@ -355,6 +361,21 @@ def payload_bool(payload: dict[str, Any], key: str, default: bool) -> bool:
     if isinstance(value, bool):
         return value
     return str(value).lower() in {"1", "true", "yes", "on"}
+
+
+def payload_float(
+    payload: dict[str, Any],
+    key: str,
+    default: float,
+    min_value: float,
+    max_value: float,
+) -> float:
+    raw_value = payload.get(key)
+    try:
+        value = default if raw_value is None else float(str(raw_value))
+    except (TypeError, ValueError):
+        value = default
+    return max(min_value, min(value, max_value))
 
 
 def payload_choice(

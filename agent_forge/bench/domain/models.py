@@ -106,6 +106,7 @@ class BenchRunSummary:
     model: str
     output_dir: Path
     predictions_path: Path
+    temperature: float = 0.0
     agent_mode: str = "single"
     profile: str = ""
     max_revision_rounds: int = 0
@@ -150,6 +151,7 @@ class BenchRunSummary:
             "split": self.split,
             "provider": self.provider,
             "model": self.model,
+            "temperature": self.temperature,
             "agent_mode": self.agent_mode,
             "profile": self.profile,
             "max_revision_rounds": self.max_revision_rounds,

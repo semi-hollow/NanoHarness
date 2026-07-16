@@ -1,9 +1,16 @@
 from __future__ import annotations
 
 import argparse
+import json
 import os
+from pathlib import Path
 
-from agent_forge.bench.api import run_swebench
+from agent_forge.bench.api import (
+    get_regression_set_profile,
+    inspect_swebench_case,
+    list_regression_case_profiles,
+    run_swebench,
+)
 from agent_forge.bench.domain.catalog import (
     DEFAULT_DATASET,
     REGRESSION_SETS,
@@ -12,6 +19,36 @@ from agent_forge.bench.domain.catalog import (
 )
 from agent_forge.bench.domain.config import SwebenchRunRequest
 from agent_forge.bench.domain.models import BenchRunSummary
+from agent_forge.bench.presentation.case_inspection import (
+    render_case_catalog,
+    render_case_inspection,
+)
+
+
+def build_case_catalog_parser(parser: argparse.ArgumentParser) -> None:
+    """注册固定回归集合的可解释目录命令。"""
+
+    parser.add_argument(
+        "--regression-set",
+        choices=sorted(REGRESSION_SETS),
+        default="smoke-5",
+    )
+    parser.add_argument("--json", action="store_true")
+    parser.add_argument("--output", help="同时把 Markdown 或 JSON 写入指定文件。")
+
+
+def build_case_inspection_parser(parser: argparse.ArgumentParser) -> None:
+    """注册单个 case 的输入、测试契约和受控复盘命令。"""
+
+    parser.add_argument("instance_id")
+    parser.add_argument("--dataset", default=DEFAULT_DATASET)
+    parser.add_argument("--split", default="test")
+    parser.add_argument("--cases-file")
+    parser.add_argument("--show-test-patch", action="store_true")
+    parser.add_argument("--show-gold", action="store_true")
+    parser.add_argument("--all-tests", action="store_true")
+    parser.add_argument("--json", action="store_true")
+    parser.add_argument("--output", help="同时把 Markdown 或 JSON 写入指定文件。")
 
 
 def build_swebench_parser(parser: argparse.ArgumentParser) -> None:
@@ -41,6 +78,12 @@ def build_swebench_parser(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--model")
     parser.add_argument("--base-url")
     parser.add_argument("--api-key")
+    parser.add_argument(
+        "--temperature",
+        type=float,
+        default=0.0,
+        help="Sampling temperature recorded in run identity (0.0-2.0).",
+    )
     parser.add_argument("--max-steps", type=int, default=16)
     parser.add_argument("--max-context-chars", type=int, default=12000)
     parser.add_argument("--max-prompt-tokens", type=int, default=32_768)
@@ -150,6 +193,7 @@ def run_swebench_from_args(args: argparse.Namespace) -> BenchRunSummary:
         model=args.model,
         base_url=args.base_url,
         api_key=args.api_key,
+        temperature=args.temperature,
         max_steps=args.max_steps,
         max_context_chars=args.max_context_chars,
         max_prompt_tokens=args.max_prompt_tokens,
@@ -183,3 +227,58 @@ def run_swebench_from_args(args: argparse.Namespace) -> BenchRunSummary:
         container_pids_limit=args.container_pids_limit,
         container_read_only=args.container_read_only,
     ))
+
+
+def render_case_catalog_from_args(args: argparse.Namespace) -> str:
+    """把集合选择契约渲染成 Markdown 或 JSON。"""
+
+    set_profile = get_regression_set_profile(args.regression_set)
+    profiles = list_regression_case_profiles(args.regression_set)
+    if args.json:
+        return json.dumps(
+            {
+                "set": set_profile.to_dict(),
+                "cases": [profile.to_dict() for profile in profiles],
+            },
+            ensure_ascii=False,
+            indent=2,
+        ) + "\n"
+    return render_case_catalog(set_profile, profiles)
+
+
+def render_case_inspection_from_args(args: argparse.Namespace) -> str:
+    """读取单个 case，并按显式泄漏开关渲染。"""
+
+    inspection = inspect_swebench_case(
+        args.instance_id,
+        dataset_name=args.dataset,
+        split=args.split,
+        cases_file=args.cases_file,
+    )
+    if args.json:
+        return json.dumps(
+            inspection.to_dict(
+                include_test_patch=args.show_test_patch,
+                include_gold_patch=args.show_gold,
+            ),
+            ensure_ascii=False,
+            indent=2,
+        ) + "\n"
+    return render_case_inspection(
+        inspection,
+        show_test_patch=args.show_test_patch,
+        show_gold_patch=args.show_gold,
+        show_all_tests=args.all_tests,
+    )
+
+
+def publish_case_document(content: str, output: str | None) -> None:
+    """打印 case 文档；指定路径时也落盘，便于生成公开目录。"""
+
+    if output:
+        path = Path(output)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(content, encoding="utf-8")
+        print(f"Case document: {path}")
+        return
+    print(content, end="")

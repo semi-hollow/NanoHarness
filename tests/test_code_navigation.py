@@ -49,7 +49,12 @@ PRIMARY_ENTRYPOINTS = {
     "agent_forge/tools/mcp_config.py": ("MCPConfigLoader.load_into",),
     "agent_forge/multi_agent/application/coordinator.py": ("MultiAgentCoordinator.run",),
     "agent_forge/multi_agent/application/live_fanout.py": ("LiveFanoutCoordinator.run",),
-    "agent_forge/bench/api.py": ("run_swebench",),
+    "agent_forge/bench/api.py": (
+        "run_swebench",
+        "inspect_swebench_case",
+        "get_regression_set_profile",
+    ),
+    "agent_forge/bench/application/case_inspection.py": ("InspectBenchCase.execute",),
     "agent_forge/bench/application/swebench.py": ("RunSwebench.execute",),
     "agent_forge/bench/application/diagnostics.py": ("DiagnoseBenchCase.attach",),
     "agent_forge/bench/adapters/case_runtime.py": ("LocalCaseExecutor.run",),

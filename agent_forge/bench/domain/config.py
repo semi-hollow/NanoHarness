@@ -16,6 +16,7 @@ class SwebenchRunRequest:
     model: str | None = None
     base_url: str | None = None
     api_key: str | None = None
+    temperature: float = 0.0
     max_steps: int = 16
     max_context_chars: int = 12000
     max_prompt_tokens: int = 32_768

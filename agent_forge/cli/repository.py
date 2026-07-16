@@ -51,6 +51,7 @@ def run_repository_task(args: argparse.Namespace) -> Path:
             api_key=args.api_key,
             model=args.model,
             timeout=60,
+            temperature=args.temperature,
         )
         if not llm_config.is_configured():
             raise SystemExit(

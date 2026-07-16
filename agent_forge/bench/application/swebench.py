@@ -156,6 +156,7 @@ def _new_summary(
         split=request.split,
         provider=request.provider,
         model=request.model or "",
+        temperature=request.temperature,
         output_dir=layout.output_dir,
         predictions_path=layout.predictions_path,
         agent_mode=request.agent_mode,

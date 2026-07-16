@@ -335,7 +335,15 @@ def _render_result_summary(project_dir: Path) -> str:
             _metric_grid(
                 [
                     ("Run", results.get("run_id", ""), "Benchmark run id", "neutral"),
-                    ("Provider", f"{results.get('provider', '')}/{results.get('model') or 'default'}", "真实模型配置", "ok"),
+                    (
+                        "Provider",
+                        (
+                            f"{results.get('provider', '')}/{results.get('model') or 'default'} "
+                            f"· T={float(results.get('temperature') or 0):g}"
+                        ),
+                        "真实模型与采样配置",
+                        "ok",
+                    ),
                     ("Cases", str(len(cases)), "本次跑了几个 SWE-bench case", "neutral"),
                     ("Patch", f"{patch_count}/{len(cases)}", "是否产生候选 diff", "ok" if patch_count else "warn"),
                     ("Status", status_text, "agent 结束状态", _tone_for_status(status_text)),
@@ -2071,6 +2079,10 @@ INDEX_HTML = r"""<!doctype html>
             <input id="model" value="deepseek-v4-flash" />
           </div>
           <div class="wide">
+            <label>Temperature</label>
+            <input id="temperature" type="number" min="0" max="2" step="0.1" value="0" />
+          </div>
+          <div class="wide">
             <label>Base URL</label>
             <input id="baseUrl" value="https://api.deepseek.com" />
           </div>
@@ -2281,6 +2293,7 @@ INDEX_HTML = r"""<!doctype html>
         task: valueOf('task'),
         provider: valueOf('provider'),
         model: valueOf('model'),
+        temperature: valueOf('temperature'),
         baseUrl: valueOf('baseUrl'),
         apiKey: valueOf('apiKey'),
         workspace: valueOf('workspace'),

@@ -192,6 +192,7 @@ def _metadata(
         "split": str(results.get("split") or ""),
         "provider": str(results.get("provider") or ""),
         "requested_model": str(results.get("model") or ""),
+        "temperature": _float(results.get("temperature")),
         "observed_models": observed_models,
         "observed_container_image_ids": observed_container_image_ids,
         "agent_mode": str(results.get("agent_mode") or ""),

@@ -6,7 +6,12 @@ import argparse
 import json
 from pathlib import Path
 
-from agent_forge.bench.presentation.cli import run_swebench_from_args
+from agent_forge.bench.presentation.cli import (
+    publish_case_document,
+    render_case_catalog_from_args,
+    render_case_inspection_from_args,
+    run_swebench_from_args,
+)
 from agent_forge.context.api import (
     build_evidence_reference,
     list_memories,
@@ -62,6 +67,10 @@ def main(argv: list[str] | None = None) -> None:
         print(f"Benchmark run: {summary.output_dir}")
         print(f"Result card: {summary.output_dir / 'report.md'}")
         print(f"Predictions: {summary.predictions_path}")
+    elif args.command == "bench" and args.bench_name == "cases":
+        publish_case_document(render_case_catalog_from_args(args), args.output)
+    elif args.command == "bench" and args.bench_name == "case":
+        publish_case_document(render_case_inspection_from_args(args), args.output)
     elif args.command == "eval":
         _dispatch_evaluation(args)
     elif args.command == "report":
