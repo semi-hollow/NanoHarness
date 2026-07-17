@@ -39,26 +39,60 @@ PRIMARY_ENTRYPOINTS = {
         "RespondToHumanInput.execute",
         "BuildContinuationPlan.execute",
     ),
+    "agent_forge/runtime/wiring.py": ("build_agent_loop",),
     "agent_forge/runtime/execution_environment.py": ("ExecutionEnvironment.prepare",),
     "agent_forge/runtime/control.py": ("StepController.classify_observation",),
     "agent_forge/runtime/structured_output.py": ("StructuredOutputParser.parse",),
+    "agent_forge/context/api.py": (
+        "propose_memory",
+        "promote_memory",
+        "retire_memory",
+        "reject_memory",
+        "list_memories",
+    ),
+    "agent_forge/context/application/memory_service.py": (
+        "LongTermMemoryService.propose",
+        "LongTermMemoryService.promote",
+        "LongTermMemoryService.recall",
+        "LongTermMemoryService.retire",
+        "LongTermMemoryService.reject",
+    ),
+    "agent_forge/context/application/compaction.py": (
+        "ContextWindowManager.prepare",
+    ),
     "agent_forge/context/context_builder.py": ("build_context_report",),
     "agent_forge/models/gateway.py": ("ModelGateway.chat",),
     "agent_forge/tools/tool_router.py": ("ToolRouter.route",),
     "agent_forge/tools/registry.py": ("ToolRegistry.execute",),
     "agent_forge/tools/mcp_config.py": ("MCPConfigLoader.load_into",),
     "agent_forge/multi_agent/application/coordinator.py": ("MultiAgentCoordinator.run",),
+    "agent_forge/multi_agent/application/fanout.py": ("run_fanout",),
     "agent_forge/multi_agent/application/live_fanout.py": ("LiveFanoutCoordinator.run",),
+    "agent_forge/multi_agent/wiring.py": (
+        "build_live_fanout",
+        "build_multi_agent_coordinator",
+    ),
     "agent_forge/bench/api.py": (
         "run_swebench",
         "inspect_swebench_case",
+        "list_regression_case_profiles",
         "get_regression_set_profile",
     ),
     "agent_forge/bench/application/case_inspection.py": ("InspectBenchCase.execute",),
     "agent_forge/bench/application/swebench.py": ("RunSwebench.execute",),
     "agent_forge/bench/application/diagnostics.py": ("DiagnoseBenchCase.attach",),
+    "agent_forge/bench/domain/failure_taxonomy.py": ("classify_case_result",),
     "agent_forge/bench/adapters/case_runtime.py": ("LocalCaseExecutor.run",),
     "agent_forge/bench/adapters/official_results.py": ("parse_official_results",),
+    "agent_forge/bench/presentation/case_inspection.py": (
+        "render_case_catalog",
+        "render_case_inspection",
+    ),
+    "agent_forge/bench/presentation/cli.py": (
+        "run_swebench_from_args",
+        "render_case_catalog_from_args",
+        "render_case_inspection_from_args",
+    ),
     "agent_forge/bench/presentation/case_study.py": ("write_case_study",),
     "agent_forge/bench/presentation/report.py": ("write_bench_artifacts",),
     "agent_forge/evaluation/api.py": ("build_benchmark_scorecard",),
@@ -117,15 +151,114 @@ RUNTIME_PORTS = {
         "JsonTraceRecorder.write",
     ),
     "agent_forge/bench/adapters/official_results.py": ("apply_official_results",),
+    "agent_forge/context/adapters/memory_json.py": (
+        "JsonLongTermMemoryRepository.save",
+        "JsonLongTermMemoryRepository.get",
+        "JsonLongTermMemoryRepository.list_records",
+    ),
+}
+
+CORE_RULES = {
+    "agent_forge/context/context_strategy.py": ("build_context_strategy",),
+    "agent_forge/multi_agent/domain/fanout.py": (
+        "build_execution_batches",
+        "build_conflict_free_batches",
+        "detect_write_scope_conflicts",
+        "detect_result_conflicts",
+    ),
+}
+
+CORE_DATA_MODELS = {
+    "agent_forge/runtime/config.py": ("RuntimeConfig",),
+    "agent_forge/runtime/application/dependencies.py": ("RuntimeDependencies",),
+    "agent_forge/runtime/application/session.py": ("AgentRunSession",),
+    "agent_forge/runtime/domain/task.py": ("TaskCheckpoint",),
+    "agent_forge/runtime/domain/approval.py": ("ApprovalRequest",),
+    "agent_forge/runtime/domain/human_input.py": ("HumanInputRequest",),
+    "agent_forge/runtime/domain/operation.py": ("OperationRecord",),
+    "agent_forge/runtime/domain/conversation.py": (
+        "Message",
+        "ToolCall",
+        "Observation",
+        "AgentResponse",
+    ),
+    "agent_forge/runtime/llm_config.py": ("LLMConfig",),
+    "agent_forge/runtime/application/working_memory.py": ("WorkingMemory",),
+    "agent_forge/context/context_strategy.py": ("ContextStrategy",),
+    "agent_forge/context/context_builder.py": ("ContextBuildReport",),
+    "agent_forge/context/domain/memory.py": (
+        "LongTermMemoryRecord",
+        "SessionDigest",
+    ),
+    "agent_forge/context/application/compaction.py": (
+        "PromptBudget",
+        "ContextWindowResult",
+    ),
+    "agent_forge/models/gateway.py": ("RetryPolicy",),
+    "agent_forge/tools/tool_router.py": ("ToolRoute",),
+    "agent_forge/multi_agent/domain/fanout.py": (
+        "SubagentTask",
+        "FanoutConflict",
+        "SubagentResult",
+        "FanoutResult",
+    ),
+    "agent_forge/multi_agent/domain/live.py": (
+        "FanoutPlan",
+        "LiveSubagentResult",
+        "LiveFanoutSummary",
+    ),
+    "agent_forge/multi_agent/domain/models.py": (
+        "RoleSpec",
+        "AgentProfile",
+        "Artifact",
+        "RoleRunResult",
+        "MultiAgentRunSummary",
+    ),
+    "agent_forge/bench/domain/config.py": ("SwebenchRunRequest", "BenchRunLayout"),
+    "agent_forge/bench/domain/models.py": (
+        "BenchCase",
+        "BenchCaseResult",
+        "BenchRunSummary",
+    ),
+    "agent_forge/bench/domain/case_inspection.py": (
+        "BenchmarkCaseProfile",
+        "BenchmarkSetProfile",
+        "PatchSummary",
+        "BenchmarkCaseInspection",
+    ),
+    "agent_forge/bench/domain/failure_taxonomy.py": ("FailureDiagnosis",),
+    "agent_forge/bench/adapters/official_results.py": (
+        "OfficialCaseOutcome",
+        "OfficialResults",
+    ),
+    "agent_forge/evaluation/domain/models.py": ("EvaluationComparison",),
+    "agent_forge/observability/domain/event.py": ("TraceEvent",),
+    "agent_forge/observability/domain/evidence.py": ("EvidenceItem", "EvidenceLedger"),
+}
+
+FIELD_DOCUMENTED_MODELS = {
+    "agent_forge/context/domain/memory.py": (
+        "LongTermMemoryRecord",
+        "SessionDigest",
+    ),
+    "agent_forge/bench/domain/case_inspection.py": (
+        "BenchmarkCaseProfile",
+        "BenchmarkSetProfile",
+        "PatchSummary",
+        "BenchmarkCaseInspection",
+    ),
 }
 
 
 class _DefinitionCollector(ast.NodeVisitor):
     def __init__(self) -> None:
         self.class_names: list[str] = []
+        self.classes: dict[str, ast.ClassDef] = {}
         self.definitions: dict[str, ast.FunctionDef | ast.AsyncFunctionDef] = {}
 
     def visit_ClassDef(self, node: ast.ClassDef) -> None:
+        qualified_name = ".".join([*self.class_names, node.name])
+        self.classes[qualified_name] = node
         self.class_names.append(node.name)
         self.generic_visit(node)
         self.class_names.pop()
@@ -149,6 +282,34 @@ class CodeNavigationContractTest(unittest.TestCase):
 
     def test_runtime_ports_are_visible_when_bodies_are_collapsed(self) -> None:
         self._assert_markers(RUNTIME_PORTS, "# 运行时端口：", require_docstring=False)
+
+    def test_core_rules_are_visible_without_reading_private_helpers(self) -> None:
+        self._assert_markers(CORE_RULES, "# 核心规则：", require_docstring=True)
+
+    def test_core_data_models_are_distinct_from_process_entrypoints(self) -> None:
+        self._assert_class_markers(CORE_DATA_MODELS, "# 核心数据：")
+
+    def test_memory_and_benchmark_models_explain_every_field(self) -> None:
+        for relative_path, names in FIELD_DOCUMENTED_MODELS.items():
+            path = PROJECT_ROOT / relative_path
+            collector = _DefinitionCollector()
+            collector.visit(ast.parse(path.read_text(encoding="utf-8")))
+            for name in names:
+                with self.subTest(path=relative_path, model=name):
+                    node = collector.classes[name]
+                    docstring = ast.get_docstring(node) or ""
+                    fields = [
+                        statement.target.id
+                        for statement in node.body
+                        if isinstance(statement, ast.AnnAssign)
+                        and isinstance(statement.target, ast.Name)
+                    ]
+                    for field in fields:
+                        self.assertIn(
+                            f"``{field}``",
+                            docstring,
+                            f"{relative_path}:{node.lineno} {name}.{field} 缺少字段说明",
+                        )
 
     def test_agent_loop_entrypoint_only_exposes_the_phase_order(self) -> None:
         path = PROJECT_ROOT / "agent_forge/runtime/application/agent_loop.py"
@@ -203,11 +364,73 @@ class CodeNavigationContractTest(unittest.TestCase):
                         lines[cursor].strip().startswith(marker),
                         f"{relative_path}:{first_line} {name} must be preceded by {marker}",
                     )
+                    self._assert_marker_is_specific(
+                        lines[cursor].strip(),
+                        marker,
+                        relative_path,
+                        first_line,
+                        name,
+                    )
                     if require_docstring:
                         self.assertTrue(
                             ast.get_docstring(node),
                             f"{relative_path}:{first_line} {name} needs a navigation docstring",
                         )
+
+    def _assert_class_markers(
+        self,
+        expected: dict[str, tuple[str, ...]],
+        marker: str,
+    ) -> None:
+        for relative_path, names in expected.items():
+            path = PROJECT_ROOT / relative_path
+            source = path.read_text(encoding="utf-8")
+            lines = source.splitlines()
+            collector = _DefinitionCollector()
+            collector.visit(ast.parse(source))
+            for name in names:
+                with self.subTest(path=relative_path, model=name):
+                    self.assertIn(name, collector.classes)
+                    node = collector.classes[name]
+                    first_line = min(
+                        [node.lineno, *(decorator.lineno for decorator in node.decorator_list)]
+                    )
+                    cursor = first_line - 2
+                    while cursor >= 0 and not lines[cursor].strip():
+                        cursor -= 1
+                    self.assertGreaterEqual(cursor, 0)
+                    marker_line = lines[cursor].strip()
+                    self.assertTrue(
+                        marker_line.startswith(marker),
+                        f"{relative_path}:{first_line} {name} must be preceded by {marker}",
+                    )
+                    self._assert_marker_is_specific(
+                        marker_line,
+                        marker,
+                        relative_path,
+                        first_line,
+                        name,
+                    )
+                    self.assertTrue(
+                        ast.get_docstring(node),
+                        f"{relative_path}:{first_line} {name} needs a data-contract docstring",
+                    )
+
+    def _assert_marker_is_specific(
+        self,
+        marker_line: str,
+        marker: str,
+        relative_path: str,
+        first_line: int,
+        name: str,
+    ) -> None:
+        description = marker_line.removeprefix(marker).strip()
+        self.assertNotIn("下方定义", description)
+        self.assertGreaterEqual(
+            len(description),
+            12,
+            f"{relative_path}:{first_line} {name} 的导航说明过于空泛",
+        )
 
 
 if __name__ == "__main__":

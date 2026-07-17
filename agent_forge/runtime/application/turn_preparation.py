@@ -66,7 +66,7 @@ class TurnPreparation:
             )
         )
 
-    # 主要入口：下方定义承接该模块的核心调用。
+    # 主要入口：为当前 turn 路由工具、组装上下文并执行会话窗口治理。
     def execute(
         self,
         session: AgentRunSession,
@@ -112,7 +112,7 @@ class TurnPreparation:
         context_report = self.context.build(
             task=session.task,
             workspace=self.config.workspace,
-            memory=session.memory,
+            working_memory=session.working_memory,
             tools=schemas,
             active_skill_cards=[
                 skill.prompt_card() for skill in session.active_skills
@@ -127,7 +127,7 @@ class TurnPreparation:
             context={
                 "selected_files": context_report.selected_files,
                 "retrieved_docs_count": len(context_report.retrieved_docs),
-                "memory_summary": context_report.memory_summary,
+                "working_memory_summary": context_report.working_memory_summary,
                 "total_chars": context_report.total_chars,
                 "max_chars": context_report.max_chars,
                 "truncated": context_report.truncated,

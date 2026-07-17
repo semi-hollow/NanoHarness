@@ -1,10 +1,26 @@
+"""单 Agent Runtime 的类型化输入配置。
+
+字段按职责排列：workspace 与循环预算、恢复与人工控制、Skill/Tool 策略、
+长期记忆。
+新增运行策略应先归入这些分组，避免把任意 CLI 字段散落进 AgentLoop。
+"""
+
 from dataclasses import dataclass, field
 from typing import Any
 
 
+# 核心数据：一次 AgentLoop run 的全部外部策略与资源位置。
 @dataclass
 class RuntimeConfig:
+    """Runtime 的单一配置对象。
 
+    ``workspace`` 指任务代码根目录；``max_*``、``timeout_seconds`` 和
+    ``cost_budget_usd`` 控制循环资源；``*_root`` 指 durable 控制面目录；
+    ``approval_mode``、Skill 和 tool routing 字段控制治理策略；最后三个 memory
+    字段控制证据记忆的存储、隔离 namespace 和召回上限。
+    """
+
+    # 工作区与 AgentLoop 资源预算。
     workspace: str
     max_steps: int = 12
     auto_approve_writes: bool = True
@@ -20,6 +36,8 @@ class RuntimeConfig:
     previous_task: str = ""
     session_summary: str = ""
     execution_environment: Any | None = None
+
+    # Checkpoint、人工控制和副作用幂等状态的持久化位置。
     task_state_root: str = ".agent_forge/task_state"
     resume_state: str = ""
     approval_root: str = ".agent_forge/approvals"
@@ -27,10 +45,14 @@ class RuntimeConfig:
     human_thread_id: str = ""
     operation_ledger_root: str = ".agent_forge/operation_ledger"
     approval_mode: str = "trusted"
+
+    # 模型可见 Skill 与工具集合策略。
     skill_mode: str = "auto"
     skill_names: list[str] = field(default_factory=list)
     skill_manifest_files: list[str] = field(default_factory=list)
     tool_routing_mode: str = "task-aware"
+
+    # 证据长期记忆；working memory 和 SessionDigest 不由这三个字段持久化。
     memory_root: str = ""
     memory_namespace: str = ""
     memory_recall_limit: int = 6

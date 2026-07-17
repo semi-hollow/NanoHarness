@@ -1,4 +1,12 @@
-"""Working memory 压缩结果与长期记忆的稳定领域模型。"""
+"""Memory 能力的稳定领域模型。
+
+阅读本文件时先看两个核心数据：
+
+- ``LongTermMemoryRecord``：跨 run 持久化、经过证据晋升的长期知识。
+- ``SessionDigest``：会话窗口压缩后交给模型的摘要视图，不是长期真相。
+
+本文件只定义数据、校验和状态语义，不负责召回、文件读写或模型调用。
+"""
 
 from __future__ import annotations
 
@@ -39,7 +47,11 @@ class MemoryStatus(str, Enum):
 
 @dataclass(frozen=True)
 class EvidenceReference:
-    """支持一条记忆的可追溯证据，而不是摘要正文的复制。"""
+    """支持一条记忆的可追溯证据，而不是摘要正文的复制。
+
+    字段说明：``source_type`` 表示证据类型；``source_id`` 是稳定标识；
+    ``path`` 和 ``sha256`` 在证据来自文件时记录位置与内容指纹。
+    """
 
     source_type: str
     source_id: str
@@ -64,9 +76,22 @@ class EvidenceReference:
         )
 
 
+# 核心数据：一条长期记忆的身份、权威状态、隔离范围与失效规则。
 @dataclass
 class LongTermMemoryRecord:
-    """可验证、可失效、可被新版本替代的一条长期记忆。"""
+    """可验证、可失效、可被新版本替代的一条长期记忆。
+
+    字段说明：
+
+    - ``memory_id``：记录主键；``namespace``：workspace 隔离键；``key``：知识主题。
+    - ``kind``：fact/decision/constraint 等知识类型；``content``：实际知识正文。
+    - ``scope``：workspace 或 agent_private；``agent_name``：私有记忆的可见 Agent。
+    - ``status``：candidate/active/superseded/retired/rejected 权威状态。
+    - ``confidence``、``importance``：透明召回排序信号，不代表正确性证明。
+    - ``evidence_refs``：晋升 active 所需证据；``tags``：词项召回的补充标签。
+    - ``created_at``、``updated_at``、``expires_at``：创建、更新和显式过期时间。
+    - ``supersedes``：同 key 新记录替代旧记录时保存的版本链。
+    """
 
     memory_id: str
     namespace: str
@@ -192,7 +217,11 @@ class LongTermMemoryRecord:
 
 @dataclass(frozen=True)
 class ToolTransactionDigest:
-    """压缩后仍可验证的一次工具调用与观察结果。"""
+    """压缩后仍保留的一次工具事务摘要。
+
+    ``tool_name`` 和 ``arguments_summary`` 说明做了什么；``success`` 与
+    ``observation_excerpt`` 保存结果状态和有界证据片段。
+    """
 
     tool_name: str
     arguments_summary: str
@@ -208,9 +237,21 @@ class ToolTransactionDigest:
         }
 
 
+# 核心数据：旧会话被移出模型窗口后留下的结构化、可溯源摘要。
 @dataclass(frozen=True)
 class SessionDigest:
-    """替代旧对话进入模型窗口的结构化摘要，不替代原始 trace。"""
+    """替代旧对话进入模型窗口的结构化摘要，不替代原始 trace。
+
+    字段说明：
+
+    - ``task``：当前任务；``covered_message_count``：本摘要覆盖的原始消息数。
+    - ``source_hash``：被摘要原文的内容指纹，用于追溯而不是还原原文。
+    - ``user_updates``、``assistant_updates``：保留的用户和 Agent 关键进展。
+    - ``tool_transactions``：不被拆开的工具意图与结果摘要。
+    - ``open_failures``：压缩时仍未解决的失败，防止恢复后重复踩坑。
+    - ``estimated_tokens_before``、``estimated_tokens_after``：压缩前后预算证据。
+    - ``created_at``、``schema_version``：摘要时间和持久化格式版本。
+    """
 
     task: str
     covered_message_count: int

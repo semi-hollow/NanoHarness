@@ -46,7 +46,7 @@ class MCPConfigLoader:
 
         self.sandbox = sandbox
 
-    # 主要入口：下方定义承接该模块的核心调用。
+    # 主要入口：校验 MCP 配置和 allowlist，将外部工具注册到 ToolRegistry。
     def load_into(
         self,
         registry: ToolRegistry,

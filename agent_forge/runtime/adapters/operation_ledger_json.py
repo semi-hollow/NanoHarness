@@ -114,7 +114,7 @@ class JsonOperationLedgerRepository:
         record = self._require(operation_key)
         return self._transition(record, "approved", run_id=run_id, step=step)
 
-    # 运行时端口：下方定义连接用例与外部实现。
+    # 运行时端口：记录副作用已执行及执行后的目标指纹。
     def record_executed(
         self,
         operation_key: str,
@@ -128,7 +128,7 @@ class JsonOperationLedgerRepository:
         record.observation = observation
         return self._transition(record, "executed", run_id=run_id, step=step, post_fingerprint=post_fingerprint)
 
-    # 运行时端口：下方定义连接用例与外部实现。
+    # 运行时端口：记录副作用失败，供恢复流程决定是否可重试。
     def record_failed(
         self,
         operation_key: str,
@@ -142,7 +142,7 @@ class JsonOperationLedgerRepository:
         record.observation = observation
         return self._transition(record, "failed", run_id=run_id, step=step, post_fingerprint=post_fingerprint)
 
-    # 运行时端口：下方定义连接用例与外部实现。
+    # 运行时端口：首次见到 operation 时创建 planned 账本记录。
     def ensure_planned(
         self,
         operation_key: str,

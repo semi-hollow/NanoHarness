@@ -87,7 +87,7 @@ class ExecutionEnvironment:
         self._container_start_command: list[str] = []
         self._command_history: list[dict[str, object]] = []
 
-    # 主要入口：下方定义承接该模块的核心调用。
+    # 主要入口：创建并探测 local、detached worktree 或 OCI 执行环境。
     def prepare(self) -> EnvironmentProbe:
         """按 local、worktree 或 container 模式准备受约束执行环境。"""
 

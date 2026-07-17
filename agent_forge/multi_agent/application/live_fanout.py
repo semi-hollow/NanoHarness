@@ -50,7 +50,7 @@ class LiveFanoutCoordinator:
         self.max_workers = max(1, min(int(max_workers), 8))
         self.resume_from = resume_from
 
-    # 主要入口：下方定义承接该模块的核心调用。
+    # 主要入口：按依赖批次并发 worker，校验合并 patch，再运行 finalizer。
     def run(self) -> LiveFanoutSummary:
         """执行 dependency-aware worker，并返回可审计的集成结果。"""
 

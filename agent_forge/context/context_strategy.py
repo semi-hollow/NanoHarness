@@ -1,3 +1,5 @@
+"""Repository context 的选择与只读预览策略；不调用模型、不写外部状态。"""
+
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -15,14 +17,21 @@ ATTENTION_SINK = [
 ]
 
 
+# 核心数据：文件、检索、working/long-term memory 的一次选择结果。
 @dataclass
 class ContextStrategy:
+    """静态 system context 进入预算分配前的类型化候选集合。
+
+    文件字段记录 ranking 与 preview；memory 字段明确区分 working items、working
+    summary 和长期召回；topic/inherit 解释是否继承前序会话；attention、dropped 和
+    budget 字段提供治理规则与可观测证据。
+    """
 
     selected_files: list[str]
     file_previews: list[str]
     retrieved_docs: list[str]
-    memory_items: list[str]
-    memory_summary: str
+    working_memory_items: list[str]
+    working_memory_summary: str
     long_term_memory: list[str]
     topic_relation: str
     inherit_session: bool
@@ -31,14 +40,16 @@ class ContextStrategy:
     budget_breakdown: dict[str, int] = field(default_factory=dict)
 
 
+# 核心规则：按任务相关性选择文件、检索结果和可继承的记忆视图。
 def build_context_strategy(
     task: str,
     files: list[str],
     docs: list[str],
-    memory: ContextMemory,
+    working_memory: ContextMemory,
     root: str | Path,
     max_chars: int,
 ) -> ContextStrategy:
+    """在 ``root`` 内读取有界文件预览，并返回类型化候选上下文。"""
 
     root_path = Path(root)
 
@@ -47,16 +58,22 @@ def build_context_strategy(
     preview_budget = max(1200, max_chars // 3)
     file_previews = _read_file_previews(root_path, selected_files[:4], preview_budget)
 
-    previous_task = str(memory.get("previous_task", "") or "")
+    previous_task = str(working_memory.get("previous_task", "") or "")
     topic_relation = infer_topic_relation(task, previous_task)
     inherit_session = topic_relation in {"same_topic", "related_topic", "unknown"}
 
-    memory_items = [str(item) for item in memory.recent()]
-    memory_summary = memory.summary(max_chars=max(600, max_chars // 8))
-    long_term_memory = [item.render_prompt_line() for item in memory.long_term()]
+    working_memory_items = [str(item) for item in working_memory.recent()]
+    working_memory_summary = working_memory.summary(
+        max_chars=max(600, max_chars // 8)
+    )
+    long_term_memory = [
+        item.render_prompt_line() for item in working_memory.long_term()
+    ]
     if not inherit_session:
-        memory_items = []
-        memory_summary = "Previous session context intentionally ignored because the topic changed."
+        working_memory_items = []
+        working_memory_summary = (
+            "Previous session context intentionally ignored because the topic changed."
+        )
 
     retrieved_docs = retrieve(task, docs or files, limit=5)
     retrieved_docs = [truncate_middle(doc, 600) for doc in retrieved_docs]
@@ -65,7 +82,8 @@ def build_context_strategy(
         "attention_sink": sum(len(item) for item in ATTENTION_SINK),
         "file_previews": sum(len(item) for item in file_previews),
         "retrieved_docs": sum(len(item) for item in retrieved_docs),
-        "working_memory": len(memory_summary) + sum(len(item) for item in memory_items),
+        "working_memory": len(working_memory_summary)
+        + sum(len(item) for item in working_memory_items),
         "long_term_memory": sum(len(item) for item in long_term_memory),
     }
     dropped = []
@@ -78,8 +96,8 @@ def build_context_strategy(
         selected_files=selected_files,
         file_previews=file_previews,
         retrieved_docs=retrieved_docs,
-        memory_items=memory_items,
-        memory_summary=memory_summary,
+        working_memory_items=working_memory_items,
+        working_memory_summary=working_memory_summary,
         long_term_memory=long_term_memory,
         topic_relation=topic_relation,
         inherit_session=inherit_session,

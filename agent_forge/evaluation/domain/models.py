@@ -4,8 +4,15 @@ from dataclasses import dataclass, field
 from typing import Any
 
 
+# 核心数据：同一任务 single/multi 的成本、patch、评审与失败分类对照。
 @dataclass
 class EvaluationComparison:
+    """``compare_runs`` 的稳定结果，区分 Runtime 状态和 patch 是否生成。
+
+    single/multi 前缀字段分别保存状态、candidate patch、成本和调用计数；
+    revision/reviewer/verifier 字段保存多角色证据；taxonomy 与 recommendation 给出
+    保守结论，不把任一 Agent 完成状态等同于 official resolved。
+    """
 
     task_id: str
     single_status: str = ""

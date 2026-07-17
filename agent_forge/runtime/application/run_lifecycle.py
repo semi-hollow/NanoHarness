@@ -56,7 +56,7 @@ class RunLifecycle:
     hooks: HookPort
 
     # 第一遍：三个 public port 分别对应更新、停止和人工暂停。
-    # 运行时端口：下方定义连接用例与外部实现。
+    # 运行时端口：同步更新内存 checkpoint、持久化状态和 trace 事实。
     def update(
         self,
         status: TaskRunStatus | None = None,
@@ -90,7 +90,7 @@ class RunLifecycle:
         )
         return self.checkpoint
 
-    # 运行时端口：下方定义连接用例与外部实现。
+    # 运行时端口：统一落盘终态、停止原因和最终文本。
     def stop(self, request: StopRequest) -> str:
         """持久化一次停止，并返回调用方要交付的最终文本。"""
 
@@ -124,7 +124,7 @@ class RunLifecycle:
         )
         return request.final_answer
 
-    # 运行时端口：下方定义连接用例与外部实现。
+    # 运行时端口：先持久化人工问题和 checkpoint，再返回 waiting_human。
     def request_human_input(
         self,
         *,

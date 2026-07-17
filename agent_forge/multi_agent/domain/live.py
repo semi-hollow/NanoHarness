@@ -14,9 +14,15 @@ from .fanout import FanoutConflict, SubagentTask, build_execution_batches
 TASK_ID_PATTERN = re.compile(r"^[A-Za-z0-9_.-]+$")
 
 
+# 核心数据：经过校验并可恢复的 live fanout 任务 DAG。
 @dataclass(frozen=True)
 class FanoutPlan:
-    """经过验证、可确定性调度的任务 DAG。"""
+    """经过验证、可确定性调度的任务 DAG。
+
+    ``goal`` 是整体目标，``tasks`` 是带依赖和写范围的子任务。
+    ``digest`` 对规范化
+    计划做内容哈希，恢复时拒绝计划漂移。
+    """
 
     goal: str
     tasks: list[SubagentTask]
@@ -104,9 +110,15 @@ class FanoutPlan:
         }
 
 
+# 核心数据：真实 AgentLoop worker 的结果、patch 与 evidence 位置。
 @dataclass
 class LiveSubagentResult:
-    """一个隔离 worker 的规范化结果和证据位置。"""
+    """一个隔离 worker 的规范化结果和证据位置。
+
+    task/status/final_answer 描述结果；touched_files 与 patch hash 支撑冲突校验；
+    workspace、trace、usage、patch、artifact、environment path 指向真实证据；
+    batch/duration/usage/resumed 记录调度与恢复事实。
+    """
 
     task_id: str
     status: str
@@ -129,9 +141,16 @@ class LiveSubagentResult:
         return asdict(self)
 
 
+# 核心数据：live fanout 调度、合并、冲突、finalizer 和 artifact 的最终汇总。
 @dataclass
 class LiveFanoutSummary:
-    """Live fanout 当前运行和恢复证据的聚合结果。"""
+    """Live fanout 当前运行和恢复证据的聚合结果。
+
+    identity 字段记录 run/goal/plan/base；batches/results/merged/conflicts 记录调度与
+    合并；status、wall_time、metrics 和 finalizer 字段记录最终判断与成本；
+    末尾 path 字段指向 summary、report 和 integration patch，便于 UI/评测读取，
+    不重算事实。
+    """
 
     run_id: str
     goal: str

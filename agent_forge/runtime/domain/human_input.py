@@ -9,9 +9,16 @@ from typing import Any
 TERMINAL_HUMAN_INPUT_STATUSES = {"responded", "cancelled"}
 
 
+# 核心数据：Agent 暂停后等待操作员回答的 durable 问题。
 @dataclass
 class HumanInputRequest:
-    """等待操作员回答的一次持久问题。"""
+    """等待操作员回答的一次持久问题。
+
+    ``request_id`` 保证重复提问幂等；``thread_id`` 将 continuation 归入
+    同一人工线程；
+    kind/question/choices 是问题契约；answer/status 是结果；workspace/run/step/agent
+    记录暂停位置，reason、note、时间和 path 提供审计信息。
+    """
 
     request_id: str
     thread_id: str

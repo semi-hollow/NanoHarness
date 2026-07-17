@@ -24,7 +24,7 @@ class StructuredOutputParser:
         self.schema = schema
         self.max_repair_attempts = max(0, max_repair_attempts)
 
-    # 主要入口：下方定义承接该模块的核心调用。
+    # 主要入口：将模型文本协议解析为 final answer、tool calls 或明确错误。
     def parse(self, text: str) -> StructuredOutputResult:
         """把模型文本和 tool call 归一化为 AgentResponse。"""
 

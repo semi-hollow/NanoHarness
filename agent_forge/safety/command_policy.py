@@ -25,8 +25,9 @@ def command_policy_summary() -> dict[str, object]:
         "blocked_patterns": ["pipes", "redirects", "temporary script workarounds", "destructive commands"],
     }
 
-# 运行时端口：下方定义连接用例与外部实现。
+# 运行时端口：解析 shell 命令并拒绝危险程序、参数与链式绕过。
 def check_command(command: str) -> tuple[bool, str]:
+    """返回命令是否允许以及拒绝/允许原因，不实际执行进程。"""
 
     if not command.strip():
         return False, "empty command"

@@ -91,7 +91,7 @@ class StepController:
             )
         return None
 
-    # 主要入口：下方定义承接该模块的核心调用。
+    # 主要入口：把工具 Observation 分类为可恢复失败信号或正常结果。
     def classify_observation(self, observation: Observation) -> FailureSignal | None:
         """把原始 Observation 转换为重试判断和恢复建议。
 

@@ -48,7 +48,7 @@ class JsonHumanInputRepository:
             return None
         return HumanInputRequest(**json.loads(path.read_text(encoding="utf-8")))
 
-    # 运行时端口：下方定义连接用例与外部实现。
+    # 运行时端口：以确定性 request id 创建或复用待回答问题。
     def request(
         self,
         *,
@@ -107,7 +107,7 @@ class JsonHumanInputRepository:
     def list_pending(self) -> list[HumanInputRequest]:
         return [request for request in self.list_all() if request.status == "pending"]
 
-    # 运行时端口：下方定义连接用例与外部实现。
+    # 运行时端口：只允许 pending 问题写入一次有效回答。
     def respond(self, request_id: str, answer: str, note: str = "") -> HumanInputRequest:
 
         answer = str(answer or "").strip()

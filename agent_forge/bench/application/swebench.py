@@ -15,7 +15,7 @@ class RunSwebench:
     def __init__(self, dependencies: BenchDependencies) -> None:
         self._deps = dependencies
 
-    # 主要入口：下方定义承接该模块的核心调用。
+    # 主要入口：编排 case 执行、官方评测、最终诊断、对照与发布。
     def execute(
         self,
         request: SwebenchRunRequest,

@@ -16,7 +16,7 @@ from ..domain.fanout import (
 
 Runner = Callable[[SubagentTask], Any]
 
-# 主要入口：下方定义承接该模块的核心调用。
+# 主要入口：用注入 callback 验证依赖/冲突调度；不启动真实 AgentLoop。
 def run_fanout(
     tasks: list[SubagentTask],
     runner: Runner,

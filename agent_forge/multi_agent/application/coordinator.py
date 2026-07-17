@@ -38,7 +38,7 @@ class MultiAgentCoordinator:
         )
         self._event_step = 0
 
-    # 主要入口：下方定义承接该模块的核心调用。
+    # 主要入口：执行 Implementer、Reviewer、Verifier 与有界 revision loop。
     def run(self) -> MultiAgentRunSummary:
         """按角色顺序执行 Implementer、Reviewer、Verifier 和有界修订。"""
 

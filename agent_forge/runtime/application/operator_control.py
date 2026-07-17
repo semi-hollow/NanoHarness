@@ -25,7 +25,7 @@ class DecideApproval:
     def __init__(self, approvals: ApprovalRepository) -> None:
         self.approvals = approvals
 
-    # 主要入口：下方定义承接该模块的核心调用。
+    # 主要入口：验证并持久化一次明确的副作用审批决定。
     def execute(
         self,
         operation_key: str,
@@ -44,7 +44,7 @@ class RespondToHumanInput:
     def __init__(self, human_inputs: HumanInputRepository) -> None:
         self.human_inputs = human_inputs
 
-    # 主要入口：下方定义承接该模块的核心调用。
+    # 主要入口：持久化人工回答或取消状态，不隐式重启 Agent。
     def execute(
         self,
         request_id: str,
@@ -66,7 +66,7 @@ class BuildContinuationPlan:
     def __init__(self, human_inputs: HumanInputRepository) -> None:
         self.human_inputs = human_inputs
 
-    # 主要入口：下方定义承接该模块的核心调用。
+    # 主要入口：从 checkpoint 和人工结果构造 continuation 的显式输入。
     def execute(
         self,
         checkpoint: TaskCheckpoint,

@@ -1,6 +1,7 @@
 from dataclasses import dataclass
 
 
+# 核心数据：本 turn 展示给模型和隐藏于模型的真实工具可见性决策。
 @dataclass(frozen=True)
 class ToolRoute:
     """一次工具可见性决策，明确记录展示、隐藏和治理元数据。"""
@@ -39,7 +40,7 @@ class ToolRouter:
         "run_command": {"capability": "validate", "risk": "high", "latency": "medium", "mode": "command"},
     }
 
-    # 主要入口：下方定义承接该模块的核心调用。
+    # 主要入口：结合任务、Skill 与模式收敛本 turn 的模型可见工具 schema。
     def route(
         self,
         task: str,

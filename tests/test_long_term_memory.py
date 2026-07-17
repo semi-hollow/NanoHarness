@@ -7,7 +7,7 @@ from agent_forge.context.adapters import JsonLongTermMemoryRepository
 from agent_forge.context.api import build_evidence_reference
 from agent_forge.context.application import LongTermMemoryService
 from agent_forge.context.domain import EvidenceReference
-from agent_forge.context.memory import Memory
+from agent_forge.runtime.application.working_memory import WorkingMemory
 from agent_forge.runtime.adapters import RepositoryContextAssembler
 
 
@@ -167,7 +167,7 @@ class LongTermMemoryTest(unittest.TestCase):
             record.memory_id,
             [EvidenceReference("test", "parser-contract")],
         )
-        memory = Memory()
+        memory = WorkingMemory()
         memory.seed_long_term(
             self.service.recall(
                 "parser JSON",
@@ -180,7 +180,7 @@ class LongTermMemoryTest(unittest.TestCase):
         report = RepositoryContextAssembler().build(
             task="inspect parser JSON behavior",
             workspace=str(self.root),
-            memory=memory,
+            working_memory=memory,
             tools=[],
             active_skill_cards=[],
             max_chars=4_000,

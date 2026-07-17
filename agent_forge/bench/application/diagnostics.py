@@ -13,7 +13,7 @@ class DiagnoseBenchCase:
     def __init__(self, evidence_reader: CaseEvidenceReader) -> None:
         self._evidence_reader = evidence_reader
 
-    # 主要入口：下方定义承接该模块的核心调用。
+    # 主要入口：读取最终 usage/trace 并把唯一 taxonomy 诊断写回 case result。
     def attach(self, result: BenchCaseResult) -> BenchCaseResult:
         """把最终证据支持的唯一失败诊断写回 case result。"""
 

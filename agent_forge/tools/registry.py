@@ -27,7 +27,7 @@ class ToolRegistry:
 
         return self._tools.get(name)
 
-    # 主要入口：下方定义承接该模块的核心调用。
+    # 主要入口：校验参数并执行已注册 Tool，所有异常归一化为 Observation。
     def execute(self, name: str, arguments: ToolArguments) -> Observation:
         """执行已注册工具，并把参数错误和异常归一化为 Observation。"""
 

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from .models import EvaluationComparison
 
-# 主要入口：下方定义承接该模块的核心调用。
+# 主要入口：比较同一 task 的 single 与 multi 运行事实并生成保守建议。
 def compare_runs(task_id: str, single: dict, multi: dict) -> EvaluationComparison:
     """比较同一任务的 single 与 multi 运行指标。"""
 
@@ -53,7 +53,7 @@ def _float(data: dict, key: str) -> float:
     except (TypeError, ValueError):
         return 0.0
 
-# 主要入口：下方定义承接该模块的核心调用。
+# 主要入口：归一化 direct/single/multi 等任意命名变体并保留每个证据层。
 def compare_variants(task_id: str, variants: dict[str, dict]) -> dict:
     """归一化并比较任意命名的运行变体。"""
 

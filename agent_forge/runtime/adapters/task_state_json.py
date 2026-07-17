@@ -21,7 +21,7 @@ class JsonTaskStateRepository:
 
         return self.root / f"{run_id}.json"
 
-    # 运行时端口：下方定义连接用例与外部实现。
+    # 运行时端口：创建 run 的首个 checkpoint 并原子写入 JSON。
     def start(
         self,
         run_id: str,
@@ -43,7 +43,7 @@ class JsonTaskStateRepository:
         self.save(checkpoint)
         return checkpoint
 
-    # 运行时端口：下方定义连接用例与外部实现。
+    # 运行时端口：应用显式状态转换并覆盖同一 run 的 checkpoint。
     def update(
         self,
         checkpoint: TaskCheckpoint,

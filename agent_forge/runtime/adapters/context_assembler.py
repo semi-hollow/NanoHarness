@@ -11,13 +11,13 @@ from agent_forge.contracts import ToolSchema
 class RepositoryContextAssembler:
     """扫描 workspace，并构造 Runtime 消费的上下文报告。"""
 
-    # 运行时端口：下方定义连接用例与外部实现。
+    # 运行时端口：读取 repository 事实并返回有预算的类型化 ContextReport。
     def build(
         self,
         *,
         task: str,
         workspace: str,
-        memory: ContextMemory,
+        working_memory: ContextMemory,
         tools: list[ToolSchema],
         active_skill_cards: list[str],
         max_chars: int,
@@ -29,7 +29,7 @@ class RepositoryContextAssembler:
         return build_context_report(
             task,
             repo_map,
-            memory,
+            working_memory,
             docs=repo_map.splitlines(),
             root=workspace,
             tools=tools,

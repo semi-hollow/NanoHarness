@@ -16,7 +16,7 @@ from agent_forge.observability.domain.usage import build_usage_report
 from agent_forge.observability.presentation.usage_report import render_usage_markdown
 from agent_forge.observability.presentation.replay import render_trace_replay
 
-# 主要入口：下方定义承接该模块的核心调用。
+# 主要入口：从 trace 事实投影并发布 usage.json 与 usage_report.md。
 def write_usage_artifacts(
     trace_path: str | Path,
     output_dir: str | Path | None = None,

@@ -61,8 +61,14 @@ RESERVED_EVENT_FIELDS = {
 }
 
 
+# 核心数据：所有 Runtime/Orchestration 事件共用的稳定 envelope 与类型化 payload。
 @dataclass(frozen=True)
 class TraceEvent:
+    """Trace 的原子事实。
+
+    ``run_id/step/agent_name/event_type`` 定位事件；duration/success/error 是公共度量；
+    ``data`` 保存事件专属字段，并禁止覆盖 envelope 保留键。
+    """
 
     run_id: str
     step: int

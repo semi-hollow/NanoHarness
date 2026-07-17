@@ -1,3 +1,9 @@
+"""内置 benchmark 集合的人工策展契约。
+
+本文件只有稳定常量和类型化 profile，不加载 Hugging Face 数据集。阅读时先看
+``SMOKE_5_PROFILE`` 的集合目标，再按 ``CASE_PROFILES`` 查看每题选择理由。
+"""
+
 from agent_forge.bench.domain.case_inspection import (
     BenchmarkCaseProfile,
     BenchmarkSetProfile,
@@ -11,6 +17,7 @@ SHOWCASE_INSTANCE_NOTE = (
     "for local runs but forces real repository checkout, context retrieval, "
     "tool use, patch generation, and trace/usage inspection."
 )
+# 单题语义：回答“每个 case 具体测什么、为什么选它”。
 CASE_PROFILES = {
     SHOWCASE_INSTANCE_ID: BenchmarkCaseProfile(
         instance_id=SHOWCASE_INSTANCE_ID,
@@ -54,9 +61,11 @@ CASE_PROFILES = {
     ),
 }
 
+# 集合成员：执行顺序稳定，便于 matched regression 比较。
 SMOKE_5_CASE_IDS = tuple(CASE_PROFILES)
 REGRESSION_SETS = {"smoke-5": list(SMOKE_5_CASE_IDS)}
 
+# 集合契约：回答“从 300 题中为什么只选这 5 题、结论能外推到哪里”。
 SMOKE_5_PROFILE = BenchmarkSetProfile(
     name="smoke-5",
     dataset_name=DEFAULT_DATASET,

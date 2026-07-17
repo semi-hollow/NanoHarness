@@ -38,8 +38,9 @@ class WorkspaceSandbox:
             or any("secrets" in part for part in lowered_parts)
         )
 
-    # 运行时端口：下方定义连接用例与外部实现。
+    # 运行时端口：解析路径并拒绝 workspace 外部、符号链接逃逸等访问。
     def ensure_safe_path(self, path: str | Path) -> Path:
+        """返回规范化安全路径；越界时抛出 ``PermissionError``。"""
 
         resolved = self.resolve_path(path)
         try:

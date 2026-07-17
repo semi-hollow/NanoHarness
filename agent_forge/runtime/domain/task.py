@@ -45,12 +45,16 @@ class TaskRunStatus(Enum):
     COMPLETED = "completed"
 
 
+# 核心数据：暂停、恢复和终态报告共享的 durable 任务快照。
 @dataclass
 class TaskCheckpoint:
     """可恢复任务的最小控制面快照。
 
-    该对象拥有 checkpoint 字段及转换语义。Repository 只负责保存和加载，不应
-    重新解释状态含义。完整消息和工具输出属于 Trace，不进入本对象。
+    ``run_id/task/workspace/agent_name`` 标识运行；``status/current_step`` 是状态机
+    位置；``last_*``、``stop_reason`` 和 ``resume_hint`` 指导恢复；计数字段与
+    ``context_digest`` 保存有界上下文；``metadata`` 承载人工请求和执行环境等
+    扩展事实。Repository 只负责保存和加载。完整消息和工具输出属于 Trace，
+    不进入本对象。
     """
 
     run_id: str

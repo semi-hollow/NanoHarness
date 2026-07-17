@@ -27,7 +27,7 @@ from agent_forge.runtime.llm_config import LLMConfig, resolve_llm_config
 from agent_forge.runtime.wiring import build_llm, build_registry
 from agent_forge.tools.registry import ToolRegistry
 
-# 主要入口：下方定义承接该模块的核心调用。
+# 主要入口：从 CLI 参数装配并运行 single、sequential multi 或 live fanout 任务。
 def run_repository_task(args: argparse.Namespace) -> Path:
     """执行 repository task，并返回完整 evidence 目录。"""
 
@@ -119,7 +119,7 @@ def run_repository_task(args: argparse.Namespace) -> Path:
         finally:
             environment.cleanup()
 
-# 运行时端口：下方定义连接用例与外部实现。
+# 运行时端口：把 local/worktree/container 配置落成可执行 workspace 快照。
 def prepare_execution_environment(
     args: argparse.Namespace,
     run_id: str,

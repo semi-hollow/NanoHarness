@@ -7,8 +7,10 @@ from agent_forge.runtime.domain.conversation import Message
 from .usage import ModelUsage
 
 
+# 核心数据：模型重试、tool-call 修复和 fallback 的有界策略。
 @dataclass
 class RetryPolicy:
+    """区分可重试、可修复和可切换 provider 的错误集合。"""
 
     max_attempts: int = 1
     backoff_seconds: float = 0.0
@@ -63,7 +65,7 @@ class ModelGateway(LLMClient):
 
         self.last_usage = ModelUsage(provider=provider, model=model)
 
-    # 主要入口：下方定义承接该模块的核心调用。
+    # 主要入口：调用主模型，并统一处理重试、协议修复、fallback 与 usage。
     def chat(self, messages: list[Message], tools: list[dict]) -> AgentResponse:
         """执行一次与供应商无关的模型调用，并统一重试、回退和用量。"""
 

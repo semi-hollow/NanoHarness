@@ -1,7 +1,7 @@
 """Context 能力的稳定契约。
 
 Runtime 只需要读取有限的 memory 视图；检索和压缩仍由 Context 负责。Protocol 避免
-上下文组装依赖具体的进程内 ``Memory`` 实现。
+上下文组装依赖具体的进程内 ``WorkingMemory`` 实现。
 """
 
 from __future__ import annotations

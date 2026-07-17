@@ -11,6 +11,7 @@ from agent_forge.context.application import LongTermMemoryService
 from agent_forge.context.domain import EvidenceReference, LongTermMemoryRecord
 
 
+# 主要入口：从 CLI/UI 创建 candidate；该记录尚不能进入 Agent 上下文。
 def propose_memory(
     *,
     memory_root: str,
@@ -43,6 +44,7 @@ def propose_memory(
     )
 
 
+# 主要入口：绑定证据并把 candidate 晋升为可召回的 active 记录。
 def promote_memory(
     memory_root: str,
     memory_id: str,
@@ -72,18 +74,21 @@ def build_evidence_reference(value: str) -> EvidenceReference:
     )
 
 
+# 主要入口：让已失效的 active 记录退出后续召回。
 def retire_memory(memory_root: str, memory_id: str) -> LongTermMemoryRecord:
     """退役已失效记忆。"""
 
     return _service(memory_root).retire(memory_id)
 
 
+# 主要入口：拒绝错误 candidate，同时保留其审计历史。
 def reject_memory(memory_root: str, memory_id: str) -> LongTermMemoryRecord:
     """拒绝错误候选。"""
 
     return _service(memory_root).reject(memory_id)
 
 
+# 主要入口：列出长期记忆状态，供操作员审计而非模型直接使用。
 def list_memories(
     memory_root: str,
     workspace: str | None = None,

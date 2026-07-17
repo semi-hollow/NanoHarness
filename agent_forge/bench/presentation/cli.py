@@ -1,3 +1,10 @@
+"""Benchmark CLI 的参数与输出适配层。
+
+阅读入口：``run_swebench_from_args`` 进入执行链；两个 ``render_*_from_args``
+进入只读 Case Explorer。``build_*_parser`` 只注册参数，``publish_case_document``
+只负责终端或文件输出，均不拥有 benchmark 规则。
+"""
+
 from __future__ import annotations
 
 import argparse
@@ -52,6 +59,7 @@ def build_case_inspection_parser(parser: argparse.ArgumentParser) -> None:
 
 
 def build_swebench_parser(parser: argparse.ArgumentParser) -> None:
+    """注册 benchmark 执行、实验身份和隔离环境参数。"""
 
     parser.add_argument("--dataset", default=DEFAULT_DATASET)
     parser.add_argument("--split", default="test")
@@ -166,7 +174,9 @@ def build_swebench_parser(parser: argparse.ArgumentParser) -> None:
     )
 
 
+# 主要入口：把扁平 CLI 参数收敛成 SwebenchRunRequest 并启动正式评测用例。
 def run_swebench_from_args(args: argparse.Namespace) -> BenchRunSummary:
+    """处理固定集合/showcase 语义后调用 ``bench.api.run_swebench``。"""
 
     instance_ids = args.instance_id
     limit = args.limit
@@ -229,6 +239,7 @@ def run_swebench_from_args(args: argparse.Namespace) -> BenchRunSummary:
     ))
 
 
+# 主要入口：查询固定集合契约并生成 Markdown 或 JSON 文本。
 def render_case_catalog_from_args(args: argparse.Namespace) -> str:
     """把集合选择契约渲染成 Markdown 或 JSON。"""
 
@@ -246,6 +257,7 @@ def render_case_catalog_from_args(args: argparse.Namespace) -> str:
     return render_case_catalog(set_profile, profiles)
 
 
+# 主要入口：读取单题并按显式防泄漏开关生成 Markdown 或 JSON。
 def render_case_inspection_from_args(args: argparse.Namespace) -> str:
     """读取单个 case，并按显式泄漏开关渲染。"""
 
@@ -273,7 +285,7 @@ def render_case_inspection_from_args(args: argparse.Namespace) -> str:
 
 
 def publish_case_document(content: str, output: str | None) -> None:
-    """打印 case 文档；指定路径时也落盘，便于生成公开目录。"""
+    """输出适配器：打印 case 文档，或将同一内容写入指定路径。"""
 
     if output:
         path = Path(output)

@@ -32,7 +32,7 @@ from agent_forge.evaluation.presentation.mini_case_report import render_mini_cas
 from agent_forge.evaluation.presentation.scorecard_report import render_benchmark_scorecard
 from agent_forge.evaluation.wiring import build_scorecard_use_case
 
-# 主要入口：下方定义承接该模块的核心调用。
+# 主要入口：从 benchmark 运行事实与 artifact 构造稳定定量 scorecard。
 def build_benchmark_scorecard(
     results: dict[str, Any],
     run_dir: str | Path,

@@ -17,8 +17,9 @@ class PermissionPolicy:
 
         self.auto_approve_writes = auto_approve_writes
 
-    # 运行时端口：下方定义连接用例与外部实现。
+    # 运行时端口：把动作映射为 allow/ask/deny；命令再交给 CommandPolicy。
     def decide(self, action: str, command: str = "") -> tuple[PermissionDecision, str]:
+        """返回确定性权限决策和可写入 trace 的原因。"""
 
         if action in {"read", "list", "grep"}:
             return PermissionDecision.ALLOW, "read/list/grep allowed"

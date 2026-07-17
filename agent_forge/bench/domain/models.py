@@ -5,8 +5,15 @@ from pathlib import Path
 from typing import Any
 
 
+# 核心数据：从 SWE-bench dataset 边界归一化后的单题输入。
 @dataclass
 class BenchCase:
+    """Agent 可见任务和官方隐藏字段的内部载体。
+
+    ``instance_id/repo/base_commit/problem_statement`` 是必填执行输入；``hints_text``
+    可进入任务；``test_patch`` 和 ``raw`` 中的 gold/evaluation 字段只供
+    Harness 使用。
+    """
 
     instance_id: str
     repo: str
@@ -46,8 +53,15 @@ class BenchCase:
         )
 
 
+# 核心数据：单题 candidate patch、本地验证、官方评测与诊断的最终事实。
 @dataclass
 class BenchCaseResult:
+    """一个 case 的 artifact 位置和分层 correctness evidence。
+
+    ``status`` 是 Runtime 结果；``patch_chars`` 只说明存在 candidate diff；
+    ``local_validation_status`` 与 ``official_evaluation_status`` 是独立证据层；
+    ``failure_class/diagnosis/evidence/next_actions`` 必须在最终评测后写入。
+    """
 
     instance_id: str
     repo: str
@@ -96,9 +110,17 @@ class BenchCaseResult:
         }
 
 
+# 核心数据：整个 benchmark run 的实验身份、资源配置和 per-case 证据。
 @dataclass
 class BenchRunSummary:
+    """可写入 ``results.json``、report 和 scorecard 的 run truth model。
 
+    前半部分保存 dataset/provider/agent/sampling 身份；中间保存 Skill、Memory、
+    execution environment 与预算；后半部分保存 baseline、official evaluator、case 结果
+    和 notes。Renderer 只能消费这里的事实，不能把 candidate patch 推断成 solved。
+    """
+
+    # 实验身份和输出根路径。
     run_id: str
     dataset_name: str
     split: str
@@ -106,11 +128,13 @@ class BenchRunSummary:
     model: str
     output_dir: Path
     predictions_path: Path
+    # Agent workflow、模型采样和可见工具身份。
     temperature: float = 0.0
     agent_mode: str = "single"
     profile: str = ""
     max_revision_rounds: int = 0
     tool_routing_mode: str = "task-aware"
+    # Skill snapshot 与执行环境身份。
     skill_mode: str = "auto"
     skill_names: list[str] = field(default_factory=list)
     skill_manifest_sha256: str = ""
@@ -123,6 +147,7 @@ class BenchRunSummary:
     container_memory: str = "1g"
     container_pids_limit: int = 256
     container_read_only: bool = True
+    # Runtime 预算和长期记忆冻结输入。
     max_steps: int = 0
     max_context_chars: int = 0
     max_prompt_tokens: int = 0
@@ -133,6 +158,7 @@ class BenchRunSummary:
     memory_namespace: str = ""
     memory_recall_limit: int = 0
     memory_snapshot_sha256: str = ""
+    # 对照实验、official evaluator 和 per-case 最终结果。
     baseline_predictions_path: Path | None = None
     variant_comparisons: dict[str, dict[str, Any]] = field(default_factory=dict)
     official_eval_command: list[str] = field(default_factory=list)

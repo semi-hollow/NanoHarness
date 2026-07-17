@@ -28,7 +28,7 @@ class ToolFeedback:
     ) -> None:
         """把未执行、被拒绝或人工回答反馈给下一轮模型。"""
 
-        session.memory.add_observation(observation)
+        session.working_memory.add_observation(observation)
         session.messages.append(
             Message(
                 "tool",
@@ -59,7 +59,9 @@ class ToolFeedback:
         if signal is None:
             return None
         if remember:
-            session.memory.add(f"recovery:{signal.kind.value}:{signal.recovery_hint}")
+            session.working_memory.add(
+                f"recovery:{signal.kind.value}:{signal.recovery_hint}"
+            )
         self.trace.add(
             step,
             session.agent_name,

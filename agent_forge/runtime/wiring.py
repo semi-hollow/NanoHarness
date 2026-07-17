@@ -136,7 +136,7 @@ def build_runtime_dependencies(
         approvals=JsonApprovalRepository(config.approval_root),
         human_inputs=JsonHumanInputRepository(config.human_input_root),
         operations=JsonOperationLedgerRepository(config.operation_ledger_root),
-        long_term_memory=LongTermMemoryService(
+        long_term_memory_recall=LongTermMemoryService(
             JsonLongTermMemoryRepository(
                 config.memory_root
                 or str(Path(config.workspace) / ".agent_forge" / "memory")
@@ -144,7 +144,7 @@ def build_runtime_dependencies(
         ),
     )
 
-# 主要入口：下方定义承接该模块的核心调用。
+# 主要入口：为所有入站路径装配同一套单 Agent Runtime 和治理端口。
 def build_agent_loop(
     config: "RuntimeConfig",
     trace: TraceRecorder,

@@ -9,7 +9,7 @@ from typing import Any, Iterable
 FEEDBACK_OUTCOMES = {"accepted", "needs_work", "rejected"}
 SCHEMA_VERSION = "agent-forge-eval-v1"
 
-# 主要入口：下方定义承接该模块的核心调用。
+# 主要入口：在现有 run/case artifact 上追加人工 outcome、label 和 note。
 def record_feedback(
     target: str | Path,
     *,
@@ -43,7 +43,7 @@ def record_feedback(
     temporary.replace(path)
     return path
 
-# 主要入口：下方定义承接该模块的核心调用。
+# 主要入口：将有反馈的 case evidence 导出为可追溯训练/分析 JSONL。
 def export_feedback_dataset(
     targets: Iterable[str | Path],
     output_path: str | Path,

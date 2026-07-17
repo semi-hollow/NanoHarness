@@ -8,7 +8,7 @@ from agent_forge.workbench.domain.models import WorkbenchCommand
 from agent_forge.workbench.ports import EvidenceCatalogPort
 from agent_forge.workbench.wiring import build_evidence_catalog
 
-# 主要入口：下方定义承接该模块的核心调用。
+# 主要入口：把 UI action 和 payload 转换成固定 argv，不执行 shell 字符串。
 def build_workbench_command(
     action: str,
     payload: dict[str, Any],
@@ -370,6 +370,8 @@ def payload_float(
     min_value: float,
     max_value: float,
 ) -> float:
+    """读取、归一化并限制 UI 浮点参数，非法值回退到默认值。"""
+
     raw_value = payload.get(key)
     try:
         value = default if raw_value is None else float(str(raw_value))

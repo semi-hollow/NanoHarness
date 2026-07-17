@@ -1,3 +1,5 @@
+"""基于最终证据、按明确优先级分类 benchmark 结果。"""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -6,8 +8,10 @@ from typing import Any
 from .models import BenchCaseResult
 
 
+# 核心数据：一个互斥失败分类及其证据、影响和下一步。
 @dataclass(frozen=True)
 class FailureDiagnosis:
+    """面向 report/case study 的稳定诊断结果，而不是原始异常文本。"""
 
     failure_class: str
     summary: str
@@ -18,10 +22,22 @@ class FailureDiagnosis:
     engineering_lesson: str = ""
 
 
-def classify_case_result(result: BenchCaseResult, usage: dict[str, Any], trace: dict[str, Any]) -> FailureDiagnosis:
+# 主要入口：按官方结果、环境、验证、Runtime 行为的顺序选择唯一分类。
+def classify_case_result(
+    result: BenchCaseResult,
+    usage: dict[str, Any],
+    trace: dict[str, Any],
+) -> FailureDiagnosis:
+    """返回第一条被证据满足的诊断；分支顺序本身就是分类优先级。"""
+
     summary = usage.get("summary") or {}
     stop_reason = str(usage.get("stop_reason") or trace.get("stop_reason") or "")
-    final_answer = str(result.final_answer or usage.get("final_answer") or trace.get("final_answer") or "")
+    final_answer = str(
+        result.final_answer
+        or usage.get("final_answer")
+        or trace.get("final_answer")
+        or ""
+    )
     failed_tools = _int(summary.get("failed_tool_calls"))
     total_tokens = _int(summary.get("total_tokens"))
     tool_calls = _int(summary.get("tool_calls"))
@@ -46,11 +62,20 @@ def classify_case_result(result: BenchCaseResult, usage: dict[str, Any], trace: 
     if result.error:
         evidence.append(f"runner_error={result.error[:240]}")
 
-    lowered = " ".join([result.status, result.evaluation_status, stop_reason, final_answer, result.error]).lower()
+    lowered = " ".join(
+        [
+            result.status,
+            result.evaluation_status,
+            stop_reason,
+            final_answer,
+            result.error,
+        ]
+    ).lower()
     official_status = result.official_evaluation_status
     if official_status == "not_evaluated" and result.evaluation_status.startswith("official_"):
         official_status = result.evaluation_status
 
+    # 1. Official evaluator 是最高权威，先于本地状态和 Runtime 症状。
     if official_status == "official_resolved":
         return FailureDiagnosis(
             "official_resolved",
@@ -62,6 +87,7 @@ def classify_case_result(result: BenchCaseResult, usage: dict[str, Any], trace: 
             engineering_lesson="Resolved claims should be backed by parsed per-case evaluator artifacts.",
         )
 
+    # 2. Harness/环境不可用时，不能误归因到 Agent 推理或 patch correctness。
     if result.error:
         return FailureDiagnosis(
             "runner_or_environment_error",
@@ -102,6 +128,7 @@ def classify_case_result(result: BenchCaseResult, usage: dict[str, Any], trace: 
             impact="The generated patch did not satisfy benchmark correctness criteria.",
             engineering_lesson="Patch generation, local validation, and official resolution are different evidence levels.",
         )
+    # 3. 有 patch 或本地验证时，报告证据层级但不外推 official resolved。
     if result.local_validation_status == "passed":
         return FailureDiagnosis(
             "locally_verified_candidate",
@@ -122,7 +149,10 @@ def classify_case_result(result: BenchCaseResult, usage: dict[str, Any], trace: 
             impact="The runtime reached edit capability, but correctness remains unproven.",
             engineering_lesson="Conservative reporting prevents benchmark demos from becoming unsupported success claims.",
         )
-    if "offset" in lowered and "limit" in lowered and ("ignored" in lowered or "line window" in lowered):
+    # 4. 没有 correctness 证据时，再分析工具协议、窗口和 provider 行为。
+    if "offset" in lowered and "limit" in lowered and (
+        "ignored" in lowered or "line window" in lowered
+    ):
         return FailureDiagnosis(
             "tool_schema_mismatch",
             "The model attempted a natural tool-call shape that the runtime tool schema did not support correctly.",
@@ -222,6 +252,7 @@ def classify_case_result(result: BenchCaseResult, usage: dict[str, Any], trace: 
             impact="The model likely lacked the code evidence needed to make a safe edit.",
             engineering_lesson="Context engineering should be evaluated by whether expected files appear before the agent commits to an action.",
         )
+    # 5. 最后处理没有更具体证据的 no-patch 或未知结果。
     if result.status == "no_patch":
         return FailureDiagnosis(
             "no_patch_generated",

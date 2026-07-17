@@ -12,7 +12,7 @@ class BuildBenchmarkScorecard:
     def __init__(self, evidence_reader: CaseEvidenceReader) -> None:
         self._evidence_reader = evidence_reader
 
-    # 主要入口：下方定义承接该模块的核心调用。
+    # 主要入口：读取 case evidence，归一化后聚合为 claim-safe scorecard。
     def execute(
         self,
         results: dict[str, Any],

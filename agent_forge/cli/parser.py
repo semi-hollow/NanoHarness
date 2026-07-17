@@ -13,7 +13,7 @@ from agent_forge.bench.presentation.cli import (
 from agent_forge.multi_agent.profiles import list_profiles
 from agent_forge.workbench.api import build_ui_parser
 
-# 主要入口：下方定义承接该模块的核心调用。
+# 主要入口：构造完整 ``forge`` 命令树；所有 ``_add_*`` 都只是参数分组。
 def build_parser() -> argparse.ArgumentParser:
     """构造按用户目标组织的命令面，不暴露内部 application 类。"""
 

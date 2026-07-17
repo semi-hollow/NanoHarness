@@ -34,7 +34,7 @@ class LocalCaseExecutor:
     def __init__(self, workspace_manager: SwebenchWorkspaceManager) -> None:
         self._workspace_manager = workspace_manager
 
-    # 主要入口：下方定义承接该模块的核心调用。
+    # 主要入口：准备单题隔离环境，运行真实 Runtime，收集 patch 与 trace。
     def run(
         self,
         case: BenchCase,

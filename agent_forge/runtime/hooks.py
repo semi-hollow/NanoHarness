@@ -142,7 +142,7 @@ class HookManager:
             ]
         )
 
-    # 运行时端口：下方定义连接用例与外部实现。
+    # 运行时端口：按拒绝优先级合并所有治理 Hook 的工具前置决策。
     def pre_tool(self, context: HookContext) -> HookResult:
 
         decisions = [hook.pre_tool(context) for hook in self.hooks]

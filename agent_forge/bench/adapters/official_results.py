@@ -16,8 +16,10 @@ RUN_REPORT_KEYS = {
 }
 
 
+# 核心数据：official evaluator 对单题给出的明确 resolved/unresolved/error 事实。
 @dataclass(frozen=True)
 class OfficialCaseOutcome:
+    """单题状态、resolved 布尔值、证据文件和解析来源。"""
 
     instance_id: str
     status: str
@@ -37,15 +39,17 @@ class OfficialCaseOutcome:
         }
 
 
+# 核心数据：一次 official run 的 per-case outcome、报告位置和解析警告。
 @dataclass(frozen=True)
 class OfficialResults:
+    """按 instance id 索引的 official outcome 与 run 级解析警告。"""
 
     run_id: str
     report_path: Path | None
     outcomes: dict[str, OfficialCaseOutcome]
     warnings: list[str] = field(default_factory=list)
 
-# 主要入口：下方定义承接该模块的核心调用。
+# 主要入口：解析 aggregate/per-case official JSON，并显式暴露缺失或冲突结果。
 def parse_official_results(
     output_dir: str | Path,
     run_id: str,
@@ -103,7 +107,7 @@ def parse_official_results(
 
     return OfficialResults(run_id=run_id, report_path=report_path, outcomes=outcomes, warnings=warnings)
 
-# 运行时端口：下方定义连接用例与外部实现。
+# 运行时端口：把已解析 official outcome 写回对应 BenchCaseResult 证据层。
 def apply_official_results(
     case_results: list[BenchCaseResult],
     parsed: OfficialResults,

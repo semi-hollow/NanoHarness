@@ -9,7 +9,7 @@ from agent_forge.runtime.api import (
     respond_to_human_input as persist_human_input_response,
 )
 
-# 主要入口：下方定义承接该模块的核心调用。
+# 主要入口：保存副作用批准/拒绝决定；不会在本命令中执行工具。
 def approve_request(args: argparse.Namespace) -> str:
     """保存批准或拒绝；该命令本身不执行工具。"""
 
@@ -24,7 +24,7 @@ def approve_request(args: argparse.Namespace) -> str:
         f"tool={request.tool_name} path={request.path}"
     )
 
-# 主要入口：下方定义承接该模块的核心调用。
+# 主要入口：保存人工回答/取消；继续执行必须显式调用 ``forge resume``。
 def respond_to_human_input_request(args: argparse.Namespace) -> str:
     """保存回答或取消状态；恢复执行仍由 ``forge resume`` 显式触发。"""
 

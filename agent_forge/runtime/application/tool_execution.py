@@ -78,7 +78,7 @@ class ToolExecutionPipeline:
             self.feedback,
         )
 
-    # 主要入口：AgentLoop 每个 turn 最多调用一次。
+    # 主要入口：治理本 turn 的 ToolCall，在人工屏障或终止处返回 StopRequest。
     def execute_calls(
         self,
         session: AgentRunSession,
@@ -400,7 +400,7 @@ class ToolExecutionPipeline:
                 step,
             )
 
-        session.memory.add_observation(observation)
+        session.working_memory.add_observation(observation)
         evidence_item = session.evidence.add_observation(observation)
         validation = self.feedback.validation_evidence(
             tool_call.name,

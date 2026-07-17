@@ -28,7 +28,7 @@ from .domain.models import AgentProfile
 RegistryFactory = Callable[[Path, ExecutionEnvironment], ToolRegistry]
 LLMFactory = Callable[[], LLMClient]
 
-# 主要入口：下方定义承接该模块的核心调用。
+# 主要入口：装配 DAG、隔离 workspace、真实 AgentLoop worker 和 finalizer。
 def build_live_fanout(
     *,
     plan: FanoutPlan,
@@ -66,7 +66,7 @@ def build_live_fanout(
         resume_from=str(resume_from) if resume_from else None,
     )
 
-# 主要入口：下方定义承接该模块的核心调用。
+# 主要入口：装配顺序角色 profile、artifact store 与共享 Runtime factory。
 def build_multi_agent_coordinator(
     task: str,
     profile: AgentProfile,

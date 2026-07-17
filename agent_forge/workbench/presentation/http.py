@@ -116,7 +116,7 @@ class ForgeUiHandler(BaseHTTPRequestHandler):
         except (BrokenPipeError, ConnectionResetError):
             return
 
-# 主要入口：下方定义承接该模块的核心调用。
+# 主要入口：启动本地只读 evidence 页面和受白名单命令控制的 HTTP 服务。
 def run_ui(host: str = "127.0.0.1", port: int = 8765, open_browser: bool = True) -> None:
     """启动只访问本地证据和受限命令的 Workbench HTTP 服务。"""
 

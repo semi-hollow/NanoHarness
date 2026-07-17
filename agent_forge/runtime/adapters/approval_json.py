@@ -36,7 +36,7 @@ class JsonApprovalRepository:
         data = json.loads(path.read_text(encoding="utf-8"))
         return ApprovalRequest(**data)
 
-    # 运行时端口：下方定义连接用例与外部实现。
+    # 运行时端口：按 operation key 幂等创建待审批副作用请求。
     def request(
         self,
         *,
@@ -99,7 +99,7 @@ class JsonApprovalRepository:
                 continue
         return sorted(requests, key=lambda request: request.updated_at, reverse=True)
 
-    # 运行时端口：下方定义连接用例与外部实现。
+    # 运行时端口：将 pending 请求转换为 approved 或 rejected 并原子落盘。
     def decide(self, operation_key: str, status: str, note: str = "") -> ApprovalRequest:
 
         request = self.get(operation_key)

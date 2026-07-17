@@ -5,8 +5,10 @@ from pathlib import Path
 from typing import Any
 
 
+# 核心数据：顺序多角色中一个角色的指令、工具和验收标记。
 @dataclass(frozen=True)
 class RoleSpec:
+    """角色运行契约；revision 可使用比首轮更窄的工具集合。"""
 
     name: str
     role: str
@@ -37,8 +39,10 @@ class RoleSpec:
         }
 
 
+# 核心数据：顺序多角色 workflow 的角色顺序和修订预算。
 @dataclass(frozen=True)
 class AgentProfile:
+    """声明 primary、reviewer、verifier 角色及默认 revision 上限。"""
 
     name: str
     description: str
@@ -73,8 +77,10 @@ class AgentProfile:
         }
 
 
+# 核心数据：角色交给后续角色的显式文件 artifact。
 @dataclass
 class Artifact:
+    """记录 artifact 身份、owner、类型、路径、摘要和修订轮次。"""
 
     id: str
     role: str
@@ -95,8 +101,10 @@ class Artifact:
         }
 
 
+# 核心数据：一个角色 round 的决定、输出和 artifact 引用。
 @dataclass
 class RoleRunResult:
+    """区分运行状态、评审决定和最终文本，避免用一个字符串混合语义。"""
 
     role: str
     status: str
@@ -119,8 +127,10 @@ class RoleRunResult:
         }
 
 
+# 核心数据：顺序多角色 workflow 的角色证据与最终状态。
 @dataclass
 class MultiAgentRunSummary:
+    """聚合 profile、revision rounds、role results、artifacts 和最终交付路径。"""
 
     run_id: str
     task: str

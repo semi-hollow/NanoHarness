@@ -1,3 +1,5 @@
+"""LLM provider 连接与采样配置的解析边界。"""
+
 import json
 import os
 from dataclasses import dataclass
@@ -5,8 +7,14 @@ from pathlib import Path
 from typing import Any
 
 
+# 核心数据：模型网关需要的 provider、凭据、模型和采样参数。
 @dataclass
 class LLMConfig:
+    """解析完成、可以直接交给 ``OpenAICompatibleLLMClient`` 的配置。
+
+    ``provider/base_url/api_key/model`` 标识远端；``timeout`` 控制单次 HTTP 调用；
+    ``temperature`` 是实际发送且进入 benchmark experiment identity 的采样随机性。
+    """
 
     provider: str = "deepseek"
     base_url: str = ""

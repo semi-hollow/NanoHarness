@@ -45,7 +45,7 @@ class ToolAuthorizationGate:
         self.operations = operations
         self.feedback = feedback
 
-    # 主要入口：下方定义承接该模块的核心调用。
+    # 主要入口：合并 Hook、审批和指纹检查，决定工具能否执行。
     def authorize(
         self,
         session: AgentRunSession,

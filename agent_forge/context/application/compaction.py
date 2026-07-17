@@ -16,9 +16,15 @@ from agent_forge.runtime.domain.conversation import Message, Observation
 T = TypeVar("T")
 
 
+# 核心数据：一次模型请求允许使用的输入窗口与输出预留预算。
 @dataclass(frozen=True)
 class PromptBudget:
-    """模型窗口中输入与预留输出的显式预算。"""
+    """模型窗口中输入与预留输出的显式预算。
+
+    ``max_prompt_tokens`` 是总窗口上限；``reserved_output_tokens`` 先为模型输出
+    留位；``soft_limit_ratio`` 决定主动压缩阈值；``chars_per_token`` 只用于调用前
+    近似估算，不冒充 provider tokenizer 的精确结果。
+    """
 
     max_prompt_tokens: int = 32_768
     reserved_output_tokens: int = 4_096
@@ -50,9 +56,15 @@ class PromptBudget:
         return max(256, int(self.hard_input_limit * self.soft_limit_ratio))
 
 
+# 核心数据：上下文治理后真正发送给模型的消息与压缩证据。
 @dataclass(frozen=True)
 class ContextWindowResult:
-    """一次预算决策产生的最终消息和可审计度量。"""
+    """一次预算决策产生的最终消息和可审计度量。
+
+    ``messages`` 是最终模型输入；``digest`` 是可选压缩摘要；``compacted`` 和
+    ``reason`` 解释是否压缩；其余计数字段记录覆盖消息数、压缩前后估算与
+    硬上限。
+    """
 
     messages: list[Message]
     digest: SessionDigest | None

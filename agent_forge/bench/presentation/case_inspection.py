@@ -1,3 +1,11 @@
+"""Benchmark Case Explorer 的 Markdown renderer。
+
+本模块只消费类型化领域对象。
+它不加载数据集、不运行 Agent，也不重新判断 case
+是否解决。CLI 的 JSON 分支直接调用领域对象 ``to_dict``，Markdown 分支调用
+下列两个入口。
+"""
+
 from __future__ import annotations
 
 from agent_forge.bench.domain.case_inspection import (
@@ -7,6 +15,7 @@ from agent_forge.bench.domain.case_inspection import (
 )
 
 
+# 主要入口：将集合级选题契约渲染为可快速扫描的 case 目录。
 def render_case_catalog(
     set_profile: BenchmarkSetProfile,
     profiles: tuple[BenchmarkCaseProfile, ...],
@@ -60,6 +69,7 @@ def render_case_catalog(
     return "\n".join(lines) + "\n"
 
 
+# 主要入口：将单题输入和测试义务渲染为默认防泄漏的复盘文档。
 def render_case_inspection(
     inspection: BenchmarkCaseInspection,
     *,
@@ -157,6 +167,8 @@ def _render_tests(
     tests: tuple[str, ...],
     show_all: bool,
 ) -> list[str]:
+    """渲染一个测试集合；默认只展示前 12 项，避免目录被大列表淹没。"""
+
     limit = len(tests) if show_all else min(12, len(tests))
     lines = [f"### {label}（{len(tests)}）", ""]
     if not tests:

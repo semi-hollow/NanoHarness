@@ -8,7 +8,7 @@ from agent_forge.evaluation.domain.mini_cases import (
     evaluate_mini_case,
 )
 
-# 主要入口：下方定义承接该模块的核心调用。
+# 主要入口：按 case id 选择确定性 mini-case，并用显式 evidence 计算结果。
 def evaluate_selected_cases(
     cases: list[MiniAgentCase],
     *,

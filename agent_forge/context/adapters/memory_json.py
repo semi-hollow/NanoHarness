@@ -17,6 +17,7 @@ class JsonLongTermMemoryRepository:
         self.root = Path(root)
         self.root.mkdir(parents=True, exist_ok=True)
 
+    # 运行时端口：校验并原子保存领域记录，不改变其权威状态。
     def save(self, record: LongTermMemoryRecord) -> None:
         """校验后使用临时文件和原子替换写入。"""
 
@@ -30,6 +31,7 @@ class JsonLongTermMemoryRepository:
         )
         os.replace(temporary, path)
 
+    # 运行时端口：按稳定 ID 读取记录，供生命周期用例修改或审计。
     def get(self, memory_id: str) -> LongTermMemoryRecord | None:
         """在隔离目录中查找稳定 ID；记录规模刻意保持轻量。"""
 
@@ -38,6 +40,7 @@ class JsonLongTermMemoryRepository:
             return self._load(path)
         return None
 
+    # 运行时端口：列出候选记录；可见性过滤仍由 LongTermMemoryService 负责。
     def list_records(self, namespace: str | None = None) -> list[LongTermMemoryRecord]:
         """跳过损坏文件，并按更新时间倒序返回。"""
 

@@ -13,7 +13,7 @@ class ContextReportView(Protocol):
 
     selected_files: list[str]
     retrieved_docs: list[str]
-    memory_summary: str
+    working_memory_summary: str
     long_term_memory: list[str]
     total_chars: int
     max_chars: int
@@ -37,7 +37,7 @@ class ContextAssemblerPort(Protocol):
         *,
         task: str,
         workspace: str,
-        memory: ContextMemory,
+        working_memory: ContextMemory,
         tools: list[ToolSchema],
         active_skill_cards: list[str],
         max_chars: int,

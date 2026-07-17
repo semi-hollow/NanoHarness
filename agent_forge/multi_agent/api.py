@@ -1,4 +1,11 @@
-"""Orchestration / Multi-Agent 的稳定公共 API。"""
+"""Orchestration / Multi-Agent 的稳定公共 API。
+
+两条真实主线：``build_multi_agent_coordinator(...).run()`` 顺序执行
+Implementer/Reviewer/Verifier；``build_live_fanout(...).run()`` 按验证后的任务 DAG
+并发运行真实 AgentLoop worker。``run_fanout`` 只是注入 callback 的纯调度器，
+主要用于
+验证依赖和冲突规则，不能当作真实多 Agent Runtime 展示。
+"""
 
 from .adapters.plan_files import load_fanout_plan
 from .application.coordinator import MultiAgentCoordinator

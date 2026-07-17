@@ -16,7 +16,7 @@ class FinalAnswerBuilder:
     def __init__(self, trace: EventSink) -> None:
         self.trace = trace
 
-    # 主要入口：下方定义承接该模块的核心调用。
+    # 主要入口：把无 tool call 的模型响应归一化为完成、阻塞或继续验证。
     def execute(
         self,
         session: AgentRunSession,

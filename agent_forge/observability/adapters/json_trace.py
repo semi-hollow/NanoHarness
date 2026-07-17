@@ -55,7 +55,7 @@ class JsonTraceRecorder:
 
         self._append(step, agent_name, event_type, success=success, error=error, data=data)
 
-    # 运行时端口：下方定义连接用例与外部实现。
+    # 运行时端口：把 checkpoint 记录为类型化 trace event，而非调试字符串。
     def record_task_state_checkpoint(
         self,
         *,
@@ -118,7 +118,7 @@ class JsonTraceRecorder:
         if self.verbose:
             print(f"[trace] step={step} agent={agent_name} event={event_type} success={success}")
 
-    # 运行时端口：下方定义连接用例与外部实现。
+    # 运行时端口：将当前事实流和 run context 原子发布为 trace.json。
     def write(self) -> None:
 
         trace = {

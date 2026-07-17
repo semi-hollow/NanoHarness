@@ -153,7 +153,7 @@ class SkillRegistry:
             return None
         return self.resolve(name, current.rollback_to)
 
-    # 主要入口：下方定义承接该模块的核心调用。
+    # 主要入口：按名称或任务匹配选择有界 Skill，返回模型提示卡视图。
     def select_for_task(
         self,
         task: str,

@@ -58,7 +58,7 @@ class AgentLoop:
         )
         self.final_answer = FinalAnswerBuilder(dependencies.events)
 
-    # 主要入口：下方定义承接该模块的核心调用。
+    # 主要入口：依次执行 run 初始化、前置准备、turn loop 和统一停止。
     def run(self, task: str, agent_name: str = "CodingAgent") -> str:
         """运行四个阶段：start -> prepare -> turn loop -> stop。
 

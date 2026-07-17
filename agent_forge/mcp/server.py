@@ -45,7 +45,7 @@ class AgentForgeMCPServer:
         self.name = name
         self.tools = {tool.name: tool for tool in tools}
 
-    # 主要入口：下方定义承接该模块的核心调用。
+    # 主要入口：运行 stdio JSON-RPC 循环并只分发已注册 MCP 方法。
     def run(self, stdin: TextIO | None = None, stdout: TextIO | None = None) -> None:
         """运行 stdio JSON-RPC 读取、分发和响应循环。"""
 

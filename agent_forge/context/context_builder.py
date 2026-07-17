@@ -1,3 +1,5 @@
+"""把 ContextStrategy 候选按稳定区段预算组装成模型 system context。"""
+
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -9,17 +11,23 @@ from .token_budget import truncate, truncate_middle
 from .context_strategy import build_context_strategy
 
 
+# 核心数据：模型输入、选择事实、预算结果和截断原因的完整读模型。
 @dataclass
 class ContextBuildReport:
-    """一次上下文组装的完整读模型，可渲染给模型并写入 trace。"""
+    """一次上下文组装的完整读模型，可渲染给模型并写入 trace。
+
+    system/project/task/repo 是基础输入；retrieval、working memory、long-term memory、
+    selected files、tools 和 Skill 是候选区段；permission/attention/topic/dropped 是治理
+    事实；budget/total/max/truncated/rendered 描述最终模型可见结果。
+    """
 
     system_prompt: str
     project_instructions: str
     user_task: str
     repo_map: str
     retrieved_docs: list[str]
-    memory: list[str]
-    memory_summary: str
+    working_memory_items: list[str]
+    working_memory_summary: str
     long_term_memory: list[str]
     selected_files: list[str]
     selected_file_previews: list[str]
@@ -41,11 +49,11 @@ class ContextBuildReport:
 
         return self.rendered_context or _fit_context_sections(self)[0]
 
-# 主要入口：下方定义承接该模块的核心调用。
+# 主要入口：汇总仓库、Skill 和分层记忆，按区段预算返回 ContextReport。
 def build_context_report(
     task: str,
     repo_map: str,
-    memory: ContextMemory,
+    working_memory: ContextMemory,
     docs: list[str] | None = None,
     max_chars: int = 8000,
     root: str | Path = ".",
@@ -65,7 +73,7 @@ def build_context_report(
         task=task,
         files=files,
         docs=docs or files,
-        memory=memory,
+        working_memory=working_memory,
         root=root,
         max_chars=max_chars,
     )
@@ -82,8 +90,8 @@ def build_context_report(
         user_task=task,
         repo_map=shortened,
         retrieved_docs=strategy.retrieved_docs,
-        memory=strategy.memory_items,
-        memory_summary=strategy.memory_summary,
+        working_memory_items=strategy.working_memory_items,
+        working_memory_summary=strategy.working_memory_summary,
         long_term_memory=strategy.long_term_memory,
         selected_files=strategy.selected_files,
         selected_file_previews=strategy.file_previews,
@@ -115,11 +123,11 @@ def build_context_report(
 def build_context(
     task: str,
     repo_map: str,
-    memory: ContextMemory,
+    working_memory: ContextMemory,
     tools: list[ToolSchema],
 ) -> str:
 
-    report = build_context_report(task, repo_map, memory, tools=tools)
+    report = build_context_report(task, repo_map, working_memory, tools=tools)
     return f"task:{task}\n{report.render()}\ntools:{tools}"
 
 
@@ -161,8 +169,12 @@ def _fit_context_sections(
             22,
         ),
         ("retrieved_docs", "\n".join(report.retrieved_docs), 5),
-        ("memory_summary", report.memory_summary, 4),
-        ("working_memory", "\n".join(str(item) for item in report.memory), 2),
+        ("working_memory_summary", report.working_memory_summary, 4),
+        (
+            "working_memory_items",
+            "\n".join(str(item) for item in report.working_memory_items),
+            2,
+        ),
         ("repo_map", report.repo_map, 6),
         ("selected_files", "\n".join(report.selected_files), 3),
         (

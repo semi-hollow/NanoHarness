@@ -54,7 +54,7 @@ def render_case_study(result: BenchCaseResult) -> str:
     )
     return "\n".join(lines)
 
-# 主要入口：下方定义承接该模块的核心调用。
+# 主要入口：基于最终 local/official evidence 覆盖写入单题 case study。
 def write_case_study(result: BenchCaseResult) -> Path:
     """基于最终本地和官方证据写入单 case 复盘。"""
 

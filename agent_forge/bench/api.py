@@ -1,3 +1,10 @@
+"""Benchmark capability 的稳定公共入口。
+
+主能力分成两条链：``run_swebench`` 执行实验并产出证据；
+``inspect_swebench_case`` 与两个 profile 查询只读取评测契约，不运行 Agent。
+外围 CLI/UI 不应直接导入 dataset adapter 或 application 内部实现。
+"""
+
 from __future__ import annotations
 
 import time
@@ -63,6 +70,7 @@ def inspect_swebench_case(
     )
 
 
+# 主要入口：读取固定集合中每道题的选择理由和 Harness 观察点。
 def list_regression_case_profiles(
     regression_set: str = "smoke-5",
 ) -> tuple[BenchmarkCaseProfile, ...]:

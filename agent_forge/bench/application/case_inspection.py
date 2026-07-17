@@ -1,3 +1,10 @@
+"""将原始 ``BenchCase`` 转换成可解释、默认防泄漏的单题契约。
+
+调用链：``bench.api.inspect_swebench_case`` -> ``InspectBenchCase.execute`` ->
+``BenchmarkCaseInspection`` -> Presentation renderer。下面两个 ``_`` 函数只负责
+外部数据归一化和 patch 规模统计，不是对外能力入口。
+"""
+
 from __future__ import annotations
 
 import json
@@ -40,6 +47,8 @@ class InspectBenchCase:
 
 
 def _string_tuple(value: Any) -> tuple[str, ...]:
+    """把 dataset 的 JSON 字符串或列表字段统一成非空字符串元组。"""
+
     if isinstance(value, str):
         try:
             decoded = json.loads(value)
@@ -52,6 +61,8 @@ def _string_tuple(value: Any) -> tuple[str, ...]:
 
 
 def _summarize_patch(patch: str) -> PatchSummary:
+    """统计 diff 文件、hunk 和行数；不判断 patch 语义或正确性。"""
+
     files: list[str] = []
     hunks = additions = deletions = 0
     for line in patch.splitlines():

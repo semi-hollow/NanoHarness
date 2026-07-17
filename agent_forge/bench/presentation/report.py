@@ -8,7 +8,7 @@ from agent_forge.evaluation.api import write_benchmark_scorecard
 
 from agent_forge.bench.domain.models import BenchRunSummary
 
-# 主要入口：下方定义承接该模块的核心调用。
+# 主要入口：在 final diagnosis 后一次性发布 results、scorecard 和 claim-safe report。
 def write_bench_artifacts(summary: BenchRunSummary) -> tuple[Path, Path]:
     """在最终诊断完成后发布 benchmark JSON 与报告。"""
 

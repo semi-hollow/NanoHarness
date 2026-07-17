@@ -45,7 +45,7 @@ from agent_forge.showcase import (
 )
 from agent_forge.workbench.api import run_ui_from_args
 
-# 主要入口：下方定义承接该模块的核心调用。
+# 主要入口：公开 ``forge`` 命令总分发，只路由到各 capability API。
 def main(argv: list[str] | None = None) -> None:
     """解析并分发公开 CLI；本函数不包含 Agent 业务逻辑。"""
 

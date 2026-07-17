@@ -9,8 +9,10 @@ class ObservationView(Protocol):
     success: bool
 
 
+# 核心数据：从工具 Observation 提炼出的可引用证据条目。
 @dataclass(frozen=True)
 class EvidenceItem:
+    """保存证据来源、摘要、类型和成功状态。"""
 
     source: str
     summary: str
@@ -23,7 +25,9 @@ class EvidenceItem:
         return f"{self.kind}:{self.source}:{status}:{self.summary}"
 
 
+# 核心数据：单次 run 内按发生顺序累积的 EvidenceItem 集合。
 class EvidenceLedger:
+    """只提取值得进入最终回答的工具事实，不替代完整 trace。"""
 
     def __init__(self) -> None:
 

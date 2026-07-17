@@ -7,9 +7,15 @@ from dataclasses import asdict, dataclass, field
 from typing import Any
 
 
+# 核心数据：可恢复副作用的幂等账本记录和前后目标指纹。
 @dataclass
 class OperationRecord:
-    """一次副作用操作的幂等状态和目标指纹。"""
+    """一次副作用操作的幂等状态和目标指纹。
+
+    ``operation_key`` 标识同一次意图；status/history 保存 planned/executed/failed 链；
+    tool/arguments/action/workspace 描述操作；run/step/observation 记录最近执行；
+    ``pre_fingerprint`` 与 ``post_fingerprint`` 用于恢复时检测重复执行或目标漂移。
+    """
 
     operation_key: str
     status: str

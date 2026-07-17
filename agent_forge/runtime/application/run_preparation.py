@@ -18,7 +18,7 @@ class RunPreparation:
     """创建 run，并在首次模型调用前完成所有一次性决策。
 
     阅读入口只有两个：``start`` 创建显式会话，``execute`` 完成 guardrail、
-    clarification、planning mode、Skill 与 memory 初始化。
+    clarification/人工恢复、Skill 选择与长期记忆召回。
     """
 
     def __init__(
@@ -34,12 +34,12 @@ class RunPreparation:
         self.task_states = dependencies.task_states
         self.human_inputs = dependencies.human_inputs
         self.hooks = dependencies.hooks
-        self.long_term_memory = dependencies.long_term_memory
+        self.memory_recall = dependencies.long_term_memory_recall
         self.human_thread_id = human_thread_id
         self.clarification_policy = ClarificationPolicy()
         self.skill_selector = dependencies.skills
 
-    # 主要入口：下方定义承接该模块的核心调用。
+    # 主要入口：创建本次 run 的 session、lifecycle 和首个 durable checkpoint。
     def start(self, task: str, agent_name: str) -> AgentRunSession:
         """创建 checkpoint、lifecycle 与内存中的 run session。"""
 
@@ -79,7 +79,7 @@ class RunPreparation:
             resume_summary=resume_summary,
         )
 
-    # 主要入口：下方定义承接该模块的核心调用。
+    # 主要入口：应用输入策略、恢复人工状态、选择 Skill 并召回长期记忆。
     def execute(self, session: AgentRunSession) -> StopRequest | None:
         """准备运行；无法继续时返回统一的停止请求。"""
 
@@ -90,7 +90,7 @@ class RunPreparation:
         if stop is not None:
             return stop
         self._activate_skills(session)
-        self._seed_memory(session)
+        self._initialize_memory_context(session)
         return None
 
     def _apply_input_policy(self, session: AgentRunSession) -> StopRequest | None:
@@ -191,28 +191,30 @@ class RunPreparation:
             skill_mode=getattr(self.config, "skill_mode", "auto"),
         )
 
-    def _seed_memory(self, session: AgentRunSession) -> None:
+    def _initialize_memory_context(self, session: AgentRunSession) -> None:
+        """创建 working memory，并注入经过权威与隔离过滤的长期召回结果。"""
+
         session.messages = [Message("user", session.task)]
         session_summary = getattr(self.config, "session_summary", "")
         if session.resume_summary:
             session_summary = "\n".join(
                 part for part in [session_summary, session.resume_summary] if part
             )
-        session.memory.seed_session(
+        session.working_memory.seed_session(
             previous_task=getattr(self.config, "previous_task", ""),
             session_summary=session_summary,
         )
         namespace = getattr(self.config, "memory_namespace", "") or str(
             self.config.workspace
         )
-        recalled = self.long_term_memory.recall(
+        recalled = self.memory_recall.recall(
             session.task,
             namespace=namespace,
             agent_name=session.agent_name,
             limit=max(0, int(getattr(self.config, "memory_recall_limit", 6))),
         )
-        session.memory.seed_long_term(recalled)
-        session.memory.set("task", session.task)
+        session.working_memory.seed_long_term(recalled)
+        session.working_memory.set("task", session.task)
         self.trace.add(
             0,
             session.agent_name,

@@ -19,7 +19,7 @@ DELTA_METRICS = (
     "bounded_tool_call_bursts",
 )
 
-# 主要入口：下方定义承接该模块的核心调用。
+# 主要入口：校验 matched identity，仅允许声明 factor 变化后比较 scorecard。
 def compare_benchmark_scorecards(
     control: dict[str, Any],
     treatment: dict[str, Any],

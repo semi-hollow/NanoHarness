@@ -2,7 +2,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from agent_forge.context.memory import Memory
+from agent_forge.runtime.application.working_memory import WorkingMemory
 from agent_forge.runtime.adapters.context_assembler import RepositoryContextAssembler
 
 
@@ -19,7 +19,7 @@ class RepositoryContextAssemblerTest(unittest.TestCase):
             report = RepositoryContextAssembler().build(
                 task="inspect target.py without editing",
                 workspace=tmp,
-                memory=Memory(),
+                working_memory=WorkingMemory(),
                 tools=[
                     {
                         "name": "read_file",
@@ -50,14 +50,14 @@ class RepositoryContextAssemblerTest(unittest.TestCase):
                 "project policy " * 500,
                 encoding="utf-8",
             )
-            memory = Memory()
+            memory = WorkingMemory()
             for index in range(10):
                 memory.add("working-memory-" + str(index) + ("m" * 500))
 
             report = RepositoryContextAssembler().build(
                 task="inspect every target module",
                 workspace=tmp,
-                memory=memory,
+                working_memory=memory,
                 tools=[
                     {
                         "name": "read_file",

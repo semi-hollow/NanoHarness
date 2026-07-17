@@ -9,7 +9,7 @@ from pathlib import Path
 from agent_forge.cli.repository import run_repository_task
 from agent_forge.runtime.api import prepare_continuation
 
-# 主要入口：下方定义承接该模块的核心调用。
+# 主要入口：把 durable checkpoint 与人工决定装配成一个新的 continuation run。
 def resume_repository_task(args: argparse.Namespace) -> Path:
     """加载 checkpoint/HITL 状态并启动新的 continuation run。"""
 
