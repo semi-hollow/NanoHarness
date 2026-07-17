@@ -9,7 +9,7 @@ import time
 from pathlib import Path
 from typing import Any
 
-from ..domain.live import FanoutPlan, LiveFanoutSummary, LiveSubagentResult
+from ..domain.live import FanoutCheckpoint, FanoutPlan, LiveFanoutSummary
 from ..presentation.live_report import render_live_fanout_report
 
 
@@ -25,25 +25,17 @@ class FanoutFileRepository:
         _write_json_atomic(path, plan.to_dict())
         return str(path)
 
-    def write_checkpoint(
-        self,
-        *,
-        plan_digest: str,
-        base_head: str,
-        results: list[LiveSubagentResult],
-        merged_task_ids: list[str],
-        status: str,
-    ) -> str:
+    def write_checkpoint(self, checkpoint: FanoutCheckpoint) -> str:
         path = self.root / "fanout_checkpoint.json"
         _write_json_atomic(
             path,
             {
                 "schema_version": 1,
-                "status": status,
-                "plan_digest": plan_digest,
-                "base_head": base_head,
-                "merged_task_ids": list(merged_task_ids),
-                "results": [result.to_dict() for result in results],
+                "status": checkpoint.status,
+                "plan_digest": checkpoint.plan_digest,
+                "base_head": checkpoint.base_head,
+                "merged_task_ids": list(checkpoint.merged_task_ids),
+                "results": [result.to_dict() for result in checkpoint.results],
                 "updated_at": time.time(),
             },
         )

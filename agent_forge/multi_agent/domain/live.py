@@ -61,9 +61,8 @@ class FanoutPlan:
             expected_artifact = str(
                 row.get("expected_artifact") or "task_output"
             ).strip()
-            if (
-                expected_artifact in {"", ".", ".."}
-                or not TASK_ID_PATTERN.fullmatch(expected_artifact)
+            if expected_artifact in {"", ".", ".."} or not TASK_ID_PATTERN.fullmatch(
+                expected_artifact
             ):
                 raise ValueError(
                     f"fanout task {task_id!r} expected_artifact must be a safe file name"
@@ -139,6 +138,18 @@ class LiveSubagentResult:
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
+
+
+# 核心数据：fanout 中途恢复点的计划身份、结果和合并进度。
+@dataclass(frozen=True)
+class FanoutCheckpoint:
+    """写入 durable checkpoint 的完整快照。"""
+
+    plan_digest: str
+    base_head: str
+    results: list[LiveSubagentResult]
+    merged_task_ids: list[str]
+    status: str
 
 
 # 核心数据：live fanout 调度、合并、冲突、finalizer 和 artifact 的最终汇总。

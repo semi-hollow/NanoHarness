@@ -2,7 +2,7 @@ import unittest
 
 from agent_forge.runtime.domain.conversation import Observation
 from agent_forge.tools.registry import ToolRegistry
-from agent_forge.tools.tool_router import ToolRouter
+from agent_forge.tools.tool_router import ToolRouter, ToolRoutingRequest
 
 
 class DummyTool:
@@ -26,18 +26,33 @@ class ToolRegistryRouterTest(unittest.TestCase):
     def test_router_respects_read_only_task(self):
         schemas = [
             {"name": "read_file", "arguments": {"path": "str"}},
-            {"name": "apply_patch", "arguments": {"path": "str", "old": "str", "new": "str"}},
+            {
+                "name": "apply_patch",
+                "arguments": {"path": "str", "old": "str", "new": "str"},
+            },
             {"name": "run_command", "arguments": {"command": "str"}},
         ]
-        route = ToolRouter().route("只读阅读这个仓库，不要修改文件", schemas, step=1, agent_name="Reviewer")
+        route = ToolRouter().route(
+            ToolRoutingRequest(
+                task="只读阅读这个仓库，不要修改文件",
+                schemas=schemas,
+                step=1,
+                agent_name="Reviewer",
+            )
+        )
         self.assertIn("read_file", route.allowed_names)
         self.assertNotIn("apply_patch", route.allowed_names)
         self.assertNotIn("run_command", route.allowed_names)
 
-    def test_router_keeps_write_tools_for_coding_task_that_only_forbids_test_edits(self):
+    def test_router_keeps_write_tools_for_coding_task_that_only_forbids_test_edits(
+        self,
+    ):
         schemas = [
             {"name": "read_file", "arguments": {"path": "str"}},
-            {"name": "apply_patch", "arguments": {"path": "str", "old": "str", "new": "str"}},
+            {
+                "name": "apply_patch",
+                "arguments": {"path": "str", "old": "str", "new": "str"},
+            },
             {"name": "write_file", "arguments": {"path": "str", "content": "str"}},
             {"name": "run_command", "arguments": {"command": "str"}},
             {"name": "git_diff", "arguments": {}},
@@ -50,7 +65,14 @@ class ToolRegistryRouterTest(unittest.TestCase):
                 "Allowed role tools: read_file, apply_patch, write_file, run_command, git_diff",
             ]
         )
-        route = ToolRouter().route(task, schemas, step=4, agent_name="Implementer")
+        route = ToolRouter().route(
+            ToolRoutingRequest(
+                task=task,
+                schemas=schemas,
+                step=4,
+                agent_name="Implementer",
+            )
+        )
         self.assertIn("apply_patch", route.allowed_names)
         self.assertIn("write_file", route.allowed_names)
         self.assertIn("run_command", route.allowed_names)
@@ -59,13 +81,23 @@ class ToolRegistryRouterTest(unittest.TestCase):
     def test_router_prefers_diagnostics_over_shell_commands_for_swebench(self):
         schemas = [
             {"name": "read_file", "arguments": {"path": "str"}},
-            {"name": "apply_patch", "arguments": {"path": "str", "old": "str", "new": "str"}},
+            {
+                "name": "apply_patch",
+                "arguments": {"path": "str", "old": "str", "new": "str"},
+            },
             {"name": "write_file", "arguments": {"path": "str", "content": "str"}},
             {"name": "run_command", "arguments": {"command": "str"}},
             {"name": "diagnostics", "arguments": {"kind": "str", "target": "str"}},
             {"name": "git_diff", "arguments": {}},
         ]
-        route = ToolRouter().route("Resolve this SWE-bench coding issue.", schemas, step=4, agent_name="Implementer")
+        route = ToolRouter().route(
+            ToolRoutingRequest(
+                task="Resolve this SWE-bench coding issue.",
+                schemas=schemas,
+                step=4,
+                agent_name="Implementer",
+            )
+        )
         self.assertIn("apply_patch", route.allowed_names)
         self.assertIn("diagnostics", route.allowed_names)
         self.assertNotIn("write_file", route.allowed_names)

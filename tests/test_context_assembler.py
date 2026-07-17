@@ -4,6 +4,7 @@ from pathlib import Path
 
 from agent_forge.runtime.application.working_memory import WorkingMemory
 from agent_forge.runtime.adapters.context_assembler import RepositoryContextAssembler
+from agent_forge.runtime.ports.context import ContextAssemblyRequest
 
 
 class RepositoryContextAssemblerTest(unittest.TestCase):
@@ -17,19 +18,21 @@ class RepositoryContextAssemblerTest(unittest.TestCase):
             )
 
             report = RepositoryContextAssembler().build(
-                task="inspect target.py without editing",
-                workspace=tmp,
-                working_memory=WorkingMemory(),
-                tools=[
-                    {
-                        "name": "read_file",
-                        "description": "Read one file",
-                        "arguments": {"path": "str"},
-                    }
-                ],
-                active_skill_cards=[],
-                max_chars=4000,
-                permission_summary="read allowed",
+                ContextAssemblyRequest(
+                    task="inspect target.py without editing",
+                    workspace=tmp,
+                    working_memory=WorkingMemory(),
+                    tools=[
+                        {
+                            "name": "read_file",
+                            "description": "Read one file",
+                            "arguments": {"path": "str"},
+                        }
+                    ],
+                    active_skill_cards=[],
+                    max_chars=4000,
+                    permission_summary="read allowed",
+                )
             )
 
         self.assertIn("target.py", report.selected_files)
@@ -55,19 +58,21 @@ class RepositoryContextAssemblerTest(unittest.TestCase):
                 memory.add("working-memory-" + str(index) + ("m" * 500))
 
             report = RepositoryContextAssembler().build(
-                task="inspect every target module",
-                workspace=tmp,
-                working_memory=memory,
-                tools=[
-                    {
-                        "name": "read_file",
-                        "description": "Read one file",
-                        "arguments": {"path": "str"},
-                    }
-                ],
-                active_skill_cards=["skill guidance " * 300],
-                max_chars=1_000,
-                permission_summary="read allowed; writes require approval",
+                ContextAssemblyRequest(
+                    task="inspect every target module",
+                    workspace=tmp,
+                    working_memory=memory,
+                    tools=[
+                        {
+                            "name": "read_file",
+                            "description": "Read one file",
+                            "arguments": {"path": "str"},
+                        }
+                    ],
+                    active_skill_cards=["skill guidance " * 300],
+                    max_chars=1_000,
+                    permission_summary="read allowed; writes require approval",
+                )
             )
 
         rendered = report.render()

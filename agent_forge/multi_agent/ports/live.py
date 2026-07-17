@@ -8,6 +8,7 @@ from agent_forge.runtime.ports.events import EventSink
 
 from ..domain.fanout import SubagentTask
 from ..domain.live import (
+    FanoutCheckpoint,
     FanoutPlan,
     FinalizerResult,
     LiveFanoutSummary,
@@ -37,15 +38,7 @@ class FanoutArtifactPort(Protocol):
     def write_plan(self, plan: FanoutPlan) -> str:
         """保存经过验证的计划。"""
 
-    def write_checkpoint(
-        self,
-        *,
-        plan_digest: str,
-        base_head: str,
-        results: list[LiveSubagentResult],
-        merged_task_ids: list[str],
-        status: str,
-    ) -> str:
+    def write_checkpoint(self, checkpoint: FanoutCheckpoint) -> str:
         """原子保存当前恢复点。"""
 
     def write_integration_patch(self, patch: str) -> str:

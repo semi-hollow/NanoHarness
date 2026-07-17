@@ -9,7 +9,12 @@ from agent_forge.runtime.clarification import ClarificationPolicy
 from agent_forge.runtime.config import RuntimeConfig
 from agent_forge.runtime.control import StepController
 from agent_forge.runtime.domain.conversation import Message
-from agent_forge.runtime.domain.task import TaskRunStatus, summarize_checkpoint
+from agent_forge.runtime.domain.human_input import HumanInputQuestion
+from agent_forge.runtime.domain.task import (
+    TaskRunStatus,
+    TaskStartRequest,
+    summarize_checkpoint,
+)
 from agent_forge.runtime.ports import SkillView
 from agent_forge.safety.guardrails import input_guardrail
 
@@ -46,14 +51,16 @@ class RunPreparation:
         self.trace.set_run_context(task=task)
         resume_summary = self._load_resume_summary(agent_name)
         checkpoint = self.task_states.start(
-            run_id=self.trace.run_id,
-            task=task,
-            workspace=self.config.workspace,
-            agent_name=agent_name,
-            metadata={
-                "execution_environment": self.environment.probe().to_dict(),
-                "human_thread_id": self.human_thread_id,
-            },
+            TaskStartRequest(
+                run_id=self.trace.run_id,
+                task=task,
+                workspace=self.config.workspace,
+                agent_name=agent_name,
+                metadata={
+                    "execution_environment": self.environment.probe().to_dict(),
+                    "human_thread_id": self.human_thread_id,
+                },
+            )
         )
         self.trace.record_task_state_checkpoint(
             step=0,
@@ -141,12 +148,14 @@ class RunPreparation:
             return None
 
         resolution = session.lifecycle.request_human_input(
-            agent_name=session.agent_name,
-            kind="clarification",
-            question=clarification.question,
-            choices=[],
-            reason=clarification.reason,
-            step=0,
+            HumanInputQuestion(
+                agent_name=session.agent_name,
+                kind="clarification",
+                question=clarification.question,
+                choices=(),
+                reason=clarification.reason,
+                step=0,
+            )
         )
         if resolution.stop is not None:
             return resolution.stop

@@ -8,6 +8,11 @@ from agent_forge.runtime.api import build_agent_loop
 from agent_forge.runtime.config import RuntimeConfig
 from agent_forge.runtime.llm_client import AgentResponse
 from agent_forge.runtime.domain.conversation import ToolCall
+from agent_forge.runtime.domain.operation import (
+    OperationPlan,
+    OperationTarget,
+    OperationTransition,
+)
 from agent_forge.safety.sandbox import WorkspaceSandbox
 from agent_forge.tools.apply_patch import ApplyPatchTool
 from agent_forge.tools.registry import ToolRegistry
@@ -28,7 +33,11 @@ class PatchThenFinalLLM:
                     ToolCall(
                         "patch-1",
                         "apply_patch",
-                        {"path": "target.py", "old": "value = 1\n", "new": "value = 2\n"},
+                        {
+                            "path": "target.py",
+                            "old": "value = 1\n",
+                            "new": "value = 2\n",
+                        },
                     )
                 ],
             )
@@ -45,16 +54,40 @@ class OperationLedgerTest(unittest.TestCase):
     def test_store_records_pending_approved_and_executed_states(self):
         with tempfile.TemporaryDirectory() as tmp:
             store = JsonOperationLedgerRepository(Path(tmp) / "ledger")
-            key = JsonOperationLedgerRepository.operation_key(
-                "apply_patch",
-                {"path": "target.py", "old": "a", "new": "b"},
-                tmp,
-                "apply_patch",
+            target = OperationTarget(
+                tool_name="apply_patch",
+                arguments={"path": "target.py", "old": "a", "new": "b"},
+                workspace=tmp,
+                action="apply_patch",
             )
+            key = JsonOperationLedgerRepository.operation_key(target)
 
-            store.record_pending(key, "apply_patch", {"path": "target.py"}, "apply_patch", tmp, run_id="r1", step=1)
-            store.record_approved(key, run_id="r1", step=1)
-            store.record_executed(key, run_id="r1", step=2, observation="patched once")
+            store.record_pending(
+                OperationPlan(
+                    operation_key=key,
+                    target=target,
+                    status="pending",
+                    run_id="r1",
+                    step=1,
+                )
+            )
+            store.record_approved(
+                OperationTransition(
+                    operation_key=key,
+                    status="approved",
+                    run_id="r1",
+                    step=1,
+                )
+            )
+            store.record_executed(
+                OperationTransition(
+                    operation_key=key,
+                    status="executed",
+                    run_id="r1",
+                    step=2,
+                    observation="patched once",
+                )
+            )
 
             record = store.get(key)
             self.assertEqual(record.status, "executed")
@@ -73,7 +106,9 @@ class OperationLedgerTest(unittest.TestCase):
                 trace_file=str(root / "first-trace.json"),
                 operation_ledger_root=str(ledger_root),
             )
-            build_agent_loop(first_config, first_trace, _registry(root), PatchThenFinalLLM()).run("fix target")
+            build_agent_loop(
+                first_config, first_trace, _registry(root), PatchThenFinalLLM()
+            ).run("fix target")
 
             second_trace = TraceRecorder(str(root / "second-trace.json"))
             second_config = RuntimeConfig(
@@ -82,10 +117,14 @@ class OperationLedgerTest(unittest.TestCase):
                 trace_file=str(root / "second-trace.json"),
                 operation_ledger_root=str(ledger_root),
             )
-            second = build_agent_loop(second_config, second_trace, _registry(root), PatchThenFinalLLM()).run("fix target")
+            second = build_agent_loop(
+                second_config, second_trace, _registry(root), PatchThenFinalLLM()
+            ).run("fix target")
 
             self.assertIn("finished", second)
-            self.assertEqual((root / "target.py").read_text(encoding="utf-8"), "value = 2\n")
+            self.assertEqual(
+                (root / "target.py").read_text(encoding="utf-8"), "value = 2\n"
+            )
             self.assertTrue(
                 any(
                     event["event_type"] == "operation_ledger"
@@ -107,7 +146,9 @@ class OperationLedgerTest(unittest.TestCase):
                 trace_file=str(root / "first-trace.json"),
                 operation_ledger_root=str(ledger_root),
             )
-            build_agent_loop(first_config, first_trace, _registry(root), PatchThenFinalLLM()).run("fix target")
+            build_agent_loop(
+                first_config, first_trace, _registry(root), PatchThenFinalLLM()
+            ).run("fix target")
 
             (root / "target.py").write_text("value = 3\n", encoding="utf-8")
 
@@ -118,10 +159,14 @@ class OperationLedgerTest(unittest.TestCase):
                 trace_file=str(root / "second-trace.json"),
                 operation_ledger_root=str(ledger_root),
             )
-            second = build_agent_loop(second_config, second_trace, _registry(root), PatchThenFinalLLM()).run("fix target")
+            second = build_agent_loop(
+                second_config, second_trace, _registry(root), PatchThenFinalLLM()
+            ).run("fix target")
 
             self.assertIn("finished", second)
-            self.assertEqual((root / "target.py").read_text(encoding="utf-8"), "value = 3\n")
+            self.assertEqual(
+                (root / "target.py").read_text(encoding="utf-8"), "value = 3\n"
+            )
             self.assertTrue(
                 any(
                     event["event_type"] == "operation_ledger"

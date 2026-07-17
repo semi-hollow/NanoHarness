@@ -5,8 +5,16 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from agent_forge.contracts import JsonObject
-from agent_forge.runtime.domain.human_input import HumanInputRequest
-from agent_forge.runtime.domain.task import TaskCheckpoint, TaskRunStatus
+from agent_forge.runtime.domain.human_input import (
+    HumanInputQuestion,
+    HumanInputRequest,
+    HumanInputRequestDraft,
+)
+from agent_forge.runtime.domain.task import (
+    TaskCheckpoint,
+    TaskCheckpointUpdate,
+    TaskRunStatus,
+)
 from agent_forge.runtime.ports import (
     EventSink,
     HookPort,
@@ -57,36 +65,12 @@ class RunLifecycle:
 
     # 第一遍：三个 public port 分别对应更新、停止和人工暂停。
     # 运行时端口：同步更新内存 checkpoint、持久化状态和 trace 事实。
-    def update(
-        self,
-        status: TaskRunStatus | None = None,
-        *,
-        current_step: int | None = None,
-        last_tool: str | None = None,
-        last_observation: str | None = None,
-        stop_reason: str | None = None,
-        final_answer: str | None = None,
-        resume_hint: str | None = None,
-        messages_count: int | None = None,
-        observations_count: int | None = None,
-        context_digest: JsonObject | None = None,
-        metadata: JsonObject | None = None,
-    ) -> TaskCheckpoint:
+    def update(self, update: TaskCheckpointUpdate) -> TaskCheckpoint:
         """只更新签名中明确列出的 checkpoint 字段。"""
 
         self.checkpoint = self.task_state_store.update(
             self.checkpoint,
-            status=status.value if status is not None else None,
-            current_step=current_step,
-            last_tool=last_tool,
-            last_observation=last_observation,
-            stop_reason=stop_reason,
-            final_answer=final_answer,
-            resume_hint=resume_hint,
-            messages_count=messages_count,
-            observations_count=observations_count,
-            context_digest=context_digest,
-            metadata=metadata,
+            update,
         )
         return self.checkpoint
 
@@ -99,16 +83,18 @@ class RunLifecycle:
             final_answer=request.final_answer,
         )
         self.update(
-            status=request.status,
-            stop_reason=request.reason,
-            final_answer=request.final_answer,
-            current_step=request.current_step,
-            last_tool=request.last_tool,
-            last_observation=request.last_observation,
-            resume_hint=request.resume_hint,
-            messages_count=request.messages_count,
-            observations_count=request.observations_count,
-            metadata=request.metadata,
+            TaskCheckpointUpdate(
+                status=request.status,
+                stop_reason=request.reason,
+                final_answer=request.final_answer,
+                current_step=request.current_step,
+                last_tool=request.last_tool,
+                last_observation=request.last_observation,
+                resume_hint=request.resume_hint,
+                messages_count=request.messages_count,
+                observations_count=request.observations_count,
+                metadata=request.metadata,
+            )
         )
         hook_decisions = self.hooks.on_stop(
             self.trace.run_id,
@@ -127,35 +113,31 @@ class RunLifecycle:
     # 运行时端口：先持久化人工问题和 checkpoint，再返回 waiting_human。
     def request_human_input(
         self,
-        *,
-        agent_name: str,
-        kind: str,
-        question: str,
-        choices: list[str],
-        reason: str,
-        step: int,
+        question: HumanInputQuestion,
     ) -> HumanInputResolution:
         """读取既有回答，或生成一个可恢复的人工暂停。"""
 
         request = self.human_input_store.request(
-            thread_id=self.human_thread_id,
-            kind=kind,
-            question=question,
-            choices=choices,
-            workspace=self.workspace,
-            run_id=self.trace.run_id,
-            step=step,
-            agent_name=agent_name,
-            reason=reason,
+            HumanInputRequestDraft(
+                thread_id=self.human_thread_id,
+                kind=question.kind,
+                question=question.question,
+                choices=question.choices,
+                workspace=self.workspace,
+                run_id=self.trace.run_id,
+                step=question.step,
+                agent_name=question.agent_name,
+                reason=question.reason,
+            )
         )
         if request.status == "responded":
             return HumanInputResolution(request)
 
-        last_tool = "ask_human" if kind == "tool_question" else ""
+        last_tool = "ask_human" if question.kind == "tool_question" else ""
         if request.status == "cancelled":
             self.trace.add(
-                step,
-                agent_name,
+                question.step,
+                question.agent_name,
                 "human_input_cancelled",
                 request=request.to_dict(),
             )
@@ -167,7 +149,7 @@ class RunLifecycle:
                     final_answer=(
                         f"blocked: human_input_cancelled request_id={request.request_id}"
                     ),
-                    current_step=step,
+                    current_step=question.step,
                     last_tool=last_tool,
                     resume_hint=(
                         "Start a new human-input thread if the task should be reconsidered."
@@ -183,8 +165,8 @@ class RunLifecycle:
             }
         )
         self.trace.add(
-            step,
-            agent_name,
+            question.step,
+            question.agent_name,
             "human_input_requested",
             request=request.to_dict(),
         )
@@ -197,7 +179,7 @@ class RunLifecycle:
                     f"waiting_human: {request.question} "
                     f"request_id={request.request_id} request={request.path}"
                 ),
-                current_step=step,
+                current_step=question.step,
                 last_tool=last_tool,
                 resume_hint=(
                     f"Run `forge respond {request.request_id} --answer <text>` then resume this run."

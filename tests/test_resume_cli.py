@@ -6,7 +6,12 @@ from agent_forge.cli.resume import write_resume_link
 from agent_forge.runtime.api import latest_checkpoint_path
 from agent_forge.runtime.application.operator_control import checkpoint_resume_workspace
 from agent_forge.runtime.adapters import JsonTaskStateRepository
-from agent_forge.runtime.domain.task import TaskCheckpoint, TaskRunStatus
+from agent_forge.runtime.domain.task import (
+    TaskCheckpoint,
+    TaskCheckpointUpdate,
+    TaskRunStatus,
+    TaskStartRequest,
+)
 
 
 class ResumeCliTest(unittest.TestCase):
@@ -30,12 +35,40 @@ class ResumeCliTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             run_dir = Path(tmp)
             store = JsonTaskStateRepository(run_dir / "task_state")
-            first = store.start("first", "old task", tmp, "CodingAgent")
-            second = store.start("second", "new task", tmp, "CodingAgent")
-            store.update(first, status=TaskRunStatus.BLOCKED.value, updated_at=1)
-            store.update(second, status=TaskRunStatus.WAITING_APPROVAL.value, updated_at=2)
+            first = store.start(
+                TaskStartRequest(
+                    run_id="first",
+                    task="old task",
+                    workspace=tmp,
+                    agent_name="CodingAgent",
+                )
+            )
+            second = store.start(
+                TaskStartRequest(
+                    run_id="second",
+                    task="new task",
+                    workspace=tmp,
+                    agent_name="CodingAgent",
+                )
+            )
+            store.update(
+                first,
+                TaskCheckpointUpdate(
+                    status=TaskRunStatus.BLOCKED,
+                    updated_at=1,
+                ),
+            )
+            store.update(
+                second,
+                TaskCheckpointUpdate(
+                    status=TaskRunStatus.WAITING_APPROVAL,
+                    updated_at=2,
+                ),
+            )
 
-            self.assertEqual(Path(latest_checkpoint_path(str(run_dir))), store.path_for("second"))
+            self.assertEqual(
+                Path(latest_checkpoint_path(str(run_dir))), store.path_for("second")
+            )
 
     def test_write_resume_link_adds_report_visible_resume_chain(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -44,7 +77,9 @@ class ResumeCliTest(unittest.TestCase):
             run_dir.mkdir()
             source_run.mkdir()
             report = run_dir / "usage_report.md"
-            report.write_text("# Usage Report\n\nExisting evidence.\n", encoding="utf-8")
+            report.write_text(
+                "# Usage Report\n\nExisting evidence.\n", encoding="utf-8"
+            )
 
             checkpoint_path = source_run / "task_state" / "previous.json"
             checkpoint_path.parent.mkdir()

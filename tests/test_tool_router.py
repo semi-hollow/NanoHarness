@@ -1,7 +1,7 @@
 import unittest
 
 from agent_forge.safety.command_policy import command_policy_summary
-from agent_forge.tools.tool_router import ToolRouter
+from agent_forge.tools.tool_router import ToolRouter, ToolRoutingRequest
 
 
 class ToolRouterPolicySummaryTest(unittest.TestCase):
@@ -17,7 +17,12 @@ class ToolRouterPolicySummaryTest(unittest.TestCase):
             {"name": "apply_patch"},
             {"name": "run_command"},
         ]
-        route = ToolRouter().route("read only inspect the file", schemas)
+        route = ToolRouter().route(
+            ToolRoutingRequest(
+                task="read only inspect the file",
+                schemas=schemas,
+            )
+        )
 
         summary = route.policy_summary()
 
@@ -32,9 +37,17 @@ class ToolRouterPolicySummaryTest(unittest.TestCase):
             {"name": "run_command"},
         ]
 
-        route = ToolRouter().route("read only inspect the file", schemas, mode="all")
+        route = ToolRouter().route(
+            ToolRoutingRequest(
+                task="read only inspect the file",
+                schemas=schemas,
+                mode="all",
+            )
+        )
 
-        self.assertEqual(route.allowed_names, {"read_file", "apply_patch", "run_command"})
+        self.assertEqual(
+            route.allowed_names, {"read_file", "apply_patch", "run_command"}
+        )
         self.assertEqual(route.dropped_names, [])
         self.assertIn("mode=all", route.reason)
 
@@ -45,7 +58,12 @@ class ToolRouterPolicySummaryTest(unittest.TestCase):
             {"name": "apply_patch"},
         ]
 
-        route = ToolRouter().route("inspect the runtime and decide what evidence is missing", schemas)
+        route = ToolRouter().route(
+            ToolRoutingRequest(
+                task="inspect the runtime and decide what evidence is missing",
+                schemas=schemas,
+            )
+        )
 
         self.assertIn("ask_human", route.allowed_names)
         self.assertEqual(route.metadata["ask_human"]["mode"], "human")

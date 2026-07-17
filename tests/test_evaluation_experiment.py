@@ -3,7 +3,22 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from agent_forge.evaluation.api import compare_benchmark_scorecards, write_ablation_comparison
+from agent_forge.evaluation.api import (
+    AblationArtifactRequest,
+    AblationComparisonRequest,
+    compare_benchmark_scorecards as _compare_benchmark_scorecards,
+    write_ablation_comparison,
+)
+
+
+def _compare(control, treatment, *, factor):
+    return _compare_benchmark_scorecards(
+        AblationComparisonRequest(
+            control=control,
+            treatment=treatment,
+            factor=factor,
+        )
+    )
 
 
 def _scorecard(
@@ -56,7 +71,9 @@ def _scorecard(
             "local_verified_count": sum(case["local_verified"] for case in cases),
             "official_evaluated_count": official_evaluated,
             "official_resolved_count": official_resolved,
-            "official_resolved_rate": official_resolved / official_evaluated if official_evaluated else None,
+            "official_resolved_rate": official_resolved / official_evaluated
+            if official_evaluated
+            else None,
             "total_tokens": sum(case["total_tokens"] for case in cases),
             "estimated_cost_usd": sum(case["estimated_cost_usd"] for case in cases),
             "llm_latency_ms": sum(case["llm_latency_ms"] for case in cases),
@@ -67,7 +84,16 @@ def _scorecard(
     }
 
 
-def _case(instance_id, *, patch=False, local=False, official=None, tokens=100, cost=0.1, failed=0):
+def _case(
+    instance_id,
+    *,
+    patch=False,
+    local=False,
+    official=None,
+    tokens=100,
+    cost=0.1,
+    failed=0,
+):
     return {
         "instance_id": instance_id,
         "patch_generated": patch,
@@ -75,9 +101,17 @@ def _case(instance_id, *, patch=False, local=False, official=None, tokens=100, c
         "official_evaluated": official is not None,
         "official_resolved": official is True,
         "official_evaluation_status": (
-            "official_resolved" if official is True else "official_eval_failed" if official is False else "not_evaluated"
+            "official_resolved"
+            if official is True
+            else "official_eval_failed"
+            if official is False
+            else "not_evaluated"
         ),
-        "failure_class": "official_resolved" if official else "patch_generated_but_unverified" if patch else "no_patch_generated",
+        "failure_class": "official_resolved"
+        if official
+        else "patch_generated_but_unverified"
+        if patch
+        else "no_patch_generated",
         "total_tokens": tokens,
         "estimated_cost_usd": cost,
         "llm_latency_ms": 1000,
@@ -90,16 +124,22 @@ class EvaluationExperimentTest(unittest.TestCase):
     def test_paired_ablation_reports_quality_and_efficiency_deltas(self):
         control = _scorecard(
             "control",
-            [_case("case-1", patch=False, official=False, failed=2), _case("case-2", patch=True, official=False)],
+            [
+                _case("case-1", patch=False, official=False, failed=2),
+                _case("case-2", patch=True, official=False),
+            ],
             routing="all",
         )
         treatment = _scorecard(
             "treatment",
-            [_case("case-1", patch=True, local=True, official=True), _case("case-2", patch=True, official=False)],
+            [
+                _case("case-1", patch=True, local=True, official=True),
+                _case("case-2", patch=True, official=False),
+            ],
             routing="task-aware",
         )
 
-        comparison = compare_benchmark_scorecards(control, treatment, factor="tool-routing")
+        comparison = _compare(control, treatment, factor="tool-routing")
 
         self.assertTrue(comparison["validity"]["comparable"])
         self.assertEqual(comparison["aggregate_delta"]["official_resolved_count"], 1)
@@ -112,19 +152,19 @@ class EvaluationExperimentTest(unittest.TestCase):
         control = _scorecard("control", [_case("case-1")], model="model-a")
         treatment = _scorecard("treatment", [_case("case-1")], model="model-b")
         with self.assertRaisesRegex(ValueError, "model identity"):
-            compare_benchmark_scorecards(control, treatment, factor="prompt")
+            _compare(control, treatment, factor="prompt")
 
     def test_ablation_rejects_undeclared_temperature_drift(self):
         control = _scorecard("control", [_case("case-1")], temperature=0.0)
         treatment = _scorecard("treatment", [_case("case-1")], temperature=0.7)
         with self.assertRaisesRegex(ValueError, "temperature"):
-            compare_benchmark_scorecards(control, treatment, factor="tool-routing")
+            _compare(control, treatment, factor="tool-routing")
 
     def test_temperature_ablation_allows_only_sampling_temperature_to_change(self):
         control = _scorecard("control", [_case("case-1")], temperature=0.0)
         treatment = _scorecard("treatment", [_case("case-1")], temperature=0.7)
 
-        comparison = compare_benchmark_scorecards(
+        comparison = _compare(
             control,
             treatment,
             factor="temperature",
@@ -145,7 +185,7 @@ class EvaluationExperimentTest(unittest.TestCase):
             skill_names=["targeted_code_edit"],
         )
 
-        comparison = compare_benchmark_scorecards(
+        comparison = _compare(
             control,
             treatment,
             factor="skills",
@@ -162,7 +202,7 @@ class EvaluationExperimentTest(unittest.TestCase):
         treatment = _scorecard("treatment", [_case("case-1")], routing="task-aware")
         treatment["metadata"]["max_steps"] = 8
         with self.assertRaisesRegex(ValueError, "max_steps"):
-            compare_benchmark_scorecards(control, treatment, factor="tool-routing")
+            _compare(control, treatment, factor="tool-routing")
 
     def test_memory_ablation_requires_same_frozen_snapshot(self):
         control = _scorecard(
@@ -176,7 +216,7 @@ class EvaluationExperimentTest(unittest.TestCase):
             memory_recall_limit=6,
         )
 
-        comparison = compare_benchmark_scorecards(
+        comparison = _compare(
             control,
             treatment,
             factor="memory",
@@ -185,7 +225,7 @@ class EvaluationExperimentTest(unittest.TestCase):
 
         treatment["metadata"]["memory_snapshot_sha256"] = "snapshot-b"
         with self.assertRaisesRegex(ValueError, "memory_snapshot_sha256"):
-            compare_benchmark_scorecards(
+            _compare(
                 control,
                 treatment,
                 factor="memory",
@@ -203,7 +243,7 @@ class EvaluationExperimentTest(unittest.TestCase):
             max_prompt_tokens=32768,
         )
 
-        comparison = compare_benchmark_scorecards(
+        comparison = _compare(
             control,
             treatment,
             factor="context-window",
@@ -216,7 +256,7 @@ class EvaluationExperimentTest(unittest.TestCase):
         treatment = _scorecard("treatment", [_case("case-1")])
         treatment["metadata"]["execution_mode"] = "container"
         with self.assertRaisesRegex(ValueError, "execution_mode"):
-            compare_benchmark_scorecards(control, treatment, factor="prompt")
+            _compare(control, treatment, factor="prompt")
 
     def test_ablation_rejects_container_image_id_drift(self):
         control = _scorecard("control", [_case("case-1")])
@@ -224,19 +264,29 @@ class EvaluationExperimentTest(unittest.TestCase):
         control["metadata"]["observed_container_image_ids"] = ["sha256:one"]
         treatment["metadata"]["observed_container_image_ids"] = ["sha256:two"]
         with self.assertRaisesRegex(ValueError, "observed_container_image_ids"):
-            compare_benchmark_scorecards(control, treatment, factor="tool-routing")
+            _compare(control, treatment, factor="tool-routing")
 
     def test_ablation_does_not_claim_quality_from_patch_rate_only(self):
         control = _scorecard("control", [_case("case-1", patch=False)], routing="all")
-        treatment = _scorecard("treatment", [_case("case-1", patch=True)], routing="task-aware")
-        comparison = compare_benchmark_scorecards(control, treatment, factor="tool-routing")
+        treatment = _scorecard(
+            "treatment", [_case("case-1", patch=True)], routing="task-aware"
+        )
+        comparison = _compare(control, treatment, factor="tool-routing")
         self.assertIn("correctness effect is unknown", comparison["conclusion"].lower())
 
     def test_ablation_does_not_call_new_official_evidence_an_improvement(self):
-        control = _scorecard("control", [_case("case-1", patch=True, official=None)], routing="all")
-        treatment = _scorecard("treatment", [_case("case-1", patch=True, official=True)], routing="task-aware")
-        comparison = compare_benchmark_scorecards(control, treatment, factor="tool-routing")
-        self.assertEqual(comparison["paired_cases"][0]["outcome"], "official_evidence_added")
+        control = _scorecard(
+            "control", [_case("case-1", patch=True, official=None)], routing="all"
+        )
+        treatment = _scorecard(
+            "treatment",
+            [_case("case-1", patch=True, official=True)],
+            routing="task-aware",
+        )
+        comparison = _compare(control, treatment, factor="tool-routing")
+        self.assertEqual(
+            comparison["paired_cases"][0]["outcome"], "official_evidence_added"
+        )
         self.assertNotIn("improved official resolved", comparison["conclusion"].lower())
         self.assertIn("not comparable", comparison["conclusion"].lower())
 
@@ -249,17 +299,23 @@ class EvaluationExperimentTest(unittest.TestCase):
             control_dir.mkdir()
             treatment_dir.mkdir()
             (control_dir / "scorecard.json").write_text(
-                json.dumps(_scorecard("control", [_case("case-1")], routing="all")), encoding="utf-8"
+                json.dumps(_scorecard("control", [_case("case-1")], routing="all")),
+                encoding="utf-8",
             )
             (treatment_dir / "scorecard.json").write_text(
-                json.dumps(_scorecard("treatment", [_case("case-1")], routing="task-aware")), encoding="utf-8"
+                json.dumps(
+                    _scorecard("treatment", [_case("case-1")], routing="task-aware")
+                ),
+                encoding="utf-8",
             )
 
             json_path, report_path = write_ablation_comparison(
-                control_dir,
-                treatment_dir,
-                factor="tool-routing",
-                output_dir=output_dir,
+                AblationArtifactRequest(
+                    control_dir=control_dir,
+                    treatment_dir=treatment_dir,
+                    factor="tool-routing",
+                    output_dir=output_dir,
+                )
             )
 
             report = report_path.read_text(encoding="utf-8")

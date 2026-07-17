@@ -10,7 +10,6 @@ from agent_forge.bench.domain.models import BenchCase
 
 
 class SwebenchCaseSource:
-
     def load(self, request: SwebenchRunRequest) -> list[BenchCase]:
         wanted = set(request.instance_ids)
         raw_cases = (
@@ -63,22 +62,3 @@ class SwebenchCaseSource:
 
         dataset = load_dataset(dataset_name, split=split)
         return [dict(row) for row in dataset]
-
-
-def load_cases(
-    dataset_name: str,
-    split: str,
-    limit: int,
-    instance_ids: list[str] | None = None,
-    cases_file: str | None = None,
-) -> list[BenchCase]:
-
-    return SwebenchCaseSource().load(
-        SwebenchRunRequest(
-            dataset_name=dataset_name,
-            split=split,
-            limit=limit,
-            instance_ids=tuple(instance_ids or ()),
-            cases_file=cases_file,
-        )
-    )

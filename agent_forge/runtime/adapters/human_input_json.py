@@ -7,13 +7,15 @@ import re
 import uuid
 from pathlib import Path
 
-from agent_forge.runtime.domain.human_input import HumanInputRequest
+from agent_forge.runtime.domain.human_input import (
+    HumanInputRequest,
+    HumanInputRequestDraft,
+)
 
 REQUEST_ID_PATTERN = re.compile(r"^[0-9a-f]{24}$")
 
 
 class JsonHumanInputRepository:
-
     def __init__(self, root: str | Path = ".agent_forge/human_input") -> None:
         self.root = Path(root)
         self.root.mkdir(parents=True, exist_ok=True)
@@ -49,48 +51,43 @@ class JsonHumanInputRepository:
         return HumanInputRequest(**json.loads(path.read_text(encoding="utf-8")))
 
     # 运行时端口：以确定性 request id 创建或复用待回答问题。
-    def request(
-        self,
-        *,
-        thread_id: str,
-        kind: str,
-        question: str,
-        choices: list[str] | None,
-        workspace: str,
-        run_id: str,
-        step: int,
-        agent_name: str,
-        reason: str,
-    ) -> HumanInputRequest:
+    def request(self, draft: HumanInputRequestDraft) -> HumanInputRequest:
         """创建或复用使当前运行可恢复的持久化问题。
 
         ``RunLifecycle.request_human_input`` 是当前 runtime owner。稳定 request id
         保证重试幂等；lifecycle 再将返回对象写入 checkpoint 和 trace。
         """
 
-        question = str(question or "").strip()
+        question = str(draft.question or "").strip()
         if not question:
             raise ValueError("human input question must not be empty")
         normalized_choices = list(
-            dict.fromkeys(str(item).strip() for item in choices or [] if str(item).strip())
+            dict.fromkeys(
+                str(item).strip() for item in draft.choices if str(item).strip()
+            )
         )
-        request_id = self.request_id(thread_id, kind, question, normalized_choices)
+        request_id = self.request_id(
+            draft.thread_id,
+            draft.kind,
+            question,
+            normalized_choices,
+        )
         existing = self.get(request_id)
         if existing is not None:
             return existing
         request = HumanInputRequest(
             request_id=request_id,
-            thread_id=thread_id,
+            thread_id=draft.thread_id,
             status="pending",
-            kind=kind,
+            kind=draft.kind,
             question=question,
             choices=normalized_choices,
             answer="",
-            workspace=str(Path(workspace).resolve()),
-            run_id=run_id,
-            step=step,
-            agent_name=agent_name,
-            reason=reason,
+            workspace=str(Path(draft.workspace).resolve()),
+            run_id=draft.run_id,
+            step=draft.step,
+            agent_name=draft.agent_name,
+            reason=draft.reason,
         )
         self._write(request)
         return request
@@ -99,7 +96,9 @@ class JsonHumanInputRepository:
         requests: list[HumanInputRequest] = []
         for path in self.root.glob("*.json"):
             try:
-                requests.append(HumanInputRequest(**json.loads(path.read_text(encoding="utf-8"))))
+                requests.append(
+                    HumanInputRequest(**json.loads(path.read_text(encoding="utf-8")))
+                )
             except (OSError, json.JSONDecodeError, TypeError):
                 continue
         return sorted(requests, key=lambda item: item.updated_at, reverse=True)
@@ -108,8 +107,9 @@ class JsonHumanInputRepository:
         return [request for request in self.list_all() if request.status == "pending"]
 
     # 运行时端口：只允许 pending 问题写入一次有效回答。
-    def respond(self, request_id: str, answer: str, note: str = "") -> HumanInputRequest:
-
+    def respond(
+        self, request_id: str, answer: str, note: str = ""
+    ) -> HumanInputRequest:
         answer = str(answer or "").strip()
         if not answer:
             raise ValueError("human input answer must not be empty")

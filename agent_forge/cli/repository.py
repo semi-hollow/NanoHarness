@@ -10,6 +10,8 @@ from pathlib import Path
 from typing import Callable
 
 from agent_forge.multi_agent.api import (
+    LiveFanoutBuildRequest,
+    SequentialCoordinatorBuildRequest,
     build_live_fanout,
     build_multi_agent_coordinator,
     load_fanout_plan,
@@ -23,9 +25,18 @@ from agent_forge.runtime.execution_environment import (
     ExecutionEnvironment,
     ExecutionEnvironmentConfig,
 )
-from agent_forge.runtime.llm_config import LLMConfig, resolve_llm_config
-from agent_forge.runtime.wiring import build_llm, build_registry
+from agent_forge.runtime.llm_config import (
+    LLMConfig,
+    LLMConfigRequest,
+    resolve_llm_config,
+)
+from agent_forge.runtime.wiring import (
+    ToolRegistryBuildRequest,
+    build_llm,
+    build_registry,
+)
 from agent_forge.tools.registry import ToolRegistry
+
 
 # 主要入口：从 CLI 参数装配并运行 single、sequential multi 或 live fanout 任务。
 def run_repository_task(args: argparse.Namespace) -> Path:
@@ -46,12 +57,14 @@ def run_repository_task(args: argparse.Namespace) -> Path:
     try:
         active_workspace = str(environment.active_workspace)
         llm_config = resolve_llm_config(
-            provider=args.provider,
-            base_url=args.base_url,
-            api_key=args.api_key,
-            model=args.model,
-            timeout=60,
-            temperature=args.temperature,
+            LLMConfigRequest(
+                provider=args.provider,
+                base_url=args.base_url,
+                api_key=args.api_key,
+                model=args.model,
+                timeout=60,
+                temperature=args.temperature,
+            )
         )
         if not llm_config.is_configured():
             raise SystemExit(
@@ -65,11 +78,13 @@ def run_repository_task(args: argparse.Namespace) -> Path:
             worker_environment: ExecutionEnvironment,
         ) -> ToolRegistry:
             return build_registry(
-                str(workspace),
-                auto=True,
-                mcp_config_file=getattr(args, "mcp_config", None),
-                mcp_allowed_tools=getattr(args, "mcp_tool", []),
-                execution_environment=worker_environment,
+                ToolRegistryBuildRequest(
+                    workspace=str(workspace),
+                    auto=True,
+                    mcp_config_file=getattr(args, "mcp_config", None),
+                    mcp_allowed_tools=tuple(getattr(args, "mcp_tool", [])),
+                    execution_environment=worker_environment,
+                )
             )
 
         agent_mode = getattr(args, "agent_mode", "single")
@@ -88,18 +103,20 @@ def run_repository_task(args: argparse.Namespace) -> Path:
             if agent_mode == "multi":
                 profile = get_profile(getattr(args, "profile", "coding_fix"))
                 summary = build_multi_agent_coordinator(
-                    args.task,
-                    profile,
-                    config,
-                    trace,
-                    registry,
-                    llm,
-                    run_dir=run_dir,
-                    max_revision_rounds=getattr(
-                        args,
-                        "max_revision_rounds",
-                        profile.default_max_revision_rounds,
-                    ),
+                    SequentialCoordinatorBuildRequest(
+                        task=args.task,
+                        profile=profile,
+                        runtime_config=config,
+                        trace=trace,
+                        registry=registry,
+                        llm=llm,
+                        run_dir=run_dir,
+                        max_revision_rounds=getattr(
+                            args,
+                            "max_revision_rounds",
+                            profile.default_max_revision_rounds,
+                        ),
+                    )
                 ).run()
                 final_answer = summary.final_answer
             else:
@@ -118,6 +135,7 @@ def run_repository_task(args: argparse.Namespace) -> Path:
             environment.write_manifest(run_dir)
         finally:
             environment.cleanup()
+
 
 # 运行时端口：把 local/worktree/container 配置落成可执行 workspace 快照。
 def prepare_execution_environment(
@@ -209,14 +227,16 @@ def _run_fanout(
         raise SystemExit(f"invalid fanout plan: {exc}") from exc
     trace.set_run_context(task=args.task)
     summary = build_live_fanout(
-        plan=plan,
-        base_config=config,
-        trace=trace,
-        run_dir=run_dir,
-        llm_factory=lambda: build_llm(llm_config),
-        registry_factory=registry_factory,
-        max_workers=getattr(args, "max_workers", 4),
-        resume_from=getattr(args, "fanout_resume", "") or None,
+        LiveFanoutBuildRequest(
+            plan=plan,
+            base_config=config,
+            trace=trace,
+            run_dir=run_dir,
+            llm_factory=lambda: build_llm(llm_config),
+            registry_factory=registry_factory,
+            max_workers=getattr(args, "max_workers", 4),
+            resume_from=getattr(args, "fanout_resume", "") or None,
+        )
     ).run()
     final_answer = "\n".join(
         part

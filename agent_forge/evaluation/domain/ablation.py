@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import Any
 
 DELTA_METRICS = (
@@ -19,20 +20,34 @@ DELTA_METRICS = (
     "bounded_tool_call_bursts",
 )
 
+
+# 核心数据：一次 matched ablation 的 control、treatment 与唯一变量。
+@dataclass(frozen=True)
+class AblationComparisonRequest:
+    """输入 scorecard 和展示标签；比较函数不会修改原对象。"""
+
+    control: dict[str, Any]
+    treatment: dict[str, Any]
+    factor: str
+    control_label: str = "control"
+    treatment_label: str = "treatment"
+
+
 # 主要入口：校验 matched identity，仅允许声明 factor 变化后比较 scorecard。
 def compare_benchmark_scorecards(
-    control: dict[str, Any],
-    treatment: dict[str, Any],
-    *,
-    factor: str,
-    control_label: str = "control",
-    treatment_label: str = "treatment",
+    request: AblationComparisonRequest,
 ) -> dict[str, Any]:
     """在身份一致的前提下计算 control 与 treatment 的配对差异。"""
 
-    checks = _validate_identity(control, treatment, factor=factor)
-    control_cases = {str(case.get("instance_id") or ""): case for case in control.get("cases", [])}
-    treatment_cases = {str(case.get("instance_id") or ""): case for case in treatment.get("cases", [])}
+    control = request.control
+    treatment = request.treatment
+    checks = _validate_identity(control, treatment, factor=request.factor)
+    control_cases = {
+        str(case.get("instance_id") or ""): case for case in control.get("cases", [])
+    }
+    treatment_cases = {
+        str(case.get("instance_id") or ""): case for case in treatment.get("cases", [])
+    }
     if set(control_cases) != set(treatment_cases):
         missing_control = sorted(set(treatment_cases) - set(control_cases))
         missing_treatment = sorted(set(control_cases) - set(treatment_cases))
@@ -42,7 +57,9 @@ def compare_benchmark_scorecards(
         )
 
     paired = [
-        _paired_case(instance_id, control_cases[instance_id], treatment_cases[instance_id])
+        _paired_case(
+            instance_id, control_cases[instance_id], treatment_cases[instance_id]
+        )
         for instance_id in sorted(control_cases)
     ]
     official_coverage = _official_coverage(paired)
@@ -58,19 +75,20 @@ def compare_benchmark_scorecards(
     delta["paired_official_resolved_delta"] = sum(
         int(row["delta"]["official_resolved"])
         for row in paired
-        if row["control"]["official_evaluated"] and row["treatment"]["official_evaluated"]
+        if row["control"]["official_evaluated"]
+        and row["treatment"]["official_evaluated"]
     )
 
     comparison = {
         "schema_version": 1,
-        "factor": factor,
+        "factor": request.factor,
         "control": {
-            "label": control_label,
+            "label": request.control_label,
             "metadata": control.get("metadata") or {},
             "metrics": control_metrics,
         },
         "treatment": {
-            "label": treatment_label,
+            "label": request.treatment_label,
             "metadata": treatment.get("metadata") or {},
             "metrics": treatment_metrics,
         },
@@ -105,12 +123,23 @@ def _validate_identity(
         right = treatment_meta.get(key)
         if left != right:
             raise ValueError(f"{key} differs: control={left!r} treatment={right!r}")
-        checks.append({"field": key, "control": left, "treatment": right, "matched": True})
+        checks.append(
+            {"field": key, "control": left, "treatment": right, "matched": True}
+        )
     left_model = _model_identity(control_meta)
     right_model = _model_identity(treatment_meta)
     if left_model != right_model:
-        raise ValueError(f"model identity differs: control={left_model!r} treatment={right_model!r}")
-    checks.append({"field": "model_identity", "control": left_model, "treatment": right_model, "matched": True})
+        raise ValueError(
+            f"model identity differs: control={left_model!r} treatment={right_model!r}"
+        )
+    checks.append(
+        {
+            "field": "model_identity",
+            "control": left_model,
+            "treatment": right_model,
+            "matched": True,
+        }
+    )
     normalized_factor = factor.strip().lower().replace("_", "-")
     if normalized_factor == "tool-routing":
         allowed_differences = {"tool_routing_mode"}
@@ -182,33 +211,50 @@ def _validate_identity(
         right = treatment_meta.get(key)
         matched = left == right
         if not matched and key not in allowed_differences:
-            raise ValueError(f"{key} differs outside declared factor {factor!r}: control={left!r} treatment={right!r}")
+            raise ValueError(
+                f"{key} differs outside declared factor {factor!r}: control={left!r} treatment={right!r}"
+            )
         checks.append(
             {
                 "field": key,
                 "control": left,
                 "treatment": right,
                 "matched": matched,
-                "declared_factor_difference": not matched and key in allowed_differences,
+                "declared_factor_difference": not matched
+                and key in allowed_differences,
             }
         )
     return checks
 
 
 def _model_identity(metadata: dict[str, Any]) -> tuple[str, ...]:
-    observed = tuple(sorted(str(item) for item in metadata.get("observed_models", []) if item))
+    observed = tuple(
+        sorted(str(item) for item in metadata.get("observed_models", []) if item)
+    )
     if observed:
         return observed
     requested = str(metadata.get("requested_model") or "")
     return (requested,) if requested else ()
 
 
-def _paired_case(instance_id: str, control: dict[str, Any], treatment: dict[str, Any]) -> dict[str, Any]:
+def _paired_case(
+    instance_id: str, control: dict[str, Any], treatment: dict[str, Any]
+) -> dict[str, Any]:
     control_evaluated = bool(control.get("official_evaluated"))
     treatment_evaluated = bool(treatment.get("official_evaluated"))
-    if control_evaluated and treatment_evaluated and treatment.get("official_resolved") and not control.get("official_resolved"):
+    if (
+        control_evaluated
+        and treatment_evaluated
+        and treatment.get("official_resolved")
+        and not control.get("official_resolved")
+    ):
         outcome = "official_improved"
-    elif control_evaluated and treatment_evaluated and control.get("official_resolved") and not treatment.get("official_resolved"):
+    elif (
+        control_evaluated
+        and treatment_evaluated
+        and control.get("official_resolved")
+        and not treatment.get("official_resolved")
+    ):
         outcome = "official_regressed"
     elif treatment_evaluated and not control_evaluated:
         outcome = "official_evidence_added"
@@ -225,15 +271,23 @@ def _paired_case(instance_id: str, control: dict[str, Any], treatment: dict[str,
         "control": {**control, "official_evaluated": control_evaluated},
         "treatment": {**treatment, "official_evaluated": treatment_evaluated},
         "delta": {
-            "patch_generated": int(bool(treatment.get("patch_generated"))) - int(bool(control.get("patch_generated"))),
-            "local_verified": int(bool(treatment.get("local_verified"))) - int(bool(control.get("local_verified"))),
-            "official_resolved": int(bool(treatment.get("official_resolved"))) - int(bool(control.get("official_resolved"))),
-            "total_tokens": _numeric(treatment.get("total_tokens")) - _numeric(control.get("total_tokens")),
+            "patch_generated": int(bool(treatment.get("patch_generated")))
+            - int(bool(control.get("patch_generated"))),
+            "local_verified": int(bool(treatment.get("local_verified")))
+            - int(bool(control.get("local_verified"))),
+            "official_resolved": int(bool(treatment.get("official_resolved")))
+            - int(bool(control.get("official_resolved"))),
+            "total_tokens": _numeric(treatment.get("total_tokens"))
+            - _numeric(control.get("total_tokens")),
             "estimated_cost_usd": round(
-                _numeric(treatment.get("estimated_cost_usd")) - _numeric(control.get("estimated_cost_usd")), 6
+                _numeric(treatment.get("estimated_cost_usd"))
+                - _numeric(control.get("estimated_cost_usd")),
+                6,
             ),
-            "llm_latency_ms": _numeric(treatment.get("llm_latency_ms")) - _numeric(control.get("llm_latency_ms")),
-            "failed_tool_calls": _numeric(treatment.get("failed_tool_calls")) - _numeric(control.get("failed_tool_calls")),
+            "llm_latency_ms": _numeric(treatment.get("llm_latency_ms"))
+            - _numeric(control.get("llm_latency_ms")),
+            "failed_tool_calls": _numeric(treatment.get("failed_tool_calls"))
+            - _numeric(control.get("failed_tool_calls")),
             "memory_recalled": _numeric(treatment.get("memory_recalled"))
             - _numeric(control.get("memory_recalled")),
             "tool_call_repairs": _numeric(treatment.get("tool_call_repairs"))
@@ -282,12 +336,13 @@ def _conclusion(comparison: dict[str, Any]) -> str:
 
 
 def _official_coverage(paired: list[dict[str, Any]]) -> dict[str, Any]:
-
     control_ids = [
         row["instance_id"] for row in paired if row["control"].get("official_evaluated")
     ]
     treatment_ids = [
-        row["instance_id"] for row in paired if row["treatment"].get("official_evaluated")
+        row["instance_id"]
+        for row in paired
+        if row["treatment"].get("official_evaluated")
     ]
     joint_ids = sorted(set(control_ids) & set(treatment_ids))
     return {

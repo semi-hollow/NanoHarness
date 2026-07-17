@@ -25,20 +25,36 @@ class LLMConfig:
 
     @property
     def uses_openai_compatible_api(self) -> bool:
-
         return self.provider in {"deepseek", "openai", "openai-compatible"}
 
     def is_configured(self) -> bool:
-
         return bool(self.base_url and self.api_key and self.model)
 
 
-def load_llm_profile(profile_name: str, profile_file: str | None = None) -> dict[str, Any]:
+# 核心数据：解析模型连接配置时允许覆盖的来源与采样参数。
+@dataclass(frozen=True)
+class LLMConfigRequest:
+    """显式值优先，随后依次读取 profile、环境变量和 provider 默认值。"""
 
+    provider: str
+    profile: str | None = None
+    profile_file: str | None = None
+    base_url: str | None = None
+    api_key: str | None = None
+    model: str | None = None
+    timeout: int = 30
+    temperature: float | None = None
+
+
+def load_llm_profile(
+    profile_name: str, profile_file: str | None = None
+) -> dict[str, Any]:
     candidates = []
     if profile_file:
         candidates.append(Path(profile_file))
-    candidates.append(Path(os.getenv("AGENT_FORGE_LLM_PROFILE_FILE", "llm_profiles.json")))
+    candidates.append(
+        Path(os.getenv("AGENT_FORGE_LLM_PROFILE_FILE", "llm_profiles.json"))
+    )
 
     for path in candidates:
         if not path.exists():
@@ -54,30 +70,19 @@ def load_llm_profile(profile_name: str, profile_file: str | None = None) -> dict
     raise FileNotFoundError(f"LLM profile file not found. Searched: {searched}")
 
 
-def resolve_llm_config(
-    *,
-    provider: str,
-    profile: str | None = None,
-    profile_file: str | None = None,
-    base_url: str | None = None,
-    api_key: str | None = None,
-    model: str | None = None,
-    timeout: int = 30,
-    temperature: float | None = None,
-) -> LLMConfig:
-
+def resolve_llm_config(request: LLMConfigRequest) -> LLMConfig:
     profile_data: dict[str, Any] = {}
-    resolved_provider = provider
-    if profile:
-        profile_data = load_llm_profile(profile, profile_file)
-        resolved_provider = profile_data.get("provider", provider)
+    resolved_provider = request.provider
+    if request.profile:
+        profile_data = load_llm_profile(request.profile, request.profile_file)
+        resolved_provider = profile_data.get("provider", request.provider)
 
     deepseek_defaults = resolved_provider == "deepseek"
     default_base_url = "https://api.deepseek.com" if deepseek_defaults else ""
     default_model = "deepseek-v4-flash" if deepseek_defaults else ""
     resolved_temperature = float(
-        temperature
-        if temperature is not None
+        request.temperature
+        if request.temperature is not None
         else profile_data.get(
             "temperature",
             os.getenv("AGENT_FORGE_TEMPERATURE", "0.0"),
@@ -89,7 +94,7 @@ def resolve_llm_config(
     return LLMConfig(
         provider=resolved_provider,
         base_url=(
-            base_url
+            request.base_url
             or profile_data.get("base_url")
             or os.getenv("AGENT_FORGE_BASE_URL")
             or os.getenv("DEEPSEEK_BASE_URL")
@@ -98,7 +103,7 @@ def resolve_llm_config(
             or ""
         ).rstrip("/"),
         api_key=(
-            api_key
+            request.api_key
             or profile_data.get("api_key")
             or os.getenv("AGENT_FORGE_API_KEY")
             or os.getenv("DEEPSEEK_API_KEY")
@@ -106,7 +111,7 @@ def resolve_llm_config(
             or ""
         ),
         model=(
-            model
+            request.model
             or profile_data.get("model")
             or os.getenv("AGENT_FORGE_MODEL")
             or os.getenv("DEEPSEEK_MODEL")
@@ -114,6 +119,6 @@ def resolve_llm_config(
             or default_model
             or ""
         ),
-        timeout=int(profile_data.get("timeout", timeout)),
+        timeout=int(profile_data.get("timeout", request.timeout)),
         temperature=resolved_temperature,
     )

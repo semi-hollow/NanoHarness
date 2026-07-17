@@ -2,10 +2,25 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import Protocol
 
 from agent_forge.context.contracts import ContextMemory
 from agent_forge.contracts import ToolSchema
+
+
+# 核心数据：Runtime 请求 Context capability 组装一次模型输入的完整契约。
+@dataclass(frozen=True)
+class ContextAssemblyRequest:
+    """每 turn 的任务、工作区、记忆、工具和治理预算。"""
+
+    task: str
+    workspace: str
+    working_memory: ContextMemory
+    tools: list[ToolSchema]
+    active_skill_cards: list[str]
+    max_chars: int
+    permission_summary: str
 
 
 class ContextReportView(Protocol):
@@ -32,15 +47,5 @@ class ContextReportView(Protocol):
 class ContextAssemblerPort(Protocol):
     """隔离仓库扫描和文件预览 IO。"""
 
-    def build(
-        self,
-        *,
-        task: str,
-        workspace: str,
-        working_memory: ContextMemory,
-        tools: list[ToolSchema],
-        active_skill_cards: list[str],
-        max_chars: int,
-        permission_summary: str,
-    ) -> ContextReportView:
+    def build(self, request: ContextAssemblyRequest) -> ContextReportView:
         """构造一次有界且可审计的模型上下文。"""

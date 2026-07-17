@@ -3,8 +3,7 @@
 两条真实主线：``build_multi_agent_coordinator(...).run()`` 顺序执行
 Implementer/Reviewer/Verifier；``build_live_fanout(...).run()`` 按验证后的任务 DAG
 并发运行真实 AgentLoop worker。``run_fanout`` 只是注入 callback 的纯调度器，
-主要用于
-验证依赖和冲突规则，不能当作真实多 Agent Runtime 展示。
+主要用于验证依赖和冲突规则，不能当作真实多 Agent Runtime 展示。
 """
 
 from .adapters.plan_files import load_fanout_plan
@@ -14,7 +13,12 @@ from .application.live_fanout import LiveFanoutCoordinator
 from .domain.fanout import FanoutConflict, FanoutResult, SubagentResult, SubagentTask
 from .domain.live import FanoutPlan, LiveFanoutSummary, LiveSubagentResult
 from .domain.models import AgentProfile, MultiAgentRunSummary, RoleSpec
-from .wiring import build_live_fanout, build_multi_agent_coordinator
+from .wiring import (
+    LiveFanoutBuildRequest,
+    SequentialCoordinatorBuildRequest,
+    build_live_fanout,
+    build_multi_agent_coordinator,
+)
 
 __all__ = [
     "AgentProfile",
@@ -22,11 +26,13 @@ __all__ = [
     "FanoutPlan",
     "FanoutResult",
     "LiveFanoutCoordinator",
+    "LiveFanoutBuildRequest",
     "LiveFanoutSummary",
     "LiveSubagentResult",
     "MultiAgentCoordinator",
     "MultiAgentRunSummary",
     "RoleSpec",
+    "SequentialCoordinatorBuildRequest",
     "SubagentResult",
     "SubagentTask",
     "build_live_fanout",

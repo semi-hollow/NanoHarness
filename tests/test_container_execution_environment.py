@@ -5,8 +5,11 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from agent_forge.runtime.execution_environment import ExecutionEnvironment, ExecutionEnvironmentConfig
-from agent_forge.runtime.wiring import build_registry
+from agent_forge.runtime.execution_environment import (
+    ExecutionEnvironment,
+    ExecutionEnvironmentConfig,
+)
+from agent_forge.runtime.wiring import ToolRegistryBuildRequest, build_registry
 
 
 class FakeOciRunner:
@@ -16,14 +19,24 @@ class FakeOciRunner:
     def __call__(self, command, **kwargs):
         self.commands.append(list(command))
         if command[1:3] == ["image", "inspect"]:
-            return subprocess.CompletedProcess(command, 0, stdout="sha256:image-id\n", stderr="")
+            return subprocess.CompletedProcess(
+                command, 0, stdout="sha256:image-id\n", stderr=""
+            )
         if command[1] == "run":
-            return subprocess.CompletedProcess(command, 0, stdout="container-id\n", stderr="")
+            return subprocess.CompletedProcess(
+                command, 0, stdout="container-id\n", stderr=""
+            )
         if command[1] == "exec":
-            return subprocess.CompletedProcess(command, 0, stdout="tests ok\n", stderr="")
+            return subprocess.CompletedProcess(
+                command, 0, stdout="tests ok\n", stderr=""
+            )
         if command[1:3] == ["rm", "-f"]:
-            return subprocess.CompletedProcess(command, 0, stdout="container-id\n", stderr="")
-        return subprocess.CompletedProcess(command, 1, stdout="", stderr="unexpected command")
+            return subprocess.CompletedProcess(
+                command, 0, stdout="container-id\n", stderr=""
+            )
+        return subprocess.CompletedProcess(
+            command, 1, stdout="", stderr="unexpected command"
+        )
 
 
 class ContainerExecutionEnvironmentTest(unittest.TestCase):
@@ -31,11 +44,20 @@ class ContainerExecutionEnvironmentTest(unittest.TestCase):
         repo = root / "repo"
         repo.mkdir()
         subprocess.run(["git", "init"], cwd=repo, check=True, capture_output=True)
-        subprocess.run(["git", "config", "user.email", "test@example.com"], cwd=repo, check=True)
-        subprocess.run(["git", "config", "user.name", "Test User"], cwd=repo, check=True)
+        subprocess.run(
+            ["git", "config", "user.email", "test@example.com"], cwd=repo, check=True
+        )
+        subprocess.run(
+            ["git", "config", "user.name", "Test User"], cwd=repo, check=True
+        )
         (repo / "app.py").write_text("value = 1\n", encoding="utf-8")
         subprocess.run(["git", "add", "app.py"], cwd=repo, check=True)
-        subprocess.run(["git", "commit", "-m", "initial"], cwd=repo, check=True, capture_output=True)
+        subprocess.run(
+            ["git", "commit", "-m", "initial"],
+            cwd=repo,
+            check=True,
+            capture_output=True,
+        )
         return repo
 
     def test_container_mode_constrains_runtime_and_records_replay_evidence(self):
@@ -57,7 +79,9 @@ class ContainerExecutionEnvironmentTest(unittest.TestCase):
                     container_pids_limit=64,
                 ),
                 oci_runner=runner,
-                executable_resolver=lambda name: "/usr/local/bin/docker" if name == "docker" else None,
+                executable_resolver=lambda name: "/usr/local/bin/docker"
+                if name == "docker"
+                else None,
             )
 
             probe = environment.prepare()
@@ -70,7 +94,9 @@ class ContainerExecutionEnvironmentTest(unittest.TestCase):
             manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
 
             start = next(command for command in runner.commands if command[1] == "run")
-            delegated = next(command for command in runner.commands if command[1] == "exec")
+            delegated = next(
+                command for command in runner.commands if command[1] == "exec"
+            )
             self.assertEqual(probe.mode, "container")
             self.assertNotEqual(active_workspace, repo.resolve())
             self.assertIn("--network", start)
@@ -85,17 +111,23 @@ class ContainerExecutionEnvironmentTest(unittest.TestCase):
             self.assertEqual(start[start.index("--memory") + 1], "512m")
             self.assertEqual(start[start.index("--pids-limit") + 1], "64")
             self.assertIn(str(active_workspace), " ".join(start))
-            self.assertEqual(delegated[-5:], ["python", "-m", "unittest", "discover", "tests"])
+            self.assertEqual(
+                delegated[-5:], ["python", "-m", "unittest", "discover", "tests"]
+            )
             self.assertEqual(command_result.returncode, 0)
             self.assertEqual(manifest["container"]["image_id"], "sha256:image-id")
-            self.assertEqual(manifest["container"]["command_history"][0]["argv"][0], "python")
+            self.assertEqual(
+                manifest["container"]["command_history"][0]["argv"][0], "python"
+            )
             self.assertEqual(manifest["container"]["recreate_command"], [])
             self.assertFalse(manifest["container"]["replayable_after_cleanup"])
 
             environment.cleanup()
 
             self.assertFalse(active_workspace.exists())
-            self.assertTrue(any(command[1:3] == ["rm", "-f"] for command in runner.commands))
+            self.assertTrue(
+                any(command[1:3] == ["rm", "-f"] for command in runner.commands)
+            )
 
     def test_container_mode_fails_closed_when_runtime_is_missing(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -122,7 +154,9 @@ class ContainerExecutionEnvironmentTest(unittest.TestCase):
             for overrides, message in invalid_configs:
                 with self.subTest(overrides=overrides):
                     environment = ExecutionEnvironment(
-                        ExecutionEnvironmentConfig(mode="container", workspace=tmp, **overrides),
+                        ExecutionEnvironmentConfig(
+                            mode="container", workspace=tmp, **overrides
+                        ),
                         executable_resolver=lambda name: "/usr/local/bin/docker",
                     )
                     with self.assertRaisesRegex(ValueError, message):
@@ -131,21 +165,31 @@ class ContainerExecutionEnvironmentTest(unittest.TestCase):
     def test_registry_injects_same_environment_into_command_tools(self):
         with tempfile.TemporaryDirectory() as tmp:
             environment = object()
-            registry = build_registry(tmp, auto=True, execution_environment=environment)
+            registry = build_registry(
+                ToolRegistryBuildRequest(
+                    workspace=tmp,
+                    auto=True,
+                    execution_environment=environment,
+                )
+            )
         self.assertIs(registry.get("run_command").execution_environment, environment)
         self.assertIs(registry.get("diagnostics").execution_environment, environment)
 
     def test_local_environment_keeps_python_alias_on_active_interpreter(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            environment = ExecutionEnvironment(ExecutionEnvironmentConfig(mode="local", workspace=tmp))
+            environment = ExecutionEnvironment(
+                ExecutionEnvironmentConfig(mode="local", workspace=tmp)
+            )
             environment.prepare()
             result = environment.execute_command(["python3", "--version"], timeout=10)
             manifest_path = environment.write_manifest(root / "artifacts")
             manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
         self.assertEqual(result.returncode, 0)
         self.assertEqual(manifest["probe"]["python_executable"], sys.executable)
-        self.assertEqual(environment._command_history[0]["runtime_command"][0], sys.executable)
+        self.assertEqual(
+            environment._command_history[0]["runtime_command"][0], sys.executable
+        )
 
 
 if __name__ == "__main__":

@@ -11,6 +11,7 @@ from agent_forge.context.domain import (
     EvidenceReference,
     LongTermMemoryRecord,
     MemoryKind,
+    MemoryProposal,
     MemoryScope,
     MemoryStatus,
 )
@@ -28,35 +29,22 @@ class LongTermMemoryService:
         self._repository = repository
 
     # 主要入口：创建低权威候选，不自动进入模型上下文。
-    def propose(
-        self,
-        *,
-        namespace: str,
-        key: str,
-        kind: str,
-        content: str,
-        scope: str = MemoryScope.WORKSPACE.value,
-        agent_name: str = "",
-        confidence: float = 0.5,
-        importance: float = 0.5,
-        tags: list[str] | None = None,
-        expires_at: float | None = None,
-    ) -> LongTermMemoryRecord:
+    def propose(self, proposal: MemoryProposal) -> LongTermMemoryRecord:
         """保存 candidate；只有显式 promote 后才允许召回。"""
 
         record = LongTermMemoryRecord(
             memory_id=uuid.uuid4().hex,
-            namespace=namespace,
-            key=key.strip(),
-            kind=kind,
-            content=content.strip(),
-            scope=scope,
+            namespace=proposal.namespace,
+            key=proposal.key.strip(),
+            kind=proposal.kind,
+            content=proposal.content.strip(),
+            scope=proposal.scope,
             status=MemoryStatus.CANDIDATE.value,
-            confidence=confidence,
-            importance=importance,
-            agent_name=agent_name,
-            tags=list(tags or []),
-            expires_at=expires_at,
+            confidence=proposal.confidence,
+            importance=proposal.importance,
+            agent_name=proposal.agent_name,
+            tags=list(proposal.tags),
+            expires_at=proposal.expires_at,
         )
         record.validate()
         self._repository.save(record)
@@ -122,9 +110,7 @@ class LongTermMemoryService:
         for record in self._repository.list_records(namespace):
             if not record.visible_to(namespace, agent_name):
                 continue
-            record_terms = _terms(
-                " ".join([record.key, record.content, *record.tags])
-            )
+            record_terms = _terms(" ".join([record.key, record.content, *record.tags]))
             overlap = len(query_terms & record_terms)
             relevance = overlap / math.sqrt(
                 max(1, len(query_terms)) * max(1, len(record_terms))
@@ -190,5 +176,7 @@ def _terms(text: str) -> set[str]:
     terms = set(re.findall(r"[a-z0-9_]+", lowered))
     chinese = re.findall(r"[\u4e00-\u9fff]", lowered)
     terms.update(chinese)
-    terms.update("".join(chinese[index : index + 2]) for index in range(len(chinese) - 1))
+    terms.update(
+        "".join(chinese[index : index + 2]) for index in range(len(chinese) - 1)
+    )
     return {term for term in terms if term}

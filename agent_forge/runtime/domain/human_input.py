@@ -9,6 +9,35 @@ from typing import Any
 TERMINAL_HUMAN_INPUT_STATUSES = {"responded", "cancelled"}
 
 
+# 核心数据：Runtime 内部发起人工提问所需的最小输入。
+@dataclass(frozen=True)
+class HumanInputQuestion:
+    """调用方描述的问题；Lifecycle 负责补齐 run、thread 和 workspace。"""
+
+    agent_name: str
+    kind: str
+    question: str
+    choices: tuple[str, ...]
+    reason: str
+    step: int
+
+
+# 核心数据：Lifecycle 提交给持久化仓储的完整问题草稿。
+@dataclass(frozen=True)
+class HumanInputRequestDraft:
+    """创建 durable 人工问题所需的全部身份和暂停位置。"""
+
+    thread_id: str
+    kind: str
+    question: str
+    choices: tuple[str, ...]
+    workspace: str
+    run_id: str
+    step: int
+    agent_name: str
+    reason: str
+
+
 # 核心数据：Agent 暂停后等待操作员回答的 durable 问题。
 @dataclass
 class HumanInputRequest:

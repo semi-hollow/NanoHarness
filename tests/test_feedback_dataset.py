@@ -3,7 +3,11 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from agent_forge.evaluation.api import export_feedback_dataset, record_feedback
+from agent_forge.evaluation.api import (
+    FeedbackRequest,
+    export_feedback_dataset,
+    record_feedback,
+)
 
 
 class FeedbackDatasetTest(unittest.TestCase):
@@ -44,14 +48,19 @@ class FeedbackDatasetTest(unittest.TestCase):
                             "step": 1,
                             "event_type": "action",
                             "tool_call": "apply_patch",
-                            "tool_arguments": {"path": "parser.py", "new": "secret source"},
+                            "tool_arguments": {
+                                "path": "parser.py",
+                                "new": "secret source",
+                            },
                         },
                     ],
                 }
             ),
             encoding="utf-8",
         )
-        (run_dir / "patch.diff").write_text("diff --git a/parser.py b/parser.py\n+fixed\n", encoding="utf-8")
+        (run_dir / "patch.diff").write_text(
+            "diff --git a/parser.py b/parser.py\n+fixed\n", encoding="utf-8"
+        )
         return run_dir
 
     def test_record_feedback_and_export_safe_evidence_record(self):
@@ -59,11 +68,13 @@ class FeedbackDatasetTest(unittest.TestCase):
             root = Path(tmp)
             run_dir = self._write_run(root)
             record_feedback(
-                run_dir,
-                outcome="needs_work",
-                labels=["context_miss", "tool_policy"],
-                note="Expected validator evidence is missing.",
-                reviewer="human",
+                FeedbackRequest(
+                    target=run_dir,
+                    outcome="needs_work",
+                    labels=("context_miss", "tool_policy"),
+                    note="Expected validator evidence is missing.",
+                    reviewer="human",
+                )
             )
 
             output = root / "dataset.jsonl"
@@ -73,15 +84,20 @@ class FeedbackDatasetTest(unittest.TestCase):
             record = records[0]
             self.assertEqual(record["schema_version"], "agent-forge-eval-v1")
             self.assertEqual(record["task"], "fix the failing parser test")
-            self.assertEqual(record["selected_context"], ["parser.py", "tests/test_parser.py"])
+            self.assertEqual(
+                record["selected_context"], ["parser.py", "tests/test_parser.py"]
+            )
             self.assertEqual(record["tool_sequence"], ["apply_patch"])
             self.assertEqual(record["human_feedback"]["outcome"], "needs_work")
-            self.assertEqual(record["environment"], {
-                "mode": "worktree",
-                "head_sha": "abc123",
-                "dirty": False,
-                "network_policy": "deny",
-            })
+            self.assertEqual(
+                record["environment"],
+                {
+                    "mode": "worktree",
+                    "head_sha": "abc123",
+                    "dirty": False,
+                    "network_policy": "deny",
+                },
+            )
             self.assertNotIn("patch", record)
             self.assertNotIn("tool_arguments", json.dumps(record))
             self.assertEqual(len(record["patch_sha256"]), 64)

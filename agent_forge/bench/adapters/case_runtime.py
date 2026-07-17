@@ -15,7 +15,10 @@ from agent_forge.bench.domain.config import SwebenchRunRequest, safe_id
 from agent_forge.bench.domain.models import BenchCase, BenchCaseResult
 from agent_forge.models.gateway import ModelGateway
 from agent_forge.multi_agent.profiles import get_profile
-from agent_forge.multi_agent.wiring import build_multi_agent_coordinator
+from agent_forge.multi_agent.wiring import (
+    SequentialCoordinatorBuildRequest,
+    build_multi_agent_coordinator,
+)
 from agent_forge.observability.adapters.json_trace import TraceRecorder
 from agent_forge.observability.api import write_usage_artifacts
 from agent_forge.runtime.api import build_agent_loop
@@ -24,13 +27,16 @@ from agent_forge.runtime.execution_environment import (
     ExecutionEnvironment,
     ExecutionEnvironmentConfig,
 )
-from agent_forge.runtime.llm_config import resolve_llm_config
+from agent_forge.runtime.llm_config import LLMConfigRequest, resolve_llm_config
 from agent_forge.runtime.domain.conversation import Message
-from agent_forge.runtime.wiring import build_llm, build_registry
+from agent_forge.runtime.wiring import (
+    ToolRegistryBuildRequest,
+    build_llm,
+    build_registry,
+)
 
 
 class LocalCaseExecutor:
-
     def __init__(self, workspace_manager: SwebenchWorkspaceManager) -> None:
         self._workspace_manager = workspace_manager
 
@@ -70,9 +76,11 @@ class LocalCaseExecutor:
             )
             active_workspace = environment.active_workspace
             registry = build_registry(
-                str(active_workspace),
-                auto=True,
-                execution_environment=environment,
+                ToolRegistryBuildRequest(
+                    workspace=str(active_workspace),
+                    auto=True,
+                    execution_environment=environment,
+                )
             )
             llm = self._build_model(request)
             runtime_config = RuntimeConfig(
@@ -90,13 +98,9 @@ class LocalCaseExecutor:
                 skill_mode=request.skill_mode,
                 skill_names=list(request.skill_names),
                 skill_manifest_files=list(request.skill_manifest_files),
-                memory_root=(
-                    request.memory_root
-                    or str(case_dir / "disabled_memory")
-                ),
+                memory_root=(request.memory_root or str(case_dir / "disabled_memory")),
                 memory_namespace=(
-                    request.memory_namespace
-                    or f"swebench:{case.instance_id}"
+                    request.memory_namespace or f"swebench:{case.instance_id}"
                 ),
                 memory_recall_limit=request.memory_recall_limit,
                 execution_environment=environment,
@@ -129,9 +133,7 @@ class LocalCaseExecutor:
 
         local_validation = read_local_validation(trace_path)
         patch_chars = (
-            len(patch_path.read_text(encoding="utf-8"))
-            if patch_path.exists()
-            else 0
+            len(patch_path.read_text(encoding="utf-8")) if patch_path.exists() else 0
         )
         return BenchCaseResult(
             instance_id=case.instance_id,
@@ -165,8 +167,7 @@ class LocalCaseExecutor:
                 mode=request.execution_mode,
                 workspace=str(workspace),
                 run_id=(
-                    f"{safe_id(case.instance_id)}-{agent_mode}-"
-                    f"{uuid.uuid4().hex[:7]}"
+                    f"{safe_id(case.instance_id)}-{agent_mode}-{uuid.uuid4().hex[:7]}"
                 ),
                 network_policy=request.network_policy,
                 keep_worktree=request.keep_worktree,
@@ -184,12 +185,14 @@ class LocalCaseExecutor:
     @staticmethod
     def _build_model(request: SwebenchRunRequest) -> ModelGateway:
         llm_config = resolve_llm_config(
-            provider=request.provider,
-            base_url=request.base_url,
-            api_key=request.api_key,
-            model=request.model,
-            timeout=60,
-            temperature=request.temperature,
+            LLMConfigRequest(
+                provider=request.provider,
+                base_url=request.base_url,
+                api_key=request.api_key,
+                model=request.model,
+                timeout=60,
+                temperature=request.temperature,
+            )
         )
         if not llm_config.is_configured():
             raise RuntimeError(
@@ -210,16 +213,22 @@ class LocalCaseExecutor:
         case_dir: Path,
     ) -> str:
         if agent_mode == "multi":
-            return build_multi_agent_coordinator(
-                task,
-                get_profile(request.profile),
-                runtime_config,
-                trace,
-                registry,
-                llm,
-                run_dir=case_dir,
-                max_revision_rounds=request.max_revision_rounds,
-            ).run().final_answer
+            return (
+                build_multi_agent_coordinator(
+                    SequentialCoordinatorBuildRequest(
+                        task=task,
+                        profile=get_profile(request.profile),
+                        runtime_config=runtime_config,
+                        trace=trace,
+                        registry=registry,
+                        llm=llm,
+                        run_dir=case_dir,
+                        max_revision_rounds=request.max_revision_rounds,
+                    )
+                )
+                .run()
+                .final_answer
+            )
         return build_agent_loop(runtime_config, trace, registry, llm).run(task)
 
     @staticmethod
@@ -244,19 +253,20 @@ class LocalCaseExecutor:
 
 
 class DirectModelBaseline:
-
     def predict(
         self,
         case: BenchCase,
         request: SwebenchRunRequest,
     ) -> dict[str, Any]:
         llm_config = resolve_llm_config(
-            provider=request.provider,
-            base_url=request.base_url,
-            api_key=request.api_key,
-            model=request.model,
-            timeout=60,
-            temperature=request.temperature,
+            LLMConfigRequest(
+                provider=request.provider,
+                base_url=request.base_url,
+                api_key=request.api_key,
+                model=request.model,
+                timeout=60,
+                temperature=request.temperature,
+            )
         )
         model_name = f"direct-{request.provider}-{request.model or 'default'}"
         if not llm_config.is_configured():
@@ -297,9 +307,7 @@ class DirectModelBaseline:
                 if model_patch
                 else "no_patch_generated"
             ),
-            "estimated_cost_usd": float(
-                usage.get("estimated_cost_usd") or 0.0
-            ),
+            "estimated_cost_usd": float(usage.get("estimated_cost_usd") or 0.0),
             "llm_calls": 1,
             "total_tokens": int(usage.get("total_tokens") or 0),
             "llm_latency_ms": int(usage.get("latency_ms") or 0),
@@ -309,7 +317,6 @@ class DirectModelBaseline:
 
 
 def render_case_task(case: BenchCase) -> str:
-
     return (
         "Resolve this SWE-bench coding issue.\n\n"
         f"Instance: {case.instance_id}\n"
@@ -330,7 +337,6 @@ def render_case_task(case: BenchCase) -> str:
 
 
 def extract_diff(text: str) -> str:
-
     stripped = text.strip()
     if "```" not in stripped:
         return stripped if looks_like_diff(stripped) else ""

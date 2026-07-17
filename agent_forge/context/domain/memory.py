@@ -45,6 +45,23 @@ class MemoryStatus(str, Enum):
     REJECTED = "rejected"
 
 
+# 核心数据：提交给长期记忆用例的归一化候选知识。
+@dataclass(frozen=True)
+class MemoryProposal:
+    """候选正文、隔离范围、排序信号和可选有效期。"""
+
+    namespace: str
+    key: str
+    kind: str
+    content: str
+    scope: str = MemoryScope.WORKSPACE.value
+    agent_name: str = ""
+    confidence: float = 0.5
+    importance: float = 0.5
+    tags: tuple[str, ...] = ()
+    expires_at: float | None = None
+
+
 @dataclass(frozen=True)
 class EvidenceReference:
     """支持一条记忆的可追溯证据，而不是摘要正文的复制。
@@ -274,9 +291,7 @@ class SessionDigest:
             "covered_message_count": self.covered_message_count,
             "source_hash": self.source_hash,
             "user_updates": list(self.user_updates),
-            "tool_transactions": [
-                item.to_dict() for item in self.tool_transactions
-            ],
+            "tool_transactions": [item.to_dict() for item in self.tool_transactions],
             "assistant_updates": list(self.assistant_updates),
             "open_failures": list(self.open_failures),
             "estimated_tokens_before": self.estimated_tokens_before,

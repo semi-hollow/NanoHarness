@@ -9,7 +9,12 @@ from agent_forge.runtime.application.session import AgentRunSession
 from agent_forge.runtime.application.tool_feedback import ToolFeedback
 from agent_forge.runtime.config import RuntimeConfig
 from agent_forge.runtime.domain.conversation import Observation, ToolCall
-from agent_forge.runtime.domain.task import TaskRunStatus
+from agent_forge.runtime.domain.operation import (
+    OperationPlan,
+    OperationTarget,
+    OperationTransition,
+)
+from agent_forge.runtime.domain.task import TaskCheckpointUpdate, TaskRunStatus
 from agent_forge.runtime.ports import EventSink, OperationLedgerRepository
 
 
@@ -20,6 +25,7 @@ class OperationIntent:
     action: str
     command: str
     side_effect: bool
+    target: OperationTarget
     key: str = ""
     fingerprint: dict[str, Any] | None = None
 
@@ -46,24 +52,21 @@ class OperationTracker:
         action = self._permission_action(tool_call.name)
         command = str((tool_call.arguments or {}).get("command", ""))
         side_effect = self._is_side_effect_action(action)
+        target = OperationTarget(
+            tool_name=tool_call.name,
+            arguments=tool_call.arguments or {},
+            action=action,
+            workspace=self.config.workspace,
+        )
         if not side_effect:
-            return OperationIntent(action, command, False)
+            return OperationIntent(action, command, False, target)
         return OperationIntent(
             action=action,
             command=command,
             side_effect=True,
-            key=self.operations.operation_key(
-                tool_call.name,
-                tool_call.arguments or {},
-                self.config.workspace,
-                action,
-            ),
-            fingerprint=self.operations.operation_fingerprint(
-                tool_call.name,
-                tool_call.arguments or {},
-                self.config.workspace,
-                action,
-            ),
+            target=target,
+            key=self.operations.operation_key(target),
+            fingerprint=self.operations.operation_fingerprint(target),
         )
 
     def replay_if_executed(
@@ -79,12 +82,9 @@ class OperationTracker:
         if existing is None or existing.status != "executed":
             return False
 
-        stale = (
-            existing.post_fingerprint is not None
-            and not self.same_fingerprint(
-                intent.fingerprint,
-                existing.post_fingerprint,
-            )
+        stale = existing.post_fingerprint is not None and not self.same_fingerprint(
+            intent.fingerprint,
+            existing.post_fingerprint,
         )
         if stale:
             observation = Observation(
@@ -106,13 +106,15 @@ class OperationTracker:
             )
             self.feedback.append(session, tool_call, observation, step)
             session.lifecycle.update(
-                status=TaskRunStatus.BLOCKED,
-                current_step=step,
-                last_tool=tool_call.name,
-                last_observation=observation.content,
-                messages_count=len(session.messages),
-                observations_count=len(session.observations),
-                resume_hint="Reread the target before reissuing a side-effect operation.",
+                TaskCheckpointUpdate(
+                    status=TaskRunStatus.BLOCKED,
+                    current_step=step,
+                    last_tool=tool_call.name,
+                    last_observation=observation.content,
+                    messages_count=len(session.messages),
+                    observations_count=len(session.observations),
+                    resume_hint="Reread the target before reissuing a side-effect operation.",
+                )
             )
             return True
 
@@ -131,18 +133,19 @@ class OperationTracker:
         )
         self.feedback.append(session, tool_call, observation, step)
         session.lifecycle.update(
-            status=TaskRunStatus.RUNNING,
-            current_step=step,
-            last_tool=tool_call.name,
-            last_observation=observation.content,
-            messages_count=len(session.messages),
-            observations_count=len(session.observations),
+            TaskCheckpointUpdate(
+                status=TaskRunStatus.RUNNING,
+                current_step=step,
+                last_tool=tool_call.name,
+                last_observation=observation.content,
+                messages_count=len(session.messages),
+                observations_count=len(session.observations),
+            )
         )
         return True
 
     def ensure_planned(
         self,
-        tool_call: ToolCall,
         intent: OperationIntent,
         *,
         step: int,
@@ -152,41 +155,24 @@ class OperationTracker:
 
         if not intent.side_effect:
             return
-        self.operations.ensure_planned(
-            intent.key,
-            tool_call.name,
-            tool_call.arguments or {},
-            intent.action,
-            self.config.workspace,
-            run_id=self.trace.run_id,
-            step=step,
-            status=status,
-            pre_fingerprint=intent.fingerprint,
-        )
+        self.operations.ensure_planned(self._plan(intent, step, status))
 
     def record_pending(
         self,
-        tool_call: ToolCall,
         intent: OperationIntent,
         *,
         step: int,
     ) -> None:
-        self.operations.record_pending(
-            intent.key,
-            tool_call.name,
-            tool_call.arguments or {},
-            intent.action,
-            self.config.workspace,
-            run_id=self.trace.run_id,
-            step=step,
-            pre_fingerprint=intent.fingerprint,
-        )
+        self.operations.record_pending(self._plan(intent, step, "pending"))
 
     def record_approved(self, intent: OperationIntent, *, step: int) -> None:
         self.operations.record_approved(
-            intent.key,
-            run_id=self.trace.run_id,
-            step=step,
+            OperationTransition(
+                operation_key=intent.key,
+                status="approved",
+                run_id=self.trace.run_id,
+                step=step,
+            )
         )
 
     def record_result(
@@ -199,28 +185,19 @@ class OperationTracker:
     ) -> None:
         """把副作用执行结果写入幂等账本。"""
 
-        post_fingerprint = self.operations.operation_fingerprint(
-            tool_call.name,
-            tool_call.arguments or {},
-            self.config.workspace,
-            intent.action,
+        post_fingerprint = self.operations.operation_fingerprint(intent.target)
+        update = OperationTransition(
+            operation_key=intent.key,
+            status="executed" if observation.success else "failed",
+            run_id=self.trace.run_id,
+            step=step,
+            observation=observation.content[:600],
+            post_fingerprint=post_fingerprint,
         )
         if observation.success:
-            record = self.operations.record_executed(
-                intent.key,
-                run_id=self.trace.run_id,
-                step=step,
-                observation=observation.content[:600],
-                post_fingerprint=post_fingerprint,
-            )
+            record = self.operations.record_executed(update)
         else:
-            record = self.operations.record_failed(
-                intent.key,
-                run_id=self.trace.run_id,
-                step=step,
-                observation=observation.content[:600],
-                post_fingerprint=post_fingerprint,
-            )
+            record = self.operations.record_failed(update)
         self.trace.add(
             step,
             session.agent_name,
@@ -232,6 +209,21 @@ class OperationTracker:
 
     def exists(self, intent: OperationIntent) -> bool:
         return self.operations.get(intent.key) is not None
+
+    def _plan(
+        self,
+        intent: OperationIntent,
+        step: int,
+        status: str,
+    ) -> OperationPlan:
+        return OperationPlan(
+            operation_key=intent.key,
+            target=intent.target,
+            run_id=self.trace.run_id,
+            step=step,
+            status=status,
+            pre_fingerprint=intent.fingerprint,
+        )
 
     @staticmethod
     def same_fingerprint(

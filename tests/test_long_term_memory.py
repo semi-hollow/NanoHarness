@@ -6,9 +6,10 @@ from pathlib import Path
 from agent_forge.context.adapters import JsonLongTermMemoryRepository
 from agent_forge.context.api import build_evidence_reference
 from agent_forge.context.application import LongTermMemoryService
-from agent_forge.context.domain import EvidenceReference
+from agent_forge.context.domain import EvidenceReference, MemoryProposal
 from agent_forge.runtime.application.working_memory import WorkingMemory
 from agent_forge.runtime.adapters import RepositoryContextAssembler
+from agent_forge.runtime.ports.context import ContextAssemblyRequest
 
 
 class LongTermMemoryTest(unittest.TestCase):
@@ -23,12 +24,14 @@ class LongTermMemoryTest(unittest.TestCase):
 
     def test_candidate_is_not_recalled_until_evidence_backed_promotion(self) -> None:
         record = self.service.propose(
-            namespace="repo-a",
-            key="test command",
-            kind="constraint",
-            content="Run python -m unittest before completion.",
-            confidence=0.9,
-            importance=0.9,
+            MemoryProposal(
+                namespace="repo-a",
+                key="test command",
+                kind="constraint",
+                content="Run python -m unittest before completion.",
+                confidence=0.9,
+                importance=0.9,
+            )
         )
 
         self.assertEqual(
@@ -65,14 +68,16 @@ class LongTermMemoryTest(unittest.TestCase):
 
     def test_workspace_and_agent_private_memory_do_not_leak(self) -> None:
         record = self.service.propose(
-            namespace="repo-a",
-            key="parser failure",
-            kind="failure_pattern",
-            content="Parser failures require inspecting malformed JSON.",
-            scope="agent_private",
-            agent_name="Reviewer",
-            confidence=0.9,
-            importance=0.8,
+            MemoryProposal(
+                namespace="repo-a",
+                key="parser failure",
+                kind="failure_pattern",
+                content="Parser failures require inspecting malformed JSON.",
+                scope="agent_private",
+                agent_name="Reviewer",
+                confidence=0.9,
+                importance=0.8,
+            )
         )
         self.service.promote(
             record.memory_id,
@@ -108,17 +113,21 @@ class LongTermMemoryTest(unittest.TestCase):
 
     def test_new_active_record_supersedes_same_key(self) -> None:
         old = self.service.propose(
-            namespace="repo-a",
-            key="validation command",
-            kind="decision",
-            content="Run the old test command.",
+            MemoryProposal(
+                namespace="repo-a",
+                key="validation command",
+                kind="decision",
+                content="Run the old test command.",
+            )
         )
         self.service.promote(old.memory_id, [EvidenceReference("human", "old")])
         new = self.service.propose(
-            namespace="repo-a",
-            key="validation command",
-            kind="decision",
-            content="Run the new test command.",
+            MemoryProposal(
+                namespace="repo-a",
+                key="validation command",
+                kind="decision",
+                content="Run the new test command.",
+            )
         )
         promoted = self.service.promote(
             new.memory_id,
@@ -136,12 +145,14 @@ class LongTermMemoryTest(unittest.TestCase):
 
     def test_expired_record_is_not_recalled(self) -> None:
         record = self.service.propose(
-            namespace="repo-a",
-            key="temporary constraint",
-            kind="constraint",
-            content="Use the temporary endpoint.",
-            importance=1.0,
-            expires_at=time.time() - 1,
+            MemoryProposal(
+                namespace="repo-a",
+                key="temporary constraint",
+                kind="constraint",
+                content="Use the temporary endpoint.",
+                importance=1.0,
+                expires_at=time.time() - 1,
+            )
         )
         self.service.promote(record.memory_id, [EvidenceReference("human", "temp")])
 
@@ -156,12 +167,14 @@ class LongTermMemoryTest(unittest.TestCase):
 
     def test_recalled_memory_is_rendered_as_separate_context_section(self) -> None:
         record = self.service.propose(
-            namespace="repo-a",
-            key="parser convention",
-            kind="fact",
-            content="The parser accepts JSON objects only.",
-            confidence=1.0,
-            importance=0.8,
+            MemoryProposal(
+                namespace="repo-a",
+                key="parser convention",
+                kind="fact",
+                content="The parser accepts JSON objects only.",
+                confidence=1.0,
+                importance=0.8,
+            )
         )
         self.service.promote(
             record.memory_id,
@@ -178,13 +191,15 @@ class LongTermMemoryTest(unittest.TestCase):
         (self.root / "target.py").write_text("VALUE = 1\n", encoding="utf-8")
 
         report = RepositoryContextAssembler().build(
-            task="inspect parser JSON behavior",
-            workspace=str(self.root),
-            working_memory=memory,
-            tools=[],
-            active_skill_cards=[],
-            max_chars=4_000,
-            permission_summary="read allowed",
+            ContextAssemblyRequest(
+                task="inspect parser JSON behavior",
+                workspace=str(self.root),
+                working_memory=memory,
+                tools=[],
+                active_skill_cards=[],
+                max_chars=4_000,
+                permission_summary="read allowed",
+            )
         )
 
         self.assertEqual(len(report.long_term_memory), 1)

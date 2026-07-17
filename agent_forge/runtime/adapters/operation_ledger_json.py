@@ -5,49 +5,53 @@ import json
 from pathlib import Path
 from typing import Any
 
-from agent_forge.runtime.domain.operation import OperationRecord
+from agent_forge.runtime.domain.operation import (
+    OperationPlan,
+    OperationRecord,
+    OperationTarget,
+    OperationTransition,
+)
 
 
 class JsonOperationLedgerRepository:
-
     def __init__(self, root: str | Path = ".agent_forge/operation_ledger") -> None:
         self.root = Path(root)
         self.root.mkdir(parents=True, exist_ok=True)
 
     @staticmethod
-    def operation_key(tool_name: str, arguments: dict[str, Any], workspace: str, action: str = "") -> str:
+    def operation_key(target: OperationTarget) -> str:
         payload = {
-            "tool_name": tool_name,
-            "arguments": arguments or {},
-            "workspace": str(Path(workspace).resolve()),
-            "action": action,
+            "tool_name": target.tool_name,
+            "arguments": target.arguments,
+            "workspace": str(Path(target.workspace).resolve()),
+            "action": target.action,
         }
         raw = json.dumps(payload, ensure_ascii=False, sort_keys=True, default=str)
         return hashlib.sha256(raw.encode("utf-8")).hexdigest()[:24]
 
     @staticmethod
-    def operation_fingerprint(
-        tool_name: str,
-        arguments: dict[str, Any],
-        workspace: str,
-        action: str = "",
-    ) -> dict[str, Any]:
-
-        args = arguments or {}
-        root = Path(workspace).resolve()
+    def operation_fingerprint(target: OperationTarget) -> dict[str, Any]:
+        args = target.arguments
+        root = Path(target.workspace).resolve()
         path_value = _target_path_value(args)
         if path_value:
             raw_path = Path(str(path_value))
-            resolved = (raw_path if raw_path.is_absolute() else root / raw_path).resolve()
+            resolved = (
+                raw_path if raw_path.is_absolute() else root / raw_path
+            ).resolve()
             fingerprint: dict[str, Any] = {
                 "kind": "path",
-                "tool_name": tool_name,
-                "action": action,
+                "tool_name": target.tool_name,
+                "action": target.action,
                 "path": str(path_value),
                 "resolved_path": str(resolved),
                 "inside_workspace": _is_relative_to(resolved, root),
             }
-            if fingerprint["inside_workspace"] and resolved.exists() and resolved.is_file():
+            if (
+                fingerprint["inside_workspace"]
+                and resolved.exists()
+                and resolved.is_file()
+            ):
                 content = resolved.read_bytes()
                 fingerprint.update(
                     {
@@ -60,19 +64,19 @@ class JsonOperationLedgerRepository:
                 fingerprint.update({"exists": False, "sha256": "", "size": 0})
             return fingerprint
 
-        if action == "run_command" or tool_name == "run_command":
+        if target.action == "run_command" or target.tool_name == "run_command":
             return {
                 "kind": "command",
-                "tool_name": tool_name,
-                "action": action,
+                "tool_name": target.tool_name,
+                "action": target.action,
                 "command": str(args.get("command", "")),
             }
 
         raw = json.dumps(args, ensure_ascii=False, sort_keys=True, default=str)
         return {
             "kind": "operation",
-            "tool_name": tool_name,
-            "action": action,
+            "tool_name": target.tool_name,
+            "action": target.action,
             "arguments_sha256": hashlib.sha256(raw.encode("utf-8")).hexdigest(),
         }
 
@@ -86,127 +90,60 @@ class JsonOperationLedgerRepository:
         data = json.loads(path.read_text(encoding="utf-8"))
         return OperationRecord(**data)
 
-    def record_pending(
-        self,
-        operation_key: str,
-        tool_name: str,
-        arguments: dict[str, Any],
-        action: str,
-        workspace: str,
-        *,
-        run_id: str,
-        step: int,
-        pre_fingerprint: dict[str, Any] | None = None,
-    ) -> OperationRecord:
-        return self._record(
-            operation_key,
-            "pending",
-            tool_name,
-            arguments,
-            action,
-            workspace,
-            run_id=run_id,
-            step=step,
-            pre_fingerprint=pre_fingerprint,
-        )
+    def record_pending(self, plan: OperationPlan) -> OperationRecord:
+        return self._record(plan)
 
-    def record_approved(self, operation_key: str, *, run_id: str, step: int) -> OperationRecord:
-        record = self._require(operation_key)
-        return self._transition(record, "approved", run_id=run_id, step=step)
+    def record_approved(self, update: OperationTransition) -> OperationRecord:
+        return self._transition(self._require(update.operation_key), update)
 
     # 运行时端口：记录副作用已执行及执行后的目标指纹。
-    def record_executed(
-        self,
-        operation_key: str,
-        *,
-        run_id: str,
-        step: int,
-        observation: str,
-        post_fingerprint: dict[str, Any] | None = None,
-    ) -> OperationRecord:
-        record = self._require(operation_key)
-        record.observation = observation
-        return self._transition(record, "executed", run_id=run_id, step=step, post_fingerprint=post_fingerprint)
+    def record_executed(self, update: OperationTransition) -> OperationRecord:
+        return self._transition(self._require(update.operation_key), update)
 
     # 运行时端口：记录副作用失败，供恢复流程决定是否可重试。
-    def record_failed(
-        self,
-        operation_key: str,
-        *,
-        run_id: str,
-        step: int,
-        observation: str,
-        post_fingerprint: dict[str, Any] | None = None,
-    ) -> OperationRecord:
-        record = self._require(operation_key)
-        record.observation = observation
-        return self._transition(record, "failed", run_id=run_id, step=step, post_fingerprint=post_fingerprint)
+    def record_failed(self, update: OperationTransition) -> OperationRecord:
+        return self._transition(self._require(update.operation_key), update)
 
     # 运行时端口：首次见到 operation 时创建 planned 账本记录。
-    def ensure_planned(
-        self,
-        operation_key: str,
-        tool_name: str,
-        arguments: dict[str, Any],
-        action: str,
-        workspace: str,
-        *,
-        run_id: str,
-        step: int,
-        status: str = "planned",
-        pre_fingerprint: dict[str, Any] | None = None,
-    ) -> OperationRecord:
+    def ensure_planned(self, plan: OperationPlan) -> OperationRecord:
         """返回已有操作记录，或持久化新的 planned 状态。
 
         ``ToolExecutionPipeline`` 在副作用前调用这里。稳定 key 和 pre-fingerprint
         让 continuation 跳过已完成操作，并拒绝盲目重放已变化的目标。
         """
 
-        existing = self.get(operation_key)
+        existing = self.get(plan.operation_key)
         if existing is not None:
-            if existing.pre_fingerprint is None and pre_fingerprint is not None:
-                existing.pre_fingerprint = pre_fingerprint
+            if existing.pre_fingerprint is None and plan.pre_fingerprint is not None:
+                existing.pre_fingerprint = plan.pre_fingerprint
                 self._write(existing)
             return existing
-        return self._record(
-            operation_key,
-            status,
-            tool_name,
-            arguments,
-            action,
-            workspace,
-            run_id=run_id,
-            step=step,
-            pre_fingerprint=pre_fingerprint,
-        )
+        return self._record(plan)
 
-    def _record(
-        self,
-        operation_key: str,
-        status: str,
-        tool_name: str,
-        arguments: dict[str, Any],
-        action: str,
-        workspace: str,
-        *,
-        run_id: str,
-        step: int,
-        pre_fingerprint: dict[str, Any] | None = None,
-    ) -> OperationRecord:
-        existing = self.get(operation_key)
+    def _record(self, plan: OperationPlan) -> OperationRecord:
+        existing = self.get(plan.operation_key)
         if existing is not None:
-            return self._transition(existing, status, run_id=run_id, step=step, pre_fingerprint=pre_fingerprint)
+            return self._transition(
+                existing,
+                OperationTransition(
+                    operation_key=plan.operation_key,
+                    status=plan.status,
+                    run_id=plan.run_id,
+                    step=plan.step,
+                    pre_fingerprint=plan.pre_fingerprint,
+                ),
+            )
         record = OperationRecord(
-            operation_key=operation_key,
-            status=status,
-            tool_name=tool_name,
-            arguments=arguments or {},
-            action=action,
-            workspace=str(Path(workspace).resolve()),
-            run_id=run_id,
-            step=step,
-            history=[status],
-            pre_fingerprint=pre_fingerprint,
+            operation_key=plan.operation_key,
+            status=plan.status,
+            tool_name=plan.target.tool_name,
+            arguments=plan.target.arguments,
+            action=plan.target.action,
+            workspace=str(Path(plan.target.workspace).resolve()),
+            run_id=plan.run_id,
+            step=plan.step,
+            history=[plan.status],
+            pre_fingerprint=plan.pre_fingerprint,
         )
         self._write(record)
         return record
@@ -214,20 +151,9 @@ class JsonOperationLedgerRepository:
     def _transition(
         self,
         record: OperationRecord,
-        status: str,
-        *,
-        run_id: str,
-        step: int,
-        pre_fingerprint: dict[str, Any] | None = None,
-        post_fingerprint: dict[str, Any] | None = None,
+        update: OperationTransition,
     ) -> OperationRecord:
-        record.transition(
-            status,
-            run_id=run_id,
-            step=step,
-            pre_fingerprint=pre_fingerprint,
-            post_fingerprint=post_fingerprint,
-        )
+        record.transition(update)
         self._write(record)
         return record
 
@@ -246,7 +172,6 @@ class JsonOperationLedgerRepository:
 
 
 def _target_path_value(arguments: dict[str, Any]) -> Any:
-
     for key in ("path", "file", "target_path", "output_path"):
         value = arguments.get(key)
         if value:
@@ -255,7 +180,6 @@ def _target_path_value(arguments: dict[str, Any]) -> Any:
 
 
 def _is_relative_to(path: Path, root: Path) -> bool:
-
     try:
         path.relative_to(root)
         return True

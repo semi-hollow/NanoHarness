@@ -9,14 +9,30 @@ from agent_forge.cli.parser import build_parser
 from agent_forge.cli.repository import run_repository_task
 from agent_forge.multi_agent.adapters.local_worker import _finalizer_task
 from agent_forge.multi_agent.domain.live import FanoutPlan, LiveSubagentResult
-from agent_forge.multi_agent.wiring import build_live_fanout
+from agent_forge.multi_agent.wiring import LiveFanoutBuildRequest, build_live_fanout
 from agent_forge.observability.api import TraceRecorder
 from agent_forge.runtime.adapters import JsonHumanInputRepository
 from agent_forge.runtime.config import RuntimeConfig
 from agent_forge.runtime.domain.conversation import ToolCall
+from agent_forge.runtime.execution_environment import ExecutionEnvironment
 from agent_forge.runtime.llm_client import AgentResponse
-from agent_forge.runtime.wiring import build_registry
+from agent_forge.runtime.wiring import ToolRegistryBuildRequest, build_registry
 from agent_forge.safety.guardrails import input_guardrail
+
+
+def _build_registry(
+    workspace: str | Path,
+    environment: ExecutionEnvironment,
+    *,
+    auto: bool = True,
+):
+    return build_registry(
+        ToolRegistryBuildRequest(
+            workspace=str(workspace),
+            auto=auto,
+            execution_environment=environment,
+        )
+    )
 
 
 class EditingLLM:
@@ -33,7 +49,13 @@ class EditingLLM:
         prompt = "\n".join(message.content or "" for message in messages)
         if "FanoutVerifier" in prompt:
             return AgentResponse("PASS\nintegrated artifacts are present", [])
-        task_id = "alpha" if "task_id=alpha" in prompt else "beta" if "task_id=beta" in prompt else ""
+        task_id = (
+            "alpha"
+            if "task_id=alpha" in prompt
+            else "beta"
+            if "task_id=beta" in prompt
+            else ""
+        )
         if task_id == self.fail_task:
             return AgentResponse("blocked: fixture failure", [])
         if self.calls == 1:
@@ -48,14 +70,22 @@ class EditingLLM:
                         )
                     ],
                 )
-            path = "b.py" if self.escape_scope and task_id == "alpha" else f"{task_id[0]}.py"
+            path = (
+                "b.py"
+                if self.escape_scope and task_id == "alpha"
+                else f"{task_id[0]}.py"
+            )
             return AgentResponse(
                 None,
                 [
                     ToolCall(
                         f"patch-{task_id}",
                         "apply_patch",
-                        {"path": path, "old": "value = 1\n", "new": f"value = '{task_id}'\n"},
+                        {
+                            "path": path,
+                            "old": "value = 1\n",
+                            "new": f"value = '{task_id}'\n",
+                        },
                     )
                 ],
             )
@@ -80,7 +110,10 @@ class AskThenEditLLM:
                     ToolCall(
                         "ask-alpha",
                         "ask_human",
-                        {"question": "Use the compatibility implementation?", "choices": ["yes", "no"]},
+                        {
+                            "question": "Use the compatibility implementation?",
+                            "choices": ["yes", "no"],
+                        },
                     )
                 ],
             )
@@ -91,7 +124,11 @@ class AskThenEditLLM:
                     ToolCall(
                         "patch-alpha",
                         "apply_patch",
-                        {"path": "a.py", "old": "value = 1\n", "new": "value = 'approved'\n"},
+                        {
+                            "path": "a.py",
+                            "old": "value = 1\n",
+                            "new": "value = 'approved'\n",
+                        },
                     )
                 ],
             )
@@ -107,7 +144,9 @@ class BudgetAwareLLM:
     def chat(self, messages, tools):
         prompt = "\n".join(message.content or "" for message in messages)
         if "FanoutVerifier" in prompt:
-            return AgentResponse("PASS\nworker respected its structured step budget", [])
+            return AgentResponse(
+                "PASS\nworker respected its structured step budget", []
+            )
         self.worker_calls += 1
         if tools:
             return AgentResponse(
@@ -128,10 +167,16 @@ class DiffInspectingLLM:
         prompt = "\n".join(message.content or "" for message in messages)
         if "FanoutVerifier" in prompt:
             if self.calls == 1:
-                return AgentResponse(None, [ToolCall("inspect-candidate", "git_diff", {})])
+                return AgentResponse(
+                    None, [ToolCall("inspect-candidate", "git_diff", {})]
+                )
             if "diff --git" in prompt and "value = 'alpha'" in prompt:
-                return AgentResponse("PASS\nintegrated candidate diff is directly visible", [])
-            return AgentResponse("BLOCKED\nintegrated candidate diff was not visible", [])
+                return AgentResponse(
+                    "PASS\nintegrated candidate diff is directly visible", []
+                )
+            return AgentResponse(
+                "BLOCKED\nintegrated candidate diff was not visible", []
+            )
         if self.calls == 1:
             return AgentResponse(
                 None,
@@ -139,7 +184,11 @@ class DiffInspectingLLM:
                     ToolCall(
                         "patch-alpha",
                         "apply_patch",
-                        {"path": "a.py", "old": "value = 1\n", "new": "value = 'alpha'\n"},
+                        {
+                            "path": "a.py",
+                            "old": "value = 1\n",
+                            "new": "value = 'alpha'\n",
+                        },
                     )
                 ],
             )
@@ -148,14 +197,22 @@ class DiffInspectingLLM:
 
 def _init_repo(root: Path) -> str:
     subprocess.run(["git", "init"], cwd=root, check=True, capture_output=True)
-    subprocess.run(["git", "config", "user.email", "test@example.com"], cwd=root, check=True)
+    subprocess.run(
+        ["git", "config", "user.email", "test@example.com"], cwd=root, check=True
+    )
     subprocess.run(["git", "config", "user.name", "Test User"], cwd=root, check=True)
     (root / "a.py").write_text("value = 1\n", encoding="utf-8")
     (root / "b.py").write_text("value = 1\n", encoding="utf-8")
     subprocess.run(["git", "add", "a.py", "b.py"], cwd=root, check=True)
-    subprocess.run(["git", "commit", "-m", "baseline"], cwd=root, check=True, capture_output=True)
+    subprocess.run(
+        ["git", "commit", "-m", "baseline"], cwd=root, check=True, capture_output=True
+    )
     return subprocess.run(
-        ["git", "rev-parse", "HEAD"], cwd=root, check=True, capture_output=True, text=True
+        ["git", "rev-parse", "HEAD"],
+        cwd=root,
+        check=True,
+        capture_output=True,
+        text=True,
     ).stdout.strip()
 
 
@@ -203,20 +260,22 @@ class LiveFanoutTest(unittest.TestCase):
             )
 
             summary = build_live_fanout(
-                plan=plan,
-                base_config=RuntimeConfig(workspace=str(repo), max_steps=3),
-                trace=TraceRecorder(str(root / "run" / "trace.json")),
-                run_dir=root / "run",
-                llm_factory=DiffInspectingLLM,
-                registry_factory=lambda workspace, environment: build_registry(
-                    str(workspace), auto=True, execution_environment=environment
-                ),
-                max_workers=1,
+                LiveFanoutBuildRequest(
+                    plan=plan,
+                    base_config=RuntimeConfig(workspace=str(repo), max_steps=3),
+                    trace=TraceRecorder(str(root / "run" / "trace.json")),
+                    run_dir=root / "run",
+                    llm_factory=DiffInspectingLLM,
+                    registry_factory=_build_registry,
+                    max_workers=1,
+                )
             ).run()
 
             self.assertEqual(summary.status, "passed")
             self.assertEqual(summary.final_decision, "PASS")
-            finalizer_trace = json.loads(Path(summary.finalizer_trace_path).read_text(encoding="utf-8"))
+            finalizer_trace = json.loads(
+                Path(summary.finalizer_trace_path).read_text(encoding="utf-8")
+            )
             observations = [
                 event.get("observation", "")
                 for event in finalizer_trace["events"]
@@ -277,15 +336,15 @@ class LiveFanoutTest(unittest.TestCase):
                 return llm
 
             summary = build_live_fanout(
-                plan=plan,
-                base_config=RuntimeConfig(workspace=str(repo), max_steps=12),
-                trace=TraceRecorder(str(root / "run" / "trace.json")),
-                run_dir=root / "run",
-                llm_factory=llm_factory,
-                registry_factory=lambda workspace, environment: build_registry(
-                    str(workspace), auto=True, execution_environment=environment
-                ),
-                max_workers=1,
+                LiveFanoutBuildRequest(
+                    plan=plan,
+                    base_config=RuntimeConfig(workspace=str(repo), max_steps=12),
+                    trace=TraceRecorder(str(root / "run" / "trace.json")),
+                    run_dir=root / "run",
+                    llm_factory=llm_factory,
+                    registry_factory=_build_registry,
+                    max_workers=1,
+                )
             ).run()
 
             self.assertEqual(summary.status, "passed")
@@ -302,7 +361,12 @@ class LiveFanoutTest(unittest.TestCase):
                     )
         with self.assertRaisesRegex(ValueError, "relative workspace path"):
             FanoutPlan.from_mapping(
-                {"goal": "bad", "tasks": [{"id": "bad", "task": "bad", "write_scope": ["../outside"]}]}
+                {
+                    "goal": "bad",
+                    "tasks": [
+                        {"id": "bad", "task": "bad", "write_scope": ["../outside"]}
+                    ],
+                }
             )
         with self.assertRaisesRegex(ValueError, "unknown dependencies"):
             FanoutPlan.from_mapping(
@@ -354,7 +418,9 @@ class LiveFanoutTest(unittest.TestCase):
 
         self.assertEqual(plan.tasks[0].write_scope, [".github/workflows/"])
 
-    def test_real_agentloop_workers_use_isolated_worktrees_and_merge_disjoint_patches(self):
+    def test_real_agentloop_workers_use_isolated_worktrees_and_merge_disjoint_patches(
+        self,
+    ):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             repo = root / "repo"
@@ -370,15 +436,15 @@ class LiveFanoutTest(unittest.TestCase):
                 return llm
 
             coordinator = build_live_fanout(
-                plan=_plan(),
-                base_config=RuntimeConfig(workspace=str(repo), max_steps=3),
-                trace=trace,
-                run_dir=run_dir,
-                llm_factory=llm_factory,
-                registry_factory=lambda workspace, environment: build_registry(
-                    str(workspace), auto=True, execution_environment=environment
-                ),
-                max_workers=2,
+                LiveFanoutBuildRequest(
+                    plan=_plan(),
+                    base_config=RuntimeConfig(workspace=str(repo), max_steps=3),
+                    trace=trace,
+                    run_dir=run_dir,
+                    llm_factory=llm_factory,
+                    registry_factory=_build_registry,
+                    max_workers=2,
+                )
             )
 
             summary = coordinator.run()
@@ -386,8 +452,12 @@ class LiveFanoutTest(unittest.TestCase):
             self.assertEqual(summary.status, "passed")
             self.assertEqual(summary.batches, [["alpha", "beta"]])
             self.assertEqual(set(summary.merged_task_ids), {"alpha", "beta"})
-            self.assertEqual((repo / "a.py").read_text(encoding="utf-8"), "value = 'alpha'\n")
-            self.assertEqual((repo / "b.py").read_text(encoding="utf-8"), "value = 'beta'\n")
+            self.assertEqual(
+                (repo / "a.py").read_text(encoding="utf-8"), "value = 'alpha'\n"
+            )
+            self.assertEqual(
+                (repo / "b.py").read_text(encoding="utf-8"), "value = 'beta'\n"
+            )
             self.assertGreaterEqual(len(created_llms), 3)  # two workers plus verifier
             worker_roots = {result.workspace for result in summary.results}
             self.assertEqual(len(worker_roots), 2)
@@ -404,19 +474,23 @@ class LiveFanoutTest(unittest.TestCase):
             self.assertTrue(Path(summary.finalizer_trace_path).exists())
             self.assertTrue(Path(summary.finalizer_usage_path).exists())
             self.assertEqual(summary.metrics["max_workers"], 2)
-            report = (run_dir / "fanout" / "fanout_report.md").read_text(encoding="utf-8")
+            report = (run_dir / "fanout" / "fanout_report.md").read_text(
+                encoding="utf-8"
+            )
             self.assertIn("## Current Run Metrics", report)
             self.assertIn("## Recovery Accounting", report)
             self.assertIn("evidence_chain_total_tokens", report)
             self.assertNotIn("resumed_failed_tool_calls", report)
             finalizer_manifest = json.loads(
-                (run_dir / "fanout" / "finalizer" / "execution_environment.json").read_text(
-                    encoding="utf-8"
-                )
+                (
+                    run_dir / "fanout" / "finalizer" / "execution_environment.json"
+                ).read_text(encoding="utf-8")
             )
             self.assertEqual(finalizer_manifest["probe"]["mode"], "worktree")
             self.assertEqual(finalizer_manifest["cleanup_policy"], "remove")
-            self.assertFalse(Path(finalizer_manifest["probe"]["active_workspace"]).exists())
+            self.assertFalse(
+                Path(finalizer_manifest["probe"]["active_workspace"]).exists()
+            )
 
     def test_scope_escape_fails_closed_without_merging_patch(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -438,15 +512,15 @@ class LiveFanoutTest(unittest.TestCase):
                 }
             )
             coordinator = build_live_fanout(
-                plan=plan,
-                base_config=RuntimeConfig(workspace=str(repo), max_steps=3),
-                trace=TraceRecorder(str(root / "run" / "trace.json")),
-                run_dir=root / "run",
-                llm_factory=lambda: EditingLLM(escape_scope=True),
-                registry_factory=lambda workspace, environment: build_registry(
-                    str(workspace), auto=True, execution_environment=environment
-                ),
-                max_workers=1,
+                LiveFanoutBuildRequest(
+                    plan=plan,
+                    base_config=RuntimeConfig(workspace=str(repo), max_steps=3),
+                    trace=TraceRecorder(str(root / "run" / "trace.json")),
+                    run_dir=root / "run",
+                    llm_factory=lambda: EditingLLM(escape_scope=True),
+                    registry_factory=_build_registry,
+                    max_workers=1,
+                )
             )
 
             summary = coordinator.run()
@@ -463,18 +537,20 @@ class LiveFanoutTest(unittest.TestCase):
             repo.mkdir()
             _init_repo(repo)
             coordinator = build_live_fanout(
-                plan=_plan(),
-                base_config=RuntimeConfig(
-                    workspace=str(repo),
-                    max_steps=3,
-                    auto_approve_writes=False,
-                ),
-                trace=TraceRecorder(str(root / "run" / "trace.json")),
-                run_dir=root / "run",
-                llm_factory=EditingLLM,
-                registry_factory=lambda workspace, environment: build_registry(
-                    str(workspace), auto=False, execution_environment=environment
-                ),
+                LiveFanoutBuildRequest(
+                    plan=_plan(),
+                    base_config=RuntimeConfig(
+                        workspace=str(repo),
+                        max_steps=3,
+                        auto_approve_writes=False,
+                    ),
+                    trace=TraceRecorder(str(root / "run" / "trace.json")),
+                    run_dir=root / "run",
+                    llm_factory=EditingLLM,
+                    registry_factory=lambda workspace, environment: _build_registry(
+                        workspace, environment, auto=False
+                    ),
+                )
             )
 
             with self.assertRaisesRegex(RuntimeError, "manual write approval"):
@@ -501,21 +577,25 @@ class LiveFanoutTest(unittest.TestCase):
             )
             run_dir = root / "run"
             summary = build_live_fanout(
-                plan=plan,
-                base_config=RuntimeConfig(workspace=str(repo), max_steps=3),
-                trace=TraceRecorder(str(run_dir / "trace.json")),
-                run_dir=run_dir,
-                llm_factory=lambda: EditingLLM(create_new=True),
-                registry_factory=lambda workspace, environment: build_registry(
-                    str(workspace), auto=True, execution_environment=environment
-                ),
-                max_workers=1,
+                LiveFanoutBuildRequest(
+                    plan=plan,
+                    base_config=RuntimeConfig(workspace=str(repo), max_steps=3),
+                    trace=TraceRecorder(str(run_dir / "trace.json")),
+                    run_dir=run_dir,
+                    llm_factory=lambda: EditingLLM(create_new=True),
+                    registry_factory=_build_registry,
+                    max_workers=1,
+                )
             ).run()
 
             self.assertEqual(summary.status, "passed")
             self.assertEqual(summary.results[0].touched_files, ["new.py"])
-            self.assertEqual((repo / "new.py").read_text(encoding="utf-8"), "value = 'new'\n")
-            integration_patch = Path(summary.integration_patch_path).read_text(encoding="utf-8")
+            self.assertEqual(
+                (repo / "new.py").read_text(encoding="utf-8"), "value = 'new'\n"
+            )
+            integration_patch = Path(summary.integration_patch_path).read_text(
+                encoding="utf-8"
+            )
             self.assertIn("new file mode", integration_patch)
             self.assertIn("b/new.py", integration_patch)
 
@@ -529,7 +609,11 @@ class LiveFanoutTest(unittest.TestCase):
                 {
                     "goal": "dependency test",
                     "tasks": [
-                        {"id": "alpha", "task": "implement alpha", "write_scope": ["a.py"]},
+                        {
+                            "id": "alpha",
+                            "task": "implement alpha",
+                            "write_scope": ["a.py"],
+                        },
                         {
                             "id": "beta",
                             "task": "implement beta",
@@ -540,15 +624,15 @@ class LiveFanoutTest(unittest.TestCase):
                 }
             )
             coordinator = build_live_fanout(
-                plan=plan,
-                base_config=RuntimeConfig(workspace=str(repo), max_steps=2),
-                trace=TraceRecorder(str(root / "run" / "trace.json")),
-                run_dir=root / "run",
-                llm_factory=lambda: EditingLLM(fail_task="alpha"),
-                registry_factory=lambda workspace, environment: build_registry(
-                    str(workspace), auto=True, execution_environment=environment
-                ),
-                max_workers=2,
+                LiveFanoutBuildRequest(
+                    plan=plan,
+                    base_config=RuntimeConfig(workspace=str(repo), max_steps=2),
+                    trace=TraceRecorder(str(root / "run" / "trace.json")),
+                    run_dir=root / "run",
+                    llm_factory=lambda: EditingLLM(fail_task="alpha"),
+                    registry_factory=_build_registry,
+                    max_workers=2,
+                )
             )
 
             summary = coordinator.run()
@@ -568,15 +652,15 @@ class LiveFanoutTest(unittest.TestCase):
             _init_repo(first_repo)
             first_run = root / "first-run"
             first = build_live_fanout(
-                plan=_plan(),
-                base_config=RuntimeConfig(workspace=str(first_repo), max_steps=3),
-                trace=TraceRecorder(str(first_run / "trace.json")),
-                run_dir=first_run,
-                llm_factory=lambda: EditingLLM(fail_task="beta"),
-                registry_factory=lambda workspace, environment: build_registry(
-                    str(workspace), auto=True, execution_environment=environment
-                ),
-                max_workers=2,
+                LiveFanoutBuildRequest(
+                    plan=_plan(),
+                    base_config=RuntimeConfig(workspace=str(first_repo), max_steps=3),
+                    trace=TraceRecorder(str(first_run / "trace.json")),
+                    run_dir=first_run,
+                    llm_factory=lambda: EditingLLM(fail_task="beta"),
+                    registry_factory=_build_registry,
+                    max_workers=2,
+                )
             ).run()
             self.assertEqual(first.status, "partial_failure")
             self.assertEqual(first.merged_task_ids, ["alpha"])
@@ -597,25 +681,31 @@ class LiveFanoutTest(unittest.TestCase):
                 return llm
 
             resumed = build_live_fanout(
-                plan=_plan(),
-                base_config=RuntimeConfig(workspace=str(resumed_repo), max_steps=3),
-                trace=TraceRecorder(str(second_run / "trace.json")),
-                run_dir=second_run,
-                llm_factory=llm_factory,
-                registry_factory=lambda workspace, environment: build_registry(
-                    str(workspace), auto=True, execution_environment=environment
-                ),
-                max_workers=2,
-                resume_from=first_run,
+                LiveFanoutBuildRequest(
+                    plan=_plan(),
+                    base_config=RuntimeConfig(workspace=str(resumed_repo), max_steps=3),
+                    trace=TraceRecorder(str(second_run / "trace.json")),
+                    run_dir=second_run,
+                    llm_factory=llm_factory,
+                    registry_factory=_build_registry,
+                    max_workers=2,
+                    resume_from=first_run,
+                )
             ).run()
 
             by_id = {result.task_id: result for result in resumed.results}
             self.assertEqual(resumed.status, "passed")
             self.assertTrue(by_id["alpha"].resumed)
             self.assertFalse(by_id["beta"].resumed)
-            self.assertEqual(len(created_llms), 2)  # beta plus final verifier; alpha was recovered
-            self.assertEqual((resumed_repo / "a.py").read_text(encoding="utf-8"), "value = 'alpha'\n")
-            self.assertEqual((resumed_repo / "b.py").read_text(encoding="utf-8"), "value = 'beta'\n")
+            self.assertEqual(
+                len(created_llms), 2
+            )  # beta plus final verifier; alpha was recovered
+            self.assertEqual(
+                (resumed_repo / "a.py").read_text(encoding="utf-8"), "value = 'alpha'\n"
+            )
+            self.assertEqual(
+                (resumed_repo / "b.py").read_text(encoding="utf-8"), "value = 'beta'\n"
+            )
             self.assertEqual(resumed.metrics["resumed_count"], 1)
             self.assertEqual(
                 resumed.metrics["resumed_worker_duration_ms"],
@@ -629,9 +719,8 @@ class LiveFanoutTest(unittest.TestCase):
                 resumed.metrics["worker_time_to_wall_ratio"],
                 round(by_id["beta"].duration_ms / resumed.wall_time_ms, 4),
             )
-            current_llm_calls = (
-                int(by_id["beta"].usage_summary["llm_calls"])
-                + int(resumed.finalizer_usage_summary["llm_calls"])
+            current_llm_calls = int(by_id["beta"].usage_summary["llm_calls"]) + int(
+                resumed.finalizer_usage_summary["llm_calls"]
             )
             self.assertEqual(resumed.metrics["llm_calls"], current_llm_calls)
             self.assertEqual(
@@ -665,19 +754,19 @@ class LiveFanoutTest(unittest.TestCase):
             )
             first_run = root / "first-run"
             first = build_live_fanout(
-                plan=plan,
-                base_config=RuntimeConfig(
-                    workspace=str(first_repo),
-                    max_steps=4,
-                    human_input_root=str(human_root),
-                ),
-                trace=TraceRecorder(str(first_run / "trace.json")),
-                run_dir=first_run,
-                llm_factory=AskThenEditLLM,
-                registry_factory=lambda workspace, environment: build_registry(
-                    str(workspace), auto=True, execution_environment=environment
-                ),
-                max_workers=1,
+                LiveFanoutBuildRequest(
+                    plan=plan,
+                    base_config=RuntimeConfig(
+                        workspace=str(first_repo),
+                        max_steps=4,
+                        human_input_root=str(human_root),
+                    ),
+                    trace=TraceRecorder(str(first_run / "trace.json")),
+                    run_dir=first_run,
+                    llm_factory=AskThenEditLLM,
+                    registry_factory=_build_registry,
+                    max_workers=1,
+                )
             ).run()
             self.assertEqual(first.status, "partial_failure")
             self.assertEqual(first.results[0].status, "waiting_human")
@@ -692,24 +781,27 @@ class LiveFanoutTest(unittest.TestCase):
             )
             second_run = root / "second-run"
             resumed = build_live_fanout(
-                plan=plan,
-                base_config=RuntimeConfig(
-                    workspace=str(resumed_repo),
-                    max_steps=4,
-                    human_input_root=str(human_root),
-                ),
-                trace=TraceRecorder(str(second_run / "trace.json")),
-                run_dir=second_run,
-                llm_factory=AskThenEditLLM,
-                registry_factory=lambda workspace, environment: build_registry(
-                    str(workspace), auto=True, execution_environment=environment
-                ),
-                max_workers=1,
-                resume_from=first_run,
+                LiveFanoutBuildRequest(
+                    plan=plan,
+                    base_config=RuntimeConfig(
+                        workspace=str(resumed_repo),
+                        max_steps=4,
+                        human_input_root=str(human_root),
+                    ),
+                    trace=TraceRecorder(str(second_run / "trace.json")),
+                    run_dir=second_run,
+                    llm_factory=AskThenEditLLM,
+                    registry_factory=_build_registry,
+                    max_workers=1,
+                    resume_from=first_run,
+                )
             ).run()
 
             self.assertEqual(resumed.status, "passed")
-            self.assertEqual((resumed_repo / "a.py").read_text(encoding="utf-8"), "value = 'approved'\n")
+            self.assertEqual(
+                (resumed_repo / "a.py").read_text(encoding="utf-8"),
+                "value = 'approved'\n",
+            )
             self.assertEqual(JsonHumanInputRepository(human_root).list_pending(), [])
 
     def test_resume_rejects_a_different_plan(self):
@@ -732,15 +824,15 @@ class LiveFanoutTest(unittest.TestCase):
                 encoding="utf-8",
             )
             coordinator = build_live_fanout(
-                plan=_plan(),
-                base_config=RuntimeConfig(workspace=str(repo), max_steps=3),
-                trace=TraceRecorder(str(root / "run" / "trace.json")),
-                run_dir=root / "run",
-                llm_factory=EditingLLM,
-                registry_factory=lambda workspace, environment: build_registry(
-                    str(workspace), auto=True, execution_environment=environment
-                ),
-                resume_from=previous_run.parent,
+                LiveFanoutBuildRequest(
+                    plan=_plan(),
+                    base_config=RuntimeConfig(workspace=str(repo), max_steps=3),
+                    trace=TraceRecorder(str(root / "run" / "trace.json")),
+                    run_dir=root / "run",
+                    llm_factory=EditingLLM,
+                    registry_factory=_build_registry,
+                    resume_from=previous_run.parent,
+                )
             )
 
             with self.assertRaisesRegex(RuntimeError, "plan digest"):
@@ -754,38 +846,46 @@ class LiveFanoutTest(unittest.TestCase):
             _init_repo(repo)
             first_run = root / "first-run"
             first = build_live_fanout(
-                plan=_plan(),
-                base_config=RuntimeConfig(workspace=str(repo), max_steps=3),
-                trace=TraceRecorder(str(first_run / "trace.json")),
-                run_dir=first_run,
-                llm_factory=EditingLLM,
-                registry_factory=lambda workspace, environment: build_registry(
-                    str(workspace), auto=True, execution_environment=environment
-                ),
-                max_workers=2,
+                LiveFanoutBuildRequest(
+                    plan=_plan(),
+                    base_config=RuntimeConfig(workspace=str(repo), max_steps=3),
+                    trace=TraceRecorder(str(first_run / "trace.json")),
+                    run_dir=first_run,
+                    llm_factory=EditingLLM,
+                    registry_factory=_build_registry,
+                    max_workers=2,
+                )
             ).run()
             self.assertEqual(first.status, "passed")
             beta = next(result for result in first.results if result.task_id == "beta")
             Path(beta.patch_path).write_text("tampered\n", encoding="utf-8")
 
             resumed_repo = root / "resumed-repo"
-            subprocess.run(["git", "clone", str(repo), str(resumed_repo)], check=True, capture_output=True)
+            subprocess.run(
+                ["git", "clone", str(repo), str(resumed_repo)],
+                check=True,
+                capture_output=True,
+            )
             coordinator = build_live_fanout(
-                plan=_plan(),
-                base_config=RuntimeConfig(workspace=str(resumed_repo), max_steps=3),
-                trace=TraceRecorder(str(root / "second-run" / "trace.json")),
-                run_dir=root / "second-run",
-                llm_factory=EditingLLM,
-                registry_factory=lambda workspace, environment: build_registry(
-                    str(workspace), auto=True, execution_environment=environment
-                ),
-                resume_from=first_run,
+                LiveFanoutBuildRequest(
+                    plan=_plan(),
+                    base_config=RuntimeConfig(workspace=str(resumed_repo), max_steps=3),
+                    trace=TraceRecorder(str(root / "second-run" / "trace.json")),
+                    run_dir=root / "second-run",
+                    llm_factory=EditingLLM,
+                    registry_factory=_build_registry,
+                    resume_from=first_run,
+                )
             )
 
             with self.assertRaisesRegex(RuntimeError, "patch digest"):
                 coordinator.run()
-            self.assertEqual((resumed_repo / "a.py").read_text(encoding="utf-8"), "value = 1\n")
-            self.assertEqual((resumed_repo / "b.py").read_text(encoding="utf-8"), "value = 1\n")
+            self.assertEqual(
+                (resumed_repo / "a.py").read_text(encoding="utf-8"), "value = 1\n"
+            )
+            self.assertEqual(
+                (resumed_repo / "b.py").read_text(encoding="utf-8"), "value = 1\n"
+            )
 
     def test_public_run_entrypoint_routes_fanout_and_writes_candidate_patch(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -826,12 +926,21 @@ class LiveFanoutTest(unittest.TestCase):
             ):
                 run_dir = run_repository_task(args)
 
-            summary = json.loads((run_dir / "fanout" / "fanout_summary.json").read_text(encoding="utf-8"))
+            summary = json.loads(
+                (run_dir / "fanout" / "fanout_summary.json").read_text(encoding="utf-8")
+            )
             self.assertEqual(summary["status"], "passed")
             self.assertEqual(set(summary["merged_task_ids"]), {"alpha", "beta"})
-            self.assertIn("diff --git", (run_dir / "patch.diff").read_text(encoding="utf-8"))
-            self.assertNotIn(".agent_forge", (run_dir / "patch.diff").read_text(encoding="utf-8"))
-            self.assertIn("candidate artifact", (run_dir / "final_answer.txt").read_text(encoding="utf-8"))
+            self.assertIn(
+                "diff --git", (run_dir / "patch.diff").read_text(encoding="utf-8")
+            )
+            self.assertNotIn(
+                ".agent_forge", (run_dir / "patch.diff").read_text(encoding="utf-8")
+            )
+            self.assertIn(
+                "candidate artifact",
+                (run_dir / "final_answer.txt").read_text(encoding="utf-8"),
+            )
 
     def test_summary_is_machine_readable(self):
         plan = _plan()
@@ -839,7 +948,9 @@ class LiveFanoutTest(unittest.TestCase):
         self.assertEqual(payload["goal"], "Update two independent modules")
         self.assertEqual([task["id"] for task in payload["tasks"]], ["alpha", "beta"])
 
-    def test_finalizer_quotes_safety_evidence_without_triggering_user_input_guardrail(self):
+    def test_finalizer_quotes_safety_evidence_without_triggering_user_input_guardrail(
+        self,
+    ):
         prompt = _finalizer_task(
             "Audit safety behavior",
             [

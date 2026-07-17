@@ -1,6 +1,7 @@
 import unittest
 
 from agent_forge.context.application.compaction import (
+    ContextWindowRequest,
     ContextWindowManager,
     PromptBudget,
 )
@@ -44,9 +45,7 @@ class ContextWindowManagerTest(unittest.TestCase):
                     tool_call_id=call_id,
                 )
             )
-            observations.append(
-                Observation("read_file", index != 2, f"result-{index}")
-            )
+            observations.append(Observation("read_file", index != 2, f"result-{index}"))
 
         result = ContextWindowManager(
             PromptBudget(
@@ -55,11 +54,13 @@ class ContextWindowManagerTest(unittest.TestCase):
                 soft_limit_ratio=0.7,
             )
         ).prepare(
-            system_message=Message("system", "runtime policy"),
-            history=history,
-            observations=observations,
-            tools=[{"name": "read_file", "arguments": {"path": "str"}}],
-            task="fix the parser and run tests",
+            ContextWindowRequest(
+                system_message=Message("system", "runtime policy"),
+                history=history,
+                observations=observations,
+                tools=[{"name": "read_file", "arguments": {"path": "str"}}],
+                task="fix the parser and run tests",
+            )
         )
 
         self.assertTrue(result.compacted)
@@ -70,9 +71,7 @@ class ContextWindowManagerTest(unittest.TestCase):
         self.assertIsNotNone(result.digest)
         assert result.digest is not None
         self.assertTrue(result.digest.source_hash)
-        self.assertTrue(
-            any("result-2" in item for item in result.digest.open_failures)
-        )
+        self.assertTrue(any("result-2" in item for item in result.digest.open_failures))
         roles = [message.role for message in result.messages[2:]]
         for index, role in enumerate(roles):
             if role == "tool":
@@ -82,11 +81,13 @@ class ContextWindowManagerTest(unittest.TestCase):
     def test_small_request_keeps_raw_history(self) -> None:
         history = [Message("user", "inspect target.py")]
         result = ContextWindowManager(PromptBudget()).prepare(
-            system_message=Message("system", "policy"),
-            history=history,
-            observations=[],
-            tools=[],
-            task="inspect target.py",
+            ContextWindowRequest(
+                system_message=Message("system", "policy"),
+                history=history,
+                observations=[],
+                tools=[],
+                task="inspect target.py",
+            )
         )
 
         self.assertFalse(result.compacted)
@@ -105,19 +106,23 @@ class ContextWindowManagerTest(unittest.TestCase):
         )
 
         normal = manager.prepare(
-            system_message=Message("system", "policy"),
-            history=history,
-            observations=[],
-            tools=[],
-            task="continue",
+            ContextWindowRequest(
+                system_message=Message("system", "policy"),
+                history=history,
+                observations=[],
+                tools=[],
+                task="continue",
+            )
         )
         forced = manager.prepare(
-            system_message=Message("system", "policy"),
-            history=history,
-            observations=[],
-            tools=[],
-            task="continue",
-            force_compaction=True,
+            ContextWindowRequest(
+                system_message=Message("system", "policy"),
+                history=history,
+                observations=[],
+                tools=[],
+                task="continue",
+                force_compaction=True,
+            )
         )
 
         self.assertFalse(normal.compacted)

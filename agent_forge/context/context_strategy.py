@@ -9,12 +9,23 @@ from .rag import retrieve
 from .token_budget import truncate_middle
 
 ATTENTION_SINK = [
-
     "Follow the latest user task, not stale session history.",
     "Inspect relevant files before editing when the task depends on code.",
     "Return tool observations to the next reasoning step before deciding.",
     "Do not claim tests passed unless a validation tool actually succeeded.",
 ]
+
+
+# 核心数据：Context 策略选择文件与记忆时使用的候选输入。
+@dataclass(frozen=True)
+class ContextStrategyRequest:
+    """任务、仓库文件、工作记忆和本次字符预算。"""
+
+    task: str
+    files: list[str]
+    working_memory: ContextMemory
+    root: str | Path
+    max_chars: int
 
 
 # 核心数据：文件、检索、working/long-term memory 的一次选择结果。
@@ -41,33 +52,26 @@ class ContextStrategy:
 
 
 # 核心规则：按任务相关性选择文件、检索结果和可继承的记忆视图。
-def build_context_strategy(
-    task: str,
-    files: list[str],
-    docs: list[str],
-    working_memory: ContextMemory,
-    root: str | Path,
-    max_chars: int,
-) -> ContextStrategy:
+def build_context_strategy(request: ContextStrategyRequest) -> ContextStrategy:
     """在 ``root`` 内读取有界文件预览，并返回类型化候选上下文。"""
 
-    root_path = Path(root)
+    root_path = Path(request.root)
 
-    selected_files = rank_files(task, files, root=root_path)[:8]
+    selected_files = rank_files(request.task, request.files, root=root_path)[:8]
 
-    preview_budget = max(1200, max_chars // 3)
+    preview_budget = max(1200, request.max_chars // 3)
     file_previews = _read_file_previews(root_path, selected_files[:4], preview_budget)
 
-    previous_task = str(working_memory.get("previous_task", "") or "")
-    topic_relation = infer_topic_relation(task, previous_task)
+    previous_task = str(request.working_memory.get("previous_task", "") or "")
+    topic_relation = infer_topic_relation(request.task, previous_task)
     inherit_session = topic_relation in {"same_topic", "related_topic", "unknown"}
 
-    working_memory_items = [str(item) for item in working_memory.recent()]
-    working_memory_summary = working_memory.summary(
-        max_chars=max(600, max_chars // 8)
+    working_memory_items = [str(item) for item in request.working_memory.recent()]
+    working_memory_summary = request.working_memory.summary(
+        max_chars=max(600, request.max_chars // 8)
     )
     long_term_memory = [
-        item.render_prompt_line() for item in working_memory.long_term()
+        item.render_prompt_line() for item in request.working_memory.long_term()
     ]
     if not inherit_session:
         working_memory_items = []
@@ -75,7 +79,7 @@ def build_context_strategy(
             "Previous session context intentionally ignored because the topic changed."
         )
 
-    retrieved_docs = retrieve(task, docs or files, limit=5)
+    retrieved_docs = retrieve(request.task, request.files, limit=5)
     retrieved_docs = [truncate_middle(doc, 600) for doc in retrieved_docs]
 
     used = {
@@ -107,14 +111,15 @@ def build_context_strategy(
 
 
 def infer_topic_relation(current_task: str, previous_task: str) -> str:
-
     if not previous_task:
         return "unknown"
     current_terms = set(_terms(current_task))
     previous_terms = set(_terms(previous_task))
     if not current_terms or not previous_terms:
         return "unknown"
-    overlap = len(current_terms & previous_terms) / max(1, len(current_terms | previous_terms))
+    overlap = len(current_terms & previous_terms) / max(
+        1, len(current_terms | previous_terms)
+    )
     if overlap >= 0.5:
         return "same_topic"
     if overlap >= 0.18:
@@ -123,7 +128,6 @@ def infer_topic_relation(current_task: str, previous_task: str) -> str:
 
 
 def _read_file_previews(root: Path, files: list[str], total_budget: int) -> list[str]:
-
     previews: list[str] = []
     if not files:
         return previews
@@ -140,7 +144,6 @@ def _read_file_previews(root: Path, files: list[str], total_budget: int) -> list
 
 
 def _terms(text: str) -> list[str]:
-
     normalized = text.lower()
     for mark in ["/", "_", "-", ".", ",", ":", ";", "(", ")", "[", "]"]:
         normalized = normalized.replace(mark, " ")

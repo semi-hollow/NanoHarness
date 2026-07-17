@@ -13,6 +13,7 @@ from agent_forge.bench.presentation.cli import (
     run_swebench_from_args,
 )
 from agent_forge.context.api import (
+    ProposeMemoryRequest,
     build_evidence_reference,
     list_memories,
     promote_memory,
@@ -32,6 +33,8 @@ from agent_forge.cli.parser import build_parser
 from agent_forge.cli.repository import run_repository_task
 from agent_forge.cli.resume import resume_repository_task
 from agent_forge.evaluation.api import (
+    AblationArtifactRequest,
+    FeedbackRequest,
     export_feedback_dataset,
     record_feedback,
     run_mini_cases,
@@ -44,6 +47,7 @@ from agent_forge.showcase import (
     start_control_plane_showcase,
 )
 from agent_forge.workbench.api import run_ui_from_args
+
 
 # 主要入口：公开 ``forge`` 命令总分发，只路由到各 capability API。
 def main(argv: list[str] | None = None) -> None:
@@ -108,11 +112,13 @@ def _dispatch_evaluation(args: argparse.Namespace) -> None:
     if args.eval_name == "feedback":
         try:
             path = record_feedback(
-                args.target,
-                outcome=args.outcome,
-                labels=args.label,
-                note=args.note,
-                reviewer=args.reviewer,
+                FeedbackRequest(
+                    target=args.target,
+                    outcome=args.outcome,
+                    labels=tuple(args.label),
+                    note=args.note,
+                    reviewer=args.reviewer,
+                )
             )
         except ValueError as exc:
             raise SystemExit(str(exc)) from exc
@@ -134,12 +140,14 @@ def _dispatch_evaluation(args: argparse.Namespace) -> None:
     if args.eval_name == "ablation":
         try:
             json_path, report_path = write_ablation_comparison(
-                args.control,
-                args.treatment,
-                factor=args.factor,
-                output_dir=args.output,
-                control_label=args.control_label,
-                treatment_label=args.treatment_label,
+                AblationArtifactRequest(
+                    control_dir=args.control,
+                    treatment_dir=args.treatment,
+                    factor=args.factor,
+                    output_dir=args.output,
+                    control_label=args.control_label,
+                    treatment_label=args.treatment_label,
+                )
             )
         except ValueError as exc:
             raise SystemExit(str(exc)) from exc
@@ -193,18 +201,20 @@ def _dispatch_memory(args: argparse.Namespace) -> None:
     try:
         if args.memory_command == "propose":
             record = propose_memory(
-                memory_root=args.memory_root,
-                workspace=args.workspace,
-                namespace=args.namespace,
-                key=args.key,
-                kind=args.kind,
-                content=args.content,
-                scope=args.scope,
-                agent_name=args.agent_name,
-                confidence=args.confidence,
-                importance=args.importance,
-                tags=args.tag,
-                ttl_seconds=args.ttl_seconds,
+                ProposeMemoryRequest(
+                    memory_root=args.memory_root,
+                    workspace=args.workspace,
+                    namespace=args.namespace,
+                    key=args.key,
+                    kind=args.kind,
+                    content=args.content,
+                    scope=args.scope,
+                    agent_name=args.agent_name,
+                    confidence=args.confidence,
+                    importance=args.importance,
+                    tags=tuple(args.tag),
+                    ttl_seconds=args.ttl_seconds,
+                )
             )
             print(json.dumps(record.to_dict(), ensure_ascii=False, indent=2))
             return

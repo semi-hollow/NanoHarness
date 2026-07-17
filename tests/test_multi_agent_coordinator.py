@@ -4,7 +4,10 @@ import unittest
 from pathlib import Path
 
 from agent_forge.multi_agent.profiles import get_profile
-from agent_forge.multi_agent.wiring import build_multi_agent_coordinator
+from agent_forge.multi_agent.wiring import (
+    SequentialCoordinatorBuildRequest,
+    build_multi_agent_coordinator,
+)
 from agent_forge.observability.api import TraceRecorder
 from agent_forge.runtime.config import RuntimeConfig
 from agent_forge.runtime.llm_client import AgentResponse
@@ -44,12 +47,19 @@ class BlockingPrimaryLLM:
 
 def _init_git_with_modified_file(root: Path) -> None:
     subprocess.run(["git", "init"], cwd=root, check=True, stdout=subprocess.DEVNULL)
-    subprocess.run(["git", "config", "user.email", "test@example.com"], cwd=root, check=True)
+    subprocess.run(
+        ["git", "config", "user.email", "test@example.com"], cwd=root, check=True
+    )
     subprocess.run(["git", "config", "user.name", "Test User"], cwd=root, check=True)
     source = root / "module.py"
     source.write_text("value = 1\n", encoding="utf-8")
     subprocess.run(["git", "add", "module.py"], cwd=root, check=True)
-    subprocess.run(["git", "commit", "-m", "baseline"], cwd=root, check=True, stdout=subprocess.DEVNULL)
+    subprocess.run(
+        ["git", "commit", "-m", "baseline"],
+        cwd=root,
+        check=True,
+        stdout=subprocess.DEVNULL,
+    )
     source.write_text("value = 2\n", encoding="utf-8")
 
 
@@ -58,19 +68,26 @@ class MultiAgentCoordinatorTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             trace = TraceRecorder(str(root / "trace.json"))
-            config = RuntimeConfig(workspace=tmp, max_steps=2, trace_file=str(root / "trace.json"))
+            config = RuntimeConfig(
+                workspace=tmp, max_steps=2, trace_file=str(root / "trace.json")
+            )
             summary = build_multi_agent_coordinator(
-                "fix a small issue",
-                get_profile("coding_fix"),
-                config,
-                trace,
-                ToolRegistry(),
-                RoleAwareLLM(),
-                run_dir=root,
-                max_revision_rounds=1,
+                SequentialCoordinatorBuildRequest(
+                    "fix a small issue",
+                    get_profile("coding_fix"),
+                    config,
+                    trace,
+                    ToolRegistry(),
+                    RoleAwareLLM(),
+                    run_dir=root,
+                    max_revision_rounds=1,
+                )
             ).run()
             self.assertEqual(summary.status, "passed")
-            self.assertEqual([result.role for result in summary.role_results], ["Implementer", "Reviewer", "Verifier"])
+            self.assertEqual(
+                [result.role for result in summary.role_results],
+                ["Implementer", "Reviewer", "Verifier"],
+            )
             self.assertTrue((root / "multi_agent" / "multi_agent_report.md").exists())
             event_types = {event["event_type"] for event in trace.events}
             self.assertIn("multi_agent_start", event_types)
@@ -82,13 +99,17 @@ class MultiAgentCoordinatorTest(unittest.TestCase):
             root = Path(tmp)
             profile = get_profile("research_report")
             coordinator = build_multi_agent_coordinator(
-                "research",
-                profile,
-                RuntimeConfig(workspace=tmp, max_steps=1, trace_file=str(root / "trace.json")),
-                TraceRecorder(str(root / "trace.json")),
-                ToolRegistry(),
-                RoleAwareLLM(),
-                run_dir=root,
+                SequentialCoordinatorBuildRequest(
+                    "research",
+                    profile,
+                    RuntimeConfig(
+                        workspace=tmp, max_steps=1, trace_file=str(root / "trace.json")
+                    ),
+                    TraceRecorder(str(root / "trace.json")),
+                    ToolRegistry(),
+                    RoleAwareLLM(),
+                    run_dir=root,
+                )
             )
             role = profile.role_by_name("SkepticalReviewer")
             decision = coordinator._decision_for_role(
@@ -102,36 +123,56 @@ class MultiAgentCoordinatorTest(unittest.TestCase):
             root = Path(tmp)
             profile = get_profile("coding_fix")
             coordinator = build_multi_agent_coordinator(
-                "fix",
-                profile,
-                RuntimeConfig(workspace=tmp, max_steps=1, trace_file=str(root / "trace.json")),
-                TraceRecorder(str(root / "trace.json")),
-                ToolRegistry(),
-                RoleAwareLLM(),
-                run_dir=root,
+                SequentialCoordinatorBuildRequest(
+                    "fix",
+                    profile,
+                    RuntimeConfig(
+                        workspace=tmp, max_steps=1, trace_file=str(root / "trace.json")
+                    ),
+                    TraceRecorder(str(root / "trace.json")),
+                    ToolRegistry(),
+                    RoleAwareLLM(),
+                    run_dir=root,
+                )
             )
             reviewer = profile.role_by_name("Reviewer")
             verifier = profile.role_by_name("Verifier")
 
-            self.assertEqual(coordinator._decision_for_role(reviewer, "## Review Verdict: PASS\nLooks safe."), "PASS")
             self.assertEqual(
-                coordinator._decision_for_role(verifier, "## Verification Report\n\n**Verdict: PASS**\nEvidence."),
+                coordinator._decision_for_role(
+                    reviewer, "## Review Verdict: PASS\nLooks safe."
+                ),
                 "PASS",
             )
-            self.assertEqual(coordinator._decision_for_role(verifier, "## 验证报告\n\n**裁决：通过**"), "PASS")
+            self.assertEqual(
+                coordinator._decision_for_role(
+                    verifier, "## Verification Report\n\n**Verdict: PASS**\nEvidence."
+                ),
+                "PASS",
+            )
+            self.assertEqual(
+                coordinator._decision_for_role(
+                    verifier, "## 验证报告\n\n**裁决：通过**"
+                ),
+                "PASS",
+            )
 
     def test_role_revision_tools_can_be_artifact_only(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             profile = get_profile("research_report")
             coordinator = build_multi_agent_coordinator(
-                "research",
-                profile,
-                RuntimeConfig(workspace=tmp, max_steps=1, trace_file=str(root / "trace.json")),
-                TraceRecorder(str(root / "trace.json")),
-                ToolRegistry(),
-                RoleAwareLLM(),
-                run_dir=root,
+                SequentialCoordinatorBuildRequest(
+                    "research",
+                    profile,
+                    RuntimeConfig(
+                        workspace=tmp, max_steps=1, trace_file=str(root / "trace.json")
+                    ),
+                    TraceRecorder(str(root / "trace.json")),
+                    ToolRegistry(),
+                    RoleAwareLLM(),
+                    run_dir=root,
+                )
             )
             researcher = profile.role_by_name("Researcher")
             self.assertIn("read_file", coordinator._tools_for_role(researcher, 0))
@@ -142,18 +183,22 @@ class MultiAgentCoordinatorTest(unittest.TestCase):
             root = Path(tmp)
             profile = get_profile("research_report")
             coordinator = build_multi_agent_coordinator(
-                "research",
-                profile,
-                RuntimeConfig(workspace=tmp, max_steps=1, trace_file=str(root / "trace.json")),
-                TraceRecorder(str(root / "trace.json")),
-                ToolRegistry(),
-                RoleAwareLLM(),
-                run_dir=root,
+                SequentialCoordinatorBuildRequest(
+                    "research",
+                    profile,
+                    RuntimeConfig(
+                        workspace=tmp, max_steps=1, trace_file=str(root / "trace.json")
+                    ),
+                    TraceRecorder(str(root / "trace.json")),
+                    ToolRegistry(),
+                    RoleAwareLLM(),
+                    run_dir=root,
+                )
             )
             researcher = profile.role_by_name("Researcher")
             decision = coordinator._decision_for_role(
                 researcher,
-                "<｜｜DSML｜｜tool_calls><｜｜DSML｜｜invoke name=\"read_file\">...</｜｜DSML｜｜tool_calls>",
+                '<｜｜DSML｜｜tool_calls><｜｜DSML｜｜invoke name="read_file">...</｜｜DSML｜｜tool_calls>',
             )
             self.assertEqual(decision, "NEEDS_REVISION")
 
@@ -163,16 +208,20 @@ class MultiAgentCoordinatorTest(unittest.TestCase):
             _init_git_with_modified_file(root)
 
             trace = TraceRecorder(str(root / "trace.json"))
-            config = RuntimeConfig(workspace=tmp, max_steps=2, trace_file=str(root / "trace.json"))
+            config = RuntimeConfig(
+                workspace=tmp, max_steps=2, trace_file=str(root / "trace.json")
+            )
             summary = build_multi_agent_coordinator(
-                "fix a small issue",
-                get_profile("coding_fix"),
-                config,
-                trace,
-                ToolRegistry(),
-                BlockingVerifierLLM(),
-                run_dir=root,
-                max_revision_rounds=1,
+                SequentialCoordinatorBuildRequest(
+                    "fix a small issue",
+                    get_profile("coding_fix"),
+                    config,
+                    trace,
+                    ToolRegistry(),
+                    BlockingVerifierLLM(),
+                    run_dir=root,
+                    max_revision_rounds=1,
+                )
             ).run()
 
             self.assertEqual(summary.status, "patch_generated")
@@ -184,16 +233,20 @@ class MultiAgentCoordinatorTest(unittest.TestCase):
             _init_git_with_modified_file(root)
 
             trace = TraceRecorder(str(root / "trace.json"))
-            config = RuntimeConfig(workspace=tmp, max_steps=1, trace_file=str(root / "trace.json"))
+            config = RuntimeConfig(
+                workspace=tmp, max_steps=1, trace_file=str(root / "trace.json")
+            )
             summary = build_multi_agent_coordinator(
-                "fix a small issue",
-                get_profile("coding_fix"),
-                config,
-                trace,
-                ToolRegistry(),
-                BlockingPrimaryLLM(),
-                run_dir=root,
-                max_revision_rounds=1,
+                SequentialCoordinatorBuildRequest(
+                    "fix a small issue",
+                    get_profile("coding_fix"),
+                    config,
+                    trace,
+                    ToolRegistry(),
+                    BlockingPrimaryLLM(),
+                    run_dir=root,
+                    max_revision_rounds=1,
+                )
             ).run()
 
             self.assertEqual(summary.status, "patch_generated")

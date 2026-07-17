@@ -13,8 +13,9 @@ from agent_forge.runtime.application.session import AgentRunSession
 from agent_forge.runtime.application.tool_feedback import ToolFeedback
 from agent_forge.runtime.config import RuntimeConfig
 from agent_forge.runtime.domain.conversation import Observation, ToolCall
+from agent_forge.runtime.domain.approval import ApprovalRequestDraft
 from agent_forge.runtime.domain.governance import HookContext, HookDecisionType
-from agent_forge.runtime.domain.task import TaskRunStatus
+from agent_forge.runtime.domain.task import TaskCheckpointUpdate, TaskRunStatus
 from agent_forge.runtime.ports import ApprovalRepository, EventSink, HookPort
 
 
@@ -112,15 +113,17 @@ class ToolAuthorizationGate:
         self.feedback.append(session, tool_call, observation, step)
         signal = self.feedback.record_recovery(session, observation, step)
         session.lifecycle.update(
-            status=TaskRunStatus.BLOCKED,
-            current_step=step,
-            last_tool=tool_call.name,
-            last_observation=observation.content,
-            resume_hint=(
-                signal.recovery_hint
-                if signal is not None
-                else "Action was blocked by runtime policy."
-            ),
+            TaskCheckpointUpdate(
+                status=TaskRunStatus.BLOCKED,
+                current_step=step,
+                last_tool=tool_call.name,
+                last_observation=observation.content,
+                resume_hint=(
+                    signal.recovery_hint
+                    if signal is not None
+                    else "Action was blocked by runtime policy."
+                ),
+            )
         )
         return GateResult(False)
 
@@ -135,29 +138,33 @@ class ToolAuthorizationGate:
     ) -> GateResult:
         """创建或读取审批，并拒绝复用目标已变化的批准。"""
 
-        self.operations.ensure_planned(tool_call, intent, step=step)
+        self.operations.ensure_planned(intent, step=step)
         approval = self.approvals.get(intent.key)
         if approval is None and not self.config.auto_approve_writes:
             approval = self.approvals.request(
-                tool_name=tool_call.name,
-                arguments=tool_call.arguments or {},
-                action=intent.action,
-                command=intent.command,
-                workspace=self.config.workspace,
-                run_id=self.trace.run_id,
-                step=step,
-                agent_name=session.agent_name,
-                reason=reason,
-                operation_fingerprint=intent.fingerprint,
+                ApprovalRequestDraft(
+                    tool_name=tool_call.name,
+                    arguments=tool_call.arguments or {},
+                    action=intent.action,
+                    command=intent.command,
+                    workspace=self.config.workspace,
+                    run_id=self.trace.run_id,
+                    step=step,
+                    agent_name=session.agent_name,
+                    reason=reason,
+                    operation_fingerprint=intent.fingerprint,
+                )
             )
             if intent.side_effect:
-                self.operations.record_pending(tool_call, intent, step=step)
+                self.operations.record_pending(intent, step=step)
 
         session.lifecycle.update(
-            status=TaskRunStatus.WAITING_APPROVAL,
-            current_step=step,
-            last_tool=tool_call.name,
-            resume_hint="Approve this tool action or rerun with a safer task.",
+            TaskCheckpointUpdate(
+                status=TaskRunStatus.WAITING_APPROVAL,
+                current_step=step,
+                last_tool=tool_call.name,
+                resume_hint="Approve this tool action or rerun with a safer task.",
+            )
         )
         approved = (
             self.config.auto_approve_writes
@@ -253,7 +260,9 @@ class ToolAuthorizationGate:
         if not approved:
             return self._rejected(session, tool_call, step)
 
-        session.lifecycle.update(status=TaskRunStatus.RUNNING, current_step=step)
+        session.lifecycle.update(
+            TaskCheckpointUpdate(status=TaskRunStatus.RUNNING, current_step=step)
+        )
         return GateResult(True)
 
     def _rejected(
@@ -270,13 +279,15 @@ class ToolAuthorizationGate:
         )
         self.feedback.append(session, tool_call, observation, step)
         session.lifecycle.update(
-            status=TaskRunStatus.WAITING_APPROVAL,
-            current_step=step,
-            last_tool=tool_call.name,
-            last_observation=observation.content,
-            resume_hint=(
-                "Human approval was rejected; rerun after narrowing the requested edit."
-            ),
+            TaskCheckpointUpdate(
+                status=TaskRunStatus.WAITING_APPROVAL,
+                current_step=step,
+                last_tool=tool_call.name,
+                last_observation=observation.content,
+                resume_hint=(
+                    "Human approval was rejected; rerun after narrowing the requested edit."
+                ),
+            )
         )
         return GateResult(False)
 

@@ -17,6 +17,7 @@ from ..domain.fanout import (
     detect_result_conflicts,
 )
 from ..domain.live import (
+    FanoutCheckpoint,
     FanoutPlan,
     LiveFanoutSummary,
     LiveSubagentResult,
@@ -354,9 +355,7 @@ class LiveFanoutCoordinator:
             combined_patch = self.workers.validate_recovery_patches(patches)
             ok, detail = self.workspace.apply_patch(combined_patch, check_only=True)
             if not ok:
-                raise RuntimeError(
-                    f"fanout resume integration check failed: {detail}"
-                )
+                raise RuntimeError(f"fanout resume integration check failed: {detail}")
             ok, detail = self.workspace.apply_patch(combined_patch, check_only=False)
             if not ok:
                 raise RuntimeError(f"fanout resume integration failed: {detail}")
@@ -370,11 +369,13 @@ class LiveFanoutCoordinator:
         status: str,
     ) -> None:
         self.artifacts.write_checkpoint(
-            plan_digest=self.plan.digest,
-            base_head=base_head,
-            results=results,
-            merged_task_ids=merged_task_ids,
-            status=status,
+            FanoutCheckpoint(
+                plan_digest=self.plan.digest,
+                base_head=base_head,
+                results=results,
+                merged_task_ids=merged_task_ids,
+                status=status,
+            )
         )
 
 

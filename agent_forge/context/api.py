@@ -4,44 +4,57 @@ from __future__ import annotations
 
 import hashlib
 import time
+from dataclasses import dataclass
 from pathlib import Path
 
 from agent_forge.context.adapters import JsonLongTermMemoryRepository
 from agent_forge.context.application import LongTermMemoryService
-from agent_forge.context.domain import EvidenceReference, LongTermMemoryRecord
+from agent_forge.context.domain import (
+    EvidenceReference,
+    LongTermMemoryRecord,
+    MemoryProposal,
+)
+
+
+# 核心数据：外围创建长期记忆候选时提交的用户输入。
+@dataclass(frozen=True)
+class ProposeMemoryRequest:
+    """仓储位置、workspace 默认值、候选知识和 TTL。"""
+
+    memory_root: str
+    workspace: str
+    namespace: str
+    key: str
+    kind: str
+    content: str
+    scope: str
+    agent_name: str = ""
+    confidence: float = 0.5
+    importance: float = 0.5
+    tags: tuple[str, ...] = ()
+    ttl_seconds: float | None = None
 
 
 # 主要入口：从 CLI/UI 创建 candidate；该记录尚不能进入 Agent 上下文。
-def propose_memory(
-    *,
-    memory_root: str,
-    workspace: str,
-    namespace: str = "",
-    key: str,
-    kind: str,
-    content: str,
-    scope: str,
-    agent_name: str = "",
-    confidence: float = 0.5,
-    importance: float = 0.5,
-    tags: list[str] | None = None,
-    ttl_seconds: float | None = None,
-) -> LongTermMemoryRecord:
+def propose_memory(request: ProposeMemoryRequest) -> LongTermMemoryRecord:
     """创建不会自动进入上下文的低权威候选。"""
 
-    expires_at = time.time() + ttl_seconds if ttl_seconds is not None else None
-    return _service(memory_root).propose(
-        namespace=namespace.strip() or str(Path(workspace).resolve()),
-        key=key,
-        kind=kind,
-        content=content,
-        scope=scope,
-        agent_name=agent_name,
-        confidence=confidence,
-        importance=importance,
-        tags=tags,
+    expires_at = (
+        time.time() + request.ttl_seconds if request.ttl_seconds is not None else None
+    )
+    proposal = MemoryProposal(
+        namespace=request.namespace.strip() or str(Path(request.workspace).resolve()),
+        key=request.key,
+        kind=request.kind,
+        content=request.content,
+        scope=request.scope,
+        agent_name=request.agent_name,
+        confidence=request.confidence,
+        importance=request.importance,
+        tags=request.tags,
         expires_at=expires_at,
     )
+    return _service(request.memory_root).propose(proposal)
 
 
 # 主要入口：绑定证据并把 candidate 晋升为可召回的 active 记录。
@@ -96,13 +109,10 @@ def list_memories(
 ) -> list[LongTermMemoryRecord]:
     """读取全部记录，或限制到指定 workspace。"""
 
-    selected_namespace = (
-        namespace.strip()
-        or (str(Path(workspace).resolve()) if workspace else None)
+    selected_namespace = namespace.strip() or (
+        str(Path(workspace).resolve()) if workspace else None
     )
-    return JsonLongTermMemoryRepository(memory_root).list_records(
-        selected_namespace
-    )
+    return JsonLongTermMemoryRepository(memory_root).list_records(selected_namespace)
 
 
 def _service(memory_root: str) -> LongTermMemoryService:
@@ -113,6 +123,7 @@ __all__ = [
     "build_evidence_reference",
     "list_memories",
     "promote_memory",
+    "ProposeMemoryRequest",
     "propose_memory",
     "reject_memory",
     "retire_memory",

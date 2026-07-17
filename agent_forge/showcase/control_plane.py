@@ -18,6 +18,8 @@ from typing import Any
 from agent_forge.contracts import ToolSchema
 from agent_forge.observability.api import TraceRecorder
 from agent_forge.runtime.api import (
+    HumanInputResponseCommand,
+    ToolRegistryBuildRequest,
     build_agent_loop,
     decide_approval,
     latest_checkpoint_path,
@@ -81,7 +83,9 @@ class _HitlShowcaseModel:
                     )
                 ],
             )
-        return AgentResponse("PASS\noperator response loaded; continuation completed", [])
+        return AgentResponse(
+            "PASS\noperator response loaded; continuation completed", []
+        )
 
 
 class _ApprovalShowcaseModel:
@@ -113,7 +117,9 @@ class _ApprovalShowcaseModel:
                     )
                 ],
             )
-        return AgentResponse("PASS\napproved patch executed; continuation completed", [])
+        return AgentResponse(
+            "PASS\napproved patch executed; continuation completed", []
+        )
 
 
 # 主要入口：创建一个真实停在 waiting_human / waiting_approval 的 Runtime run。
@@ -164,7 +170,13 @@ def continue_control_plane_showcase(
     checkpoint = load_task_checkpoint(str(checkpoint_path))
     if scenario == "hitl":
         request_id = str(manifest.get("request_id") or "")
-        respond_to_human_input(str(root / "human_input"), request_id, answer=answer)
+        respond_to_human_input(
+            HumanInputResponseCommand(
+                human_input_root=str(root / "human_input"),
+                request_id=request_id,
+                answer=answer,
+            )
+        )
     else:
         operation_key = str(manifest.get("operation_key") or "")
         decide_approval(
@@ -225,7 +237,12 @@ def _run_phase(
     final_answer = build_agent_loop(
         config,
         trace,
-        build_registry(str(workspace), auto=True),
+        build_registry(
+            ToolRegistryBuildRequest(
+                workspace=str(workspace),
+                auto=True,
+            )
+        ),
         model,
     ).run(task, agent_name="ShowcaseAgent")
     trace.write()
@@ -310,9 +327,7 @@ def _render_showcase_report(result: ControlPlaneShowcaseResult) -> str:
             if is_waiting
             else "人工回答已持久化，新 run 加载 checkpoint 与回答后完成。"
         )
-        safety = (
-            "ask_human 是同 turn barrier；等待期间不会执行该响应中的其他工具。"
-        )
+        safety = "ask_human 是同 turn barrier；等待期间不会执行该响应中的其他工具。"
         identity = f"human request: `{result.request_id}`"
     else:
         target = result.workspace / "target.py"

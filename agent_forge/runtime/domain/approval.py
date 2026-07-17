@@ -7,6 +7,23 @@ from dataclasses import asdict, dataclass, field
 from typing import Any
 
 
+# 核心数据：Application 提交给审批仓储的待授权操作。
+@dataclass(frozen=True)
+class ApprovalRequestDraft:
+    """创建审批请求所需的操作事实，不包含仓储生成的 key 和状态。"""
+
+    tool_name: str
+    arguments: dict[str, Any]
+    action: str
+    command: str
+    workspace: str
+    run_id: str
+    step: int
+    agent_name: str
+    reason: str
+    operation_fingerprint: dict[str, Any] | None = None
+
+
 # 核心数据：绑定具体 operation fingerprint 的 durable 人工审批请求。
 @dataclass
 class ApprovalRequest:

@@ -9,6 +9,8 @@ from agent_forge.runtime.application.dependencies import RuntimeDependencies
 from agent_forge.runtime.application.operator_control import ContinuationPlan
 from agent_forge.runtime.domain.task import TaskCheckpoint, TaskRunStatus
 from agent_forge.runtime.wiring import (
+    HumanInputResponseCommand,
+    ToolRegistryBuildRequest,
     build_agent_loop,
     build_runtime_dependencies,
     decide_approval,
@@ -23,9 +25,11 @@ from agent_forge.runtime.wiring import (
 __all__ = [
     "AgentLoop",
     "ContinuationPlan",
+    "HumanInputResponseCommand",
     "RuntimeDependencies",
     "TaskCheckpoint",
     "TaskRunStatus",
+    "ToolRegistryBuildRequest",
     "build_agent_loop",
     "build_runtime_dependencies",
     "decide_approval",

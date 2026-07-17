@@ -45,6 +45,48 @@ class TaskRunStatus(Enum):
     COMPLETED = "completed"
 
 
+# 核心数据：创建首个 durable checkpoint 所需的完整输入。
+@dataclass(frozen=True)
+class TaskStartRequest:
+    """一次新 run 的身份、工作区和初始元数据。"""
+
+    run_id: str
+    task: str
+    workspace: str
+    agent_name: str
+    metadata: JsonObject = field(default_factory=dict)
+
+
+# 核心数据：一次 checkpoint 状态迁移中允许修改的字段。
+@dataclass(frozen=True)
+class TaskCheckpointUpdate:
+    """Checkpoint 的类型化 patch，未提供的字段保持原值。
+
+    Application、Repository Port 和 JSON Adapter 共享此对象，避免三层分别维护
+    一份长关键字参数表。``status`` 接受 enum 或持久化字符串，由领域对象统一归一化。
+    """
+
+    status: TaskRunStatus | str | None = None
+    current_step: int | None = None
+    last_tool: str | None = None
+    last_observation: str | None = None
+    stop_reason: str | None = None
+    final_answer: str | None = None
+    resume_hint: str | None = None
+    messages_count: int | None = None
+    observations_count: int | None = None
+    context_digest: JsonObject | None = None
+    metadata: JsonObject | None = None
+    updated_at: float | None = None
+
+    def status_value(self) -> str | None:
+        """返回 checkpoint 使用的稳定字符串状态。"""
+
+        if isinstance(self.status, TaskRunStatus):
+            return self.status.value
+        return self.status
+
+
 # 核心数据：暂停、恢复和终态报告共享的 durable 任务快照。
 @dataclass
 class TaskCheckpoint:
@@ -75,47 +117,35 @@ class TaskCheckpoint:
     created_at: float = field(default_factory=time.time)
     metadata: JsonObject = field(default_factory=dict)
 
-    def apply_transition(
-        self,
-        *,
-        status: str | None = None,
-        current_step: int | None = None,
-        last_tool: str | None = None,
-        last_observation: str | None = None,
-        stop_reason: str | None = None,
-        final_answer: str | None = None,
-        resume_hint: str | None = None,
-        messages_count: int | None = None,
-        observations_count: int | None = None,
-        context_digest: JsonObject | None = None,
-        metadata: JsonObject | None = None,
-        updated_at: float | None = None,
-    ) -> None:
+    def apply_transition(self, update: TaskCheckpointUpdate) -> None:
         """应用一次显式字段转换；持久化由 Repository 在调用后完成。"""
 
+        status = update.status_value()
         if status is not None:
             self.status = status
-        if current_step is not None:
-            self.current_step = current_step
-        if last_tool is not None:
-            self.last_tool = last_tool
-        if last_observation is not None:
-            self.last_observation = last_observation
-        if stop_reason is not None:
-            self.stop_reason = stop_reason
-        if final_answer is not None:
-            self.final_answer = final_answer
-        if resume_hint is not None:
-            self.resume_hint = resume_hint
-        if messages_count is not None:
-            self.messages_count = messages_count
-        if observations_count is not None:
-            self.observations_count = observations_count
-        if context_digest is not None:
-            self.context_digest = context_digest
-        if metadata is not None:
-            self.metadata = metadata
-        self.updated_at = updated_at if updated_at is not None else time.time()
+        if update.current_step is not None:
+            self.current_step = update.current_step
+        if update.last_tool is not None:
+            self.last_tool = update.last_tool
+        if update.last_observation is not None:
+            self.last_observation = update.last_observation
+        if update.stop_reason is not None:
+            self.stop_reason = update.stop_reason
+        if update.final_answer is not None:
+            self.final_answer = update.final_answer
+        if update.resume_hint is not None:
+            self.resume_hint = update.resume_hint
+        if update.messages_count is not None:
+            self.messages_count = update.messages_count
+        if update.observations_count is not None:
+            self.observations_count = update.observations_count
+        if update.context_digest is not None:
+            self.context_digest = update.context_digest
+        if update.metadata is not None:
+            self.metadata = update.metadata
+        self.updated_at = (
+            update.updated_at if update.updated_at is not None else time.time()
+        )
 
     def to_dict(self) -> TaskCheckpointData:
         """返回稳定、可写入 JSON 的 checkpoint 结构。"""

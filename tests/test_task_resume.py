@@ -8,7 +8,11 @@ from agent_forge.runtime.api import build_agent_loop
 from agent_forge.runtime.config import RuntimeConfig
 from agent_forge.runtime.llm_client import AgentResponse
 from agent_forge.runtime.domain.conversation import ToolCall
-from agent_forge.runtime.domain.task import TaskRunStatus
+from agent_forge.runtime.domain.task import (
+    TaskCheckpointUpdate,
+    TaskRunStatus,
+    TaskStartRequest,
+)
 from agent_forge.safety.sandbox import WorkspaceSandbox
 from agent_forge.tools.read_file import ReadFileTool
 from agent_forge.tools.registry import ToolRegistry
@@ -50,24 +54,28 @@ class TaskResumeTest(unittest.TestCase):
             root = Path(tmp)
             old_store = JsonTaskStateRepository(root / "old_state")
             old_checkpoint = old_store.start(
-                "old-run",
-                "fix original failure",
-                str(root),
-                "CodingAgent",
+                TaskStartRequest(
+                    run_id="old-run",
+                    task="fix original failure",
+                    workspace=str(root),
+                    agent_name="CodingAgent",
+                )
             )
             old_store.update(
                 old_checkpoint,
-                status=TaskRunStatus.BLOCKED.value,
-                current_step=3,
-                last_tool="apply_patch",
-                last_observation="old text not found",
-                stop_reason="patch_mismatch",
-                resume_hint="Re-read the file and repair the patch anchor.",
-                context_digest={
-                    "schema_version": 1,
-                    "source_hash": "digest-old",
-                    "open_failures": ["patch anchor mismatch"],
-                },
+                TaskCheckpointUpdate(
+                    status=TaskRunStatus.BLOCKED.value,
+                    current_step=3,
+                    last_tool="apply_patch",
+                    last_observation="old text not found",
+                    stop_reason="patch_mismatch",
+                    resume_hint="Re-read the file and repair the patch anchor.",
+                    context_digest={
+                        "schema_version": 1,
+                        "source_hash": "digest-old",
+                        "open_failures": ["patch anchor mismatch"],
+                    },
+                ),
             )
 
             trace_path = root / "trace.json"
@@ -80,14 +88,19 @@ class TaskResumeTest(unittest.TestCase):
                 resume_state=str(old_store.path_for("old-run")),
             )
 
-            final = build_agent_loop(config, trace, ToolRegistry(), llm).run("continue the fix")
+            final = build_agent_loop(config, trace, ToolRegistry(), llm).run(
+                "continue the fix"
+            )
 
             self.assertIn("continued from checkpoint", final)
             self.assertIn("resume_from_run=old-run", llm.system_context)
             self.assertIn("last_tool=apply_patch", llm.system_context)
             self.assertIn("digest-old", llm.system_context)
             self.assertTrue(
-                any(event["event_type"] == "resume_state_loaded" for event in trace.events)
+                any(
+                    event["event_type"] == "resume_state_loaded"
+                    for event in trace.events
+                )
             )
 
     def test_compaction_digest_is_persisted_in_checkpoint(self):

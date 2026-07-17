@@ -76,6 +76,19 @@ class ContextWindowResult:
     reason: str
 
 
+# 核心数据：完整模型请求进入窗口治理前的输入快照。
+@dataclass(frozen=True)
+class ContextWindowRequest:
+    """System、历史、Observation、工具和强制压缩信号。"""
+
+    system_message: Message
+    history: list[Message]
+    observations: list[Observation]
+    tools: list[ToolSchema]
+    task: str
+    force_compaction: bool = False
+
+
 @dataclass(frozen=True)
 class _HistorySegment:
     """不可拆分的历史单元；工具意图和结果必须留在同一段。"""
@@ -91,21 +104,12 @@ class ContextWindowManager:
         self.budget = budget
 
     # 主要入口：预算足够时直通，接近窗口时压缩旧历史。
-    def prepare(
-        self,
-        *,
-        system_message: Message,
-        history: list[Message],
-        observations: list[Observation],
-        tools: list[ToolSchema],
-        task: str,
-        force_compaction: bool = False,
-    ) -> ContextWindowResult:
+    def prepare(self, request: ContextWindowRequest) -> ContextWindowResult:
         """返回不拆分工具事务的模型输入视图。"""
 
-        full_messages = [system_message, *history]
-        before = estimate_prompt_tokens(full_messages, tools, self.budget)
-        if before <= self.budget.soft_input_limit and not force_compaction:
+        full_messages = [request.system_message, *request.history]
+        before = estimate_prompt_tokens(full_messages, request.tools, self.budget)
+        if before <= self.budget.soft_input_limit and not request.force_compaction:
             return ContextWindowResult(
                 messages=full_messages,
                 digest=None,
@@ -117,7 +121,7 @@ class ContextWindowManager:
                 reason="within_soft_limit",
             )
 
-        segments = _segments(history, observations)
+        segments = _segments(request.history, request.observations)
         if len(segments) < 2:
             return ContextWindowResult(
                 messages=full_messages,
@@ -132,7 +136,7 @@ class ContextWindowManager:
 
         target = (
             max(256, int(self.budget.soft_input_limit * 0.65))
-            if force_compaction
+            if request.force_compaction
             else self.budget.soft_input_limit
         )
         best: ContextWindowResult | None = None
@@ -141,22 +145,22 @@ class ContextWindowManager:
             recent = _flatten(segments[cut:])
             recent = _trim_large_messages(
                 recent,
-                max_chars=800 if force_compaction else 2_000,
+                max_chars=800 if request.force_compaction else 2_000,
             )
             digest = _build_digest(
-                task,
+                request.task,
                 omitted,
                 estimated_tokens_before=before,
             )
             candidate = [
-                system_message,
+                request.system_message,
                 Message("system", digest.render()),
                 *recent,
             ]
-            after = estimate_prompt_tokens(candidate, tools, self.budget)
+            after = estimate_prompt_tokens(candidate, request.tools, self.budget)
             digest = replace(digest, estimated_tokens_after=after)
             candidate[1] = Message("system", digest.render())
-            after = estimate_prompt_tokens(candidate, tools, self.budget)
+            after = estimate_prompt_tokens(candidate, request.tools, self.budget)
             result = ContextWindowResult(
                 messages=candidate,
                 digest=replace(digest, estimated_tokens_after=after),
@@ -167,7 +171,7 @@ class ContextWindowManager:
                 hard_input_limit=self.budget.hard_input_limit,
                 reason=(
                     "provider_overflow_recovery"
-                    if force_compaction
+                    if request.force_compaction
                     else "soft_limit_exceeded"
                 ),
             )
@@ -318,9 +322,7 @@ def _build_digest(
                 )
                 transactions.append(transaction)
                 if success is False:
-                    open_failures.append(
-                        f"{tool_name}: {_excerpt(content, 240)}"
-                    )
+                    open_failures.append(f"{tool_name}: {_excerpt(content, 240)}")
     return SessionDigest(
         task=task,
         covered_message_count=len(messages),

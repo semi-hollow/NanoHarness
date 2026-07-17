@@ -4,20 +4,25 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from agent_forge.context.application import ContextWindowManager, PromptBudget
+from agent_forge.context.application import (
+    ContextWindowManager,
+    ContextWindowRequest,
+    PromptBudget,
+)
 from agent_forge.context.domain import SessionDigest
 from agent_forge.contracts import ToolSchema
 from agent_forge.runtime.application.session import AgentRunSession
 from agent_forge.runtime.config import RuntimeConfig
 from agent_forge.runtime.domain.conversation import Message
-from agent_forge.runtime.domain.task import TaskRunStatus
+from agent_forge.runtime.domain.task import TaskCheckpointUpdate, TaskRunStatus
 from agent_forge.runtime.ports import (
     ContextAssemblerPort,
+    ContextAssemblyRequest,
     EnvironmentPort,
     EventSink,
     ToolGateway,
 )
-from agent_forge.tools.tool_router import ToolRouter
+from agent_forge.tools.tool_router import ToolRouter, ToolRoutingRequest
 
 
 @dataclass(frozen=True)
@@ -77,22 +82,26 @@ class TurnPreparation:
         """更新 checkpoint，路由工具，并生成当前 turn 的上下文。"""
 
         session.lifecycle.update(
-            status=TaskRunStatus.RUNNING,
-            current_step=step,
-            messages_count=len(session.messages),
-            observations_count=len(session.observations),
-            resume_hint=(
-                "Rerun with --resume-state to seed this task state into a continuation."
-            ),
+            TaskCheckpointUpdate(
+                status=TaskRunStatus.RUNNING,
+                current_step=step,
+                messages_count=len(session.messages),
+                observations_count=len(session.observations),
+                resume_hint=(
+                    "Rerun with --resume-state to seed this task state into a continuation."
+                ),
+            )
         )
 
         route = self.tool_router.route(
-            session.task,
-            self.tools.schemas(),
-            step=step,
-            agent_name=session.agent_name,
-            skill_tool_names=session.skill_tool_names,
-            mode=getattr(self.config, "tool_routing_mode", "task-aware"),
+            ToolRoutingRequest(
+                task=session.task,
+                schemas=self.tools.schemas(),
+                step=step,
+                agent_name=session.agent_name,
+                skill_tool_names=session.skill_tool_names,
+                mode=getattr(self.config, "tool_routing_mode", "task-aware"),
+            )
         )
         schemas: list[ToolSchema] = route.schemas
         allowed_tool_names = set(route.allowed_names)
@@ -110,15 +119,17 @@ class TurnPreparation:
             )
 
         context_report = self.context.build(
-            task=session.task,
-            workspace=self.config.workspace,
-            working_memory=session.working_memory,
-            tools=schemas,
-            active_skill_cards=[
-                skill.prompt_card() for skill in session.active_skills
-            ],
-            max_chars=getattr(self.config, "max_context_chars", 8000),
-            permission_summary=permission_summary,
+            ContextAssemblyRequest(
+                task=session.task,
+                workspace=self.config.workspace,
+                working_memory=session.working_memory,
+                tools=schemas,
+                active_skill_cards=[
+                    skill.prompt_card() for skill in session.active_skills
+                ],
+                max_chars=getattr(self.config, "max_context_chars", 8000),
+                permission_summary=permission_summary,
+            )
         )
         self.trace.add(
             step,
@@ -150,12 +161,14 @@ class TurnPreparation:
         )
         context_message = Message("system", context_report.render())
         window = self.context_window.prepare(
-            system_message=context_message,
-            history=session.messages,
-            observations=session.observations,
-            tools=schemas,
-            task=session.task,
-            force_compaction=force_compaction,
+            ContextWindowRequest(
+                system_message=context_message,
+                history=session.messages,
+                observations=session.observations,
+                tools=schemas,
+                task=session.task,
+                force_compaction=force_compaction,
+            )
         )
         self.trace.add(
             step,
@@ -177,7 +190,9 @@ class TurnPreparation:
             },
         )
         if window.digest is not None:
-            session.lifecycle.update(context_digest=window.digest.to_dict())
+            session.lifecycle.update(
+                TaskCheckpointUpdate(context_digest=window.digest.to_dict())
+            )
         return PreparedTurn(
             step=step,
             context_message=context_message,

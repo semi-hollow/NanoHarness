@@ -5,6 +5,7 @@ from pathlib import Path
 
 from agent_forge.observability.api import TraceRecorder
 from agent_forge.runtime.adapters import JsonTaskStateRepository
+from agent_forge.runtime.domain.task import TaskStartRequest
 
 
 class TypeContractTest(unittest.TestCase):
@@ -23,11 +24,16 @@ class TypeContractTest(unittest.TestCase):
                     *node.args.args,
                     *node.args.kwonlyargs,
                 ]
-                parameters = [item for item in parameters if item.arg not in {"self", "cls"}]
-                parameters_typed = all(item.annotation is not None for item in parameters)
+                parameters = [
+                    item for item in parameters if item.arg not in {"self", "cls"}
+                ]
+                parameters_typed = all(
+                    item.annotation is not None for item in parameters
+                )
                 variadics_typed = (
-                    (node.args.vararg is None or node.args.vararg.annotation is not None)
-                    and (node.args.kwarg is None or node.args.kwarg.annotation is not None)
+                    node.args.vararg is None or node.args.vararg.annotation is not None
+                ) and (
+                    node.args.kwarg is None or node.args.kwarg.annotation is not None
                 )
                 if node.returns is None or not parameters_typed or not variadics_typed:
                     relative = path.relative_to(package_root.parent)
@@ -37,7 +43,14 @@ class TypeContractTest(unittest.TestCase):
     def test_checkpoint_trace_keeps_the_existing_flat_json_shape(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             store = JsonTaskStateRepository(Path(tmp) / "task-state")
-            checkpoint = store.start("run-1", "inspect project", tmp, "CodingAgent")
+            checkpoint = store.start(
+                TaskStartRequest(
+                    run_id="run-1",
+                    task="inspect project",
+                    workspace=tmp,
+                    agent_name="CodingAgent",
+                )
+            )
             trace = TraceRecorder(str(Path(tmp) / "trace.json"))
 
             trace.record_task_state_checkpoint(

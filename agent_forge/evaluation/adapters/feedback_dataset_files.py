@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable
@@ -9,39 +10,50 @@ from typing import Any, Iterable
 FEEDBACK_OUTCOMES = {"accepted", "needs_work", "rejected"}
 SCHEMA_VERSION = "agent-forge-eval-v1"
 
+
+# 核心数据：在既有运行证据上追加人工反馈的完整输入。
+@dataclass(frozen=True)
+class FeedbackRequest:
+    """目标 artifact、审核结论、标签、备注和审核人。"""
+
+    target: str | Path
+    outcome: str
+    labels: tuple[str, ...] = ()
+    note: str = ""
+    reviewer: str = "human"
+
+
 # 主要入口：在现有 run/case artifact 上追加人工 outcome、label 和 note。
-def record_feedback(
-    target: str | Path,
-    *,
-    outcome: str,
-    labels: Iterable[str] = (),
-    note: str = "",
-    reviewer: str = "human",
-) -> Path:
+def record_feedback(request: FeedbackRequest) -> Path:
     """把人工 outcome、标签和备注挂接到指定运行证据。"""
 
-    target_path = Path(target)
+    target_path = Path(request.target)
     target_dir = target_path.parent if target_path.is_file() else target_path
     if not target_dir.exists() or not target_dir.is_dir():
         raise ValueError(f"feedback target is not a directory: {target_dir}")
-    normalized_outcome = outcome.strip().lower()
+    normalized_outcome = request.outcome.strip().lower()
     if normalized_outcome not in FEEDBACK_OUTCOMES:
         choices = ", ".join(sorted(FEEDBACK_OUTCOMES))
-        raise ValueError(f"unsupported feedback outcome: {outcome}; choose one of {choices}")
+        raise ValueError(
+            f"unsupported feedback outcome: {request.outcome}; choose one of {choices}"
+        )
 
     payload = {
         "schema_version": SCHEMA_VERSION,
         "outcome": normalized_outcome,
-        "labels": _unique_strings(labels),
-        "note": note.strip(),
-        "reviewer": reviewer.strip() or "human",
+        "labels": _unique_strings(request.labels),
+        "note": request.note.strip(),
+        "reviewer": request.reviewer.strip() or "human",
         "created_at": datetime.now(timezone.utc).isoformat(),
     }
     path = target_dir / "feedback.json"
     temporary = path.with_suffix(".json.tmp")
-    temporary.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    temporary.write_text(
+        json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
     temporary.replace(path)
     return path
+
 
 # 主要入口：将有反馈的 case evidence 导出为可追溯训练/分析 JSONL。
 def export_feedback_dataset(
@@ -70,12 +82,16 @@ def export_feedback_dataset(
 
     destination = Path(output_path)
     destination.parent.mkdir(parents=True, exist_ok=True)
-    lines = [json.dumps(record, ensure_ascii=False, sort_keys=True) for record in records]
+    lines = [
+        json.dumps(record, ensure_ascii=False, sort_keys=True) for record in records
+    ]
     destination.write_text("\n".join(lines) + ("\n" if lines else ""), encoding="utf-8")
     return records
 
 
-def _build_record(root: Path, trace_path: Path, *, include_patch: bool) -> dict[str, Any]:
+def _build_record(
+    root: Path, trace_path: Path, *, include_patch: bool
+) -> dict[str, Any]:
     trace = _read_json(trace_path)
     events_value = trace.get("events")
     events: list[Any] = events_value if isinstance(events_value, list) else []
@@ -91,10 +107,14 @@ def _build_record(root: Path, trace_path: Path, *, include_patch: bool) -> dict[
         event_type = str(event.get("event_type") or "")
         if event_type == "context_assembly":
             context_value = event.get("context")
-            context: dict[str, Any] = context_value if isinstance(context_value, dict) else {}
+            context: dict[str, Any] = (
+                context_value if isinstance(context_value, dict) else {}
+            )
             context_files.extend(_strings(context.get("selected_files")))
             routing_value = context.get("tool_routing")
-            routing: dict[str, Any] = routing_value if isinstance(routing_value, dict) else {}
+            routing: dict[str, Any] = (
+                routing_value if isinstance(routing_value, dict) else {}
+            )
             allowed_tools.extend(_strings(routing.get("allowed_tools")))
             hidden_tools.extend(_strings(routing.get("dropped_tools")))
         elif event_type == "action" and event.get("tool_call"):
@@ -168,7 +188,9 @@ def _result_for_trace(root: Path, trace_path: Path, instance_id: str) -> dict[st
     for directory in _walk_to_root(trace_path.parent, root):
         results_path = directory / "results.json"
         payload = _read_json(results_path) if results_path.exists() else {}
-        case_results = payload.get("case_results") if isinstance(payload, dict) else None
+        case_results = (
+            payload.get("case_results") if isinstance(payload, dict) else None
+        )
         if not isinstance(case_results, list):
             continue
         for result in case_results:
@@ -239,4 +261,6 @@ def _strings(value: Any) -> list[str]:
 
 
 def _unique_strings(values: Iterable[str]) -> list[str]:
-    return list(dict.fromkeys(str(value).strip() for value in values if str(value).strip()))
+    return list(
+        dict.fromkeys(str(value).strip() for value in values if str(value).strip())
+    )

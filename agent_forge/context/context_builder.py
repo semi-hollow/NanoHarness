@@ -8,7 +8,32 @@ from agent_forge.runtime.prompt_registry import PromptRegistry
 
 from .contracts import ContextMemory
 from .token_budget import truncate, truncate_middle
-from .context_strategy import build_context_strategy
+from .context_strategy import ContextStrategyRequest, build_context_strategy
+
+
+# 核心数据：Context Builder 的字符预算与权限策略。
+@dataclass(frozen=True)
+class ContextBuildPolicy:
+    """不随候选内容变化的上下文治理参数。"""
+
+    max_chars: int = 8000
+    permission_summary: str = (
+        "read allowed; write asks approval; dangerous commands denied"
+    )
+
+
+# 核心数据：Context Builder 汇总一次模型输入所需的全部候选。
+@dataclass(frozen=True)
+class ContextBuildRequest:
+    """任务、仓库、记忆、工具、Skill 与治理策略。"""
+
+    task: str
+    repo_map: str
+    working_memory: ContextMemory
+    root: str | Path
+    tools: list[ToolSchema]
+    active_skill_cards: list[str]
+    policy: ContextBuildPolicy
 
 
 # 核心数据：模型输入、选择事实、预算结果和截断原因的完整读模型。
@@ -49,45 +74,41 @@ class ContextBuildReport:
 
         return self.rendered_context or _fit_context_sections(self)[0]
 
+
 # 主要入口：汇总仓库、Skill 和分层记忆，按区段预算返回 ContextReport。
 def build_context_report(
-    task: str,
-    repo_map: str,
-    working_memory: ContextMemory,
-    docs: list[str] | None = None,
-    max_chars: int = 8000,
-    root: str | Path = ".",
-    tools: list[ToolSchema] | None = None,
-    active_skill_cards: list[str] | None = None,
-    permission_summary: str = "read allowed; write asks approval; dangerous commands denied",
+    request: ContextBuildRequest,
 ) -> ContextBuildReport:
     """汇总项目指令、仓库结构、检索结果、记忆、Skill 和工具契约。"""
 
-    files = [line for line in repo_map.splitlines() if line.strip()]
+    files = [line for line in request.repo_map.splitlines() if line.strip()]
     raw_repo = "\n".join(files)
 
-    shortened = truncate(raw_repo, max(1000, max_chars // 4))
-    available_tools = [t.get("name", str(t)) for t in (tools or [])]
+    shortened = truncate(raw_repo, max(1000, request.policy.max_chars // 4))
+    available_tools = [tool.get("name", str(tool)) for tool in request.tools]
 
     strategy = build_context_strategy(
-        task=task,
-        files=files,
-        docs=docs or files,
-        working_memory=working_memory,
-        root=root,
-        max_chars=max_chars,
+        ContextStrategyRequest(
+            task=request.task,
+            files=files,
+            working_memory=request.working_memory,
+            root=request.root,
+            max_chars=request.policy.max_chars,
+        )
     )
     if shortened != raw_repo:
         strategy.dropped_context.append(
             "repository map pre-truncated before section allocation"
         )
     prompt = PromptRegistry().get("agent_system")
-    project_instructions = load_project_instructions(root)
-    system_prompt = f"[prompt:{prompt.header()} purpose:{prompt.purpose}]\n{prompt.content}"
+    project_instructions = load_project_instructions(request.root)
+    system_prompt = (
+        f"[prompt:{prompt.header()} purpose:{prompt.purpose}]\n{prompt.content}"
+    )
     report = ContextBuildReport(
         system_prompt=system_prompt,
         project_instructions=project_instructions,
-        user_task=task,
+        user_task=request.task,
         repo_map=shortened,
         retrieved_docs=strategy.retrieved_docs,
         working_memory_items=strategy.working_memory_items,
@@ -96,15 +117,15 @@ def build_context_report(
         selected_files=strategy.selected_files,
         selected_file_previews=strategy.file_previews,
         available_tools=available_tools,
-        active_skill_cards=active_skill_cards or [],
-        permission_summary=permission_summary,
+        active_skill_cards=request.active_skill_cards,
+        permission_summary=request.policy.permission_summary,
         attention_sink=strategy.attention_sink,
         topic_relation=strategy.topic_relation,
         inherit_session=strategy.inherit_session,
         dropped_context=strategy.dropped_context,
         budget_breakdown=strategy.budget_breakdown,
         total_chars=0,
-        max_chars=max(512, int(max_chars)),
+        max_chars=max(512, int(request.policy.max_chars)),
         truncated=False,
     )
     rendered, included, truncated_sections = _fit_context_sections(report)
@@ -120,19 +141,7 @@ def build_context_report(
     return report
 
 
-def build_context(
-    task: str,
-    repo_map: str,
-    working_memory: ContextMemory,
-    tools: list[ToolSchema],
-) -> str:
-
-    report = build_context_report(task, repo_map, working_memory, tools=tools)
-    return f"task:{task}\n{report.render()}\ntools:{tools}"
-
-
 def load_project_instructions(root: str | Path, max_chars: int = 2600) -> str:
-
     path = Path(root) / "FORGE.md"
     if not path.exists():
         return "FORGE.md not found; follow built-in runtime policy."

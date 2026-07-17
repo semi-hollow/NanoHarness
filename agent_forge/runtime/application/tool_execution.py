@@ -29,7 +29,8 @@ from agent_forge.runtime.domain.conversation import (
     Observation,
     ToolCall,
 )
-from agent_forge.runtime.domain.task import TaskRunStatus
+from agent_forge.runtime.domain.human_input import HumanInputQuestion
+from agent_forge.runtime.domain.task import TaskCheckpointUpdate, TaskRunStatus
 from agent_forge.runtime.ports import (
     ApprovalRepository,
     EventSink,
@@ -245,13 +246,15 @@ class ToolExecutionPipeline:
                 ),
             )
             session.lifecycle.update(
-                status=TaskRunStatus.RUNNING,
-                current_step=step,
-                last_tool=tool_call.name,
-                last_observation=observation.content,
-                resume_hint=(
-                    "Repeated read/search was skipped; continue with different evidence or edit."
-                ),
+                TaskCheckpointUpdate(
+                    status=TaskRunStatus.RUNNING,
+                    current_step=step,
+                    last_tool=tool_call.name,
+                    last_observation=observation.content,
+                    resume_hint=(
+                        "Repeated read/search was skipped; continue with different evidence or edit."
+                    ),
+                )
             )
             return None
 
@@ -297,15 +300,17 @@ class ToolExecutionPipeline:
         self.feedback.append(session, tool_call, observation, step)
         signal = self.feedback.record_recovery(session, observation, step)
         session.lifecycle.update(
-            status=TaskRunStatus.BLOCKED,
-            current_step=step,
-            last_tool=tool_call.name,
-            last_observation=observation.content[:600],
-            resume_hint=(
-                signal.recovery_hint
-                if signal is not None
-                else "Tool was not available in this routed turn."
-            ),
+            TaskCheckpointUpdate(
+                status=TaskRunStatus.BLOCKED,
+                current_step=step,
+                last_tool=tool_call.name,
+                last_observation=observation.content[:600],
+                resume_hint=(
+                    signal.recovery_hint
+                    if signal is not None
+                    else "Tool was not available in this routed turn."
+                ),
+            )
         )
 
     def _handle_human_question(
@@ -331,23 +336,27 @@ class ToolExecutionPipeline:
             observation = Observation(tool_call.name, False, validation_error)
             self.feedback.append(session, tool_call, observation, step)
             session.lifecycle.update(
-                status=TaskRunStatus.RUNNING,
-                current_step=step,
-                last_tool=tool_call.name,
-                last_observation=observation.content,
-                resume_hint=(
-                    "Retry ask_human with a non-empty question and a list of choices."
-                ),
+                TaskCheckpointUpdate(
+                    status=TaskRunStatus.RUNNING,
+                    current_step=step,
+                    last_tool=tool_call.name,
+                    last_observation=observation.content,
+                    resume_hint=(
+                        "Retry ask_human with a non-empty question and a list of choices."
+                    ),
+                )
             )
             return None
 
         resolution = session.lifecycle.request_human_input(
-            agent_name=session.agent_name,
-            kind="tool_question",
-            question=str(question),
-            choices=[str(choice) for choice in choices],
-            reason="model requested operator input",
-            step=step,
+            HumanInputQuestion(
+                agent_name=session.agent_name,
+                kind="tool_question",
+                question=str(question),
+                choices=tuple(str(choice) for choice in choices),
+                reason="model requested operator input",
+                step=step,
+            )
         )
         if resolution.stop is not None:
             return resolution.stop
@@ -377,7 +386,6 @@ class ToolExecutionPipeline:
 
         if intent.side_effect and not self.operations.exists(intent):
             self.operations.ensure_planned(
-                tool_call,
                 intent,
                 step=step,
                 status="approved",
@@ -426,12 +434,14 @@ class ToolExecutionPipeline:
 
         session.observations.append(observation)
         session.lifecycle.update(
-            status=TaskRunStatus.RUNNING,
-            current_step=step,
-            last_tool=tool_call.name,
-            last_observation=observation.content[:600],
-            messages_count=len(session.messages),
-            observations_count=len(session.observations),
+            TaskCheckpointUpdate(
+                status=TaskRunStatus.RUNNING,
+                current_step=step,
+                last_tool=tool_call.name,
+                last_observation=observation.content[:600],
+                messages_count=len(session.messages),
+                observations_count=len(session.observations),
+            )
         )
         self.feedback.record_recovery(session, observation, step, remember=True)
 
@@ -512,5 +522,6 @@ class ToolExecutionPipeline:
             "git_diff",
             "diagnostics",
         }
+
 
 __all__ = ["ToolExecutionPipeline"]

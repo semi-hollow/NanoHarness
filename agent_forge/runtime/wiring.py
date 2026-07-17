@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from pathlib import Path
 
 from agent_forge.context.adapters import JsonLongTermMemoryRepository
@@ -51,36 +52,61 @@ from agent_forge.tools.run_command import RunCommandTool
 from agent_forge.tools.write_file import WriteFileTool
 
 
-def build_registry(
-    workspace: str,
-    auto: bool,
-    mcp_config_file: str | None = None,
-    mcp_allowed_tools: list[str] | None = None,
-    execution_environment: ExecutionEnvironment | None = None,
-) -> ToolRegistry:
+# 核心数据：装配受治理工具注册表所需的完整输入。
+@dataclass(frozen=True)
+class ToolRegistryBuildRequest:
+    """装配受治理工具注册表所需的完整输入。"""
+
+    workspace: str
+    auto: bool
+    mcp_config_file: str | None = None
+    mcp_allowed_tools: tuple[str, ...] = ()
+    execution_environment: ExecutionEnvironment | None = None
+
+
+# 核心数据：外围入口提交的一次人工回答或取消命令。
+@dataclass(frozen=True)
+class HumanInputResponseCommand:
+    """外围入口提交的一次人工回答或取消命令。"""
+
+    human_input_root: str
+    request_id: str
+    answer: str = ""
+    cancel: bool = False
+    note: str = ""
+
+
+def build_registry(request: ToolRegistryBuildRequest) -> ToolRegistry:
     """构造 AgentLoop 使用的受治理工具注册表。"""
 
-    sandbox = WorkspaceSandbox(workspace)
+    sandbox = WorkspaceSandbox(request.workspace)
     registry = ToolRegistry()
     for tool in [
         ListFilesTool(sandbox),
         ReadFileTool(sandbox),
-        WriteFileTool(sandbox, auto),
+        WriteFileTool(sandbox, request.auto),
         GrepTool(sandbox),
         GrepSearchTool(sandbox),
-        ApplyPatchTool(sandbox, auto),
-        RunCommandTool(sandbox, auto, execution_environment=execution_environment),
+        ApplyPatchTool(sandbox, request.auto),
+        RunCommandTool(
+            sandbox,
+            request.auto,
+            execution_environment=request.execution_environment,
+        ),
         GitStatusTool(sandbox),
         GitDiffTool(sandbox),
-        DiagnosticsTool(sandbox, execution_environment=execution_environment),
+        DiagnosticsTool(
+            sandbox,
+            execution_environment=request.execution_environment,
+        ),
         AskHumanTool(),
     ]:
         registry.register(tool)
-    if mcp_config_file:
+    if request.mcp_config_file:
         registry.mcp_config_report = MCPConfigLoader(sandbox).load_into(
             registry,
-            mcp_config_file,
-            allowed_tools=mcp_allowed_tools,
+            request.mcp_config_file,
+            allowed_tools=list(request.mcp_allowed_tools),
         )
     return registry
 
@@ -144,6 +170,7 @@ def build_runtime_dependencies(
         ),
     )
 
+
 # 主要入口：为所有入站路径装配同一套单 Agent Runtime 和治理端口。
 def build_agent_loop(
     config: "RuntimeConfig",
@@ -173,20 +200,17 @@ def decide_approval(
 
 
 def respond_to_human_input(
-    human_input_root: str,
-    request_id: str,
-    *,
-    answer: str = "",
-    cancel: bool = False,
-    note: str = "",
+    command: HumanInputResponseCommand,
 ) -> HumanInputRequest:
     """装配人工问题存储并保存回答或取消决定。"""
 
-    return RespondToHumanInput(JsonHumanInputRepository(human_input_root)).execute(
-        request_id,
-        answer=answer,
-        cancel=cancel,
-        note=note,
+    return RespondToHumanInput(
+        JsonHumanInputRepository(command.human_input_root)
+    ).execute(
+        command.request_id,
+        answer=command.answer,
+        cancel=command.cancel,
+        note=command.note,
     )
 
 
@@ -201,9 +225,7 @@ def prepare_continuation(
 
     checkpoint_path = JsonTaskStateRepository.latest_path(run_dir)
     checkpoint = JsonTaskStateRepository.load_path(checkpoint_path)
-    plan = BuildContinuationPlan(
-        JsonHumanInputRepository(human_input_root)
-    ).execute(
+    plan = BuildContinuationPlan(JsonHumanInputRepository(human_input_root)).execute(
         checkpoint,
         override_task=override_task,
         workspace=workspace,
@@ -233,5 +255,6 @@ def list_pending_approvals(root: str) -> list[ApprovalRequest]:
     """查询指定控制面目录中的待审批副作用。"""
 
     return JsonApprovalRepository(root).list_pending()
+
 
 from agent_forge.runtime.config import RuntimeConfig  # noqa: E402

@@ -4,15 +4,17 @@ import unittest
 from unittest.mock import patch
 
 from agent_forge.runtime.llm_client import OpenAICompatibleLLMClient
-from agent_forge.runtime.llm_config import resolve_llm_config
+from agent_forge.runtime.llm_config import LLMConfigRequest, resolve_llm_config
 
 
 class LLMClientTransportTest(unittest.TestCase):
     def test_llm_config_rejects_temperature_outside_provider_contract(self):
         with self.assertRaisesRegex(ValueError, "temperature"):
             resolve_llm_config(
-                provider="openai-compatible",
-                temperature=2.1,
+                LLMConfigRequest(
+                    provider="openai-compatible",
+                    temperature=2.1,
+                )
             )
 
     def test_chat_sends_configured_temperature(self):
@@ -51,7 +53,9 @@ class LLMClientTransportTest(unittest.TestCase):
             api_key="test-key",
             model="test-model",
         )
-        with patch("urllib.request.urlopen", side_effect=http.client.IncompleteRead(b"partial")):
+        with patch(
+            "urllib.request.urlopen", side_effect=http.client.IncompleteRead(b"partial")
+        ):
             response = client.chat([], [])
 
         self.assertIsNotNone(response.error)

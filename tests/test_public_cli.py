@@ -7,6 +7,7 @@ from pathlib import Path
 
 from agent_forge.cli.parser import build_parser
 from agent_forge.runtime.adapters import JsonApprovalRepository
+from agent_forge.runtime.domain.approval import ApprovalRequestDraft
 from agent_forge.workbench.presentation.commands import (
     build_agent_run_command as _build_agent_run_command,
     build_swebench_command as _build_swebench_command,
@@ -110,7 +111,15 @@ class PublicCliSmokeTest(unittest.TestCase):
 
     def test_showcase_cli_exposes_two_step_hitl_and_approval_flows(self):
         hitl = subprocess.run(
-            [sys.executable, "-m", "agent_forge", "showcase", "hitl", "continue", "--help"],
+            [
+                sys.executable,
+                "-m",
+                "agent_forge",
+                "showcase",
+                "hitl",
+                "continue",
+                "--help",
+            ],
             text=True,
             capture_output=True,
         )
@@ -119,7 +128,15 @@ class PublicCliSmokeTest(unittest.TestCase):
         self.assertIn("--answer", hitl.stdout)
 
         approval = subprocess.run(
-            [sys.executable, "-m", "agent_forge", "showcase", "approval", "start", "--help"],
+            [
+                sys.executable,
+                "-m",
+                "agent_forge",
+                "showcase",
+                "approval",
+                "start",
+                "--help",
+            ],
             text=True,
             capture_output=True,
         )
@@ -225,15 +242,17 @@ class PublicCliSmokeTest(unittest.TestCase):
             root = Path(tmp)
             store = JsonApprovalRepository(root / "approvals")
             request = store.request(
-                tool_name="apply_patch",
-                arguments={"path": "target.py", "old": "a", "new": "b"},
-                action="apply_patch",
-                command="",
-                workspace=str(root),
-                run_id="run-1",
-                step=1,
-                agent_name="CodingAgent",
-                reason="write needs approval",
+                ApprovalRequestDraft(
+                    tool_name="apply_patch",
+                    arguments={"path": "target.py", "old": "a", "new": "b"},
+                    action="apply_patch",
+                    command="",
+                    workspace=str(root),
+                    run_id="run-1",
+                    step=1,
+                    agent_name="CodingAgent",
+                    reason="write needs approval",
+                )
             )
 
             result = subprocess.run(
@@ -316,7 +335,9 @@ class PublicCliSmokeTest(unittest.TestCase):
             latest = root / ".agent_forge" / "latest"
             latest.mkdir(parents=True)
             (latest / "run.txt").write_text(str(run_dir), encoding="utf-8")
-            (fanout_dir / "fanout_report.md").write_text("# Live Fanout Report\n", encoding="utf-8")
+            (fanout_dir / "fanout_report.md").write_text(
+                "# Live Fanout Report\n", encoding="utf-8"
+            )
             (fanout_dir / "fanout_summary.json").write_text(
                 """
 {
@@ -346,7 +367,9 @@ class PublicCliSmokeTest(unittest.TestCase):
                 encoding="utf-8",
             )
 
-            self.assertTrue(_latest_report_path(root).endswith("fanout/fanout_report.md"))
+            self.assertTrue(
+                _latest_report_path(root).endswith("fanout/fanout_report.md")
+            )
             result_html = _render_result_summary(root)
             usage_html = _render_usage_dashboard(root)
 
@@ -412,7 +435,9 @@ class PublicCliSmokeTest(unittest.TestCase):
             multi_dir = run_dir / "cases" / "case" / "multi_agent"
             artifact_path = multi_dir / "artifacts" / "review.md"
             artifact_path.parent.mkdir(parents=True)
-            artifact_path.write_text("# Review\nPASS: root cause evidence is sufficient.", encoding="utf-8")
+            artifact_path.write_text(
+                "# Review\nPASS: root cause evidence is sufficient.", encoding="utf-8"
+            )
             (multi_dir / "multi_agent_summary.json").write_text(
                 """
 {
@@ -420,7 +445,8 @@ class PublicCliSmokeTest(unittest.TestCase):
   "role_results": [{"role": "Reviewer", "decision": "PASS", "round_index": 0, "final_answer": "PASS"}],
   "artifacts": [{"id": "review", "role": "Reviewer", "kind": "review_report", "round_index": 0, "path": "%s"}]
 }
-""" % artifact_path,
+"""
+                % artifact_path,
                 encoding="utf-8",
             )
             (run_dir / "trace.json").write_text('{"events": []}', encoding="utf-8")
@@ -481,9 +507,25 @@ class PublicCliSmokeTest(unittest.TestCase):
     def test_timeline_explains_scope_order_and_color_semantics(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            run = root / ".agent_forge" / "runs" / "swebench-demo" / "cases" / "case" / "multi"
+            run = (
+                root
+                / ".agent_forge"
+                / "runs"
+                / "swebench-demo"
+                / "cases"
+                / "case"
+                / "multi"
+            )
             run.mkdir(parents=True)
-            single_run = root / ".agent_forge" / "runs" / "swebench-demo" / "cases" / "case" / "single"
+            single_run = (
+                root
+                / ".agent_forge"
+                / "runs"
+                / "swebench-demo"
+                / "cases"
+                / "case"
+                / "single"
+            )
             single_run.mkdir(parents=True)
             (root / ".agent_forge" / "latest").mkdir(parents=True)
             (root / ".agent_forge" / "latest" / "bench.txt").write_text(
@@ -523,7 +565,9 @@ class PublicCliSmokeTest(unittest.TestCase):
 
         self.assertIn("Multi-Agent Runtime", html)
         self.assertIn("Single-Agent Runtime", html)
-        self.assertLess(html.index("Multi-Agent Runtime"), html.index("Single-Agent Runtime"))
+        self.assertLess(
+            html.index("Multi-Agent Runtime"), html.index("Single-Agent Runtime")
+        )
         self.assertIn("1. 上下文组装", html)
         self.assertIn("3. 动作解析", html)
         self.assertIn("tool: git_diff", html)
@@ -581,11 +625,15 @@ class PublicCliSmokeTest(unittest.TestCase):
             runs = root / ".agent_forge" / "runs"
             swebench = runs / "swebench-20260707-011718-4944f2e"
             (swebench / "cases" / "case").mkdir(parents=True)
-            (swebench / "cases" / "case" / "comparison.json").write_text("{}", encoding="utf-8")
+            (swebench / "cases" / "case" / "comparison.json").write_text(
+                "{}", encoding="utf-8"
+            )
             verify = root / ".agent_forge" / "verify" / "runs" / "run-verify"
             verify.mkdir(parents=True)
             (verify / "trace.json").write_text("{}", encoding="utf-8")
-            (latest / "bench.txt").write_text("/tmp/agent-forge-missing-bench-run\n", encoding="utf-8")
+            (latest / "bench.txt").write_text(
+                "/tmp/agent-forge-missing-bench-run\n", encoding="utf-8"
+            )
             (latest / "run.txt").write_text(str(verify), encoding="utf-8")
 
             self.assertEqual(_latest_run_dir(root), swebench)

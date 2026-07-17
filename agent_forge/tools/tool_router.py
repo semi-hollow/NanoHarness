@@ -1,6 +1,19 @@
 from dataclasses import dataclass
 
 
+# 核心数据：一次工具可见性决策的任务、候选 schema 与运行上下文。
+@dataclass(frozen=True)
+class ToolRoutingRequest:
+    """Router 的完整输入；schema 不在 Router 内修改。"""
+
+    task: str
+    schemas: list[dict]
+    step: int = 1
+    agent_name: str = ""
+    skill_tool_names: set[str] | None = None
+    mode: str = "task-aware"
+
+
 # 核心数据：本 turn 展示给模型和隐藏于模型的真实工具可见性决策。
 @dataclass(frozen=True)
 class ToolRoute:
@@ -18,7 +31,10 @@ class ToolRoute:
         return {
             "allowed_tools": sorted(self.allowed_names),
             "hidden_tools": list(self.dropped_names),
-            "tool_count": {"allowed": len(self.allowed_names), "hidden": len(self.dropped_names)},
+            "tool_count": {
+                "allowed": len(self.allowed_names),
+                "hidden": len(self.dropped_names),
+            },
             "metadata": self.metadata,
         }
 
@@ -27,32 +43,84 @@ class ToolRouter:
     """根据任务、Skill 和运行模式收敛模型可见的工具集合。"""
 
     DEFAULT_METADATA = {
-        "list_files": {"capability": "discover", "risk": "low", "latency": "low", "mode": "read"},
-        "read_file": {"capability": "inspect", "risk": "low", "latency": "low", "mode": "read"},
-        "grep": {"capability": "search", "risk": "low", "latency": "low", "mode": "read"},
-        "grep_search": {"capability": "search", "risk": "low", "latency": "low", "mode": "read"},
-        "diagnostics": {"capability": "validate", "risk": "low", "latency": "medium", "mode": "read"},
-        "git_status": {"capability": "diff", "risk": "low", "latency": "low", "mode": "read"},
-        "git_diff": {"capability": "diff", "risk": "low", "latency": "low", "mode": "read"},
-        "ask_human": {"capability": "clarify", "risk": "low", "latency": "human", "mode": "human"},
-        "apply_patch": {"capability": "edit", "risk": "medium", "latency": "low", "mode": "write"},
-        "write_file": {"capability": "edit", "risk": "high", "latency": "low", "mode": "write"},
-        "run_command": {"capability": "validate", "risk": "high", "latency": "medium", "mode": "command"},
+        "list_files": {
+            "capability": "discover",
+            "risk": "low",
+            "latency": "low",
+            "mode": "read",
+        },
+        "read_file": {
+            "capability": "inspect",
+            "risk": "low",
+            "latency": "low",
+            "mode": "read",
+        },
+        "grep": {
+            "capability": "search",
+            "risk": "low",
+            "latency": "low",
+            "mode": "read",
+        },
+        "grep_search": {
+            "capability": "search",
+            "risk": "low",
+            "latency": "low",
+            "mode": "read",
+        },
+        "diagnostics": {
+            "capability": "validate",
+            "risk": "low",
+            "latency": "medium",
+            "mode": "read",
+        },
+        "git_status": {
+            "capability": "diff",
+            "risk": "low",
+            "latency": "low",
+            "mode": "read",
+        },
+        "git_diff": {
+            "capability": "diff",
+            "risk": "low",
+            "latency": "low",
+            "mode": "read",
+        },
+        "ask_human": {
+            "capability": "clarify",
+            "risk": "low",
+            "latency": "human",
+            "mode": "human",
+        },
+        "apply_patch": {
+            "capability": "edit",
+            "risk": "medium",
+            "latency": "low",
+            "mode": "write",
+        },
+        "write_file": {
+            "capability": "edit",
+            "risk": "high",
+            "latency": "low",
+            "mode": "write",
+        },
+        "run_command": {
+            "capability": "validate",
+            "risk": "high",
+            "latency": "medium",
+            "mode": "command",
+        },
     }
 
     # 主要入口：结合任务、Skill 与模式收敛本 turn 的模型可见工具 schema。
-    def route(
-        self,
-        task: str,
-        schemas: list[dict],
-        *,
-        step: int = 1,
-        agent_name: str = "",
-        skill_tool_names: set[str] | None = None,
-        mode: str = "task-aware",
-    ) -> ToolRoute:
+    def route(self, request: ToolRoutingRequest) -> ToolRoute:
         """返回本轮允许展示给模型的 schema，并保留隐藏原因证据。"""
 
+        task = request.task
+        schemas = request.schemas
+        step = request.step
+        agent_name = request.agent_name
+        skill_tool_names = request.skill_tool_names
+        mode = request.mode
         lowered = (task or "").lower()
         by_name = {schema.get("name", ""): schema for schema in schemas}
         names = set(by_name)
@@ -70,7 +138,12 @@ class ToolRouter:
                 metadata={
                     name: self.DEFAULT_METADATA.get(
                         name,
-                        {"capability": "external", "risk": "configured", "latency": "unknown", "mode": "mcp_style"},
+                        {
+                            "capability": "external",
+                            "risk": "configured",
+                            "latency": "unknown",
+                            "mode": "mcp_style",
+                        },
                     )
                     for name in sorted(names)
                 },
@@ -102,20 +175,44 @@ class ToolRouter:
         selected = {
             name
             for name in names
-            if self.DEFAULT_METADATA.get(name, {}).get("capability") in {"discover", "inspect", "search"}
+            if self.DEFAULT_METADATA.get(name, {}).get("capability")
+            in {"discover", "inspect", "search"}
         }
 
         selected |= names & {"ask_human"}
 
         if not read_only_requested and any(
-            token in lowered for token in ["fix", "repair", "resolve", "patch", "implement", "修复", "实现", "补充"]
+            token in lowered
+            for token in [
+                "fix",
+                "repair",
+                "resolve",
+                "patch",
+                "implement",
+                "修复",
+                "实现",
+                "补充",
+            ]
         ):
-            selected |= names & {"apply_patch", "write_file", "run_command", "diagnostics", "git_status", "git_diff"}
-        if not read_only_requested and any(token in lowered for token in ["test", "validate", "验证", "测试", "unittest"]):
+            selected |= names & {
+                "apply_patch",
+                "write_file",
+                "run_command",
+                "diagnostics",
+                "git_status",
+                "git_diff",
+            }
+        if not read_only_requested and any(
+            token in lowered
+            for token in ["test", "validate", "验证", "测试", "unittest"]
+        ):
             selected |= names & {"run_command", "diagnostics"}
         if any(token in lowered for token in ["review", "diff", "审查", "回滚"]):
             selected |= names & {"git_diff", "git_status", "read_file"}
-        if any(token in lowered for token in ["clarify", "unclear", "ambiguous", "澄清", "不明确"]):
+        if any(
+            token in lowered
+            for token in ["clarify", "unclear", "ambiguous", "澄清", "不明确"]
+        ):
             selected |= names & {"ask_human"}
 
         if skill_tool_names:
@@ -128,11 +225,20 @@ class ToolRouter:
             selected |= names & {"apply_patch", "diagnostics", "git_diff", "git_status"}
 
         external_names = names - set(self.DEFAULT_METADATA)
-        task_terms = {term for term in lowered.replace("_", " ").replace(".", " ").split() if len(term) >= 3}
+        task_terms = {
+            term
+            for term in lowered.replace("_", " ").replace(".", " ").split()
+            if len(term) >= 3
+        }
         for name in external_names:
             schema = by_name[name]
             searchable = f"{name} {schema.get('description', '')}".lower()
-            if "mcp" in lowered or "tool" in lowered or "policy" in lowered or any(term in searchable for term in task_terms):
+            if (
+                "mcp" in lowered
+                or "tool" in lowered
+                or "policy" in lowered
+                or any(term in searchable for term in task_terms)
+            ):
                 selected.add(name)
 
         if not selected:
@@ -152,7 +258,12 @@ class ToolRouter:
             metadata={
                 name: self.DEFAULT_METADATA.get(
                     name,
-                    {"capability": "external", "risk": "configured", "latency": "unknown", "mode": "mcp_style"},
+                    {
+                        "capability": "external",
+                        "risk": "configured",
+                        "latency": "unknown",
+                        "mode": "mcp_style",
+                    },
                 )
                 for name in sorted(selected)
             },

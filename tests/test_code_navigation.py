@@ -19,12 +19,8 @@ PRIMARY_ENTRYPOINTS = {
         "RunPreparation.start",
         "RunPreparation.execute",
     ),
-    "agent_forge/runtime/application/turn_preparation.py": (
-        "TurnPreparation.execute",
-    ),
-    "agent_forge/runtime/application/final_answer.py": (
-        "FinalAnswerBuilder.execute",
-    ),
+    "agent_forge/runtime/application/turn_preparation.py": ("TurnPreparation.execute",),
+    "agent_forge/runtime/application/final_answer.py": ("FinalAnswerBuilder.execute",),
     "agent_forge/runtime/application/tool_authorization.py": (
         "ToolAuthorizationGate.authorize",
     ),
@@ -57,17 +53,19 @@ PRIMARY_ENTRYPOINTS = {
         "LongTermMemoryService.retire",
         "LongTermMemoryService.reject",
     ),
-    "agent_forge/context/application/compaction.py": (
-        "ContextWindowManager.prepare",
-    ),
+    "agent_forge/context/application/compaction.py": ("ContextWindowManager.prepare",),
     "agent_forge/context/context_builder.py": ("build_context_report",),
     "agent_forge/models/gateway.py": ("ModelGateway.chat",),
     "agent_forge/tools/tool_router.py": ("ToolRouter.route",),
     "agent_forge/tools/registry.py": ("ToolRegistry.execute",),
     "agent_forge/tools/mcp_config.py": ("MCPConfigLoader.load_into",),
-    "agent_forge/multi_agent/application/coordinator.py": ("MultiAgentCoordinator.run",),
+    "agent_forge/multi_agent/application/coordinator.py": (
+        "MultiAgentCoordinator.run",
+    ),
     "agent_forge/multi_agent/application/fanout.py": ("run_fanout",),
-    "agent_forge/multi_agent/application/live_fanout.py": ("LiveFanoutCoordinator.run",),
+    "agent_forge/multi_agent/application/live_fanout.py": (
+        "LiveFanoutCoordinator.run",
+    ),
     "agent_forge/multi_agent/wiring.py": (
         "build_live_fanout",
         "build_multi_agent_coordinator",
@@ -96,7 +94,9 @@ PRIMARY_ENTRYPOINTS = {
     "agent_forge/bench/presentation/case_study.py": ("write_case_study",),
     "agent_forge/bench/presentation/report.py": ("write_bench_artifacts",),
     "agent_forge/evaluation/api.py": ("build_benchmark_scorecard",),
-    "agent_forge/evaluation/application/scorecard.py": ("BuildBenchmarkScorecard.execute",),
+    "agent_forge/evaluation/application/scorecard.py": (
+        "BuildBenchmarkScorecard.execute",
+    ),
     "agent_forge/evaluation/domain/comparison.py": ("compare_runs", "compare_variants"),
     "agent_forge/evaluation/domain/ablation.py": ("compare_benchmark_scorecards",),
     "agent_forge/evaluation/adapters/feedback_dataset_files.py": (
@@ -172,30 +172,62 @@ CORE_DATA_MODELS = {
     "agent_forge/runtime/config.py": ("RuntimeConfig",),
     "agent_forge/runtime/application/dependencies.py": ("RuntimeDependencies",),
     "agent_forge/runtime/application/session.py": ("AgentRunSession",),
-    "agent_forge/runtime/domain/task.py": ("TaskCheckpoint",),
-    "agent_forge/runtime/domain/approval.py": ("ApprovalRequest",),
-    "agent_forge/runtime/domain/human_input.py": ("HumanInputRequest",),
-    "agent_forge/runtime/domain/operation.py": ("OperationRecord",),
+    "agent_forge/runtime/domain/task.py": (
+        "TaskStartRequest",
+        "TaskCheckpointUpdate",
+        "TaskCheckpoint",
+    ),
+    "agent_forge/runtime/domain/approval.py": (
+        "ApprovalRequestDraft",
+        "ApprovalRequest",
+    ),
+    "agent_forge/runtime/domain/human_input.py": (
+        "HumanInputQuestion",
+        "HumanInputRequestDraft",
+        "HumanInputRequest",
+    ),
+    "agent_forge/runtime/domain/operation.py": (
+        "OperationTarget",
+        "OperationPlan",
+        "OperationTransition",
+        "OperationRecord",
+    ),
     "agent_forge/runtime/domain/conversation.py": (
         "Message",
         "ToolCall",
         "Observation",
         "AgentResponse",
     ),
-    "agent_forge/runtime/llm_config.py": ("LLMConfig",),
+    "agent_forge/runtime/llm_config.py": ("LLMConfig", "LLMConfigRequest"),
+    "agent_forge/runtime/ports/context.py": ("ContextAssemblyRequest",),
+    "agent_forge/runtime/wiring.py": (
+        "ToolRegistryBuildRequest",
+        "HumanInputResponseCommand",
+    ),
     "agent_forge/runtime/application/working_memory.py": ("WorkingMemory",),
     "agent_forge/context/context_strategy.py": ("ContextStrategy",),
-    "agent_forge/context/context_builder.py": ("ContextBuildReport",),
+    "agent_forge/context/api.py": ("ProposeMemoryRequest",),
+    "agent_forge/context/context_builder.py": (
+        "ContextBuildPolicy",
+        "ContextBuildRequest",
+        "ContextBuildReport",
+    ),
     "agent_forge/context/domain/memory.py": (
         "LongTermMemoryRecord",
+        "MemoryProposal",
         "SessionDigest",
     ),
     "agent_forge/context/application/compaction.py": (
         "PromptBudget",
+        "ContextWindowRequest",
         "ContextWindowResult",
     ),
     "agent_forge/models/gateway.py": ("RetryPolicy",),
-    "agent_forge/tools/tool_router.py": ("ToolRoute",),
+    "agent_forge/tools/tool_router.py": ("ToolRoutingRequest", "ToolRoute"),
+    "agent_forge/multi_agent/wiring.py": (
+        "LiveFanoutBuildRequest",
+        "SequentialCoordinatorBuildRequest",
+    ),
     "agent_forge/multi_agent/domain/fanout.py": (
         "SubagentTask",
         "FanoutConflict",
@@ -204,6 +236,7 @@ CORE_DATA_MODELS = {
     ),
     "agent_forge/multi_agent/domain/live.py": (
         "FanoutPlan",
+        "FanoutCheckpoint",
         "LiveSubagentResult",
         "LiveFanoutSummary",
     ),
@@ -232,8 +265,35 @@ CORE_DATA_MODELS = {
         "OfficialResults",
     ),
     "agent_forge/evaluation/domain/models.py": ("EvaluationComparison",),
+    "agent_forge/evaluation/domain/ablation.py": ("AblationComparisonRequest",),
+    "agent_forge/evaluation/api.py": ("AblationArtifactRequest",),
+    "agent_forge/evaluation/adapters/feedback_dataset_files.py": ("FeedbackRequest",),
     "agent_forge/observability/domain/event.py": ("TraceEvent",),
     "agent_forge/observability/domain/evidence.py": ("EvidenceItem", "EvidenceLedger"),
+}
+
+# 这些接口是高频事件或局部解析原语；拆成请求对象会隐藏调用语义。
+LONG_PARAMETER_EXCEPTIONS = {
+    (
+        "agent_forge/multi_agent/ports/sequential.py",
+        "CoordinatorEventSink.record_event",
+    ),
+    ("agent_forge/observability/adapters/json_trace.py", "JsonTraceRecorder.add"),
+    (
+        "agent_forge/observability/adapters/json_trace.py",
+        "JsonTraceRecorder.record_event",
+    ),
+    (
+        "agent_forge/runtime/application/operation_tracker.py",
+        "OperationTracker.record_result",
+    ),
+    (
+        "agent_forge/runtime/application/tool_authorization.py",
+        "ToolAuthorizationGate.post_process",
+    ),
+    ("agent_forge/runtime/ports/events.py", "EventSink.add"),
+    ("agent_forge/workbench/presentation/commands.py", "payload_int"),
+    ("agent_forge/workbench/presentation/commands.py", "payload_float"),
 }
 
 FIELD_DOCUMENTED_MODELS = {
@@ -278,7 +338,9 @@ class _DefinitionCollector(ast.NodeVisitor):
 
 class CodeNavigationContractTest(unittest.TestCase):
     def test_primary_entrypoints_are_visible_when_bodies_are_collapsed(self) -> None:
-        self._assert_markers(PRIMARY_ENTRYPOINTS, "# 主要入口：", require_docstring=True)
+        self._assert_markers(
+            PRIMARY_ENTRYPOINTS, "# 主要入口：", require_docstring=True
+        )
 
     def test_runtime_ports_are_visible_when_bodies_are_collapsed(self) -> None:
         self._assert_markers(RUNTIME_PORTS, "# 运行时端口：", require_docstring=False)
@@ -336,6 +398,44 @@ class CodeNavigationContractTest(unittest.TestCase):
         )
         self.assertLess(body.index("run_preparation.execute"), body.index("_run_turn"))
 
+    def test_public_boundaries_do_not_regrow_long_parameter_lists(self) -> None:
+        """Use named request objects once a public call needs five business inputs."""
+
+        violations: list[str] = []
+        observed_exceptions: set[tuple[str, str]] = set()
+        package_root = PROJECT_ROOT / "agent_forge"
+        for path in sorted(package_root.rglob("*.py")):
+            relative_path = str(path.relative_to(PROJECT_ROOT))
+            collector = _DefinitionCollector()
+            collector.visit(ast.parse(path.read_text(encoding="utf-8")))
+            for name, node in collector.definitions.items():
+                if node.name.startswith("_") or node.name == "__init__":
+                    continue
+                parameters = [
+                    *node.args.posonlyargs,
+                    *node.args.args,
+                    *node.args.kwonlyargs,
+                ]
+                parameters = [
+                    item for item in parameters if item.arg not in {"self", "cls"}
+                ]
+                if len(parameters) < 5:
+                    continue
+                identity = (relative_path, name)
+                if identity in LONG_PARAMETER_EXCEPTIONS:
+                    observed_exceptions.add(identity)
+                    continue
+                violations.append(
+                    f"{relative_path}:{node.lineno} {name} has {len(parameters)} parameters"
+                )
+
+        self.assertEqual(violations, [], "Use a typed request object at this boundary")
+        self.assertEqual(
+            observed_exceptions,
+            LONG_PARAMETER_EXCEPTIONS,
+            "Remove stale exceptions when a local API becomes smaller",
+        )
+
     def _assert_markers(
         self,
         expected: dict[str, tuple[str, ...]],
@@ -354,7 +454,10 @@ class CodeNavigationContractTest(unittest.TestCase):
                     self.assertIn(name, collector.definitions)
                     node = collector.definitions[name]
                     first_line = min(
-                        [node.lineno, *(decorator.lineno for decorator in node.decorator_list)]
+                        [
+                            node.lineno,
+                            *(decorator.lineno for decorator in node.decorator_list),
+                        ]
                     )
                     cursor = first_line - 2
                     while cursor >= 0 and not lines[cursor].strip():
@@ -393,7 +496,10 @@ class CodeNavigationContractTest(unittest.TestCase):
                     self.assertIn(name, collector.classes)
                     node = collector.classes[name]
                     first_line = min(
-                        [node.lineno, *(decorator.lineno for decorator in node.decorator_list)]
+                        [
+                            node.lineno,
+                            *(decorator.lineno for decorator in node.decorator_list),
+                        ]
                     )
                     cursor = first_line - 2
                     while cursor >= 0 and not lines[cursor].strip():
