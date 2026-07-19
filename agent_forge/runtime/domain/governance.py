@@ -62,6 +62,21 @@ class HookContext:
     approval_mode: str = ApprovalMode.TRUSTED.value
 
 
+# 核心数据：模型生命周期 Hook 可见的非敏感调用摘要。
+@dataclass(frozen=True)
+class ModelHookContext:
+    """模型调用身份、规模和压缩状态，不包含 Prompt 正文或凭据。"""
+
+    run_id: str
+    step: int
+    agent_name: str
+    task: str
+    messages_count: int
+    tool_count: int
+    estimated_prompt_tokens: int
+    compacted: bool
+
+
 @dataclass(frozen=True)
 class HookResult:
     """多个 Hook 合并后的有效决策。"""

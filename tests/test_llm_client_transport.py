@@ -4,7 +4,17 @@ import unittest
 from unittest.mock import patch
 
 from agent_forge.runtime.llm_client import OpenAICompatibleLLMClient
+from agent_forge.runtime.domain.model import ModelCapabilities
 from agent_forge.runtime.llm_config import LLMConfigRequest, resolve_llm_config
+
+
+TOOLS = [
+    {
+        "name": "read_file",
+        "description": "Read one file",
+        "arguments": {"path": "str"},
+    }
+]
 
 
 class LLMClientTransportTest(unittest.TestCase):
@@ -61,6 +71,44 @@ class LLMClientTransportTest(unittest.TestCase):
         self.assertIsNotNone(response.error)
         self.assertEqual(response.error["code"], "request_failed")
         self.assertIn("IncompleteRead", response.error["message"])
+
+    def test_non_native_model_uses_bounded_text_tool_protocol(self):
+        client = OpenAICompatibleLLMClient(
+            base_url="http://local.test/v1",
+            api_key="test-key",
+            model="test-model",
+            capabilities=ModelCapabilities(native_tool_calling=False),
+        )
+        captured = {}
+
+        class Response:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *args):
+                return False
+
+            def read(self):
+                return (
+                    b'{"choices":[{"message":{"content":'
+                    b'"{\\"name\\":\\"read_file\\",\\"arguments\\":'
+                    b'{\\"path\\":\\"README.md\\"}}"}}]}'
+                )
+
+        def open_request(request, timeout):
+            captured["payload"] = json.loads(request.data.decode("utf-8"))
+            return Response()
+
+        with patch("urllib.request.urlopen", side_effect=open_request):
+            response = client.chat([], TOOLS)
+
+        self.assertNotIn("tools", captured["payload"])
+        self.assertIn(
+            "no native tool calling",
+            captured["payload"]["messages"][-1]["content"],
+        )
+        self.assertEqual(response.tool_calls[0].name, "read_file")
+        self.assertEqual(response.tool_calls[0].arguments, {"path": "README.md"})
 
 
 if __name__ == "__main__":

@@ -1,4 +1,10 @@
 from .builtin import build_default_skill_registry, built_in_skill_specs
-from .registry import SkillRegistry, SkillSpec
+from .registry import SkillCatalogEntry, SkillRegistry, SkillSpec
 
-__all__ = ["SkillRegistry", "SkillSpec", "build_default_skill_registry", "built_in_skill_specs"]
+__all__ = [
+    "SkillCatalogEntry",
+    "SkillRegistry",
+    "SkillSpec",
+    "build_default_skill_registry",
+    "built_in_skill_specs",
+]

@@ -6,6 +6,15 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).parents[1]
 
 PRIMARY_ENTRYPOINTS = {
+    "agent_forge/harness.py": ("Harness.run", "Harness.resume"),
+    "agent_forge/hooks.py": (
+        "RuntimeHook.before_model",
+        "RuntimeHook.after_model",
+        "RuntimeHook.before_tool",
+        "RuntimeHook.after_tool",
+        "RuntimeHook.on_checkpoint",
+        "RuntimeHook.on_stop",
+    ),
     "agent_forge/cli/parser.py": ("build_parser",),
     "agent_forge/cli/dispatch.py": ("main",),
     "agent_forge/cli/repository.py": ("run_repository_task",),
@@ -15,6 +24,7 @@ PRIMARY_ENTRYPOINTS = {
         "respond_to_human_input_request",
     ),
     "agent_forge/runtime/application/agent_loop.py": ("AgentLoop.run",),
+    "agent_forge/runtime/application/run_control.py": ("ApplyRunControl.check",),
     "agent_forge/runtime/application/run_preparation.py": (
         "RunPreparation.start",
         "RunPreparation.execute",
@@ -55,6 +65,7 @@ PRIMARY_ENTRYPOINTS = {
     ),
     "agent_forge/context/application/compaction.py": ("ContextWindowManager.prepare",),
     "agent_forge/context/context_builder.py": ("build_context_report",),
+    "agent_forge/context/instructions.py": ("resolve_instructions",),
     "agent_forge/models/gateway.py": ("ModelGateway.chat",),
     "agent_forge/tools/tool_router.py": ("ToolRouter.route",),
     "agent_forge/tools/registry.py": ("ToolRegistry.execute",),
@@ -104,9 +115,23 @@ PRIMARY_ENTRYPOINTS = {
         "export_feedback_dataset",
     ),
     "agent_forge/observability/api.py": ("write_usage_artifacts",),
+    "agent_forge/observability/adapters/otel.py": (
+        "OpenTelemetryEventListener.on_event",
+    ),
+    "agent_forge/observability/adapters/streaming.py": (
+        "StreamingEventSink.add",
+    ),
     "agent_forge/observability/application/usage.py": ("BuildUsageReport.execute",),
     "agent_forge/mcp/server.py": ("AgentForgeMCPServer.run",),
-    "agent_forge/skills/registry.py": ("SkillRegistry.select_for_task",),
+    "agent_forge/skills/registry.py": (
+        "SkillRegistry.select_for_task",
+        "SkillRegistry.discover_for_task",
+    ),
+    "agent_forge/control.py": (
+        "RunController.pause",
+        "RunController.cancel",
+        "RunController.steer",
+    ),
     "agent_forge/workbench/presentation/http.py": ("run_ui",),
     "agent_forge/workbench/presentation/commands.py": ("build_workbench_command",),
     "agent_forge/showcase/control_plane.py": (
@@ -177,6 +202,8 @@ CORE_DATA_MODELS = {
         "TaskCheckpointUpdate",
         "TaskCheckpoint",
     ),
+    "agent_forge/runtime/domain/model.py": ("ModelCapabilities",),
+    "agent_forge/runtime/domain/run_control.py": ("RunControlSignal",),
     "agent_forge/runtime/domain/approval.py": (
         "ApprovalRequestDraft",
         "ApprovalRequest",
@@ -211,6 +238,11 @@ CORE_DATA_MODELS = {
         "ContextBuildPolicy",
         "ContextBuildRequest",
         "ContextBuildReport",
+    ),
+    "agent_forge/context/instructions.py": (
+        "InstructionSource",
+        "InstructionResolution",
+        "InstructionResolutionRequest",
     ),
     "agent_forge/context/domain/memory.py": (
         "LongTermMemoryRecord",
@@ -269,6 +301,7 @@ CORE_DATA_MODELS = {
     "agent_forge/evaluation/api.py": ("AblationArtifactRequest",),
     "agent_forge/evaluation/adapters/feedback_dataset_files.py": ("FeedbackRequest",),
     "agent_forge/observability/domain/event.py": ("TraceEvent",),
+    "agent_forge/observability/domain/live_event.py": ("RuntimeEvent",),
     "agent_forge/observability/domain/evidence.py": ("EvidenceItem", "EvidenceLedger"),
 }
 
@@ -279,6 +312,10 @@ LONG_PARAMETER_EXCEPTIONS = {
         "CoordinatorEventSink.record_event",
     ),
     ("agent_forge/observability/adapters/json_trace.py", "JsonTraceRecorder.add"),
+    (
+        "agent_forge/observability/adapters/streaming.py",
+        "StreamingEventSink.add",
+    ),
     (
         "agent_forge/observability/adapters/json_trace.py",
         "JsonTraceRecorder.record_event",

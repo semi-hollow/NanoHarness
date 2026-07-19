@@ -141,7 +141,7 @@ class ToolCallNormalizer:
             [
                 "Your previous tool call did not match the tool contract.",
                 f"Error: {error}",
-                "Return one valid native tool call with JSON object arguments.",
+                "Return one valid tool call with JSON object arguments.",
                 "Do not explain the repair and do not invent a tool name.",
                 f"Previous content: {raw[:1000]}",
             ]

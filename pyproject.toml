@@ -4,11 +4,14 @@ build-backend="setuptools.build_meta"
 
 [project]
 name="agent-forge"
-version="0.6.0"
+version="0.8.0"
 description="A compact AI agent runtime control plane for SWE-bench-shaped coding tasks."
 readme="README.md"
 requires-python=">=3.10"
 license={file="LICENSE"}
+dependencies=[
+  "PyYAML>=6.0,<7",
+]
 classifiers=[
   "Development Status :: 3 - Alpha",
   "Intended Audience :: Developers",
@@ -30,6 +33,7 @@ bench = [
 ]
 dev = [
   "mypy>=1.10,<2",
+  "types-PyYAML>=6.0,<7",
 ]
 
 [tool.mypy]

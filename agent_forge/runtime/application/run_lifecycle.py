@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 from agent_forge.contracts import JsonObject
 from agent_forge.runtime.domain.human_input import (
@@ -10,6 +10,7 @@ from agent_forge.runtime.domain.human_input import (
     HumanInputRequest,
     HumanInputRequestDraft,
 )
+from agent_forge.runtime.domain.governance import HookDecisionType
 from agent_forge.runtime.domain.task import (
     TaskCheckpoint,
     TaskCheckpointUpdate,
@@ -72,43 +73,73 @@ class RunLifecycle:
             self.checkpoint,
             update,
         )
+        self.trace.record_task_state_checkpoint(
+            step=self.checkpoint.current_step,
+            agent_name=self.checkpoint.agent_name,
+            checkpoint=self.checkpoint,
+        )
+        self.hooks.on_checkpoint(self.checkpoint)
         return self.checkpoint
 
     # 运行时端口：统一落盘终态、停止原因和最终文本。
     def stop(self, request: StopRequest) -> str:
         """持久化一次停止，并返回调用方要交付的最终文本。"""
 
-        self.trace.set_run_context(
-            stop_reason=request.reason,
-            final_answer=request.final_answer,
-        )
-        self.update(
-            TaskCheckpointUpdate(
-                status=request.status,
-                stop_reason=request.reason,
-                final_answer=request.final_answer,
-                current_step=request.current_step,
-                last_tool=request.last_tool,
-                last_observation=request.last_observation,
-                resume_hint=request.resume_hint,
-                messages_count=request.messages_count,
-                observations_count=request.observations_count,
-                metadata=request.metadata,
-            )
-        )
         hook_decisions = self.hooks.on_stop(
             self.trace.run_id,
             request.reason,
             request.final_answer,
         )
+        denied = next(
+            (
+                decision
+                for decision in hook_decisions
+                if decision.decision in {HookDecisionType.DENY, HookDecisionType.ASK}
+            ),
+            None,
+        )
+        effective = request
+        if denied is not None and request.status == TaskRunStatus.COMPLETED:
+            effective = replace(
+                request,
+                status=TaskRunStatus.BLOCKED,
+                reason="stop_hook_blocked",
+                final_answer=f"blocked by {denied.hook_name}: {denied.reason}",
+                resume_hint="Satisfy the stop quality gate before claiming completion.",
+            )
+        self.trace.set_run_context(
+            stop_reason=effective.reason,
+            final_answer=effective.final_answer,
+        )
+        self.update(
+            TaskCheckpointUpdate(
+                status=effective.status,
+                stop_reason=effective.reason,
+                final_answer=effective.final_answer,
+                current_step=effective.current_step,
+                last_tool=effective.last_tool,
+                last_observation=effective.last_observation,
+                resume_hint=effective.resume_hint,
+                messages_count=effective.messages_count,
+                observations_count=effective.observations_count,
+                metadata=effective.metadata,
+            )
+        )
         self.trace.add(
-            request.current_step or 0,
+            effective.current_step or 0,
             self.checkpoint.agent_name,
             "stop_hooks",
             hook_decisions=[decision.to_dict() for decision in hook_decisions],
-            stop_reason=request.reason,
+            stop_reason=effective.reason,
         )
-        return request.final_answer
+        self.trace.add(
+            effective.current_step or 0,
+            self.checkpoint.agent_name,
+            "run_completed",
+            run_status=effective.status.value,
+            stop_reason=effective.reason,
+        )
+        return effective.final_answer
 
     # 运行时端口：先持久化人工问题和 checkpoint，再返回 waiting_human。
     def request_human_input(

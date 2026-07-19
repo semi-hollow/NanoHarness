@@ -6,6 +6,8 @@ from pathlib import Path
 from agent_forge.contracts import ToolSchema
 from agent_forge.runtime.prompt_registry import PromptRegistry
 
+from .instructions import InstructionResolutionRequest, resolve_instructions
+
 from .contracts import ContextMemory
 from .token_budget import truncate, truncate_middle
 from .context_strategy import ContextStrategyRequest, build_context_strategy
@@ -34,6 +36,10 @@ class ContextBuildRequest:
     tools: list[ToolSchema]
     active_skill_cards: list[str]
     policy: ContextBuildPolicy
+    instruction_target: str = ""
+    global_instruction_files: tuple[str, ...] = ()
+    runtime_instructions: str = ""
+    instruction_max_bytes: int = 2_600
 
 
 # 核心数据：模型输入、选择事实、预算结果和截断原因的完整读模型。
@@ -67,6 +73,7 @@ class ContextBuildReport:
     total_chars: int
     max_chars: int
     truncated: bool
+    instruction_evidence: dict[str, object]
     rendered_context: str = ""
 
     def render(self) -> str:
@@ -101,7 +108,16 @@ def build_context_report(
             "repository map pre-truncated before section allocation"
         )
     prompt = PromptRegistry().get("agent_system")
-    project_instructions = load_project_instructions(request.root)
+    instruction_resolution = resolve_instructions(
+        InstructionResolutionRequest(
+            workspace=request.root,
+            active_path=request.instruction_target,
+            global_files=request.global_instruction_files,
+            runtime_override=request.runtime_instructions,
+            max_bytes=request.instruction_max_bytes,
+        )
+    )
+    project_instructions = instruction_resolution.content
     system_prompt = (
         f"[prompt:{prompt.header()} purpose:{prompt.purpose}]\n{prompt.content}"
     )
@@ -127,6 +143,7 @@ def build_context_report(
         total_chars=0,
         max_chars=max(512, int(request.policy.max_chars)),
         truncated=False,
+        instruction_evidence=instruction_resolution.to_evidence(),
     )
     rendered, included, truncated_sections = _fit_context_sections(report)
     report.rendered_context = rendered
@@ -142,13 +159,11 @@ def build_context_report(
 
 
 def load_project_instructions(root: str | Path, max_chars: int = 2600) -> str:
-    path = Path(root) / "FORGE.md"
-    if not path.exists():
-        return "FORGE.md not found; follow built-in runtime policy."
-    text = path.read_text(encoding="utf-8", errors="ignore")
-    if len(text) <= max_chars:
-        return text
-    return text[: max_chars - 14] + " [truncated]"
+    """保留给局部调用方的根目录解析入口；主链使用类型化 Resolver。"""
+
+    return resolve_instructions(
+        InstructionResolutionRequest(workspace=root, max_bytes=max_chars)
+    ).content
 
 
 def _fit_context_sections(

@@ -14,6 +14,7 @@ from agent_forge.contracts import ToolSchema
 from agent_forge.runtime.application.session import AgentRunSession
 from agent_forge.runtime.config import RuntimeConfig
 from agent_forge.runtime.domain.conversation import Message
+from agent_forge.runtime.domain.model import ModelCapabilities
 from agent_forge.runtime.domain.task import TaskCheckpointUpdate, TaskRunStatus
 from agent_forge.runtime.ports import (
     ContextAssemblerPort,
@@ -51,22 +52,28 @@ class TurnPreparation:
         context: ContextAssemblerPort,
         tools: ToolGateway,
         environment: EnvironmentPort,
+        model_capabilities: ModelCapabilities,
     ) -> None:
         self.config = config
         self.trace = trace
         self.context = context
         self.tools = tools
         self.environment = environment
+        self.model_capabilities = model_capabilities
         self.tool_router = ToolRouter()
+        effective_context_window = max(
+            1_024,
+            min(
+                int(getattr(config, "max_prompt_tokens", 32_768)),
+                model_capabilities.context_window,
+            ),
+        )
         self.context_window = ContextWindowManager(
             PromptBudget(
-                max_prompt_tokens=max(
-                    512,
-                    int(getattr(config, "max_prompt_tokens", 32_768)),
-                ),
-                reserved_output_tokens=max(
-                    0,
-                    int(getattr(config, "reserved_output_tokens", 4_096)),
+                max_prompt_tokens=effective_context_window,
+                reserved_output_tokens=min(
+                    max(0, int(getattr(config, "reserved_output_tokens", 4_096))),
+                    effective_context_window - 512,
                 ),
             )
         )
@@ -129,6 +136,15 @@ class TurnPreparation:
                 ],
                 max_chars=getattr(self.config, "max_context_chars", 8000),
                 permission_summary=permission_summary,
+                instruction_target=getattr(self.config, "instruction_target", ""),
+                global_instruction_files=tuple(
+                    getattr(self.config, "global_instruction_files", []) or []
+                ),
+                runtime_instructions=getattr(self.config, "runtime_instructions", ""),
+                instruction_max_bytes=max(
+                    1,
+                    int(getattr(self.config, "instruction_max_bytes", 2_600)),
+                ),
             )
         )
         self.trace.add(
@@ -151,6 +167,7 @@ class TurnPreparation:
                     f"{skill.name}@{skill.version}" for skill in session.active_skills
                 ],
                 "permission_summary": context_report.permission_summary,
+                "instructions": context_report.instruction_evidence,
                 "tool_routing": {
                     "reason": route.reason,
                     "allowed_tools": sorted(allowed_tool_names),

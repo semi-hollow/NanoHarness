@@ -40,3 +40,6 @@ class EventSink(Protocol):
         checkpoint: TaskCheckpoint,
     ) -> None:
         """记录类型化 checkpoint。"""
+
+    def publish(self) -> None:
+        """在 run 终止时发布当前事实流。"""

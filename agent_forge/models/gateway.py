@@ -3,6 +3,7 @@ from dataclasses import dataclass
 
 from agent_forge.runtime.llm_client import AgentResponse, LLMClient
 from agent_forge.runtime.domain.conversation import Message
+from agent_forge.runtime.domain.model import ModelCapabilities
 
 from .usage import ModelUsage
 
@@ -50,6 +51,7 @@ class ModelGateway(LLMClient):
         fallback_provider: str = "",
         fallback_model: str = "",
         retry_policy: RetryPolicy | None = None,
+        capabilities: ModelCapabilities | None = None,
     ) -> None:
 
         self.primary = primary
@@ -62,6 +64,7 @@ class ModelGateway(LLMClient):
         self.fallback_model = fallback_model
 
         self.retry_policy = retry_policy or RetryPolicy()
+        self.capabilities = capabilities or ModelCapabilities()
 
         self.last_usage = ModelUsage(provider=provider, model=model)
 

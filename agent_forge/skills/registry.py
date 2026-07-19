@@ -1,3 +1,5 @@
+"""Skill catalog discovery、版本解析与选中后正文激活。"""
+
 from __future__ import annotations
 
 import json
@@ -9,6 +11,7 @@ from typing import Any
 
 @dataclass(frozen=True)
 class SkillSpec:
+    """一个已激活 Skill 的完整定义；procedure 不进入 discovery metadata。"""
 
     name: str
     version: str
@@ -25,9 +28,16 @@ class SkillSpec:
     operating_procedure: list[str] = field(default_factory=list)
     done_criteria: list[str] = field(default_factory=list)
     failure_modes: list[str] = field(default_factory=list)
+    source: str = ""
 
     @classmethod
-    def from_mapping(cls, data: dict[str, Any]) -> "SkillSpec":
+    def from_mapping(
+        cls,
+        data: dict[str, Any],
+        *,
+        source: str = "",
+    ) -> "SkillSpec":
+        """校验 manifest object，并保留实际来源路径。"""
 
         required = ["name", "version", "description", "entrypoint"]
         missing = [field_name for field_name in required if not data.get(field_name)]
@@ -50,9 +60,11 @@ class SkillSpec:
             operating_procedure=_list_field(data, "operating_procedure"),
             done_criteria=_list_field(data, "done_criteria"),
             failure_modes=_list_field(data, "failure_modes"),
+            source=source or str(data.get("source", "")),
         )
 
     def to_dict(self) -> dict[str, Any]:
+        """返回报告和 manifest hash 使用的完整定义。"""
 
         return {
             "name": self.name,
@@ -70,11 +82,16 @@ class SkillSpec:
             "operating_procedure": self.operating_procedure,
             "done_criteria": self.done_criteria,
             "failure_modes": self.failure_modes,
+            "source": self.source,
         }
 
     def prompt_card(self) -> str:
+        """只在 activation 后渲染模型可见的完整操作卡。"""
 
-        procedure = "\n".join(f"  {index}. {step}" for index, step in enumerate(self.operating_procedure, 1))
+        procedure = "\n".join(
+            f"  {index}. {step}"
+            for index, step in enumerate(self.operating_procedure, 1)
+        )
         done = "\n".join(f"  - {item}" for item in self.done_criteria)
         failure = "\n".join(f"  - {item}" for item in self.failure_modes)
         tools = ", ".join(self.tool_names) or "no extra tools"
@@ -91,20 +108,56 @@ class SkillSpec:
             f"failure_recovery:\n{failure or '  - If blocked, explain the blocker with evidence.'}"
         )
 
+    def catalog_entry(self, *, reason: str = "") -> "SkillCatalogEntry":
+        """只返回 discovery 所需 metadata，不展开操作步骤正文。"""
+
+        return SkillCatalogEntry(
+            name=self.name,
+            version=self.version,
+            description=self.description,
+            tags=tuple(self.tags),
+            activation_terms=tuple(self.activation_terms),
+            source=self.source or self.entrypoint,
+            selection_reason=reason,
+        )
+
+
+# 核心数据：Skill discovery 阶段可见的轻量 metadata。
+@dataclass(frozen=True)
+class SkillCatalogEntry:
+    """不包含 procedure、done criteria 或 failure modes，避免提前注入完整 Skill。"""
+
+    name: str
+    version: str
+    description: str
+    tags: tuple[str, ...]
+    activation_terms: tuple[str, ...]
+    source: str
+    selection_reason: str = ""
+
 
 class SkillRegistry:
+    """保存版本化 Skill，并分开 metadata discovery 与正文 activation。"""
 
     def __init__(self) -> None:
-
         self._skills: dict[str, list[SkillSpec]] = {}
 
     def register(self, spec: SkillSpec) -> None:
+        """按 name/version 覆盖注册，并保持可预测版本顺序。"""
 
-        versions = [item for item in self._skills.get(spec.name, []) if item.version != spec.version]
+        versions = [
+            item
+            for item in self._skills.get(spec.name, [])
+            if item.version != spec.version
+        ]
         versions.append(spec)
-        self._skills[spec.name] = sorted(versions, key=lambda item: _version_key(item.version))
+        self._skills[spec.name] = sorted(
+            versions,
+            key=lambda item: _version_key(item.version),
+        )
 
     def load_manifest(self, path: str | Path) -> None:
+        """从受信任的本地 JSON 文件加载定义；不会执行 entrypoint。"""
 
         manifest_path = Path(path)
         try:
@@ -116,16 +169,23 @@ class SkillRegistry:
 
         items = data if isinstance(data, list) else [data]
         if not all(isinstance(item, dict) for item in items):
-            raise ValueError(f"skill manifest must be an object or list of objects: {manifest_path}")
+            raise ValueError(
+                "skill manifest must be an object or list of objects: "
+                f"{manifest_path}"
+            )
         for item in items:
-            self.register(SkillSpec.from_mapping(item))
+            self.register(
+                SkillSpec.from_mapping(item, source=str(manifest_path.resolve()))
+            )
 
     def load_manifests(self, paths: list[str | Path]) -> None:
+        """按调用方给出的顺序加载多个 manifest。"""
 
         for path in paths:
             self.load_manifest(path)
 
     def list_specs(self, *, name: str | None = None) -> list[SkillSpec]:
+        """返回完整定义，供管理面和测试使用，不应直接注入模型。"""
 
         if name:
             return list(self._skills.get(name, []))
@@ -135,6 +195,7 @@ class SkillRegistry:
         return specs
 
     def resolve(self, name: str, version: str | None = None) -> SkillSpec:
+        """解析指定版本；省略 version 时返回排序后的最新定义。"""
 
         versions = self._skills.get(name, [])
         if not versions:
@@ -147,13 +208,14 @@ class SkillRegistry:
         raise KeyError(f"unknown skill version: {name}@{version}")
 
     def rollback_target(self, name: str, version: str | None = None) -> SkillSpec | None:
+        """读取 manifest 声明的回滚版本，不执行回滚动作。"""
 
         current = self.resolve(name, version)
         if not current.rollback_to:
             return None
         return self.resolve(name, current.rollback_to)
 
-    # 主要入口：按名称或任务匹配选择有界 Skill，返回模型提示卡视图。
+    # 主要入口：实现 Runtime Port 契约，内部严格执行 discover -> activate。
     def select_for_task(
         self,
         task: str,
@@ -161,10 +223,26 @@ class SkillRegistry:
         names: list[str] | None = None,
         limit: int = 3,
     ) -> list[SkillSpec]:
-        """根据任务和只读约束选择可见 Skill。"""
+        """根据任务选择有界 Skill，并只激活 metadata 命中的版本。"""
+
+        entries = self.discover_for_task(task, names=names, limit=limit)
+        return [self.activate(entry) for entry in entries]
+
+    # 主要入口：只用 metadata 选择 Skill，不读取或渲染完整操作卡。
+    def discover_for_task(
+        self,
+        task: str,
+        *,
+        names: list[str] | None = None,
+        limit: int = 3,
+    ) -> list[SkillCatalogEntry]:
+        """返回轻量 catalog 命中，完整正文由 ``activate`` 延迟解析。"""
 
         if names:
-            return [self.resolve(name) for name in names]
+            return [
+                self.resolve(name).catalog_entry(reason="explicit invocation")
+                for name in names
+            ]
 
         task_lower = (task or "").lower()
         read_only_requested = _read_only_requested(task_lower)
@@ -176,7 +254,9 @@ class SkillRegistry:
             if read_only_requested and _is_write_skill(spec):
                 continue
             score = 0
-            searchable = " ".join([spec.name, spec.description, *spec.activation_terms, *spec.tags]).lower()
+            searchable = " ".join(
+                [spec.name, spec.description, *spec.activation_terms, *spec.tags]
+            ).lower()
             for term in spec.activation_terms:
                 term_lower = term.lower()
                 if term_lower and term_lower in task_lower:
@@ -189,18 +269,33 @@ class SkillRegistry:
 
         if scored:
             scored.sort(key=lambda item: (-item[0], item[1].name))
-            return [spec for _, spec in scored[:limit]]
+            return [
+                spec.catalog_entry(reason=f"task metadata score={score}")
+                for score, spec in scored[:limit]
+            ]
 
         fallback = []
-        fallback_names = ["repo_orientation"] if read_only_requested else ["targeted_code_edit", "repo_orientation"]
+        fallback_names = (
+            ["repo_orientation"]
+            if read_only_requested
+            else ["targeted_code_edit", "repo_orientation"]
+        )
         for name in fallback_names:
             try:
-                fallback.append(self.resolve(name))
+                fallback.append(
+                    self.resolve(name).catalog_entry(reason="bounded fallback")
+                )
             except KeyError:
                 continue
         return fallback[:limit]
 
+    def activate(self, entry: SkillCatalogEntry) -> SkillSpec:
+        """在 discovery 完成后加载被选中版本的完整不可变 Skill。"""
+
+        return self.resolve(entry.name, entry.version)
+
     def to_report(self) -> list[dict[str, Any]]:
+        """返回不含 procedure 正文的管理面 catalog。"""
 
         rows = []
         for spec in self.list_specs():
@@ -215,13 +310,13 @@ class SkillRegistry:
                     "rollback_to": spec.rollback_to,
                     "tags": spec.tags,
                     "tool_names": spec.tool_names,
+                    "source": spec.source or spec.entrypoint,
                 }
             )
         return rows
 
 
 def _dict_field(data: dict[str, Any], name: str) -> dict[str, Any]:
-
     value = data.get(name, {})
     if not isinstance(value, dict):
         raise ValueError(f"skill manifest field {name} must be an object")
@@ -229,7 +324,6 @@ def _dict_field(data: dict[str, Any], name: str) -> dict[str, Any]:
 
 
 def _list_field(data: dict[str, Any], name: str) -> list[str]:
-
     value = data.get(name, [])
     if not isinstance(value, list) or not all(isinstance(item, str) for item in value):
         raise ValueError(f"skill manifest field {name} must be a list of strings")
@@ -237,7 +331,6 @@ def _list_field(data: dict[str, Any], name: str) -> list[str]:
 
 
 def _version_key(version: str) -> tuple[Any, ...]:
-
     parts: list[Any] = []
     for token in re.split(r"[\.\-\+_]", version):
         if token.isdigit():
@@ -248,7 +341,6 @@ def _version_key(version: str) -> tuple[Any, ...]:
 
 
 def _read_only_requested(task_lower: str) -> bool:
-
     markers = [
         "不要修改",
         "不修改",
@@ -266,7 +358,6 @@ def _read_only_requested(task_lower: str) -> bool:
 
 
 def _is_write_skill(spec: SkillSpec) -> bool:
-
     write_tools = {"apply_patch", "write_file", "run_command"}
     return any(tool in write_tools for tool in spec.tool_names) or any(
         permission.startswith("write:") for permission in spec.permissions

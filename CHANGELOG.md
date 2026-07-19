@@ -1,6 +1,31 @@
 # 变更记录
 
-## 未发布 - 2026-07-14
+## 版本 0.8.0 - 2026-07-18
+
+- 增加分层 Instruction Resolver，按 global、repository、directory、local override、
+  runtime override 合并规则，并记录来源、优先级、哈希、字节预算和截断事实。
+- 将 Skill 选择拆为 metadata discovery 与正文 activation；模型只接收已激活 Skill，
+  trace 保留版本、来源、选择原因和正文规模，不执行任意 Skill 脚本。
+- 增加可组合 Lifecycle Hook API，覆盖 model/tool/checkpoint/stop；默认安全 Hook 不会被
+  附加 Hook 替换，前置与完成门禁异常 fail closed，后置异常隔离，最终脱敏固定最后执行。
+- 增加嵌入式 `RunController` 的协作式 pause、cancel、steer；控制信号只在模型/工具安全
+  边界生效，checkpoint 保留 continuation，已执行副作用不自动回滚。
+- 增加脱敏有序 `RuntimeEvent` 流和可选 OpenTelemetry 双写 Adapter；model/tool span 由
+  真实 started/completed 事件配对，内部 JSON evidence 仍是权威事实源。
+- 增加 `ModelCapabilities` 协商：模型 context window 限制输入预算，非并行模型每 turn
+  只执行一个工具，内置 OpenAI-compatible transport 可在原生 tools 与受限 JSON 文本
+  协议之间切换；其余 capability 字段仅作为 Adapter 声明与 trace evidence。
+
+## 版本 0.7.0 - 2026-07-18
+
+- 增加稳定顶层 `Harness.run/resume`、类型化 `HarnessConfig`、`RunRequest`、`RunResult`
+  和只依赖公开 import 的嵌入示例；内部 AgentLoop 与 application service 不再是推荐接入面。
+- 将已有 Model、Tool、Context、State、Event、Environment 和 Memory Port 从
+  `agent_forge.extensions` 统一导出，并允许 composition root 按端口覆盖默认 Adapter。
+- 增加严格版本化的 `forge run --config` YAML/JSON 装配、built-in tool allowlist、
+  CLI/模型环境/config/default 优先级，以及不含密钥的 `resolved_config.json`。
+- 明确 `0.x` Public API 与 internal module 兼容边界，并用真实 CLI path、resume、配置拒绝、
+  外部 consumer 和架构测试覆盖。
 
 - 将超长 `AgentLoop.run` 收敛为 start、prepare、turn 和 stop 阶段编排。
 - 增加显式 `AgentRunSession`、`ToolExecutionPipeline` 和 `RunLifecycle`，分别拥有

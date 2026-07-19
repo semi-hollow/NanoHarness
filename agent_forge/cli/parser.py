@@ -44,40 +44,48 @@ def _add_run_command(subparsers: argparse._SubParsersAction) -> None:
         "run",
         help="Run Agent Forge on a repository task.",
     )
-    parser.add_argument("task", help="Issue or coding task to solve.")
-    parser.add_argument("--workspace", default=".")
-    _add_execution_environment_args(parser)
-    _add_model_args(parser)
-    _add_runtime_policy_args(parser)
+    parser.add_argument(
+        "task",
+        nargs="?",
+        help="Issue or coding task to solve; may also come from --config.",
+    )
+    parser.add_argument(
+        "--config",
+        help="Versioned YAML/JSON run configuration; explicit CLI options win.",
+    )
+    parser.add_argument("--workspace")
+    _add_execution_environment_args(parser, defaults=False)
+    _add_model_args(parser, defaults=False)
+    _add_runtime_policy_args(parser, defaults=False)
     parser.add_argument(
         "--resume-state",
-        default="",
+        default=None,
         help="Path to a task_state checkpoint JSON used to seed a safe continuation.",
     )
-    parser.add_argument("--output-root", default=".agent_forge/runs")
+    parser.add_argument("--output-root")
     parser.add_argument(
         "--agent-mode",
-        default="single",
+        default=None,
         choices=["single", "multi", "fanout"],
     )
-    _add_multi_agent_args(parser)
+    _add_multi_agent_args(parser, defaults=False)
     parser.add_argument(
         "--fanout-plan",
-        default="",
+        default=None,
         help="Validated JSON task DAG required by --agent-mode fanout.",
     )
     parser.add_argument(
         "--fanout-resume",
-        default="",
+        default=None,
         help="Prior fanout run, summary, or checkpoint used to restore merged tasks.",
     )
     parser.add_argument(
         "--max-workers",
         type=int,
-        default=4,
+        default=None,
         help="Maximum concurrent live fanout workers (bounded to 1-8).",
     )
-    _add_extension_args(parser)
+    _add_extension_args(parser, defaults=False)
 
 
 def _add_benchmark_command(subparsers: argparse._SubParsersAction) -> None:
@@ -344,10 +352,14 @@ def _add_resume_command(subparsers: argparse._SubParsersAction) -> None:
     _add_extension_args(parser)
 
 
-def _add_model_args(parser: argparse.ArgumentParser) -> None:
+def _add_model_args(
+    parser: argparse.ArgumentParser,
+    *,
+    defaults: bool = True,
+) -> None:
     parser.add_argument(
         "--provider",
-        default=os.getenv("AGENT_FORGE_DEFAULT_LLM", "deepseek"),
+        default=os.getenv("AGENT_FORGE_DEFAULT_LLM", "deepseek") if defaults else None,
     )
     parser.add_argument("--model")
     parser.add_argument("--base-url")
@@ -355,55 +367,97 @@ def _add_model_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--temperature",
         type=float,
-        default=0.0,
+        default=0.0 if defaults else None,
         help="Sampling temperature sent to the model (0.0-2.0).",
     )
-    parser.add_argument("--max-steps", type=int, default=16)
-    parser.add_argument("--max-context-chars", type=int, default=12000)
+    parser.add_argument("--max-steps", type=int, default=16 if defaults else None)
+    parser.add_argument(
+        "--max-context-chars",
+        type=int,
+        default=12000 if defaults else None,
+    )
     parser.add_argument(
         "--max-prompt-tokens",
         type=int,
-        default=32768,
+        default=32768 if defaults else None,
         help="Total model context window used by request budgeting.",
     )
     parser.add_argument(
         "--reserved-output-tokens",
         type=int,
-        default=4096,
+        default=4096 if defaults else None,
         help="Tokens reserved for model output before compacting history.",
     )
+    parser.add_argument(
+        "--model-context-window",
+        type=int,
+        default=32768 if defaults else None,
+        help="Provider/model context capacity used to cap the runtime prompt budget.",
+    )
+    for option, destination, help_text in (
+        ("native-tool-calling", "native_tool_calling", "native structured tool calls"),
+        ("parallel-tool-calls", "parallel_tool_calls", "multiple tool calls per turn"),
+        ("structured-output", "structured_output", "provider structured output"),
+        ("reasoning-tokens", "reasoning_tokens", "separate reasoning tokens"),
+        ("prompt-cache", "prompt_cache", "provider prompt caching"),
+        ("supports-images", "supports_images", "image input"),
+    ):
+        parser.add_argument(
+            f"--{option}",
+            dest=destination,
+            action=argparse.BooleanOptionalAction,
+            default=(
+                destination in {"native_tool_calling", "parallel_tool_calls"}
+                if defaults
+                else None
+            ),
+            help=f"Declare whether the selected model supports {help_text}.",
+        )
 
 
-def _add_runtime_policy_args(parser: argparse.ArgumentParser) -> None:
-    _add_tool_routing_arg(parser)
+def _add_runtime_policy_args(
+    parser: argparse.ArgumentParser,
+    *,
+    defaults: bool = True,
+) -> None:
+    _add_tool_routing_arg(parser, defaults=defaults)
     parser.add_argument(
         "--approval-mode",
-        default="trusted",
+        default="trusted" if defaults else None,
         choices=["trusted", "on-write", "on-risk", "locked", "dry-run"],
     )
     parser.add_argument(
         "--auto-approve-writes",
         action=argparse.BooleanOptionalAction,
-        default=True,
+        default=True if defaults else None,
         help="Auto-approve writes; use --no-auto-approve-writes to persist a pending request.",
     )
-    parser.add_argument("--approval-root", default=".agent_forge/approvals")
-    parser.add_argument("--human-input-root", default=".agent_forge/human_input")
+    parser.add_argument(
+        "--approval-root",
+        default=".agent_forge/approvals" if defaults else None,
+    )
+    parser.add_argument(
+        "--human-input-root",
+        default=".agent_forge/human_input" if defaults else None,
+    )
     parser.add_argument(
         "--operation-ledger-root",
-        default=".agent_forge/operation_ledger",
+        default=".agent_forge/operation_ledger" if defaults else None,
     )
-    parser.add_argument("--memory-root", default=".agent_forge/memory")
+    parser.add_argument(
+        "--memory-root",
+        default=".agent_forge/memory" if defaults else None,
+    )
     parser.add_argument(
         "--memory-recall-limit",
         type=int,
-        default=6,
+        default=6 if defaults else None,
         help="Maximum active long-term memories injected into one run.",
     )
     parser.add_argument(
         "--max-tool-calls-per-turn",
         type=int,
-        default=4,
+        default=4 if defaults else None,
         help="Bound tool-call bursts from unstable model responses.",
     )
     parser.add_argument(
@@ -414,60 +468,128 @@ def _add_runtime_policy_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--timeout-seconds",
         type=float,
-        default=900.0,
+        default=900.0 if defaults else None,
         help="Wall-clock budget for one AgentLoop.",
     )
+    parser.add_argument("--instruction-target", default="" if defaults else None)
+    parser.add_argument(
+        "--global-instruction-file",
+        action="append",
+        default=[] if defaults else None,
+    )
+    parser.add_argument("--runtime-instructions", default="" if defaults else None)
+    parser.add_argument(
+        "--instruction-max-bytes",
+        type=int,
+        default=2600 if defaults else None,
+    )
 
 
-def _add_multi_agent_args(parser: argparse.ArgumentParser) -> None:
-    parser.add_argument("--profile", default="coding_fix", choices=list_profiles())
-    parser.add_argument("--max-revision-rounds", type=int, default=2)
+def _add_multi_agent_args(
+    parser: argparse.ArgumentParser,
+    *,
+    defaults: bool = True,
+) -> None:
+    parser.add_argument(
+        "--profile",
+        default="coding_fix" if defaults else None,
+        choices=list_profiles(),
+    )
+    parser.add_argument(
+        "--max-revision-rounds",
+        type=int,
+        default=2 if defaults else None,
+    )
 
 
-def _add_extension_args(parser: argparse.ArgumentParser) -> None:
+def _add_extension_args(
+    parser: argparse.ArgumentParser,
+    *,
+    defaults: bool = True,
+) -> None:
     parser.add_argument(
         "--skills",
-        default="auto",
+        default="auto" if defaults else None,
         help="auto, none, or comma-separated built-in/custom skill names.",
     )
-    parser.add_argument("--skill-manifest", action="append", default=[])
+    parser.add_argument(
+        "--skill-manifest",
+        action="append",
+        default=[] if defaults else None,
+    )
     parser.add_argument("--mcp-config")
-    parser.add_argument("--mcp-tool", action="append", default=[])
+    parser.add_argument(
+        "--mcp-tool",
+        action="append",
+        default=[] if defaults else None,
+    )
+    parser.add_argument(
+        "--tool",
+        dest="enabled_tools",
+        action="append",
+        default=None,
+        help="Restrict the built-in registry to repeated explicit tool names.",
+    )
 
 
-def _add_execution_environment_args(parser: argparse.ArgumentParser) -> None:
+def _add_execution_environment_args(
+    parser: argparse.ArgumentParser,
+    *,
+    defaults: bool = True,
+) -> None:
     parser.add_argument(
         "--execution-mode",
         choices=["local", "worktree", "container"],
-        default="local",
+        default="local" if defaults else None,
         help="Run in the checkout, an isolated git worktree, or an OCI container snapshot.",
     )
     parser.add_argument(
         "--network-policy",
         choices=["deny", "allow"],
-        default="deny",
+        default="deny" if defaults else None,
     )
     parser.add_argument(
         "--keep-worktree",
         action=argparse.BooleanOptionalAction,
-        default=True,
+        default=True if defaults else None,
     )
-    parser.add_argument("--container-runtime", default="docker")
-    parser.add_argument("--container-image", default="python:3.11-slim")
-    parser.add_argument("--container-cpus", type=float, default=1.0)
-    parser.add_argument("--container-memory", default="1g")
-    parser.add_argument("--container-pids-limit", type=int, default=256)
+    parser.add_argument(
+        "--container-runtime",
+        default="docker" if defaults else None,
+    )
+    parser.add_argument(
+        "--container-image",
+        default="python:3.11-slim" if defaults else None,
+    )
+    parser.add_argument(
+        "--container-cpus",
+        type=float,
+        default=1.0 if defaults else None,
+    )
+    parser.add_argument(
+        "--container-memory",
+        default="1g" if defaults else None,
+    )
+    parser.add_argument(
+        "--container-pids-limit",
+        type=int,
+        default=256 if defaults else None,
+    )
     parser.add_argument(
         "--container-read-only",
         action=argparse.BooleanOptionalAction,
-        default=True,
+        default=True if defaults else None,
     )
 
 
-def _add_tool_routing_arg(parser: argparse.ArgumentParser) -> None:
+def _add_tool_routing_arg(
+    parser: argparse.ArgumentParser,
+    *,
+    defaults: bool = True,
+) -> None:
     parser.add_argument(
         "--tool-routing",
         choices=["task-aware", "all"],
-        default="task-aware",
+        default="task-aware" if defaults else None,
         help="Change model-visible schemas for ablation; runtime safety remains enabled.",
     )

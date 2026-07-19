@@ -1,9 +1,12 @@
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
-from agent_forge.cli.resume import write_resume_link
+from agent_forge.cli.parser import build_parser
+from agent_forge.cli.resume import resume_repository_task, write_resume_link
 from agent_forge.runtime.api import latest_checkpoint_path
+from agent_forge.runtime.application.operator_control import ContinuationPlan
 from agent_forge.runtime.application.operator_control import checkpoint_resume_workspace
 from agent_forge.runtime.adapters import JsonTaskStateRepository
 from agent_forge.runtime.domain.task import (
@@ -101,6 +104,85 @@ class ResumeCliTest(unittest.TestCase):
             self.assertIn(str(checkpoint_path), chain)
             self.assertIn("## Resume Chain", report_text)
             self.assertIn(str(source_run), report_text)
+
+    def test_resume_preserves_new_model_instruction_and_tool_policy(self):
+        args = build_parser().parse_args(
+            [
+                "resume",
+                "/tmp/old-run",
+                "--model-context-window",
+                "8192",
+                "--no-native-tool-calling",
+                "--no-parallel-tool-calls",
+                "--instruction-target",
+                "src",
+                "--global-instruction-file",
+                "/tmp/global.md",
+                "--runtime-instructions",
+                "continue with the reviewed direction",
+                "--instruction-max-bytes",
+                "2048",
+                "--tool",
+                "read_file",
+            ]
+        )
+        checkpoint = TaskCheckpoint(
+            run_id="run-old",
+            task="continue",
+            workspace="/tmp/repository",
+            status="paused",
+        )
+        plan = ContinuationPlan(
+            task="continue",
+            workspace="/tmp/repository",
+            human_thread_id="thread-1",
+        )
+        with mock.patch(
+            "agent_forge.cli.resume.prepare_continuation",
+            return_value=(checkpoint, "/tmp/checkpoint.json", plan),
+        ), mock.patch(
+            "agent_forge.cli.resume.run_repository_task",
+            return_value=Path("/tmp/new-run"),
+        ) as run, mock.patch("agent_forge.cli.resume.write_resume_link"):
+            resume_repository_task(args)
+
+        forwarded = run.call_args.args[0]
+        self.assertEqual(forwarded.model_context_window, 8_192)
+        self.assertFalse(forwarded.native_tool_calling)
+        self.assertFalse(forwarded.parallel_tool_calls)
+        self.assertEqual(forwarded.instruction_target, "src")
+        self.assertEqual(forwarded.global_instruction_file, ["/tmp/global.md"])
+        self.assertEqual(
+            forwarded.runtime_instructions,
+            "continue with the reviewed direction",
+        )
+        self.assertEqual(forwarded.instruction_max_bytes, 2_048)
+        self.assertEqual(forwarded.enabled_tools, ["read_file"])
+
+    def test_resume_without_tool_allowlist_keeps_default_coding_tools(self):
+        args = build_parser().parse_args(["resume", "/tmp/old-run"])
+        checkpoint = TaskCheckpoint(
+            run_id="run-old",
+            task="continue",
+            workspace="/tmp/repository",
+            status="paused",
+        )
+        plan = ContinuationPlan(
+            task="continue",
+            workspace="/tmp/repository",
+            human_thread_id="thread-1",
+        )
+        with mock.patch(
+            "agent_forge.cli.resume.prepare_continuation",
+            return_value=(checkpoint, "/tmp/checkpoint.json", plan),
+        ), mock.patch(
+            "agent_forge.cli.resume.run_repository_task",
+            return_value=Path("/tmp/new-run"),
+        ) as run, mock.patch("agent_forge.cli.resume.write_resume_link"):
+            resume_repository_task(args)
+
+        forwarded = run.call_args.args[0]
+        self.assertIsNone(forwarded.enabled_tools)
 
 
 if __name__ == "__main__":

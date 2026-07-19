@@ -1160,6 +1160,81 @@ Failure scenario：checkpoint 新增一个恢复字段时，Repository protocol 
 边界和显露数据关系，不是把每个三参数函数包装成新类型；可读性规则必须自动化，否则能力
 增加后会再次退化。
 
+### 48. 内部架构已经分层，但外部调用仍需理解 AgentLoop 与 wiring
+
+现象：项目已有 Model、Tool、Context、State、Event 和 Environment Port，外部 Python
+调用者却只能从 `runtime.api` 获取 `AgentLoop`，需要理解 `RuntimeDependencies`、具体 JSON
+store 和 composition root；CLI 的二十余项参数也无法保存成受版本约束的可复现实验配置。
+
+Failure scenario：接入方为了替换 checkpoint store 直接 import `runtime.adapters`，下一次内部
+重构即破坏调用；另一接入方把 API key 写入 YAML，或配置拼错字段后仍以默认值运行，最终
+artifact 无法回答本次究竟使用了哪套策略。为了展示“插件化”再复制一套 Provider 接口，
+还会与现有 Port 形成两套不一致契约。
+
+根因：六边形架构解决了内部依赖方向，但没有定义库使用者看到的稳定 facade、公开边界数据
+类型和配置 schema。现有 `build_agent_loop(config, trace, registry, llm)` 是仓库内装配函数，
+不是以任务结果和 artifact 为中心的产品 API。
+
+修复：增加顶层 `Harness.run/resume`、`HarnessConfig`、`RunRequest` 与 `RunResult`；通过
+`HarnessExtensions` 和 `agent_forge.extensions` 复用既有 Protocol，不新增重复 Provider。
+composition root 接受类型化 `AgentLoopBuildRequest` 覆盖单个端口，具体 Adapter 仍只由
+`runtime.wiring` 创建。`forge run --config` 使用严格 YAML/JSON schema、built-in tool
+allowlist 和 `CLI > model environment > config > defaults` 优先级，拒绝未知字段、密钥和
+任意 import，并发布脱敏 `resolved_config.json`。项目仍定位为 Coding Harness Runtime，
+没有增加 Research/Ops toy 或通用 preset 目录。工具配置区分字段缺失和显式空列表：前者
+使用默认 coding preset，后者关闭全部 built-in，避免空 allowlist 意外扩大权限。
+
+验证：外部 consumer 示例只 import `agent_forge` 与 `agent_forge.extensions`；Public API
+回归覆盖 run、类型化 completed 结果、trace/usage/patch 和 checkpoint continuation；配置
+回归覆盖 CLI/env 覆盖、无 positional task、密钥/未知字段拒绝、真实 CLI run 与工具
+allowlist。架构测试确认 facade 不直接依赖 Adapter，长参数边界没有回归；255 个单元测试
+与 231 个源码文件的 mypy 检查全部通过；构建出的 `0.7.0` wheel
+已在仓库外虚拟环境中完成 Public API 示例与 CLI import smoke。工程结论：框架感来自稳定
+接入面、可替换契约和可复现配置，不来自 Builder 链、目录数量或跨领域示例数量。
+
+### 49. Runtime 能运行，但缺少可嵌入控制面与标准生命周期证据
+
+现象：`AgentLoop` 已有工具治理、HITL、checkpoint 和内部 trace，但框架使用者无法在不
+修改核心代码的情况下挂接 model/tool/finalize 门禁；项目规则只有根目录 `FORGE.md`；Skill
+选择直接返回完整对象；运行中的 UI 既拿不到有序事件，也不能 pause/cancel/steer；模型差异
+仍主要表现为一个 model 字符串。
+
+Failure scenario：接入方为了做质量门禁替换整个 `HookPort`，意外绕过默认 permission 或
+secret redaction；目录级规则没有进入模型输入；非原生 Tool Calling 模型仍收到 provider
+`tools` 字段；UI 把工具完成后的旧 `tool_call` 事实误标成 `tool.started`，OTEL 形成零时长、
+顺序错误的 span；取消只能等整个 run 返回，无法在下一安全边界保存状态。
+
+根因：内部 runtime primitive 已存在，但缺少稳定产品化契约。生命周期事件、指令优先级、
+模型能力和运行控制没有被建模成公共 Port/Value Object；直接增加配置布尔值或 renderer 只能
+扩大“看起来支持”的表面积，不能改变真实执行路径。
+
+排查：沿 `Harness -> wiring -> AgentLoop -> TurnPreparation/ToolExecutionPipeline ->
+RunLifecycle -> EventSink` 检查每项能力是否进入主链，并用 transport payload、checkpoint、
+trace 顺序和 Hook 合并结果验证。审查中发现早期 stream projection 将执行后的 `tool_call`
+映射为 started，且 `native_tool_calling` 尚未影响 HTTP payload，因此在文档发布前补正，而
+不是把两项当作已完成能力。最终独立回归还发现 `forge resume` 把未传 `--tool` 解析成
+空列表，导致 continuation 静默隐藏全部 coding tools；Public Harness 在 registry 装配失败
+时也可能跳过自有执行环境清理。这两项分别属于配置三态丢失和资源生命周期覆盖不完整。
+
+窄修复：增加分层 Instruction Resolver 和 provenance；将 Skill 分成 metadata discovery 与
+selected activation；公开 `RuntimeHook`，附加 Hook 与默认安全链组合，前置/完成异常 fail
+closed、后置异常隔离、redaction 最后执行；增加协作式 `RunController`，只在 turn、模型返回
+和工具之间消费 pause/cancel/steer；内部 EventSink 双写脱敏有序 `RuntimeEvent`，用真实
+model/tool started-completed 配对可选 OTEL span；`ModelCapabilities` 实际约束 context、并行
+工具和内置 transport 的 native/text 协议，其余字段明确只作为 Adapter 声明。工具
+allowlist 保留 `None=默认 preset`、`[]=显式零工具`、非空列表=严格子集三种状态，并由
+resume 原样传播；`Harness.run` 将环境准备、主链执行、事件发布和 cleanup 放入同一
+`try/finally` 生命周期。
+
+验证：focused regression 覆盖指令优先级/预算/越界、Skill 正文延迟披露、Hook 安全组合与
+异常策略、pause/cancel/steer checkpoint、stream 字段脱敏与顺序、OTEL span 配对、非原生
+HTTP payload、模型 context/parallel 策略、默认 resume 工具视图和装配失败 cleanup；275 个
+全量单测、244 个源码文件的 mypy、compileall 和项目 `scripts/verify.sh` 全部通过。无网络
+模式构建 `agent-forge 0.8.0` wheel，并在仓库外环境完成 Public API import 与 CLI help
+smoke；真实模型 smoke 因未配置 API key 按验证脚本约定跳过。工程结论：产品化不是多加
+六个独立模块，而是让控制、扩展、差异适配和可观测事实进入同一条 Runtime 主链，同时把
+强杀进程、token delta、session active-task 和未消费 capability 留在明确边界之外。
+
 ## 调试顺序模板
 
 每次 SWE-bench 失败优先看：

@@ -21,6 +21,10 @@ class ContextAssemblyRequest:
     active_skill_cards: list[str]
     max_chars: int
     permission_summary: str
+    instruction_target: str = ""
+    global_instruction_files: tuple[str, ...] = ()
+    runtime_instructions: str = ""
+    instruction_max_bytes: int = 2_600
 
 
 class ContextReportView(Protocol):
@@ -39,6 +43,7 @@ class ContextReportView(Protocol):
     budget_breakdown: dict[str, int]
     available_tools: list[str]
     permission_summary: str
+    instruction_evidence: dict[str, object]
 
     def render(self) -> str:
         """返回模型可见的 system context。"""

@@ -32,18 +32,23 @@ Coding Agent；单纯增加 prompt 长度并不能解决这个问题。**
 | 能力 | 真实实现 |
 | --- | --- |
 | Agent Runtime Loop | `AgentLoop.run` 只展示 start、prepare、turn、stop；运行前决策、turn 输入、最终答案、工具授权、幂等账本和生命周期分别由具名应用服务拥有。 |
-| Context Engineering | `ContextAssemblerPort` 按区段预算治理 policy、Skill、长期记忆、项目指令、文件与 retrieval；`ContextWindowManager` 再对完整请求计预算，并在不拆分 tool transaction 的前提下生成带 source hash 的 `SessionDigest`。 |
+| Embeddable Harness | 顶层 `Harness.run/resume`、类型化配置和严格 YAML/JSON schema 提供稳定接入面；Model、Tool、Context、State、Event、Environment 等扩展契约由 `agent_forge.extensions` 统一导出。 |
+| Context Engineering | Instruction Resolver 按 global -> repository -> directory -> local -> runtime 优先级合并规则并记录 provenance；Context/Skill/Memory/文件按区段预算组装，完整请求再做不拆分 tool transaction 的会话压缩。 |
+| Skills Progressive Disclosure | Registry 先按名称、描述、标签和触发词返回 metadata，只有被选中的版本才渲染完整 Skill 提示卡；trace 保留来源、选择原因和正文规模。 |
 | 分层 Memory | Run 内 working memory、checkpoint digest 与长期记忆使用不同结构。长期记录必须经过 candidate -> evidence-backed active 生命周期，按 workspace/agent 隔离和任务相关性召回；原始 trace 始终是权威证据。 |
-| 真实模型边界 | OpenAI-compatible client，包含 retry/fallback、provider usage 和累计成本。`ToolCallNormalizer` 只做可确定验证的参数/文本修复；context overflow 交给 Runtime 压缩，异常工具 burst 在执行前限流。 |
+| 模型能力协商 | `ModelCapabilities` 让 context window、并行工具和原生 tool calling 进入确定性策略；内置 transport 在无原生工具能力时使用受限 JSON 文本协议。结构化输出、缓存、图像等字段目前只作为 Adapter 声明，不伪装成 Runtime 能力。 |
+| Lifecycle Hooks | 公开 Hook 覆盖 model/tool/checkpoint/stop；附加 Hook 与默认安全链组合而非替换，前置和完成门禁异常 fail closed，最终工具结果仍经过 secret redaction。 |
 | 工具治理 | read/grep/patch/command/git/diagnostics 依次经过 routing、registry validation、permission hook、command policy 和 workspace sandbox。 |
 | 隔离执行 | 支持当前 checkout、detached git worktree，以及基于隔离 snapshot 的受限 OCI container。Container command 带 network、CPU、memory、PID、capability 和 read-only root 控制。 |
 | Human-in-the-loop | 信息型问题通过 `JsonHumanInputRepository` 持久化，在同一 turn 中优先阻断其他副作用，运行停在 `waiting_human`，只有 `forge respond` 加 resume 后才继续。写入授权由独立且带 fingerprint 的 `JsonApprovalRepository` 负责。 |
+| 运行中控制 | `RunController` 支持协作式 pause、cancel 和 steer；信号在模型返回、turn 开始或工具之间的安全边界生效，pause 写 checkpoint，steer 丢弃过时响应并触发重新规划。 |
 | 部分恢复 | Checkpoint 为 continuation 提供状态；operation ledger 防止重复副作用；fanout checkpoint 校验 patch hash，只重跑未完成 worker。 |
 | SWE-bench 运行链路 | 加载 case、checkout `base_commit`、生成 `predictions.jsonl`，安装官方 harness 后可执行评测，并解析 per-case resolved/unresolved/error artifact。 |
 | 顺序多 Agent | `MultiAgentCoordinator` 让 Implementer/Reviewer/Verifier 复用同一个 `AgentLoop`，角色之间只通过显式 artifact 传递状态。 |
 | Live Fanout | 校验后的任务 DAG 在 disposable worktree 中并发运行独立 `AgentLoop` worker，强制检查 write scope，并通过 conflict gate 确定性合并 patch。 |
 | Evaluation Experiment | `forge bench cases/case` 公开 300-case 候选全集、Smoke-5 选择契约、单题 issue 和验收测试；运行记录 sampling temperature、patch/local/official evidence、token、cost、latency、tool failure、context compaction、memory recall 和 model repair，`forge eval ablation` 对单因素 matched run 做 identity-gated paired comparison。 |
 | Evidence Report | 每次运行生成 trace、usage、scorecard、result card、failure taxonomy 和 case study，而不是只输出 debug dump。 |
+| Event Stream / OTEL | 内部 evidence 双写为脱敏、有序 `RuntimeEvent`；可选 OTEL Adapter 将 run、model、tool 和 context 映射为 span。当前模型 transport 非流式，因此不伪造 `model.delta`。 |
 | Feedback Data Loop | 人工 outcome 和 label 可以挂到 run 上，再将安全筛选后的 trace、policy、environment 和 evaluation 字段导出为 JSONL。 |
 
 每项能力的真实程度和不可声称边界，见
@@ -57,6 +62,11 @@ Coding Agent；单纯增加 prompt 长度并不能解决这个问题。**
 2. 打开[架构契约](docs/ARCHITECTURE.md)和[能力真实性矩阵](docs/CAPABILITY_REALITY_MATRIX.md)。
 3. 检查核心实现：
    - [AgentLoop](agent_forge/runtime/application/agent_loop.py)
+   - [Public Harness](agent_forge/harness.py)
+   - [Lifecycle Hooks](agent_forge/hooks.py)
+   - [Instruction Resolver](agent_forge/context/instructions.py)
+   - [协作式运行控制](agent_forge/control.py)
+   - [实时事件与 OTEL](agent_forge/observability/adapters/streaming.py)
    - [完整请求预算与压缩](agent_forge/context/application/compaction.py)
    - [长期记忆生命周期](agent_forge/context/application/memory_service.py)
    - [Tool Calling 标准化](agent_forge/models/tool_call_normalizer.py)
@@ -91,6 +101,53 @@ python -m pip install -U pip setuptools wheel
 python -m pip install -e '.[bench,dev]'
 forge doctor
 ```
+
+### 嵌入式 Public API
+
+外部 Python 项目只需要依赖顶层 facade；`AgentLoop`、application service、Adapter 和
+wiring 都是内部实现：
+
+```python
+from agent_forge import Harness, HarnessConfig
+
+harness = Harness(
+    model=my_model,
+    tools=my_tool_gateway,
+    config=HarnessConfig(workspace="/path/to/repository"),
+)
+result = harness.run("fix the failing test")
+
+print(result.status.value)
+print(result.artifact_dir)
+```
+
+`Harness.run` 返回类型化 `RunResult`，包含状态、停止原因、checkpoint，以及 trace、usage
+和 candidate patch 路径；`Harness.resume` 从 durable checkpoint 创建新 run，不声称恢复
+隐藏模型状态。完整的自定义 Model/Tool consumer 见
+[examples/embed_harness.py](examples/embed_harness.py)。稳定扩展契约统一从
+`agent_forge.extensions` 导入。
+
+需要嵌入 UI 或 IDE 时，可给 `HarnessExtensions` 注入 `RunController`、`RuntimeHook`、
+`RuntimeEventListener` 和 `OpenTelemetryEventListener`。控制是协作式的：不会中止正在
+执行的 HTTP/进程调用，也不会回滚已提交副作用；事件默认删除 task、prompt、tool 参数和
+observation 等内容字段。
+
+配置驱动运行使用受版本约束的 YAML/JSON；CLI 参数优先于模型环境变量和配置文件，密钥
+字段、未知字段和任意 Python import 均会被拒绝：
+
+```bash
+export DEEPSEEK_API_KEY=...
+forge run --config examples/agent.sample.yaml
+```
+
+每次 CLI run 会写入不含密钥的 `resolved_config.json`，保留 schema、配置摘要和最终值。
+省略 `tools.enabled` 表示使用默认 coding-tool preset；显式空列表表示不暴露任何 built-in
+tool，非空列表是严格 allowlist。
+
+Public compatibility 约定：`agent_forge` 与 `agent_forge.extensions` 是公开导入面；
+`application`、`domain`、`adapters` 和 `wiring` 不承诺兼容。项目仍处于 `0.x`，minor
+版本可以包含记录在 CHANGELOG 中的破坏性变化，patch 版本保持公开 API 兼容；artifact
+schema 独立版本化。
 
 启动本地工作台：
 
@@ -456,16 +513,21 @@ forge replay latest
 
 ```text
 agent_forge/
+  harness.py      可嵌入 Harness、类型化 RunRequest/RunResult 和 resume facade
+  extensions.py   对外稳定的 Model/Tool/State/Event/Environment Protocol 与数据类型
+  control.py      嵌入式协作式 pause/cancel/steer 控制器
+  hooks.py        对外稳定的 model/tool/checkpoint/stop 生命周期 Hook
+  configuration.py 版本化 YAML/JSON run config、优先级和密钥拒绝
   cli/            参数契约、命令分发、run/resume/operator 入站适配器
   runtime/        domain/application/ports/adapters + AgentLoop composition root
-  context/        repo retrieval、working/session/long-term memory、完整请求预算与压缩
+  context/        分层指令、repo retrieval、working/session/long-term memory、预算与压缩
   tools/          read/write/grep/patch/command/git/diagnostics/MCP wrapper
   safety/         sandbox、command policy、permission、guardrail
   models/         provider gateway、Tool Calling 标准化、retry/fallback、usage telemetry
   multi_agent/    orchestration domain/application/ports/adapters
   bench/          SWE-bench 执行、official adapter、诊断和 artifact 发布
   evaluation/     metric、comparison、scorecard、ablation、feedback data
-  observability/  append-only trace、usage projection 和 presentation
+  observability/  append-only trace、脱敏事件流、可选 OTEL、usage projection 和 presentation
   workbench/      Evidence Catalog、受限后台任务和本地 HTTP presentation
   skills/         内置和自定义 runtime Skills
   mcp/            精简 stdio MCP server/client

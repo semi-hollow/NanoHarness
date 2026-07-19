@@ -43,6 +43,7 @@ class RunPreparation:
         self.human_thread_id = human_thread_id
         self.clarification_policy = ClarificationPolicy()
         self.skill_selector = dependencies.skills
+        self.model_capabilities = dependencies.model_capabilities
 
     # 主要入口：创建本次 run 的 session、lifecycle 和首个 durable checkpoint。
     def start(self, task: str, agent_name: str) -> AgentRunSession:
@@ -59,6 +60,7 @@ class RunPreparation:
                 metadata={
                     "execution_environment": self.environment.probe().to_dict(),
                     "human_thread_id": self.human_thread_id,
+                    "model_capabilities": self.model_capabilities.to_dict(),
                 },
             )
         )
@@ -66,6 +68,13 @@ class RunPreparation:
             step=0,
             agent_name=agent_name,
             checkpoint=checkpoint,
+        )
+        self.hooks.on_checkpoint(checkpoint)
+        self.trace.add(
+            0,
+            agent_name,
+            "model_capabilities",
+            model_capabilities=self.model_capabilities.to_dict(),
         )
         lifecycle = RunLifecycle(
             checkpoint=checkpoint,
@@ -194,10 +203,13 @@ class RunPreparation:
                     "version": skill.version,
                     "tools": skill.tool_names,
                     "entrypoint": skill.entrypoint,
+                    "source": getattr(skill, "source", skill.entrypoint),
+                    "prompt_chars": len(skill.prompt_card()),
                 }
                 for skill in session.active_skills
             ],
             skill_mode=getattr(self.config, "skill_mode", "auto"),
+            disclosure="metadata discovery -> selected full prompt card",
         )
 
     def _initialize_memory_context(self, session: AgentRunSession) -> None:

@@ -9,12 +9,14 @@ from __future__ import annotations
 from agent_forge.runtime.application.dependencies import RuntimeDependencies
 from agent_forge.runtime.application.final_answer import FinalAnswerBuilder
 from agent_forge.runtime.application.run_lifecycle import StopRequest
+from agent_forge.runtime.application.run_control import ApplyRunControl
 from agent_forge.runtime.application.run_preparation import RunPreparation
 from agent_forge.runtime.application.session import AgentRunSession
 from agent_forge.runtime.application.tool_execution import ToolExecutionPipeline
 from agent_forge.runtime.application.turn_preparation import PreparedTurn, TurnPreparation
 from agent_forge.runtime.config import RuntimeConfig
 from agent_forge.runtime.domain.conversation import AgentResponse
+from agent_forge.runtime.domain.governance import HookDecisionType, ModelHookContext
 from agent_forge.runtime.domain.task import TaskRunStatus
 
 
@@ -35,6 +37,9 @@ class AgentLoop:
         self.config = config
         self.trace = dependencies.events
         self.llm = dependencies.model
+        self.hooks = dependencies.hooks
+        self.model_capabilities = dependencies.model_capabilities
+        self.run_control = ApplyRunControl(dependencies.control, dependencies.events)
         human_thread_id = getattr(config, "human_thread_id", "") or self.trace.run_id
         self.run_preparation = RunPreparation(
             config,
@@ -47,6 +52,7 @@ class AgentLoop:
             dependencies.context,
             dependencies.tools,
             dependencies.environment,
+            dependencies.model_capabilities,
         )
         self.tool_execution = ToolExecutionPipeline(
             config,
@@ -55,6 +61,8 @@ class AgentLoop:
             dependencies.hooks,
             dependencies.approvals,
             dependencies.operations,
+            dependencies.control,
+            dependencies.model_capabilities,
         )
         self.final_answer = FinalAnswerBuilder(dependencies.events)
 
@@ -67,11 +75,17 @@ class AgentLoop:
         """
 
         session = self.run_preparation.start(task, agent_name)
+        control = self.run_control.check(session, 0)
+        if control.stop is not None:
+            return self._stop(session, control.stop)
         stop = self.run_preparation.execute(session)
         if stop is not None:
             return self._stop(session, stop)
 
         for step in range(1, session.max_iterations + 1):
+            control = self.run_control.check(session, step)
+            if control.stop is not None:
+                return self._stop(session, control.stop)
             stop = self._run_turn(session, step)
             if stop is not None:
                 return self._stop(session, stop)
@@ -93,10 +107,32 @@ class AgentLoop:
         """执行一个 turn：准备输入 -> 调用模型 -> final 或工具分支。"""
 
         session.iteration = step
+        self.trace.add(
+            step,
+            session.agent_name,
+            "turn_started",
+            turn={"max_iterations": session.max_iterations},
+        )
         turn = self.turn_preparation.execute(session, step)
-        response = self.llm.chat(turn.messages_for_llm, turn.schemas)
-        self._accumulate_model_cost(session)
-        self._record_llm_call(session, turn, response)
+        response, hook_stop = self._call_model(session, turn)
+        if hook_stop is not None:
+            return hook_stop
+        if response is None:  # pragma: no cover - protected by _call_model
+            raise AssertionError("model invocation returned no response")
+
+        control = self.run_control.check(session, step)
+        if control.stop is not None:
+            return control.stop
+        if control.steered:
+            self.trace.add(
+                step,
+                session.agent_name,
+                "recovery_decision",
+                recovery_hint="discard model response and re-plan from operator steer",
+                retryable=True,
+                failure_kind="operator_steer",
+            )
+            return None
 
         budget_stop = self._budget_stop_request(session, step)
         if budget_stop is not None:
@@ -130,9 +166,11 @@ class AgentLoop:
                 < turn.estimated_prompt_tokens
             ):
                 turn = recovered_turn
-                response = self.llm.chat(turn.messages_for_llm, turn.schemas)
-                self._accumulate_model_cost(session)
-                self._record_llm_call(session, turn, response)
+                response, hook_stop = self._call_model(session, turn)
+                if hook_stop is not None:
+                    return hook_stop
+                if response is None:  # pragma: no cover - protected above
+                    raise AssertionError("model recovery returned no response")
                 budget_stop = self._budget_stop_request(session, step)
                 if budget_stop is not None:
                     return budget_stop
@@ -148,6 +186,58 @@ class AgentLoop:
             step=step,
             allowed_tool_names=turn.allowed_tool_names,
         )
+
+    def _call_model(
+        self,
+        session: AgentRunSession,
+        turn: PreparedTurn,
+    ) -> tuple[AgentResponse | None, StopRequest | None]:
+        """执行 before/after model Hook，并保留唯一模型调用证据路径。"""
+
+        context = ModelHookContext(
+            run_id=self.trace.run_id,
+            step=turn.step,
+            agent_name=session.agent_name,
+            task=session.task,
+            messages_count=len(turn.messages_for_llm),
+            tool_count=len(turn.schemas),
+            estimated_prompt_tokens=turn.estimated_prompt_tokens,
+            compacted=turn.compacted,
+        )
+        hook_result = self.hooks.before_model(context)
+        self.trace.add(
+            turn.step,
+            session.agent_name,
+            "hook_check",
+            hook_stage="before_model",
+            hook_result=hook_result.to_dict(),
+        )
+        if hook_result.decision in {HookDecisionType.DENY, HookDecisionType.ASK}:
+            return None, StopRequest(
+                status=TaskRunStatus.BLOCKED,
+                reason="model_hook_blocked",
+                final_answer=f"blocked: {hook_result.reason}",
+                current_step=turn.step,
+                resume_hint="Adjust the lifecycle hook or task before resuming.",
+            )
+        self.trace.add(
+            turn.step,
+            session.agent_name,
+            "model_started",
+            model_request={
+                "messages_count": len(turn.messages_for_llm),
+                "tool_count": len(turn.schemas),
+                "estimated_prompt_tokens": turn.estimated_prompt_tokens,
+                "compacted": turn.compacted,
+            },
+        )
+        response = self.hooks.after_model(
+            context,
+            self.llm.chat(turn.messages_for_llm, turn.schemas),
+        )
+        self._accumulate_model_cost(session)
+        self._record_llm_call(session, turn, response)
+        return response, None
 
     def _budget_stop_request(
         self,

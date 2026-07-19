@@ -32,5 +32,9 @@ class RepositoryContextAssembler:
                     max_chars=request.max_chars,
                     permission_summary=request.permission_summary,
                 ),
+                instruction_target=request.instruction_target,
+                global_instruction_files=request.global_instruction_files,
+                runtime_instructions=request.runtime_instructions,
+                instruction_max_bytes=request.instruction_max_bytes,
             )
         )

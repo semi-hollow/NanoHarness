@@ -8,6 +8,8 @@
 from dataclasses import dataclass, field
 from typing import Any
 
+from agent_forge.runtime.domain.model import ModelCapabilities
+
 
 # 核心数据：一次 AgentLoop run 的全部外部策略与资源位置。
 @dataclass
@@ -36,6 +38,7 @@ class RuntimeConfig:
     previous_task: str = ""
     session_summary: str = ""
     execution_environment: Any | None = None
+    model_capabilities: ModelCapabilities | None = None
 
     # Checkpoint、人工控制和副作用幂等状态的持久化位置。
     task_state_root: str = ".agent_forge/task_state"
@@ -51,6 +54,12 @@ class RuntimeConfig:
     skill_names: list[str] = field(default_factory=list)
     skill_manifest_files: list[str] = field(default_factory=list)
     tool_routing_mode: str = "task-aware"
+
+    # 分层项目指令发现与 runtime override。
+    instruction_target: str = ""
+    global_instruction_files: list[str] = field(default_factory=list)
+    runtime_instructions: str = ""
+    instruction_max_bytes: int = 2_600
 
     # 证据长期记忆；working memory 和 SessionDigest 不由这三个字段持久化。
     memory_root: str = ""

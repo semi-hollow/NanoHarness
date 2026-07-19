@@ -40,6 +40,8 @@ class TaskRunStatus(Enum):
     RUNNING = "running"
     WAITING_APPROVAL = "waiting_approval"
     WAITING_HUMAN = "waiting_human"
+    PAUSED = "paused"
+    CANCELLED = "cancelled"
     BLOCKED = "blocked"
     FAILED = "failed"
     COMPLETED = "completed"

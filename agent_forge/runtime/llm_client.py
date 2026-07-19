@@ -8,6 +8,7 @@ from typing import Any
 from agent_forge.models.tool_call_normalizer import ToolCallNormalizer
 
 from .domain.conversation import AgentResponse, Message
+from .domain.model import ModelCapabilities
 from .llm_config import LLMConfig
 
 
@@ -27,14 +28,25 @@ class OpenAICompatibleLLMClient(LLMClient):
         model: str | None = None,
         timeout: int = 30,
         temperature: float = 0.0,
+        capabilities: ModelCapabilities | None = None,
     ) -> None:
 
-        resolved_base_url = base_url or os.getenv("AGENT_FORGE_BASE_URL") or os.getenv("OPENAI_BASE_URL") or ""
+        resolved_base_url = (
+            base_url
+            or os.getenv("AGENT_FORGE_BASE_URL")
+            or os.getenv("OPENAI_BASE_URL")
+            or ""
+        )
         self.base_url = resolved_base_url.rstrip("/")
-        self.api_key = api_key or os.getenv("AGENT_FORGE_API_KEY") or os.getenv("OPENAI_API_KEY", "")
+        self.api_key = (
+            api_key
+            or os.getenv("AGENT_FORGE_API_KEY")
+            or os.getenv("OPENAI_API_KEY", "")
+        )
         self.model = model or os.getenv("AGENT_FORGE_MODEL") or os.getenv("OPENAI_MODEL", "")
         self.timeout = timeout
         self.temperature = temperature
+        self.capabilities = capabilities or ModelCapabilities()
         self.tool_calls = ToolCallNormalizer()
 
     @classmethod
@@ -51,6 +63,7 @@ class OpenAICompatibleLLMClient(LLMClient):
             model=config.model,
             timeout=config.timeout,
             temperature=config.temperature,
+            capabilities=config.capabilities,
         )
 
     def is_configured(self) -> bool:
@@ -65,13 +78,17 @@ class OpenAICompatibleLLMClient(LLMClient):
                 "AGENT_FORGE_BASE_URL, AGENT_FORGE_API_KEY, and AGENT_FORGE_MODEL are required",
             )
 
-        payload = {
+        payload: dict[str, Any] = {
             "model": self.model,
-            "messages": [self._message_to_dict(m) for m in messages],
+            "messages": [
+                self._message_to_dict(message)
+                for message in self._transport_messages(messages, tools)
+            ],
             "stream": False,
             "temperature": self.temperature,
-            "tools": [self._tool_to_openai_schema(t) for t in tools],
         }
+        if self.capabilities.native_tool_calling and tools:
+            payload["tools"] = [self._tool_to_openai_schema(tool) for tool in tools]
         request = urllib.request.Request(
             f"{self.base_url}/chat/completions",
             data=json.dumps(payload).encode("utf-8"),
@@ -102,6 +119,38 @@ class OpenAICompatibleLLMClient(LLMClient):
             return self._invalid("invalid_json", str(exc), raw[:500])
 
         return self.parse_response(data, tools=tools)
+
+    def _transport_messages(
+        self,
+        messages: list[Message],
+        tools: list[dict[str, Any]],
+    ) -> list[Message]:
+        """原生工具不可用时，增加严格 JSON 协议而不伪造 provider tools。"""
+
+        if self.capabilities.native_tool_calling or not tools:
+            return messages
+        catalog = [
+            {
+                "name": _tool_definition(tool).get("name", ""),
+                "description": _tool_definition(tool).get("description", ""),
+                "arguments": _tool_definition(tool).get(
+                    "arguments",
+                    _tool_definition(tool).get("parameters", {}),
+                ),
+            }
+            for tool in tools
+        ]
+        instruction = "\n".join(
+            [
+                "This model transport has no native tool calling.",
+                "To call a tool, return only one JSON object with this shape:",
+                '{"name":"visible_tool_name","arguments":{"key":"value"}}',
+                "Do not invent tool names or omit required arguments.",
+                "Visible tools:",
+                json.dumps(catalog, ensure_ascii=False, separators=(",", ":")),
+            ]
+        )
+        return [*messages, Message("system", instruction)]
 
     def parse_response(
         self,
@@ -266,3 +315,8 @@ class OpenAICompatibleLLMClient(LLMClient):
                 **details,
             },
         )
+
+
+def _tool_definition(tool: dict[str, Any]) -> dict[str, Any]:
+    function = tool.get("function") if tool.get("type") == "function" else tool
+    return function if isinstance(function, dict) else {}

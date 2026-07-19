@@ -9,6 +9,7 @@ import uuid
 from pathlib import Path
 from typing import Callable
 
+from agent_forge.configuration import resolve_run_arguments, resolved_run_config
 from agent_forge.multi_agent.api import (
     LiveFanoutBuildRequest,
     SequentialCoordinatorBuildRequest,
@@ -20,6 +21,7 @@ from agent_forge.multi_agent.profiles import get_profile
 from agent_forge.observability.api import TraceRecorder, write_usage_artifacts
 from agent_forge.runtime.api import build_agent_loop
 from agent_forge.runtime.config import RuntimeConfig
+from agent_forge.runtime.domain.model import ModelCapabilities
 from agent_forge.runtime.execution_environment import (
     EnvironmentProbe,
     ExecutionEnvironment,
@@ -42,9 +44,21 @@ from agent_forge.tools.registry import ToolRegistry
 def run_repository_task(args: argparse.Namespace) -> Path:
     """执行 repository task，并返回完整 evidence 目录。"""
 
+    try:
+        config_document = resolve_run_arguments(args)
+    except (OSError, ValueError) as exc:
+        raise SystemExit(f"invalid run configuration: {exc}") from exc
     run_id = f"run-{time.strftime('%Y%m%d-%H%M%S')}-{uuid.uuid4().hex[:7]}"
     run_dir = Path(args.output_root) / run_id
     run_dir.mkdir(parents=True, exist_ok=True)
+    (run_dir / "resolved_config.json").write_text(
+        json.dumps(
+            resolved_run_config(args, config_document),
+            ensure_ascii=False,
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
     trace_path = run_dir / "trace.json"
     trace = TraceRecorder(str(trace_path))
     environment, probe = prepare_execution_environment(args, run_id, run_dir)
@@ -64,6 +78,7 @@ def run_repository_task(args: argparse.Namespace) -> Path:
                 model=args.model,
                 timeout=60,
                 temperature=args.temperature,
+                capabilities=_model_capabilities_from_args(args),
             )
         )
         if not llm_config.is_configured():
@@ -77,12 +92,16 @@ def run_repository_task(args: argparse.Namespace) -> Path:
             workspace: str | Path,
             worker_environment: ExecutionEnvironment,
         ) -> ToolRegistry:
+            enabled_tools = getattr(args, "enabled_tools", None)
             return build_registry(
                 ToolRegistryBuildRequest(
                     workspace=str(workspace),
                     auto=True,
                     mcp_config_file=getattr(args, "mcp_config", None),
                     mcp_allowed_tools=tuple(getattr(args, "mcp_tool", [])),
+                    enabled_tools=(
+                        tuple(enabled_tools) if enabled_tools is not None else None
+                    ),
                     execution_environment=worker_environment,
                 )
             )
@@ -205,6 +224,26 @@ def _build_runtime_config(
         memory_namespace=str(Path(getattr(args, "workspace", ".")).resolve()),
         memory_recall_limit=getattr(args, "memory_recall_limit", 6),
         max_tool_calls_per_turn=getattr(args, "max_tool_calls_per_turn", 4),
+        model_capabilities=_model_capabilities_from_args(args),
+        instruction_target=getattr(args, "instruction_target", ""),
+        global_instruction_files=getattr(args, "global_instruction_file", []),
+        runtime_instructions=getattr(args, "runtime_instructions", ""),
+        instruction_max_bytes=getattr(args, "instruction_max_bytes", 2_600),
+    )
+
+
+def _model_capabilities_from_args(args: argparse.Namespace) -> ModelCapabilities:
+    """将 CLI/config 的模型声明转换为 Runtime 唯一能力对象。"""
+
+    return ModelCapabilities(
+        native_tool_calling=bool(args.native_tool_calling),
+        parallel_tool_calls=bool(args.parallel_tool_calls),
+        structured_output=bool(args.structured_output),
+        reasoning_tokens=bool(args.reasoning_tokens),
+        prompt_cache=bool(args.prompt_cache),
+        context_window=int(args.model_context_window),
+        supports_images=bool(args.supports_images),
+        source="resolved_run_config",
     )
 
 

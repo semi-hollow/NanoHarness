@@ -2,9 +2,11 @@
 
 import json
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
+
+from agent_forge.runtime.domain.model import ModelCapabilities
 
 
 # 核心数据：模型网关需要的 provider、凭据、模型和采样参数。
@@ -22,6 +24,7 @@ class LLMConfig:
     model: str = ""
     timeout: int = 30
     temperature: float = 0.0
+    capabilities: ModelCapabilities = field(default_factory=ModelCapabilities)
 
     @property
     def uses_openai_compatible_api(self) -> bool:
@@ -44,6 +47,7 @@ class LLMConfigRequest:
     model: str | None = None
     timeout: int = 30
     temperature: float | None = None
+    capabilities: ModelCapabilities | None = None
 
 
 def load_llm_profile(
@@ -121,4 +125,11 @@ def resolve_llm_config(request: LLMConfigRequest) -> LLMConfig:
         ),
         timeout=int(profile_data.get("timeout", request.timeout)),
         temperature=resolved_temperature,
+        capabilities=request.capabilities
+        or ModelCapabilities(
+            reasoning_tokens="reasoner" in str(
+                request.model or profile_data.get("model") or ""
+            ).lower(),
+            source=f"provider_default:{resolved_provider}",
+        ),
     )

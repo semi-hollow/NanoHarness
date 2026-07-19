@@ -1,0 +1,48 @@
+# ``forge run --config examples/agent.sample.yaml``
+# API key is intentionally absent; provide it through DEEPSEEK_API_KEY or AGENT_FORGE_API_KEY.
+schema_version: 1
+
+run:
+  task: Inspect the repository architecture and report the main runtime boundaries.
+  workspace: .
+  output_root: .agent_forge/runs
+  agent_mode: single
+
+model:
+  provider: deepseek
+  temperature: 0.0
+  context_window: 32768
+  native_tool_calling: true
+  parallel_tool_calls: true
+
+runtime:
+  max_steps: 8
+  max_context_chars: 12000
+  max_prompt_tokens: 32768
+  reserved_output_tokens: 4096
+
+execution:
+  mode: worktree
+  network_policy: deny
+  keep_worktree: false
+
+policy:
+  approval_mode: locked
+  auto_approve_writes: false
+
+tools:
+  routing: task-aware
+  enabled:
+    - list_files
+    - read_file
+    - grep
+    - grep_search
+    - git_status
+    - git_diff
+
+skills:
+  selection: auto
+
+instructions:
+  target: .
+  max_bytes: 2600

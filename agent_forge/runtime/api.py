@@ -1,7 +1,7 @@
-"""Runtime 的稳定公共 API。
+"""Runtime capability 的内部 facade。
 
-外围模块通过 ``build_agent_loop`` 获取已装配用例；测试也可以直接构造
-``RuntimeDependencies`` 注入内存实现。
+仓库内部入口通过 ``build_agent_loop`` 获取已装配用例；外部嵌入调用应使用顶层
+``agent_forge.Harness``，扩展契约从 ``agent_forge.extensions`` 导入。
 """
 
 from agent_forge.runtime.application.agent_loop import AgentLoop

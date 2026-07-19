@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from agent_forge.context.ports import LongTermMemoryRecallPort
+from agent_forge.runtime.domain.model import ModelCapabilities
 from agent_forge.runtime.ports import (
     ApprovalRepository,
     ContextAssemblerPort,
@@ -14,6 +15,7 @@ from agent_forge.runtime.ports import (
     HumanInputRepository,
     ModelPort,
     OperationLedgerRepository,
+    RunControlPort,
     SkillSelectorPort,
     TaskStateRepository,
     ToolGateway,
@@ -36,10 +38,12 @@ class RuntimeDependencies:
     skills: SkillSelectorPort
     tools: ToolGateway
     model: ModelPort
+    model_capabilities: ModelCapabilities
     environment: EnvironmentPort
     hooks: HookPort
     task_states: TaskStateRepository
     approvals: ApprovalRepository
     human_inputs: HumanInputRepository
     operations: OperationLedgerRepository
+    control: RunControlPort
     long_term_memory_recall: LongTermMemoryRecallPort

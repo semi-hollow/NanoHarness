@@ -137,4 +137,9 @@ class JsonTraceRecorder:
             summary_path = Path(self.path).with_name("summary.md")
             summary_path.write_text(render_trace_summary(trace), encoding="utf-8")
 
+    def publish(self) -> None:
+        """实现 EventSink 的终态发布端口；``write`` 保留给现有调用方。"""
+
+        self.write()
+
 TraceRecorder = JsonTraceRecorder

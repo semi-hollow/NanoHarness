@@ -11,6 +11,7 @@ from .repositories import (
     OperationLedgerRepository,
     TaskStateRepository,
 )
+from .run_control import RunControlPort
 from .skills import SkillSelectorPort, SkillView
 from .tools import ToolGateway
 
@@ -25,6 +26,7 @@ __all__ = [
     "HumanInputRepository",
     "ModelPort",
     "OperationLedgerRepository",
+    "RunControlPort",
     "SkillSelectorPort",
     "SkillView",
     "TaskStateRepository",

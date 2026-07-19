@@ -107,8 +107,11 @@ stateDiagram-v2
     CREATED --> RUNNING
     RUNNING --> WAITING_APPROVAL
     RUNNING --> WAITING_HUMAN
+    RUNNING --> PAUSED
+    RUNNING --> CANCELLED
     WAITING_APPROVAL --> RUNNING
     WAITING_HUMAN --> RUNNING
+    PAUSED --> RUNNING
     RUNNING --> COMPLETED
     RUNNING --> BLOCKED
     RUNNING --> FAILED
@@ -139,6 +142,8 @@ stateDiagram-v2
 
 ```text
 agent_forge/
+├── harness.py           embeddable public facade
+├── extensions.py        stable extension contracts
 ├── cli/                 public inbound adapter
 ├── runtime/             single-agent control plane
 ├── multi_agent/         sequential roles + live fanout
@@ -151,17 +156,35 @@ agent_forge/
 Single Agent 的真实入口：
 
 ```text
-cli.dispatch.main
--> cli.repository.run_repository_task
--> runtime.api.build_agent_loop
+agent_forge.Harness.run / cli.dispatch.main
+-> harness facade / cli.repository.run_repository_task
+-> runtime.wiring.build_agent_loop_from_request / runtime.api.build_agent_loop
 -> runtime.application.AgentLoop.run
 -> RunPreparation.start/execute
 -> TurnPreparation.execute
--> ContextAssemblerPort -> RepositoryContextAssembler
--> ModelPort.chat
+-> Instruction Resolver / Skill discovery + activation / ContextAssemblerPort
+-> before_model Hook -> ModelPort.chat -> after_model Hook
 -> ToolExecutionPipeline.execute_calls
+-> before_tool Hook -> governed tool -> after_tool + final redaction
 -> RunLifecycle.stop
 ```
+
+嵌入式控制与实时事件沿同一主链生效：
+
+```text
+RunController -> RunControlPort -> AgentLoop safe boundary -> checkpoint/stop/re-plan
+TraceEvent -> Internal JSON evidence
+           -> StreamingEventSink -> RuntimeEventListener -> optional OTEL spans
+```
+
+`pause/cancel/steer` 是协作式控制，只在 turn、模型返回和工具之间的边界检查；不会强杀
+正在执行的 HTTP/进程，也不会自动回滚 operation ledger 已记录的副作用。实时流提供
+run/turn/model/tool/checkpoint/control 事件，但当前模型 transport 是非流式请求，因此没有
+伪造的 token delta。OTEL 是可选投影，内部 JSON evidence 仍是事实源。
+
+顶层 `agent_forge` 与 `agent_forge.extensions` 是唯一承诺兼容的库导入面。Capability
+内部的 `application`、`domain`、`adapters` 和 `wiring` 可以随架构治理演进；外部调用方
+不得依赖这些路径。配置文件只选择已注册 built-in，不允许从字符串任意导入实现。
 
 Benchmark 的完成顺序：
 
@@ -179,6 +202,7 @@ Evidence 的单向链路：
 
 ```text
 TraceEvent fact
+-> Internal JSON + optional redacted RuntimeEvent/OTEL projection
 -> BuildUsageReport projection
 -> usage read model
 -> Markdown / Workbench renderer
@@ -288,7 +312,11 @@ Read Model；否则应使用类型化对象。
 - 跨能力导入只能指向对方的 `api.py`、`contracts.py` 或 Ports。
 - 内部重构直接迁移调用方和测试，不长期保留历史导入 facade。
 - `__init__.py` 不执行装配、不创建对象、不引入重量级循环依赖。
-- 入口方法使用 `# PRIMARY ENTRYPOINT:` 标记，并通过导航测试保护。
+- 入口方法使用 `# 主要入口：` 标记，并通过导航测试保护。
+- 附加 Lifecycle Hook 不能替换默认 environment、permission 和 secret-redaction 链；
+  before-model/before-tool/on-stop 异常 fail closed，after/checkpoint 通知异常隔离并留证。
+- `ModelCapabilities` 只驱动已有确定性策略；尚未消费的字段必须明确标为 Adapter
+  声明，不能仅凭配置字段声称 Runtime 已支持对应协议。
 
 ## 7. 状态、错误与恢复标准
 
@@ -298,6 +326,8 @@ Read Model；否则应使用类型化对象。
 - 副作用操作必须有稳定 operation key、前置 fingerprint 和 ledger 状态。
 - 恢复时不得盲目重放已经执行或目标状态已经变化的副作用。
 - timeout、cancel、provider error、policy denial、validation failure 必须可区分。
+- pause/cancel 必须说明安全检查边界和既有副作用；steer 只能追加新的用户方向并丢弃
+  边界内的过时模型结果，不重写已经发生的 observation。
 
 ## 8. Evidence 与报告标准
 

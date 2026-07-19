@@ -56,12 +56,20 @@ prototype，不宣称是覆盖所有 Agent 场景的通用框架。
 
 目标不是再次重构，而是把现有 runtime 变成别人可以稳定嵌入的最小库边界。
 
+当前进度：`0.8.0` 已提供顶层 `Harness.run/resume`、类型化 `RunResult`、稳定 extension
+导出、版本化 `forge run --config`、分层指令、Skill 渐进披露、Lifecycle Hook、协作式
+run control、脱敏事件流/OTEL 和模型能力策略。剩余重点是扩大 Adapter contract suite 与
+统一 artifact schema migration，不再继续扩宽 facade。
+
 | 交付物 | 设计范围 | 完成证据 |
 |---|---|---|
 | Stable public facade | `Harness.run(request)`、`resume(request)` 和控制面查询 | 一个外部最小示例只依赖 public API |
 | Extension contract tests | Model、Tool、Memory、Policy、Event、State Port | fake adapter 与真实 adapter 运行同一 contract suite |
 | Artifact schema versioning | trace、checkpoint、operation、evaluation schema | 旧 fixture migration test 与不兼容变更说明 |
-| Lifecycle hooks | before/after model、tool、checkpoint、finalize | hook 顺序、异常隔离和审计测试 |
+| Lifecycle hooks（已完成） | before/after model、tool、checkpoint、finalize | 安全链组合、异常隔离、completion gate 和审计测试 |
+| Instruction / Skill disclosure（已完成） | 指令优先级、来源预算、Skill metadata -> activation | provenance、截断和主 Runtime 输入测试 |
+| Event / control plane（已完成） | 有序脱敏事件、pause/cancel/steer、可选 OTEL | safe-boundary、checkpoint、span 配对和敏感字段测试 |
+| Model capability policy（已完成） | native tools、parallel calls、context window | transport payload、工具上限和输入预算测试 |
 
 验收标准：业务接入不需要 import `application` 或 `adapters` 内部模块；新增 provider 或
 持久化实现不修改 AgentLoop。
@@ -71,7 +79,7 @@ prototype，不宣称是覆盖所有 Agent 场景的通用框架。
 | 交付物 | 核心问题 | 完成证据 |
 |---|---|---|
 | 精确恢复点 | 进程在 model/tool/checkpoint 任一点中断后从哪里继续？ | kill-at-boundary fault injection，不重复已提交副作用 |
-| Cancellation contract | 用户取消后哪些写入已发生，哪些需要补偿？ | side-effect inventory、cancel artifact、补偿结果 |
+| Durable cancellation contract | 当前协作式 cancel 之后，远端 worker 和外部进程如何停止、哪些写入需要补偿？ | side-effect inventory、process cancellation、cancel artifact、补偿结果 |
 | Task intent switching | 新意图是补充当前任务、暂停旧任务还是创建新任务？ | 显式 task state machine 与 active-task pointer |
 | Deterministic replay | 不调用模型时能否重放决策与证据？ | event schema、input digest、replay divergence report |
 | Concurrent state store | 多进程 operator/worker 是否会覆盖状态？ | SQLite/Postgres adapter、乐观锁和并发测试 |

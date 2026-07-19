@@ -18,6 +18,7 @@ from agent_forge.runtime.application.operation_tracker import (
     OperationTracker,
 )
 from agent_forge.runtime.application.run_lifecycle import StopRequest
+from agent_forge.runtime.application.run_control import ApplyRunControl
 from agent_forge.runtime.application.session import AgentRunSession
 from agent_forge.runtime.application.tool_authorization import ToolAuthorizationGate
 from agent_forge.runtime.application.tool_feedback import ToolFeedback
@@ -30,12 +31,14 @@ from agent_forge.runtime.domain.conversation import (
     ToolCall,
 )
 from agent_forge.runtime.domain.human_input import HumanInputQuestion
+from agent_forge.runtime.domain.model import ModelCapabilities
 from agent_forge.runtime.domain.task import TaskCheckpointUpdate, TaskRunStatus
 from agent_forge.runtime.ports import (
     ApprovalRepository,
     EventSink,
     HookPort,
     OperationLedgerRepository,
+    RunControlPort,
     ToolGateway,
 )
 from agent_forge.safety.guardrails import tool_guardrail
@@ -56,13 +59,18 @@ class ToolExecutionPipeline:
         hooks: HookPort,
         approval_store: ApprovalRepository,
         operation_ledger: OperationLedgerRepository,
+        run_control: RunControlPort,
+        model_capabilities: ModelCapabilities,
     ) -> None:
         self.trace = trace
         self.registry = registry
-        self.max_tool_calls_per_turn = max(
-            1,
-            int(getattr(config, "max_tool_calls_per_turn", 4)),
+        configured_tool_calls = max(
+            1, int(getattr(config, "max_tool_calls_per_turn", 4))
         )
+        self.max_tool_calls_per_turn = (
+            configured_tool_calls if model_capabilities.parallel_tool_calls else 1
+        )
+        self.run_control = ApplyRunControl(run_control, trace)
         self.feedback = ToolFeedback(trace)
         self.operations = OperationTracker(
             config,
@@ -100,6 +108,9 @@ class ToolExecutionPipeline:
             )
         )
         for tool_call in calls:
+            control = self.run_control.check(session, step, include_steer=False)
+            if control.stop is not None:
+                return control.stop
             stop = self._execute_call(
                 session,
                 tool_call,
@@ -384,13 +395,22 @@ class ToolExecutionPipeline:
     ) -> StopRequest | None:
         """阶段 5：执行已获授权工具，再提交账本、证据和 checkpoint。"""
 
+        control = self.run_control.check(session, step, include_steer=False)
+        if control.stop is not None:
+            return control.stop
         if intent.side_effect and not self.operations.exists(intent):
             self.operations.ensure_planned(
                 intent,
                 step=step,
                 status="approved",
             )
-
+        self.trace.add(
+            step,
+            session.agent_name,
+            "tool_execution_started",
+            tool_call=tool_call.name,
+            tool_call_id=tool_call.id,
+        )
         observation = self.registry.execute(tool_call.name, tool_call.arguments)
         observation = self.authorization.post_process(
             session,
@@ -485,6 +505,7 @@ class ToolExecutionPipeline:
             session.agent_name,
             "tool_call",
             tool_call=tool_call.name,
+            tool_call_id=tool_call.id,
             tool_arguments=tool_call.arguments,
         )
         self.trace.add(
@@ -492,6 +513,8 @@ class ToolExecutionPipeline:
             session.agent_name,
             "tool_observation",
             success=observation.success,
+            tool_call=tool_call.name,
+            tool_call_id=tool_call.id,
             observation=observation.content,
         )
         self.trace.add(

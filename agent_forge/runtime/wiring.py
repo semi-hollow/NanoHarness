@@ -10,17 +10,20 @@ from pathlib import Path
 
 from agent_forge.context.adapters import JsonLongTermMemoryRepository
 from agent_forge.context.application import LongTermMemoryService
+from agent_forge.context.ports import LongTermMemoryRecallPort
 from agent_forge.models.gateway import ModelGateway, RetryPolicy
-from agent_forge.observability.adapters.json_trace import TraceRecorder
+from agent_forge.hooks import RuntimeHook
 from agent_forge.runtime.adapters import (
     JsonApprovalRepository,
     JsonHumanInputRepository,
     JsonOperationLedgerRepository,
     JsonTaskStateRepository,
+    NoopRunControl,
     RepositoryContextAssembler,
 )
 from agent_forge.runtime.application.agent_loop import AgentLoop
 from agent_forge.runtime.application.dependencies import RuntimeDependencies
+from agent_forge.runtime.application.model_policy import resolve_model_capabilities
 from agent_forge.runtime.application.operator_control import (
     BuildContinuationPlan,
     ContinuationPlan,
@@ -35,7 +38,20 @@ from agent_forge.runtime.execution_environment import ExecutionEnvironmentConfig
 from agent_forge.runtime.hooks import HookManager
 from agent_forge.runtime.llm_client import OpenAICompatibleLLMClient
 from agent_forge.runtime.llm_config import LLMConfig
-from agent_forge.runtime.ports import ModelPort
+from agent_forge.runtime.ports import (
+    ApprovalRepository,
+    ContextAssemblerPort,
+    EnvironmentPort,
+    EventSink,
+    HookPort,
+    HumanInputRepository,
+    ModelPort,
+    OperationLedgerRepository,
+    RunControlPort,
+    SkillSelectorPort,
+    TaskStateRepository,
+    ToolGateway,
+)
 from agent_forge.safety.sandbox import WorkspaceSandbox
 from agent_forge.skills import build_default_skill_registry
 from agent_forge.tools.apply_patch import ApplyPatchTool
@@ -61,6 +77,7 @@ class ToolRegistryBuildRequest:
     auto: bool
     mcp_config_file: str | None = None
     mcp_allowed_tools: tuple[str, ...] = ()
+    enabled_tools: tuple[str, ...] | None = None
     execution_environment: ExecutionEnvironment | None = None
 
 
@@ -76,12 +93,44 @@ class HumanInputResponseCommand:
     note: str = ""
 
 
+@dataclass(frozen=True)
+class RuntimeDependencyOverrides:
+    """供 SDK 或测试按端口替换默认 Adapter 的内部装配请求。
+
+    未提供的字段仍由本模块创建默认实现。它不是第二套 Runtime，而是让所有入站入口
+    继续共享同一个 composition root。
+    """
+
+    context: ContextAssemblerPort | None = None
+    skills: SkillSelectorPort | None = None
+    environment: EnvironmentPort | None = None
+    hooks: HookPort | None = None
+    additional_hooks: tuple[RuntimeHook, ...] = ()
+    task_states: TaskStateRepository | None = None
+    approvals: ApprovalRepository | None = None
+    human_inputs: HumanInputRepository | None = None
+    operations: OperationLedgerRepository | None = None
+    long_term_memory_recall: LongTermMemoryRecallPort | None = None
+    control: RunControlPort | None = None
+
+
+@dataclass(frozen=True)
+class AgentLoopBuildRequest:
+    """带可选端口覆盖的完整 AgentLoop 装配请求。"""
+
+    config: "RuntimeConfig"
+    trace: EventSink
+    registry: ToolGateway
+    llm: ModelPort | None
+    overrides: RuntimeDependencyOverrides | None = None
+
+
 def build_registry(request: ToolRegistryBuildRequest) -> ToolRegistry:
     """构造 AgentLoop 使用的受治理工具注册表。"""
 
     sandbox = WorkspaceSandbox(request.workspace)
     registry = ToolRegistry()
-    for tool in [
+    builtin_tools = [
         ListFilesTool(sandbox),
         ReadFileTool(sandbox),
         WriteFileTool(sandbox, request.auto),
@@ -100,7 +149,17 @@ def build_registry(request: ToolRegistryBuildRequest) -> ToolRegistry:
             execution_environment=request.execution_environment,
         ),
         AskHumanTool(),
-    ]:
+    ]
+    known_names = {tool.name for tool in builtin_tools}
+    requested_names = (
+        set(request.enabled_tools) if request.enabled_tools is not None else None
+    )
+    unknown_names = sorted((requested_names or set()) - known_names)
+    if unknown_names:
+        raise ValueError(f"unknown built-in tools: {', '.join(unknown_names)}")
+    for tool in builtin_tools:
+        if requested_names is not None and tool.name not in requested_names:
+            continue
         registry.register(tool)
     if request.mcp_config_file:
         registry.mcp_config_report = MCPConfigLoader(sandbox).load_into(
@@ -120,14 +179,15 @@ def build_llm(config: LLMConfig) -> ModelGateway:
             provider=config.provider,
             model=config.model or "unknown",
             retry_policy=RetryPolicy(max_attempts=2),
+            capabilities=config.capabilities,
         )
     raise ValueError(f"Unsupported LLM provider: {config.provider}")
 
 
 def build_runtime_dependencies(
     config: "RuntimeConfig",
-    trace: TraceRecorder,
-    registry: ToolRegistry,
+    trace: EventSink,
+    registry: ToolGateway,
     llm: ModelPort | None,
 ) -> RuntimeDependencies:
     """一次性装配 AgentLoop 需要的全部出站端口实现。
@@ -136,33 +196,64 @@ def build_runtime_dependencies(
     创建不同的审批、恢复或幂等行为。
     """
 
-    if llm is None:
+    return _build_runtime_dependencies(
+        AgentLoopBuildRequest(config, trace, registry, llm)
+    )
+
+
+def _build_runtime_dependencies(request: AgentLoopBuildRequest) -> RuntimeDependencies:
+    config = request.config
+    if request.llm is None:
         raise ValueError(
             "AgentLoop requires a real LLM client; build it through runtime.wiring"
         )
-    environment = config.execution_environment or ExecutionEnvironment(
-        ExecutionEnvironmentConfig(workspace=config.workspace)
+    selected = request.overrides or RuntimeDependencyOverrides()
+    environment = (
+        selected.environment
+        or config.execution_environment
+        or ExecutionEnvironment(ExecutionEnvironmentConfig(workspace=config.workspace))
     )
-    hooks = HookManager.default(
-        environment,
-        config.auto_approve_writes,
-        approval_mode=config.approval_mode,
-    )
+    if selected.hooks is not None:
+        if selected.additional_hooks:
+            raise ValueError(
+                "additional lifecycle hooks cannot be combined with a full HookPort override"
+            )
+        hooks = selected.hooks
+    elif isinstance(environment, ExecutionEnvironment):
+        hooks = HookManager.default(
+            environment,
+            config.auto_approve_writes,
+            approval_mode=config.approval_mode,
+            additional_hooks=list(selected.additional_hooks),
+        ).observe_with(request.trace)
+    else:
+        raise ValueError(
+            "a custom EnvironmentPort requires a matching HookPort override"
+        )
     return RuntimeDependencies(
-        events=trace,
-        context=RepositoryContextAssembler(),
-        skills=build_default_skill_registry(
-            getattr(config, "skill_manifest_files", [])
+        events=request.trace,
+        context=selected.context or RepositoryContextAssembler(),
+        skills=selected.skills
+        or build_default_skill_registry(getattr(config, "skill_manifest_files", [])),
+        tools=request.registry,
+        model=request.llm,
+        model_capabilities=resolve_model_capabilities(
+            request.llm,
+            config.model_capabilities,
+            fallback_context_window=config.max_prompt_tokens,
         ),
-        tools=registry,
-        model=llm,
         environment=environment,
         hooks=hooks,
-        task_states=JsonTaskStateRepository(config.task_state_root),
-        approvals=JsonApprovalRepository(config.approval_root),
-        human_inputs=JsonHumanInputRepository(config.human_input_root),
-        operations=JsonOperationLedgerRepository(config.operation_ledger_root),
-        long_term_memory_recall=LongTermMemoryService(
+        task_states=selected.task_states
+        or JsonTaskStateRepository(config.task_state_root),
+        approvals=selected.approvals or JsonApprovalRepository(config.approval_root),
+        human_inputs=selected.human_inputs
+        or JsonHumanInputRepository(config.human_input_root),
+        operations=selected.operations
+        or JsonOperationLedgerRepository(config.operation_ledger_root),
+        control=selected.control or NoopRunControl(),
+        long_term_memory_recall=selected.long_term_memory_recall
+        or LongTermMemoryService(
             JsonLongTermMemoryRepository(
                 config.memory_root
                 or str(Path(config.workspace) / ".agent_forge" / "memory")
@@ -174,13 +265,27 @@ def build_runtime_dependencies(
 # 主要入口：为所有入站路径装配同一套单 Agent Runtime 和治理端口。
 def build_agent_loop(
     config: "RuntimeConfig",
-    trace: TraceRecorder,
-    registry: ToolRegistry,
+    trace: EventSink,
+    registry: ToolGateway,
     llm: ModelPort | None,
 ) -> AgentLoop:
     """返回已经注入全部端口实现的标准单 Agent 用例。"""
 
-    return AgentLoop(config, build_runtime_dependencies(config, trace, registry, llm))
+    return build_agent_loop_from_request(
+        AgentLoopBuildRequest(config, trace, registry, llm)
+    )
+
+
+def build_agent_loop_from_request(request: AgentLoopBuildRequest) -> AgentLoop:
+    """按类型化请求装配允许端口覆盖的标准单 Agent 用例。"""
+
+    return AgentLoop(request.config, _build_runtime_dependencies(request))
+
+
+def build_task_state_repository(root: str | Path) -> TaskStateRepository:
+    """为 SDK facade 创建默认 JSON checkpoint repository。"""
+
+    return JsonTaskStateRepository(root)
 
 
 def decide_approval(
