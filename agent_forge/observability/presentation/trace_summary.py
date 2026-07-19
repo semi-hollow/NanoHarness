@@ -7,7 +7,7 @@ def render_trace_summary(trace: dict[str, Any]) -> str:
 
     metrics = trace.get("metrics", {})
     lines = [
-        "# Agent Forge Run Summary",
+        "# NanoHarness Run Summary",
         "",
         f"- run_id: {trace.get('run_id')}",
         f"- task: {trace.get('task', '')}",

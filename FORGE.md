@@ -1,8 +1,8 @@
-# Agent Forge 开发说明
+# NanoHarness 开发说明
 
 ## 项目方向
 
-Agent Forge 是面向 SWE-bench 的 CodingAgent Harness。主线应持续聚焦：
+NanoHarness 是面向真实代码仓库的可治理软件工程智能体与评测工作台。主线应持续聚焦：
 
 1. 公开 benchmark case；
 2. 在 base commit 上创建干净 repo checkout；

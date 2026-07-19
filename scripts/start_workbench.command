@@ -14,7 +14,7 @@ if [[ ! -x ".venv/bin/python" ]]; then
   .venv/bin/python -m pip install -e '.[bench,dev]'
 fi
 
-echo "[start] Agent Forge Workbench"
+echo "[start] NanoHarness Workbench"
 echo "[path]  $ROOT_DIR"
 echo "[url]   http://127.0.0.1:8765"
 echo

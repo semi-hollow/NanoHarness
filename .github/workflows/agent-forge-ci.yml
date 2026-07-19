@@ -1,4 +1,4 @@
-name: Agent Forge CI
+name: NanoHarness CI
 
 on:
   push: {}
@@ -8,7 +8,7 @@ permissions:
   contents: read
 
 jobs:
-  verify-agent-forge:
+  verify-nanoharness:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:

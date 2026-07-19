@@ -1,6 +1,6 @@
 # 持久化 Human Input 与 Live Fanout
 
-这项设计补齐两处有意收敛范围的 runtime 缺口，同时避免把 Agent Forge 扩张成通用
+这项设计补齐两处有意收敛范围的 runtime 缺口，同时避免把 NanoHarness 扩张成通用
 distributed-agent platform：
 
 1. 用真实可持久化的 stop/respond/resume 控制链替代模拟 `ask_human` 回答；

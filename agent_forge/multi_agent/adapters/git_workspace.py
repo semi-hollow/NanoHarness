@@ -79,7 +79,7 @@ def commit_worker_baseline(workspace: Path) -> None:
         [
             "git",
             "-c",
-            "user.name=Agent Forge",
+            "user.name=NanoHarness",
             "-c",
             "user.email=agent-forge@local",
             "commit",

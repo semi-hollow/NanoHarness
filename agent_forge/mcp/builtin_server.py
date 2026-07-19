@@ -10,7 +10,7 @@ from agent_forge.mcp.web_tools import build_builtin_tools
 
 def build_parser() -> argparse.ArgumentParser:
 
-    parser = argparse.ArgumentParser(description="Run the Agent Forge built-in MCP stdio server.")
+    parser = argparse.ArgumentParser(description="Run the NanoHarness built-in MCP stdio server.")
     parser.add_argument("--list-tools", action="store_true", help="Print available tool schemas and exit.")
     parser.add_argument("--call", help="Call one tool directly for debugging instead of starting stdio mode.")
     parser.add_argument("--args-json", default="{}", help="JSON object passed to --call.")
@@ -42,4 +42,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

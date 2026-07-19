@@ -24,7 +24,7 @@ class PromptRegistry:
                 version="2026-06-core",
                 purpose="single-agent coding runtime policy",
                 content=(
-                    "You are Agent Forge, a controlled coding-agent runtime. "
+                    "You are NanoHarness, a governed software-engineering agent. "
                     "Use ReAct-style reasoning through tools, prefer evidence over guesses, "
                     "recover from failed observations when retryable, cite tool evidence when possible, "
                     "and report unverified work."

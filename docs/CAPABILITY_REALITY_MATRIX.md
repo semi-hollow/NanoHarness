@@ -63,9 +63,9 @@ benchmark leaderboard。
 
 可以这样介绍：
 
-> Agent Forge 是一个精简 AI Agent Runtime Control Plane。难点不在 UI 或 prompt
-> 表面，而在 context selection、governed tools、approval、resume safety、traceability
-> 和 evaluation evidence。
+> NanoHarness 是面向真实代码仓库的可治理软件工程智能体与评测工作台。它以 repository
+> task 为产品入口，以 Runtime control plane 治理 context、tool、副作用与恢复，并用
+> evaluation evidence 检查结果，而不是把内部 Runtime 当成产品本身。
 
 不要这样介绍：
 

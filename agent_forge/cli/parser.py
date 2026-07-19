@@ -43,7 +43,7 @@ def build_parser() -> argparse.ArgumentParser:
 def _add_run_command(subparsers: argparse._SubParsersAction) -> None:
     parser = subparsers.add_parser(
         "run",
-        help="Run Agent Forge on a repository task.",
+        help="Run NanoHarness on a repository task.",
     )
     parser.add_argument(
         "task",
@@ -342,7 +342,7 @@ def _add_resume_command(subparsers: argparse._SubParsersAction) -> None:
         "resume",
         help="Resume from the latest checkpoint under a run directory.",
     )
-    parser.add_argument("run_dir", help="Previous Agent Forge run directory.")
+    parser.add_argument("run_dir", help="Previous NanoHarness run directory.")
     parser.add_argument("--task", help="Override the continuation task.")
     parser.add_argument("--workspace", help="Override the checkpoint workspace.")
     _add_execution_environment_args(parser)

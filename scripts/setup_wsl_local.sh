@@ -99,7 +99,7 @@ main() {
   exec > >(tee -a "${LOG_FILE}") 2>&1
   trap 'die $?' ERR
 
-  log "Agent Forge WSL setup"
+  log "NanoHarness WSL setup"
   log "Started at: $(date)"
   log "Initial directory: $(pwd)"
   log ""
@@ -118,8 +118,8 @@ main() {
   log "  jq: $(command -v jq || true)"
 
   PROJECT_DIR="$(find_project_dir)" || {
-    log "Could not find the Agent Forge project root from $(pwd)."
-    log "Run this script from the Agent Forge project root or any child directory inside the project."
+    log "Could not find the NanoHarness project root from $(pwd)."
+    log "Run this script from the NanoHarness project root or any child directory inside the project."
     exit 1
   }
   cd "${PROJECT_DIR}"

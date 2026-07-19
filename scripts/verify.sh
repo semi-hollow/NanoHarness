@@ -29,7 +29,7 @@ if ! command -v "${PYTHON_BIN}" >/dev/null 2>&1; then
   fi
 fi
 
-echo "== Agent Forge verification =="
+echo "== NanoHarness verification =="
 echo "Working directory: $(pwd)"
 echo "Using Python: $(${PYTHON_BIN} --version 2>&1) at $(command -v "${PYTHON_BIN}" 2>/dev/null || printf '%s' "${PYTHON_BIN}")"
 echo

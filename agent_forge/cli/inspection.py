@@ -128,7 +128,7 @@ def print_skills(args: argparse.Namespace) -> None:
 def run_tui() -> None:
     """为不记命令的本地用户提供轻量入口，不承诺完整终端产品。"""
 
-    print("Agent Forge")
+    print("NanoHarness")
     print("1. Doctor")
     print("2. Run SWE-bench Lite sample")
     print("3. Run a task in current repo")

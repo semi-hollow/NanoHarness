@@ -5,7 +5,7 @@ set -Eeuo pipefail
 #   在个人 macOS 机器上初始化本仓库。
 #
 # 执行内容：
-#   1. 从任意子目录定位 Agent Forge 项目根目录。
+#   1. 从任意子目录定位 NanoHarness 项目根目录。
 #   2. 创建或复用 .venv。
 #   3. 以 editable 模式安装项目。
 #   4. 运行 scripts/verify.sh，完成一次确定性本地健康检查。
@@ -106,7 +106,7 @@ main() {
   exec > >(tee -a "${LOG_FILE}") 2>&1
   trap 'die $?' ERR
 
-  log "Agent Forge macOS setup"
+  log "NanoHarness macOS setup"
   log "Started at: $(date)"
   log "Initial directory: $(pwd)"
   log ""
@@ -129,8 +129,8 @@ main() {
   log "  jq: $(command -v jq || true)"
 
   PROJECT_DIR="$(find_project_dir)" || {
-    log "Could not find the Agent Forge project root from $(pwd)."
-    log "Run this script from the Agent Forge project root or any child directory inside the project."
+    log "Could not find the NanoHarness project root from $(pwd)."
+    log "Run this script from the NanoHarness project root or any child directory inside the project."
     exit 1
   }
   cd "${PROJECT_DIR}"

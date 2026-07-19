@@ -11,7 +11,7 @@ def render_usage_markdown(usage: dict[str, Any]) -> str:
 
     summary = usage["summary"]
     lines = [
-        "# Agent Forge Usage Report",
+        "# NanoHarness Usage Report",
         "",
         "## Run Summary",
         "",
