@@ -1,4 +1,5 @@
 import re
+import subprocess
 import unittest
 from pathlib import Path
 
@@ -16,6 +17,7 @@ CHINESE_FIRST_DOCS = (
     "agent_forge/README.md",
     "scripts/README.md",
     "docs/CAPABILITY_REALITY_MATRIX.md",
+    "docs/PROJECT_EVOLUTION.md",
     "docs/ROADMAP.md",
     "docs/architecture/evaluation-experiments-and-oci-execution.md",
     "docs/architecture/feedback-evaluation-loop.md",
@@ -25,6 +27,35 @@ CHINESE_FIRST_DOCS = (
     "docs/evaluation/mini-cases/README.md",
     "docs/evaluation/regression-set.md",
 )
+
+PUBLIC_DOC_LINE_BUDGETS = {
+    "README.md": 250,
+    "CONTRIBUTING.md": 140,
+    "docs/ARCHITECTURE.md": 420,
+    "docs/CAPABILITY_REALITY_MATRIX.md": 120,
+    "docs/PROJECT_EVOLUTION.md": 220,
+    "docs/ROADMAP.md": 120,
+}
+
+CANONICAL_README_LINKS = (
+    "docs/PROJECT_EVOLUTION.md",
+    "docs/ARCHITECTURE.md",
+    "docs/CAPABILITY_REALITY_MATRIX.md",
+)
+
+ALLOWED_DOC_SURFACES = (
+    "docs/adr/",
+    "docs/architecture/",
+    "docs/case-studies/",
+    "docs/evaluation/",
+)
+
+ALLOWED_TOP_LEVEL_DOCS = {
+    "docs/ARCHITECTURE.md",
+    "docs/CAPABILITY_REALITY_MATRIX.md",
+    "docs/PROJECT_EVOLUTION.md",
+    "docs/ROADMAP.md",
+}
 
 
 class DocumentationLanguageTest(unittest.TestCase):
@@ -54,6 +85,51 @@ class DocumentationLanguageTest(unittest.TestCase):
                 if latin_count >= 40 and not HAN_CHARACTER.search(visible):
                     violations.append(f"{relative_path}:{line_number}: English prose remains: {line}")
         self.assertEqual(violations, [], "Public documentation must be Chinese-first")
+
+    def test_public_document_control_plane_stays_focused(self) -> None:
+        violations: list[str] = []
+        for relative_path, line_budget in PUBLIC_DOC_LINE_BUDGETS.items():
+            path = PROJECT_ROOT / relative_path
+            self.assertTrue(path.exists(), f"missing canonical document: {relative_path}")
+            line_count = len(path.read_text(encoding="utf-8").splitlines())
+            if line_count > line_budget:
+                violations.append(
+                    f"{relative_path}: {line_count} lines exceeds {line_budget}-line budget"
+                )
+
+        readme = (PROJECT_ROOT / "README.md").read_text(encoding="utf-8")
+        for relative_path in CANONICAL_README_LINKS:
+            if relative_path not in readme:
+                violations.append(f"README does not link canonical document: {relative_path}")
+
+        result = subprocess.run(
+            [
+                "git",
+                "ls-files",
+                "--cached",
+                "--others",
+                "--exclude-standard",
+                "--",
+                "docs/*.md",
+                "docs/**/*.md",
+            ],
+            cwd=PROJECT_ROOT,
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        tracked_docs = {path for path in result.stdout.splitlines() if path}
+        if len(tracked_docs) > 18:
+            violations.append(
+                f"docs tree has {len(tracked_docs)} Markdown files; consolidate before adding more"
+            )
+        for relative_path in sorted(tracked_docs):
+            if relative_path in ALLOWED_TOP_LEVEL_DOCS:
+                continue
+            if not relative_path.startswith(ALLOWED_DOC_SURFACES):
+                violations.append(f"public document has no approved owner surface: {relative_path}")
+
+        self.assertEqual(violations, [], "Public documentation control plane has drifted")
 
 
 if __name__ == "__main__":
