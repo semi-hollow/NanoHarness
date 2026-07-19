@@ -9,10 +9,13 @@ from __future__ import annotations
 
 import time
 import uuid
+from pathlib import Path
 
 from agent_forge.bench.adapters.artifact_files import FileBenchArtifacts
 from agent_forge.bench.adapters.dataset import SwebenchCaseSource
 from agent_forge.bench.application.case_inspection import InspectBenchCase
+from agent_forge.bench.application.campaign import BenchmarkCampaignResult
+from agent_forge.bench.domain.campaign import BenchmarkCampaignRequest
 from agent_forge.bench.domain.case_inspection import (
     BenchmarkCaseInspection,
     BenchmarkCaseProfile,
@@ -26,7 +29,10 @@ from agent_forge.bench.domain.catalog import (
 )
 from agent_forge.bench.domain.config import SwebenchRunRequest
 from agent_forge.bench.domain.models import BenchRunSummary
-from agent_forge.bench.wiring import build_swebench_runner
+from agent_forge.bench.wiring import (
+    build_benchmark_campaign_runner,
+    build_swebench_runner,
+)
 
 # 主要入口：构造并执行一次完整的 SWE-bench 证据运行。
 def run_swebench(request: SwebenchRunRequest) -> BenchRunSummary:
@@ -43,6 +49,24 @@ def run_swebench(request: SwebenchRunRequest) -> BenchRunSummary:
         layout,
         artifacts=artifacts,
     ).execute(request, run_id=run_id, layout=layout)
+
+
+# 主要入口：执行或恢复一组固定 case、固定身份的重复 Runtime preset 比较。
+def run_benchmark_campaign(
+    request: BenchmarkCampaignRequest,
+    *,
+    project_dir: str | Path = ".",
+) -> BenchmarkCampaignResult:
+    """每个槽位调用正式 ``run_swebench``，并在槽位边界持久化 checkpoint。"""
+
+    root = Path(project_dir).resolve()
+    return build_benchmark_campaign_runner(root, run_swebench).execute(request)
+
+
+def create_campaign_id(prefix: str = "smoke-5") -> str:
+    """生成可读且不会碰撞的 campaign id。"""
+
+    return f"{prefix}-{time.strftime('%Y%m%d-%H%M%S')}-{uuid.uuid4().hex[:7]}"
 
 
 # 主要入口：读取一个 benchmark case，但不执行 Agent 或评测。
@@ -96,6 +120,8 @@ def get_regression_set_profile(
 
 
 __all__ = [
+    "BenchmarkCampaignRequest",
+    "BenchmarkCampaignResult",
     "DEFAULT_DATASET",
     "REGRESSION_SETS",
     "SwebenchRunRequest",
@@ -103,4 +129,6 @@ __all__ = [
     "inspect_swebench_case",
     "list_regression_case_profiles",
     "run_swebench",
+    "run_benchmark_campaign",
+    "create_campaign_id",
 ]

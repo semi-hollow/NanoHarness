@@ -1,96 +1,100 @@
-# Agent Forge / NanoHarness
+# NanoHarness
 
-[![Agent Forge CI](https://github.com/semi-hollow/NanoHarness/actions/workflows/agent-forge-ci.yml/badge.svg)](https://github.com/semi-hollow/NanoHarness/actions/workflows/agent-forge-ci.yml)
+[![NanoHarness CI](https://github.com/semi-hollow/NanoHarness/actions/workflows/agent-forge-ci.yml/badge.svg)](https://github.com/semi-hollow/NanoHarness/actions/workflows/agent-forge-ci.yml)
 [![Python 3.11](https://img.shields.io/badge/python-3.11-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-**Agent Forge 是一个面向 SWE-bench 形态软件工程任务的精简 AI Agent Runtime。**
+**面向真实代码仓库的可治理软件工程智能体与评测工作台。**
 
-它不是 chatbot wrapper，也不是完整 IDE。项目聚焦 Coding Agent 背后的工程控制层：
-context construction、结构化会话压缩、证据化长期记忆、弱模型 Tool Calling 适配、
-tool governance、隔离执行、人工审批、部分恢复、多 Agent artifact handoff、隔离
-fanout、trace、成本核算和评测证据。
+NanoHarness 接收 repository task，在隔离快照中让 Agent 检索、编辑和验证代码，同时把
+工具策略、人工控制、恢复状态、成本和评测结论变成可检查 artifact。它不是只有输入框和
+最终回答的 demo；核心产品闭环是：
 
 ```text
-Issue -> repo snapshot -> AgentLoop / live fanout -> governed tools -> candidate patch
-      -> trace / usage / official per-case result -> scorecard -> paired ablation
-      -> failure taxonomy / human feedback -> evaluation data
+Repository task -> isolated snapshot -> governed AgentLoop -> candidate patch
+                -> trace / usage / checkpoint -> local + official evaluation
+                -> repeated campaign -> failure diagnosis -> next runtime change
 ```
 
-## 为什么做这个项目
+## 项目主张
 
-很多 Agent demo 只展示最终答案。Agent Forge 关注的是另一个问题：
+模型能生成代码，不代表它能稳定完成软件工程任务。真正困难的是让它在真实仓库、真实工具和
+真实副作用中保持可治理、可恢复、可验证。NanoHarness 因此把能力分成三层：
 
-> 能否让 AI Agent 的行为可检查、可恢复、受策略约束，并且具备足够清晰的 benchmark
-> 形态，从而可以持续定位问题和验证改进？
+1. **任务层**：完成 repository issue，产出 candidate patch 和验证证据。
+2. **控制层**：治理 context、tool visibility、权限、隔离、HITL、checkpoint 和并发。
+3. **证据层**：区分 candidate、local verified、official resolved，并用重复 matched run
+   判断 Runtime preset 是否真的改善结果。
 
-项目的核心主张刻意保持克制：**只有 runtime 行为可观测、可比较，才能系统性改进
-Coding Agent；单纯增加 prompt 长度并不能解决这个问题。**
+项目不是为了宣称“自研框架优于 LangGraph”。成熟框架适合快速交付通用工作流；
+NanoHarness 刻意收窄到软件工程执行与评测边界，让工具决策、副作用和失败原因可以完整检查。
+生产接入时，这些领域组件也可以作为 node、middleware 或 service 与现有框架组合。
 
-## 已实现的核心能力
+## 证据优先
 
-| 能力 | 真实实现 |
+| 证据层级 | 能证明什么 | 不能证明什么 |
 | --- | --- |
-| Agent Runtime Loop | `AgentLoop.run` 只展示 start、prepare、turn、stop；运行前决策、turn 输入、最终答案、工具授权、幂等账本和生命周期分别由具名应用服务拥有。 |
-| Embeddable Harness | 顶层 `Harness.run/resume`、类型化配置和严格 YAML/JSON schema 提供稳定接入面；Model、Tool、Context、State、Event、Environment 等扩展契约由 `agent_forge.extensions` 统一导出。 |
-| Context Engineering | Instruction Resolver 按 global -> repository -> directory -> local -> runtime 优先级合并规则并记录 provenance；Context/Skill/Memory/文件按区段预算组装，完整请求再做不拆分 tool transaction 的会话压缩。 |
-| Skills Progressive Disclosure | Registry 先按名称、描述、标签和触发词返回 metadata，只有被选中的版本才渲染完整 Skill 提示卡；trace 保留来源、选择原因和正文规模。 |
-| 分层 Memory | Run 内 working memory、checkpoint digest 与长期记忆使用不同结构。长期记录必须经过 candidate -> evidence-backed active 生命周期，按 workspace/agent 隔离和任务相关性召回；原始 trace 始终是权威证据。 |
-| 模型能力协商 | `ModelCapabilities` 让 context window、并行工具和原生 tool calling 进入确定性策略；内置 transport 在无原生工具能力时使用受限 JSON 文本协议。结构化输出、缓存、图像等字段目前只作为 Adapter 声明，不伪装成 Runtime 能力。 |
-| Lifecycle Hooks | 公开 Hook 覆盖 model/tool/checkpoint/stop；附加 Hook 与默认安全链组合而非替换，前置和完成门禁异常 fail closed，最终工具结果仍经过 secret redaction。 |
-| 工具治理 | read/grep/patch/command/git/diagnostics 依次经过 routing、registry validation、permission hook、command policy 和 workspace sandbox。 |
-| 隔离执行 | 支持当前 checkout、detached git worktree，以及基于隔离 snapshot 的受限 OCI container。Container command 带 network、CPU、memory、PID、capability 和 read-only root 控制。 |
-| Human-in-the-loop | 信息型问题通过 `JsonHumanInputRepository` 持久化，在同一 turn 中优先阻断其他副作用，运行停在 `waiting_human`，只有 `forge respond` 加 resume 后才继续。写入授权由独立且带 fingerprint 的 `JsonApprovalRepository` 负责。 |
-| 运行中控制 | `RunController` 支持协作式 pause、cancel 和 steer；信号在模型返回、turn 开始或工具之间的安全边界生效，pause 写 checkpoint，steer 丢弃过时响应并触发重新规划。 |
-| 部分恢复 | Checkpoint 为 continuation 提供状态；operation ledger 防止重复副作用；fanout checkpoint 校验 patch hash，只重跑未完成 worker。 |
-| SWE-bench 运行链路 | 加载 case、checkout `base_commit`、生成 `predictions.jsonl`，安装官方 harness 后可执行评测，并解析 per-case resolved/unresolved/error artifact。 |
-| 顺序多 Agent | `MultiAgentCoordinator` 让 Implementer/Reviewer/Verifier 复用同一个 `AgentLoop`，角色之间只通过显式 artifact 传递状态。 |
-| Live Fanout | 校验后的任务 DAG 在 disposable worktree 中并发运行独立 `AgentLoop` worker，强制检查 write scope，并通过 conflict gate 确定性合并 patch。 |
-| Evaluation Experiment | `forge bench cases/case` 公开 300-case 候选全集、Smoke-5 选择契约、单题 issue 和验收测试；运行记录 sampling temperature、patch/local/official evidence、token、cost、latency、tool failure、context compaction、memory recall 和 model repair，`forge eval ablation` 对单因素 matched run 做 identity-gated paired comparison。 |
-| Evidence Report | 每次运行生成 trace、usage、scorecard、result card、failure taxonomy 和 case study，而不是只输出 debug dump。 |
-| Event Stream / OTEL | 内部 evidence 双写为脱敏、有序 `RuntimeEvent`；可选 OTEL Adapter 将 run、model、tool 和 context 映射为 span。当前模型 transport 非流式，因此不伪造 `model.delta`。 |
-| Feedback Data Loop | 人工 outcome 和 label 可以挂到 run 上，再将安全筛选后的 trace、policy、environment 和 evaluation 字段导出为 JSONL。 |
+| Candidate patch | Agent 到达了有效编辑阶段 | patch 正确或任务 solved |
+| Local verified | 已记录的测试型本地验证通过 | 官方环境一定通过 |
+| Official resolved | 官方 SWE-bench per-case report 明确 `resolved=true` | 能外推到全部 300 题 |
+| Repeated campaign | 同配置多次运行的稳定性、成本和 paired outcome | 单因素因果或模型排行榜 |
 
-每项能力的真实程度和不可声称边界，见
-[能力真实性矩阵](docs/CAPABILITY_REALITY_MATRIX.md)。
+没有 official evaluator 时，resolved rate 保持 `null`，不会显示成 0%，也不会拿 Reviewer
+`PASS` 替代官方结果。完整边界见[能力真实性矩阵](docs/CAPABILITY_REALITY_MATRIX.md)。
 
-## 五分钟审查路径
+## 三分钟审查路径
 
-如果你正在快速审查这个仓库，建议按下面顺序：
+1. 启动 `forge ui`，先看 **Overview -> Run Evidence -> Benchmark**。
+2. 运行 `forge showcase hitl start`，检查真实 waiting checkpoint 和 continuation 命令。
+3. 运行 `forge bench cases --regression-set smoke-5`，查看为什么从 300 题中选择这 5 题。
+4. 阅读五个主入口：[AgentLoop](agent_forge/runtime/application/agent_loop.py)、
+   [工具治理](agent_forge/runtime/application/tool_execution.py)、
+   [SWE-bench 用例](agent_forge/bench/application/swebench.py)、
+   [重复评测 Campaign](agent_forge/bench/application/campaign.py)、
+   [证据工作台](agent_forge/workbench/presentation/http.py)。
 
-1. 阅读本 README。
-2. 打开[架构契约](docs/ARCHITECTURE.md)和[能力真实性矩阵](docs/CAPABILITY_REALITY_MATRIX.md)。
-3. 检查核心实现：
-   - [AgentLoop](agent_forge/runtime/application/agent_loop.py)
-   - [Public Harness](agent_forge/harness.py)
-   - [Lifecycle Hooks](agent_forge/hooks.py)
-   - [Instruction Resolver](agent_forge/context/instructions.py)
-   - [协作式运行控制](agent_forge/control.py)
-   - [实时事件与 OTEL](agent_forge/observability/adapters/streaming.py)
-   - [完整请求预算与压缩](agent_forge/context/application/compaction.py)
-   - [长期记忆生命周期](agent_forge/context/application/memory_service.py)
-   - [Tool Calling 标准化](agent_forge/models/tool_call_normalizer.py)
-   - [工具治理管线](agent_forge/runtime/application/tool_execution.py)
-   - [审批门禁](agent_forge/runtime/application/tool_authorization.py)
-   - [副作用幂等](agent_forge/runtime/application/operation_tracker.py)
-   - [顺序多角色](agent_forge/multi_agent/application/coordinator.py)
-   - [Live Fanout](agent_forge/multi_agent/application/live_fanout.py)
-   - [SWE-bench 用例](agent_forge/bench/application/swebench.py)
-   - [失败分类](agent_forge/bench/domain/failure_taxonomy.py)
-   - [Official result adapter](agent_forge/bench/adapters/official_results.py)
-   - [Scorecard 用例](agent_forge/evaluation/application/scorecard.py)
-   - [Paired ablation](agent_forge/evaluation/domain/ablation.py)
-4. 运行 `bash scripts/verify.sh`。
-5. 使用 `forge ui` 查看本地 Evidence Console。
-6. 使用[控制面展示](docs/architecture/runtime-control-plane.md)现场运行 HITL 与审批恢复。
+## 重复评测实验（Repeated Benchmark）
+
+`smoke-5` 从 SWE-bench Lite 的 300 个 test case 中人工分层选择五个不同仓库和问题族，
+用于低成本机制回归，不声称统计代表性。正式 campaign 固定 case、模型、温度、预算、安全
+策略和执行环境，比较两个同核 Runtime preset：
+
+- `minimal-control`：完整工具可见性、关闭 Skill。
+- `governed-runtime`：task-aware tool routing、启用内置 Skill。
+
+```bash
+forge bench campaign \
+  --regression-set smoke-5 \
+  --repetitions 3 \
+  --evaluate \
+  --publish
+```
+
+这会规划 `5 cases x 2 presets x 3 repetitions = 30 runs`。每个槽位前后原子保存
+`campaign.json`；使用相同 `--campaign-id` 重跑时，只重试 failed/running 槽位。公开 bundle
+只包含 source revision、配置摘要、聚合结果和脱敏 scorecard，不包含 API key、绝对路径、
+raw prompt、trace 内容或 patch 正文。当前公开 campaign 结果见
+[benchmarks/campaigns](benchmarks/campaigns/README.md)。
+
+## 核心能力
+
+| 能力面 | 已接入的真实主链 |
+| --- | --- |
+| 仓库任务智能体 | 上下文选择、工具调用、补丁生成、诊断与 Git 证据 |
+| 运行时治理 | 工具路由、Schema 校验、权限判定、命令策略与 workspace sandbox |
+| 持久化控制 | HITL、审批指纹、checkpoint/resume、操作账本、暂停取消与 steer |
+| 上下文与记忆 | 分区预算、事务安全压缩、working/checkpoint/long-term memory 分层 |
+| 隔离与编排 | local/worktree/OCI、顺序角色 artifact handoff、DAG fanout 与冲突门禁 |
+| 评测闭环 | Smoke-5、官方结果解析、failure taxonomy、scorecard、ablation 与反馈数据集 |
+| 集成界面 | `Harness.run/resume`、类型化配置、Model/Tool/State/Event/Environment Ports |
 
 ## 快速开始
 
 第一次阅读代码时，先看[架构契约](docs/ARCHITECTURE.md)，再用
 [CONTRIBUTING.md](CONTRIBUTING.md) 理解类型、入口和可读性约定。
 
-项目名是 Agent Forge，包名是 `agent-forge`，import package 是 `agent_forge`，
-CLI 命令是 `forge`。
+项目名是 NanoHarness；为避免破坏已有使用方式，Python distribution 仍是 `agent-forge`，
+import package 是 `agent_forge`，CLI 命令是 `forge`。
 
 ```bash
 git clone https://github.com/semi-hollow/NanoHarness.git
@@ -166,7 +170,7 @@ forge showcase approval start
 continuation 命令。Showcase 只固定模型的 tool call；HITL、审批、账本和工具执行仍走
 正式 Runtime。完整说明见[Runtime 控制面](docs/architecture/runtime-control-plane.md)。
 
-本地 **NanoHarness Evidence Console** 提供真实运行控制，包括 model、budget、
+本地 **NanoHarness Workbench** 提供真实运行控制，包括 model、budget、
 approval、tool routing、network policy、execution isolation、Skills、MCP、顺序角色和
 live fanout。Evidence view 会直接渲染 artifact 内容，同时展示 Memory 召回、Context
 压缩、Tool Calling 修复、工具 burst 治理以及 Multi 与 Single

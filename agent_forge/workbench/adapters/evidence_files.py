@@ -4,6 +4,8 @@ import json
 from pathlib import Path
 from typing import Any
 
+from agent_forge.bench.domain.campaign import CampaignState, summarize_campaign
+
 
 class FileEvidenceCatalog:
 
@@ -170,6 +172,29 @@ class FileEvidenceCatalog:
             if isinstance(record, dict):
                 return record
         return {}
+
+    def latest_campaign_dir(self) -> Path | None:
+        latest = self.project_dir / ".agent_forge/latest/campaign.txt"
+        campaigns = self.project_dir / ".agent_forge/campaigns"
+        pointed = self._run_dir_from_pointer(latest)
+        candidates = [pointed] if pointed is not None else []
+        if campaigns.exists():
+            candidates.extend(path for path in campaigns.iterdir() if path.is_dir())
+        return _newest_existing(candidates)
+
+    def latest_campaign_state(self) -> dict[str, Any]:
+        directory = self.latest_campaign_dir()
+        return read_json_file(directory / "campaign.json" if directory else None)
+
+    def latest_campaign_summary(self) -> dict[str, Any]:
+        directory = self.latest_campaign_dir()
+        summary = read_json_file(
+            directory / "campaign_summary.json" if directory else None
+        )
+        if summary or directory is None:
+            return summary
+        state = self.latest_campaign_state()
+        return summarize_campaign(CampaignState.from_dict(state)) if state else {}
 
     def _run_dir_from_pointer(self, pointer: Path) -> Path | None:
         if not pointer.exists():

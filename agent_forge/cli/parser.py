@@ -6,6 +6,7 @@ import argparse
 import os
 
 from agent_forge.bench.presentation.cli import (
+    build_campaign_parser,
     build_case_catalog_parser,
     build_case_inspection_parser,
     build_swebench_parser,
@@ -19,7 +20,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     parser = argparse.ArgumentParser(
         prog="forge",
-        description="Agent Forge: a SWE-bench-oriented CodingAgent harness.",
+        description="NanoHarness: governed repository agent and benchmark workbench.",
     )
     subparsers = parser.add_subparsers(dest="command", required=True)
     _add_run_command(subparsers)
@@ -109,6 +110,11 @@ def _add_benchmark_command(subparsers: argparse._SubParsersAction) -> None:
         help="Inspect one case's task and test contract without running an agent.",
     )
     build_case_inspection_parser(case_parser)
+    campaign_parser = bench_subparsers.add_parser(
+        "campaign",
+        help="Run or resume a repeated matched Smoke-5 runtime-preset campaign.",
+    )
+    build_campaign_parser(campaign_parser)
 
 
 def _add_evaluation_command(subparsers: argparse._SubParsersAction) -> None:

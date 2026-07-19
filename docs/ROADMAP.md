@@ -1,8 +1,8 @@
 # NanoHarness 演进路线
 
-NanoHarness 的目标是成为一个小而硬的 Agent Harness：负责模型与真实开发环境之间的
-执行循环、工具治理、持久状态、上下文控制和评测证据。它当前是可运行的 runtime
-prototype，不宣称是覆盖所有 Agent 场景的通用框架。
+NanoHarness 的目标是成为一个小而硬的软件工程智能体与评测工作台：接收真实 repository
+task，并用内部 Harness 负责执行循环、工具治理、持久状态、上下文控制和评测证据。它当前
+是可运行的本地 prototype，不宣称是覆盖所有 Agent 场景的通用框架或完整 IDE。
 
 本文件是唯一的项目演进清单。规划项不代表已实现能力；当前事实以
 [能力真实性矩阵](CAPABILITY_REALITY_MATRIX.md)和测试为准。
@@ -16,7 +16,7 @@ prototype，不宣称是覆盖所有 Agent 场景的通用框架。
 - 有预算的上下文组装、会话压缩和带证据晋升的长期记忆。
 - 顺序多角色与隔离 worktree 的 fanout、write-scope 检查、冲突门禁和恢复。
 - SWE-bench-shaped 执行、official result 接入、failure taxonomy、matched ablation、
-  trace、usage、报告与反馈数据导出。
+  repeated runtime-preset campaign、trace、usage、报告与脱敏公开证据导出。
 - 通过 Port/Adapter 替换 Model、Tool、Repository 和 Execution Environment；公共复杂
   入口使用类型化 Request，避免把动态参数表扩散到调用方。
 
@@ -43,14 +43,18 @@ prototype，不宣称是覆盖所有 Agent 场景的通用框架。
 
 | 交付物 | 要回答的问题 | 完成证据 |
 |---|---|---|
-| 固定 regression manifest | case、commit、环境和配置是否完全一致？ | versioned manifest、dataset digest、environment identity |
-| Matched repeated runs | 一次差异是设计效果还是采样波动？ | 每个 variant 至少 3 次重复，报告均值、分布和置信区间 |
+| 固定 regression manifest（已完成） | case、commit、环境和配置是否完全一致？ | Smoke-5 contract、source revision、config digest、environment identity |
+| Matched repeated runs（执行器已完成） | 一次差异是设计效果还是采样波动？ | 交错顺序、per-slot checkpoint、每个 variant 默认 3 次；真实 campaign 数据待运行 |
 | Failure-slice scorecard | 改进解决了哪类失败，又引入了什么回归？ | 按 taxonomy、case 特征和工具阶段切片 |
 | Official evaluator lane | Candidate patch 是否真的解决任务？ | per-case official resolved/unresolved/error artifact |
 | 成本与延迟基线 | 质量提升是否值得额外 token、tool call 和时间？ | quality/cost/latency 联合比较，原始 run 可追溯 |
 
 验收标准：同一命令可重建实验身份；不匹配的环境会 fail closed；报告明确区分统计事实、
 工程解释和未知项。
+
+当前实现边界：campaign 控制面、恢复、聚合、Workbench 和公开 bundle 已完成；本仓库尚未
+提交完整 official campaign，因此 P0 的效果结论仍未验收。小样本报告只给出计数、分母和
+paired outcome，不伪造置信区间或显著性。
 
 ## P1：冻结可复用 Harness API
 

@@ -165,7 +165,7 @@ def built_in_skill_specs() -> list[SkillSpec]:
             permissions=["read:repo", "write:docs"],
             dependencies=["git:working-tree"],
             tags=["documentation", "learning", "maintenance"],
-            activation_terms=["docs", "readme", "document", "guide", "文档", "教程", "解释", "面经", "复习"],
+            activation_terms=["docs", "readme", "document", "guide", "文档", "教程", "解释"],
             tool_names=["grep", "grep_search", "read_file", "apply_patch", "write_file", "git_diff"],
             operating_procedure=[
                 "Locate the shortest existing doc that matches the user's learning path.",

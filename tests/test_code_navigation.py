@@ -83,11 +83,13 @@ PRIMARY_ENTRYPOINTS = {
     ),
     "agent_forge/bench/api.py": (
         "run_swebench",
+        "run_benchmark_campaign",
         "inspect_swebench_case",
         "list_regression_case_profiles",
         "get_regression_set_profile",
     ),
     "agent_forge/bench/application/case_inspection.py": ("InspectBenchCase.execute",),
+    "agent_forge/bench/application/campaign.py": ("RunBenchmarkCampaign.execute",),
     "agent_forge/bench/application/swebench.py": ("RunSwebench.execute",),
     "agent_forge/bench/application/diagnostics.py": ("DiagnoseBenchCase.attach",),
     "agent_forge/bench/domain/failure_taxonomy.py": ("classify_case_result",),
@@ -103,6 +105,7 @@ PRIMARY_ENTRYPOINTS = {
         "render_case_inspection_from_args",
     ),
     "agent_forge/bench/presentation/case_study.py": ("write_case_study",),
+    "agent_forge/bench/presentation/campaign_report.py": ("render_campaign_report",),
     "agent_forge/bench/presentation/report.py": ("write_bench_artifacts",),
     "agent_forge/evaluation/api.py": ("build_benchmark_scorecard",),
     "agent_forge/evaluation/application/scorecard.py": (
@@ -280,6 +283,12 @@ CORE_DATA_MODELS = {
         "MultiAgentRunSummary",
     ),
     "agent_forge/bench/domain/config.py": ("SwebenchRunRequest", "BenchRunLayout"),
+    "agent_forge/bench/domain/campaign.py": (
+        "CampaignVariant",
+        "BenchmarkCampaignRequest",
+        "CampaignRunRecord",
+        "CampaignState",
+    ),
     "agent_forge/bench/domain/models.py": (
         "BenchCase",
         "BenchCaseResult",

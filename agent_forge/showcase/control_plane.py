@@ -1,7 +1,7 @@
 """HITL 与副作用审批的可重复控制面展示。
 
 这里仅用确定性 ``ModelPort`` 固定模型会提出什么工具请求；暂停、持久化、审批、
-checkpoint、恢复和文件修改全部经过正式 Runtime。这样面试现场不依赖模型随机性，
+checkpoint、恢复和文件修改全部经过正式 Runtime。这样现场演示不依赖模型随机性，
 也不会把测试替身误说成完整能力。
 """
 
@@ -318,7 +318,7 @@ def _write_showcase_artifacts(result: ControlPlaneShowcaseResult) -> None:
 
 
 def _render_showcase_report(result: ControlPlaneShowcaseResult) -> str:
-    """把本次真实状态压缩成一页面试展示证据。"""
+    """把本次真实状态压缩成单页现场演示证据。"""
 
     is_waiting = result.status.startswith("waiting_")
     if result.scenario == "hitl":

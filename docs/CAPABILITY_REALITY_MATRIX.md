@@ -2,8 +2,9 @@
 
 本文将已经接入主 runtime 的能力，与轻量 primitive、demo 和刻意收敛范围的边界分开。
 
-目标很简单：**不夸大。** Agent Forge 最适合被描述为精简 AI Agent Runtime 与
-Evaluation Harness，而不是完整 IDE、SaaS、distributed swarm 或 benchmark leaderboard。
+目标很简单：**不夸大。** NanoHarness 是面向真实代码仓库的可治理软件工程智能体与
+评测工作台；Runtime 是内部技术层。它不是完整 IDE、SaaS、distributed swarm 或
+benchmark leaderboard。
 
 每项能力的主要实现入口列在矩阵最后一列；跨 Capability 调用以具名 API、Port 和类型签名为准。
 
@@ -43,13 +44,14 @@ Evaluation Harness，而不是完整 IDE、SaaS、distributed swarm 或 benchmar
 | Official SWE-bench per-case evaluation | Green | `--evaluate` 在 benchmark output directory 中运行，解析 aggregate/per-case JSON，区分 resolved、unresolved、error、empty-patch、incomplete。 | Process exit code 不证明 resolved；official denominator 为空时不能声称 resolved rate。 | `agent_forge/bench/adapters/official_evaluator.py`、`official_results.py` |
 | Direct baseline | Green | 使用同一模型但不提供工具，并提取 diff 用于比较。 | 它刻意更弱，不是 competitive baseline。 | `agent_forge/bench/adapters/case_runtime.py` |
 | Quantitative scorecard | Green | 每个 benchmark 写入 per-case 和 aggregate patch/local/official evidence，以及有明确 denominator 的 token、cost、latency、tool failure、context compaction、memory recall、tool-call repair 和 taxonomy metric。 | Recall、repair、Skill activation 和 patch rate 都不是 correctness；local verification 不是 official resolution。 | `agent_forge/evaluation/application/scorecard.py`、`agent_forge/bench/presentation/report.py` |
+| Repeated benchmark campaign | Green | `forge bench campaign` 固定 Smoke-5、模型、温度、预算、安全与执行环境，交错运行 `minimal-control` / `governed-runtime` preset；每个槽位原子 checkpoint，恢复时跳过完成项并重试失败项。Campaign 绑定 source revision/config digest，并可导出不含 prompt、patch、trace、密钥和绝对路径的公开 scorecard bundle。 | 两个 preset 同时改变 routing 与 Skill，属于 multi-factor preset comparison，不是单因素因果实验；没有双方 official outcome 的 pair 时不声称 correctness 改善；仓库当前没有伪造公开结果。 | `agent_forge/bench/application/campaign.py`、`domain/campaign.py`、`adapters/campaign_files.py`、`presentation/campaign_report.py` |
 | Paired runtime ablation | Green | `forge eval ablation` 比较 matched scorecard，并拒绝 dataset、case、provider/model、sampling temperature 与未声明 runtime drift；支持 routing、Skill manifest、frozen Memory snapshot、Context Window、tool burst 和 temperature 单因素。 | 每个 variant 一次 run 不能估计随机方差；当前不承诺 provider-independent seed。 | `agent_forge/evaluation/domain/ablation.py`、`agent_forge/bench/application/swebench.py`、`agent_forge/cli/dispatch.py` |
 | Multi-agent coordinator | Green | 顺序 Implementer/Reviewer/Verifier workflow 复用 `AgentLoop`，通过 artifact 交换信息。 | 不是 peer-to-peer swarm 或 distributed multi-agent runtime。 | `agent_forge/multi_agent/application/coordinator.py` |
 | Artifact handoff | Green | Role output 被持久化，后续 role 通过显式 artifact context 读取。 | 不暗示 Agent 共享隐藏 memory。 | `agent_forge/multi_agent/adapters/artifact_files.py`、`application/coordinator.py` |
 | Live subagent fanout | Green | Validated DAG 在 disposable worktree 中运行独立 `AgentLoop`/LLM/registry，执行 per-task step budget、声明 scope 分批、实际 touched-file 校验、确定性 patch apply；隔离 finalizer 能看到 candidate diff，pre/post gate 检测 verifier mutation。 | 它是 local coordinator，不是 distributed worker service、peer swarm 或自动 model-driven task decomposition；worker 读取 committed `base_head`，不是 ambient uncommitted file。 | `agent_forge/multi_agent/domain/live.py`、`application/live_fanout.py`、`adapters/local_worker.py` |
 | Fanout partial recovery | Green | 增量 checkpoint 保存 plan/base identity 和 accepted worker；resume 校验 patch SHA-256，在新 workspace 重放已完成 patch，只重跑未完成 task；稳定 worker human thread 可复用已回答 clarification。 | 进程被强杀可能留下 orphan worktree；fanout 刻意拒绝 per-operation manual approval，因为 ephemeral workspace identity 还不能安全复用。 | `agent_forge/multi_agent/application/live_fanout.py`、`adapters/fanout_files.py` |
 | Mini-case | Yellow | 小型确定性 scorecard 为 research/ops 场景评估显式 evidence。 | 不是 benchmark，也不能证明一般 Agent 能力。 | `evaluation/application/mini_cases.py`、`docs/evaluation/mini-cases/` |
-| Local Evidence Console | Yellow | 运行受限 CLI action，提供 isolation、network、routing、approval、Skills/MCP、sequential/fanout control；渲染 role artifact、Multi 后 Single timeline、Memory/Context/model-adaptation 实际计数、claim boundary、cost、feedback 和 dataset export。 | 它读取本地 artifact 并启动本地 job，不是 production web app 或 hosted SaaS；未触发能力显示 0，不构造 synthetic pass。 | `agent_forge/workbench/presentation/http.py`、`agent_forge/workbench/adapters/evidence_files.py` |
+| Local Workbench | Yellow | 运行受限 CLI action，以 Overview、Run Evidence、Benchmark 为主视图；展示 repository task 结果、role artifact、Multi 后 Single timeline、Memory/Context/model-adaptation 实际计数、repeated campaign 分母、paired official outcome、cost、feedback 和 dataset export。 | 它读取本地 artifact 并启动本地 job，不是 production web app 或 hosted SaaS；未触发能力显示 0，不构造 synthetic pass。 | `agent_forge/workbench/presentation/http.py`、`agent_forge/workbench/adapters/evidence_files.py` |
 | MCP stdio subset | Green | 启动 subprocess、发现 tool、通过 JSON-RPC 调用并标准化 content block。 | 不声称完整 MCP SDK compatibility。 | `agent_forge/tools/mcp_stdio.py`、`agent_forge/mcp/server.py` |
 | MCP-style local adapter | Yellow | 将本地 MCP-like spec 转成 local tool。 | 不是完整 MCP protocol。 | `agent_forge/tools/adapters/mcp_style_adapter.py` |
 | Skills progressive disclosure | Green | Registry 先用 name/description/tags/activation terms 产生不含 procedure 的 `SkillCatalogEntry`，再只为选中版本激活完整 `SkillSpec`；prompt、tool routing、来源与选择原因进入 runtime/trace，benchmark 固定 manifest hash。 | Manifest 当前会被本地进程解析，渐进披露指“模型上下文只注入已激活正文”，不是远端 marketplace 或任意脚本执行系统；Skill 激活不等于有效。 | `agent_forge/skills/registry.py`、`runtime/application/run_preparation.py`、`tests/test_skill_disclosure.py` |

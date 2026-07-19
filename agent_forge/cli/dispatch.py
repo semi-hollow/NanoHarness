@@ -10,6 +10,7 @@ from agent_forge.bench.presentation.cli import (
     publish_case_document,
     render_case_catalog_from_args,
     render_case_inspection_from_args,
+    run_campaign_from_args,
     run_swebench_from_args,
 )
 from agent_forge.context.api import (
@@ -75,6 +76,13 @@ def main(argv: list[str] | None = None) -> None:
         publish_case_document(render_case_catalog_from_args(args), args.output)
     elif args.command == "bench" and args.bench_name == "case":
         publish_case_document(render_case_inspection_from_args(args), args.output)
+    elif args.command == "bench" and args.bench_name == "campaign":
+        campaign = run_campaign_from_args(args)
+        print(f"Campaign status: {campaign.state.status}")
+        print(f"Campaign directory: {campaign.campaign_dir}")
+        print(f"Campaign report: {campaign.report_path}")
+        if campaign.public_dir:
+            print(f"Public evidence: {campaign.public_dir}")
     elif args.command == "eval":
         _dispatch_evaluation(args)
     elif args.command == "report":

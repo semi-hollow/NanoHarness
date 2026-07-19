@@ -29,6 +29,8 @@ def build_workbench_command(
         return build_swebench_command(python, payload, regression=False)
     if action == "swebench_regression":
         return build_swebench_command(python, payload, regression=True)
+    if action == "benchmark_campaign":
+        return build_campaign_command(python, payload)
     if action == "report":
         return WorkbenchCommand(
             "Latest Report",
@@ -304,6 +306,68 @@ def build_swebench_command(
     title = "SWE-bench Regression Set" if regression else "SWE-bench Reference Case"
     return WorkbenchCommand(
         title=f"{title} · {provider}",
+        command=command,
+        display_command=command[:],
+        env=api_key_env(payload, provider),
+    )
+
+
+def build_campaign_command(
+    python: str,
+    payload: dict[str, Any],
+) -> WorkbenchCommand:
+    """构造固定 preset 的 repeated campaign，UI 不允许任意改变实验因子。"""
+
+    provider = payload_choice(
+        payload,
+        "provider",
+        {"deepseek", "openai", "openai-compatible"},
+        "deepseek",
+    )
+    command = [
+        python,
+        "-m",
+        "agent_forge",
+        "bench",
+        "campaign",
+        "--regression-set",
+        "smoke-5",
+        "--repetitions",
+        str(payload_int(payload, "campaignRepetitions", 3, 1, 10)),
+        "--provider",
+        provider,
+        "--temperature",
+        str(payload_float(payload, "temperature", 0.0, 0.0, 2.0)),
+        "--max-steps",
+        str(payload_int(payload, "maxSteps", 16, 1, 80)),
+        "--max-context-chars",
+        str(payload_int(payload, "maxContextChars", 12000, 1000, 120000)),
+        "--execution-mode",
+        payload_choice(
+            payload,
+            "executionMode",
+            {"local", "worktree", "container"},
+            "worktree",
+        ),
+        "--network-policy",
+        payload_choice(payload, "networkPolicy", {"deny", "allow"}, "deny"),
+        "--max-workers",
+        str(payload_int(payload, "maxWorkers", 1, 1, 8)),
+    ]
+    append_optional(command, "--campaign-id", payload_text(payload, "campaignId", ""))
+    append_optional(command, "--model", payload_text(payload, "model", ""))
+    append_optional(command, "--base-url", payload_text(payload, "baseUrl", ""))
+    command.append(
+        "--keep-worktree"
+        if payload_bool(payload, "keepWorktree", False)
+        else "--no-keep-worktree"
+    )
+    if payload_bool(payload, "officialEvaluate", False):
+        command.append("--evaluate")
+    if payload_bool(payload, "publishCampaign", False):
+        command.append("--publish")
+    return WorkbenchCommand(
+        title=f"Smoke-5 Runtime Campaign · {provider}",
         command=command,
         display_command=command[:],
         env=api_key_env(payload, provider),

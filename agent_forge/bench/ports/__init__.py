@@ -6,6 +6,7 @@ from .benchmark import (
     DirectBaselinePort,
     OfficialEvaluatorPort,
 )
+from .campaign import BenchmarkRunnerPort, CampaignArtifactPort, SourceIdentityPort
 
 __all__ = [
     "BenchArtifactPort",
@@ -14,4 +15,7 @@ __all__ = [
     "CaseSourcePort",
     "DirectBaselinePort",
     "OfficialEvaluatorPort",
+    "BenchmarkRunnerPort",
+    "CampaignArtifactPort",
+    "SourceIdentityPort",
 ]

@@ -13,17 +13,21 @@ import os
 from pathlib import Path
 
 from agent_forge.bench.api import (
+    create_campaign_id,
     get_regression_set_profile,
     inspect_swebench_case,
     list_regression_case_profiles,
+    run_benchmark_campaign,
     run_swebench,
 )
+from agent_forge.bench.application.campaign import BenchmarkCampaignResult
 from agent_forge.bench.domain.catalog import (
     DEFAULT_DATASET,
     REGRESSION_SETS,
     SHOWCASE_INSTANCE_ID,
     SHOWCASE_INSTANCE_NOTE,
 )
+from agent_forge.bench.domain.campaign import BenchmarkCampaignRequest
 from agent_forge.bench.domain.config import SwebenchRunRequest
 from agent_forge.bench.domain.models import BenchRunSummary
 from agent_forge.bench.presentation.case_inspection import (
@@ -174,6 +178,68 @@ def build_swebench_parser(parser: argparse.ArgumentParser) -> None:
     )
 
 
+def build_campaign_parser(parser: argparse.ArgumentParser) -> None:
+    """注册可恢复的 Smoke-5 repeated matched campaign 参数。"""
+
+    parser.add_argument("--campaign-id")
+    parser.add_argument(
+        "--regression-set",
+        choices=sorted(REGRESSION_SETS),
+        default="smoke-5",
+    )
+    parser.add_argument("--repetitions", type=int, default=3)
+    parser.add_argument("--dataset", default=DEFAULT_DATASET)
+    parser.add_argument("--split", default="test")
+    parser.add_argument(
+        "--provider",
+        default=os.getenv("AGENT_FORGE_DEFAULT_LLM", "deepseek"),
+    )
+    parser.add_argument("--model")
+    parser.add_argument("--base-url")
+    parser.add_argument("--api-key")
+    parser.add_argument("--temperature", type=float, default=0.0)
+    parser.add_argument("--max-steps", type=int, default=16)
+    parser.add_argument("--max-context-chars", type=int, default=12000)
+    parser.add_argument("--max-prompt-tokens", type=int, default=32_768)
+    parser.add_argument("--reserved-output-tokens", type=int, default=4_096)
+    parser.add_argument("--max-tool-calls-per-turn", type=int, default=4)
+    parser.add_argument("--cost-budget-usd", type=float)
+    parser.add_argument("--timeout-seconds", type=float, default=900.0)
+    parser.add_argument("--repo-cache", default=".agent_forge/bench/repos")
+    parser.add_argument("--output-root", default=".agent_forge/campaigns")
+    parser.add_argument("--evaluate", action="store_true")
+    parser.add_argument("--max-workers", type=int, default=1)
+    parser.add_argument("--namespace-empty", action="store_true")
+    parser.add_argument(
+        "--execution-mode",
+        choices=["local", "worktree", "container"],
+        default="worktree",
+    )
+    parser.add_argument("--network-policy", choices=["deny", "allow"], default="deny")
+    parser.add_argument(
+        "--keep-worktree",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+    )
+    parser.add_argument(
+        "--resume",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Resume the same campaign id and retry incomplete slots.",
+    )
+    parser.add_argument(
+        "--allow-dirty",
+        action="store_true",
+        help="Allow an uncommitted source snapshot and record its content digest.",
+    )
+    parser.add_argument(
+        "--publish",
+        action="store_true",
+        help="Write a sanitized, reviewable evidence bundle under --publish-root.",
+    )
+    parser.add_argument("--publish-root", default="benchmarks/campaigns")
+
+
 # 主要入口：把扁平 CLI 参数收敛成 SwebenchRunRequest 并启动正式评测用例。
 def run_swebench_from_args(args: argparse.Namespace) -> BenchRunSummary:
     """处理固定集合/showcase 语义后调用 ``bench.api.run_swebench``。"""
@@ -237,6 +303,50 @@ def run_swebench_from_args(args: argparse.Namespace) -> BenchRunSummary:
         container_pids_limit=args.container_pids_limit,
         container_read_only=args.container_read_only,
     ))
+
+
+# 主要入口：把 CLI 参数固定为两个可解释 Runtime preset，并启动 campaign。
+def run_campaign_from_args(args: argparse.Namespace) -> BenchmarkCampaignResult:
+    """Campaign 不接受任意 factor 组合，避免 UI/CLI 产生不可解释实验。"""
+
+    case_ids = tuple(REGRESSION_SETS[args.regression_set])
+    campaign_id = args.campaign_id or create_campaign_id(args.regression_set)
+    benchmark = SwebenchRunRequest(
+        dataset_name=args.dataset,
+        split=args.split,
+        provider=args.provider,
+        model=args.model,
+        base_url=args.base_url,
+        api_key=args.api_key,
+        temperature=args.temperature,
+        max_steps=args.max_steps,
+        max_context_chars=args.max_context_chars,
+        max_prompt_tokens=args.max_prompt_tokens,
+        reserved_output_tokens=args.reserved_output_tokens,
+        max_tool_calls_per_turn=args.max_tool_calls_per_turn,
+        cost_budget_usd=args.cost_budget_usd,
+        timeout_seconds=args.timeout_seconds,
+        repo_cache=args.repo_cache,
+        evaluate=args.evaluate,
+        max_workers=args.max_workers,
+        namespace_empty=args.namespace_empty,
+        execution_mode=args.execution_mode,
+        network_policy=args.network_policy,
+        keep_worktree=args.keep_worktree,
+    )
+    return run_benchmark_campaign(
+        BenchmarkCampaignRequest(
+            benchmark=benchmark,
+            case_ids=case_ids,
+            campaign_id=campaign_id,
+            regression_set=args.regression_set,
+            repetitions=args.repetitions,
+            output_root=args.output_root,
+            publish_root=args.publish_root if args.publish else "",
+            resume=args.resume,
+            allow_dirty=args.allow_dirty,
+        )
+    )
 
 
 # 主要入口：查询固定集合契约并生成 Markdown 或 JSON 文本。

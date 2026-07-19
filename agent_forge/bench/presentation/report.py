@@ -31,7 +31,7 @@ def render_bench_report(summary: BenchRunSummary) -> str:
     total = len(summary.case_results)
 
     lines = [
-        "# Agent Forge Benchmark Result",
+        "# NanoHarness Benchmark Result",
         "",
         "## Run",
         "",

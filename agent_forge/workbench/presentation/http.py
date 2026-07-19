@@ -128,14 +128,14 @@ def run_ui(host: str = "127.0.0.1", port: int = 8765, open_browser: bool = True)
     )
     server = ThreadingHTTPServer((host, port), handler)
     url = f"http://{host}:{port}"
-    print(f"Agent Forge UI: {url}")
+    print(f"NanoHarness Workbench: {url}")
     print("Press Ctrl+C to stop.")
     if open_browser:
         webbrowser.open(url)
     try:
         server.serve_forever()
     except KeyboardInterrupt:
-        print("\nStopping Agent Forge UI.")
+        print("\nStopping NanoHarness Workbench.")
     finally:
         server.server_close()
 
@@ -213,6 +213,8 @@ def _render_evidence_html(project_dir: Path, kind: str) -> str:
         return _render_orchestration_dashboard(project_dir)
     if kind == "evaluation":
         return _render_evaluation_dashboard(project_dir)
+    if kind == "benchmark":
+        return _render_benchmark_dashboard(project_dir)
     if kind == "feedback":
         return _render_feedback_dashboard(project_dir)
     if kind == "raw_report":
@@ -275,6 +277,18 @@ def _latest_direct_baseline_record(project_dir: Path) -> dict[str, Any]:
     return build_evidence_catalog(project_dir).latest_direct_baseline_record()
 
 
+def _latest_campaign_dir(project_dir: Path) -> Path | None:
+    return build_evidence_catalog(project_dir).latest_campaign_dir()
+
+
+def _latest_campaign_state(project_dir: Path) -> dict[str, Any]:
+    return build_evidence_catalog(project_dir).latest_campaign_state()
+
+
+def _latest_campaign_summary(project_dir: Path) -> dict[str, Any]:
+    return build_evidence_catalog(project_dir).latest_campaign_summary()
+
+
 def _event_list(trace: dict[str, Any]) -> list[dict[str, Any]]:
 
     return [event for event in trace.get("events") or [] if isinstance(event, dict)]
@@ -330,8 +344,8 @@ def _render_result_summary(project_dir: Path) -> str:
         )
         case_rows_html = case_rows or "<tr><td colspan='8'>No cases</td></tr>"
         body = [
-            "<h2>结果摘要：这次跑成什么样</h2>",
-            "<p class='help strong'>这不是原始日志，而是从 results.json、usage.json、trace.json 提炼出的展示卡片。</p>",
+            "<h2>Repository Task Outcome</h2>",
+            "<p class='help strong'>从 results.json、usage.json 与 trace.json 汇总任务结果；原始 artifact 仍保留用于追溯。</p>",
             _metric_grid(
                 [
                     ("Run", results.get("run_id", ""), "Benchmark run id", "neutral"),
@@ -359,7 +373,7 @@ def _render_result_summary(project_dir: Path) -> str:
         ]
     else:
         body = [
-            "<h2>结果摘要：这次跑成什么样</h2>",
+            "<h2>Repository Task Outcome</h2>",
             _metric_grid(
                 [
                     ("Run", usage.get("run_id", ""), "Normal agent run", "neutral"),
@@ -989,6 +1003,155 @@ def _render_evaluation_dashboard(project_dir: Path) -> str:
     return "<div class='evidence'>" + "".join(body) + "</div>"
 
 
+def _render_benchmark_dashboard(project_dir: Path) -> str:
+    """展示 repeated campaign 事实；没有 campaign 时只展示实验契约和入口。"""
+
+    campaign_dir = _latest_campaign_dir(project_dir)
+    state = _latest_campaign_state(project_dir)
+    summary = _latest_campaign_summary(project_dir)
+    if not state or not summary:
+        body = [
+            "<div class='view-heading'><div><span class='view-kicker'>BENCHMARK</span><h2>Smoke-5 Runtime Campaign</h2></div>"
+            f"{_badge('not_run', 'neutral')}</div>",
+            _metric_grid(
+                [
+                    ("Cases", "5", "five repositories and issue families", "neutral"),
+                    ("Presets", "2", "minimal-control vs governed-runtime", "neutral"),
+                    ("Repeats", "3", "matched repetitions per case", "neutral"),
+                    ("Planned Runs", "30", "5 x 2 x 3", "neutral"),
+                    ("Authority", "Official Eval", "candidate patch is not solved", "warn"),
+                    ("Public Bundle", "On Complete", "sanitized evidence only", "neutral"),
+                ]
+            ),
+            "<section class='evidence-section'><div class='section-title'><h3>Experiment Contract</h3><span>fixed before execution</span></div>"
+            "<table><thead><tr><th>held constant</th><th>runtime preset difference</th><th>authority</th></tr></thead><tbody>"
+            "<tr><td>case/task input, model, temperature, budget, safety, execution mode</td><td>tool visibility + Skill-injected context</td><td>official per-case SWE-bench outcome</td></tr>"
+            "</tbody></table><p class='boundary-note'>This is a multi-factor preset comparison. It is not presented as a single-factor causal ablation.</p></section>",
+            "<section class='evidence-section'><div class='section-title'><h3>Run It</h3><span>resumable at every slot boundary</span></div>"
+            "<pre class='raw-text'>forge bench campaign --regression-set smoke-5 --repetitions 3 --evaluate --publish</pre>"
+            "<p class='boundary-note'>Commit the source first. A clean Git revision is required before paid runs unless --allow-dirty is explicitly accepted.</p></section>",
+        ]
+        return "<div class='evidence'>" + "".join(body) + "</div>"
+
+    variants = summary.get("variants") or {}
+    paired = summary.get("paired_official") or {}
+    status_counts = summary.get("status_counts") or {}
+    source = summary.get("source") or {}
+    variant_rows = []
+    for name, item in variants.items():
+        official_count = int(item.get("official_evaluated") or 0)
+        official_resolved = int(item.get("official_resolved") or 0)
+        official_text = (
+            f"{official_resolved}/{official_count} ({official_resolved / official_count:.1%})"
+            if official_count
+            else "not available"
+        )
+        variant_rows.append(
+            "<tr>"
+            f"<td><b>{_escape(name)}</b></td>"
+            f"<td>{int(item.get('completed') or 0)}/{int(item.get('planned') or 0)}</td>"
+            f"<td>{int(item.get('patch_generated') or 0)}/{int(item.get('planned') or 0)}</td>"
+            f"<td>{int(item.get('local_verified') or 0)}/{int(item.get('planned') or 0)}</td>"
+            f"<td>{_escape(official_text)}</td>"
+            f"<td>{int(item.get('total_tokens') or 0)}</td>"
+            f"<td>${float(item.get('estimated_cost_usd') or 0.0):.6f}</td>"
+            f"<td>{int(item.get('failed_tool_calls') or 0)}</td>"
+            "</tr>"
+        )
+    run_rows = []
+    for record in state.get("records") or []:
+        if not isinstance(record, dict):
+            continue
+        evidence = record.get("evidence") or {}
+        run_rows.append(
+            "<tr>"
+            f"<td>{int(record.get('ordinal') or 0)}</td>"
+            f"<td class='mono'>{_escape(record.get('case_id') or '')}</td>"
+            f"<td>{int(record.get('repetition') or 0)}</td>"
+            f"<td>{_escape(record.get('variant') or '')}</td>"
+            f"<td>{_badge(str(record.get('status') or 'pending'), _tone_for_status(str(record.get('status') or '')))}</td>"
+            f"<td>{'yes' if evidence.get('patch_generated') else 'no'}</td>"
+            f"<td>{_escape(evidence.get('official_evaluation_status') or 'not_evaluated')}</td>"
+            f"<td>{_escape(evidence.get('failure_class') or 'unclassified')}</td>"
+            "</tr>"
+        )
+    wins = paired.get("wins") or {}
+    variant_rows_html = "".join(variant_rows) or (
+        "<tr><td colspan='8'>No variant evidence.</td></tr>"
+    )
+    run_rows_html = "".join(run_rows) or (
+        "<tr><td colspan='8'>No run slots.</td></tr>"
+    )
+    paired_metrics = _metric_grid(
+        [
+            (
+                "Evaluated Pairs",
+                str(paired.get("evaluated_pairs") or 0),
+                "official on both presets",
+                "neutral",
+            ),
+            (
+                "Minimal Wins",
+                str(wins.get("minimal-control") or 0),
+                "official resolved only on control",
+                "neutral",
+            ),
+            (
+                "Governed Wins",
+                str(wins.get("governed-runtime") or 0),
+                "official resolved only on treatment",
+                "ok",
+            ),
+            (
+                "Ties",
+                str(paired.get("ties") or 0),
+                "same official result",
+                "neutral",
+            ),
+            (
+                "Correctness Claim",
+                "Official Only",
+                "candidate patch never fills this gap",
+                "warn" if not paired.get("evaluated_pairs") else "ok",
+            ),
+            (
+                "Preset Delta",
+                "Routing + Skills",
+                "multi-factor comparison",
+                "neutral",
+            ),
+        ]
+    )
+    body = [
+        "<div class='view-heading'><div><span class='view-kicker'>BENCHMARK</span><h2>Repeated Runtime Evidence</h2></div>"
+        f"{_badge(str(summary.get('status') or 'unknown'), _tone_for_status(str(summary.get('status') or '')))}</div>",
+        _metric_grid(
+            [
+                ("Campaign", str(summary.get("campaign_id") or ""), "stable experiment id", "neutral"),
+                ("Revision", str(source.get("revision") or "unknown")[:12], str(source.get("branch") or ""), "neutral"),
+                ("Planned", str(summary.get("planned_runs") or 0), "case x preset x repeat", "neutral"),
+                ("Completed", str(status_counts.get("completed") or 0), "durable completed slots", "ok"),
+                ("Failed", str(status_counts.get("failed") or 0), "retryable on resume", "warn" if status_counts.get("failed") else "ok"),
+                ("Official Pairs", str(paired.get("evaluated_pairs") or 0), "both presets decided", "ok" if paired.get("evaluated_pairs") else "warn"),
+            ]
+        ),
+        "<section class='evidence-section'><div class='section-title'><h3>Preset Comparison</h3><span>same Runtime kernel, explicit configuration delta</span></div>"
+        "<table><thead><tr><th>preset</th><th>complete</th><th>candidate patch</th><th>local verified</th><th>official resolved</th><th>tokens</th><th>cost</th><th>failed tools</th></tr></thead>"
+        f"<tbody>{variant_rows_html}</tbody></table>"
+        "<p class='boundary-note'>Patch rate uses every planned slot. Official resolved rate uses only explicit resolved/unresolved outcomes.</p></section>",
+        "<section class='evidence-section'><div class='section-title'><h3>Paired Official Outcomes</h3><span>correctness comparison only</span></div>"
+        f"{paired_metrics}"
+        "<p class='boundary-note'>Zero paired official outcomes means correctness remains unknown; candidate patches do not fill this gap.</p></section>",
+        "<section class='evidence-section'><div class='section-title'><h3>Run Matrix</h3><span>every slot is independently resumable</span></div>"
+        "<table><thead><tr><th>#</th><th>case</th><th>repeat</th><th>preset</th><th>status</th><th>patch</th><th>official</th><th>failure class</th></tr></thead>"
+        f"<tbody>{run_rows_html}</tbody></table></section>",
+        "<details class='provenance'><summary>Campaign provenance</summary>"
+        f"<code>{_escape(str(campaign_dir or 'not found'))}</code>"
+        f"<code>config sha256: {_escape(summary.get('config_digest') or '')}</code></details>",
+    ]
+    return "<div class='evidence'>" + "".join(body) + "</div>"
+
+
 def _render_feedback_dashboard(project_dir: Path) -> str:
 
     feedback_path = _latest_feedback_path(project_dir)
@@ -1312,7 +1475,7 @@ INDEX_HTML = r"""<!doctype html>
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>NanoHarness Evidence Console</title>
+  <title>NanoHarness Workbench</title>
   <link rel="icon" href="data:," />
   <style>
     :root {
@@ -1667,6 +1830,12 @@ INDEX_HTML = r"""<!doctype html>
       border: 1px solid var(--line);
       color: var(--text);
       background: rgba(242, 244, 248, .84);
+    }
+    td .badge {
+      max-width: 100%;
+      border-radius: 4px;
+      white-space: normal;
+      overflow-wrap: anywhere;
     }
     .badge.ok, .event-pill.ok { border-color: rgba(52, 199, 89, .34); color: #248a3d; background: rgba(52, 199, 89, .09); }
     .badge.warn, .event-pill.warn { border-color: rgba(255, 149, 0, .34); color: #a35f00; background: rgba(255, 149, 0, .1); }
@@ -2049,8 +2218,8 @@ INDEX_HTML = r"""<!doctype html>
     <div class="brand-lockup">
       <div class="brand-mark">NH</div>
       <div>
-        <h1>NanoHarness Evidence Console</h1>
-        <div class="subtitle">Runtime control, orchestration, evaluation and improvement evidence</div>
+        <h1>NanoHarness Workbench</h1>
+        <div class="subtitle">Repository task, governed execution, and benchmark evidence</div>
       </div>
     </div>
     <div class="header-actions">
@@ -2152,6 +2321,18 @@ INDEX_HTML = r"""<!doctype html>
           <summary>Core regression set</summary>
           <button class="secondary" onclick="startJob('swebench_regression')">Run 5 Cases</button>
         </details>
+        <details>
+          <summary>Repeated runtime campaign</summary>
+          <label>Campaign ID</label>
+          <input id="campaignId" placeholder="留空自动生成；恢复时填原 ID" />
+          <label>Repetitions</label>
+          <input id="campaignRepetitions" type="number" min="1" max="10" value="3" />
+          <div class="checkbox-line">
+            <input id="publishCampaign" type="checkbox" />
+            <span>Publish sanitized evidence bundle</span>
+          </div>
+          <button class="primary" onclick="startJob('benchmark_campaign')">Run Matched Campaign</button>
+        </details>
       </div>
       <div class="card">
         <div class="section-kicker">REPOSITORY RUN</div>
@@ -2229,7 +2410,9 @@ INDEX_HTML = r"""<!doctype html>
         <div class="pill"><div class="k">Active Job</div><div class="v" id="activeJob">none</div></div>
       </div>
       <div class="view-tabs">
-        <button data-view="evidence" onclick="loadEvidence('evidence')">Overview</button>
+        <button data-view="summary" onclick="loadEvidence('summary')">Overview</button>
+        <button data-view="evidence" onclick="loadEvidence('evidence')">Run Evidence</button>
+        <button data-view="benchmark" onclick="loadEvidence('benchmark')">Benchmark</button>
         <button data-view="controls" onclick="loadEvidence('controls')">Runtime Controls</button>
         <button data-view="orchestration" onclick="loadEvidence('orchestration')">Orchestration</button>
         <button data-view="evaluation" onclick="loadEvidence('evaluation')">Evaluation</button>
@@ -2247,12 +2430,13 @@ INDEX_HTML = r"""<!doctype html>
   <script>
     let currentJob = null;
     const evidenceTitles = {
-      evidence: 'Overview',
+      summary: 'Overview',
+      evidence: 'Run Evidence',
+      benchmark: 'Benchmark',
       controls: 'Runtime Controls',
       orchestration: 'Orchestration',
       evaluation: 'Evaluation',
       compare: 'Single vs Multi',
-      summary: 'Result Summary',
       usage: 'Efficiency',
       timeline: 'Execution Timeline',
       feedback: 'Feedback Loop',
@@ -2318,6 +2502,9 @@ INDEX_HTML = r"""<!doctype html>
         directBaseline: checked('directBaseline'),
         officialEvaluate: checked('officialEvaluate'),
         maxWorkers: valueOf('maxWorkers'),
+        campaignId: valueOf('campaignId'),
+        campaignRepetitions: valueOf('campaignRepetitions'),
+        publishCampaign: checked('publishCampaign'),
         feedbackOutcome: valueOf('feedbackOutcome'),
         feedbackLabels: valueOf('feedbackLabels'),
         feedbackNote: valueOf('feedbackNote'),
@@ -2449,7 +2636,7 @@ INDEX_HTML = r"""<!doctype html>
     document.getElementById('provider').addEventListener('change', applyProviderDefaults);
     updateLayoutControls();
     refreshStatus();
-    loadEvidence('evidence');
+    loadEvidence('summary');
   </script>
 </body>
 </html>

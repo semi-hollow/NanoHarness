@@ -10,6 +10,7 @@ from agent_forge.runtime.adapters import JsonApprovalRepository
 from agent_forge.runtime.domain.approval import ApprovalRequestDraft
 from agent_forge.workbench.presentation.commands import (
     build_agent_run_command as _build_agent_run_command,
+    build_campaign_command as _build_campaign_command,
     build_swebench_command as _build_swebench_command,
 )
 from agent_forge.workbench.presentation.http import (
@@ -388,6 +389,20 @@ class PublicCliSmokeTest(unittest.TestCase):
         self.assertIn("Produced Artifacts", html)
         self.assertIn("No multi-agent artifacts", html)
 
+    def test_overview_uses_product_outcome_heading(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            run_dir = root / ".agent_forge" / "runs" / "run-overview"
+            run_dir.mkdir(parents=True)
+            latest = root / ".agent_forge" / "latest"
+            latest.mkdir(parents=True)
+            (latest / "run.txt").write_text(str(run_dir), encoding="utf-8")
+            (run_dir / "usage.json").write_text("{}", encoding="utf-8")
+            (run_dir / "trace.json").write_text("{}", encoding="utf-8")
+
+            html = _render_result_summary(root)
+        self.assertIn("Repository Task Outcome", html)
+
     def test_usage_dashboard_exposes_observed_adaptive_harness_signals(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -575,15 +590,103 @@ class PublicCliSmokeTest(unittest.TestCase):
         self.assertNotIn(" · ", html)
 
     def test_ui_surfaces_runtime_control_and_feedback_operations(self):
-        self.assertIn("NanoHarness Evidence Console", INDEX_HTML)
+        self.assertIn("NanoHarness Workbench", INDEX_HTML)
+        self.assertIn("Run Evidence", INDEX_HTML)
+        self.assertIn("Benchmark", INDEX_HTML)
         self.assertIn("Runtime Controls", INDEX_HTML)
         self.assertIn("Orchestration", INDEX_HTML)
         self.assertIn("Evaluation", INDEX_HTML)
         self.assertIn("Feedback Loop", INDEX_HTML)
+        self.assertIn("td .badge", INDEX_HTML)
+        self.assertIn("white-space: normal", INDEX_HTML)
         self.assertIn('id="executionMode"', INDEX_HTML)
         self.assertIn('id="networkPolicy"', INDEX_HTML)
         self.assertIn('id="toolRouting"', INDEX_HTML)
         self.assertIn('id="feedbackOutcome"', INDEX_HTML)
+        self.assertIn('id="campaignRepetitions"', INDEX_HTML)
+
+    def test_workbench_campaign_command_keeps_preset_comparison_fixed(self):
+        command = _build_campaign_command(
+            sys.executable,
+            {
+                "provider": "deepseek",
+                "model": "model-a",
+                "campaignId": "smoke-5-demo",
+                "campaignRepetitions": 3,
+                "executionMode": "worktree",
+                "officialEvaluate": True,
+                "publishCampaign": True,
+            },
+        )
+
+        self.assertEqual(command.command[3:5], ["bench", "campaign"])
+        self.assertIn("smoke-5-demo", command.command)
+        self.assertIn("--evaluate", command.command)
+        self.assertIn("--publish", command.command)
+        self.assertNotIn("--tool-routing", command.command)
+        self.assertNotIn("--skills", command.command)
+
+    def test_benchmark_view_renders_campaign_denominators_and_run_matrix(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            campaign = root / ".agent_forge/campaigns/campaign-1"
+            campaign.mkdir(parents=True)
+            latest = root / ".agent_forge/latest"
+            latest.mkdir(parents=True)
+            (latest / "campaign.txt").write_text(str(campaign), encoding="utf-8")
+            (campaign / "campaign.json").write_text(
+                """
+{
+  "schema_version": 1,
+  "campaign_id": "campaign-1",
+  "config_digest": "digest",
+  "config": {"variants": [{"name": "minimal-control"}, {"name": "governed-runtime"}]},
+  "source": {"revision": "abcdef123456", "branch": "master", "dirty": false},
+  "created_at": "now",
+  "updated_at": "now",
+  "status": "completed",
+  "records": [
+    {"key": "case-1-r1-min", "ordinal": 1, "case_id": "case-1", "repetition": 1, "variant": "minimal-control", "status": "completed", "attempts": 1, "run_id": "run-1", "run_dir": "/tmp/run-1", "scorecard_sha256": "one", "evidence": {"patch_generated": true, "official_evaluation_status": "official_eval_failed", "failure_class": "official_eval_failed"}},
+    {"key": "case-1-r1-gov", "ordinal": 2, "case_id": "case-1", "repetition": 1, "variant": "governed-runtime", "status": "completed", "attempts": 1, "run_id": "run-2", "run_dir": "/tmp/run-2", "scorecard_sha256": "two", "evidence": {"patch_generated": true, "official_evaluation_status": "official_resolved", "failure_class": "official_resolved"}}
+  ]
+}
+""",
+                encoding="utf-8",
+            )
+            (campaign / "campaign_summary.json").write_text(
+                """
+{
+  "campaign_id": "campaign-1",
+  "status": "completed",
+  "source": {"revision": "abcdef123456", "branch": "master"},
+  "config_digest": "digest",
+  "planned_runs": 2,
+  "status_counts": {"completed": 2},
+  "variants": {
+    "minimal-control": {"planned": 1, "completed": 1, "patch_generated": 1, "local_verified": 0, "official_evaluated": 1, "official_resolved": 0, "total_tokens": 100, "estimated_cost_usd": 0.01, "failed_tool_calls": 1},
+    "governed-runtime": {"planned": 1, "completed": 1, "patch_generated": 1, "local_verified": 1, "official_evaluated": 1, "official_resolved": 1, "total_tokens": 120, "estimated_cost_usd": 0.02, "failed_tool_calls": 0}
+  },
+  "paired_official": {"evaluated_pairs": 1, "wins": {"minimal-control": 0, "governed-runtime": 1}, "ties": 0}
+}
+""",
+                encoding="utf-8",
+            )
+
+            html = _render_evidence_html(root, "benchmark")
+
+        self.assertIn("Repeated Runtime Evidence", html)
+        self.assertIn("1/1 (100.0%)", html)
+        self.assertIn("Governed Wins", html)
+        self.assertIn("case-1", html)
+        self.assertIn("Official resolved rate uses only", html)
+
+    def test_empty_benchmark_contract_does_not_claim_prompt_is_constant(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            html = _render_evidence_html(Path(tmp), "benchmark")
+
+        self.assertIn("case/task input", html)
+        self.assertIn("Skill-injected context", html)
+        self.assertNotIn("temperature, prompt, budget", html)
 
     def test_ui_feedback_and_dataset_actions_target_latest_evidence(self):
         with tempfile.TemporaryDirectory() as tmp:
