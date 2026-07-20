@@ -9,7 +9,12 @@ import uuid
 from pathlib import Path
 from typing import Callable
 
-from agent_forge.configuration import resolve_run_arguments, resolved_run_config
+from agent_forge.configuration import (
+    RunConfigDocument,
+    resolve_run_arguments,
+    resolved_run_config,
+)
+from agent_forge.harness import Harness, HarnessConfig, RunRequest
 from agent_forge.multi_agent.api import (
     LiveFanoutBuildRequest,
     SequentialCoordinatorBuildRequest,
@@ -19,7 +24,6 @@ from agent_forge.multi_agent.api import (
 )
 from agent_forge.multi_agent.profiles import get_profile
 from agent_forge.observability.api import TraceRecorder, write_usage_artifacts
-from agent_forge.runtime.api import build_agent_loop
 from agent_forge.runtime.config import RuntimeConfig
 from agent_forge.runtime.domain.model import ModelCapabilities
 from agent_forge.runtime.execution_environment import (
@@ -42,12 +46,86 @@ from agent_forge.tools.registry import ToolRegistry
 
 # 主要入口：从 CLI 参数装配并运行 single、sequential multi 或 live fanout 任务。
 def run_repository_task(args: argparse.Namespace) -> Path:
-    """执行 repository task，并返回完整 evidence 目录。"""
+    """把 CLI 输入转换为类型化请求；Single Agent 委托唯一 ``Harness`` API。"""
 
     try:
         config_document = resolve_run_arguments(args)
     except (OSError, ValueError) as exc:
         raise SystemExit(f"invalid run configuration: {exc}") from exc
+    if getattr(args, "agent_mode", "single") == "single":
+        return _run_single_repository_task(args, config_document)
+    return _run_advanced_repository_task(args, config_document)
+
+
+def _run_single_repository_task(
+    args: argparse.Namespace,
+    config_document: RunConfigDocument | None,
+) -> Path:
+    """规范主链：CLI 只选择 Adapter，再调用 ``Harness.run``。"""
+
+    llm = build_llm(_resolve_llm_config(args))
+    enabled_tools = getattr(args, "enabled_tools", None)
+    harness = Harness(
+        model=llm,
+        config=HarnessConfig(
+            workspace=args.workspace,
+            output_root=args.output_root,
+            max_steps=args.max_steps,
+            max_context_chars=args.max_context_chars,
+            max_prompt_tokens=args.max_prompt_tokens,
+            reserved_output_tokens=args.reserved_output_tokens,
+            max_tool_calls_per_turn=args.max_tool_calls_per_turn,
+            timeout_seconds=args.timeout_seconds,
+            cost_budget_usd=args.cost_budget_usd,
+            approval_mode=args.approval_mode,
+            auto_approve_writes=args.auto_approve_writes,
+            approval_root=args.approval_root,
+            human_input_root=args.human_input_root,
+            operation_ledger_root=args.operation_ledger_root,
+            memory_root=args.memory_root,
+            memory_recall_limit=args.memory_recall_limit,
+            skill_mode=parse_skill_mode(args.skills),
+            skill_names=tuple(parse_skill_names(args.skills)),
+            skill_manifest_files=tuple(args.skill_manifest),
+            tool_routing_mode=args.tool_routing,
+            enabled_tools=(
+                tuple(enabled_tools) if enabled_tools is not None else None
+            ),
+            mcp_config_file=args.mcp_config,
+            mcp_allowed_tools=tuple(args.mcp_tool),
+            model_capabilities=_model_capabilities_from_args(args),
+            instruction_target=args.instruction_target,
+            global_instruction_files=tuple(args.global_instruction_file),
+            runtime_instructions=args.runtime_instructions,
+            instruction_max_bytes=args.instruction_max_bytes,
+            execution_mode=args.execution_mode,
+            network_policy=args.network_policy,
+            keep_worktree=args.keep_worktree,
+            container_runtime=args.container_runtime,
+            container_image=args.container_image,
+            container_cpus=args.container_cpus,
+            container_memory=args.container_memory,
+            container_pids_limit=args.container_pids_limit,
+            container_read_only=args.container_read_only,
+        ),
+    )
+    result = harness.run(
+        RunRequest(
+            task=args.task,
+            resume_state=getattr(args, "resume_state", "") or "",
+            human_thread_id=getattr(args, "human_thread_id", "") or "",
+            resolved_config=resolved_run_config(args, config_document),
+        )
+    )
+    return result.artifact_dir
+
+
+def _run_advanced_repository_task(
+    args: argparse.Namespace,
+    config_document: RunConfigDocument | None,
+) -> Path:
+    """保留 Multi/Fanout 高级编排；它们不属于 Single-Agent 黄金主链。"""
+
     run_id = f"run-{time.strftime('%Y%m%d-%H%M%S')}-{uuid.uuid4().hex[:7]}"
     run_dir = Path(args.output_root) / run_id
     run_dir.mkdir(parents=True, exist_ok=True)
@@ -70,22 +148,7 @@ def run_repository_task(args: argparse.Namespace) -> Path:
     )
     try:
         active_workspace = str(environment.active_workspace)
-        llm_config = resolve_llm_config(
-            LLMConfigRequest(
-                provider=args.provider,
-                base_url=args.base_url,
-                api_key=args.api_key,
-                model=args.model,
-                timeout=60,
-                temperature=args.temperature,
-                capabilities=_model_capabilities_from_args(args),
-            )
-        )
-        if not llm_config.is_configured():
-            raise SystemExit(
-                f"{args.provider} model config is incomplete. "
-                "Set API env vars or pass --base-url/--api-key/--model."
-            )
+        llm_config = _resolve_llm_config(args)
         config = _build_runtime_config(args, active_workspace, trace_path, environment)
 
         def registry_factory(
@@ -119,29 +182,24 @@ def run_repository_task(args: argparse.Namespace) -> Path:
         else:
             registry = registry_factory(active_workspace, environment)
             llm = build_llm(llm_config)
-            if agent_mode == "multi":
-                profile = get_profile(getattr(args, "profile", "coding_fix"))
-                summary = build_multi_agent_coordinator(
-                    SequentialCoordinatorBuildRequest(
-                        task=args.task,
-                        profile=profile,
-                        runtime_config=config,
-                        trace=trace,
-                        registry=registry,
-                        llm=llm,
-                        run_dir=run_dir,
-                        max_revision_rounds=getattr(
-                            args,
-                            "max_revision_rounds",
-                            profile.default_max_revision_rounds,
-                        ),
-                    )
-                ).run()
-                final_answer = summary.final_answer
-            else:
-                final_answer = build_agent_loop(config, trace, registry, llm).run(
-                    args.task
+            profile = get_profile(getattr(args, "profile", "coding_fix"))
+            summary = build_multi_agent_coordinator(
+                SequentialCoordinatorBuildRequest(
+                    task=args.task,
+                    profile=profile,
+                    runtime_config=config,
+                    trace=trace,
+                    registry=registry,
+                    llm=llm,
+                    run_dir=run_dir,
+                    max_revision_rounds=getattr(
+                        args,
+                        "max_revision_rounds",
+                        profile.default_max_revision_rounds,
+                    ),
                 )
+            ).run()
+            final_answer = summary.final_answer
 
         trace.write()
         write_usage_artifacts(trace_path)
@@ -154,6 +212,28 @@ def run_repository_task(args: argparse.Namespace) -> Path:
             environment.write_manifest(run_dir)
         finally:
             environment.cleanup()
+
+
+def _resolve_llm_config(args: argparse.Namespace) -> LLMConfig:
+    """在创建 run 前解析模型 Adapter，并拒绝不完整凭据。"""
+
+    config = resolve_llm_config(
+        LLMConfigRequest(
+            provider=args.provider,
+            base_url=args.base_url,
+            api_key=args.api_key,
+            model=args.model,
+            timeout=60,
+            temperature=args.temperature,
+            capabilities=_model_capabilities_from_args(args),
+        )
+    )
+    if not config.is_configured():
+        raise SystemExit(
+            f"{args.provider} model config is incomplete. "
+            "Set API env vars or pass --base-url/--api-key/--model."
+        )
+    return config
 
 
 # 运行时端口：把 local/worktree/container 配置落成可执行 workspace 快照。

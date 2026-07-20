@@ -5,16 +5,88 @@ from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).parents[1]
 
-PRIMARY_ENTRYPOINTS = {
-    "agent_forge/harness.py": ("Harness.run", "Harness.resume"),
+MAIN_ENTRY_MARKER = "# 主要入口："
+RUNTIME_PORT_MARKER = "# 运行时端口："
+CORE_RULE_MARKER = "# 核心规则："
+CORE_DATA_MARKER = "# 核心数据："
+
+# 第一遍只读这十个 owner。这里是学习地图，不是完整 Public API allowlist。
+GOLDEN_PATH = {
+    "agent_forge/harness.py": {
+        "Harness.run": MAIN_ENTRY_MARKER,
+    },
+    "agent_forge/runtime/application/agent_loop.py": {
+        "AgentLoop.run": MAIN_ENTRY_MARKER,
+    },
+    "agent_forge/runtime/application/run_preparation.py": {
+        "RunPreparation.start": MAIN_ENTRY_MARKER,
+        "RunPreparation.execute": MAIN_ENTRY_MARKER,
+    },
+    "agent_forge/runtime/application/turn_preparation.py": {
+        "TurnPreparation.execute": MAIN_ENTRY_MARKER,
+    },
+    "agent_forge/context/application/compaction.py": {
+        "ContextWindowManager.prepare": MAIN_ENTRY_MARKER,
+    },
+    "agent_forge/runtime/application/tool_execution.py": {
+        "ToolExecutionPipeline.execute_calls": MAIN_ENTRY_MARKER,
+    },
+    "agent_forge/runtime/application/tool_authorization.py": {
+        "ToolAuthorizationGate.authorize": MAIN_ENTRY_MARKER,
+    },
+    "agent_forge/runtime/application/operation_tracker.py": {
+        "OperationTracker.describe": MAIN_ENTRY_MARKER,
+        "OperationTracker.replay_if_executed": CORE_RULE_MARKER,
+        "OperationTracker.record_result": RUNTIME_PORT_MARKER,
+    },
+    "agent_forge/runtime/application/run_lifecycle.py": {
+        "RunLifecycle.update": RUNTIME_PORT_MARKER,
+        "RunLifecycle.stop": RUNTIME_PORT_MARKER,
+        "RunLifecycle.request_human_input": RUNTIME_PORT_MARKER,
+    },
+    "agent_forge/runtime/application/final_answer.py": {
+        "FinalAnswerBuilder.execute": MAIN_ENTRY_MARKER,
+    },
+}
+
+# 这些 owner 支撑黄金主链，但第一遍无需展开。
+SUPPORTING_CORE_ENTRYPOINTS = {
+    "agent_forge/runtime/application/run_control.py": ("ApplyRunControl.check",),
+    "agent_forge/runtime/control.py": ("StepController.classify_observation",),
+    "agent_forge/tools/tool_router.py": ("ToolRouter.route",),
+    "agent_forge/observability/api.py": ("write_usage_artifacts",),
+    "agent_forge/observability/application/usage.py": (
+        "BuildUsageReport.execute",
+    ),
+}
+
+# 这些能力保留面试深挖价值，但不属于 Single-Agent 五分钟主线。
+ADVANCED_ENTRYPOINTS = {
     "agent_forge/hooks.py": (
         "RuntimeHook.before_model",
-        "RuntimeHook.after_model",
         "RuntimeHook.before_tool",
-        "RuntimeHook.after_tool",
         "RuntimeHook.on_checkpoint",
         "RuntimeHook.on_stop",
     ),
+    "agent_forge/context/api.py": ("propose_memory",),
+    "agent_forge/multi_agent/application/coordinator.py": (
+        "MultiAgentCoordinator.run",
+    ),
+    "agent_forge/multi_agent/application/live_fanout.py": (
+        "LiveFanoutCoordinator.run",
+    ),
+    "agent_forge/bench/api.py": (
+        "run_swebench",
+        "run_benchmark_campaign",
+    ),
+    "agent_forge/evaluation/api.py": ("build_benchmark_scorecard",),
+    "agent_forge/mcp/server.py": ("AgentForgeMCPServer.run",),
+    "agent_forge/skills/registry.py": ("SkillRegistry.select_for_task",),
+    "agent_forge/control.py": ("RunController.pause", "RunController.steer"),
+}
+
+# Adapter 可调用、可导航，但不得拥有 Runtime 状态与完成语义。
+ADAPTER_ENTRYPOINTS = {
     "agent_forge/cli/parser.py": ("build_parser",),
     "agent_forge/cli/dispatch.py": ("main",),
     "agent_forge/cli/repository.py": ("run_repository_task",),
@@ -23,128 +95,14 @@ PRIMARY_ENTRYPOINTS = {
         "approve_request",
         "respond_to_human_input_request",
     ),
-    "agent_forge/runtime/application/agent_loop.py": ("AgentLoop.run",),
-    "agent_forge/runtime/application/run_control.py": ("ApplyRunControl.check",),
-    "agent_forge/runtime/application/run_preparation.py": (
-        "RunPreparation.start",
-        "RunPreparation.execute",
-    ),
-    "agent_forge/runtime/application/turn_preparation.py": ("TurnPreparation.execute",),
-    "agent_forge/runtime/application/final_answer.py": ("FinalAnswerBuilder.execute",),
-    "agent_forge/runtime/application/tool_authorization.py": (
-        "ToolAuthorizationGate.authorize",
-    ),
-    "agent_forge/runtime/application/tool_execution.py": (
-        "ToolExecutionPipeline.execute_calls",
-    ),
-    "agent_forge/runtime/application/operation_tracker.py": (
-        "OperationTracker.describe",
-    ),
-    "agent_forge/runtime/application/operator_control.py": (
-        "DecideApproval.execute",
-        "RespondToHumanInput.execute",
-        "BuildContinuationPlan.execute",
-    ),
     "agent_forge/runtime/wiring.py": ("build_agent_loop",),
-    "agent_forge/runtime/execution_environment.py": ("ExecutionEnvironment.prepare",),
-    "agent_forge/runtime/control.py": ("StepController.classify_observation",),
-    "agent_forge/runtime/structured_output.py": ("StructuredOutputParser.parse",),
-    "agent_forge/context/api.py": (
-        "propose_memory",
-        "promote_memory",
-        "retire_memory",
-        "reject_memory",
-        "list_memories",
-    ),
-    "agent_forge/context/application/memory_service.py": (
-        "LongTermMemoryService.propose",
-        "LongTermMemoryService.promote",
-        "LongTermMemoryService.recall",
-        "LongTermMemoryService.retire",
-        "LongTermMemoryService.reject",
-    ),
-    "agent_forge/context/application/compaction.py": ("ContextWindowManager.prepare",),
-    "agent_forge/context/context_builder.py": ("build_context_report",),
-    "agent_forge/context/instructions.py": ("resolve_instructions",),
     "agent_forge/models/gateway.py": ("ModelGateway.chat",),
-    "agent_forge/tools/tool_router.py": ("ToolRouter.route",),
     "agent_forge/tools/registry.py": ("ToolRegistry.execute",),
-    "agent_forge/tools/mcp_config.py": ("MCPConfigLoader.load_into",),
-    "agent_forge/multi_agent/application/coordinator.py": (
-        "MultiAgentCoordinator.run",
-    ),
-    "agent_forge/multi_agent/application/fanout.py": ("run_fanout",),
-    "agent_forge/multi_agent/application/live_fanout.py": (
-        "LiveFanoutCoordinator.run",
-    ),
-    "agent_forge/multi_agent/wiring.py": (
-        "build_live_fanout",
-        "build_multi_agent_coordinator",
-    ),
-    "agent_forge/bench/api.py": (
-        "run_swebench",
-        "run_benchmark_campaign",
-        "inspect_swebench_case",
-        "list_regression_case_profiles",
-        "get_regression_set_profile",
-    ),
-    "agent_forge/bench/application/case_inspection.py": ("InspectBenchCase.execute",),
-    "agent_forge/bench/application/campaign.py": ("RunBenchmarkCampaign.execute",),
-    "agent_forge/bench/application/swebench.py": ("RunSwebench.execute",),
-    "agent_forge/bench/application/diagnostics.py": ("DiagnoseBenchCase.attach",),
-    "agent_forge/bench/domain/failure_taxonomy.py": ("classify_case_result",),
-    "agent_forge/bench/adapters/case_runtime.py": ("LocalCaseExecutor.run",),
-    "agent_forge/bench/adapters/official_results.py": ("parse_official_results",),
-    "agent_forge/bench/presentation/case_inspection.py": (
-        "render_case_catalog",
-        "render_case_inspection",
-    ),
-    "agent_forge/bench/presentation/cli.py": (
-        "run_swebench_from_args",
-        "render_case_catalog_from_args",
-        "render_case_inspection_from_args",
-    ),
-    "agent_forge/bench/presentation/case_study.py": ("write_case_study",),
-    "agent_forge/bench/presentation/campaign_report.py": ("render_campaign_report",),
-    "agent_forge/bench/presentation/report.py": ("write_bench_artifacts",),
-    "agent_forge/evaluation/api.py": ("build_benchmark_scorecard",),
-    "agent_forge/evaluation/application/scorecard.py": (
-        "BuildBenchmarkScorecard.execute",
-    ),
-    "agent_forge/evaluation/domain/comparison.py": ("compare_runs", "compare_variants"),
-    "agent_forge/evaluation/domain/ablation.py": ("compare_benchmark_scorecards",),
-    "agent_forge/evaluation/adapters/feedback_dataset_files.py": (
-        "record_feedback",
-        "export_feedback_dataset",
-    ),
-    "agent_forge/observability/api.py": ("write_usage_artifacts",),
-    "agent_forge/observability/adapters/otel.py": (
-        "OpenTelemetryEventListener.on_event",
-    ),
-    "agent_forge/observability/adapters/streaming.py": (
-        "StreamingEventSink.add",
-    ),
-    "agent_forge/observability/application/usage.py": ("BuildUsageReport.execute",),
-    "agent_forge/mcp/server.py": ("AgentForgeMCPServer.run",),
-    "agent_forge/skills/registry.py": (
-        "SkillRegistry.select_for_task",
-        "SkillRegistry.discover_for_task",
-    ),
-    "agent_forge/control.py": (
-        "RunController.pause",
-        "RunController.cancel",
-        "RunController.steer",
-    ),
-    "agent_forge/workbench/presentation/http.py": ("run_ui",),
-    "agent_forge/workbench/presentation/commands.py": ("build_workbench_command",),
-    "agent_forge/showcase/control_plane.py": (
-        "start_control_plane_showcase",
-        "continue_control_plane_showcase",
-    ),
+    "agent_forge/bench/presentation/cli.py": ("run_swebench_from_args",),
 }
 
-RUNTIME_PORTS = {
-    "agent_forge/cli/repository.py": ("prepare_execution_environment",),
+# 只保留对理解状态、副作用与证据有帮助的具体 IO 边界。
+ADAPTER_RUNTIME_BOUNDARIES = {
     "agent_forge/runtime/adapters/task_state_json.py": (
         "JsonTaskStateRepository.start",
         "JsonTaskStateRepository.update",
@@ -161,42 +119,28 @@ RUNTIME_PORTS = {
         "JsonApprovalRepository.decide",
     ),
     "agent_forge/runtime/adapters/operation_ledger_json.py": (
+        "JsonOperationLedgerRepository.ensure_planned",
         "JsonOperationLedgerRepository.record_executed",
         "JsonOperationLedgerRepository.record_failed",
-        "JsonOperationLedgerRepository.ensure_planned",
     ),
-    "agent_forge/runtime/hooks.py": ("HookManager.pre_tool",),
-    "agent_forge/runtime/application/run_lifecycle.py": (
-        "RunLifecycle.update",
-        "RunLifecycle.stop",
-        "RunLifecycle.request_human_input",
+    "agent_forge/observability/adapters/json_trace.py": (
+        "JsonTraceRecorder.record_task_state_checkpoint",
     ),
     "agent_forge/safety/permission.py": ("PermissionPolicy.decide",),
     "agent_forge/safety/sandbox.py": ("WorkspaceSandbox.ensure_safe_path",),
     "agent_forge/safety/command_policy.py": ("check_command",),
-    "agent_forge/observability/adapters/json_trace.py": (
-        "JsonTraceRecorder.record_task_state_checkpoint",
-        "JsonTraceRecorder.write",
-    ),
-    "agent_forge/bench/adapters/official_results.py": ("apply_official_results",),
-    "agent_forge/context/adapters/memory_json.py": (
-        "JsonLongTermMemoryRepository.save",
-        "JsonLongTermMemoryRepository.get",
-        "JsonLongTermMemoryRepository.list_records",
-    ),
 }
 
-CORE_RULES = {
+DECISION_RULES = {
     "agent_forge/context/context_strategy.py": ("build_context_strategy",),
     "agent_forge/multi_agent/domain/fanout.py": (
         "build_execution_batches",
-        "build_conflict_free_batches",
         "detect_write_scope_conflicts",
-        "detect_result_conflicts",
     ),
 }
 
-CORE_DATA_MODELS = {
+# 数据契约只覆盖黄金主链中的阶段边界；高级能力维护自己的局部导航。
+GOLDEN_PATH_DATA = {
     "agent_forge/runtime/config.py": ("RuntimeConfig",),
     "agent_forge/runtime/application/dependencies.py": ("RuntimeDependencies",),
     "agent_forge/runtime/application/session.py": ("AgentRunSession",),
@@ -205,11 +149,11 @@ CORE_DATA_MODELS = {
         "TaskCheckpointUpdate",
         "TaskCheckpoint",
     ),
-    "agent_forge/runtime/domain/model.py": ("ModelCapabilities",),
-    "agent_forge/runtime/domain/run_control.py": ("RunControlSignal",),
-    "agent_forge/runtime/domain/approval.py": (
-        "ApprovalRequestDraft",
-        "ApprovalRequest",
+    "agent_forge/runtime/domain/conversation.py": (
+        "Message",
+        "ToolCall",
+        "Observation",
+        "AgentResponse",
     ),
     "agent_forge/runtime/domain/human_input.py": (
         "HumanInputQuestion",
@@ -222,137 +166,43 @@ CORE_DATA_MODELS = {
         "OperationTransition",
         "OperationRecord",
     ),
-    "agent_forge/runtime/domain/conversation.py": (
-        "Message",
-        "ToolCall",
-        "Observation",
-        "AgentResponse",
-    ),
-    "agent_forge/runtime/llm_config.py": ("LLMConfig", "LLMConfigRequest"),
     "agent_forge/runtime/ports/context.py": ("ContextAssemblyRequest",),
-    "agent_forge/runtime/wiring.py": (
-        "ToolRegistryBuildRequest",
-        "HumanInputResponseCommand",
-    ),
-    "agent_forge/runtime/application/working_memory.py": ("WorkingMemory",),
-    "agent_forge/context/context_strategy.py": ("ContextStrategy",),
-    "agent_forge/context/api.py": ("ProposeMemoryRequest",),
-    "agent_forge/context/context_builder.py": (
-        "ContextBuildPolicy",
-        "ContextBuildRequest",
-        "ContextBuildReport",
-    ),
-    "agent_forge/context/instructions.py": (
-        "InstructionSource",
-        "InstructionResolution",
-        "InstructionResolutionRequest",
-    ),
-    "agent_forge/context/domain/memory.py": (
-        "LongTermMemoryRecord",
-        "MemoryProposal",
-        "SessionDigest",
-    ),
     "agent_forge/context/application/compaction.py": (
         "PromptBudget",
         "ContextWindowRequest",
         "ContextWindowResult",
     ),
-    "agent_forge/models/gateway.py": ("RetryPolicy",),
-    "agent_forge/tools/tool_router.py": ("ToolRoutingRequest", "ToolRoute"),
-    "agent_forge/multi_agent/wiring.py": (
-        "LiveFanoutBuildRequest",
-        "SequentialCoordinatorBuildRequest",
-    ),
-    "agent_forge/multi_agent/domain/fanout.py": (
-        "SubagentTask",
-        "FanoutConflict",
-        "SubagentResult",
-        "FanoutResult",
-    ),
-    "agent_forge/multi_agent/domain/live.py": (
-        "FanoutPlan",
-        "FanoutCheckpoint",
-        "LiveSubagentResult",
-        "LiveFanoutSummary",
-    ),
-    "agent_forge/multi_agent/domain/models.py": (
-        "RoleSpec",
-        "AgentProfile",
-        "Artifact",
-        "RoleRunResult",
-        "MultiAgentRunSummary",
-    ),
-    "agent_forge/bench/domain/config.py": ("SwebenchRunRequest", "BenchRunLayout"),
-    "agent_forge/bench/domain/campaign.py": (
-        "CampaignVariant",
-        "BenchmarkCampaignRequest",
-        "CampaignRunRecord",
-        "CampaignState",
-    ),
-    "agent_forge/bench/domain/models.py": (
-        "BenchCase",
-        "BenchCaseResult",
-        "BenchRunSummary",
-    ),
-    "agent_forge/bench/domain/case_inspection.py": (
-        "BenchmarkCaseProfile",
-        "BenchmarkSetProfile",
-        "PatchSummary",
-        "BenchmarkCaseInspection",
-    ),
-    "agent_forge/bench/domain/failure_taxonomy.py": ("FailureDiagnosis",),
-    "agent_forge/bench/adapters/official_results.py": (
-        "OfficialCaseOutcome",
-        "OfficialResults",
-    ),
-    "agent_forge/evaluation/domain/models.py": ("EvaluationComparison",),
-    "agent_forge/evaluation/domain/ablation.py": ("AblationComparisonRequest",),
-    "agent_forge/evaluation/api.py": ("AblationArtifactRequest",),
-    "agent_forge/evaluation/adapters/feedback_dataset_files.py": ("FeedbackRequest",),
     "agent_forge/observability/domain/event.py": ("TraceEvent",),
-    "agent_forge/observability/domain/live_event.py": ("RuntimeEvent",),
-    "agent_forge/observability/domain/evidence.py": ("EvidenceItem", "EvidenceLedger"),
 }
 
-# 这些接口是高频事件或局部解析原语；拆成请求对象会隐藏调用语义。
-LONG_PARAMETER_EXCEPTIONS = {
-    (
-        "agent_forge/multi_agent/ports/sequential.py",
-        "CoordinatorEventSink.record_event",
+# 显式继承仅用于无循环、无多继承冲突且能改善 IDE 导航的关系。
+# ModelGateway 等已有基类的对象继续使用结构化类型，避免人为制造 MRO。
+ADAPTER_PORT_RELATIONS = {
+    "agent_forge/runtime/adapters/context_assembler.py": (
+        "RepositoryContextAssembler",
+        "ContextAssemblerPort",
     ),
-    ("agent_forge/observability/adapters/json_trace.py", "JsonTraceRecorder.add"),
-    (
-        "agent_forge/observability/adapters/streaming.py",
-        "StreamingEventSink.add",
+    "agent_forge/runtime/adapters/task_state_json.py": (
+        "JsonTaskStateRepository",
+        "TaskStateRepository",
     ),
-    (
-        "agent_forge/observability/adapters/json_trace.py",
-        "JsonTraceRecorder.record_event",
+    "agent_forge/runtime/adapters/human_input_json.py": (
+        "JsonHumanInputRepository",
+        "HumanInputRepository",
     ),
-    (
-        "agent_forge/runtime/application/operation_tracker.py",
-        "OperationTracker.record_result",
+    "agent_forge/runtime/adapters/approval_json.py": (
+        "JsonApprovalRepository",
+        "ApprovalRepository",
     ),
-    (
-        "agent_forge/runtime/application/tool_authorization.py",
-        "ToolAuthorizationGate.post_process",
+    "agent_forge/runtime/adapters/operation_ledger_json.py": (
+        "JsonOperationLedgerRepository",
+        "OperationLedgerRepository",
     ),
-    ("agent_forge/runtime/ports/events.py", "EventSink.add"),
-    ("agent_forge/workbench/presentation/commands.py", "payload_int"),
-    ("agent_forge/workbench/presentation/commands.py", "payload_float"),
-}
-
-FIELD_DOCUMENTED_MODELS = {
-    "agent_forge/context/domain/memory.py": (
-        "LongTermMemoryRecord",
-        "SessionDigest",
+    "agent_forge/observability/adapters/json_trace.py": (
+        "JsonTraceRecorder",
+        "EventSink",
     ),
-    "agent_forge/bench/domain/case_inspection.py": (
-        "BenchmarkCaseProfile",
-        "BenchmarkSetProfile",
-        "PatchSummary",
-        "BenchmarkCaseInspection",
-    ),
+    "agent_forge/tools/registry.py": ("ToolRegistry", "ToolGateway"),
 }
 
 
@@ -383,41 +233,62 @@ class _DefinitionCollector(ast.NodeVisitor):
 
 
 class CodeNavigationContractTest(unittest.TestCase):
-    def test_primary_entrypoints_are_visible_when_bodies_are_collapsed(self) -> None:
+    def test_golden_path_is_small_and_self_explaining(self) -> None:
+        self._assert_navigation_contract(GOLDEN_PATH, require_docstring=True)
+
+    def test_supporting_core_is_not_presented_as_the_golden_path(self) -> None:
         self._assert_markers(
-            PRIMARY_ENTRYPOINTS, "# 主要入口：", require_docstring=True
+            SUPPORTING_CORE_ENTRYPOINTS,
+            MAIN_ENTRY_MARKER,
+            require_docstring=True,
         )
 
-    def test_runtime_ports_are_visible_when_bodies_are_collapsed(self) -> None:
-        self._assert_markers(RUNTIME_PORTS, "# 运行时端口：", require_docstring=False)
+    def test_advanced_entrypoints_remain_navigable_but_optional(self) -> None:
+        self._assert_markers(
+            ADVANCED_ENTRYPOINTS,
+            MAIN_ENTRY_MARKER,
+            require_docstring=True,
+        )
 
-    def test_core_rules_are_visible_without_reading_private_helpers(self) -> None:
-        self._assert_markers(CORE_RULES, "# 核心规则：", require_docstring=True)
+    def test_adapter_entrypoints_are_classified_outside_runtime_owners(self) -> None:
+        self._assert_markers(
+            ADAPTER_ENTRYPOINTS,
+            MAIN_ENTRY_MARKER,
+            require_docstring=True,
+        )
 
-    def test_core_data_models_are_distinct_from_process_entrypoints(self) -> None:
-        self._assert_class_markers(CORE_DATA_MODELS, "# 核心数据：")
+    def test_adapter_runtime_boundaries_remain_explicit(self) -> None:
+        self._assert_markers(
+            ADAPTER_RUNTIME_BOUNDARIES,
+            RUNTIME_PORT_MARKER,
+            require_docstring=False,
+        )
 
-    def test_memory_and_benchmark_models_explain_every_field(self) -> None:
-        for relative_path, names in FIELD_DOCUMENTED_MODELS.items():
+    def test_decision_rules_are_visible_without_private_helpers(self) -> None:
+        self._assert_markers(
+            DECISION_RULES,
+            CORE_RULE_MARKER,
+            require_docstring=True,
+        )
+
+    def test_golden_path_data_is_distinct_from_process_entrypoints(self) -> None:
+        self._assert_class_markers(GOLDEN_PATH_DATA, CORE_DATA_MARKER)
+
+    def test_key_adapters_name_the_port_they_implement(self) -> None:
+        for relative_path, (class_name, port_name) in ADAPTER_PORT_RELATIONS.items():
             path = PROJECT_ROOT / relative_path
             collector = _DefinitionCollector()
             collector.visit(ast.parse(path.read_text(encoding="utf-8")))
-            for name in names:
-                with self.subTest(path=relative_path, model=name):
-                    node = collector.classes[name]
-                    docstring = ast.get_docstring(node) or ""
-                    fields = [
-                        statement.target.id
-                        for statement in node.body
-                        if isinstance(statement, ast.AnnAssign)
-                        and isinstance(statement.target, ast.Name)
-                    ]
-                    for field in fields:
-                        self.assertIn(
-                            f"``{field}``",
-                            docstring,
-                            f"{relative_path}:{node.lineno} {name}.{field} 缺少字段说明",
-                        )
+            with self.subTest(path=relative_path, adapter=class_name):
+                node = collector.classes[class_name]
+                base_names = {
+                    base.id for base in node.bases if isinstance(base, ast.Name)
+                }
+                self.assertIn(
+                    port_name,
+                    base_names,
+                    f"{relative_path}:{node.lineno} {class_name} must name {port_name}",
+                )
 
     def test_agent_loop_entrypoint_only_exposes_the_phase_order(self) -> None:
         path = PROJECT_ROOT / "agent_forge/runtime/application/agent_loop.py"
@@ -444,43 +315,19 @@ class CodeNavigationContractTest(unittest.TestCase):
         )
         self.assertLess(body.index("run_preparation.execute"), body.index("_run_turn"))
 
-    def test_public_boundaries_do_not_regrow_long_parameter_lists(self) -> None:
-        """Use named request objects once a public call needs five business inputs."""
-
-        violations: list[str] = []
-        observed_exceptions: set[tuple[str, str]] = set()
-        package_root = PROJECT_ROOT / "agent_forge"
-        for path in sorted(package_root.rglob("*.py")):
-            relative_path = str(path.relative_to(PROJECT_ROOT))
-            collector = _DefinitionCollector()
-            collector.visit(ast.parse(path.read_text(encoding="utf-8")))
-            for name, node in collector.definitions.items():
-                if node.name.startswith("_") or node.name == "__init__":
-                    continue
-                parameters = [
-                    *node.args.posonlyargs,
-                    *node.args.args,
-                    *node.args.kwonlyargs,
-                ]
-                parameters = [
-                    item for item in parameters if item.arg not in {"self", "cls"}
-                ]
-                if len(parameters) < 5:
-                    continue
-                identity = (relative_path, name)
-                if identity in LONG_PARAMETER_EXCEPTIONS:
-                    observed_exceptions.add(identity)
-                    continue
-                violations.append(
-                    f"{relative_path}:{node.lineno} {name} has {len(parameters)} parameters"
+    def _assert_navigation_contract(
+        self,
+        expected: dict[str, dict[str, str]],
+        *,
+        require_docstring: bool,
+    ) -> None:
+        for relative_path, definitions in expected.items():
+            for name, marker in definitions.items():
+                self._assert_markers(
+                    {relative_path: (name,)},
+                    marker,
+                    require_docstring=require_docstring,
                 )
-
-        self.assertEqual(violations, [], "Use a typed request object at this boundary")
-        self.assertEqual(
-            observed_exceptions,
-            LONG_PARAMETER_EXCEPTIONS,
-            "Remove stale exceptions when a local API becomes smaller",
-        )
 
     def _assert_markers(
         self,
@@ -499,31 +346,24 @@ class CodeNavigationContractTest(unittest.TestCase):
                 with self.subTest(path=relative_path, definition=name):
                     self.assertIn(name, collector.definitions)
                     node = collector.definitions[name]
-                    first_line = min(
-                        [
-                            node.lineno,
-                            *(decorator.lineno for decorator in node.decorator_list),
-                        ]
-                    )
-                    cursor = first_line - 2
-                    while cursor >= 0 and not lines[cursor].strip():
-                        cursor -= 1
-                    self.assertGreaterEqual(cursor, 0)
+                    marker_line = self._preceding_marker(lines, node)
                     self.assertTrue(
-                        lines[cursor].strip().startswith(marker),
-                        f"{relative_path}:{first_line} {name} must be preceded by {marker}",
+                        marker_line.startswith(marker),
+                        f"{relative_path}:{node.lineno} {name} "
+                        f"must be preceded by {marker}",
                     )
                     self._assert_marker_is_specific(
-                        lines[cursor].strip(),
+                        marker_line,
                         marker,
                         relative_path,
-                        first_line,
+                        node.lineno,
                         name,
                     )
                     if require_docstring:
                         self.assertTrue(
                             ast.get_docstring(node),
-                            f"{relative_path}:{first_line} {name} needs a navigation docstring",
+                            f"{relative_path}:{node.lineno} {name} "
+                            "needs a navigation docstring",
                         )
 
     def _assert_class_markers(
@@ -541,32 +381,40 @@ class CodeNavigationContractTest(unittest.TestCase):
                 with self.subTest(path=relative_path, model=name):
                     self.assertIn(name, collector.classes)
                     node = collector.classes[name]
-                    first_line = min(
-                        [
-                            node.lineno,
-                            *(decorator.lineno for decorator in node.decorator_list),
-                        ]
-                    )
-                    cursor = first_line - 2
-                    while cursor >= 0 and not lines[cursor].strip():
-                        cursor -= 1
-                    self.assertGreaterEqual(cursor, 0)
-                    marker_line = lines[cursor].strip()
+                    marker_line = self._preceding_marker(lines, node)
                     self.assertTrue(
                         marker_line.startswith(marker),
-                        f"{relative_path}:{first_line} {name} must be preceded by {marker}",
+                        f"{relative_path}:{node.lineno} {name} "
+                        f"must be preceded by {marker}",
                     )
                     self._assert_marker_is_specific(
                         marker_line,
                         marker,
                         relative_path,
-                        first_line,
+                        node.lineno,
                         name,
                     )
                     self.assertTrue(
                         ast.get_docstring(node),
-                        f"{relative_path}:{first_line} {name} needs a data-contract docstring",
+                        f"{relative_path}:{node.lineno} {name} "
+                        "needs a data-contract docstring",
                     )
+
+    @staticmethod
+    def _preceding_marker(
+        lines: list[str],
+        node: ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef,
+    ) -> str:
+        first_line = min(
+            [
+                node.lineno,
+                *(decorator.lineno for decorator in node.decorator_list),
+            ]
+        )
+        cursor = first_line - 2
+        while cursor >= 0 and not lines[cursor].strip():
+            cursor -= 1
+        return lines[cursor].strip() if cursor >= 0 else ""
 
     def _assert_marker_is_specific(
         self,

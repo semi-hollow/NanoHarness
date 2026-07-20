@@ -78,11 +78,18 @@ class PublicHarnessTest(unittest.TestCase):
             self.assertTrue(result.trace_path and result.trace_path.exists())
             self.assertTrue(result.usage_path and result.usage_path.exists())
             self.assertTrue(result.patch_path and result.patch_path.exists())
+            self.assertTrue(result.manifest_path and result.manifest_path.exists())
             request_artifact = json.loads(
                 (result.artifact_dir / "run_request.json").read_text(encoding="utf-8")
             )
             self.assertEqual(request_artifact["schema_version"], 1)
             self.assertEqual(request_artifact["request"]["task"], result.checkpoint.task)
+            manifest = json.loads(result.manifest_path.read_text(encoding="utf-8"))
+            artifact_paths = {
+                item["relative_path"] for item in manifest["artifacts"]
+            }
+            self.assertIn("trace.json", artifact_paths)
+            self.assertIn("patch.diff", artifact_paths)
 
     def test_resume_creates_a_new_trace_and_preserves_checkpoint_context(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -127,6 +134,10 @@ class PublicHarnessTest(unittest.TestCase):
                 harness.run("exercise setup cleanup")
 
             cleanup.assert_called_once()
+            manifest_path = next((Path(tmp) / "runs").glob("*/run_manifest.json"))
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            self.assertEqual(manifest["status"], "failed")
+            self.assertEqual(manifest["stop_reason"], "exception:RuntimeError")
 
 
 if __name__ == "__main__":

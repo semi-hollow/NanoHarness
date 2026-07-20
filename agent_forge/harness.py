@@ -14,13 +14,18 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Protocol
 
+from agent_forge.contracts import JsonObject
 from agent_forge.hooks import RuntimeHook
 from agent_forge.context.ports import LongTermMemoryRecallPort
 from agent_forge.observability.adapters.streaming import (
     EventStreamPolicy,
     StreamingEventSink,
 )
-from agent_forge.observability.api import TraceRecorder, write_usage_artifacts
+from agent_forge.observability.api import (
+    TraceRecorder,
+    write_run_manifest,
+    write_usage_artifacts,
+)
 from agent_forge.observability.ports import RuntimeEventListener
 from agent_forge.runtime.config import RuntimeConfig
 from agent_forge.runtime.domain.task import (
@@ -65,14 +70,14 @@ class HarnessConfig:
 
     workspace: str = "."
     output_root: str = ".agent_forge/runs"
-    max_steps: int = 12
-    max_context_chars: int = 8_000
+    max_steps: int = 16
+    max_context_chars: int = 12_000
     max_prompt_tokens: int = 32_768
     reserved_output_tokens: int = 4_096
     max_consecutive_failures: int = 3
     max_tool_repeats: int = 2
     max_tool_calls_per_turn: int = 4
-    timeout_seconds: float = 120.0
+    timeout_seconds: float = 900.0
     cost_budget_usd: float | None = None
     approval_mode: str = "trusted"
     auto_approve_writes: bool = True
@@ -81,12 +86,27 @@ class HarnessConfig:
     skill_manifest_files: tuple[str, ...] = ()
     tool_routing_mode: str = "task-aware"
     enabled_tools: tuple[str, ...] | None = None
+    mcp_config_file: str | None = None
+    mcp_allowed_tools: tuple[str, ...] = ()
     memory_recall_limit: int = 6
     model_capabilities: ModelCapabilities | None = None
     instruction_target: str = ""
     global_instruction_files: tuple[str, ...] = ()
     runtime_instructions: str = ""
     instruction_max_bytes: int = 2_600
+    approval_root: str = ""
+    human_input_root: str = ""
+    operation_ledger_root: str = ""
+    memory_root: str = ""
+    execution_mode: str = "local"
+    network_policy: str = "deny"
+    keep_worktree: bool = True
+    container_runtime: str = "docker"
+    container_image: str = "python:3.11-slim"
+    container_cpus: float = 1.0
+    container_memory: str = "1g"
+    container_pids_limit: int = 256
+    container_read_only: bool = True
 
     def __post_init__(self) -> None:
         if self.max_steps < 1:
@@ -121,6 +141,10 @@ class HarnessConfig:
             raise ValueError("memory_recall_limit must not be negative")
         if self.instruction_max_bytes < 1:
             raise ValueError("instruction_max_bytes must be positive")
+        if self.execution_mode not in {"local", "worktree", "container"}:
+            raise ValueError(f"unsupported execution_mode: {self.execution_mode}")
+        if self.network_policy not in {"deny", "allow"}:
+            raise ValueError(f"unsupported network_policy: {self.network_policy}")
 
 
 @dataclass(frozen=True)
@@ -133,6 +157,7 @@ class RunRequest:
     agent_name: str = "CodingAgent"
     resume_state: str = ""
     human_thread_id: str = ""
+    resolved_config: JsonObject | None = None
 
     def validate(self) -> None:
         if not self.task.strip():
@@ -154,6 +179,7 @@ class RunResult:
     trace_path: Path | None = None
     usage_path: Path | None = None
     patch_path: Path | None = None
+    manifest_path: Path | None = None
 
     @property
     def waiting_for_operator(self) -> bool:
@@ -230,7 +256,15 @@ class Harness:
 
     # 主要入口：创建 artifact、装配端口并执行规范 AgentLoop。
     def run(self, request: str | RunRequest) -> RunResult:
-        """执行任务并返回状态、checkpoint 和 evidence 路径。"""
+        """执行任务并返回状态、checkpoint 和 evidence 路径。
+
+        流程位置：Single-Agent Public API 与六边形 composition root。
+        规范上游：薄 CLI ``run`` 或嵌入式调用方。
+        下一 owner：ExecutionEnvironment、Runtime wiring、``AgentLoop.run``。
+        状态与证据：``RunResult``、checkpoint、trace、patch 与 RunManifest。
+        系统不变量：外围不得复制 Runtime 编排，也不得用 candidate patch 宣称 solved。
+        删除/内联影响：会失去唯一装配 owner，并重新产生 CLI/demo wiring 漂移。
+        """
 
         normalized = request if isinstance(request, RunRequest) else RunRequest(request)
         normalized.validate()
@@ -258,15 +292,24 @@ class Harness:
         events.set_run_context(task=normalized.task)
         concrete_environment: ExecutionEnvironment | None = None
         environment_prepared = False
+        result: RunResult | None = None
+        failure_stop_reason = ""
         try:
             environment: EnvironmentPort
             if self._extensions.execution_environment is None:
                 concrete_environment = ExecutionEnvironment(
                     ExecutionEnvironmentConfig(
-                        mode="local",
+                        mode=self._config.execution_mode,
                         workspace=str(workspace),
                         run_id=run_dir.name,
-                        network_policy="deny",
+                        network_policy=self._config.network_policy,
+                        keep_worktree=self._config.keep_worktree,
+                        container_runtime=self._config.container_runtime,
+                        container_image=self._config.container_image,
+                        container_cpus=self._config.container_cpus,
+                        container_memory=self._config.container_memory,
+                        container_pids_limit=self._config.container_pids_limit,
+                        container_read_only=self._config.container_read_only,
                     )
                 )
                 concrete_environment.prepare()
@@ -281,13 +324,16 @@ class Harness:
                     )
                 environment = custom_environment
 
-            return self._execute_run(
+            result = self._execute_run(
                 normalized,
                 run_dir,
                 events,
                 environment,
                 concrete_environment,
             )
+        except Exception as exc:
+            failure_stop_reason = f"exception:{type(exc).__name__}"
+            raise
         finally:
             try:
                 events.publish()
@@ -300,6 +346,19 @@ class Harness:
                             concrete_environment.write_manifest(run_dir)
                     finally:
                         concrete_environment.cleanup()
+            write_run_manifest(
+                run_dir,
+                run_id=result.run_id if result is not None else events.run_id,
+                task=normalized.task,
+                status=result.status.value if result is not None else "failed",
+                stop_reason=(
+                    result.stop_reason if result is not None else failure_stop_reason
+                ),
+            )
+        if result is None:
+            raise RuntimeError("Harness run ended without a typed result")
+        _write_latest_run_pointer(workspace, run_dir)
+        return result
 
     def _execute_run(
         self,
@@ -325,6 +384,8 @@ class Harness:
                 workspace=str(active_workspace),
                 auto=self._config.auto_approve_writes,
                 enabled_tools=self._config.enabled_tools,
+                mcp_config_file=self._config.mcp_config_file,
+                mcp_allowed_tools=self._config.mcp_allowed_tools,
                 execution_environment=concrete_environment,
             )
         )
@@ -391,6 +452,7 @@ class Harness:
             trace_path=trace_path if default_trace else None,
             usage_path=(run_dir / "usage.json") if default_trace else None,
             patch_path=(run_dir / "patch.diff") if concrete_environment else None,
+            manifest_path=run_dir / "run_manifest.json",
         )
 
     # 主要入口：从 durable checkpoint 创建一次显式 continuation。
@@ -428,7 +490,9 @@ class Harness:
         trace_path: Path,
         environment: EnvironmentPort,
     ) -> RuntimeConfig:
-        control_root = workspace / ".agent_forge"
+        requested_workspace = Path(
+            request.workspace or self._config.workspace
+        ).resolve()
         return RuntimeConfig(
             workspace=str(workspace),
             max_steps=self._config.max_steps,
@@ -445,17 +509,41 @@ class Harness:
             execution_environment=environment,
             task_state_root=str(run_dir / "task_state"),
             resume_state=request.resume_state,
-            approval_root=str(control_root / "approvals"),
-            human_input_root=str(control_root / "human_input"),
+            approval_root=str(
+                _control_path(
+                    self._config.approval_root,
+                    requested_workspace,
+                    "approvals",
+                )
+            ),
+            human_input_root=str(
+                _control_path(
+                    self._config.human_input_root,
+                    requested_workspace,
+                    "human_input",
+                )
+            ),
             human_thread_id=request.human_thread_id,
-            operation_ledger_root=str(control_root / "operation_ledger"),
+            operation_ledger_root=str(
+                _control_path(
+                    self._config.operation_ledger_root,
+                    requested_workspace,
+                    "operation_ledger",
+                )
+            ),
             approval_mode=self._config.approval_mode,
             skill_mode=self._config.skill_mode,
             skill_names=list(self._config.skill_names),
             skill_manifest_files=list(self._config.skill_manifest_files),
             tool_routing_mode=self._config.tool_routing_mode,
-            memory_root=str(control_root / "memory"),
-            memory_namespace=str(workspace),
+            memory_root=str(
+                _control_path(
+                    self._config.memory_root,
+                    requested_workspace,
+                    "memory",
+                )
+            ),
+            memory_namespace=str(requested_workspace),
             memory_recall_limit=self._config.memory_recall_limit,
             model_capabilities=self._config.model_capabilities,
             instruction_target=self._config.instruction_target,
@@ -505,15 +593,39 @@ def _write_request_artifact(
         if runtime_instructions
         else ""
     )
+    request_payload = asdict(request)
+    resolved_config = request_payload.pop("resolved_config", None)
     payload = {
         "schema_version": 1,
-        "request": asdict(request),
+        "request": request_payload,
         "config": config_payload,
     }
     (run_dir / "run_request.json").write_text(
         json.dumps(payload, ensure_ascii=False, indent=2),
         encoding="utf-8",
     )
+    if resolved_config is not None:
+        (run_dir / "resolved_config.json").write_text(
+            json.dumps(resolved_config, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+
+
+def _control_path(value: str, workspace: Path, default_name: str) -> Path:
+    """把控制面目录稳定落在请求 workspace，而不是临时 worktree。"""
+
+    if not value:
+        return workspace / ".agent_forge" / default_name
+    path = Path(value)
+    return path if path.is_absolute() else workspace / path
+
+
+def _write_latest_run_pointer(workspace: Path, run_dir: Path) -> None:
+    """发布最近一次成功创建的 run，供 inspection/Workbench 发现。"""
+
+    latest = workspace / ".agent_forge" / "latest"
+    latest.mkdir(parents=True, exist_ok=True)
+    (latest / "run.txt").write_text(str(run_dir.resolve()), encoding="utf-8")
 
 
 __all__ = [

@@ -5,6 +5,7 @@ from pathlib import Path
 
 from agent_forge.showcase import (
     continue_control_plane_showcase,
+    run_governed_demo,
     start_control_plane_showcase,
 )
 
@@ -71,6 +72,17 @@ class ControlPlaneShowcaseTest(unittest.TestCase):
 
             with self.assertRaisesRegex(ValueError, "scenario mismatch"):
                 continue_control_plane_showcase("approval", started.run_dir)
+
+    def test_one_command_demo_records_waiting_and_completion_claim_boundary(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            result = run_governed_demo("approval", output_root=tmp)
+
+            self.assertEqual(result.waiting_status, "waiting_approval")
+            self.assertEqual(result.completed_status, "completed")
+            self.assertTrue((result.inspect_target / "run_manifest.json").exists())
+            report = result.report_path.read_text(encoding="utf-8")
+            self.assertIn("running → waiting_approval", report)
+            self.assertIn("does not prove", report)
 
 
 if __name__ == "__main__":

@@ -9,9 +9,10 @@ from agent_forge.runtime.domain.task import (
     TaskStartRequest,
     summarize_checkpoint,
 )
+from agent_forge.runtime.ports.repositories import TaskStateRepository
 
 
-class JsonTaskStateRepository:
+class JsonTaskStateRepository(TaskStateRepository):
     def __init__(self, root: str | Path = ".agent_forge/task_state") -> None:
         self.root = Path(root)
         self.root.mkdir(parents=True, exist_ok=True)

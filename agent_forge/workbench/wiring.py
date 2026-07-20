@@ -3,7 +3,6 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from agent_forge.workbench.adapters.background_jobs import BackgroundJobRunner
 from agent_forge.workbench.adapters.evidence_files import (
     FileEvidenceCatalog,
     read_json_file,
@@ -20,7 +19,6 @@ def build_workbench_services(project_dir: Path) -> WorkbenchServices:
     return WorkbenchServices(
         project_dir=project_dir,
         evidence=FileEvidenceCatalog(project_dir),
-        jobs=BackgroundJobRunner(project_dir),
     )
 
 

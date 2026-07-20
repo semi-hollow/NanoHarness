@@ -86,7 +86,15 @@ class TurnPreparation:
         *,
         force_compaction: bool = False,
     ) -> PreparedTurn:
-        """更新 checkpoint，路由工具，并生成当前 turn 的上下文。"""
+        """为 ``AgentLoop`` 生成一次可直接提交给模型的 ``PreparedTurn``。
+
+        流程位置：每个 turn 的上下文、工具集合与预算汇合点。
+        规范上游：``AgentLoop._run_turn``。
+        下一 owner：模型调用边界。
+        状态与证据：RUNNING checkpoint、路由、裁剪与 token 预算事件。
+        系统不变量：模型 schema 必须匹配 ``allowed_tool_names``，且压缩不能拆事务。
+        删除/内联影响：会拆散模型请求的 context/tool/budget 一致性边界。
+        """
 
         session.lifecycle.update(
             TaskCheckpointUpdate(

@@ -1,46 +1,66 @@
 # `agent_forge` 包内导航
 
-本文件只帮助从 package 目录定位代码。项目定位和命令见根目录 `README.md`，架构规则
-见 `docs/ARCHITECTURE.md`，能力状态见 `docs/CAPABILITY_REALITY_MATRIX.md`。
+本文件只帮助从 package 目录定位代码。项目定位和公开命令见根目录 `README.md`，硬约束见
+`docs/ARCHITECTURE.md`；训练与闭卷问题见
+[NanoHarness Study Notes](https://github.com/semi-hollow/NanoHarness-Study-Notes)。
 
-## 先看入口
+## 唯一 Single-Run 入口
 
 ```text
-__main__.py
--> forge_cli.py                 打包工具要求的最小 main 入口
--> cli/parser.py                参数契约
--> cli/dispatch.py              命令分发
--> cli/repository.py            run 装配
--> capability api.py/wiring.py
+__main__.py / forge_cli.py
+-> cli/parser.py                 参数契约
+-> cli/dispatch.py               薄命令分发
+-> cli/repository.py             类型化配置与 Adapter 选择
+-> harness.py::Harness.run       唯一 Single-Run Public API
+-> runtime/wiring.py
+-> runtime/application/agent_loop.py
+-> RunResult + RunManifest / RunStory
 ```
+
+Single mode 中，`cli/repository.py` 不拥有第二套 trace、environment、AgentLoop、patch 或 cleanup。
+Multi/Fanout 保留为 Advanced coordinator，不属于这条黄金主链。
+
+## 12-file Core Scope
+
+1. `harness.py`：Public request/result 与 run 边界。
+2. `runtime/wiring.py`：唯一 Runtime composition owner。
+3. `runtime/application/agent_loop.py`：阶段编排。
+4. `runtime/application/session.py`：进程内 run state。
+5. `runtime/application/turn_preparation.py`：Context/Tool schema -> Model。
+6. `runtime/application/tool_execution.py`：确定性工具治理与执行。
+7. `runtime/application/operation_tracker.py`：identity、approval、stale、ledger。
+8. `runtime/application/run_lifecycle.py`：checkpoint、HITL、stop。
+9. `runtime/domain/task.py`：durable task state。
+10. `runtime/domain/operation.py`：副作用状态机。
+11. `observability/domain/event.py`：运行事实。
+12. `observability/domain/run_story.py`：artifact 血缘与 canonical Read Model。
+
+第一遍不要进入 CLI parser、Adapter 序列化、Memory、MCP、Skills、Multi/Fanout、Campaign 或 UI。
 
 ## Capability 地图
 
 | Package | 第一入口 | 主要责任 |
 | --- | --- | --- |
-| `runtime` | `application/agent_loop.py` | 单 Agent 控制循环、HITL、审批、恢复、幂等 |
-| `multi_agent` | `application/coordinator.py`、`live_fanout.py` | 顺序角色和并发 DAG |
-| `bench` | `application/swebench.py` | case 执行、official eval 时序、诊断和发布 |
-| `evaluation` | `api.py` | comparison、scorecard、ablation、feedback data |
-| `observability` | `application/usage.py` | trace 事实到 read model |
-| `workbench` | `api.py` | 本地 evidence console 与受限命令 |
-| `context` | `context_builder.py` | repo/context selection 与预算 |
-| `tools` | `registry.py`、`tool_router.py` | 工具可见性、schema、执行 |
-| `safety` | `permission.py`、`command_policy.py`、`sandbox.py` | 确定性安全边界 |
-| `models` | `gateway.py` | provider retry/fallback/usage |
-| `skills` | `registry.py` | versioned Skill selection |
-| `mcp` | `server.py` | 精简 stdio MCP surface |
+| `runtime` | `application/agent_loop.py` | 单 Agent 控制循环、工具治理、HITL、恢复、幂等 |
+| `observability` | `domain/run_story.py` | trace facts、artifact manifest 与 Run Story |
+| `context` | `context_builder.py` | repository/context selection 与预算 |
+| `tools` / `safety` | `registry.py` / policy modules | 工具 schema、权限、命令和路径边界 |
+| Advanced：`bench` / `evaluation` | `api.py` | case、official eval、scorecard、campaign |
+| Advanced：`multi_agent` | `api.py` | 顺序角色与 live fanout |
+| Advanced：`workbench` | `api.py` | 只读 Evidence presentation |
+| Advanced：Context Memory / `skills` / `mcp` | `context/api.py` / `skills/__init__.py` / `mcp/server.py` | 可选 Context 与工具集成 |
 
-## Runtime 最短阅读顺序
+## Navigation Contract
 
-1. `runtime/application/agent_loop.py`：只展开 `AgentLoop.run`。
-2. `runtime/application/session.py`：把 `AgentRunSession` 当字段表。
-3. `runtime/application/run_preparation.py`：看 `start/execute`。
-4. `runtime/application/turn_preparation.py`：看 context 和 tool routing。
-5. `runtime/application/tool_execution.py`：看两个入口。
-6. 根据场景选择 `tool_authorization.py`、`operation_tracker.py`、
-   `tool_feedback.py` 或 `run_lifecycle.py`。
-7. 只有需要存储细节时才进入 `runtime/adapters/`。
+```bash
+forge inspect AgentLoop.run
+forge inspect ToolExecutionPipeline.execute_calls
+forge inspect <run-or-artifact>
+```
+
+随机 symbol 必须能说明层级、规范上游、下一 owner、状态/副作用、Evidence 和删除影响；随机
+artifact 必须能说明 producer、consumer、source/authority、claim boundary 与可重建性。Code
+Compass 的静态 caller/callee 不等于完整运行时调用图，动态注入边以 Core owner 契约为准。
 
 ## 分层约定
 
@@ -48,8 +68,8 @@ __main__.py
 api.py -> application -> domain + ports
 wiring.py -> application + adapters
 adapters -> ports
-presentation -> API/read model
+presentation -> API / canonical read model
 ```
 
-旧路径 facade 已删除。外围代码从对应 capability 的 `api.py` 进入；能力包内部使用明确的
-Domain、Application、Port、Adapter 或 Presentation 路径。
+Port 只为真实外部边界、替换需求或有价值的测试替身存在。无新增语义的 Wrapper、Service、Mapper
+和单实现 Port 不能仅因“六边形架构”保留。

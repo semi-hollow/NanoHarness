@@ -11,13 +11,16 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs, urlparse
 
+from agent_forge.observability.domain.run_story import RunStory
 from agent_forge.workbench.application.services import WorkbenchServices
-from agent_forge.workbench.domain.models import UiCommand, UiJob
-from agent_forge.workbench.presentation.commands import build_workbench_command
 from agent_forge.workbench.wiring import (
     build_evidence_catalog,
     build_workbench_services,
     read_evidence_json,
+)
+
+WORKBENCH_READ_ONLY_MESSAGE = (
+    "Workbench is read-only; use forge run, demo, or resume for execution."
 )
 
 
@@ -38,14 +41,6 @@ class ForgeUiHandler(BaseHTTPRequestHandler):
         if path == "/api/status":
             self._send_json(self._status_payload())
             return
-        if path.startswith("/api/jobs/"):
-            job_id = path.rsplit("/", 1)[-1]
-            job = self.state.jobs.get_job(job_id)
-            if not job:
-                self._send_json({"error": "job not found"}, HTTPStatus.NOT_FOUND)
-                return
-            self._send_json(_job_to_dict(job))
-            return
         if path == "/api/latest-report":
             self._send_json({"content": _read_latest_report(self.state.project_dir)})
             return
@@ -56,25 +51,12 @@ class ForgeUiHandler(BaseHTTPRequestHandler):
         self._send_json({"error": "not found"}, HTTPStatus.NOT_FOUND)
 
     def do_POST(self) -> None:
-        """把用户动作转换为后台 Workbench 命令。"""
+        """拒绝状态变更；执行入口统一留在 ``forge`` CLI/Public API。"""
 
-        if self.path != "/api/jobs":
-            self._send_json({"error": "not found"}, HTTPStatus.NOT_FOUND)
-            return
-        payload = self._read_json()
-        action = str(payload.get("action") or "")
-        try:
-            command = build_workbench_command(
-                action,
-                payload,
-                project_dir=self.state.project_dir,
-                evidence=self.state.evidence,
-            )
-        except ValueError as exc:
-            self._send_json({"error": str(exc)}, HTTPStatus.BAD_REQUEST)
-            return
-        job = self.state.jobs.start_job(command)
-        self._send_json(_job_to_dict(job), HTTPStatus.CREATED)
+        self._send_json(
+            {"error": WORKBENCH_READ_ONLY_MESSAGE},
+            HTTPStatus.METHOD_NOT_ALLOWED,
+        )
 
     def log_message(self, fmt: str, *args: Any) -> None:
 
@@ -88,7 +70,7 @@ class ForgeUiHandler(BaseHTTPRequestHandler):
             "latest_run": str(_latest_run_dir(self.state.project_dir) or ""),
             "latest_report": _latest_report_path(self.state.project_dir),
             "feedback": _latest_feedback_outcome(self.state.project_dir),
-            "jobs": [_job_to_dict(job) for job in self.state.jobs.latest_jobs()],
+            "jobs": [],
         }
 
     def _read_json(self) -> dict[str, Any]:
@@ -116,9 +98,9 @@ class ForgeUiHandler(BaseHTTPRequestHandler):
         except (BrokenPipeError, ConnectionResetError):
             return
 
-# 主要入口：启动本地只读 evidence 页面和受白名单命令控制的 HTTP 服务。
+# 主要入口：启动只读取 canonical evidence 的本地 Workbench。
 def run_ui(host: str = "127.0.0.1", port: int = 8765, open_browser: bool = True) -> None:
-    """启动只访问本地证据和受限命令的 Workbench HTTP 服务。"""
+    """启动只读 Workbench；所有执行和人工决定仍通过 CLI/Public API。"""
 
     project_dir = _find_project_dir(Path.cwd())
     handler = type(
@@ -161,30 +143,6 @@ def _find_project_dir(start: Path) -> Path:
     return current
 
 
-def _action_to_command(
-    action: str,
-    payload: dict[str, Any],
-    *,
-    project_dir: Path | None = None,
-) -> UiCommand:
-
-    return build_workbench_command(action, payload, project_dir=project_dir)
-
-
-def _job_to_dict(job: UiJob) -> dict[str, Any]:
-
-    return {
-        "id": job.id,
-        "title": job.title,
-        "command": " ".join(job.display_command),
-        "started_at": job.started_at,
-        "finished_at": job.finished_at,
-        "status": job.status,
-        "exit_code": job.exit_code,
-        "output": job.output,
-    }
-
-
 def _latest_report_path(project_dir: Path) -> str:
 
     return build_evidence_catalog(project_dir).latest_report_path()
@@ -225,6 +183,11 @@ def _render_evidence_html(project_dir: Path, kind: str) -> str:
 def _latest_run_dir(project_dir: Path) -> Path | None:
 
     return build_evidence_catalog(project_dir).latest_run_dir()
+
+
+def _latest_run_story(project_dir: Path) -> RunStory | None:
+
+    return build_evidence_catalog(project_dir).latest_run_story()
 
 
 def _latest_trace_path(project_dir: Path) -> Path | None:
@@ -618,6 +581,12 @@ def _render_trace_lane(label: str, trace_path: Path) -> str:
 def _render_run_evidence(project_dir: Path) -> str:
 
     run_dir = _latest_run_dir(project_dir)
+    run_story = None
+    run_story_error = ""
+    try:
+        run_story = _latest_run_story(project_dir)
+    except (OSError, ValueError) as exc:
+        run_story_error = str(exc)
     comparison_path = _latest_comparison_path(project_dir)
     multi_path = _latest_multi_agent_summary_path(project_dir)
     usage_path = _latest_usage_path(project_dir)
@@ -629,11 +598,22 @@ def _render_run_evidence(project_dir: Path) -> str:
     trace = _read_json_file(trace_path)
     summary = usage.get("summary") or {}
 
-    single_status = comparison.get("single_status") or "-"
+    single_status = (
+        run_story.status
+        if run_story is not None
+        else comparison.get("single_status") or "-"
+    )
     multi_status = comparison.get("multi_status") or multi.get("status") or "-"
     failure = comparison.get("failure_taxonomy") or "unclassified"
     cost = float(summary.get("estimated_cost_usd") or 0.0)
-    task_id = comparison.get("task_id") or multi.get("task") or trace.get("task") or "latest local run"
+    task_id = (
+        run_story.task
+        if run_story is not None and run_story.task
+        else comparison.get("task_id")
+        or multi.get("task")
+        or trace.get("task")
+        or "latest local run"
+    )
     revision_rounds = comparison.get("revision_rounds", multi.get("revision_rounds", 0))
 
     result = _latest_result_record(project_dir)
@@ -641,9 +621,68 @@ def _render_run_evidence(project_dir: Path) -> str:
     patch_chars = int(result.get("patch_chars") or 0)
     feedback_outcome = _latest_feedback_outcome(project_dir)
     active_skills = summary.get("active_skills") or []
+    if run_story is not None:
+        candidate_state = str(run_story.evidence_ladder.get("candidate", "unknown"))
+        local_state = str(run_story.evidence_ladder.get("local", "unknown"))
+        official_state = str(run_story.evidence_ladder.get("official", "unknown"))
+        claim_steps = (
+            _claim_step(
+                "Candidate evidence",
+                candidate_state,
+                "artifact claim; not verification",
+                _tone_for_evidence_state(candidate_state),
+            )
+            + _claim_step(
+                "Local evidence",
+                local_state,
+                "local checks; not official evaluation",
+                _tone_for_evidence_state(local_state),
+            )
+            + _claim_step(
+                "Official evidence",
+                official_state,
+                "authoritative benchmark boundary",
+                _tone_for_evidence_state(official_state),
+            )
+            + _claim_step(
+                "Human feedback",
+                feedback_outcome,
+                "operator judgment",
+                _tone_for_status(feedback_outcome),
+            )
+        )
+    else:
+        claim_steps = (
+            _claim_step(
+                "Candidate patch",
+                "present" if patch_chars else "absent",
+                f"{patch_chars} chars",
+                "ok" if patch_chars else "neutral",
+            )
+            + _claim_step(
+                "Role verification",
+                str(comparison.get("verifier_status") or "not_observed"),
+                "runtime verifier, not official eval",
+                _tone_for_status(str(comparison.get("verifier_status") or "")),
+            )
+            + _claim_step(
+                "Official evaluation",
+                evaluation_status,
+                "authoritative benchmark boundary",
+                _tone_for_status(evaluation_status),
+            )
+            + _claim_step(
+                "Human feedback",
+                feedback_outcome,
+                "operator judgment",
+                _tone_for_status(feedback_outcome),
+            )
+        )
+    heading_status = run_story.status if run_story is not None else evaluation_status
     body = [
         "<div class='view-heading'><div><span class='view-kicker'>RUN EVIDENCE</span><h2>Runtime Evidence Overview</h2></div>"
-        f"{_badge(evaluation_status, _tone_for_status(evaluation_status))}</div>",
+        f"{_badge(heading_status, _tone_for_status(heading_status))}</div>",
+        _render_run_story_section(run_story, run_dir, run_story_error),
         _metric_grid(
             [
                 ("Case", str(task_id)[:90], "latest evidence target", "neutral"),
@@ -674,10 +713,7 @@ def _render_run_evidence(project_dir: Path) -> str:
         "<p class='boundary-note'>These counters come from trace-derived usage evidence. Capability availability alone is never shown as a successful exercise.</p></section>",
         "<section class='evidence-section'><div class='section-title'><h3>Claim Ladder</h3><span>strongest supported statement</span></div>",
         "<div class='claim-ladder'>",
-        _claim_step("Candidate patch", "present" if patch_chars else "absent", f"{patch_chars} chars", "ok" if patch_chars else "neutral"),
-        _claim_step("Role verification", str(comparison.get("verifier_status") or "not_observed"), "runtime verifier, not official eval", _tone_for_status(str(comparison.get("verifier_status") or ""))),
-        _claim_step("Official evaluation", evaluation_status, "authoritative benchmark boundary", _tone_for_status(evaluation_status)),
-        _claim_step("Human feedback", feedback_outcome, "operator judgment", _tone_for_status(feedback_outcome)),
+        claim_steps,
         "</div></section>",
         "<section class='evidence-section'><div class='section-title'><h3>Role Decisions</h3><span>artifact-mediated handoff</span></div>",
         "<table><thead><tr><th>role</th><th>decision</th><th>round</th><th>evidence excerpt</th></tr></thead>"
@@ -690,6 +726,130 @@ def _render_run_evidence(project_dir: Path) -> str:
         f"<code>{_escape(str(trace_path or 'not found'))}</code></details>",
     ]
     return "<div class='evidence'>" + "".join(body) + "</div>"
+
+
+def _render_run_story_section(
+    story: RunStory | None,
+    run_dir: Path | None,
+    error: str = "",
+) -> str:
+
+    manifest_path = run_dir / "run_manifest.json" if run_dir is not None else None
+    if story is None:
+        if error:
+            message = (
+                "Canonical run_manifest.json could not be loaded: "
+                f"{error}. Legacy-compatible evidence follows."
+            )
+        else:
+            message = (
+                "Canonical run_manifest.json is not available for the latest run. "
+                "Legacy-compatible evidence follows."
+            )
+        return (
+            "<section class='evidence-section run-story'>"
+            "<div class='section-title'><h3>Run Story</h3>"
+            "<span>read-only evidence view</span></div>"
+            f"<div class='diagnosis'>{_escape(message)}</div>"
+            "<p class='boundary-note'><strong>Read-only evidence view.</strong> "
+            "This page only reads existing artifacts; it does not execute tools or "
+            "upgrade any evaluation claim.</p>"
+            "</section>"
+        )
+
+    stage_rows = []
+    for stage in story.stages:
+        state = "observed" if stage.observed else "not observed"
+        artifacts = ", ".join(stage.artifact_ids) or "-"
+        stage_rows.append(
+            "<tr>"
+            f"<td><b>{_escape(stage.title)}</b><small>{_escape(stage.stage_id)}</small></td>"
+            f"<td><code>{_escape(stage.owner_symbol)}</code>"
+            f"<small>upstream: {_escape(stage.canonical_upstream)}</small></td>"
+            f"<td>{_badge(state, 'ok' if stage.observed else 'neutral')}</td>"
+            f"<td>{_escape(stage.event_count)}</td>"
+            f"<td>{_escape(artifacts)}<small>{_escape(stage.invariant)}</small></td>"
+            "</tr>"
+        )
+
+    artifact_rows = []
+    for artifact in story.artifacts:
+        proves = "; ".join(artifact.proves) or "No positive claim registered."
+        boundary = "; ".join(artifact.does_not_prove) or "No boundary registered."
+        deletion = artifact.deletion_impact or "Deletion impact is not registered."
+        consumers = ", ".join(artifact.semantic_consumers) or "-"
+        artifact_rows.append(
+            "<tr>"
+            f"<td><b>{_escape(artifact.kind)}</b>"
+            f"<small class='mono'>{_escape(artifact.relative_path)}</small></td>"
+            f"<td><code>{_escape(artifact.producer_symbol)}</code>"
+            f"<small>consumers: {_escape(consumers)}</small></td>"
+            f"<td>{_badge(artifact.evidence_level, _tone_for_evidence_state(artifact.evidence_level))}"
+            f"<small>{_escape(artifact.byte_size)} bytes</small></td>"
+            f"<td>{_escape(proves)}<small>Does not prove: {_escape(boundary)}</small>"
+            f"<small>Rebuildable: {_escape(str(artifact.rebuildable).lower())}; "
+            f"deletion impact: {_escape(deletion)}</small></td>"
+            "</tr>"
+        )
+    if not artifact_rows:
+        artifact_rows.append(
+            "<tr><td colspan='4'>No artifacts are registered in the canonical manifest.</td></tr>"
+        )
+
+    ladder_details = {
+        "candidate": "produced output only; not verification",
+        "local": "local checks only; not official evaluation",
+        "official": "authoritative benchmark evidence",
+    }
+    ladder = "".join(
+        _claim_step(
+            f"{level.title()} evidence",
+            str(story.evidence_ladder.get(level, "unknown")),
+            ladder_details[level],
+            _tone_for_evidence_state(str(story.evidence_ladder.get(level, "unknown"))),
+        )
+        for level in ("candidate", "local", "official")
+    )
+    return (
+        "<section class='evidence-section run-story'>"
+        "<div class='section-title'><h3>Run Story</h3>"
+        "<span>read-only evidence view · canonical run_manifest.json</span></div>"
+        "<div class='run-facts'>"
+        f"<span>run <b class='mono'>{_escape(story.run_id or '-')}</b></span>"
+        f"<span>status {_badge(story.status, _tone_for_status(story.status))}</span>"
+        f"<span>stop <b>{_escape(story.stop_reason or '-')}</b></span>"
+        f"<span>task <b>{_escape(story.task or '-')}</b></span>"
+        "</div>"
+        "<p class='boundary-note run-story-readonly'><strong>Read-only evidence view.</strong> "
+        "This is a projection of existing manifest and trace facts. It executes no tools "
+        "and never upgrades candidate or local evidence into an official result.</p>"
+        "<div class='section-title run-story-subtitle'><h4>Stages</h4>"
+        "<span>owner, observation status, events, and artifacts</span></div>"
+        "<table class='run-story-table'><thead><tr><th>stage</th><th>owner</th>"
+        "<th>status</th><th>events</th><th>artifact / invariant</th></tr></thead>"
+        f"<tbody>{''.join(stage_rows)}</tbody></table>"
+        "<div class='section-title run-story-subtitle'><h4>Evidence Ladder</h4>"
+        "<span>presence is not the same as success</span></div>"
+        f"<div class='claim-ladder run-story-ladder'>{ladder}</div>"
+        "<div class='section-title run-story-subtitle'><h4>Artifact Evidence</h4>"
+        "<span>producer, consumer, and claim boundary</span></div>"
+        "<table class='run-story-table'><thead><tr><th>artifact / path</th><th>owner</th>"
+        "<th>level</th><th>claim boundary</th></tr></thead>"
+        f"<tbody>{''.join(artifact_rows)}</tbody></table>"
+        "<details class='provenance'><summary>Canonical provenance</summary>"
+        f"<code>{_escape(str(manifest_path or 'not found'))}</code></details>"
+        "</section>"
+    )
+
+
+def _tone_for_evidence_state(state: str) -> str:
+
+    lowered = state.lower()
+    if lowered == "present":
+        return "ok"
+    if lowered in {"absent", "failed", "invalid"}:
+        return "bad"
+    return "neutral"
 
 
 def _claim_step(title: str, state: str, detail: str, tone: str) -> str:
@@ -2144,6 +2304,16 @@ INDEX_HTML = r"""<!doctype html>
     .pipeline span { display: block; margin: 10px 0 4px; font-weight: 750; font-size: 13px; }
     .pipeline small { color: var(--muted); font-size: 10px; }
     .claim-ladder { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
+    .run-story-ladder { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    .run-story-subtitle { margin-top: 18px; }
+    .run-story-table small { display: block; margin-top: 5px; color: var(--muted); line-height: 1.35; }
+    .run-story-readonly { padding: 10px 12px; border-left: 3px solid var(--purple); background: var(--panel-3); }
+    body.read-only main { grid-template-columns: 1fr; }
+    body.read-only aside,
+    body.read-only #sidebarToggle,
+    body.read-only #jobsTitle,
+    body.read-only #jobs,
+    body.read-only .status .pill:last-child { display: none !important; }
     .claim-step { min-height: 96px; padding: 14px; border: 1px solid var(--line); border-top: 3px solid #8b95a3; background: #fff; border-radius: 5px; }
     .claim-step.ok { border-top-color: var(--green); }
     .claim-step.warn { border-top-color: #c17b00; }
@@ -2213,13 +2383,13 @@ INDEX_HTML = r"""<!doctype html>
     }
   </style>
 </head>
-<body class="sidebar-collapsed status-collapsed">
+<body class="read-only sidebar-collapsed status-collapsed">
   <header>
     <div class="brand-lockup">
       <div class="brand-mark">NH</div>
       <div>
         <h1>NanoHarness Workbench</h1>
-        <div class="subtitle">Repository task, governed execution, and benchmark evidence</div>
+        <div class="subtitle">Read-only Run Story, artifact lineage, and benchmark evidence</div>
       </div>
     </div>
     <div class="header-actions">

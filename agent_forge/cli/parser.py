@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import os
+from collections.abc import Iterator
 
 from agent_forge.bench.presentation.cli import (
     build_campaign_parser,
@@ -14,6 +15,19 @@ from agent_forge.bench.presentation.cli import (
 from agent_forge.multi_agent.profiles import list_profiles
 from agent_forge.workbench.api import build_ui_parser
 
+
+class _PublicHelpFormatter(argparse.HelpFormatter):
+    """隐藏兼容命令的 help 行，同时保留其解析能力。"""
+
+    def _iter_indented_subactions(
+        self,
+        action: argparse.Action,
+    ) -> Iterator[argparse.Action]:
+        for subaction in super()._iter_indented_subactions(action):
+            if subaction.help != argparse.SUPPRESS:
+                yield subaction
+
+
 # 主要入口：构造完整 ``forge`` 命令树；所有 ``_add_*`` 都只是参数分组。
 def build_parser() -> argparse.ArgumentParser:
     """构造按用户目标组织的命令面，不暴露内部 application 类。"""
@@ -21,23 +35,52 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="forge",
         description="NanoHarness: governed repository agent and benchmark workbench.",
+        formatter_class=_PublicHelpFormatter,
     )
-    subparsers = parser.add_subparsers(dest="command", required=True)
+    subparsers = parser.add_subparsers(
+        dest="command",
+        required=True,
+        metavar="{run,inspect,demo,resume,bench,ui}",
+    )
     _add_run_command(subparsers)
+    _add_inspect_command(subparsers)
+    _add_demo_command(subparsers)
+    _add_resume_command(subparsers)
     _add_benchmark_command(subparsers)
     _add_evaluation_command(subparsers)
     _add_inspection_commands(subparsers)
     _add_operator_commands(subparsers)
     _add_showcase_command(subparsers)
-    _add_resume_command(subparsers)
     _add_memory_command(subparsers)
-    subparsers.add_parser("tui", help="Open a lightweight terminal menu.")
+    subparsers.add_parser("tui", help=argparse.SUPPRESS)
     ui_parser = subparsers.add_parser(
         "ui",
         help="Open the local browser workbench UI.",
     )
     build_ui_parser(ui_parser)
     return parser
+
+
+def _add_inspect_command(subparsers: argparse._SubParsersAction) -> None:
+    parser = subparsers.add_parser(
+        "inspect",
+        help="Inspect a run, artifact, or source symbol through one read-only view.",
+    )
+    parser.add_argument("target", nargs="?", default="latest")
+
+
+def _add_demo_command(subparsers: argparse._SubParsersAction) -> None:
+    parser = subparsers.add_parser(
+        "demo",
+        help="Run one deterministic governed-run story without an online model.",
+    )
+    parser.add_argument(
+        "--scenario",
+        choices=["approval", "hitl"],
+        default="approval",
+    )
+    parser.add_argument("--answer", default="Python 3.11")
+    parser.add_argument("--output-root", default=".agent_forge/showcases")
 
 
 def _add_run_command(subparsers: argparse._SubParsersAction) -> None:
@@ -120,7 +163,7 @@ def _add_benchmark_command(subparsers: argparse._SubParsersAction) -> None:
 def _add_evaluation_command(subparsers: argparse._SubParsersAction) -> None:
     eval_parser = subparsers.add_parser(
         "eval",
-        help="Run lightweight evaluation utilities.",
+        help=argparse.SUPPRESS,
     )
     eval_subparsers = eval_parser.add_subparsers(dest="eval_name", required=True)
 
@@ -191,15 +234,15 @@ def _add_evaluation_command(subparsers: argparse._SubParsersAction) -> None:
 def _add_inspection_commands(subparsers: argparse._SubParsersAction) -> None:
     report = subparsers.add_parser(
         "report",
-        help="Print a benchmark or run report.",
+        help=argparse.SUPPRESS,
     )
     report.add_argument("target", nargs="?", default="latest")
-    replay = subparsers.add_parser("replay", help="Replay a trace timeline.")
+    replay = subparsers.add_parser("replay", help=argparse.SUPPRESS)
     replay.add_argument("target", nargs="?", default="latest")
 
     skills = subparsers.add_parser(
         "skills",
-        help="Inspect versioned Skill manifests.",
+        help=argparse.SUPPRESS,
     )
     skill_commands = skills.add_subparsers(dest="skills_command", required=True)
     list_parser = skill_commands.add_parser(
@@ -220,14 +263,14 @@ def _add_inspection_commands(subparsers: argparse._SubParsersAction) -> None:
     )
     subparsers.add_parser(
         "doctor",
-        help="Check local benchmark/runtime environment.",
+        help=argparse.SUPPRESS,
     )
 
 
 def _add_operator_commands(subparsers: argparse._SubParsersAction) -> None:
     approve = subparsers.add_parser(
         "approve",
-        help="Approve or reject a pending human-in-the-loop request.",
+        help=argparse.SUPPRESS,
     )
     approve.add_argument(
         "operation_key",
@@ -243,7 +286,7 @@ def _add_operator_commands(subparsers: argparse._SubParsersAction) -> None:
 
     respond = subparsers.add_parser(
         "respond",
-        help="Respond to or cancel a pending human-input request.",
+        help=argparse.SUPPRESS,
     )
     respond.add_argument("request_id")
     group = respond.add_mutually_exclusive_group(required=True)
@@ -258,7 +301,7 @@ def _add_showcase_command(subparsers: argparse._SubParsersAction) -> None:
 
     parser = subparsers.add_parser(
         "showcase",
-        help="Run deterministic HITL and approval control-plane showcases.",
+        help=argparse.SUPPRESS,
     )
     scenarios = parser.add_subparsers(dest="showcase_scenario", required=True)
     for scenario in ("hitl", "approval"):
@@ -284,7 +327,7 @@ def _add_showcase_command(subparsers: argparse._SubParsersAction) -> None:
 def _add_memory_command(subparsers: argparse._SubParsersAction) -> None:
     parser = subparsers.add_parser(
         "memory",
-        help="Manage evidence-backed long-term memory.",
+        help=argparse.SUPPRESS,
     )
     commands = parser.add_subparsers(dest="memory_command", required=True)
 
@@ -345,6 +388,26 @@ def _add_resume_command(subparsers: argparse._SubParsersAction) -> None:
     parser.add_argument("run_dir", help="Previous NanoHarness run directory.")
     parser.add_argument("--task", help="Override the continuation task.")
     parser.add_argument("--workspace", help="Override the checkpoint workspace.")
+    parser.add_argument(
+        "--answer",
+        help="Answer the run's pending human-input request before continuing.",
+    )
+    parser.add_argument(
+        "--request-id",
+        default="",
+        help="Select one request when the control root contains multiple pending inputs.",
+    )
+    parser.add_argument(
+        "--decision",
+        choices=["approved", "rejected"],
+        help="Resolve the run's pending approval before continuing.",
+    )
+    parser.add_argument(
+        "--operation-key",
+        default="",
+        help="Select one operation when multiple approvals are pending.",
+    )
+    parser.add_argument("--note", default="")
     _add_execution_environment_args(parser)
     _add_model_args(parser)
     _add_runtime_policy_args(parser)

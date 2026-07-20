@@ -54,7 +54,13 @@ class ToolAuthorizationGate:
         intent: OperationIntent,
         step: int,
     ) -> GateResult:
-        """执行 hook，并把 DENY/ASK 映射为确定性治理分支。"""
+        """在真实副作用之前合并 Hook、审批和目标指纹决定。
+
+        规范上游是 ``ToolExecutionPipeline``；ALLOW 后的下一 owner 才是
+        ``ToolGateway``，ASK/DENY 则返回可持久化的治理结果。每次 hook、permission
+        与 approval 决定都进入 trace。系统不变量是模型不能绕过门禁，历史批准也
+        不能授权已发生指纹漂移的目标。
+        """
 
         hook_context = self._hook_context(session, tool_call, intent, step)
         hook_result = self.hooks.pre_tool(hook_context)

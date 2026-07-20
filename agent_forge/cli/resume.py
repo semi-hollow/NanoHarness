@@ -5,18 +5,42 @@ from __future__ import annotations
 import argparse
 import json
 from pathlib import Path
+from typing import Callable, Sequence, TypeVar
 
 from agent_forge.cli.repository import run_repository_task
-from agent_forge.runtime.api import prepare_continuation
+from agent_forge.observability.api import refresh_run_manifest
+from agent_forge.runtime.api import (
+    HumanInputResponseCommand,
+    decide_approval,
+    latest_checkpoint_path,
+    list_pending_approvals,
+    list_pending_human_inputs,
+    load_task_checkpoint,
+    prepare_continuation,
+    respond_to_human_input,
+)
+from agent_forge.runtime.application.operator_control import checkpoint_resume_workspace
+from agent_forge.runtime.domain.task import TaskCheckpoint
+
+_Pending = TypeVar("_Pending")
 
 # 主要入口：把 durable checkpoint 与人工决定装配成一个新的 continuation run。
 def resume_repository_task(args: argparse.Namespace) -> Path:
     """加载 checkpoint/HITL 状态并启动新的 continuation run。"""
 
+    checkpoint = load_task_checkpoint(latest_checkpoint_path(args.run_dir))
+    human_input_root = _control_root(args.human_input_root, checkpoint)
+    approval_root = _control_root(args.approval_root, checkpoint)
+    _persist_operator_decision(
+        args,
+        checkpoint_status=checkpoint.status,
+        human_input_root=human_input_root,
+        approval_root=approval_root,
+    )
     try:
         checkpoint, checkpoint_path, plan = prepare_continuation(
             args.run_dir,
-            args.human_input_root,
+            human_input_root,
             override_task=args.task or "",
             workspace=args.workspace or "",
         )
@@ -43,8 +67,8 @@ def resume_repository_task(args: argparse.Namespace) -> Path:
         supports_images=args.supports_images,
         approval_mode=args.approval_mode,
         auto_approve_writes=args.auto_approve_writes,
-        approval_root=args.approval_root,
-        human_input_root=args.human_input_root,
+        approval_root=approval_root,
+        human_input_root=human_input_root,
         human_thread_id=plan.human_thread_id,
         operation_ledger_root=args.operation_ledger_root,
         memory_root=args.memory_root,
@@ -85,6 +109,95 @@ def resume_repository_task(args: argparse.Namespace) -> Path:
         previous_run_id=checkpoint.run_id,
     )
     return run_dir
+
+
+def _persist_operator_decision(
+    args: argparse.Namespace,
+    *,
+    checkpoint_status: str,
+    human_input_root: str,
+    approval_root: str,
+) -> None:
+    """让 ``resume`` 同时承担待处理人工决定，避免记忆第二组入口。"""
+
+    if checkpoint_status == "waiting_human":
+        pending = list_pending_human_inputs(human_input_root)
+        if not pending:
+            return
+        selected = _select_pending(
+            pending,
+            identity_name="request id",
+            requested=getattr(args, "request_id", "") or "",
+            identity=lambda item: item.request_id,
+        )
+        answer = getattr(args, "answer", None)
+        if answer is None:
+            raise SystemExit(
+                "human input is pending; continue with "
+                f"`forge resume {args.run_dir} --answer <answer>`"
+            )
+        respond_to_human_input(
+            HumanInputResponseCommand(
+                human_input_root=human_input_root,
+                request_id=selected.request_id,
+                answer=answer,
+                note=getattr(args, "note", "") or "",
+            )
+        )
+        return
+
+    if checkpoint_status == "waiting_approval":
+        pending = list_pending_approvals(approval_root)
+        if not pending:
+            return
+        selected = _select_pending(
+            pending,
+            identity_name="operation key",
+            requested=getattr(args, "operation_key", "") or "",
+            identity=lambda item: item.operation_key,
+        )
+        decision = getattr(args, "decision", None)
+        if decision is None:
+            raise SystemExit(
+                "approval is pending; continue with "
+                f"`forge resume {args.run_dir} --decision approved|rejected`"
+            )
+        decide_approval(
+            approval_root,
+            selected.operation_key,
+            decision,
+            note=getattr(args, "note", "") or "",
+        )
+
+
+def _select_pending(
+    items: Sequence[_Pending],
+    *,
+    identity_name: str,
+    requested: str,
+    identity: Callable[[_Pending], str],
+) -> _Pending:
+    if requested:
+        for item in items:
+            if identity(item) == requested:
+                return item
+        raise SystemExit(f"pending {identity_name} not found: {requested}")
+    if len(items) != 1:
+        values = ", ".join(identity(item) for item in items)
+        raise SystemExit(
+            f"multiple pending items; pass --{identity_name.replace(' ', '-')}: {values}"
+        )
+    return items[0]
+
+
+def _control_root(value: str, checkpoint: TaskCheckpoint) -> str:
+    path = Path(value)
+    if path.is_absolute():
+        return str(path)
+    workspace_path = Path(checkpoint_resume_workspace(checkpoint)) / path
+    if workspace_path.exists() or not path.exists():
+        return str(workspace_path.resolve())
+    return str(path.resolve())
 
 
 def write_resume_link(
@@ -129,6 +242,8 @@ def write_resume_link(
             f"{report}\n\n## Resume Chain\n\n{chain_body}",
             encoding="utf-8",
         )
+    if (run_path / "run_manifest.json").exists():
+        refresh_run_manifest(run_path)
     return link_path, chain_path
 
 __all__ = [

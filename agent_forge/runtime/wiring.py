@@ -269,7 +269,13 @@ def build_agent_loop(
     registry: ToolGateway,
     llm: ModelPort | None,
 ) -> AgentLoop:
-    """返回已经注入全部端口实现的标准单 Agent 用例。"""
+    """把入站 Adapter 提供的实现装配为规范 ``AgentLoop``。
+
+    上游只能提交 RuntimeConfig 与四个边界端口；下一 owner 是
+    ``build_agent_loop_from_request``。本函数不运行任务、不创建 artifact，也不
+    推断状态。系统不变量是 CLI、SDK、benchmark 与 worker 必须复用同一 composition
+    path，不能各自复制 Runtime 默认值。
+    """
 
     return build_agent_loop_from_request(
         AgentLoopBuildRequest(config, trace, registry, llm)

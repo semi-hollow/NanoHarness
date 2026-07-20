@@ -9,12 +9,13 @@ from typing import TYPE_CHECKING, Any, Mapping
 from agent_forge.observability.domain.event import TraceEvent, TraceEventType, TraceRecord
 from agent_forge.observability.domain.metrics import summarize
 from agent_forge.observability.presentation.trace_summary import render_trace_summary
+from agent_forge.runtime.ports.events import EventSink
 
 if TYPE_CHECKING:
     from agent_forge.runtime.domain.task import TaskCheckpoint
 
 
-class JsonTraceRecorder:
+class JsonTraceRecorder(EventSink):
 
     def __init__(self, path: str, verbose: bool = False, write_summary_file: bool = False) -> None:
 

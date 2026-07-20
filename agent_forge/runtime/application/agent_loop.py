@@ -68,10 +68,16 @@ class AgentLoop:
 
     # 主要入口：依次执行 run 初始化、前置准备、turn loop 和统一停止。
     def run(self, task: str, agent_name: str = "CodingAgent") -> str:
-        """运行四个阶段：start -> prepare -> turn loop -> stop。
+        """编排 Single-Agent 黄金主链，不拥有任一阶段的领域规则。
 
-        CLI、顺序多角色、fanout worker 和 benchmark 都调用这里。返回值只是最终
-        文本；trace、checkpoint 与 operation ledger 保存可审计证据。
+        流程位置：Runtime 的有界阶段编排器。
+        规范上游：``Harness.run`` 装配完成的 Runtime。
+        下一 owner：``RunPreparation``、``TurnPreparation``、模型端口、
+        ``ToolExecutionPipeline``、``RunLifecycle``。
+        状态与证据：返回值只是最终文本；checkpoint、trace 与 operation ledger 才是
+        可恢复、可审计的运行事实。
+        系统不变量：所有退出分支必须汇合到 ``RunLifecycle.stop``。
+        删除/内联影响：会隐藏阶段顺序并让多个入口各自处理停止语义。
         """
 
         session = self.run_preparation.start(task, agent_name)

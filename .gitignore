@@ -4,6 +4,7 @@ __pycache__/
 *.pyc
 *.pyo
 .venv/
+.venv-win/
 *.egg-info/
 .env
 .env.local

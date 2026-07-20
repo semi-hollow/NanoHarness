@@ -84,7 +84,7 @@ class SwebenchOfficialEvaluator:
         instance_ids = [result.instance_id for result in summary.case_results]
         if instance_ids:
             command.extend(["--instance_ids", *instance_ids])
-        needs_empty_namespace = platform.system() == "Darwin" and platform.machine().lower() in {
+        needs_empty_namespace = sys.platform == "darwin" and platform.machine().lower() in {
             "arm64",
             "aarch64",
         }

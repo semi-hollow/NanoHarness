@@ -23,7 +23,15 @@ class FinalAnswerBuilder:
         response: AgentResponse,
         step: int,
     ) -> StopRequest:
-        """拒绝未执行的工具标记，并附加可引用证据和未验证声明。"""
+        """把无 ToolCall 的模型响应转换为可由 lifecycle 持久化的停止请求。
+
+        流程位置：模型文本与 terminal transition 之间的 claim boundary。
+        规范上游：``AgentLoop``。
+        下一 owner：``RunLifecycle.stop``。
+        状态与证据：final-answer、citation 与 unverified-claim 事件。
+        系统不变量：Harness 完成不等于 local 或 official resolved。
+        删除/内联影响：会让模型文本绕过 claim boundary 直接成为完成结论。
+        """
 
         if self._contains_raw_tool_call_markup(response.content or ""):
             final_answer = "blocked: pending_tool_call_at_stop"

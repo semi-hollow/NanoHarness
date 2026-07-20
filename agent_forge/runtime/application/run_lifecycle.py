@@ -67,7 +67,14 @@ class RunLifecycle:
     # 第一遍：三个 public port 分别对应更新、停止和人工暂停。
     # 运行时端口：同步更新内存 checkpoint、持久化状态和 trace 事实。
     def update(self, update: TaskCheckpointUpdate) -> TaskCheckpoint:
-        """只更新签名中明确列出的 checkpoint 字段。"""
+        """持久化一次显式状态转换，并发布同一 checkpoint 的审计事实。
+
+        流程位置：所有非终态 lifecycle transition 的唯一写入点。
+        规范上游：Runtime application services。
+        下一 owner：``TaskStateRepository``、EventSink、checkpoint hook。
+        状态与证据：同一 ``TaskCheckpoint`` 同时进入 durable state 与 trace。
+        系统不变量：外围 Adapter 不得绕过本方法直接修改状态字符串。
+        """
 
         self.checkpoint = self.task_state_store.update(
             self.checkpoint,
@@ -83,7 +90,15 @@ class RunLifecycle:
 
     # 运行时端口：统一落盘终态、停止原因和最终文本。
     def stop(self, request: StopRequest) -> str:
-        """持久化一次停止，并返回调用方要交付的最终文本。"""
+        """把黄金主链的所有退出分支归一化为唯一 terminal transition。
+
+        流程位置：黄金主链唯一 terminal transition。
+        规范上游：``AgentLoop._stop``。
+        下一 owner：stop hook、``TaskStateRepository``、EventSink。
+        状态与证据：effective status、stop reason、final text 写入 checkpoint/trace。
+        系统不变量：质量门可降级完成状态；外围不能绕过这里宣称完成。
+        删除/内联影响：会产生多个 terminal-state owner，并破坏 checkpoint/trace 一致性。
+        """
 
         hook_decisions = self.hooks.on_stop(
             self.trace.run_id,
@@ -146,7 +161,14 @@ class RunLifecycle:
         self,
         question: HumanInputQuestion,
     ) -> HumanInputResolution:
-        """读取既有回答，或生成一个可恢复的人工暂停。"""
+        """解析人工问题的 durable 状态，并返回回答或可恢复的暂停请求。
+
+        流程位置：运行前澄清或工具 HITL 的 durable barrier。
+        规范上游：clarification 或 tool governance。
+        下一 owner：``HumanInputRepository``；等待时回到 ``AgentLoop``/``stop``。
+        状态与证据：human request、trace、WAITING_HUMAN checkpoint。
+        系统不变量：request 必须先持久化，进程退出后仍能定位同一问题。
+        """
 
         request = self.human_input_store.request(
             HumanInputRequestDraft(

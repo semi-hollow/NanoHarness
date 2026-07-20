@@ -12,10 +12,10 @@ from agent_forge.workbench.presentation.commands import (
     build_agent_run_command as _build_agent_run_command,
     build_campaign_command as _build_campaign_command,
     build_swebench_command as _build_swebench_command,
+    build_workbench_command,
 )
 from agent_forge.workbench.presentation.http import (
     INDEX_HTML,
-    _action_to_command,
     _latest_report_path,
     _latest_run_dir,
     _render_evidence_html,
@@ -39,12 +39,10 @@ class PublicCliSmokeTest(unittest.TestCase):
             capture_output=True,
         )
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn("bench", result.stdout)
-        self.assertIn("ui", result.stdout)
-        self.assertIn("approve", result.stdout)
-        self.assertIn("resume", result.stdout)
-        self.assertIn("eval", result.stdout)
-        self.assertIn("showcase", result.stdout)
+        for command in ("run", "inspect", "demo", "resume", "bench", "ui"):
+            self.assertIn(command, result.stdout)
+        for legacy in ("approve", "respond", "eval", "showcase", "memory", "tui"):
+            self.assertNotIn(legacy, result.stdout)
 
     def test_run_help_exposes_resume_and_manual_approval_flags(self):
         result = subprocess.run(
@@ -96,6 +94,8 @@ class PublicCliSmokeTest(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("run_dir", result.stdout)
         self.assertIn("--task", result.stdout)
+        self.assertIn("--answer", result.stdout)
+        self.assertIn("--decision", result.stdout)
         self.assertIn("--operation-ledger-root", result.stdout)
 
     def test_respond_help_exposes_durable_human_input_flags(self):
@@ -698,7 +698,7 @@ class PublicCliSmokeTest(unittest.TestCase):
             latest.mkdir(parents=True)
             (latest / "run.txt").write_text(str(run_dir), encoding="utf-8")
 
-            feedback = _action_to_command(
+            feedback = build_workbench_command(
                 "feedback",
                 {
                     "feedbackOutcome": "needs_work",
@@ -707,7 +707,7 @@ class PublicCliSmokeTest(unittest.TestCase):
                 },
                 project_dir=root,
             )
-            export = _action_to_command(
+            export = build_workbench_command(
                 "export_dataset",
                 {"requireFeedback": True},
                 project_dir=root,

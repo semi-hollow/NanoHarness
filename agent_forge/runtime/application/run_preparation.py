@@ -47,7 +47,15 @@ class RunPreparation:
 
     # 主要入口：创建本次 run 的 session、lifecycle 和首个 durable checkpoint。
     def start(self, task: str, agent_name: str) -> AgentRunSession:
-        """创建 checkpoint、lifecycle 与内存中的 run session。"""
+        """把 ``AgentLoop.run`` 的规范输入转换为可恢复的运行会话。
+
+        流程位置：黄金主链的 session 与首个 durable state 创建点。
+        规范上游：``AgentLoop.run``。
+        下一 owner：``RunLifecycle`` 与 ``AgentRunSession``。
+        状态与证据：首个 checkpoint、环境和模型能力事件。
+        系统不变量：任何 turn 开始前都已有唯一 run id 和首个状态事实。
+        删除/内联影响：会失去 turn 前 durable-state 屏障并扩大 ``AgentLoop``。
+        """
 
         self.trace.set_run_context(task=task)
         resume_summary = self._load_resume_summary(agent_name)
@@ -97,7 +105,15 @@ class RunPreparation:
 
     # 主要入口：应用输入策略、恢复人工状态、选择 Skill 并召回长期记忆。
     def execute(self, session: AgentRunSession) -> StopRequest | None:
-        """准备运行；无法继续时返回统一的停止请求。"""
+        """完成首次模型调用前的一次性决策，并把控制权还给 ``AgentLoop``。
+
+        流程位置：首次模型调用之前的一次性策略阶段。
+        规范上游：``AgentLoop.run``。
+        下一 owner：成功时 ``TurnPreparation.execute``；停止时 ``RunLifecycle.stop``。
+        状态与证据：guardrail、clarification、Skill 与 memory 决定写入 trace。
+        系统不变量：本方法只返回 ``StopRequest``，不直接写终态。
+        删除/内联影响：会把一次性策略重新散入 turn loop。
+        """
 
         stop = self._apply_input_policy(session)
         if stop is not None:

@@ -25,6 +25,7 @@ from agent_forge.context.api import (
 from agent_forge.cli.inspection import (
     print_report,
     print_skills,
+    render_inspection,
     render_doctor,
     resolve_trace_target,
     run_tui,
@@ -45,6 +46,7 @@ from agent_forge.observability.api import replay_trace_file
 from agent_forge.showcase import (
     ControlPlaneShowcaseResult,
     continue_control_plane_showcase,
+    run_governed_demo,
     start_control_plane_showcase,
 )
 from agent_forge.workbench.api import run_ui_from_args
@@ -57,6 +59,17 @@ def main(argv: list[str] | None = None) -> None:
     args = build_parser().parse_args(argv)
     if args.command == "doctor":
         print(render_doctor())
+    elif args.command == "inspect":
+        print(render_inspection(args.target), end="")
+    elif args.command == "demo":
+        result = run_governed_demo(
+            args.scenario,
+            output_root=args.output_root,
+            answer=args.answer,
+        )
+        print(f"Demo: {result.report_path}")
+        print(f"State: {result.waiting_status} -> {result.completed_status}")
+        print(f"Inspect: forge inspect {result.inspect_target}")
     elif args.command == "approve":
         print(approve_request(args))
     elif args.command == "respond":

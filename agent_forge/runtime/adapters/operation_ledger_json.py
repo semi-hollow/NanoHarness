@@ -11,9 +11,10 @@ from agent_forge.runtime.domain.operation import (
     OperationTarget,
     OperationTransition,
 )
+from agent_forge.runtime.ports.repositories import OperationLedgerRepository
 
 
-class JsonOperationLedgerRepository:
+class JsonOperationLedgerRepository(OperationLedgerRepository):
     def __init__(self, root: str | Path = ".agent_forge/operation_ledger") -> None:
         self.root = Path(root)
         self.root.mkdir(parents=True, exist_ok=True)

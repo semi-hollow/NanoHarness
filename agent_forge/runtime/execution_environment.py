@@ -364,8 +364,10 @@ class ExecutionEnvironment:
         ]
         if self.config.container_read_only:
             command.append("--read-only")
-        if hasattr(os, "getuid") and hasattr(os, "getgid"):
-            command.extend(["--user", f"{os.getuid()}:{os.getgid()}"])
+        getuid: Callable[[], int] | None = getattr(os, "getuid", None)
+        getgid: Callable[[], int] | None = getattr(os, "getgid", None)
+        if getuid is not None and getgid is not None:
+            command.extend(["--user", f"{getuid()}:{getgid()}"])
         command.extend(
             [
                 self.config.container_image,

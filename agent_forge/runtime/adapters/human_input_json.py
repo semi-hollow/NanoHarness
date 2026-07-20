@@ -11,11 +11,12 @@ from agent_forge.runtime.domain.human_input import (
     HumanInputRequest,
     HumanInputRequestDraft,
 )
+from agent_forge.runtime.ports.repositories import HumanInputRepository
 
 REQUEST_ID_PATTERN = re.compile(r"^[0-9a-f]{24}$")
 
 
-class JsonHumanInputRepository:
+class JsonHumanInputRepository(HumanInputRepository):
     def __init__(self, root: str | Path = ".agent_forge/human_input") -> None:
         self.root = Path(root)
         self.root.mkdir(parents=True, exist_ok=True)

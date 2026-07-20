@@ -6,9 +6,10 @@ from pathlib import Path
 from typing import Any
 
 from agent_forge.runtime.domain.approval import ApprovalRequest, ApprovalRequestDraft
+from agent_forge.runtime.ports.repositories import ApprovalRepository
 
 
-class JsonApprovalRepository:
+class JsonApprovalRepository(ApprovalRepository):
     def __init__(self, root: str | Path = ".agent_forge/approvals") -> None:
         self.root = Path(root)
         self.root.mkdir(parents=True, exist_ok=True)

@@ -105,7 +105,13 @@ class ContextWindowManager:
 
     # 主要入口：预算足够时直通，接近窗口时压缩旧历史。
     def prepare(self, request: ContextWindowRequest) -> ContextWindowResult:
-        """返回不拆分工具事务的模型输入视图。"""
+        """在模型调用前生成满足硬窗口限制的、可解释的消息视图。
+
+        规范上游是 ``TurnPreparation``；下一 owner 是 ``ModelPort``。返回值同时
+        携带压缩前后 token 估算、覆盖范围和原因，供 trace 形成上下文证据。系统
+        不变量是 system message 必须保留，assistant/tool 事务不得拆分，无法安全
+        压缩时不得伪称已经满足 hard limit。
+        """
 
         full_messages = [request.system_message, *request.history]
         before = estimate_prompt_tokens(full_messages, request.tools, self.budget)

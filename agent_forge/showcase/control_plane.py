@@ -16,19 +16,16 @@ from pathlib import Path
 from typing import Any
 
 from agent_forge.contracts import ToolSchema
-from agent_forge.observability.api import TraceRecorder
+from agent_forge.harness import Harness, HarnessConfig, RunRequest
 from agent_forge.runtime.api import (
     HumanInputResponseCommand,
     ToolRegistryBuildRequest,
-    build_agent_loop,
     decide_approval,
-    latest_checkpoint_path,
     list_pending_approvals,
     list_pending_human_inputs,
     load_task_checkpoint,
     respond_to_human_input,
 )
-from agent_forge.runtime.config import RuntimeConfig
 from agent_forge.runtime.domain.conversation import AgentResponse, Message, ToolCall
 from agent_forge.runtime.wiring import build_registry
 
@@ -47,12 +44,66 @@ class ControlPlaneShowcaseResult:
     scenario: str
     status: str
     run_dir: Path
+    artifact_dir: Path
     workspace: Path
     checkpoint_path: Path
     trace_path: Path
     request_id: str = ""
     operation_key: str = ""
     next_command: str = ""
+
+
+@dataclass(frozen=True)
+class GovernedRunDemoResult:
+    """一个命令完成的等待→人工决定→continuation 演示摘要。"""
+
+    scenario: str
+    run_dir: Path
+    waiting_status: str
+    completed_status: str
+    report_path: Path
+    inspect_target: Path
+
+
+# 主要入口：用一个命令展示真实 Runtime 的人工屏障和 continuation。
+def run_governed_demo(
+    scenario: str = "approval",
+    *,
+    output_root: str | Path = ".agent_forge/showcases",
+    answer: str = "Python 3.11",
+) -> GovernedRunDemoResult:
+    """串联两个正式 Runtime phase；确定性模型只固定工具意图。"""
+
+    waiting = start_control_plane_showcase(scenario, output_root=output_root)
+    completed = continue_control_plane_showcase(
+        scenario,
+        waiting.run_dir,
+        answer=answer,
+    )
+    report_path = waiting.run_dir / "demo.md"
+    report_path.write_text(
+        _render_governed_demo(waiting, completed),
+        encoding="utf-8",
+    )
+    _publish_default_demo_pointer(output_root, completed.artifact_dir)
+    return GovernedRunDemoResult(
+        scenario=scenario,
+        run_dir=waiting.run_dir,
+        waiting_status=waiting.status,
+        completed_status=completed.status,
+        report_path=report_path,
+        inspect_target=completed.artifact_dir,
+    )
+
+
+def _publish_default_demo_pointer(output_root: str | Path, artifact_dir: Path) -> None:
+    """让默认 CLI demo 可立即用 ``forge inspect latest`` 查看。"""
+
+    if Path(output_root) != Path(".agent_forge/showcases"):
+        return
+    latest = Path(".agent_forge/latest")
+    latest.mkdir(parents=True, exist_ok=True)
+    (latest / "run.txt").write_text(str(artifact_dir.resolve()), encoding="utf-8")
 
 
 class _HitlShowcaseModel:
@@ -137,12 +188,10 @@ def start_control_plane_showcase(
     if scenario == "approval":
         (workspace / "target.py").write_text("value = 1\n", encoding="utf-8")
 
-    trace_path = run_dir / "start-trace.json"
     result = _run_phase(
         scenario,
         run_dir=run_dir,
         workspace=workspace,
-        trace_path=trace_path,
     )
     _write_showcase_artifacts(result)
     return result
@@ -187,12 +236,10 @@ def continue_control_plane_showcase(
         )
 
     metadata = checkpoint.metadata if isinstance(checkpoint.metadata, dict) else {}
-    trace_path = root / "continuation-trace.json"
     result = _run_phase(
         scenario,
         run_dir=root,
         workspace=Path(str(manifest["workspace"])),
-        trace_path=trace_path,
         resume_state=checkpoint_path,
         human_thread_id=str(metadata.get("human_thread_id") or checkpoint.run_id),
     )
@@ -210,49 +257,48 @@ def _run_phase(
     *,
     run_dir: Path,
     workspace: Path,
-    trace_path: Path,
     resume_state: Path | None = None,
     human_thread_id: str = "",
 ) -> ControlPlaneShowcaseResult:
-    """装配正式 Runtime；本函数是 showcase 唯一的执行汇合点。"""
+    """经唯一 ``Harness`` Public API 装配 deterministic control-plane phase。"""
 
-    trace = TraceRecorder(str(trace_path))
-    config = RuntimeConfig(
-        workspace=str(workspace),
-        max_steps=3,
-        trace_file=str(trace_path),
-        task_state_root=str(run_dir / "task_state"),
-        resume_state=str(resume_state or ""),
-        approval_root=str(run_dir / "approvals"),
-        human_input_root=str(run_dir / "human_input"),
-        human_thread_id=human_thread_id,
-        operation_ledger_root=str(run_dir / "operation_ledger"),
-        memory_root=str(run_dir / "memory"),
-        auto_approve_writes=scenario != "approval",
-        approval_mode="trusted",
-        tool_routing_mode="task-aware",
-    )
     model = _HitlShowcaseModel() if scenario == "hitl" else _ApprovalShowcaseModel()
     task = HITL_TASK if scenario == "hitl" else APPROVAL_TASK
-    final_answer = build_agent_loop(
-        config,
-        trace,
-        build_registry(
-            ToolRegistryBuildRequest(
-                workspace=str(workspace),
-                auto=True,
-            )
-        ),
-        model,
-    ).run(task, agent_name="ShowcaseAgent")
-    trace.write()
-    (run_dir / f"{trace_path.stem}-final-answer.txt").write_text(
-        final_answer,
-        encoding="utf-8",
+    tools = build_registry(
+        ToolRegistryBuildRequest(
+            workspace=str(workspace),
+            auto=True,
+        )
     )
+    result = Harness(
+        model=model,
+        tools=tools,
+        config=HarnessConfig(
+            workspace=str(workspace),
+            output_root=str(run_dir / "phases"),
+            max_steps=3,
+            approval_root=str(run_dir / "approvals"),
+            human_input_root=str(run_dir / "human_input"),
+            operation_ledger_root=str(run_dir / "operation_ledger"),
+            memory_root=str(run_dir / "memory"),
+            auto_approve_writes=scenario != "approval",
+            approval_mode="trusted",
+            tool_routing_mode="task-aware",
+        ),
+    ).run(
+        RunRequest(
+            task=task,
+            workspace=str(workspace),
+            resume_state=str(resume_state or ""),
+            human_thread_id=human_thread_id,
+            agent_name="ShowcaseAgent",
+        )
+    )
+    if result.trace_path is None:
+        raise RuntimeError("governed demo requires the default trace adapter")
 
-    checkpoint_path = Path(latest_checkpoint_path(str(run_dir)))
-    checkpoint = load_task_checkpoint(str(checkpoint_path))
+    checkpoint_path = result.artifact_dir / "task_state" / f"{result.run_id}.json"
+    checkpoint = result.checkpoint
     request_id = ""
     operation_key = ""
     next_command = ""
@@ -272,14 +318,14 @@ def _run_phase(
         scenario=scenario,
         status=checkpoint.status,
         run_dir=run_dir,
+        artifact_dir=result.artifact_dir,
         workspace=workspace,
         checkpoint_path=checkpoint_path,
-        trace_path=trace_path,
+        trace_path=result.trace_path,
         request_id=request_id,
         operation_key=operation_key,
         next_command=next_command,
     )
-
 
 def _new_run_dir(output_root: str | Path, scenario: str) -> Path:
     run_id = f"{scenario}-{time.strftime('%Y%m%d-%H%M%S')}-{uuid.uuid4().hex[:7]}"
@@ -300,6 +346,7 @@ def _write_showcase_artifacts(result: ControlPlaneShowcaseResult) -> None:
         "scenario": result.scenario,
         "status": result.status,
         "run_dir": str(result.run_dir),
+        "artifact_dir": str(result.artifact_dir),
         "workspace": str(result.workspace),
         "checkpoint_path": str(result.checkpoint_path),
         "trace_path": str(result.trace_path),
@@ -361,6 +408,7 @@ def _render_showcase_report(result: ControlPlaneShowcaseResult) -> str:
         "",
         f"- checkpoint: `{result.checkpoint_path}`",
         f"- trace: `{result.trace_path}`",
+        f"- canonical artifacts: `{result.artifact_dir}`",
         f"- workspace: `{result.workspace}`",
     ]
     if result.next_command:
@@ -379,8 +427,49 @@ def _render_showcase_report(result: ControlPlaneShowcaseResult) -> str:
     return "\n".join(lines) + "\n"
 
 
+def _render_governed_demo(
+    waiting: ControlPlaneShowcaseResult,
+    completed: ControlPlaneShowcaseResult,
+) -> str:
+    lines = [
+        "# Governed Run Demo",
+        "",
+        "本演示使用确定性 ModelPort 固定工具意图，但 checkpoint、审批/HITL、",
+        "operation ledger、工具执行和 continuation 均经过正式 Runtime。它证明控制面，",
+        "不证明在线模型能力或 official resolved。",
+        "",
+        f"- scenario: `{waiting.scenario}`",
+        f"- waiting state: `{waiting.status}`",
+        f"- completed state: `{completed.status}`",
+        f"- checkpoint: `{waiting.checkpoint_path}`",
+        f"- start trace: `{waiting.trace_path}`",
+        f"- continuation trace: `{completed.trace_path}`",
+        f"- canonical Run Story: `{completed.artifact_dir / 'run_manifest.json'}`",
+        "",
+        "## 状态序列",
+        "",
+        f"`running → {waiting.status} → explicit human decision → {completed.status}`",
+        "",
+        "## Claim Boundary",
+        "",
+        "- proves: 人工屏障先持久化、continuation 显式加载 checkpoint、写副作用受治理。",
+        "- does not prove: 模型任务质量、测试通过、SWE-bench official resolved。",
+        "",
+    ]
+    return "\n".join(lines)
+
+
 def _load_manifest(run_dir: Path) -> dict[str, Any]:
     path = run_dir / "showcase.json"
     if not path.exists():
         raise ValueError(f"showcase manifest not found: {path}")
     return json.loads(path.read_text(encoding="utf-8"))
+
+
+__all__ = [
+    "ControlPlaneShowcaseResult",
+    "GovernedRunDemoResult",
+    "continue_control_plane_showcase",
+    "run_governed_demo",
+    "start_control_plane_showcase",
+]

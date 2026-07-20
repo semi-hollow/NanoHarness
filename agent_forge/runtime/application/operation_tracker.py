@@ -47,7 +47,12 @@ class OperationTracker:
 
     # 主要入口：把 ToolCall 转成稳定 operation key、权限动作与目标指纹。
     def describe(self, tool_call: ToolCall) -> OperationIntent:
-        """把工具名与参数转换为权限动作、稳定 key 和目标指纹。"""
+        """把模型 ToolCall 归一化为权限与幂等层共享的稳定意图。
+
+        规范上游是 ``ToolExecutionPipeline``；下一 owner 是授权门禁和 operation
+        ledger。只读操作不创建 key，副作用同时绑定 workspace、参数与目标指纹。
+        系统不变量是授权、执行和恢复必须使用同一个 ``OperationIntent`` 身份。
+        """
 
         action = self._permission_action(tool_call.name)
         command = str((tool_call.arguments or {}).get("command", ""))
@@ -69,6 +74,7 @@ class OperationTracker:
             fingerprint=self.operations.operation_fingerprint(target),
         )
 
+    # 核心规则：只重放指纹未漂移的 executed 事实，绝不重复副作用。
     def replay_if_executed(
         self,
         session: AgentRunSession,
@@ -76,7 +82,13 @@ class OperationTracker:
         intent: OperationIntent,
         step: int,
     ) -> bool:
-        """跳过可证明已执行的操作；目标变化时阻止错误重放。"""
+        """在工具执行前复用已完成事实，或因目标漂移阻止危险重放。
+
+        规范上游是 ``ToolExecutionPipeline``；命中时下一 owner 是 trace、反馈与
+        ``RunLifecycle``，未命中时由调用方继续授权。返回 ``True`` 表示本次调用已
+        被账本消费。系统不变量是只有 post-fingerprint 仍匹配的 executed 记录才可
+        转成成功 Observation，目标变化必须进入可恢复的 BLOCKED 状态。
+        """
 
         existing = self.operations.get(intent.key)
         if existing is None or existing.status != "executed":
@@ -175,6 +187,7 @@ class OperationTracker:
             )
         )
 
+    # 运行时端口：把真实执行结果与 post-fingerprint 提交到唯一幂等账本。
     def record_result(
         self,
         session: AgentRunSession,
@@ -183,7 +196,13 @@ class OperationTracker:
         observation: Observation,
         step: int,
     ) -> None:
-        """把副作用执行结果写入幂等账本。"""
+        """在真实工具返回后提交副作用结果和执行后目标指纹。
+
+        规范上游是 ``ToolExecutionPipeline``；下一 owner 是
+        ``OperationLedgerRepository``，随后把同一 record 发布为 trace evidence。
+        系统不变量是成功与失败都必须落账，恢复逻辑不能仅凭模型文本判断操作是否
+        已执行。
+        """
 
         post_fingerprint = self.operations.operation_fingerprint(intent.target)
         update = OperationTransition(

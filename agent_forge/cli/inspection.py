@@ -13,7 +13,14 @@ import sys
 from pathlib import Path
 
 from agent_forge.bench.presentation.cli import run_swebench_from_args
+from agent_forge.code_compass import inspect_symbol, render_symbol_card
 from agent_forge.cli.repository import run_repository_task
+from agent_forge.observability.api import (
+    load_run_story,
+    read_run_manifest,
+    render_run_story,
+    replay_trace_file,
+)
 from agent_forge.skills import SkillRegistry, build_default_skill_registry
 
 
@@ -49,6 +56,41 @@ def render_doctor() -> str:
 def print_report(target: str) -> None:
     report = resolve_report_target(target)
     print(report.read_text(encoding="utf-8"))
+
+
+# 主要入口：用一个目标参数检查 run、artifact 或源码符号。
+def render_inspection(target: str = "latest") -> str:
+    """自动识别 inspection target，避免 report/replay/code-map 多套入口。"""
+
+    if target == "latest":
+        path = _latest_inspection_target()
+    else:
+        path = Path(target)
+
+    if path.exists():
+        if path.name == "run_manifest.json":
+            path = path.parent
+        if path.is_dir() and (path / "run_manifest.json").exists():
+            return render_run_story(load_run_story(path))
+        if path.is_file():
+            manifest_root = _manifest_root(path)
+            if manifest_root is not None:
+                return _render_artifact_card(path, manifest_root)
+            if path.name == "trace.json":
+                return replay_trace_file(path)
+            return path.read_text(encoding="utf-8")
+        try:
+            return resolve_report_target(str(path)).read_text(encoding="utf-8")
+        except SystemExit:
+            trace_path = resolve_trace_target(str(path))
+            if trace_path.exists():
+                return replay_trace_file(trace_path)
+            raise
+
+    try:
+        return render_symbol_card(inspect_symbol(target))
+    except ValueError as exc:
+        raise SystemExit(str(exc)) from exc
 
 
 def resolve_report_target(target: str) -> Path:
@@ -200,6 +242,60 @@ def _latest_pointer_target() -> Path:
     if not pointer.exists():
         raise SystemExit("No latest run pointer found.")
     return Path(pointer.read_text(encoding="utf-8").strip())
+
+
+def _latest_inspection_target() -> Path:
+    """优先选择 canonical single run；缺失时兼容 benchmark pointer。"""
+
+    for pointer in (
+        Path(".agent_forge/latest/run.txt"),
+        Path(".agent_forge/latest/bench.txt"),
+    ):
+        if pointer.exists():
+            return Path(pointer.read_text(encoding="utf-8").strip())
+    raise SystemExit("No latest run pointer found.")
+
+
+def _manifest_root(path: Path) -> Path | None:
+    current = path.resolve().parent
+    for candidate in (current, *current.parents):
+        if (candidate / "run_manifest.json").exists():
+            return candidate
+    return None
+
+
+def _render_artifact_card(path: Path, run_dir: Path) -> str:
+    relative = path.resolve().relative_to(run_dir.resolve()).as_posix()
+    manifest = read_run_manifest(run_dir / "run_manifest.json")
+    artifact = next(
+        (
+            item
+            for item in manifest.artifacts
+            if item.relative_path == relative
+        ),
+        None,
+    )
+    if artifact is None:
+        raise SystemExit(f"Artifact is not registered in run manifest: {relative}")
+    lines = [
+        "# Artifact Lineage",
+        "",
+        f"- path: `{artifact.relative_path}`",
+        f"- kind / level: `{artifact.kind}` / `{artifact.evidence_level}`",
+        f"- producer: `{artifact.producer_symbol}`",
+        f"- flow stage: `{artifact.flow_stage}`",
+        f"- consumers: `{', '.join(artifact.semantic_consumers) or '-'}`",
+        f"- derived from: `{', '.join(artifact.derived_from) or '-'}`",
+        f"- rebuildable: `{str(artifact.rebuildable).lower()}`",
+        f"- deletion impact: {artifact.deletion_impact or '未登记'}",
+        f"- sha256: `{artifact.sha256}`",
+        f"- proves: {'；'.join(artifact.proves) or '没有登记正向 claim'}",
+        (
+            "- does not prove: "
+            f"{'；'.join(artifact.does_not_prove) or '没有登记边界'}"
+        ),
+    ]
+    return "\n".join(lines) + "\n"
 
 
 def _command_version(command: list[str]) -> str:

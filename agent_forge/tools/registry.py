@@ -4,11 +4,12 @@ from typing import Any
 
 from agent_forge.contracts import ToolArguments, ToolSchema
 from agent_forge.runtime.domain.conversation import Observation
+from agent_forge.runtime.ports.tools import ToolGateway
 
 from .base import Tool
 
 
-class ToolRegistry:
+class ToolRegistry(ToolGateway):
 
     def __init__(self) -> None:
 

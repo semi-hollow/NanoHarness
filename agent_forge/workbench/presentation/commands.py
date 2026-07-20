@@ -8,6 +8,7 @@ from agent_forge.workbench.domain.models import WorkbenchCommand
 from agent_forge.workbench.ports import EvidenceCatalogPort
 from agent_forge.workbench.wiring import build_evidence_catalog
 
+# Legacy compatibility helper: no longer connected to the read-only Workbench HTTP API.
 # 主要入口：把 UI action 和 payload 转换成固定 argv，不执行 shell 字符串。
 def build_workbench_command(
     action: str,
@@ -22,6 +23,18 @@ def build_workbench_command(
     if action == "doctor":
         return WorkbenchCommand("Doctor", [python, "-m", "agent_forge", "doctor"])
     if action == "verify":
+        if sys.platform == "win32":
+            return WorkbenchCommand(
+                "Verify",
+                [
+                    "powershell.exe",
+                    "-NoProfile",
+                    "-ExecutionPolicy",
+                    "Bypass",
+                    "-File",
+                    "scripts/verify.ps1",
+                ],
+            )
         return WorkbenchCommand("Verify", ["bash", "scripts/verify.sh"])
     if action == "agent_run":
         return build_agent_run_command(python, payload)

@@ -9,10 +9,10 @@ from agent_forge.context.context_builder import (
     build_context_report,
 )
 from agent_forge.context.repo_map import build_repo_map
-from agent_forge.runtime.ports.context import ContextAssemblyRequest
+from agent_forge.runtime.ports.context import ContextAssemblerPort, ContextAssemblyRequest
 
 
-class RepositoryContextAssembler:
+class RepositoryContextAssembler(ContextAssemblerPort):
     """扫描 workspace，并构造 Runtime 消费的上下文报告。"""
 
     # 运行时端口：读取 repository 事实并返回有预算的类型化 ContextReport。

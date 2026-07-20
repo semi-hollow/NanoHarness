@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Any
 
 from agent_forge.bench.domain.campaign import CampaignState, summarize_campaign
+from agent_forge.observability.api import RunStory, load_run_story
 
 
 class FileEvidenceCatalog:
@@ -29,6 +30,14 @@ class FileEvidenceCatalog:
             unique = {path.resolve(): path for path in candidates}
             return max(unique.values(), key=lambda path: path.stat().st_mtime)
         return latest_run
+
+    def latest_run_story(self) -> RunStory | None:
+        """Load the canonical read model when the latest run publishes it."""
+
+        run_dir = self.latest_run_dir()
+        if run_dir is None or not (run_dir / "run_manifest.json").is_file():
+            return None
+        return load_run_story(run_dir)
 
     def latest_report_path(self) -> str:
         run_dir = self.latest_run_dir()

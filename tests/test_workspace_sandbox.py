@@ -27,7 +27,12 @@ class WorkspaceSandboxTest(unittest.TestCase):
             outside = root.parent / f"{root.name}-outside.txt"
             outside.write_text("secret", encoding="utf-8")
             try:
-                (root / "link").symlink_to(outside)
+                try:
+                    (root / "link").symlink_to(outside)
+                except OSError as exc:
+                    if getattr(exc, "winerror", None) == 1314:
+                        self.skipTest("Windows symlink privilege is not available")
+                    raise
                 sandbox = WorkspaceSandbox(root)
                 with self.assertRaises(PermissionError):
                     sandbox.ensure_safe_path("link")

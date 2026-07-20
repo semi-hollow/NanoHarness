@@ -1,10 +1,12 @@
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 from unittest import mock
 
 from agent_forge.cli.parser import build_parser
 from agent_forge.cli.resume import resume_repository_task, write_resume_link
+from agent_forge.observability.api import read_run_manifest, write_run_manifest
 from agent_forge.runtime.api import latest_checkpoint_path
 from agent_forge.runtime.application.operator_control import ContinuationPlan
 from agent_forge.runtime.application.operator_control import checkpoint_resume_workspace
@@ -83,6 +85,13 @@ class ResumeCliTest(unittest.TestCase):
             report.write_text(
                 "# Usage Report\n\nExisting evidence.\n", encoding="utf-8"
             )
+            write_run_manifest(
+                run_dir,
+                run_id="run-new",
+                task="continue",
+                status="completed",
+                stop_reason="final_answer",
+            )
 
             checkpoint_path = source_run / "task_state" / "previous.json"
             checkpoint_path.parent.mkdir()
@@ -104,6 +113,12 @@ class ResumeCliTest(unittest.TestCase):
             self.assertIn(str(checkpoint_path), chain)
             self.assertIn("## Resume Chain", report_text)
             self.assertIn(str(source_run), report_text)
+            kinds = {
+                artifact.kind
+                for artifact in read_run_manifest(run_dir / "run_manifest.json").artifacts
+            }
+            self.assertIn("resume_link", kinds)
+            self.assertIn("resume_chain_report", kinds)
 
     def test_resume_preserves_new_model_instruction_and_tool_policy(self):
         args = build_parser().parse_args(
@@ -138,6 +153,12 @@ class ResumeCliTest(unittest.TestCase):
             human_thread_id="thread-1",
         )
         with mock.patch(
+            "agent_forge.cli.resume.latest_checkpoint_path",
+            return_value="/tmp/checkpoint.json",
+        ), mock.patch(
+            "agent_forge.cli.resume.load_task_checkpoint",
+            return_value=checkpoint,
+        ), mock.patch(
             "agent_forge.cli.resume.prepare_continuation",
             return_value=(checkpoint, "/tmp/checkpoint.json", plan),
         ), mock.patch(
@@ -173,6 +194,12 @@ class ResumeCliTest(unittest.TestCase):
             human_thread_id="thread-1",
         )
         with mock.patch(
+            "agent_forge.cli.resume.latest_checkpoint_path",
+            return_value="/tmp/checkpoint.json",
+        ), mock.patch(
+            "agent_forge.cli.resume.load_task_checkpoint",
+            return_value=checkpoint,
+        ), mock.patch(
             "agent_forge.cli.resume.prepare_continuation",
             return_value=(checkpoint, "/tmp/checkpoint.json", plan),
         ), mock.patch(
@@ -183,6 +210,68 @@ class ResumeCliTest(unittest.TestCase):
 
         forwarded = run.call_args.args[0]
         self.assertIsNone(forwarded.enabled_tools)
+
+    def test_resume_answers_the_single_pending_human_request(self):
+        args = build_parser().parse_args(
+            ["resume", "/tmp/old-run", "--answer", "Python 3.11"]
+        )
+        checkpoint = TaskCheckpoint(
+            run_id="run-old",
+            task="continue",
+            workspace="/tmp/repository",
+            status="waiting_human",
+        )
+        plan = ContinuationPlan(
+            task="continue with answer",
+            workspace="/tmp/repository",
+            human_thread_id="thread-1",
+        )
+        pending = SimpleNamespace(request_id="request-1")
+        with mock.patch(
+            "agent_forge.cli.resume.latest_checkpoint_path",
+            return_value="/tmp/checkpoint.json",
+        ), mock.patch(
+            "agent_forge.cli.resume.load_task_checkpoint",
+            return_value=checkpoint,
+        ), mock.patch(
+            "agent_forge.cli.resume.list_pending_human_inputs",
+            return_value=[pending],
+        ), mock.patch(
+            "agent_forge.cli.resume.respond_to_human_input"
+        ) as respond, mock.patch(
+            "agent_forge.cli.resume.prepare_continuation",
+            return_value=(checkpoint, "/tmp/checkpoint.json", plan),
+        ), mock.patch(
+            "agent_forge.cli.resume.run_repository_task",
+            return_value=Path("/tmp/new-run"),
+        ), mock.patch("agent_forge.cli.resume.write_resume_link"):
+            resume_repository_task(args)
+
+        command = respond.call_args.args[0]
+        self.assertEqual(command.request_id, "request-1")
+        self.assertEqual(command.answer, "Python 3.11")
+
+    def test_resume_requires_an_explicit_approval_decision(self):
+        args = build_parser().parse_args(["resume", "/tmp/old-run"])
+        checkpoint = TaskCheckpoint(
+            run_id="run-old",
+            task="continue",
+            workspace="/tmp/repository",
+            status="waiting_approval",
+        )
+        pending = SimpleNamespace(operation_key="operation-1")
+        with mock.patch(
+            "agent_forge.cli.resume.latest_checkpoint_path",
+            return_value="/tmp/checkpoint.json",
+        ), mock.patch(
+            "agent_forge.cli.resume.load_task_checkpoint",
+            return_value=checkpoint,
+        ), mock.patch(
+            "agent_forge.cli.resume.list_pending_approvals",
+            return_value=[pending],
+        ):
+            with self.assertRaisesRegex(SystemExit, "--decision approved"):
+                resume_repository_task(args)
 
 
 if __name__ == "__main__":

@@ -96,7 +96,16 @@ class ToolExecutionPipeline:
         step: int,
         allowed_tool_names: set[str],
     ) -> StopRequest | None:
-        """处理一次模型响应；返回值为空表示 AgentLoop 可以进入下一 turn。"""
+        """治理并执行一次模型响应中的 ToolCall，随后决定继续或停止。
+
+        流程位置：模型意图进入真实工具与副作用之前的治理管线。
+        规范上游：``AgentLoop`` 的模型响应分支。
+        下一 owner：``OperationTracker``、``ToolAuthorizationGate``、``ToolGateway``、
+        ``RunLifecycle``。
+        状态与证据：授权、operation、执行、Observation 与 citation 事件。
+        系统不变量：副作用先登记并通过确定性门；已执行操作只能重放证据。
+        删除/内联影响：会失去统一副作用治理与幂等重放边界。
+        """
 
         calls = self._select_calls_for_turn(session, response, step)
         session.messages.append(
