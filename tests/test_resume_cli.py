@@ -1,3 +1,4 @@
+import json
 import tempfile
 import unittest
 from pathlib import Path
@@ -179,6 +180,136 @@ class ResumeCliTest(unittest.TestCase):
         )
         self.assertEqual(forwarded.instruction_max_bytes, 2_048)
         self.assertEqual(forwarded.enabled_tools, ["read_file"])
+
+    def test_resume_inherits_resolved_config_while_explicit_cli_options_win(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            source_run = Path(tmp) / "old-run"
+            workspace = Path(tmp) / "repository"
+            source_run.mkdir()
+            workspace.mkdir()
+            (source_run / "resolved_config.json").write_text(
+                json.dumps(
+                    {
+                        "schema_version": 1,
+                        "values": {
+                            "provider": "openai",
+                            "model": "source-model",
+                            "temperature": 0.7,
+                            "max_steps": 4,
+                            "native_tool_calling": True,
+                            "approval_mode": "on-risk",
+                            "execution_mode": "worktree",
+                            "enabled_tools": ["read_file"],
+                            "agent_mode": "single",
+                            "runtime_instructions_configured": False,
+                            "task": "original task",
+                            "workspace": str(workspace),
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+            args = build_parser().parse_args(
+                [
+                    "resume",
+                    str(source_run),
+                    "--max-steps",
+                    "9",
+                    "--no-native-tool-calling",
+                ]
+            )
+            checkpoint = TaskCheckpoint(
+                run_id="run-old",
+                task="continue",
+                workspace=str(workspace),
+                status="paused",
+            )
+            plan = ContinuationPlan(
+                task="continue",
+                workspace=str(workspace),
+                human_thread_id="thread-1",
+            )
+            with mock.patch(
+                "agent_forge.cli.resume.latest_checkpoint_path",
+                return_value=str(source_run / "task_state" / "checkpoint.json"),
+            ), mock.patch(
+                "agent_forge.cli.resume.load_task_checkpoint",
+                return_value=checkpoint,
+            ), mock.patch(
+                "agent_forge.cli.resume.prepare_continuation",
+                return_value=(checkpoint, "/tmp/checkpoint.json", plan),
+            ), mock.patch(
+                "agent_forge.cli.resume.run_repository_task",
+                return_value=Path("/tmp/new-run"),
+            ) as run, mock.patch("agent_forge.cli.resume.write_resume_link"):
+                resume_repository_task(args)
+
+            forwarded = run.call_args.args[0]
+            self.assertEqual(forwarded.provider, "openai")
+            self.assertEqual(forwarded.model, "source-model")
+            self.assertEqual(forwarded.temperature, 0.7)
+            self.assertEqual(forwarded.max_steps, 9)
+            self.assertFalse(forwarded.native_tool_calling)
+            self.assertEqual(forwarded.approval_mode, "on-risk")
+            self.assertEqual(forwarded.execution_mode, "worktree")
+            self.assertEqual(forwarded.enabled_tools, ["read_file"])
+
+    def test_resume_rejects_silently_dropping_redacted_runtime_instructions(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            source_run = Path(tmp) / "old-run"
+            source_run.mkdir()
+            (source_run / "resolved_config.json").write_text(
+                json.dumps(
+                    {
+                        "schema_version": 1,
+                        "values": {"runtime_instructions_configured": True},
+                    }
+                ),
+                encoding="utf-8",
+            )
+            args = build_parser().parse_args(["resume", str(source_run)])
+            checkpoint = TaskCheckpoint(
+                run_id="run-old",
+                task="continue",
+                workspace=tmp,
+                status="paused",
+            )
+            with mock.patch(
+                "agent_forge.cli.resume.latest_checkpoint_path",
+                return_value=str(source_run / "task_state" / "checkpoint.json"),
+            ), mock.patch(
+                "agent_forge.cli.resume.load_task_checkpoint",
+                return_value=checkpoint,
+            ):
+                with self.assertRaisesRegex(
+                    SystemExit,
+                    "pass --runtime-instructions explicitly",
+                ):
+                    resume_repository_task(args)
+
+    def test_resume_fails_closed_when_source_run_has_no_resolved_config(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            source_run = Path(tmp) / "old-run"
+            source_run.mkdir()
+            args = build_parser().parse_args(["resume", str(source_run)])
+            checkpoint = TaskCheckpoint(
+                run_id="run-old",
+                task="continue",
+                workspace=tmp,
+                status="paused",
+            )
+            with mock.patch(
+                "agent_forge.cli.resume.latest_checkpoint_path",
+                return_value=str(source_run / "task_state" / "checkpoint.json"),
+            ), mock.patch(
+                "agent_forge.cli.resume.load_task_checkpoint",
+                return_value=checkpoint,
+            ):
+                with self.assertRaisesRegex(
+                    SystemExit,
+                    "cannot resume without.*resolved_config.json",
+                ):
+                    resume_repository_task(args)
 
     def test_resume_without_tool_allowlist_keeps_default_coding_tools(self):
         args = build_parser().parse_args(["resume", "/tmp/old-run"])

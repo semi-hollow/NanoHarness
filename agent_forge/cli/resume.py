@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Callable, Sequence, TypeVar
 
 from agent_forge.cli.repository import run_repository_task
+from agent_forge.configuration import CONFIG_SCHEMA_VERSION
 from agent_forge.observability.api import refresh_run_manifest
 from agent_forge.runtime.api import (
     HumanInputResponseCommand,
@@ -23,14 +24,28 @@ from agent_forge.runtime.application.operator_control import checkpoint_resume_w
 from agent_forge.runtime.domain.task import TaskCheckpoint
 
 _Pending = TypeVar("_Pending")
+_CONTINUATION_OWNED_CONFIG = {
+    "resume_state",
+    "runtime_instructions_configured",
+    "runtime_instructions_sha256",
+    "task",
+    "workspace",
+}
 
 # 主要入口：把 durable checkpoint 与人工决定装配成一个新的 continuation run。
 def resume_repository_task(args: argparse.Namespace) -> Path:
     """加载 checkpoint/HITL 状态并启动新的 continuation run。"""
 
     checkpoint = load_task_checkpoint(latest_checkpoint_path(args.run_dir))
-    human_input_root = _control_root(args.human_input_root, checkpoint)
-    approval_root = _control_root(args.approval_root, checkpoint)
+    _inherit_resolved_config(args)
+    human_input_root = _control_root(
+        args.human_input_root or ".agent_forge/human_input",
+        checkpoint,
+    )
+    approval_root = _control_root(
+        args.approval_root or ".agent_forge/approvals",
+        checkpoint,
+    )
     _persist_operator_decision(
         args,
         checkpoint_status=checkpoint.status,
@@ -109,6 +124,51 @@ def resume_repository_task(args: argparse.Namespace) -> Path:
         previous_run_id=checkpoint.run_id,
     )
     return run_dir
+
+
+def _inherit_resolved_config(args: argparse.Namespace) -> None:
+    """Use the source run's public config snapshot unless resume overrides it."""
+
+    config_path = Path(args.run_dir) / "resolved_config.json"
+    if not config_path.exists():
+        if Path(args.run_dir).exists():
+            raise SystemExit(
+                "cannot resume without the source run's resolved_config.json; "
+                "pass an intact run directory to prevent configuration drift"
+            )
+        return
+    try:
+        payload = json.loads(config_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise SystemExit(f"invalid resume configuration: {exc}") from exc
+    if (
+        not isinstance(payload, dict)
+        or payload.get("schema_version") != CONFIG_SCHEMA_VERSION
+    ):
+        raise SystemExit(
+            "invalid resume configuration: unsupported resolved_config schema"
+        )
+    values = payload.get("values")
+    if not isinstance(values, dict):
+        raise SystemExit("invalid resume configuration: values must be an object")
+    if (
+        values.get("runtime_instructions_configured") is True
+        and getattr(args, "runtime_instructions", None) is None
+    ):
+        raise SystemExit(
+            "the source run used redacted runtime instructions; pass "
+            "--runtime-instructions explicitly to resume without configuration drift"
+        )
+    source_agent_mode = values.get("agent_mode")
+    if source_agent_mode == "fanout" and getattr(args, "agent_mode", None) is None:
+        raise SystemExit(
+            "forge resume cannot restore a fanout run; use forge run --fanout-resume"
+        )
+    for name, value in values.items():
+        if name in _CONTINUATION_OWNED_CONFIG:
+            continue
+        if getattr(args, name, None) is None:
+            setattr(args, name, value)
 
 
 def _persist_operator_decision(

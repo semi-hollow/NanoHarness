@@ -380,6 +380,82 @@ class ArchitectureBoundaryTest(unittest.TestCase):
             "CLI must enter capabilities through public APIs/composition roots",
         )
 
+    def test_single_agent_cli_delegates_to_harness_facade(self) -> None:
+        repository_path = CLI_ROOT / "repository.py"
+        tree = ast.parse(repository_path.read_text(encoding="utf-8"))
+        functions = {
+            node.name: node
+            for node in tree.body
+            if isinstance(node, ast.FunctionDef)
+        }
+        dispatcher = functions["run_repository_task"]
+        single_run = functions["_run_single_repository_task"]
+
+        dispatcher_calls = {
+            node.func.id
+            for node in ast.walk(dispatcher)
+            if isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
+        }
+        self.assertIn(
+            "_run_single_repository_task",
+            dispatcher_calls,
+            "The public single-agent CLI path must keep routing to its Harness adapter",
+        )
+
+        harness_assignments = [
+            node
+            for node in ast.walk(single_run)
+            if isinstance(node, ast.Assign)
+            and isinstance(node.value, ast.Call)
+            and isinstance(node.value.func, ast.Name)
+            and node.value.func.id == "Harness"
+        ]
+        self.assertEqual(
+            len(harness_assignments),
+            1,
+            "The single-agent CLI path must construct exactly one public Harness",
+        )
+        harness_target = harness_assignments[0].targets[0]
+        self.assertIsInstance(harness_target, ast.Name)
+        harness_name = harness_target.id
+        harness_runs = [
+            node
+            for node in ast.walk(single_run)
+            if isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and node.func.attr == "run"
+            and isinstance(node.func.value, ast.Name)
+            and node.func.value.id == harness_name
+        ]
+        self.assertEqual(
+            len(harness_runs),
+            1,
+            "CLI must delegate execution exactly once to Harness.run",
+        )
+
+        forbidden_calls = {
+            "ExecutionEnvironment",
+            "RuntimeConfig",
+            "TraceRecorder",
+            "_build_runtime_config",
+            "_write_latest_run_pointer",
+            "build_agent_loop_from_request",
+            "build_registry",
+            "build_task_state_repository",
+            "prepare_execution_environment",
+            "write_usage_artifacts",
+        }
+        direct_calls = {
+            node.func.id
+            for node in ast.walk(single_run)
+            if isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
+        }
+        self.assertEqual(
+            sorted(direct_calls & forbidden_calls),
+            [],
+            "CLI must not duplicate Runtime orchestration or Evidence publication",
+        )
+
     def test_workbench_public_api_and_layers_exist(self) -> None:
         expected = [
             WORKBENCH_ROOT / "api.py",

@@ -340,17 +340,17 @@ def _add_resume_command(subparsers: argparse._SubParsersAction) -> None:
         help="Select one operation when multiple approvals are pending.",
     )
     parser.add_argument("--note", default="")
-    _add_execution_environment_args(parser)
-    _add_model_args(parser)
-    _add_runtime_policy_args(parser)
-    parser.add_argument("--output-root", default=".agent_forge/runs")
+    _add_execution_environment_args(parser, defaults=False)
+    _add_model_args(parser, defaults=False)
+    _add_runtime_policy_args(parser, defaults=False)
+    parser.add_argument("--output-root")
     parser.add_argument(
         "--agent-mode",
-        default="single",
+        default=None,
         choices=["single", "multi"],
     )
-    _add_multi_agent_args(parser)
-    _add_extension_args(parser)
+    _add_multi_agent_args(parser, defaults=False)
+    _add_extension_args(parser, defaults=False)
 
 
 def _add_model_args(
