@@ -234,7 +234,7 @@ Contract 见[架构契约](docs/ARCHITECTURE.md)。
 - [失败驱动改进记录](docs/evaluation/failure-driven-improvements.md)
 - [Roadmap](docs/ROADMAP.md)
 
-`failure-driven-improvements.md` 是问题档案，不要求顺序通读；遇到具体故障时按关键词检索。
+`failure-driven-improvements.md` 是受保护、只追加的问题档案；不要求顺序通读，遇到具体故障时按关键词检索。
 
 ## 开发验证
 

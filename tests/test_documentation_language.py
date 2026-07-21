@@ -41,7 +41,12 @@ CANONICAL_README_LINKS = (
     "docs/PROJECT_EVOLUTION.md",
     "docs/ARCHITECTURE.md",
     "docs/CAPABILITY_REALITY_MATRIX.md",
+    "docs/evaluation/failure-driven-improvements.md",
 )
+
+PROTECTED_PUBLIC_RECORDS = {
+    "docs/evaluation/failure-driven-improvements.md": 49,
+}
 
 ALLOWED_DOC_SURFACES = (
     "docs/adr/",
@@ -101,6 +106,20 @@ class DocumentationLanguageTest(unittest.TestCase):
         for relative_path in CANONICAL_README_LINKS:
             if relative_path not in readme:
                 violations.append(f"README does not link canonical document: {relative_path}")
+
+        for relative_path, minimum_case_count in PROTECTED_PUBLIC_RECORDS.items():
+            path = PROJECT_ROOT / relative_path
+            if not path.exists():
+                violations.append(f"protected first-party record was deleted: {relative_path}")
+                continue
+            case_count = len(
+                re.findall(r"^### \d+\.", path.read_text(encoding="utf-8"), re.MULTILINE)
+            )
+            if case_count < minimum_case_count:
+                violations.append(
+                    f"{relative_path}: protected cases fell from {minimum_case_count} "
+                    f"to {case_count}"
+                )
 
         result = subprocess.run(
             [
