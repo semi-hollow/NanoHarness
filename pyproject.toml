@@ -25,7 +25,6 @@ classifiers=[
 
 [project.scripts]
 forge = "agent_forge.forge_cli:main"
-agent-forge = "agent_forge.forge_cli:main"
 
 [project.optional-dependencies]
 bench = [

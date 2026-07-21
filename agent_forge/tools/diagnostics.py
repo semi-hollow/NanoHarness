@@ -1,4 +1,5 @@
 import py_compile
+import shlex
 import subprocess
 import sys
 
@@ -13,7 +14,10 @@ from .base import Tool
 class DiagnosticsTool(Tool):
 
     name = "diagnostics"
-    description = "run python compile or unittest diagnostics"
+    description = (
+        "run Python compile, unittest, or strict pytest diagnostics; "
+        "pytest executes python -m pytest against one workspace target without a shell"
+    )
 
     def __init__(
         self,
@@ -35,12 +39,14 @@ class DiagnosticsTool(Tool):
 
     def execute(self, arguments: ToolArguments) -> Observation:
 
-        kind = arguments.get("kind", "compile")
+        kind = str(arguments.get("kind", "compile")).strip().lower()
         target = arguments.get("target", ".")
         if kind == "compile":
             return self._compile(target)
         if kind == "unittest":
             return self._unittest(target)
+        if kind == "pytest":
+            return self._pytest(target)
         return Observation(self.name, False, f"unknown diagnostics kind: {kind}")
 
     def _compile(self, target: str) -> Observation:
@@ -75,8 +81,25 @@ class DiagnosticsTool(Tool):
         command = self._unittest_command(target)
         if isinstance(command, Observation):
             return command
+        return self._run_test_command(command, timeout=30, kind="unittest")
+
+    def _pytest(self, target: str) -> Observation:
+
+        command = self._pytest_command(target)
+        if isinstance(command, Observation):
+            return command
+        return self._run_test_command(command, timeout=120, kind="pytest")
+
+    def _run_test_command(
+        self,
+        command: list[str],
+        *,
+        timeout: int,
+        kind: str,
+    ) -> Observation:
+
         if self.execution_environment is not None:
-            proc = self.execution_environment.execute_command(command, timeout=30)
+            proc = self.execution_environment.execute_command(command, timeout=timeout)
         else:
             local_command = [sys.executable, *command[1:]] if command and command[0] == "python" else command
             proc = subprocess.run(
@@ -84,17 +107,36 @@ class DiagnosticsTool(Tool):
                 cwd=str(self.sandbox.workspace_root),
                 text=True,
                 capture_output=True,
-                timeout=30,
+                timeout=timeout,
             )
         output = (proc.stdout + proc.stderr).strip()[:3000]
-        if "ModuleNotFoundError: No module named 'pytest'" in output:
+        command_evidence = f"validation_command={shlex.join(command)}"
+        lowered_output = output.lower()
+        missing_pytest = kind == "pytest" and (
+            "no module named pytest" in lowered_output
+            or "no module named 'pytest'" in lowered_output
+        )
+        if missing_pytest:
             return Observation(
                 self.name,
                 True,
+                f"{command_evidence}\n"
                 "validation_blocked: pytest is not installed in this benchmark workspace; "
                 "candidate patch remains unverified by focused tests.",
             )
-        return Observation(self.name, proc.returncode == 0, f"exit_code={proc.returncode}\n{output}")
+        if kind == "unittest" and "Ran 0 tests" in output:
+            return Observation(
+                self.name,
+                True,
+                f"{command_evidence}\n"
+                "validation_blocked: unittest collected 0 tests; use kind=pytest for "
+                "pytest-style test files.",
+            )
+        return Observation(
+            self.name,
+            proc.returncode == 0,
+            f"{command_evidence}\nexit_code={proc.returncode}\n{output}",
+        )
 
     def _unittest_command(self, target: str) -> list[str] | Observation:
 
@@ -109,6 +151,24 @@ class DiagnosticsTool(Tool):
                 resolved = py_candidate
         if resolved.is_file():
             relative = resolved.relative_to(self.sandbox.workspace_root).as_posix()
-            return ["python", relative]
+            return ["python", "-m", "unittest", relative]
         relative = resolved.relative_to(self.sandbox.workspace_root).as_posix() or "."
         return ["python", "-m", "unittest", "discover", relative]
+
+    def _pytest_command(self, target: str) -> list[str] | Observation:
+
+        target = (target or ".").strip() or "."
+        path_target, separator, node_id = target.partition("::")
+        resolved = self.sandbox.ensure_safe_path(path_target)
+        if not resolved.exists():
+            return Observation(
+                self.name,
+                False,
+                f"pytest target does not exist in workspace: {path_target}",
+            )
+        relative = resolved.relative_to(self.sandbox.workspace_root).as_posix() or "."
+        if separator:
+            if not node_id.strip() or "\n" in node_id or "\r" in node_id:
+                return Observation(self.name, False, "invalid pytest node id")
+            relative = f"{relative}::{node_id}"
+        return ["python", "-m", "pytest", relative]

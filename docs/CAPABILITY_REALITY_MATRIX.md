@@ -32,12 +32,12 @@ benchmark leaderboard。
 | Tool governance | Green | Tool 依次经过 routing、registry validation、permission hook、command policy 和 sandbox。 | 不把 prompt-only safety 或本地模式说成 OS-level isolation。 | `agent_forge/tools/`、`agent_forge/safety/`、`agent_forge/runtime/hooks.py` |
 | Workspace sandbox | Green | Path 解析到指定 workspace 下，并阻断 symlink escape。 | Local mode 不是 container-grade isolation。 | `agent_forge/safety/sandbox.py` |
 | Execution environment | Green | `forge run` 和 `forge bench swebench` 支持 local、detached worktree、OCI container。OCI command 带 network、CPU、memory、PID、capability 和 read-only root 控制，manifest 保留 image/command evidence。 | OCI mode 依赖外部 Docker-compatible runtime 和任务适配 image，也不是 hostile multi-tenant isolation；host file tool 仍由 mounted snapshot 上的 `WorkspaceSandbox` 限制。 | `agent_forge/runtime/execution_environment.py`、`agent_forge/cli/repository.py`、`agent_forge/bench/application/swebench.py` |
-| 持久化 human clarification | Green | Pre-loop ambiguity 和模型 `ask_human` 会原子持久化 request，在同一 turn 中优先阻断其他 tool，`RunLifecycle` 将 run 转为 `waiting_human`，再从 `forge respond` 记录的回答继续。 | 它只记录信息，不授权副作用，也不恢复隐藏 model state。 | `agent_forge/runtime/application/run_preparation.py`、`tool_execution.py`、`run_lifecycle.py`、`agent_forge/runtime/adapters/human_input_json.py` |
-| 副作用人工审批 | Green | 写入型 action 可以在执行前停机，持久化 approval file，并只在 `forge approve` 后继续。 | Approval 与 clarification 是不同契约；本地文件 store 不是 multi-user authorization service。 | `agent_forge/runtime/application/tool_authorization.py`、`agent_forge/runtime/adapters/approval_json.py`、`agent_forge/cli/operator.py` |
+| 持久化 human clarification | Green | Pre-loop ambiguity 和模型 `ask_human` 会原子持久化 request，在同一 turn 中优先阻断其他 tool，`RunLifecycle` 将 run 转为 `waiting_human`，再由 `forge resume <run> --answer ...` 记录回答并创建 continuation。 | 它只记录信息，不授权副作用，也不恢复隐藏 model state。 | `agent_forge/runtime/application/run_preparation.py`、`tool_execution.py`、`run_lifecycle.py`、`agent_forge/cli/resume.py` |
+| 副作用人工审批 | Green | 写入型 action 可以在执行前停机并持久化 approval；`forge resume <run> --decision approved\|rejected` 只处理该 operation 后再继续。 | Approval 与 clarification 是不同契约；本地文件 store 不是 multi-user authorization service。 | `agent_forge/runtime/application/tool_authorization.py`、`agent_forge/runtime/adapters/approval_json.py`、`agent_forge/cli/resume.py` |
 | Stale approval detection | Green | Approval 保存 operation fingerprint；target drift 会在执行前将 approval 标成 stale。 | 不声称可以消除 distributed system 中的所有 race。 | `agent_forge/runtime/application/tool_authorization.py`、`operation_tracker.py` |
 | Operation ledger | Green | Side effect 有稳定 operation key、pre/post fingerprint、duplicate skip 和 stale-target detection。 | 不是 distributed transaction log。 | `agent_forge/runtime/application/operation_tracker.py`、`agent_forge/runtime/adapters/operation_ledger_json.py` |
 | Checkpoint resume | Green | Checkpoint 为 continuation 提供 context，包含已回答 human input；`forge resume` 会写入 report 可见的 resume-chain artifact。 | 不恢复隐藏 model state 或完整 process memory。 | `agent_forge/runtime/application/operator_control.py`、`agent_forge/runtime/adapters/task_state_json.py`、`agent_forge/cli/resume.py` |
-| 控制面现场展示 | Green | `forge showcase hitl/approval` 用确定性模型请求驱动正式 AgentLoop，真实产生 waiting checkpoint、人工决定、continuation trace 和工具副作用。 | 固定的 model tool call 不证明模型推理质量；showcase 证明的是 Harness 控制面。 | `agent_forge/showcase/control_plane.py`、`docs/architecture/runtime-control-plane.md` |
+| 控制面现场展示 | Green | `forge demo [--scenario approval\|hitl]` 经 `Harness.run` 驱动正式 AgentLoop，确定性地产生 waiting checkpoint、人工决定、continuation trace 和受治理副作用。 | Demo 不调用在线模型，也不证明模型推理质量、本地测试通过或 official resolved；它只证明控制面。 | `agent_forge/showcase/control_plane.py`、`docs/architecture/runtime-control-plane.md` |
 | 协作式 run control | Green | 嵌入式 `RunController` 可提交 pause、cancel、steer；AgentLoop 在 turn 开始、模型返回和工具之间消费信号。pause/cancel 形成类型化终态与 checkpoint；steer 追加用户方向并丢弃边界内过时模型响应。 | 不是进程级强制抢占、远端控制服务或自动补偿事务；正在执行的单个 HTTP/命令不会被中途终止，既有副作用不会回滚。 | `agent_forge/control.py`、`runtime/application/run_control.py`、`agent_loop.py`、`tool_execution.py` |
 | 会话级 active-task switch | Red | 当前 one command 对应 one run/one task；可暂停当前 run，再由调用方创建另一 Task。 | 不声称存在 session `active_task` pointer、任务队列、跨 run 优先级或自动恢复旧 Task。 | `agent_forge/runtime/domain/task.py`、`agent_forge/harness.py` |
 | SWE-bench-shaped runner | Green | 加载 case、checkout base commit、运行 Agent、写 patch 和 `predictions.jsonl`；`forge bench cases/case` 公开 Smoke-5 的 300-case 候选全集、选择契约、issue 和测试名称，并默认隐藏 test/gold patch。 | Smoke-5 是机制回归样本，不代表 Lite 总体表现；没有 official harness 时，不声称 official resolved rate。 | `agent_forge/bench/application/swebench.py`、`application/case_inspection.py`、`presentation/case_inspection.py` |
@@ -51,7 +51,7 @@ benchmark leaderboard。
 | Live subagent fanout | Green | Validated DAG 在 disposable worktree 中运行独立 `AgentLoop`/LLM/registry，执行 per-task step budget、声明 scope 分批、实际 touched-file 校验、确定性 patch apply；隔离 finalizer 能看到 candidate diff，pre/post gate 检测 verifier mutation。 | 它是 local coordinator，不是 distributed worker service、peer swarm 或自动 model-driven task decomposition；worker 读取 committed `base_head`，不是 ambient uncommitted file。 | `agent_forge/multi_agent/domain/live.py`、`application/live_fanout.py`、`adapters/local_worker.py` |
 | Fanout partial recovery | Green | 增量 checkpoint 保存 plan/base identity 和 accepted worker；resume 校验 patch SHA-256，在新 workspace 重放已完成 patch，只重跑未完成 task；稳定 worker human thread 可复用已回答 clarification。 | 进程被强杀可能留下 orphan worktree；fanout 刻意拒绝 per-operation manual approval，因为 ephemeral workspace identity 还不能安全复用。 | `agent_forge/multi_agent/application/live_fanout.py`、`adapters/fanout_files.py` |
 | Mini-case | Yellow | 小型确定性 scorecard 为 research/ops 场景评估显式 evidence。 | 不是 benchmark，也不能证明一般 Agent 能力。 | `evaluation/application/mini_cases.py`、`docs/evaluation/mini-cases/` |
-| Local Workbench | Yellow | 运行受限 CLI action，以 Overview、Run Evidence、Benchmark 为主视图；展示 repository task 结果、role artifact、Multi 后 Single timeline、Memory/Context/model-adaptation 实际计数、repeated campaign 分母、paired official outcome、cost、feedback 和 dataset export。 | 它读取本地 artifact 并启动本地 job，不是 production web app 或 hosted SaaS；未触发能力显示 0，不构造 synthetic pass。 | `agent_forge/workbench/presentation/http.py`、`agent_forge/workbench/adapters/evidence_files.py` |
+| Local Workbench | Yellow | 以 Overview、Run Evidence、Benchmark 为主视图，只读取 canonical Run Story、manifest 和本地 Evidence；POST 请求拒绝执行。 | 它不是 Agent/job executor、production web app 或 hosted SaaS；运行、审批和恢复统一走 CLI/Public API，未触发能力不构造 synthetic pass。 | `agent_forge/workbench/presentation/http.py`、`agent_forge/workbench/adapters/evidence_files.py` |
 | MCP stdio subset | Green | 启动 subprocess、发现 tool、通过 JSON-RPC 调用并标准化 content block。 | 不声称完整 MCP SDK compatibility。 | `agent_forge/tools/mcp_stdio.py`、`agent_forge/mcp/server.py` |
 | MCP-style local adapter | Yellow | 将本地 MCP-like spec 转成 local tool。 | 不是完整 MCP protocol。 | `agent_forge/tools/adapters/mcp_style_adapter.py` |
 | Skills progressive disclosure | Green | Registry 先用 name/description/tags/activation terms 产生不含 procedure 的 `SkillCatalogEntry`，再只为选中版本激活完整 `SkillSpec`；prompt、tool routing、来源与选择原因进入 runtime/trace，benchmark 固定 manifest hash。 | Manifest 当前会被本地进程解析，渐进披露指“模型上下文只注入已激活正文”，不是远端 marketplace 或任意脚本执行系统；Skill 激活不等于有效。 | `agent_forge/skills/registry.py`、`runtime/application/run_preparation.py`、`tests/test_skill_disclosure.py` |
@@ -74,9 +74,10 @@ benchmark leaderboard。
 
 ## 当前最高价值的下一步
 
-1. 对 Memory、Skill、Context Window 和 tool routing 做 matched repetition；仅在 provider
-   明确支持时固定 seed，只发布有 artifact 和 official denominator 支撑的结果。
-2. 将多次 fanout run 与 matched serial plan 比较，再讨论 latency 或 quality improvement。
-3. 在真实训练 pipeline 使用 exported run evidence 前，补 privacy filter 和 dataset
-   version manifest。
-4. 增加真实 Docker/Podman smoke job，同时保持 unit test 不依赖已安装 container runtime。
+1. 先完成一个 DeepSeek `astropy__astropy-12907` case：确认实际 pytest 命令、candidate patch、
+   local evidence 和 Run Story 一致；不以 Agent 自述替代测试。
+2. 在具备 SWE-bench Harness 的 WSL/Linux/容器环境补一次 per-case official evaluation；成功标准是
+   产生可解析的 resolved/unresolved/error 事实，不要求为了演示必须 resolved。
+3. 再对 Memory、Skill、Context Window 和 tool routing 做 matched repetition；只发布有 artifact、
+   明确分母和环境身份支撑的结果。
+4. Fanout 对比、训练数据治理和完整 repeated campaign 保留为后续 Advanced 工作，不阻塞学习主线。

@@ -20,7 +20,7 @@ __main__.py / forge_cli.py
 Single mode 中，`cli/repository.py` 不拥有第二套 trace、environment、AgentLoop、patch 或 cleanup。
 Multi/Fanout 保留为 Advanced coordinator，不属于这条黄金主链。
 
-## 12-file Core Scope
+## 12 文件核心阅读面
 
 1. `harness.py`：Public request/result 与 run 边界。
 2. `runtime/wiring.py`：唯一 Runtime composition owner。
@@ -45,12 +45,12 @@ Multi/Fanout 保留为 Advanced coordinator，不属于这条黄金主链。
 | `observability` | `domain/run_story.py` | trace facts、artifact manifest 与 Run Story |
 | `context` | `context_builder.py` | repository/context selection 与预算 |
 | `tools` / `safety` | `registry.py` / policy modules | 工具 schema、权限、命令和路径边界 |
-| Advanced：`bench` / `evaluation` | `api.py` | case、official eval、scorecard、campaign |
+| 高级：`bench` / `evaluation` | `api.py` | 评测用例、官方判定、计分卡与重复实验 |
 | Advanced：`multi_agent` | `api.py` | 顺序角色与 live fanout |
 | Advanced：`workbench` | `api.py` | 只读 Evidence presentation |
 | Advanced：Context Memory / `skills` / `mcp` | `context/api.py` / `skills/__init__.py` / `mcp/server.py` | 可选 Context 与工具集成 |
 
-## Navigation Contract
+## 导航契约
 
 ```bash
 forge inspect AgentLoop.run

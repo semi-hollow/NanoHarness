@@ -208,7 +208,8 @@ operator 响应。
 
 修复：新增 `HumanInputStore` 和 `WAITING_HUMAN`；`AgentLoop` 拦截 pre-loop
 clarification 与 tool-level `ask_human`，先原子落盘、写 trace/checkpoint，再
-停止。直接执行 `AskHumanTool` 现在 fail closed。`forge respond` 记录回答，
+停止。直接执行 `AskHumanTool` 现在 fail closed。当时由 `forge respond` 记录回答，
+当前公开入口已统一为 `forge resume --answer`，
 `forge resume` 将问题和回答注入 continuation task。
 
 验证：`tests/test_human_input.py` 覆盖模型未调用、工具未继续、回答落盘、
@@ -1097,7 +1098,8 @@ Failure scenario：模型直接给出 final answer，演示没有进入 `waiting
 是否稳定”和“Runtime 控制链是否真实”分开。任务状态文档也没有明确 one run/one task 的
 边界。
 
-修复：新增 `forge showcase hitl/approval start|continue`。Showcase 只用确定性 ModelPort 固定
+历史修复：曾新增 `forge showcase hitl/approval start|continue`；当前已收敛为单入口
+`forge demo --scenario hitl|approval`。演示只用确定性 ModelPort 固定
 tool call，暂停、repository、approval、operation ledger、fingerprint、checkpoint、trace 和
 ApplyPatchTool 全部复用正式 Runtime。命令输出当前状态、artifact 路径与下一条可执行命令；
 同时明确项目没有 `PAUSED`、active-task registry、全局 Task cancel 或补偿事务。

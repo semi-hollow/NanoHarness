@@ -25,4 +25,4 @@ count、tool-call count、human intervention count、recovery result 和 safety 
 
 Mini-case 中的 tool name 是 declarative evaluation input，evaluator 不执行 AgentLoop。
 真实 runtime 中，`ask_human` 通过 `HumanInputRepository` 创建持久化信息请求；具体副作用
-审批仍由独立 `ApprovalRepository` 和 `forge approve` 契约负责。
+审批仍由独立 `ApprovalRepository` 负责，并通过 `forge resume <run> --decision ...` 处理。

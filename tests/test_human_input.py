@@ -292,7 +292,7 @@ class HumanInputTest(unittest.TestCase):
             self.assertFalse(direct.success)
             self.assertIn("AgentLoop", direct.content)
 
-    def test_respond_cli_and_resume_context_use_persisted_answer(self):
+    def test_resume_cli_and_continuation_context_use_persisted_answer(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             store = JsonHumanInputRepository(root / "human_input")
@@ -329,15 +329,17 @@ class HumanInputTest(unittest.TestCase):
 
             args = build_parser().parse_args(
                 [
-                    "respond",
-                    request.request_id,
+                    "resume",
+                    str(root / "previous-run"),
                     "--answer",
                     "Update agent_forge/runtime/config.py",
+                    "--request-id",
+                    request.request_id,
                     "--human-input-root",
                     str(root / "human_input"),
                 ]
             )
-            self.assertEqual(args.command, "respond")
+            self.assertEqual(args.command, "resume")
             store.respond(args.request_id, args.answer)
 
             plan = BuildContinuationPlan(store).execute(

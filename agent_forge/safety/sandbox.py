@@ -1,15 +1,6 @@
 from pathlib import Path
 
 
-def sandbox_policy_summary(workspace_root: str) -> dict[str, object]:
-
-    return {
-        "workspace_root": workspace_root,
-        "path_escape_allowed": False,
-        "side_effect_scope": "workspace-only",
-    }
-
-
 class WorkspaceSandbox:
 
     def __init__(self, workspace_root: str | Path) -> None:

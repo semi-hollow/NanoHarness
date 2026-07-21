@@ -1,7 +1,6 @@
 """Multi-Agent 应用用例。"""
 
 from .coordinator import MultiAgentCoordinator
-from .fanout import run_fanout
 from .live_fanout import LiveFanoutCoordinator
 
-__all__ = ["LiveFanoutCoordinator", "MultiAgentCoordinator", "run_fanout"]
+__all__ = ["LiveFanoutCoordinator", "MultiAgentCoordinator"]

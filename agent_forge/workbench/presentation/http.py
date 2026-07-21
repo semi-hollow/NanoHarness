@@ -70,15 +70,7 @@ class ForgeUiHandler(BaseHTTPRequestHandler):
             "latest_run": str(_latest_run_dir(self.state.project_dir) or ""),
             "latest_report": _latest_report_path(self.state.project_dir),
             "feedback": _latest_feedback_outcome(self.state.project_dir),
-            "jobs": [],
         }
-
-    def _read_json(self) -> dict[str, Any]:
-
-        length = int(self.headers.get("Content-Length") or "0")
-        if not length:
-            return {}
-        return json.loads(self.rfile.read(length).decode("utf-8"))
 
     def _send_html(self, text: str, status: HTTPStatus = HTTPStatus.OK) -> None:
         self.send_response(status)
@@ -1711,11 +1703,9 @@ INDEX_HTML = r"""<!doctype html>
     }
     main {
       display: grid;
-      grid-template-columns: minmax(360px, 420px) minmax(0, 1fr);
+      grid-template-columns: minmax(0, 1fr);
       min-height: calc(100vh - 79px);
     }
-    body.sidebar-collapsed main { grid-template-columns: minmax(0, 1fr); }
-    body.sidebar-collapsed aside { display: none; }
     body.status-collapsed .status { display: none; }
     body.focus-mode header {
       padding: 10px 18px;
@@ -1723,9 +1713,7 @@ INDEX_HTML = r"""<!doctype html>
     body.focus-mode .eyebrow,
     body.focus-mode .subtitle,
     body.focus-mode .project-chip,
-    body.focus-mode .status,
-    body.focus-mode #jobsTitle,
-    body.focus-mode #jobs {
+    body.focus-mode .status {
       display: none;
     }
     body.focus-mode main {
@@ -1737,13 +1725,6 @@ INDEX_HTML = r"""<!doctype html>
     body.focus-mode .output {
       max-height: none;
       min-height: calc(100vh - 134px);
-    }
-    aside {
-      border-right: 1px solid var(--line);
-      padding: 20px;
-      background: rgba(245, 245, 247, .66);
-      backdrop-filter: blur(20px);
-      overflow-y: auto;
     }
     section {
       padding: 18px 28px 28px;
@@ -1829,38 +1810,6 @@ INDEX_HTML = r"""<!doctype html>
       font: inherit;
     }
     textarea { min-height: 76px; resize: vertical; }
-    .form-grid {
-      display: grid;
-      grid-template-columns: repeat(2, minmax(0, 1fr));
-      gap: 10px;
-    }
-    .form-row {
-      display: grid;
-      grid-template-columns: 1fr 1fr 1fr;
-      gap: 10px;
-    }
-    .wide { grid-column: 1 / -1; }
-    .checkbox-line {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      margin-top: 10px;
-      color: var(--muted);
-      font-size: 12px;
-    }
-    .checkbox-line input { width: auto; }
-    .quick-tasks {
-      display: grid;
-      grid-template-columns: repeat(2, minmax(0, 1fr));
-      gap: 8px;
-      margin-top: 10px;
-    }
-    .quick-tasks button {
-      width: auto;
-      margin: 0;
-      padding: 8px;
-      font-size: 12px;
-    }
     button {
       width: 100%;
       border: 0;
@@ -2161,7 +2110,6 @@ INDEX_HTML = r"""<!doctype html>
         padding: 8px 10px;
       }
       main { grid-template-columns: 1fr; }
-      aside { border-right: 0; border-bottom: 1px solid var(--line); }
       section { padding: 10px 12px 18px; }
       .view-tabs {
         top: 0;
@@ -2174,7 +2122,7 @@ INDEX_HTML = r"""<!doctype html>
       .view-tabs button { flex: 0 0 auto; }
       .output { padding: 18px 16px; min-height: calc(100vh - 250px); }
       .status { grid-template-columns: 1fr; }
-      .metric-grid, .split, .form-grid, .form-row, .quick-tasks, .flow-strip, .lane-grid, .mini-flow, .action-grid { grid-template-columns: 1fr; }
+      .metric-grid, .split, .flow-strip, .lane-grid, .mini-flow, .action-grid { grid-template-columns: 1fr; }
     }
 
     /* Evidence console v2: dense operational surface, not a marketing page. */
@@ -2225,17 +2173,8 @@ INDEX_HTML = r"""<!doctype html>
       background: #20242a; color: #aeb8c4; white-space: nowrap;
       overflow: hidden; text-overflow: ellipsis;
     }
-    main { grid-template-columns: 340px minmax(0, 1fr); max-width: none; min-height: calc(100vh - 64px); }
-    aside {
-      width: 340px; padding: 14px; background: #f7f8fa;
-      border-right: 1px solid var(--line); overflow-y: auto; max-height: calc(100vh - 64px);
-    }
-    body.sidebar-collapsed main { grid-template-columns: minmax(0, 1fr); }
-    body.sidebar-collapsed aside { display: none; }
+    main { grid-template-columns: minmax(0, 1fr); max-width: none; min-height: calc(100vh - 64px); }
     section { padding: 0 24px 32px; min-width: 0; }
-    aside .card { padding: 14px 0 18px; margin: 0; border: 0; border-bottom: 1px solid var(--line); background: transparent; box-shadow: none; }
-    aside .card:last-child { border-bottom: 0; }
-    aside h2 { font-size: 14px; margin: 0 0 12px; }
     .section-kicker, .view-kicker {
       display: block; color: #687587; font-size: 10px; font-weight: 800;
       letter-spacing: 0; text-transform: uppercase; margin-bottom: 4px;
@@ -2250,13 +2189,11 @@ INDEX_HTML = r"""<!doctype html>
     button { border-radius: 5px; box-shadow: none; font-size: 12px; min-height: 34px; }
     button.primary { background: var(--accent); color: #fff; border-color: var(--accent); }
     button.secondary { background: #fff; color: #303845; border-color: #cfd5dd; }
-    .checkbox-line { padding: 8px 0; gap: 7px; font-size: 11px; color: #536070; }
-    .checkbox-line input { min-height: 0; }
     details { border-radius: 5px; }
     details summary { cursor: pointer; font-size: 12px; font-weight: 700; }
     .status {
       position: sticky; top: 64px; z-index: 8; display: grid;
-      grid-template-columns: 110px minmax(220px, 1fr) 160px minmax(160px, .7fr);
+      grid-template-columns: 110px minmax(220px, 1fr) 160px;
       gap: 0; margin: 0 -24px; padding: 0 24px; background: #fff;
       border-bottom: 1px solid var(--line);
     }
@@ -2309,11 +2246,6 @@ INDEX_HTML = r"""<!doctype html>
     .run-story-table small { display: block; margin-top: 5px; color: var(--muted); line-height: 1.35; }
     .run-story-readonly { padding: 10px 12px; border-left: 3px solid var(--purple); background: var(--panel-3); }
     body.read-only main { grid-template-columns: 1fr; }
-    body.read-only aside,
-    body.read-only #sidebarToggle,
-    body.read-only #jobsTitle,
-    body.read-only #jobs,
-    body.read-only .status .pill:last-child { display: none !important; }
     .claim-step { min-height: 96px; padding: 14px; border: 1px solid var(--line); border-top: 3px solid #8b95a3; background: #fff; border-radius: 5px; }
     .claim-step.ok { border-top-color: var(--green); }
     .claim-step.warn { border-top-color: #c17b00; }
@@ -2349,7 +2281,6 @@ INDEX_HTML = r"""<!doctype html>
     .timeline-lane { margin-bottom: 8px; }
     .run-facts { display: flex; flex-wrap: wrap; gap: 14px; margin: 10px 0 14px; color: var(--muted); font-size: 10px; }
     .event-pill, .legend-item { border-radius: 4px; }
-    #jobsTitle, #jobs { max-width: 1320px; margin-left: auto; margin-right: auto; }
     .empty-inline { padding: 18px; border: 1px dashed #c7cdd5; color: var(--muted); font-size: 12px; }
     @media (max-width: 1100px) {
       .metric-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
@@ -2361,9 +2292,7 @@ INDEX_HTML = r"""<!doctype html>
       header { position: sticky; padding: 10px 12px; flex-direction: row; align-items: center; gap: 8px; }
       header .subtitle, .project-chip, #statusToggle, #focusToggle { display: none; }
       .header-actions { display: flex; }
-      main, body.sidebar-collapsed main { grid-template-columns: 1fr; }
-      aside { position: fixed; inset: 58px 0 0 0; z-index: 20; width: min(340px, 92vw); max-height: none; box-shadow: 12px 0 32px rgba(0,0,0,.15); }
-      body.sidebar-collapsed aside { display: none; }
+      main { grid-template-columns: 1fr; }
       section { padding: 0 12px 24px; }
       .status { top: 58px; margin: 0 -12px; padding: 0 12px; grid-template-columns: repeat(2, minmax(0, 1fr)); }
       .status .pill:nth-child(n+3) { display: none; }
@@ -2383,7 +2312,7 @@ INDEX_HTML = r"""<!doctype html>
     }
   </style>
 </head>
-<body class="read-only sidebar-collapsed status-collapsed">
+<body class="read-only status-collapsed">
   <header>
     <div class="brand-lockup">
       <div class="brand-mark">NH</div>
@@ -2393,191 +2322,17 @@ INDEX_HTML = r"""<!doctype html>
       </div>
     </div>
     <div class="header-actions">
-      <button id="sidebarToggle" onclick="toggleSidebar()" title="Toggle run controls">Run controls</button>
       <button id="statusToggle" onclick="toggleStatusBar()" title="Toggle run status">Status</button>
       <button id="focusToggle" onclick="toggleFocusMode()" title="Focus evidence surface">Focus</button>
       <div class="project-chip" id="projectDir"></div>
     </div>
   </header>
   <main>
-    <aside>
-      <div class="card">
-        <div class="section-kicker">BENCHMARK RUN</div>
-        <h2>Reference Case</h2>
-        <div class="form-grid">
-          <div>
-            <label>Provider</label>
-            <select id="provider">
-              <option value="deepseek">DeepSeek</option>
-              <option value="openai">OpenAI</option>
-              <option value="openai-compatible">OpenAI-compatible</option>
-            </select>
-          </div>
-          <div>
-            <label>Model</label>
-            <input id="model" value="deepseek-v4-flash" />
-          </div>
-          <div class="wide">
-            <label>Temperature</label>
-            <input id="temperature" type="number" min="0" max="2" step="0.1" value="0" />
-          </div>
-          <div class="wide">
-            <label>Base URL</label>
-            <input id="baseUrl" value="https://api.deepseek.com" />
-          </div>
-          <div class="wide">
-            <label>API Key</label>
-            <input id="apiKey" type="password" placeholder="留空时使用本机环境变量；页面输入只用于本次运行" />
-          </div>
-        </div>
-        <div class="form-row">
-          <div>
-            <label>Max Steps</label>
-            <input id="maxSteps" type="number" min="1" max="80" value="40" />
-          </div>
-          <div>
-            <label>Context Chars</label>
-            <input id="maxContextChars" type="number" min="1000" max="120000" value="18000" />
-          </div>
-          <div>
-            <label>Approval</label>
-            <select id="approvalMode">
-              <option value="trusted">trusted</option>
-              <option value="on-risk">on-risk</option>
-              <option value="on-write">on-write</option>
-              <option value="dry-run">dry-run</option>
-              <option value="locked">locked</option>
-            </select>
-          </div>
-        </div>
-        <div class="form-row">
-          <div>
-            <label>Isolation</label>
-            <select id="executionMode">
-              <option value="worktree">worktree</option>
-              <option value="local">local</option>
-              <option value="container">container</option>
-            </select>
-          </div>
-          <div>
-            <label>Network</label>
-            <select id="networkPolicy"><option value="deny">deny</option><option value="allow">allow</option></select>
-          </div>
-          <div>
-            <label>Tool Routing</label>
-            <select id="toolRouting"><option value="task-aware">task-aware</option><option value="all">all (ablation)</option></select>
-          </div>
-        </div>
-        <div class="checkbox-line"><input id="autoApproveWrites" type="checkbox" checked /><span>Auto-approve writes</span></div>
-        <div class="checkbox-line"><input id="keepWorktree" type="checkbox" /><span>Keep execution snapshot</span></div>
-        <label>Agent Mode</label>
-        <select id="benchAgentMode">
-          <option value="compare">single + sequential multi</option>
-          <option value="multi">sequential multi only</option>
-          <option value="single">single AgentLoop only</option>
-        </select>
-        <div class="checkbox-line">
-          <input id="directBaseline" type="checkbox" checked />
-          <span>Direct model baseline</span>
-        </div>
-        <div class="checkbox-line">
-          <input id="officialEvaluate" type="checkbox" />
-          <span>Official SWE-bench evaluation</span>
-        </div>
-        <label>Official Eval Workers</label>
-        <input id="maxWorkers" type="number" min="1" max="8" value="1" />
-        <button class="primary" onclick="startJob('swebench_sample')">Run Reference Case</button>
-        <details>
-          <summary>Core regression set</summary>
-          <button class="secondary" onclick="startJob('swebench_regression')">Run 5 Cases</button>
-        </details>
-        <details>
-          <summary>Repeated runtime campaign</summary>
-          <label>Campaign ID</label>
-          <input id="campaignId" placeholder="留空自动生成；恢复时填原 ID" />
-          <label>Repetitions</label>
-          <input id="campaignRepetitions" type="number" min="1" max="10" value="3" />
-          <div class="checkbox-line">
-            <input id="publishCampaign" type="checkbox" />
-            <span>Publish sanitized evidence bundle</span>
-          </div>
-          <button class="primary" onclick="startJob('benchmark_campaign')">Run Matched Campaign</button>
-        </details>
-      </div>
-      <div class="card">
-        <div class="section-kicker">REPOSITORY RUN</div>
-        <h2>Agent Task</h2>
-        <label>Task</label>
-        <textarea id="task">检查当前仓库的 AgentLoop 调用链，给出一个小而安全的代码改进，并保留 trace 和 usage 证据。</textarea>
-        <div class="quick-tasks">
-          <button class="secondary" onclick="setTaskPreset('repo')">读懂仓库</button>
-          <button class="secondary" onclick="setTaskPreset('fix')">修复问题</button>
-          <button class="secondary" onclick="setTaskPreset('refactor')">安全重构</button>
-          <button class="secondary" onclick="setTaskPreset('doc')">补充说明</button>
-        </div>
-        <label>Run Mode</label>
-        <select id="runAgentMode">
-          <option value="single">single</option>
-          <option value="multi">sequential multi-role</option>
-          <option value="fanout">live fanout</option>
-        </select>
-        <label>Fanout Plan</label>
-        <input id="fanoutPlan" value="examples/fanout-plan.sample.json" />
-        <label>Fanout Resume</label>
-        <input id="fanoutResume" placeholder=".agent_forge/runs/run-id" />
-        <label>Fanout Workers</label>
-        <input id="fanoutMaxWorkers" type="number" min="1" max="8" value="4" />
-        <details>
-          <summary>Workspace, Skills, MCP and output</summary>
-          <label>Workspace</label>
-          <input id="workspace" value="." />
-          <label>Skills</label>
-          <input id="skills" value="auto" />
-          <label>Skill Manifests</label>
-          <input id="skillManifests" placeholder="多个文件用逗号分隔" />
-          <label>MCP Config</label>
-          <input id="mcpConfig" value="mcp_tools.json" />
-          <label>MCP Tools</label>
-          <input id="mcpTools" placeholder="forge.web_search, forge.web_fetch" />
-          <label>Output Root</label>
-          <input id="outputRoot" value=".agent_forge/runs" />
-        </details>
-        <button class="primary" onclick="startJob('agent_run')">Run Agent Task</button>
-      </div>
-      <div class="card">
-        <div class="section-kicker">IMPROVEMENT LOOP</div>
-        <h2>Human Feedback</h2>
-        <label>Outcome</label>
-        <select id="feedbackOutcome">
-          <option value="needs_work">needs_work</option>
-          <option value="accepted">accepted</option>
-          <option value="rejected">rejected</option>
-        </select>
-        <label>Labels</label>
-        <input id="feedbackLabels" placeholder="tool-routing, validation-gap" />
-        <label>Note</label>
-        <textarea id="feedbackNote" placeholder="Evidence-grounded judgment"></textarea>
-        <button class="secondary" onclick="startJob('feedback')">Record Feedback</button>
-        <div class="checkbox-line"><input id="requireFeedback" type="checkbox" checked /><span>Export reviewed runs only</span></div>
-        <button class="secondary" onclick="startJob('export_dataset')">Export Evidence Dataset</button>
-      </div>
-      <div class="card">
-        <div class="section-kicker">SYSTEM</div>
-        <h2>Environment</h2>
-        <button class="secondary" onclick="startJob('doctor')">Doctor</button>
-        <button class="secondary" onclick="startJob('verify')">Verify</button>
-        <details>
-          <summary>Raw report</summary>
-          <button class="secondary" onclick="loadEvidence('raw_report')">Open report.md</button>
-        </details>
-      </div>
-    </aside>
     <section>
       <div class="status">
         <div class="pill"><div class="k">Runtime</div><div class="v" id="python"></div></div>
         <div class="pill"><div class="k">Latest Run</div><div class="v" id="latestRun"></div></div>
         <div class="pill"><div class="k">Current View</div><div class="v" id="currentView">Overview</div></div>
-        <div class="pill"><div class="k">Active Job</div><div class="v" id="activeJob">none</div></div>
       </div>
       <div class="view-tabs">
         <button data-view="summary" onclick="loadEvidence('summary')">Overview</button>
@@ -2593,12 +2348,9 @@ INDEX_HTML = r"""<!doctype html>
         <button class="utility" onclick="refreshStatus()" title="Refresh status">Refresh</button>
       </div>
       <div id="output" class="output">Loading runtime evidence...</div>
-      <h2 id="jobsTitle" style="font-size:14px">Recent Jobs</h2>
-      <div id="jobs"></div>
     </section>
   </main>
   <script>
-    let currentJob = null;
     const evidenceTitles = {
       summary: 'Overview',
       evidence: 'Run Evidence',
@@ -2612,17 +2364,6 @@ INDEX_HTML = r"""<!doctype html>
       feedback: 'Feedback Loop',
       raw_report: 'Raw Report'
     };
-    const taskPresets = {
-      repo: '阅读当前仓库结构，说明 AgentLoop、Context、ToolRouter、Skill、MCP、Trace 的主调用链，不要修改文件。',
-      fix: '定位当前仓库里一个真实的小问题，先解释根因，再做最小代码修改，并运行必要验证。',
-      refactor: '找出一个影响可读性的局部实现，做安全重构，不改变业务行为，并说明为什么这样更容易维护。',
-      doc: '检查当前仓库的用户入口和运行证据说明，补充缺失的文档内容，避免重复和空泛。'
-    };
-    const providerDefaults = {
-      deepseek: {model: 'deepseek-v4-flash', baseUrl: 'https://api.deepseek.com'},
-      openai: {model: 'gpt-4.1-mini', baseUrl: 'https://api.openai.com/v1'},
-      'openai-compatible': {model: '', baseUrl: ''}
-    };
 
     async function refreshStatus() {
       const res = await fetch('/api/status');
@@ -2630,95 +2371,6 @@ INDEX_HTML = r"""<!doctype html>
       document.getElementById('projectDir').textContent = data.project_dir;
       document.getElementById('python').textContent = data.python;
       document.getElementById('latestRun').textContent = data.latest_run || 'none';
-      const jobs = document.getElementById('jobs');
-      jobs.innerHTML = '';
-      for (const job of data.jobs) {
-        const item = document.createElement('div');
-        item.className = 'job';
-        item.onclick = () => pollJob(job.id, false);
-        item.innerHTML = `<strong>${job.title}</strong><span class="${job.status}">${job.status} · ${job.id}</span>`;
-        jobs.appendChild(item);
-      }
-    }
-
-    async function startJob(action) {
-      const payload = {
-        action,
-        task: valueOf('task'),
-        provider: valueOf('provider'),
-        model: valueOf('model'),
-        temperature: valueOf('temperature'),
-        baseUrl: valueOf('baseUrl'),
-        apiKey: valueOf('apiKey'),
-        workspace: valueOf('workspace'),
-        maxSteps: valueOf('maxSteps'),
-        maxContextChars: valueOf('maxContextChars'),
-        approvalMode: valueOf('approvalMode'),
-        executionMode: valueOf('executionMode'),
-        networkPolicy: valueOf('networkPolicy'),
-        toolRouting: valueOf('toolRouting'),
-        autoApproveWrites: checked('autoApproveWrites'),
-        keepWorktree: checked('keepWorktree'),
-        outputRoot: valueOf('outputRoot'),
-        skills: valueOf('skills'),
-        skillManifests: valueOf('skillManifests'),
-        mcpConfig: valueOf('mcpConfig'),
-        mcpTools: valueOf('mcpTools'),
-        runAgentMode: valueOf('runAgentMode'),
-        fanoutPlan: valueOf('fanoutPlan'),
-        fanoutResume: valueOf('fanoutResume'),
-        fanoutMaxWorkers: valueOf('fanoutMaxWorkers'),
-        benchAgentMode: valueOf('benchAgentMode'),
-        directBaseline: checked('directBaseline'),
-        officialEvaluate: checked('officialEvaluate'),
-        maxWorkers: valueOf('maxWorkers'),
-        campaignId: valueOf('campaignId'),
-        campaignRepetitions: valueOf('campaignRepetitions'),
-        publishCampaign: checked('publishCampaign'),
-        feedbackOutcome: valueOf('feedbackOutcome'),
-        feedbackLabels: valueOf('feedbackLabels'),
-        feedbackNote: valueOf('feedbackNote'),
-        requireFeedback: checked('requireFeedback'),
-        limit: 1
-      };
-      const res = await fetch('/api/jobs', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify(payload)
-      });
-      const job = await res.json();
-      if (job.error) {
-        document.getElementById('output').textContent = job.error;
-        return;
-      }
-      currentJob = job.id;
-      document.getElementById('activeJob').textContent = `${job.title} · ${job.id}`;
-      pollJob(job.id, true);
-      refreshStatus();
-    }
-
-    async function pollJob(id, keepPolling) {
-      const res = await fetch(`/api/jobs/${id}`);
-      const job = await res.json();
-      const text = [
-        `${job.title}`,
-        `status=${job.status} exit=${job.exit_code ?? ''}`,
-        '',
-        job.output || '(running...)'
-      ].join('\n');
-      document.getElementById('output').textContent = text;
-      if (keepPolling && job.status === 'running') {
-        setTimeout(() => pollJob(id, true), 1200);
-      } else {
-        refreshStatus();
-      }
-    }
-
-    async function loadLatestReport() {
-      const res = await fetch('/api/latest-report');
-      const data = await res.json();
-      document.getElementById('output').textContent = data.content;
-      refreshStatus();
     }
 
     async function loadEvidence(kind) {
@@ -2737,21 +2389,9 @@ INDEX_HTML = r"""<!doctype html>
       }
     }
 
-    function clearOutput() {
-      document.getElementById('output').textContent = '';
-      document.getElementById('activeJob').textContent = 'none';
-    }
-
-    function toggleSidebar() {
-      const collapsed = document.body.classList.toggle('sidebar-collapsed');
-      updateLayoutControls();
-      return collapsed;
-    }
-
     function toggleFocusMode() {
       const enabled = document.body.classList.toggle('focus-mode');
       if (enabled) {
-        document.body.classList.add('sidebar-collapsed');
         document.body.classList.add('status-collapsed');
       }
       updateLayoutControls();
@@ -2765,15 +2405,10 @@ INDEX_HTML = r"""<!doctype html>
     }
 
     function updateLayoutControls() {
-      const sidebarHidden = document.body.classList.contains('sidebar-collapsed');
       const statusHidden = document.body.classList.contains('status-collapsed');
       const focused = document.body.classList.contains('focus-mode');
-      const sidebarToggle = document.getElementById('sidebarToggle');
       const statusToggle = document.getElementById('statusToggle');
       const focusToggle = document.getElementById('focusToggle');
-      if (sidebarToggle) {
-        sidebarToggle.textContent = sidebarHidden ? 'Run controls' : 'Close controls';
-      }
       if (statusToggle) {
         statusToggle.textContent = statusHidden ? 'Show status' : 'Hide status';
       }
@@ -2781,29 +2416,6 @@ INDEX_HTML = r"""<!doctype html>
         focusToggle.textContent = focused ? 'Exit focus' : 'Focus';
       }
     }
-
-    function setTaskPreset(name) {
-      document.getElementById('task').value = taskPresets[name] || taskPresets.repo;
-    }
-
-    function valueOf(id) {
-      const element = document.getElementById(id);
-      return element ? element.value : '';
-    }
-
-    function checked(id) {
-      const element = document.getElementById(id);
-      return element ? element.checked : false;
-    }
-
-    function applyProviderDefaults() {
-      const provider = valueOf('provider');
-      const defaults = providerDefaults[provider] || providerDefaults.deepseek;
-      document.getElementById('model').value = defaults.model;
-      document.getElementById('baseUrl').value = defaults.baseUrl;
-    }
-
-    document.getElementById('provider').addEventListener('change', applyProviderDefaults);
     updateLayoutControls();
     refreshStatus();
     loadEvidence('summary');

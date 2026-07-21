@@ -44,17 +44,6 @@ class SubagentResult:
     batch_index: int = 0
 
 
-# 核心数据：纯调度器的批次、结果与冲突汇总。
-@dataclass
-class FanoutResult:
-    """``run_fanout`` 的聚合结果，不包含真实 Runtime artifact。"""
-
-    status: str
-    batches: list[list[SubagentTask]]
-    results: list[SubagentResult] = field(default_factory=list)
-    conflicts: list[FanoutConflict] = field(default_factory=list)
-
-
 # 核心规则：按 depends_on 拓扑排序；未知依赖、重复 ID 和环直接失败。
 def build_execution_batches(tasks: list[SubagentTask]) -> list[list[SubagentTask]]:
     """返回可并发执行的依赖层级，不处理写范围冲突。"""

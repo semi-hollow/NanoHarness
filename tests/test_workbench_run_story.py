@@ -13,7 +13,7 @@ from agent_forge.workbench.presentation.http import (
 
 class WorkbenchRunStoryTest(unittest.TestCase):
     def test_workbench_default_surface_is_read_only(self):
-        self.assertIn('class="read-only sidebar-collapsed', INDEX_HTML)
+        self.assertIn('class="read-only status-collapsed', INDEX_HTML)
         self.assertIn("Read-only Run Story", INDEX_HTML)
         self.assertIn("Workbench is read-only", WORKBENCH_READ_ONLY_MESSAGE)
 

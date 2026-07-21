@@ -5,7 +5,11 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from agent_forge.bench.adapters.case_runtime import DirectModelBaseline, LocalCaseExecutor
+from agent_forge.bench.adapters.case_runtime import (
+    DirectModelBaseline,
+    LocalCaseExecutor,
+    render_case_task,
+)
 from agent_forge.bench.adapters.git_workspace import SwebenchWorkspaceManager
 from agent_forge.bench.adapters.official_evaluator import SwebenchOfficialEvaluator
 from agent_forge.bench.api import run_swebench
@@ -22,6 +26,15 @@ from agent_forge.workbench.presentation.http import (
 
 
 class SwebenchCompareTest(unittest.TestCase):
+    def test_case_task_requires_focused_pytest_diagnostics(self):
+        task = render_case_task(
+            BenchCase("case-1", "owner/repo", "abc123", "Fix it")
+        )
+
+        self.assertIn("diagnostics with kind=pytest", task)
+        self.assertIn("smallest relevant existing test path or pytest node id", task)
+        self.assertIn("kind=unittest only for unittest suites", task)
+
     def test_smoke_5_regression_set_has_five_cross_repository_cases(self):
         cases = REGRESSION_SETS["smoke-5"]
         self.assertEqual(len(cases), 5)

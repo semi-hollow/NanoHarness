@@ -82,11 +82,18 @@ class ToolFeedback:
         """只把明确的测试命令结果视为 correctness validation。"""
 
         kind = ""
-        if (
-            tool_name == "diagnostics"
-            and str(arguments.get("kind") or "").lower() == "unittest"
-        ):
-            kind = "unittest"
+        if tool_name == "diagnostics":
+            diagnostic_kind = str(arguments.get("kind") or "").strip().lower()
+            command_marker = f"validation_command=python -m {diagnostic_kind}"
+            command_attested = any(
+                line == command_marker or line.startswith(f"{command_marker} ")
+                for line in observation.content.lower().splitlines()
+            )
+            if (
+                diagnostic_kind in {"pytest", "unittest"}
+                and command_attested
+            ):
+                kind = diagnostic_kind
         elif tool_name == "run_command":
             try:
                 parts = shlex.split(str(arguments.get("command") or ""))

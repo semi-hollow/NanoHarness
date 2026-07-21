@@ -36,7 +36,7 @@
 ## 版本 0.6.0 - 2026-07-12
 
 - 用原子 pending/responded/cancelled request、同 turn 副作用 barrier、`waiting_human`
-  checkpoint、`forge respond` 加 resume，替换模拟 `ask_human` 行为。
+  checkpoint、当时的 `forge respond` 加 resume，替换模拟 `ask_human` 行为；该旧入口现已并入 `forge resume`。
 - 增加基于真实隔离 AgentLoop worker 的 validated live fanout，包括 declared/actual
   write-scope gate、确定性 binary patch integration，以及能看见 candidate diff 且带
   pre/post mutation gate 的隔离只读 finalizer；plan 支持低于 global runtime ceiling 的

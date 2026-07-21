@@ -4,6 +4,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 from agent_forge.runtime.api import build_agent_loop
+from agent_forge.runtime.application.tool_feedback import ToolFeedback
 from agent_forge.runtime.config import RuntimeConfig
 from agent_forge.runtime.llm_client import AgentResponse
 from agent_forge.runtime.domain.conversation import Observation, ToolCall
@@ -178,7 +179,12 @@ class SuccessfulDiagnosticsTool:
         return {"name": self.name, "description": "diagnostics", "arguments": {"kind": "str", "target": "str"}}
 
     def execute(self, arguments):
-        return Observation(self.name, True, f"{arguments['kind']} ok")
+        kind = arguments["kind"]
+        return Observation(
+            self.name,
+            True,
+            f"validation_command=python -m {kind} .\n{kind} ok",
+        )
 
 
 class AgentLoopPolicyTest(unittest.TestCase):
@@ -361,6 +367,32 @@ class AgentLoopPolicyTest(unittest.TestCase):
         self.assertEqual(len(validation), 1)
         self.assertEqual(validation[0]["validation"]["kind"], "unittest")
         self.assertEqual(validation[0]["validation"]["status"], "passed")
+
+    def test_pytest_diagnostic_emits_explicit_validation_evidence(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            trace_path = Path(tmp) / "trace.json"
+            trace = TraceRecorder(str(trace_path))
+            registry = ToolRegistry()
+            registry.register(SuccessfulDiagnosticsTool())
+            config = RuntimeConfig(workspace=tmp, max_steps=3, trace_file=str(trace_path))
+
+            build_agent_loop(config, trace, registry, DiagnosticsThenFinalLLM("pytest")).run(
+                "resolve a SWE-bench coding issue"
+            )
+
+            validation = [event for event in trace.events if event["event_type"] == "validation_evidence"]
+        self.assertEqual(len(validation), 1)
+        self.assertEqual(validation[0]["validation"]["kind"], "pytest")
+        self.assertEqual(validation[0]["validation"]["status"], "passed")
+
+    def test_diagnostic_without_runner_command_is_not_validation_evidence(self):
+        evidence = ToolFeedback.validation_evidence(
+            "diagnostics",
+            {"kind": "unittest", "target": "test_pytest_style.py"},
+            Observation("diagnostics", True, "python test_pytest_style.py exited 0"),
+        )
+
+        self.assertIsNone(evidence)
 
     def test_compile_diagnostic_is_not_counted_as_correctness_validation(self):
         with tempfile.TemporaryDirectory() as tmp:

@@ -2,7 +2,6 @@
 
 from .fanout import (
     FanoutConflict,
-    FanoutResult,
     SubagentResult,
     SubagentTask,
     build_conflict_free_batches,
@@ -29,7 +28,6 @@ __all__ = [
     "AgentProfile",
     "Artifact",
     "FanoutConflict",
-    "FanoutResult",
     "FanoutPlan",
     "FinalizerResult",
     "LiveFanoutSummary",

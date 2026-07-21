@@ -64,7 +64,7 @@ forge inspect AgentLoop.run
 ```
 
 Core CLI 只有 `run / inspect / demo`；`resume` 是显式 continuation 的 Operator 入口。
-`bench / ui` 属于 Advanced；兼容命令不进入默认学习面。
+`bench / ui` 属于 Advanced；同义兼容命令已删除，内部专项能力不进入默认学习面。
 待处理人工输入或审批也由同一个 `resume` 完成：分别传 `--answer` 或
 `--decision approved|rejected`，不需要记忆第二组公开命令。
 
@@ -131,8 +131,8 @@ forge run --config examples/agent.sample.yaml
 
 Core 命令分别使用 `forge run --help`、`forge inspect --help`、`forge demo --help` 和
 `forge resume --help`；Advanced 能力再查 `forge bench --help` 或 `forge ui --help`。README
-不展开兼容命令，避免默认学习面再次增长。项目名是 NanoHarness；兼容保留的 import package
-为 `agent_forge`，CLI 为 `forge`。
+不展开隐藏内部命令，避免默认学习面再次增长。项目名是 NanoHarness；distribution package
+是 `agent-forge`，Python import package 是 `agent_forge`，唯一 console command 是 `forge`。
 
 ## 嵌入式 API
 
@@ -220,12 +220,13 @@ Contract 见[架构契约](docs/ARCHITECTURE.md)。
 
 首次审查只读三份：
 
+- [Facade 目录](docs/architecture/facade-catalog.md)：所有正式动作、唯一入口与学习决策。
 - [NanoHarness Study Notes](https://github.com/semi-hollow/NanoHarness-Study-Notes)：12-file Core Scope、五个必会问题与演示脚本。
 - [架构契约](docs/ARCHITECTURE.md)：模块职责、依赖方向和主要入口。
-- [能力真实性矩阵](docs/CAPABILITY_REALITY_MATRIX.md)：真实能力与 claim boundary。
 
 按问题查阅：
 
+- [能力真实性矩阵](docs/CAPABILITY_REALITY_MATRIX.md)：真实能力与 claim boundary。
 - [Runtime 控制面](docs/architecture/runtime-control-plane.md)
 - [工程演进史](docs/PROJECT_EVOLUTION.md)
 - [SWE-bench Smoke-5](docs/evaluation/smoke-5-case-catalog.md)

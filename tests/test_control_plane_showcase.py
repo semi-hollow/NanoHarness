@@ -3,27 +3,26 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from agent_forge.showcase import (
-    continue_control_plane_showcase,
-    run_governed_demo,
-    start_control_plane_showcase,
+from agent_forge.showcase import run_governed_demo
+from agent_forge.showcase.control_plane import (
+    _continue_control_plane_demo,
+    _start_control_plane_demo,
 )
 
 
 class ControlPlaneShowcaseTest(unittest.TestCase):
     def test_hitl_showcase_persists_answer_and_resumes_from_checkpoint(self):
         with tempfile.TemporaryDirectory() as tmp:
-            started = start_control_plane_showcase("hitl", output_root=tmp)
+            started = _start_control_plane_demo("hitl", output_root=tmp)
 
             self.assertEqual(started.status, "waiting_human")
             self.assertTrue(started.request_id)
             self.assertTrue(started.checkpoint_path.exists())
-            self.assertIn("showcase hitl continue", started.next_command)
             report = (started.run_dir / "showcase.md").read_text(encoding="utf-8")
             self.assertIn("waiting_human", report)
             self.assertIn(started.request_id, report)
 
-            completed = continue_control_plane_showcase(
+            completed = _continue_control_plane_demo(
                 "hitl",
                 started.run_dir,
                 answer="Python 3.11",
@@ -39,7 +38,7 @@ class ControlPlaneShowcaseTest(unittest.TestCase):
 
     def test_approval_showcase_never_writes_before_approval(self):
         with tempfile.TemporaryDirectory() as tmp:
-            started = start_control_plane_showcase("approval", output_root=tmp)
+            started = _start_control_plane_demo("approval", output_root=tmp)
             target = started.workspace / "target.py"
 
             self.assertEqual(started.status, "waiting_approval")
@@ -48,7 +47,7 @@ class ControlPlaneShowcaseTest(unittest.TestCase):
             report = (started.run_dir / "showcase.md").read_text(encoding="utf-8")
             self.assertIn("value = 1", report)
 
-            completed = continue_control_plane_showcase(
+            completed = _continue_control_plane_demo(
                 "approval",
                 started.run_dir,
             )
@@ -68,10 +67,10 @@ class ControlPlaneShowcaseTest(unittest.TestCase):
 
     def test_continuation_rejects_a_mismatched_scenario(self):
         with tempfile.TemporaryDirectory() as tmp:
-            started = start_control_plane_showcase("hitl", output_root=tmp)
+            started = _start_control_plane_demo("hitl", output_root=tmp)
 
             with self.assertRaisesRegex(ValueError, "scenario mismatch"):
-                continue_control_plane_showcase("approval", started.run_dir)
+                _continue_control_plane_demo("approval", started.run_dir)
 
     def test_one_command_demo_records_waiting_and_completion_claim_boundary(self):
         with tempfile.TemporaryDirectory() as tmp:

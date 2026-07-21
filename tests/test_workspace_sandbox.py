@@ -2,7 +2,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from agent_forge.safety.sandbox import WorkspaceSandbox, sandbox_policy_summary
+from agent_forge.safety.sandbox import WorkspaceSandbox
 
 
 class WorkspaceSandboxTest(unittest.TestCase):
@@ -38,13 +38,6 @@ class WorkspaceSandboxTest(unittest.TestCase):
                     sandbox.ensure_safe_path("link")
             finally:
                 outside.unlink(missing_ok=True)
-
-    def test_sandbox_policy_summary_explains_path_boundary(self):
-        summary = sandbox_policy_summary("/repo")
-        self.assertEqual(summary["workspace_root"], "/repo")
-        self.assertFalse(summary["path_escape_allowed"])
-        self.assertEqual(summary["side_effect_scope"], "workspace-only")
-
 
 if __name__ == "__main__":
     unittest.main()

@@ -1,3 +1,5 @@
+import contextlib
+import io
 import os
 import subprocess
 import sys
@@ -6,14 +8,6 @@ import unittest
 from pathlib import Path
 
 from agent_forge.cli.parser import build_parser
-from agent_forge.runtime.adapters import JsonApprovalRepository
-from agent_forge.runtime.domain.approval import ApprovalRequestDraft
-from agent_forge.workbench.presentation.commands import (
-    build_agent_run_command as _build_agent_run_command,
-    build_campaign_command as _build_campaign_command,
-    build_swebench_command as _build_swebench_command,
-    build_workbench_command,
-)
 from agent_forge.workbench.presentation.http import (
     INDEX_HTML,
     _latest_report_path,
@@ -43,6 +37,16 @@ class PublicCliSmokeTest(unittest.TestCase):
             self.assertIn(command, result.stdout)
         for legacy in ("approve", "respond", "eval", "showcase", "memory", "tui"):
             self.assertNotIn(legacy, result.stdout)
+
+    def test_duplicate_legacy_commands_are_not_parseable(self):
+        parser = build_parser()
+        for command in ("report", "replay", "approve", "respond", "showcase", "tui"):
+            with (
+                self.subTest(command=command),
+                contextlib.redirect_stderr(io.StringIO()),
+                self.assertRaises(SystemExit),
+            ):
+                parser.parse_args([command])
 
     def test_run_help_exposes_resume_and_manual_approval_flags(self):
         result = subprocess.run(
@@ -97,52 +101,6 @@ class PublicCliSmokeTest(unittest.TestCase):
         self.assertIn("--answer", result.stdout)
         self.assertIn("--decision", result.stdout)
         self.assertIn("--operation-ledger-root", result.stdout)
-
-    def test_respond_help_exposes_durable_human_input_flags(self):
-        result = subprocess.run(
-            [sys.executable, "-m", "agent_forge", "respond", "--help"],
-            text=True,
-            capture_output=True,
-        )
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn("request_id", result.stdout)
-        self.assertIn("--answer", result.stdout)
-        self.assertIn("--cancel", result.stdout)
-        self.assertIn("--human-input-root", result.stdout)
-
-    def test_showcase_cli_exposes_two_step_hitl_and_approval_flows(self):
-        hitl = subprocess.run(
-            [
-                sys.executable,
-                "-m",
-                "agent_forge",
-                "showcase",
-                "hitl",
-                "continue",
-                "--help",
-            ],
-            text=True,
-            capture_output=True,
-        )
-        self.assertEqual(hitl.returncode, 0, hitl.stderr)
-        self.assertIn("run_dir", hitl.stdout)
-        self.assertIn("--answer", hitl.stdout)
-
-        approval = subprocess.run(
-            [
-                sys.executable,
-                "-m",
-                "agent_forge",
-                "showcase",
-                "approval",
-                "start",
-                "--help",
-            ],
-            text=True,
-            capture_output=True,
-        )
-        self.assertEqual(approval.returncode, 0, approval.stderr)
-        self.assertIn("--output-root", approval.stdout)
 
     def test_memory_cli_exposes_authority_lifecycle(self):
         result = subprocess.run(
@@ -238,95 +196,6 @@ class PublicCliSmokeTest(unittest.TestCase):
         self.assertIn("--show-test-patch", case_help.stdout)
         self.assertIn("--show-gold", case_help.stdout)
 
-    def test_approve_cli_updates_pending_request(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
-            store = JsonApprovalRepository(root / "approvals")
-            request = store.request(
-                ApprovalRequestDraft(
-                    tool_name="apply_patch",
-                    arguments={"path": "target.py", "old": "a", "new": "b"},
-                    action="apply_patch",
-                    command="",
-                    workspace=str(root),
-                    run_id="run-1",
-                    step=1,
-                    agent_name="CodingAgent",
-                    reason="write needs approval",
-                )
-            )
-
-            result = subprocess.run(
-                [
-                    sys.executable,
-                    "-m",
-                    "agent_forge",
-                    "approve",
-                    request.operation_key,
-                    "--approval-root",
-                    str(root / "approvals"),
-                ],
-                text=True,
-                capture_output=True,
-            )
-
-            self.assertEqual(result.returncode, 0, result.stderr)
-            self.assertIn("approved", result.stdout)
-            self.assertEqual(store.get(request.operation_key).status, "approved")
-
-    def test_ui_swebench_command_includes_agent_mode_defaults(self):
-        command = _build_swebench_command(sys.executable, {}, regression=False)
-        self.assertIn("--agent-mode", command.command)
-        self.assertIn("compare", command.command)
-        self.assertIn("--profile", command.command)
-        self.assertIn("coding_fix", command.command)
-        self.assertIn("--max-revision-rounds", command.command)
-        self.assertIn("2", command.command)
-        self.assertIn("--execution-mode", command.command)
-        self.assertIn("worktree", command.command)
-        self.assertIn("--network-policy", command.command)
-        self.assertIn("deny", command.command)
-        self.assertIn("--tool-routing", command.command)
-        self.assertIn("task-aware", command.command)
-        self.assertIn("--temperature", command.command)
-        self.assertIn("0.0", command.command)
-
-    def test_ui_agent_command_supports_bounded_live_fanout(self):
-        command = _build_agent_run_command(
-            sys.executable,
-            {
-                "task": "Update independent runtime and test modules",
-                "runAgentMode": "fanout",
-                "fanoutPlan": "examples/fanout-plan.sample.json",
-                "fanoutResume": ".agent_forge/runs/previous-run",
-                "fanoutMaxWorkers": 3,
-            },
-        )
-
-        self.assertIn("--agent-mode", command.command)
-        self.assertIn("fanout", command.command)
-        self.assertIn("--fanout-plan", command.command)
-        self.assertIn("examples/fanout-plan.sample.json", command.command)
-        self.assertIn("--fanout-resume", command.command)
-        self.assertIn("--max-workers", command.command)
-        self.assertIn("3", command.command)
-        self.assertIn("--execution-mode", command.command)
-        self.assertIn("worktree", command.command)
-        self.assertIn("--no-keep-worktree", command.command)
-
-        with self.assertRaisesRegex(ValueError, "relative project path"):
-            _build_agent_run_command(
-                sys.executable,
-                {
-                    "task": "Update independent runtime and test modules",
-                    "runAgentMode": "fanout",
-                    "fanoutPlan": "../outside.json",
-                },
-            )
-
-        self.assertIn('id="runAgentMode"', INDEX_HTML)
-        self.assertIn('id="fanoutPlan"', INDEX_HTML)
-
     def test_ui_and_report_locator_surface_live_fanout_evidence(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -368,9 +237,9 @@ class PublicCliSmokeTest(unittest.TestCase):
                 encoding="utf-8",
             )
 
-            self.assertTrue(
-                _latest_report_path(root).endswith("fanout/fanout_report.md")
-            )
+            report_path = Path(_latest_report_path(root))
+            self.assertEqual(report_path.name, "fanout_report.md")
+            self.assertEqual(report_path.parent.name, "fanout")
             result_html = _render_result_summary(root)
             usage_html = _render_usage_dashboard(root)
 
@@ -461,7 +330,7 @@ class PublicCliSmokeTest(unittest.TestCase):
   "artifacts": [{"id": "review", "role": "Reviewer", "kind": "review_report", "round_index": 0, "path": "%s"}]
 }
 """
-                % artifact_path,
+                % artifact_path.as_posix(),
                 encoding="utf-8",
             )
             (run_dir / "trace.json").write_text('{"events": []}', encoding="utf-8")
@@ -589,7 +458,7 @@ class PublicCliSmokeTest(unittest.TestCase):
         self.assertIn("failed", html)
         self.assertNotIn(" · ", html)
 
-    def test_ui_surfaces_runtime_control_and_feedback_operations(self):
+    def test_ui_is_a_read_only_evidence_surface(self):
         self.assertIn("NanoHarness Workbench", INDEX_HTML)
         self.assertIn("Run Evidence", INDEX_HTML)
         self.assertIn("Benchmark", INDEX_HTML)
@@ -599,32 +468,9 @@ class PublicCliSmokeTest(unittest.TestCase):
         self.assertIn("Feedback Loop", INDEX_HTML)
         self.assertIn("td .badge", INDEX_HTML)
         self.assertIn("white-space: normal", INDEX_HTML)
-        self.assertIn('id="executionMode"', INDEX_HTML)
-        self.assertIn('id="networkPolicy"', INDEX_HTML)
-        self.assertIn('id="toolRouting"', INDEX_HTML)
-        self.assertIn('id="feedbackOutcome"', INDEX_HTML)
-        self.assertIn('id="campaignRepetitions"', INDEX_HTML)
-
-    def test_workbench_campaign_command_keeps_preset_comparison_fixed(self):
-        command = _build_campaign_command(
-            sys.executable,
-            {
-                "provider": "deepseek",
-                "model": "model-a",
-                "campaignId": "smoke-5-demo",
-                "campaignRepetitions": 3,
-                "executionMode": "worktree",
-                "officialEvaluate": True,
-                "publishCampaign": True,
-            },
-        )
-
-        self.assertEqual(command.command[3:5], ["bench", "campaign"])
-        self.assertIn("smoke-5-demo", command.command)
-        self.assertIn("--evaluate", command.command)
-        self.assertIn("--publish", command.command)
-        self.assertNotIn("--tool-routing", command.command)
-        self.assertNotIn("--skills", command.command)
+        self.assertIn("Read-only Run Story", INDEX_HTML)
+        self.assertNotIn("startJob(", INDEX_HTML)
+        self.assertNotIn("/api/jobs", INDEX_HTML)
 
     def test_benchmark_view_renders_campaign_denominators_and_run_matrix(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -687,38 +533,6 @@ class PublicCliSmokeTest(unittest.TestCase):
         self.assertIn("case/task input", html)
         self.assertIn("Skill-injected context", html)
         self.assertNotIn("temperature, prompt, budget", html)
-
-    def test_ui_feedback_and_dataset_actions_target_latest_evidence(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
-            run_dir = root / ".agent_forge" / "runs" / "run-1"
-            run_dir.mkdir(parents=True)
-            (run_dir / "trace.json").write_text('{"events": []}', encoding="utf-8")
-            latest = root / ".agent_forge" / "latest"
-            latest.mkdir(parents=True)
-            (latest / "run.txt").write_text(str(run_dir), encoding="utf-8")
-
-            feedback = build_workbench_command(
-                "feedback",
-                {
-                    "feedbackOutcome": "needs_work",
-                    "feedbackLabels": "validation-gap, tool-routing",
-                    "feedbackNote": "candidate patch lacks official evaluation",
-                },
-                project_dir=root,
-            )
-            export = build_workbench_command(
-                "export_dataset",
-                {"requireFeedback": True},
-                project_dir=root,
-            )
-
-        self.assertIn(str(run_dir / "trace.json"), feedback.command)
-        self.assertEqual(feedback.command.count("--label"), 2)
-        self.assertIn("--note", feedback.command)
-        self.assertIn(str(run_dir), export.command)
-        self.assertIn("--require-feedback", export.command)
-        self.assertNotIn("--include-patch", export.command)
 
     def test_latest_run_prefers_existing_swebench_over_verify_pointer(self):
         with tempfile.TemporaryDirectory() as tmp:

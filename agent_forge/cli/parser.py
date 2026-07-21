@@ -49,10 +49,7 @@ def build_parser() -> argparse.ArgumentParser:
     _add_benchmark_command(subparsers)
     _add_evaluation_command(subparsers)
     _add_inspection_commands(subparsers)
-    _add_operator_commands(subparsers)
-    _add_showcase_command(subparsers)
     _add_memory_command(subparsers)
-    subparsers.add_parser("tui", help=argparse.SUPPRESS)
     ui_parser = subparsers.add_parser(
         "ui",
         help="Open the local browser workbench UI.",
@@ -232,14 +229,6 @@ def _add_evaluation_command(subparsers: argparse._SubParsersAction) -> None:
 
 
 def _add_inspection_commands(subparsers: argparse._SubParsersAction) -> None:
-    report = subparsers.add_parser(
-        "report",
-        help=argparse.SUPPRESS,
-    )
-    report.add_argument("target", nargs="?", default="latest")
-    replay = subparsers.add_parser("replay", help=argparse.SUPPRESS)
-    replay.add_argument("target", nargs="?", default="latest")
-
     skills = subparsers.add_parser(
         "skills",
         help=argparse.SUPPRESS,
@@ -265,63 +254,6 @@ def _add_inspection_commands(subparsers: argparse._SubParsersAction) -> None:
         "doctor",
         help=argparse.SUPPRESS,
     )
-
-
-def _add_operator_commands(subparsers: argparse._SubParsersAction) -> None:
-    approve = subparsers.add_parser(
-        "approve",
-        help=argparse.SUPPRESS,
-    )
-    approve.add_argument(
-        "operation_key",
-        help="Approval operation key printed by a waiting run.",
-    )
-    approve.add_argument("--approval-root", default=".agent_forge/approvals")
-    approve.add_argument(
-        "--decision",
-        choices=["approved", "rejected"],
-        default="approved",
-    )
-    approve.add_argument("--note", default="")
-
-    respond = subparsers.add_parser(
-        "respond",
-        help=argparse.SUPPRESS,
-    )
-    respond.add_argument("request_id")
-    group = respond.add_mutually_exclusive_group(required=True)
-    group.add_argument("--answer")
-    group.add_argument("--cancel", action="store_true")
-    respond.add_argument("--note", default="")
-    respond.add_argument("--human-input-root", default=".agent_forge/human_input")
-
-
-def _add_showcase_command(subparsers: argparse._SubParsersAction) -> None:
-    """注册两步式控制面展示，不混入生产 ``run`` 参数。"""
-
-    parser = subparsers.add_parser(
-        "showcase",
-        help=argparse.SUPPRESS,
-    )
-    scenarios = parser.add_subparsers(dest="showcase_scenario", required=True)
-    for scenario in ("hitl", "approval"):
-        scenario_parser = scenarios.add_parser(scenario)
-        actions = scenario_parser.add_subparsers(
-            dest="showcase_action",
-            required=True,
-        )
-        start = actions.add_parser(
-            "start",
-            help="Start and stop at the human control point.",
-        )
-        start.add_argument("--output-root", default=".agent_forge/showcases")
-        continuation = actions.add_parser(
-            "continue",
-            help="Persist the human decision and continue from checkpoint.",
-        )
-        continuation.add_argument("run_dir")
-        if scenario == "hitl":
-            continuation.add_argument("--answer", required=True)
 
 
 def _add_memory_command(subparsers: argparse._SubParsersAction) -> None:

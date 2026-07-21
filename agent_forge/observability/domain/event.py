@@ -1,3 +1,5 @@
+"""Runtime trace 的稳定事件词汇与机器可读记录契约。"""
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field

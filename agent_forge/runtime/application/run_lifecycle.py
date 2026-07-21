@@ -235,7 +235,8 @@ class RunLifecycle:
                 current_step=question.step,
                 last_tool=last_tool,
                 resume_hint=(
-                    f"Run `forge respond {request.request_id} --answer <text>` then resume this run."
+                    "Run `forge resume <run_dir> --answer <text> "
+                    f"--request-id {request.request_id}`."
                 ),
                 metadata=metadata,
             ),

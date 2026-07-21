@@ -102,7 +102,7 @@ approval、operation ledger、target fingerprint 和 stale guard。
 `2a7fd69` 加入 official per-case parser、scorecard、matched ablation 和 OCI execution。
 2026-07-12 的 `fb89801` 完成两个关键替换：
 
-1. 用 pending/responded/cancelled request、`waiting_human` checkpoint、`forge respond`
+1. 用 pending/responded/cancelled request、`waiting_human` checkpoint、当时的 `forge respond`（现已并入 `forge resume`）
    与 resume 替换模拟 `ask_human`。
 2. 用 disposable worktree 中的真实 AgentLoop worker、DAG、scope gate、patch integration
    与只读 finalizer 替换轻量 fanout primitive。

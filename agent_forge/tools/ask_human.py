@@ -8,7 +8,9 @@ class AskHumanTool(Tool):
     """声明由 ToolExecutionPipeline 转交 RunLifecycle 的人工问题。"""
 
     name = "ask_human"
-    description = "request durable human input; the run pauses until forge respond and resume"
+    description = (
+        "request durable human input; the run pauses until forge resume supplies --answer"
+    )
 
     def schema(self) -> ToolSchema:
 

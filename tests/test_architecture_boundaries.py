@@ -384,11 +384,8 @@ class ArchitectureBoundaryTest(unittest.TestCase):
         expected = [
             WORKBENCH_ROOT / "api.py",
             WORKBENCH_ROOT / "application" / "services.py",
-            WORKBENCH_ROOT / "domain" / "models.py",
             WORKBENCH_ROOT / "ports" / "services.py",
-            WORKBENCH_ROOT / "adapters" / "background_jobs.py",
             WORKBENCH_ROOT / "adapters" / "evidence_files.py",
-            WORKBENCH_ROOT / "presentation" / "commands.py",
             WORKBENCH_ROOT / "presentation" / "http.py",
             WORKBENCH_ROOT / "wiring.py",
         ]

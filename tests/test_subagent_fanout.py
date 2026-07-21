@@ -1,7 +1,11 @@
 import unittest
 
-from agent_forge.multi_agent.application.fanout import run_fanout
-from agent_forge.multi_agent.domain.fanout import SubagentTask, build_conflict_free_batches
+from agent_forge.multi_agent.domain.fanout import (
+    SubagentTask,
+    build_conflict_free_batches,
+    build_execution_batches,
+    detect_write_scope_conflicts,
+)
 
 
 class SubagentFanoutTest(unittest.TestCase):
@@ -16,23 +20,6 @@ class SubagentFanoutTest(unittest.TestCase):
 
         self.assertEqual([[task.id for task in batch] for batch in batches], [["runtime-a", "docs"], ["runtime-b"]])
 
-    def test_independent_tasks_run_in_one_parallel_batch(self):
-        tasks = [
-            SubagentTask(id="docs", task="update docs", write_scope=["docs/"]),
-            SubagentTask(id="tests", task="add tests", write_scope=["tests/"]),
-        ]
-        seen = []
-
-        def runner(task):
-            seen.append(task.id)
-            return {"status": "completed", "touched_files": list(task.write_scope)}
-
-        result = run_fanout(tasks, runner, max_workers=2)
-
-        self.assertEqual(result.status, "completed")
-        self.assertEqual([[task.id for task in batch] for batch in result.batches], [["docs", "tests"]])
-        self.assertEqual(set(seen), {"docs", "tests"})
-
     def test_dependencies_force_later_batch(self):
         tasks = [
             SubagentTask(id="implement", task="implement feature", write_scope=["agent_forge/runtime/"]),
@@ -44,24 +31,22 @@ class SubagentFanoutTest(unittest.TestCase):
             ),
         ]
 
-        result = run_fanout(tasks, lambda task: {"status": "completed"}, max_workers=2)
+        batches = build_execution_batches(tasks)
 
-        self.assertEqual(result.status, "completed")
-        self.assertEqual([[task.id for task in batch] for batch in result.batches], [["implement"], ["docs"]])
+        self.assertEqual(
+            [[task.id for task in batch] for batch in batches],
+            [["implement"], ["docs"]],
+        )
 
     def test_same_batch_write_scope_overlap_requires_conflict_resolution(self):
         tasks = [
             SubagentTask(id="runtime-a", task="edit runtime A", write_scope=["agent_forge/runtime/"]),
             SubagentTask(id="runtime-b", task="edit runtime B", write_scope=["agent_forge/runtime/application/agent_loop.py"]),
         ]
-        seen = []
+        conflicts = detect_write_scope_conflicts(tasks)
 
-        result = run_fanout(tasks, lambda task: seen.append(task.id), max_workers=2)
-
-        self.assertEqual(result.status, "conflict_resolution_required")
-        self.assertEqual(seen, [])
-        self.assertEqual(result.conflicts[0].task_ids, ["runtime-a", "runtime-b"])
-        self.assertIn("agent_forge/runtime/", result.conflicts[0].reason)
+        self.assertEqual(conflicts[0].task_ids, ["runtime-a", "runtime-b"])
+        self.assertIn("agent_forge/runtime/", conflicts[0].reason)
 
 
 if __name__ == "__main__":

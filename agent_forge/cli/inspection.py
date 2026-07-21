@@ -1,4 +1,4 @@
-"""只读 CLI：环境检查、报告、trace、Skill registry 与轻量 TUI。"""
+"""只读 CLI：环境检查、统一 inspection 与 Skill registry。"""
 
 from __future__ import annotations
 
@@ -12,9 +12,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-from agent_forge.bench.presentation.cli import run_swebench_from_args
 from agent_forge.code_compass import inspect_symbol, render_symbol_card
-from agent_forge.cli.repository import run_repository_task
 from agent_forge.observability.api import (
     load_run_story,
     read_run_manifest,
@@ -51,11 +49,6 @@ def render_doctor() -> str:
     ]
     width = max(len(name) for name, _ in rows)
     return "\n".join(f"{name:<{width}} : {value}" for name, value in rows)
-
-
-def print_report(target: str) -> None:
-    report = resolve_report_target(target)
-    print(report.read_text(encoding="utf-8"))
 
 
 # 主要入口：用一个目标参数检查 run、artifact 或源码符号。
@@ -165,74 +158,6 @@ def print_skills(args: argparse.Namespace) -> None:
         print(f"  rollback_to : {rollback_label}")
         print(f"  tags        : {', '.join(spec.tags) or '-'}")
         print(f"  tools       : {', '.join(spec.tool_names) or '-'}")
-
-
-def run_tui() -> None:
-    """为不记命令的本地用户提供轻量入口，不承诺完整终端产品。"""
-
-    print("NanoHarness")
-    print("1. Doctor")
-    print("2. Run SWE-bench Lite sample")
-    print("3. Run a task in current repo")
-    print("4. Show latest report")
-    choice = input("Choose 1-4: ").strip()
-    if choice == "1":
-        print(render_doctor())
-    elif choice == "2":
-        limit = input("Limit [1]: ").strip() or "1"
-        provider = input("Provider [deepseek]: ").strip() or "deepseek"
-        args = argparse.Namespace(
-            dataset="princeton-nlp/SWE-bench_Lite",
-            split="test",
-            limit=int(limit),
-            instance_id=[],
-            showcase=False,
-            regression_set=None,
-            cases_file=None,
-            provider=provider,
-            model=None,
-            base_url=None,
-            api_key=None,
-            max_steps=16,
-            max_context_chars=12000,
-            repo_cache=".agent_forge/bench/repos",
-            output_root=".agent_forge/runs",
-            direct_baseline=True,
-            evaluate=False,
-            max_workers=1,
-            namespace_empty=False,
-        )
-        summary = run_swebench_from_args(args)
-        print(f"Result card: {summary.output_dir / 'report.md'}")
-    elif choice == "3":
-        task = input("Task: ").strip()
-        if not task:
-            print("No task provided.")
-            return
-        args = argparse.Namespace(
-            task=task,
-            workspace=".",
-            provider=os.getenv("AGENT_FORGE_DEFAULT_LLM", "deepseek"),
-            model=None,
-            base_url=None,
-            api_key=None,
-            max_steps=16,
-            max_context_chars=12000,
-            approval_mode="trusted",
-            output_root=".agent_forge/runs",
-            agent_mode="single",
-            profile="coding_fix",
-            max_revision_rounds=2,
-            skills="auto",
-            skill_manifest=[],
-            mcp_config=None,
-            mcp_tool=[],
-        )
-        print(f"Run directory: {run_repository_task(args)}")
-    elif choice == "4":
-        print_report("latest")
-    else:
-        print("Canceled.")
 
 
 def _latest_pointer_target() -> Path:

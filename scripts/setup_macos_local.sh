@@ -186,7 +186,7 @@ main() {
   log "  source .venv/bin/activate"
   log "  forge doctor"
   log "  forge bench swebench --limit 1 --provider deepseek --direct-baseline"
-  log "  forge report latest"
+  log "  forge inspect latest"
   log "  scripts/verify.sh"
 }
 

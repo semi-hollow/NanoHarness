@@ -22,15 +22,7 @@ from agent_forge.context.api import (
     reject_memory,
     retire_memory,
 )
-from agent_forge.cli.inspection import (
-    print_report,
-    print_skills,
-    render_inspection,
-    render_doctor,
-    resolve_trace_target,
-    run_tui,
-)
-from agent_forge.cli.operator import approve_request, respond_to_human_input
+from agent_forge.cli.inspection import print_skills, render_inspection, render_doctor
 from agent_forge.cli.parser import build_parser
 from agent_forge.cli.repository import run_repository_task
 from agent_forge.cli.resume import resume_repository_task
@@ -42,13 +34,7 @@ from agent_forge.evaluation.api import (
     run_mini_cases,
     write_ablation_comparison,
 )
-from agent_forge.observability.api import replay_trace_file
-from agent_forge.showcase import (
-    ControlPlaneShowcaseResult,
-    continue_control_plane_showcase,
-    run_governed_demo,
-    start_control_plane_showcase,
-)
+from agent_forge.showcase import run_governed_demo
 from agent_forge.workbench.api import run_ui_from_args
 
 
@@ -70,12 +56,6 @@ def main(argv: list[str] | None = None) -> None:
         print(f"Demo: {result.report_path}")
         print(f"State: {result.waiting_status} -> {result.completed_status}")
         print(f"Inspect: forge inspect {result.inspect_target}")
-    elif args.command == "approve":
-        print(approve_request(args))
-    elif args.command == "respond":
-        print(respond_to_human_input(args))
-    elif args.command == "showcase":
-        _dispatch_showcase(args)
     elif args.command == "resume":
         _print_run_location(resume_repository_task(args))
     elif args.command == "run":
@@ -98,16 +78,10 @@ def main(argv: list[str] | None = None) -> None:
             print(f"Public evidence: {campaign.public_dir}")
     elif args.command == "eval":
         _dispatch_evaluation(args)
-    elif args.command == "report":
-        print_report(args.target)
-    elif args.command == "replay":
-        print(replay_trace_file(str(resolve_trace_target(args.target))))
     elif args.command == "skills":
         print_skills(args)
     elif args.command == "memory":
         _dispatch_memory(args)
-    elif args.command == "tui":
-        run_tui()
     elif args.command == "ui":
         run_ui_from_args(args)
 
@@ -179,41 +153,6 @@ def _dispatch_evaluation(args: argparse.Namespace) -> None:
 def _print_run_location(run_dir: Path) -> None:
     print(f"Run directory: {run_dir}")
     print(f"Report: {run_dir / 'usage_report.md'}")
-
-
-def _dispatch_showcase(args: argparse.Namespace) -> None:
-    """运行两步式控制面展示，并打印下一条可直接执行的命令。"""
-
-    try:
-        if args.showcase_action == "start":
-            result = start_control_plane_showcase(
-                args.showcase_scenario,
-                output_root=args.output_root,
-            )
-        else:
-            result = continue_control_plane_showcase(
-                args.showcase_scenario,
-                args.run_dir,
-                answer=getattr(args, "answer", ""),
-            )
-    except (FileNotFoundError, ValueError) as exc:
-        raise SystemExit(str(exc)) from exc
-    _print_showcase_result(result)
-
-
-def _print_showcase_result(result: ControlPlaneShowcaseResult) -> None:
-    print(f"Scenario: {result.scenario}")
-    print(f"State: {result.status}")
-    print(f"Run directory: {result.run_dir}")
-    print(f"Checkpoint: {result.checkpoint_path}")
-    print(f"Trace: {result.trace_path}")
-    print(f"Showcase report: {result.run_dir / 'showcase.md'}")
-    if result.request_id:
-        print(f"Human request: {result.request_id}")
-    if result.operation_key:
-        print(f"Approval operation: {result.operation_key}")
-    if result.next_command:
-        print(f"Next command: {result.next_command}")
 
 
 def _dispatch_memory(args: argparse.Namespace) -> None:

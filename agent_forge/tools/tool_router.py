@@ -220,7 +220,8 @@ class ToolRouter:
         if read_only_requested:
             selected -= {"apply_patch", "write_file", "run_command"}
 
-        if "swe-bench" in lowered or "swebench" in lowered:
+        swebench_task = "swe-bench" in lowered or "swebench" in lowered
+        if swebench_task:
             selected -= {"run_command", "write_file"}
             selected |= names & {"apply_patch", "diagnostics", "git_diff", "git_status"}
 
@@ -250,6 +251,8 @@ class ToolRouter:
             f"selected={len(routed)} dropped={len(dropped)} step={step} "
             f"agent={agent_name or 'agent'} skill_tools={len(skill_tool_names or set())}"
         )
+        if swebench_task and "diagnostics" in selected:
+            reason += " swebench_validation=diagnostics:pytest"
         return ToolRoute(
             schemas=routed,
             allowed_names={schema.get("name", "") for schema in routed},

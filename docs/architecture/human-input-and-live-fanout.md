@@ -3,14 +3,14 @@
 这项设计补齐两处有意收敛范围的 runtime 缺口，同时避免把 NanoHarness 扩张成通用
 distributed-agent platform：
 
-1. 用真实可持久化的 stop/respond/resume 控制链替代模拟 `ask_human` 回答；
+1. 用真实可持久化的 stop/answer/resume 控制链替代模拟 `ask_human` 回答；
 2. 将 dependency-aware fanout 接入运行在隔离 git worktree 中的真实 `AgentLoop` worker。
 
 ## 目标
 
 - Human question 是持久化 control-plane event，不是阻塞 terminal input，也不是自动
   approved observation。
-- `forge respond` 记录可审计答案；`forge resume` 将答案注入 continuation run。
+- `forge resume <run> --answer ...` 先记录可审计答案，再创建 continuation run。
 - 结构化 fanout plan 可以通过真实 model/tool loop 并发执行独立 task。
 - 每个 worker 都有独立 context、trace、usage report、tool allowlist 和 git worktree。
 - 写入结果只有通过 scope 和 patch 检查后才会确定性合并。
@@ -38,9 +38,8 @@ AgentLoop / ClarificationPolicy
   -> HumanInputRepository.request(...)
   -> checkpoint WAITING_HUMAN + trace event
   -> 在后续 tool 前停止
-  -> forge respond <request-id> --answer <text>
-  -> request RESPONDED
-  -> forge resume <run-dir>
+  -> forge resume <run-dir> --answer <text>
+  -> request RESPONDED + new continuation run
   -> answer 追加到 continuation task 和 resume context
   -> AgentLoop 在相同 human thread id 下继续
 ```

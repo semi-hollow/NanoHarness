@@ -102,6 +102,7 @@ class ToolRegistryRouterTest(unittest.TestCase):
         self.assertIn("diagnostics", route.allowed_names)
         self.assertNotIn("write_file", route.allowed_names)
         self.assertNotIn("run_command", route.allowed_names)
+        self.assertIn("swebench_validation=diagnostics:pytest", route.reason)
 
 
 if __name__ == "__main__":

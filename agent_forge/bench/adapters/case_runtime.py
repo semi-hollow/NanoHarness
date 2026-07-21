@@ -1,3 +1,14 @@
+"""Advanced SWE-bench case runtime adapter.
+
+Production call chain: ``bench.wiring.build_swebench_runner`` injects this class
+through ``CaseExecutorPort``; ``RunSwebench.execute`` then calls ``run`` per case.
+It is not test support and is intentionally outside the 12-file Runtime Core.
+
+The single-agent branch still owns benchmark-specific workspace/artifact mapping.
+Only move that branch behind ``Harness`` after a real case proves patch, trace,
+memory namespace, cleanup and official-layout compatibility.
+"""
+
 from __future__ import annotations
 
 import json
@@ -37,6 +48,8 @@ from agent_forge.runtime.wiring import (
 
 
 class LocalCaseExecutor:
+    """Map one typed benchmark case onto Runtime execution and evidence files."""
+
     def __init__(self, workspace_manager: SwebenchWorkspaceManager) -> None:
         self._workspace_manager = workspace_manager
 
@@ -49,7 +62,7 @@ class LocalCaseExecutor:
         agent_mode: str,
         request: SwebenchRunRequest,
     ) -> BenchCaseResult:
-        """准备隔离环境、执行真实 Runtime、收集 patch 并保存证据。"""
+        """由 ``RunSwebench`` 调用；返回 patch/local status，不判定 official outcome。"""
 
         workspace = self._workspace_manager.prepare(
             case,
@@ -330,7 +343,9 @@ def render_case_task(case: BenchCase) -> str:
         "- Do not edit tests unless the issue explicitly requires test infrastructure changes.\n"
         "- Use read_file/grep_search for source inspection; do not use run_command for reading files.\n"
         "- Prefer apply_patch once the likely target function is identified; do not keep gathering broad evidence.\n"
-        "- Prefer diagnostics for focused validation. Do not use python -c, shell pipes, redirection, or /tmp files.\n"
+        "- For focused validation, call diagnostics with kind=pytest and the smallest relevant "
+        "existing test path or pytest node id. Use kind=unittest only for unittest suites.\n"
+        "- Do not use python -c, shell pipes, redirection, or /tmp files.\n"
         "- If validation is blocked, keep the patch and clearly explain the unverified point instead of spending more steps.\n"
         "- Finish with a concise summary grounded in files changed and commands run.\n"
     )

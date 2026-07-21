@@ -258,7 +258,8 @@ class ToolAuthorizationGate:
                     current_step=step,
                     last_tool=tool_call.name,
                     resume_hint=(
-                        f"Run `forge approve {approval.operation_key}` then resume or rerun the task."
+                        "Run `forge resume <run_dir> --decision approved "
+                        f"--operation-key {approval.operation_key}`."
                     ),
                 ),
             )
