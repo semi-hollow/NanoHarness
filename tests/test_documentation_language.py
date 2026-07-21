@@ -44,6 +44,10 @@ CANONICAL_README_LINKS = (
     "docs/evaluation/failure-driven-improvements.md",
 )
 
+STUDY_NOTES_CONTROL_PLANE = (
+    "https://github.com/semi-hollow/NanoHarness-Study-Notes"
+)
+
 PROTECTED_PUBLIC_RECORDS = {
     "docs/evaluation/failure-driven-improvements.md": 49,
 }
@@ -106,6 +110,10 @@ class DocumentationLanguageTest(unittest.TestCase):
         for relative_path in CANONICAL_README_LINKS:
             if relative_path not in readme:
                 violations.append(f"README does not link canonical document: {relative_path}")
+        if STUDY_NOTES_CONTROL_PLANE not in readme or "学习顺序只认" not in readme:
+            violations.append(
+                "README must defer learning order to the Study Notes control plane"
+            )
 
         for relative_path, minimum_case_count in PROTECTED_PUBLIC_RECORDS.items():
             path = PROJECT_ROOT / relative_path

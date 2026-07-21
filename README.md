@@ -218,23 +218,18 @@ Contract 见[架构契约](docs/ARCHITECTURE.md)。
 
 ## 文档
 
-首次审查只读三份：
+这里不是第二条学习路线。**学习顺序只认
+[Study Notes 总入口](https://github.com/semi-hollow/NanoHarness-Study-Notes)**；本仓文档只保存代码事实和
+正式合同，不按目录通读：
 
-- [Facade 目录](docs/architecture/facade-catalog.md)：所有正式动作、唯一入口与学习决策。
-- [NanoHarness Study Notes](https://github.com/semi-hollow/NanoHarness-Study-Notes)：12-file Core Scope、五个必会问题与演示脚本。
-- [架构契约](docs/ARCHITECTURE.md)：模块职责、依赖方向和主要入口。
-
-按问题查阅：
-
-- [能力真实性矩阵](docs/CAPABILITY_REALITY_MATRIX.md)：真实能力与 claim boundary。
-- [Runtime 控制面](docs/architecture/runtime-control-plane.md)
-- [工程演进史](docs/PROJECT_EVOLUTION.md)
-- [SWE-bench Smoke-5](docs/evaluation/smoke-5-case-catalog.md)
-- [失败分类](docs/evaluation/failure-taxonomy.md)
-- [失败驱动改进记录](docs/evaluation/failure-driven-improvements.md)
-- [Roadmap](docs/ROADMAP.md)
-
-`failure-driven-improvements.md` 是受保护、只追加的问题档案；不要求顺序通读，遇到具体故障时按关键词检索。
+- **外部动作：**[Facade 目录](docs/architecture/facade-catalog.md)。
+- **系统合同：**[架构契约](docs/ARCHITECTURE.md) -> [Runtime 控制面](docs/architecture/runtime-control-plane.md)。
+- **能力边界：**[能力真实性矩阵](docs/CAPABILITY_REALITY_MATRIX.md)。
+- **Evaluation 事实：**[Smoke-5](docs/evaluation/smoke-5-case-catalog.md) ->
+  [失败分类](docs/evaluation/failure-taxonomy.md)；真实 Case 再查对应 case study。
+- **历史与计划：**[工程演进史](docs/PROJECT_EVOLUTION.md) / [Roadmap](docs/ROADMAP.md)。
+- **一手故障：**[失败驱动改进记录](docs/evaluation/failure-driven-improvements.md)，受保护、只追加，
+  遇到具体故障才按关键词检索。
 
 ## 开发验证
 
