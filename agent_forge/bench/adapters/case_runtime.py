@@ -1,12 +1,11 @@
-"""Advanced SWE-bench case runtime adapter.
+"""高级 SWE-bench 单题 Runtime 适配器。
 
-Production call chain: ``bench.wiring.build_swebench_runner`` injects this class
-through ``CaseExecutorPort``; ``RunSwebench.execute`` then calls ``run`` per case.
-It is not test support and is intentionally outside the 12-file Runtime Core.
+生产调用链由 ``bench.wiring.build_swebench_runner`` 经 ``CaseExecutorPort`` 注入本类，
+再由 ``RunSwebench.execute`` 对每个 case 调用 ``run``。它不是测试辅助代码，因此位于
+12-file Runtime Core 之外。
 
-The single-agent branch still owns benchmark-specific workspace/artifact mapping.
-Only move that branch behind ``Harness`` after a real case proves patch, trace,
-memory namespace, cleanup and official-layout compatibility.
+Single-Agent 分支仍负责 benchmark 特有的 workspace/artifact 映射。只有真实 case 已证明
+patch、trace、memory namespace、清理与 official layout 兼容，才把该分支迁到 ``Harness`` 后方。
 """
 
 from __future__ import annotations
@@ -48,7 +47,7 @@ from agent_forge.runtime.wiring import (
 
 
 class LocalCaseExecutor:
-    """Map one typed benchmark case onto Runtime execution and evidence files."""
+    """把一个类型化 benchmark case 映射到 Runtime 执行与 Evidence 文件。"""
 
     def __init__(self, workspace_manager: SwebenchWorkspaceManager) -> None:
         self._workspace_manager = workspace_manager

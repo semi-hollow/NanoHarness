@@ -26,6 +26,7 @@ CHINESE_FIRST_DOCS = (
     "docs/evaluation/failure-taxonomy.md",
     "docs/evaluation/mini-cases/README.md",
     "docs/evaluation/regression-set.md",
+    "examples/debug_lab/README.md",
 )
 
 PUBLIC_DOC_LINE_BUDGETS = {
@@ -35,6 +36,7 @@ PUBLIC_DOC_LINE_BUDGETS = {
     "docs/CAPABILITY_REALITY_MATRIX.md": 120,
     "docs/PROJECT_EVOLUTION.md": 220,
     "docs/ROADMAP.md": 120,
+    "examples/debug_lab/README.md": 210,
 }
 
 CANONICAL_README_LINKS = (
@@ -42,6 +44,7 @@ CANONICAL_README_LINKS = (
     "docs/ARCHITECTURE.md",
     "docs/CAPABILITY_REALITY_MATRIX.md",
     "docs/evaluation/failure-driven-improvements.md",
+    "examples/debug_lab/README.md",
 )
 
 STUDY_NOTES_CONTROL_PLANE = (
@@ -115,6 +118,41 @@ class DocumentationLanguageTest(unittest.TestCase):
                 "README must defer learning order to the Study Notes control plane"
             )
 
+        lab_path = PROJECT_ROOT / "examples/debug_lab/README.md"
+        lab = lab_path.read_text(encoding="utf-8")
+        required_lab_contracts = (
+            "NanoHarness Lab 1 - Control Plane",
+            "NanoHarness Lab 2 - Fixed Repair",
+            "NanoHarness Lab 3 - Live Agent",
+            "NanoHarness Lab 4 - Astropy Evidence",
+            "scripts/install_pycharm_debug_lab.py",
+            "Workbench 只读回放落盘 Evidence",
+            "astropy__astropy-12907",
+        )
+        for contract in required_lab_contracts:
+            if contract not in lab:
+                violations.append(f"Debug Lab lost learning contract: {contract}")
+        for relative_path in (
+            "examples/debug_lab/run.py",
+            "examples/debug_lab/repository/calculator.py",
+            "examples/debug_lab/repository/test_calculator.py",
+            "scripts/install_pycharm_debug_lab.py",
+            "scripts/interview_demo.sh",
+            ".run/NanoHarness Lab 1 - Control Plane.run.xml",
+            ".run/NanoHarness Lab 2 - Fixed Repair.run.xml",
+            ".run/NanoHarness Lab 3 - Live Agent.run.xml",
+            ".run/NanoHarness Lab 4 - Astropy Evidence.run.xml",
+        ):
+            if not (PROJECT_ROOT / relative_path).is_file():
+                violations.append(f"Debug Lab support is missing: {relative_path}")
+        for obsolete in (
+            "scripts/learning_session.sh",
+            "scripts/learning_debug.py",
+            "docs/runbooks/从命令到Evidence全链路实操.md",
+        ):
+            if (PROJECT_ROOT / obsolete).exists():
+                violations.append(f"obsolete learning surface returned: {obsolete}")
+
         for relative_path, minimum_case_count in PROTECTED_PUBLIC_RECORDS.items():
             path = PROJECT_ROOT / relative_path
             if not path.exists():
@@ -132,6 +170,8 @@ class DocumentationLanguageTest(unittest.TestCase):
         result = subprocess.run(
             [
                 "git",
+                "-c",
+                "core.quotepath=false",
                 "ls-files",
                 "--cached",
                 "--others",
@@ -144,6 +184,7 @@ class DocumentationLanguageTest(unittest.TestCase):
             check=True,
             capture_output=True,
             text=True,
+            encoding="utf-8",
         )
         tracked_docs = {path for path in result.stdout.splitlines() if path}
         if len(tracked_docs) > 18:

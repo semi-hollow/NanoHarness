@@ -23,6 +23,15 @@ class FileEvidenceCatalog:
             candidates.append(bench_run)
         latest_run = self._run_dir_from_pointer(latest / "run.txt")
         if latest_run and _is_under(latest_run, runs_dir):
+            bench_pointer = latest / "bench.txt"
+            run_pointer = latest / "run.txt"
+            if (
+                not bench_pointer.exists()
+                or run_pointer.stat().st_mtime >= bench_pointer.stat().st_mtime
+            ):
+                # run.txt 是 Single-Run 发布合同；Debug Lab/面试必须回放刚发布的
+                # continuation artifact，而不是被旧目录的异常 mtime 抢走。
+                return latest_run
             candidates.append(latest_run)
         if runs_dir.exists():
             candidates.extend(path for path in runs_dir.iterdir() if path.is_dir())
@@ -32,7 +41,7 @@ class FileEvidenceCatalog:
         return latest_run
 
     def latest_run_story(self) -> RunStory | None:
-        """Load the canonical read model when the latest run publishes it."""
+        """当最新运行已发布规范清单时，加载统一 Run Story 读模型。"""
 
         run_dir = self.latest_run_dir()
         if run_dir is None or not (run_dir / "run_manifest.json").is_file():

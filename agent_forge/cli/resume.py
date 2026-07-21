@@ -127,7 +127,7 @@ def resume_repository_task(args: argparse.Namespace) -> Path:
 
 
 def _inherit_resolved_config(args: argparse.Namespace) -> None:
-    """Use the source run's public config snapshot unless resume overrides it."""
+    """除非 resume 显式覆盖，否则继承源 run 的公开配置快照。"""
 
     config_path = Path(args.run_dir) / "resolved_config.json"
     if not config_path.exists():

@@ -2416,6 +2416,9 @@ INDEX_HTML = r"""<!doctype html>
         focusToggle.textContent = focused ? 'Exit focus' : 'Focus';
       }
     }
+    if (new URLSearchParams(window.location.search).has('focus')) {
+      document.body.classList.add('focus-mode', 'status-collapsed');
+    }
     updateLayoutControls();
     refreshStatus();
     loadEvidence('summary');

@@ -222,7 +222,9 @@ Contract 见[架构契约](docs/ARCHITECTURE.md)。
 [Study Notes 总入口](https://github.com/semi-hollow/NanoHarness-Study-Notes)**；本仓文档只保存代码事实和
 正式合同，不按目录通读：
 
-- **外部动作：**[Facade 目录](docs/architecture/facade-catalog.md)。
+- **动态掌握：**从 [Debug Lab](examples/debug_lab/README.md) 按 1 → 4 进入断点、固定修复、
+  真实 DeepSeek 与 Astropy Evidence；它是 Study Notes 的 A1。
+- **外部动作：**[Facade 目录](docs/architecture/facade-catalog.md)只列 Public CLI/API，不作为第二条学习路线。
 - **系统合同：**[架构契约](docs/ARCHITECTURE.md) -> [Runtime 控制面](docs/architecture/runtime-control-plane.md)。
 - **能力边界：**[能力真实性矩阵](docs/CAPABILITY_REALITY_MATRIX.md)。
 - **Evaluation 事实：**[Smoke-5](docs/evaluation/smoke-5-case-catalog.md) ->

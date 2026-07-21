@@ -8,7 +8,7 @@ set -Eeuo pipefail
 #   1. 从任意子目录定位 NanoHarness 项目根目录。
 #   2. 创建或复用 .venv。
 #   3. 以 editable 模式安装项目。
-#   4. 运行 scripts/verify.sh，完成一次确定性本地健康检查。
+#   4. 安装 Debug Lab 断点，并按模式执行快速或完整健康检查。
 #
 # 不执行的内容：
 #   不保存 API key，不修改全局 Python，也不调用在线模型。
@@ -102,6 +102,16 @@ ensure_setuptools_find_config() {
 }
 
 main() {
+  local quick=false
+  if [[ "${1:-}" == "--quick" ]]; then
+    quick=true
+    shift
+  fi
+  if [[ "$#" -ne 0 ]]; then
+    log "Usage: scripts/setup_macos_local.sh [--quick]"
+    exit 2
+  fi
+
   : > "${LOG_FILE}"
   exec > >(tee -a "${LOG_FILE}") 2>&1
   trap 'die $?' ERR
@@ -157,10 +167,16 @@ main() {
 
   ensure_setuptools_find_config
 
-  log "+ python -m pip install -e '.[bench,dev]'"
-  if ! python -m pip install -e '.[bench,dev]'; then
-    log "Benchmark extras failed to install; falling back to core editable install."
-    run python -m pip install -e .
+  run python -m pip install -e '.[dev]'
+
+  if [[ "${quick}" == false ]]; then
+    log "+ python -m pip install -e '.[bench,dev]'"
+    if ! python -m pip install -e '.[bench,dev]'; then
+      log "Benchmark extras failed to install; core Debug Labs remain available."
+      log "Lab 4 will retry benchmark preparation when it is first launched."
+    fi
+  else
+    log "Quick mode defers benchmark dependencies until Lab 4."
   fi
 
   if command -v python3.11 >/dev/null 2>&1; then
@@ -174,20 +190,35 @@ main() {
     chmod +x scripts/verify.sh
   fi
 
-  run scripts/verify.sh
+  if [[ "${quick}" == true ]]; then
+    log ""
+    log "+ forge doctor"
+    forge doctor
+    log "Quick mode skipped the regression suite."
+  else
+    run scripts/verify.sh
+  fi
+
+  log ""
+  log "+ python scripts/install_pycharm_debug_lab.py"
+  set +e
+  python scripts/install_pycharm_debug_lab.py
+  breakpoint_status=$?
+  set -e
+  if [[ "${breakpoint_status}" -eq 3 ]]; then
+    log "Breakpoint installation was deferred. Close PyCharm and run:"
+    log "  .venv/bin/python scripts/install_pycharm_debug_lab.py"
+  elif [[ "${breakpoint_status}" -ne 0 ]]; then
+    log "Breakpoint installation failed with status ${breakpoint_status}."
+    return "${breakpoint_status}"
+  fi
 
   log ""
   log "Setup succeeded."
   log "Project path: ${PROJECT_DIR}"
   log "Venv python: ${PROJECT_DIR}/.venv/bin/python"
   log ""
-  log "Daily commands:"
-  log "  cd \"${PROJECT_DIR}\""
-  log "  source .venv/bin/activate"
-  log "  forge doctor"
-  log "  forge bench swebench --limit 1 --provider deepseek --direct-baseline"
-  log "  forge inspect latest"
-  log "  scripts/verify.sh"
+  log "Next: open examples/debug_lab/README.md and run Lab 1 -> Lab 4."
 }
 
 main "$@"

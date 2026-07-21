@@ -1,4 +1,5 @@
 import json
+import os
 import tempfile
 import unittest
 from pathlib import Path
@@ -112,6 +113,23 @@ class WorkbenchRunStoryTest(unittest.TestCase):
         self.assertIn("legacy-only task", rendered)
         self.assertIn("Runtime Pipeline", rendered)
         self.assertIn("Claim Ladder", rendered)
+
+    def test_explicit_latest_run_pointer_wins_over_stale_directory_mtime(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            project_dir = Path(tmp)
+            runs = project_dir / ".agent_forge" / "runs"
+            stale = runs / "stale"
+            current = runs / "control" / "phases" / "run-current"
+            stale.mkdir(parents=True)
+            current.mkdir(parents=True)
+            os.utime(stale, (4_000_000_000, 4_000_000_000))
+            latest = project_dir / ".agent_forge" / "latest"
+            latest.mkdir(parents=True)
+            (latest / "run.txt").write_text(str(current), encoding="utf-8")
+
+            selected = FileEvidenceCatalog(project_dir).latest_run_dir()
+
+        self.assertEqual(selected, current)
 
 
 if __name__ == "__main__":
