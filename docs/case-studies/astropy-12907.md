@@ -45,7 +45,7 @@ forge inspect <benchmark-run-or-case-dir>
 ```
 
 这一步用于辨认 Agent 的 trace、candidate patch 与真实本地测试证据。`--evaluate` 留到已经安装
-SWE-bench Harness 的 WSL/Linux/容器环境；API key 本身不等于 official 环境可用。
+SWE-bench Harness 且 Docker Engine 就绪的环境；API key 本身不等于 official 环境可用。
 
 ## 需要收集的证据
 
