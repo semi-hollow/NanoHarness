@@ -1,9 +1,10 @@
 """CLI 默认使用的无控制信号 Adapter。"""
 
 from agent_forge.runtime.domain.run_control import RunControlSignal
+from agent_forge.runtime.ports.run_control import RunControlPort
 
 
-class NoopRunControl:
+class NoopRunControl(RunControlPort):
     """不产生任何外部控制信号。"""
 
     def take_terminal(self, run_id: str) -> RunControlSignal | None:

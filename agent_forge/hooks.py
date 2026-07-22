@@ -69,7 +69,13 @@ class RuntimeHook:
 
     # 主要入口：checkpoint 成功持久化后的审计或通知。
     def on_checkpoint(self, checkpoint: TaskCheckpoint) -> None:
-        """在 checkpoint 已成功持久化后接收不可隐藏的状态事实。"""
+        """可选观察点；默认无操作，子类可用于指标、审计或外部通知。
+
+        checkpoint 在调用本方法前已经由 Repository 落盘，所以 Hook 失败不能撤销或
+        篡改状态。Runtime 的内置安全 Hook 无需覆盖它；框架使用者按需覆盖即可。
+        """
+
+        return None
 
     # 主要入口：运行停止前的质量门禁、审计或通知。
     def on_stop(self, run_id: str, reason: str, final_answer: str) -> HookDecision:

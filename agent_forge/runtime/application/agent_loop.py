@@ -89,6 +89,7 @@ class AgentLoop:
             return self._stop(session, stop)
 
         for step in range(1, session.max_iterations + 1):
+            # 模型边界 1：先把已排队 steer 写成 user message，再组装本 turn 上下文。
             control = self.run_control.check(session, step)
             if control.stop is not None:
                 return self._stop(session, control.stop)
@@ -126,6 +127,7 @@ class AgentLoop:
         if response is None:  # pragma: no cover - protected by _call_model
             raise AssertionError("model invocation returned no response")
 
+        # 模型边界 2：模型调用期间到达的 steer 使本次 response 过时；丢弃后重规划。
         control = self.run_control.check(session, step)
         if control.stop is not None:
             return control.stop

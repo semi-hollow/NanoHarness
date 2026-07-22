@@ -52,7 +52,7 @@ STUDY_NOTES_CONTROL_PLANE = (
 )
 
 PROTECTED_PUBLIC_RECORDS = {
-    "docs/evaluation/failure-driven-improvements.md": 49,
+    "docs/evaluation/failure-driven-improvements.md": 56,
 }
 
 ALLOWED_DOC_SURFACES = (

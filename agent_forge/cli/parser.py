@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import argparse
 import os
-from collections.abc import Iterator
+from collections.abc import Generator
 
 from agent_forge.bench.presentation.cli import (
     build_campaign_parser,
@@ -22,7 +22,7 @@ class _PublicHelpFormatter(argparse.HelpFormatter):
     def _iter_indented_subactions(
         self,
         action: argparse.Action,
-    ) -> Iterator[argparse.Action]:
+    ) -> Generator[argparse.Action, None, None]:
         for subaction in super()._iter_indented_subactions(action):
             if subaction.help != argparse.SUPPRESS:
                 yield subaction

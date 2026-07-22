@@ -236,15 +236,34 @@ def _load_or_store_deepseek_key() -> None:
 
 def _ensure_docker() -> None:
     if shutil.which("docker") is None:
-        raise SystemExit("LAB 4 需要 Docker Desktop；安装一次后重新点击 Debug。")
+        raise SystemExit(
+            "LAB 4 需要 Docker-compatible runtime；请安装 Docker Desktop 或 Colima。"
+        )
     if subprocess.run(
         ["docker", "info"],
         check=False,
         capture_output=True,
     ).returncode == 0:
         return
-    print("Docker 尚未启动，正在打开 Docker Desktop……")
-    subprocess.run(["open", "-a", "Docker"], check=False, capture_output=True)
+
+    docker_app = next(
+        (
+            path
+            for path in (
+                Path("/Applications/Docker.app"),
+                Path.home() / "Applications" / "Docker.app",
+            )
+            if path.exists()
+        ),
+        None,
+    )
+    if docker_app is None:
+        raise SystemExit(
+            "Docker daemon 未就绪；请启动 Docker Desktop，或先执行 `colima start`。"
+        )
+
+    print("Docker daemon 尚未启动，正在打开 Docker Desktop……")
+    subprocess.run(["open", str(docker_app)], check=False, capture_output=True)
     for _ in range(30):
         time.sleep(2)
         if subprocess.run(
@@ -253,7 +272,7 @@ def _ensure_docker() -> None:
             capture_output=True,
         ).returncode == 0:
             return
-    raise SystemExit("Docker Desktop 在 60 秒内未就绪；启动完成后重新点击 Debug。")
+    raise SystemExit("Docker daemon 在 60 秒内未就绪；启动完成后重新点击 Debug。")
 
 
 def _ensure_swebench() -> None:
@@ -345,6 +364,21 @@ def run_live() -> None:
             "deepseek-chat",
             "--max-steps",
             "8",
+            "--approval-mode",
+            "on-write",
+            "--auto-approve-writes",
+            "--tool-routing",
+            "all",
+            "--skills",
+            "none",
+            "--memory-recall-limit",
+            "0",
+            "--tool",
+            "read_file",
+            "--tool",
+            "apply_patch",
+            "--tool",
+            "diagnostics",
         ]
     )
     artifact = _artifact_from_pointer(workspace / ".agent_forge" / "latest" / "run.txt")
@@ -367,7 +401,7 @@ def run_astropy() -> None:
             "--model",
             "deepseek-chat",
             "--max-steps",
-            "8",
+            "16",
             "--timeout-seconds",
             "900",
             "--evaluate",

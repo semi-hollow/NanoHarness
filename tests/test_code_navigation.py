@@ -6,6 +6,11 @@ import ast
 import unittest
 from pathlib import Path
 
+from agent_forge.control import RunController
+from agent_forge.runtime.adapters.run_control_noop import NoopRunControl
+from agent_forge.runtime.hooks import HookManager
+from agent_forge.runtime.ports import HookPort, RunControlPort
+
 
 PROJECT_ROOT = Path(__file__).parents[1]
 
@@ -43,6 +48,37 @@ class CodeNavigationContractTest(unittest.TestCase):
                 node = _find_owner(tree, owner)
                 self.assertIsNotNone(node, f"missing canonical owner: {owner}")
                 self.assertTrue(ast.get_docstring(node), f"{owner} needs a concise owner docstring")
+
+    def test_control_adapters_explicitly_expose_their_port_hierarchy(self) -> None:
+        """关键控制面牺牲一点结构化自由，换取 PyCharm 可直接导航实现。"""
+
+        self.assertIn(HookPort, HookManager.__bases__)
+        self.assertIn(RunControlPort, RunController.__bases__)
+        self.assertIn(RunControlPort, NoopRunControl.__bases__)
+
+    def test_tool_execution_has_no_orphan_private_methods(self) -> None:
+        path = PROJECT_ROOT / "agent_forge/runtime/application/tool_execution.py"
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        owner = _find_named(tree.body, "ToolExecutionPipeline")
+        self.assertIsInstance(owner, ast.ClassDef)
+        assert isinstance(owner, ast.ClassDef)
+
+        private_methods = {
+            node.name
+            for node in owner.body
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+            and node.name.startswith("_")
+            and not node.name.startswith("__")
+        }
+        self_calls = {
+            node.func.attr
+            for node in ast.walk(owner)
+            if isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and isinstance(node.func.value, ast.Name)
+            and node.func.value.id == "self"
+        }
+        self.assertEqual(private_methods - self_calls, set())
 
 
 def _find_owner(

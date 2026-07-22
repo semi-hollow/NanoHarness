@@ -181,11 +181,11 @@ def _persist_operator_decision(
     """让 ``resume`` 同时承担待处理人工决定，避免记忆第二组入口。"""
 
     if checkpoint_status == "waiting_human":
-        pending = list_pending_human_inputs(human_input_root)
-        if not pending:
+        pending_human_inputs = list_pending_human_inputs(human_input_root)
+        if not pending_human_inputs:
             return
-        selected = _select_pending(
-            pending,
+        selected_human_input = _select_pending(
+            pending_human_inputs,
             identity_name="request id",
             requested=getattr(args, "request_id", "") or "",
             identity=lambda item: item.request_id,
@@ -199,7 +199,7 @@ def _persist_operator_decision(
         respond_to_human_input(
             HumanInputResponseCommand(
                 human_input_root=human_input_root,
-                request_id=selected.request_id,
+                request_id=selected_human_input.request_id,
                 answer=answer,
                 note=getattr(args, "note", "") or "",
             )
@@ -207,11 +207,11 @@ def _persist_operator_decision(
         return
 
     if checkpoint_status == "waiting_approval":
-        pending = list_pending_approvals(approval_root)
-        if not pending:
+        pending_approvals = list_pending_approvals(approval_root)
+        if not pending_approvals:
             return
-        selected = _select_pending(
-            pending,
+        selected_approval = _select_pending(
+            pending_approvals,
             identity_name="operation key",
             requested=getattr(args, "operation_key", "") or "",
             identity=lambda item: item.operation_key,
@@ -224,7 +224,7 @@ def _persist_operator_decision(
             )
         decide_approval(
             approval_root,
-            selected.operation_key,
+            selected_approval.operation_key,
             decision,
             note=getattr(args, "note", "") or "",
         )

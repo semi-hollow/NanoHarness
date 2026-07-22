@@ -495,11 +495,19 @@ def _within_scopes(paths: list[str], scopes: list[str]) -> bool:
 
 
 def _decision(answer: str) -> str:
-    for line in (answer or "").splitlines()[:12]:
+    decisions: set[str] = set()
+    for line in (answer or "").splitlines()[:80]:
         normalized = line.strip().strip("*#:- `").upper()
         for marker in ("PASS", "NEEDS_REVISION", "BLOCKED"):
-            if normalized.startswith(marker) or f"VERDICT: {marker}" in normalized:
-                return marker
+            if normalized in {
+                marker,
+                f"VERDICT: {marker}",
+                f"STATUS: {marker}",
+                f"DECISION: {marker}",
+            }:
+                decisions.add(marker)
+    if len(decisions) == 1:
+        return decisions.pop()
     return "NEEDS_REVISION"
 
 _finalizer_task = finalizer_task_prompt

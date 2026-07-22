@@ -16,7 +16,7 @@ from agent_forge.runtime.domain.governance import (
 )
 from agent_forge.runtime.domain.task import TaskCheckpoint
 from agent_forge.runtime.execution_environment import ExecutionEnvironment
-from agent_forge.runtime.ports import EventSink
+from agent_forge.runtime.ports import EventSink, HookPort
 from agent_forge.safety.permission import PermissionDecision, PermissionPolicy
 
 
@@ -121,7 +121,7 @@ class SecretRedactionHook(RuntimeHook):
         return Observation(observation.tool_name, observation.success, redacted)
 
 
-class HookManager:
+class HookManager(HookPort):
     """按稳定顺序组合安全 Hook 与使用者 Hook，并隔离扩展异常。"""
 
     def __init__(
@@ -251,6 +251,7 @@ class HookManager:
             for hook in self.hooks
         ]
 
+    # HookPort 的真实聚合实现：checkpoint 落盘后逐个通知 RuntimeHook。
     def on_checkpoint(self, checkpoint: TaskCheckpoint) -> None:
         """checkpoint 已落盘后依次通知 Hook。"""
 

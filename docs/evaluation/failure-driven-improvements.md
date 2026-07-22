@@ -1279,6 +1279,149 @@ source 在付费调用前 fail closed、official paired win 聚合和公开 bund
 重复观测和可追溯结果。实现 campaign runner 只是评测能力；只有真实 official artifact 才能
 形成效果结论。
 
+### 51. PyCharm 正在运行时，Debug Lab 准备完成却被误报为 setup 失败
+
+现象：执行 `scripts/setup_macos_local.sh --quick` 时，虚拟环境、editable install 和
+`forge doctor` 全部成功；断点安装器发现 PyCharm 正在运行后按约定返回状态 `3`，外层脚本却
+立即打印 `Setup failed` 并以 `3` 退出。使用者会误以为 Python 环境或项目安装失败。
+
+Failure scenario：使用者保持 PyCharm 打开并运行首次准备命令。安装器为了避免覆盖 IDE 正在
+写入的 `workspace.xml`，正确选择延后断点安装；但 setup 脚本为全局 `ERR` trap 配置了
+`set -E`，直接执行返回 `3` 的命令会先触发 trap，后续读取 `breakpoint_status` 的分支永远
+没有机会执行。
+
+根因：预期的非零业务状态和真正的命令失败共用同一 shell 错误通道。仅在命令前使用
+`set +e` 不能可靠屏蔽已注册的 `ERR` trap，因此“延后”被错误提升为“环境准备失败”。
+
+窄修复：把断点安装器放进 Bash `if` 条件表达式，在不会触发 `ERR` trap 的控制流中捕获状态码；
+`0` 表示已安装，`3` 表示安全延后，其他状态仍然失败。增加 Debug Lab support regression，锁定
+该调用结构，防止以后退回无条件执行。
+
+验证：保持 PyCharm 运行时重新执行 quick setup，命令以 `0` 完成并明确打印“断点安装已延后”；
+随后运行 Debug Lab focused tests 与 shell syntax check。工程结论：环境控制脚本也有状态机，
+预期暂停态不能被通用异常处理吞掉；否则学习入口本身会制造错误诊断。
+
+### 52. Debug Lab 能运行，但项目级验证被两个模糊类型契约拦住
+
+现象：Lab 1/2 已经完成，执行 `scripts/verify.sh` 却在 mypy 阶段报 4 个错误：自定义
+`HelpFormatter` 用 `Iterator` 覆盖基类的 `Generator` 返回契约；`forge resume` 又让同一个
+`pending/selected` 局部变量先后表示 `HumanInputRequest` 和 `ApprovalRequest`。
+
+Failure scenario：远端新增 resume 配置恢复和 Debug Lab 后，行为测试可以通过，但全量静态
+契约检查在进入单测前失败。第二组错误还会让读者误以为 human input 和 approval 共享同一
+领域对象，降低断点变量的可解释性。
+
+根因：Python 运行时允许更宽泛的 generator annotation 和分支内变量复用，但 mypy 会按基类
+override 与首次赋值推导精确类型。代码行为暂时正确，类型表达却已经丢失领域边界。
+
+窄修复：把 formatter override 明确为 `Generator[Action, None, None]`；在 resume 的两个状态
+分支使用 `pending_human_inputs/selected_human_input` 与
+`pending_approvals/selected_approval`，不再依赖动态分支覆盖同名变量。
+
+验证：246 个 production source 的 mypy 全部通过；resume、public CLI 与 Debug Lab focused
+regression 通过。工程结论：类型不是为检查器服务的装饰，准确命名和窄类型共同保留状态机边界，
+也直接决定调试器 Variables 是否容易理解。
+
+### 53. Finalizer 明确给出 PASS，固定行数 verdict parser 却判 NEEDS_REVISION
+
+现象：真实模型 two-worker fanout 中，两个 worker 都 `completed`，finalizer 的
+`verification.md` 也包含独立的 `**PASS**`；但 `fanout_summary.json` 记录
+`final_decision=NEEDS_REVISION`，导致项目验证失败。
+
+Failure scenario：模型先输出 worktree 状态和较长 evidence table，再在第 12 行之后给出
+Markdown verdict。旧 `_decision` 只扫描前 12 行，找不到 marker 后按 fail-closed 默认返回
+`NEEDS_REVISION`。这不是 worker 或 verifier 判断失败，而是协议容错窗口与真实模型排版不一致。
+
+根因：系统把“verdict 必须在第一行”的 prompt 期望写成固定行数解析假设；模型稍微改变展示
+顺序，语义仍明确，结构解析却丢失。直接搜索任意 `PASS` 又会把解释性文本误当最终结论。
+
+窄修复：在前 80 行中只接受独立 marker，兼容 Markdown 及 `VERDICT/STATUS/DECISION` 前缀；
+普通 prose 中出现 marker 不算 verdict，同一回答出现互相冲突的 marker 继续 fail closed 为
+`NEEDS_REVISION`。
+
+验证：新增回归覆盖“长证据后独立 `**PASS**`”、prose marker 和冲突 marker；live fanout、
+resume 与 Debug Lab focused suite 共 36 项通过。工程结论：Agent 协议要对展示顺序有有限容错，
+但最终决策必须来自无歧义的结构信号，不能为了提高通过率而做宽松关键词匹配。
+
+### 54. Live Lab 与固定模型 Lab 输入相同，能力面却没有固定
+
+现象：Lab 3 的 task 和错误仓库与 Lab 2 相同，但真实模型能看见默认启用的更宽工具集、Skill、
+Memory recall 以及模拟 `ask_human`。运行可能停在并非实验目标的提问上，结果无法说明差异究竟
+来自模型决策还是额外能力。
+
+Failure scenario：真实 DeepSeek 发现 task 已经足够明确，仍选择调用可见的 `ask_human`；固定模型
+则只执行 read、patch 和 pytest。两条 trace 表面上比较同一道题，实际控制变量已经不同。
+
+根因：实验只冻结了用户输入和 fixture，没有冻结模型可见的 action space 与上下文来源。
+
+窄修复：Lab 2/3 都只暴露 `read_file / apply_patch / diagnostics`，固定 `tool-routing=all`、
+`skills=none`、`memory_recall_limit=0`，并使用相同的写操作自动审批策略。测试直接捕获 CLI argv，
+锁定工具集合和实验配置。
+
+验证：在 PyCharm 中重新运行 Lab 3，模型完成同一处修复并产生 passed validation evidence；Lab 2/3
+的差异只剩 ModelPort 决策与自然波动。工程结论：可解释比较首先要冻结能力面，不能只冻结 prompt。
+
+### 55. SWE-bench 调试入口预算过低，官方评测只能得到 empty patch
+
+现象：Lab 4 的 runtime、local evidence 与 official evaluator 断点全部能命中，进程也正常退出，
+但 8 步预算在模型完成定位后耗尽，candidate patch 为空，official outcome 只能如实记录
+`official_eval_skipped_empty_patch`。
+
+Failure scenario：把“进程退出 0”和“评测链路跑过”误当作“形成了可讲解的 candidate/official
+证据”，现场打开 Workbench 时看不到 patch，更不能展示 official resolved 或 unresolved。
+
+根因：调试实验把短任务的步数预算直接复用到真实仓库 case；环境链路正确不代表 Agent 有足够
+决策步数完成检索、修改与验证。
+
+窄修复：只把 Lab 4 的预算提高到 16 步，保留 900 秒 evaluator 超时和单 worker；新增回归锁定
+`--evaluate` 与步数预算。系统仍不把“有 patch”或 local passed 自动提升为 official resolved。
+
+验证：使用同一 `astropy__astropy-12907` case 生成非空 candidate patch，并由独立官方 Harness
+完成一题评测。工程结论：预算是实验身份的一部分；调试入口要足够产出证据，但不能用放宽判定
+标准来制造成功。
+
+### 56. Docker daemon 可用，不代表 Apple Silicon 能执行官方 x86_64 镜像
+
+现象：`docker info` 成功，Lab 4 仍可能在拉取或启动 SWE-bench 官方镜像时失败；本机先遇到 VM
+DNS 失效，修复后又因 arm64 基础镜像与 x86_64 官方环境不一致而缺少动态加载器。
+
+Failure scenario：把这类基础设施错误归到 Agent failure，会错误评价模型；只提示安装 Docker
+Desktop，又会把已经运行 Colima 的环境误报为不支持。
+
+根因：旧入口把 Docker CLI、daemon、网络与目标镜像架构视为一个布尔条件。SWE-bench 官方镜像
+对 CPU 架构和镜像来源还有独立要求。
+
+窄修复：入口接受任意已就绪的 Docker-compatible daemon；仅在本机存在 Docker Desktop 时尝试
+自动打开，否则明确提示启动 Docker Desktop 或 Colima。学习文档补充 Apple Silicon 的
+`linux/amd64` 兼容要求；评测结果继续区分 environment error、empty patch 与 model unresolved。
+
+验证：本机以 Colima + Rosetta 运行官方 x86_64 环境，official Harness 完成 1 个 instance，结果
+为 resolved；Debug Lab 的 daemon 回归不再绑定 Docker Desktop 品牌。工程结论：执行环境是评测
+契约的一部分，环境不可用必须单独暴露，不能伪装成模型能力结论。
+
+### 57. Port 运行正确，但 PyCharm 无法直观看到实现与控制信号来源
+
+现象：从 `HookPort.on_checkpoint` 或 `RunControlPort.take_terminal` 跳转，只能看到没有方法体的
+`Protocol`；Class Hierarchy 也不展示 `HookManager`、`RunController` 和 `NoopRunControl`。继续读
+`ToolExecutionPipeline` 时，一组私有方法又无法一眼判断是主链步骤还是未接线代码。
+
+Failure scenario：读者把 Protocol 的空方法误认为功能未实现，把 `RuntimeHook.on_checkpoint` 的
+no-op 默认实现误认为 checkpoint 没有持久化；又因为依赖注入只暴露 Port 类型，找不到用户
+`steer()` 到 AgentLoop 消费队列的链路，最终只能靠全文搜索猜调用关系。
+
+根因：Python 的结构化类型允许 Adapter 不显式继承 Protocol，这对解耦有利，却让 IDE 的名义类型
+层级失去信息；方法内 docstring 在 Collapse All 后不可见，也无法回答私有方法是否全部在主链。
+
+窄修复：让三个关键控制 Adapter 显式继承对应 Port，但保持依赖方向和运行行为不变；在 Port
+模块写明契约、实现、装配和调用地图，在 `ToolExecutionPipeline` 每个方法前增加折叠后可见的角色
+标签，并解释 steer 只在模型安全边界注入的原因。`RuntimeHook.on_checkpoint` 明确返回 no-op，避免
+把可选观察点误读成持久化 owner。
+
+验证：新增导航回归锁定 Adapter 的显式 Port 基类，并通过 AST 确认
+`ToolExecutionPipeline` 不存在未由本类调用的私有方法；运行控制回归还验证两条 steer 按提交顺序
+进入下一模型上下文，模型调用期间产生的旧响应被丢弃。工程结论：依赖倒置不等于隐藏依赖；在关键
+控制面上，适度的名义关系和可见调用地图能显著降低动态语言项目的阅读成本。
+
 ## 调试顺序模板
 
 每次 SWE-bench 失败优先看：

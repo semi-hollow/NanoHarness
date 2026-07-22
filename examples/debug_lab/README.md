@@ -83,14 +83,18 @@ official resolved。
 
 第一次点击会弹出 macOS 隐藏输入框；API key 保存到 Keychain，之后自动读取，不写入 repo、
 配置或 artifact。Lab 3 与 Lab 2 的 task、bug 和测试相同，因此差异主要来自真实模型决策。
+两者还固定为同一组 `read_file / apply_patch / diagnostics` 工具，并关闭 Skill 与 Memory recall；
+这样比较的是模型决策，而不是额外能力带来的变量。
 
 重点比较 `_call_model` 前后的 messages、可见 tool schemas、返回 ToolCall，以及 Runtime 如何处理
 无效参数、重复动作和预算。不要期待每次轨迹完全相同；随机性本身就是要观察的对象。
 
 ## Lab 4：只学评测口径，不钻基础设施
 
-Lab 4 第一次会自动准备固定 revision 的官方 SWE-bench Harness，并在需要时启动 Docker
-Desktop；Docker Desktop 本身需要预先安装。官方环境准备可能较慢，但不属于核心阅读范围。
+Lab 4 第一次会自动准备固定 revision 的官方 SWE-bench Harness，需要已经启动的
+Docker-compatible runtime（Docker Desktop 或 Colima）。Apple Silicon 还要确保该 runtime 能执行
+`linux/amd64` 官方镜像。当前 Lab 给 Agent 16 步预算，但仍只报告实际 artifact，不承诺必然有 patch。
+官方环境准备可能较慢，但不属于核心阅读范围。
 
 只跟住五步：
 

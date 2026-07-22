@@ -201,10 +201,14 @@ main() {
 
   log ""
   log "+ python scripts/install_pycharm_debug_lab.py"
-  set +e
-  python scripts/install_pycharm_debug_lab.py
-  breakpoint_status=$?
-  set -e
+  # 状态 3 表示 PyCharm 正在运行、断点安装已安全延后。命令必须放在条件表达式里，
+  # 否则全局 ERR trap 会在我们读取状态码之前把预期分支误报为 setup 失败。
+  breakpoint_status=0
+  if python scripts/install_pycharm_debug_lab.py; then
+    breakpoint_status=0
+  else
+    breakpoint_status=$?
+  fi
   if [[ "${breakpoint_status}" -eq 3 ]]; then
     log "Breakpoint installation was deferred. Close PyCharm and run:"
     log "  .venv/bin/python scripts/install_pycharm_debug_lab.py"

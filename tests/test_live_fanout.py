@@ -7,7 +7,7 @@ from unittest.mock import patch
 
 from agent_forge.cli.parser import build_parser
 from agent_forge.cli.repository import run_repository_task
-from agent_forge.multi_agent.adapters.local_worker import _finalizer_task
+from agent_forge.multi_agent.adapters.local_worker import _decision, _finalizer_task
 from agent_forge.multi_agent.domain.live import FanoutPlan, LiveSubagentResult
 from agent_forge.multi_agent.wiring import LiveFanoutBuildRequest, build_live_fanout
 from agent_forge.observability.api import TraceRecorder
@@ -33,6 +33,18 @@ def _build_registry(
             execution_environment=environment,
         )
     )
+
+
+class FinalizerDecisionTest(unittest.TestCase):
+    def test_accepts_one_standalone_markdown_verdict_after_evidence(self) -> None:
+        answer = "\n".join(
+            ["Evidence", *(f"- finding {index}" for index in range(15)), "**PASS**"]
+        )
+        self.assertEqual(_decision(answer), "PASS")
+
+    def test_conflicting_or_prose_markers_fail_closed(self) -> None:
+        self.assertEqual(_decision("PASS is discussed in prose"), "NEEDS_REVISION")
+        self.assertEqual(_decision("PASS\nNEEDS_REVISION"), "NEEDS_REVISION")
 
 
 class EditingLLM:

@@ -21,7 +21,11 @@ class RunControlOutcome:
 
 
 class ApplyRunControl:
-    """只在模型/工具安全边界消费控制信号，不伪装进程级抢占。"""
+    """只在模型/工具安全边界消费控制信号，不伪装进程级抢占。
+
+    pause/cancel 在每个安全边界都可消费；steer 只在模型边界消费。这样不会在一条
+    assistant ToolCall 与对应 tool Observation 之间插入 user message，破坏消息协议。
+    """
 
     def __init__(self, control: RunControlPort, trace: EventSink) -> None:
         self.control = control
@@ -35,7 +39,12 @@ class ApplyRunControl:
         *,
         include_steer: bool = True,
     ) -> RunControlOutcome:
-        """返回 pause/cancel 停止请求；steer 只追加新的用户消息。"""
+        """返回 pause/cancel 停止请求；steer 只追加新的用户消息。
+
+        ``include_steer=False`` 用于工具前的最后检查：仍允许操作员阻止副作用，但把
+        改方向消息留在队列，直到下一次模型输入组装前。若 steer 在模型调用期间到达，
+        AgentLoop 会丢弃已经过时的模型响应，再开始下一 turn。
+        """
 
         terminal = self.control.take_terminal(self.trace.run_id)
         if terminal is not None:

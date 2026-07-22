@@ -159,7 +159,8 @@ class RuntimeProductizationTest(unittest.TestCase):
             worker = threading.Thread(target=lambda: outcome.append(harness.run("old task")))
             worker.start()
             self.assertTrue(model.entered.wait(timeout=3))
-            controller.steer("new operator direction")
+            controller.steer("first operator direction")
+            controller.steer("second operator detail")
             model.release.set()
             worker.join(timeout=5)
 
@@ -167,10 +168,12 @@ class RuntimeProductizationTest(unittest.TestCase):
             result = outcome[0]
             self.assertEqual(result.status, TaskRunStatus.COMPLETED)
             self.assertTrue(result.final_answer.startswith("steer applied"))
-            self.assertIn(
-                "new operator direction",
-                "\n".join(message.content for message in model.messages),
+            model_context = "\n".join(message.content for message in model.messages)
+            self.assertLess(
+                model_context.index("first operator direction"),
+                model_context.index("second operator detail"),
             )
+            self.assertEqual(model.calls, 2)
             names = [event.name for event in collector.events]
             self.assertEqual(names[0], "run.started")
             self.assertIn("run.started", names)
@@ -178,7 +181,9 @@ class RuntimeProductizationTest(unittest.TestCase):
             self.assertIn("checkpoint.saved", names)
             self.assertIn("run.completed", names)
             control_event = next(event for event in collector.events if event.name == "run.control")
-            self.assertNotIn("new operator direction", json.dumps(control_event.to_dict()))
+            serialized_event = json.dumps(control_event.to_dict())
+            self.assertNotIn("first operator direction", serialized_event)
+            self.assertNotIn("second operator detail", serialized_event)
 
     def test_cancel_is_cooperative_and_stops_before_processing_model_result(self):
         with tempfile.TemporaryDirectory() as tmp:

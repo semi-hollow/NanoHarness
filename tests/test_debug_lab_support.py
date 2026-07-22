@@ -98,15 +98,28 @@ class DebugLabSupportTest(unittest.TestCase):
         self.assertNotIn("forge run", interview)
         self.assertNotIn("calculator.py", interview)
 
+    def test_setup_handles_deferred_breakpoint_status_before_err_trap(self) -> None:
+        setup = (PROJECT_ROOT / "scripts" / "setup_macos_local.sh").read_text(
+            encoding="utf-8"
+        )
+        invocation = "if python scripts/install_pycharm_debug_lab.py; then"
+        self.assertIn(invocation, setup)
+        self.assertNotIn(
+            "set +e\n  python scripts/install_pycharm_debug_lab.py",
+            setup,
+        )
+
     def test_live_lab_republishes_harness_workspace_pointer(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             workspace = root / "fixture"
             artifact = root / ".agent_forge" / "runs" / "run-live"
+            received_argv: list[str] = []
             workspace.mkdir()
             artifact.mkdir(parents=True)
 
-            def fake_forge(_: list[str]) -> None:
+            def fake_forge(argv: list[str]) -> None:
+                received_argv.extend(argv)
                 pointer = workspace / ".agent_forge" / "latest" / "run.txt"
                 pointer.parent.mkdir(parents=True)
                 pointer.write_text(str(artifact), encoding="utf-8")
@@ -125,6 +138,48 @@ class DebugLabSupportTest(unittest.TestCase):
             remembered = root / ".agent_forge" / "debug-lab" / "state" / "live_artifact.txt"
             self.assertEqual(published.read_text(encoding="utf-8"), str(artifact.resolve()))
             self.assertEqual(remembered.read_text(encoding="utf-8"), str(artifact.resolve()))
+            self.assertIn("--tool-routing", received_argv)
+            self.assertIn("all", received_argv)
+            self.assertIn("--skills", received_argv)
+            self.assertIn("none", received_argv)
+            self.assertEqual(
+                [
+                    received_argv[index + 1]
+                    for index, value in enumerate(received_argv)
+                    if value == "--tool"
+                ],
+                ["read_file", "apply_patch", "diagnostics"],
+            )
+
+    def test_astropy_lab_uses_budget_sufficient_for_official_evidence(self) -> None:
+        received_argv: list[str] = []
+
+        with (
+            patch.object(debug_lab, "_load_or_store_deepseek_key"),
+            patch.object(debug_lab, "_ensure_docker"),
+            patch.object(debug_lab, "_ensure_swebench"),
+            patch.object(debug_lab, "_forge_main", side_effect=received_argv.extend),
+            patch.object(debug_lab, "_remember_root_pointer"),
+        ):
+            debug_lab.run_astropy()
+
+        max_steps = received_argv.index("--max-steps")
+        self.assertEqual(received_argv[max_steps + 1], "16")
+        self.assertIn("--evaluate", received_argv)
+
+    def test_debug_lab_accepts_any_ready_docker_compatible_daemon(self) -> None:
+        completed = unittest.mock.Mock(returncode=0)
+        with (
+            patch.object(debug_lab.shutil, "which", return_value="/usr/local/bin/docker"),
+            patch.object(debug_lab.subprocess, "run", return_value=completed) as run,
+        ):
+            debug_lab._ensure_docker()
+
+        run.assert_called_once_with(
+            ["docker", "info"],
+            check=False,
+            capture_output=True,
+        )
 
 
 if __name__ == "__main__":

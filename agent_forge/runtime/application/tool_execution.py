@@ -48,7 +48,15 @@ class ToolExecutionPipeline:
     """把模型工具请求转换为受治理、可恢复的 Observation。
 
     本类只有 ``execute_calls`` 是外围入口。下划线方法是按执行阶段命名的内部步骤，
-    每个步骤只拥有一种决策；它们不是一组需要分别学习的公共 API。
+    每个步骤只拥有一种决策；它们不是一组需要分别学习的公共 API。当前所有私有方法
+    都由本类主链调用，没有预留但未接线的方法。
+
+    折叠后按下面的纵向顺序读即可：
+
+    ``execute_calls`` -> ``_select_calls_for_turn`` -> ``_execute_call``
+
+    ``_execute_call`` 再按条件进入 repeat / unrouted / human / run-tool 分支；
+    ``_run_tool`` 最后调用 evidence 叶子。静态规则叶子只判断重复调用是否可恢复。
     """
 
     def __init__(
@@ -130,6 +138,7 @@ class ToolExecutionPipeline:
                 return stop
         return None
 
+    # 核心主干：一个 ToolCall 从 guardrail 走到人工屏障、幂等、授权或执行。
     def _execute_call(
         self,
         session: AgentRunSession,
@@ -196,6 +205,7 @@ class ToolExecutionPipeline:
             return None
         return self._run_tool(session, tool_call, intent, step)
 
+    # 批次整形：限制本 turn 调用数；ask_human 出现时建立同 turn 屏障。
     def _select_calls_for_turn(
         self,
         session: AgentRunSession,
@@ -234,6 +244,7 @@ class ToolExecutionPipeline:
             )
         return [selected_human]
 
+    # 重复分支：只读调用反馈后继续，重复副作用调用阻断本次 run。
     def _handle_repeat(
         self,
         session: AgentRunSession,
@@ -303,6 +314,7 @@ class ToolExecutionPipeline:
             resume_hint=signal.recovery_hint,
         )
 
+    # 路由失败分支：生成失败 Observation，不调用不存在或本轮不可见的工具。
     def _record_unrouted_tool(
         self,
         session: AgentRunSession,
@@ -333,6 +345,7 @@ class ToolExecutionPipeline:
             )
         )
 
+    # HITL 分支：读取已有回答，或持久化问题并返回 waiting_human。
     def _handle_human_question(
         self,
         session: AgentRunSession,
@@ -395,6 +408,7 @@ class ToolExecutionPipeline:
         )
         return None
 
+    # 执行分支：最后一次控制检查后调用 ToolGateway，并提交状态与证据。
     def _run_tool(
         self,
         session: AgentRunSession,
@@ -404,6 +418,7 @@ class ToolExecutionPipeline:
     ) -> StopRequest | None:
         """阶段 5：执行已获授权工具，再提交账本、证据和 checkpoint。"""
 
+        # pause/cancel 必须阻止副作用；steer 不打断当前工具协议，留到下一模型边界。
         control = self.run_control.check(session, step, include_steer=False)
         if control.stop is not None:
             return control.stop
@@ -499,6 +514,7 @@ class ToolExecutionPipeline:
         )
         return None
 
+    # 证据叶子：把同一次执行投影为 call、observation、摘要和 citation 事件。
     def _record_execution_evidence(
         self,
         session: AgentRunSession,
@@ -541,6 +557,7 @@ class ToolExecutionPipeline:
                 evidence=citation,
             )
 
+    # 规则叶子：声明哪些重复调用没有副作用，可以由模型换方向后继续。
     @staticmethod
     def _is_recoverable_repeated_tool(tool_name: str) -> bool:
         """规则叶子：只有无副作用的重复读取可以反馈后继续。"""
