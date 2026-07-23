@@ -57,9 +57,10 @@ class RunPreparation:
         删除/内联影响：会失去 turn 前 durable-state 屏障并扩大 ``AgentLoop``。
         """
 
+        # region 准备区（首遍可折叠）：恢复摘要与首个 durable checkpoint
         self.trace.set_run_context(task=task)
-        resume_summary = self._load_resume_summary(agent_name)
-        checkpoint = self.task_states.start(
+        restored_state_summary = self._load_resume_summary(agent_name)
+        initial_checkpoint = self.task_states.start(
             TaskStartRequest(
                 run_id=self.trace.run_id,
                 task=task,
@@ -75,17 +76,17 @@ class RunPreparation:
         self.trace.record_task_state_checkpoint(
             step=0,
             agent_name=agent_name,
-            checkpoint=checkpoint,
+            checkpoint=initial_checkpoint,
         )
-        self.hooks.on_checkpoint(checkpoint)
+        self.hooks.on_checkpoint(initial_checkpoint)
         self.trace.add(
             0,
             agent_name,
             "model_capabilities",
             model_capabilities=self.model_capabilities.to_dict(),
         )
-        lifecycle = RunLifecycle(
-            checkpoint=checkpoint,
+        run_lifecycle = RunLifecycle(
+            checkpoint=initial_checkpoint,
             task_state_store=self.task_states,
             human_input_store=self.human_inputs,
             human_thread_id=self.human_thread_id,
@@ -93,14 +94,15 @@ class RunPreparation:
             trace=self.trace,
             hooks=self.hooks,
         )
+        # endregion 会话准备结束
         return AgentRunSession(
             task=task,
             agent_name=agent_name,
             workspace_root=self.config.workspace,
             max_iterations=self.config.max_steps,
-            lifecycle=lifecycle,
+            lifecycle=run_lifecycle,
             controller=StepController.from_config(self.config),
-            resume_summary=resume_summary,
+            resume_summary=restored_state_summary,
         )
 
     # 主要入口：应用输入策略、恢复人工状态、选择 Skill 并召回长期记忆。
@@ -115,82 +117,83 @@ class RunPreparation:
         删除/内联影响：会把一次性策略重新散入 turn loop。
         """
 
-        stop = self._apply_input_policy(session)
-        if stop is not None:
-            return stop
-        stop = self._resolve_clarification(session)
-        if stop is not None:
-            return stop
+        input_policy_stop = self._apply_input_policy(session)
+        if input_policy_stop is not None:
+            return input_policy_stop
+        clarification_stop = self._resolve_clarification(session)
+        if clarification_stop is not None:
+            return clarification_stop
         self._activate_skills(session)
         self._initialize_memory_context(session)
         return None
 
+    # region 一次性准备规则（首次阅读可折叠）
     def _apply_input_policy(self, session: AgentRunSession) -> StopRequest | None:
-        check = input_guardrail(session.task)
+        guardrail_decision = input_guardrail(session.task)
         self.trace.add(
             0,
             session.agent_name,
             "guardrail_check",
             guardrail={
-                "category": check.category,
-                "passed": check.passed,
-                "reason": check.reason,
-                "severity": check.severity,
+                "category": guardrail_decision.category,
+                "passed": guardrail_decision.passed,
+                "reason": guardrail_decision.reason,
+                "severity": guardrail_decision.severity,
             },
         )
-        if check.passed:
+        if guardrail_decision.passed:
             return None
         return StopRequest(
             TaskRunStatus.BLOCKED,
             "input_guardrail_block",
-            f"blocked: {check.reason}",
+            f"blocked: {guardrail_decision.reason}",
         )
 
     def _resolve_clarification(
         self,
         session: AgentRunSession,
     ) -> StopRequest | None:
-        clarification = self.clarification_policy.decide(session.task)
+        clarification_decision = self.clarification_policy.decide(session.task)
         self.trace.add(
             0,
             session.agent_name,
             "clarification_decision",
             clarification={
-                "action": clarification.action,
-                "confidence": clarification.confidence,
-                "reason": clarification.reason,
-                "question": clarification.question,
-                "missing_fields": clarification.missing_fields,
+                "action": clarification_decision.action,
+                "confidence": clarification_decision.confidence,
+                "reason": clarification_decision.reason,
+                "question": clarification_decision.question,
+                "missing_fields": clarification_decision.missing_fields,
             },
         )
-        if clarification.action == "refuse":
+        if clarification_decision.action == "refuse":
             return StopRequest(
                 TaskRunStatus.BLOCKED,
                 "unsupported_task",
-                f"blocked: {clarification.reason}",
+                f"blocked: {clarification_decision.reason}",
             )
-        if not clarification.needs_user_input():
+        if not clarification_decision.needs_user_input():
             return None
 
-        resolution = session.lifecycle.request_human_input(
+        human_input_resolution = session.lifecycle.request_human_input(
             HumanInputQuestion(
                 agent_name=session.agent_name,
                 kind="clarification",
-                question=clarification.question,
+                question=clarification_decision.question,
                 choices=(),
-                reason=clarification.reason,
+                reason=clarification_decision.reason,
                 step=0,
             )
         )
-        if resolution.stop is not None:
-            return resolution.stop
+        if human_input_resolution.stop is not None:
+            return human_input_resolution.stop
         session.task = "\n".join(
             [
                 session.task,
                 "",
                 "Resolved operator clarification:",
-                f"Question: {resolution.request.question}",
-                f"Answer: {resolution.request.answer}",
+                f"Question: {human_input_resolution.request.question}",
+                f"Answer: {human_input_resolution.request.answer}",
                 "Continue from this answer and do not ask the same question again.",
             ]
         )
@@ -198,7 +201,7 @@ class RunPreparation:
             0,
             session.agent_name,
             "human_input_response_loaded",
-            request=resolution.request.to_dict(),
+            request=human_input_resolution.request.to_dict(),
         )
         return None
 
@@ -232,63 +235,68 @@ class RunPreparation:
         """创建 working memory，并注入经过权威与隔离过滤的长期召回结果。"""
 
         session.messages = [Message("user", session.task)]
-        session_summary = getattr(self.config, "session_summary", "")
+        prior_session_summary = getattr(self.config, "session_summary", "")
         if session.resume_summary:
-            session_summary = "\n".join(
-                part for part in [session_summary, session.resume_summary] if part
+            prior_session_summary = "\n".join(
+                part
+                for part in [prior_session_summary, session.resume_summary]
+                if part
             )
         session.working_memory.seed_session(
             previous_task=getattr(self.config, "previous_task", ""),
-            session_summary=session_summary,
+            session_summary=prior_session_summary,
         )
-        namespace = getattr(self.config, "memory_namespace", "") or str(
+        memory_namespace = getattr(self.config, "memory_namespace", "") or str(
             self.config.workspace
         )
-        recalled = self.memory_recall.recall(
+        recalled_memories = self.memory_recall.recall(
             session.task,
-            namespace=namespace,
+            namespace=memory_namespace,
             agent_name=session.agent_name,
             limit=max(0, int(getattr(self.config, "memory_recall_limit", 6))),
         )
-        session.working_memory.seed_long_term(recalled)
+        session.working_memory.seed_long_term(recalled_memories)
         session.working_memory.set("task", session.task)
         self.trace.add(
             0,
             session.agent_name,
             "memory_recall",
             memory={
-                "namespace": namespace,
-                "recalled_count": len(recalled),
-                "memory_ids": [item.memory_id for item in recalled],
-                "kinds": [item.kind for item in recalled],
+                "namespace": memory_namespace,
+                "recalled_count": len(recalled_memories),
+                "memory_ids": [item.memory_id for item in recalled_memories],
+                "kinds": [item.kind for item in recalled_memories],
             },
         )
 
     def _load_resume_summary(self, agent_name: str) -> str:
-        resume_state = getattr(self.config, "resume_state", "")
-        if not resume_state:
+        resume_checkpoint_path = getattr(self.config, "resume_state", "")
+        if not resume_checkpoint_path:
             return ""
-        checkpoint = self.task_states.load_path(resume_state)
-        summary = summarize_checkpoint(checkpoint)
+        restored_checkpoint = self.task_states.load_path(resume_checkpoint_path)
+        restored_summary = summarize_checkpoint(restored_checkpoint)
         self.trace.add(
             0,
             agent_name,
             "resume_state_loaded",
-            resume_state=resume_state,
-            checkpoint=checkpoint.to_dict(),
-            resume_summary=summary,
+            resume_state=resume_checkpoint_path,
+            checkpoint=restored_checkpoint.to_dict(),
+            resume_summary=restored_summary,
         )
-        return summary
+        return restored_summary
 
     def _select_active_skills(self, task: str) -> list[SkillView]:
-        mode = getattr(self.config, "skill_mode", "auto")
-        if mode == "none":
+        skill_selection_mode = getattr(self.config, "skill_mode", "auto")
+        if skill_selection_mode == "none":
             return []
-        explicit_names = list(getattr(self.config, "skill_names", []) or [])
+        explicitly_requested_skill_names = list(
+            getattr(self.config, "skill_names", []) or []
+        )
         return list(
             self.skill_selector.select_for_task(
                 task,
-                names=explicit_names or None,
+                names=explicitly_requested_skill_names or None,
                 limit=3,
             )
         )
+    # endregion 一次性准备规则结束

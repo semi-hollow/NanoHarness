@@ -76,6 +76,8 @@ class PublicCliSmokeTest(unittest.TestCase):
         self.assertIn("--memory-root", result.stdout)
         self.assertIn("--max-tool-calls-per-turn", result.stdout)
         self.assertIn("--temperature", result.stdout)
+        self.assertIn("--thinking", result.stdout)
+        self.assertIn("--reasoning-effort", result.stdout)
 
         args = build_parser().parse_args(
             [
@@ -176,6 +178,8 @@ class PublicCliSmokeTest(unittest.TestCase):
         self.assertIn("--max-prompt-tokens", result.stdout)
         self.assertIn("--max-tool-calls-per-turn", result.stdout)
         self.assertIn("--temperature", result.stdout)
+        self.assertIn("--thinking", result.stdout)
+        self.assertIn("--reasoning-effort", result.stdout)
 
     def test_benchmark_case_explorer_is_public_and_non_executing(self):
         catalog = subprocess.run(

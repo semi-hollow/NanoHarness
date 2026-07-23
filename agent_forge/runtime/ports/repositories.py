@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from typing import Any, Protocol
 
-from agent_forge.contracts import JsonObject
 from agent_forge.runtime.domain.approval import ApprovalRequest, ApprovalRequestDraft
 from agent_forge.runtime.domain.human_input import (
     HumanInputRequest,

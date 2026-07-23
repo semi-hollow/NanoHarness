@@ -15,7 +15,9 @@ class BenchReportTests(unittest.TestCase):
                 dataset_name="local",
                 split="test",
                 provider="deepseek",
-                model="default",
+                model="deepseek-v4-pro",
+                thinking_mode="enabled",
+                reasoning_effort="max",
                 output_dir=root,
                 predictions_path=root / "predictions.jsonl",
             )
@@ -24,6 +26,8 @@ class BenchReportTests(unittest.TestCase):
 
             self.assertTrue((root / "scorecard.json").exists())
             self.assertTrue((root / "scorecard.md").exists())
+            report = (root / "report.md").read_text(encoding="utf-8")
+            self.assertIn("thinking/effort: `enabled` / `max`", report)
 
     def test_report_separates_candidate_patch_from_official_resolution(self):
         with tempfile.TemporaryDirectory() as tmp:

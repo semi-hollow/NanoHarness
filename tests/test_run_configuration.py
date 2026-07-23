@@ -1,4 +1,3 @@
-import argparse
 import json
 import os
 import tempfile
@@ -14,14 +13,7 @@ from agent_forge.configuration import (
     resolved_run_config,
 )
 from agent_forge.runtime.wiring import ToolRegistryBuildRequest, build_registry
-from agent_forge.extensions import AgentResponse
-
-
-class FinalModel:
-    last_usage = None
-
-    def chat(self, messages, tools):
-        return AgentResponse("configuration path completed", [])
+from tests.support import StaticResponseModel
 
 
 class RunConfigurationTest(unittest.TestCase):
@@ -35,6 +27,8 @@ run:
   workspace: /config/workspace
 model:
   model: config-model
+  thinking: enabled
+  reasoning_effort: max
 runtime:
   max_steps: 3
 tools:
@@ -56,6 +50,9 @@ tools:
             self.assertEqual(args.max_steps, 9)
             self.assertEqual(args.workspace, "/config/workspace")
             self.assertEqual(args.model, "environment-model")
+            self.assertEqual(args.thinking_mode, "enabled")
+            self.assertEqual(args.reasoning_effort, "max")
+            self.assertTrue(args.reasoning_tokens)
             self.assertEqual(args.enabled_tools, ["read_file", "grep"])
             artifact = resolved_run_config(args, document)
             self.assertEqual(
@@ -85,6 +82,8 @@ policy:
             self.assertEqual(args.approval_mode, "locked")
             self.assertFalse(args.auto_approve_writes)
             self.assertEqual(args.provider, "deepseek")
+            self.assertEqual(args.thinking_mode, "disabled")
+            self.assertIsNone(args.reasoning_effort)
             self.assertEqual(args.execution_mode, "local")
 
     def test_model_capabilities_and_runtime_instruction_are_typed_and_redacted(self):
@@ -218,7 +217,7 @@ tools:
                 clear=True,
             ), mock.patch(
                 "agent_forge.cli.repository.build_llm",
-                return_value=FinalModel(),
+                return_value=StaticResponseModel("configuration path completed"),
             ):
                 run_dir = run_repository_task(args)
 

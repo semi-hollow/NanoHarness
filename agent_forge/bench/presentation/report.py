@@ -40,6 +40,10 @@ def render_bench_report(summary: BenchRunSummary) -> str:
         f"- split: `{summary.split}`",
         f"- provider/model: `{summary.provider}` / `{summary.model or 'default'}`",
         f"- sampling temperature: `{summary.temperature}`",
+        (
+            f"- thinking/effort: `{summary.thinking_mode}` / "
+            f"`{summary.reasoning_effort or 'provider-default'}`"
+        ),
         f"- agent_mode/profile: `{summary.agent_mode}` / `{summary.profile or '-'}`",
         f"- max_revision_rounds: `{summary.max_revision_rounds}`",
         f"- max_steps / max_context_chars: `{summary.max_steps}` / `{summary.max_context_chars}`",

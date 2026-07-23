@@ -371,6 +371,19 @@ def _add_model_args(
         default=0.0 if defaults else None,
         help="Sampling temperature sent to the model (0.0-2.0).",
     )
+    parser.add_argument(
+        "--thinking",
+        dest="thinking_mode",
+        choices=["auto", "enabled", "disabled"],
+        default="disabled" if defaults else None,
+        help="Use provider default, enable, or disable model thinking.",
+    )
+    parser.add_argument(
+        "--reasoning-effort",
+        choices=["high", "max"],
+        default=None,
+        help="Reasoning budget used when thinking is enabled.",
+    )
     parser.add_argument("--max-steps", type=int, default=16 if defaults else None)
     parser.add_argument(
         "--max-context-chars",

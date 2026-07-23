@@ -6,14 +6,12 @@ from unittest import mock
 
 import agent_forge
 from agent_forge import Harness, HarnessConfig, HarnessExtensions, RunRequest, TaskRunStatus
-from agent_forge.extensions import AgentResponse, ToolRegistry
+from agent_forge.extensions import ToolRegistry
+from tests.support import StaticResponseModel
 
 
-class FinalModel:
-    last_usage = None
-
-    def chat(self, messages, tools):
-        return AgentResponse("completed through the public Harness API", [])
+def _final_model() -> StaticResponseModel:
+    return StaticResponseModel("completed through the public Harness API")
 
 
 class PublicHarnessTest(unittest.TestCase):
@@ -40,13 +38,13 @@ class PublicHarnessTest(unittest.TestCase):
             HarnessConfig(timeout_seconds=0)
         with self.assertRaisesRegex(ValueError, "only applies to the built-in"):
             Harness(
-                model=FinalModel(),
+                model=_final_model(),
                 tools=ToolRegistry(),
                 config=HarnessConfig(enabled_tools=("read_file",)),
             )
         with self.assertRaisesRegex(ValueError, "use lifecycle_hooks"):
             Harness(
-                model=FinalModel(),
+                model=_final_model(),
                 extensions=HarnessExtensions(hook_policy=object()),
             )
 
@@ -54,7 +52,7 @@ class PublicHarnessTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             harness = Harness(
-                model=FinalModel(),
+                model=_final_model(),
                 tools=ToolRegistry(),
                 config=HarnessConfig(
                     workspace=str(root),
@@ -95,7 +93,7 @@ class PublicHarnessTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             harness = Harness(
-                model=FinalModel(),
+                model=_final_model(),
                 tools=ToolRegistry(),
                 config=HarnessConfig(
                     workspace=str(root),
@@ -123,7 +121,7 @@ class PublicHarnessTest(unittest.TestCase):
             autospec=True,
         ) as cleanup:
             harness = Harness(
-                model=FinalModel(),
+                model=_final_model(),
                 config=HarnessConfig(
                     workspace=tmp,
                     output_root=str(Path(tmp) / "runs"),

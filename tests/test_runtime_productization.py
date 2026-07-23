@@ -15,7 +15,6 @@ from agent_forge import (
 )
 from agent_forge.extensions import (
     AgentResponse,
-    EventStreamPolicy,
     HookDecision,
     HookDecisionType,
     Observation,
@@ -26,6 +25,7 @@ from agent_forge.extensions import (
     ToolRegistry,
     ToolSchema,
 )
+from tests.support import StaticResponseModel
 
 
 class EventCollector:
@@ -54,13 +54,6 @@ class BlockingSteerModel:
                 raise TimeoutError("test did not release the model")
             return AgentResponse("stale answer that must be discarded", [])
         return AgentResponse("steer applied", [])
-
-
-class FinalModel:
-    last_usage = None
-
-    def chat(self, messages, tools):
-        return AgentResponse("original final", [])
 
 
 class CaptureContextModel:
@@ -219,7 +212,7 @@ class RuntimeProductizationTest(unittest.TestCase):
             controller = RunController()
             controller.pause("inspect before continuing")
             harness = Harness(
-                model=FinalModel(),
+                model=StaticResponseModel("original final"),
                 tools=ToolRegistry(),
                 config=HarnessConfig(
                     workspace=str(root),
@@ -244,7 +237,7 @@ class RuntimeProductizationTest(unittest.TestCase):
             root = Path(tmp)
             rewrite = RewriteHook()
             harness = Harness(
-                model=FinalModel(),
+                model=StaticResponseModel("original final"),
                 tools=ToolRegistry(),
                 config=HarnessConfig(
                     workspace=str(root),
@@ -271,7 +264,7 @@ class RuntimeProductizationTest(unittest.TestCase):
             self.assertIn("rewrite_hook", hook_names)
 
             gated = Harness(
-                model=FinalModel(),
+                model=StaticResponseModel("original final"),
                 tools=ToolRegistry(),
                 config=HarnessConfig(
                     workspace=str(root),

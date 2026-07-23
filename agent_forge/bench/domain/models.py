@@ -130,6 +130,8 @@ class BenchRunSummary:
     predictions_path: Path
     # Agent workflow、模型采样和可见工具身份。
     temperature: float = 0.0
+    thinking_mode: str = "disabled"
+    reasoning_effort: str | None = None
     agent_mode: str = "single"
     profile: str = ""
     max_revision_rounds: int = 0
@@ -178,6 +180,8 @@ class BenchRunSummary:
             "provider": self.provider,
             "model": self.model,
             "temperature": self.temperature,
+            "thinking_mode": self.thinking_mode,
+            "reasoning_effort": self.reasoning_effort,
             "agent_mode": self.agent_mode,
             "profile": self.profile,
             "max_revision_rounds": self.max_revision_rounds,

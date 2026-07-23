@@ -60,124 +60,140 @@ class RunBenchmarkCampaign:
     def execute(self, request: BenchmarkCampaignRequest) -> BenchmarkCampaignResult:
         """已完成槽位幂等跳过；失败槽位在下一次相同配置恢复时重试。"""
 
+        # region 准备区（首遍可折叠）：目录、源码、实验身份与可恢复状态
         campaign_dir = self._artifacts.campaign_dir(
             request.output_root,
             request.campaign_id,
         )
-        source = self._source_identity.read()
-        if source.get("dirty") and not request.allow_dirty:
+        source_identity = self._source_identity.read()
+        if source_identity.get("dirty") and not request.allow_dirty:
             raise ValueError(
                 "benchmark campaign requires a clean git source; commit changes or pass "
                 "--allow-dirty and accept the weaker reproducibility boundary"
             )
-        identity = request.identity()
-        digest = campaign_config_digest(identity, source)
-        state = self._load_or_create_state(
+        experiment_identity = request.identity()
+        configuration_digest = campaign_config_digest(
+            experiment_identity,
+            source_identity,
+        )
+        campaign_state = self._load_or_create_state(
             request,
             campaign_dir=campaign_dir,
-            identity=identity,
-            source=source,
-            digest=digest,
+            experiment_identity=experiment_identity,
+            source_identity=source_identity,
+            configuration_digest=configuration_digest,
         )
-        variants = {variant.name: variant for variant in request.variants}
+        variants_by_name = {
+            variant.name: variant for variant in request.variants
+        }
+        # endregion 准备区结束
 
-        for record in sorted(state.records, key=lambda item: item.ordinal):
+        # 执行区：每个 record 是一个可单独 checkpoint、可恢复的实验槽位。
+        for record in sorted(
+            campaign_state.records,
+            key=lambda item: item.ordinal,
+        ):
             if record.status == "completed":
                 continue
-            self._start_record(record, state, campaign_dir)
+            self._start_record(record, campaign_state, campaign_dir)
             try:
                 benchmark_request = self._benchmark_request(
                     request,
                     campaign_dir=campaign_dir,
                     record=record,
-                    variant=variants[record.variant],
+                    variant=variants_by_name[record.variant],
                 )
-                run = self._runner(benchmark_request)
-                self._complete_record(record, run)
+                benchmark_run = self._runner(benchmark_request)
+                self._complete_record(record, benchmark_run)
             except Exception as exc:
                 record.status = "failed"
                 record.error = f"{type(exc).__name__}: {exc}"
             finally:
-                state.updated_at = self._now()
-                self._artifacts.save_state(campaign_dir, state)
+                campaign_state.updated_at = self._now()
+                self._artifacts.save_state(campaign_dir, campaign_state)
 
-        state.status = (
+        # 收口区：聚合只消费已经持久化的槽位事实，不重新推断 case 结果。
+        campaign_state.status = (
             "completed"
-            if all(record.status == "completed" for record in state.records)
+            if all(
+                record.status == "completed"
+                for record in campaign_state.records
+            )
             else "completed_with_failures"
         )
-        state.updated_at = self._now()
-        self._artifacts.save_state(campaign_dir, state)
-        summary = summarize_campaign(state)
+        campaign_state.updated_at = self._now()
+        self._artifacts.save_state(campaign_dir, campaign_state)
+        campaign_summary = summarize_campaign(campaign_state)
         summary_path, report_path = self._artifacts.write_final_artifacts(
             campaign_dir,
-            state,
-            summary,
+            campaign_state,
+            campaign_summary,
         )
-        public_dir = (
+        published_bundle_dir = (
             self._artifacts.publish_public_bundle(
                 request.publish_root,
                 campaign_dir,
-                state,
-                summary,
+                campaign_state,
+                campaign_summary,
             )
-            if request.publish_root and state.status == "completed"
+            if request.publish_root and campaign_state.status == "completed"
             else None
         )
         self._artifacts.update_latest_pointer(campaign_dir)
         return BenchmarkCampaignResult(
-            state=state,
+            state=campaign_state,
             campaign_dir=campaign_dir,
             summary_path=summary_path,
             report_path=report_path,
-            public_dir=public_dir,
+            public_dir=published_bundle_dir,
         )
 
+    # region 单槽位与恢复细节（首次阅读可折叠）
     def _load_or_create_state(
         self,
         request: BenchmarkCampaignRequest,
         *,
         campaign_dir: Path,
-        identity: dict[str, Any],
-        source: dict[str, Any],
-        digest: str,
+        experiment_identity: dict[str, Any],
+        source_identity: dict[str, Any],
+        configuration_digest: str,
     ) -> CampaignState:
-        existing = self._artifacts.load_state(campaign_dir)
-        if existing is not None:
+        existing_campaign_state = self._artifacts.load_state(campaign_dir)
+        if existing_campaign_state is not None:
             if not request.resume:
                 raise ValueError(
                     f"campaign already exists and resume is disabled: {campaign_dir}"
                 )
-            if existing.config_digest != digest:
+            if existing_campaign_state.config_digest != configuration_digest:
                 raise ValueError(
                     "campaign config or source revision changed; use a new campaign_id"
                 )
-            return existing
+            return existing_campaign_state
         created_at = self._now()
-        state = CampaignState(
+        new_campaign_state = CampaignState(
             campaign_id=request.campaign_id,
-            config_digest=digest,
-            config=identity,
-            source=source,
+            config_digest=configuration_digest,
+            config=experiment_identity,
+            source=source_identity,
             created_at=created_at,
             updated_at=created_at,
             records=build_campaign_records(request),
         )
-        self._artifacts.save_state(campaign_dir, state)
-        return state
+        self._artifacts.save_state(campaign_dir, new_campaign_state)
+        return new_campaign_state
 
     def _start_record(
         self,
         record: CampaignRunRecord,
-        state: CampaignState,
+        campaign_state: CampaignState,
         campaign_dir: Path,
     ) -> None:
         record.status = "running"
         record.attempts += 1
         record.error = ""
-        state.status = "running"
-        state.updated_at = self._now()
-        self._artifacts.save_state(campaign_dir, state)
+        campaign_state.status = "running"
+        campaign_state.updated_at = self._now()
+        self._artifacts.save_state(campaign_dir, campaign_state)
 
     def _benchmark_request(
         self,
@@ -187,7 +203,8 @@ class RunBenchmarkCampaign:
         record: CampaignRunRecord,
         variant: CampaignVariant,
     ) -> SwebenchRunRequest:
-        run_root = (
+        # 每个槽位拥有独立目录，恢复时不会覆盖另一 case/repetition。
+        slot_output_root = (
             campaign_dir
             / "runs"
             / safe_id(variant.name)
@@ -197,7 +214,7 @@ class RunBenchmarkCampaign:
             campaign.benchmark,
             limit=1,
             instance_ids=(record.case_id,),
-            output_root=str(run_root),
+            output_root=str(slot_output_root),
             direct_baseline=False,
             agent_mode="single",
             tool_routing_mode=variant.tool_routing_mode,
@@ -212,55 +229,101 @@ class RunBenchmarkCampaign:
     def _complete_record(
         self,
         record: CampaignRunRecord,
-        run: BenchRunSummary,
+        benchmark_run: BenchRunSummary,
     ) -> None:
         record.status = "completed"
-        record.run_id = run.run_id
-        record.run_dir = str(run.output_dir)
-        record.scorecard_sha256 = self._artifacts.scorecard_sha256(run.output_dir)
+        record.run_id = benchmark_run.run_id
+        record.run_dir = str(benchmark_run.output_dir)
+        record.scorecard_sha256 = self._artifacts.scorecard_sha256(
+            benchmark_run.output_dir
+        )
         record.evidence = _extract_run_evidence(
-            run,
-            self._artifacts.read_scorecard(run.output_dir),
+            benchmark_run,
+            self._artifacts.read_scorecard(benchmark_run.output_dir),
         )
         record.error = ""
+    # endregion 单槽位与恢复细节结束
 
 
 def _extract_run_evidence(
-    run: BenchRunSummary,
-    scorecard: dict[str, Any],
+    benchmark_run: BenchRunSummary,
+    scorecard_payload: dict[str, Any],
 ) -> dict[str, Any]:
-    cases = scorecard.get("cases") if isinstance(scorecard, dict) else None
-    case = cases[0] if isinstance(cases, list) and cases else {}
-    if not isinstance(case, dict):
-        case = {}
-    result = run.case_results[0] if run.case_results else None
+    # 准备区：优先读取 scorecard；缺字段时才回退到本次 run 的 case result。
+    scorecard_cases = (
+        scorecard_payload.get("cases")
+        if isinstance(scorecard_payload, dict)
+        else None
+    )
+    scorecard_case = (
+        scorecard_cases[0]
+        if isinstance(scorecard_cases, list) and scorecard_cases
+        else {}
+    )
+    if not isinstance(scorecard_case, dict):
+        scorecard_case = {}
+    benchmark_case_result = (
+        benchmark_run.case_results[0]
+        if benchmark_run.case_results
+        else None
+    )
     return {
-        "status": str(case.get("status") or (result.status if result else "unknown")),
+        "status": str(
+            scorecard_case.get("status")
+            or (
+                benchmark_case_result.status
+                if benchmark_case_result
+                else "unknown"
+            )
+        ),
         "patch_generated": bool(
-            case.get("patch_generated")
-            or (result is not None and result.patch_chars > 0)
+            scorecard_case.get("patch_generated")
+            or (
+                benchmark_case_result is not None
+                and benchmark_case_result.patch_chars > 0
+            )
         ),
         "patch_chars": int(
-            case.get("patch_chars")
-            or (result.patch_chars if result is not None else 0)
+            scorecard_case.get("patch_chars")
+            or (
+                benchmark_case_result.patch_chars
+                if benchmark_case_result is not None
+                else 0
+            )
         ),
         "local_validation_status": str(
-            case.get("local_validation_status")
-            or (result.local_validation_status if result else "not_run")
+            scorecard_case.get("local_validation_status")
+            or (
+                benchmark_case_result.local_validation_status
+                if benchmark_case_result
+                else "not_run"
+            )
         ),
         "official_evaluation_status": str(
-            case.get("official_evaluation_status")
-            or (result.official_evaluation_status if result else "not_evaluated")
+            scorecard_case.get("official_evaluation_status")
+            or (
+                benchmark_case_result.official_evaluation_status
+                if benchmark_case_result
+                else "not_evaluated"
+            )
         ),
         "failure_class": str(
-            case.get("failure_class")
-            or (result.failure_class if result else "unclassified")
+            scorecard_case.get("failure_class")
+            or (
+                benchmark_case_result.failure_class
+                if benchmark_case_result
+                else "unclassified"
+            )
         ),
-        "total_tokens": int(case.get("total_tokens") or 0),
-        "estimated_cost_usd": float(case.get("estimated_cost_usd") or 0.0),
-        "llm_latency_ms": int(case.get("llm_latency_ms") or 0),
-        "tool_calls": int(case.get("tool_calls") or 0),
-        "failed_tool_calls": int(case.get("failed_tool_calls") or 0),
+        "total_tokens": int(scorecard_case.get("total_tokens") or 0),
+        "estimated_cost_usd": float(
+            scorecard_case.get("estimated_cost_usd") or 0.0
+        ),
+        "llm_latency_ms": int(scorecard_case.get("llm_latency_ms") or 0),
+        "tool_calls": int(scorecard_case.get("tool_calls") or 0),
+        "failed_tool_calls": int(
+            scorecard_case.get("failed_tool_calls") or 0
+        ),
     }
 
 

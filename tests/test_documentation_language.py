@@ -134,6 +134,7 @@ class DocumentationLanguageTest(unittest.TestCase):
                 violations.append(f"Debug Lab lost learning contract: {contract}")
         for relative_path in (
             "examples/debug_lab/run.py",
+            "examples/debug_lab/support.py",
             "examples/debug_lab/repository/calculator.py",
             "examples/debug_lab/repository/test_calculator.py",
             "scripts/install_pycharm_debug_lab.py",

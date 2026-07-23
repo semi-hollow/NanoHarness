@@ -195,6 +195,8 @@ class ResumeCliTest(unittest.TestCase):
                             "provider": "openai",
                             "model": "source-model",
                             "temperature": 0.7,
+                            "thinking_mode": "enabled",
+                            "reasoning_effort": "max",
                             "max_steps": 4,
                             "native_tool_calling": True,
                             "approval_mode": "on-risk",
@@ -248,6 +250,8 @@ class ResumeCliTest(unittest.TestCase):
             self.assertEqual(forwarded.provider, "openai")
             self.assertEqual(forwarded.model, "source-model")
             self.assertEqual(forwarded.temperature, 0.7)
+            self.assertEqual(forwarded.thinking_mode, "enabled")
+            self.assertEqual(forwarded.reasoning_effort, "max")
             self.assertEqual(forwarded.max_steps, 9)
             self.assertFalse(forwarded.native_tool_calling)
             self.assertEqual(forwarded.approval_mode, "on-risk")

@@ -16,17 +16,7 @@ from agent_forge.runtime.domain.task import (
 from agent_forge.safety.sandbox import WorkspaceSandbox
 from agent_forge.tools.read_file import ReadFileTool
 from agent_forge.tools.registry import ToolRegistry
-
-
-class CapturingLLM:
-    last_usage = None
-
-    def __init__(self):
-        self.system_context = ""
-
-    def chat(self, messages, tools):
-        self.system_context = messages[0].content
-        return AgentResponse("PASS\ncontinued from checkpoint", [])
+from tests.support import StaticResponseModel
 
 
 class TwoReadsThenFinalLLM:
@@ -80,7 +70,7 @@ class TaskResumeTest(unittest.TestCase):
 
             trace_path = root / "trace.json"
             trace = TraceRecorder(str(trace_path))
-            llm = CapturingLLM()
+            llm = StaticResponseModel("PASS\ncontinued from checkpoint")
             config = RuntimeConfig(
                 workspace=str(root),
                 max_steps=1,
@@ -93,9 +83,10 @@ class TaskResumeTest(unittest.TestCase):
             )
 
             self.assertIn("continued from checkpoint", final)
-            self.assertIn("resume_from_run=old-run", llm.system_context)
-            self.assertIn("last_tool=apply_patch", llm.system_context)
-            self.assertIn("digest-old", llm.system_context)
+            system_context = llm.messages[0].content or ""
+            self.assertIn("resume_from_run=old-run", system_context)
+            self.assertIn("last_tool=apply_patch", system_context)
+            self.assertIn("digest-old", system_context)
             self.assertTrue(
                 any(
                     event["event_type"] == "resume_state_loaded"

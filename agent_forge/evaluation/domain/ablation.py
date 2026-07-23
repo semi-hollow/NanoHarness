@@ -181,6 +181,8 @@ def _validate_identity(
         "agent_mode",
         "profile",
         "temperature",
+        "thinking_mode",
+        "reasoning_effort",
         "max_steps",
         "max_context_chars",
         "max_revision_rounds",

@@ -15,7 +15,8 @@ class LLMConfig:
     """解析完成、可以直接交给 ``OpenAICompatibleLLMClient`` 的配置。
 
     ``provider/base_url/api_key/model`` 标识远端；``timeout`` 控制单次 HTTP 调用；
-    ``temperature`` 是实际发送且进入 benchmark experiment identity 的采样随机性。
+    ``temperature`` 是非思考模式下的采样随机性；``thinking_mode`` 和
+    ``reasoning_effort`` 决定 provider 是否返回独立推理内容以及推理预算。
     """
 
     provider: str = "deepseek"
@@ -24,6 +25,8 @@ class LLMConfig:
     model: str = ""
     timeout: int = 30
     temperature: float = 0.0
+    thinking_mode: str = "auto"
+    reasoning_effort: str | None = None
     capabilities: ModelCapabilities = field(default_factory=ModelCapabilities)
 
     @property
@@ -47,6 +50,8 @@ class LLMConfigRequest:
     model: str | None = None
     timeout: int = 30
     temperature: float | None = None
+    thinking_mode: str | None = None
+    reasoning_effort: str | None = None
     capabilities: ModelCapabilities | None = None
 
 
@@ -84,6 +89,15 @@ def resolve_llm_config(request: LLMConfigRequest) -> LLMConfig:
     deepseek_defaults = resolved_provider == "deepseek"
     default_base_url = "https://api.deepseek.com" if deepseek_defaults else ""
     default_model = "deepseek-v4-flash" if deepseek_defaults else ""
+    resolved_model = (
+        request.model
+        or profile_data.get("model")
+        or os.getenv("AGENT_FORGE_MODEL")
+        or os.getenv("DEEPSEEK_MODEL")
+        or os.getenv("OPENAI_MODEL")
+        or default_model
+        or ""
+    )
     resolved_temperature = float(
         request.temperature
         if request.temperature is not None
@@ -94,6 +108,30 @@ def resolve_llm_config(request: LLMConfigRequest) -> LLMConfig:
     )
     if not 0.0 <= resolved_temperature <= 2.0:
         raise ValueError("temperature must be between 0.0 and 2.0")
+    resolved_thinking_mode = str(
+        request.thinking_mode
+        or profile_data.get("thinking_mode")
+        or os.getenv("AGENT_FORGE_THINKING_MODE")
+        or os.getenv("DEEPSEEK_THINKING_MODE")
+        or "auto"
+    ).lower()
+    if resolved_thinking_mode not in {"auto", "enabled", "disabled"}:
+        raise ValueError("thinking_mode must be auto, enabled, or disabled")
+    resolved_reasoning_effort = (
+        request.reasoning_effort
+        or profile_data.get("reasoning_effort")
+        or os.getenv("AGENT_FORGE_REASONING_EFFORT")
+        or os.getenv("DEEPSEEK_REASONING_EFFORT")
+        or None
+    )
+    if resolved_reasoning_effort is not None:
+        resolved_reasoning_effort = str(resolved_reasoning_effort).lower()
+        if resolved_reasoning_effort not in {"high", "max"}:
+            raise ValueError("reasoning_effort must be high or max")
+        if resolved_thinking_mode == "disabled":
+            raise ValueError(
+                "reasoning_effort requires thinking_mode enabled or auto"
+            )
 
     return LLMConfig(
         provider=resolved_provider,
@@ -114,22 +152,23 @@ def resolve_llm_config(request: LLMConfigRequest) -> LLMConfig:
             or os.getenv("OPENAI_API_KEY")
             or ""
         ),
-        model=(
-            request.model
-            or profile_data.get("model")
-            or os.getenv("AGENT_FORGE_MODEL")
-            or os.getenv("DEEPSEEK_MODEL")
-            or os.getenv("OPENAI_MODEL")
-            or default_model
-            or ""
-        ),
+        model=resolved_model,
         timeout=int(profile_data.get("timeout", request.timeout)),
         temperature=resolved_temperature,
+        thinking_mode=resolved_thinking_mode,
+        reasoning_effort=resolved_reasoning_effort,
         capabilities=request.capabilities
         or ModelCapabilities(
-            reasoning_tokens="reasoner" in str(
-                request.model or profile_data.get("model") or ""
-            ).lower(),
+            reasoning_tokens=(
+                resolved_thinking_mode == "enabled"
+                or (
+                    resolved_thinking_mode == "auto"
+                    and (
+                        "reasoner" in resolved_model.lower()
+                        or resolved_model.lower().startswith("deepseek-v4")
+                    )
+                )
+            ),
             source=f"provider_default:{resolved_provider}",
         ),
     )

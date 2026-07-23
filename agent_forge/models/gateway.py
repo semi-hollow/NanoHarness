@@ -169,6 +169,11 @@ class ModelGateway(LLMClient):
                 "input_cache_miss": 0.14,
                 "output": 0.28,
             },
+            ("deepseek", "deepseek-v4-pro"): {
+                "input_cache_hit": 0.003625,
+                "input_cache_miss": 0.435,
+                "output": 0.87,
+            },
             ("deepseek", "deepseek-chat"): {
                 "input_cache_hit": 0.0028,
                 "input_cache_miss": 0.14,

@@ -14,7 +14,6 @@ from agent_forge.bench.application.dependencies import BenchDependencies
 from agent_forge.bench.application.campaign import RunBenchmarkCampaign
 from agent_forge.bench.application.swebench import RunSwebench
 from agent_forge.bench.domain.config import BenchRunLayout, SwebenchRunRequest
-from agent_forge.bench.domain.models import BenchRunSummary
 from agent_forge.bench.ports import BenchmarkRunnerPort
 
 

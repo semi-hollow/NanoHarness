@@ -50,6 +50,16 @@ _SECTIONS: dict[str, dict[str, _FieldSpec]] = {
         "base_url": _FieldSpec("base_url", "str"),
         "model": _FieldSpec("model", "str"),
         "temperature": _FieldSpec("temperature", "float"),
+        "thinking": _FieldSpec(
+            "thinking_mode",
+            "str",
+            frozenset({"auto", "enabled", "disabled"}),
+        ),
+        "reasoning_effort": _FieldSpec(
+            "reasoning_effort",
+            "str",
+            frozenset({"high", "max"}),
+        ),
         "context_window": _FieldSpec("model_context_window", "int"),
         "native_tool_calling": _FieldSpec("native_tool_calling", "bool"),
         "parallel_tool_calls": _FieldSpec("parallel_tool_calls", "bool"),
@@ -139,6 +149,8 @@ _RUN_DEFAULTS: dict[str, object] = {
     "base_url": None,
     "api_key": None,
     "temperature": 0.0,
+    "thinking_mode": "disabled",
+    "reasoning_effort": None,
     "max_steps": 16,
     "max_context_chars": 12_000,
     "max_prompt_tokens": 32_768,
@@ -330,6 +342,18 @@ def _apply_model_environment(args: argparse.Namespace) -> None:
             environment_values["temperature"] = str(float(temperature))
         except ValueError as exc:
             raise ValueError("AGENT_FORGE_TEMPERATURE must be numeric") from exc
+    thinking_mode = _first_environment(
+        "AGENT_FORGE_THINKING_MODE",
+        "DEEPSEEK_THINKING_MODE",
+    )
+    if thinking_mode:
+        environment_values["thinking_mode"] = thinking_mode
+    reasoning_effort = _first_environment(
+        "AGENT_FORGE_REASONING_EFFORT",
+        "DEEPSEEK_REASONING_EFFORT",
+    )
+    if reasoning_effort:
+        environment_values["reasoning_effort"] = reasoning_effort
 
     for target, value in environment_values.items():
         if getattr(args, target, None) is None:
@@ -374,6 +398,16 @@ def _validate_run_arguments(args: argparse.Namespace) -> None:
         raise ValueError("reserved_output_tokens must be below max_prompt_tokens")
     if not 0.0 <= args.temperature <= 2.0:
         raise ValueError("temperature must be between 0.0 and 2.0")
+    if args.thinking_mode not in {"auto", "enabled", "disabled"}:
+        raise ValueError("thinking_mode must be auto, enabled, or disabled")
+    if args.reasoning_effort not in {None, "high", "max"}:
+        raise ValueError("reasoning_effort must be high or max")
+    if args.thinking_mode == "disabled" and args.reasoning_effort is not None:
+        raise ValueError(
+            "reasoning_effort requires thinking_mode enabled or auto"
+        )
+    if args.thinking_mode == "enabled":
+        args.reasoning_tokens = True
     if not 1 <= args.max_workers <= 8:
         raise ValueError("max_workers must be between 1 and 8")
     if args.model_context_window < 1_024:

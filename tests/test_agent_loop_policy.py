@@ -14,24 +14,7 @@ from agent_forge.safety.sandbox import WorkspaceSandbox
 from agent_forge.tools.apply_patch import ApplyPatchTool
 from agent_forge.tools.read_file import ReadFileTool
 from agent_forge.tools.registry import ToolRegistry
-
-
-class FinalAnswerLLM:
-    last_usage = None
-
-    def chat(self, messages, tools):
-        return AgentResponse("PASS\nfinal answer", [])
-
-
-class CapturingFinalLLM:
-    last_usage = None
-
-    def __init__(self):
-        self.tool_names = []
-
-    def chat(self, messages, tools):
-        self.tool_names = [tool["name"] for tool in tools]
-        return AgentResponse("final answer", [])
+from tests.support import StaticResponseModel
 
 
 class RawToolMarkupLLM:
@@ -193,7 +176,12 @@ class AgentLoopPolicyTest(unittest.TestCase):
             trace_path = Path(tmp) / "trace.json"
             trace = TraceRecorder(str(trace_path))
             config = RuntimeConfig(workspace=tmp, max_steps=2, trace_file=str(trace_path))
-            final = build_agent_loop(config, trace, ToolRegistry(), FinalAnswerLLM()).run("summarize safely", agent_name="Reviewer")
+            final = build_agent_loop(
+                config,
+                trace,
+                ToolRegistry(),
+                StaticResponseModel("PASS\nfinal answer"),
+            ).run("summarize safely", agent_name="Reviewer")
             self.assertIn("final answer", final)
             agent_names = {event["agent_name"] for event in trace.events}
             self.assertIn("Reviewer", agent_names)
@@ -416,7 +404,7 @@ class AgentLoopPolicyTest(unittest.TestCase):
             registry = ToolRegistry()
             registry.register(ReadFileTool(WorkspaceSandbox(root)))
             registry.register(ApplyPatchTool(WorkspaceSandbox(root)))
-            llm = CapturingFinalLLM()
+            llm = StaticResponseModel("final answer")
             config = RuntimeConfig(
                 workspace=tmp,
                 max_steps=2,

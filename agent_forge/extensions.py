@@ -16,7 +16,7 @@ from agent_forge.context.instructions import (
 )
 from agent_forge.control import RunController
 from agent_forge.hooks import RuntimeHook
-from agent_forge.harness import EventSinkFactory
+from agent_forge.harness_contracts import EventSinkFactory
 from agent_forge.contracts import ToolArguments, ToolSchema
 from agent_forge.observability.adapters import (
     EventStreamPolicy,

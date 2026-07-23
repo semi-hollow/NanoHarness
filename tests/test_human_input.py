@@ -22,6 +22,7 @@ from agent_forge.runtime.llm_client import AgentResponse
 from agent_forge.runtime.wiring import ToolRegistryBuildRequest, build_registry
 from agent_forge.tools.ask_human import AskHumanTool
 from agent_forge.tools.registry import ToolRegistry
+from tests.support import StaticResponseModel
 
 
 class NeverCalledLLM:
@@ -55,17 +56,6 @@ class AskThenFinalLLM:
                 ],
             )
         return AgentResponse("finished", [])
-
-
-class FinalLLM:
-    last_usage = None
-
-    def __init__(self):
-        self.calls = 0
-
-    def chat(self, messages, tools):
-        self.calls += 1
-        return AgentResponse("finished with operator input", [])
 
 
 class WriteThenAskLLM:
@@ -373,7 +363,7 @@ class HumanInputTest(unittest.TestCase):
                 request.request_id, "Update config.py"
             )
 
-            final_llm = FinalLLM()
+            final_llm = StaticResponseModel("finished with operator input")
             second_config = RuntimeConfig(
                 workspace=tmp,
                 max_steps=2,

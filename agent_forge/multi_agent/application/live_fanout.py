@@ -55,140 +55,201 @@ class LiveFanoutCoordinator:
     def run(self) -> LiveFanoutSummary:
         """执行 dependency-aware worker，并返回可审计的集成结果。"""
 
-        started = time.monotonic()
-        base_head = self.workspace.head()
-        if not base_head:
+        # region 准备区（首遍可折叠）：固定 base revision 并验证集成前提
+        started_at = time.monotonic()
+        base_revision = self.workspace.head()
+        if not base_revision:
             raise RuntimeError("live fanout requires a git workspace")
-        has_write_tasks = any(task.write_scope for task in self.plan.tasks)
-        if has_write_tasks and not self.base_config.auto_approve_writes:
+        contains_write_tasks = any(
+            task.write_scope for task in self.plan.tasks
+        )
+        if contains_write_tasks and not self.base_config.auto_approve_writes:
             raise RuntimeError(
                 "live fanout manual write approval is not recoverable across "
                 "ephemeral worktrees; use single/multi mode for per-operation approval"
             )
-        if has_write_tasks and self.workspace.status():
+        if contains_write_tasks and self.workspace.status():
             raise RuntimeError("write fanout requires a clean integration workspace")
 
-        batches = build_conflict_free_batches(self.plan.tasks)
-        batch_ids = [[task.id for task in batch] for batch in batches]
-        results: list[LiveSubagentResult] = []
+        # 调度视图：依赖 DAG 被切成可并发、且写集合不冲突的批次。
+        dependency_batches = build_conflict_free_batches(self.plan.tasks)
+        batch_task_ids = [
+            [task.id for task in batch] for batch in dependency_batches
+        ]
+        # 运行账本：四个容器分别记录结果、合并顺序、依赖完成状态和冲突事实。
+        all_worker_results: list[LiveSubagentResult] = []
         merged_task_ids: list[str] = []
-        successful_ids: set[str] = set()
-        conflicts: list[FanoutConflict] = []
+        successful_task_ids: set[str] = set()
+        detected_conflicts: list[FanoutConflict] = []
+        # endregion 准备区结束
         self.events.add(
             0,
             "LiveFanoutCoordinator",
             "fanout_start",
             plan=self.plan.to_dict(),
-            batches=batch_ids,
+            batches=batch_task_ids,
         )
 
         if self.resume_from:
-            recovered = self._restore_previous(base_head)
-            results.extend(recovered)
-            successful_ids.update(result.task_id for result in recovered)
-            merged_task_ids.extend(result.task_id for result in recovered)
+            restored_results = self._restore_previous(base_revision)
+            all_worker_results.extend(restored_results)
+            successful_task_ids.update(
+                result.task_id for result in restored_results
+            )
+            merged_task_ids.extend(
+                result.task_id for result in restored_results
+            )
         self.artifacts.write_plan(self.plan)
-        self._checkpoint(base_head, results, merged_task_ids, "running")
+        self._checkpoint(
+            base_revision,
+            all_worker_results,
+            merged_task_ids,
+            "running",
+        )
 
-        for batch_index, batch in enumerate(batches):
-            runnable = self._runnable_tasks(
+        # 执行区：同一批并发，批次之间按依赖顺序串行并合并 patch。
+        for batch_index, batch in enumerate(dependency_batches):
+            runnable_tasks = self._runnable_tasks(
                 batch,
-                successful_ids,
-                results,
+                successful_task_ids,
+                all_worker_results,
                 batch_index,
             )
-            if not runnable:
-                self._checkpoint(base_head, results, merged_task_ids, "running")
+            if not runnable_tasks:
+                self._checkpoint(
+                    base_revision,
+                    all_worker_results,
+                    merged_task_ids,
+                    "running",
+                )
                 continue
 
-            batch_results = self._run_batch(
-                runnable,
+            completed_batch_results = self._run_batch(
+                runnable_tasks,
                 batch_index,
                 self.workspace.diff(),
             )
-            dynamic_conflicts = self._mark_dynamic_conflicts(batch_results)
-            conflicts.extend(dynamic_conflicts)
-            self._merge_batch(
-                runnable,
-                batch_results,
-                successful_ids,
-                merged_task_ids,
-                conflicts,
+            batch_conflicts = self._mark_dynamic_conflicts(
+                completed_batch_results
             )
-            results.extend(batch_results)
-            self._checkpoint(base_head, results, merged_task_ids, "running")
+            detected_conflicts.extend(batch_conflicts)
+            self._merge_batch(
+                runnable_tasks,
+                completed_batch_results,
+                successful_task_ids,
+                merged_task_ids,
+                detected_conflicts,
+            )
+            all_worker_results.extend(completed_batch_results)
+            self._checkpoint(
+                base_revision,
+                all_worker_results,
+                merged_task_ids,
+                "running",
+            )
             self.events.add(
                 batch_index + 1,
                 "LiveFanoutCoordinator",
                 "fanout_batch_done",
-                batch=[task.id for task in runnable],
-                results=[result.to_dict() for result in batch_results],
-                conflicts=[asdict(conflict) for conflict in dynamic_conflicts],
+                batch=[task.id for task in runnable_tasks],
+                results=[
+                    result.to_dict() for result in completed_batch_results
+                ],
+                conflicts=[
+                    asdict(conflict) for conflict in batch_conflicts
+                ],
             )
 
-        integration_patch_path = self.artifacts.write_integration_patch(
+        # 收口区：只有全部任务成功且无冲突时，才允许 finalizer 给出最终判定。
+        integration_patch_file = self.artifacts.write_integration_patch(
             self.workspace.diff()
         )
-        all_successful = len(successful_ids) == len(self.plan.tasks)
-        finalizer = None
-        if all_successful and not conflicts:
-            finalizer = self.workers.run_finalizer(self.plan.goal, results)
+        every_task_succeeded = (
+            len(successful_task_ids) == len(self.plan.tasks)
+        )
+        finalizer_result = None
+        if every_task_succeeded and not detected_conflicts:
+            finalizer_result = self.workers.run_finalizer(
+                self.plan.goal,
+                all_worker_results,
+            )
 
-        final_decision = finalizer.decision if finalizer else ""
-        status = _fanout_status(results, conflicts, all_successful, final_decision)
-        wall_time_ms = int((time.monotonic() - started) * 1000)
-        finalizer_usage = finalizer.usage_summary if finalizer else {}
-        summary = LiveFanoutSummary(
+        finalizer_decision = (
+            finalizer_result.decision if finalizer_result else ""
+        )
+        run_status = _fanout_status(
+            all_worker_results,
+            detected_conflicts,
+            every_task_succeeded,
+            finalizer_decision,
+        )
+        elapsed_ms = int((time.monotonic() - started_at) * 1000)
+        finalizer_usage_summary = (
+            finalizer_result.usage_summary if finalizer_result else {}
+        )
+        run_summary = LiveFanoutSummary(
             run_id=self.events.run_id,
             goal=self.plan.goal,
-            status=status,
+            status=run_status,
             plan_digest=self.plan.digest,
-            base_head=base_head,
-            batches=batch_ids,
-            results=results,
+            base_head=base_revision,
+            batches=batch_task_ids,
+            results=all_worker_results,
             merged_task_ids=merged_task_ids,
-            conflicts=conflicts,
-            wall_time_ms=wall_time_ms,
+            conflicts=detected_conflicts,
+            wall_time_ms=elapsed_ms,
             metrics=aggregate_live_metrics(
-                results,
-                wall_time_ms,
+                all_worker_results,
+                elapsed_ms,
                 max_workers=self.max_workers,
-                finalizer_usage=finalizer_usage,
+                finalizer_usage=finalizer_usage_summary,
             ),
-            final_decision=final_decision,
-            final_answer=finalizer.answer if finalizer else "",
-            finalizer_trace_path=finalizer.trace_path if finalizer else "",
-            finalizer_usage_path=finalizer.usage_path if finalizer else "",
-            finalizer_usage_summary=finalizer_usage,
-            integration_patch_path=integration_patch_path,
+            final_decision=finalizer_decision,
+            final_answer=finalizer_result.answer if finalizer_result else "",
+            finalizer_trace_path=(
+                finalizer_result.trace_path if finalizer_result else ""
+            ),
+            finalizer_usage_path=(
+                finalizer_result.usage_path if finalizer_result else ""
+            ),
+            finalizer_usage_summary=finalizer_usage_summary,
+            integration_patch_path=integration_patch_file,
         )
-        self._checkpoint(base_head, results, merged_task_ids, status)
-        self.artifacts.write_summary(summary)
+        self._checkpoint(
+            base_revision,
+            all_worker_results,
+            merged_task_ids,
+            run_status,
+        )
+        self.artifacts.write_summary(run_summary)
         self.events.add(
-            len(batches) + 2,
+            len(dependency_batches) + 2,
             "LiveFanoutCoordinator",
             "fanout_done",
-            success=status == "passed",
-            status=status,
-            metrics=summary.metrics,
+            success=run_status == "passed",
+            status=run_status,
+            metrics=run_summary.metrics,
         )
-        return summary
+        return run_summary
 
+    # region 调度、合并与恢复细节（首次阅读可折叠）
     def _runnable_tasks(
         self,
         batch: list[SubagentTask],
-        successful_ids: set[str],
-        results: list[LiveSubagentResult],
+        successful_task_ids: set[str],
+        all_worker_results: list[LiveSubagentResult],
         batch_index: int,
     ) -> list[SubagentTask]:
-        runnable: list[SubagentTask] = []
+        """返回依赖已完成的任务，并为未满足依赖的任务落一条结果。"""
+
+        runnable_tasks: list[SubagentTask] = []
         for task in batch:
-            if task.id in successful_ids:
+            if task.id in successful_task_ids:
                 continue
-            if set(task.depends_on).issubset(successful_ids):
-                runnable.append(task)
+            if set(task.depends_on).issubset(successful_task_ids):
+                runnable_tasks.append(task)
             else:
-                results.append(
+                all_worker_results.append(
                     LiveSubagentResult(
                         task_id=task.id,
                         status="blocked_dependency",
@@ -196,7 +257,7 @@ class LiveFanoutCoordinator:
                         error="one or more dependencies did not complete",
                     )
                 )
-        return runnable
+        return runnable_tasks
 
     def _run_batch(
         self,
@@ -204,10 +265,13 @@ class LiveFanoutCoordinator:
         batch_index: int,
         base_patch: str,
     ) -> list[LiveSubagentResult]:
-        results: dict[str, LiveSubagentResult] = {}
-        workers = max(1, min(self.max_workers, len(tasks)))
-        with ThreadPoolExecutor(max_workers=workers) as executor:
-            futures = {
+        """并发执行一个批次，并恢复为原任务顺序返回结果。"""
+
+        # 并发收集容器：future 完成顺序不稳定，所以先按 task_id 建索引。
+        results_by_task_id: dict[str, LiveSubagentResult] = {}
+        worker_count = max(1, min(self.max_workers, len(tasks)))
+        with ThreadPoolExecutor(max_workers=worker_count) as executor:
+            task_by_worker_future = {
                 executor.submit(
                     self.workers.run_worker,
                     task,
@@ -216,24 +280,26 @@ class LiveFanoutCoordinator:
                 ): task
                 for task in tasks
             }
-            for future in as_completed(futures):
-                task = futures[future]
+            for future in as_completed(task_by_worker_future):
+                task = task_by_worker_future[future]
                 try:
-                    results[task.id] = future.result()
+                    results_by_task_id[task.id] = future.result()
                 except Exception as exc:
-                    results[task.id] = LiveSubagentResult(
+                    results_by_task_id[task.id] = LiveSubagentResult(
                         task_id=task.id,
                         status="failed",
                         batch_index=batch_index,
                         error=str(exc),
                     )
-        return [results[task.id] for task in tasks]
+        return [results_by_task_id[task.id] for task in tasks]
 
     def _mark_dynamic_conflicts(
         self,
-        results: list[LiveSubagentResult],
+        batch_results: list[LiveSubagentResult],
     ) -> list[FanoutConflict]:
-        conflicts = detect_result_conflicts(
+        """把 worker 实际触碰文件形成的动态冲突写回任务状态。"""
+
+        detected_conflicts = detect_result_conflicts(
             [
                 SubagentResult(
                     task_id=result.task_id,
@@ -241,125 +307,165 @@ class LiveFanoutCoordinator:
                     touched_files=result.touched_files,
                     batch_index=result.batch_index,
                 )
-                for result in results
+                for result in batch_results
                 if result.status == "completed"
             ]
         )
-        conflict_ids = {
-            task_id for conflict in conflicts for task_id in conflict.task_ids
+        conflicting_task_ids = {
+            task_id
+            for conflict in detected_conflicts
+            for task_id in conflict.task_ids
         }
-        for result in results:
-            if result.task_id in conflict_ids:
+        for result in batch_results:
+            if result.task_id in conflicting_task_ids:
                 result.status = "dynamic_conflict"
-        return conflicts
+        return detected_conflicts
 
     def _merge_batch(
         self,
         tasks: list[SubagentTask],
-        results: list[LiveSubagentResult],
-        successful_ids: set[str],
+        batch_results: list[LiveSubagentResult],
+        successful_task_ids: set[str],
         merged_task_ids: list[str],
-        conflicts: list[FanoutConflict],
+        detected_conflicts: list[FanoutConflict],
     ) -> None:
-        by_id = {task.id: task for task in tasks}
-        for result in results:
-            task = by_id[result.task_id]
+        """按稳定任务顺序校验并应用本批次 patch。"""
+
+        task_by_id = {task.id: task for task in tasks}
+        for result in batch_results:
+            task = task_by_id[result.task_id]
             if result.status != "completed":
                 continue
             if task.write_scope:
-                patch = (
+                candidate_patch = (
                     self.artifacts.read_text(result.patch_path)
                     if result.patch_path
                     else ""
                 )
-                if not patch.strip():
+                if not candidate_patch.strip():
                     result.status = "no_patch"
                     continue
-                ok, detail = self.workspace.apply_patch(patch, check_only=True)
-                if not ok:
+                patch_is_applicable, apply_detail = self.workspace.apply_patch(
+                    candidate_patch,
+                    check_only=True,
+                )
+                if not patch_is_applicable:
                     _record_merge_conflict(
                         result,
-                        conflicts,
-                        f"patch apply check failed: {detail}",
+                        detected_conflicts,
+                        f"patch apply check failed: {apply_detail}",
                     )
                     continue
-                ok, detail = self.workspace.apply_patch(patch, check_only=False)
-                if not ok:
+                patch_was_applied, apply_detail = self.workspace.apply_patch(
+                    candidate_patch,
+                    check_only=False,
+                )
+                if not patch_was_applied:
                     _record_merge_conflict(
                         result,
-                        conflicts,
-                        f"patch apply failed: {detail}",
+                        detected_conflicts,
+                        f"patch apply failed: {apply_detail}",
                     )
                     continue
-            successful_ids.add(result.task_id)
+            successful_task_ids.add(result.task_id)
             merged_task_ids.append(result.task_id)
 
-    def _restore_previous(self, base_head: str) -> list[LiveSubagentResult]:
+    def _restore_previous(self, base_revision: str) -> list[LiveSubagentResult]:
+        """校验 checkpoint 与 patch 摘要后，重放已完成任务的集成结果。"""
+
         if not self.resume_from:
             return []
-        data = self.artifacts.load_resume(self.resume_from)
-        if data.get("plan_digest") != self.plan.digest:
+        resume_payload = self.artifacts.load_resume(self.resume_from)
+        if resume_payload.get("plan_digest") != self.plan.digest:
             raise RuntimeError("fanout resume plan digest does not match")
-        if data.get("base_head") != base_head:
+        if resume_payload.get("base_head") != base_revision:
             raise RuntimeError("fanout resume base commit does not match")
-        by_id = {
+        previous_result_by_task_id = {
             str(item.get("task_id")): item
-            for item in data.get("results", [])
+            for item in resume_payload.get("results", [])
             if isinstance(item, dict)
         }
-        merged_ids = set(data.get("merged_task_ids") or [])
-        known_ids = {task.id for task in self.plan.tasks}
-        unknown_ids = sorted(merged_ids - known_ids)
-        if unknown_ids:
+        previously_merged_task_ids = set(
+            resume_payload.get("merged_task_ids") or []
+        )
+        planned_task_ids = {task.id for task in self.plan.tasks}
+        unknown_merged_task_ids = sorted(
+            previously_merged_task_ids - planned_task_ids
+        )
+        if unknown_merged_task_ids:
             raise RuntimeError(
-                f"fanout resume contains unknown merged tasks: {', '.join(unknown_ids)}"
+                "fanout resume contains unknown merged tasks: "
+                f"{', '.join(unknown_merged_task_ids)}"
             )
 
-        prepared: list[tuple[SubagentTask, LiveSubagentResult, str]] = []
+        # 恢复容器：每项同时保存任务定义、结果快照和待重放 patch。
+        prepared_recovery_items: list[
+            tuple[SubagentTask, LiveSubagentResult, str]
+        ] = []
         for task in self.plan.tasks:
-            if task.id not in merged_ids:
+            if task.id not in previously_merged_task_ids:
                 continue
-            item = by_id.get(task.id)
-            if not item:
+            previous_result_payload = previous_result_by_task_id.get(task.id)
+            if not previous_result_payload:
                 raise RuntimeError(
                     f"fanout resume has no result for merged task: {task.id}"
                 )
-            if item.get("status") != "completed":
+            if previous_result_payload.get("status") != "completed":
                 raise RuntimeError(
                     f"fanout resume merged task is not completed: {task.id}"
                 )
-            restored_item = dict(item)
-            restored_item["resumed"] = True
-            result = LiveSubagentResult(**restored_item)
-            patch = ""
+            restored_result_payload = dict(previous_result_payload)
+            restored_result_payload["resumed"] = True
+            restored_result = LiveSubagentResult(**restored_result_payload)
+            candidate_patch = ""
             if task.write_scope:
-                patch_path = str(item.get("patch_path") or "")
+                patch_path = str(previous_result_payload.get("patch_path") or "")
                 if not patch_path:
                     raise RuntimeError("fanout resume patch is missing")
                 try:
-                    patch = self.artifacts.read_text(patch_path)
+                    candidate_patch = self.artifacts.read_text(patch_path)
                 except FileNotFoundError as exc:
                     raise RuntimeError(
                         f"fanout resume patch is missing: {patch_path}"
                     ) from exc
-                expected_digest = str(item.get("patch_sha256") or "")
-                actual_digest = hashlib.sha256(patch.encode("utf-8")).hexdigest()
+                expected_digest = str(
+                    previous_result_payload.get("patch_sha256") or ""
+                )
+                actual_digest = hashlib.sha256(
+                    candidate_patch.encode("utf-8")
+                ).hexdigest()
                 if not expected_digest or actual_digest != expected_digest:
                     raise RuntimeError(
                         f"fanout resume patch digest does not match for {task.id}"
                     )
-            prepared.append((task, result, patch))
+            prepared_recovery_items.append(
+                (task, restored_result, candidate_patch)
+            )
 
-        patches = [(task.id, patch) for task, _, patch in prepared if patch]
-        if patches:
-            combined_patch = self.workers.validate_recovery_patches(patches)
-            ok, detail = self.workspace.apply_patch(combined_patch, check_only=True)
-            if not ok:
-                raise RuntimeError(f"fanout resume integration check failed: {detail}")
-            ok, detail = self.workspace.apply_patch(combined_patch, check_only=False)
-            if not ok:
-                raise RuntimeError(f"fanout resume integration failed: {detail}")
-        return [result for _, result, _ in prepared]
+        recovery_patches = [
+            (task.id, candidate_patch)
+            for task, _, candidate_patch in prepared_recovery_items
+            if candidate_patch
+        ]
+        if recovery_patches:
+            combined_patch = self.workers.validate_recovery_patches(recovery_patches)
+            patch_is_applicable, apply_detail = self.workspace.apply_patch(
+                combined_patch,
+                check_only=True,
+            )
+            if not patch_is_applicable:
+                raise RuntimeError(
+                    f"fanout resume integration check failed: {apply_detail}"
+                )
+            patch_was_applied, apply_detail = self.workspace.apply_patch(
+                combined_patch,
+                check_only=False,
+            )
+            if not patch_was_applied:
+                raise RuntimeError(
+                    f"fanout resume integration failed: {apply_detail}"
+                )
+        return [result for _, result, _ in prepared_recovery_items]
 
     def _checkpoint(
         self,
@@ -377,6 +483,7 @@ class LiveFanoutCoordinator:
                 status=status,
             )
         )
+    # endregion 调度、合并与恢复细节结束
 
 
 def _record_merge_conflict(

@@ -12,7 +12,6 @@ from agent_forge.context.domain import (
     LongTermMemoryRecord,
     MemoryKind,
     MemoryProposal,
-    MemoryScope,
     MemoryStatus,
 )
 from agent_forge.context.ports import LongTermMemoryRepository

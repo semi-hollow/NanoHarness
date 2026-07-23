@@ -3,7 +3,6 @@ from pathlib import Path
 
 from agent_forge.runtime.domain.task import (
     TaskCheckpoint,
-    TaskCheckpointData,
     TaskCheckpointUpdate,
     TaskRunStatus,
     TaskStartRequest,

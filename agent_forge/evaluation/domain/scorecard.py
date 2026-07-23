@@ -193,6 +193,8 @@ def _metadata(
         "provider": str(results.get("provider") or ""),
         "requested_model": str(results.get("model") or ""),
         "temperature": _float(results.get("temperature")),
+        "thinking_mode": str(results.get("thinking_mode") or "disabled"),
+        "reasoning_effort": str(results.get("reasoning_effort") or ""),
         "observed_models": observed_models,
         "observed_container_image_ids": observed_container_image_ids,
         "agent_mode": str(results.get("agent_mode") or ""),

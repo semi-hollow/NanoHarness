@@ -29,6 +29,20 @@ def _absolute_imports(path: Path) -> list[tuple[int, str]]:
 
 
 class ArchitectureBoundaryTest(unittest.TestCase):
+    def test_production_package_never_imports_test_support(self) -> None:
+        violations: list[str] = []
+        for path in sorted(PACKAGE_ROOT.rglob("*.py")):
+            for line, imported in _absolute_imports(path):
+                if imported == "tests" or imported.startswith("tests."):
+                    violations.append(
+                        f"{path.relative_to(PROJECT_ROOT)}:{line} -> {imported}"
+                    )
+        self.assertEqual(
+            violations,
+            [],
+            "Production code must not depend on tests/support or test fixtures",
+        )
+
     def test_runtime_domain_has_no_outward_dependencies(self) -> None:
         allowed = ("agent_forge.contracts", "agent_forge.runtime.domain")
         violations: list[str] = []

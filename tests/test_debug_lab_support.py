@@ -5,10 +5,13 @@ from pathlib import Path
 from unittest.mock import patch
 
 from examples.debug_lab import run as debug_lab
+from examples.debug_lab import support as debug_support
 from scripts.install_pycharm_debug_lab import (
     LAB_GROUP,
+    READING_SCOPES,
     TARGETS,
     install_breakpoints,
+    install_reading_scopes,
     resolve_breakpoints,
 )
 
@@ -17,6 +20,24 @@ PROJECT_ROOT = Path(__file__).parents[1]
 
 
 class DebugLabSupportTest(unittest.TestCase):
+    def test_reading_scopes_separate_main_path_and_tests(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            installed = install_reading_scopes(Path(tmp))
+            self.assertEqual(len(installed), len(READING_SCOPES))
+            scopes = {
+                scope.get("name"): scope.get("pattern")
+                for path in installed
+                if (scope := ET.parse(path).getroot().find("scope")) is not None
+            }
+
+        main_path = str(scopes["00 NanoHarness Review Path"])
+        production = str(scopes["10 NanoHarness Production Code"])
+        tests = str(scopes["90 NanoHarness Tests"])
+        self.assertIn("agent_forge/harness.py", main_path)
+        self.assertNotIn("tests", main_path)
+        self.assertNotIn("tests", production)
+        self.assertEqual(tests, "file:tests//*")
+
     def test_shared_configs_route_to_one_debug_lab_in_order(self) -> None:
         expected = (
             ("NanoHarness Lab 1 - Control Plane", "control"),
@@ -47,7 +68,13 @@ class DebugLabSupportTest(unittest.TestCase):
     def test_breakpoint_symbols_resolve_and_install_idempotently(self) -> None:
         resolved = resolve_breakpoints(PROJECT_ROOT)
         self.assertEqual(len(resolved), len(TARGETS))
-        self.assertEqual(len({(item["url"], item["line"]) for item in resolved}), 13)
+        self.assertEqual(len({(item["url"], item["line"]) for item in resolved}), 20)
+        by_label = {str(item["label"]): item for item in resolved}
+        candidate = by_label["Candidate patch"]
+        candidate_line = (
+            PROJECT_ROOT / "agent_forge" / "bench" / "adapters" / "case_runtime.py"
+        ).read_text(encoding="utf-8").splitlines()[int(candidate["line"])]
+        self.assertIn("status = _run_status(patch, final_answer)", candidate_line)
 
         with tempfile.TemporaryDirectory() as tmp:
             workspace = Path(tmp) / ".idea" / "workspace.xml"
@@ -79,7 +106,7 @@ class DebugLabSupportTest(unittest.TestCase):
             managed = [node for node in nodes if node.findtext("group") == LAB_GROUP]
             user = [node for node in nodes if node.findtext("group") != LAB_GROUP]
 
-        self.assertEqual(len(managed), 13)
+        self.assertEqual(len(managed), 20)
         self.assertEqual(len(user), 1)
         self.assertEqual(
             user[0].find("condition").get("expression"),
@@ -142,6 +169,12 @@ class DebugLabSupportTest(unittest.TestCase):
             self.assertIn("all", received_argv)
             self.assertIn("--skills", received_argv)
             self.assertIn("none", received_argv)
+            model = received_argv.index("--model")
+            self.assertEqual(received_argv[model + 1], "deepseek-v4-pro")
+            thinking = received_argv.index("--thinking")
+            self.assertEqual(received_argv[thinking + 1], "enabled")
+            effort = received_argv.index("--reasoning-effort")
+            self.assertEqual(received_argv[effort + 1], "max")
             self.assertEqual(
                 [
                     received_argv[index + 1]
@@ -165,13 +198,27 @@ class DebugLabSupportTest(unittest.TestCase):
 
         max_steps = received_argv.index("--max-steps")
         self.assertEqual(received_argv[max_steps + 1], "16")
+        model = received_argv.index("--model")
+        self.assertEqual(received_argv[model + 1], "deepseek-v4-pro")
+        thinking = received_argv.index("--thinking")
+        self.assertEqual(received_argv[thinking + 1], "enabled")
+        effort = received_argv.index("--reasoning-effort")
+        self.assertEqual(received_argv[effort + 1], "max")
         self.assertIn("--evaluate", received_argv)
 
     def test_debug_lab_accepts_any_ready_docker_compatible_daemon(self) -> None:
         completed = unittest.mock.Mock(returncode=0)
         with (
-            patch.object(debug_lab.shutil, "which", return_value="/usr/local/bin/docker"),
-            patch.object(debug_lab.subprocess, "run", return_value=completed) as run,
+            patch.object(
+                debug_support.shutil,
+                "which",
+                return_value="/usr/local/bin/docker",
+            ),
+            patch.object(
+                debug_support.subprocess,
+                "run",
+                return_value=completed,
+            ) as run,
         ):
             debug_lab._ensure_docker()
 

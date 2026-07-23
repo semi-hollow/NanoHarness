@@ -69,6 +69,8 @@ def resume_repository_task(args: argparse.Namespace) -> Path:
         base_url=args.base_url,
         api_key=args.api_key,
         temperature=args.temperature,
+        thinking_mode=args.thinking_mode,
+        reasoning_effort=args.reasoning_effort,
         max_steps=args.max_steps,
         max_context_chars=args.max_context_chars,
         max_prompt_tokens=args.max_prompt_tokens,

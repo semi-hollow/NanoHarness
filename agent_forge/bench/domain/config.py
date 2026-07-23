@@ -29,6 +29,8 @@ class SwebenchRunRequest:
     base_url: str | None = None
     api_key: str | None = None
     temperature: float = 0.0
+    thinking_mode: str = "disabled"
+    reasoning_effort: str | None = None
 
     # 每个 AgentLoop case 的资源预算。
     max_steps: int = 16

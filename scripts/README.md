@@ -16,7 +16,7 @@ scripts/setup_macos_local.sh --quick
 .venv/bin/python scripts/install_pycharm_debug_lab.py
 ```
 
-根据 symbol 定位并合并 13 个 PyCharm 断点。若 PyCharm 已打开，脚本会拒绝写入；关闭后重跑
+根据 symbol 定位并合并 20 个 PyCharm 断点。若 PyCharm 已打开，脚本会拒绝写入；关闭后重跑
 一次即可，不需要手工点断点。
 
 ```bash

@@ -1020,7 +1020,7 @@ def _render_runtime_controls(project_dir: Path) -> str:
         f"<tr><td>MCP exposure</td><td>{_escape(', '.join(mcp_tools) or 'none observed')}</td><td>MCP adapter + ToolRegistry</td></tr>",
         f"<tr><td>Human control barrier</td><td>{human_events} observed events</td><td>HumanInputStore + ApprovalStore</td></tr>",
         f"<tr><td>Idempotent writes</td><td>{operation_events} operation events</td><td>OperationLedger</td></tr>",
-        f"<tr><td>Typed evidence contract</td><td>TraceEvent envelope + named task checkpoint</td><td>TraceRecorder + TaskCheckpoint</td></tr>",
+            "<tr><td>Typed evidence contract</td><td>TraceEvent envelope + named task checkpoint</td><td>TraceRecorder + TaskCheckpoint</td></tr>",
         "</tbody></table></section>",
         "<section class='evidence-section'><div class='section-title'><h3>Context, Memory & Model Adaptation</h3><span>latest trace provenance</span></div>",
         "<table><thead><tr><th>signal</th><th>observed value</th><th>provenance</th></tr></thead><tbody>",

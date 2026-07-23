@@ -31,6 +31,7 @@ def render_campaign_report(
         f"- dataset/split: `{_benchmark(config, 'dataset_name')}` / `{_benchmark(config, 'split')}`",
         f"- provider/model: `{_benchmark(config, 'provider')}` / `{_benchmark(config, 'model') or 'default'}`",
         f"- temperature: `{_benchmark(config, 'temperature')}`",
+        f"- thinking/effort: `{_benchmark(config, 'thinking_mode')}` / `{_benchmark(config, 'reasoning_effort') or 'provider-default'}`",
         f"- regression set: `{config.get('regression_set')}`",
         f"- cases: `{len(config.get('case_ids') or [])}`",
         f"- repetitions: `{config.get('repetitions')}`",

@@ -83,7 +83,6 @@ class ClarificationPolicy:
                 ["supported_runtime_boundary"],
             )
 
-        has_intent = any(intent in lowered or intent in text for intent in self.coding_intents)
         has_target = any(target in text for target in self.explicit_targets)
         has_vague_reference = any(token in lowered or token in text for token in self.vague_references)
 

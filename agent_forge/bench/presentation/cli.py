@@ -96,6 +96,16 @@ def build_swebench_parser(parser: argparse.ArgumentParser) -> None:
         default=0.0,
         help="Sampling temperature recorded in run identity (0.0-2.0).",
     )
+    parser.add_argument(
+        "--thinking",
+        dest="thinking_mode",
+        choices=["auto", "enabled", "disabled"],
+        default="disabled",
+    )
+    parser.add_argument(
+        "--reasoning-effort",
+        choices=["high", "max"],
+    )
     parser.add_argument("--max-steps", type=int, default=16)
     parser.add_argument("--max-context-chars", type=int, default=12000)
     parser.add_argument("--max-prompt-tokens", type=int, default=32_768)
@@ -198,6 +208,13 @@ def build_campaign_parser(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--base-url")
     parser.add_argument("--api-key")
     parser.add_argument("--temperature", type=float, default=0.0)
+    parser.add_argument(
+        "--thinking",
+        dest="thinking_mode",
+        choices=["auto", "enabled", "disabled"],
+        default="disabled",
+    )
+    parser.add_argument("--reasoning-effort", choices=["high", "max"])
     parser.add_argument("--max-steps", type=int, default=16)
     parser.add_argument("--max-context-chars", type=int, default=12000)
     parser.add_argument("--max-prompt-tokens", type=int, default=32_768)
@@ -270,6 +287,8 @@ def run_swebench_from_args(args: argparse.Namespace) -> BenchRunSummary:
         base_url=args.base_url,
         api_key=args.api_key,
         temperature=args.temperature,
+        thinking_mode=args.thinking_mode,
+        reasoning_effort=args.reasoning_effort,
         max_steps=args.max_steps,
         max_context_chars=args.max_context_chars,
         max_prompt_tokens=args.max_prompt_tokens,
@@ -319,6 +338,8 @@ def run_campaign_from_args(args: argparse.Namespace) -> BenchmarkCampaignResult:
         base_url=args.base_url,
         api_key=args.api_key,
         temperature=args.temperature,
+        thinking_mode=args.thinking_mode,
+        reasoning_effort=args.reasoning_effort,
         max_steps=args.max_steps,
         max_context_chars=args.max_context_chars,
         max_prompt_tokens=args.max_prompt_tokens,

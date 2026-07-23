@@ -4,6 +4,7 @@ import unittest
 from unittest.mock import patch
 
 from agent_forge.runtime.llm_client import OpenAICompatibleLLMClient
+from agent_forge.runtime.domain.conversation import Message
 from agent_forge.runtime.domain.model import ModelCapabilities
 from agent_forge.runtime.llm_config import LLMConfigRequest, resolve_llm_config
 
@@ -56,6 +57,80 @@ class LLMClientTransportTest(unittest.TestCase):
 
         self.assertIsNone(response.error)
         self.assertEqual(captured["payload"]["temperature"], 0.25)
+        self.assertNotIn("thinking", captured["payload"])
+        self.assertNotIn("reasoning_effort", captured["payload"])
+
+    def test_thinking_request_sends_mode_and_effort_without_temperature(self):
+        config = resolve_llm_config(
+            LLMConfigRequest(
+                provider="deepseek",
+                api_key="test-key",
+                model="deepseek-v4-pro",
+                thinking_mode="enabled",
+                reasoning_effort="max",
+            )
+        )
+        client = OpenAICompatibleLLMClient.from_config(config)
+        captured = {}
+
+        class Response:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *args):
+                return False
+
+            def read(self):
+                return (
+                    b'{"choices":[{"message":{"content":"ok",'
+                    b'"reasoning_content":"inspect then verify"}}]}'
+                )
+
+        def open_request(request, timeout):
+            captured["payload"] = json.loads(request.data.decode("utf-8"))
+            return Response()
+
+        messages = [
+            Message(
+                "assistant",
+                None,
+                reasoning_content="previous reasoning",
+                tool_calls=[
+                    {
+                        "id": "call-1",
+                        "type": "function",
+                        "function": {
+                            "name": "read_file",
+                            "arguments": '{"path":"README.md"}',
+                        },
+                    }
+                ],
+            )
+        ]
+        with patch("urllib.request.urlopen", side_effect=open_request):
+            response = client.chat(messages, TOOLS)
+
+        payload = captured["payload"]
+        self.assertEqual(payload["model"], "deepseek-v4-pro")
+        self.assertEqual(payload["thinking"], {"type": "enabled"})
+        self.assertEqual(payload["reasoning_effort"], "max")
+        self.assertNotIn("temperature", payload)
+        self.assertEqual(
+            payload["messages"][0]["reasoning_content"],
+            "previous reasoning",
+        )
+        self.assertEqual(response.reasoning_content, "inspect then verify")
+        self.assertTrue(config.capabilities.reasoning_tokens)
+
+    def test_reasoning_effort_cannot_be_combined_with_disabled_thinking(self):
+        with self.assertRaisesRegex(ValueError, "requires thinking_mode"):
+            resolve_llm_config(
+                LLMConfigRequest(
+                    provider="deepseek",
+                    thinking_mode="disabled",
+                    reasoning_effort="max",
+                )
+            )
 
     def test_incomplete_read_becomes_structured_request_failure(self):
         client = OpenAICompatibleLLMClient(

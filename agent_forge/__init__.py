@@ -1,7 +1,7 @@
 """NanoHarness 的稳定顶层 Public API。"""
 
-from agent_forge.harness import (
-    Harness,
+from agent_forge.harness import Harness
+from agent_forge.harness_contracts import (
     HarnessConfig,
     HarnessExtensions,
     RunRequest,

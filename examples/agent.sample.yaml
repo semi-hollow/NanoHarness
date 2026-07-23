@@ -10,7 +10,9 @@ run:
 
 model:
   provider: deepseek
+  model: deepseek-v4-flash
   temperature: 0.0
+  thinking: disabled
   context_window: 32768
   native_tool_calling: true
   parallel_tool_calls: true

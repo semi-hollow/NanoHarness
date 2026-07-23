@@ -16,6 +16,38 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 LAB_GROUP = "NanoHarness Debug Lab"
 
+# 阅读范围只影响 IDE 展示：主路径隐藏 tests/support 和外围 Adapter，需要时再切换范围。
+READING_SCOPES = (
+    (
+        "00_NanoHarness_Review_Path.xml",
+        "00 NanoHarness Review Path",
+        "file:agent_forge/harness.py"
+        "||file:agent_forge/runtime/application/agent_loop.py"
+        "||file:agent_forge/runtime/application/run_preparation.py"
+        "||file:agent_forge/runtime/application/turn_preparation.py"
+        "||file:agent_forge/runtime/application/tool_execution.py"
+        "||file:agent_forge/runtime/application/run_lifecycle.py",
+    ),
+    (
+        "05_NanoHarness_Extended_Flows.xml",
+        "05 NanoHarness Extended Flows",
+        "file:agent_forge/runtime/wiring.py"
+        "||file:agent_forge/multi_agent/application/live_fanout.py"
+        "||file:agent_forge/bench/application/swebench.py"
+        "||file:agent_forge/bench/application/campaign.py",
+    ),
+    (
+        "10_NanoHarness_Production_Code.xml",
+        "10 NanoHarness Production Code",
+        "file:agent_forge//*||file:examples//*||file:scripts//*",
+    ),
+    (
+        "90_NanoHarness_Tests.xml",
+        "90 NanoHarness Tests",
+        "file:tests//*",
+    ),
+)
+
 
 @dataclass(frozen=True)
 class BreakpointTarget:
@@ -23,6 +55,8 @@ class BreakpointTarget:
     relative_path: str
     class_name: str
     function_name: str
+    # 留空时停在函数第一条语句；填写后停在函数内包含该文本的状态边界。
+    anchor: str = ""
 
 
 TARGETS = (
@@ -82,10 +116,29 @@ TARGETS = (
         "execute",
     ),
     BreakpointTarget(
+        "Dataset selection",
+        "agent_forge/bench/adapters/dataset.py",
+        "SwebenchCaseSource",
+        "load",
+    ),
+    BreakpointTarget(
         "Case runtime",
         "agent_forge/bench/adapters/case_runtime.py",
         "LocalCaseExecutor",
         "run",
+    ),
+    BreakpointTarget(
+        "Workspace checkout",
+        "agent_forge/bench/adapters/git_workspace.py",
+        "SwebenchWorkspaceManager",
+        "prepare",
+    ),
+    BreakpointTarget(
+        "Candidate patch",
+        "agent_forge/bench/adapters/case_runtime.py",
+        "LocalCaseExecutor",
+        "run",
+        anchor="status = _run_status(patch, final_answer)",
     ),
     BreakpointTarget(
         "Local evidence",
@@ -98,6 +151,30 @@ TARGETS = (
         "agent_forge/bench/adapters/official_evaluator.py",
         "SwebenchOfficialEvaluator",
         "evaluate",
+    ),
+    BreakpointTarget(
+        "Official result parsing",
+        "agent_forge/bench/adapters/official_results.py",
+        "",
+        "parse_official_results",
+    ),
+    BreakpointTarget(
+        "Official outcome apply",
+        "agent_forge/bench/adapters/official_results.py",
+        "",
+        "apply_official_results",
+    ),
+    BreakpointTarget(
+        "Final diagnosis",
+        "agent_forge/bench/application/diagnostics.py",
+        "DiagnoseBenchCase",
+        "attach",
+    ),
+    BreakpointTarget(
+        "Report publication",
+        "agent_forge/bench/adapters/artifact_files.py",
+        "FileBenchArtifacts",
+        "publish_run",
     ),
 )
 
@@ -115,7 +192,8 @@ def _first_executable_line(function: ast.FunctionDef | ast.AsyncFunctionDef) -> 
 
 def _target_line(root: Path, target: BreakpointTarget) -> int:
     path = root / target.relative_path
-    tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+    source = path.read_text(encoding="utf-8")
+    tree = ast.parse(source, filename=str(path))
     scope: list[ast.stmt] = tree.body
     if target.class_name:
         owner = next(
@@ -142,6 +220,21 @@ def _target_line(root: Path, target: BreakpointTarget) -> int:
         raise ValueError(
             f"function not found: {target.class_name}.{target.function_name} in {path}"
         )
+    if target.anchor:
+        lines = source.splitlines()
+        end_line = function.end_lineno or function.lineno
+        matches = [
+            line_number
+            for line_number in range(function.lineno, end_line + 1)
+            if target.anchor in lines[line_number - 1]
+        ]
+        if len(matches) != 1:
+            raise ValueError(
+                f"anchor must match exactly once: {target.anchor!r} in "
+                f"{target.class_name}.{target.function_name} ({path}); "
+                f"matched {len(matches)} lines"
+            )
+        return matches[0] - 1
     return _first_executable_line(function)
 
 
@@ -260,6 +353,31 @@ def install_breakpoints(
     return resolved
 
 
+def install_reading_scopes(root: Path = PROJECT_ROOT) -> list[Path]:
+    """安装可在 Project/Find Usages 中选择的低噪音阅读范围。"""
+
+    scope_dir = root / ".idea" / "scopes"
+    scope_dir.mkdir(parents=True, exist_ok=True)
+    installed_scope_files: list[Path] = []
+    for filename, scope_name, scope_pattern in READING_SCOPES:
+        project = ET.Element("component", {"name": "DependencyValidationManager"})
+        ET.SubElement(
+            project,
+            "scope",
+            {"name": scope_name, "pattern": scope_pattern},
+        )
+        scope_file = scope_dir / filename
+        scope_tree = ET.ElementTree(project)
+        ET.indent(scope_tree, space="  ")
+        scope_tree.write(
+            scope_file,
+            encoding="utf-8",
+            xml_declaration=True,
+        )
+        installed_scope_files.append(scope_file)
+    return installed_scope_files
+
+
 def _pycharm_is_running() -> bool:
     if sys.platform != "darwin":
         return False
@@ -283,17 +401,19 @@ def main() -> None:
     parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args()
     items = resolve_breakpoints()
-    pycharm_open = _pycharm_is_running()
-    if not args.dry_run and pycharm_open:
-        print(
-            "PyCharm is open. Close it, rerun this installer once, then reopen the "
-            "NanoHarness project; no manual breakpoint setup is needed.",
-            file=sys.stderr,
-        )
-        raise SystemExit(3)
-    if not args.dry_run:
+    if args.dry_run:
+        action = "resolved"
+    else:
+        if _pycharm_is_running():
+            print(
+                "PyCharm is open. Close it, rerun this installer once, then reopen the "
+                "NanoHarness project; no manual breakpoint setup is needed.",
+                file=sys.stderr,
+            )
+            raise SystemExit(3)
         items = install_breakpoints()
-    action = "resolved" if args.dry_run else "installed"
+        install_reading_scopes()
+        action = "installed"
     print(f"PyCharm Debug Lab breakpoints {action}: {len(items)}")
     for item in items:
         print(f"- {item['label']}: {item['url']}:{int(item['line']) + 1}")

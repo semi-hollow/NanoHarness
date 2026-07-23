@@ -225,6 +225,8 @@ def _resolve_llm_config(args: argparse.Namespace) -> LLMConfig:
             model=args.model,
             timeout=60,
             temperature=args.temperature,
+            thinking_mode=args.thinking_mode,
+            reasoning_effort=args.reasoning_effort,
             capabilities=_model_capabilities_from_args(args),
         )
     )
@@ -319,7 +321,9 @@ def _model_capabilities_from_args(args: argparse.Namespace) -> ModelCapabilities
         native_tool_calling=bool(args.native_tool_calling),
         parallel_tool_calls=bool(args.parallel_tool_calls),
         structured_output=bool(args.structured_output),
-        reasoning_tokens=bool(args.reasoning_tokens),
+        reasoning_tokens=bool(
+            args.reasoning_tokens or args.thinking_mode == "enabled"
+        ),
         prompt_cache=bool(args.prompt_cache),
         context_window=int(args.model_context_window),
         supports_images=bool(args.supports_images),

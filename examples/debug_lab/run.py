@@ -4,14 +4,8 @@
 from __future__ import annotations
 
 import argparse
-import getpass
-import importlib.util
 import os
-import shutil
-import subprocess
 import sys
-import time
-import uuid
 from pathlib import Path
 
 
@@ -29,6 +23,18 @@ TASK = (
 )
 sys.path.insert(0, str(PROJECT_ROOT))
 
+from examples.debug_lab.support import (  # noqa: E402
+    DeterministicRepairModel,
+    artifact_from_pointer,
+    create_workspace,
+    ensure_docker,
+    ensure_swebench,
+    load_or_store_deepseek_key,
+    publish_latest,
+    remember_root_pointer,
+    restore_evidence as restore_saved_evidence,
+)
+
 
 def _forge_main(argv: list[str]) -> None:
     from agent_forge.cli.dispatch import main as dispatch_main
@@ -36,278 +42,60 @@ def _forge_main(argv: list[str]) -> None:
     dispatch_main(argv)
 
 
-def _run_git(workspace: Path, *args: str) -> None:
-    subprocess.run(
-        ["git", "-C", str(workspace), *args],
-        check=True,
-        capture_output=True,
-        text=True,
-    )
-
-
 def _new_workspace(scenario: str) -> Path:
-    """从同一只读模板创建新 base，保证每次实验输入完全一致。"""
-
-    identity = f"{time.strftime('%Y%m%d-%H%M%S')}-{uuid.uuid4().hex[:6]}"
-    workspace = STATE_ROOT / scenario / identity / "workspace"
-    workspace.parent.mkdir(parents=True, exist_ok=True)
-    shutil.copytree(TEMPLATE_ROOT, workspace)
-    _run_git(workspace, "init", "-q")
-    _run_git(workspace, "add", ".")
-    _run_git(
-        workspace,
-        "-c",
-        "user.name=NanoHarness Learner",
-        "-c",
-        "user.email=learner@local.invalid",
-        "commit",
-        "-q",
-        "-m",
-        "create fixed debug fixture",
-    )
-    state = STATE_ROOT / "state"
-    state.mkdir(parents=True, exist_ok=True)
-    (state / f"{scenario}_workspace.txt").write_text(
-        str(workspace.resolve()),
-        encoding="utf-8",
-    )
-    return workspace
-
-
-def _remember_artifact(scenario: str, artifact_dir: Path) -> None:
-    state = STATE_ROOT / "state"
-    state.mkdir(parents=True, exist_ok=True)
-    (state / f"{scenario}_artifact.txt").write_text(
-        str(artifact_dir.resolve()),
-        encoding="utf-8",
+    return create_workspace(
+        scenario,
+        template_root=TEMPLATE_ROOT,
+        state_root=STATE_ROOT,
     )
 
 
 def _publish_latest(artifact_dir: Path, *, scenario: str = "") -> None:
-    latest = PROJECT_ROOT / ".agent_forge" / "latest"
-    latest.mkdir(parents=True, exist_ok=True)
-    (latest / "run.txt").write_text(
-        str(artifact_dir.resolve()),
-        encoding="utf-8",
+    publish_latest(
+        artifact_dir,
+        project_root=PROJECT_ROOT,
+        state_root=STATE_ROOT,
+        scenario=scenario,
     )
-    # Workbench 会在 canonical runs 中按 mtime 选择；让刚发布的嵌套 continuation
-    # artifact 胜过它的 showcase owner 目录。
-    os.utime(artifact_dir, None)
-    if scenario:
-        _remember_artifact(scenario, artifact_dir)
 
 
 def _artifact_from_pointer(pointer: Path) -> Path:
-    target = Path(pointer.read_text(encoding="utf-8").strip())
-    if not target.is_absolute():
-        target = pointer.parent / target
-    return target.resolve()
+    return artifact_from_pointer(pointer)
 
 
 def _remember_root_pointer(scenario: str, pointer_name: str) -> None:
-    pointer = PROJECT_ROOT / ".agent_forge" / "latest" / pointer_name
-    _remember_artifact(scenario, _artifact_from_pointer(pointer))
+    remember_root_pointer(
+        scenario,
+        pointer_name,
+        project_root=PROJECT_ROOT,
+        state_root=STATE_ROOT,
+    )
 
 
 def restore_evidence(scenario: str) -> None:
-    state = STATE_ROOT / "state" / f"{scenario}_artifact.txt"
-    if not state.is_file():
-        raise SystemExit(f"没有已保存的 {scenario} Evidence；先运行对应 Debug Lab。")
-    artifact = Path(state.read_text(encoding="utf-8").strip()).resolve()
-    try:
-        artifact.relative_to(RUNS_ROOT.resolve())
-    except ValueError as exc:
-        raise SystemExit(f"拒绝发布 runs 目录外的 Evidence: {artifact}") from exc
-    if not artifact.is_dir():
-        raise SystemExit(f"已保存的 Evidence 不存在: {artifact}")
-    latest = PROJECT_ROOT / ".agent_forge" / "latest"
-    latest.mkdir(parents=True, exist_ok=True)
-    pointer_name = "bench.txt" if scenario == "astropy" else "run.txt"
-    (latest / pointer_name).write_text(str(artifact), encoding="utf-8")
-    os.utime(artifact, None)
-    print(f"RESTORED {scenario.upper()} EVIDENCE: {artifact}")
-
-
-class DeterministicRepairModel:
-    """只固定模型意图；Runtime、工具、pytest、状态和 Evidence 都是真实实现。"""
-
-    last_usage = None
-
-    def __init__(self) -> None:
-        self.calls = 0
-
-    def chat(self, messages: list[object], tools: list[object]) -> object:
-        from agent_forge.extensions import AgentResponse, ToolCall
-
-        self.calls += 1
-        calls = {
-            1: ToolCall("lab-read-source", "read_file", {"path": "calculator.py"}),
-            2: ToolCall(
-                "lab-read-test",
-                "read_file",
-                {"path": "test_calculator.py"},
-            ),
-            3: ToolCall(
-                "lab-apply-patch",
-                "apply_patch",
-                {
-                    "path": "calculator.py",
-                    "old": "return a - b",
-                    "new": "return a + b",
-                },
-            ),
-            4: ToolCall(
-                "lab-pytest",
-                "diagnostics",
-                {"kind": "pytest", "target": "test_calculator.py"},
-            ),
-        }
-        if self.calls in calls:
-            return AgentResponse(None, [calls[self.calls]])
-        return AgentResponse(
-            "PASS\nfixed input -> governed patch -> focused pytest -> evidence",
-            [],
-        )
-
-
-def _prompt_key_on_macos() -> str:
-    """使用系统隐藏输入框，避免 Debug Console 回显凭据。"""
-
-    script = (
-        'display dialog "首次运行：请输入 DeepSeek API Key。它只会保存到 macOS '
-        'Keychain。" default answer "" with hidden answer buttons {"取消", "保存"} '
-        'default button "保存"\ntext returned of result'
+    restore_saved_evidence(
+        scenario,
+        project_root=PROJECT_ROOT,
+        state_root=STATE_ROOT,
+        runs_root=RUNS_ROOT,
     )
-    result = subprocess.run(
-        ["osascript", "-e", script],
-        check=False,
-        capture_output=True,
-        text=True,
-    )
-    if result.returncode != 0:
-        raise SystemExit("未保存 DeepSeek API Key，Live Debug 已取消。")
-    return result.stdout.strip()
 
 
 def _load_or_store_deepseek_key() -> None:
-    """从 macOS Keychain 加载；首次缺失时通过系统隐藏输入框保存。"""
-
-    if os.environ.get("DEEPSEEK_API_KEY"):
-        return
-    if sys.platform != "darwin":
-        raise SystemExit("Live/Astropy Debug 仅在 macOS 执行。")
-    account = os.environ.get("USER") or getpass.getuser()
-    result = subprocess.run(
-        [
-            "security",
-            "find-generic-password",
-            "-a",
-            account,
-            "-s",
-            KEYCHAIN_SERVICE,
-            "-w",
-        ],
-        check=False,
-        capture_output=True,
-        text=True,
-    )
-    key = result.stdout.strip()
-    if not key:
-        key = _prompt_key_on_macos()
-        if not key:
-            raise SystemExit("DeepSeek API Key 为空。")
-        subprocess.run(
-            [
-                "security",
-                "add-generic-password",
-                "-U",
-                "-a",
-                account,
-                "-s",
-                KEYCHAIN_SERVICE,
-                "-w",
-                key,
-            ],
-            check=True,
-            capture_output=True,
-        )
-    os.environ["DEEPSEEK_API_KEY"] = key
+    load_or_store_deepseek_key(KEYCHAIN_SERVICE)
 
 
 def _ensure_docker() -> None:
-    if shutil.which("docker") is None:
-        raise SystemExit(
-            "LAB 4 需要 Docker-compatible runtime；请安装 Docker Desktop 或 Colima。"
-        )
-    if subprocess.run(
-        ["docker", "info"],
-        check=False,
-        capture_output=True,
-    ).returncode == 0:
-        return
-
-    docker_app = next(
-        (
-            path
-            for path in (
-                Path("/Applications/Docker.app"),
-                Path.home() / "Applications" / "Docker.app",
-            )
-            if path.exists()
-        ),
-        None,
-    )
-    if docker_app is None:
-        raise SystemExit(
-            "Docker daemon 未就绪；请启动 Docker Desktop，或先执行 `colima start`。"
-        )
-
-    print("Docker daemon 尚未启动，正在打开 Docker Desktop……")
-    subprocess.run(["open", str(docker_app)], check=False, capture_output=True)
-    for _ in range(30):
-        time.sleep(2)
-        if subprocess.run(
-            ["docker", "info"],
-            check=False,
-            capture_output=True,
-        ).returncode == 0:
-            return
-    raise SystemExit("Docker daemon 在 60 秒内未就绪；启动完成后重新点击 Debug。")
+    ensure_docker()
 
 
 def _ensure_swebench() -> None:
-    """按固定 revision 准备 official harness；该准备层不进入项目主流程。"""
-
-    if importlib.util.find_spec("datasets") is None:
-        subprocess.run(
-            [sys.executable, "-m", "pip", "install", "-e", ".[bench]"],
-            cwd=PROJECT_ROOT,
-            check=True,
-        )
-        importlib.invalidate_caches()
-    tool_root = STATE_ROOT / "tools" / "SWE-bench"
-    if not (tool_root / ".git").is_dir():
-        tool_root.parent.mkdir(parents=True, exist_ok=True)
-        subprocess.run(
-            ["git", "clone", SWEBENCH_REPOSITORY, str(tool_root)],
-            check=True,
-        )
-    commit_exists = subprocess.run(
-        ["git", "-C", str(tool_root), "cat-file", "-e", f"{SWEBENCH_REVISION}^{{commit}}"],
-        check=False,
-        capture_output=True,
-    ).returncode == 0
-    if not commit_exists:
-        _run_git(tool_root, "fetch", "origin", SWEBENCH_REVISION)
-    _run_git(tool_root, "checkout", "--detach", SWEBENCH_REVISION)
-    subprocess.run(
-        [sys.executable, "-m", "pip", "install", "-e", str(tool_root)],
-        check=True,
+    ensure_swebench(
+        project_root=PROJECT_ROOT,
+        state_root=STATE_ROOT,
+        repository=SWEBENCH_REPOSITORY,
+        revision=SWEBENCH_REVISION,
     )
-    sys.path.insert(0, str(tool_root))
-    current = os.environ.get("PYTHONPATH", "")
-    os.environ["PYTHONPATH"] = str(tool_root) + (os.pathsep + current if current else "")
-    importlib.invalidate_caches()
 
 
 def run_control() -> None:
@@ -361,7 +149,11 @@ def run_live() -> None:
             "--provider",
             "deepseek",
             "--model",
-            "deepseek-chat",
+            "deepseek-v4-pro",
+            "--thinking",
+            "enabled",
+            "--reasoning-effort",
+            "max",
             "--max-steps",
             "8",
             "--approval-mode",
@@ -399,7 +191,11 @@ def run_astropy() -> None:
             "--provider",
             "deepseek",
             "--model",
-            "deepseek-chat",
+            "deepseek-v4-pro",
+            "--thinking",
+            "enabled",
+            "--reasoning-effort",
+            "max",
             "--max-steps",
             "16",
             "--timeout-seconds",

@@ -11,6 +11,7 @@ from agent_forge.evaluation.api import compare_runs, compare_variants, extract_r
 
 
 class RunSwebench:
+    """SWE-bench 的阶段编排器；第一遍只读 ``execute``。"""
 
     def __init__(self, dependencies: BenchDependencies) -> None:
         self._deps = dependencies
@@ -25,61 +26,83 @@ class RunSwebench:
     ) -> BenchRunSummary:
         """按 case 执行、official evaluation、最终诊断和发布顺序运行评测。"""
 
+        # region 准备区（首遍可折叠）：固定输入与跨 case 累积容器
         _validate_frozen_inputs(request)
-        cases = self._deps.cases.load(request)
-        summary = _new_summary(request, run_id, layout)
-        predictions: list[dict[str, Any]] = []
-        baseline_predictions: list[dict[str, Any]] = []
-        baseline_by_case: dict[str, dict[str, Any]] = {}
+        selected_cases = self._deps.cases.load(request)
+        run_summary = _new_summary(request, run_id, layout)
+        # Agent 预测：official evaluator 的正式输入，顺序与 selected_cases 一致。
+        agent_prediction_records: list[dict[str, Any]] = []
+        # 直接模型基线：与 Agent 预测分文件发布，避免混成同一种运行结果。
+        direct_baseline_prediction_records: list[dict[str, Any]] = []
+        # 基线索引：final diagnosis 时按 instance_id 做 O(1) 对照查找。
+        direct_baseline_by_instance_id: dict[str, dict[str, Any]] = {}
+        # endregion 准备区结束
 
-        for case in cases:
-            result = self._execute_case(case, request, layout)
-            summary.case_results.append(result)
-            predictions.append(
+        # 执行区：每个 case 先跑 Harness，再按需运行无 Harness 的直接模型基线。
+        for case in selected_cases:
+            case_result = self._execute_case(case, request, layout)
+            run_summary.case_results.append(case_result)
+            agent_prediction_records.append(
                 self._deps.artifacts.prediction_for(
-                    result,
+                    case_result,
                     provider=request.provider,
                     model=request.model,
                 )
             )
             if request.direct_baseline:
-                baseline_record = self._deps.baseline.predict(case, request)
-                baseline_predictions.append(baseline_record)
-                baseline_by_case[case.instance_id] = baseline_record
+                generated_baseline_prediction = self._deps.baseline.predict(
+                    case,
+                    request,
+                )
+                direct_baseline_prediction_records.append(
+                    generated_baseline_prediction
+                )
+                direct_baseline_by_instance_id[case.instance_id] = (
+                    generated_baseline_prediction
+                )
 
+        # 评测区：先发布 evaluator 输入，再由 official harness 写回最终判定。
         self._deps.artifacts.write_predictions(
-            summary,
-            predictions,
-            baseline_predictions,
+            run_summary,
+            agent_prediction_records,
+            direct_baseline_prediction_records,
         )
         if request.evaluate:
-            self._deps.official_evaluator.evaluate(summary, request)
+            self._deps.official_evaluator.evaluate(run_summary, request)
 
-        for result in summary.case_results:
-            self._deps.artifacts.finalize_case(result)
-            stored_baseline = baseline_by_case.get(result.instance_id)
-            if stored_baseline is not None:
-                summary.variant_comparisons[result.instance_id] = compare_variants(
-                    result.instance_id,
+        # 收口区：final diagnosis 完成后，才能生成 baseline 对照和最终报告。
+        for case_result in run_summary.case_results:
+            self._deps.artifacts.finalize_case(case_result)
+            matching_baseline_prediction = direct_baseline_by_instance_id.get(
+                case_result.instance_id
+            )
+            if matching_baseline_prediction is not None:
+                run_summary.variant_comparisons[
+                    case_result.instance_id
+                ] = compare_variants(
+                    case_result.instance_id,
                     {
-                        "direct_baseline": stored_baseline,
-                        _agent_variant_name(summary.agent_mode): extract_run_metrics(
-                            result.to_dict(),
+                        "direct_baseline": matching_baseline_prediction,
+                        _agent_variant_name(
+                            run_summary.agent_mode
+                        ): extract_run_metrics(
+                            case_result.to_dict(),
                             self._deps.artifacts.read_json(
-                                result.trace_path.parent / "usage.json"
+                                case_result.trace_path.parent / "usage.json"
                             ),
                         ),
                     },
                 )
 
-        _verify_frozen_inputs(request, summary)
+        _verify_frozen_inputs(request, run_summary)
         self._deps.artifacts.publish_run(
-            summary,
-            predictions,
-            baseline_predictions,
+            run_summary,
+            agent_prediction_records,
+            direct_baseline_prediction_records,
         )
-        return summary
+        return run_summary
 
+    # region 单 case 执行细节（首次阅读可折叠）
     def _execute_case(
         self,
         case: BenchCase,
@@ -101,48 +124,57 @@ class RunSwebench:
         request: SwebenchRunRequest,
         layout: BenchRunLayout,
     ) -> BenchCaseResult:
-        case_root = layout.case_dir(case.instance_id)
-        single_result = self._deps.executor.run(
+        # region 路径准备（可折叠）：single/multi 共用 case 根，各自独立运行
+        case_output_root = layout.case_dir(case.instance_id)
+        single_agent_run_dir = case_output_root / "single"
+        multi_agent_run_dir = case_output_root / "multi"
+        selected_candidate_patch_path = case_output_root / "patch.diff"
+        # endregion 路径准备结束
+
+        single_agent_result = self._deps.executor.run(
             case,
-            case_dir=case_root / "single",
+            case_dir=single_agent_run_dir,
             agent_mode="single",
             request=request,
         )
-        multi_result = self._deps.executor.run(
+        multi_agent_result = self._deps.executor.run(
             case,
-            case_dir=case_root / "multi",
+            case_dir=multi_agent_run_dir,
             agent_mode="multi",
             request=request,
         )
-        comparison = compare_runs(
+        run_comparison = compare_runs(
             case.instance_id,
             extract_run_metrics(
-                single_result.to_dict(),
+                single_agent_result.to_dict(),
                 self._deps.artifacts.read_json(
-                    single_result.trace_path.parent / "usage.json"
+                    single_agent_result.trace_path.parent / "usage.json"
                 ),
             ),
             extract_run_metrics(
-                multi_result.to_dict(),
+                multi_agent_result.to_dict(),
                 self._deps.artifacts.read_json(
-                    multi_result.trace_path.parent / "usage.json"
+                    multi_agent_result.trace_path.parent / "usage.json"
                 ),
                 self._deps.artifacts.read_json(
-                    multi_result.trace_path.parent
+                    multi_agent_result.trace_path.parent
                     / "multi_agent"
                     / "multi_agent_summary.json"
                 ),
             ),
         )
-        self._deps.artifacts.write_comparison(comparison, case_root)
-        combined_patch = case_root / "patch.diff"
-        self._deps.artifacts.copy_patch(multi_result.patch_path, combined_patch)
+        self._deps.artifacts.write_comparison(run_comparison, case_output_root)
+        self._deps.artifacts.copy_patch(
+            multi_agent_result.patch_path,
+            selected_candidate_patch_path,
+        )
         return _combined_result(
             case,
-            single_result,
-            multi_result,
-            combined_patch,
+            single_agent_result,
+            multi_agent_result,
+            selected_candidate_patch_path,
         )
+    # endregion 单 case 执行细节结束
 
 
 def _new_summary(
@@ -157,6 +189,8 @@ def _new_summary(
         provider=request.provider,
         model=request.model or "",
         temperature=request.temperature,
+        thinking_mode=request.thinking_mode,
+        reasoning_effort=request.reasoning_effort,
         output_dir=layout.output_dir,
         predictions_path=layout.predictions_path,
         agent_mode=request.agent_mode,
@@ -199,35 +233,45 @@ def _new_summary(
 
 def _combined_result(
     case: BenchCase,
-    single: BenchCaseResult,
-    multi: BenchCaseResult,
-    patch_path: Path,
+    single_agent_result: BenchCaseResult,
+    multi_agent_result: BenchCaseResult,
+    selected_candidate_patch_path: Path,
 ) -> BenchCaseResult:
-
     return BenchCaseResult(
         instance_id=case.instance_id,
         repo=case.repo,
-        workspace=multi.workspace,
-        trace_path=multi.trace_path,
-        usage_report_path=multi.usage_report_path,
-        patch_path=patch_path,
-        status=multi.status,
-        final_answer=multi.final_answer,
-        patch_chars=multi.patch_chars,
-        error=multi.error,
-        evaluation_status=multi.evaluation_status,
-        local_validation_status=multi.local_validation_status,
-        local_validation_evidence=multi.local_validation_evidence,
-        official_evaluation_status=multi.official_evaluation_status,
-        official_evaluation_report_path=multi.official_evaluation_report_path,
-        official_evaluation_detail=multi.official_evaluation_detail,
-        failure_class=multi.failure_class or single.failure_class,
-        diagnosis=multi.diagnosis or single.diagnosis,
+        workspace=multi_agent_result.workspace,
+        trace_path=multi_agent_result.trace_path,
+        usage_report_path=multi_agent_result.usage_report_path,
+        patch_path=selected_candidate_patch_path,
+        status=multi_agent_result.status,
+        final_answer=multi_agent_result.final_answer,
+        patch_chars=multi_agent_result.patch_chars,
+        error=multi_agent_result.error,
+        evaluation_status=multi_agent_result.evaluation_status,
+        local_validation_status=multi_agent_result.local_validation_status,
+        local_validation_evidence=multi_agent_result.local_validation_evidence,
+        official_evaluation_status=multi_agent_result.official_evaluation_status,
+        official_evaluation_report_path=(
+            multi_agent_result.official_evaluation_report_path
+        ),
+        official_evaluation_detail=multi_agent_result.official_evaluation_detail,
+        failure_class=(
+            multi_agent_result.failure_class
+            or single_agent_result.failure_class
+        ),
+        diagnosis=(
+            multi_agent_result.diagnosis
+            or single_agent_result.diagnosis
+        ),
         diagnosis_evidence=[
-            *single.diagnosis_evidence[:2],
-            *multi.diagnosis_evidence[:2],
+            *single_agent_result.diagnosis_evidence[:2],
+            *multi_agent_result.diagnosis_evidence[:2],
         ],
-        next_actions=multi.next_actions or single.next_actions,
+        next_actions=(
+            multi_agent_result.next_actions
+            or single_agent_result.next_actions
+        ),
     )
 
 
@@ -242,16 +286,23 @@ def _directory_sha256(root: str) -> str:
 
     if not root:
         return "disabled"
-    path = Path(root).expanduser()
-    if not path.is_dir():
+    memory_root_path = Path(root).expanduser()
+    if not memory_root_path.is_dir():
         return "missing"
-    digest = hashlib.sha256()
-    for item in sorted(candidate for candidate in path.rglob("*") if candidate.is_file()):
-        digest.update(str(item.relative_to(path)).encode("utf-8"))
-        digest.update(b"\0")
-        digest.update(item.read_bytes())
-        digest.update(b"\0")
-    return digest.hexdigest()
+    content_digest = hashlib.sha256()
+    memory_files = sorted(
+        candidate
+        for candidate in memory_root_path.rglob("*")
+        if candidate.is_file()
+    )
+    for memory_file in memory_files:
+        content_digest.update(
+            str(memory_file.relative_to(memory_root_path)).encode("utf-8")
+        )
+        content_digest.update(b"\0")
+        content_digest.update(memory_file.read_bytes())
+        content_digest.update(b"\0")
+    return content_digest.hexdigest()
 
 
 def _files_sha256(paths: tuple[str, ...]) -> str:
@@ -259,17 +310,22 @@ def _files_sha256(paths: tuple[str, ...]) -> str:
 
     if not paths:
         return "builtins_only"
-    digest = hashlib.sha256()
-    resolved_paths = [Path(raw_path).expanduser() for raw_path in paths]
-    for path in sorted(resolved_paths, key=lambda item: (item.name, str(item))):
-        digest.update(path.name.encode("utf-8"))
-        digest.update(b"\0")
-        if not path.is_file():
-            digest.update(b"missing")
+    content_digest = hashlib.sha256()
+    resolved_manifest_paths = [
+        Path(raw_path).expanduser() for raw_path in paths
+    ]
+    for manifest_path in sorted(
+        resolved_manifest_paths,
+        key=lambda candidate: (candidate.name, str(candidate)),
+    ):
+        content_digest.update(manifest_path.name.encode("utf-8"))
+        content_digest.update(b"\0")
+        if not manifest_path.is_file():
+            content_digest.update(b"missing")
         else:
-            digest.update(path.read_bytes())
-        digest.update(b"\0")
-    return digest.hexdigest()
+            content_digest.update(manifest_path.read_bytes())
+        content_digest.update(b"\0")
+    return content_digest.hexdigest()
 
 
 def _validate_frozen_inputs(request: SwebenchRunRequest) -> None:
@@ -291,9 +347,11 @@ def _verify_frozen_inputs(
 ) -> None:
     """运行结束时再次校验实验输入，检测外部并发修改。"""
 
-    memory_hash = _directory_sha256(request.memory_root)
-    if memory_hash != summary.memory_snapshot_sha256:
+    current_memory_snapshot_sha256 = _directory_sha256(request.memory_root)
+    if current_memory_snapshot_sha256 != summary.memory_snapshot_sha256:
         raise RuntimeError("long-term memory snapshot changed during benchmark run")
-    skill_hash = _files_sha256(request.skill_manifest_files)
-    if skill_hash != summary.skill_manifest_sha256:
+    current_skill_manifest_sha256 = _files_sha256(
+        request.skill_manifest_files
+    )
+    if current_skill_manifest_sha256 != summary.skill_manifest_sha256:
         raise RuntimeError("skill manifest changed during benchmark run")

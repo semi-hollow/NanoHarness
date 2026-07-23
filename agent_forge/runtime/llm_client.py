@@ -28,6 +28,8 @@ class OpenAICompatibleLLMClient(LLMClient):
         model: str | None = None,
         timeout: int = 30,
         temperature: float = 0.0,
+        thinking_mode: str = "auto",
+        reasoning_effort: str | None = None,
         capabilities: ModelCapabilities | None = None,
     ) -> None:
 
@@ -46,6 +48,8 @@ class OpenAICompatibleLLMClient(LLMClient):
         self.model = model or os.getenv("AGENT_FORGE_MODEL") or os.getenv("OPENAI_MODEL", "")
         self.timeout = timeout
         self.temperature = temperature
+        self.thinking_mode = thinking_mode
+        self.reasoning_effort = reasoning_effort
         self.capabilities = capabilities or ModelCapabilities()
         self.tool_calls = ToolCallNormalizer()
 
@@ -63,6 +67,8 @@ class OpenAICompatibleLLMClient(LLMClient):
             model=config.model,
             timeout=config.timeout,
             temperature=config.temperature,
+            thinking_mode=config.thinking_mode,
+            reasoning_effort=config.reasoning_effort,
             capabilities=config.capabilities,
         )
 
@@ -85,8 +91,13 @@ class OpenAICompatibleLLMClient(LLMClient):
                 for message in self._transport_messages(messages, tools)
             ],
             "stream": False,
-            "temperature": self.temperature,
         }
+        if self.thinking_mode != "enabled":
+            payload["temperature"] = self.temperature
+        if self.thinking_mode != "auto":
+            payload["thinking"] = {"type": self.thinking_mode}
+        if self.reasoning_effort:
+            payload["reasoning_effort"] = self.reasoning_effort
         if self.capabilities.native_tool_calling and tools:
             payload["tools"] = [self._tool_to_openai_schema(tool) for tool in tools]
         request = urllib.request.Request(

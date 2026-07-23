@@ -71,7 +71,6 @@ def inspect_symbol(
             candidates = ", ".join(item.symbol for item in matches[:8])
             raise ValueError(f"source symbol is ambiguous: {query}; candidates: {candidates}")
     selected = matches[0]
-    leaf = selected.symbol.rsplit(".", 1)[-1]
     callers = _static_callers(definitions, selected)
     callees = _direct_callees(selected.node)
     fields = _compass_fields(selected.docstring)

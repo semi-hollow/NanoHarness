@@ -4,6 +4,7 @@ from agent_forge.models.gateway import ModelGateway, RetryPolicy
 from agent_forge.observability.domain.usage import build_usage_report
 from agent_forge.runtime.domain.conversation import AgentResponse, Message
 from agent_forge.runtime.llm_client import OpenAICompatibleLLMClient
+from tests.support import SequenceModel
 
 
 TOOLS = [
@@ -13,16 +14,6 @@ TOOLS = [
         "arguments": {"path": "str"},
     }
 ]
-
-
-class SequenceClient:
-    def __init__(self, responses):
-        self.responses = list(responses)
-        self.messages = []
-
-    def chat(self, messages, tools):
-        self.messages.append(list(messages))
-        return self.responses.pop(0)
 
 
 class ModelAdaptationTest(unittest.TestCase):
@@ -126,7 +117,7 @@ class ModelAdaptationTest(unittest.TestCase):
         self.assertIn("repair_prompt", response.error)
 
     def test_gateway_uses_repair_prompt_instead_of_repeating_same_request(self) -> None:
-        client = SequenceClient(
+        client = SequenceModel(
             [
                 AgentResponse(
                     None,
@@ -151,7 +142,7 @@ class ModelAdaptationTest(unittest.TestCase):
         self.assertIn("return valid JSON", client.messages[1][-1].content)
 
     def test_gateway_does_not_blindly_retry_context_overflow(self) -> None:
-        client = SequenceClient(
+        client = SequenceModel(
             [
                 AgentResponse(
                     None,
@@ -174,7 +165,7 @@ class ModelAdaptationTest(unittest.TestCase):
         self.assertEqual(len(client.messages), 1)
 
     def test_gateway_does_not_send_context_overflow_to_fallback(self) -> None:
-        primary = SequenceClient(
+        primary = SequenceModel(
             [
                 AgentResponse(
                     None,
@@ -183,7 +174,7 @@ class ModelAdaptationTest(unittest.TestCase):
                 )
             ]
         )
-        fallback = SequenceClient([AgentResponse("should not run", [])])
+        fallback = SequenceModel([AgentResponse("should not run", [])])
         gateway = ModelGateway(
             primary,
             fallback=fallback,
@@ -198,10 +189,10 @@ class ModelAdaptationTest(unittest.TestCase):
         self.assertFalse(gateway.last_usage.fallback_used)
 
     def test_gateway_records_actual_fallback_model_identity(self) -> None:
-        primary = SequenceClient(
+        primary = SequenceModel(
             [AgentResponse(None, [], {"code": "request_failed"})]
         )
-        fallback = SequenceClient([AgentResponse("recovered", [])])
+        fallback = SequenceModel([AgentResponse("recovered", [])])
         gateway = ModelGateway(
             primary,
             provider="primary",

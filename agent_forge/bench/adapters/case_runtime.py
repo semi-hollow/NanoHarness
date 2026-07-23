@@ -204,6 +204,8 @@ class LocalCaseExecutor:
                 model=request.model,
                 timeout=60,
                 temperature=request.temperature,
+                thinking_mode=request.thinking_mode,
+                reasoning_effort=request.reasoning_effort,
             )
         )
         if not llm_config.is_configured():
@@ -278,6 +280,8 @@ class DirectModelBaseline:
                 model=request.model,
                 timeout=60,
                 temperature=request.temperature,
+                thinking_mode=request.thinking_mode,
+                reasoning_effort=request.reasoning_effort,
             )
         )
         model_name = f"direct-{request.provider}-{request.model or 'default'}"
