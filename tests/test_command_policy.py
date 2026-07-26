@@ -1,6 +1,7 @@
 import unittest
 
 from agent_forge.safety.command_policy import check_command
+from agent_forge.safety.guardrails import input_guardrail
 
 
 class CommandPolicyTest(unittest.TestCase):
@@ -21,6 +22,17 @@ class CommandPolicyTest(unittest.TestCase):
         ]:
             ok, reason = check_command(command)
             self.assertTrue(ok, f"{command}: {reason}")
+
+    def test_task_text_is_not_an_execution_authorization_boundary(self):
+        tasks = [
+            "Read https://github.com/example/project/issues/1 and explain the bug.",
+            "The report mentions rm -rf, ../, .env and id_rsa as blocked examples.",
+            "修复日志中记录的删除失败，但不要执行未授权命令。",
+        ]
+        for task in tasks:
+            result = input_guardrail(task)
+            self.assertTrue(result.passed, task)
+            self.assertIn("tool policy", result.reason)
 
 
 if __name__ == "__main__":

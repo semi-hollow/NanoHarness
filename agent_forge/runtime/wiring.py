@@ -294,6 +294,18 @@ def build_task_state_repository(root: str | Path) -> TaskStateRepository:
     return JsonTaskStateRepository(root)
 
 
+def build_approval_repository(root: str | Path) -> ApprovalRepository:
+    """为控制面创建默认 JSON approval repository。"""
+
+    return JsonApprovalRepository(root)
+
+
+def build_human_input_repository(root: str | Path) -> HumanInputRepository:
+    """为控制面创建默认 JSON human-input repository。"""
+
+    return JsonHumanInputRepository(root)
+
+
 def decide_approval(
     approval_root: str,
     operation_key: str,

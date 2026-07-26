@@ -59,6 +59,9 @@ class HumanInputRepository(Protocol):
     def cancel(self, request_id: str, note: str = "") -> HumanInputRequest:
         """取消仍未回答的问题。"""
 
+    def list_pending(self) -> list[HumanInputRequest]:
+        """返回尚未回答的问题，供操作台和恢复入口展示。"""
+
 
 class ApprovalRepository(Protocol):
     """副作用审批记录。"""
@@ -83,6 +86,9 @@ class ApprovalRepository(Protocol):
         note: str = "",
     ) -> ApprovalRequest:
         """保存操作员的批准或拒绝。"""
+
+    def list_pending(self) -> list[ApprovalRequest]:
+        """返回尚未决定的副作用请求。"""
 
 
 class OperationLedgerRepository(Protocol):

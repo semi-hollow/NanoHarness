@@ -21,11 +21,25 @@ class BenchmarkCaseInspectionTest(unittest.TestCase):
 
         document = render_case_catalog(set_profile, profiles)
 
-        self.assertEqual(set_profile.universe_case_count, 300)
+        self.assertEqual(set_profile.universe_case_count, 500)
+        self.assertEqual(
+            set_profile.dataset_name,
+            "SWE-bench/SWE-bench_Verified",
+        )
         self.assertEqual(len(profiles), 5)
-        self.assertIn("候选全集：`300`", document)
-        self.assertIn("人工分层选择", document)
-        self.assertIn("不能代表 SWE-bench Lite 总体表现", document)
+        self.assertIn("候选全集：`500`", document)
+        self.assertIn("分层选择", document)
+        self.assertIn("不能代表 SWE-bench Verified 总体表现", document)
+        self.assertEqual(
+            {profile.instance_id for profile in profiles},
+            {
+                "astropy__astropy-12907",
+                "django__django-11133",
+                "matplotlib__matplotlib-20859",
+                "pytest-dev__pytest-10051",
+                "sympy__sympy-20590",
+            },
+        )
         for profile in profiles:
             self.assertIn(profile.instance_id, document)
             self.assertIn(profile.selection_reason, document)

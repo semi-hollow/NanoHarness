@@ -10,19 +10,28 @@ if [[ ! -x .venv/bin/python ]]; then
 fi
 
 scenario="control"
+produce_evidence=true
 case "${1:-}" in
   "") ;;
   --live) scenario="live" ;;
+  --show-latest)
+    scenario="show-latest"
+    produce_evidence=false
+    ;;
   --show-live) scenario="show-live" ;;
   --show-astropy) scenario="show-astropy" ;;
   *)
-    printf 'Usage: scripts/interview_demo.sh [--live|--show-live|--show-astropy]\n' >&2
+    printf 'Usage: scripts/interview_demo.sh [--live|--show-latest|--show-live|--show-astropy]\n' >&2
     exit 2
     ;;
 esac
 
-printf '\n=== NanoHarness: produce governed Evidence ===\n'
-.venv/bin/python examples/debug_lab/run.py "${scenario}"
+if [[ "${produce_evidence}" == true ]]; then
+  printf '\n=== NanoHarness: produce governed Evidence ===\n'
+  .venv/bin/python examples/debug_lab/run.py "${scenario}"
+else
+  printf '\n=== NanoHarness: open the latest published Evidence ===\n'
+fi
 
 state_dir=".agent_forge/debug-lab/state"
 mkdir -p "${state_dir}"

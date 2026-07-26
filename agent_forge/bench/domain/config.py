@@ -17,7 +17,7 @@ class SwebenchRunRequest:
     """
 
     # 数据集与 case 选择。
-    dataset_name: str = "princeton-nlp/SWE-bench_Lite"
+    dataset_name: str = "SWE-bench/SWE-bench_Verified"
     split: str = "test"
     limit: int = 1
     instance_ids: tuple[str, ...] = ()
@@ -48,6 +48,7 @@ class SwebenchRunRequest:
     evaluate: bool = False
     max_workers: int = 1
     namespace_empty: bool = False
+    official_cache_level: str = "env"
 
     # single、sequential multi、compare 的 workflow 配置。
     agent_mode: str = "single"
@@ -73,6 +74,12 @@ class SwebenchRunRequest:
     container_memory: str = "1g"
     container_pids_limit: int = 256
     container_read_only: bool = True
+
+    def __post_init__(self) -> None:
+        if self.official_cache_level not in {"none", "base", "env", "instance"}:
+            raise ValueError(
+                "official_cache_level must be one of: none, base, env, instance"
+            )
 
 
 # 核心数据：一次 benchmark run 的根目录和预测文件位置。

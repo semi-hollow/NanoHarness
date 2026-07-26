@@ -14,7 +14,13 @@ from agent_forge.configuration import (
     resolve_run_arguments,
     resolved_run_config,
 )
-from agent_forge.harness import Harness, HarnessConfig, RunRequest
+from agent_forge.harness import (
+    Harness,
+    HarnessConfig,
+    HarnessExtensions,
+    RunRequest,
+    RunResult,
+)
 from agent_forge.multi_agent.api import (
     LiveFanoutBuildRequest,
     SequentialCoordinatorBuildRequest,
@@ -48,25 +54,46 @@ from agent_forge.tools.registry import ToolRegistry
 def run_repository_task(args: argparse.Namespace) -> Path:
     """把 CLI 输入转换为类型化请求；Single Agent 委托唯一 ``Harness`` API。"""
 
-    try:
-        config_document = resolve_run_arguments(args)
-    except (OSError, ValueError) as exc:
-        raise SystemExit(f"invalid run configuration: {exc}") from exc
+    config_document = resolve_repository_arguments(args)
     if getattr(args, "agent_mode", "single") == "single":
-        return _run_single_repository_task(args, config_document)
+        return execute_single_repository_task(args, config_document).artifact_dir
     return _run_advanced_repository_task(args, config_document)
 
 
-def _run_single_repository_task(
+def resolve_repository_arguments(
+    args: argparse.Namespace,
+) -> RunConfigDocument | None:
+    """合并 CLI、环境变量、配置文件和默认值，供 CLI/TUI 共享。"""
+
+    try:
+        return resolve_run_arguments(args)
+    except (OSError, ValueError) as exc:
+        raise SystemExit(f"invalid run configuration: {exc}") from exc
+
+
+def execute_single_repository_task(
     args: argparse.Namespace,
     config_document: RunConfigDocument | None,
-) -> Path:
+    *,
+    extensions: HarnessExtensions | None = None,
+) -> RunResult:
     """规范主链：CLI 只选择 Adapter，再调用 ``Harness.run``。"""
 
-    llm = build_llm(_resolve_llm_config(args))
+    harness = build_single_harness(args, extensions=extensions)
+    request = build_single_run_request(args, config_document)
+    return harness.run(request)
+
+
+def build_single_harness(
+    args: argparse.Namespace,
+    *,
+    extensions: HarnessExtensions | None = None,
+) -> Harness:
+    """装配 single-agent Harness；Operator Console 复用这里而不复制 Runtime。"""
+
     enabled_tools = getattr(args, "enabled_tools", None)
-    harness = Harness(
-        model=llm,
+    return Harness(
+        model=build_llm(_resolve_llm_config(args)),
         config=HarnessConfig(
             workspace=args.workspace,
             output_root=args.output_root,
@@ -108,16 +135,22 @@ def _run_single_repository_task(
             container_pids_limit=args.container_pids_limit,
             container_read_only=args.container_read_only,
         ),
+        extensions=extensions,
     )
-    result = harness.run(
-        RunRequest(
-            task=args.task,
-            resume_state=getattr(args, "resume_state", "") or "",
-            human_thread_id=getattr(args, "human_thread_id", "") or "",
-            resolved_config=resolved_run_config(args, config_document),
-        )
+
+
+def build_single_run_request(
+    args: argparse.Namespace,
+    config_document: RunConfigDocument | None,
+) -> RunRequest:
+    """把已解析参数收敛为 Public API 输入。"""
+
+    return RunRequest(
+        task=args.task,
+        resume_state=getattr(args, "resume_state", "") or "",
+        human_thread_id=getattr(args, "human_thread_id", "") or "",
+        resolved_config=resolved_run_config(args, config_document),
     )
-    return result.artifact_dir
 
 
 def _run_advanced_repository_task(

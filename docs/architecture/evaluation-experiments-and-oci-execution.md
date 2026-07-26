@@ -6,7 +6,7 @@ official evaluator report。
 
 ## 目标
 
-1. 将固定五 case SWE-bench Lite regression set 转成机器可读 scorecard，覆盖 patch
+1. 将固定五 case SWE-bench Verified regression set 转成机器可读 scorecard，覆盖 patch
    能否到达、local validation、official outcome、token、cost、latency、tool failure
    和 failure class。
 2. 只有 dataset、split、provider/model identity 和 case id 都匹配时，才将两个完整

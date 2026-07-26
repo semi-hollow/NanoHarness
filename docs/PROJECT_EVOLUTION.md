@@ -138,7 +138,7 @@ Harness，不是通用 workflow engine。`0961f00` 最后用 repeated campaign �
 | HITL | 04-30 auto approval placeholder | 07-10 durable approval；07-12 durable clarification | clarification 不授权副作用 |
 | Multi-Agent | 04-30 固定角色顺序 | 07-04 artifact coordinator；07-12 隔离 DAG fanout | 本机 coordinator，不是 distributed swarm |
 | Safety | 04-30 path/command/permission | 07-10 fingerprint/ledger；07-11 worktree/OCI | Local/OCI 都不夸大为 hostile multi-tenant isolation |
-| Evaluation | 04-30 小型 fixture | 06-22 SWE-bench；07-11 official parser；07-19 campaign | Smoke-5 不代表 Lite 300 总体结果 |
+| Evaluation | 04-30 小型 fixture | 06-22 SWE-bench；07-11 official parser；07-19 campaign；07-26 Verified 分层集 | Smoke-5 不代表 Verified 500 总体结果 |
 | Architecture | 能力目录内职责混合 | 07-14 stages 与 Ports/Adapters；07-19 Public API | Capability-first，不是抽象通用框架 |
 
 ## 三个容易混淆的概念

@@ -78,6 +78,8 @@ class SwebenchOfficialEvaluator:
             str(summary.predictions_path),
             "--max_workers",
             str(request.max_workers),
+            "--cache_level",
+            request.official_cache_level,
             "--run_id",
             summary.run_id,
         ]

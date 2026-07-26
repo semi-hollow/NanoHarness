@@ -13,6 +13,10 @@ from agent_forge.bench.domain.config import SwebenchRunRequest
 
 
 class OfficialResultsTest(unittest.TestCase):
+    def test_invalid_official_cache_level_is_rejected_before_evaluation(self):
+        with self.assertRaisesRegex(ValueError, "official_cache_level"):
+            SwebenchRunRequest(official_cache_level="everything")
+
     def test_parse_run_report_maps_each_evidence_level(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -158,6 +162,10 @@ class OfficialResultsTest(unittest.TestCase):
         self.assertEqual(observed_cwd, [root])
         self.assertIn("--split", observed_commands[0])
         self.assertEqual(observed_commands[0][observed_commands[0].index("--split") + 1], "test")
+        self.assertEqual(
+            observed_commands[0][observed_commands[0].index("--cache_level") + 1],
+            "env",
+        )
         self.assertEqual(case.official_evaluation_status, "official_resolved")
         self.assertTrue(summary.official_eval_report_path.endswith("agent-forge.run-5.json"))
 

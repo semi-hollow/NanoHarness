@@ -14,6 +14,9 @@ from agent_forge.bench.domain.config import SwebenchRunRequest
 from agent_forge.bench.domain.models import BenchCaseResult, BenchRunSummary
 
 
+PROJECT_ROOT = Path(__file__).parents[1]
+
+
 class _SourceIdentity:
     def __init__(self, *, dirty: bool = False) -> None:
         self.dirty = dirty
@@ -190,6 +193,9 @@ class BenchmarkCampaignTest(unittest.TestCase):
                 for path in public_dir.rglob("*")
                 if path.is_file()
             )
+            public_summary = json.loads(
+                (public_dir / "summary.json").read_text(encoding="utf-8")
+            )
 
         self.assertNotIn("super-secret", public_text)
         self.assertNotIn("token=private", public_text)
@@ -197,6 +203,12 @@ class BenchmarkCampaignTest(unittest.TestCase):
         self.assertNotIn(str(root), public_text)
         self.assertIn("runtime-preset", public_text)
         self.assertIn("Official resolved", public_text)
+        self.assertIn("Repetition count is `2`", public_text)
+        self.assertNotIn("Three repetitions", public_text)
+        self.assertEqual(
+            public_summary["variants"]["minimal-control"]["total_tokens"],
+            400,
+        )
 
     def test_dirty_source_is_rejected_before_any_paid_run(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -211,6 +223,57 @@ class BenchmarkCampaignTest(unittest.TestCase):
                 use_case.execute(self._request(root, repetitions=1))
 
         self.assertEqual(runner.requests, [])
+
+    def test_checked_in_commissioning_evidence_is_self_consistent(self):
+        evidence_dir = (
+            PROJECT_ROOT
+            / "benchmarks"
+            / "campaigns"
+            / "verified-commissioning-2-20260726"
+        )
+        manifest = json.loads(
+            (evidence_dir / "manifest.json").read_text(encoding="utf-8")
+        )
+        summary = json.loads(
+            (evidence_dir / "summary.json").read_text(encoding="utf-8")
+        )
+
+        self.assertEqual(manifest["status"], "completed")
+        self.assertTrue(manifest["source"]["dirty"])
+        self.assertIn(
+            "Post-hoc commissioning subset",
+            manifest["config"]["provenance_note"],
+        )
+        self.assertEqual(len(manifest["records"]), 4)
+        self.assertTrue(
+            all(
+                record["evidence"]["official_evaluation_status"]
+                == "official_resolved"
+                for record in manifest["records"]
+            )
+        )
+        self.assertEqual(summary["paired_official"]["evaluated_pairs"], 2)
+        self.assertEqual(summary["paired_official"]["ties"], 2)
+
+        for record in manifest["records"]:
+            scorecard = (
+                evidence_dir
+                / "runs"
+                / record["key"]
+                / "scorecard.json"
+            )
+            self.assertEqual(
+                hashlib.sha256(scorecard.read_bytes()).hexdigest(),
+                record["scorecard_sha256"],
+            )
+
+        public_text = "\n".join(
+            path.read_text(encoding="utf-8")
+            for path in evidence_dir.rglob("*")
+            if path.is_file()
+        )
+        self.assertNotIn("/Users/", public_text)
+        self.assertNotIn("api_key", public_text.lower())
 
 
 if __name__ == "__main__":

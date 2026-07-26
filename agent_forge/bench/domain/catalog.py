@@ -10,7 +10,7 @@ from agent_forge.bench.domain.case_inspection import (
 )
 
 
-DEFAULT_DATASET = "princeton-nlp/SWE-bench_Lite"
+DEFAULT_DATASET = "SWE-bench/SWE-bench_Verified"
 SHOWCASE_INSTANCE_ID = "astropy__astropy-12907"
 SHOWCASE_INSTANCE_NOTE = (
     "Astropy nested CompoundModel separability bug. This case is small enough "
@@ -35,21 +35,21 @@ CASE_PROFILES = {
         harness_signals=("类型识别", "公共 API", "回归保护"),
         selection_reason="覆盖框架类型边界，检查小 patch 是否同时保留既有 bytes/string 行为。",
     ),
-    "matplotlib__matplotlib-18869": BenchmarkCaseProfile(
-        instance_id="matplotlib__matplotlib-18869",
-        title="增加可比较的顶层版本信息",
-        issue_type="公共 API / 版本解析",
-        summary="将版本字符串解析成可比较结构，并兼容 rc、dev、post 等形式。",
-        harness_signals=("需求澄清", "多分支实现", "边界输入", "API 兼容"),
-        selection_reason="覆盖规则较多的公共 API 变更，观察长 patch、边界输入和兼容性推理。",
+    "matplotlib__matplotlib-20859": BenchmarkCaseProfile(
+        instance_id="matplotlib__matplotlib-20859",
+        title="SubFigure 无法正确添加 legend",
+        issue_type="公共 API / 类型层级",
+        summary="Legend 只接受 Figure，导致同属 FigureBase 层级的 SubFigure 被错误拒绝。",
+        harness_signals=("跨模块导航", "类型层级", "公共 API", "回归保护"),
+        selection_reason="覆盖 API 类型层级问题，检查 Agent 能否找到更稳定的共同抽象而非添加特例。",
     ),
-    "pytest-dev__pytest-5103": BenchmarkCaseProfile(
-        instance_id="pytest-dev__pytest-5103",
-        title="展开 all/any assertion 以改善失败报告",
-        issue_type="AST Rewrite / 可诊断性",
-        summary="改写生成器断言，使失败输出指出具体未满足条件的元素。",
-        harness_signals=("AST 导航", "多 hunk patch", "错误报告质量"),
-        selection_reason="覆盖 AST rewrite 与三处协同修改，检查多 hunk 编辑和诊断质量。",
+    "pytest-dev__pytest-10051": BenchmarkCaseProfile(
+        instance_id="pytest-dev__pytest-10051",
+        title="caplog.clear 破坏既有 records 引用",
+        issue_type="状态生命周期 / 可诊断性",
+        summary="clear 通过替换列表丢失调用方持有的引用，需要保留对象身份并原地清理。",
+        harness_signals=("状态生命周期", "别名语义", "多 hunk patch", "诊断可靠性"),
+        selection_reason="覆盖可观测状态的对象身份问题，检查 Agent 能否从 API 冲突追到生命周期根因。",
     ),
     "sympy__sympy-20590": BenchmarkCaseProfile(
         instance_id="sympy__sympy-20590",
@@ -65,19 +65,19 @@ CASE_PROFILES = {
 SMOKE_5_CASE_IDS = tuple(CASE_PROFILES)
 REGRESSION_SETS = {"smoke-5": list(SMOKE_5_CASE_IDS)}
 
-# 集合契约：回答“从 300 题中为什么只选这 5 题、结论能外推到哪里”。
+# 集合契约：回答“从 500 题中为什么只选这 5 题、结论能外推到哪里”。
 SMOKE_5_PROFILE = BenchmarkSetProfile(
     name="smoke-5",
     dataset_name=DEFAULT_DATASET,
     split="test",
-    universe_case_count=300,
+    universe_case_count=500,
     objective=(
         "以较低成本回归 Harness 的代码检索、工具循环、patch 生成、验证和证据链；"
         "它不是模型排行榜，也不估计总体解决率。"
     ),
     selection_method=(
-        "从 SWE-bench Lite test 的 300 个 case 中人工分层选择：五个不同仓库、五种问题族，"
-        "控制单 case 规模，同时保留从最小修复到多分支/多 hunk 修改的难度差异。"
+        "从 SWE-bench Verified test 的 500 个经人工确认 case 中分层选择：五个不同仓库、"
+        "五种问题族；控制单 case 规模，同时保留语义定位和多 hunk 修改差异。"
     ),
     selection_constraints=(
         "每个 case 只修改一个源码文件，参考 patch 不超过三个 hunk。",
@@ -87,12 +87,12 @@ SMOKE_5_PROFILE = BenchmarkSetProfile(
     coverage_dimensions=(
         "算法语义与嵌套调用",
         "类型边界与框架兼容",
-        "公共 API 与版本解析",
-        "AST rewrite 与诊断质量",
+        "公共 API 与类型层级",
+        "状态生命周期与诊断可靠性",
         "继承语义与对象布局",
     ),
     claim_limits=(
-        "五个 case 只能支持机制回归和 case study，不能代表 SWE-bench Lite 总体表现。",
+        "五个 case 只能支持机制回归和 case study，不能代表 SWE-bench Verified 总体表现。",
         "candidate patch 只表示生成了 diff，正确性必须由官方 per-case 评测确认。",
         "单次运行不估计模型随机方差；质量结论需要固定配置后的重复 matched runs。",
     ),

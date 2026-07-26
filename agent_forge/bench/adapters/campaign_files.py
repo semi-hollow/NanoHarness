@@ -13,7 +13,13 @@ from agent_forge.bench.domain.campaign import CampaignState
 from agent_forge.bench.presentation.campaign_report import render_campaign_report
 
 
-_SECRET_KEY = re.compile(r"(api[_-]?key|token|secret|password|authorization)", re.I)
+_SECRET_KEY = re.compile(
+    r"(^|[_-])("
+    r"api[_-]?key|access[_-]?token|auth[_-]?token|bearer[_-]?token|"
+    r"refresh[_-]?token|id[_-]?token|token|secret|password|authorization"
+    r")($|[_-])",
+    re.I,
+)
 _SECRET_ASSIGNMENT = re.compile(
     r"(?i)\b(api[_-]?key|access[_-]?token|token|secret|password|authorization)="
     r"([^&\s\"'<>]+)"
@@ -213,6 +219,7 @@ def _public_state(
 
 
 def _sanitize(value: Any, *, key: str = "") -> Any:
+    # `total_tokens` / `max_prompt_tokens` 是公开评测指标，不是认证 token。
     if _SECRET_KEY.search(key):
         return "<redacted>"
     if isinstance(value, dict):

@@ -40,8 +40,9 @@ def build_parser() -> argparse.ArgumentParser:
     subparsers = parser.add_subparsers(
         dest="command",
         required=True,
-        metavar="{run,inspect,demo,resume,bench,ui}",
+        metavar="{console,run,inspect,demo,resume,bench,ui}",
     )
+    _add_console_command(subparsers)
     _add_run_command(subparsers)
     _add_inspect_command(subparsers)
     _add_demo_command(subparsers)
@@ -56,6 +57,25 @@ def build_parser() -> argparse.ArgumentParser:
     )
     build_ui_parser(ui_parser)
     return parser
+
+
+def _add_console_command(subparsers: argparse._SubParsersAction) -> None:
+    parser = subparsers.add_parser(
+        "console",
+        help="Operate one real single-agent Harness through a live terminal UI.",
+    )
+    parser.add_argument(
+        "task",
+        nargs="?",
+        help="Optional initial task; it can also be entered in the console.",
+    )
+    parser.add_argument("--config")
+    parser.add_argument("--workspace")
+    parser.add_argument("--output-root")
+    _add_execution_environment_args(parser, defaults=False)
+    _add_model_args(parser, defaults=False)
+    _add_runtime_policy_args(parser, defaults=False)
+    _add_extension_args(parser, defaults=False)
 
 
 def _add_inspect_command(subparsers: argparse._SubParsersAction) -> None:

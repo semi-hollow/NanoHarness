@@ -11,6 +11,7 @@ requires-python=">=3.10"
 license={file="LICENSE"}
 dependencies=[
   "PyYAML>=6.0,<7",
+  "textual>=0.89,<2",
 ]
 classifiers=[
   "Development Status :: 3 - Alpha",
@@ -47,6 +48,9 @@ warn_unused_ignores = true
 ignore_missing_imports = true
 show_error_codes = true
 pretty = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
 
 [tool.setuptools.packages.find]
 include = ["agent_forge*"]

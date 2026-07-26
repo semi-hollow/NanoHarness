@@ -1496,6 +1496,233 @@ AgentLoop、ToolExecution 和 LiveFanout 的状态变量改为包含阶段与用
 删掉必要证据，而是把定义、准备、测试和副作用细节放回各自边界；变量名应回答“谁在何阶段为何
 持有它”，不能要求读者靠完整调用历史猜类型。
 
+### 61. 人工批准已经持久化，工具仍被第二套旧门禁拒绝
+
+现象：Operator Console 的审批链能正确停在 `waiting_approval`，批准后也创建了 continuation，
+但同一个 `apply_patch` 没有执行，最终因 `repeated_tool_call` 进入 blocked。
+
+Failure scenario：Runtime 的 `ToolAuthorization` 已读取到 approved operation，随后 built-in
+`ApplyPatchTool` 又根据构造参数 `auto_approve_writes=False` 返回 `needs_approval`。模型重试相同
+patch，重复检测器把它视为无证据重复；界面看起来接受了批准，实际文件没有改变。
+
+根因：人工审批迁移到 Runtime Hook/ApprovalRepository 后，built-in write tool 仍保留早期的
+内部 permission gate，授权所有权分散在两层。原有测试使用了内部自动批准的手工 registry，因此
+没有覆盖 Public Harness 的真实装配。
+
+窄修复：`Harness` 构造 built-in registry 时始终让工具执行已通过上层门禁的调用；写操作是否允许
+只由 Runtime Hook、approval store 和 operation fingerprint 决定。Operator Console 继续复用
+同一个 Harness，不添加绕过安全策略的 UI 特例。
+
+验证：新增端到端回归证明批准前目标文件不变、pending approval 含真实 tool evidence、批准后同一
+operation 执行并完成；另覆盖 human answer 自动 continuation、latest checkpoint 接管和实时事件
+顺序。工程结论：授权必须有唯一 owner；防御层可以叠加约束，但不能由两个不了解彼此状态的门禁
+分别维护同一人工决定。
+
+### 62. HITL 已回答，但审批后的 continuation 再次询问同一事实
+
+现象：真实 Operator Console 默认任务依次进入 `waiting_human` 和 `waiting_approval`，批准 patch
+后模型又换一种措辞询问目标 Python 版本；用户需要重复回答，最终答案甚至采用第二次回答。
+
+Failure scenario：第一次回答 `Python 3.11` 后，模型正确提出 patch 并等待授权。审批 continuation
+只恢复原始 task、checkpoint summary 和 human thread id，没有把已回答问答写入新 task；模型看到
+“修改前必须 ask_human”的原始要求后重新提问。因为第二次问题文本不同，确定性 request id 也不同，
+仓储无法把它识别为已回答问题。
+
+根因：CLI resume 使用 `BuildContinuationPlan` 将人工问答提升为模型可见 continuation 事实，
+Operator Console 却直接调用 `Harness.resume`，两条入站路径的恢复语义发生漂移。
+
+窄修复：Console 在持久化回答后复用同一个 `BuildContinuationPlan`，将 Question、Answer 和
+“do not ask the same question again”写入 continuation task，再调用 Public Harness resume；
+后续审批 checkpoint 继承这份显式 task，因此不依赖隐藏会话状态。
+
+验证：状态无关的测试模型只有在输入中真实看见 `Python 3.11` 才会结束，否则持续 ask_human；
+回归确认一次回答后直接 completed，checkpoint task 保留回答与去重指令。工程结论：恢复链应传播
+已经解决的控制事实，而不只是传播 thread identity；幂等 key 不能替代模型可见的状态说明。
+
+### 63. 实时事件完整但操作台把运行级收尾伪装成 Step 0
+
+现象：Operator Console 在 `Step 2` 等待审批后显示 `Step 0 证据发布`，同时把
+`permission_check`、`stop_hooks`、operation hash 和绝对仓储路径按大段 JSON 输出；真实主链被
+几十条基础设施事件淹没。
+
+Failure scenario：使用者把 `Step 0` 误解成 AgentLoop 倒退或重新执行，又需要从事件 49、51 的
+多行 payload 中自行辨认“等待审批”这一核心变化。展示层虽然数据完整，却无法用于现场观察和讲解。
+
+根因：实时事件 envelope 统一要求整数 step，`run.published` 用 `0` 表达“不属于 turn”；旧渲染器
+又无条件添加 `Step` 前缀，并把所有脱敏 payload 当作同等重要的信息直接序列化。
+
+窄修复：不改变 Runtime 和 Evidence 契约，在 Console 投影层把 run 级事件明确显示为 `Run`；默认
+只展示轮次、上下文窗口、模型、工具、人工控制、关键 checkpoint 和终态，并为每类事件生成单行
+摘要。运行中机械 checkpoint 与 hook 事件折叠到可切换的“显示底层事件”视图，历史可即时重放。
+
+验证：回归锁定 `run.published` 不再出现 `Step/Turn 0`，默认视图隐藏 stop hooks 和 running
+checkpoint，等待审批 checkpoint 保留，底层 payload 仍可见但长度受限；Textual mount 回归确认
+视图切换入口存在。工程结论：Evidence 应完整，操作台应有信息层级；观测数据的存储模型不应直接
+等同于人的阅读模型。
+
+### 64. Benchmark 能执行，却无法解释样本代表什么和为什么只选这些题
+
+现象：项目默认从 SWE-bench Lite 300 题中人工选择五题，但公开证据主要集中在 Astropy 单题；
+旧 Matplotlib/Pytest 题又不属于更稳定的 Verified 集合。介绍时只能罗列 Smoke-5、official
+evaluation 和测试数量，无法回答“为什么选这套 benchmark、五题覆盖什么、结果能外推到哪里”。
+
+Failure scenario：面试官追问总体 case 数、选题依据和通过率，单题 resolved 容易被误听成
+Smoke-5 或 SWE-bench 总体成绩；内部行为测试、Research/Ops mini-case 与外部正确性 benchmark
+也可能被混成一个数字，形成不可验证 claim。
+
+根因：执行器、scorecard 和 campaign 已经存在，但 benchmark portfolio 缺少明确决策层；
+Lite 样本选择只控制 patch 规模，没有优先使用人工复核后的候选全集，也没有记录被拒绝 benchmark
+与产品边界的关系。
+
+窄修复：默认数据集迁到 500 题 SWE-bench Verified，保留 Astropy、Django、Sympy，替换为
+Verified 中的 Matplotlib 类型层级题和 Pytest 状态生命周期题；五题继续约束为不同仓库、
+不同问题族、单源码文件且不超过三个 hunk。新增 PyCharm 一键 10-slot campaign，并明确区分
+Verified 正确性、行为测试 Runtime 契约和 evaluator-only mini-case。Terminal-Bench、BFCL、
+τ-bench 只记录暂缓/不选原因，不为展示宽度强接实现。
+
+验证：case catalog 回归锁定 Verified dataset、500 题候选全集和五个稳定 ID；一键入口复用正式
+campaign、真实 provider、official evaluator 与 source identity，不创建第二套评测逻辑。首次
+commissioning run 已完成 Astropy、Django 两题在 minimal/governed preset 下的 4 个槽位，
+4 个槽位均由 SWE-bench per-case report 判定 `resolved=true`；这是两题端到端证据，不是
+Smoke-5 完成率或 500 题总体成绩。工程结论：benchmark 组合应由产品边界、可执行 oracle 和诚实
+denominator 决定；少量分层 case 可以支撑机制回归，但只有完整重复 campaign 才能形成可比较
+结果，任何结果都不能外推到 500 题总体。
+
+### 65. Verified Issue 中的普通链接被输入关键词过滤器当成危险动作
+
+现象：`matplotlib__matplotlib-20859` 和 `pytest-dev__pytest-10051` 在首次模型调用前直接
+blocked，`llm_calls=0`、patch 为空；诊断又把它们标成 `context_miss`。对应 issue 原文只是包含
+GitHub `https://` 链接，并没有请求 Agent 访问网络。
+
+Failure scenario：合法 issue、报错日志或审计报告只要提到 URL、`.env`、`../` 或危险命令示例，
+整个任务就在输入阶段停止。模型、context 和 tool pipeline 都没有运行，却被错误归因成代码文件
+没有召回，导致 benchmark 结果和调优方向同时失真。
+
+根因：早期 `input_guardrail` 将字符串 marker 同时当作文本风险信号和执行授权边界；它无法区分
+“任务中引用了一个动作”与“ToolCall 正在执行该动作”。安全 owner 与 ToolRouter、CommandPolicy、
+Sandbox、Approval 重复，并且缺少 trust/data-flow 语义。
+
+窄修复：输入层保留 marker 命中和 severity 作为 trace 提示，但不再据此阻断任务；副作用仍必须
+在具体 ToolCall 上通过工具可见性、命令策略、workspace sandbox 和人工审批。Failure taxonomy
+新增 `input_policy_block`，保证未来真正的输入策略停止也不会被误报为 `context_miss`。
+
+验证：回归覆盖带 GitHub URL、危险命令引用、敏感文件名和中文“删除”字样的合法任务可进入
+Runtime，同时原有 `curl/wget`、`git push/reset --hard` 等命令仍被 CommandPolicy 拒绝；
+历史空 patch 证据可被新 taxonomy 识别为模型调用前的 policy block。工程结论：task text 表达
+意图与证据，ToolCall 才表达待执行副作用；关键词提示可以观测，授权必须落在动作边界。
+
+### 66. 配对 Campaign 为同一道题重复构建 Official Instance Image
+
+现象：Astropy 和 Django 的两个 Runtime preset 顺序相邻，但 official evaluator 每侧都重新构建
+相同 instance image；在 Apple Silicon 上通过 x86_64 仿真时，镜像构建时间明显超过模型调用，
+10-slot 初始 campaign 的反馈周期被无意义放大。
+
+Failure scenario：第一个 variant 已得到 official outcome 并删除 instance 层缓存，第二个 variant
+随即基于同一 base commit 和测试环境再次执行完全相同的镜像构建。结果不变，但本地验证耗时、
+CPU 和磁盘写入重复，使用者容易把 evaluator 基础设施延迟误认为 Agent latency。
+
+根因：NanoHarness 只向 official harness 传 dataset、prediction、worker 和 run id，隐式采用
+SWE-bench 的 `env` cache 默认值；单次 run 合理的清理策略没有针对 matched campaign 的相邻复用
+做显式选择。
+
+窄修复：`SwebenchRunRequest` 增加受枚举约束的 `official_cache_level`，CLI 与 campaign identity
+完整记录该值，official evaluator 显式透传 `--cache_level`。普通运行默认 `env`，PyCharm
+Smoke-5 campaign 使用 `instance`，让同 case 的第二个 preset 复用镜像但不改变评测 oracle。
+
+验证：请求构造拒绝未知 cache level；official command 回归确认默认 `env`，一键 campaign 回归
+确认显式使用 `instance`。真实 commissioning run 中，Django 第二个 preset 直接复用首个 preset
+留下的 instance image，没有再次构建；Matplotlib 首个镜像仍需安装较重的 TeX/图形依赖，说明
+缓存只消除同题重复成本，不会消除每道新题的首次环境成本。工程结论：benchmark 基础设施的缓存
+策略属于实验执行成本，不属于模型质量；它必须可见、固定且不改变输入、patch 或 official 判定。
+
+### 67. Campaign 报告把固定文案写成了并不存在的实验配置
+
+现象：一键 commissioning campaign 只运行一次 repetition，报告 Claim Boundary 却固定写成
+“Three repetitions”；非 Smoke-5 的 campaign 也会固定显示 “Smoke-5 is a mechanism regression
+set”。README 同时残留从 Lite 时代继承的“不能外推到 300 题”，与当前 Verified 500 题候选全集
+冲突。
+
+Failure scenario：面试官打开一次 repetition 的真实报告，看见“三次重复”后无法判断运行矩阵和
+结论边界哪个可信；继续对照 README 又发现 300/500 分母不一致。即使 official result 正确，展示层
+也会让整个 evidence pipeline 像手工包装。
+
+根因：报告渲染器把最初的推荐实验配置写成无条件静态文案，没有从持久化
+`state.config.repetitions` 和实际 case set 生成边界说明；数据集迁移时也没有全仓检查旧分母。
+
+窄修复：Claim Boundary 按真实 repetition 数动态生成；少于三次明确标为 commissioning evidence，
+三次及以上也只声称暴露明显波动，不声称统计显著性。case 集合统一描述为选定的机制回归/
+commissioning set，不把任意 campaign 冒充 Smoke-5；README 分母同步为 Verified 500。
+
+验证：公开 bundle 回归锁定两次 repetition 的真实文案，并拒绝固定的 “Three repetitions”；全仓
+检索确认面向当前配置的公开文档不再残留 300 题分母。工程结论：报告边界必须由实验身份派生，
+推荐配置不能硬编码成已执行事实。
+
+### 68. 脱敏器把 Token 用量指标误当成认证 Token
+
+现象：公开 campaign bundle 能正确隐藏 API key 和 URL query token，但 `total_tokens`、
+`mean_tokens_per_completed_run`、`max_prompt_tokens` 等非敏感指标也被替换为 `<redacted>`；
+README 却承诺公开 token、cost 和 tool failure 聚合。
+
+Failure scenario：面试官打开公开证据只能看到成本，无法核验两个 Runtime preset 的 token
+消耗；同一份报告声称有 usage evidence，JSON 实际将它删掉。为了绕过问题手工粘贴数字，又会破坏
+统一 publisher 和 scorecard hash 的可信链。
+
+根因：secret key 正则用无边界的 `token` 子串匹配所有字段，没有区分认证凭据的单数
+`access_token/token` 与用量指标中的复数 `tokens`。
+
+窄修复：secret key 只匹配 API key、独立 token、access/auth/bearer/refresh/id token、secret、
+password 和 authorization 等明确认证字段；`total_tokens`、prompt/reasoning token capacity 等
+评测事实保留公开。字符串中的 `token=...` 赋值仍继续脱敏。
+
+验证：公开 bundle 回归同时确认 URL query token、API key、本机路径仍不存在，并锁定
+`total_tokens` 的数值聚合可见。工程结论：脱敏规则必须按数据语义分类；过度脱敏不会更安全，
+反而会让本应可验证的 observability claim 失去证据。
+
+### 69. Operator Console 完成后 Workbench 可能打开旧 Run
+
+现象：现场在临时练习仓库完成 HITL、审批和 continuation，随后点击“Latest Evidence”，浏览器却
+可能展示此前 campaign 或其他 Debug Lab 的结果。
+
+Failure scenario：`Harness` 按请求 workspace 写入 `.agent_forge/latest/run.txt`；Operator Console
+使用隔离练习仓库，因此最新指针留在该仓库，而 Workbench 按钮读取 NanoHarness 根目录指针。
+两条入口各自正确，但展示编排缺少明确发布动作。
+
+根因：把 runtime 的 workspace-local discovery contract 误当成全项目全局 latest；Console
+launcher 没有在退出后将本次 artifact 投影到演示层使用的根指针。
+
+窄修复：Console 退出后读取练习仓库的 latest 指针，通过既有 `publish_latest` 发布项目级指针并
+保存 live Evidence；按钮 2 只负责打开该指针，不扫描目录或猜测最新时间。新增按编号 PyCharm
+入口，主流程固定为 Live Control → Latest Evidence → Official Evidence。
+
+验证：launcher 回归确认 Console 退出后发布其 workspace artifact；Latest 按钮只调用
+`--show-latest`，不会重新运行 Agent；Multi-Agent 追问按钮确认使用两 worker fanout 后再打开同一
+Evidence 入口。工程结论：一次现场演示必须显式连接 execution owner 与 presentation owner，
+“latest”应是被发布的身份事实，不能由 UI 根据目录时间推断。
+
+### 70. Runtime 支持 Windows，但共享演示按钮全部绑定 macOS 解释器
+
+现象：Windows 已有原生 PowerShell 安装与验证入口，核心 Runtime 也使用跨平台 Python API；但
+PyCharm 共享配置全部写死 `.venv/bin/python`，部分演示还依赖 Bash 与 macOS Keychain。新 Windows
+电脑即使不接模型，也无法直接用绿色按钮观察控制、修复和 Evidence 闭环。
+
+Failure scenario：使用者在 Windows 克隆仓库后点击 Lab 配置，PyCharm 找不到 macOS venv；转而
+手工执行命令又需要理解依赖组、参数和 API key 边界，最终把“展示适配层不可用”误判成 Runtime
+只能在 macOS 运行。
+
+根因：项目只验证了核心与安装脚本的跨平台性，没有把 presentation/bootstrap 也视为明确的平台
+adapter；在线模型、official evaluator 与确定性离线演练又共用了一组入口。
+
+窄修复：保留现有 Runtime，不增加第二套执行逻辑；新增双击式 Windows demo 安装器，复用
+`setup_windows_local.ps1 -WithDev`，显式检查 Git，并运行确定性 control 与 fixed repair。
+三个独立 PyCharm 配置绑定 `.venv-win`，依次覆盖 checkpoint/resume、真实工具与 pytest、只读
+Workbench。入口不读取 API key，也不触发 LLM。
+
+验证：XML 回归锁定 Windows 解释器、scenario 与 module 入口；安装器契约回归锁定复用正式安装器
+和两条离线实验。平台无关的 control/fixed 场景在 macOS venv 继续执行通过；PowerShell 与
+`cmd.exe` 仍需在真实 Windows 主机做最终冒烟，不能把静态检查写成原生 Windows 已验证。
+工程结论：跨平台声明要区分 Runtime portable、bootstrap portable 和 provider/evaluator 依赖；
+离线演练证明控制面与证据链，不证明真实模型质量或 official resolved。
+
 ## 调试顺序模板
 
 每次 SWE-bench 失败优先看：

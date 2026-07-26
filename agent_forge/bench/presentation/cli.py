@@ -120,6 +120,11 @@ def build_swebench_parser(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--max-workers", type=int, default=1)
     parser.add_argument("--namespace-empty", action="store_true")
     parser.add_argument(
+        "--official-cache-level",
+        choices=["none", "base", "env", "instance"],
+        default="env",
+    )
+    parser.add_argument(
         "--agent-mode",
         default="single",
         choices=["single", "multi", "compare"],
@@ -228,6 +233,11 @@ def build_campaign_parser(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--max-workers", type=int, default=1)
     parser.add_argument("--namespace-empty", action="store_true")
     parser.add_argument(
+        "--official-cache-level",
+        choices=["none", "base", "env", "instance"],
+        default="env",
+    )
+    parser.add_argument(
         "--execution-mode",
         choices=["local", "worktree", "container"],
         default="worktree",
@@ -302,6 +312,7 @@ def run_swebench_from_args(args: argparse.Namespace) -> BenchRunSummary:
         evaluate=args.evaluate,
         max_workers=args.max_workers,
         namespace_empty=args.namespace_empty,
+        official_cache_level=args.official_cache_level,
         agent_mode=args.agent_mode,
         profile=args.profile,
         max_revision_rounds=args.max_revision_rounds,
@@ -351,6 +362,7 @@ def run_campaign_from_args(args: argparse.Namespace) -> BenchmarkCampaignResult:
         evaluate=args.evaluate,
         max_workers=args.max_workers,
         namespace_empty=args.namespace_empty,
+        official_cache_level=args.official_cache_level,
         execution_mode=args.execution_mode,
         network_policy=args.network_policy,
         keep_worktree=args.keep_worktree,

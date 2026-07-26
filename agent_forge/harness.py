@@ -186,7 +186,9 @@ class Harness:
         tool_gateway = self._tools or build_registry(
             ToolRegistryBuildRequest(
                 workspace=str(runtime_workspace),
-                auto=self._config.auto_approve_writes,
+                # 写操作是否获准由上层 Hook + ApprovalRepository 唯一裁决。
+                # 工具到达 execute 时已经过门禁，不能再做第二次旧式审批。
+                auto=True,
                 enabled_tools=self._config.enabled_tools,
                 mcp_config_file=self._config.mcp_config_file,
                 mcp_allowed_tools=self._config.mcp_allowed_tools,

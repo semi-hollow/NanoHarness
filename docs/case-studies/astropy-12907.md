@@ -55,6 +55,24 @@ SWE-bench Harness 且 Docker Engine 就绪的环境；API key 本身不等于 of
 - `usage.json`：tool call、failed tool 和 cost。
 - `report.md`：failure class 和 next action。
 
+## 已公开的 Commissioning Evidence
+
+2026-07-26 的[两题四次证据包](../../benchmarks/campaigns/verified-commissioning-2-20260726/README.md)
+固定 DeepSeek V4 Pro、temperature 0、max thinking、16 steps 和 worktree execution，分别运行
+minimal-control 与 governed-runtime：
+
+| Runtime 预设 | 候选 Patch | 本地验证 | 官方结果 | Token 数 | 工具失败数 |
+| --- | --- | --- | --- | ---: | ---: |
+| minimal-control | 1/1 | unavailable | resolved | 126291 | 3 |
+| governed-runtime | 1/1 | failed | resolved | 185491 | 3 |
+
+两侧 official report 都确认 2 个 FAIL_TO_PASS 与 13 个 PASS_TO_PASS 全部通过。Local 状态没有
+替代 official oracle：它们的环境/命令证据不完整或失败，但 candidate 进入独立 SWE-bench
+环境后仍被接受。这正是三层 evidence 不能合并成一个 `verified` 布尔值的原因。
+
+这只是中断 Smoke-5 后导出的 post-hoc、单 repetition commissioning 证据；它证明闭环可运行，
+不估计总体通过率，也不能从一次 correctness tie 推断 governed preset 更优。
+
 ## 边界
 
 Candidate patch 只表示 Agent 产生了 diff；local verified 只表示记录的指定测试通过；只有 official

@@ -13,10 +13,22 @@ class GuardrailResult:
 
 
 def input_guardrail(task: str) -> GuardrailResult:
+    """检查任务文本并留下风险提示，但不把“提到”误当成“执行”。
 
-    for c in RISKY_INPUT_MARKERS:
-        if c in task:
-            return GuardrailResult(False, f"blocked risky input: {c}", "high", "input")
+    用户任务、issue 和日志都可能合法包含 URL、敏感文件名或危险命令示例。真正的副作用
+    授权由工具可见性、CommandPolicy、Sandbox 和 Approval 负责；这里仅记录命中的文本，
+    供 trace 与后续策略观察。
+    """
+
+    observed_markers = tuple(marker for marker in RISKY_INPUT_MARKERS if marker in task)
+    if observed_markers:
+        return GuardrailResult(
+            True,
+            "risky text observed; tool policy remains authoritative: "
+            + ", ".join(observed_markers),
+            "medium",
+            "input",
+        )
     return GuardrailResult(True, "ok", "low", "input")
 
 

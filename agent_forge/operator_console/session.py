@@ -1,0 +1,290 @@
+"""Operator Console 与 Harness 之间唯一的应用层桥梁。
+
+首次阅读只看 ``start``、``answer_and_resume``、``decide_and_resume`` 和
+``resume``。路径查找、pending request 选择等方法都是展示层准备工作。
+"""
+
+from __future__ import annotations
+
+import json
+from dataclasses import dataclass
+from pathlib import Path
+from threading import RLock
+from typing import Literal
+
+from agent_forge.control import RunController
+from agent_forge.harness import Harness, RunRequest, RunResult
+from agent_forge.runtime.application.operator_control import (
+    BuildContinuationPlan,
+    DecideApproval,
+    RespondToHumanInput,
+)
+from agent_forge.runtime.domain.approval import ApprovalRequest
+from agent_forge.runtime.domain.human_input import HumanInputRequest
+from agent_forge.runtime.domain.task import TaskCheckpoint, TaskRunStatus
+from agent_forge.runtime.ports import ApprovalRepository, HumanInputRepository
+from agent_forge.runtime.api import latest_checkpoint_path, load_task_checkpoint
+
+
+@dataclass(frozen=True)
+class OperatorPrompt:
+    """操作台需要展示的一次人工问题或副作用审批。"""
+
+    kind: Literal["human_input", "approval"]
+    key: str
+    title: str
+    body: str
+    choices: tuple[str, ...] = ()
+    details: str = ""
+
+
+class OperatorSession:
+    """持有一次前台会话的 Harness、控制端口和 durable 控制仓储。
+
+    Textual 只调用本类，不直接读写 JSON。一次 continuation 会创建新的 Runtime
+    run，但本对象保持不变，所以用户看到的是连续操作体验。
+    """
+
+    def __init__(
+        self,
+        *,
+        harness: Harness,
+        request: RunRequest,
+        controller: RunController,
+        approvals: ApprovalRepository,
+        human_inputs: HumanInputRepository,
+    ) -> None:
+        self.harness = harness
+        self.request = request
+        self.controller = controller
+        self.approvals = approvals
+        self.human_inputs = human_inputs
+        self._lock = RLock()
+        self._result: RunResult | None = None
+        self._checkpoint: TaskCheckpoint | None = None
+        self._checkpoint_path: Path | None = None
+        self._artifact_dir: Path | None = None
+
+    @property
+    def result(self) -> RunResult | None:
+        with self._lock:
+            return self._result
+
+    @property
+    def checkpoint(self) -> TaskCheckpoint | None:
+        with self._lock:
+            return self._checkpoint
+
+    @property
+    def artifact_dir(self) -> Path | None:
+        with self._lock:
+            return self._artifact_dir
+
+    # 主要入口：从界面输入启动真实 Harness 主链。
+    def start(self) -> RunResult:
+        """执行 ``Harness.run``，并保存后续人工控制所需的当前状态。"""
+
+        return self._remember_result(self.harness.run(self.request))
+
+    # 主要入口：保存人工答案，并立即从当前 durable checkpoint 续跑。
+    def answer_and_resume(self, answer: str) -> RunResult:
+        """完成 ``waiting_human -> responded -> continuation``。"""
+
+        prompt = self.require_prompt("human_input")
+        RespondToHumanInput(self.human_inputs).execute(prompt.key, answer=answer)
+        checkpoint = self._require_checkpoint()
+        continuation = BuildContinuationPlan(self.human_inputs).execute(
+            checkpoint,
+            override_task=checkpoint.task,
+        )
+        return self._resume(task=continuation.task)
+
+    # 主要入口：保存工具审批决定，并立即从当前 durable checkpoint 续跑。
+    def decide_and_resume(
+        self,
+        decision: Literal["approved", "rejected"],
+        *,
+        note: str = "",
+    ) -> RunResult:
+        """完成 ``waiting_approval -> decision -> continuation``。"""
+
+        prompt = self.require_prompt("approval")
+        DecideApproval(self.approvals).execute(prompt.key, decision, note=note)
+        return self.resume()
+
+    # 主要入口：从 checkpoint 创建新的显式 continuation。
+    def resume(self) -> RunResult:
+        """恢复可见任务状态；不声称恢复模型栈、KV Cache 或进程现场。"""
+
+        return self._resume()
+
+    def attach_run(self, run_dir: str | Path) -> TaskCheckpoint:
+        """载入已有 run 的最新 checkpoint，供进程重启后继续操作。"""
+
+        artifact_dir = Path(run_dir).expanduser().resolve()
+        checkpoint_path = Path(latest_checkpoint_path(str(artifact_dir)))
+        checkpoint = load_task_checkpoint(str(checkpoint_path))
+        with self._lock:
+            self._result = None
+            self._checkpoint = checkpoint
+            self._checkpoint_path = checkpoint_path
+            self._artifact_dir = artifact_dir
+        return checkpoint
+
+    def attach_latest(self, workspace: str | Path) -> TaskCheckpoint:
+        """读取 workspace 的 latest 指针并接管最近一次 run。"""
+
+        pointer = Path(workspace).expanduser().resolve() / ".agent_forge/latest/run.txt"
+        if not pointer.is_file():
+            raise FileNotFoundError(f"没有可恢复的 latest run: {pointer}")
+        raw_target = Path(pointer.read_text(encoding="utf-8").strip())
+        target = raw_target if raw_target.is_absolute() else pointer.parent / raw_target
+        return self.attach_run(target)
+
+    def pending_prompt(self) -> OperatorPrompt | None:
+        """从当前 checkpoint 解析真正待处理的 human/approval 记录。"""
+
+        checkpoint = self.checkpoint
+        if checkpoint is None:
+            return None
+        if checkpoint.status == TaskRunStatus.WAITING_HUMAN.value:
+            human_request = self._pending_human_input(checkpoint)
+            return (
+                self._human_prompt(human_request) if human_request is not None else None
+            )
+        if checkpoint.status == TaskRunStatus.WAITING_APPROVAL.value:
+            approval_request = self._pending_approval(checkpoint)
+            return (
+                self._approval_prompt(approval_request)
+                if approval_request is not None
+                else None
+            )
+        return None
+
+    def require_prompt(
+        self,
+        kind: Literal["human_input", "approval"],
+    ) -> OperatorPrompt:
+        """返回当前 prompt，并拒绝界面把输入写给错误状态。"""
+
+        prompt = self.pending_prompt()
+        if prompt is None or prompt.kind != kind:
+            raise RuntimeError(f"当前没有待处理的 {kind}")
+        return prompt
+
+    def pause(self) -> None:
+        """请求 Runtime 在下一个安全边界暂停。"""
+
+        self.controller.pause()
+
+    def cancel(self) -> None:
+        """请求 Runtime 在下一个安全边界取消；不回滚既有副作用。"""
+
+        self.controller.cancel()
+
+    def steer(self, message: str) -> None:
+        """把新的用户方向注入下一次模型调用。"""
+
+        if not message.strip():
+            raise ValueError("steer message must not be empty")
+        self.controller.steer(message.strip())
+
+    def _remember_result(self, result: RunResult) -> RunResult:
+        checkpoint_path = (
+            result.artifact_dir / "task_state" / f"{result.checkpoint.run_id}.json"
+        )
+        if not checkpoint_path.is_file():
+            checkpoint_path = Path(latest_checkpoint_path(str(result.artifact_dir)))
+        with self._lock:
+            self._result = result
+            self._checkpoint = result.checkpoint
+            self._checkpoint_path = checkpoint_path
+            self._artifact_dir = result.artifact_dir
+        return result
+
+    def _require_checkpoint_path(self) -> Path:
+        with self._lock:
+            checkpoint_path = self._checkpoint_path
+        if checkpoint_path is None:
+            raise RuntimeError("当前会话还没有可恢复 checkpoint")
+        return checkpoint_path
+
+    def _require_checkpoint(self) -> TaskCheckpoint:
+        checkpoint = self.checkpoint
+        if checkpoint is None:
+            raise RuntimeError("当前会话还没有可恢复 checkpoint")
+        return checkpoint
+
+    def _resume(self, *, task: str = "") -> RunResult:
+        checkpoint_path = self._require_checkpoint_path()
+        return self._remember_result(self.harness.resume(checkpoint_path, task=task))
+
+    def _pending_human_input(
+        self,
+        checkpoint: TaskCheckpoint,
+    ) -> HumanInputRequest | None:
+        request_id = str(checkpoint.metadata.get("human_input_request_id") or "")
+        if request_id:
+            request = self.human_inputs.get(request_id)
+            if request is not None and request.status == "pending":
+                return request
+        return next(
+            (
+                request
+                for request in self.human_inputs.list_pending()
+                if request.run_id == checkpoint.run_id
+            ),
+            None,
+        )
+
+    def _pending_approval(
+        self,
+        checkpoint: TaskCheckpoint,
+    ) -> ApprovalRequest | None:
+        return next(
+            (
+                request
+                for request in self.approvals.list_pending()
+                if request.run_id == checkpoint.run_id
+                or (
+                    request.workspace == checkpoint.workspace
+                    and request.tool_name == checkpoint.last_tool
+                )
+            ),
+            None,
+        )
+
+    @staticmethod
+    def _human_prompt(request: HumanInputRequest) -> OperatorPrompt:
+        return OperatorPrompt(
+            kind="human_input",
+            key=request.request_id,
+            title="Agent 需要你的补充信息",
+            body=request.question,
+            choices=tuple(request.choices),
+            details=request.reason,
+        )
+
+    @staticmethod
+    def _approval_prompt(request: ApprovalRequest) -> OperatorPrompt:
+        details = json.dumps(
+            {
+                "tool": request.tool_name,
+                "action": request.action,
+                "command": request.command,
+                "arguments": request.arguments,
+                "workspace": request.workspace,
+                "reason": request.reason,
+                "fingerprint": request.operation_fingerprint,
+            },
+            ensure_ascii=False,
+            indent=2,
+            default=str,
+        )
+        return OperatorPrompt(
+            kind="approval",
+            key=request.operation_key,
+            title=f"审批副作用：{request.tool_name}",
+            body=request.reason or "该工具调用需要人工授权。",
+            details=details,
+        )

@@ -222,6 +222,18 @@ def classify_case_result(
             impact="The agent spent budget without gaining new information.",
             engineering_lesson="Loop control needs risk-aware repetition policy: repeated reads and repeated writes should not be handled identically.",
         )
+    if "input_guardrail_block" in lowered or "blocked risky input" in lowered:
+        return FailureDiagnosis(
+            "input_policy_block",
+            "The runtime blocked task text before the first model call.",
+            evidence,
+            [
+                "Check whether the policy confused quoted issue/log content with an executable tool action."
+            ],
+            severity="high",
+            impact="No agent capability was exercised, so the outcome cannot be attributed to context retrieval or model reasoning.",
+            engineering_lesson="Task text is evidence and intent; side-effect authorization belongs at the tool boundary.",
+        )
     if "command blocked" in lowered or "unsafe" in lowered or "permission" in lowered:
         return FailureDiagnosis(
             "unsafe_or_blocked_command",

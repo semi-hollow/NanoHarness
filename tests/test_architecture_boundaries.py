@@ -403,7 +403,8 @@ class ArchitectureBoundaryTest(unittest.TestCase):
             if isinstance(node, ast.FunctionDef)
         }
         dispatcher = functions["run_repository_task"]
-        single_run = functions["_run_single_repository_task"]
+        single_run = functions["execute_single_repository_task"]
+        harness_builder = functions["build_single_harness"]
 
         dispatcher_calls = {
             node.func.id
@@ -411,27 +412,23 @@ class ArchitectureBoundaryTest(unittest.TestCase):
             if isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
         }
         self.assertIn(
-            "_run_single_repository_task",
+            "execute_single_repository_task",
             dispatcher_calls,
             "The public single-agent CLI path must keep routing to its Harness adapter",
         )
 
-        harness_assignments = [
+        harness_constructors = [
             node
-            for node in ast.walk(single_run)
-            if isinstance(node, ast.Assign)
-            and isinstance(node.value, ast.Call)
-            and isinstance(node.value.func, ast.Name)
-            and node.value.func.id == "Harness"
+            for node in ast.walk(harness_builder)
+            if isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Name)
+            and node.func.id == "Harness"
         ]
         self.assertEqual(
-            len(harness_assignments),
+            len(harness_constructors),
             1,
-            "The single-agent CLI path must construct exactly one public Harness",
+            "The shared single-agent composition root must construct one Harness",
         )
-        harness_target = harness_assignments[0].targets[0]
-        self.assertIsInstance(harness_target, ast.Name)
-        harness_name = harness_target.id
         harness_runs = [
             node
             for node in ast.walk(single_run)
@@ -439,7 +436,7 @@ class ArchitectureBoundaryTest(unittest.TestCase):
             and isinstance(node.func, ast.Attribute)
             and node.func.attr == "run"
             and isinstance(node.func.value, ast.Name)
-            and node.func.value.id == harness_name
+            and node.func.value.id == "harness"
         ]
         self.assertEqual(
             len(harness_runs),

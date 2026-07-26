@@ -188,7 +188,8 @@ class PublicCliSmokeTest(unittest.TestCase):
             capture_output=True,
         )
         self.assertEqual(catalog.returncode, 0, catalog.stderr)
-        self.assertIn("候选全集：`300`", catalog.stdout)
+        self.assertIn("候选全集：`500`", catalog.stdout)
+        self.assertIn("SWE-bench/SWE-bench_Verified", catalog.stdout)
         self.assertIn("astropy__astropy-12907", catalog.stdout)
 
         case_help = subprocess.run(

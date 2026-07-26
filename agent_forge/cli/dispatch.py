@@ -43,7 +43,11 @@ def main(argv: list[str] | None = None) -> None:
     """解析并分发公开 CLI；本函数不包含 Agent 业务逻辑。"""
 
     args = build_parser().parse_args(argv)
-    if args.command == "doctor":
+    if args.command == "console":
+        from agent_forge.operator_console import run_console_from_args
+
+        run_console_from_args(args)
+    elif args.command == "doctor":
         print(render_doctor())
     elif args.command == "inspect":
         print(render_inspection(args.target), end="")

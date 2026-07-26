@@ -18,6 +18,7 @@ def render_campaign_report(
 
     config = state.config
     source = state.source
+    repetitions = int(config.get("repetitions") or 0)
     lines = [
         "# NanoHarness Benchmark Campaign",
         "",
@@ -37,15 +38,22 @@ def render_campaign_report(
         f"- repetitions: `{config.get('repetitions')}`",
         f"- planned runs: `{summary.get('planned_runs')}`",
         f"- config digest: `{state.config_digest}`",
-        "",
-        "Variant order alternates by case and repetition to reduce systematic provider-time bias.",
-        "Both variants use the same AgentLoop, model, task, sampling settings, budgets, safety policy and execution mode.",
-        "",
-        "## Runtime Presets",
-        "",
-        "| Variant | Tool visibility | Skills | Scope |",
-        "| --- | --- | --- | --- |",
     ]
+    provenance_note = str(config.get("provenance_note") or "").strip()
+    if provenance_note:
+        lines.append(f"- provenance note: {provenance_note}")
+    lines.extend(
+        [
+            "",
+            "Variant order alternates by case and repetition to reduce systematic provider-time bias.",
+            "Both variants use the same AgentLoop, model, task, sampling settings, budgets, safety policy and execution mode.",
+            "",
+            "## Runtime Presets",
+            "",
+            "| Variant | Tool visibility | Skills | Scope |",
+            "| --- | --- | --- | --- |",
+        ]
+    )
     for variant in config.get("variants") or []:
         if not isinstance(variant, dict):
             continue
@@ -140,8 +148,8 @@ def render_campaign_report(
             "- Candidate patch rate uses all planned runs and measures edit reachability, not correctness.",
             "- Official resolved rate uses only explicit resolved/unresolved official reports; missing evaluation is never converted to 0%.",
             "- The two presets intentionally differ in both tool routing and Skill activation, so this campaign evaluates the preset as a whole.",
-            "- Smoke-5 is a mechanism regression set. It does not estimate SWE-bench Lite population performance or rank models.",
-            "- Three repetitions expose obvious instability but are not enough for strong statistical significance claims.",
+            "- The selected case set is for mechanism regression or commissioning. It does not estimate SWE-bench Verified population performance or rank models.",
+            _repetition_boundary(repetitions),
             "",
         ]
     )
@@ -157,6 +165,18 @@ def _rate_with_denominator(numerator: Any, denominator: Any) -> str:
     top = int(numerator or 0)
     bottom = int(denominator or 0)
     return f"{top}/{bottom} ({top / bottom:.1%})" if bottom else "not available"
+
+
+def _repetition_boundary(repetitions: int) -> str:
+    if repetitions < 3:
+        return (
+            f"- Repetition count is `{repetitions}`; fewer than three repetitions are "
+            "commissioning evidence and do not estimate run-to-run stability."
+        )
+    return (
+        f"- Repetition count is `{repetitions}`; repeated observations expose obvious "
+        "instability but do not establish strong statistical significance."
+    )
 
 
 def _table_cell(value: str) -> str:
