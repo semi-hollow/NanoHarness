@@ -9,11 +9,14 @@ from __future__ import annotations
 from agent_forge.runtime.application.dependencies import RuntimeDependencies
 from agent_forge.runtime.application.final_answer import FinalAnswerBuilder
 from agent_forge.runtime.application.run_lifecycle import StopRequest
-from agent_forge.runtime.application.run_control import ApplyRunControl
+from agent_forge.runtime.application.run_control import RunControlHandler
 from agent_forge.runtime.application.run_preparation import RunPreparation
 from agent_forge.runtime.application.session import AgentRunSession
 from agent_forge.runtime.application.tool_execution import ToolExecutionPipeline
-from agent_forge.runtime.application.turn_preparation import PreparedTurn, TurnPreparation
+from agent_forge.runtime.application.turn_preparation import (
+    PreparedTurn,
+    TurnPreparation,
+)
 from agent_forge.runtime.config import RuntimeConfig
 from agent_forge.runtime.domain.conversation import AgentResponse
 from agent_forge.runtime.domain.governance import HookDecisionType, ModelHookContext
@@ -39,7 +42,10 @@ class AgentLoop:
         self.llm = dependencies.model
         self.hooks = dependencies.hooks
         self.model_capabilities = dependencies.model_capabilities
-        self.run_control = ApplyRunControl(dependencies.control, dependencies.events)
+        self.run_control_handler = RunControlHandler(
+            dependencies.control,
+            dependencies.events,
+        )
         human_thread_id = getattr(config, "human_thread_id", "") or self.trace.run_id
         self.run_preparation = RunPreparation(
             config,
@@ -54,7 +60,7 @@ class AgentLoop:
             dependencies.environment,
             dependencies.model_capabilities,
         )
-        self.tool_execution = ToolExecutionPipeline(
+        self.tool_execution_pipeline = ToolExecutionPipeline(
             config,
             dependencies.events,
             dependencies.tools,
@@ -64,7 +70,7 @@ class AgentLoop:
             dependencies.control,
             dependencies.model_capabilities,
         )
-        self.final_answer = FinalAnswerBuilder(dependencies.events)
+        self.final_answer_builder = FinalAnswerBuilder(dependencies.events)
 
     # 主要入口：依次执行 run 初始化、前置准备、turn loop 和统一停止。
     def run(self, task: str, agent_name: str = "CodingAgent") -> str:
@@ -76,28 +82,41 @@ class AgentLoop:
         ``ToolExecutionPipeline``、``RunLifecycle``。
         状态与证据：返回值只是最终文本；checkpoint、trace 与 operation ledger 才是
         可恢复、可审计的运行事实。
-        系统不变量：所有退出分支必须汇合到 ``RunLifecycle.stop``。
+        系统不变量：所有退出分支必须汇合到
+        ``RunLifecycle.finalize_run``。
         删除/内联影响：会隐藏阶段顺序并让多个入口各自处理停止语义。
         """
 
-        run_session = self.run_preparation.start(task, agent_name)
-        initial_operator_control = self.run_control.check(run_session, 0)
+        run_session = self.run_preparation.create_session(task, agent_name)
+        initial_operator_control = self.run_control_handler.consume_pending_signals(
+            run_session,
+            0,
+        )
         if initial_operator_control.stop is not None:
-            return self._stop(run_session, initial_operator_control.stop)
-        preparation_stop = self.run_preparation.execute(run_session)
+            return self._finalize_run(
+                run_session,
+                initial_operator_control.stop,
+            )
+        preparation_stop = self.run_preparation.prepare_run(run_session)
         if preparation_stop is not None:
-            return self._stop(run_session, preparation_stop)
+            return self._finalize_run(run_session, preparation_stop)
 
         for step in range(1, run_session.max_iterations + 1):
             # 模型边界 1：先把已排队 steer 写成 user message，再组装本 turn 上下文。
-            operator_control = self.run_control.check(run_session, step)
+            operator_control = self.run_control_handler.consume_pending_signals(
+                run_session,
+                step,
+            )
             if operator_control.stop is not None:
-                return self._stop(run_session, operator_control.stop)
+                return self._finalize_run(
+                    run_session,
+                    operator_control.stop,
+                )
             turn_stop = self._run_turn(run_session, step)
             if turn_stop is not None:
-                return self._stop(run_session, turn_stop)
+                return self._finalize_run(run_session, turn_stop)
 
-        return self._stop(
+        return self._finalize_run(
             run_session,
             StopRequest(
                 status=TaskRunStatus.BLOCKED,
@@ -121,7 +140,7 @@ class AgentLoop:
             "turn_started",
             turn={"max_iterations": session.max_iterations},
         )
-        prepared_turn = self.turn_preparation.execute(session, step)
+        prepared_turn = self.turn_preparation.prepare_turn(session, step)
         model_response, hook_stop_request = self._call_model(
             session,
             prepared_turn,
@@ -132,7 +151,10 @@ class AgentLoop:
             raise AssertionError("model invocation returned no response")
 
         # 模型边界 2：模型调用期间到达的 steer 使本次 response 过时；丢弃后重规划。
-        operator_control = self.run_control.check(session, step)
+        operator_control = self.run_control_handler.consume_pending_signals(
+            session,
+            step,
+        )
         if operator_control.stop is not None:
             return operator_control.stop
         if operator_control.steered:
@@ -151,7 +173,7 @@ class AgentLoop:
             return budget_stop_request
 
         if model_response.error and _is_context_overflow(model_response.error):
-            compacted_turn = self.turn_preparation.execute(
+            compacted_turn = self.turn_preparation.prepare_turn(
                 session,
                 step,
                 force_compaction=True,
@@ -194,8 +216,12 @@ class AgentLoop:
             return self._handle_model_failure(session, model_response, step)
 
         if not model_response.tool_calls:
-            return self.final_answer.execute(session, model_response, step)
-        return self.tool_execution.execute_calls(
+            return self.final_answer_builder.build_stop_request(
+                session,
+                model_response,
+                step,
+            )
+        return self.tool_execution_pipeline.execute_calls(
             session,
             model_response,
             step=step,
@@ -348,11 +374,7 @@ class AgentLoop:
                 f"error:{model_response.error.get('code', 'unknown')}"
                 if model_response.error
                 else model_response.content
-                or (
-                    "tool_calls"
-                    if model_response.tool_calls
-                    else "empty_response"
-                )
+                or ("tool_calls" if model_response.tool_calls else "empty_response")
             ),
             llm_input_breakdown_chars={
                 "system_context": len(prepared_turn.context_message.content),
@@ -360,15 +382,16 @@ class AgentLoop:
                 "tool_schemas": prepared_turn.tool_schema_chars,
             },
             model_usage=(
-                latest_model_usage.to_dict()
-                if latest_model_usage is not None
-                else {}
+                latest_model_usage.to_dict() if latest_model_usage is not None else {}
             ),
             response_normalization=model_response.normalization or {},
         )
 
     @staticmethod
-    def _stop(session: AgentRunSession, stop_request: StopRequest) -> str:
+    def _finalize_run(
+        session: AgentRunSession,
+        stop_request: StopRequest,
+    ) -> str:
         """更新内存状态，并把唯一 terminal transition 交给 lifecycle。"""
 
         session.status = (
@@ -380,7 +403,8 @@ class AgentLoop:
         )
         session.stop_reason = stop_request.reason
         session.final_answer = stop_request.final_answer
-        return session.lifecycle.stop(stop_request)
+        return session.lifecycle.finalize_run(stop_request)
+
     # endregion 第二层内部步骤结束
 
 

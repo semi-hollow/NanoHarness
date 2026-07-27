@@ -62,7 +62,7 @@ def build_benchmark_scorecard(
 ) -> dict[str, Any]:
     """通过正式用例构造一次 benchmark 的稳定 scorecard。"""
 
-    return build_scorecard_use_case().execute(results, run_dir)
+    return build_scorecard_use_case().build_scorecard(results, run_dir)
 
 
 def write_benchmark_scorecard(

@@ -70,11 +70,14 @@ class DebugLabSupportTest(unittest.TestCase):
         self.assertEqual(len(resolved), len(TARGETS))
         self.assertEqual(len({(item["url"], item["line"]) for item in resolved}), 20)
         by_label = {str(item["label"]): item for item in resolved}
-        candidate = by_label["Candidate patch"]
+        candidate = by_label["Candidate diff"]
         candidate_line = (
             PROJECT_ROOT / "agent_forge" / "bench" / "adapters" / "case_runtime.py"
         ).read_text(encoding="utf-8").splitlines()[int(candidate["line"])]
-        self.assertIn("status = _run_status(patch, final_answer)", candidate_line)
+        self.assertIn(
+            "status = _run_status(candidate_diff_text, final_answer)",
+            candidate_line,
+        )
 
         with tempfile.TemporaryDirectory() as tmp:
             workspace = Path(tmp) / ".idea" / "workspace.xml"
@@ -181,7 +184,7 @@ class DebugLabSupportTest(unittest.TestCase):
                     for index, value in enumerate(received_argv)
                     if value == "--tool"
                 ],
-                ["read_file", "apply_patch", "diagnostics"],
+                ["read_file", "replace_text", "diagnostics"],
             )
 
     def test_astropy_lab_uses_budget_sufficient_for_official_evidence(self) -> None:

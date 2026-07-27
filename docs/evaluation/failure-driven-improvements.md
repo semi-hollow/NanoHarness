@@ -1425,7 +1425,7 @@ no-op 默认实现误认为 checkpoint 没有持久化；又因为依赖注入�
 ### 58. Lab 4 能命中评测入口，却看不见证据逐层收敛
 
 现象：原有 13 个 Debug Lab 断点覆盖 AgentLoop 和 Benchmark 主入口，但 Lab 4 专属停点只有
-`RunSwebench.execute`、`LocalCaseExecutor.run`、`read_local_validation` 和 official evaluator。
+`RunSwebench.run_benchmark`、`LocalCaseExecutor.run`、`read_local_validation` 和 official evaluator。
 使用者可以证明流程跑过，却无法连续观察 dataset case、固定 revision、candidate patch、
 official outcome、failure diagnosis 和最终 report 如何逐层形成。
 
@@ -1723,6 +1723,28 @@ Workbench。入口不读取 API key，也不触发 LLM。
 工程结论：跨平台声明要区分 Runtime portable、bootstrap portable 和 provider/evaluator 依赖；
 离线演练证明控制面与证据链，不证明真实模型质量或 official resolved。
 
+### 71. `patch` 同时表示编辑工具、Diff 文本和评测字段
+
+现象：模型工具叫 `apply_patch`，但它实际只接收 `path/old/new` 做唯一锚点替换；单 Agent 制品叫
+`patch.diff`，Fanout 制品又叫 `integration.patch`，Git Adapter 也暴露 `apply_patch`。读者无法仅
+凭名称判断某处是在编辑文件、生成 unified diff，还是应用已有 diff。
+
+Failure scenario：调试审批与 Operation Ledger 时，误以为 `apply_patch` 的参数是标准 diff；
+阅读 Fanout 时又把 worker 的候选 diff 当成 Agent 间共享状态，难以说明工具调用、Git 合并和
+SWE-bench `model_patch` 外部协议之间的真实边界。
+
+根因：早期沿用了宽泛的 patch 术语，随后 Runtime、Benchmark 和 Multi-Agent 分别扩展，却没有
+建立跨模块命名表。相同单词同时承担“动作、内存对象、制品、协议字段”四种职责。
+
+窄修复：模型编辑工具改为 `replace_text`，明确只接收 `path/old/new`；Git Adapter 使用
+`apply_unified_diff`；单次运行和 worker 制品统一为 `candidate_changes.diff`，Fanout 合并制品为
+`integrated_changes.diff`；内部字段使用 `candidate_diff_*`。SWE-bench 强制字段 `model_patch`
+只保留在协议 Adapter，并在代码注释中解释映射。历史条目中的旧名称保留，用于还原当时故障。
+
+验证：工具、Harness、Benchmark、Fanout、Console、Windows/macOS 验证脚本和测试 fixture 使用
+新名称；结构回归阻止关键 Application Service 重新暴露含糊入口。工程结论：跨模块核心名词必须
+做到“一词一义”，外部协议的遗留术语应被限制在 Adapter 边界。
+
 ## 调试顺序模板
 
 每次 SWE-bench 失败优先看：
@@ -1732,11 +1754,11 @@ Workbench。入口不读取 API key，也不触发 LLM。
 3. `usage.json`：工具调用分布、failed_tool_calls、最后 action。
 4. `trace.json`：stop_reason、permission/tool routing/recovery_decision。
 5. `multi_agent_summary.json`：哪个 role 失败、artifact 是否完整。
-6. `patch.diff`：是否真的有 workspace diff。
+6. `candidate_changes.diff`：是否真的有 workspace candidate diff。
 
 Fanout/HITL 额外看：
 
-7. `fanout/fanout_checkpoint.json`：plan/base、accepted tasks 和 patch hash。
+7. `fanout/fanout_checkpoint.json`：plan/base、accepted tasks 和 candidate diff hash。
 8. `fanout/fanout_report.md`：batch、scope、merge、resume、worker/finalizer usage。
 9. `fanout/workers/<task-id>/trace.json`：具体 worker 为什么 blocked/waiting。
 10. `human_input/<request-id>.json`：问题是否 pending/responded/cancelled，thread
@@ -1744,4 +1766,4 @@ Fanout/HITL 额外看：
 
 ## 设计结论
 
-> 这次不是简单调 prompt，而是沿着真实 evidence 逐层修 runtime：ToolRouter 负责 task-aware 工具收敛，ReadFileTool 修正模型常用 line-window 契约，DiagnosticsTool 区分 code failure 和 validation environment unavailable，Coordinator 区分 candidate patch 与 official resolved，verdict parser 兼容真实 Markdown 输出。最终从 UI 点击 Run Reference Case，single/multi 都生成相同 candidate patch，Reviewer/Verifier 在 artifact 中给出 PASS。这个过程体现的是 agent harness 的工程闭环，而不是一次性 demo。
+> 这次不是简单调 prompt，而是沿着真实 evidence 逐层修 runtime：ToolRouter 负责 task-aware 工具收敛，ReadFileTool 修正模型常用 line-window 契约，DiagnosticsTool 区分 code failure 和 validation environment unavailable，Coordinator 区分 candidate diff 与 official resolved，verdict parser 兼容真实 Markdown 输出。最终从 UI 点击 Run Reference Case，single/multi 都生成相同 candidate diff，Reviewer/Verifier 在 artifact 中给出 PASS。这个过程体现的是 agent harness 的工程闭环，而不是一次性 demo。

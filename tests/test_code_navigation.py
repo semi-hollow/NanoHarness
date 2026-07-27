@@ -1,4 +1,4 @@
-"""Protect the small interview reading map without testing prose wording."""
+"""保护精简的代码阅读地图与关键入口命名。"""
 
 from __future__ import annotations
 
@@ -14,21 +14,90 @@ from agent_forge.runtime.ports import HookPort, RunControlPort
 
 PROJECT_ROOT = Path(__file__).parents[1]
 
-# This is the canonical first-pass Runtime reading budget. Evaluation has its
-# own follow-up map and must not displace Runtime state owners from this list.
+# 这是首遍阅读 Runtime 的固定预算；Evaluation 的后续地图不能挤掉状态 owner。
 RUNTIME_CORE = {
     "agent_forge/harness.py": "Harness.run",
     "agent_forge/runtime/wiring.py": "build_agent_loop_from_request",
     "agent_forge/runtime/application/agent_loop.py": "AgentLoop.run",
     "agent_forge/runtime/application/session.py": "AgentRunSession",
-    "agent_forge/runtime/application/turn_preparation.py": "TurnPreparation.execute",
+    "agent_forge/runtime/application/turn_preparation.py": "TurnPreparation.prepare_turn",
     "agent_forge/runtime/application/tool_execution.py": "ToolExecutionPipeline.execute_calls",
-    "agent_forge/runtime/application/operation_tracker.py": "OperationTracker.describe",
-    "agent_forge/runtime/application/run_lifecycle.py": "RunLifecycle.update",
+    "agent_forge/runtime/application/operation_tracker.py": "OperationTracker.build_operation_intent",
+    "agent_forge/runtime/application/run_lifecycle.py": "RunLifecycle.update_checkpoint",
     "agent_forge/runtime/domain/task.py": "TaskCheckpoint.apply_transition",
     "agent_forge/runtime/domain/operation.py": "OperationRecord.transition",
     "agent_forge/observability/domain/event.py": "TraceEvent",
     "agent_forge/observability/domain/run_story.py": "RunStory",
+}
+
+# 这些类是阅读和运行主链会直接遇到的应用服务。它们的公开方法名必须单独
+# 表达业务动作，不能退化为脱离类名后没有信息量的通用动词。
+CRITICAL_APPLICATION_SERVICES = {
+    "agent_forge/runtime/application/run_preparation.py": {
+        "RunPreparation",
+    },
+    "agent_forge/runtime/application/turn_preparation.py": {
+        "TurnPreparation",
+    },
+    "agent_forge/runtime/application/run_lifecycle.py": {
+        "RunLifecycle",
+    },
+    "agent_forge/runtime/application/run_control.py": {
+        "RunControlHandler",
+    },
+    "agent_forge/runtime/application/final_answer.py": {
+        "FinalAnswerBuilder",
+    },
+    "agent_forge/runtime/application/tool_feedback.py": {
+        "ToolFeedback",
+    },
+    "agent_forge/runtime/application/operation_tracker.py": {
+        "OperationTracker",
+    },
+    "agent_forge/runtime/application/tool_authorization.py": {
+        "ToolAuthorizationGate",
+    },
+    "agent_forge/runtime/application/operator_control.py": {
+        "DecideApproval",
+        "RespondToHumanInput",
+        "BuildContinuationPlan",
+    },
+    "agent_forge/bench/application/swebench.py": {
+        "RunSwebench",
+    },
+    "agent_forge/bench/application/campaign.py": {
+        "RunBenchmarkCampaign",
+    },
+    "agent_forge/bench/application/case_inspection.py": {
+        "InspectBenchCase",
+    },
+    "agent_forge/evaluation/application/scorecard.py": {
+        "BuildBenchmarkScorecard",
+    },
+    "agent_forge/observability/application/usage.py": {
+        "BuildUsageReport",
+    },
+}
+VAGUE_ENTRYPOINT_NAMES = {
+    "append",
+    "check",
+    "describe",
+    "execute",
+    "handle",
+    "process",
+    "start",
+    "stop",
+    "update",
+}
+REMOVED_PATCH_API_MARKERS = {
+    '"apply_patch"',
+    "'apply_patch'",
+    "patch.diff",
+    "integration.patch",
+    "ApplyPatchTool",
+    "CandidatePatchPort",
+    "GitCandidatePatch",
+    "write_integration_patch",
 }
 
 
@@ -44,10 +113,14 @@ class CodeNavigationContractTest(unittest.TestCase):
             source = (PROJECT_ROOT / relative_path).read_text(encoding="utf-8")
             tree = ast.parse(source)
             with self.subTest(path=relative_path, owner=owner):
-                self.assertTrue(ast.get_docstring(tree), "core module needs a navigation docstring")
+                self.assertTrue(
+                    ast.get_docstring(tree), "core module needs a navigation docstring"
+                )
                 node = _find_owner(tree, owner)
                 self.assertIsNotNone(node, f"missing canonical owner: {owner}")
-                self.assertTrue(ast.get_docstring(node), f"{owner} needs a concise owner docstring")
+                self.assertTrue(
+                    ast.get_docstring(node), f"{owner} needs a concise owner docstring"
+                )
 
     def test_control_adapters_explicitly_expose_their_port_hierarchy(self) -> None:
         """关键控制面牺牲一点结构化自由，换取 PyCharm 可直接导航实现。"""
@@ -79,6 +152,44 @@ class CodeNavigationContractTest(unittest.TestCase):
             and node.func.value.id == "self"
         }
         self.assertEqual(private_methods - self_calls, set())
+
+    def test_critical_application_services_do_not_expose_vague_verbs(self) -> None:
+        """关键调用点应直接说明动作，不要求读者先记住所属类。"""
+
+        for relative_path, class_names in CRITICAL_APPLICATION_SERVICES.items():
+            tree = ast.parse((PROJECT_ROOT / relative_path).read_text(encoding="utf-8"))
+            for class_name in class_names:
+                owner = _find_named(tree.body, class_name)
+                self.assertIsInstance(owner, ast.ClassDef)
+                assert isinstance(owner, ast.ClassDef)
+                public_method_names = {
+                    node.name
+                    for node in owner.body
+                    if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+                    and not node.name.startswith("_")
+                }
+                with self.subTest(path=relative_path, owner=class_name):
+                    self.assertEqual(
+                        public_method_names & VAGUE_ENTRYPOINT_NAMES,
+                        set(),
+                    )
+
+    def test_runtime_source_keeps_edit_actions_distinct_from_diff_artifacts(
+        self,
+    ) -> None:
+        """旧 patch API 不应重新进入生产代码；外部 ``model_patch`` 不受影响。"""
+
+        for path in (PROJECT_ROOT / "agent_forge").rglob("*.py"):
+            source = path.read_text(encoding="utf-8")
+            with self.subTest(path=path.relative_to(PROJECT_ROOT)):
+                self.assertEqual(
+                    {
+                        marker
+                        for marker in REMOVED_PATCH_API_MARKERS
+                        if marker in source
+                    },
+                    set(),
+                )
 
 
 def _find_owner(

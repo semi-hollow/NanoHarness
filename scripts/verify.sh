@@ -92,8 +92,8 @@ if trace.get("stop_reason") != "final_answer":
     raise SystemExit(f"real-model smoke did not complete: {trace.get('stop_reason')}")
 if int((usage.get("summary") or {}).get("llm_calls") or 0) < 1:
     raise SystemExit("real-model smoke recorded no LLM call")
-if (run / "patch.diff").read_text(encoding="utf-8").strip():
-    raise SystemExit("read-only real-model smoke produced a candidate patch")
+if (run / "candidate_changes.diff").read_text(encoding="utf-8").strip():
+    raise SystemExit("read-only real-model smoke produced a candidate diff")
 print(f"Validated single-agent evidence: {run}")
 PY
   echo
@@ -139,8 +139,8 @@ if int(metrics.get("llm_calls") or 0) < len(results) + 1:
     raise SystemExit("real-model fanout is missing worker or finalizer LLM usage")
 if int(metrics.get("finalizer_llm_calls") or 0) < 1:
     raise SystemExit("real-model fanout finalizer did not run")
-if (run / "patch.diff").read_text(encoding="utf-8").strip():
-    raise SystemExit("read-only real-model fanout produced a candidate patch")
+if (run / "candidate_changes.diff").read_text(encoding="utf-8").strip():
+    raise SystemExit("read-only real-model fanout produced a candidate diff")
 print(f"Validated live fanout evidence: {run}")
 PY
   echo

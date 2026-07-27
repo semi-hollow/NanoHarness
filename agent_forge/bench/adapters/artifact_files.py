@@ -18,7 +18,6 @@ from agent_forge.evaluation.api import (
 
 
 class FileBenchArtifacts:
-
     def __init__(self) -> None:
         self._diagnose = DiagnoseBenchCase(JsonCaseEvidenceReader())
 
@@ -51,12 +50,18 @@ class FileBenchArtifacts:
         provider: str,
         model: str | None,
     ) -> dict[str, Any]:
+        """映射成 SWE-bench 规定的 prediction schema。
+
+        ``model_patch`` 是外部协议字段；内部文件明确叫
+        ``candidate_changes.diff``，两者不要混作 Runtime 工具名。
+        """
+
         return {
             "instance_id": result.instance_id,
             "model_name_or_path": f"agent-forge-{provider}-{model or 'default'}",
             "model_patch": (
-                result.patch_path.read_text(encoding="utf-8")
-                if result.patch_path.exists()
+                result.candidate_diff_path.read_text(encoding="utf-8")
+                if result.candidate_diff_path.exists()
                 else ""
             ),
         }
@@ -69,7 +74,9 @@ class FileBenchArtifacts:
         write_evaluation_artifacts(comparison, output_dir)
 
     @staticmethod
-    def copy_patch(source: Path, destination: Path) -> None:
+    def copy_candidate_diff(source: Path, destination: Path) -> None:
+        """复制候选 unified diff 到另一个 variant 的证据目录。"""
+
         destination.parent.mkdir(parents=True, exist_ok=True)
         destination.write_text(
             source.read_text(encoding="utf-8") if source.exists() else "",
@@ -109,9 +116,6 @@ class FileBenchArtifacts:
 def _write_jsonl(path: Path, rows: list[dict[str, Any]]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_suffix(path.suffix + ".tmp")
-    text = "".join(
-        json.dumps(row, ensure_ascii=False) + "\n"
-        for row in rows
-    )
+    text = "".join(json.dumps(row, ensure_ascii=False) + "\n" for row in rows)
     temporary.write_text(text, encoding="utf-8")
     temporary.replace(path)

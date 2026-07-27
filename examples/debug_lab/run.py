@@ -113,7 +113,7 @@ def run_fixed() -> None:
 
     workspace = _new_workspace("fixed")
     print(
-        "LAB 2/4: read -> read -> patch -> pytest -> final\n"
+        "LAB 2/4: read -> read -> replace_text -> pytest -> final\n"
         f"FIXED INPUT: {workspace}"
     )
     result = Harness(
@@ -124,7 +124,7 @@ def run_fixed() -> None:
             max_steps=6,
             approval_mode="on-write",
             auto_approve_writes=True,
-            enabled_tools=("read_file", "apply_patch", "diagnostics"),
+            enabled_tools=("read_file", "replace_text", "diagnostics"),
             tool_routing_mode="all",
             skill_mode="none",
             memory_recall_limit=0,
@@ -168,7 +168,7 @@ def run_live() -> None:
             "--tool",
             "read_file",
             "--tool",
-            "apply_patch",
+            "replace_text",
             "--tool",
             "diagnostics",
         ]

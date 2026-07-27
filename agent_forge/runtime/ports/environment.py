@@ -20,5 +20,5 @@ class EnvironmentPort(Protocol):
     def probe(self) -> EnvironmentProbeView:
         """返回当前执行边界证据。"""
 
-    def describe(self) -> str:
+    def render_boundary_summary(self) -> str:
         """返回模型可见的简短权限说明。"""

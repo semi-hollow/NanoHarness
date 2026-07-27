@@ -3,7 +3,7 @@
 from dataclasses import dataclass
 
 from ..ports import (
-    CandidatePatchPort,
+    CandidateDiffPort,
     CoordinatorEventSink,
     FanoutArtifactPort,
     FanoutWorkerPort,
@@ -31,4 +31,4 @@ class SequentialCoordinatorDependencies:
     events: CoordinatorEventSink
     artifacts: RoleArtifactPort
     role_runner: RoleRunnerPort
-    candidate_patch: CandidatePatchPort
+    candidate_diff: CandidateDiffPort

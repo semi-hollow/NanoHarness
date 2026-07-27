@@ -40,15 +40,15 @@ class FailureTaxonomyTest(unittest.TestCase):
         )
         usage_report = root / "usage_report.md"
         usage_report.write_text("usage", encoding="utf-8")
-        patch_path = root / "patch.diff"
-        patch_path.write_text("x" * patch_chars, encoding="utf-8")
+        candidate_diff_path = root / "candidate_changes.diff"
+        candidate_diff_path.write_text("x" * patch_chars, encoding="utf-8")
         return BenchCaseResult(
             instance_id="case-1",
             repo="local/repo",
             workspace=root,
             trace_path=trace_path,
             usage_report_path=usage_report,
-            patch_path=patch_path,
+            candidate_diff_path=candidate_diff_path,
             status=status,
             final_answer=final_answer,
             patch_chars=patch_chars,

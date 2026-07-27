@@ -358,7 +358,7 @@ def _read_only_requested(task_lower: str) -> bool:
 
 
 def _is_write_skill(spec: SkillSpec) -> bool:
-    write_tools = {"apply_patch", "write_file", "run_command"}
+    write_tools = {"replace_text", "write_file", "run_command"}
     return any(tool in write_tools for tool in spec.tool_names) or any(
         permission.startswith("write:") for permission in spec.permissions
     )

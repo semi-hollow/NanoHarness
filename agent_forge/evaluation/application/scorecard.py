@@ -8,12 +8,11 @@ from agent_forge.evaluation.ports.evidence import CaseEvidenceReader
 
 
 class BuildBenchmarkScorecard:
-
     def __init__(self, evidence_reader: CaseEvidenceReader) -> None:
         self._evidence_reader = evidence_reader
 
     # 主要入口：读取 case evidence，归一化后聚合为 claim-safe scorecard。
-    def execute(
+    def build_scorecard(
         self,
         results: dict[str, Any],
         run_dir: str | Path,

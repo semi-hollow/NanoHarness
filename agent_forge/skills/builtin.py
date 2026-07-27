@@ -50,7 +50,7 @@ def built_in_skill_specs() -> list[SkillSpec]:
                 "grep",
                 "grep_search",
                 "read_file",
-                "apply_patch",
+                "replace_text",
                 "write_file",
                 "run_command",
                 "git_diff",
@@ -59,7 +59,7 @@ def built_in_skill_specs() -> list[SkillSpec]:
             operating_procedure=[
                 "Inspect the current worktree and nearby code patterns before editing.",
                 "Make the smallest coherent change that satisfies the user goal.",
-                "Use apply_patch for manual edits and keep unrelated files untouched.",
+                "Use replace_text for anchored edits and keep unrelated files untouched.",
                 "Run the narrowest meaningful validation command, then inspect git_diff.",
             ],
             done_criteria=[
@@ -88,7 +88,7 @@ def built_in_skill_specs() -> list[SkillSpec]:
                 "grep",
                 "grep_search",
                 "read_file",
-                "apply_patch",
+                "replace_text",
                 "git_diff",
                 "git_status",
             ],
@@ -117,7 +117,7 @@ def built_in_skill_specs() -> list[SkillSpec]:
             dependencies=["git:working-tree", "python:local-venv"],
             tags=["coding", "test", "diagnostics"],
             activation_terms=["test", "unittest", "pytest", "verify", "验证", "测试", "跑通"],
-            tool_names=["run_command", "diagnostics", "grep", "grep_search", "read_file", "apply_patch", "git_diff"],
+            tool_names=["run_command", "diagnostics", "grep", "grep_search", "read_file", "replace_text", "git_diff"],
             operating_procedure=[
                 "Run or inspect the user-provided test command.",
                 "Group failures by root cause instead of editing every failing assertion separately.",
@@ -141,7 +141,7 @@ def built_in_skill_specs() -> list[SkillSpec]:
             dependencies=["git:working-tree", "python:local-venv"],
             tags=["coding", "refactor", "safety"],
             activation_terms=["refactor", "cleanup", "readability", "可读性", "重构", "合并", "删除冗余"],
-            tool_names=["git_status", "grep", "grep_search", "read_file", "apply_patch", "run_command", "git_diff"],
+            tool_names=["git_status", "grep", "grep_search", "read_file", "replace_text", "run_command", "git_diff"],
             operating_procedure=[
                 "Identify call sites before changing a public function, class, or file layout.",
                 "Keep public behavior stable unless the user explicitly asks to change it.",
@@ -166,7 +166,7 @@ def built_in_skill_specs() -> list[SkillSpec]:
             dependencies=["git:working-tree"],
             tags=["documentation", "learning", "maintenance"],
             activation_terms=["docs", "readme", "document", "guide", "文档", "教程", "解释"],
-            tool_names=["grep", "grep_search", "read_file", "apply_patch", "write_file", "git_diff"],
+            tool_names=["grep", "grep_search", "read_file", "replace_text", "write_file", "git_diff"],
             operating_procedure=[
                 "Locate the shortest existing doc that matches the user's learning path.",
                 "Update docs to reflect actual code behavior, not aspirational design.",

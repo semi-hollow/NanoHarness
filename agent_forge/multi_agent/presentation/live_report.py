@@ -73,7 +73,7 @@ def render_live_fanout_report(summary: LiveFanoutSummary) -> str:
             "",
             "## Tasks",
             "",
-            "| task | status | batch | resumed | touched files | patch | trace |",
+            "| task | status | batch | resumed | touched files | candidate diff | trace |",
             "| --- | --- | ---: | --- | --- | --- | --- |",
         ]
     )
@@ -81,7 +81,8 @@ def render_live_fanout_report(summary: LiveFanoutSummary) -> str:
         lines.append(
             f"| `{result.task_id}` | `{result.status}` | {result.batch_index} | "
             f"`{result.resumed}` | `{result.touched_files}` | "
-            f"[patch]({result.patch_path}) | [trace]({result.trace_path}) |"
+            f"[candidate diff]({result.candidate_diff_path}) | "
+            f"[trace]({result.trace_path}) |"
         )
     lines.extend(["", "## Conflict Gate", ""])
     if summary.conflicts:
@@ -91,7 +92,7 @@ def render_live_fanout_report(summary: LiveFanoutSummary) -> str:
         )
     else:
         lines.append(
-            "- No static, dynamic, scope, or patch-apply conflict was observed."
+            "- No static, dynamic, scope, or diff-apply conflict was observed."
         )
     lines.extend(
         [
@@ -104,7 +105,8 @@ def render_live_fanout_report(summary: LiveFanoutSummary) -> str:
             "",
             "## Claim Boundary",
             "",
-            "A merged patch and FanoutVerifier PASS are runtime evidence, not official benchmark resolution.",
+            "An integrated diff and FanoutVerifier PASS are runtime evidence, "
+            "not official benchmark resolution.",
             "",
         ]
     )

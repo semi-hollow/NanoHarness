@@ -11,7 +11,7 @@ from agent_forge.runtime.domain.conversation import Observation, ToolCall
 from agent_forge.observability.api import TraceRecorder
 from agent_forge.observability.domain.usage import build_usage_report
 from agent_forge.safety.sandbox import WorkspaceSandbox
-from agent_forge.tools.apply_patch import ApplyPatchTool
+from agent_forge.tools.replace_text import ReplaceTextTool
 from agent_forge.tools.read_file import ReadFileTool
 from agent_forge.tools.registry import ToolRegistry
 from tests.support import StaticResponseModel
@@ -50,7 +50,7 @@ class RepeatPatchLLM:
         self.calls += 1
         return AgentResponse(
             None,
-            [ToolCall(f"patch-{self.calls}", "apply_patch", {"path": "target.py", "old": "missing", "new": "value"})],
+            [ToolCall(f"replace-{self.calls}", "replace_text", {"path": "target.py", "old": "missing", "new": "value"})],
         )
 
 
@@ -68,7 +68,7 @@ class DiagnosticsThenFinalLLM:
         return AgentResponse("validation complete", [])
 
 
-class PatchThenFinalLLM:
+class ReplaceThenFinalLLM:
     last_usage = None
 
     def __init__(self):
@@ -81,8 +81,8 @@ class PatchThenFinalLLM:
                 None,
                 [
                     ToolCall(
-                        "patch-denied",
-                        "apply_patch",
+                        "replace-denied",
+                        "replace_text",
                         {"path": "target.py", "old": "value = 1", "new": "value = 2"},
                     )
                 ],
@@ -332,7 +332,7 @@ class AgentLoopPolicyTest(unittest.TestCase):
             trace_path = root / "trace.json"
             trace = TraceRecorder(str(trace_path))
             registry = ToolRegistry()
-            registry.register(ApplyPatchTool(WorkspaceSandbox(root)))
+            registry.register(ReplaceTextTool(WorkspaceSandbox(root)))
             config = RuntimeConfig(workspace=tmp, max_steps=4, trace_file=str(trace_path))
 
             final = build_agent_loop(config, trace, registry, RepeatPatchLLM()).run("resolve a coding issue")
@@ -374,7 +374,7 @@ class AgentLoopPolicyTest(unittest.TestCase):
         self.assertEqual(validation[0]["validation"]["status"], "passed")
 
     def test_diagnostic_without_runner_command_is_not_validation_evidence(self):
-        evidence = ToolFeedback.validation_evidence(
+        evidence = ToolFeedback.build_validation_evidence(
             "diagnostics",
             {"kind": "unittest", "target": "test_pytest_style.py"},
             Observation("diagnostics", True, "python test_pytest_style.py exited 0"),
@@ -403,7 +403,7 @@ class AgentLoopPolicyTest(unittest.TestCase):
             trace = TraceRecorder(str(trace_path))
             registry = ToolRegistry()
             registry.register(ReadFileTool(WorkspaceSandbox(root)))
-            registry.register(ApplyPatchTool(WorkspaceSandbox(root)))
+            registry.register(ReplaceTextTool(WorkspaceSandbox(root)))
             llm = StaticResponseModel("final answer")
             config = RuntimeConfig(
                 workspace=tmp,
@@ -414,7 +414,7 @@ class AgentLoopPolicyTest(unittest.TestCase):
 
             build_agent_loop(config, trace, registry, llm).run("read only inspect target.py")
 
-        self.assertEqual(set(llm.tool_names), {"read_file", "apply_patch"})
+        self.assertEqual(set(llm.tool_names), {"read_file", "replace_text"})
         context_events = [event for event in trace.events if event["event_type"] == "context_assembly"]
         self.assertIn("mode=all", context_events[0]["context"]["tool_routing"]["reason"])
 
@@ -425,7 +425,7 @@ class AgentLoopPolicyTest(unittest.TestCase):
             target.write_text("value = 1\n", encoding="utf-8")
             trace = TraceRecorder(str(root / "trace.json"))
             registry = ToolRegistry()
-            registry.register(ApplyPatchTool(WorkspaceSandbox(root)))
+            registry.register(ReplaceTextTool(WorkspaceSandbox(root)))
             config = RuntimeConfig(
                 workspace=tmp,
                 max_steps=3,
@@ -433,7 +433,7 @@ class AgentLoopPolicyTest(unittest.TestCase):
                 trace_file=str(root / "trace.json"),
             )
 
-            final = build_agent_loop(config, trace, registry, PatchThenFinalLLM()).run(
+            final = build_agent_loop(config, trace, registry, ReplaceThenFinalLLM()).run(
                 "implement the requested update in target.py"
             )
             target_content = target.read_text(encoding="utf-8")

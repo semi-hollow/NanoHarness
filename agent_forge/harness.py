@@ -70,7 +70,10 @@ class Harness:
             raise ValueError(
                 "enabled_tools config only applies to the built-in coding-tool preset"
             )
-        if self._extensions.hook_policy is not None and self._extensions.lifecycle_hooks:
+        if (
+            self._extensions.hook_policy is not None
+            and self._extensions.lifecycle_hooks
+        ):
             raise ValueError(
                 "lifecycle_hooks cannot be combined with a full hook_policy override"
             )
@@ -90,7 +93,7 @@ class Harness:
         规范上游：薄 CLI ``run`` 或嵌入式调用方。
         下一 owner：ExecutionEnvironment、Runtime wiring、``AgentLoop.run``。
         状态与证据：``RunResult``、checkpoint、trace、patch 与 RunManifest。
-        系统不变量：外围不得复制 Runtime 编排，也不得用 candidate patch 宣称 solved。
+        系统不变量：外围不得复制 Runtime 编排，也不得用 candidate diff 宣称 solved。
         删除/内联影响：会失去唯一装配 owner，并重新产生 CLI/demo wiring 漂移。
         """
 
@@ -175,9 +178,7 @@ class Harness:
 
         # region 准备区（首遍可折叠）：环境探测结果与 Runtime 依赖
         environment_evidence = environment.probe().to_dict()
-        active_workspace_from_probe = environment_evidence.get(
-            "active_workspace"
-        )
+        active_workspace_from_probe = environment_evidence.get("active_workspace")
         runtime_workspace = (
             Path(active_workspace_from_probe).resolve()
             if isinstance(active_workspace_from_probe, str)
@@ -242,7 +243,7 @@ class Harness:
         ).run(request.task, agent_name=request.agent_name)
         run_paths.final_answer_file.write_text(final_answer, encoding="utf-8")
         if owned_environment is not None:
-            run_paths.patch_file.write_text(
+            run_paths.candidate_diff_file.write_text(
                 owned_environment.diff(),
                 encoding="utf-8",
             )
@@ -262,14 +263,10 @@ class Harness:
             checkpoint=final_checkpoint,
             trace_path=run_paths.trace_file if uses_default_trace else None,
             usage_path=(
-                run_paths.artifact_dir / "usage.json"
-                if uses_default_trace
-                else None
+                run_paths.artifact_dir / "usage.json" if uses_default_trace else None
             ),
-            patch_path=(
-                run_paths.patch_file
-                if owned_environment is not None
-                else None
+            candidate_diff_path=(
+                run_paths.candidate_diff_file if owned_environment is not None else None
             ),
             manifest_path=run_paths.manifest_file,
         )
@@ -296,6 +293,7 @@ class Harness:
                 container_read_only=self._config.container_read_only,
             )
         )
+
     # endregion Runtime 装配细节结束
 
     # 主要入口：从 durable checkpoint 创建一次显式 continuation。

@@ -29,7 +29,9 @@ class RunStoryTest(unittest.TestCase):
                 ),
                 encoding="utf-8",
             )
-            (root / "patch.diff").write_text("+candidate\n", encoding="utf-8")
+            (root / "candidate_changes.diff").write_text(
+                "+candidate\n", encoding="utf-8"
+            )
             (root / "task_state" / "run-1.json").write_text("{}", encoding="utf-8")
             (root / "custom.txt").write_text("unowned", encoding="utf-8")
 
@@ -42,12 +44,18 @@ class RunStoryTest(unittest.TestCase):
             )
             manifest = read_run_manifest(path)
 
-            by_path = {artifact.relative_path: artifact for artifact in manifest.artifacts}
-            self.assertEqual(by_path["patch.diff"].evidence_level, "candidate")
-            self.assertIn("official resolved", by_path["patch.diff"].does_not_prove)
+            by_path = {
+                artifact.relative_path: artifact for artifact in manifest.artifacts
+            }
+            self.assertEqual(
+                by_path["candidate_changes.diff"].evidence_level, "candidate"
+            )
+            self.assertIn(
+                "official resolved", by_path["candidate_changes.diff"].does_not_prove
+            )
             self.assertEqual(
                 by_path["task_state/run-1.json"].producer_symbol,
-                "RunLifecycle.update / stop",
+                "RunLifecycle.update_checkpoint / finalize_run",
             )
             self.assertEqual(by_path["custom.txt"].kind, "unclassified")
 
@@ -68,7 +76,7 @@ class RunStoryTest(unittest.TestCase):
     def test_empty_patch_remains_unknown_candidate_evidence(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            (root / "patch.diff").write_text("", encoding="utf-8")
+            (root / "candidate_changes.diff").write_text("", encoding="utf-8")
             write_run_manifest(
                 root,
                 run_id="run-empty",

@@ -149,7 +149,7 @@ class RunResult:
     checkpoint: TaskCheckpoint
     trace_path: Path | None = None
     usage_path: Path | None = None
-    patch_path: Path | None = None
+    candidate_diff_path: Path | None = None
     manifest_path: Path | None = None
 
     @property

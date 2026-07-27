@@ -115,9 +115,7 @@ def build_single_harness(
             skill_names=tuple(parse_skill_names(args.skills)),
             skill_manifest_files=tuple(args.skill_manifest),
             tool_routing_mode=args.tool_routing,
-            enabled_tools=(
-                tuple(enabled_tools) if enabled_tools is not None else None
-            ),
+            enabled_tools=(tuple(enabled_tools) if enabled_tools is not None else None),
             mcp_config_file=args.mcp_config,
             mcp_allowed_tools=tuple(args.mcp_tool),
             model_capabilities=_model_capabilities_from_args(args),
@@ -237,7 +235,10 @@ def _run_advanced_repository_task(
         trace.write()
         write_usage_artifacts(trace_path)
         (run_dir / "final_answer.txt").write_text(final_answer, encoding="utf-8")
-        (run_dir / "patch.diff").write_text(environment.diff(), encoding="utf-8")
+        (run_dir / "candidate_changes.diff").write_text(
+            environment.diff(),
+            encoding="utf-8",
+        )
         _write_latest_run_pointer(run_dir)
         return run_dir
     finally:
@@ -354,9 +355,7 @@ def _model_capabilities_from_args(args: argparse.Namespace) -> ModelCapabilities
         native_tool_calling=bool(args.native_tool_calling),
         parallel_tool_calls=bool(args.parallel_tool_calls),
         structured_output=bool(args.structured_output),
-        reasoning_tokens=bool(
-            args.reasoning_tokens or args.thinking_mode == "enabled"
-        ),
+        reasoning_tokens=bool(args.reasoning_tokens or args.thinking_mode == "enabled"),
         prompt_cache=bool(args.prompt_cache),
         context_window=int(args.model_context_window),
         supports_images=bool(args.supports_images),

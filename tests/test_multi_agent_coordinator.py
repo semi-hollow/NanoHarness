@@ -34,7 +34,7 @@ class BlockingVerifierLLM:
         if "Verifier" in text:
             return AgentResponse("blocked: pending_tool_call_at_stop", [])
         if "Reviewer" in text:
-            return AgentResponse("PASS\nreview accepts the candidate patch", [])
+            return AgentResponse("PASS\nreview accepts the candidate diff", [])
         return AgentResponse("implemented primary role output", [])
 
 
@@ -225,7 +225,7 @@ class MultiAgentCoordinatorTest(unittest.TestCase):
             ).run()
 
             self.assertEqual(summary.status, "patch_generated")
-            self.assertIn("unverified patch", summary.final_answer)
+            self.assertIn("unverified diff", summary.final_answer)
 
     def test_primary_block_with_existing_diff_reports_candidate_patch(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -250,7 +250,7 @@ class MultiAgentCoordinatorTest(unittest.TestCase):
             ).run()
 
             self.assertEqual(summary.status, "patch_generated")
-            self.assertIn("candidate patch generated", summary.final_answer)
+            self.assertIn("candidate diff generated", summary.final_answer)
 
 
 if __name__ == "__main__":

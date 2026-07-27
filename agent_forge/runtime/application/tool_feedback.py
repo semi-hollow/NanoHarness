@@ -19,7 +19,7 @@ class ToolFeedback:
     def __init__(self, trace: EventSink) -> None:
         self.trace = trace
 
-    def append(
+    def append_tool_observation(
         self,
         session: AgentRunSession,
         tool_call: ToolCall,
@@ -45,7 +45,7 @@ class ToolFeedback:
             observation=observation.content,
         )
 
-    def record_recovery(
+    def record_recovery_decision(
         self,
         session: AgentRunSession,
         observation: Observation,
@@ -74,7 +74,7 @@ class ToolFeedback:
         return signal
 
     @staticmethod
-    def validation_evidence(
+    def build_validation_evidence(
         tool_name: str,
         arguments: ToolArguments,
         observation: Observation,
@@ -89,10 +89,7 @@ class ToolFeedback:
                 line == command_marker or line.startswith(f"{command_marker} ")
                 for line in observation.content.lower().splitlines()
             )
-            if (
-                diagnostic_kind in {"pytest", "unittest"}
-                and command_attested
-            ):
+            if diagnostic_kind in {"pytest", "unittest"} and command_attested:
                 kind = diagnostic_kind
         elif tool_name == "run_command":
             try:
@@ -133,7 +130,7 @@ class ToolFeedback:
         }
 
     @staticmethod
-    def message_tool_call(call: ToolCall) -> dict[str, Any]:
+    def to_message_tool_call(call: ToolCall) -> dict[str, Any]:
         """转换为 OpenAI-compatible assistant message 结构。"""
 
         return {

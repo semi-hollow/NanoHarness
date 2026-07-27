@@ -41,8 +41,8 @@ class AgentLoopRoleRunner:
         )
 
 
-class GitCandidatePatch:
-    """查询 workspace candidate patch 的降级安全 adapter。"""
+class GitCandidateDiff:
+    """查询 workspace 是否已有未提交候选 diff 的降级安全 adapter。"""
 
     def __init__(self, workspace: GitFanoutWorkspace) -> None:
         self.workspace = workspace

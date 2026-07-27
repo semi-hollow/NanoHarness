@@ -109,13 +109,13 @@ class FanoutPlan:
         }
 
 
-# 核心数据：真实 AgentLoop worker 的结果、patch 与 evidence 位置。
+# 核心数据：真实 AgentLoop worker 的结果、候选 diff 与 evidence 位置。
 @dataclass
 class LiveSubagentResult:
     """一个隔离 worker 的规范化结果和证据位置。
 
-    task/status/final_answer 描述结果；touched_files 与 patch hash 支撑冲突校验；
-    workspace、trace、usage、patch、artifact、environment path 指向真实证据；
+    task/status/final_answer 描述结果；touched_files 与 candidate diff hash 支撑冲突校验；
+    workspace、trace、usage、candidate diff、artifact、environment path 指向真实证据；
     batch/duration/usage/resumed 记录调度与恢复事实。
     """
 
@@ -126,8 +126,8 @@ class LiveSubagentResult:
     workspace: str = ""
     trace_path: str = ""
     usage_path: str = ""
-    patch_path: str = ""
-    patch_sha256: str = ""
+    candidate_diff_path: str = ""
+    candidate_diff_sha256: str = ""
     artifact_path: str = ""
     environment_manifest_path: str = ""
     batch_index: int = 0
@@ -159,7 +159,7 @@ class LiveFanoutSummary:
 
     identity 字段记录 run/goal/plan/base；batches/results/merged/conflicts 记录调度与
     合并；status、wall_time、metrics 和 finalizer 字段记录最终判断与成本；
-    末尾 path 字段指向 summary、report 和 integration patch，便于 UI/评测读取，
+    末尾 path 字段指向 summary、report 和 integrated diff，便于 UI/评测读取，
     不重算事实。
     """
 
@@ -181,7 +181,7 @@ class LiveFanoutSummary:
     finalizer_usage_summary: dict[str, Any] = field(default_factory=dict)
     summary_path: str = ""
     report_path: str = ""
-    integration_patch_path: str = ""
+    integrated_diff_path: str = ""
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -203,7 +203,7 @@ class LiveFanoutSummary:
             "finalizer_usage_summary": self.finalizer_usage_summary,
             "summary_path": self.summary_path,
             "report_path": self.report_path,
-            "integration_patch_path": self.integration_patch_path,
+            "integrated_diff_path": self.integrated_diff_path,
         }
 
 

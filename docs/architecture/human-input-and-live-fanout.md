@@ -61,7 +61,7 @@ AgentLoop / ClarificationPolicy
       "task": "Implement the runtime change",
       "depends_on": [],
       "write_scope": ["agent_forge/runtime/"],
-      "allowed_tools": ["read_file", "grep_search", "apply_patch", "diagnostics"],
+      "allowed_tools": ["read_file", "grep_search", "replace_text", "diagnostics"],
       "expected_artifact": "runtime_patch",
       "max_steps": 12
     },
@@ -95,7 +95,7 @@ validated DAG
   -> 按 task 顺序确定性 apply patch
   -> dependent batch 从已集成状态开始
   -> 最终只读 Aggregator/Verifier AgentLoop
-  -> fanout_summary.json / fanout_report.md / integration.patch
+  -> fanout_summary.json / fanout_report.md / integrated_changes.diff
 ```
 
 Declared overlap 会被串行化，而不是并发执行。Undeclared actual overlap、scope escape
@@ -119,7 +119,7 @@ operation identity 包含 ephemeral worktree path。因此 live write fanout 会
 `--no-auto-approve-writes`，而不是假装 approval 可以安全重放。该授权边界应使用
 single/sequential mode。
 
-Candidate patch collection 被 run、benchmark、tool、coordinator 和 fanout 共用。它
+Candidate diff collection 被 run、benchmark、tool、coordinator 和 fanout 共用。它
 包含 tracked change 和 untracked text/binary source file，同时排除 untracked
 `.agent_forge` runtime artifact。Finalizer 在独立 disposable worktree 中运行，且
 integration patch 保持对 `git_diff` 可见。Runtime 会比较 verification 前后的完整

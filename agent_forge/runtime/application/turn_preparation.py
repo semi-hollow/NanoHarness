@@ -56,9 +56,9 @@ class TurnPreparation:
     ) -> None:
         self.config = config
         self.trace = trace
-        self.context = context
-        self.tools = tools
-        self.environment = environment
+        self.context_assembler = context
+        self.tool_gateway = tools
+        self.execution_environment = environment
         self.model_capabilities = model_capabilities
         self.tool_router = ToolRouter()
         effective_context_window = max(
@@ -79,7 +79,7 @@ class TurnPreparation:
         )
 
     # 主要入口：为当前 turn 路由工具、组装上下文并执行会话窗口治理。
-    def execute(
+    def prepare_turn(
         self,
         session: AgentRunSession,
         step: int,
@@ -96,7 +96,7 @@ class TurnPreparation:
         删除/内联影响：会拆散模型请求的 context/tool/budget 一致性边界。
         """
 
-        session.lifecycle.update(
+        session.lifecycle.update_checkpoint(
             TaskCheckpointUpdate(
                 status=TaskRunStatus.RUNNING,
                 current_step=step,
@@ -112,7 +112,7 @@ class TurnPreparation:
         tool_route = self.tool_router.route(
             ToolRoutingRequest(
                 task=session.task,
-                schemas=self.tools.schemas(),
+                schemas=self.tool_gateway.schemas(),
                 step=step,
                 agent_name=session.agent_name,
                 skill_tool_names=session.skill_tool_names,
@@ -122,9 +122,9 @@ class TurnPreparation:
         visible_tool_schemas: list[ToolSchema] = tool_route.schemas
         allowed_tool_names = set(tool_route.allowed_names)
         model_permission_summary = (
-            "read/list/grep allowed; write/apply_patch asks approval; "
+            "read/list/grep allowed; replace_text/write_file asks approval; "
             "dangerous commands denied; "
-            f"{self.environment.describe()}"
+            f"{self.execution_environment.render_boundary_summary()}"
         )
         if step == session.max_iterations:
             visible_tool_schemas = []
@@ -136,7 +136,7 @@ class TurnPreparation:
         # endregion 工具路由准备结束
 
         # region 上下文输入组装（首遍可折叠）
-        assembled_context = self.context.build(
+        assembled_context = self.context_assembler.build(
             ContextAssemblyRequest(
                 task=session.task,
                 workspace=self.config.workspace,
@@ -222,10 +222,8 @@ class TurnPreparation:
             },
         )
         if prepared_window.digest is not None:
-            session.lifecycle.update(
-                TaskCheckpointUpdate(
-                    context_digest=prepared_window.digest.to_dict()
-                )
+            session.lifecycle.update_checkpoint(
+                TaskCheckpointUpdate(context_digest=prepared_window.digest.to_dict())
             )
         return PreparedTurn(
             step=step,
@@ -239,9 +237,7 @@ class TurnPreparation:
                 + len(message.reasoning_content or "")
                 for message in session.messages
             ),
-            tool_schema_chars=sum(
-                len(str(schema)) for schema in visible_tool_schemas
-            ),
+            tool_schema_chars=sum(len(str(schema)) for schema in visible_tool_schemas),
             estimated_prompt_tokens=prepared_window.estimated_tokens_after,
             compacted=prepared_window.compacted,
             session_digest=prepared_window.digest,

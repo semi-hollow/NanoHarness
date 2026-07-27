@@ -43,7 +43,7 @@ class HarnessRunPaths:
     artifact_dir: Path
     trace_file: Path
     final_answer_file: Path
-    patch_file: Path
+    candidate_diff_file: Path
     task_state_dir: Path
     manifest_file: Path
 
@@ -91,7 +91,7 @@ def create_run_paths(
         artifact_dir=artifact_dir,
         trace_file=artifact_dir / "trace.json",
         final_answer_file=artifact_dir / "final_answer.txt",
-        patch_file=artifact_dir / "patch.diff",
+        candidate_diff_file=artifact_dir / "candidate_changes.diff",
         task_state_dir=artifact_dir / "task_state",
         manifest_file=artifact_dir / "run_manifest.json",
     )

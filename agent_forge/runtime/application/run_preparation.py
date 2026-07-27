@@ -22,8 +22,8 @@ from agent_forge.safety.guardrails import input_guardrail
 class RunPreparation:
     """创建 run，并在首次模型调用前完成所有一次性决策。
 
-    阅读入口只有两个：``start`` 创建显式会话，``execute`` 完成 guardrail、
-    clarification/人工恢复、Skill 选择与长期记忆召回。
+    阅读入口只有两个：``create_session`` 创建显式会话，``prepare_run`` 完成
+    guardrail、clarification/人工恢复、Skill 选择与长期记忆召回。
     """
 
     def __init__(
@@ -46,7 +46,7 @@ class RunPreparation:
         self.model_capabilities = dependencies.model_capabilities
 
     # 主要入口：创建本次 run 的 session、lifecycle 和首个 durable checkpoint。
-    def start(self, task: str, agent_name: str) -> AgentRunSession:
+    def create_session(self, task: str, agent_name: str) -> AgentRunSession:
         """把 ``AgentLoop.run`` 的规范输入转换为可恢复的运行会话。
 
         流程位置：黄金主链的 session 与首个 durable state 创建点。
@@ -106,12 +106,13 @@ class RunPreparation:
         )
 
     # 主要入口：应用输入策略、恢复人工状态、选择 Skill 并召回长期记忆。
-    def execute(self, session: AgentRunSession) -> StopRequest | None:
+    def prepare_run(self, session: AgentRunSession) -> StopRequest | None:
         """完成首次模型调用前的一次性决策，并把控制权还给 ``AgentLoop``。
 
         流程位置：首次模型调用之前的一次性策略阶段。
         规范上游：``AgentLoop.run``。
-        下一 owner：成功时 ``TurnPreparation.execute``；停止时 ``RunLifecycle.stop``。
+        下一 owner：成功时 ``TurnPreparation.prepare_turn``；停止时
+        ``RunLifecycle.finalize_run``。
         状态与证据：guardrail、clarification、Skill 与 memory 决定写入 trace。
         系统不变量：本方法只返回 ``StopRequest``，不直接写终态。
         删除/内联影响：会把一次性策略重新散入 turn loop。
@@ -238,9 +239,7 @@ class RunPreparation:
         prior_session_summary = getattr(self.config, "session_summary", "")
         if session.resume_summary:
             prior_session_summary = "\n".join(
-                part
-                for part in [prior_session_summary, session.resume_summary]
-                if part
+                part for part in [prior_session_summary, session.resume_summary] if part
             )
         session.working_memory.seed_session(
             previous_task=getattr(self.config, "previous_task", ""),
@@ -299,4 +298,5 @@ class RunPreparation:
                 limit=3,
             )
         )
+
     # endregion 一次性准备规则结束

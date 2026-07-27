@@ -123,7 +123,10 @@ def classify_case_result(
             "official_eval_failed",
             "The official SWE-bench harness completed and rejected the candidate patch for this case.",
             evidence,
-            ["Read official per-case output and patch.diff together; add this case to regression before tuning."],
+            [
+                "Read official per-case output and candidate_changes.diff together; "
+                "add this case to regression before tuning."
+            ],
             severity="high",
             impact="The generated patch did not satisfy benchmark correctness criteria.",
             engineering_lesson="Patch generation, local validation, and official resolution are different evidence levels.",

@@ -3,7 +3,6 @@ from .command_policy import check_command
 
 
 class PermissionDecision(Enum):
-
     ALLOW = "allow"
 
     ASK = "ask"
@@ -12,9 +11,7 @@ class PermissionDecision(Enum):
 
 
 class PermissionPolicy:
-
     def __init__(self, auto_approve_writes: bool = True) -> None:
-
         self.auto_approve_writes = auto_approve_writes
 
     # 运行时端口：把动作映射为 allow/ask/deny；命令再交给 CommandPolicy。
@@ -23,8 +20,7 @@ class PermissionPolicy:
 
         if action in {"read", "list", "grep"}:
             return PermissionDecision.ALLOW, "read/list/grep allowed"
-        if action in {"write", "apply_patch"}:
-
+        if action == "write":
             return PermissionDecision.ASK, "write needs approval"
         if action == "run_command":
             ok, reason = check_command(command)

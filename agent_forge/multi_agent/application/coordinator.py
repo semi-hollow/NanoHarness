@@ -23,7 +23,7 @@ class MultiAgentCoordinator:
         run_dir: str | Path,
         max_revision_rounds: int | None = None,
     ) -> None:
-        """接收角色执行、Artifact、Patch 和 Event 端口。"""
+        """接收角色执行、Artifact、candidate diff 和 Event 端口。"""
 
         self.task = task
         self.profile = profile
@@ -31,7 +31,7 @@ class MultiAgentCoordinator:
         self.trace = dependencies.events
         self.store = dependencies.artifacts
         self.role_runner = dependencies.role_runner
-        self.candidate_patch = dependencies.candidate_patch
+        self.candidate_diff = dependencies.candidate_diff
         self.run_dir = Path(run_dir)
         self.max_revision_rounds = (
             profile.default_max_revision_rounds if max_revision_rounds is None else max_revision_rounds
@@ -56,11 +56,11 @@ class MultiAgentCoordinator:
             primary_result = self._run_role(primary, round_index)
             summary.role_results.append(primary_result)
             if primary_result.status == "blocked":
-                if self._candidate_patch_exists():
+                if self._candidate_diff_exists():
                     summary.status = "patch_generated"
                     summary.final_answer = (
-                        f"candidate patch generated; {primary.name} stopped after the patch because later "
-                        "tool or validation steps were blocked. Treat this as an unverified patch and inspect artifacts."
+                        f"candidate diff generated; {primary.name} stopped after the edit because later "
+                        "tool or validation steps were blocked. Treat this as an unverified diff and inspect artifacts."
                     )
                 else:
                     summary.status = "blocked"
@@ -69,10 +69,10 @@ class MultiAgentCoordinator:
             if primary_result.decision == "NEEDS_REVISION":
                 self._trace("review_decision", decision="NEEDS_REVISION", role=primary.name)
                 if round_index >= self.max_revision_rounds:
-                    if self._candidate_patch_exists():
+                    if self._candidate_diff_exists():
                         summary.status = "patch_generated"
                         summary.final_answer = (
-                            f"candidate patch generated; primary role {primary.name} still requested revision, "
+                            f"candidate diff generated; primary role {primary.name} still requested revision, "
                             f"but max_revision_rounds={self.max_revision_rounds} was reached."
                         )
                     else:
@@ -99,11 +99,11 @@ class MultiAgentCoordinator:
                     revision_requested_by = role.name
 
             if blocked_by:
-                if self._blocked_after_candidate_patch(blocked_by):
+                if self._blocked_after_candidate_diff(blocked_by):
                     summary.status = "patch_generated"
                     summary.final_answer = (
-                        f"candidate patch generated; {blocked_by} could not complete validation. "
-                        "Treat this as an unverified patch and inspect artifacts before claiming success."
+                        f"candidate diff generated; {blocked_by} could not complete validation. "
+                        "Treat this as an unverified diff and inspect artifacts before claiming success."
                     )
                 else:
                     summary.status = "blocked"
@@ -114,10 +114,10 @@ class MultiAgentCoordinator:
             if revision_requested_by:
                 self._trace("review_decision", decision="NEEDS_REVISION", role=revision_requested_by)
                 if round_index >= self.max_revision_rounds:
-                    if self._candidate_patch_exists():
+                    if self._candidate_diff_exists():
                         summary.status = "patch_generated"
                         summary.final_answer = (
-                            f"candidate patch generated; {revision_requested_by} still requested revision, "
+                            f"candidate diff generated; {revision_requested_by} still requested revision, "
                             f"but max_revision_rounds={self.max_revision_rounds} was reached. "
                             "Inspect artifacts before claiming official correctness."
                         )
@@ -298,15 +298,15 @@ class MultiAgentCoordinator:
         )
         return any(marker in head for marker in raw_tool_markers)
 
-    def _blocked_after_candidate_patch(self, blocked_by: str) -> bool:
+    def _blocked_after_candidate_diff(self, blocked_by: str) -> bool:
 
         if blocked_by not in self.profile.verifier_roles:
             return False
-        return self._candidate_patch_exists()
+        return self._candidate_diff_exists()
 
-    def _candidate_patch_exists(self) -> bool:
+    def _candidate_diff_exists(self) -> bool:
 
-        return self.candidate_patch.exists()
+        return self.candidate_diff.exists()
 
     def _trace(
         self,

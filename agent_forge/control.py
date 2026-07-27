@@ -1,7 +1,7 @@
 """NanoHarness 嵌入式运行控制器。
 
 写入链路：调用线程 ``pause/cancel/steer`` -> 本对象的线程安全队列。
-读取链路：``AgentLoop`` -> ``ApplyRunControl`` -> ``RunControlPort`` -> 本对象的
+读取链路：``AgentLoop`` -> ``RunControlHandler`` -> ``RunControlPort`` -> 本对象的
 ``take_terminal/drain_steers``。同一个对象经 ``HarnessExtensions`` 传给 Runtime，
 所以这里没有网络轮询或隐藏的全局状态。
 """
@@ -32,7 +32,9 @@ class RunController(RunControlPort):
         self._steers: dict[str, deque[RunControlSignal]] = defaultdict(deque)
 
     # 主要入口：请求 AgentLoop 在下一个安全边界暂停并保存 checkpoint。
-    def pause(self, reason: str = "operator requested pause", *, run_id: str = "") -> None:
+    def pause(
+        self, reason: str = "operator requested pause", *, run_id: str = ""
+    ) -> None:
         """提交 pause；不会中断正在执行的单个外部调用。"""
 
         self._set_terminal(
@@ -41,7 +43,9 @@ class RunController(RunControlPort):
         )
 
     # 主要入口：请求 AgentLoop 在下一个安全边界取消，不回滚既有副作用。
-    def cancel(self, reason: str = "operator requested cancel", *, run_id: str = "") -> None:
+    def cancel(
+        self, reason: str = "operator requested cancel", *, run_id: str = ""
+    ) -> None:
         """提交 cancel；已完成副作用仍由 operation ledger 保留。"""
 
         self._set_terminal(
@@ -57,7 +61,7 @@ class RunController(RunControlPort):
         with self._lock:
             self._steers[run_id].append(signal)
 
-    # Runtime 读取端：只供 ApplyRunControl 消费，不是用户操作入口。
+    # Runtime 读取端：只供 RunControlHandler 消费，不是用户操作入口。
     def take_terminal(self, run_id: str) -> RunControlSignal | None:
         """优先消费指定 run 的信号，再消费未绑定信号。"""
 

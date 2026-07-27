@@ -26,7 +26,7 @@ class DecideApproval:
         self.approvals = approvals
 
     # 主要入口：验证并持久化一次明确的副作用审批决定。
-    def execute(
+    def decide(
         self,
         operation_key: str,
         decision: str,
@@ -45,7 +45,7 @@ class RespondToHumanInput:
         self.human_inputs = human_inputs
 
     # 主要入口：持久化人工回答或取消状态，不隐式重启 Agent。
-    def execute(
+    def respond(
         self,
         request_id: str,
         *,
@@ -67,7 +67,7 @@ class BuildContinuationPlan:
         self.human_inputs = human_inputs
 
     # 主要入口：从 checkpoint 和人工结果构造 continuation 的显式输入。
-    def execute(
+    def build(
         self,
         checkpoint: TaskCheckpoint,
         *,

@@ -13,7 +13,7 @@ NanoHarness 接收 repository issue，在隔离快照中驱动模型检索、编
 issue + base commit
   -> isolated workspace
   -> governed AgentLoop
-  -> candidate patch + trace/checkpoint/usage
+  -> candidate diff + trace/checkpoint/usage
   -> local/official evaluation
   -> repeated campaign + failure diagnosis
 ```
@@ -28,7 +28,7 @@ issue + base commit
 ## 为什么做这个项目
 
 模型能生成代码，不代表它能稳定完成真实软件工程任务。长任务常见问题包括上下文漂移、工具
-误用、重复动作、危险副作用、中断后重复执行，以及把“生成了 patch”误报成“解决了问题”。
+误用、重复动作、危险副作用、中断后重复执行，以及把“生成了候选 diff”误报成“解决了问题”。
 
 NanoHarness 因此聚焦三个层面：
 
@@ -45,7 +45,7 @@ NanoHarness 刻意收窄到软件工程执行与评测边界，让关键决策�
 
 | 证据层级 | 能证明什么 | 不能证明什么 |
 | --- | --- | --- |
-| Candidate patch | Agent 到达有效编辑阶段 | patch 正确或任务 solved |
+| Candidate diff | Agent 到达有效编辑阶段 | 修改正确或任务 solved |
 | Local verified | 已记录的测试型本地验证通过 | 官方环境一定通过 |
 | Official resolved | SWE-bench per-case report 明确 `resolved=true` | 能外推到全部 500 题 |
 | Repeated campaign | 同配置多次运行的稳定性、成本与 paired outcome | 单因素因果或模型排行榜 |
@@ -169,7 +169,7 @@ continuation run，不声称恢复隐藏模型状态。完整 consumer 见
 ```text
 dataset issue/base commit
   -> clean checkout
-  -> AgentLoop + candidate patch
+  -> AgentLoop + candidate diff
   -> FAIL_TO_PASS / PASS_TO_PASS
   -> per-case official result
   -> scorecard / failure class
@@ -218,7 +218,7 @@ Contract 见[架构契约](docs/ARCHITECTURE.md)。
 - Pause/cancel 是协作式 safe point，不会强制终止正在执行的 HTTP 或进程调用。
 - Resume 恢复显式 checkpoint 与 continuation context，不恢复模型隐藏状态。
 - Operator Console 展示 Runtime 已产生的事件和模型可见输出，不展示或伪造隐藏思维链。
-- Fanout 接收显式 DAG；scope overlap 串行化，scope escape 或 patch conflict fail closed。
+- Fanout 接收显式 DAG；scope overlap 串行化，scope escape 或 diff apply conflict fail closed。
 - Local mode 不是 OS 级隔离；OCI mode 也不宣称 hostile multi-tenant security。
 - 项目不是 hosted SaaS、distributed swarm、RL training platform 或 benchmark leaderboard。
 

@@ -190,7 +190,7 @@ TaskRequest
   -> OperationIntent
   -> Observation
   -> Evidence Event
-  -> RunResult / Patch / Artifact
+  -> RunResult / CandidateDiff / Artifact
   -> Evaluation Read Model
 ```
 
@@ -202,7 +202,9 @@ TaskRequest
 - Renderer 只消费 Read Model，不从原始 trace 重新推断“是否解决”等结论。
 - `Any` 只允许出现在无法控制的协议边界，并应立即归一化。
 
-### 2.4 状态流转图
+### 2.4 编辑与 Diff 术语
+`replace_text` 只做 `path/old/new` 锚点替换；Runtime/worker 生成 `candidate_changes.diff`，Fanout 合并后生成 `integrated_changes.diff`，Git Adapter 用 `apply_unified_diff` 应用它们。SWE-bench 强制字段 `model_patch` 只留在协议边界；`patch_generated` 只表示 candidate diff 非空。`.diff` 与 `.patch` 都能承载 unified diff，但内部文件统一使用 `.diff`。
+### 2.5 状态流转图
 
 单 Agent 任务的主状态为：
 
@@ -230,9 +232,9 @@ stateDiagram-v2
 - 禁止外围模块直接赋值状态字符串。
 - 非终态恢复必须携带 checkpoint、恢复提示和幂等边界。
 - `COMPLETED` 只表示 harness 流程完成，不等于 official benchmark resolved。
-- candidate patch、验证通过和 official resolved 是三个不同事实。
+- candidate diff、验证通过和 official resolved 是三个不同事实。
 
-### 2.5 职责与所有权图
+### 2.6 职责与所有权图
 
 | 能力 | 拥有的数据与规则 | 允许的副作用 | 不拥有的职责 |
 |---|---|---|---|
@@ -243,7 +245,7 @@ stateDiagram-v2
 | Presentation | 参数、HTTP、CLI、HTML/Markdown renderer | 启动 Use Case、查询 Read Model | 修改运行状态、解释原始 JSON |
 | Adapters | LLM、Git、FS、process、具体 Store 和 Tool | 与外部世界交互 | 决定核心业务状态和结论 |
 
-### 2.6 当前代码落点
+### 2.7 当前代码落点
 
 ```text
 agent_forge/
@@ -265,13 +267,13 @@ cli.dispatch.main -> cli.repository.run_repository_task
 -> RunRequest -> agent_forge.Harness.run
 -> runtime.wiring.build_agent_loop_from_request
 -> runtime.application.AgentLoop.run
--> RunPreparation.start/execute
--> TurnPreparation.execute
+-> RunPreparation.create_session/prepare_run
+-> TurnPreparation.prepare_turn
 -> Instruction Resolver / Skill discovery + activation / ContextAssemblerPort
 -> before_model Hook -> ModelPort.chat -> after_model Hook
 -> ToolExecutionPipeline.execute_calls
 -> before_tool Hook -> governed tool -> after_tool + final redaction
--> RunLifecycle.stop
+-> RunLifecycle.finalize_run
 ```
 
 嵌入式控制与实时事件沿同一主链生效：
@@ -295,7 +297,7 @@ Benchmark 的完成顺序：
 
 ```text
 bench.api.run_swebench
--> RunSwebench.execute
+-> RunSwebench.run_benchmark
 -> execute cases
 -> stage predictions
 -> optional official evaluator
@@ -369,7 +371,7 @@ wiring` 拆分。只有流程与外部副作用混杂、变化原因明显不同
 
 - Trace 是事实流，不是结论层。
 - Read Model 将事实投影成 UI、CLI 和报告需要的稳定结构。
-- Report 不得把 patch generated 写成 solved。
+- Report 不得把 `patch_generated` 状态写成 solved；该状态只表示存在候选 diff。
 - Official resolved 只能来自 official evaluator 的明确结果。
 - Single-run artifact 必须通过 `RunManifest` 记录 `kind`、`relative_path`、`producer_symbol`、
   `flow_stage`、`semantic_consumers`、`evidence_level`、`derived_from/source_event_refs`、

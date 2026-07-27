@@ -17,7 +17,7 @@ class FinalAnswerBuilder:
         self.trace = trace
 
     # 主要入口：把无 tool call 的模型响应归一化为完成、阻塞或继续验证。
-    def execute(
+    def build_stop_request(
         self,
         session: AgentRunSession,
         response: AgentResponse,
@@ -27,7 +27,7 @@ class FinalAnswerBuilder:
 
         流程位置：模型文本与 terminal transition 之间的 claim boundary。
         规范上游：``AgentLoop``。
-        下一 owner：``RunLifecycle.stop``。
+        下一 owner：``RunLifecycle.finalize_run``。
         状态与证据：final-answer、citation 与 unverified-claim 事件。
         系统不变量：Harness 完成不等于 local 或 official resolved。
         删除/内联影响：会让模型文本绕过 claim boundary 直接成为完成结论。

@@ -54,7 +54,7 @@ from agent_forge.runtime.ports import (
 )
 from agent_forge.safety.sandbox import WorkspaceSandbox
 from agent_forge.skills import build_default_skill_registry
-from agent_forge.tools.apply_patch import ApplyPatchTool
+from agent_forge.tools.replace_text import ReplaceTextTool
 from agent_forge.tools.ask_human import AskHumanTool
 from agent_forge.tools.diagnostics import DiagnosticsTool
 from agent_forge.tools.git_diff import GitDiffTool
@@ -136,7 +136,7 @@ def build_registry(request: ToolRegistryBuildRequest) -> ToolRegistry:
         WriteFileTool(sandbox, request.auto),
         GrepTool(sandbox),
         GrepSearchTool(sandbox),
-        ApplyPatchTool(sandbox, request.auto),
+        ReplaceTextTool(sandbox, request.auto),
         RunCommandTool(
             sandbox,
             request.auto,
@@ -315,7 +315,7 @@ def decide_approval(
 ) -> ApprovalRequest:
     """装配审批存储并执行一次人工决定。"""
 
-    return DecideApproval(JsonApprovalRepository(approval_root)).execute(
+    return DecideApproval(JsonApprovalRepository(approval_root)).decide(
         operation_key,
         decision,
         note=note,
@@ -329,7 +329,7 @@ def respond_to_human_input(
 
     return RespondToHumanInput(
         JsonHumanInputRepository(command.human_input_root)
-    ).execute(
+    ).respond(
         command.request_id,
         answer=command.answer,
         cancel=command.cancel,
@@ -348,7 +348,7 @@ def prepare_continuation(
 
     checkpoint_path = JsonTaskStateRepository.latest_path(run_dir)
     checkpoint = JsonTaskStateRepository.load_path(checkpoint_path)
-    plan = BuildContinuationPlan(JsonHumanInputRepository(human_input_root)).execute(
+    plan = BuildContinuationPlan(JsonHumanInputRepository(human_input_root)).build(
         checkpoint,
         override_task=override_task,
         workspace=workspace,

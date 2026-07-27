@@ -332,7 +332,7 @@ class HumanInputTest(unittest.TestCase):
             self.assertEqual(args.command, "resume")
             store.respond(args.request_id, args.answer)
 
-            plan = BuildContinuationPlan(store).execute(
+            plan = BuildContinuationPlan(store).build(
                 checkpoint,
                 override_task="",
             )

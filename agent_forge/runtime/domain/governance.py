@@ -24,7 +24,8 @@ class ApprovalMode(Enum):
     LOCKED = "locked"
     DRY_RUN = "dry-run"
 
-SIDE_EFFECT_ACTIONS = {"apply_patch", "write", "run_command"}
+
+SIDE_EFFECT_ACTIONS = {"write", "run_command"}
 
 
 @dataclass(frozen=True)

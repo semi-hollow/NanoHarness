@@ -41,8 +41,8 @@ class JsonTaskStateRepository(TaskStateRepository):
     ) -> TaskCheckpoint:
         """应用并持久化一次显式 checkpoint 状态迁移。
 
-        ``RunLifecycle.update`` 在 model、tool、pause 和 stop 后调用这里。显式关键字
-        参数就是完整可变字段表，读者无需再进入 ``save`` 或 ``_write``。
+        ``RunLifecycle.update_checkpoint`` 在 model、tool、pause 和 stop 后调用这里。
+        显式关键字参数就是完整可变字段表，读者无需再进入 ``save`` 或 ``_write``。
         """
 
         checkpoint.apply_transition(update)

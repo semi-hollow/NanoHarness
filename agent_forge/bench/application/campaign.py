@@ -1,6 +1,6 @@
 """可恢复的 repeated matched benchmark campaign 用例。
 
-阅读入口只有 ``RunBenchmarkCampaign.execute``。它在每个运行槽位前后保存
+阅读入口只有 ``RunBenchmarkCampaign.run_campaign``。它在每个运行槽位前后保存
 ``campaign.json``，因此进程中断后可以跳过已完成槽位并重试 running/failed 槽位。
 """
 
@@ -57,7 +57,10 @@ class RunBenchmarkCampaign:
         self._now = now or _utc_now
 
     # 主要入口：运行或恢复整个 campaign；其余方法只做单槽位适配。
-    def execute(self, request: BenchmarkCampaignRequest) -> BenchmarkCampaignResult:
+    def run_campaign(
+        self,
+        request: BenchmarkCampaignRequest,
+    ) -> BenchmarkCampaignResult:
         """已完成槽位幂等跳过；失败槽位在下一次相同配置恢复时重试。"""
 
         # region 准备区（首遍可折叠）：目录、源码、实验身份与可恢复状态
@@ -83,9 +86,7 @@ class RunBenchmarkCampaign:
             source_identity=source_identity,
             configuration_digest=configuration_digest,
         )
-        variants_by_name = {
-            variant.name: variant for variant in request.variants
-        }
+        variants_by_name = {variant.name: variant for variant in request.variants}
         # endregion 准备区结束
 
         # 执行区：每个 record 是一个可单独 checkpoint、可恢复的实验槽位。
@@ -115,10 +116,7 @@ class RunBenchmarkCampaign:
         # 收口区：聚合只消费已经持久化的槽位事实，不重新推断 case 结果。
         campaign_state.status = (
             "completed"
-            if all(
-                record.status == "completed"
-                for record in campaign_state.records
-            )
+            if all(record.status == "completed" for record in campaign_state.records)
             else "completed_with_failures"
         )
         campaign_state.updated_at = self._now()
@@ -242,6 +240,7 @@ class RunBenchmarkCampaign:
             self._artifacts.read_scorecard(benchmark_run.output_dir),
         )
         record.error = ""
+
     # endregion 单槽位与恢复细节结束
 
 
@@ -251,9 +250,7 @@ def _extract_run_evidence(
 ) -> dict[str, Any]:
     # 准备区：优先读取 scorecard；缺字段时才回退到本次 run 的 case result。
     scorecard_cases = (
-        scorecard_payload.get("cases")
-        if isinstance(scorecard_payload, dict)
-        else None
+        scorecard_payload.get("cases") if isinstance(scorecard_payload, dict) else None
     )
     scorecard_case = (
         scorecard_cases[0]
@@ -263,18 +260,12 @@ def _extract_run_evidence(
     if not isinstance(scorecard_case, dict):
         scorecard_case = {}
     benchmark_case_result = (
-        benchmark_run.case_results[0]
-        if benchmark_run.case_results
-        else None
+        benchmark_run.case_results[0] if benchmark_run.case_results else None
     )
     return {
         "status": str(
             scorecard_case.get("status")
-            or (
-                benchmark_case_result.status
-                if benchmark_case_result
-                else "unknown"
-            )
+            or (benchmark_case_result.status if benchmark_case_result else "unknown")
         ),
         "patch_generated": bool(
             scorecard_case.get("patch_generated")
@@ -316,14 +307,10 @@ def _extract_run_evidence(
             )
         ),
         "total_tokens": int(scorecard_case.get("total_tokens") or 0),
-        "estimated_cost_usd": float(
-            scorecard_case.get("estimated_cost_usd") or 0.0
-        ),
+        "estimated_cost_usd": float(scorecard_case.get("estimated_cost_usd") or 0.0),
         "llm_latency_ms": int(scorecard_case.get("llm_latency_ms") or 0),
         "tool_calls": int(scorecard_case.get("tool_calls") or 0),
-        "failed_tool_calls": int(
-            scorecard_case.get("failed_tool_calls") or 0
-        ),
+        "failed_tool_calls": int(scorecard_case.get("failed_tool_calls") or 0),
     }
 
 

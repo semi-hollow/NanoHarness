@@ -27,7 +27,7 @@ class ToolRegistryRouterTest(unittest.TestCase):
         schemas = [
             {"name": "read_file", "arguments": {"path": "str"}},
             {
-                "name": "apply_patch",
+                "name": "replace_text",
                 "arguments": {"path": "str", "old": "str", "new": "str"},
             },
             {"name": "run_command", "arguments": {"command": "str"}},
@@ -41,7 +41,7 @@ class ToolRegistryRouterTest(unittest.TestCase):
             )
         )
         self.assertIn("read_file", route.allowed_names)
-        self.assertNotIn("apply_patch", route.allowed_names)
+        self.assertNotIn("replace_text", route.allowed_names)
         self.assertNotIn("run_command", route.allowed_names)
 
     def test_router_keeps_write_tools_for_coding_task_that_only_forbids_test_edits(
@@ -50,7 +50,7 @@ class ToolRegistryRouterTest(unittest.TestCase):
         schemas = [
             {"name": "read_file", "arguments": {"path": "str"}},
             {
-                "name": "apply_patch",
+                "name": "replace_text",
                 "arguments": {"path": "str", "old": "str", "new": "str"},
             },
             {"name": "write_file", "arguments": {"path": "str", "content": "str"}},
@@ -62,7 +62,7 @@ class ToolRegistryRouterTest(unittest.TestCase):
                 "You are Implementer, the coding implementer.",
                 "Original task: Resolve this coding issue.",
                 "Role instructions: make the smallest safe code change. Do not edit tests unless explicitly asked.",
-                "Allowed role tools: read_file, apply_patch, write_file, run_command, git_diff",
+                "Allowed role tools: read_file, replace_text, write_file, run_command, git_diff",
             ]
         )
         route = ToolRouter().route(
@@ -73,7 +73,7 @@ class ToolRegistryRouterTest(unittest.TestCase):
                 agent_name="Implementer",
             )
         )
-        self.assertIn("apply_patch", route.allowed_names)
+        self.assertIn("replace_text", route.allowed_names)
         self.assertIn("write_file", route.allowed_names)
         self.assertIn("run_command", route.allowed_names)
         self.assertIn("git_diff", route.allowed_names)
@@ -82,7 +82,7 @@ class ToolRegistryRouterTest(unittest.TestCase):
         schemas = [
             {"name": "read_file", "arguments": {"path": "str"}},
             {
-                "name": "apply_patch",
+                "name": "replace_text",
                 "arguments": {"path": "str", "old": "str", "new": "str"},
             },
             {"name": "write_file", "arguments": {"path": "str", "content": "str"}},
@@ -98,7 +98,7 @@ class ToolRegistryRouterTest(unittest.TestCase):
                 agent_name="Implementer",
             )
         )
-        self.assertIn("apply_patch", route.allowed_names)
+        self.assertIn("replace_text", route.allowed_names)
         self.assertIn("diagnostics", route.allowed_names)
         self.assertNotIn("write_file", route.allowed_names)
         self.assertNotIn("run_command", route.allowed_names)

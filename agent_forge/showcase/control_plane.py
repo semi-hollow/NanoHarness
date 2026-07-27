@@ -157,7 +157,7 @@ class _ApprovalShowcaseModel:
                 [
                     ToolCall(
                         "showcase-apply-patch",
-                        "apply_patch",
+                        "replace_text",
                         {
                             "path": "target.py",
                             "old": "value = 1\n",

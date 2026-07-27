@@ -17,7 +17,7 @@ from pathlib import Path
 
 
 class DeterministicRepairModel:
-    """固定 read/read/patch/pytest 意图；Runtime 和工具仍使用真实实现。"""
+    """固定 read/read/replace/pytest 意图；Runtime 和工具仍使用真实实现。"""
 
     last_usage = None
 
@@ -40,8 +40,8 @@ class DeterministicRepairModel:
                 {"path": "test_calculator.py"},
             ),
             3: ToolCall(
-                "lab-apply-patch",
-                "apply_patch",
+                "lab-replace-text",
+                "replace_text",
                 {
                     "path": "calculator.py",
                     "old": "return a - b",
@@ -57,7 +57,7 @@ class DeterministicRepairModel:
         if self.calls in scripted_calls:
             return AgentResponse(None, [scripted_calls[self.calls]])
         return AgentResponse(
-            "PASS\nfixed input -> governed patch -> focused pytest -> evidence",
+            "PASS\nfixed input -> governed edit -> focused pytest -> evidence",
             [],
         )
 

@@ -56,7 +56,7 @@ class TaskResumeTest(unittest.TestCase):
                 TaskCheckpointUpdate(
                     status=TaskRunStatus.BLOCKED.value,
                     current_step=3,
-                    last_tool="apply_patch",
+                    last_tool="replace_text",
                     last_observation="old text not found",
                     stop_reason="patch_mismatch",
                     resume_hint="Re-read the file and repair the patch anchor.",
@@ -85,7 +85,7 @@ class TaskResumeTest(unittest.TestCase):
             self.assertIn("continued from checkpoint", final)
             system_context = llm.messages[0].content or ""
             self.assertIn("resume_from_run=old-run", system_context)
-            self.assertIn("last_tool=apply_patch", system_context)
+            self.assertIn("last_tool=replace_text", system_context)
             self.assertIn("digest-old", system_context)
             self.assertTrue(
                 any(

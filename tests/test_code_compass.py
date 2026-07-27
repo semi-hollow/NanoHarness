@@ -7,12 +7,12 @@ class CodeCompassTest(unittest.TestCase):
     CORE_OWNER_SYMBOLS = (
         "Harness.run",
         "AgentLoop.run",
-        "RunPreparation.start",
-        "RunPreparation.execute",
-        "TurnPreparation.execute",
+        "RunPreparation.create_session",
+        "RunPreparation.prepare_run",
+        "TurnPreparation.prepare_turn",
         "ToolExecutionPipeline.execute_calls",
-        "RunLifecycle.stop",
-        "FinalAnswerBuilder.execute",
+        "RunLifecycle.finalize_run",
+        "FinalAnswerBuilder.build_stop_request",
     )
 
     def test_resolves_core_method_and_exposes_static_navigation(self):
@@ -26,7 +26,7 @@ class CodeCompassTest(unittest.TestCase):
         )
         self.assertIn("Harness.run", card.canonical_upstream)
         self.assertIn("RunPreparation", card.next_owner)
-        self.assertIn("RunLifecycle.stop", card.invariant)
+        self.assertIn("RunLifecycle.finalize_run", card.invariant)
         self.assertIn("test_agent_loop", " ".join(card.behavior_tests))
         self.assertIn("Code Compass", render_symbol_card(card))
 

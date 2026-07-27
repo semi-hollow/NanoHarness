@@ -92,7 +92,7 @@ class EditingLLM:
                 [
                     ToolCall(
                         f"patch-{task_id}",
-                        "apply_patch",
+                        "replace_text",
                         {
                             "path": path,
                             "old": "value = 1\n",
@@ -135,7 +135,7 @@ class AskThenEditLLM:
                 [
                     ToolCall(
                         "patch-alpha",
-                        "apply_patch",
+                        "replace_text",
                         {
                             "path": "a.py",
                             "old": "value = 1\n",
@@ -195,7 +195,7 @@ class DiffInspectingLLM:
                 [
                     ToolCall(
                         "patch-alpha",
-                        "apply_patch",
+                        "replace_text",
                         {
                             "path": "a.py",
                             "old": "value = 1\n",
@@ -237,13 +237,13 @@ def _plan() -> FanoutPlan:
                     "id": "alpha",
                     "task": "implement alpha in a.py",
                     "write_scope": ["a.py"],
-                    "allowed_tools": ["read_file", "apply_patch", "git_diff"],
+                    "allowed_tools": ["read_file", "replace_text", "git_diff"],
                 },
                 {
                     "id": "beta",
                     "task": "implement beta in b.py",
                     "write_scope": ["b.py"],
-                    "allowed_tools": ["read_file", "apply_patch", "git_diff"],
+                    "allowed_tools": ["read_file", "replace_text", "git_diff"],
                 },
             ],
         }
@@ -265,7 +265,7 @@ class LiveFanoutTest(unittest.TestCase):
                             "id": "alpha",
                             "task": "update a.py",
                             "write_scope": ["a.py"],
-                            "allowed_tools": ["apply_patch", "git_diff"],
+                            "allowed_tools": ["replace_text", "git_diff"],
                         }
                     ],
                 }
@@ -476,11 +476,11 @@ class LiveFanoutTest(unittest.TestCase):
             self.assertTrue(all(not Path(path).exists() for path in worker_roots))
             for result in summary.results:
                 self.assertTrue(Path(result.trace_path).exists())
-                self.assertTrue(Path(result.patch_path).exists())
+                self.assertTrue(Path(result.candidate_diff_path).exists())
                 self.assertTrue(Path(result.environment_manifest_path).exists())
             self.assertTrue((run_dir / "fanout" / "fanout_summary.json").exists())
             self.assertTrue((run_dir / "fanout" / "fanout_report.md").exists())
-            self.assertTrue((run_dir / "fanout" / "integration.patch").exists())
+            self.assertTrue((run_dir / "fanout" / "integrated_changes.diff").exists())
             self.assertTrue((run_dir / "fanout" / "fanout_plan.json").exists())
             self.assertTrue((run_dir / "fanout" / "fanout_checkpoint.json").exists())
             self.assertTrue(Path(summary.finalizer_trace_path).exists())
@@ -518,7 +518,7 @@ class LiveFanoutTest(unittest.TestCase):
                             "id": "alpha",
                             "task": "implement alpha",
                             "write_scope": ["a.py"],
-                            "allowed_tools": ["apply_patch"],
+                            "allowed_tools": ["replace_text"],
                         }
                     ],
                 }
@@ -605,11 +605,11 @@ class LiveFanoutTest(unittest.TestCase):
             self.assertEqual(
                 (repo / "new.py").read_text(encoding="utf-8"), "value = 'new'\n"
             )
-            integration_patch = Path(summary.integration_patch_path).read_text(
+            integrated_diff = Path(summary.integrated_diff_path).read_text(
                 encoding="utf-8"
             )
-            self.assertIn("new file mode", integration_patch)
-            self.assertIn("b/new.py", integration_patch)
+            self.assertIn("new file mode", integrated_diff)
+            self.assertIn("b/new.py", integrated_diff)
 
     def test_failed_dependency_is_skipped_while_independent_patch_is_preserved(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -759,7 +759,7 @@ class LiveFanoutTest(unittest.TestCase):
                             "id": "alpha",
                             "task": "update a.py after obtaining the compatibility choice",
                             "write_scope": ["a.py"],
-                            "allowed_tools": ["ask_human", "apply_patch", "git_diff"],
+                            "allowed_tools": ["ask_human", "replace_text", "git_diff"],
                         }
                     ],
                 }
@@ -870,7 +870,7 @@ class LiveFanoutTest(unittest.TestCase):
             ).run()
             self.assertEqual(first.status, "passed")
             beta = next(result for result in first.results if result.task_id == "beta")
-            Path(beta.patch_path).write_text("tampered\n", encoding="utf-8")
+            Path(beta.candidate_diff_path).write_text("tampered\n", encoding="utf-8")
 
             resumed_repo = root / "resumed-repo"
             subprocess.run(
@@ -890,7 +890,7 @@ class LiveFanoutTest(unittest.TestCase):
                 )
             )
 
-            with self.assertRaisesRegex(RuntimeError, "patch digest"):
+            with self.assertRaisesRegex(RuntimeError, "candidate diff digest"):
                 coordinator.run()
             self.assertEqual(
                 (resumed_repo / "a.py").read_text(encoding="utf-8"), "value = 1\n"
@@ -944,10 +944,10 @@ class LiveFanoutTest(unittest.TestCase):
             self.assertEqual(summary["status"], "passed")
             self.assertEqual(set(summary["merged_task_ids"]), {"alpha", "beta"})
             self.assertIn(
-                "diff --git", (run_dir / "patch.diff").read_text(encoding="utf-8")
+                "diff --git", (run_dir / "candidate_changes.diff").read_text(encoding="utf-8")
             )
             self.assertNotIn(
-                ".agent_forge", (run_dir / "patch.diff").read_text(encoding="utf-8")
+                ".agent_forge", (run_dir / "candidate_changes.diff").read_text(encoding="utf-8")
             )
             self.assertIn(
                 "candidate artifact",

@@ -16,7 +16,7 @@ from .adapters.fanout_files import FanoutFileRepository
 from .adapters.artifact_files import FileArtifactRepository
 from .adapters.git_workspace import GitFanoutWorkspace
 from .adapters.local_worker import LocalAgentWorkerAdapter
-from .adapters.role_runtime import AgentLoopRoleRunner, GitCandidatePatch
+from .adapters.role_runtime import AgentLoopRoleRunner, GitCandidateDiff
 from .application.coordinator import MultiAgentCoordinator
 from .application.dependencies import (
     LiveFanoutDependencies,
@@ -93,7 +93,7 @@ def build_live_fanout(request: LiveFanoutBuildRequest) -> LiveFanoutCoordinator:
 def build_multi_agent_coordinator(
     request: SequentialCoordinatorBuildRequest,
 ) -> MultiAgentCoordinator:
-    """装配角色 Runtime、Artifact repository 和 candidate patch 查询。"""
+    """装配角色 Runtime、Artifact repository 和 candidate diff 查询。"""
 
     workspace = GitFanoutWorkspace(request.runtime_config.workspace)
     return MultiAgentCoordinator(
@@ -108,7 +108,7 @@ def build_multi_agent_coordinator(
                 request.registry,
                 request.llm,
             ),
-            candidate_patch=GitCandidatePatch(workspace),
+            candidate_diff=GitCandidateDiff(workspace),
         ),
         run_dir=request.run_dir,
         max_revision_rounds=request.max_revision_rounds,

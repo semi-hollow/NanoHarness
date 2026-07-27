@@ -101,7 +101,9 @@ def ensure_clean_git(workspace: Path) -> None:
     )
 
 
-def collect_patch(workspace: Path) -> str:
+def collect_candidate_diff(workspace: Path) -> str:
+    """返回 workspace 相对基线的 unified diff 文本。"""
+
     return collect_workspace_diff(workspace)
 
 

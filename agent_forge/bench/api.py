@@ -34,6 +34,7 @@ from agent_forge.bench.wiring import (
     build_swebench_runner,
 )
 
+
 # 主要入口：构造并执行一次完整的 SWE-bench 证据运行。
 def run_swebench(request: SwebenchRunRequest) -> BenchRunSummary:
     """执行类型化评测请求，并返回可追溯的运行摘要。"""
@@ -48,7 +49,7 @@ def run_swebench(request: SwebenchRunRequest) -> BenchRunSummary:
         request,
         layout,
         artifacts=artifacts,
-    ).execute(request, run_id=run_id, layout=layout)
+    ).run_benchmark(request, run_id=run_id, layout=layout)
 
 
 # 主要入口：执行或恢复一组固定 case、固定身份的重复 Runtime preset 比较。
@@ -60,7 +61,7 @@ def run_benchmark_campaign(
     """每个槽位调用正式 ``run_swebench``，并在槽位边界持久化 checkpoint。"""
 
     root = Path(project_dir).resolve()
-    return build_benchmark_campaign_runner(root, run_swebench).execute(request)
+    return build_benchmark_campaign_runner(root, run_swebench).run_campaign(request)
 
 
 def create_campaign_id(prefix: str = "smoke-5") -> str:
@@ -88,7 +89,7 @@ def inspect_swebench_case(
             cases_file=cases_file,
         )
     )
-    return InspectBenchCase.execute(
+    return InspectBenchCase.inspect_case(
         cases[0],
         profile=CASE_PROFILES.get(instance_id),
     )

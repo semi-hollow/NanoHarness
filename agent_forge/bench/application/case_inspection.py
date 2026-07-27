@@ -1,6 +1,6 @@
 """将原始 ``BenchCase`` 转换成可解释、默认防泄漏的单题契约。
 
-调用链：``bench.api.inspect_swebench_case`` -> ``InspectBenchCase.execute`` ->
+调用链：``bench.api.inspect_swebench_case`` -> ``InspectBenchCase.inspect_case`` ->
 ``BenchmarkCaseInspection`` -> Presentation renderer。下面两个 ``_`` 函数只负责
 外部数据归一化和 patch 规模统计，不是对外能力入口。
 """
@@ -23,7 +23,7 @@ class InspectBenchCase:
 
     # 主要入口：把一个数据集 case 转换成可展示的验收契约。
     @staticmethod
-    def execute(
+    def inspect_case(
         case: BenchCase,
         *,
         profile: BenchmarkCaseProfile | None = None,

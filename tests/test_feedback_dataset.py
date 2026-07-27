@@ -39,7 +39,7 @@ class FeedbackDatasetTest(unittest.TestCase):
                             "context": {
                                 "selected_files": ["parser.py", "tests/test_parser.py"],
                                 "tool_routing": {
-                                    "allowed_tools": ["read_file", "apply_patch"],
+                                    "allowed_tools": ["read_file", "replace_text"],
                                     "dropped_tools": ["run_command"],
                                 },
                             },
@@ -47,7 +47,7 @@ class FeedbackDatasetTest(unittest.TestCase):
                         {
                             "step": 1,
                             "event_type": "action",
-                            "tool_call": "apply_patch",
+                            "tool_call": "replace_text",
                             "tool_arguments": {
                                 "path": "parser.py",
                                 "new": "secret source",
@@ -58,7 +58,7 @@ class FeedbackDatasetTest(unittest.TestCase):
             ),
             encoding="utf-8",
         )
-        (run_dir / "patch.diff").write_text(
+        (run_dir / "candidate_changes.diff").write_text(
             "diff --git a/parser.py b/parser.py\n+fixed\n", encoding="utf-8"
         )
         return run_dir
@@ -87,7 +87,7 @@ class FeedbackDatasetTest(unittest.TestCase):
             self.assertEqual(
                 record["selected_context"], ["parser.py", "tests/test_parser.py"]
             )
-            self.assertEqual(record["tool_sequence"], ["apply_patch"])
+            self.assertEqual(record["tool_sequence"], ["replace_text"])
             self.assertEqual(record["human_feedback"]["outcome"], "needs_work")
             self.assertEqual(
                 record["environment"],
@@ -100,7 +100,7 @@ class FeedbackDatasetTest(unittest.TestCase):
             )
             self.assertNotIn("patch", record)
             self.assertNotIn("tool_arguments", json.dumps(record))
-            self.assertEqual(len(record["patch_sha256"]), 64)
+            self.assertEqual(len(record["candidate_diff_sha256"]), 64)
             self.assertEqual(json.loads(output.read_text(encoding="utf-8")), record)
 
     def test_export_can_require_feedback(self):
@@ -117,7 +117,7 @@ class FeedbackDatasetTest(unittest.TestCase):
             self.assertEqual(records, [])
             self.assertEqual((root / "dataset.jsonl").read_text(encoding="utf-8"), "")
 
-    def test_export_includes_candidate_patch_only_when_explicit(self):
+    def test_export_includes_candidate_diff_only_when_explicit(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             run_dir = self._write_run(root)
@@ -128,7 +128,7 @@ class FeedbackDatasetTest(unittest.TestCase):
                 include_patch=True,
             )
 
-            self.assertIn("diff --git", records[0]["candidate_patch"])
+            self.assertIn("diff --git", records[0]["candidate_diff"])
 
 
 if __name__ == "__main__":

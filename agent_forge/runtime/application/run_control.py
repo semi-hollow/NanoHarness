@@ -20,7 +20,7 @@ class RunControlOutcome:
     steered: bool = False
 
 
-class ApplyRunControl:
+class RunControlHandler:
     """只在模型/工具安全边界消费控制信号，不伪装进程级抢占。
 
     pause/cancel 在每个安全边界都可消费；steer 只在模型边界消费。这样不会在一条
@@ -32,7 +32,7 @@ class ApplyRunControl:
         self.trace = trace
 
     # 主要入口：处理终止信号，并按顺序把 steer 注入下一轮会话。
-    def check(
+    def consume_pending_signals(
         self,
         session: AgentRunSession,
         step: int,
@@ -97,7 +97,7 @@ class ApplyRunControl:
         messages = list(prior) if isinstance(prior, list) else []
         messages.extend(signal.message[:1_000] for signal in steers)
         metadata["steer_messages"] = messages[-10:]
-        session.lifecycle.update(
+        session.lifecycle.update_checkpoint(
             TaskCheckpointUpdate(
                 current_step=step,
                 messages_count=len(session.messages),

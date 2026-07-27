@@ -24,7 +24,7 @@ class UnifiedInspectionTest(unittest.TestCase):
                 ),
                 encoding="utf-8",
             )
-            (run_dir / "patch.diff").write_text("+value = 2\n", encoding="utf-8")
+            (run_dir / "candidate_changes.diff").write_text("+value = 2\n", encoding="utf-8")
             write_run_manifest(
                 run_dir,
                 run_id="run-1",
@@ -34,7 +34,7 @@ class UnifiedInspectionTest(unittest.TestCase):
             )
 
             story = render_inspection(str(run_dir))
-            artifact = render_inspection(str(run_dir / "patch.diff"))
+            artifact = render_inspection(str(run_dir / "candidate_changes.diff"))
 
         symbol = render_inspection("AgentLoop.run")
         self.assertIn("Run Story", story)

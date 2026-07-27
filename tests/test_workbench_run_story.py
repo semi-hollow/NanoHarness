@@ -34,8 +34,8 @@ class WorkbenchRunStoryTest(unittest.TestCase):
                         "artifacts": [
                             {
                                 "artifact_id": "patch",
-                                "kind": "candidate_patch",
-                                "relative_path": "patch.diff",
+                                "kind": "candidate_diff",
+                                "relative_path": "candidate_changes.diff",
                                 "producer_symbol": "ExecutionEnvironment.diff",
                                 "flow_stage": "artifacts",
                                 "semantic_consumers": ["local evaluator"],
@@ -87,7 +87,7 @@ class WorkbenchRunStoryTest(unittest.TestCase):
         self.assertIn("canonical task", rendered)
         self.assertNotIn("stale legacy task", rendered)
         self.assertIn("ToolExecutionPipeline.execute_calls", rendered)
-        self.assertIn("patch.diff", rendered)
+        self.assertIn("candidate_changes.diff", rendered)
         self.assertIn("Candidate evidence", rendered)
         self.assertIn("Local evidence", rendered)
         self.assertIn("Official evidence", rendered)

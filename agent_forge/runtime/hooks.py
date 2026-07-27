@@ -56,7 +56,9 @@ class PermissionHook(RuntimeHook):
             and hook_decision == HookDecisionType.ALLOW
         ):
             hook_decision = HookDecisionType.ASK
-            hook_reason = "on-risk approval mode requires approval for command execution"
+            hook_reason = (
+                "on-risk approval mode requires approval for command execution"
+            )
 
         return HookDecision(
             self.name,
@@ -100,7 +102,7 @@ class ExecutionEnvironmentHook(RuntimeHook):
             self.name,
             HookDecisionType.DEFER,
             "execution environment has no additional restriction",
-            {"environment": self.environment.describe()},
+            {"environment": self.environment.render_boundary_summary()},
         )
 
 
@@ -222,7 +224,9 @@ class HookManager(HookPort):
         for decision in decisions:
             if decision.decision == HookDecisionType.ALLOW:
                 return HookResult(HookDecisionType.ALLOW, decision.reason, decisions)
-        return HookResult(HookDecisionType.ALLOW, "all hooks deferred; default allow", decisions)
+        return HookResult(
+            HookDecisionType.ALLOW, "all hooks deferred; default allow", decisions
+        )
 
     def post_tool(self, context: HookContext, observation: Observation) -> Observation:
         current = observation
@@ -239,7 +243,9 @@ class HookManager(HookPort):
                 )
         return current
 
-    def on_stop(self, run_id: str, reason: str, final_answer: str) -> list[HookDecision]:
+    def on_stop(
+        self, run_id: str, reason: str, final_answer: str
+    ) -> list[HookDecision]:
         return [
             self._safe_decision(
                 hook,

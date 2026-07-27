@@ -73,6 +73,6 @@ class RoleRunnerPort(Protocol):
         """使用规范 Runtime 执行一个受工具限制的角色。"""
 
 
-class CandidatePatchPort(Protocol):
+class CandidateDiffPort(Protocol):
     def exists(self) -> bool:
-        """返回集成 workspace 是否存在 candidate patch。"""
+        """返回集成 workspace 是否存在尚未提交的 candidate diff。"""

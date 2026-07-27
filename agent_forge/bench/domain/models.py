@@ -25,11 +25,12 @@ class BenchCase:
 
     @classmethod
     def from_mapping(cls, data: dict[str, Any]) -> "BenchCase":
-
         instance_id = str(data.get("instance_id") or data.get("id") or "")
         repo = str(data.get("repo") or data.get("repository") or "")
         base_commit = str(data.get("base_commit") or data.get("commit") or "")
-        problem = str(data.get("problem_statement") or data.get("issue") or data.get("task") or "")
+        problem = str(
+            data.get("problem_statement") or data.get("issue") or data.get("task") or ""
+        )
         if not instance_id or not repo or not base_commit or not problem:
             missing = [
                 name
@@ -41,7 +42,9 @@ class BenchCase:
                 }.items()
                 if not value
             ]
-            raise ValueError(f"SWE-bench case is missing required fields: {', '.join(missing)}")
+            raise ValueError(
+                f"SWE-bench case is missing required fields: {', '.join(missing)}"
+            )
         return cls(
             instance_id=instance_id,
             repo=repo,
@@ -53,7 +56,7 @@ class BenchCase:
         )
 
 
-# 核心数据：单题 candidate patch、本地验证、官方评测与诊断的最终事实。
+# 核心数据：单题 candidate diff、本地验证、官方评测与诊断的最终事实。
 @dataclass
 class BenchCaseResult:
     """一个 case 的 artifact 位置和分层 correctness evidence。
@@ -68,7 +71,7 @@ class BenchCaseResult:
     workspace: Path
     trace_path: Path
     usage_report_path: Path | None
-    patch_path: Path
+    candidate_diff_path: Path
     status: str
     final_answer: str
     patch_chars: int = 0
@@ -85,14 +88,15 @@ class BenchCaseResult:
     next_actions: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
-
         return {
             "instance_id": self.instance_id,
             "repo": self.repo,
             "workspace": str(self.workspace),
             "trace_path": str(self.trace_path),
-            "usage_report_path": str(self.usage_report_path) if self.usage_report_path else "",
-            "patch_path": str(self.patch_path),
+            "usage_report_path": str(self.usage_report_path)
+            if self.usage_report_path
+            else "",
+            "candidate_diff_path": str(self.candidate_diff_path),
             "status": self.status,
             "final_answer": self.final_answer,
             "patch_chars": self.patch_chars,
@@ -117,7 +121,7 @@ class BenchRunSummary:
 
     前半部分保存 dataset/provider/agent/sampling 身份；中间保存 Skill、Memory、
     execution environment 与预算；后半部分保存 baseline、official evaluator、case 结果
-    和 notes。Renderer 只能消费这里的事实，不能把 candidate patch 推断成 solved。
+    和 notes。Renderer 只能消费这里的事实，不能把 candidate diff 推断成 solved。
     """
 
     # 实验身份和输出根路径。
@@ -172,7 +176,6 @@ class BenchRunSummary:
     notes: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
-
         return {
             "run_id": self.run_id,
             "dataset_name": self.dataset_name,
@@ -211,7 +214,9 @@ class BenchRunSummary:
             "output_dir": str(self.output_dir),
             "predictions_path": str(self.predictions_path),
             "baseline_predictions_path": (
-                str(self.baseline_predictions_path) if self.baseline_predictions_path else ""
+                str(self.baseline_predictions_path)
+                if self.baseline_predictions_path
+                else ""
             ),
             "variant_comparisons": self.variant_comparisons,
             "official_eval_command": self.official_eval_command,

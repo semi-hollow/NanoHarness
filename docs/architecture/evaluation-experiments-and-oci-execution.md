@@ -1,7 +1,7 @@
 # Evaluation Experiment 与 OCI Execution
 
 这项设计将 runtime 行为连接到可跨 run 对比的证据，并刻意避免硬编码 benchmark
-结论：scorecard 中的每个数字都必须来自 trace、usage artifact、candidate patch 或
+结论：scorecard 中的每个数字都必须来自 trace、usage artifact、candidate diff 或
 official evaluator report。
 
 ## 目标
@@ -23,7 +23,7 @@ official evaluator report。
 SWE-bench case
   -> isolated checkout
   -> AgentLoop + governed tools
-  -> trace.json + usage.json + patch.diff
+  -> trace.json + usage.json + candidate_changes.diff
   -> optional official SWE-bench report.json
   -> case evidence model
   -> scorecard.json / scorecard.md
@@ -32,7 +32,7 @@ SWE-bench case
 
 Evidence model 严格区分三个层级：
 
-- Candidate patch：存在非空 diff。
+- Candidate diff：存在非空 diff。
 - Local validation：test-oriented command 或 unittest diagnostic 成功完成；只有
   compilation 不能证明正确。
 - Official resolved：per-case SWE-bench report 明确记录 `resolved: true`。
@@ -81,7 +81,7 @@ command，避免 manifest 提供已经失效的 replay path。
 ## 验证契约
 
 - Official result fixture 覆盖 resolved、unresolved、error、empty-patch、missing-report。
-- Scorecard 测试证明 candidate patch 和 official resolution 使用不同 denominator。
+- Scorecard 测试证明 candidate diff 和 official resolution 使用不同 denominator。
 - Ablation 测试拒绝不可比较 run，并计算 paired metric delta。
 - OCI 测试在不要求 unit-test 环境安装 Docker 的前提下，断言真实 runtime command、
   limit、mount、network policy、command delegation、manifest evidence 和 cleanup。

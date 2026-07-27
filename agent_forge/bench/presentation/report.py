@@ -8,6 +8,7 @@ from agent_forge.evaluation.api import write_benchmark_scorecard
 
 from agent_forge.bench.domain.models import BenchRunSummary
 
+
 # 主要入口：在 final diagnosis 后一次性发布 results、scorecard 和 claim-safe report。
 def write_bench_artifacts(summary: BenchRunSummary) -> tuple[Path, Path]:
     """在最终诊断完成后发布 benchmark JSON 与报告。"""
@@ -16,18 +17,25 @@ def write_bench_artifacts(summary: BenchRunSummary) -> tuple[Path, Path]:
     results_json = summary.output_dir / "results.json"
     report_md = summary.output_dir / "report.md"
     serialized = summary.to_dict()
-    results_json.write_text(json.dumps(serialized, ensure_ascii=False, indent=2), encoding="utf-8")
+    results_json.write_text(
+        json.dumps(serialized, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
     write_benchmark_scorecard(serialized, summary.output_dir)
     report_md.write_text(render_bench_report(summary), encoding="utf-8")
     return results_json, report_md
 
 
 def render_bench_report(summary: BenchRunSummary) -> str:
-
     status_counts = Counter(result.status for result in summary.case_results)
-    local_eval_counts = Counter(result.local_validation_status for result in summary.case_results)
-    official_eval_counts = Counter(result.official_evaluation_status for result in summary.case_results)
-    patch_generated = sum(1 for result in summary.case_results if result.patch_chars > 0)
+    local_eval_counts = Counter(
+        result.local_validation_status for result in summary.case_results
+    )
+    official_eval_counts = Counter(
+        result.official_evaluation_status for result in summary.case_results
+    )
+    patch_generated = sum(
+        1 for result in summary.case_results if result.patch_chars > 0
+    )
     total = len(summary.case_results)
 
     lines = [
@@ -68,7 +76,9 @@ def render_bench_report(summary: BenchRunSummary) -> str:
         f"- predictions: `{summary.predictions_path}`",
     ]
     if summary.baseline_predictions_path:
-        lines.append(f"- direct baseline predictions: `{summary.baseline_predictions_path}`")
+        lines.append(
+            f"- direct baseline predictions: `{summary.baseline_predictions_path}`"
+        )
     lines.extend(
         [
             "",
@@ -82,12 +92,13 @@ def render_bench_report(summary: BenchRunSummary) -> str:
         ]
     )
     if patch_generated and not any(
-        result.official_evaluation_status == "official_resolved" for result in summary.case_results
+        result.official_evaluation_status == "official_resolved"
+        for result in summary.case_results
     ):
         lines.extend(
             [
                 "",
-                "> Candidate patches were generated, but no official resolved claim is made in this report.",
+                "> Candidate diffes were generated, but no official resolved claim is made in this report.",
             ]
         )
     lines.extend(
@@ -95,7 +106,7 @@ def render_bench_report(summary: BenchRunSummary) -> str:
             "",
             "## Evidence Levels",
             "",
-            "- `candidate patch`: the workspace contains a non-empty candidate diff. This is not a solved claim.",
+            "- `candidate diff`: the workspace contains a non-empty candidate diff. This is not a solved claim.",
             "- `local_verified`: all recorded test-oriented local validation evidence passed; compilation alone is excluded.",
             "- `official_resolved`: an official SWE-bench per-case JSON report recorded `resolved: true`.",
             "- `official_eval_failed`: an official per-case report recorded an unresolved patch.",
@@ -119,7 +130,9 @@ def render_bench_report(summary: BenchRunSummary) -> str:
             lines.append(
                 "| "
                 f"`{instance_id}` | "
-                + " | ".join(_variant_cell(variants.get(name) or {}) for name in variant_names)
+                + " | ".join(
+                    _variant_cell(variants.get(name) or {}) for name in variant_names
+                )
                 + f" | {_table_cell(str(comparison.get('recommendation') or ''))} |"
             )
 
@@ -174,8 +187,10 @@ def render_bench_report(summary: BenchRunSummary) -> str:
     )
     for result in summary.case_results:
         usage = result.usage_report_path or ""
-        comparison_report = result.patch_path.parent / "evaluation_report.md"
-        comparison_link = f"[comparison]({comparison_report})" if comparison_report.exists() else "-"
+        comparison_report = result.candidate_diff_path.parent / "evaluation_report.md"
+        comparison_link = (
+            f"[comparison]({comparison_report})" if comparison_report.exists() else "-"
+        )
         lines.append(
             "| "
             f"`{result.instance_id}` | `{result.repo}` | `{result.status}` | "
@@ -230,15 +245,19 @@ def render_bench_report(summary: BenchRunSummary) -> str:
 
 
 def _variant_cell(variant: dict) -> str:
-
     patch = "patch" if variant.get("patch_generated") else "no patch"
     failure = str(variant.get("failure_class") or "-")
     return _table_cell(f"{patch}; {failure}")
 
 
 def _variant_names(comparisons: dict[str, dict]) -> list[str]:
-
-    preferred = ["direct_baseline", "agent_runtime", "single_agent", "multi_agent", "governed_agent"]
+    preferred = [
+        "direct_baseline",
+        "agent_runtime",
+        "single_agent",
+        "multi_agent",
+        "governed_agent",
+    ]
     names: set[str] = set()
     for comparison in comparisons.values():
         variants = comparison.get("variants") if isinstance(comparison, dict) else {}
@@ -250,5 +269,4 @@ def _variant_names(comparisons: dict[str, dict]) -> list[str]:
 
 
 def _table_cell(value: str) -> str:
-
     return (value or "").replace("|", "\\|").replace("\n", " ").strip()

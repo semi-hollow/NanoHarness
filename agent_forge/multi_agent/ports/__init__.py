@@ -5,7 +5,7 @@ from .live import (
     LiveFanoutEvents,
 )
 from .sequential import (
-    CandidatePatchPort,
+    CandidateDiffPort,
     CoordinatorEventSink,
     RoleArtifactPort,
     RoleRunnerPort,
@@ -16,7 +16,7 @@ __all__ = [
     "FanoutWorkerPort",
     "FanoutWorkspacePort",
     "LiveFanoutEvents",
-    "CandidatePatchPort",
+    "CandidateDiffPort",
     "CoordinatorEventSink",
     "RoleArtifactPort",
     "RoleRunnerPort",

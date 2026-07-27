@@ -26,7 +26,7 @@ def render_case_study(result: BenchCaseResult) -> str:
         f"- patch_chars: `{result.patch_chars}`",
         f"- trace: `{result.trace_path}`",
         f"- usage: `{result.usage_report_path or '-'}`",
-        f"- patch: `{result.patch_path}`",
+        f"- candidate diff: `{result.candidate_diff_path}`",
         "",
         "## Failure Classification",
         "",
@@ -42,22 +42,25 @@ def render_case_study(result: BenchCaseResult) -> str:
     lines.extend(["", "## Next Actions", ""])
     lines.extend(f"- {item}" for item in next_actions[:5])
     if not next_actions:
-        lines.append("- Inspect trace and promote repeated patterns into taxonomy rules.")
+        lines.append(
+            "- Inspect trace and promote repeated patterns into taxonomy rules."
+        )
     lines.extend(
         [
             "",
             "## Runtime Lesson",
             "",
-            "Use this case to decide whether the next improvement belongs in context selection, tool governance, sandbox policy, diagnostics, or model prompting. Do not treat a candidate patch as official resolution without evaluation evidence.",
+            "Use this case to decide whether the next improvement belongs in context selection, tool governance, sandbox policy, diagnostics, or model prompting. Do not treat a candidate diff as official resolution without evaluation evidence.",
             "",
         ]
     )
     return "\n".join(lines)
 
+
 # 主要入口：基于最终 local/official evidence 覆盖写入单题 case study。
 def write_case_study(result: BenchCaseResult) -> Path:
     """基于最终本地和官方证据写入单 case 复盘。"""
 
-    path = Path(result.patch_path).parent / "case_study.md"
+    path = Path(result.candidate_diff_path).parent / "case_study.md"
     path.write_text(render_case_study(result), encoding="utf-8")
     return path

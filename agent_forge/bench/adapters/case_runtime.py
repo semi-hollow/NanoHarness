@@ -1,11 +1,13 @@
 """高级 SWE-bench 单题 Runtime 适配器。
 
 生产调用链由 ``bench.wiring.build_swebench_runner`` 经 ``CaseExecutorPort`` 注入本类，
-再由 ``RunSwebench.execute`` 对每个 case 调用 ``run``。它不是测试辅助代码，因此位于
+再由 ``RunSwebench.run_benchmark`` 对每个 case 调用 ``run``。它不是测试辅助代码，
+因此位于
 12-file Runtime Core 之外。
 
 Single-Agent 分支仍负责 benchmark 特有的 workspace/artifact 映射。只有真实 case 已证明
-patch、trace、memory namespace、清理与 official layout 兼容，才把该分支迁到 ``Harness`` 后方。
+candidate diff、trace、memory namespace、清理与 official layout 兼容，才把该分支迁到
+``Harness`` 后方。
 """
 
 from __future__ import annotations
@@ -17,7 +19,7 @@ from typing import Any
 
 from agent_forge.bench.adapters.git_workspace import (
     SwebenchWorkspaceManager,
-    collect_patch,
+    collect_candidate_diff,
     ensure_clean_git,
 )
 from agent_forge.bench.adapters.local_validation import read_local_validation
@@ -52,7 +54,7 @@ class LocalCaseExecutor:
     def __init__(self, workspace_manager: SwebenchWorkspaceManager) -> None:
         self._workspace_manager = workspace_manager
 
-    # 主要入口：准备单题隔离环境，运行真实 Runtime，收集 patch 与 trace。
+# 主要入口：准备单题隔离环境，运行真实 Runtime，收集 candidate diff 与 trace。
     def run(
         self,
         case: BenchCase,
@@ -61,7 +63,7 @@ class LocalCaseExecutor:
         agent_mode: str,
         request: SwebenchRunRequest,
     ) -> BenchCaseResult:
-        """由 ``RunSwebench`` 调用；返回 patch/local status，不判定 official outcome。"""
+        """由 ``RunSwebench`` 调用；返回 candidate diff/local status，不判定 official outcome。"""
 
         workspace = self._workspace_manager.prepare(
             case,
@@ -70,7 +72,7 @@ class LocalCaseExecutor:
         active_workspace = workspace
         case_dir.mkdir(parents=True, exist_ok=True)
         trace_path = case_dir / "trace.json"
-        patch_path = case_dir / "patch.diff"
+        candidate_diff_path = case_dir / "candidate_changes.diff"
         final_answer = ""
         usage_report_path: Path | None = None
         status = "blocked"
@@ -129,12 +131,12 @@ class LocalCaseExecutor:
             )
             trace.write()
             _, usage_report_path = write_usage_artifacts(trace_path)
-            patch = collect_patch(active_workspace)
-            patch_path.write_text(patch, encoding="utf-8")
-            status = _run_status(patch, final_answer)
+            candidate_diff_text = collect_candidate_diff(active_workspace)
+            candidate_diff_path.write_text(candidate_diff_text, encoding="utf-8")
+            status = _run_status(candidate_diff_text, final_answer)
         except Exception as exc:
             error = str(exc)
-            patch_path.write_text("", encoding="utf-8")
+            candidate_diff_path.write_text("", encoding="utf-8")
             if not trace_path.exists():
                 trace_path.write_text(
                     json.dumps({"error": error}, indent=2),
@@ -145,7 +147,9 @@ class LocalCaseExecutor:
 
         local_validation = read_local_validation(trace_path)
         patch_chars = (
-            len(patch_path.read_text(encoding="utf-8")) if patch_path.exists() else 0
+            len(candidate_diff_path.read_text(encoding="utf-8"))
+            if candidate_diff_path.exists()
+            else 0
         )
         return BenchCaseResult(
             instance_id=case.instance_id,
@@ -153,7 +157,7 @@ class LocalCaseExecutor:
             workspace=active_workspace,
             trace_path=trace_path,
             usage_report_path=usage_report_path,
-            patch_path=patch_path,
+            candidate_diff_path=candidate_diff_path,
             status=status,
             final_answer=final_answer,
             patch_chars=patch_chars,
@@ -345,7 +349,7 @@ def render_case_task(case: BenchCase) -> str:
         "- Make the smallest source-code patch that addresses the issue.\n"
         "- Do not edit tests unless the issue explicitly requires test infrastructure changes.\n"
         "- Use read_file/grep_search for source inspection; do not use run_command for reading files.\n"
-        "- Prefer apply_patch once the likely target function is identified; do not keep gathering broad evidence.\n"
+        "- Prefer replace_text once the likely target function is identified; do not keep gathering broad evidence.\n"
         "- For focused validation, call diagnostics with kind=pytest and the smallest relevant "
         "existing test path or pytest node id. Use kind=unittest only for unittest suites.\n"
         "- Do not use python -c, shell pipes, redirection, or /tmp files.\n"
@@ -374,8 +378,8 @@ def looks_like_diff(text: str) -> bool:
     )
 
 
-def _run_status(patch: str, final_answer: str) -> str:
-    if patch.strip():
+def _run_status(candidate_diff_text: str, final_answer: str) -> str:
+    if candidate_diff_text.strip():
         return "patch_generated"
     if final_answer.startswith("blocked:"):
         return "blocked"

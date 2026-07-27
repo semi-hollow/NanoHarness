@@ -21,6 +21,12 @@ class JsonOperationLedgerRepository(OperationLedgerRepository):
 
     @staticmethod
     def operation_key(target: OperationTarget) -> str:
+        """用规范化操作事实生成跨 continuation 稳定的幂等主键。
+
+        ToolCall id 和 run id 都可能在恢复后变化，因此不参与 key；workspace 则必须参与，
+        防止不同隔离目录中的同参数操作被错误视为同一次执行。
+        """
+
         payload = {
             "tool_name": target.tool_name,
             "arguments": target.arguments,
@@ -32,6 +38,12 @@ class JsonOperationLedgerRepository(OperationLedgerRepository):
 
     @staticmethod
     def operation_fingerprint(target: OperationTarget) -> dict[str, Any]:
+        """读取操作目标此刻的最小状态，用于审批和重放时检测漂移。
+
+        文件类操作记录解析路径及内容哈希；命令类操作只能记录命令文本；其他副作用退化
+        为参数哈希。Fingerprint 描述当前状态，不等于 operation key。
+        """
+
         args = target.arguments
         root = Path(target.workspace).resolve()
         path_value = _target_path_value(args)
@@ -85,6 +97,8 @@ class JsonOperationLedgerRepository(OperationLedgerRepository):
         return self.root / f"{operation_key}.json"
 
     def get(self, operation_key: str) -> OperationRecord | None:
+        """按稳定 operation key 读取一条持久化执行记录。"""
+
         path = self.path_for(operation_key)
         if not path.exists():
             return None
@@ -92,9 +106,13 @@ class JsonOperationLedgerRepository(OperationLedgerRepository):
         return OperationRecord(**data)
 
     def record_pending(self, plan: OperationPlan) -> OperationRecord:
+        """把 planned 记录迁移为等待人工批准。"""
+
         return self._record(plan)
 
     def record_approved(self, update: OperationTransition) -> OperationRecord:
+        """保存已授权状态，但不代表工具已经执行。"""
+
         return self._transition(self._require(update.operation_key), update)
 
     # 运行时端口：记录副作用已执行及执行后的目标指纹。
@@ -165,6 +183,8 @@ class JsonOperationLedgerRepository(OperationLedgerRepository):
         return record
 
     def _write(self, record: OperationRecord) -> None:
+        """将一个 operation 的最新状态及完整 history 写入独立 JSON 文件。"""
+
         record.path = str(self.path_for(record.operation_key))
         self.path_for(record.operation_key).write_text(
             json.dumps(record.to_dict(), ensure_ascii=False, indent=2, default=str),

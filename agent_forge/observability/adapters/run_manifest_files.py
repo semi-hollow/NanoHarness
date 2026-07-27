@@ -63,7 +63,7 @@ _KNOWN_ARTIFACTS: dict[str, _ArtifactSpec] = {
         ("RunStory", "usage projection", "replay", "evaluation"),
         "fact",
         ("记录了实际 Runtime 事件和状态转换",),
-        ("candidate patch 正确", "official resolved"),
+        ("candidate diff 正确", "official resolved"),
         source_event_refs=("all",),
     ),
     "usage.json": _ArtifactSpec(
@@ -95,13 +95,13 @@ _KNOWN_ARTIFACTS: dict[str, _ArtifactSpec] = {
         ("模型产生了最终文本",),
         ("文本中的完成声明真实", "测试通过"),
     ),
-    "patch.diff": _ArtifactSpec(
-        "patch",
+    "candidate_changes.diff": _ArtifactSpec(
+        "candidate_diff",
         "ExecutionEnvironment.diff -> Harness.run",
         "artifacts",
         ("local evaluator", "official evaluator", "RunStory"),
         "candidate",
-        ("非空时证明生成了 candidate patch",),
+        ("非空时证明生成了 candidate diff",),
         ("测试通过", "问题解决", "official resolved"),
     ),
     "resume_link.json": _ArtifactSpec(
@@ -127,7 +127,7 @@ _KNOWN_ARTIFACTS: dict[str, _ArtifactSpec] = {
 
 _CHECKPOINT_SPEC = _ArtifactSpec(
     "checkpoint",
-    "RunLifecycle.update / stop",
+    "RunLifecycle.update_checkpoint / finalize_run",
     "lifecycle",
     ("Harness.resume", "operator control", "RunStory"),
     "fact",

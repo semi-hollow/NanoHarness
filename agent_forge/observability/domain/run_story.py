@@ -160,7 +160,7 @@ _STAGE_SPECS = (
     (
         "context_model",
         "上下文与模型调用",
-        "TurnPreparation.execute / ModelGateway.chat",
+        "TurnPreparation.prepare_turn / ModelGateway.chat",
         "AgentLoop._run_turn",
         "模型只看到预算内上下文和本轮允许的工具 schema。",
         ("context_assembly", "context_window", "llm_call"),
@@ -182,7 +182,7 @@ _STAGE_SPECS = (
     (
         "lifecycle",
         "状态、HITL 与恢复",
-        "RunLifecycle.update / stop / request_human_input",
+        "RunLifecycle.update_checkpoint / finalize_run / request_human_input",
         "AgentLoop / ToolExecutionPipeline",
         "等待或终止必须先持久化 checkpoint，再返回调用方。",
         (
@@ -197,7 +197,7 @@ _STAGE_SPECS = (
         "结果与 Artifact",
         "Harness.run",
         "AgentLoop.run",
-        "candidate patch、最终文本与运行事实必须分开发布。",
+        "candidate diff、最终文本与运行事实必须分开发布。",
         ("final_answer", "artifact_created"),
     ),
     (
@@ -243,7 +243,7 @@ def project_run_story(
 
     levels = {"candidate": "unknown", "local": "unknown", "official": "unknown"}
     for artifact in manifest.artifacts:
-        if artifact.kind == "patch" and artifact.byte_size > 0:
+        if artifact.kind == "candidate_diff" and artifact.byte_size > 0:
             levels["candidate"] = "present"
         if artifact.evidence_level in {"local", "official"}:
             levels[artifact.evidence_level] = "present"

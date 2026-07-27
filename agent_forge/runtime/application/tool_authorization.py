@@ -36,15 +36,15 @@ class ToolAuthorizationGate:
         trace: EventSink,
         hooks: HookPort,
         approvals: ApprovalRepository,
-        operations: OperationTracker,
-        feedback: ToolFeedback,
+        operation_tracker: OperationTracker,
+        tool_feedback: ToolFeedback,
     ) -> None:
         self.config = config
         self.trace = trace
         self.hooks = hooks
         self.approvals = approvals
-        self.operations = operations
-        self.feedback = feedback
+        self.operation_tracker = operation_tracker
+        self.tool_feedback = tool_feedback
 
     # 主要入口：合并 Hook、审批和指纹检查，决定工具能否执行。
     def authorize(
@@ -92,7 +92,7 @@ class ToolAuthorizationGate:
             )
         return GateResult(True)
 
-    def post_process(
+    def apply_post_tool_hooks(
         self,
         session: AgentRunSession,
         tool_call: ToolCall,
@@ -100,7 +100,7 @@ class ToolAuthorizationGate:
         observation: Observation,
         step: int,
     ) -> Observation:
-        """执行与 pre-tool 相同上下文下的 post-tool hook。"""
+        """在同一个授权上下文中执行 post-tool hook 并返回最终 Observation。"""
 
         return self.hooks.post_tool(
             self._hook_context(session, tool_call, intent, step),
@@ -116,9 +116,18 @@ class ToolAuthorizationGate:
     ) -> GateResult:
         session.blocked = True
         observation = Observation(tool_call.name, False, f"blocked: {reason}")
-        self.feedback.append(session, tool_call, observation, step)
-        signal = self.feedback.record_recovery(session, observation, step)
-        session.lifecycle.update(
+        self.tool_feedback.append_tool_observation(
+            session,
+            tool_call,
+            observation,
+            step,
+        )
+        signal = self.tool_feedback.record_recovery_decision(
+            session,
+            observation,
+            step,
+        )
+        session.lifecycle.update_checkpoint(
             TaskCheckpointUpdate(
                 status=TaskRunStatus.BLOCKED,
                 current_step=step,
@@ -144,7 +153,7 @@ class ToolAuthorizationGate:
     ) -> GateResult:
         """创建或读取审批，并拒绝复用目标已变化的批准。"""
 
-        self.operations.ensure_planned(intent, step=step)
+        self.operation_tracker.ensure_planned(intent, step=step)
         approval = self.approvals.get(intent.key)
         if approval is None and not self.config.auto_approve_writes:
             approval = self.approvals.request(
@@ -162,9 +171,9 @@ class ToolAuthorizationGate:
                 )
             )
             if intent.side_effect:
-                self.operations.record_pending(intent, step=step)
+                self.operation_tracker.record_pending(intent, step=step)
 
-        session.lifecycle.update(
+        session.lifecycle.update_checkpoint(
             TaskCheckpointUpdate(
                 status=TaskRunStatus.WAITING_APPROVAL,
                 current_step=step,
@@ -183,7 +192,7 @@ class ToolAuthorizationGate:
             and approval is not None
             and approval.status == "approved"
             and approval.operation_fingerprint is not None
-            and not self.operations.same_fingerprint(
+            and not self.operation_tracker.same_fingerprint(
                 intent.fingerprint,
                 approval.operation_fingerprint,
             )
@@ -218,7 +227,7 @@ class ToolAuthorizationGate:
             )
 
         if intent.side_effect and approved:
-            self.operations.record_approved(intent, step=step)
+            self.operation_tracker.record_approved(intent, step=step)
         approval_trace = (
             approval.to_dict()
             if approval is not None
@@ -267,7 +276,7 @@ class ToolAuthorizationGate:
         if not approved:
             return self._rejected(session, tool_call, step)
 
-        session.lifecycle.update(
+        session.lifecycle.update_checkpoint(
             TaskCheckpointUpdate(status=TaskRunStatus.RUNNING, current_step=step)
         )
         return GateResult(True)
@@ -284,8 +293,13 @@ class ToolAuthorizationGate:
             False,
             f"{tool_call.name}: human approval rejected",
         )
-        self.feedback.append(session, tool_call, observation, step)
-        session.lifecycle.update(
+        self.tool_feedback.append_tool_observation(
+            session,
+            tool_call,
+            observation,
+            step,
+        )
+        session.lifecycle.update_checkpoint(
             TaskCheckpointUpdate(
                 status=TaskRunStatus.WAITING_APPROVAL,
                 current_step=step,

@@ -2,7 +2,7 @@
 
 ## 为什么这个 Case 重要
 
-这是一个紧凑的真实仓库案例，适合观察 Coding Agent tool contract、candidate patch
+这是一个紧凑的真实仓库案例，适合观察 Coding Agent tool contract、candidate diff
 evidence 和保守 evaluation claim。学习目标不是背官方 Harness 实现，而是亲自区分 case 输入、
 Agent 产生的修改、仓库自带测试和独立 evaluator。
 
@@ -44,13 +44,13 @@ forge bench swebench --instance-id astropy__astropy-12907 \
 forge inspect <benchmark-run-or-case-dir>
 ```
 
-这一步用于辨认 Agent 的 trace、candidate patch 与真实本地测试证据。`--evaluate` 留到已经安装
+这一步用于辨认 Agent 的 trace、candidate diff 与真实本地测试证据。`--evaluate` 留到已经安装
 SWE-bench Harness 且 Docker Engine 就绪的环境；API key 本身不等于 official 环境可用。
 
 ## 需要收集的证据
 
 - `trace.json`：file inspection step 和 tool argument。
-- `patch.diff`：candidate change。
+- `candidate_changes.diff`：Agent 生成的候选 unified diff。
 - local validation event：实际 test kind、target/argv、exit code 和输出。
 - `usage.json`：tool call、failed tool 和 cost。
 - `report.md`：failure class 和 next action。
@@ -75,6 +75,6 @@ minimal-control 与 governed-runtime：
 
 ## 边界
 
-Candidate patch 只表示 Agent 产生了 diff；local verified 只表示记录的指定测试通过；只有 official
+Candidate diff 只表示 Agent 产生了 diff；local verified 只表示记录的指定测试通过；只有 official
 Harness 的 per-case parsed outcome 才能进入 official denominator。没有 official artifact 时是
 `not_evaluated/Unknown`，不是 0%，更不是 solved。

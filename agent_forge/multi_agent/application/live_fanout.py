@@ -29,7 +29,7 @@ from .dependencies import LiveFanoutDependencies
 class LiveFanoutCoordinator:
     """协调真实 AgentLoop worker，但不实现 Git、文件或 worker runtime。
 
-    第一遍只读 ``run``。它拥有依赖批次、动态冲突、patch 合并顺序、恢复资格和最终
+    第一遍只读 ``run``。它拥有依赖批次、动态冲突、diff 合并顺序、恢复资格和最终
     状态；所有外部副作用均通过 ``LiveFanoutDependencies`` 完成。
     """
 
@@ -51,7 +51,7 @@ class LiveFanoutCoordinator:
         self.max_workers = max(1, min(int(max_workers), 8))
         self.resume_from = resume_from
 
-    # 主要入口：按依赖批次并发 worker，校验合并 patch，再运行 finalizer。
+    # 主要入口：按依赖批次并发 worker，校验合并 candidate diff，再运行 finalizer。
     def run(self) -> LiveFanoutSummary:
         """执行 dependency-aware worker，并返回可审计的集成结果。"""
 
@@ -107,7 +107,7 @@ class LiveFanoutCoordinator:
             "running",
         )
 
-        # 执行区：同一批并发，批次之间按依赖顺序串行并合并 patch。
+        # 执行区：同一批并发，批次之间按依赖顺序串行并合并 candidate diff。
         for batch_index, batch in enumerate(dependency_batches):
             runnable_tasks = self._runnable_tasks(
                 batch,
@@ -161,7 +161,7 @@ class LiveFanoutCoordinator:
             )
 
         # 收口区：只有全部任务成功且无冲突时，才允许 finalizer 给出最终判定。
-        integration_patch_file = self.artifacts.write_integration_patch(
+        integrated_diff_file = self.artifacts.write_integrated_diff(
             self.workspace.diff()
         )
         every_task_succeeded = (
@@ -213,7 +213,7 @@ class LiveFanoutCoordinator:
                 finalizer_result.usage_path if finalizer_result else ""
             ),
             finalizer_usage_summary=finalizer_usage_summary,
-            integration_patch_path=integration_patch_file,
+            integrated_diff_path=integrated_diff_file,
         )
         self._checkpoint(
             base_revision,
@@ -263,7 +263,7 @@ class LiveFanoutCoordinator:
         self,
         tasks: list[SubagentTask],
         batch_index: int,
-        base_patch: str,
+        base_diff_text: str,
     ) -> list[LiveSubagentResult]:
         """并发执行一个批次，并恢复为原任务顺序返回结果。"""
 
@@ -276,7 +276,7 @@ class LiveFanoutCoordinator:
                     self.workers.run_worker,
                     task,
                     batch_index,
-                    base_patch,
+                    base_diff_text,
                 ): task
                 for task in tasks
             }
@@ -329,7 +329,7 @@ class LiveFanoutCoordinator:
         merged_task_ids: list[str],
         detected_conflicts: list[FanoutConflict],
     ) -> None:
-        """按稳定任务顺序校验并应用本批次 patch。"""
+        """按稳定任务顺序校验并应用本批次 candidate diff。"""
 
         task_by_id = {task.id: task for task in tasks}
         for result in batch_results:
@@ -337,41 +337,41 @@ class LiveFanoutCoordinator:
             if result.status != "completed":
                 continue
             if task.write_scope:
-                candidate_patch = (
-                    self.artifacts.read_text(result.patch_path)
-                    if result.patch_path
+                candidate_diff_text = (
+                    self.artifacts.read_text(result.candidate_diff_path)
+                    if result.candidate_diff_path
                     else ""
                 )
-                if not candidate_patch.strip():
+                if not candidate_diff_text.strip():
                     result.status = "no_patch"
                     continue
-                patch_is_applicable, apply_detail = self.workspace.apply_patch(
-                    candidate_patch,
+                diff_is_applicable, apply_detail = self.workspace.apply_unified_diff(
+                    candidate_diff_text,
                     check_only=True,
                 )
-                if not patch_is_applicable:
+                if not diff_is_applicable:
                     _record_merge_conflict(
                         result,
                         detected_conflicts,
-                        f"patch apply check failed: {apply_detail}",
+                        f"candidate diff apply check failed: {apply_detail}",
                     )
                     continue
-                patch_was_applied, apply_detail = self.workspace.apply_patch(
-                    candidate_patch,
+                diff_was_applied, apply_detail = self.workspace.apply_unified_diff(
+                    candidate_diff_text,
                     check_only=False,
                 )
-                if not patch_was_applied:
+                if not diff_was_applied:
                     _record_merge_conflict(
                         result,
                         detected_conflicts,
-                        f"patch apply failed: {apply_detail}",
+                        f"candidate diff apply failed: {apply_detail}",
                     )
                     continue
             successful_task_ids.add(result.task_id)
             merged_task_ids.append(result.task_id)
 
     def _restore_previous(self, base_revision: str) -> list[LiveSubagentResult]:
-        """校验 checkpoint 与 patch 摘要后，重放已完成任务的集成结果。"""
+        """校验 checkpoint 与 diff 摘要后，重放已完成任务的集成结果。"""
 
         if not self.resume_from:
             return []
@@ -398,7 +398,7 @@ class LiveFanoutCoordinator:
                 f"{', '.join(unknown_merged_task_ids)}"
             )
 
-        # 恢复容器：每项同时保存任务定义、结果快照和待重放 patch。
+        # 恢复容器：每项同时保存任务定义、结果快照和待重放 candidate diff。
         prepared_recovery_items: list[
             tuple[SubagentTask, LiveSubagentResult, str]
         ] = []
@@ -417,51 +417,57 @@ class LiveFanoutCoordinator:
             restored_result_payload = dict(previous_result_payload)
             restored_result_payload["resumed"] = True
             restored_result = LiveSubagentResult(**restored_result_payload)
-            candidate_patch = ""
+            candidate_diff_text = ""
             if task.write_scope:
-                patch_path = str(previous_result_payload.get("patch_path") or "")
-                if not patch_path:
-                    raise RuntimeError("fanout resume patch is missing")
+                candidate_diff_path = str(
+                    previous_result_payload.get("candidate_diff_path") or ""
+                )
+                if not candidate_diff_path:
+                    raise RuntimeError("fanout resume candidate diff is missing")
                 try:
-                    candidate_patch = self.artifacts.read_text(patch_path)
+                    candidate_diff_text = self.artifacts.read_text(
+                        candidate_diff_path
+                    )
                 except FileNotFoundError as exc:
                     raise RuntimeError(
-                        f"fanout resume patch is missing: {patch_path}"
+                        "fanout resume candidate diff is missing: "
+                        f"{candidate_diff_path}"
                     ) from exc
                 expected_digest = str(
-                    previous_result_payload.get("patch_sha256") or ""
+                    previous_result_payload.get("candidate_diff_sha256") or ""
                 )
                 actual_digest = hashlib.sha256(
-                    candidate_patch.encode("utf-8")
+                    candidate_diff_text.encode("utf-8")
                 ).hexdigest()
                 if not expected_digest or actual_digest != expected_digest:
                     raise RuntimeError(
-                        f"fanout resume patch digest does not match for {task.id}"
+                        "fanout resume candidate diff digest does not match "
+                        f"for {task.id}"
                     )
             prepared_recovery_items.append(
-                (task, restored_result, candidate_patch)
+                (task, restored_result, candidate_diff_text)
             )
 
-        recovery_patches = [
-            (task.id, candidate_patch)
-            for task, _, candidate_patch in prepared_recovery_items
-            if candidate_patch
+        recovery_diffs = [
+            (task.id, candidate_diff_text)
+            for task, _, candidate_diff_text in prepared_recovery_items
+            if candidate_diff_text
         ]
-        if recovery_patches:
-            combined_patch = self.workers.validate_recovery_patches(recovery_patches)
-            patch_is_applicable, apply_detail = self.workspace.apply_patch(
-                combined_patch,
+        if recovery_diffs:
+            combined_diff = self.workers.validate_recovery_diffs(recovery_diffs)
+            diff_is_applicable, apply_detail = self.workspace.apply_unified_diff(
+                combined_diff,
                 check_only=True,
             )
-            if not patch_is_applicable:
+            if not diff_is_applicable:
                 raise RuntimeError(
                     f"fanout resume integration check failed: {apply_detail}"
                 )
-            patch_was_applied, apply_detail = self.workspace.apply_patch(
-                combined_patch,
+            diff_was_applied, apply_detail = self.workspace.apply_unified_diff(
+                combined_diff,
                 check_only=False,
             )
-            if not patch_was_applied:
+            if not diff_was_applied:
                 raise RuntimeError(
                     f"fanout resume integration failed: {apply_detail}"
                 )

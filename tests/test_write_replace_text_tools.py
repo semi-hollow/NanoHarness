@@ -3,18 +3,18 @@ import unittest
 from pathlib import Path
 
 from agent_forge.safety.sandbox import WorkspaceSandbox
-from agent_forge.tools.apply_patch import ApplyPatchTool
+from agent_forge.tools.replace_text import ReplaceTextTool
 from agent_forge.tools.registry import ToolRegistry
 from agent_forge.tools.write_file import WriteFileTool
 
 
-class WriteApplyPatchToolsTest(unittest.TestCase):
-    def test_apply_patch_requires_exactly_one_old_text(self):
+class WriteReplaceTextToolsTest(unittest.TestCase):
+    def test_replace_text_requires_exactly_one_old_text(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             path = root / "a.txt"
             path.write_text("same\nsame\n", encoding="utf-8")
-            tool = ApplyPatchTool(WorkspaceSandbox(root))
+            tool = ReplaceTextTool(WorkspaceSandbox(root))
             ambiguous = tool.execute({"path": "a.txt", "old": "same", "new": "changed"})
             self.assertFalse(ambiguous.success)
             self.assertIn("ambiguous", ambiguous.content)
@@ -25,12 +25,12 @@ class WriteApplyPatchToolsTest(unittest.TestCase):
             self.assertTrue(ok.success, ok.content)
             self.assertEqual(path.read_text(encoding="utf-8"), "changed\n")
 
-    def test_apply_patch_rejects_overlapping_old_text_matches(self):
+    def test_replace_text_rejects_overlapping_old_text_matches(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             path = root / "a.txt"
             path.write_text("aaa", encoding="utf-8")
-            tool = ApplyPatchTool(WorkspaceSandbox(root))
+            tool = ReplaceTextTool(WorkspaceSandbox(root))
             observation = tool.execute({"path": "a.txt", "old": "aa", "new": "bb"})
             self.assertFalse(observation.success)
             self.assertIn("ambiguous", observation.content)

@@ -91,9 +91,12 @@ class OperatorSession:
         """完成 ``waiting_human -> responded -> continuation``。"""
 
         prompt = self.require_prompt("human_input")
-        RespondToHumanInput(self.human_inputs).execute(prompt.key, answer=answer)
+        RespondToHumanInput(self.human_inputs).respond(
+            prompt.key,
+            answer=answer,
+        )
         checkpoint = self._require_checkpoint()
-        continuation = BuildContinuationPlan(self.human_inputs).execute(
+        continuation = BuildContinuationPlan(self.human_inputs).build(
             checkpoint,
             override_task=checkpoint.task,
         )
@@ -109,7 +112,11 @@ class OperatorSession:
         """完成 ``waiting_approval -> decision -> continuation``。"""
 
         prompt = self.require_prompt("approval")
-        DecideApproval(self.approvals).execute(prompt.key, decision, note=note)
+        DecideApproval(self.approvals).decide(
+            prompt.key,
+            decision,
+            note=note,
+        )
         return self.resume()
 
     # 主要入口：从 checkpoint 创建新的显式 continuation。

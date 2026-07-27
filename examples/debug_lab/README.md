@@ -39,7 +39,7 @@ repo 的共同父目录；否则 `$PROJECT_DIR$` 会指错。
 | 顺序 | 共享配置 | 固定输入 | 这次必须看懂 |
 | --- | --- | --- | --- |
 | 1 | `NanoHarness Lab 1 - Control Plane` | 固定写操作 | approval、operation identity、checkpoint、continuation |
-| 2 | `NanoHarness Lab 2 - Fixed Repair` | 固定错误 calculator | model intent → tool → patch → 真实 pytest → Evidence |
+| 2 | `NanoHarness Lab 2 - Fixed Repair` | 固定错误 calculator | model intent → `replace_text` → 真实 pytest → Evidence |
 | 3 | `NanoHarness Lab 3 - Live Agent` | 与 Lab 2 完全相同 | DeepSeek 如何选择工具、失败、恢复或完成 |
 | 4 | `NanoHarness Lab 4 - Astropy Evidence` | `astropy__astropy-12907` | candidate / local / official 三层证据 |
 
@@ -54,7 +54,7 @@ repo 的共同父目录；否则 `$PROJECT_DIR$` 会指错。
 Harness.run
   → AgentLoop.run
   → ToolExecutionPipeline._execute_call
-  → OperationTracker.describe
+  → OperationTracker.build_operation_intent
   → ToolAuthorizationGate._resolve_approval
   → waiting_approval checkpoint
   → explicit decision
@@ -67,7 +67,7 @@ Harness.run
 - 工具请求只是模型意图；真正能否执行由 Runtime 决定。
 - 审批绑定 `operation_key`，不是“相信某段自然语言”。
 - continuation 加载持久化状态，不是恢复 Python 调用栈。
-- `RunLifecycle.stop` 把最终状态和 artifact 落盘。
+- `RunLifecycle.finalize_run` 把最终状态和 artifact 落盘。
 
 ## Lab 2：固定模型变量，观察真实 Runtime
 
@@ -83,7 +83,7 @@ official resolved。
 
 第一次点击会弹出 macOS 隐藏输入框；API key 保存到 Keychain，之后自动读取，不写入 repo、
 配置或 artifact。Lab 3 与 Lab 2 的 task、bug 和测试相同，因此差异主要来自真实模型决策。
-两者还固定为同一组 `read_file / apply_patch / diagnostics` 工具，并关闭 Skill 与 Memory recall；
+两者还固定为同一组 `read_file / replace_text / diagnostics` 工具，并关闭 Skill 与 Memory recall；
 这样比较的是模型决策，而不是额外能力带来的变量。
 
 重点比较 `_call_model` 前后的 messages、可见 tool schemas、返回 ToolCall，以及 Runtime 如何处理
@@ -93,7 +93,7 @@ official resolved。
 
 Lab 4 第一次会自动准备固定 revision 的官方 SWE-bench Harness，需要已经启动的
 Docker-compatible runtime（Docker Desktop 或 Colima）。Apple Silicon 还要确保该 runtime 能执行
-`linux/amd64` 官方镜像。当前 Lab 给 Agent 16 步预算，但仍只报告实际 artifact，不承诺必然有 patch。
+`linux/amd64` 官方镜像。当前 Lab 给 Agent 16 步预算，但仍只报告实际 artifact，不承诺必然有 candidate diff。
 官方环境准备可能较慢，但不属于核心阅读范围。
 
 只跟住八步：
@@ -101,7 +101,7 @@ Docker-compatible runtime（Docker Desktop 或 Colima）。Apple Silicon 还要�
 1. `SwebenchCaseSource.load` 按 `instance_id` 取 case。
 2. `SwebenchWorkspaceManager.prepare` checkout `base_commit`；Agent 只看 issue 与代码。
 3. `LocalCaseExecutor.run` 装配并驱动同一 Runtime。
-4. `Candidate patch` 停点先观察 `patch/final_answer`，Step Over 一行后再看 `status`；这里只证明
+4. `Candidate diff` 停点先观察 `candidate_diff_text/final_answer`，Step Over 一行后再看 `status`；这里只证明
    生成了候选 diff。
 5. `read_local_validation` 从 trace 投影 Agent 实际执行过的 focused test 证据。
 6. `SwebenchOfficialEvaluator.evaluate` 调独立官方 Oracle。
@@ -117,18 +117,18 @@ Docker-compatible runtime（Docker Desktop 或 Colima）。Apple Silicon 还要�
 | --- | --- | --- |
 | `Harness.run` | 入口已有 `request`、`self._config`、`self._extensions` | 外部输入怎样收敛到单一 Public API |
 | `AgentLoop.run` | 入口看 `task/agent_name`；Step Over 一行后看 `session` | 单次 run 的状态容器怎样创建 |
-| `TurnPreparation.execute` | 入口看 `session/step/force_compaction` | 哪个 turn 正在准备；结果会作为下一断点的 `turn` |
+| `TurnPreparation.prepare_turn` | 入口看 `session/step/force_compaction` | 哪个 turn 正在准备；结果会作为下一断点的 `turn` |
 | `AgentLoop._call_model` | `turn.messages_for_llm`、`turn.schemas`、预算字段 | 模型这次真正看见什么；Step Over 模型调用后才有 `response` |
 | `ToolExecutionPipeline._execute_call` | `tool_call`、`allowed_tool_names`、`session.tool_history` | 意图是否可见、重复；Step Over 到 `intent = ...` 后看治理身份 |
-| `OperationTracker.describe` | 入口看 `tool_call`、`self.config.workspace` | Step Out 回调用方后看返回的 `intent.key/fingerprint` |
+| `OperationTracker.build_operation_intent` | 入口看 `tool_call`、`self.config.workspace` | Step Out 后看返回的 `operation_intent.key/fingerprint` |
 | `ToolAuthorizationGate._resolve_approval` | `intent`、`reason`、`self.config.auto_approve_writes` | 具体 operation 为什么允许或暂停 |
 | `DiagnosticsTool.execute` | 入口看 `arguments`；Step Over 两行后看 `kind/target` | Step Into `_pytest` 才看最终 argv 与子进程 |
-| `RunLifecycle.stop` | `request`、`self.checkpoint`；执行 hook 后看 `effective` | 状态与 Evidence 何时持久化 |
-| `RunSwebench.execute` | 入口看 `request/run_id/layout`；Step Over 三行后看 `cases/summary` | Benchmark 怎样编排而不定义真相 |
+| `RunLifecycle.finalize_run` | `request`、`self.checkpoint`；执行 hook 后看 `effective` | 状态与 Evidence 何时持久化 |
+| `RunSwebench.run_benchmark` | 入口看 `request/run_id/layout`；Step Over 三行后看 `cases/summary` | Benchmark 怎样编排而不定义真相 |
 | `SwebenchCaseSource.load` | `request.instance_ids/dataset_name/split`；返回前看 `cases` | 固定 case 如何从 dataset 边界进入系统 |
 | `LocalCaseExecutor.run` | 入口看 `case/case_dir/agent_mode/request`；Step Over 后看 `workspace` | 单题如何进入正式 Agent 主链 |
 | `SwebenchWorkspaceManager.prepare` | `case.repo/base_commit/instance_id`；返回前看 `workspace` | 隔离 worktree 是否确实位于指定 revision |
-| `Candidate patch` | 先看 `patch/final_answer`；Step Over 一行后看 `status`，并展开 `active_workspace` | Runtime 结果怎样变成 candidate diff，而不是 solved claim |
+| `Candidate diff` | 先看 `candidate_diff_text/final_answer`；Step Over 一行后看 `status`，并展开 `active_workspace` | Runtime 结果怎样变成 candidate diff，而不是 solved claim |
 | `read_local_validation` | 入口看 `trace_path`；循环后看 `records/statuses` | Local Verified 从哪些 trace event 投影 |
 | `SwebenchOfficialEvaluator.evaluate` | 入口看 `summary/request`；构造后看 `command`，子进程后看 `parsed` | 独立 Oracle 怎样给最终结论 |
 | `parse_official_results` | `run_id/instance_ids`；返回前看 `outcomes/warnings` | aggregate/per-case JSON 怎样归一化成显式 outcome |

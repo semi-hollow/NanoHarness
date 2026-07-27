@@ -3,7 +3,7 @@ from __future__ import annotations
 from .domain.models import AgentProfile, RoleSpec
 
 CODING_READ_TOOLS = ["list_files", "read_file", "grep", "grep_search", "git_status", "git_diff", "diagnostics"]
-CODING_WRITE_TOOLS = [*CODING_READ_TOOLS, "apply_patch", "write_file", "run_command"]
+CODING_WRITE_TOOLS = [*CODING_READ_TOOLS, "replace_text", "write_file", "run_command"]
 RESEARCH_TOOLS = ["list_files", "read_file", "grep", "grep_search", "forge.web_search", "forge.web_fetch"]
 
 

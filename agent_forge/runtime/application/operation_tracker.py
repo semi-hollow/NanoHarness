@@ -20,38 +20,59 @@ from agent_forge.runtime.ports import EventSink, OperationLedgerRepository
 
 @dataclass(frozen=True)
 class OperationIntent:
-    """一个工具调用在权限和幂等层面的身份。"""
+    """原始 ToolCall 经过 Runtime 归一化后的操作身份。
 
+    这个对象不执行工具。它把授权、Ledger 和真实执行需要共享的事实集中起来，
+    避免三个阶段分别解释模型参数，得到不同的“同一次操作”。
+    """
+
+    # 权限系统认识的动作类型，例如 read、write、run_command。
     action: str
+    # 仅 run_command 使用；授权策略需要单独检查命令文本。
     command: str
+    # True 表示操作可能改变外部状态，必须经过 Ledger 和副作用授权。
     side_effect: bool
+    # 生成稳定 key 和目标指纹所需的工具、参数、工作区事实。
     target: OperationTarget
+    # 副作用操作的稳定身份；只读调用不需要幂等记录，因此保持空字符串。
     key: str = ""
+    # 工具执行前目标的当前状态，例如文件路径、SHA256 和大小。
     fingerprint: dict[str, Any] | None = None
 
 
 class OperationTracker:
-    """维护副作用操作的 planned -> approved -> executed 状态链。"""
+    """把 ToolCall 接入副作用身份、幂等重放和持久化状态链。
+
+    本类不拥有工具执行和人工交互。``ToolExecutionPipeline`` 先调用
+    ``build_operation_intent`` 建立统一身份，再把同一个 intent 交给 Ledger、
+    ``ToolAuthorizationGate`` 和真实工具执行路径。
+    """
 
     def __init__(
         self,
         config: RuntimeConfig,
         trace: EventSink,
-        operations: OperationLedgerRepository,
-        feedback: ToolFeedback,
+        operation_repository: OperationLedgerRepository,
+        tool_feedback: ToolFeedback,
     ) -> None:
         self.config = config
         self.trace = trace
-        self.operations = operations
-        self.feedback = feedback
+        self.operation_repository = operation_repository
+        self.tool_feedback = tool_feedback
 
-    # 主要入口：把 ToolCall 转成稳定 operation key、权限动作与目标指纹。
-    def describe(self, tool_call: ToolCall) -> OperationIntent:
-        """把模型 ToolCall 归一化为权限与幂等层共享的稳定意图。
+    # 主要入口：执行任何普通工具前，先把模型输出变成 Runtime 可治理的操作身份。
+    def build_operation_intent(self, tool_call: ToolCall) -> OperationIntent:
+        """为一个原始 ToolCall 构造授权和 Ledger 共用的 OperationIntent。
 
-        规范上游是 ``ToolExecutionPipeline``；下一 owner 是授权门禁和 operation
-        ledger。只读操作不创建 key，副作用同时绑定 workspace、参数与目标指纹。
-        系统不变量是授权、执行和恢复必须使用同一个 ``OperationIntent`` 身份。
+        为什么调用：模型只给出工具名和参数，并不知道哪个动作有副作用，也没有稳定
+        operation key。Runtime 必须在查询 Ledger、请求审批和执行工具之前，先完成一次
+        统一分类，否则三个阶段可能把同一个 ToolCall 解释成不同操作。
+
+        调用位置：``ToolExecutionPipeline._execute_call`` 已完成路由、重复调用和
+        ``ask_human`` 分支检查，尚未查询 Ledger、审批或执行真实工具。
+
+        返回结果：只读操作只有 action/target；副作用额外包含由工具、参数、workspace
+        和 action 生成的稳定 key，以及执行前目标 fingerprint。
         """
 
         action = self._permission_action(tool_call.name)
@@ -70,8 +91,8 @@ class OperationTracker:
             command=command,
             side_effect=True,
             target=target,
-            key=self.operations.operation_key(target),
-            fingerprint=self.operations.operation_fingerprint(target),
+            key=self.operation_repository.operation_key(target),
+            fingerprint=self.operation_repository.operation_fingerprint(target),
         )
 
     # 核心规则：只重放指纹未漂移的 executed 事实，绝不重复副作用。
@@ -90,7 +111,7 @@ class OperationTracker:
         转成成功 Observation，目标变化必须进入可恢复的 BLOCKED 状态。
         """
 
-        existing = self.operations.get(intent.key)
+        existing = self.operation_repository.get(intent.key)
         if existing is None or existing.status != "executed":
             return False
 
@@ -116,8 +137,13 @@ class OperationTracker:
                 operation=existing.to_dict(),
                 current_fingerprint=intent.fingerprint,
             )
-            self.feedback.append(session, tool_call, observation, step)
-            session.lifecycle.update(
+            self.tool_feedback.append_tool_observation(
+                session,
+                tool_call,
+                observation,
+                step,
+            )
+            session.lifecycle.update_checkpoint(
                 TaskCheckpointUpdate(
                     status=TaskRunStatus.BLOCKED,
                     current_step=step,
@@ -143,8 +169,13 @@ class OperationTracker:
             operation_status="skipped_already_executed",
             operation=existing.to_dict(),
         )
-        self.feedback.append(session, tool_call, observation, step)
-        session.lifecycle.update(
+        self.tool_feedback.append_tool_observation(
+            session,
+            tool_call,
+            observation,
+            step,
+        )
+        session.lifecycle.update_checkpoint(
             TaskCheckpointUpdate(
                 status=TaskRunStatus.RUNNING,
                 current_step=step,
@@ -163,11 +194,15 @@ class OperationTracker:
         step: int,
         status: str = "planned",
     ) -> None:
-        """确保副作用在审批或执行前已有账本记录。"""
+        """在副作用进入审批或执行前创建首条 Ledger 记录。
+
+        手动审批路径通常写入 ``planned``；无需人工确认但仍有副作用的路径会在真实执行
+        前写入 ``approved``。已有相同 key 时复用记录，不覆盖既有执行事实。
+        """
 
         if not intent.side_effect:
             return
-        self.operations.ensure_planned(self._plan(intent, step, status))
+        self.operation_repository.ensure_planned(self._plan(intent, step, status))
 
     def record_pending(
         self,
@@ -175,10 +210,14 @@ class OperationTracker:
         *,
         step: int,
     ) -> None:
-        self.operations.record_pending(self._plan(intent, step, "pending"))
+        """记录本次副作用正在等待人工审批。"""
+
+        self.operation_repository.record_pending(self._plan(intent, step, "pending"))
 
     def record_approved(self, intent: OperationIntent, *, step: int) -> None:
-        self.operations.record_approved(
+        """记录授权门禁已允许这个具体 operation key。"""
+
+        self.operation_repository.record_approved(
             OperationTransition(
                 operation_key=intent.key,
                 status="approved",
@@ -188,7 +227,7 @@ class OperationTracker:
         )
 
     # 运行时端口：把真实执行结果与 post-fingerprint 提交到唯一幂等账本。
-    def record_result(
+    def record_execution_result(
         self,
         session: AgentRunSession,
         tool_call: ToolCall,
@@ -204,7 +243,9 @@ class OperationTracker:
         已执行。
         """
 
-        post_fingerprint = self.operations.operation_fingerprint(intent.target)
+        post_fingerprint = self.operation_repository.operation_fingerprint(
+            intent.target
+        )
         update = OperationTransition(
             operation_key=intent.key,
             status="executed" if observation.success else "failed",
@@ -214,9 +255,9 @@ class OperationTracker:
             post_fingerprint=post_fingerprint,
         )
         if observation.success:
-            record = self.operations.record_executed(update)
+            record = self.operation_repository.record_executed(update)
         else:
-            record = self.operations.record_failed(update)
+            record = self.operation_repository.record_failed(update)
         self.trace.add(
             step,
             session.agent_name,
@@ -226,8 +267,10 @@ class OperationTracker:
             operation=record.to_dict(),
         )
 
-    def exists(self, intent: OperationIntent) -> bool:
-        return self.operations.get(intent.key) is not None
+    def has_record(self, intent: OperationIntent) -> bool:
+        """判断副作用身份是否已经进入 Ledger。"""
+
+        return self.operation_repository.get(intent.key) is not None
 
     def _plan(
         self,
@@ -249,16 +292,22 @@ class OperationTracker:
         left: dict[str, Any] | None,
         right: dict[str, Any] | None,
     ) -> bool:
+        """仅当两侧都有完整快照且字段完全一致时，才认为目标没有漂移。"""
+
         return left is not None and right is not None and left == right
 
     @staticmethod
     def _permission_action(tool_name: str) -> str:
+        """把具体工具名收敛成权限和 Ledger 共同理解的动作类型。"""
+
         if tool_name == "run_command":
             return "run_command"
-        if tool_name in {"apply_patch", "write_file"}:
-            return "apply_patch"
+        if tool_name in {"replace_text", "write_file"}:
+            return "write"
         return "read"
 
     @staticmethod
     def _is_side_effect_action(action: str) -> bool:
-        return action in {"apply_patch", "write", "run_command"}
+        """只让可能改变工作区或外部状态的动作进入 Operation Ledger。"""
+
+        return action in {"write", "run_command"}

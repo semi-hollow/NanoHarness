@@ -9,11 +9,11 @@ from agent_forge.runtime.config import RuntimeConfig
 from agent_forge.runtime.llm_client import AgentResponse
 from agent_forge.runtime.domain.conversation import ToolCall
 from agent_forge.safety.sandbox import WorkspaceSandbox
-from agent_forge.tools.apply_patch import ApplyPatchTool
+from agent_forge.tools.replace_text import ReplaceTextTool
 from agent_forge.tools.registry import ToolRegistry
 
 
-class PatchThenFinalLLM:
+class ReplaceThenFinalLLM:
     last_usage = None
 
     def __init__(self):
@@ -26,8 +26,8 @@ class PatchThenFinalLLM:
                 None,
                 [
                     ToolCall(
-                        "patch-1",
-                        "apply_patch",
+                        "replace-1",
+                        "replace_text",
                         {"path": "target.py", "old": "value = 1\n", "new": "value = 2\n"},
                     )
                 ],
@@ -37,7 +37,7 @@ class PatchThenFinalLLM:
 
 def _registry(root: Path) -> ToolRegistry:
     registry = ToolRegistry()
-    registry.register(ApplyPatchTool(WorkspaceSandbox(root), auto_approve_writes=True))
+    registry.register(ReplaceTextTool(WorkspaceSandbox(root), auto_approve_writes=True))
     return registry
 
 
@@ -56,7 +56,7 @@ class HumanApprovalTest(unittest.TestCase):
                 approval_root=str(root / "approvals"),
             )
 
-            final = build_agent_loop(config, trace, _registry(root), PatchThenFinalLLM()).run("fix target")
+            final = build_agent_loop(config, trace, _registry(root), ReplaceThenFinalLLM()).run("fix target")
 
             self.assertIn("patch applied after approval", final)
             self.assertEqual(approvals.list_pending(), [])
@@ -75,13 +75,13 @@ class HumanApprovalTest(unittest.TestCase):
                 auto_approve_writes=False,
                 approval_root=str(root / "approvals"),
             )
-            first = build_agent_loop(first_config, first_trace, _registry(root), PatchThenFinalLLM()).run("fix target")
+            first = build_agent_loop(first_config, first_trace, _registry(root), ReplaceThenFinalLLM()).run("fix target")
 
             self.assertIn("waiting_approval", first)
             self.assertEqual((root / "target.py").read_text(encoding="utf-8"), "value = 1\n")
             pending = approvals.list_pending()
             self.assertEqual(len(pending), 1)
-            self.assertEqual(pending[0].tool_name, "apply_patch")
+            self.assertEqual(pending[0].tool_name, "replace_text")
 
             approvals.decide(pending[0].operation_key, "approved")
 
@@ -93,7 +93,7 @@ class HumanApprovalTest(unittest.TestCase):
                 auto_approve_writes=False,
                 approval_root=str(root / "approvals"),
             )
-            second = build_agent_loop(second_config, second_trace, _registry(root), PatchThenFinalLLM()).run("fix target")
+            second = build_agent_loop(second_config, second_trace, _registry(root), ReplaceThenFinalLLM()).run("fix target")
 
             self.assertIn("patch applied after approval", second)
             self.assertEqual((root / "target.py").read_text(encoding="utf-8"), "value = 2\n")
@@ -119,7 +119,7 @@ class HumanApprovalTest(unittest.TestCase):
                 auto_approve_writes=False,
                 approval_root=str(root / "approvals"),
             )
-            first = build_agent_loop(first_config, first_trace, _registry(root), PatchThenFinalLLM()).run("fix target")
+            first = build_agent_loop(first_config, first_trace, _registry(root), ReplaceThenFinalLLM()).run("fix target")
 
             self.assertIn("waiting_approval", first)
             pending = approvals.list_pending()
@@ -135,7 +135,7 @@ class HumanApprovalTest(unittest.TestCase):
                 auto_approve_writes=False,
                 approval_root=str(root / "approvals"),
             )
-            second = build_agent_loop(second_config, second_trace, _registry(root), PatchThenFinalLLM()).run("fix target")
+            second = build_agent_loop(second_config, second_trace, _registry(root), ReplaceThenFinalLLM()).run("fix target")
 
             self.assertIn("approval_stale", second)
             self.assertEqual((root / "target.py").read_text(encoding="utf-8"), "value = 3\n")

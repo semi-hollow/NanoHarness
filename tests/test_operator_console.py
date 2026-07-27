@@ -55,7 +55,7 @@ class PatchUntilAppliedModel:
                 [
                     ToolCall(
                         "patch-target",
-                        "apply_patch",
+                        "replace_text",
                         {
                             "path": "target.py",
                             "old": "value = 1\n",
@@ -99,7 +99,7 @@ class FullConsoleStoryModel:
                 [
                     ToolCall(
                         "patch-target",
-                        "apply_patch",
+                        "replace_text",
                         {
                             "path": "target.py",
                             "old": "value = 1\n",
@@ -166,7 +166,7 @@ class OperatorConsoleTest(unittest.TestCase):
             session, _ = self._session(
                 root,
                 model=PatchUntilAppliedModel(target),
-                enabled_tools=("apply_patch",),
+                enabled_tools=("replace_text",),
                 approval_mode="on-write",
                 auto_approve_writes=False,
             )
@@ -178,7 +178,7 @@ class OperatorConsoleTest(unittest.TestCase):
             prompt = session.pending_prompt()
             self.assertIsNotNone(prompt)
             self.assertEqual(prompt.kind, "approval")
-            self.assertIn('"tool": "apply_patch"', prompt.details)
+            self.assertIn('"tool": "replace_text"', prompt.details)
 
             completed = session.decide_and_resume("approved")
 
@@ -222,7 +222,7 @@ class OperatorConsoleTest(unittest.TestCase):
             session, events = self._session(
                 root,
                 model=FullConsoleStoryModel(target),
-                enabled_tools=("ask_human", "apply_patch", "diagnostics"),
+                enabled_tools=("ask_human", "replace_text", "diagnostics"),
                 approval_mode="on-write",
                 auto_approve_writes=False,
             )

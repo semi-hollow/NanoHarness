@@ -471,9 +471,7 @@ class OperatorConsoleApp(App[None]):
         self.query_one("#prompt", Static).update(Text(self._prompt_text(prompt)))
         operator_input = self.query_one("#operator-input", Input)
         if prompt.kind == "human_input" and prompt.choices:
-            operator_input.placeholder = (
-                f"输入可选值：{', '.join(prompt.choices)}"
-            )
+            operator_input.placeholder = f"输入可选值：{', '.join(prompt.choices)}"
         elif prompt.kind == "human_input":
             operator_input.placeholder = "输入回答后按 Enter"
         else:
@@ -500,9 +498,7 @@ class OperatorConsoleApp(App[None]):
                     Text(
                         render_event(
                             event,
-                            include_infrastructure=(
-                                self._show_infrastructure_events
-                            ),
+                            include_infrastructure=(self._show_infrastructure_events),
                         )
                     )
                 )
@@ -537,13 +533,16 @@ class OperatorConsoleApp(App[None]):
             "",
             result.final_answer or "(empty final answer)",
         ]
-        patch_preview = self._read_preview(result.patch_path, max_chars=2_400)
-        if patch_preview:
+        candidate_diff_preview = self._read_preview(
+            result.candidate_diff_path,
+            max_chars=2_400,
+        )
+        if candidate_diff_preview:
             sections.extend(
                 [
                     "",
                     "Candidate Patch (不等于 official solved)",
-                    patch_preview,
+                    candidate_diff_preview,
                 ]
             )
         sections.extend(

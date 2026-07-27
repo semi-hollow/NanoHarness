@@ -83,7 +83,7 @@ class _FakeBenchmarkRunner:
             encoding="utf-8",
         )
         trace = run_dir / "trace.json"
-        patch = run_dir / "patch.diff"
+        patch = run_dir / "candidate_changes.diff"
         trace.write_text("{}", encoding="utf-8")
         patch.write_text("diff --git a/a.py b/a.py\n", encoding="utf-8")
         result = BenchCaseResult(
@@ -92,7 +92,7 @@ class _FakeBenchmarkRunner:
             workspace=run_dir,
             trace_path=trace,
             usage_report_path=None,
-            patch_path=patch,
+            candidate_diff_path=patch,
             status="patch_generated",
             final_answer="candidate",
             patch_chars=12,
@@ -157,8 +157,8 @@ class BenchmarkCampaignTest(unittest.TestCase):
             )
             request = self._request(root)
 
-            first = use_case.execute(request)
-            second = use_case.execute(request)
+            first = use_case.run_campaign(request)
+            second = use_case.run_campaign(request)
 
             self.assertEqual(first.state.status, "completed_with_failures")
             self.assertEqual(second.state.status, "completed")
@@ -220,7 +220,7 @@ class BenchmarkCampaignTest(unittest.TestCase):
                 _SourceIdentity(dirty=True),
             )
             with self.assertRaisesRegex(ValueError, "clean git source"):
-                use_case.execute(self._request(root, repetitions=1))
+                use_case.run_campaign(self._request(root, repetitions=1))
 
         self.assertEqual(runner.requests, [])
 
@@ -247,8 +247,7 @@ class BenchmarkCampaignTest(unittest.TestCase):
         self.assertEqual(len(manifest["records"]), 4)
         self.assertTrue(
             all(
-                record["evidence"]["official_evaluation_status"]
-                == "official_resolved"
+                record["evidence"]["official_evaluation_status"] == "official_resolved"
                 for record in manifest["records"]
             )
         )
@@ -256,12 +255,7 @@ class BenchmarkCampaignTest(unittest.TestCase):
         self.assertEqual(summary["paired_official"]["ties"], 2)
 
         for record in manifest["records"]:
-            scorecard = (
-                evidence_dir
-                / "runs"
-                / record["key"]
-                / "scorecard.json"
-            )
+            scorecard = evidence_dir / "runs" / record["key"] / "scorecard.json"
             self.assertEqual(
                 hashlib.sha256(scorecard.read_bytes()).hexdigest(),
                 record["scorecard_sha256"],

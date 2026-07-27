@@ -361,7 +361,7 @@ class PublicCliSmokeTest(unittest.TestCase):
   "events": [
     {"event_type": "task_state_checkpoint", "task_state": {"metadata": {"execution_environment": {"mode": "worktree", "network_policy": "deny", "active_workspace": "/snapshot"}}}},
     {"event_type": "context_assembly", "context": {"permission_summary": "writes ask", "active_skills": ["repo_orientation@1.0.0"], "tool_routing": {"allowed_tools": ["read_file"], "dropped_tools": ["run_command"]}}},
-    {"step": 3, "agent_name": "Implementer", "event_type": "permission_check", "permission_decision": "ask", "tool_call": "apply_patch", "reason": "write needs approval"},
+    {"step": 3, "agent_name": "Implementer", "event_type": "permission_check", "permission_decision": "ask", "tool_call": "replace_text", "reason": "write needs approval"},
     {"event_type": "human_approval"},
     {"event_type": "recovery_decision"}
   ]

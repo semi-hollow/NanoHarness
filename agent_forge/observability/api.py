@@ -2,7 +2,10 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from agent_forge.observability.adapters.json_trace import JsonTraceRecorder, TraceRecorder
+from agent_forge.observability.adapters.json_trace import (
+    JsonTraceRecorder,
+    TraceRecorder,
+)
 from agent_forge.observability.adapters.run_manifest_files import (
     read_run_manifest,
     refresh_run_manifest,
@@ -14,7 +17,11 @@ from agent_forge.observability.adapters.usage_files import (
     write_usage_files,
 )
 from agent_forge.observability.application.usage import BuildUsageReport
-from agent_forge.observability.domain.event import TraceEvent, TraceEventType, TraceRecord
+from agent_forge.observability.domain.event import (
+    TraceEvent,
+    TraceEventType,
+    TraceRecord,
+)
 from agent_forge.observability.domain.evidence import EvidenceItem, EvidenceLedger
 from agent_forge.observability.domain.metrics import summarize, summarize_trace
 from agent_forge.observability.domain.run_story import (
@@ -28,6 +35,7 @@ from agent_forge.observability.presentation.usage_report import render_usage_mar
 from agent_forge.observability.presentation.replay import render_trace_replay
 from agent_forge.observability.presentation.run_story import render_run_story
 
+
 # 主要入口：从 trace 事实投影并发布 usage.json 与 usage_report.md。
 def write_usage_artifacts(
     trace_path: str | Path,
@@ -36,7 +44,7 @@ def write_usage_artifacts(
     """从 trace 构造并写入 usage JSON 与 Markdown 证据。"""
 
     trace_file = Path(trace_path)
-    usage = BuildUsageReport().execute(read_trace(trace_file))
+    usage = BuildUsageReport().build_usage_report(read_trace(trace_file))
     usage_json, usage_markdown = usage_artifact_paths(trace_file, output_dir)
     return write_usage_files(
         usage,
@@ -65,6 +73,7 @@ def load_run_story(run_dir: str | Path) -> RunStory:
     trace_path = root / "trace.json"
     trace = read_trace(trace_path) if trace_path.exists() else None
     return project_run_story(manifest, trace)
+
 
 __all__ = [
     "EvidenceItem",

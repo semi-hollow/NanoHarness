@@ -66,7 +66,10 @@ class RunLifecycle:
 
     # 第一遍：三个 public port 分别对应更新、停止和人工暂停。
     # 运行时端口：同步更新内存 checkpoint、持久化状态和 trace 事实。
-    def update(self, update: TaskCheckpointUpdate) -> TaskCheckpoint:
+    def update_checkpoint(
+        self,
+        update: TaskCheckpointUpdate,
+    ) -> TaskCheckpoint:
         """持久化一次显式状态转换，并发布同一 checkpoint 的审计事实。
 
         流程位置：所有非终态 lifecycle transition 的唯一写入点。
@@ -89,11 +92,11 @@ class RunLifecycle:
         return self.checkpoint
 
     # 运行时端口：统一落盘终态、停止原因和最终文本。
-    def stop(self, request: StopRequest) -> str:
+    def finalize_run(self, request: StopRequest) -> str:
         """把黄金主链的所有退出分支归一化为唯一 terminal transition。
 
         流程位置：黄金主链唯一 terminal transition。
-        规范上游：``AgentLoop._stop``。
+        规范上游：``AgentLoop._finalize_run``。
         下一 owner：stop hook、``TaskStateRepository``、EventSink。
         状态与证据：effective status、stop reason、final text 写入 checkpoint/trace。
         系统不变量：质量门可降级完成状态；外围不能绕过这里宣称完成。
@@ -126,7 +129,7 @@ class RunLifecycle:
             stop_reason=effective.reason,
             final_answer=effective.final_answer,
         )
-        self.update(
+        self.update_checkpoint(
             TaskCheckpointUpdate(
                 status=effective.status,
                 stop_reason=effective.reason,
@@ -165,7 +168,8 @@ class RunLifecycle:
 
         流程位置：运行前澄清或工具 HITL 的 durable barrier。
         规范上游：clarification 或 tool governance。
-        下一 owner：``HumanInputRepository``；等待时回到 ``AgentLoop``/``stop``。
+        下一 owner：``HumanInputRepository``；等待时回到
+        ``AgentLoop``/``finalize_run``。
         状态与证据：human request、trace、WAITING_HUMAN checkpoint。
         系统不变量：request 必须先持久化，进程退出后仍能定位同一问题。
         """

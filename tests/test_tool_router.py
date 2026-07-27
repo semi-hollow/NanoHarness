@@ -7,7 +7,7 @@ class ToolRouterPolicySummaryTest(unittest.TestCase):
     def test_tool_router_policy_summary_lists_visible_and_hidden_tools(self):
         schemas = [
             {"name": "read_file"},
-            {"name": "apply_patch"},
+            {"name": "replace_text"},
             {"name": "run_command"},
         ]
         route = ToolRouter().route(
@@ -20,13 +20,13 @@ class ToolRouterPolicySummaryTest(unittest.TestCase):
         summary = route.policy_summary()
 
         self.assertEqual(summary["allowed_tools"], ["read_file"])
-        self.assertEqual(summary["hidden_tools"], ["apply_patch", "run_command"])
+        self.assertEqual(summary["hidden_tools"], ["replace_text", "run_command"])
         self.assertEqual(summary["tool_count"], {"allowed": 1, "hidden": 2})
 
     def test_all_mode_is_an_observable_ablation_without_hiding_tools(self):
         schemas = [
             {"name": "read_file"},
-            {"name": "apply_patch"},
+            {"name": "replace_text"},
             {"name": "run_command"},
         ]
 
@@ -39,7 +39,7 @@ class ToolRouterPolicySummaryTest(unittest.TestCase):
         )
 
         self.assertEqual(
-            route.allowed_names, {"read_file", "apply_patch", "run_command"}
+            route.allowed_names, {"read_file", "replace_text", "run_command"}
         )
         self.assertEqual(route.dropped_names, [])
         self.assertIn("mode=all", route.reason)
@@ -48,7 +48,7 @@ class ToolRouterPolicySummaryTest(unittest.TestCase):
         schemas = [
             {"name": "read_file"},
             {"name": "ask_human"},
-            {"name": "apply_patch"},
+            {"name": "replace_text"},
         ]
 
         route = ToolRouter().route(

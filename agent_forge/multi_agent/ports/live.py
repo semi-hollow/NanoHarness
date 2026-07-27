@@ -17,7 +17,7 @@ from ..domain.live import (
 
 
 class FanoutWorkspacePort(Protocol):
-    """Application 合并 worker patch 所需的 Git 能力。"""
+    """Application 合并 worker candidate diff 所需的 Git 能力。"""
 
     def head(self) -> str:
         """返回集成 workspace 当前 commit。"""
@@ -26,14 +26,19 @@ class FanoutWorkspacePort(Protocol):
         """返回非空 dirty 状态摘要。"""
 
     def diff(self) -> str:
-        """返回当前 candidate patch。"""
+        """返回当前 workspace 的 unified diff。"""
 
-    def apply_patch(self, patch: str, *, check_only: bool) -> tuple[bool, str]:
-        """检查或应用一个 Git patch。"""
+    def apply_unified_diff(
+        self,
+        diff_text: str,
+        *,
+        check_only: bool,
+    ) -> tuple[bool, str]:
+        """检查或应用 ``git diff`` 产生的 unified diff。"""
 
 
 class FanoutArtifactPort(Protocol):
-    """Fanout checkpoint、summary 和 patch 的文件边界。"""
+    """Fanout checkpoint、summary 和 diff 文件的持久化边界。"""
 
     def write_plan(self, plan: FanoutPlan) -> str:
         """保存经过验证的计划。"""
@@ -41,8 +46,8 @@ class FanoutArtifactPort(Protocol):
     def write_checkpoint(self, checkpoint: FanoutCheckpoint) -> str:
         """原子保存当前恢复点。"""
 
-    def write_integration_patch(self, patch: str) -> str:
-        """保存集成 workspace 的 candidate patch。"""
+    def write_integrated_diff(self, diff_text: str) -> str:
+        """保存所有成功 worker 合并后的 unified diff。"""
 
     def write_summary(self, summary: LiveFanoutSummary) -> None:
         """保存 JSON summary 和人类可读报告。"""
@@ -61,7 +66,7 @@ class FanoutWorkerPort(Protocol):
         self,
         task: SubagentTask,
         batch_index: int,
-        base_patch: str,
+        base_diff_text: str,
     ) -> LiveSubagentResult:
         """在隔离 workspace 中执行一个真实 AgentLoop。"""
 
@@ -72,8 +77,8 @@ class FanoutWorkerPort(Protocol):
     ) -> FinalizerResult:
         """运行只读整合验证器。"""
 
-    def validate_recovery_patches(self, patches: list[tuple[str, str]]) -> str:
-        """在临时 workspace 中重放恢复 patch。"""
+    def validate_recovery_diffs(self, diffs: list[tuple[str, str]]) -> str:
+        """在临时 workspace 中重放恢复所需的 unified diff。"""
 
 
 class LiveFanoutEvents(EventSink, Protocol):

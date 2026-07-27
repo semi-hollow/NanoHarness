@@ -71,7 +71,7 @@ TARGETS = (
         "Turn preparation",
         "agent_forge/runtime/application/turn_preparation.py",
         "TurnPreparation",
-        "execute",
+        "prepare_turn",
     ),
     BreakpointTarget(
         "Model boundary",
@@ -89,7 +89,7 @@ TARGETS = (
         "Operation identity",
         "agent_forge/runtime/application/operation_tracker.py",
         "OperationTracker",
-        "describe",
+        "build_operation_intent",
     ),
     BreakpointTarget(
         "Approval gate",
@@ -107,13 +107,13 @@ TARGETS = (
         "Durable stop",
         "agent_forge/runtime/application/run_lifecycle.py",
         "RunLifecycle",
-        "stop",
+        "finalize_run",
     ),
     BreakpointTarget(
         "Benchmark orchestration",
         "agent_forge/bench/application/swebench.py",
         "RunSwebench",
-        "execute",
+        "run_benchmark",
     ),
     BreakpointTarget(
         "Dataset selection",
@@ -134,11 +134,11 @@ TARGETS = (
         "prepare",
     ),
     BreakpointTarget(
-        "Candidate patch",
+        "Candidate diff",
         "agent_forge/bench/adapters/case_runtime.py",
         "LocalCaseExecutor",
         "run",
-        anchor="status = _run_status(patch, final_answer)",
+        anchor="status = _run_status(candidate_diff_text, final_answer)",
     ),
     BreakpointTarget(
         "Local evidence",

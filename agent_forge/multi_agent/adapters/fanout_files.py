@@ -14,7 +14,7 @@ from ..presentation.live_report import render_live_fanout_report
 
 
 class FanoutFileRepository:
-    """保存计划、恢复点、candidate patch 和最终 summary。"""
+    """保存计划、恢复点、合并 diff 和最终 summary。"""
 
     def __init__(self, run_dir: str | Path) -> None:
         self.root = Path(run_dir).resolve() / "fanout"
@@ -41,9 +41,11 @@ class FanoutFileRepository:
         )
         return str(path)
 
-    def write_integration_patch(self, patch: str) -> str:
-        path = self.root / "integration.patch"
-        path.write_text(patch, encoding="utf-8")
+    def write_integrated_diff(self, diff_text: str) -> str:
+        """保存所有成功 worker 已合入集成 workspace 的最终 diff。"""
+
+        path = self.root / "integrated_changes.diff"
+        path.write_text(diff_text, encoding="utf-8")
         return str(path)
 
     def write_summary(self, summary: LiveFanoutSummary) -> None:

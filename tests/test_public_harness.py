@@ -75,7 +75,7 @@ class PublicHarnessTest(unittest.TestCase):
             )
             self.assertTrue(result.trace_path and result.trace_path.exists())
             self.assertTrue(result.usage_path and result.usage_path.exists())
-            self.assertTrue(result.patch_path and result.patch_path.exists())
+            self.assertTrue(result.candidate_diff_path and result.candidate_diff_path.exists())
             self.assertTrue(result.manifest_path and result.manifest_path.exists())
             request_artifact = json.loads(
                 (result.artifact_dir / "run_request.json").read_text(encoding="utf-8")
@@ -87,7 +87,7 @@ class PublicHarnessTest(unittest.TestCase):
                 item["relative_path"] for item in manifest["artifacts"]
             }
             self.assertIn("trace.json", artifact_paths)
-            self.assertIn("patch.diff", artifact_paths)
+            self.assertIn("candidate_changes.diff", artifact_paths)
 
     def test_resume_creates_a_new_trace_and_preserves_checkpoint_context(self):
         with tempfile.TemporaryDirectory() as tmp:

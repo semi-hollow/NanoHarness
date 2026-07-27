@@ -17,7 +17,8 @@ class RunControlPort(Protocol):
     """控制信号的 Runtime 读取侧契约，不是具体队列实现。
 
     实现地图：``RunController`` 是线程安全内存 Adapter；``NoopRunControl`` 是无输入
-    Adapter；``ApplyRunControl.check`` 把读出的信号转换为状态迁移或下一轮 user message。
+    Adapter；``RunControlHandler.consume_pending_signals`` 把读出的信号转换为状态
+    迁移或下一轮 user message。
     Python 本可用结构化类型；两个关键 Adapter 仍显式继承本类，让 IDE Hierarchy
     能直接跳到实现。
     """

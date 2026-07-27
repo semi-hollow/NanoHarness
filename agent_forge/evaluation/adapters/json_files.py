@@ -6,7 +6,6 @@ from typing import Any
 
 
 def load_json_if_exists(path: str | Path | None) -> dict[str, Any]:
-
     if not path:
         return {}
     artifact = Path(path)
@@ -20,7 +19,6 @@ def load_json_if_exists(path: str | Path | None) -> dict[str, Any]:
 
 
 class JsonCaseEvidenceReader:
-
     def load_usage(self, case: dict[str, Any], run_dir: Path) -> dict[str, Any]:
         candidates: list[Path] = []
         report_value = str(case.get("usage_report_path") or "").strip()
@@ -37,7 +35,7 @@ class JsonCaseEvidenceReader:
 
     def load_environment(self, case: dict[str, Any], run_dir: Path) -> dict[str, Any]:
         candidates: list[Path] = []
-        for key in ("patch_path", "trace_path"):
+        for key in ("candidate_diff_path", "trace_path"):
             value = str(case.get(key) or "").strip()
             if not value:
                 continue
@@ -46,12 +44,13 @@ class JsonCaseEvidenceReader:
                 artifact = run_dir / artifact
             candidates.append(artifact.parent / "execution_environment.json")
         instance_id = _safe_id(str(case.get("instance_id") or ""))
-        candidates.append(run_dir / "cases" / instance_id / "execution_environment.json")
+        candidates.append(
+            run_dir / "cases" / instance_id / "execution_environment.json"
+        )
         return _first_json_object(candidates)
 
 
 def read_json_object(path: Path) -> dict[str, Any]:
-
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
     except OSError as exc:
@@ -64,7 +63,6 @@ def read_json_object(path: Path) -> dict[str, Any]:
 
 
 def write_json_object(path: Path, payload: dict[str, Any]) -> None:
-
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_suffix(path.suffix + ".tmp")
     temporary.write_text(

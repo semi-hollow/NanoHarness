@@ -256,7 +256,8 @@ class ExecutionEnvironment:
 
         return collect_workspace_diff(self.active_workspace)
 
-    def describe(self) -> str:
+    def render_boundary_summary(self) -> str:
+        """把真实执行边界渲染为模型可见的一行约束摘要。"""
 
         probe = self.probe()
         return (

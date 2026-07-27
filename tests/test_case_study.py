@@ -12,7 +12,7 @@ class CaseStudyTests(unittest.TestCase):
             root = Path(tmp)
             trace = root / "trace.json"
             usage = root / "usage_report.md"
-            patch = root / "patch.diff"
+            patch = root / "candidate_changes.diff"
             trace.write_text('{"events": []}', encoding="utf-8")
             usage.write_text("usage", encoding="utf-8")
             patch.write_text("diff --git a/x b/x", encoding="utf-8")
@@ -22,7 +22,7 @@ class CaseStudyTests(unittest.TestCase):
                 workspace=root,
                 trace_path=trace,
                 usage_report_path=usage,
-                patch_path=patch,
+                candidate_diff_path=patch,
                 status="patch_generated",
                 final_answer="",
                 evaluation_status="not_evaluated",
@@ -45,7 +45,7 @@ class CaseStudyTests(unittest.TestCase):
             root = Path(tmp)
             trace = root / "trace.json"
             usage = root / "usage_report.md"
-            patch = root / "patch.diff"
+            patch = root / "candidate_changes.diff"
             trace.write_text('{"events": []}', encoding="utf-8")
             usage.write_text("usage", encoding="utf-8")
             patch.write_text("diff --git a/x b/x", encoding="utf-8")
@@ -55,7 +55,7 @@ class CaseStudyTests(unittest.TestCase):
                 workspace=root,
                 trace_path=trace,
                 usage_report_path=usage,
-                patch_path=patch,
+                candidate_diff_path=patch,
                 status="patch_generated",
                 final_answer="",
                 evaluation_status="not_evaluated",

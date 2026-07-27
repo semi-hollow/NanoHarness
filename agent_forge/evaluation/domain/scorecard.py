@@ -105,7 +105,7 @@ def build_scorecard(
         "cases": cases,
         "variants": aggregate_variants(results.get("variant_comparisons") or {}),
         "claim_boundary": {
-            "candidate_patch": "non-empty diff only",
+            "candidate_diff": "non-empty unified diff only",
             "local_verified": "all recorded test-oriented validation evidence passed",
             "official_resolved": "official per-case SWE-bench report resolved=true",
         },

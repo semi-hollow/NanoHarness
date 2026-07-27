@@ -74,15 +74,15 @@ function Assert-SingleSmoke {
 
     $trace = Get-Content -Encoding UTF8 -Raw -LiteralPath (Join-Path $RunDirectory "trace.json") | ConvertFrom-Json
     $usage = Get-Content -Encoding UTF8 -Raw -LiteralPath (Join-Path $RunDirectory "usage.json") | ConvertFrom-Json
-    $patch = Get-Content -Encoding UTF8 -Raw -LiteralPath (Join-Path $RunDirectory "patch.diff")
+    $candidateDiff = Get-Content -Encoding UTF8 -Raw -LiteralPath (Join-Path $RunDirectory "candidate_changes.diff")
     if ($trace.stop_reason -ne "final_answer") {
         throw "Real-model smoke did not complete: $($trace.stop_reason)"
     }
     if ([int]$usage.summary.llm_calls -lt 1) {
         throw "Real-model smoke recorded no LLM call."
     }
-    if ($patch.Trim()) {
-        throw "Read-only real-model smoke produced a candidate patch."
+    if ($candidateDiff.Trim()) {
+        throw "Read-only real-model smoke produced a candidate diff."
     }
     Write-Host "Validated single-agent evidence: $RunDirectory"
 }
@@ -92,7 +92,7 @@ function Assert-FanoutSmoke {
 
     $summaryPath = Join-Path $RunDirectory "fanout\fanout_summary.json"
     $summary = Get-Content -Encoding UTF8 -Raw -LiteralPath $summaryPath | ConvertFrom-Json
-    $patch = Get-Content -Encoding UTF8 -Raw -LiteralPath (Join-Path $RunDirectory "patch.diff")
+    $candidateDiff = Get-Content -Encoding UTF8 -Raw -LiteralPath (Join-Path $RunDirectory "candidate_changes.diff")
     if ($summary.status -ne "passed" -or $summary.final_decision -ne "PASS") {
         throw "Real-model fanout did not pass: status=$($summary.status), decision=$($summary.final_decision)"
     }
@@ -108,8 +108,8 @@ function Assert-FanoutSmoke {
     if ([int]$summary.metrics.finalizer_llm_calls -lt 1) {
         throw "Real-model fanout finalizer did not run."
     }
-    if ($patch.Trim()) {
-        throw "Read-only real-model fanout produced a candidate patch."
+    if ($candidateDiff.Trim()) {
+        throw "Read-only real-model fanout produced a candidate diff."
     }
     Write-Host "Validated live fanout evidence: $RunDirectory"
 }

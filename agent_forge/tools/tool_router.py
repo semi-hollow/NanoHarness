@@ -91,7 +91,7 @@ class ToolRouter:
             "latency": "human",
             "mode": "human",
         },
-        "apply_patch": {
+        "replace_text": {
             "capability": "edit",
             "risk": "medium",
             "latency": "low",
@@ -195,7 +195,7 @@ class ToolRouter:
             ]
         ):
             selected |= names & {
-                "apply_patch",
+                "replace_text",
                 "write_file",
                 "run_command",
                 "diagnostics",
@@ -218,12 +218,17 @@ class ToolRouter:
         if skill_tool_names:
             selected |= names & skill_tool_names
         if read_only_requested:
-            selected -= {"apply_patch", "write_file", "run_command"}
+            selected -= {"replace_text", "write_file", "run_command"}
 
         swebench_task = "swe-bench" in lowered or "swebench" in lowered
         if swebench_task:
             selected -= {"run_command", "write_file"}
-            selected |= names & {"apply_patch", "diagnostics", "git_diff", "git_status"}
+            selected |= names & {
+                "replace_text",
+                "diagnostics",
+                "git_diff",
+                "git_status",
+            }
 
         external_names = names - set(self.DEFAULT_METADATA)
         task_terms = {

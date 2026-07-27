@@ -142,8 +142,16 @@ def _build_record(
             "created_at": "",
         }
 
-    patch_path = _nearest_artifact(trace_path.parent, root, "patch.diff")
-    patch_bytes = patch_path.read_bytes() if patch_path and patch_path.exists() else b""
+    candidate_diff_path = _nearest_artifact(
+        trace_path.parent,
+        root,
+        "candidate_changes.diff",
+    )
+    candidate_diff_bytes = (
+        candidate_diff_path.read_bytes()
+        if candidate_diff_path and candidate_diff_path.exists()
+        else b""
+    )
     record: dict[str, Any] = {
         "schema_version": SCHEMA_VERSION,
         "run_id": str(trace.get("run_id") or ""),
@@ -162,17 +170,28 @@ def _build_record(
             "hidden": _unique_strings(hidden_tools),
         },
         "environment": environment,
-        "patch_chars": len(patch_bytes.decode("utf-8", errors="replace")),
-        "patch_sha256": hashlib.sha256(patch_bytes).hexdigest() if patch_bytes else "",
+        "patch_chars": len(candidate_diff_bytes.decode("utf-8", errors="replace")),
+        "candidate_diff_sha256": (
+            hashlib.sha256(candidate_diff_bytes).hexdigest()
+            if candidate_diff_bytes
+            else ""
+        ),
         "human_feedback": feedback,
         "provenance": {
             "trace": _relative_path(trace_path, root),
-            "patch": _relative_path(patch_path, root) if patch_path else "",
+            "candidate_diff": (
+                _relative_path(candidate_diff_path, root)
+                if candidate_diff_path
+                else ""
+            ),
             "feedback": _relative_path(feedback_path, root) if feedback_path else "",
         },
     }
     if include_patch:
-        record["candidate_patch"] = patch_bytes.decode("utf-8", errors="replace")
+        record["candidate_diff"] = candidate_diff_bytes.decode(
+            "utf-8",
+            errors="replace",
+        )
     return record
 
 

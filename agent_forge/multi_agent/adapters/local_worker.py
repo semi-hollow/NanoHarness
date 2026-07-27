@@ -29,7 +29,7 @@ from ..domain.live import (
     FinalizerResult,
     LiveSubagentResult,
 )
-from .git_workspace import apply_patch_to_workspace, commit_worker_baseline
+from .git_workspace import apply_unified_diff_to_workspace, commit_worker_baseline
 
 READ_TOOLS = {
     "list_files",
@@ -42,14 +42,14 @@ READ_TOOLS = {
     "ask_human",
 }
 FINALIZER_READ_TOOLS = {"git_status", "git_diff", "diagnostics"}
-WRITE_TOOLS = {*READ_TOOLS, "apply_patch", "write_file", "run_command"}
+WRITE_TOOLS = {*READ_TOOLS, "replace_text", "write_file", "run_command"}
 
 RegistryFactory = Callable[[Path, ExecutionEnvironment], ToolRegistry]
 LLMFactory = Callable[[], LLMClient]
 
 
 class LocalAgentWorkerAdapter:
-    """执行隔离 worker、只读 finalizer 和恢复 patch 验证。"""
+    """执行隔离 worker、只读 finalizer 和恢复 diff 验证。"""
 
     def __init__(
         self,
@@ -76,7 +76,7 @@ class LocalAgentWorkerAdapter:
         self,
         task: SubagentTask,
         batch_index: int,
-        base_patch: str,
+        base_diff_text: str,
     ) -> LiveSubagentResult:
         """在临时 worktree 中运行一个受 scope 限制的 AgentLoop。"""
 
@@ -84,7 +84,7 @@ class LocalAgentWorkerAdapter:
         worker_dir = self.root / "workers" / task.id
         worker_dir.mkdir(parents=True, exist_ok=True)
         trace_path = worker_dir / "trace.json"
-        patch_path = worker_dir / "patch.diff"
+        candidate_diff_path = worker_dir / "candidate_changes.diff"
         artifact_path = worker_dir / f"{task.expected_artifact}.md"
         environment = ExecutionEnvironment(
             ExecutionEnvironmentConfig(
@@ -102,20 +102,20 @@ class LocalAgentWorkerAdapter:
         error = ""
         touched_files: list[str] = []
         usage_summary: dict[str, object] = {}
-        patch_sha256 = ""
+        candidate_diff_sha256 = ""
         try:
             with self._git_lock:
                 environment.prepare()
             active_workspace = environment.active_workspace
-            if base_patch.strip():
-                ok, detail = apply_patch_to_workspace(
+            if base_diff_text.strip():
+                ok, detail = apply_unified_diff_to_workspace(
                     active_workspace,
-                    base_patch,
+                    base_diff_text,
                     check_only=False,
                 )
                 if not ok:
                     raise RuntimeError(
-                        f"could not seed integrated patch into worker: {detail}"
+                        f"could not seed integrated diff into worker: {detail}"
                     )
                 commit_worker_baseline(active_workspace)
 
@@ -152,9 +152,11 @@ class LocalAgentWorkerAdapter:
             usage_json, _ = write_usage_artifacts(trace_path)
             usage = json.loads(usage_json.read_text(encoding="utf-8"))
             usage_summary = dict(usage.get("summary") or {})
-            patch = collect_workspace_diff(active_workspace)
-            patch_path.write_text(patch, encoding="utf-8")
-            patch_sha256 = hashlib.sha256(patch.encode("utf-8")).hexdigest()
+            candidate_diff_text = collect_workspace_diff(active_workspace)
+            candidate_diff_path.write_text(candidate_diff_text, encoding="utf-8")
+            candidate_diff_sha256 = hashlib.sha256(
+                candidate_diff_text.encode("utf-8")
+            ).hexdigest()
             touched_files = collect_changed_files(active_workspace)
             status, error = _worker_status(task, final_answer, touched_files)
             artifact_path.write_text(
@@ -169,7 +171,7 @@ class LocalAgentWorkerAdapter:
             )
         except Exception as exc:
             error = str(exc)
-            patch_path.write_text("", encoding="utf-8")
+            candidate_diff_path.write_text("", encoding="utf-8")
             artifact_path.write_text(
                 _render_worker_artifact(
                     task,
@@ -200,8 +202,8 @@ class LocalAgentWorkerAdapter:
             workspace=str(active_workspace),
             trace_path=str(trace_path),
             usage_path=str(worker_dir / "usage.json"),
-            patch_path=str(patch_path),
-            patch_sha256=patch_sha256,
+            candidate_diff_path=str(candidate_diff_path),
+            candidate_diff_sha256=candidate_diff_sha256,
             artifact_path=str(artifact_path),
             environment_manifest_path=str(manifest_path),
             batch_index=batch_index,
@@ -215,7 +217,7 @@ class LocalAgentWorkerAdapter:
         goal: str,
         results: list[LiveSubagentResult],
     ) -> FinalizerResult:
-        """在独立只读 worktree 中验证集成 candidate patch。"""
+        """在独立只读 worktree 中验证集成 candidate diff。"""
 
         final_dir = self.root / "finalizer"
         final_dir.mkdir(parents=True, exist_ok=True)
@@ -239,16 +241,16 @@ class LocalAgentWorkerAdapter:
             with self._git_lock:
                 environment.prepare()
             workspace = environment.active_workspace
-            integration_patch = collect_workspace_diff(self.workspace)
-            if integration_patch.strip():
-                ok, detail = apply_patch_to_workspace(
+            integrated_diff_text = collect_workspace_diff(self.workspace)
+            if integrated_diff_text.strip():
+                ok, detail = apply_unified_diff_to_workspace(
                     workspace,
-                    integration_patch,
+                    integrated_diff_text,
                     check_only=False,
                 )
                 if not ok:
                     raise RuntimeError(
-                        f"could not seed integration patch into finalizer: {detail}"
+                        f"could not seed integrated diff into finalizer: {detail}"
                     )
             candidate_snapshot = collect_workspace_diff(workspace)
             full_registry = self.registry_factory(workspace, environment)
@@ -328,8 +330,8 @@ class LocalAgentWorkerAdapter:
             usage_summary=usage_summary,
         )
 
-    def validate_recovery_patches(self, patches: list[tuple[str, str]]) -> str:
-        """在临时 worktree 顺序重放 patch，返回一个合并 patch。"""
+    def validate_recovery_diffs(self, diffs: list[tuple[str, str]]) -> str:
+        """在临时 worktree 顺序重放 diff，返回合并后的 unified diff。"""
 
         validation_dir = self.root / "resume_validation"
         environment = ExecutionEnvironment(
@@ -344,15 +346,15 @@ class LocalAgentWorkerAdapter:
         try:
             with self._git_lock:
                 environment.prepare()
-            for task_id, patch in patches:
-                ok, detail = apply_patch_to_workspace(
+            for task_id, diff_text in diffs:
+                ok, detail = apply_unified_diff_to_workspace(
                     environment.active_workspace,
-                    patch,
+                    diff_text,
                     check_only=False,
                 )
                 if not ok:
                     raise RuntimeError(
-                        f"fanout resume patch failed for {task_id}: {detail}"
+                        f"fanout resume diff failed for {task_id}: {detail}"
                     )
             return collect_workspace_diff(environment.active_workspace)
         finally:
@@ -426,7 +428,7 @@ def finalizer_task_prompt(
             "You are FanoutVerifier, the final read-only integration verifier.",
             f"Goal: {goal}",
             "Use worker outputs as primary evidence. Inspect git_status/git_diff once when needed.",
-            "Run diagnostics only when an integrated code patch needs a focused check.",
+            "Run diagnostics only when integrated code changes need a focused check.",
             "Do not explore unrelated files. Use at most two tool-call rounds.",
             "Then start the answer with PASS, NEEDS_REVISION, or BLOCKED. Do not modify files.",
             "Worker results:",

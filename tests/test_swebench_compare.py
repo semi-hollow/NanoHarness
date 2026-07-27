@@ -124,7 +124,7 @@ class SwebenchCompareTest(unittest.TestCase):
                 )
 
             self.assertEqual(result.status, "patch_generated")
-            self.assertIn("+value = 2", result.patch_path.read_text(encoding="utf-8"))
+            self.assertIn("+value = 2", result.candidate_diff_path.read_text(encoding="utf-8"))
             self.assertTrue((output / "cases" / "local__case-1" / "execution_environment.json").exists())
             self.assertFalse(result.workspace.exists())
 
@@ -146,10 +146,10 @@ class SwebenchCompareTest(unittest.TestCase):
             def run(self, case, *, case_dir, agent_mode, request):
                 calls.append((agent_mode, case_dir))
                 case_dir.mkdir(parents=True, exist_ok=True)
-                patch_path = case_dir / "patch.diff"
+                candidate_diff_path = case_dir / "candidate_changes.diff"
                 trace_path = case_dir / "trace.json"
                 usage_path = case_dir / "usage.json"
-                patch_path.write_text("diff --git a/a.py b/a.py\n", encoding="utf-8")
+                candidate_diff_path.write_text("diff --git a/a.py b/a.py\n", encoding="utf-8")
                 trace_path.write_text(json.dumps({"events": []}), encoding="utf-8")
                 usage_path.write_text(
                     json.dumps(
@@ -186,10 +186,10 @@ class SwebenchCompareTest(unittest.TestCase):
                     workspace=case_dir / "workspace",
                     trace_path=trace_path,
                     usage_report_path=case_dir / "usage_report.md",
-                    patch_path=patch_path,
+                    candidate_diff_path=candidate_diff_path,
                     status="patch_generated",
                     final_answer=f"{agent_mode} done",
-                    patch_chars=patch_path.stat().st_size,
+                    patch_chars=candidate_diff_path.stat().st_size,
                 )
 
         with tempfile.TemporaryDirectory() as tmp:
@@ -225,9 +225,9 @@ class SwebenchCompareTest(unittest.TestCase):
         class FakeExecutor:
             def run(self, case, *, case_dir, agent_mode, request):
                 case_dir.mkdir(parents=True, exist_ok=True)
-                patch_path = case_dir / "patch.diff"
+                candidate_diff_path = case_dir / "candidate_changes.diff"
                 trace_path = case_dir / "trace.json"
-                patch_path.write_text("diff --git a/a.py b/a.py\n", encoding="utf-8")
+                candidate_diff_path.write_text("diff --git a/a.py b/a.py\n", encoding="utf-8")
                 trace_path.write_text(json.dumps({"events": []}), encoding="utf-8")
                 return BenchCaseResult(
                     instance_id=case.instance_id,
@@ -235,10 +235,10 @@ class SwebenchCompareTest(unittest.TestCase):
                     workspace=case_dir / "workspace",
                     trace_path=trace_path,
                     usage_report_path=None,
-                    patch_path=patch_path,
+                    candidate_diff_path=candidate_diff_path,
                     status="patch_generated",
                     final_answer="agent done",
-                    patch_chars=patch_path.stat().st_size,
+                    patch_chars=candidate_diff_path.stat().st_size,
                 )
 
         class FakeBaseline:
@@ -279,16 +279,16 @@ class SwebenchCompareTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             trace = root / "trace.json"
-            patch_path = root / "patch.diff"
+            candidate_diff_path = root / "candidate_changes.diff"
             trace.write_text("{}", encoding="utf-8")
-            patch_path.write_text("diff", encoding="utf-8")
+            candidate_diff_path.write_text("diff", encoding="utf-8")
             case = BenchCaseResult(
                 instance_id="case-1",
                 repo="local/repo",
                 workspace=root,
                 trace_path=trace,
                 usage_report_path=None,
-                patch_path=patch_path,
+                candidate_diff_path=candidate_diff_path,
                 status="patch_generated",
                 final_answer="candidate",
                 patch_chars=4,
@@ -326,14 +326,14 @@ class SwebenchCompareTest(unittest.TestCase):
                 directory.mkdir(parents=True)
                 (directory / "trace.json").write_text("{}", encoding="utf-8")
                 (directory / "usage.json").write_text(json.dumps({"summary": {}}), encoding="utf-8")
-                (directory / "patch.diff").write_text("diff", encoding="utf-8")
+                (directory / "candidate_changes.diff").write_text("diff", encoding="utf-8")
             single = BenchCaseResult(
                 instance_id="case-1",
                 repo="local/repo",
                 workspace=single_dir,
                 trace_path=single_dir / "trace.json",
                 usage_report_path=None,
-                patch_path=single_dir / "patch.diff",
+                candidate_diff_path=single_dir / "candidate_changes.diff",
                 status="blocked",
                 final_answer="single failed",
                 patch_chars=0,
@@ -345,13 +345,13 @@ class SwebenchCompareTest(unittest.TestCase):
                 workspace=multi_dir,
                 trace_path=multi_dir / "trace.json",
                 usage_report_path=None,
-                patch_path=multi_dir / "patch.diff",
+                candidate_diff_path=multi_dir / "candidate_changes.diff",
                 status="patch_generated",
                 final_answer="multi patched",
                 patch_chars=4,
                 error="",
             )
-            combined_patch = root / "patch.diff"
+            combined_patch = root / "candidate_changes.diff"
             combined_patch.write_text("diff", encoding="utf-8")
             combined = _combined_result(case, single, multi, combined_patch)
             self.assertEqual(combined.error, "")

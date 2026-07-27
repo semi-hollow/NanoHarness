@@ -14,11 +14,11 @@ from agent_forge.runtime.domain.operation import (
     OperationTransition,
 )
 from agent_forge.safety.sandbox import WorkspaceSandbox
-from agent_forge.tools.apply_patch import ApplyPatchTool
+from agent_forge.tools.replace_text import ReplaceTextTool
 from agent_forge.tools.registry import ToolRegistry
 
 
-class PatchThenFinalLLM:
+class ReplaceThenFinalLLM:
     last_usage = None
 
     def __init__(self):
@@ -31,8 +31,8 @@ class PatchThenFinalLLM:
                 None,
                 [
                     ToolCall(
-                        "patch-1",
-                        "apply_patch",
+                        "replace-1",
+                        "replace_text",
                         {
                             "path": "target.py",
                             "old": "value = 1\n",
@@ -46,7 +46,7 @@ class PatchThenFinalLLM:
 
 def _registry(root: Path) -> ToolRegistry:
     registry = ToolRegistry()
-    registry.register(ApplyPatchTool(WorkspaceSandbox(root), auto_approve_writes=True))
+    registry.register(ReplaceTextTool(WorkspaceSandbox(root), auto_approve_writes=True))
     return registry
 
 
@@ -55,10 +55,10 @@ class OperationLedgerTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             store = JsonOperationLedgerRepository(Path(tmp) / "ledger")
             target = OperationTarget(
-                tool_name="apply_patch",
+                tool_name="replace_text",
                 arguments={"path": "target.py", "old": "a", "new": "b"},
                 workspace=tmp,
-                action="apply_patch",
+                action="write",
             )
             key = JsonOperationLedgerRepository.operation_key(target)
 
@@ -85,7 +85,7 @@ class OperationLedgerTest(unittest.TestCase):
                     status="executed",
                     run_id="r1",
                     step=2,
-                    observation="patched once",
+                    observation="replaced text once",
                 )
             )
 
@@ -107,7 +107,7 @@ class OperationLedgerTest(unittest.TestCase):
                 operation_ledger_root=str(ledger_root),
             )
             build_agent_loop(
-                first_config, first_trace, _registry(root), PatchThenFinalLLM()
+                first_config, first_trace, _registry(root), ReplaceThenFinalLLM()
             ).run("fix target")
 
             second_trace = TraceRecorder(str(root / "second-trace.json"))
@@ -118,7 +118,7 @@ class OperationLedgerTest(unittest.TestCase):
                 operation_ledger_root=str(ledger_root),
             )
             second = build_agent_loop(
-                second_config, second_trace, _registry(root), PatchThenFinalLLM()
+                second_config, second_trace, _registry(root), ReplaceThenFinalLLM()
             ).run("fix target")
 
             self.assertIn("finished", second)
@@ -147,7 +147,7 @@ class OperationLedgerTest(unittest.TestCase):
                 operation_ledger_root=str(ledger_root),
             )
             build_agent_loop(
-                first_config, first_trace, _registry(root), PatchThenFinalLLM()
+                first_config, first_trace, _registry(root), ReplaceThenFinalLLM()
             ).run("fix target")
 
             (root / "target.py").write_text("value = 3\n", encoding="utf-8")
@@ -160,7 +160,7 @@ class OperationLedgerTest(unittest.TestCase):
                 operation_ledger_root=str(ledger_root),
             )
             second = build_agent_loop(
-                second_config, second_trace, _registry(root), PatchThenFinalLLM()
+                second_config, second_trace, _registry(root), ReplaceThenFinalLLM()
             ).run("fix target")
 
             self.assertIn("finished", second)
