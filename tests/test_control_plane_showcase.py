@@ -62,6 +62,13 @@ class ControlPlaneShowcaseTest(unittest.TestCase):
                 and event.get("observation") == "approved"
             ]
             self.assertEqual(len(approved), 1)
+            validations = [
+                event
+                for event in trace["events"]
+                if event["event_type"] == "validation_evidence"
+            ]
+            self.assertEqual(len(validations), 1)
+            self.assertTrue(validations[0]["success"])
 
     def test_continuation_rejects_a_mismatched_scenario(self):
         with tempfile.TemporaryDirectory() as tmp:

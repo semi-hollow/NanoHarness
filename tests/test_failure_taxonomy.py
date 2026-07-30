@@ -60,6 +60,9 @@ class FailureTaxonomyTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             diagnosis = diagnose_case_result(self._result(Path(tmp), status="patch_generated", patch_chars=12))
         self.assertEqual(diagnosis.failure_class, "patch_generated_but_unverified")
+        self.assertEqual(diagnosis.rule_id, "patch_generated_but_unverified")
+        self.assertEqual(diagnosis.source, "ordered_rule_taxonomy")
+        self.assertEqual(diagnosis.taxonomy_version, "1.0")
         self.assertIn("official", " ".join(diagnosis.next_actions).lower())
         self.assertIn("candidate", diagnosis.summary.lower())
 

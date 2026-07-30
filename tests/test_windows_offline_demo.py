@@ -23,14 +23,14 @@ def _options(path: Path) -> tuple[str, dict[str, str]]:
 class WindowsOfflineDemoTest(unittest.TestCase):
     def test_pycharm_buttons_use_the_windows_venv_and_offline_entrypoints(self):
         expected = {
-            "NanoHarness Windows Offline 1 - Control Plane.run.xml": (
+            "NanoHarness Windows Offline 1 - Governed Repair.run.xml": (
                 "examples/debug_lab/run.py",
-                "control",
+                "governed",
                 "false",
             ),
-            "NanoHarness Windows Offline 2 - Fixed Repair.run.xml": (
+            "NanoHarness Windows Offline 2 - Coordinated Agents.run.xml": (
                 "examples/debug_lab/run.py",
-                "fixed",
+                "coordinated",
                 "false",
             ),
             "NanoHarness Windows Offline 3 - Workbench.run.xml": (
@@ -63,8 +63,8 @@ class WindowsOfflineDemoTest(unittest.TestCase):
         self.assertIn("setup_windows_demo.ps1", cmd)
         self.assertIn("setup_windows_local.ps1", script)
         self.assertIn("WithDev = $true", script)
-        self.assertIn('"control"', script)
-        self.assertIn('"fixed"', script)
+        self.assertIn('"governed"', script)
+        self.assertIn('"coordinated"', script)
         self.assertNotIn("DEEPSEEK_API_KEY", script)
 
 

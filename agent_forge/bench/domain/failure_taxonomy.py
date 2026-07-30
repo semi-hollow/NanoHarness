@@ -7,6 +7,9 @@ from typing import Any
 
 from .models import BenchCaseResult
 
+FAILURE_TAXONOMY_VERSION = "1.0"
+FAILURE_DIAGNOSIS_SOURCE = "ordered_rule_taxonomy"
+
 
 # 核心数据：一个互斥失败分类及其证据、影响和下一步。
 @dataclass(frozen=True)
@@ -20,6 +23,15 @@ class FailureDiagnosis:
     severity: str = "medium"
     impact: str = ""
     engineering_lesson: str = ""
+    rule_id: str = ""
+    source: str = FAILURE_DIAGNOSIS_SOURCE
+    taxonomy_version: str = FAILURE_TAXONOMY_VERSION
+
+    def __post_init__(self) -> None:
+        """默认让稳定 failure class 同时充当命中的 rule id。"""
+
+        if not self.rule_id:
+            object.__setattr__(self, "rule_id", self.failure_class)
 
 
 # 主要入口：按官方结果、环境、验证、Runtime 行为的顺序选择唯一分类。

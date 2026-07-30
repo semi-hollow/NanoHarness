@@ -6,8 +6,10 @@ from typing import Any
 
 from agent_forge.evaluation.adapters.feedback_dataset_files import (
     FeedbackRequest,
+    ImprovementRecordRequest,
     export_feedback_dataset,
     record_feedback,
+    write_improvement_record,
 )
 from agent_forge.evaluation.adapters.json_files import (
     load_json_if_exists,
@@ -159,6 +161,7 @@ __all__ = [
     "AblationComparisonRequest",
     "EvaluationComparison",
     "FeedbackRequest",
+    "ImprovementRecordRequest",
     "MiniAgentCase",
     "MiniCaseEvaluation",
     "build_benchmark_scorecard",
@@ -179,5 +182,6 @@ __all__ = [
     "write_ablation_comparison",
     "write_benchmark_scorecard",
     "write_evaluation_artifacts",
+    "write_improvement_record",
     "write_mini_case_report",
 ]

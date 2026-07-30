@@ -62,6 +62,70 @@ class DeterministicRepairModel:
         )
 
 
+class DeterministicFanoutModel:
+    """固定两个独立 worker 的修改和 finalizer pytest；调度、隔离与合并均为真实实现。"""
+
+    last_usage = None
+
+    def __init__(self) -> None:
+        self.calls = 0
+
+    def chat(self, messages: list[object], tools: list[object]) -> object:
+        from agent_forge.extensions import AgentResponse, ToolCall
+
+        self.calls += 1
+        prompt = "\n".join(str(getattr(message, "content", "") or "") for message in messages)
+        if "FanoutVerifier" in prompt:
+            if self.calls == 1:
+                return AgentResponse(
+                    None,
+                    [
+                        ToolCall(
+                            "lab-fanout-pytest",
+                            "diagnostics",
+                            {"kind": "pytest", "target": "test_checkout.py"},
+                        )
+                    ],
+                )
+            return AgentResponse(
+                "PASS\nindependent patches were merged and focused pytest passed",
+                [],
+            )
+
+        task_id = "pricing" if "task_id=pricing" in prompt else "shipping"
+        if self.calls == 1 and task_id == "pricing":
+            return AgentResponse(
+                None,
+                [
+                    ToolCall(
+                        "lab-fanout-pricing",
+                        "replace_text",
+                        {
+                            "path": "pricing.py",
+                            "old": "return subtotal",
+                            "new": "return subtotal - discount",
+                        },
+                    )
+                ],
+            )
+        if self.calls == 1:
+            return AgentResponse(
+                None,
+                [
+                    ToolCall(
+                        "lab-fanout-shipping",
+                        "replace_text",
+                        {
+                            "path": "shipping.py",
+                            "old": "return 0",
+                            "new": "return 5",
+                        },
+                    )
+                ],
+            )
+        return AgentResponse(f"completed {task_id}", [])
+
+
 def create_workspace(
     scenario: str,
     *,

@@ -1,194 +1,174 @@
-# NanoHarness Debug Lab：从动态过程掌握 Agent Runtime
+# NanoHarness Debug Lab：只掌握三条主线
 
-> 这是 Study Notes 的 A1，也是唯一动态学习入口。学习总顺序仍只认
-> [NanoHarness Study Notes](https://github.com/semi-hollow/NanoHarness-Study-Notes)。
+这里是项目唯一的动态学习入口。目标不是读完全部代码，而是让你对三个面试核心场景拥有
+**定位、预测、观察、故障注入、证据回放和设计解释**六种控制力。
 
-Debug Lab 解决的不是“命令记不住”，而是“只看过概念，没有控制过一次真实运行”。它固定输入、
-自动创建干净 workspace、自动发布 Evidence，并预装关键断点。你只需要按 1 → 4 点击 Debug，
-不用复制路径、恢复 fixture、导入 JSON 或手工配置十几个断点。
+三个 Lab 都进入正式 Runtime；`examples/debug_lab` 只固定输入、隔离 workspace 并发布 Evidence。
+确定性模型不是伪造 Runtime，它只移除在线模型随机性，让你先看清控制逻辑。
 
-它不是第二套 Runtime，也不是产品功能。四个实验最终都进入正式 `Harness`、`AgentLoop`、工具和
-Evidence 实现；学习脚本只负责准备固定输入。
+学习时同时打开 [MASTERY_SCORECARD.md](MASTERY_SCORECARD.md)。本 README 负责运行与理解，
+Scorecard 负责闭卷验收；不要再从其他文档拼接学习顺序。
 
-## 第一次只做一次
+## 首次准备
 
-先关闭 PyCharm，然后在 macOS Terminal 进入 `NanoHarness` 根目录，执行：
+关闭 PyCharm，在项目根目录只执行一次：
 
 ```bash
 scripts/setup_macos_local.sh --quick
 ```
 
-该命令创建 `.venv`、安装开发依赖、执行 `forge doctor`，并按源码 symbol 自动安装 20 个
-`NanoHarness Debug Lab` 断点。随后用 PyCharm **单独打开 NanoHarness 根目录**，不要打开两个
-repo 的共同父目录；否则 `$PROJECT_DIR$` 会指错。
-
-如果首次 setup 是在已经打开的 PyCharm 中执行，环境仍会准备好，但断点安装会被安全跳过。
-关闭 PyCharm 后只需再执行一次：
+然后用 PyCharm 单独打开 NanoHarness 根目录。脚本会安装按源码 symbol 定位的断点和三个 Run
+Configuration。若安装时 PyCharm 已打开，关闭后再执行：
 
 ```bash
 .venv/bin/python scripts/install_pycharm_debug_lab.py
 ```
 
-这是唯一一次断点准备；不需要逐个点击代码行。脚本只维护同名 breakpoint group，保留你的其他
-断点，并根据 symbol 重新计算源码行号。
+学习时只使用 PyCharm 的绿色 Debug 按钮；不要记长命令，也不要进入第三方库。
 
-## 从上到下点四次 Debug
+## 三个 Lab
 
-在 PyCharm 顶部运行配置列表中按顺序选择，点击甲虫形 Debug 按钮：
-
-| 顺序 | 共享配置 | 固定输入 | 这次必须看懂 |
+| 顺序 | PyCharm 配置 | 一句话主线 | 面试价值 |
 | --- | --- | --- | --- |
-| 1 | `NanoHarness Lab 1 - Control Plane` | 固定写操作 | approval、operation identity、checkpoint、continuation |
-| 2 | `NanoHarness Lab 2 - Fixed Repair` | 固定错误 calculator | model intent → `replace_text` → 真实 pytest → Evidence |
-| 3 | `NanoHarness Lab 3 - Live Agent` | 与 Lab 2 完全相同 | DeepSeek 如何选择工具、失败、恢复或完成 |
-| 4 | `NanoHarness Lab 4 - Astropy Evidence` | `astropy__astropy-12907` | candidate / local / official 三层证据 |
+| 1 | `NanoHarness Lab 1 - Governed Repair` | 写请求 → 审批暂停 → checkpoint → continuation → 写入 → pytest | AgentLoop、HITL、安全与恢复 |
+| 2 | `NanoHarness Lab 2 - Coordinated Agents` | DAG → 两个隔离 worker 并发 → scope 校验 → diff 合并 → finalizer | Multi-Agent 的适用边界与冲突治理 |
+| 3 | `NanoHarness Lab 3 - Evaluation Loop` | campaign → 分层 correctness → 诊断 → 前后对比 → 人工决策 | Benchmark、失败闭环与诚实声明 |
 
-断点停住后先看 Variables，再用 Resume Program 到下一个断点。第一遍不要逐行 Step Into
-第三方库，也不要研究 JSON 读写。
+每个 Lab 只跑到下方“学会标准”全部通过。通过后停止，不继续扩展模块。
 
-## Lab 1：先掌握控制面
+## Lab 1：受治理修复
 
-运行轨迹固定为：
+主要入口：
 
 ```text
-Harness.run
-  → AgentLoop.run
-  → ToolExecutionPipeline._execute_call
-  → OperationTracker.build_operation_intent
-  → ToolAuthorizationGate._resolve_approval
-  → waiting_approval checkpoint
-  → explicit decision
-  → continuation
-  → completed
+examples.debug_lab.run.run_governed
+→ Harness.run
+→ AgentLoop.run
+→ ToolExecutionPipeline._execute_call
+→ OperationTracker
+→ ToolAuthorizationGate
+→ RunLifecycle.finalize_run
 ```
 
-重点观察：
+第一次 Debug 只观察五个对象：
 
-- 工具请求只是模型意图；真正能否执行由 Runtime 决定。
-- 审批绑定 `operation_key`，不是“相信某段自然语言”。
-- continuation 加载持久化状态，不是恢复 Python 调用栈。
-- `RunLifecycle.finalize_run` 把最终状态和 artifact 落盘。
+1. `session`：一次 run 的消息、观察、工具历史和生命周期。
+2. `tool_call`：模型提出的意图，不代表工具已被允许执行。
+3. `operation_intent.key/fingerprint`：同一副作用的身份与目标前置状态。
+4. `checkpoint`：暂停后可持久化恢复的业务状态，不是 Python 调用栈。
+5. `validation_evidence`：continuation 后真实 focused pytest 的结果。
 
-## Lab 2：固定模型变量，观察真实 Runtime
+故障注入不再单独建 Lab。在 PyCharm 中运行
+`tests/test_operation_ledger.py::OperationLedgerTest::test_resume_blocks_when_crash_leaves_operation_outcome_unknown`，
+观察“文件已写入、ledger 仍是 executing、恢复后拒绝重复执行”。正确口径是
+**fail closed、偏向 at-most-once，不是 exactly-once**。
 
-每次运行都会复制同一个错误仓库：`calculator.py` 把加法写成减法。确定性 ModelPort 只固定四个
-工具意图：读源码、读测试、改一行、执行 `pytest`。文件工具、权限、状态机、pytest 子进程、
-trace 和 Run Story 都是生产实现。
+学会标准：
 
-在 `DiagnosticsTool.execute` 停住时看 `kind=pytest` 与 `target=test_calculator.py`；继续后在
-Timeline 中找 `validation_evidence`。这个 Lab 证明真实 focused test 被执行，但不是 SWE-bench
-official resolved。
+- 30 秒内找到 `Harness.run` 和 `ToolExecutionPipeline._execute_call`。
+- 在审批前预测状态为 `waiting_approval`，并指出哪个 artifact 保存决定。
+- 解释为什么 approve 绑定 operation key，而不是绑定自然语言。
+- 解释 crash window 为什么需要 `operation_outcome_unknown`，以及为什么不能自动重放。
+- 在 Workbench 的 `1 Governed Run` 和 `Timeline` 找到审批、checkpoint、执行与 pytest 证据。
 
-## Lab 3：换成真实 DeepSeek，输入保持不变
+## Lab 2：协作式多 Agent
 
-第一次点击会弹出 macOS 隐藏输入框；API key 保存到 Keychain，之后自动读取，不写入 repo、
-配置或 artifact。Lab 3 与 Lab 2 的 task、bug 和测试相同，因此差异主要来自真实模型决策。
-两者还固定为同一组 `read_file / replace_text / diagnostics` 工具，并关闭 Skill 与 Memory recall；
-这样比较的是模型决策，而不是额外能力带来的变量。
+主要入口：
 
-重点比较 `_call_model` 前后的 messages、可见 tool schemas、返回 ToolCall，以及 Runtime 如何处理
-无效参数、重复动作和预算。不要期待每次轨迹完全相同；随机性本身就是要观察的对象。
-
-## Lab 4：只学评测口径，不钻基础设施
-
-Lab 4 第一次会自动准备固定 revision 的官方 SWE-bench Harness，需要已经启动的
-Docker-compatible runtime（Docker Desktop 或 Colima）。Apple Silicon 还要确保该 runtime 能执行
-`linux/amd64` 官方镜像。当前 Lab 给 Agent 16 步预算，但仍只报告实际 artifact，不承诺必然有 candidate diff。
-官方环境准备可能较慢，但不属于核心阅读范围。
-
-只跟住八步：
-
-1. `SwebenchCaseSource.load` 按 `instance_id` 取 case。
-2. `SwebenchWorkspaceManager.prepare` checkout `base_commit`；Agent 只看 issue 与代码。
-3. `LocalCaseExecutor.run` 装配并驱动同一 Runtime。
-4. `Candidate diff` 停点先观察 `candidate_diff_text/final_answer`，Step Over 一行后再看 `status`；这里只证明
-   生成了候选 diff。
-5. `read_local_validation` 从 trace 投影 Agent 实际执行过的 focused test 证据。
-6. `SwebenchOfficialEvaluator.evaluate` 调独立官方 Oracle。
-7. `parse_official_results → apply_official_results` 解析并写回 per-case official outcome。
-8. `DiagnoseBenchCase.attach → FileBenchArtifacts.publish_run` 在最终事实之后分类并发布报告。
-
-面试结论固定为：`official_resolved` 判断最终结果；`patch_generated` 与 `local_verified` 定位失败
-发生在哪一层。Local Passed 不能替代 Official Resolved。
-
-## 断点里看哪些对象
-
-| 断点 owner | 先看对象 | 回答的问题 |
-| --- | --- | --- |
-| `Harness.run` | 入口已有 `request`、`self._config`、`self._extensions` | 外部输入怎样收敛到单一 Public API |
-| `AgentLoop.run` | 入口看 `task/agent_name`；Step Over 一行后看 `session` | 单次 run 的状态容器怎样创建 |
-| `TurnPreparation.prepare_turn` | 入口看 `session/step/force_compaction` | 哪个 turn 正在准备；结果会作为下一断点的 `turn` |
-| `AgentLoop._call_model` | `turn.messages_for_llm`、`turn.schemas`、预算字段 | 模型这次真正看见什么；Step Over 模型调用后才有 `response` |
-| `ToolExecutionPipeline._execute_call` | `tool_call`、`allowed_tool_names`、`session.tool_history` | 意图是否可见、重复；Step Over 到 `intent = ...` 后看治理身份 |
-| `OperationTracker.build_operation_intent` | 入口看 `tool_call`、`self.config.workspace` | Step Out 后看返回的 `operation_intent.key/fingerprint` |
-| `ToolAuthorizationGate._resolve_approval` | `intent`、`reason`、`self.config.auto_approve_writes` | 具体 operation 为什么允许或暂停 |
-| `DiagnosticsTool.execute` | 入口看 `arguments`；Step Over 两行后看 `kind/target` | Step Into `_pytest` 才看最终 argv 与子进程 |
-| `RunLifecycle.finalize_run` | `request`、`self.checkpoint`；执行 hook 后看 `effective` | 状态与 Evidence 何时持久化 |
-| `RunSwebench.run_benchmark` | 入口看 `request/run_id/layout`；Step Over 三行后看 `cases/summary` | Benchmark 怎样编排而不定义真相 |
-| `SwebenchCaseSource.load` | `request.instance_ids/dataset_name/split`；返回前看 `cases` | 固定 case 如何从 dataset 边界进入系统 |
-| `LocalCaseExecutor.run` | 入口看 `case/case_dir/agent_mode/request`；Step Over 后看 `workspace` | 单题如何进入正式 Agent 主链 |
-| `SwebenchWorkspaceManager.prepare` | `case.repo/base_commit/instance_id`；返回前看 `workspace` | 隔离 worktree 是否确实位于指定 revision |
-| `Candidate diff` | 先看 `candidate_diff_text/final_answer`；Step Over 一行后看 `status`，并展开 `active_workspace` | Runtime 结果怎样变成 candidate diff，而不是 solved claim |
-| `read_local_validation` | 入口看 `trace_path`；循环后看 `records/statuses` | Local Verified 从哪些 trace event 投影 |
-| `SwebenchOfficialEvaluator.evaluate` | 入口看 `summary/request`；构造后看 `command`，子进程后看 `parsed` | 独立 Oracle 怎样给最终结论 |
-| `parse_official_results` | `run_id/instance_ids`；返回前看 `outcomes/warnings` | aggregate/per-case JSON 怎样归一化成显式 outcome |
-| `apply_official_results` | `case_results/parsed/process_exit_code`；循环后看每个 result | Official 事实何时写回，不由进程退出码猜测 |
-| `DiagnoseBenchCase.attach` | 入口看已有 local/official 字段；Step Over 后看 `diagnosis` | taxonomy 如何基于最终证据选择唯一分类 |
-| `FileBenchArtifacts.publish_run` | `summary.case_results`，尤其 official/failure 字段 | report 是否只消费最终事实并在最后发布 |
-
-## Debugger 与 Workbench 不冲突
-
-两者看的是同一次运行，但回答不同问题：
-
-- Debugger 看活的内存和因果过程：为什么下一步这样走。
-- Workbench 只读回放落盘 Evidence：最终留下什么、能证明到哪一层。
-
-每个 Lab 结束后都更新 `.agent_forge/latest`。要回放刚才的结果，双击
-`scripts/start_workbench.command`；Fixed Lab 的 pytest 结果重点看 Timeline 的
-`validation_evidence`，Astropy 的 Local/Official 结果看 Benchmark 与 Claim Ladder。
-
-## 公开动作只记这六个
-
-Debug Lab 帮你掌握过程；下面只是 Facade 地图，不再为每个命令维护一套教程：
-
-| 动作 | owner | 什么时候用 |
-| --- | --- | --- |
-| `forge run` | CLI → `Harness.run` | 对一个 repository task 发起真实运行 |
-| `forge inspect` | Inspection → Run Story | 只读定位 run、artifact 或源码 symbol |
-| `forge demo` | Showcase → `Harness.run` | 确定性展示 approval/HITL 控制面 |
-| `forge resume` | Operator → `Harness.run` | 给出 answer/decision 后创建显式 continuation |
-| `forge bench` | Bench Facade → `RunSwebench` | 生成并评测 case Evidence |
-| `forge ui` | Workbench | 只读展示同一份 Evidence，不执行 Agent |
-
-## 面试时复用同一套能力
-
-现场不需要手敲长命令，也不需要在 UI 再实现一个执行按钮。执行：
-
-```bash
-scripts/interview_demo.sh
+```text
+examples.debug_lab.run.run_coordinated
+→ LiveFanoutCoordinator.run
+→ build_conflict_free_batches
+→ LocalAgentWorkerAdapter.run_worker
+→ LiveFanoutCoordinator._merge_batch
+→ LocalAgentWorkerAdapter.run_finalizer
 ```
 
-它运行 Lab 1 的正式控制面并打开只读 Workbench。想展示真实模型时才用：
+固定任务把 `pricing.py` 和 `shipping.py` 分给两个 worker。它们在独立 Git worktree 中运行真实
+AgentLoop，写集合互不相交，因此进入同一并发批次。Coordinator 校验实际 touched files，再按稳定
+顺序合并 candidate diff；只有全部 worker 成功且无冲突，finalizer 才执行 `test_checkout.py`。
 
-```bash
-scripts/interview_demo.sh --live
+第一次只观察：
+
+1. `plan.tasks` 的 `depends_on`、`write_scope` 和 `max_steps`。
+2. `dependency_batches` 为什么把两个任务放入同一批。
+3. 两个 worker 的 `active_workspace` 为什么不同。
+4. `completed_batch_results` 的 touched files、diff 和状态。
+5. `merged_task_ids`、`integrated_diff_path` 与 finalizer pytest。
+
+学会标准：
+
+- 能画出 `DAG → batch → worker worktree → scope gate → merge → finalizer`。
+- 能解释“声明 scope”不够，为什么还要检查实际 touched files。
+- 能回答有依赖任务为何串行、无写冲突任务为何可以并发。
+- 能说明这不是分布式 worker service，也不是模型自动拆任务。
+- 能在 Workbench 的 `2 Coordinated Agents` 直接看到 worker 结果、修改内容、合并和 finalizer。
+
+## Lab 3：评测改进闭环
+
+主要入口：
+
+```text
+examples.debug_lab.run.run_evaluation
+→ published campaign manifest/summary
+→ failure taxonomy provenance
+→ improvement_record.json
+→ Workbench Evaluation & Improvement
 ```
 
-如果 Lab 3/4 已提前完成，下面两个入口只切换到已保存 Evidence，不调用模型、不重跑 Docker：
+该 Lab 不重新付费调用模型，也不重跑 Docker。它回放仓库中真实保存的
+`astropy__astropy-12907` 与 `django__django-11133` 两个 SWE-bench commissioning case，
+并生成一条可审计改进记录：
 
-```bash
-scripts/interview_demo.sh --show-live
+```text
+问题 → 诊断来源/人工复核 → 假设 → Runtime preset 改动
+→ matched regression cases → before/after → adopt/iterate/reject
 ```
 
-```bash
-scripts/interview_demo.sh --show-astropy
-```
+当前真实证据是：两种 preset 都 official resolved 2/2；governed-runtime 的失败工具调用
+`8 → 5`，但 token 与成本上升。因此决策是 `iterate`，不能声称 correctness 提升或总体成功率。
 
-讲解顺序固定为：`Run Story → Timeline → Approval/Checkpoint → Artifacts → Claim Ladder`。
-Astropy official Evidence 建议提前由 Lab 4 生成并保留，不在短面试里临时等待 Docker。
+学会标准：
 
-## 到哪里就停止
+- 能区分 candidate patch、local validation、official evaluation 三层证据。
+- 能说明 taxonomy 是有版本和命中规则的自动诊断，人工复核是另一层事实。
+- 能从 `summary.json` 找出 before/after 指标，从 `improvement_record.json` 找出最终决策。
+- 能解释为什么两个 post-hoc case 只算 commissioning evidence。
+- 能在 Workbench 的 `3 Evaluation Loop` 讲完问题、假设、指标、trade-off 和 claim boundary。
 
-完成 A1 的标准不是记住全部命令，而是你能在断点处解释：模型看见什么、ToolCall 谁执行、
-为什么暂停、pytest 谁启动、状态写到哪里、Local 与 Official 为什么不能混用。完成后立即回到
-Study Notes 的 A2，不继续研究 SWE-bench Docker 脚本、通用 JSON 读写或 Workbench 前端渲染。
+## 统一验收：六问不过，就不算学会
+
+每条主线都必须脱离文档回答：
+
+| 验收动作 | 通过标准 |
+| --- | --- |
+| 定位 | 30 秒内找到外围入口和一个核心 owner |
+| 预测 | 断点执行前说出下一状态和关键数据变化 |
+| 观察 | 在 Variables/Watch 中指出实际输入、输出和状态 |
+| 故障 | 能运行或口述一个真实 failure injection 及保护行为 |
+| 证据 | 在 Workbench 找到对应 artifact，而不是打开原始 JSON 硬讲 |
+| 解释 | 说清动机、备选方案、取舍和不能声称什么 |
+
+三条全部通过，就已经满足开始面试的项目掌握门槛。**不要等待读完仓库，也不要把 NanoHarness
+当作日常 Claude Code 替代品。**它是可重复实验台：面试前每周各跑一次、刻意注入一次失败、
+脱稿讲一次，收益高于低效率地拿它完成日常编码。
+
+## Workbench 怎么看
+
+双击 `scripts/start_workbench.command`。首页只保留三个学习场景：
+
+- `1 Governed Run`：权限、审批、checkpoint、恢复和副作用治理。
+- `2 Coordinated Agents`：DAG、worker、scope、merge、finalizer 和 artifact。
+- `3 Evaluation Loop`：benchmark、诊断 provenance、前后对比和决策。
+
+`Evidence details` 是追问区，包含 Run Story、Timeline、Benchmark、Diagnosis 和 Efficiency。
+Debugger 看动态因果；Workbench 看最终留下的可验证 Evidence。两者缺一不可。
+
+## 可选能力，不进入首次学习主线
+
+- `single-live`：真实 DeepSeek 对固定 calculator 输入的行为观察。
+- `official-rerun`：重新运行 SWE-bench official evaluator。
+- `forge bench campaign`：扩大样本或重复次数时才使用。
+- Workbench 前端、JSON 文件适配器、Windows setup、通用 renderer：会用即可，不要求讲实现。
+
+面试前的完成条件不是“会全部模块”，而是三条主线和三个设计决策能被连续追问三层。

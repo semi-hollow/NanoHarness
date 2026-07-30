@@ -33,7 +33,10 @@ HITL_TASK = (
     "Implement the compatibility update in result.txt after asking the operator "
     "which API version should be targeted."
 )
-APPROVAL_TASK = "Implement the requested value update in target.py and verify the edit."
+APPROVAL_TASK = (
+    "Fix target.py so value equals 2, then run the focused pytest target "
+    "test_target.py before finishing."
+)
 
 
 @dataclass(frozen=True)
@@ -138,7 +141,7 @@ class _HitlShowcaseModel:
 
 
 class _ApprovalShowcaseModel:
-    """固定提出同一个文件补丁，再在工具成功后结束。"""
+    """固定提出文件补丁和 focused pytest，控制面与工具仍走正式 Runtime。"""
 
     last_usage = None
 
@@ -166,8 +169,20 @@ class _ApprovalShowcaseModel:
                     )
                 ],
             )
+        if self.calls == 2:
+            return AgentResponse(
+                None,
+                [
+                    ToolCall(
+                        "showcase-focused-pytest",
+                        "diagnostics",
+                        {"kind": "pytest", "target": "test_target.py"},
+                    )
+                ],
+            )
         return AgentResponse(
-            "PASS\napproved patch executed; continuation completed", []
+            "PASS\napproved patch executed; focused pytest passed; continuation completed",
+            [],
         )
 
 
@@ -184,6 +199,11 @@ def _start_control_plane_demo(
     workspace.mkdir(parents=True, exist_ok=True)
     if scenario == "approval":
         (workspace / "target.py").write_text("value = 1\n", encoding="utf-8")
+        (workspace / "test_target.py").write_text(
+            "from target import value\n\n\ndef test_value() -> None:\n"
+            "    assert value == 2\n",
+            encoding="utf-8",
+        )
 
     result = _run_phase(
         scenario,
@@ -370,7 +390,10 @@ def _render_showcase_report(result: ControlPlaneShowcaseResult) -> str:
         event = (
             "写操作已登记并等待审批，真实工具尚未执行。"
             if is_waiting
-            else "审批已绑定到原 operation fingerprint，补丁随后由真实工具执行。"
+            else (
+                "审批已绑定到原 operation fingerprint，补丁由真实工具执行，"
+                "随后 focused pytest 形成独立验证证据。"
+            )
         )
         safety = f"当前 `target.py` 内容：`{current_value}`。"
         identity = f"approval operation: `{result.operation_key}`"
@@ -433,7 +456,8 @@ def _render_governed_demo(
         "",
         "## Claim Boundary",
         "",
-        "- proves: 人工屏障先持久化、continuation 显式加载 checkpoint、写副作用受治理。",
+        "- proves: 人工屏障先持久化、continuation 显式加载 checkpoint、"
+        "写副作用受治理且 focused pytest 形成验证证据。",
         "- does not prove: 模型任务质量、测试通过、SWE-bench official resolved。",
         "",
     ]

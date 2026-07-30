@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from agent_forge.runtime.application.session import AgentRunSession
+from agent_forge.runtime.application.run_lifecycle import StopRequest
 from agent_forge.runtime.application.tool_feedback import ToolFeedback
 from agent_forge.runtime.config import RuntimeConfig
 from agent_forge.runtime.domain.conversation import Observation, ToolCall
@@ -38,6 +39,18 @@ class OperationIntent:
     key: str = ""
     # 工具执行前目标的当前状态，例如文件路径、SHA256 和大小。
     fingerprint: dict[str, Any] | None = None
+
+
+@dataclass(frozen=True)
+class ExistingOperationResolution:
+    """恢复时对既有副作用记录作出的唯一决定。
+
+    ``consumed`` 表示当前 ToolCall 已由账本处理，不应继续授权或执行；``stop`` 非空
+    表示结果不安全，需要由 ``AgentLoop`` 以显式 BLOCKED 状态结束本次 continuation。
+    """
+
+    consumed: bool
+    stop: StopRequest | None = None
 
 
 class OperationTracker:
@@ -95,25 +108,68 @@ class OperationTracker:
             fingerprint=self.operation_repository.operation_fingerprint(target),
         )
 
-    # 核心规则：只重放指纹未漂移的 executed 事实，绝不重复副作用。
-    def replay_if_executed(
+    # 核心规则：只重放确定完成且未漂移的事实；不确定结果必须停止。
+    def resolve_existing_operation(
         self,
         session: AgentRunSession,
         tool_call: ToolCall,
         intent: OperationIntent,
         step: int,
-    ) -> bool:
-        """在工具执行前复用已完成事实，或因目标漂移阻止危险重放。
+    ) -> ExistingOperationResolution:
+        """在工具执行前复用确定事实，或阻止不安全的副作用重放。
 
         规范上游是 ``ToolExecutionPipeline``；命中时下一 owner 是 trace、反馈与
-        ``RunLifecycle``，未命中时由调用方继续授权。返回 ``True`` 表示本次调用已
-        被账本消费。系统不变量是只有 post-fingerprint 仍匹配的 executed 记录才可
-        转成成功 Observation，目标变化必须进入可恢复的 BLOCKED 状态。
+        ``RunLifecycle``，未命中时由调用方继续授权。系统不变量是只有
+        post-fingerprint 仍匹配的 ``executed`` 记录才可转成成功 Observation；
+        ``executing`` 表示进程可能在副作用发生后崩溃，必须 fail closed。
         """
 
         existing = self.operation_repository.get(intent.key)
-        if existing is None or existing.status != "executed":
-            return False
+        if existing is None:
+            return ExistingOperationResolution(False)
+        if existing.status == "executing":
+            observation = Observation(
+                tool_call.name,
+                False,
+                (
+                    "operation_outcome_unknown: a previous process entered the "
+                    f"side-effect boundary but did not commit its result: {intent.key}"
+                ),
+            )
+            self.trace.add(
+                step,
+                session.agent_name,
+                "operation_ledger",
+                success=False,
+                operation_key=intent.key,
+                operation_status="operation_outcome_unknown",
+                operation=existing.to_dict(),
+                current_fingerprint=intent.fingerprint,
+            )
+            self.tool_feedback.append_tool_observation(
+                session,
+                tool_call,
+                observation,
+                step,
+            )
+            return ExistingOperationResolution(
+                True,
+                StopRequest(
+                    status=TaskRunStatus.BLOCKED,
+                    reason="operation_outcome_unknown",
+                    final_answer="blocked: operation outcome is unknown",
+                    current_step=step,
+                    last_tool=tool_call.name,
+                    last_observation=observation.content,
+                    resume_hint=(
+                        "Inspect the operation ledger and target state, then reconcile "
+                        "the operation explicitly before starting a fresh attempt."
+                    ),
+                    metadata={"operation_key": intent.key},
+                ),
+            )
+        if existing.status != "executed":
+            return ExistingOperationResolution(False)
 
         stale = existing.post_fingerprint is not None and not self.same_fingerprint(
             intent.fingerprint,
@@ -132,6 +188,7 @@ class OperationTracker:
                 step,
                 session.agent_name,
                 "operation_ledger",
+                success=False,
                 operation_key=intent.key,
                 operation_status="stale_operation_record",
                 operation=existing.to_dict(),
@@ -143,18 +200,21 @@ class OperationTracker:
                 observation,
                 step,
             )
-            session.lifecycle.update_checkpoint(
-                TaskCheckpointUpdate(
+            return ExistingOperationResolution(
+                True,
+                StopRequest(
                     status=TaskRunStatus.BLOCKED,
                     current_step=step,
+                    reason="stale_operation_record",
+                    final_answer="blocked: executed operation target has changed",
                     last_tool=tool_call.name,
                     last_observation=observation.content,
+                    resume_hint="Reread the target before reissuing a side-effect operation.",
                     messages_count=len(session.messages),
                     observations_count=len(session.observations),
-                    resume_hint="Reread the target before reissuing a side-effect operation.",
-                )
+                    metadata={"operation_key": intent.key},
+                ),
             )
-            return True
 
         observation = Observation(
             tool_call.name,
@@ -185,7 +245,7 @@ class OperationTracker:
                 observations_count=len(session.observations),
             )
         )
-        return True
+        return ExistingOperationResolution(True)
 
     def ensure_planned(
         self,
@@ -224,6 +284,30 @@ class OperationTracker:
                 run_id=self.trace.run_id,
                 step=step,
             )
+        )
+
+    def record_executing(self, intent: OperationIntent, *, step: int) -> None:
+        """在真实副作用调用前提交 durable execution barrier。
+
+        ``executing`` 不宣称成功。它只证明 Runtime 已越过授权边界，后续若进程中断，
+        continuation 必须把结果视为未知，而不是再次调用工具。
+        """
+
+        record = self.operation_repository.record_executing(
+            OperationTransition(
+                operation_key=intent.key,
+                status="executing",
+                run_id=self.trace.run_id,
+                step=step,
+            )
+        )
+        self.trace.add(
+            step,
+            "Runtime",
+            "operation_ledger",
+            operation_key=intent.key,
+            operation_status=record.status,
+            operation=record.to_dict(),
         )
 
     # 运行时端口：把真实执行结果与 post-fingerprint 提交到唯一幂等账本。

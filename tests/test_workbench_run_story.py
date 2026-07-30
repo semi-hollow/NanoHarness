@@ -15,7 +15,11 @@ from agent_forge.workbench.presentation.http import (
 class WorkbenchRunStoryTest(unittest.TestCase):
     def test_workbench_default_surface_is_read_only(self):
         self.assertIn('class="read-only status-collapsed', INDEX_HTML)
-        self.assertIn("Read-only Run Story", INDEX_HTML)
+        self.assertIn("Three guided evidence scenes", INDEX_HTML)
+        self.assertIn("1 Governed Run", INDEX_HTML)
+        self.assertIn("2 Coordinated Agents", INDEX_HTML)
+        self.assertIn("3 Evaluation Loop", INDEX_HTML)
+        self.assertIn("loadEvidence('controls')", INDEX_HTML)
         self.assertIn("Workbench is read-only", WORKBENCH_READ_ONLY_MESSAGE)
 
     def test_run_evidence_prefers_canonical_run_story(self):
@@ -130,6 +134,120 @@ class WorkbenchRunStoryTest(unittest.TestCase):
             selected = FileEvidenceCatalog(project_dir).latest_run_dir()
 
         self.assertEqual(selected, current)
+
+    def test_published_campaign_bundle_uses_manifest_and_summary_filenames(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            project_dir = Path(tmp)
+            campaign = project_dir / "published-campaign"
+            campaign.mkdir()
+            (campaign / "manifest.json").write_text(
+                json.dumps(
+                    {
+                        "campaign_id": "campaign-1",
+                        "status": "completed",
+                        "records": [],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            (campaign / "summary.json").write_text(
+                json.dumps(
+                    {
+                        "campaign_id": "campaign-1",
+                        "status": "completed",
+                        "variants": {},
+                    }
+                ),
+                encoding="utf-8",
+            )
+            latest = project_dir / ".agent_forge" / "latest"
+            latest.mkdir(parents=True)
+            (latest / "campaign.txt").write_text(str(campaign), encoding="utf-8")
+
+            catalog = FileEvidenceCatalog(project_dir)
+
+            self.assertEqual(
+                catalog.latest_campaign_state()["campaign_id"],
+                "campaign-1",
+            )
+            self.assertEqual(
+                catalog.latest_campaign_summary()["status"],
+                "completed",
+            )
+
+    def test_improvement_view_renders_reviewed_before_after_decision(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            project_dir = Path(tmp)
+            campaign = project_dir / "campaign"
+            campaign.mkdir()
+            (campaign / "manifest.json").write_text(
+                json.dumps({"campaign_id": "campaign-1", "records": []}),
+                encoding="utf-8",
+            )
+            (campaign / "summary.json").write_text(
+                json.dumps(
+                    {
+                        "campaign_id": "campaign-1",
+                        "status": "completed",
+                        "variants": {},
+                    }
+                ),
+                encoding="utf-8",
+            )
+            (campaign / "improvement_record.json").write_text(
+                json.dumps(
+                    {
+                        "observed_problem": "failed tool calls were noisy",
+                        "diagnosis": {
+                            "source": "maintainer_review",
+                            "review_status": "reviewed",
+                        },
+                        "hypothesis": "routing reduces failed calls",
+                        "change": {"reference": "governed preset"},
+                        "regression_cases": ["case-a", "case-b"],
+                        "before_after": {
+                            "control": {
+                                "official_evaluated": 2,
+                                "official_resolved": 2,
+                                "failed_tool_calls": 8,
+                                "total_tokens": 100,
+                                "estimated_cost_usd": 0.1,
+                            },
+                            "treatment": {
+                                "official_evaluated": 2,
+                                "official_resolved": 2,
+                                "failed_tool_calls": 5,
+                                "total_tokens": 130,
+                                "estimated_cost_usd": 0.13,
+                            },
+                            "delta": {
+                                "official_resolved": 0,
+                                "failed_tool_calls": -3,
+                                "total_tokens": 30,
+                                "estimated_cost_usd": 0.03,
+                            },
+                        },
+                        "decision": {
+                            "status": "iterate",
+                            "rationale": "correctness tied and cost increased",
+                        },
+                        "claim_boundary": "commissioning evidence only",
+                    }
+                ),
+                encoding="utf-8",
+            )
+            latest = project_dir / ".agent_forge" / "latest"
+            latest.mkdir(parents=True)
+            (latest / "campaign.txt").write_text(str(campaign), encoding="utf-8")
+
+            rendered = _render_evidence_html(project_dir, "feedback")
+
+        self.assertIn("Observed problem", rendered)
+        self.assertIn("maintainer_review", rendered)
+        self.assertIn("reviewed", rendered)
+        self.assertIn("failed tool calls", rendered)
+        self.assertIn("iterate", rendered)
+        self.assertIn("commissioning evidence only", rendered)
 
 
 if __name__ == "__main__":

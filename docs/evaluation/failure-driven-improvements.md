@@ -1745,6 +1745,108 @@ SWE-bench `model_patch` 外部协议之间的真实边界。
 新名称；结构回归阻止关键 Application Service 重新暴露含糊入口。工程结论：跨模块核心名词必须
 做到“一词一义”，外部协议的遗留术语应被限制在 Adapter 边界。
 
+### 72. Timeline 把运行级事件当成 Turn，并把事件间隔显示成耗时
+
+现象：Workbench 将 `step=0` 显示为 “Step 0”，后续 Turn 又直接平铺 11 到 17 个底层事件；
+不同 Turn 的事件数量看起来像执行流程不一致。事件上的 `duration_ms` 还显示为 `time`，容易被理解为
+该检查或工具自身耗时。
+
+Failure scenario：一次 Astropy 运行有 16 个真实 Agent Turn、6 个运行级初始化事件和 265 条
+底层事件。最后一轮只完成模型响应并留下待执行工具，因此没有工具治理与执行事件；旧页面仍把它
+与完整工具轮放在同一种平铺结构中，无法一眼看出 `pending_tool_call_at_stop` 的真实分支。
+
+根因：展示层直接按整数 `step` 分组，没有区分 run lifecycle 与 Agent turn；同时忽略
+`JsonTraceRecorder` 中 `duration_ms = now - last_event_at` 的定义，把“距上一事件的间隔”当成
+“当前事件耗时”。Trace schema 是机器证据，但缺少面向人的语义投影。
+
+窄修复：保留原始 trace 不变，将 `step=0` 单独投影为运行级阶段；每个真实 Turn 固定展示
+上下文、模型、决策、治理、执行、状态/证据六个阅读阶段，未发生阶段明确显示为空。底层事件默认
+折叠；`duration_ms` 改名为“距上一事件”，模型真实延迟只读取 `model_usage.latency_ms`。
+
+验证：Workbench 回归锁定运行级事件不再生成 “Step 0”、六阶段始终存在、治理色例有说明且事件
+间隔不再标为 `time`；使用真实 Astropy trace 验证最后一轮清楚显示“仍请求工具，但本轮已无执行
+预算”、执行阶段未发生和 `pending_tool_call_at_stop`。工程结论：可观测数据结构可以细粒度且
+不规则，但阅读模型必须稳定；不能为了视觉整齐伪造相同数量的原始事件。
+
+### 73. 演示入口复用了加载旧源码的 Workbench 进程
+
+现象：修改并重启 Official Evidence 入口后，浏览器仍显示 `Step 0`、`17 steps` 和旧 `time`
+字段。仓库源码已经是新版，但 8765 上的页面没有变化。
+
+根因：启动脚本只用项目目录和 Evidence 指针判断现有服务能否复用；长期运行的 Python 进程不会
+热加载 `http.py`，同一目录并不代表它已经加载同一版展示代码。浏览器地址也没有版本参数，打开
+既有标签页时进一步增加了误判概率。
+
+窄修复：Workbench 在进程启动时计算入口源码 SHA-256，并通过只读状态接口公开；演示脚本计算
+磁盘源码指纹，发现不一致时只终止自己记录的旧进程，再启动新服务。HTML/JSON 响应声明
+`no-store`，打开地址附带短指纹作为版本参数。
+
+验证：旧服务缺少源码指纹时会进入替换分支；新 8765 状态返回与磁盘一致的指纹，Timeline 响应
+包含“固定六阶段”“运行级阶段”“距上一事件”，不再包含 `Step 0` 或 `17 steps`。工程结论：
+本地演示启动器也需要版本身份，进程存活和源码新鲜度是两个不同事实。
+
+### 74. 写操作已经发生，但 Ledger 仍可能让 Resume 再执行一次
+
+现象：写工具完成文件修改后，如果进程恰好在“工具返回”和“Ledger 记录 executed”之间崩溃，
+持久化状态仍是 approved。旧恢复逻辑会把它当作尚未执行的授权操作，再次调用同一个写工具。
+
+Failure scenario：`replace_text` 已改写 workspace，随后进程异常退出；用户 resume 后，相同
+`operation_key` 再次进入执行链。对唯一文本替换可能只是失败，对非幂等命令、外部 API 或发布操作
+则可能产生重复副作用。
+
+根因：Ledger 只有 planned、approved、executed，没有在进入真实 gateway 前写入持久化执行栅栏；
+恢复逻辑也把“没有 executed 结果”错误等同于“肯定没有执行”。
+
+窄修复：调用真实工具前先原子记录 `executing`；恢复发现该状态时返回
+`operation_outcome_unknown` 并 fail closed，不猜测是否成功，也不自动重放。对于已经 executed
+但 workspace fingerprint 改变的记录同样拒绝复用，要求人工确认当前状态。
+
+验证：故障注入测试让副作用发生后、结果落 Ledger 前主动抛错；断言副作用只发生一次、状态停在
+executing，resume 明确 blocked。工程结论：当前实现提供的是保守的 at-most-once 倾向与未知结果
+显式化，不是 exactly-once；跨系统副作用仍需要目标系统幂等键或补偿事务。
+
+### 75. 每补一个能力就新增一个 Lab，学习入口反而成为噪音
+
+现象：控制面、固定修复、真实模型、Astropy Evidence、Fanout 和多组 Interview 配置分别拥有入口。
+能力都能运行，但使用者面对十余个绿色按钮，不知道哪些必须掌握、哪些只是展示适配层。
+
+Failure scenario：准备面试时在多个近似场景之间反复切换，能够“点开”功能却无法稳定预测下一步
+状态、注入故障或指出证据路径；项目能力增加，个人掌控度反而下降。
+
+根因：过去按 feature delivery 增加 demo，没有给学习面设置总预算，也没有把“功能存在”与
+“本人学会”分开验收。
+
+窄修复：Debug Lab 固定为三条主线：Governed Repair、Coordinated Agents、Evaluation Loop。
+每条主线统一使用定位、预测、观察、故障注入、证据复核和设计取舍六个掌握门槛；真实模型重跑、
+official evaluator 和历史详情降为可选证据，不再占用新的 Lab 编号。删除重复启动配置和只转发
+参数的示例 wrapper，保留一个 Interview Demo 与一个 Operator Console。
+
+验证：入口契约测试锁定三条 Lab、一个演示入口和一个 Console；README 明确每条链路与验收问题；
+Lab 2 使用两个真实 worktree worker、disjoint scope 合并和只读 pytest finalizer，不再用空任务
+模拟 Multi-Agent。工程结论：学习入口数量也是架构预算；新增能力必须挂到既有主线并提供掌握标准。
+
+### 76. Feedback Dataset 能收集失败，但不能证明一次改进为何被采纳
+
+现象：系统已有 Trace、Failure Taxonomy、反馈样本和 Campaign Summary，却没有单一制品回答：
+观察到什么问题、谁确认了诊断、提出什么假设、改了什么、用哪些回归用例、前后指标怎样、最终为何
+采纳或拒绝。
+
+Failure scenario：Workbench 能展示失败分类和一组 before/after 数字，但二者没有可追溯关系；
+面试时容易把后验整理说成实验设计，或把工具失败下降误讲成 official resolved 提升。
+
+根因：数据飞轮停在“收集并分类”，缺少 improvement decision 这一层领域对象；taxonomy 结果也
+没有记录规则版本、命中规则和人工复核状态。
+
+窄修复：Campaign 生成版本化 `improvement_record.json`，显式串联 source evidence、problem、
+diagnosis provenance、hypothesis、change、regression cases、before/after、decision rationale
+和 claim boundary。FailureDiagnosis 增加 rule、source 与 taxonomy version；Lab 3 和 Workbench
+读取同一制品，不在展示层重新编故事。
+
+验证：确定性回归锁定 Improvement Record 的字段、差值和人工复核来源；当前 commissioning
+证据诚实记录 official 2/2 → 2/2、failed tool calls 8 → 5，同时显示 token/cost 上升，因此结论
+是“机制得到验证，正确性未提升，继续迭代”，不是 resolved rate 改善。工程结论：数据飞轮的最小
+闭环不是“失败变成一个 UT”，而是可审计的假设、回归证据和采纳决策。
+
 ## 调试顺序模板
 
 每次 SWE-bench 失败优先看：

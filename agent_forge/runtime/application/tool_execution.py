@@ -209,13 +209,17 @@ class ToolExecutionPipeline:
         # 在查询旧记录、申请权限或真正执行前，必须先得到三者共用的副作用分类、
         # operation key 和执行前目标指纹。只读工具也经过归一化，但不会创建 Ledger 记录。
         operation_intent = self.operation_tracker.build_operation_intent(tool_call)
-        if operation_intent.side_effect and self.operation_tracker.replay_if_executed(
-            session,
-            tool_call,
-            operation_intent,
-            step,
-        ):
-            return None
+        if operation_intent.side_effect:
+            existing_operation = self.operation_tracker.resolve_existing_operation(
+                session,
+                tool_call,
+                operation_intent,
+                step,
+            )
+            if existing_operation.stop is not None:
+                return existing_operation.stop
+            if existing_operation.consumed:
+                return None
 
         authorization_decision = self.authorization_gate.authorize(
             session,
@@ -492,6 +496,8 @@ class ToolExecutionPipeline:
                 step=step,
                 status="approved",
             )
+        if operation_intent.side_effect:
+            self.operation_tracker.record_executing(operation_intent, step=step)
         self.trace.add(
             step,
             session.agent_name,

@@ -110,6 +110,36 @@ TARGETS = (
         "finalize_run",
     ),
     BreakpointTarget(
+        "Fanout coordinator",
+        "agent_forge/multi_agent/application/live_fanout.py",
+        "LiveFanoutCoordinator",
+        "run",
+    ),
+    BreakpointTarget(
+        "Fanout batch",
+        "agent_forge/multi_agent/application/live_fanout.py",
+        "LiveFanoutCoordinator",
+        "_run_batch",
+    ),
+    BreakpointTarget(
+        "Fanout worker",
+        "agent_forge/multi_agent/adapters/local_worker.py",
+        "LocalAgentWorkerAdapter",
+        "run_worker",
+    ),
+    BreakpointTarget(
+        "Fanout merge",
+        "agent_forge/multi_agent/application/live_fanout.py",
+        "LiveFanoutCoordinator",
+        "_merge_batch",
+    ),
+    BreakpointTarget(
+        "Fanout finalizer",
+        "agent_forge/multi_agent/adapters/local_worker.py",
+        "LocalAgentWorkerAdapter",
+        "run_finalizer",
+    ),
+    BreakpointTarget(
         "Benchmark orchestration",
         "agent_forge/bench/application/swebench.py",
         "RunSwebench",

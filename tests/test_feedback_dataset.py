@@ -5,8 +5,10 @@ from pathlib import Path
 
 from agent_forge.evaluation.api import (
     FeedbackRequest,
+    ImprovementRecordRequest,
     export_feedback_dataset,
     record_feedback,
+    write_improvement_record,
 )
 
 
@@ -129,6 +131,67 @@ class FeedbackDatasetTest(unittest.TestCase):
             )
 
             self.assertIn("diff --git", records[0]["candidate_diff"])
+
+    def test_improvement_record_connects_existing_campaign_evidence(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            campaign = Path(tmp)
+            (campaign / "summary.json").write_text(
+                json.dumps(
+                    {
+                        "campaign_id": "campaign-1",
+                        "config_digest": "digest",
+                        "source": {"revision": "abc123"},
+                        "variants": {
+                            "minimal-control": {
+                                "official_evaluated": 2,
+                                "official_resolved": 2,
+                                "failed_tool_calls": 8,
+                                "total_tokens": 100,
+                                "estimated_cost_usd": 0.1,
+                            },
+                            "governed-runtime": {
+                                "official_evaluated": 2,
+                                "official_resolved": 2,
+                                "failed_tool_calls": 5,
+                                "total_tokens": 130,
+                                "estimated_cost_usd": 0.13,
+                            },
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+            (campaign / "manifest.json").write_text(
+                json.dumps(
+                    {
+                        "config": {
+                            "case_ids": ["case-a", "case-b"],
+                            "comparison_factor": "runtime-preset",
+                        }
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            path = write_improvement_record(
+                ImprovementRecordRequest(
+                    campaign_dir=campaign,
+                    observed_problem="Baseline tool failures are noisy.",
+                    hypothesis="Governed routing lowers failed tool calls.",
+                    change_ref="governed-runtime preset",
+                    decision="iterate",
+                    decision_rationale="Correctness tied and cost increased.",
+                    claim_boundary="Two commissioning cases only.",
+                )
+            )
+
+            record = json.loads(path.read_text(encoding="utf-8"))
+            self.assertEqual(record["regression_cases"], ["case-a", "case-b"])
+            self.assertEqual(record["before_after"]["delta"]["failed_tool_calls"], -3)
+            self.assertEqual(record["before_after"]["delta"]["official_resolved"], 0)
+            self.assertEqual(record["diagnosis"]["review_status"], "reviewed")
+            self.assertEqual(record["decision"]["status"], "iterate")
+            self.assertIn("commissioning", record["claim_boundary"].lower())
 
 
 if __name__ == "__main__":

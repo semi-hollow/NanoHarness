@@ -55,27 +55,27 @@ try {
     $env:PYTHONIOENCODING = "utf-8"
 
     Write-Host ""
-    Write-Host "== Verify deterministic control and resume =="
+    Write-Host "== Verify governed repair and resume =="
     Invoke-Native -FilePath $venvPython -Arguments @(
         "examples\debug_lab\run.py",
-        "control"
+        "governed"
     )
 
     Write-Host ""
-    Write-Host "== Verify deterministic repair, tools, and pytest =="
+    Write-Host "== Verify coordinated workers, merge, and pytest =="
     Invoke-Native -FilePath $venvPython -Arguments @(
         "examples\debug_lab\run.py",
-        "fixed"
+        "coordinated"
     )
 
     Write-Host ""
     Write-Host "Windows offline demo setup succeeded."
     Write-Host "Open this repository in PyCharm and run:"
-    Write-Host "  1. NanoHarness Windows Offline 1 - Control Plane"
-    Write-Host "  2. NanoHarness Windows Offline 2 - Fixed Repair"
+    Write-Host "  1. NanoHarness Windows Offline 1 - Governed Repair"
+    Write-Host "  2. NanoHarness Windows Offline 2 - Coordinated Agents"
     Write-Host "  3. NanoHarness Windows Offline 3 - Workbench"
     Write-Host ""
-    Write-Host "This path proves runtime control, tool execution, tests, and evidence."
+    Write-Host "This path proves runtime control, scoped fanout, merge, tests, and evidence."
     Write-Host "It does not claim real-model quality or official SWE-bench results."
 }
 finally {

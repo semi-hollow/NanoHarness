@@ -86,6 +86,9 @@ class BenchCaseResult:
     diagnosis: str = ""
     diagnosis_evidence: list[str] = field(default_factory=list)
     next_actions: list[str] = field(default_factory=list)
+    diagnosis_source: str = ""
+    diagnosis_rule_id: str = ""
+    diagnosis_taxonomy_version: str = ""
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -111,6 +114,9 @@ class BenchCaseResult:
             "diagnosis": self.diagnosis,
             "diagnosis_evidence": self.diagnosis_evidence,
             "next_actions": self.next_actions,
+            "diagnosis_source": self.diagnosis_source,
+            "diagnosis_rule_id": self.diagnosis_rule_id,
+            "diagnosis_taxonomy_version": self.diagnosis_taxonomy_version,
         }
 
 

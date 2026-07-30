@@ -427,6 +427,8 @@ class PublicCliSmokeTest(unittest.TestCase):
   "run_id": "r1",
   "stop_reason": "final_answer",
   "events": [
+    {"step": 0, "event_type": "model_capabilities", "success": true},
+    {"step": 0, "event_type": "skill_selection", "success": true},
     {"step": 1, "event_type": "context_assembly", "success": true},
     {"step": 1, "event_type": "llm_call", "success": true, "duration_ms": 12},
     {"step": 1, "event_type": "action", "success": true, "tool_call": "git_diff"},
@@ -458,22 +460,31 @@ class PublicCliSmokeTest(unittest.TestCase):
             html.index("Multi-Agent Runtime"), html.index("Single-Agent Runtime")
         )
         self.assertIn("1. 上下文组装", html)
-        self.assertIn("3. 动作解析", html)
+        self.assertIn("3. 工具意图", html)
         self.assertIn("tool: git_diff", html)
         self.assertIn("failed", html)
-        self.assertNotIn(" · ", html)
+        self.assertIn("运行级阶段", html)
+        self.assertIn("不计入 Agent Turn", html)
+        self.assertIn("1 个 Agent Turn", html)
+        self.assertIn("2 个运行级事件", html)
+        self.assertIn("固定六阶段", html)
+        self.assertIn("04</b><span>治理", html)
+        self.assertIn("决策 / 安全治理", html)
+        self.assertIn("距上一事件: 12ms", html)
+        self.assertNotIn("time: 12 ms", html)
+        self.assertNotIn("<strong>Step 0</strong>", html)
 
     def test_ui_is_a_read_only_evidence_surface(self):
         self.assertIn("NanoHarness Workbench", INDEX_HTML)
         self.assertIn("Run Evidence", INDEX_HTML)
         self.assertIn("Benchmark", INDEX_HTML)
-        self.assertIn("Runtime Controls", INDEX_HTML)
-        self.assertIn("Orchestration", INDEX_HTML)
-        self.assertIn("Evaluation", INDEX_HTML)
-        self.assertIn("Feedback Loop", INDEX_HTML)
+        self.assertIn("1 Governed Run", INDEX_HTML)
+        self.assertIn("2 Coordinated Agents", INDEX_HTML)
+        self.assertIn("3 Evaluation Loop", INDEX_HTML)
+        self.assertIn("Evidence details", INDEX_HTML)
         self.assertIn("td .badge", INDEX_HTML)
         self.assertIn("white-space: normal", INDEX_HTML)
-        self.assertIn("Read-only Run Story", INDEX_HTML)
+        self.assertIn("Three guided evidence scenes", INDEX_HTML)
         self.assertNotIn("startJob(", INDEX_HTML)
         self.assertNotIn("/api/jobs", INDEX_HTML)
 

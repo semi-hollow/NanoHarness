@@ -22,6 +22,9 @@ class DiagnoseBenchCase:
         result.diagnosis = diagnosis.summary
         result.diagnosis_evidence = diagnosis.evidence
         result.next_actions = diagnosis.next_actions
+        result.diagnosis_source = diagnosis.source
+        result.diagnosis_rule_id = diagnosis.rule_id
+        result.diagnosis_taxonomy_version = diagnosis.taxonomy_version
         return result
 
     def diagnose(self, result: BenchCaseResult) -> FailureDiagnosis:

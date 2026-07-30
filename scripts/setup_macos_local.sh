@@ -173,10 +173,10 @@ main() {
     log "+ python -m pip install -e '.[bench,dev]'"
     if ! python -m pip install -e '.[bench,dev]'; then
       log "Benchmark extras failed to install; core Debug Labs remain available."
-      log "Lab 4 will retry benchmark preparation when it is first launched."
+      log "Optional official-rerun mode will retry benchmark preparation when launched."
     fi
   else
-    log "Quick mode defers benchmark dependencies until Lab 4."
+    log "Quick mode defers optional benchmark dependencies."
   fi
 
   if command -v python3.11 >/dev/null 2>&1; then
@@ -222,7 +222,7 @@ main() {
   log "Project path: ${PROJECT_DIR}"
   log "Venv python: ${PROJECT_DIR}/.venv/bin/python"
   log ""
-  log "Next: open examples/debug_lab/README.md and run Lab 1 -> Lab 4."
+  log "Next: open examples/debug_lab/README.md and run Lab 1 -> Lab 3."
 }
 
 main "$@"

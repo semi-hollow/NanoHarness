@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import html
 import json
 import sys
@@ -22,6 +23,7 @@ from agent_forge.workbench.wiring import (
 WORKBENCH_READ_ONLY_MESSAGE = (
     "Workbench is read-only; use forge run, demo, or resume for execution."
 )
+WORKBENCH_SOURCE_SHA256 = hashlib.sha256(Path(__file__).read_bytes()).hexdigest()
 
 
 class ForgeUiHandler(BaseHTTPRequestHandler):
@@ -67,6 +69,7 @@ class ForgeUiHandler(BaseHTTPRequestHandler):
         return {
             "project_dir": str(self.state.project_dir),
             "python": sys.version.split()[0],
+            "workbench_source_sha256": WORKBENCH_SOURCE_SHA256,
             "latest_run": str(_latest_run_dir(self.state.project_dir) or ""),
             "latest_report": _latest_report_path(self.state.project_dir),
             "feedback": _latest_feedback_outcome(self.state.project_dir),
@@ -75,6 +78,7 @@ class ForgeUiHandler(BaseHTTPRequestHandler):
     def _send_html(self, text: str, status: HTTPStatus = HTTPStatus.OK) -> None:
         self.send_response(status)
         self.send_header("Content-Type", "text/html; charset=utf-8")
+        self.send_header("Cache-Control", "no-store")
         self.end_headers()
         try:
             self.wfile.write(text.encode("utf-8"))
@@ -84,6 +88,7 @@ class ForgeUiHandler(BaseHTTPRequestHandler):
     def _send_json(self, data: dict[str, Any], status: HTTPStatus = HTTPStatus.OK) -> None:
         self.send_response(status)
         self.send_header("Content-Type", "application/json; charset=utf-8")
+        self.send_header("Cache-Control", "no-store")
         self.end_headers()
         try:
             self.wfile.write(json.dumps(data, ensure_ascii=False, indent=2).encode("utf-8"))
@@ -242,6 +247,10 @@ def _latest_campaign_state(project_dir: Path) -> dict[str, Any]:
 
 def _latest_campaign_summary(project_dir: Path) -> dict[str, Any]:
     return build_evidence_catalog(project_dir).latest_campaign_summary()
+
+
+def _latest_improvement_record_path(project_dir: Path) -> Path | None:
+    return build_evidence_catalog(project_dir).latest_improvement_record_path()
 
 
 def _event_list(trace: dict[str, Any]) -> list[dict[str, Any]]:
@@ -517,6 +526,7 @@ def _render_fanout_usage_dashboard(fanout: dict[str, Any], path: Path | None) ->
     return "<div class='evidence'>" + "".join(body) + "</div>"
 
 
+# 主要入口：把底层 trace 投影成面向人的“运行级阶段 + Agent Turn”时间线。
 def _render_trace_timeline(project_dir: Path) -> str:
 
     trace_entries = _trace_paths_for_latest_run(project_dir)
@@ -524,13 +534,16 @@ def _render_trace_timeline(project_dir: Path) -> str:
         return _empty_evidence("No trace.json found. Run DeepSeek Agent or SWE-bench showcase first.")
     body = [
         "<div class='view-heading'><div><span class='view-kicker'>OBSERVABILITY</span><h2>Execution Timeline</h2></div>"
-        "<span class='claim-note'>Multi first, Single second</span></div>",
+        "<span class='claim-note'>固定六阶段 · 底层事件可展开</span></div>",
+        "<p class='help strong'>运行级事件不属于 Agent Turn。每个 Turn 固定按六个阅读阶段投影；"
+        "阶段内原始事件数量会随工具、审批和停止分支变化，未发生的阶段明确留空。</p>",
         "<div class='legend-row'>"
-        "<span class='legend-item blue'>model response</span>"
-        "<span class='legend-item purple'>context / routing</span>"
-        "<span class='legend-item ok'>tool / check passed</span>"
-        "<span class='legend-item bad'>failed</span>"
-        "<span class='legend-item neutral'>state</span>"
+        "<span class='legend-item purple'>上下文 / 路由</span>"
+        "<span class='legend-item blue'>模型请求 / 响应</span>"
+        "<span class='legend-item warn'>决策 / 安全治理</span>"
+        "<span class='legend-item ok'>工具执行成功</span>"
+        "<span class='legend-item neutral'>状态 / 证据</span>"
+        "<span class='legend-item bad'>失败 / 阻断</span>"
         "</div>",
     ]
     for label, trace_path in trace_entries:
@@ -541,32 +554,341 @@ def _render_trace_timeline(project_dir: Path) -> str:
 def _render_trace_lane(label: str, trace_path: Path) -> str:
 
     trace = _read_json_file(trace_path)
-    grouped: dict[int, list[dict[str, Any]]] = {}
-    for event in _event_list(trace):
-        grouped.setdefault(int(event.get("step") or 0), []).append(event)
-    step_blocks = []
-    for step, events in sorted(grouped.items()):
-        failures = sum(1 for event in events if not bool(event.get("success", True)))
-        pills = "".join(
-            f"<span class='event-pill {_event_tone(str(event.get('event_type') or ''), bool(event.get('success', True)))}'>"
-            f"{_escape(_format_trace_event_label(index, event))}</span>"
-            for index, event in enumerate(events, start=1)
-        )
-        step_blocks.append(
-            "<div class='timeline-step'>"
-            f"<div class='timeline-head'><strong>Step {step}</strong>"
-            f"{_badge(str(failures) + ' failed', 'bad') if failures else _badge('passed', 'ok')}</div>"
-            f"<div>{pills}</div></div>"
-        )
     events = _event_list(trace)
+    run_events = [event for event in events if int(event.get("step") or 0) == 0]
+    turns: dict[int, list[dict[str, Any]]] = {}
+    for event in events:
+        step = int(event.get("step") or 0)
+        if step > 0:
+            turns.setdefault(step, []).append(event)
+
+    turn_blocks = "".join(
+        _render_timeline_turn(turn, turn_events)
+        for turn, turn_events in sorted(turns.items())
+    )
     return (
         "<section class='evidence-section timeline-lane'>"
         f"<div class='section-title'><h3>{_escape(label)}</h3>{_badge(str(trace.get('stop_reason') or 'unknown'), _tone_for_status(str(trace.get('stop_reason') or '')))}</div>"
         f"<div class='run-facts'><span>run <b class='mono'>{_escape(trace.get('run_id', ''))}</b></span>"
-        f"<span>{len(grouped)} steps</span><span>{len(events)} events</span></div>"
-        f"{''.join(step_blocks)}"
+        f"<span>{len(turns)} 个 Agent Turn</span><span>{len(run_events)} 个运行级事件</span>"
+        f"<span>{len(events)} 条底层事件</span></div>"
+        f"{_render_run_level_events(run_events)}{turn_blocks}"
         f"<details class='provenance'><summary>Trace provenance</summary><code>{_escape(str(trace_path))}</code></details>"
         "</section>"
+    )
+
+
+_TIMELINE_PHASES = (
+    ("context", "01", "上下文", "准备模型可见输入", "purple"),
+    ("model", "02", "模型", "发起请求并接收响应", "blue"),
+    ("decision", "03", "决策", "解析回答或工具意图", "warn"),
+    ("governance", "04", "治理", "安全、权限与人工控制", "warn"),
+    ("execution", "05", "执行", "调用工具并取得结果", "ok"),
+    ("state", "06", "状态 / 证据", "回填观察并持久化", "neutral"),
+)
+
+_TRACE_PHASE_BY_EVENT = {
+    "turn_started": "context",
+    "context_assembly": "context",
+    "context_window": "context",
+    "context_overflow_recovery": "context",
+    "memory_recall": "context",
+    "skill_selection": "context",
+    "model_started": "model",
+    "llm_call": "model",
+    "action": "decision",
+    "clarification_decision": "decision",
+    "final_answer": "decision",
+    "review_decision": "decision",
+    "verifier_result": "decision",
+    "guardrail_check": "governance",
+    "hook_check": "governance",
+    "permission_check": "governance",
+    "human_approval": "governance",
+    "human_input_requested": "governance",
+    "human_input_response_loaded": "governance",
+    "human_input_cancelled": "governance",
+    "run_control": "governance",
+    "tool_calls_deferred_for_human_input": "governance",
+    "tool_execution_started": "execution",
+    "tool_call": "execution",
+    "tool_observation": "execution",
+    "validation_evidence": "execution",
+    "tool_calls_bounded": "execution",
+    "task_state_checkpoint": "state",
+    "observation": "state",
+    "evidence_collected": "state",
+    "operation_ledger": "state",
+    "recovery_decision": "state",
+    "resume_state_loaded": "state",
+    "stop_hooks": "state",
+    "run_completed": "state",
+    "execution_environment": "state",
+    "error": "state",
+}
+
+
+def _render_run_level_events(events: list[dict[str, Any]]) -> str:
+
+    if not events:
+        return ""
+    failures = sum(1 for event in events if not bool(event.get("success", True)))
+    return (
+        "<div class='timeline-run-level'>"
+        "<div class='timeline-head'><div><strong>运行级阶段</strong>"
+        "<small>初始化 / 发布，不计入 Agent Turn</small></div>"
+        f"{_badge('存在失败' if failures else '初始化完成', 'bad' if failures else 'ok')}</div>"
+        f"{_render_raw_event_details(events, summary='查看运行级底层事件')}"
+        "</div>"
+    )
+
+
+def _render_timeline_turn(turn: int, events: list[dict[str, Any]]) -> str:
+
+    grouped = {phase[0]: [] for phase in _TIMELINE_PHASES}
+    for event in events:
+        event_type = str(event.get("event_type") or "")
+        grouped[_TRACE_PHASE_BY_EVENT.get(event_type, "state")].append(event)
+    phases = "".join(
+        _render_timeline_phase(key, number, title, note, tone, grouped[key])
+        for key, number, title, note, tone in _TIMELINE_PHASES
+    )
+    outcome, outcome_tone = _timeline_turn_outcome(events)
+    return (
+        "<div class='timeline-turn'>"
+        "<div class='timeline-head'>"
+        f"<div><strong>Turn {turn}</strong><small>{len(events)} 条底层事件</small></div>"
+        f"{_badge(outcome, outcome_tone)}</div>"
+        f"<div class='timeline-phase-grid'>{phases}</div>"
+        f"{_render_raw_event_details(events, summary='展开本轮底层事件')}"
+        "</div>"
+    )
+
+
+def _render_timeline_phase(
+    key: str,
+    number: str,
+    title: str,
+    note: str,
+    tone: str,
+    events: list[dict[str, Any]],
+) -> str:
+
+    summary = _summarize_timeline_phase(key, events) if events else "未发生"
+    state = " empty" if not events else ""
+    return (
+        f"<div class='timeline-phase {tone}{state}'>"
+        f"<div class='timeline-phase-head'><b>{number}</b><span>{_escape(title)}</span></div>"
+        f"<strong>{_escape(summary)}</strong>"
+        f"<small>{_escape(note)} · {len(events)} 条事件</small>"
+        "</div>"
+    )
+
+
+def _summarize_timeline_phase(key: str, events: list[dict[str, Any]]) -> str:
+
+    if key == "context":
+        assembly = _last_trace_event(events, "context_assembly")
+        window_event = _last_trace_event(events, "context_window")
+        context = (assembly or {}).get("context") or {}
+        window = (window_event or {}).get("context_window") or {}
+        parts = []
+        estimated_tokens = window.get("estimated_tokens_after")
+        if estimated_tokens is not None:
+            parts.append(f"约 {int(estimated_tokens):,} tokens")
+        tools = context.get("available_tools") or []
+        if tools:
+            parts.append(f"{len(tools)} 个工具")
+        if bool(window.get("compacted")):
+            parts.append("已压缩")
+        elif window_event is not None:
+            parts.append("无需压缩")
+        return " · ".join(parts) or "Turn 输入已准备"
+
+    if key == "model":
+        completed = _last_trace_event(events, "llm_call")
+        started = _last_trace_event(events, "model_started")
+        usage = (completed or {}).get("model_usage") or {}
+        request = (started or {}).get("model_request") or {}
+        parts = []
+        if usage.get("model"):
+            parts.append(str(usage["model"]))
+        if usage.get("total_tokens") is not None:
+            parts.append(f"{int(usage['total_tokens']):,} tokens")
+        if usage.get("latency_ms") is not None:
+            parts.append(_format_milliseconds(int(usage["latency_ms"])))
+        if not parts and request.get("messages_count") is not None:
+            parts.append(f"{int(request['messages_count'])} 条消息")
+        return " · ".join(parts) or "模型边界已记录"
+
+    if key == "decision":
+        final_answer = _last_trace_event(events, "final_answer")
+        if final_answer is not None:
+            if final_answer.get("pending_tool_call"):
+                return "仍请求工具，但本轮已无执行预算"
+            return _compact_timeline_text(
+                final_answer.get("observation") or "模型给出最终回答"
+            )
+        action = _last_trace_event(events, "action")
+        if action is not None:
+            tool = str(action.get("tool_call") or "未知工具")
+            target = _trace_tool_target(action)
+            return f"请求 {tool}" + (f" · {target}" if target else "")
+        return _TRACE_EVENT_LABELS.get(
+            str(events[-1].get("event_type") or ""),
+            "决策已记录",
+        )
+
+    if key == "governance":
+        denied = any(
+            str(event.get("permission_decision") or "").lower() == "deny"
+            or not bool(event.get("success", True))
+            for event in events
+        )
+        waiting = any(
+            str(event.get("event_type") or "")
+            in {"human_approval", "human_input_requested"}
+            for event in events
+        )
+        if denied:
+            return f"策略阻断 · {len(events)} 项检查"
+        if waiting:
+            return f"等待人工决策 · {len(events)} 项检查"
+        return f"策略检查通过 · {len(events)} 项检查"
+
+    if key == "execution":
+        observations = [
+            event
+            for event in events
+            if str(event.get("event_type") or "") == "tool_observation"
+        ]
+        if observations:
+            tools = _ordered_tool_names(observations)
+            failures = sum(
+                1 for event in observations if not bool(event.get("success", True))
+            )
+            suffix = f"{failures} 次失败" if failures else "成功"
+            return f"{', '.join(tools)} · {suffix}"
+        started = _last_trace_event(events, "tool_execution_started")
+        if started is not None:
+            return f"{started.get('tool_call') or '工具'} · 已开始"
+        return f"{len(events)} 个执行事件"
+
+    completed = _last_trace_event(events, "run_completed")
+    if completed is not None:
+        status = str(completed.get("run_status") or "completed").upper()
+        reason = str(completed.get("stop_reason") or "")
+        return f"{status}" + (f" · {reason}" if reason else "")
+    checkpoint = _last_trace_event(events, "task_state_checkpoint")
+    if checkpoint is not None:
+        state = checkpoint.get("task_state") or {}
+        status = str(state.get("status") or "saved").upper()
+        messages = state.get("messages_count")
+        observations = state.get("observations_count")
+        counts = ""
+        if messages is not None or observations is not None:
+            counts = f"{int(messages or 0)} 条消息 · {int(observations or 0)} 条观察"
+        return f"{status}" + (f" · {counts}" if counts else "")
+    return f"{len(events)} 个状态 / 证据事件"
+
+
+def _render_raw_event_details(
+    events: list[dict[str, Any]],
+    *,
+    summary: str,
+) -> str:
+
+    pills = "".join(
+        "<span "
+        f"class='event-pill {_event_tone(str(event.get('event_type') or ''), bool(event.get('success', True)))}' "
+        f"title='{_escape(_raw_event_tooltip(event))}'>"
+        f"{_escape(_format_trace_event_label(index, event))}</span>"
+        for index, event in enumerate(events, start=1)
+    )
+    return (
+        "<details class='timeline-raw'>"
+        f"<summary>{_escape(summary)}（{len(events)}）</summary>"
+        f"<div class='timeline-raw-events'>{pills}</div>"
+        "</details>"
+    )
+
+
+def _timeline_turn_outcome(events: list[dict[str, Any]]) -> tuple[str, str]:
+
+    completed = _last_trace_event(events, "run_completed")
+    if completed is not None:
+        status = str(completed.get("run_status") or "completed")
+        return status.upper(), _tone_for_status(status)
+    if any(not bool(event.get("success", True)) for event in events):
+        return "存在失败", "bad"
+    if any(
+        str(event.get("event_type") or "")
+        in {"human_approval", "human_input_requested"}
+        for event in events
+    ):
+        return "等待人工", "warn"
+    if _last_trace_event(events, "tool_observation") is not None:
+        return "工具完成", "ok"
+    if _last_trace_event(events, "llm_call") is not None:
+        return "模型完成", "neutral"
+    return "正常推进", "neutral"
+
+
+def _last_trace_event(
+    events: list[dict[str, Any]],
+    event_type: str,
+) -> dict[str, Any] | None:
+
+    return next(
+        (
+            event
+            for event in reversed(events)
+            if str(event.get("event_type") or "") == event_type
+        ),
+        None,
+    )
+
+
+def _ordered_tool_names(events: list[dict[str, Any]]) -> list[str]:
+
+    names: list[str] = []
+    for event in events:
+        name = str(event.get("tool_call") or "工具")
+        if name not in names:
+            names.append(name)
+    return names
+
+
+def _trace_tool_target(event: dict[str, Any]) -> str:
+
+    arguments = event.get("tool_arguments") or {}
+    if not isinstance(arguments, dict):
+        return ""
+    for key in ("path", "target", "keyword", "query", "kind"):
+        value = arguments.get(key)
+        if value:
+            return _compact_timeline_text(value, max_chars=72)
+    return ""
+
+
+def _compact_timeline_text(value: object, *, max_chars: int = 96) -> str:
+
+    text = " ".join(str(value or "").split())
+    return text if len(text) <= max_chars else text[: max_chars - 1] + "…"
+
+
+def _format_milliseconds(value: int) -> str:
+
+    return f"{value / 1000:.2f}s" if value >= 1000 else f"{value}ms"
+
+
+def _raw_event_tooltip(event: dict[str, Any]) -> str:
+
+    event_type = str(event.get("event_type") or "event")
+    gap = int(event.get("duration_ms") or 0)
+    return (
+        f"raw event: {event_type}; gap since previous trace event: "
+        f"{_format_milliseconds(gap)}"
     )
 
 
@@ -997,7 +1319,7 @@ def _render_runtime_controls(project_dir: Path) -> str:
         )
     intervention_html = "".join(intervention_rows) or "<tr><td colspan='6'>No approval or recovery intervention was observed.</td></tr>"
     body = [
-        "<div class='view-heading'><div><span class='view-kicker'>CONTROL PLANE</span><h2>Runtime Controls</h2></div>"
+        "<div class='view-heading'><div><span class='view-kicker'>LAB 1 · GOVERNED RUN</span><h2>Runtime Controls</h2></div>"
         f"{_badge(mode, _tone_for_status(mode))}</div>",
         _metric_grid(
             [
@@ -1076,7 +1398,7 @@ def _render_orchestration_dashboard(project_dir: Path) -> str:
         return _empty_evidence("No orchestration artifact is available in the latest run.")
     decisions = summary.get("role_results") or []
     body = [
-        "<div class='view-heading'><div><span class='view-kicker'>ORCHESTRATION</span><h2>Multi-Agent Coordination</h2></div>"
+        "<div class='view-heading'><div><span class='view-kicker'>LAB 2 · COORDINATED AGENTS</span><h2>Multi-Agent Coordination</h2></div>"
         f"{_badge(str(summary.get('status') or 'unknown'), _tone_for_status(str(summary.get('status') or '')))}</div>",
         _metric_grid(
             [
@@ -1115,6 +1437,9 @@ def _render_evaluation_dashboard(project_dir: Path) -> str:
     baseline_patch = str(direct_baseline.get("model_patch") or "")
     evaluation_status = str(result.get("evaluation_status") or "not_evaluated")
     diagnosis = str(result.get("diagnosis") or "No diagnosis artifact was found.")
+    diagnosis_source = str(result.get("diagnosis_source") or "legacy_or_unavailable")
+    diagnosis_rule = str(result.get("diagnosis_rule_id") or "not_recorded")
+    taxonomy_version = str(result.get("diagnosis_taxonomy_version") or "not_recorded")
     evidence = result.get("diagnosis_evidence") or []
     next_actions = result.get("next_actions") or []
     body = [
@@ -1124,6 +1449,7 @@ def _render_evaluation_dashboard(project_dir: Path) -> str:
             [
                 ("Result", str(result.get("status") or "unknown"), "agent outcome", _tone_for_status(str(result.get("status") or ""))),
                 ("Failure Class", str(result.get("failure_class") or "unclassified"), "ordered taxonomy", _tone_for_status(str(result.get("failure_class") or ""))),
+                ("Diagnosis Source", diagnosis_source, f"rule={diagnosis_rule}; taxonomy={taxonomy_version}", "neutral"),
                 ("Patch", str(result.get("patch_chars") or 0), "candidate characters", "ok" if result.get("patch_chars") else "neutral"),
                 ("Official Eval", evaluation_status, "benchmark authority", _tone_for_status(evaluation_status)),
                 ("Verifier", str(comparison.get("verifier_status") or "not_observed"), "runtime role", _tone_for_status(str(comparison.get("verifier_status") or ""))),
@@ -1132,7 +1458,13 @@ def _render_evaluation_dashboard(project_dir: Path) -> str:
         ),
         "<section class='evidence-section'><div class='section-title'><h3>Diagnosis</h3><span>why this status occurred</span></div>"
         f"<p class='diagnosis'>{_escape(diagnosis)}</p>"
-        f"<div class='evidence-list'>{''.join(f'<span>{_escape(item)}</span>' for item in evidence)}</div></section>",
+        f"<div class='evidence-list'>{''.join(f'<span>{_escape(item)}</span>' for item in evidence)}</div>"
+        "<table><tbody>"
+        f"<tr><td>source</td><td>{_escape(diagnosis_source)}</td></tr>"
+        f"<tr><td>matched rule</td><td>{_escape(diagnosis_rule)}</td></tr>"
+        f"<tr><td>taxonomy version</td><td>{_escape(taxonomy_version)}</td></tr>"
+        "<tr><td>human review</td><td>See Evaluation & Improvement record; automated taxonomy alone is not human judgment.</td></tr>"
+        "</tbody></table></section>",
         "<section class='evidence-section'><div class='section-title'><h3>Next Evidence</h3><span>required before stronger claims</span></div>"
         f"<ol class='next-actions'>{''.join(f'<li>{_escape(item)}</li>' for item in next_actions) or '<li>No next action recorded.</li>'}</ol></section>",
         "<section class='evidence-section'><div class='section-title'><h3>Matched Comparison</h3><span>same task, different runtime design</span></div>"
@@ -1305,25 +1637,53 @@ def _render_benchmark_dashboard(project_dir: Path) -> str:
 
 
 def _render_feedback_dashboard(project_dir: Path) -> str:
-
     feedback_path = _latest_feedback_path(project_dir)
     feedback = _read_json_file(feedback_path)
+    improvement_path = _latest_improvement_record_path(project_dir)
+    improvement = _read_json_file(improvement_path)
     dataset_path = project_dir / ".agent_forge/evaluation/evidence_dataset.jsonl"
-    records = 0
-    if dataset_path.exists():
-        records = sum(1 for line in dataset_path.read_text(encoding="utf-8").splitlines() if line.strip())
     outcome = str(feedback.get("outcome") or "unreviewed")
+    decision = improvement.get("decision") or {}
+    diagnosis = improvement.get("diagnosis") or {}
+    before_after = improvement.get("before_after") or {}
+    control = before_after.get("control") or {}
+    treatment = before_after.get("treatment") or {}
+    delta = before_after.get("delta") or {}
+    improvement_status = str(decision.get("status") or "not_recorded")
+    chain = (
+        "<div class='pipeline improvement-chain'>"
+        f"<div><b>01</b><span>Observed problem</span><small>{_escape(improvement.get('observed_problem') or 'not recorded')}</small></div>"
+        f"<div><b>02</b><span>Diagnosis</span><small>{_escape(diagnosis.get('source') or 'not recorded')} · {_escape(diagnosis.get('review_status') or 'unreviewed')}</small></div>"
+        f"<div><b>03</b><span>Hypothesis</span><small>{_escape(improvement.get('hypothesis') or 'not recorded')}</small></div>"
+        f"<div><b>04</b><span>Change</span><small>{_escape((improvement.get('change') or {}).get('reference') or 'not recorded')}</small></div>"
+        f"<div><b>05</b><span>Regression</span><small>{len(improvement.get('regression_cases') or [])} matched case(s)</small></div>"
+        f"<div><b>06</b><span>Decision</span><small>{_escape(improvement_status)}</small></div>"
+        "</div>"
+    )
     body = [
-        "<div class='view-heading'><div><span class='view-kicker'>IMPROVEMENT LOOP</span><h2>Feedback & Dataset</h2></div>"
-        f"{_badge(outcome, _tone_for_status(outcome))}</div>",
+        "<div class='view-heading'><div><span class='view-kicker'>LAB 3 · EVALUATION LOOP</span><h2>Evaluation & Improvement</h2></div>"
+        f"{_badge(improvement_status, _tone_for_status(improvement_status))}</div>",
         _metric_grid(
             [
-                ("Human Outcome", outcome, "operator label", _tone_for_status(outcome)),
-                ("Labels", str(len(feedback.get("labels") or [])), "curation metadata", "neutral"),
-                ("Dataset Records", str(records), "safe JSONL projection", "neutral"),
-                ("Patch Content", "excluded", "default export", "ok"),
+                ("Decision", improvement_status, "adopt / iterate / reject", _tone_for_status(improvement_status)),
+                ("Diagnosis Review", str(diagnosis.get("review_status") or "unreviewed"), str(diagnosis.get("source") or "not recorded"), "ok" if diagnosis.get("review_status") == "reviewed" else "warn"),
+                ("Official Delta", str(delta.get("official_resolved", "-")), "treatment - control", "neutral"),
+                ("Failed Tool Delta", str(delta.get("failed_tool_calls", "-")), "negative is fewer failures", "ok" if isinstance(delta.get("failed_tool_calls"), (int, float)) and delta.get("failed_tool_calls") < 0 else "neutral"),
+                ("Token Delta", str(delta.get("total_tokens", "-")), "cost of treatment", "warn"),
+                ("Human Outcome", outcome, "per-run curation label", _tone_for_status(outcome)),
             ]
         ),
+        "<section class='evidence-section'><div class='section-title'><h3>Improvement Record</h3><span>problem → evidence-backed decision</span></div>"
+        f"{chain}</section>",
+        "<section class='evidence-section'><div class='section-title'><h3>Before / After Evidence</h3><span>same campaign summary, no metric recomputation</span></div>"
+        "<table><thead><tr><th>metric</th><th>minimal control</th><th>governed runtime</th><th>delta</th></tr></thead><tbody>"
+        f"<tr><td>official resolved</td><td>{_escape(control.get('official_resolved', '-'))}/{_escape(control.get('official_evaluated', '-'))}</td><td>{_escape(treatment.get('official_resolved', '-'))}/{_escape(treatment.get('official_evaluated', '-'))}</td><td>{_escape(delta.get('official_resolved', '-'))}</td></tr>"
+        f"<tr><td>failed tool calls</td><td>{_escape(control.get('failed_tool_calls', '-'))}</td><td>{_escape(treatment.get('failed_tool_calls', '-'))}</td><td>{_escape(delta.get('failed_tool_calls', '-'))}</td></tr>"
+        f"<tr><td>total tokens</td><td>{_escape(control.get('total_tokens', '-'))}</td><td>{_escape(treatment.get('total_tokens', '-'))}</td><td>{_escape(delta.get('total_tokens', '-'))}</td></tr>"
+        f"<tr><td>estimated cost</td><td>${_escape(control.get('estimated_cost_usd', '-'))}</td><td>${_escape(treatment.get('estimated_cost_usd', '-'))}</td><td>${_escape(delta.get('estimated_cost_usd', '-'))}</td></tr>"
+        "</tbody></table>"
+        f"<p class='boundary-note'><strong>Decision rationale:</strong> {_escape(decision.get('rationale') or 'not recorded')}</p>"
+        f"<p class='boundary-note'><strong>Claim boundary:</strong> {_escape(improvement.get('claim_boundary') or 'No stronger claim is supported.')}</p></section>",
         "<section class='evidence-section'><div class='section-title'><h3>Latest Human Judgment</h3><span>not benchmark authority</span></div>"
         "<table><tbody>"
         f"<tr><td>outcome</td><td>{_escape(outcome)}</td></tr>"
@@ -1338,7 +1698,8 @@ def _render_feedback_dashboard(project_dir: Path) -> str:
         "<tr><td>environment, patch size + SHA-256, feedback</td><td>provider secrets</td><td>schema version</td></tr>"
         "</tbody></table>"
         "<p class='boundary-note'>Exported records are curation inputs for bad-case analysis and regression selection, not automatically production training data.</p></section>",
-        f"<details class='provenance'><summary>Feedback provenance</summary><code>{_escape(str(feedback_path or 'not found'))}</code>"
+        f"<details class='provenance'><summary>Improvement provenance</summary><code>{_escape(str(improvement_path or 'not found'))}</code>"
+        f"<code>{_escape(str(feedback_path or 'not found'))}</code>"
         f"<code>{_escape(str(dataset_path))}</code></details>",
     ]
     return "<div class='evidence'>" + "".join(body) + "</div>"
@@ -1516,7 +1877,17 @@ def _tone_for_status(value: str) -> str:
     lowered = str(value).lower()
     if "patch_generated" in lowered or lowered in {"ok", "succeeded", "success"}:
         return "ok"
-    if any(marker in lowered for marker in ("blocked", "failed", "error", "repeated", "deny")):
+    if any(
+        marker in lowered
+        for marker in (
+            "blocked",
+            "failed",
+            "error",
+            "repeated",
+            "deny",
+            "pending_tool_call_at_stop",
+        )
+    ):
         return "bad"
     if any(marker in lowered for marker in ("no_patch", "not_evaluated", "unavailable", "missing")):
         return "warn"
@@ -1538,51 +1909,73 @@ def _trace_scope_label(trace_path: Path | None) -> str:
     return "agent run trace"
 
 
+_TRACE_EVENT_LABELS = {
+    "turn_started": "Turn 开始",
+    "task_state_checkpoint": "Checkpoint",
+    "model_capabilities": "模型能力",
+    "context_assembly": "上下文组装",
+    "context_window": "上下文窗口",
+    "context_overflow_recovery": "上下文恢复",
+    "model_started": "模型请求",
+    "llm_call": "模型响应",
+    "guardrail_check": "安全检查",
+    "clarification_decision": "澄清判断",
+    "skill_selection": "Skill 选择",
+    "memory_recall": "记忆召回",
+    "action": "工具意图",
+    "file_write": "产物写入",
+    "permission_check": "权限决策",
+    "hook_check": "Hook 检查",
+    "human_approval": "人工审批",
+    "human_input_requested": "等待人工输入",
+    "human_input_response_loaded": "载入人工回答",
+    "human_input_cancelled": "人工输入已取消",
+    "tool_execution_started": "工具开始",
+    "tool_call": "工具调用记录",
+    "tool_observation": "工具结果",
+    "validation_evidence": "验证证据",
+    "observation": "会话回填",
+    "evidence_collected": "证据记录",
+    "operation_ledger": "操作账本",
+    "recovery_decision": "恢复判断",
+    "resume_state_loaded": "恢复状态载入",
+    "verifier_result": "验证结论",
+    "review_decision": "审查结论",
+    "final_answer": "最终回答",
+    "stop_hooks": "停止 Hook",
+    "run_completed": "运行结束",
+    "run_control": "运行控制",
+    "multi_agent_start": "多 Agent 开始",
+    "handoff": "角色交接",
+    "agent_stage_start": "角色开始",
+    "agent_stage_end": "角色结束",
+    "artifact_created": "产物写入",
+    "multi_agent_done": "多 Agent 完成",
+    "fanout_start": "Fanout 开始",
+    "fanout_batch_done": "Fanout 批次完成",
+    "fanout_done": "Fanout 完成",
+    "finalizer_error": "Finalizer 失败",
+}
+
+
 def _format_trace_event_label(index: int, event: dict[str, Any]) -> str:
 
     event_type = str(event.get("event_type") or "event")
-    names = {
-        "task_state_checkpoint": "状态检查点",
-        "context_assembly": "上下文组装",
-        "llm_call": "模型调用",
-        "guardrail_check": "安全检查",
-        "clarification_decision": "澄清判断",
-        "skill_selection": "Skill 选择",
-        "action": "动作解析",
-        "file_write": "产物写入",
-        "permission_check": "权限检查",
-        "hook_check": "工具前置检查",
-        "human_approval": "人工审批",
-        "human_input_requested": "等待人工输入",
-        "human_input_response_loaded": "载入人工回答",
-        "human_input_cancelled": "人工输入已取消",
-        "tool_call": "工具调用",
-        "tool_observation": "工具结果",
-        "observation": "观察回填",
-        "evidence_collected": "证据记录",
-        "recovery_decision": "恢复判断",
-        "verifier_result": "验证结论",
-        "review_decision": "审查结论",
-        "final_answer": "最终回答",
-        "stop_hooks": "停止钩子",
-        "multi_agent_start": "多 Agent 开始",
-        "handoff": "角色交接",
-        "agent_stage_start": "角色开始",
-        "agent_stage_end": "角色结束",
-        "artifact_created": "产物写入",
-        "multi_agent_done": "多 Agent 完成",
-        "fanout_start": "Fanout 开始",
-        "fanout_batch_done": "Fanout 批次完成",
-        "fanout_done": "Fanout 完成",
-        "finalizer_error": "Finalizer 失败",
-    }
-    fields = [f"{index}. {names.get(event_type, event_type)}"]
-    if event.get("agent"):
-        fields.append(f"agent: {event.get('agent')}")
+    label = _TRACE_EVENT_LABELS.get(event_type, event_type)
+    if event_type == "hook_check":
+        if event.get("hook_stage") == "before_model":
+            label = "模型前 Hook"
+        elif event.get("tool_call"):
+            label = "工具策略 Hook"
+    fields = [f"{index}. {label}"]
+    agent_name = event.get("agent_name") or event.get("agent")
+    if agent_name and str(agent_name) not in {"CodingAgent", "Runtime"}:
+        fields.append(f"agent: {agent_name}")
     if event.get("tool_call"):
         fields.append(f"tool: {event.get('tool_call')}")
     if event.get("duration_ms"):
-        fields.append(f"time: {int(event.get('duration_ms') or 0)} ms")
+        gap = int(event.get("duration_ms") or 0)
+        fields.append(f"距上一事件: {_format_milliseconds(gap)}")
     if not bool(event.get("success", True)):
         fields.append("status: failed")
     return " | ".join(fields)
@@ -1592,23 +1985,41 @@ def _event_tone(event_type: str, success: bool) -> str:
 
     if not success:
         return "bad"
-    if event_type == "llm_call":
+    if event_type in {"model_started", "llm_call"}:
         return "blue"
     if event_type in {
+        "turn_started",
         "context_assembly",
-        "observation",
+        "context_window",
+        "context_overflow_recovery",
+        "memory_recall",
+        "skill_selection",
         "handoff",
         "agent_stage_start",
         "agent_stage_end",
-        "task_state_checkpoint",
-        "evidence_collected",
         "multi_agent_start",
         "multi_agent_done",
     }:
         return "purple"
-    if event_type in {"tool_call", "tool_observation", "guardrail_check", "permission_check", "hook_check"}:
+    if event_type in {
+        "tool_execution_started",
+        "tool_call",
+        "tool_observation",
+        "validation_evidence",
+    }:
         return "ok"
-    if event_type in {"action", "human_approval", "clarification_decision", "skill_selection", "recovery_decision"}:
+    if event_type in {
+        "action",
+        "guardrail_check",
+        "hook_check",
+        "permission_check",
+        "human_approval",
+        "human_input_requested",
+        "clarification_decision",
+        "recovery_decision",
+        "review_decision",
+        "verifier_result",
+    }:
         return "warn"
     return "neutral"
 
@@ -1889,6 +2300,44 @@ INDEX_HTML = r"""<!doctype html>
       border-color: rgba(10, 132, 255, .34);
       box-shadow: 0 3px 10px rgba(10, 132, 255, .12);
     }
+    .evidence-menu {
+      position: relative;
+      flex: 0 0 auto;
+      margin: 0;
+      padding: 0;
+      border: 0;
+    }
+    .evidence-menu > summary {
+      min-height: 42px;
+      display: flex;
+      align-items: center;
+      padding: 0 13px;
+      color: #5a6573;
+      font-weight: 650;
+      list-style: none;
+    }
+    .evidence-menu > summary::-webkit-details-marker { display: none; }
+    .evidence-menu > summary::after { content: " ▾"; }
+    .evidence-menu[open] > summary::after { content: " ▴"; }
+    .evidence-menu > div {
+      position: absolute;
+      z-index: 20;
+      top: 42px;
+      left: 0;
+      min-width: 190px;
+      padding: 6px;
+      background: #fff;
+      border: 1px solid var(--line);
+      box-shadow: 0 12px 30px rgba(24, 31, 39, .14);
+    }
+    .evidence-menu > div button {
+      display: block;
+      width: 100%;
+      min-height: 34px;
+      padding: 7px 9px;
+      text-align: left;
+      border: 0;
+    }
     .output {
       white-space: pre-wrap;
       word-break: break-word;
@@ -2022,11 +2471,6 @@ INDEX_HTML = r"""<!doctype html>
       font-size: 12px;
       background: rgba(255, 255, 255, .72);
     }
-    .timeline-step {
-      border-left: 2px solid rgba(10, 132, 255, .18);
-      padding: 12px 0 12px 16px;
-      margin-left: 6px;
-    }
     .timeline-head {
       display: flex;
       align-items: center;
@@ -2034,10 +2478,83 @@ INDEX_HTML = r"""<!doctype html>
       gap: 10px;
       margin-bottom: 8px;
     }
+    .timeline-head > div { min-width: 0; }
+    .timeline-head strong, .timeline-head small { display: block; }
+    .timeline-head small { margin-top: 3px; color: var(--muted); font-size: 10px; font-weight: 500; }
+    .timeline-run-level {
+      margin: 4px 0 10px;
+      padding: 12px 0;
+      border-top: 1px solid var(--line);
+      border-bottom: 1px solid var(--line);
+    }
+    .timeline-turn {
+      padding: 16px 0 14px;
+      border-bottom: 1px solid var(--line);
+    }
+    .timeline-phase-grid {
+      display: grid;
+      grid-template-columns: repeat(6, minmax(0, 1fr));
+      border: 1px solid var(--line);
+      background: #fff;
+    }
+    .timeline-phase {
+      min-width: 0;
+      min-height: 108px;
+      padding: 12px;
+      border-right: 1px solid var(--line);
+      border-top: 3px solid transparent;
+    }
+    .timeline-phase:last-child { border-right: 0; }
+    .timeline-phase.purple { border-top-color: rgba(94, 92, 230, .72); }
+    .timeline-phase.blue { border-top-color: rgba(0, 87, 184, .72); }
+    .timeline-phase.warn { border-top-color: rgba(163, 95, 0, .72); }
+    .timeline-phase.ok { border-top-color: rgba(36, 138, 61, .72); }
+    .timeline-phase.neutral { border-top-color: rgba(102, 112, 125, .46); }
+    .timeline-phase.empty { background: #f7f8fa; border-top-color: #d8dde4; }
+    .timeline-phase-head {
+      display: flex;
+      align-items: baseline;
+      gap: 7px;
+      margin-bottom: 10px;
+    }
+    .timeline-phase-head b {
+      color: #9aa3af;
+      font: 700 10px/1 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    }
+    .timeline-phase-head span { color: #384454; font-size: 11px; font-weight: 800; }
+    .timeline-phase > strong {
+      display: block;
+      min-height: 34px;
+      color: #202938;
+      font-size: 12px;
+      line-height: 1.45;
+      overflow-wrap: anywhere;
+    }
+    .timeline-phase.empty > strong { color: #9aa3af; font-weight: 600; }
+    .timeline-phase > small {
+      display: block;
+      margin-top: 8px;
+      color: var(--muted);
+      font-size: 9px;
+      line-height: 1.4;
+    }
+    .timeline-raw {
+      margin-top: 9px;
+      padding: 0;
+      border: 0;
+      background: transparent;
+    }
+    .timeline-raw summary {
+      color: #66707d;
+      font-size: 10px;
+      font-weight: 700;
+      cursor: pointer;
+    }
+    .timeline-raw-events { padding-top: 9px; }
     .event-pill {
       display: inline-block;
       border: 1px solid var(--line);
-      border-radius: 999px;
+      border-radius: 4px;
       padding: 6px 10px;
       margin: 0 7px 7px 0;
       font-size: 12px;
@@ -2059,6 +2576,7 @@ INDEX_HTML = r"""<!doctype html>
     }
     .legend-item.blue { border-color: rgba(10, 132, 255, .32); color: #0057b8; background: rgba(10, 132, 255, .09); }
     .legend-item.purple { border-color: rgba(142, 140, 240, .34); color: #5e5ce6; background: rgba(142, 140, 240, .1); }
+    .legend-item.warn { border-color: rgba(255, 149, 0, .34); color: #a35f00; background: rgba(255, 149, 0, .1); }
     .legend-item.ok { border-color: rgba(52, 199, 89, .34); color: #248a3d; background: rgba(52, 199, 89, .09); }
     .legend-item.bad { border-color: rgba(215, 0, 21, .28); color: var(--red); background: rgba(215, 0, 21, .08); }
     .legend-item.neutral {
@@ -2202,8 +2720,8 @@ INDEX_HTML = r"""<!doctype html>
     .pill .k { color: #768191; font-size: 9px; text-transform: uppercase; font-weight: 800; }
     .pill .v { margin-top: 2px; font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .view-tabs {
-      position: sticky; top: 110px; z-index: 7; display: flex; flex-wrap: nowrap;
-      gap: 0; margin: 0 -24px 20px; padding: 0 24px; overflow-x: auto;
+      position: sticky; top: 110px; z-index: 7; display: flex; flex-wrap: wrap;
+      gap: 0; margin: 0 -24px 20px; padding: 0 24px; overflow: visible;
       background: #fff; border-bottom: 1px solid var(--line); backdrop-filter: none;
     }
     body.status-collapsed .view-tabs { top: 64px; }
@@ -2287,6 +2805,9 @@ INDEX_HTML = r"""<!doctype html>
       .pipeline { grid-template-columns: repeat(3, minmax(0, 1fr)); }
       .pipeline > div:nth-child(3) { border-right: 0; }
       .pipeline > div:nth-child(-n+3) { border-bottom: 1px solid var(--line); }
+      .timeline-phase-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+      .timeline-phase:nth-child(3) { border-right: 0; }
+      .timeline-phase:nth-child(-n+3) { border-bottom: 1px solid var(--line); }
     }
     @media (max-width: 900px) {
       header { position: sticky; padding: 10px 12px; flex-direction: row; align-items: center; gap: 8px; }
@@ -2302,6 +2823,14 @@ INDEX_HTML = r"""<!doctype html>
       .metric { min-height: 88px; }
       .pipeline, .claim-ladder, .artifact-grid, .capability-strip { grid-template-columns: 1fr; }
       .pipeline > div, .capability-strip div { border-right: 0; border-bottom: 1px solid var(--line); }
+      .timeline-phase-grid { grid-template-columns: 1fr; }
+      .timeline-phase {
+        min-height: 0;
+        border-right: 0;
+        border-bottom: 1px solid var(--line);
+      }
+      .timeline-phase:last-child { border-bottom: 0; }
+      .timeline-phase > strong { min-height: 0; }
       .coordination-graph { grid-template-columns: 1fr; }
       .coordination-graph i { text-align: center; }
       table { display: block; overflow-x: auto; table-layout: auto; }
@@ -2318,7 +2847,7 @@ INDEX_HTML = r"""<!doctype html>
       <div class="brand-mark">NH</div>
       <div>
         <h1>NanoHarness Workbench</h1>
-        <div class="subtitle">Read-only Run Story, artifact lineage, and benchmark evidence</div>
+      <div class="subtitle">Three guided evidence scenes: control, coordination, improvement</div>
       </div>
     </div>
     <div class="header-actions">
@@ -2335,16 +2864,21 @@ INDEX_HTML = r"""<!doctype html>
         <div class="pill"><div class="k">Current View</div><div class="v" id="currentView">Overview</div></div>
       </div>
       <div class="view-tabs">
-        <button data-view="summary" onclick="loadEvidence('summary')">Overview</button>
-        <button data-view="evidence" onclick="loadEvidence('evidence')">Run Evidence</button>
-        <button data-view="benchmark" onclick="loadEvidence('benchmark')">Benchmark</button>
-        <button data-view="controls" onclick="loadEvidence('controls')">Runtime Controls</button>
-        <button data-view="orchestration" onclick="loadEvidence('orchestration')">Orchestration</button>
-        <button data-view="evaluation" onclick="loadEvidence('evaluation')">Evaluation</button>
-        <button data-view="compare" onclick="loadEvidence('compare')">Single vs Multi</button>
-        <button data-view="usage" onclick="loadEvidence('usage')">Efficiency</button>
-        <button data-view="timeline" onclick="loadEvidence('timeline')">Timeline</button>
-        <button data-view="feedback" onclick="loadEvidence('feedback')">Feedback Loop</button>
+        <button data-view="controls" onclick="loadEvidence('controls')">1 Governed Run</button>
+        <button data-view="orchestration" onclick="loadEvidence('orchestration')">2 Coordinated Agents</button>
+        <button data-view="feedback" onclick="loadEvidence('feedback')">3 Evaluation Loop</button>
+        <details class="evidence-menu">
+          <summary>Evidence details</summary>
+          <div>
+            <button data-view="summary" onclick="loadEvidence('summary')">Overview</button>
+            <button data-view="evidence" onclick="loadEvidence('evidence')">Run Story</button>
+            <button data-view="timeline" onclick="loadEvidence('timeline')">Timeline</button>
+            <button data-view="benchmark" onclick="loadEvidence('benchmark')">Benchmark</button>
+            <button data-view="evaluation" onclick="loadEvidence('evaluation')">Diagnosis</button>
+            <button data-view="compare" onclick="loadEvidence('compare')">Single vs Multi</button>
+            <button data-view="usage" onclick="loadEvidence('usage')">Efficiency</button>
+          </div>
+        </details>
         <button class="utility" onclick="refreshStatus()" title="Refresh status">Refresh</button>
       </div>
       <div id="output" class="output">Loading runtime evidence...</div>
@@ -2355,13 +2889,13 @@ INDEX_HTML = r"""<!doctype html>
       summary: 'Overview',
       evidence: 'Run Evidence',
       benchmark: 'Benchmark',
-      controls: 'Runtime Controls',
-      orchestration: 'Orchestration',
+      controls: 'Lab 1 · Governed Run',
+      orchestration: 'Lab 2 · Coordinated Agents',
       evaluation: 'Evaluation',
       compare: 'Single vs Multi',
       usage: 'Efficiency',
       timeline: 'Execution Timeline',
-      feedback: 'Feedback Loop',
+      feedback: 'Lab 3 · Evaluation Loop',
       raw_report: 'Raw Report'
     };
 
@@ -2378,6 +2912,8 @@ INDEX_HTML = r"""<!doctype html>
       const data = await res.json();
       document.getElementById('output').innerHTML = data.html;
       setActiveEvidence(kind);
+      const menu = document.querySelector('.evidence-menu');
+      if (menu) menu.removeAttribute('open');
       refreshStatus();
     }
 
@@ -2421,7 +2957,7 @@ INDEX_HTML = r"""<!doctype html>
     }
     updateLayoutControls();
     refreshStatus();
-    loadEvidence('summary');
+    loadEvidence('controls');
   </script>
 </body>
 </html>

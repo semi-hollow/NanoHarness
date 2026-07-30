@@ -1,5 +1,5 @@
 <component name="ProjectRunConfigurationManager">
-  <configuration default="false" name="NanoHarness Interview 2 - Latest Evidence" type="PythonConfigurationType" factoryName="Python">
+  <configuration default="false" name="NanoHarness Interview Demo" type="PythonConfigurationType" factoryName="Python">
     <option name="ENV_FILES" value="" />
     <option name="INTERPRETER_OPTIONS" value="" />
     <option name="PARENT_ENVS" value="true" />
@@ -13,7 +13,7 @@
     <option name="ADD_SOURCE_ROOTS" value="true" />
     <option name="MODULE_MODE" value="false" />
     <option name="SCRIPT_NAME" value="$PROJECT_DIR$/examples/interview_showcase.py" />
-    <option name="PARAMETERS" value="latest" />
+    <option name="PARAMETERS" value="" />
     <option name="SHOW_COMMAND_LINE" value="false" />
     <option name="EMULATE_TERMINAL" value="true" />
     <option name="REDIRECT_INPUT" value="false" />

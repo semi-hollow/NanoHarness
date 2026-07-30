@@ -40,10 +40,9 @@ class DebugLabSupportTest(unittest.TestCase):
 
     def test_shared_configs_route_to_one_debug_lab_in_order(self) -> None:
         expected = (
-            ("NanoHarness Lab 1 - Control Plane", "control"),
-            ("NanoHarness Lab 2 - Fixed Repair", "fixed"),
-            ("NanoHarness Lab 3 - Live Agent", "live"),
-            ("NanoHarness Lab 4 - Astropy Evidence", "astropy"),
+            ("NanoHarness Lab 1 - Governed Repair", "governed"),
+            ("NanoHarness Lab 2 - Coordinated Agents", "coordinated"),
+            ("NanoHarness Lab 3 - Evaluation Loop", "evaluation"),
         )
         actual: list[tuple[str, str]] = []
         for name, scenario in expected:
@@ -68,7 +67,10 @@ class DebugLabSupportTest(unittest.TestCase):
     def test_breakpoint_symbols_resolve_and_install_idempotently(self) -> None:
         resolved = resolve_breakpoints(PROJECT_ROOT)
         self.assertEqual(len(resolved), len(TARGETS))
-        self.assertEqual(len({(item["url"], item["line"]) for item in resolved}), 20)
+        self.assertEqual(
+            len({(item["url"], item["line"]) for item in resolved}),
+            len(TARGETS),
+        )
         by_label = {str(item["label"]): item for item in resolved}
         candidate = by_label["Candidate diff"]
         candidate_line = (
@@ -109,7 +111,7 @@ class DebugLabSupportTest(unittest.TestCase):
             managed = [node for node in nodes if node.findtext("group") == LAB_GROUP]
             user = [node for node in nodes if node.findtext("group") != LAB_GROUP]
 
-        self.assertEqual(len(managed), 20)
+        self.assertEqual(len(managed), len(TARGETS))
         self.assertEqual(len(user), 1)
         self.assertEqual(
             user[0].find("condition").get("expression"),
@@ -119,12 +121,26 @@ class DebugLabSupportTest(unittest.TestCase):
 
     def test_fixture_and_interview_entry_do_not_duplicate_runtime(self) -> None:
         fixture = PROJECT_ROOT / "examples" / "debug_lab" / "repository"
+        fanout_fixture = (
+            PROJECT_ROOT / "examples" / "debug_lab" / "multi_agent_repository"
+        )
         self.assertIn("return a - b", (fixture / "calculator.py").read_text(encoding="utf-8"))
         self.assertIn("assert add(2, 3) == 5", (fixture / "test_calculator.py").read_text(encoding="utf-8"))
+        self.assertIn(
+            "return subtotal",
+            (fanout_fixture / "pricing.py").read_text(encoding="utf-8"),
+        )
+        self.assertIn(
+            "== 85",
+            (fanout_fixture / "test_checkout.py").read_text(encoding="utf-8"),
+        )
         interview = (PROJECT_ROOT / "scripts" / "interview_demo.sh").read_text(
             encoding="utf-8"
         )
         self.assertIn("examples/debug_lab/run.py", interview)
+        self.assertIn("workbench_source_sha256", interview)
+        self.assertIn("kill -0", interview)
+        self.assertIn("build=${expected_workbench_source:0:12}", interview)
         self.assertNotIn("forge run", interview)
         self.assertNotIn("calculator.py", interview)
 

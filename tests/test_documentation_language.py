@@ -121,13 +121,13 @@ class DocumentationLanguageTest(unittest.TestCase):
         lab_path = PROJECT_ROOT / "examples/debug_lab/README.md"
         lab = lab_path.read_text(encoding="utf-8")
         required_lab_contracts = (
-            "NanoHarness Lab 1 - Control Plane",
-            "NanoHarness Lab 2 - Fixed Repair",
-            "NanoHarness Lab 3 - Live Agent",
-            "NanoHarness Lab 4 - Astropy Evidence",
+            "NanoHarness Lab 1 - Governed Repair",
+            "NanoHarness Lab 2 - Coordinated Agents",
+            "NanoHarness Lab 3 - Evaluation Loop",
             "scripts/install_pycharm_debug_lab.py",
-            "Workbench 只读回放落盘 Evidence",
+            "Debugger 看动态因果；Workbench 看最终留下的可验证 Evidence",
             "astropy__astropy-12907",
+            "六问不过，就不算学会",
         )
         for contract in required_lab_contracts:
             if contract not in lab:
@@ -137,12 +137,14 @@ class DocumentationLanguageTest(unittest.TestCase):
             "examples/debug_lab/support.py",
             "examples/debug_lab/repository/calculator.py",
             "examples/debug_lab/repository/test_calculator.py",
+            "examples/debug_lab/multi_agent_repository/pricing.py",
+            "examples/debug_lab/multi_agent_repository/shipping.py",
+            "examples/debug_lab/multi_agent_repository/test_checkout.py",
             "scripts/install_pycharm_debug_lab.py",
             "scripts/interview_demo.sh",
-            ".run/NanoHarness Lab 1 - Control Plane.run.xml",
-            ".run/NanoHarness Lab 2 - Fixed Repair.run.xml",
-            ".run/NanoHarness Lab 3 - Live Agent.run.xml",
-            ".run/NanoHarness Lab 4 - Astropy Evidence.run.xml",
+            ".run/NanoHarness Lab 1 - Governed Repair.run.xml",
+            ".run/NanoHarness Lab 2 - Coordinated Agents.run.xml",
+            ".run/NanoHarness Lab 3 - Evaluation Loop.run.xml",
         ):
             if not (PROJECT_ROOT / relative_path).is_file():
                 violations.append(f"Debug Lab support is missing: {relative_path}")

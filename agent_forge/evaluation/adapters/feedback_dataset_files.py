@@ -9,6 +9,8 @@ from typing import Any, Iterable
 
 FEEDBACK_OUTCOMES = {"accepted", "needs_work", "rejected"}
 SCHEMA_VERSION = "agent-forge-eval-v1"
+IMPROVEMENT_SCHEMA_VERSION = "agent-forge-improvement-v1"
+IMPROVEMENT_DECISIONS = {"adopt", "iterate", "reject"}
 
 
 # 核心数据：在既有运行证据上追加人工反馈的完整输入。
@@ -21,6 +23,25 @@ class FeedbackRequest:
     labels: tuple[str, ...] = ()
     note: str = ""
     reviewer: str = "human"
+
+
+# 核心数据：把一次 Runtime 改动与前后评测证据连接起来。
+@dataclass(frozen=True)
+class ImprovementRecordRequest:
+    """改进假设、对照变体、人工判断和诚实声明边界。"""
+
+    campaign_dir: str | Path
+    observed_problem: str
+    hypothesis: str
+    change_ref: str
+    decision: str
+    decision_rationale: str
+    claim_boundary: str
+    control_variant: str = "minimal-control"
+    treatment_variant: str = "governed-runtime"
+    diagnosis_source: str = "maintainer_review"
+    diagnosis_review_status: str = "reviewed"
+    reviewer: str = "project-maintainer"
 
 
 # 主要入口：在现有 run/case artifact 上追加人工 outcome、label 和 note。
@@ -50,6 +71,102 @@ def record_feedback(request: FeedbackRequest) -> Path:
     temporary = path.with_suffix(".json.tmp")
     temporary.write_text(
         json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
+    temporary.replace(path)
+    return path
+
+
+# 主要入口：从现有 campaign 事实生成一条可审计的改进闭环记录。
+def write_improvement_record(request: ImprovementRecordRequest) -> Path:
+    """只投影既有 benchmark 指标，不重新计算或拔高 correctness 结论。"""
+
+    campaign_dir = Path(request.campaign_dir)
+    summary_path = campaign_dir / "summary.json"
+    manifest_path = campaign_dir / "manifest.json"
+    summary = _read_json(summary_path)
+    manifest = _read_json(manifest_path)
+    if not summary or not manifest:
+        raise ValueError(
+            "improvement record requires campaign summary.json and manifest.json"
+        )
+
+    decision = request.decision.strip().lower()
+    if decision not in IMPROVEMENT_DECISIONS:
+        choices = ", ".join(sorted(IMPROVEMENT_DECISIONS))
+        raise ValueError(
+            f"unsupported improvement decision: {request.decision}; "
+            f"choose one of {choices}"
+        )
+    variants = summary.get("variants")
+    if not isinstance(variants, dict):
+        raise ValueError("campaign summary has no variant metrics")
+    control = variants.get(request.control_variant)
+    treatment = variants.get(request.treatment_variant)
+    if not isinstance(control, dict) or not isinstance(treatment, dict):
+        raise ValueError(
+            "improvement record variants are absent from campaign summary: "
+            f"{request.control_variant}, {request.treatment_variant}"
+        )
+
+    config = manifest.get("config")
+    config = config if isinstance(config, dict) else {}
+    case_ids = [
+        str(case_id)
+        for case_id in config.get("case_ids") or []
+        if str(case_id).strip()
+    ]
+    payload = {
+        "schema_version": IMPROVEMENT_SCHEMA_VERSION,
+        "record_id": f"{summary.get('campaign_id') or campaign_dir.name}-runtime-preset",
+        "source_evidence": {
+            "campaign_id": str(summary.get("campaign_id") or campaign_dir.name),
+            "summary": summary_path.name,
+            "manifest": manifest_path.name,
+            "config_digest": str(summary.get("config_digest") or ""),
+            "source_revision": str((summary.get("source") or {}).get("revision") or ""),
+        },
+        "observed_problem": request.observed_problem.strip(),
+        "diagnosis": {
+            "source": request.diagnosis_source.strip(),
+            "review_status": request.diagnosis_review_status.strip(),
+            "reviewer": request.reviewer.strip(),
+        },
+        "hypothesis": request.hypothesis.strip(),
+        "change": {
+            "reference": request.change_ref.strip(),
+            "control_variant": request.control_variant,
+            "treatment_variant": request.treatment_variant,
+            "comparison_factor": str(config.get("comparison_factor") or ""),
+        },
+        "regression_cases": case_ids,
+        "before_after": {
+            "control": _improvement_metrics(control),
+            "treatment": _improvement_metrics(treatment),
+            "delta": {
+                "failed_tool_calls": _number(treatment, "failed_tool_calls")
+                - _number(control, "failed_tool_calls"),
+                "total_tokens": _number(treatment, "total_tokens")
+                - _number(control, "total_tokens"),
+                "estimated_cost_usd": round(
+                    _number(treatment, "estimated_cost_usd")
+                    - _number(control, "estimated_cost_usd"),
+                    6,
+                ),
+                "official_resolved": _number(treatment, "official_resolved")
+                - _number(control, "official_resolved"),
+            },
+        },
+        "decision": {
+            "status": decision,
+            "rationale": request.decision_rationale.strip(),
+        },
+        "claim_boundary": request.claim_boundary.strip(),
+    }
+    path = campaign_dir / "improvement_record.json"
+    temporary = path.with_suffix(".json.tmp")
+    temporary.write_text(
+        json.dumps(payload, ensure_ascii=False, indent=2),
+        encoding="utf-8",
     )
     temporary.replace(path)
     return path
@@ -283,3 +400,23 @@ def _unique_strings(values: Iterable[str]) -> list[str]:
     return list(
         dict.fromkeys(str(value).strip() for value in values if str(value).strip())
     )
+
+
+def _improvement_metrics(variant: dict[str, Any]) -> dict[str, int | float]:
+    """投影面试需要解释的少量指标，避免复制整个 campaign summary。"""
+
+    return {
+        "official_evaluated": int(_number(variant, "official_evaluated")),
+        "official_resolved": int(_number(variant, "official_resolved")),
+        "failed_tool_calls": int(_number(variant, "failed_tool_calls")),
+        "total_tokens": int(_number(variant, "total_tokens")),
+        "estimated_cost_usd": round(
+            _number(variant, "estimated_cost_usd"),
+            6,
+        ),
+    }
+
+
+def _number(mapping: dict[str, Any], key: str) -> float:
+    value = mapping.get(key)
+    return float(value) if isinstance(value, (int, float)) else 0.0

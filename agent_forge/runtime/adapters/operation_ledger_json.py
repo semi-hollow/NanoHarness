@@ -115,6 +115,15 @@ class JsonOperationLedgerRepository(OperationLedgerRepository):
 
         return self._transition(self._require(update.operation_key), update)
 
+    def record_executing(self, update: OperationTransition) -> OperationRecord:
+        """在副作用调用前保存执行中状态。
+
+        如果进程在工具返回后、最终结果提交前崩溃，这个状态会留在磁盘上。恢复流程
+        因而知道结果不确定，不能把操作当作“尚未执行”而盲目重试。
+        """
+
+        return self._transition(self._require(update.operation_key), update)
+
     # 运行时端口：记录副作用已执行及执行后的目标指纹。
     def record_executed(self, update: OperationTransition) -> OperationRecord:
         return self._transition(self._require(update.operation_key), update)

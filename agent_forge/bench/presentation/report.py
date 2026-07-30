@@ -215,8 +215,8 @@ def render_bench_report(summary: BenchRunSummary) -> str:
             "",
             "## Failure Diagnosis",
             "",
-            "| instance | class | diagnosis | next action | evidence |",
-            "| --- | --- | --- | --- | --- |",
+            "| instance | class | source/rule | diagnosis | next action | evidence |",
+            "| --- | --- | --- | --- | --- | --- |",
         ]
     )
     for result in summary.case_results:
@@ -225,6 +225,9 @@ def render_bench_report(summary: BenchRunSummary) -> str:
         lines.append(
             "| "
             f"`{result.instance_id}` | `{result.failure_class or 'unclassified'}` | "
+            f"`{result.diagnosis_source or 'not_recorded'} / "
+            f"{result.diagnosis_rule_id or 'not_recorded'}@"
+            f"{result.diagnosis_taxonomy_version or '?'}` | "
             f"{_table_cell(result.diagnosis)} | {_table_cell(next_action)} | {_table_cell(evidence)} |"
         )
     lines.extend(

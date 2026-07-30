@@ -112,6 +112,9 @@ class OperationLedgerRepository(Protocol):
     def record_approved(self, update: OperationTransition) -> OperationRecord:
         """记录已授权。"""
 
+    def record_executing(self, update: OperationTransition) -> OperationRecord:
+        """在调用真实副作用工具前，记录结果尚未确定的执行中状态。"""
+
     def record_executed(self, update: OperationTransition) -> OperationRecord:
         """记录成功执行。"""
 

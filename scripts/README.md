@@ -16,15 +16,15 @@ scripts/setup_macos_local.sh --quick
 .venv/bin/python scripts/install_pycharm_debug_lab.py
 ```
 
-根据 symbol 定位并合并 20 个 PyCharm 断点。若 PyCharm 已打开，脚本会拒绝写入；关闭后重跑
+根据 symbol 定位并合并核心路径断点。若 PyCharm 已打开，脚本会拒绝写入；关闭后重跑
 一次即可，不需要手工点断点。
 
 ```bash
-scripts/interview_demo.sh [--live|--show-live|--show-astropy]
+scripts/interview_demo.sh [--live|--show-live|--show-official]
 ```
 
-面试一键入口。默认复用确定性 Control Plane Lab 并打开同一份 Evidence 的只读 Workbench；
-`--live` 才调用真实 DeepSeek；两个 `--show-*` 只重新发布已保存的 Lab 3/4 Evidence，不发起
+面试一键入口。默认复用确定性 Governed Repair 并打开同一份 Evidence 的只读 Workbench；
+`--live` 才调用真实 DeepSeek；两个 `--show-*` 只重新发布已保存的真实模型/official Evidence，不发起
 模型调用。脚本不复制 Runtime、fixture 或 key 管理逻辑。
 
 ```text

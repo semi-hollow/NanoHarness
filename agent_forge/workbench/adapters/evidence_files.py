@@ -202,17 +202,35 @@ class FileEvidenceCatalog:
 
     def latest_campaign_state(self) -> dict[str, Any]:
         directory = self.latest_campaign_dir()
-        return read_json_file(directory / "campaign.json" if directory else None)
+        if directory is None:
+            return {}
+        live_state = read_json_file(directory / "campaign.json")
+        if live_state:
+            return live_state
+        # 公开发布包使用 manifest.json；语义与运行中的 campaign.json 相同。
+        return read_json_file(directory / "manifest.json")
 
     def latest_campaign_summary(self) -> dict[str, Any]:
         directory = self.latest_campaign_dir()
-        summary = read_json_file(
-            directory / "campaign_summary.json" if directory else None
-        )
+        if directory is None:
+            return {}
+        summary = read_json_file(directory / "campaign_summary.json")
+        if not summary:
+            # 完成后的可发布 bundle 使用更短的 summary.json 文件名。
+            summary = read_json_file(directory / "summary.json")
         if summary or directory is None:
             return summary
         state = self.latest_campaign_state()
         return summarize_campaign(CampaignState.from_dict(state)) if state else {}
+
+    def latest_improvement_record_path(self) -> Path | None:
+        """返回当前 campaign 的问题到决策闭环记录。"""
+
+        directory = self.latest_campaign_dir()
+        if directory is None:
+            return None
+        path = directory / "improvement_record.json"
+        return path if path.is_file() else None
 
     def _run_dir_from_pointer(self, pointer: Path) -> Path | None:
         if not pointer.exists():
