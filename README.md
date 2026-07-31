@@ -115,8 +115,7 @@ Windows 原生安装入口（macOS/WSL 流程不变）：
 ```powershell
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\setup_windows_local.ps1
 ```
-无模型演练可双击 `scripts\setup_windows_demo.cmd`，再运行三个 `Windows Offline` 配置；
-无需 API Key 或 LLM 调用，首次安装需 Python 3.10+、Git 和 pip 网络。
+该脚本只保留跨平台开发支持；共享 PyCharm 学习入口统一为 macOS 的三条 Debug Lab。
 
 运行一个真实 repository task：
 

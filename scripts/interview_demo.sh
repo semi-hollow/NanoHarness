@@ -11,6 +11,9 @@ fi
 
 scenario="governed"
 produce_evidence=true
+workbench_view="controls"
+pointer_name="run.txt"
+status_evidence_field="latest_run"
 case "${1:-}" in
   "") ;;
   --live) scenario="single-live" ;;
@@ -20,15 +23,32 @@ case "${1:-}" in
     ;;
   --show-live) scenario="show-live" ;;
   --show-official) scenario="show-official" ;;
+  --show-governed)
+    scenario="show-governed"
+    produce_evidence=false
+    ;;
+  --show-coordinated)
+    scenario="show-coordinated"
+    produce_evidence=false
+    workbench_view="orchestration"
+    ;;
+  --show-evaluation)
+    scenario="show-evaluation"
+    produce_evidence=false
+    workbench_view="feedback"
+    pointer_name="campaign.txt"
+    status_evidence_field="latest_campaign"
+    ;;
   *)
-    printf 'Usage: scripts/interview_demo.sh [--live|--show-latest|--show-live|--show-official]\n' >&2
+    printf 'Usage: scripts/interview_demo.sh [--live|--show-latest|--show-live|--show-official|--show-governed|--show-coordinated|--show-evaluation]\n' >&2
     exit 2
     ;;
 esac
 
 if [[ "${produce_evidence}" == true ]]; then
   printf '\n=== NanoHarness: produce governed Evidence ===\n'
-  .venv/bin/python examples/debug_lab/run.py "${scenario}"
+  # 外层脚本统一等待 Workbench 就绪并打开 Chrome，禁止内层 Lab 重复弹页。
+  .venv/bin/python examples/debug_lab/run.py "${scenario}" --no-open-workbench
 else
   printf '\n=== NanoHarness: open the latest published Evidence ===\n'
 fi
@@ -41,11 +61,10 @@ expected_workbench_source="$(
   .venv/bin/python -c \
     'import hashlib,pathlib; print(hashlib.sha256(pathlib.Path("agent_forge/workbench/presentation/http.py").read_bytes()).hexdigest())'
 )"
-pointer_name="bench.txt"
-if [[ "${scenario}" != "show-official" ]]; then
-  pointer_name="run.txt"
+if [[ "${scenario}" == "show-official" ]]; then
+  pointer_name="bench.txt"
 fi
-expected_run="$(.venv/bin/python -c 'import os,pathlib,sys; print(os.path.realpath(pathlib.Path(".agent_forge/latest", sys.argv[1]).read_text().strip()))' "${pointer_name}")"
+expected_evidence="$(.venv/bin/python -c 'import os,pathlib,sys; print(os.path.realpath(pathlib.Path(".agent_forge/latest", sys.argv[1]).read_text().strip()))' "${pointer_name}")"
 port=8765
 status_json=""
 if [[ -f "${state_dir}/workbench.port" ]]; then
@@ -111,10 +130,10 @@ ready=false
 for _ in {1..40}; do
   status_json="$(curl --silent --fail "http://127.0.0.1:${port}/api/status" 2>/dev/null || true)"
   if [[ -n "${status_json}" ]]; then
-    status_pair="$(printf '%s' "${status_json}" | .venv/bin/python -c 'import json,os,sys; d=json.load(sys.stdin); print(os.path.realpath(d.get("project_dir", ""))); print(os.path.realpath(d.get("latest_run", "")))' 2>/dev/null || true)"
+    status_pair="$(printf '%s' "${status_json}" | .venv/bin/python -c 'import json,os,sys; d=json.load(sys.stdin); print(os.path.realpath(d.get("project_dir", ""))); print(os.path.realpath(d.get(sys.argv[1], "")))' "${status_evidence_field}" 2>/dev/null || true)"
     status_project="$(printf '%s\n' "${status_pair}" | sed -n '1p')"
-    status_run="$(printf '%s\n' "${status_pair}" | sed -n '2p')"
-    if [[ "${status_project}" == "${expected_project}" ]] && [[ "${status_run}" == "${expected_run}" ]]; then
+    status_evidence="$(printf '%s\n' "${status_pair}" | sed -n '2p')"
+    if [[ "${status_project}" == "${expected_project}" ]] && [[ "${status_evidence}" == "${expected_evidence}" ]]; then
       ready=true
       break
     fi
@@ -126,7 +145,14 @@ if [[ "${ready}" != true ]]; then
   printf 'Workbench did not expose the new Evidence. See %s/workbench.log\n' "${state_dir}" >&2
   exit 1
 fi
-open "http://127.0.0.1:${port}/?focus=1&build=${expected_workbench_source:0:12}"
+workbench_url="http://127.0.0.1:${port}/?focus=1&view=${workbench_view}&build=${expected_workbench_source:0:12}"
+printf 'WORKBENCH: %s\n' "${workbench_url}"
+if [[ -d "/Applications/Google Chrome.app" ]]; then
+  open -a "Google Chrome" "${workbench_url}"
+else
+  # 没有安装 Chrome 时才回退到系统默认浏览器。
+  open "${workbench_url}"
+fi
 
 printf '%s\n' \
   'Narrative: Governed Run -> Coordinated Agents -> Evaluation Loop -> Evidence details' \

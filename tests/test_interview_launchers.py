@@ -1,24 +1,12 @@
-import sys
 import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from examples import interview_showcase, operator_console
+from examples import operator_console
 
 
 class InterviewLauncherTest(unittest.TestCase):
-    @patch("examples.interview_showcase.subprocess.run")
-    def test_interview_button_reuses_the_single_demo_script(self, run_process):
-        with patch.object(sys, "argv", ["interview_showcase.py"]):
-            interview_showcase.main()
-
-        run_process.assert_called_once_with(
-            [str(interview_showcase.DEMO_SCRIPT)],
-            cwd=interview_showcase.PROJECT_ROOT,
-            check=True,
-        )
-
     @patch("examples.operator_console.publish_latest")
     @patch("examples.operator_console.artifact_from_pointer")
     @patch("agent_forge.cli.dispatch.main")

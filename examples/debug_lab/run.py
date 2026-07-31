@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import subprocess
 import sys
 import time
 import uuid
@@ -26,6 +27,12 @@ SWEBENCH_REVISION = "f7bbbb2ccdf479001d6467c9e34af59e44a840f9"
 PUBLIC_CAMPAIGN_ROOT = (
     PROJECT_ROOT / "benchmarks" / "campaigns" / "verified-commissioning-2-20260726"
 )
+WORKBENCH_LAUNCHER = PROJECT_ROOT / "scripts" / "interview_demo.sh"
+WORKBENCH_FLAGS = {
+    "governed": "--show-governed",
+    "coordinated": "--show-coordinated",
+    "evaluation": "--show-evaluation",
+}
 TASK = (
     "修复 calculator.py 的 add：2 + 3 必须等于 5。不要修改测试；"
     "修改后必须调用 diagnostics，kind=pytest，target=test_calculator.py。"
@@ -104,6 +111,20 @@ def _ensure_swebench() -> None:
         state_root=STATE_ROOT,
         repository=SWEBENCH_REPOSITORY,
         revision=SWEBENCH_REVISION,
+    )
+
+
+def _open_published_evidence_in_workbench(scenario: str) -> None:
+    """复用统一启动器，打开当前 Lab 对应的只读 Evidence 场景。"""
+
+    try:
+        show_flag = WORKBENCH_FLAGS[scenario]
+    except KeyError as exc:
+        raise ValueError(f"场景不支持自动打开 Workbench: {scenario}") from exc
+    subprocess.run(
+        [str(WORKBENCH_LAUNCHER), show_flag],
+        cwd=PROJECT_ROOT,
+        check=True,
     )
 
 
@@ -377,6 +398,15 @@ def main() -> None:
             "show-official",
         ),
     )
+    parser.add_argument(
+        "--open-workbench",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help=(
+            "Lab 完成后启动 Workbench，并打开对应的 Evidence 场景。"
+            "三条正式 Lab 默认开启；自动化时可使用 --no-open-workbench。"
+        ),
+    )
     args = parser.parse_args()
     os.chdir(PROJECT_ROOT)
     {
@@ -388,6 +418,13 @@ def main() -> None:
         "show-live": lambda: restore_evidence("live"),
         "show-official": lambda: restore_evidence("astropy"),
     }[args.scenario]()
+    should_open_workbench = (
+        args.scenario in WORKBENCH_FLAGS
+        if args.open_workbench is None
+        else args.open_workbench
+    )
+    if should_open_workbench:
+        _open_published_evidence_in_workbench(args.scenario)
 
 
 if __name__ == "__main__":

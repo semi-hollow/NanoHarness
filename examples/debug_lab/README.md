@@ -9,6 +9,9 @@
 学习时同时打开 [MASTERY_SCORECARD.md](MASTERY_SCORECARD.md)。本 README 负责运行与理解，
 Scorecard 负责闭卷验收；不要再从其他文档拼接学习顺序。
 
+五个 PyCharm 按钮各自做什么、是否调用模型以及应使用 Run 还是 Debug，统一看
+[RUN_CONFIGURATIONS.md](RUN_CONFIGURATIONS.md)。
+
 ## 首次准备
 
 关闭 PyCharm，在项目根目录只执行一次：
@@ -155,7 +158,8 @@ examples.debug_lab.run.run_evaluation
 
 ## Workbench 怎么看
 
-双击 `scripts/start_workbench.command`。首页只保留三个学习场景：
+三个 PyCharm Lab 跑完后会自动启动或复用 Workbench，并打开本次 Lab 对应的场景。
+如果只想重新查看已有 Evidence，可以双击 `scripts/start_workbench.command`。首页只保留三个学习场景：
 
 - `1 Governed Run`：权限、审批、checkpoint、恢复和副作用治理。
 - `2 Coordinated Agents`：DAG、worker、scope、merge、finalizer 和 artifact。

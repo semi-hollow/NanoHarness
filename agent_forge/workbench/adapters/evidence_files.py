@@ -48,6 +48,42 @@ class FileEvidenceCatalog:
             return None
         return load_run_story(run_dir)
 
+    def latest_governed_run_dir(self) -> Path | None:
+        """返回 Lab 1 的受治理运行，不被随后执行的 Lab 2 覆盖。"""
+
+        pointer = self.project_dir / ".agent_forge/debug-lab/state/control_artifact.txt"
+        run_dir = self._run_dir_from_pointer(pointer)
+        runs_dir = self.project_dir / ".agent_forge/runs"
+        if run_dir is not None and _is_under(run_dir, runs_dir):
+            return run_dir
+        return None
+
+    def latest_governed_run_story(self) -> RunStory | None:
+        """加载 Lab 1 受治理运行的标准 Run Story。"""
+
+        run_dir = self.latest_governed_run_dir()
+        if run_dir is None or not (run_dir / "run_manifest.json").is_file():
+            return None
+        return load_run_story(run_dir)
+
+    def latest_governed_trace_path(self) -> Path | None:
+        """返回 Lab 1 受治理运行的 Trace。"""
+
+        return _latest_artifact_in_run(
+            self.latest_governed_run_dir(),
+            direct_name="trace.json",
+            nested_pattern="cases/**/trace.json",
+        )
+
+    def latest_governed_usage_path(self) -> Path | None:
+        """返回 Lab 1 受治理运行的 Usage 证据。"""
+
+        return _latest_artifact_in_run(
+            self.latest_governed_run_dir(),
+            direct_name="usage.json",
+            nested_pattern="cases/**/usage.json",
+        )
+
     def latest_report_path(self) -> str:
         run_dir = self.latest_run_dir()
         if run_dir:
@@ -114,6 +150,73 @@ class FileEvidenceCatalog:
         candidate = run_dir / "fanout" / "fanout_summary.json"
         return candidate if candidate.exists() else None
 
+    def latest_orchestration_summary_path(self) -> Path | None:
+        """返回最近一次多 Agent 证据，不受当前 Single-Run 指针影响。"""
+
+        runs_dir = self.project_dir / ".agent_forge/runs"
+        candidates: list[Path] = []
+        current = self.latest_multi_agent_summary_path()
+        if current is not None:
+            candidates.append(current)
+        if runs_dir.exists():
+            candidates.extend(runs_dir.glob("**/multi_agent_summary.json"))
+        return _newest_existing(candidates)
+
+    def latest_orchestration_fanout_path(self) -> Path | None:
+        """返回最近一次并行 Fanout 证据，不受其他 Lab 的运行顺序影响。"""
+
+        runs_dir = self.project_dir / ".agent_forge/runs"
+        candidates: list[Path] = []
+        current = self.latest_fanout_summary_path()
+        if current is not None:
+            candidates.append(current)
+        if runs_dir.exists():
+            candidates.extend(runs_dir.glob("**/fanout_summary.json"))
+        return _newest_existing(candidates)
+
+    def latest_benchmark_run_dir(self) -> Path | None:
+        """返回最近一次 SWE-bench 运行，和交互式 Single-Run 分开选取。"""
+
+        latest = self.project_dir / ".agent_forge/latest/bench.txt"
+        runs_dir = self.project_dir / ".agent_forge/runs"
+        pointed = self._run_dir_from_pointer(latest)
+        if pointed is not None and (pointed / "results.json").is_file():
+            return pointed
+        candidates = (
+            [path.parent for path in runs_dir.glob("**/results.json")]
+            if runs_dir.exists()
+            else []
+        )
+        return _newest_existing(candidates)
+
+    def latest_benchmark_comparison_path(self) -> Path | None:
+        """返回最近 Benchmark Run 内的单/多 Agent 对比证据。"""
+
+        run_dir = self.latest_benchmark_run_dir()
+        if run_dir is None:
+            return None
+        candidates = [run_dir / "comparison.json"]
+        candidates.extend(run_dir.glob("cases/**/comparison.json"))
+        return _newest_existing(candidates)
+
+    def latest_benchmark_multi_agent_summary_path(self) -> Path | None:
+        """返回最近 Benchmark Run 内的多 Agent 摘要。"""
+
+        run_dir = self.latest_benchmark_run_dir()
+        if run_dir is None:
+            return None
+        return _newest_existing(list(run_dir.glob("cases/**/multi_agent_summary.json")))
+
+    def latest_benchmark_usage_path(self) -> Path | None:
+        """返回最近 Benchmark Run 内的用量证据。"""
+
+        run_dir = self.latest_benchmark_run_dir()
+        if run_dir is None:
+            return None
+        candidates = [run_dir / "usage.json"]
+        candidates.extend(run_dir.glob("cases/**/usage.json"))
+        return _newest_existing(candidates)
+
     def trace_paths(self) -> list[tuple[str, Path]]:
 
         run_dir = self.latest_run_dir()
@@ -133,9 +236,9 @@ class FileEvidenceCatalog:
         seen_labels: set[str] = set()
         for path in sorted(traces, key=trace_order):
             if "multi" in path.parts:
-                label = "Multi-Agent Runtime"
+                label = "多 Agent Runtime"
             elif "single" in path.parts:
-                label = "Single-Agent Runtime"
+                label = "单 Agent Runtime"
             else:
                 label = trace_scope_label(path)
             if label in seen_labels:
@@ -160,7 +263,7 @@ class FileEvidenceCatalog:
         return str(feedback.get("outcome") or "unreviewed")
 
     def latest_result_record(self) -> dict[str, Any]:
-        run_dir = self.latest_run_dir()
+        run_dir = self.latest_benchmark_run_dir()
         if run_dir is None:
             return {}
         results = read_json_file(run_dir / "results.json")
@@ -172,7 +275,7 @@ class FileEvidenceCatalog:
         )
 
     def latest_direct_baseline_record(self) -> dict[str, Any]:
-        run_dir = self.latest_run_dir()
+        run_dir = self.latest_benchmark_run_dir()
         path = (
             run_dir / "direct_baseline_predictions.jsonl"
             if run_dir is not None
@@ -268,6 +371,22 @@ def trace_scope_label(trace_path: Path | None) -> str:
 def _newest_existing(candidates: list[Path]) -> Path | None:
     existing = [path for path in candidates if path.exists()]
     return max(existing, key=lambda path: path.stat().st_mtime) if existing else None
+
+
+def _latest_artifact_in_run(
+    run_dir: Path | None,
+    *,
+    direct_name: str,
+    nested_pattern: str,
+) -> Path | None:
+    """优先读取运行根目录产物，兼容 Benchmark 的 Case 子目录。"""
+
+    if run_dir is None:
+        return None
+    direct = run_dir / direct_name
+    if direct.is_file():
+        return direct
+    return _newest_existing(list(run_dir.glob(nested_pattern)))
 
 
 def _is_under(path: Path, parent: Path) -> bool:

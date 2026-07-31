@@ -248,20 +248,18 @@ class PublicCliSmokeTest(unittest.TestCase):
             result_html = _render_result_summary(root)
             usage_html = _render_usage_dashboard(root)
 
-            self.assertIn("Live Fanout", result_html)
+            self.assertIn("并行任务与最终收口", result_html)
             self.assertIn("runtime-audit", result_html)
-            self.assertIn("Max Workers", usage_html)
+            self.assertIn("最大并发数", usage_html)
             self.assertIn("2", usage_html)
 
     def test_run_evidence_view_renders_without_artifacts(self):
         with tempfile.TemporaryDirectory() as tmp:
             html = _render_evidence_html(Path(tmp), "evidence")
-        self.assertIn("Runtime Evidence Overview", html)
-        self.assertIn("Runtime Pipeline", html)
-        self.assertIn("Adaptive Runtime Evidence", html)
-        self.assertIn("Claim Ladder", html)
-        self.assertIn("Produced Artifacts", html)
-        self.assertIn("No multi-agent artifacts", html)
+        self.assertIn("运行证据总览", html)
+        self.assertIn("运行全链路", html)
+        self.assertIn("兼容旧格式", html)
+        self.assertIn("查看本次触发的上下文、记忆、Skill 与工具适配信号", html)
 
     def test_overview_uses_product_outcome_heading(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -275,7 +273,7 @@ class PublicCliSmokeTest(unittest.TestCase):
             (run_dir / "trace.json").write_text("{}", encoding="utf-8")
 
             html = _render_result_summary(root)
-        self.assertIn("Repository Task Outcome", html)
+        self.assertIn("代码仓任务结果", html)
 
     def test_usage_dashboard_exposes_observed_adaptive_harness_signals(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -312,9 +310,9 @@ class PublicCliSmokeTest(unittest.TestCase):
 
             html = _render_usage_dashboard(root)
 
-        self.assertIn("Adaptive Harness Signals", html)
-        self.assertIn("Evidence-backed memory recall", html)
-        self.assertIn("Tool-call normalization", html)
+        self.assertIn("自适应运行信号", html)
+        self.assertIn("有证据的长期记忆召回", html)
+        self.assertIn("工具调用规范化", html)
         self.assertIn("targeted_code_edit", html)
 
     def test_run_evidence_renders_artifact_content_and_handoff(self):
@@ -346,9 +344,9 @@ class PublicCliSmokeTest(unittest.TestCase):
             html = _render_evidence_html(root, "evidence")
 
         self.assertIn("root cause evidence is sufficient", html)
-        self.assertIn("producer", html)
-        self.assertIn("consumer", html)
-        self.assertIn("Coordinator + Verifier", html)
+        self.assertIn("生产者", html)
+        self.assertIn("消费者", html)
+        self.assertIn("协调器 + 验证者", html)
 
     def test_runtime_controls_only_claim_events_observed_in_trace(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -375,23 +373,23 @@ class PublicCliSmokeTest(unittest.TestCase):
 
             html = _render_evidence_html(root, "controls")
 
-        self.assertIn("worktree", html)
-        self.assertIn("deny", html)
+        self.assertIn("隔离 Worktree", html)
+        self.assertIn("拒绝", html)
         self.assertIn("read_file", html)
         self.assertIn("run_command", html)
         self.assertIn("repo_orientation@1.0.0", html)
         self.assertIn("1 / 1", html)
         self.assertIn("0 / 1 / 0", html)
-        self.assertIn("write needs approval", html)
+        self.assertIn("写操作需要审批", html)
 
     def test_compare_evidence_view_has_clear_single_multi_story(self):
         with tempfile.TemporaryDirectory() as tmp:
             html = _render_evidence_html(Path(tmp), "compare")
-        self.assertIn("Single vs Multi 对比", html)
+        self.assertIn("单 Agent 与多 Agent 对比", html)
         self.assertIn("单 Agent", html)
-        self.assertIn("多 Agent Coordinator", html)
-        self.assertIn("Engineering Decision", html)
-        self.assertIn("Produced Artifacts", html)
+        self.assertIn("多 Agent 协调器", html)
+        self.assertIn("工程决策", html)
+        self.assertIn("生成的产物", html)
 
     def test_timeline_explains_scope_order_and_color_semantics(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -432,7 +430,10 @@ class PublicCliSmokeTest(unittest.TestCase):
     {"step": 1, "event_type": "context_assembly", "success": true},
     {"step": 1, "event_type": "llm_call", "success": true, "duration_ms": 12},
     {"step": 1, "event_type": "action", "success": true, "tool_call": "git_diff"},
-    {"step": 1, "event_type": "tool_observation", "success": false, "tool_call": "git_diff"}
+    {"step": 1, "event_type": "hook_check", "success": true, "tool_call": "git_diff"},
+    {"step": 1, "event_type": "operation_ledger", "success": true, "tool_call": "git_diff"},
+    {"step": 1, "event_type": "tool_observation", "success": false, "tool_call": "git_diff"},
+    {"step": 1, "event_type": "task_state_checkpoint", "success": true}
   ]
 }
 """,
@@ -454,37 +455,46 @@ class PublicCliSmokeTest(unittest.TestCase):
 
             html = _render_evidence_html(root, "timeline")
 
-        self.assertIn("Multi-Agent Runtime", html)
-        self.assertIn("Single-Agent Runtime", html)
+        self.assertIn("多 Agent Runtime", html)
+        self.assertIn("单 Agent Runtime", html)
         self.assertLess(
-            html.index("Multi-Agent Runtime"), html.index("Single-Agent Runtime")
+            html.index("多 Agent Runtime"), html.index("单 Agent Runtime")
         )
-        self.assertIn("1. 上下文组装", html)
-        self.assertIn("3. 工具意图", html)
-        self.assertIn("tool: git_diff", html)
-        self.assertIn("failed", html)
+        self.assertIn("上下文组装", html)
+        self.assertIn("<code>context_assembly</code>", html)
+        self.assertIn("第 1 轮 · 模型请求 git_diff", html)
+        self.assertIn("存在失败", html)
         self.assertIn("运行级阶段", html)
-        self.assertIn("不计入 Agent Turn", html)
-        self.assertIn("1 个 Agent Turn", html)
+        self.assertIn("不计入 Agent 轮次", html)
+        self.assertIn("1 个 Agent 轮次", html)
         self.assertIn("2 个运行级事件", html)
-        self.assertIn("固定六阶段", html)
-        self.assertIn("04</b><span>治理", html)
-        self.assertIn("决策 / 安全治理", html)
-        self.assertIn("距上一事件: 12ms", html)
+        self.assertIn("面试只记四段", html)
+        self.assertIn("01</b><span>准备输入", html)
+        self.assertIn("02</b><span>模型决定", html)
+        self.assertIn("03</b><span>治理并执行", html)
+        self.assertIn("04</b><span>回填并持久化", html)
+        self.assertIn("扩展钩子（Hook）、权限、操作账本", html)
+        self.assertIn("03 治理并执行：查看本段底层证据", html)
+        self.assertIn("git_diff · 1 次失败", html)
+        self.assertIn("<td>12ms</td>", html)
+        self.assertNotIn("固定六阶段", html)
+        self.assertNotIn("排障：展开本轮原始事件", html)
         self.assertNotIn("time: 12 ms", html)
         self.assertNotIn("<strong>Step 0</strong>", html)
 
     def test_ui_is_a_read_only_evidence_surface(self):
-        self.assertIn("NanoHarness Workbench", INDEX_HTML)
-        self.assertIn("Run Evidence", INDEX_HTML)
-        self.assertIn("Benchmark", INDEX_HTML)
-        self.assertIn("1 Governed Run", INDEX_HTML)
-        self.assertIn("2 Coordinated Agents", INDEX_HTML)
-        self.assertIn("3 Evaluation Loop", INDEX_HTML)
-        self.assertIn("Evidence details", INDEX_HTML)
+        self.assertIn("NanoHarness 证据工作台", INDEX_HTML)
+        self.assertIn("运行全链路", INDEX_HTML)
+        self.assertIn("基准评测", INDEX_HTML)
+        self.assertIn("1 受治理运行", INDEX_HTML)
+        self.assertIn("2 多 Agent 协同", INDEX_HTML)
+        self.assertIn("3 评测改进闭环", INDEX_HTML)
+        self.assertIn("证据详情", INDEX_HTML)
         self.assertIn("td .badge", INDEX_HTML)
         self.assertIn("white-space: normal", INDEX_HTML)
-        self.assertIn("Three guided evidence scenes", INDEX_HTML)
+        self.assertIn("总览 + 三个证据场景", INDEX_HTML)
+        self.assertIn("loadEvidence('overview')", INDEX_HTML)
+        self.assertNotIn("Failed Tool Delta", INDEX_HTML)
         self.assertNotIn("startJob(", INDEX_HTML)
         self.assertNotIn("/api/jobs", INDEX_HTML)
 
@@ -536,18 +546,22 @@ class PublicCliSmokeTest(unittest.TestCase):
 
             html = _render_evidence_html(root, "benchmark")
 
-        self.assertIn("Repeated Runtime Evidence", html)
+        self.assertIn("重复实验结果", html)
         self.assertIn("1/1 (100.0%)", html)
-        self.assertIn("Governed Wins", html)
+        self.assertIn("治理增强版胜出", html)
         self.assertIn("case-1", html)
-        self.assertIn("Official resolved rate uses only", html)
+        self.assertIn("官方解决率只以明确得到", html)
+        self.assertIn("这是 Smoke-5 的试运行证据", html)
 
     def test_empty_benchmark_contract_does_not_claim_prompt_is_constant(self):
         with tempfile.TemporaryDirectory() as tmp:
             html = _render_evidence_html(Path(tmp), "benchmark")
 
-        self.assertIn("case/task input", html)
-        self.assertIn("Skill-injected context", html)
+        self.assertIn("Case/任务输入", html)
+        self.assertIn("Skill 注入上下文", html)
+        self.assertIn("Verified 的 500 个公开任务", html)
+        self.assertIn("人工分层选出 5 题", html)
+        self.assertIn("不是随机样本", html)
         self.assertNotIn("temperature, prompt, budget", html)
 
     def test_latest_run_prefers_existing_swebench_over_verify_pointer(self):

@@ -1,3 +1,4 @@
+import sys
 import tempfile
 import unittest
 import xml.etree.ElementTree as ET
@@ -59,10 +60,46 @@ class DebugLabSupportTest(unittest.TestCase):
                 options["SCRIPT_NAME"],
                 "$PROJECT_DIR$/examples/debug_lab/run.py",
             )
-            self.assertEqual(options["PARAMETERS"], scenario)
+            self.assertEqual(
+                options["PARAMETERS"],
+                f"{scenario} --open-workbench",
+            )
             self.assertEqual(options["SDK_HOME"], "$PROJECT_DIR$/.venv/bin/python")
-            actual.append((str(config.get("name")), str(options["PARAMETERS"])))
+            actual.append((str(config.get("name")), scenario))
         self.assertEqual(actual, list(expected))
+
+    def test_shared_run_configuration_catalog_stays_small(self) -> None:
+        expected = {
+            "NanoHarness Lab 1 - Governed Repair.run.xml",
+            "NanoHarness Lab 2 - Coordinated Agents.run.xml",
+            "NanoHarness Lab 3 - Evaluation Loop.run.xml",
+            "NanoHarness Operator Console.run.xml",
+        }
+        actual = {path.name for path in (PROJECT_ROOT / ".run").glob("*.run.xml")}
+
+        self.assertEqual(actual, expected)
+
+    def test_run_configuration_guide_only_presents_active_entries(self) -> None:
+        guide = (
+            PROJECT_ROOT / "examples" / "debug_lab" / "RUN_CONFIGURATIONS.md"
+        ).read_text(encoding="utf-8")
+        for name in (
+            "NanoHarness Lab 1 - Governed Repair",
+            "NanoHarness Lab 2 - Coordinated Agents",
+            "NanoHarness Lab 3 - Evaluation Loop",
+            "NanoHarness Operator Console",
+        ):
+            self.assertIn(name, guide)
+        for removed in (
+            "NanoHarness Inspect Latest",
+            "NanoHarness Interview 1 - Live Control",
+            "NanoHarness Interview Fallback - Deterministic Control",
+            "NanoHarness Interview Demo",
+        ):
+            self.assertNotIn(removed, guide)
+        self.assertFalse(
+            (PROJECT_ROOT / "examples" / "interview_showcase.py").exists()
+        )
 
     def test_breakpoint_symbols_resolve_and_install_idempotently(self) -> None:
         resolved = resolve_breakpoints(PROJECT_ROOT)
@@ -138,11 +175,62 @@ class DebugLabSupportTest(unittest.TestCase):
             encoding="utf-8"
         )
         self.assertIn("examples/debug_lab/run.py", interview)
+        self.assertIn('"${scenario}" --no-open-workbench', interview)
         self.assertIn("workbench_source_sha256", interview)
         self.assertIn("kill -0", interview)
         self.assertIn("build=${expected_workbench_source:0:12}", interview)
+        self.assertIn('open -a "Google Chrome"', interview)
         self.assertNotIn("forge run", interview)
         self.assertNotIn("calculator.py", interview)
+
+    def test_core_labs_open_workbench_by_default_and_can_opt_out(self) -> None:
+        with (
+            patch.object(sys, "argv", ["run.py", "evaluation"]),
+            patch.object(debug_lab, "run_evaluation") as run_evaluation,
+            patch.object(
+                debug_lab,
+                "_open_published_evidence_in_workbench",
+            ) as open_workbench,
+        ):
+            debug_lab.main()
+
+        run_evaluation.assert_called_once_with()
+        open_workbench.assert_called_once_with("evaluation")
+
+        with (
+            patch.object(
+                sys,
+                "argv",
+                ["run.py", "evaluation", "--no-open-workbench"],
+            ),
+            patch.object(debug_lab, "run_evaluation") as run_evaluation,
+            patch.object(
+                debug_lab,
+                "_open_published_evidence_in_workbench",
+            ) as open_workbench,
+        ):
+            debug_lab.main()
+
+        run_evaluation.assert_called_once_with()
+        open_workbench.assert_not_called()
+
+    @patch("examples.debug_lab.run.subprocess.run")
+    def test_each_lab_opens_its_matching_workbench_scene(self, run_process) -> None:
+        expected = {
+            "governed": "--show-governed",
+            "coordinated": "--show-coordinated",
+            "evaluation": "--show-evaluation",
+        }
+        for scenario, flag in expected.items():
+            with self.subTest(scenario=scenario):
+                debug_lab._open_published_evidence_in_workbench(scenario)
+                run_process.assert_called_with(
+                    [str(debug_lab.WORKBENCH_LAUNCHER), flag],
+                    cwd=debug_lab.PROJECT_ROOT,
+                    check=True,
+                )
+
+        self.assertEqual(run_process.call_count, 3)
 
     def test_setup_handles_deferred_breakpoint_status_before_err_trap(self) -> None:
         setup = (PROJECT_ROOT / "scripts" / "setup_macos_local.sh").read_text(

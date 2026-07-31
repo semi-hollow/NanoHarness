@@ -1823,7 +1823,9 @@ official evaluator 和历史详情降为可选证据，不再占用新的 Lab �
 
 验证：入口契约测试锁定三条 Lab、一个演示入口和一个 Console；README 明确每条链路与验收问题；
 Lab 2 使用两个真实 worktree worker、disjoint scope 合并和只读 pytest finalizer，不再用空任务
-模拟 Multi-Agent。工程结论：学习入口数量也是架构预算；新增能力必须挂到既有主线并提供掌握标准。
+模拟 Multi-Agent。三个 Lab 复用同一 Workbench 启动器，运行结束后自动打开各自的只读 Evidence
+场景，不再要求记忆第二个命令或增加新配置。工程结论：学习入口数量也是架构预算；新增能力必须
+挂到既有主线并提供掌握标准。
 
 ### 76. Feedback Dataset 能收集失败，但不能证明一次改进为何被采纳
 
@@ -1846,6 +1848,126 @@ diagnosis provenance、hypothesis、change、regression cases、before/after、d
 证据诚实记录 official 2/2 → 2/2、failed tool calls 8 → 5，同时显示 token/cost 上升，因此结论
 是“机制得到验证，正确性未提升，继续迭代”，不是 resolved rate 改善。工程结论：数据飞轮的最小
 闭环不是“失败变成一个 UT”，而是可审计的假设、回归证据和采纳决策。
+
+### 77. Workbench 直接暴露实验缩写，读者无法判断差值方向
+
+现象：评测改进页显示 `Failed Tool Delta = -3.0`，旁边只写
+`negative is fewer failures`；Benchmark 页又直接使用 Smoke-5、Campaign、Preset 等实验内部
+术语。运行者能够看到数字，却需要先翻文档才能知道样本是什么、差值由谁减谁以及正负代表好坏。
+
+Failure scenario：治理增强版与基础控制版的官方解决数同为 2/2，失败工具调用从 8 降到 5，
+Token 从 255328 增到 315759。旧页面容易把 `-3` 误解成性能下降，或把 Smoke-5 的两题
+commissioning 结果误讲成五题完整实验乃至总体成功率。
+
+根因：展示层把稳定的机器字段和实验速记直接投影给人，没有建立中文语义层；不同指标的优化方向
+也没有进入 Read Model。证据数据本身正确，但可读性不足会诱发错误结论。
+
+窄修复：底层 JSON、枚举和配置 ID 保持不变，Workbench 统一增加中文展示映射；明确
+`差值 = 治理增强版 - 基础控制版`，并把 `-3` 展示为“少 3 次失败”、`+60431` 展示为
+“多用 60,431 Token”。Benchmark 页解释 Smoke-5 是从 Verified 500 题中人工分层选择的五题
+低成本机制回归集，不是随机样本或总体解决率；导航、状态、编排、诊断和对比视图同步中文化。
+
+验证：页面回归锁定 Smoke-5 的样本边界、差值公式和方向解释，并禁止旧
+`Failed Tool Delta` 文案回归；使用当前 commissioning 产物检查 0、-3、+60431 和成本差值的
+中文展示。工程结论：机器证据应保持稳定，面向人的 Read Model 必须解释分母、方向和结论边界；
+可视化不能只是把 JSON 换一种排版。
+
+### 78. Workbench 平铺事件且共用 Latest 指针，导致认知噪音和证据串场
+
+现象：运行全链路把每个阶段的 `event_count` 作为主列，读者会把 9 或 10 条 Trace 记录误认为
+9 或 10 个执行步骤；同时所有页面共用最近一次 Single-Run，运行 Lab 1 后，Lab 2 页面会显示
+“没有多 Agent 证据”，尽管磁盘中已有更新的 Fanout 产物。
+
+Failure scenario：一次三轮 AgentLoop 会在“有界循环”和“上下文与模型调用”阶段各投影多条
+模型、上下文和轮次事件。旧页面既不解释聚合口径，也把模块名、事件数、产物和结论边界同时铺开。
+操作者随后运行审批 Lab，`run.txt` 更新，多 Agent 页面便错误地只在该目录内搜索。
+
+根因：展示层缺少批次、运行、轮次、阶段、事件五级信息架构；Evidence Catalog 也没有按视图的
+truth scope 选取证据。全局 Latest 适合 Single-Run 回放，不适合跨 Lab 观测。
+
+窄修复：增加总览层，将证据组织为“实验批次 → 单次运行 → Agent 轮次 → 六个语义阶段 →
+原始事件”；主视图只显示阶段结论，模块、事件数量和文件血缘放入折叠下钻，并明确事件是 Trace
+记录而非执行步骤。受治理运行、多 Agent 与 Benchmark 增加独立 Evidence selector，分别读取
+Debug Lab 控制证据、最近的 Fanout/角色链和 SWE-bench 产物，不再受 `run.txt` 更新顺序影响；
+不存在对应场景指针时保持“未观测”，不会用其他运行冒充。Lab 2 继续使用同一 PyCharm 绿色按钮，
+结束后打印并打开对应 Workbench URL。
+
+验证：回归测试锁定总览层级、阶段主动作、原始事件折叠、跨 Single-Run 的 Fanout 发现和三个
+Lab 的 `--open-workbench` 参数；实际运行 Lab 2 后可直接进入“多 Agent 协同”页。工程结论：
+观测产品的核心不是显示更多字段，而是按 truth scope 选对证据，并让结论、聚合和原始事实逐层
+下钻。
+
+### 79. Fanout 证据被 Single-Run 读模型当成空数据
+
+现象：Lab 2 已完成两个 Worker、候选改动合并和 Finalizer 验证，但“运行证据总览”显示模型调用、
+工具调用和 Checkpoint 全为 0，“运行全链路”也只有“兼容旧格式”。用户会误判为多 Agent 只是
+静态报告，没有真正经过模型端口和工具执行。
+
+Failure scenario：Fanout 将 Worker 用量写入 `fanout/workers/<task>/usage.json`，将 Finalizer
+用量写入 `fanout/finalizer/usage.json`，并在 `fanout_summary.json` 汇总为 6 次模型调用和 3 次
+工具调用。旧 Read Model 只寻找运行根目录的 `usage.json` 和 `run_manifest.json`，找不到时又用
+默认值 0 渲染，混淆了“真实零值”和“该字段不适用于当前证据形态”。
+
+根因：Single-Run 和 Fanout 具有不同的制品拓扑，但展示层复用了同一个读取分支；缺失值采用
+`dict.get(..., 0)`，没有先识别运行类型。
+
+窄修复：运行证据入口先识别 `fanout_summary.json`。Fanout 使用专属 Read Model，汇总 Coordinator、
+Worker、范围门禁、候选改动合并、Finalizer 和证据发布六段主链，并读取真实的 6 次模型调用、3 次
+工具调用和协调器 Checkpoint。页面同时注明 Lab 2 使用确定性本地 ModelPort，因此 Token、延迟和
+费用为 0 是实验边界，不是观测丢失；官方评测保持 `not_evaluated`。
+
+验证：回归测试构造 Fanout 的分散制品，锁定聚合调用数、六阶段主链、确定性模型说明和官方证据
+边界，并禁止回退到“没有标准运行清单”。工程结论：可观测展示必须先识别运行拓扑，再解释指标；
+“未找到”不能静默降级为数值 0。
+
+### 80. Lab 结束后页面被默认处理器接管，且旧 PyCharm 参数不触发 Workbench
+
+现象：Lab 2/3 正常完成并发布 Artifact，但控制台没有打印 `WORKBENCH:`，Chrome 也没有出现页面；
+在某些启动路径中，URL 反而进入 Codex 内置浏览器。
+
+Failure scenario：共享 `.run` 配置已经增加 `--open-workbench`，但 PyCharm 可以继续持有修改前
+加载到内存的配置，实际进程只收到 `evaluation`。即使参数正确，启动器使用 `open <url>` 仍会
+服从 macOS 当前默认 URL 处理器，无法保证目标是 Chrome。
+
+根因：是否展示结果依赖 IDE 参数这一处易漂移配置；浏览器选择也使用了隐式系统默认值。两者都
+不属于 Lab 业务语义，却决定了用户是否能看到结果。
+
+窄修复：`governed`、`coordinated`、`evaluation` 三条正式 Lab 在没有显式选项时默认打开
+Workbench，自动化可用 `--no-open-workbench` 禁止弹窗；macOS 启动器检测到 Chrome 后显式执行
+`open -a "Google Chrome" <url>`，只有未安装 Chrome 才回退默认浏览器。共享 PyCharm 配置继续
+保留显式参数，形成配置与代码双保险。Interview Demo 作为外层展示编排器调用 Lab 时显式使用
+`--no-open-workbench`，只由外层完成 readiness 校验和一次 Chrome 打开，避免重复标签页。
+
+验证：参数回归覆盖默认打开与显式关闭，启动器测试锁定 Chrome 选择；实际执行只读
+`--show-evaluation` 后，应打印 `WORKBENCH:` 并在 Google Chrome 创建对应评测页。工程结论：
+关键演示入口不能依赖 IDE 缓存或操作系统隐式默认值。
+
+### 81. Timeline 把审计事件当成教学步骤，操作者无法形成稳定主链
+
+现象：一次普通工具轮次会产生上下文装配、模型边界、动作解析、安全检查、Hook、权限判断、
+Operation Ledger、工具开始、工具结果、观察回填和 Checkpoint 等十余条事件。旧 Timeline 虽然
+把它们投影成六阶段，仍在每轮下方平铺一张完整事件表，操作者会误以为面试时需要记住二十个步骤
+及其固定顺序。
+
+Failure scenario：模型请求 `replace_text` 时，读者知道“模型响应之后执行工具”，却无法把
+guardrail、Hook、permission、ledger 和 tool execution 组织成一件完整的“受治理副作用执行”；
+不同分支缺少某些事件时，又会怀疑流程是否执行完整。PyCharm 同时保留 Lab 1 和功能相同的
+Interview Demo，也让学习入口看起来像两套流程。
+
+根因：Trace 的设计目标是机器审计和故障定位，事件粒度不能直接充当人类心智模型。展示层虽然
+做了语义映射，却仍把基础设施实现细节提升为一级流程；入口层也保留了已经被正式 Lab 覆盖的
+过渡 wrapper。
+
+窄修复：不修改 Runtime 与 Trace schema，只把每轮投影为四段稳定主链：
+“准备输入 → 模型决定 → 治理并执行 → 回填并持久化”。安全检查、Hook、权限、Ledger 和工具
+调用统一归入第三段，每段只显示一句业务结论，底层事件按所属段分别折叠；完整 Trace 文件继续
+作为审计真相源。删除重复的 Interview Demo Run 配置和无业务逻辑的 Python wrapper，三个 Lab
+直接兼任学习与展示入口。
+
+验证：回归锁定四段名称、分段底层证据、工具失败不被误报为治理阻断，以及共享 Run 配置精确
+收敛为四个；浏览器检查每轮默认只呈现四张主链卡片，第三段展开后仍可看到 Hook、Ledger 和工具
+结果。工程结论：面试叙事应稳定在业务控制流，Trace 事件只在被追问实现或排障时下钻；可观测
+schema 不等于人类必须背诵的执行步骤。
 
 ## 调试顺序模板
 

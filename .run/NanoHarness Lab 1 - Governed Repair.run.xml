@@ -13,7 +13,7 @@
     <option name="ADD_SOURCE_ROOTS" value="true" />
     <option name="MODULE_MODE" value="false" />
     <option name="SCRIPT_NAME" value="$PROJECT_DIR$/examples/debug_lab/run.py" />
-    <option name="PARAMETERS" value="governed" />
+    <option name="PARAMETERS" value="governed --open-workbench" />
     <option name="SHOW_COMMAND_LINE" value="false" />
     <option name="EMULATE_TERMINAL" value="false" />
     <option name="REDIRECT_INPUT" value="false" />

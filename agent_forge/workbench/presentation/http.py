@@ -21,7 +21,7 @@ from agent_forge.workbench.wiring import (
 )
 
 WORKBENCH_READ_ONLY_MESSAGE = (
-    "Workbench is read-only; use forge run, demo, or resume for execution."
+    "Workbench 只读；执行任务请使用 forge run、demo 或 resume。"
 )
 WORKBENCH_SOURCE_SHA256 = hashlib.sha256(Path(__file__).read_bytes()).hexdigest()
 
@@ -71,6 +71,9 @@ class ForgeUiHandler(BaseHTTPRequestHandler):
             "python": sys.version.split()[0],
             "workbench_source_sha256": WORKBENCH_SOURCE_SHA256,
             "latest_run": str(_latest_run_dir(self.state.project_dir) or ""),
+            "latest_campaign": str(
+                _latest_campaign_dir(self.state.project_dir) or ""
+            ),
             "latest_report": _latest_report_path(self.state.project_dir),
             "feedback": _latest_feedback_outcome(self.state.project_dir),
         }
@@ -107,14 +110,14 @@ def run_ui(host: str = "127.0.0.1", port: int = 8765, open_browser: bool = True)
     )
     server = ThreadingHTTPServer((host, port), handler)
     url = f"http://{host}:{port}"
-    print(f"NanoHarness Workbench: {url}")
-    print("Press Ctrl+C to stop.")
+    print(f"NanoHarness 证据工作台: {url}")
+    print("按 Ctrl+C 停止。")
     if open_browser:
         webbrowser.open(url)
     try:
         server.serve_forever()
     except KeyboardInterrupt:
-        print("\nStopping NanoHarness Workbench.")
+        print("\n正在停止 NanoHarness 证据工作台。")
     finally:
         server.server_close()
 
@@ -152,6 +155,8 @@ def _read_latest_report(project_dir: Path) -> str:
 
 def _render_evidence_html(project_dir: Path, kind: str) -> str:
 
+    if kind == "overview":
+        return _render_observability_overview(project_dir)
     if kind == "summary":
         return _render_result_summary(project_dir)
     if kind == "usage":
@@ -187,6 +192,21 @@ def _latest_run_story(project_dir: Path) -> RunStory | None:
     return build_evidence_catalog(project_dir).latest_run_story()
 
 
+def _latest_governed_run_story(project_dir: Path) -> RunStory | None:
+
+    return build_evidence_catalog(project_dir).latest_governed_run_story()
+
+
+def _latest_governed_trace_path(project_dir: Path) -> Path | None:
+
+    return build_evidence_catalog(project_dir).latest_governed_trace_path()
+
+
+def _latest_governed_usage_path(project_dir: Path) -> Path | None:
+
+    return build_evidence_catalog(project_dir).latest_governed_usage_path()
+
+
 def _latest_trace_path(project_dir: Path) -> Path | None:
 
     return build_evidence_catalog(project_dir).latest_trace_path()
@@ -212,9 +232,44 @@ def _latest_fanout_summary_path(project_dir: Path) -> Path | None:
     return build_evidence_catalog(project_dir).latest_fanout_summary_path()
 
 
-def _trace_paths_for_latest_run(project_dir: Path) -> list[tuple[str, Path]]:
+def _latest_orchestration_summary_path(project_dir: Path) -> Path | None:
 
-    return build_evidence_catalog(project_dir).trace_paths()
+    return build_evidence_catalog(project_dir).latest_orchestration_summary_path()
+
+
+def _latest_orchestration_fanout_path(project_dir: Path) -> Path | None:
+
+    return build_evidence_catalog(project_dir).latest_orchestration_fanout_path()
+
+
+def _latest_benchmark_run_dir(project_dir: Path) -> Path | None:
+
+    return build_evidence_catalog(project_dir).latest_benchmark_run_dir()
+
+
+def _latest_benchmark_comparison_path(project_dir: Path) -> Path | None:
+
+    return build_evidence_catalog(project_dir).latest_benchmark_comparison_path()
+
+
+def _latest_benchmark_multi_agent_summary_path(project_dir: Path) -> Path | None:
+
+    return build_evidence_catalog(project_dir).latest_benchmark_multi_agent_summary_path()
+
+
+def _latest_benchmark_usage_path(project_dir: Path) -> Path | None:
+
+    return build_evidence_catalog(project_dir).latest_benchmark_usage_path()
+
+
+def _trace_paths_for_timeline(project_dir: Path) -> list[tuple[str, Path]]:
+    """Timeline 优先展示 Lab 1 的真实 AgentLoop，避免被 Fanout 摘要覆盖。"""
+
+    catalog = build_evidence_catalog(project_dir)
+    governed_trace = catalog.latest_governed_trace_path()
+    if governed_trace is not None:
+        return [("受治理 AgentLoop", governed_trace)]
+    return catalog.trace_paths()
 
 
 def _latest_feedback_path(project_dir: Path) -> Path | None:
@@ -272,11 +327,125 @@ def _read_json_file(path: Path | None) -> dict[str, Any]:
     return read_evidence_json(path)
 
 
+def _render_observability_overview(project_dir: Path) -> str:
+    """汇总三个稳定证据范围，首页只回答结果、原因和下一层入口。"""
+
+    run_story = _latest_governed_run_story(project_dir)
+    trace = _read_json_file(_latest_governed_trace_path(project_dir))
+    usage = _read_json_file(_latest_governed_usage_path(project_dir))
+    usage_summary = usage.get("summary") or {}
+    events = _event_list(trace)
+    turns = {
+        int(event.get("step") or 0)
+        for event in events
+        if int(event.get("step") or 0) > 0
+    }
+
+    fanout_path = _latest_orchestration_fanout_path(project_dir)
+    fanout = _read_json_file(fanout_path)
+    orchestration_path = _latest_orchestration_summary_path(project_dir)
+    orchestration = fanout or _read_json_file(orchestration_path)
+    orchestration_status = str(orchestration.get("status") or "not_observed")
+    orchestration_metrics = orchestration.get("metrics") or {}
+
+    campaign = _latest_campaign_summary(project_dir)
+    campaign_state = _latest_campaign_state(project_dir)
+    campaign_records = [
+        record
+        for record in campaign_state.get("records") or []
+        if isinstance(record, dict)
+    ]
+    campaign_cases = {
+        str(record.get("case_id") or "")
+        for record in campaign_records
+        if record.get("case_id")
+    }
+    paired = campaign.get("paired_official") or {}
+
+    run_status = (
+        run_story.status
+        if run_story is not None
+        else str(trace.get("stop_reason") or "not_observed")
+    )
+    run_id = (
+        run_story.run_id
+        if run_story is not None
+        else str(trace.get("run_id") or "未找到")
+    )
+    failed_tools = int(usage_summary.get("failed_tool_calls") or 0)
+    checkpoint_count = sum(
+        1 for event in events if event.get("event_type") == "task_state_checkpoint"
+    )
+    task_count = int(
+        orchestration_metrics.get("task_count")
+        or len(orchestration.get("role_results") or [])
+    )
+    evidence_state = "official" if paired.get("evaluated_pairs") else "fact"
+    evidence_text = (
+        f"{int(paired.get('evaluated_pairs') or 0)} 组官方配对"
+        if paired.get("evaluated_pairs")
+        else "只有运行事实"
+    )
+
+    hierarchy = (
+        "<div class='scope-hierarchy'>"
+        f"<div><b>01</b><span>实验批次</span><strong>{len(campaign_cases)} 个 Case</strong>"
+        "<small>跨运行比较</small></div>"
+        f"<div><b>02</b><span>单次运行</span><strong>{_escape(_display_value(run_status))}</strong>"
+        f"<small class='mono'>{_escape(run_id[:18])}</small></div>"
+        f"<div><b>03</b><span>Agent 轮次</span><strong>{len(turns)} 轮</strong>"
+        "<small>一次模型决策</small></div>"
+        "<div><b>04</b><span>语义阶段</span><strong>固定 6 类</strong>"
+        "<small>上下文到持久化</small></div>"
+        f"<div><b>05</b><span>原始事件</span><strong>{len(events)} 条</strong>"
+        "<small>仅排障时展开</small></div>"
+        "</div>"
+    )
+    body = [
+        "<div class='view-heading'><div><span class='view-kicker'>观测总览</span>"
+        "<h2>先看结论，再逐层下钻</h2></div>"
+        f"{_badge(evidence_state, 'ok' if paired.get('evaluated_pairs') else 'neutral')}</div>",
+        "<p class='help strong'>当前页面同时索引三类独立证据：最近一次受治理运行、最近一次多 Agent 协同、最近一次评测实验。它们不会再因为 Lab 的执行顺序相互覆盖。</p>",
+        _metric_grid(
+            [
+                ("受治理运行", _display_value(run_status), f"{len(turns)} 轮 · {checkpoint_count} 个 Checkpoint", _tone_for_status(run_status)),
+                ("多 Agent 协同", _display_value(orchestration_status), f"{task_count} 个任务 · 独立证据范围", _tone_for_status(orchestration_status)),
+                ("评测证据上限", evidence_text, "候选、本地、官方分层", "ok" if paired.get("evaluated_pairs") else "warn"),
+                ("失败工具调用", str(failed_tools), "来自最近一次 Single-Run", "bad" if failed_tools else "ok"),
+                ("底层事件", str(len(events)), "默认折叠，只用于定位原因", "neutral"),
+                ("实验 Case", str(len(campaign_cases)), "当前已载入的实际覆盖", "neutral"),
+            ]
+        ),
+        "<section class='evidence-section'><div class='section-title'><h3>证据层级</h3>"
+        "<span>批次 → 运行 → 轮次 → 阶段 → 事件</span></div>",
+        hierarchy,
+        "</section>",
+        "<section class='evidence-section'><div class='section-title'><h3>三个必学场景</h3>"
+        "<span>首页只保留面试主线</span></div>",
+        "<div class='scenario-grid'>"
+        "<button onclick=\"loadEvidence('controls')\"><b>1</b><strong>受治理运行</strong>"
+        f"<span>{checkpoint_count} 个 Checkpoint · 权限、HITL、恢复</span></button>"
+        "<button onclick=\"loadEvidence('orchestration')\"><b>2</b><strong>多 Agent 协同</strong>"
+        f"<span>{task_count} 个任务 · 隔离、合并、冲突控制</span></button>"
+        "<button onclick=\"loadEvidence('feedback')\"><b>3</b><strong>评测改进闭环</strong>"
+        f"<span>{len(campaign_cases)} 个 Case · 失败归因、对比、决策</span></button>"
+        "</div></section>",
+        "<section class='evidence-section'><div class='section-title'><h3>阅读原则</h3>"
+        "<span>观测面与底层事实分开</span></div>"
+        "<div class='answer-strip'>"
+        "<div><b>结果</b><span>先看状态和证据上限</span></div>"
+        "<div><b>原因</b><span>再看轮次与四段主链</span></div>"
+        "<div><b>细节</b><span>最后才展开事件和文件来源</span></div>"
+        "</div></section>",
+    ]
+    return "<div class='evidence'>" + "".join(body) + "</div>"
+
+
 def _render_result_summary(project_dir: Path) -> str:
 
     run_dir = _latest_run_dir(project_dir)
     if not run_dir:
-        return _empty_evidence("No run artifacts yet. Run the fixed SWE-bench showcase first.")
+        return _empty_evidence("还没有运行产物，请先执行一个 Lab 或 Agent 任务。")
 
     fanout_path = _latest_fanout_summary_path(project_dir)
     fanout = _read_json_file(fanout_path)
@@ -287,12 +456,18 @@ def _render_result_summary(project_dir: Path) -> str:
     usage = _read_json_file(_latest_usage_path(project_dir))
     trace = _read_json_file(_latest_trace_path(project_dir))
     summary = usage.get("summary") or {}
-    report_path = _latest_report_path(project_dir) or "not found"
+    report_path = _latest_report_path(project_dir) or "未找到"
 
     if results:
         cases = results.get("case_results") or []
         patch_count = sum(1 for case in cases if int(case.get("patch_chars") or 0) > 0)
-        status_text = ", ".join(f"{case.get('instance_id')}: {case.get('status')}" for case in cases) or "no cases"
+        status_text = (
+            ", ".join(
+                f"{case.get('instance_id')}: {_display_value(case.get('status'))}"
+                for case in cases
+            )
+            or "没有 Case"
+        )
         case_rows = "".join(
             "<tr>"
             f"<td class='mono'>{_escape(case.get('instance_id', ''))}</td>"
@@ -301,20 +476,20 @@ def _render_result_summary(project_dir: Path) -> str:
             f"<td>{_badge(case.get('failure_class', 'unclassified'), _tone_for_status(case.get('failure_class', '')))}</td>"
             f"<td>{_badge(case.get('evaluation_status', ''), _tone_for_status(case.get('evaluation_status', '')))}</td>"
             f"<td>{int(case.get('patch_chars') or 0)}</td>"
-            f"<td>{_escape(case.get('diagnosis', ''))}</td>"
-            f"<td>{_escape((case.get('next_actions') or [''])[0])}</td>"
+            f"<td>{_escape(_translate_evidence_text(case.get('diagnosis', '')))}</td>"
+            f"<td>{_escape(_translate_evidence_text((case.get('next_actions') or [''])[0]))}</td>"
             "</tr>"
             for case in cases
         )
-        case_rows_html = case_rows or "<tr><td colspan='8'>No cases</td></tr>"
+        case_rows_html = case_rows or "<tr><td colspan='8'>没有 Case</td></tr>"
         body = [
-            "<h2>Repository Task Outcome</h2>",
-            "<p class='help strong'>从 results.json、usage.json 与 trace.json 汇总任务结果；原始 artifact 仍保留用于追溯。</p>",
+            "<h2>代码仓任务结果</h2>",
+            "<p class='help strong'>从 results.json、usage.json 与 trace.json 汇总任务结果；原始产物仍保留用于追溯。</p>",
             _metric_grid(
                 [
-                    ("Run", results.get("run_id", ""), "Benchmark run id", "neutral"),
+                    ("运行 ID", results.get("run_id", ""), "本次基准运行的唯一标识", "neutral"),
                     (
-                        "Provider",
+                        "模型服务",
                         (
                             f"{results.get('provider', '')}/{results.get('model') or 'default'} "
                             f"· T={float(results.get('temperature') or 0):g}"
@@ -322,33 +497,33 @@ def _render_result_summary(project_dir: Path) -> str:
                         "真实模型与采样配置",
                         "ok",
                     ),
-                    ("Cases", str(len(cases)), "本次跑了几个 SWE-bench case", "neutral"),
-                    ("Patch", f"{patch_count}/{len(cases)}", "是否产生候选 diff", "ok" if patch_count else "warn"),
-                    ("Status", status_text, "agent 结束状态", _tone_for_status(status_text)),
-                    ("Cost", f"${float(summary.get('estimated_cost_usd') or 0):.6f}", "DeepSeek 估算成本", "ok"),
+                    ("Case 数量", str(len(cases)), "本次运行的 SWE-bench 任务数", "neutral"),
+                    ("候选改动", f"{patch_count}/{len(cases)}", "产生候选 diff 的任务数", "ok" if patch_count else "warn"),
+                    ("结束状态", status_text, "Agent 的最终状态", _tone_for_status(status_text)),
+                    ("估算成本", f"${float(summary.get('estimated_cost_usd') or 0):.6f}", "DeepSeek 估算费用", "ok"),
                 ]
             ),
-            "<h3>Fixed Showcase Case</h3>",
-            "<p>默认 reference case 固定为 <span class='mono'>astropy__astropy-12907</span>：真实 Astropy nested CompoundModel separability bug。它足够复杂，可以稳定暴露上下文检索、工具选择、循环控制、成本统计的改进效果。</p>",
-            f"<p><span class='label'>Latest report</span><span class='mono'>{_escape(report_path)}</span></p>",
-            "<h3>Cases</h3>",
-            "<table><thead><tr><th>instance</th><th>repo</th><th>agent status</th><th>diagnosis class</th><th>eval status</th><th>patch chars</th><th>diagnosis</th><th>next action</th></tr></thead>"
+            "<h3>固定演示 Case</h3>",
+            "<p>默认参考 Case 为 <span class='mono'>astropy__astropy-12907</span>：真实的 Astropy 嵌套模型可分离性缺陷，用于观察上下文检索、工具选择、循环控制和成本统计。</p>",
+            f"<p><span class='label'>最新报告</span><span class='mono'>{_escape(report_path)}</span></p>",
+            "<h3>Case 明细</h3>",
+            "<table><thead><tr><th>实例</th><th>代码仓</th><th>Agent 状态</th><th>失败分类</th><th>评测状态</th><th>改动字符数</th><th>诊断</th><th>下一步</th></tr></thead>"
             f"<tbody>{case_rows_html}</tbody></table>",
         ]
     else:
         body = [
-            "<h2>Repository Task Outcome</h2>",
+            "<h2>代码仓任务结果</h2>",
             _metric_grid(
                 [
-                    ("Run", usage.get("run_id", ""), "Normal agent run", "neutral"),
-                    ("Stop", usage.get("stop_reason", ""), "停止原因", _tone_for_status(usage.get("stop_reason", ""))),
-                    ("LLM Calls", str(summary.get("llm_calls", 0)), "模型调用次数", "neutral"),
-                    ("Tokens", str(summary.get("total_tokens", 0)), "总 token", "neutral"),
-                    ("Cost", f"${float(summary.get('estimated_cost_usd') or 0):.6f}", "估算成本", "ok"),
-                    ("Tools", f"{summary.get('tool_calls', 0)} calls", "工具调用", "neutral"),
+                    ("运行 ID", usage.get("run_id", ""), "普通 Agent 运行", "neutral"),
+                    ("停止原因", _display_value(usage.get("stop_reason", "")), "为什么结束本次运行", _tone_for_status(usage.get("stop_reason", ""))),
+                    ("模型调用", str(summary.get("llm_calls", 0)), "调用大模型的次数", "neutral"),
+                    ("Token 总量", str(summary.get("total_tokens", 0)), "输入与输出 Token 总和", "neutral"),
+                    ("估算成本", f"${float(summary.get('estimated_cost_usd') or 0):.6f}", "模型调用估算费用", "ok"),
+                    ("工具调用", str(summary.get("tool_calls", 0)), "执行工具的总次数", "neutral"),
                 ]
             ),
-            f"<p><span class='label'>Task</span>{_escape((usage.get('task') or trace.get('task') or '')[:800])}</p>",
+            f"<p><span class='label'>任务</span>{_escape((usage.get('task') or trace.get('task') or '')[:800])}</p>",
         ]
     return "<div class='evidence'>" + "".join(body) + "</div>"
 
@@ -363,7 +538,7 @@ def _render_usage_dashboard(project_dir: Path) -> str:
     usage_path = _latest_usage_path(project_dir)
     usage = _read_json_file(usage_path)
     if not usage:
-        return _empty_evidence("No usage.json found. Run DeepSeek Agent or SWE-bench showcase first.")
+        return _empty_evidence("没有找到 usage.json，请先运行 Agent 或一个 Debug Lab。")
 
     summary = usage.get("summary") or {}
     rows = []
@@ -374,7 +549,7 @@ def _render_usage_dashboard(project_dir: Path) -> str:
         cost = sum(float(call.get("estimated_cost_usd") or 0) for call in calls)
         actions = step.get("actions") or []
         action_text = ", ".join(
-            f"{action.get('tool', 'tool')}:{'ok' if action.get('success') else 'fail'}"
+            f"{action.get('tool', '工具')}:{'成功' if action.get('success') else '失败'}"
             for action in actions[:4]
         )
         if len(actions) > 4:
@@ -387,13 +562,13 @@ def _render_usage_dashboard(project_dir: Path) -> str:
             f"<td>{completion}</td>"
             f"<td>${cost:.6f}</td>"
             f"<td>{int((step.get('context') or {}).get('total_chars') or 0)}</td>"
-            f"<td>{_escape(action_text or 'none')}</td>"
+            f"<td>{_escape(action_text or '无')}</td>"
             "</tr>"
         )
 
     context_sections = (usage.get("context_breakdown") or {}).get("section_chars") or {}
     context_rows = "".join(
-        f"<tr><td>{_escape(name)}</td><td>{int(value)}</td></tr>"
+        f"<tr><td>{_escape(_display_context_section(name))}</td><td>{int(value)}</td></tr>"
         for name, value in sorted(context_sections.items(), key=lambda item: int(item[1]), reverse=True)
     )
     tools = ((usage.get("tool_efficiency") or {}).get("by_tool") or {})
@@ -407,32 +582,32 @@ def _render_usage_dashboard(project_dir: Path) -> str:
         "</tr>"
         for name, data in tools.items()
     )
-    step_rows_html = "".join(rows) or "<tr><td colspan='7'>No step data</td></tr>"
-    context_rows_html = context_rows or "<tr><td colspan='2'>No context data</td></tr>"
-    tool_rows_html = tool_rows or "<tr><td colspan='5'>No tool data</td></tr>"
+    step_rows_html = "".join(rows) or "<tr><td colspan='7'>没有步骤数据</td></tr>"
+    context_rows_html = context_rows or "<tr><td colspan='2'>没有上下文数据</td></tr>"
+    tool_rows_html = tool_rows or "<tr><td colspan='5'>没有工具数据</td></tr>"
     active_skills = summary.get("active_skills") or []
     adaptive_rows = "".join(
         [
-            "<tr><td>Structured context compaction</td>"
-            f"<td>{int(summary.get('compacted_context_turns') or 0)} turn(s)</td>"
-            f"<td>{int(summary.get('context_overflow_recoveries') or 0)} provider-overflow recovery</td>"
-            "<td>SessionDigest + raw trace provenance</td></tr>",
-            "<tr><td>Evidence-backed memory recall</td>"
-            f"<td>{int(summary.get('memory_recalled') or 0)} record(s)</td>"
-            "<td>candidate records excluded; active records only</td>"
+            "<tr><td>结构化上下文压缩</td>"
+            f"<td>{int(summary.get('compacted_context_turns') or 0)} 个 Turn</td>"
+            f"<td>{int(summary.get('context_overflow_recoveries') or 0)} 次上下文溢出恢复</td>"
+            "<td>SessionDigest + 原始 Trace 来源</td></tr>",
+            "<tr><td>有证据的长期记忆召回</td>"
+            f"<td>{int(summary.get('memory_recalled') or 0)} 条记录</td>"
+            "<td>排除候选记录，只召回已生效记录</td>"
             "<td>LongTermMemoryService</td></tr>",
-            "<tr><td>Tool-call normalization</td>"
-            f"<td>{int(summary.get('tool_call_repairs') or 0)} repair(s)</td>"
-            "<td>visible tool names + deterministic argument repair</td>"
+            "<tr><td>工具调用规范化</td>"
+            f"<td>{int(summary.get('tool_call_repairs') or 0)} 次修复</td>"
+            "<td>仅修复可见工具名和确定性参数格式</td>"
             "<td>ModelGateway + ToolCallNormalizer</td></tr>",
-            "<tr><td>Tool burst governance</td>"
-            f"<td>{int(summary.get('bounded_tool_call_bursts') or 0)} bounded burst(s)</td>"
-            "<td>excess calls are not executed</td>"
+            "<tr><td>单轮工具调用上限</td>"
+            f"<td>{int(summary.get('bounded_tool_call_bursts') or 0)} 次超限拦截</td>"
+            "<td>超过上限的调用不会执行</td>"
             "<td>ToolExecutionPipeline</td></tr>",
-            "<tr><td>Skill activation</td>"
-            f"<td>{_escape(', '.join(str(item) for item in active_skills) or 'none observed')}</td>"
-            "<td>prompt and tool visibility can be ablated</td>"
-            "<td>SkillRegistry + scorecard</td></tr>",
+            "<tr><td>Skill 激活</td>"
+            f"<td>{_escape(', '.join(str(item) for item in active_skills) or '本次未观测')}</td>"
+            "<td>可以对提示词和工具可见性做消融对比</td>"
+            "<td>SkillRegistry + 评测记分卡</td></tr>",
         ]
     )
 
@@ -441,28 +616,29 @@ def _render_usage_dashboard(project_dir: Path) -> str:
         "<p class='help strong'>这里回答一次真实运行花了多少 token、多少钱、哪里消耗上下文，以及工具调用是否高效。</p>",
         _metric_grid(
             [
-                ("LLM Calls", str(summary.get("llm_calls", 0)), "模型调用轮数", "neutral"),
-                ("Total Tokens", str(summary.get("total_tokens", 0)), "input + output", "neutral"),
-                ("Cache Hit", f"{float(summary.get('cache_hit_rate') or 0):.2%}", "缓存命中率", "ok"),
-                ("Cost", f"${float(summary.get('estimated_cost_usd') or 0):.6f}", "估算成本", "ok"),
-                ("Latency", f"{int(summary.get('llm_latency_ms') or 0)} ms", "模型总延迟", "neutral"),
-                ("Tool Failures", str(summary.get("failed_tool_calls", 0)), "失败工具调用", "bad" if summary.get("failed_tool_calls") else "ok"),
+                ("模型调用", str(summary.get("llm_calls", 0)), "模型调用轮数", "neutral"),
+                ("Token 总量", str(summary.get("total_tokens", 0)), "输入 + 输出", "neutral"),
+                ("缓存命中率", f"{float(summary.get('cache_hit_rate') or 0):.2%}", "模型侧缓存命中比例", "ok"),
+                ("估算成本", f"${float(summary.get('estimated_cost_usd') or 0):.6f}", "模型调用估算费用", "ok"),
+                ("模型延迟", f"{int(summary.get('llm_latency_ms') or 0)} ms", "模型调用总耗时", "neutral"),
+                ("失败工具调用", str(summary.get("failed_tool_calls", 0)), "执行失败的工具次数", "bad" if summary.get("failed_tool_calls") else "ok"),
             ]
         ),
-        "<section class='evidence-section'><div class='section-title'><h3>Adaptive Harness Signals</h3><span>observed in this run</span></div>",
-        "<table><thead><tr><th>capability</th><th>observed</th><th>enforced boundary</th><th>runtime owner</th></tr></thead>",
+        "<section class='evidence-section'><div class='section-title'><h3>自适应运行信号</h3><span>只显示本次真实观测</span></div>",
+        "<table><thead><tr><th>能力</th><th>观测结果</th><th>约束边界</th><th>负责模块</th></tr></thead>",
         f"<tbody>{adaptive_rows}</tbody></table>",
-        "<p class='boundary-note'>Zero means this run did not exercise the capability. It is not rendered as a synthetic pass.</p></section>",
-        "<h3>Step Cost Breakdown</h3>",
-        "<table><thead><tr><th>step</th><th>llm calls</th><th>input</th><th>output</th><th>cost</th><th>context chars</th><th>actions</th></tr></thead>"
+        "<p class='boundary-note'>数值为 0 表示本次运行没有触发该能力，不代表能力验证通过。</p></section>",
+        "<details class='drilldown'><summary>查看每轮 Token、成本与工具调用明细</summary>"
+        "<div class='drilldown-body'><h3>每轮成本明细</h3>",
+        "<table><thead><tr><th>轮次</th><th>模型调用</th><th>输入 Token</th><th>输出 Token</th><th>成本</th><th>上下文字符数</th><th>动作</th></tr></thead>"
         f"<tbody>{step_rows_html}</tbody></table>",
         "<div class='split'>",
-        "<div><h3>Context Breakdown</h3><table><thead><tr><th>section</th><th>chars</th></tr></thead>"
+        "<div><h3>上下文组成</h3><table><thead><tr><th>区段</th><th>字符数</th></tr></thead>"
         f"<tbody>{context_rows_html}</tbody></table></div>",
-        "<div><h3>Tool Efficiency</h3><table><thead><tr><th>tool</th><th>calls</th><th>ok</th><th>fail</th><th>ms</th></tr></thead>"
+        "<div><h3>工具效率</h3><table><thead><tr><th>工具</th><th>调用</th><th>成功</th><th>失败</th><th>耗时（ms）</th></tr></thead>"
         f"<tbody>{tool_rows_html}</tbody></table></div>",
-        "</div>",
-        f"<p><span class='label'>usage.json</span><span class='mono'>{_escape(str(usage_path))}</span></p>",
+        "</div></div></details>",
+        f"<details class='provenance'><summary>用量证据来源</summary><code>{_escape(str(usage_path))}</code></details>",
     ]
     return "<div class='evidence'>" + "".join(body) + "</div>"
 
@@ -470,34 +646,71 @@ def _render_usage_dashboard(project_dir: Path) -> str:
 def _render_fanout_result_summary(fanout: dict[str, Any], path: Path | None) -> str:
 
     metrics = fanout.get("metrics") or {}
-    rows = "".join(
-        "<tr>"
-        f"<td class='mono'>{_escape(result.get('task_id', ''))}</td>"
-        f"<td>{_badge(str(result.get('status', '')), _tone_for_status(str(result.get('status', ''))))}</td>"
-        f"<td>{_escape(result.get('resumed', False))}</td>"
-        f"<td>{_escape(result.get('touched_files', []))}</td>"
-        "</tr>"
-        for result in fanout.get("results") or []
-    ) or "<tr><td colspan='4'>No task results</td></tr>"
+    results = [
+        result for result in fanout.get("results") or [] if isinstance(result, dict)
+    ]
+    batches = fanout.get("batches") or []
+    conflicts = fanout.get("conflicts") or []
+    task_cards = []
+    for result in results:
+        touched_files = ", ".join(str(item) for item in result.get("touched_files") or [])
+        final_answer = " ".join(str(result.get("final_answer") or "").split())
+        task_cards.append(
+            "<article class='worker-card'>"
+            "<div class='artifact-head'><div>"
+            f"<span>Worker · 批次 {int(result.get('batch_index') or 0) + 1}</span>"
+            f"<h4>{_escape(result.get('task_id') or '未命名任务')}</h4></div>"
+            f"{_badge(str(result.get('status') or 'unknown'), _tone_for_status(str(result.get('status') or '')))}</div>"
+            f"<p><b>改动范围：</b>{_escape(touched_files or '没有文件改动')}</p>"
+            f"<div class='worker-facts'><span>{int(result.get('duration_ms') or 0)} ms</span>"
+            f"<span>{'恢复执行' if result.get('resumed') else '本次新执行'}</span></div>"
+            "<details><summary>查看 Worker 结论与证据路径</summary>"
+            f"<p>{_escape(final_answer or '没有可展示的结论摘要。')}</p>"
+            f"<code>{_escape(result.get('trace_path') or '未找到 Trace')}</code>"
+            f"<code>{_escape(result.get('candidate_diff_path') or '未生成候选改动')}</code>"
+            "</details></article>"
+        )
+    task_content = (
+        "".join(task_cards)
+        if task_cards
+        else "<div class='empty-inline'>没有 Worker 结果。</div>"
+    )
+    batch_text = "；".join(
+        f"批次 {index}: {', '.join(str(task) for task in batch)}"
+        for index, batch in enumerate(batches, start=1)
+    ) or "未记录"
     body = [
-        "<h2>Live Fanout 结果摘要</h2>",
-        "<p class='help strong'>独立 AgentLoop workers、scope gate、确定性合并和 finalizer 的终态证据。</p>",
+        "<div class='view-heading'><div><span class='view-kicker'>LAB 2 · 多 Agent 协同</span>"
+        "<h2>并行任务与最终收口</h2></div>"
+        f"{_badge(str(fanout.get('status') or 'unknown'), _tone_for_status(str(fanout.get('status') or '')))}</div>",
+        "<p class='help strong'>这里只把依赖满足且写入范围可分离的任务放入同一批并发；每个 Worker 在独立工作区运行，之后统一检查改动范围、合并并验证。</p>",
         _metric_grid(
             [
-                ("Status", str(fanout.get("status", "")), "coordinator status", _tone_for_status(str(fanout.get("status", "")))),
-                ("Tasks", str(metrics.get("task_count", 0)), "validated DAG tasks", "neutral"),
-                ("Completed", str(metrics.get("completed_count", 0)), "accepted workers", "ok"),
-                ("Max Workers", str(metrics.get("max_workers", 0)), "concurrency bound", "neutral"),
-                ("Wall Time", f"{int(metrics.get('wall_time_ms') or 0)} ms", "includes finalizer", "neutral"),
-                ("Decision", str(fanout.get("final_decision") or "not_run"), "isolated verifier", _tone_for_status(str(fanout.get("final_decision") or ""))),
+                ("协调状态", _display_value(fanout.get("status", "")), "协调器最终状态", _tone_for_status(str(fanout.get("status", "")))),
+                ("任务完成", f"{metrics.get('completed_count', 0)}/{metrics.get('task_count', 0)}", "通过依赖与范围校验", "ok"),
+                ("并发批次", str(len(batches)), f"最大并发 {metrics.get('max_workers', 0)}", "neutral"),
+                ("改动冲突", str(len(conflicts)), "检测到的文件范围冲突", "bad" if conflicts else "ok"),
+                ("端到端耗时", _format_milliseconds(int(metrics.get("wall_time_ms") or 0)), "包含合并与最终验证", "neutral"),
+                ("最终决策", _display_value(fanout.get("final_decision") or "not_run"), "隔离验证器结论", _tone_for_status(str(fanout.get("final_decision") or ""))),
             ]
         ),
-        f"<p><span class='label'>Goal</span>{_escape(fanout.get('goal', ''))}</p>",
-        f"<p><span class='label'>Batches</span><span class='mono'>{_escape(fanout.get('batches', []))}</span></p>",
-        "<table><thead><tr><th>task</th><th>status</th><th>resumed</th><th>touched files</th></tr></thead>",
-        f"<tbody>{rows}</tbody></table>",
-        "<p class='help'>A merged candidate and FanoutVerifier PASS are runtime evidence, not official benchmark resolution.</p>",
-        f"<p><span class='label'>fanout_summary.json</span><span class='mono'>{_escape(str(path or 'not found'))}</span></p>",
+        f"<p class='task-summary'><span>总体目标</span>{_escape(fanout.get('goal', ''))}</p>",
+        "<section class='evidence-section'><div class='section-title'><h3>为什么允许并行</h3>"
+        "<span>依赖和改动范围先于并发</span></div>"
+        "<div class='answer-strip'>"
+        f"<div><b>依赖批次</b><span>{_escape(batch_text)}</span></div>"
+        f"<div><b>范围冲突</b><span>{'发现 ' + str(len(conflicts)) + ' 项' if conflicts else '未发现重叠写入'}</span></div>"
+        f"<div><b>最终收口</b><span>{_escape(_display_value(fanout.get('final_decision') or 'not_run'))}</span></div>"
+        "</div></section>",
+        "<section class='evidence-section'><div class='section-title'><h3>Worker 执行结果</h3>"
+        "<span>先看任务和改动范围，路径按需展开</span></div>"
+        f"<div class='worker-grid'>{task_content}</div></section>",
+        "<p class='boundary-note'>最终验证通过只证明这次合并后的本地检查通过，不等于官方 Benchmark 已解决。</p>",
+        "<details class='drilldown'><summary>查看并发成本与恢复统计</summary>"
+        "<div class='drilldown-body'>"
+        f"{_metric_grid([('模型调用', str(metrics.get('llm_calls', 0)), 'Worker 与最终验证器', 'neutral'), ('工具调用', str(metrics.get('tool_calls', 0)), '全部执行链', 'neutral'), ('失败工具调用', str(metrics.get('failed_tool_calls', 0)), '实际失败观察', 'bad' if metrics.get('failed_tool_calls') else 'ok'), ('恢复任务', str(metrics.get('resumed_count', 0)), '复用历史 Worker 结果', 'neutral')])}"
+        "</div></details>",
+        f"<details class='provenance'><summary>多 Agent 证据来源</summary><code>{_escape(str(path or '未找到'))}</code></details>",
     ]
     return "<div class='evidence'>" + "".join(body) + "</div>"
 
@@ -510,41 +723,41 @@ def _render_fanout_usage_dashboard(fanout: dict[str, Any], path: Path | None) ->
         "<p class='help strong'>总模型指标包含 workers 与 finalizer；worker time 和 wall time 分开显示。</p>",
         _metric_grid(
             [
-                ("LLM Calls", str(metrics.get("llm_calls", 0)), "this run", "neutral"),
-                ("Total Tokens", str(metrics.get("total_tokens", 0)), "this run", "neutral"),
-                ("Cost", f"${float(metrics.get('estimated_cost_usd') or 0):.6f}", "this run estimate", "ok"),
-                ("Wall Time", f"{int(metrics.get('wall_time_ms') or 0)} ms", "end-to-end", "neutral"),
-                ("Current Worker", f"{int(metrics.get('current_worker_duration_ms') or 0)} ms", "this run only", "neutral"),
-                ("Recovered Worker", f"{int(metrics.get('resumed_worker_duration_ms') or 0)} ms", "historical artifacts", "neutral"),
-                ("Max Workers", str(metrics.get("max_workers", 0)), "configured bound", "neutral"),
-                ("Tool Calls", str(metrics.get("tool_calls", 0)), "worker and verifier tools", "neutral"),
-                ("Tool Failures", str(metrics.get("failed_tool_calls", 0)), "failed observations", "bad" if metrics.get("failed_tool_calls") else "ok"),
+                ("模型调用", str(metrics.get("llm_calls", 0)), "本次运行", "neutral"),
+                ("Token 总量", str(metrics.get("total_tokens", 0)), "本次运行", "neutral"),
+                ("估算成本", f"${float(metrics.get('estimated_cost_usd') or 0):.6f}", "本次运行估算", "ok"),
+                ("总耗时", f"{int(metrics.get('wall_time_ms') or 0)} ms", "端到端耗时", "neutral"),
+                ("本次 Worker 耗时", f"{int(metrics.get('current_worker_duration_ms') or 0)} ms", "仅本次执行", "neutral"),
+                ("恢复 Worker 耗时", f"{int(metrics.get('resumed_worker_duration_ms') or 0)} ms", "来自历史产物", "neutral"),
+                ("最大并发数", str(metrics.get("max_workers", 0)), "配置的并发上限", "neutral"),
+                ("工具调用", str(metrics.get("tool_calls", 0)), "Worker 与验证器总和", "neutral"),
+                ("失败工具调用", str(metrics.get("failed_tool_calls", 0)), "失败观测数量", "bad" if metrics.get("failed_tool_calls") else "ok"),
             ]
         ),
-        f"<p><span class='label'>fanout_summary.json</span><span class='mono'>{_escape(str(path or 'not found'))}</span></p>",
+        f"<p><span class='label'>fanout_summary.json</span><span class='mono'>{_escape(str(path or '未找到'))}</span></p>",
     ]
     return "<div class='evidence'>" + "".join(body) + "</div>"
 
 
-# 主要入口：把底层 trace 投影成面向人的“运行级阶段 + Agent Turn”时间线。
+# 主要入口：把底层 Trace 投影成“运行级事件 + 每轮四段主链”。
 def _render_trace_timeline(project_dir: Path) -> str:
 
-    trace_entries = _trace_paths_for_latest_run(project_dir)
+    trace_entries = _trace_paths_for_timeline(project_dir)
     if not trace_entries:
-        return _empty_evidence("No trace.json found. Run DeepSeek Agent or SWE-bench showcase first.")
+        return _empty_evidence("没有找到 trace.json，请先运行 Agent 或一个 Debug Lab。")
     body = [
-        "<div class='view-heading'><div><span class='view-kicker'>OBSERVABILITY</span><h2>Execution Timeline</h2></div>"
-        "<span class='claim-note'>固定六阶段 · 底层事件可展开</span></div>",
-        "<p class='help strong'>运行级事件不属于 Agent Turn。每个 Turn 固定按六个阅读阶段投影；"
-        "阶段内原始事件数量会随工具、审批和停止分支变化，未发生的阶段明确留空。</p>",
-        "<div class='legend-row'>"
-        "<span class='legend-item purple'>上下文 / 路由</span>"
-        "<span class='legend-item blue'>模型请求 / 响应</span>"
-        "<span class='legend-item warn'>决策 / 安全治理</span>"
-        "<span class='legend-item ok'>工具执行成功</span>"
-        "<span class='legend-item neutral'>状态 / 证据</span>"
-        "<span class='legend-item bad'>失败 / 阻断</span>"
+        "<div class='view-heading'><div><span class='view-kicker'>可观测性</span><h2>执行时间线</h2></div>"
+        "<span class='claim-note'>面试只记四段</span></div>",
+        "<p class='help strong'>一轮 AgentLoop 只按四件事理解。扩展钩子（Hook）、权限、操作账本、"
+        "工具开始与工具结果都归入“治理并执行”；底层 Trace 事件只用于排障，不需要背诵。</p>",
+        "<div class='mini-flow timeline-mental-model'>"
+        "<span><b>1 准备输入</b><small>组装本轮模型可见上下文</small></span>"
+        "<span><b>2 模型决定</b><small>回答问题或提出工具意图</small></span>"
+        "<span><b>3 治理并执行</b><small>检查副作用，再调用工具</small></span>"
+        "<span><b>4 回填并持久化</b><small>写回观察、证据与 Checkpoint</small></span>"
         "</div>",
+        "<p class='boundary-note'>没有工具意图时，第 3 段可以不执行工具；需要精确事件顺序时，"
+        "再展开对应阶段的底层证据。</p>",
     ]
     for label, trace_path in trace_entries:
         body.append(_render_trace_lane(label, trace_path))
@@ -569,62 +782,67 @@ def _render_trace_lane(label: str, trace_path: Path) -> str:
     return (
         "<section class='evidence-section timeline-lane'>"
         f"<div class='section-title'><h3>{_escape(label)}</h3>{_badge(str(trace.get('stop_reason') or 'unknown'), _tone_for_status(str(trace.get('stop_reason') or '')))}</div>"
-        f"<div class='run-facts'><span>run <b class='mono'>{_escape(trace.get('run_id', ''))}</b></span>"
-        f"<span>{len(turns)} 个 Agent Turn</span><span>{len(run_events)} 个运行级事件</span>"
+        f"<div class='run-facts'><span>运行 <b class='mono'>{_escape(trace.get('run_id', ''))}</b></span>"
+        f"<span>{len(turns)} 个 Agent 轮次</span><span>{len(run_events)} 个运行级事件</span>"
         f"<span>{len(events)} 条底层事件</span></div>"
         f"{_render_run_level_events(run_events)}{turn_blocks}"
-        f"<details class='provenance'><summary>Trace provenance</summary><code>{_escape(str(trace_path))}</code></details>"
+        f"<details class='provenance'><summary>Trace 来源</summary><code>{_escape(str(trace_path))}</code></details>"
         "</section>"
     )
 
 
-_TIMELINE_PHASES = (
-    ("context", "01", "上下文", "准备模型可见输入", "purple"),
-    ("model", "02", "模型", "发起请求并接收响应", "blue"),
-    ("decision", "03", "决策", "解析回答或工具意图", "warn"),
-    ("governance", "04", "治理", "安全、权限与人工控制", "warn"),
-    ("execution", "05", "执行", "调用工具并取得结果", "ok"),
-    ("state", "06", "状态 / 证据", "回填观察并持久化", "neutral"),
+_TIMELINE_STAGES = (
+    ("input", "01", "准备输入", "上下文、记忆、Skill 与工具可见性", "purple"),
+    ("decision", "02", "模型决定", "模型调用、回答或工具意图", "blue"),
+    (
+        "governed_execution",
+        "03",
+        "治理并执行",
+        "安全检查、扩展钩子、权限、操作账本与工具调用",
+        "warn",
+    ),
+    ("persistence", "04", "回填并持久化", "观察、证据、Checkpoint 与停止状态", "neutral"),
 )
 
-_TRACE_PHASE_BY_EVENT = {
-    "turn_started": "context",
-    "context_assembly": "context",
-    "context_window": "context",
-    "context_overflow_recovery": "context",
-    "memory_recall": "context",
-    "skill_selection": "context",
-    "model_started": "model",
-    "llm_call": "model",
+_TRACE_STAGE_BY_EVENT = {
+    "turn_started": "input",
+    "context_assembly": "input",
+    "context_window": "input",
+    "context_overflow_recovery": "input",
+    "memory_recall": "input",
+    "skill_selection": "input",
+    "model_capabilities": "input",
+    "model_started": "decision",
+    "llm_call": "decision",
     "action": "decision",
     "clarification_decision": "decision",
     "final_answer": "decision",
     "review_decision": "decision",
     "verifier_result": "decision",
-    "guardrail_check": "governance",
-    "hook_check": "governance",
-    "permission_check": "governance",
-    "human_approval": "governance",
-    "human_input_requested": "governance",
-    "human_input_response_loaded": "governance",
-    "human_input_cancelled": "governance",
-    "run_control": "governance",
-    "tool_calls_deferred_for_human_input": "governance",
-    "tool_execution_started": "execution",
-    "tool_call": "execution",
-    "tool_observation": "execution",
-    "validation_evidence": "execution",
-    "tool_calls_bounded": "execution",
-    "task_state_checkpoint": "state",
-    "observation": "state",
-    "evidence_collected": "state",
-    "operation_ledger": "state",
-    "recovery_decision": "state",
-    "resume_state_loaded": "state",
-    "stop_hooks": "state",
-    "run_completed": "state",
-    "execution_environment": "state",
-    "error": "state",
+    "guardrail_check": "governed_execution",
+    "hook_check": "governed_execution",
+    "permission_check": "governed_execution",
+    "human_approval": "governed_execution",
+    "human_input_requested": "governed_execution",
+    "human_input_response_loaded": "governed_execution",
+    "human_input_cancelled": "governed_execution",
+    "run_control": "governed_execution",
+    "tool_calls_deferred_for_human_input": "governed_execution",
+    "tool_execution_started": "governed_execution",
+    "tool_call": "governed_execution",
+    "tool_observation": "governed_execution",
+    "validation_evidence": "governed_execution",
+    "tool_calls_bounded": "governed_execution",
+    "operation_ledger": "governed_execution",
+    "task_state_checkpoint": "persistence",
+    "observation": "persistence",
+    "evidence_collected": "persistence",
+    "recovery_decision": "persistence",
+    "resume_state_loaded": "persistence",
+    "stop_hooks": "persistence",
+    "run_completed": "persistence",
+    "execution_environment": "persistence",
+    "error": "persistence",
 }
 
 
@@ -636,7 +854,7 @@ def _render_run_level_events(events: list[dict[str, Any]]) -> str:
     return (
         "<div class='timeline-run-level'>"
         "<div class='timeline-head'><div><strong>运行级阶段</strong>"
-        "<small>初始化 / 发布，不计入 Agent Turn</small></div>"
+        "<small>初始化 / 发布，不计入 Agent 轮次</small></div>"
         f"{_badge('存在失败' if failures else '初始化完成', 'bad' if failures else 'ok')}</div>"
         f"{_render_raw_event_details(events, summary='查看运行级底层事件')}"
         "</div>"
@@ -645,27 +863,37 @@ def _render_run_level_events(events: list[dict[str, Any]]) -> str:
 
 def _render_timeline_turn(turn: int, events: list[dict[str, Any]]) -> str:
 
-    grouped = {phase[0]: [] for phase in _TIMELINE_PHASES}
+    grouped = {stage[0]: [] for stage in _TIMELINE_STAGES}
     for event in events:
         event_type = str(event.get("event_type") or "")
-        grouped[_TRACE_PHASE_BY_EVENT.get(event_type, "state")].append(event)
-    phases = "".join(
-        _render_timeline_phase(key, number, title, note, tone, grouped[key])
-        for key, number, title, note, tone in _TIMELINE_PHASES
+        grouped[_TRACE_STAGE_BY_EVENT.get(event_type, "persistence")].append(event)
+    stages = "".join(
+        _render_timeline_stage(key, number, title, note, tone, grouped[key])
+        for key, number, title, note, tone in _TIMELINE_STAGES
+    )
+    stage_evidence = "".join(
+        _render_raw_event_details(
+            grouped[key],
+            summary=f"{number} {title}：查看本段底层证据",
+        )
+        for key, number, title, _note, _tone in _TIMELINE_STAGES
+        if grouped[key]
     )
     outcome, outcome_tone = _timeline_turn_outcome(events)
+    turn_summary = _timeline_turn_summary(events)
     return (
         "<div class='timeline-turn'>"
         "<div class='timeline-head'>"
-        f"<div><strong>Turn {turn}</strong><small>{len(events)} 条底层事件</small></div>"
+        f"<div><strong>第 {turn} 轮 · {_escape(turn_summary)}</strong>"
+        "<small>一次模型决策及其后续动作</small></div>"
         f"{_badge(outcome, outcome_tone)}</div>"
-        f"<div class='timeline-phase-grid'>{phases}</div>"
-        f"{_render_raw_event_details(events, summary='展开本轮底层事件')}"
+        f"<div class='timeline-phase-grid'>{stages}</div>"
+        f"<div class='timeline-stage-drilldowns'>{stage_evidence}</div>"
         "</div>"
     )
 
 
-def _render_timeline_phase(
+def _render_timeline_stage(
     key: str,
     number: str,
     title: str,
@@ -674,20 +902,23 @@ def _render_timeline_phase(
     events: list[dict[str, Any]],
 ) -> str:
 
-    summary = _summarize_timeline_phase(key, events) if events else "未发生"
+    if events:
+        summary = _summarize_timeline_stage(key, events)
+    else:
+        summary = "本轮无需执行" if key == "governed_execution" else "未观测"
     state = " empty" if not events else ""
     return (
         f"<div class='timeline-phase {tone}{state}'>"
         f"<div class='timeline-phase-head'><b>{number}</b><span>{_escape(title)}</span></div>"
         f"<strong>{_escape(summary)}</strong>"
-        f"<small>{_escape(note)} · {len(events)} 条事件</small>"
+        f"<small>{_escape(note)}</small>"
         "</div>"
     )
 
 
-def _summarize_timeline_phase(key: str, events: list[dict[str, Any]]) -> str:
+def _summarize_timeline_stage(key: str, events: list[dict[str, Any]]) -> str:
 
-    if key == "context":
+    if key == "input":
         assembly = _last_trace_event(events, "context_assembly")
         window_event = _last_trace_event(events, "context_window")
         context = (assembly or {}).get("context") or {}
@@ -705,58 +936,78 @@ def _summarize_timeline_phase(key: str, events: list[dict[str, Any]]) -> str:
             parts.append("无需压缩")
         return " · ".join(parts) or "Turn 输入已准备"
 
-    if key == "model":
+    if key == "decision":
         completed = _last_trace_event(events, "llm_call")
         started = _last_trace_event(events, "model_started")
         usage = (completed or {}).get("model_usage") or {}
         request = (started or {}).get("model_request") or {}
-        parts = []
-        if usage.get("model"):
-            parts.append(str(usage["model"]))
-        if usage.get("total_tokens") is not None:
-            parts.append(f"{int(usage['total_tokens']):,} tokens")
+        metrics = []
         if usage.get("latency_ms") is not None:
-            parts.append(_format_milliseconds(int(usage["latency_ms"])))
-        if not parts and request.get("messages_count") is not None:
-            parts.append(f"{int(request['messages_count'])} 条消息")
-        return " · ".join(parts) or "模型边界已记录"
-
-    if key == "decision":
+            metrics.append(_format_milliseconds(int(usage["latency_ms"])))
+        if usage.get("total_tokens") is not None:
+            metrics.append(f"{int(usage['total_tokens']):,} tokens")
         final_answer = _last_trace_event(events, "final_answer")
         if final_answer is not None:
             if final_answer.get("pending_tool_call"):
-                return "仍请求工具，但本轮已无执行预算"
-            return _compact_timeline_text(
-                final_answer.get("observation") or "模型给出最终回答"
-            )
-        action = _last_trace_event(events, "action")
-        if action is not None:
+                decision = "仍请求工具，但本轮已无执行预算"
+            else:
+                decision = _compact_timeline_text(
+                    final_answer.get("observation") or "模型给出最终回答"
+                )
+        elif (action := _last_trace_event(events, "action")) is not None:
             tool = str(action.get("tool_call") or "未知工具")
             target = _trace_tool_target(action)
-            return f"请求 {tool}" + (f" · {target}" if target else "")
-        return _TRACE_EVENT_LABELS.get(
-            str(events[-1].get("event_type") or ""),
-            "决策已记录",
-        )
+            decision = f"请求 {tool}" + (f" · {target}" if target else "")
+        elif request.get("messages_count") is not None:
+            decision = f"处理 {int(request['messages_count'])} 条消息"
+        else:
+            decision = "模型边界已记录"
+        return " · ".join([decision, *metrics])
 
-    if key == "governance":
+    if key == "governed_execution":
+        checks = [
+            event
+            for event in events
+            if str(event.get("event_type") or "")
+            in {
+                "guardrail_check",
+                "hook_check",
+                "permission_check",
+                "human_approval",
+                "human_input_requested",
+                "run_control",
+                "operation_ledger",
+            }
+        ]
         denied = any(
             str(event.get("permission_decision") or "").lower() == "deny"
-            or not bool(event.get("success", True))
+            or (
+                str(event.get("event_type") or "")
+                in {
+                    "guardrail_check",
+                    "hook_check",
+                    "permission_check",
+                    "human_approval",
+                    "human_input_requested",
+                    "run_control",
+                }
+                and not bool(event.get("success", True))
+            )
             for event in events
         )
         waiting = any(
-            str(event.get("event_type") or "")
-            in {"human_approval", "human_input_requested"}
+            str(event.get("event_type") or "") == "human_input_requested"
+            or (
+                str(event.get("event_type") or "") == "human_approval"
+                and str(event.get("observation") or "") in {"pending", "requested"}
+            )
+            or str(event.get("permission_decision") or "").lower() == "ask"
             for event in events
         )
         if denied:
-            return f"策略阻断 · {len(events)} 项检查"
+            return f"治理阻断 · {len(checks)} 项检查"
         if waiting:
-            return f"等待人工决策 · {len(events)} 项检查"
-        return f"策略检查通过 · {len(events)} 项检查"
-
-    if key == "execution":
+            return f"等待人工决策 · {len(checks)} 项检查"
         observations = [
             event
             for event in events
@@ -768,21 +1019,24 @@ def _summarize_timeline_phase(key: str, events: list[dict[str, Any]]) -> str:
                 1 for event in observations if not bool(event.get("success", True))
             )
             suffix = f"{failures} 次失败" if failures else "成功"
-            return f"{', '.join(tools)} · {suffix}"
+            check_text = f"{len(checks)} 项治理检查 · " if checks else ""
+            return f"{check_text}{', '.join(tools)} · {suffix}"
         started = _last_trace_event(events, "tool_execution_started")
         if started is not None:
-            return f"{started.get('tool_call') or '工具'} · 已开始"
-        return f"{len(events)} 个执行事件"
+            return f"{len(checks)} 项治理检查 · {started.get('tool_call') or '工具'} 已开始"
+        if checks:
+            return f"{len(checks)} 项治理检查通过 · 本轮未调用工具"
+        return "本轮未调用工具"
 
     completed = _last_trace_event(events, "run_completed")
     if completed is not None:
-        status = str(completed.get("run_status") or "completed").upper()
+        status = _display_value(completed.get("run_status") or "completed")
         reason = str(completed.get("stop_reason") or "")
-        return f"{status}" + (f" · {reason}" if reason else "")
+        return f"{status}" + (f" · {_display_value(reason)}" if reason else "")
     checkpoint = _last_trace_event(events, "task_state_checkpoint")
     if checkpoint is not None:
         state = checkpoint.get("task_state") or {}
-        status = str(state.get("status") or "saved").upper()
+        status = _display_value(state.get("status") or "saved")
         messages = state.get("messages_count")
         observations = state.get("observations_count")
         counts = ""
@@ -798,19 +1052,60 @@ def _render_raw_event_details(
     summary: str,
 ) -> str:
 
-    pills = "".join(
-        "<span "
-        f"class='event-pill {_event_tone(str(event.get('event_type') or ''), bool(event.get('success', True)))}' "
-        f"title='{_escape(_raw_event_tooltip(event))}'>"
-        f"{_escape(_format_trace_event_label(index, event))}</span>"
+    rows = "".join(
+        "<tr>"
+        f"<td>{index}</td>"
+        f"<td>{_escape(_TRACE_EVENT_LABELS.get(str(event.get('event_type') or ''), str(event.get('event_type') or '未知事件')))}</td>"
+        f"<td><code>{_escape(str(event.get('event_type') or ''))}</code></td>"
+        f"<td>{_escape(_event_subject(event))}</td>"
+        f"<td>{_badge('success' if bool(event.get('success', True)) else 'failed', 'ok' if bool(event.get('success', True)) else 'bad')}</td>"
+        f"<td>{_escape(_format_milliseconds(int(event.get('duration_ms') or 0)))}</td>"
+        "</tr>"
         for index, event in enumerate(events, start=1)
     )
     return (
-        "<details class='timeline-raw'>"
+        "<details class='timeline-raw drilldown'>"
         f"<summary>{_escape(summary)}（{len(events)}）</summary>"
-        f"<div class='timeline-raw-events'>{pills}</div>"
+        "<div class='timeline-raw-events'><table><thead><tr>"
+        "<th>#</th><th>业务含义</th><th>机器事件</th><th>对象 / 决策</th><th>结果</th><th>距上一事件</th>"
+        f"</tr></thead><tbody>{rows}</tbody></table></div>"
         "</details>"
     )
+
+
+def _timeline_turn_summary(events: list[dict[str, Any]]) -> str:
+    """用本轮主动作替代没有业务含义的 event 数量。"""
+
+    final_answer = _last_trace_event(events, "final_answer")
+    if final_answer is not None:
+        return "形成最终回答"
+    action = _last_trace_event(events, "action")
+    if action is not None:
+        tool = str(action.get("tool_call") or "工具")
+        target = _trace_tool_target(action)
+        return f"模型请求 {tool}" + (f" · {target}" if target else "")
+    if _last_trace_event(events, "llm_call") is not None:
+        return "模型完成一次判断"
+    return "运行状态推进"
+
+
+def _event_subject(event: dict[str, Any]) -> str:
+    """提取原始事件中最值得排障者看的对象，不直接倾倒完整 JSON。"""
+
+    tool = event.get("tool_call")
+    if tool:
+        target = _trace_tool_target(event)
+        return f"{tool}" + (f" · {target}" if target else "")
+    for key in (
+        "permission_decision",
+        "decision",
+        "run_status",
+        "stop_reason",
+        "agent_name",
+    ):
+        if event.get(key) not in (None, ""):
+            return f"{key}={_display_value(event[key])}"
+    return "-"
 
 
 def _timeline_turn_outcome(events: list[dict[str, Any]]) -> tuple[str, str]:
@@ -818,7 +1113,7 @@ def _timeline_turn_outcome(events: list[dict[str, Any]]) -> tuple[str, str]:
     completed = _last_trace_event(events, "run_completed")
     if completed is not None:
         status = str(completed.get("run_status") or "completed")
-        return status.upper(), _tone_for_status(status)
+        return _display_value(status), _tone_for_status(status)
     if any(not bool(event.get("success", True)) for event in events):
         return "存在失败", "bad"
     if any(
@@ -887,7 +1182,7 @@ def _raw_event_tooltip(event: dict[str, Any]) -> str:
     event_type = str(event.get("event_type") or "event")
     gap = int(event.get("duration_ms") or 0)
     return (
-        f"raw event: {event_type}; gap since previous trace event: "
+        f"原始事件：{event_type}；距上一条 Trace 事件："
         f"{_format_milliseconds(gap)}"
     )
 
@@ -895,6 +1190,11 @@ def _raw_event_tooltip(event: dict[str, Any]) -> str:
 def _render_run_evidence(project_dir: Path) -> str:
 
     run_dir = _latest_run_dir(project_dir)
+    fanout_path = _latest_fanout_summary_path(project_dir)
+    fanout = _read_json_file(fanout_path)
+    if fanout:
+        return _render_fanout_run_evidence(fanout, fanout_path)
+
     run_story = None
     run_story_error = ""
     try:
@@ -917,7 +1217,6 @@ def _render_run_evidence(project_dir: Path) -> str:
         if run_story is not None
         else comparison.get("single_status") or "-"
     )
-    multi_status = comparison.get("multi_status") or multi.get("status") or "-"
     failure = comparison.get("failure_taxonomy") or "unclassified"
     cost = float(summary.get("estimated_cost_usd") or 0.0)
     task_id = (
@@ -926,120 +1225,275 @@ def _render_run_evidence(project_dir: Path) -> str:
         else comparison.get("task_id")
         or multi.get("task")
         or trace.get("task")
-        or "latest local run"
+        or "最近一次本地运行"
     )
-    revision_rounds = comparison.get("revision_rounds", multi.get("revision_rounds", 0))
-
-    result = _latest_result_record(project_dir)
-    evaluation_status = str(result.get("evaluation_status") or "not_evaluated")
-    patch_chars = int(result.get("patch_chars") or 0)
-    feedback_outcome = _latest_feedback_outcome(project_dir)
     active_skills = summary.get("active_skills") or []
-    if run_story is not None:
-        candidate_state = str(run_story.evidence_ladder.get("candidate", "unknown"))
-        local_state = str(run_story.evidence_ladder.get("local", "unknown"))
-        official_state = str(run_story.evidence_ladder.get("official", "unknown"))
-        claim_steps = (
-            _claim_step(
-                "Candidate evidence",
-                candidate_state,
-                "artifact claim; not verification",
-                _tone_for_evidence_state(candidate_state),
-            )
-            + _claim_step(
-                "Local evidence",
-                local_state,
-                "local checks; not official evaluation",
-                _tone_for_evidence_state(local_state),
-            )
-            + _claim_step(
-                "Official evidence",
-                official_state,
-                "authoritative benchmark boundary",
-                _tone_for_evidence_state(official_state),
-            )
-            + _claim_step(
-                "Human feedback",
-                feedback_outcome,
-                "operator judgment",
-                _tone_for_status(feedback_outcome),
-            )
+    heading_status = run_story.status if run_story is not None else single_status
+    optional_multi_sections = ""
+    if multi.get("role_results") or multi.get("artifacts"):
+        optional_multi_sections = (
+            "<details class='drilldown'><summary>查看本次运行的角色决策与交接产物</summary>"
+            "<div class='drilldown-body'><h4>角色决策</h4>"
+            "<table><thead><tr><th>角色</th><th>决策</th><th>轮次</th><th>证据摘要</th></tr></thead>"
+            f"<tbody>{_render_role_decision_rows(multi)}</tbody></table>"
+            f"{_render_artifact_cards(multi)}</div></details>"
         )
-    else:
-        claim_steps = (
-            _claim_step(
-                "Candidate patch",
-                "present" if patch_chars else "absent",
-                f"{patch_chars} chars",
-                "ok" if patch_chars else "neutral",
-            )
-            + _claim_step(
-                "Role verification",
-                str(comparison.get("verifier_status") or "not_observed"),
-                "runtime verifier, not official eval",
-                _tone_for_status(str(comparison.get("verifier_status") or "")),
-            )
-            + _claim_step(
-                "Official evaluation",
-                evaluation_status,
-                "authoritative benchmark boundary",
-                _tone_for_status(evaluation_status),
-            )
-            + _claim_step(
-                "Human feedback",
-                feedback_outcome,
-                "operator judgment",
-                _tone_for_status(feedback_outcome),
-            )
-        )
-    heading_status = run_story.status if run_story is not None else evaluation_status
     body = [
-        "<div class='view-heading'><div><span class='view-kicker'>RUN EVIDENCE</span><h2>Runtime Evidence Overview</h2></div>"
+        "<div class='view-heading'><div><span class='view-kicker'>单次运行</span><h2>运行证据总览</h2></div>"
         f"{_badge(heading_status, _tone_for_status(heading_status))}</div>",
-        _render_run_story_section(run_story, run_dir, run_story_error),
         _metric_grid(
             [
-                ("Case", str(task_id)[:90], "latest evidence target", "neutral"),
-                ("Single", str(single_status), "canonical AgentLoop", _tone_for_status(str(single_status))),
-                ("Multi", str(multi_status), "coordinator outcome", _tone_for_status(str(multi_status))),
-                ("Revision", str(revision_rounds), "bounded review rounds", "neutral"),
-                ("Cost", f"${cost:.6f}", "latest measured usage", "ok"),
-                ("Failure Class", str(failure), "ordered diagnosis", _tone_for_status(str(failure))),
+                ("运行状态", _display_value(single_status), "当前 Single-Run", _tone_for_status(str(single_status))),
+                ("模型调用", str(summary.get("llm_calls", 0)), "本次实际调用次数", "neutral"),
+                ("工具调用", str(summary.get("tool_calls", 0)), f"失败 {int(summary.get('failed_tool_calls') or 0)} 次", "bad" if summary.get("failed_tool_calls") else "ok"),
+                ("Checkpoint", str(summary.get("checkpoints", summary.get("task_state_checkpoints", 0))), "持久化状态记录", "neutral"),
+                ("估算成本", f"${cost:.6f}", "当前运行记录", "neutral"),
+                ("失败分类", _display_value(failure), "只有明确诊断时才成立", _tone_for_status(str(failure))),
             ]
         ),
-        "<section class='evidence-section'><div class='section-title'><h3>Runtime Pipeline</h3><span>policy outside prompt</span></div>",
-        "<div class='pipeline'>"
-        "<div><b>01</b><span>Context</span><small>selection + compression</small></div>"
-        "<div><b>02</b><span>Model</span><small>response + tool intent</small></div>"
-        "<div><b>03</b><span>Control</span><small>routing + policy + approval</small></div>"
-        "<div><b>04</b><span>Execution</span><small>sandbox + recovery</small></div>"
-        "<div><b>05</b><span>Evidence</span><small>trace + usage + artifacts</small></div>"
-        "<div><b>06</b><span>Evaluation</span><small>diagnosis + feedback</small></div>"
-        "</div></section>",
-        "<section class='evidence-section'><div class='section-title'><h3>Adaptive Runtime Evidence</h3><span>actual latest-run signals</span></div>",
-        "<div class='capability-strip'>"
-        f"<div><b>{int(summary.get('compacted_context_turns') or 0)}</b><span>compacted turns</span></div>"
-        f"<div><b>{int(summary.get('memory_recalled') or 0)}</b><span>recalled memories</span></div>"
-        f"<div><b>{int(summary.get('tool_call_repairs') or 0)}</b><span>tool-call repairs</span></div>"
-        f"<div><b>{int(summary.get('bounded_tool_call_bursts') or 0)}</b><span>bounded bursts</span></div>"
+        f"<p class='task-summary'><span>本次目标</span>{_escape(str(task_id)[:420])}</p>",
+        _render_run_story_section(run_story, run_dir, run_story_error),
+        "<details class='drilldown'><summary>查看本次触发的上下文、记忆、Skill 与工具适配信号</summary>"
+        "<div class='drilldown-body'><div class='capability-strip'>"
+        f"<div><b>{int(summary.get('compacted_context_turns') or 0)}</b><span>上下文压缩轮次</span></div>"
+        f"<div><b>{int(summary.get('memory_recalled') or 0)}</b><span>召回记忆数量</span></div>"
+        f"<div><b>{int(summary.get('tool_call_repairs') or 0)}</b><span>工具调用修复</span></div>"
+        f"<div><b>{int(summary.get('bounded_tool_call_bursts') or 0)}</b><span>工具突发拦截</span></div>"
         "</div>"
-        f"<p><span class='label'>Active Skills</span>{_escape(', '.join(str(item) for item in active_skills) or 'none observed')}</p>"
-        "<p class='boundary-note'>These counters come from trace-derived usage evidence. Capability availability alone is never shown as a successful exercise.</p></section>",
-        "<section class='evidence-section'><div class='section-title'><h3>Claim Ladder</h3><span>strongest supported statement</span></div>",
-        "<div class='claim-ladder'>",
-        claim_steps,
-        "</div></section>",
-        "<section class='evidence-section'><div class='section-title'><h3>Role Decisions</h3><span>artifact-mediated handoff</span></div>",
-        "<table><thead><tr><th>role</th><th>decision</th><th>round</th><th>evidence excerpt</th></tr></thead>"
-        f"<tbody>{_render_role_decision_rows(multi)}</tbody></table></section>",
-        "<section class='evidence-section'><div class='section-title'><h3>Produced Artifacts</h3><span>content first, provenance second</span></div>",
-        _render_artifact_cards(multi),
-        "</section>",
-        "<details class='provenance'><summary>Artifact provenance</summary>"
-        f"<code>{_escape(str(run_dir or 'not found'))}</code><code>{_escape(str(comparison_path or 'not found'))}</code>"
-        f"<code>{_escape(str(trace_path or 'not found'))}</code></details>",
+        f"<p><span class='label'>已激活 Skill</span>{_escape(', '.join(str(item) for item in active_skills) or '本次未观测')}</p>"
+        "<p class='boundary-note'>数值为 0 表示本次没有触发，不代表该能力已经验证通过。</p></div></details>",
+        optional_multi_sections,
+        "<details class='provenance'><summary>产物来源</summary>"
+        f"<code>{_escape(str(run_dir or '未找到'))}</code><code>{_escape(str(comparison_path or '未找到'))}</code>"
+        f"<code>{_escape(str(trace_path or '未找到'))}</code></details>",
     ]
     return "<div class='evidence'>" + "".join(body) + "</div>"
+
+
+def _render_fanout_run_evidence(
+    fanout: dict[str, Any],
+    summary_path: Path | None,
+) -> str:
+    """把 Fanout 的分散 Worker/合并/Finalizer 产物投影成一条可读主链。"""
+
+    metrics = fanout.get("metrics") or {}
+    results = [
+        result for result in fanout.get("results") or [] if isinstance(result, dict)
+    ]
+    batches = fanout.get("batches") or []
+    conflicts = fanout.get("conflicts") or []
+    merged_task_ids = fanout.get("merged_task_ids") or []
+    fanout_dir = summary_path.parent if summary_path is not None else None
+    plan_path = fanout_dir / "fanout_plan.json" if fanout_dir else None
+    checkpoint_path = fanout_dir / "fanout_checkpoint.json" if fanout_dir else None
+    diff_path = fanout_dir / "integrated_changes.diff" if fanout_dir else None
+    report_path = fanout_dir / "fanout_report.md" if fanout_dir else None
+    finalizer_trace_value = str(fanout.get("finalizer_trace_path") or "")
+    finalizer_usage_value = str(fanout.get("finalizer_usage_path") or "")
+    finalizer_trace_path = (
+        Path(finalizer_trace_value) if finalizer_trace_value else None
+    )
+    finalizer_usage_path = (
+        Path(finalizer_usage_value) if finalizer_usage_value else None
+    )
+    finalizer_verification_path = (
+        finalizer_trace_path.parent / "verification.md"
+        if finalizer_trace_path is not None
+        else None
+    )
+
+    worker_tools = sum(
+        int((result.get("usage_summary") or {}).get("tool_calls") or 0)
+        for result in results
+    )
+    finalizer_tools = int(
+        (fanout.get("finalizer_usage_summary") or {}).get("tool_calls") or 0
+    )
+    model_calls = int(metrics.get("llm_calls") or 0)
+    tool_calls = int(metrics.get("tool_calls") or worker_tools + finalizer_tools)
+    final_decision = str(fanout.get("final_decision") or "not_run")
+    status = str(fanout.get("status") or "unknown")
+    checkpoint_count = int(checkpoint_path is not None and checkpoint_path.is_file())
+
+    touched_files = sorted(
+        {
+            str(path)
+            for result in results
+            for path in result.get("touched_files") or []
+        }
+    )
+    worker_evidence = ", ".join(
+        f"{result.get('task_id', 'worker')}={_display_value(result.get('status', 'unknown'))}"
+        for result in results
+    ) or "没有 Worker 结果"
+    stages = [
+        (
+            "计划与依赖检查",
+            bool(batches),
+            f"{len(results)} 个任务被编排为 {len(batches)} 个依赖批次",
+            "LiveFanoutCoordinator._validate_plan",
+            plan_path,
+        ),
+        (
+            "Worker 隔离执行",
+            bool(results) and all(result.get("status") == "completed" for result in results),
+            worker_evidence,
+            "LocalAgentWorkerAdapter.run_worker",
+            None,
+        ),
+        (
+            "改动范围与冲突门禁",
+            not conflicts and bool(results),
+            (
+                f"改动文件：{', '.join(touched_files) or '无'}；"
+                f"检测到 {len(conflicts)} 个范围冲突"
+            ),
+            "LiveFanoutCoordinator._validate_worker_scope",
+            None,
+        ),
+        (
+            "候选改动合并",
+            bool(merged_task_ids) and _path_is_file(diff_path),
+            f"已合并：{', '.join(str(item) for item in merged_task_ids) or '无'}",
+            "LiveFanoutCoordinator._merge_completed_workers",
+            diff_path,
+        ),
+        (
+            "隔离 Finalizer",
+            final_decision.upper() == "PASS",
+            f"最终决策：{_display_value(final_decision)}；执行只读聚焦验证",
+            "LiveFanoutCoordinator._run_finalizer",
+            finalizer_verification_path,
+        ),
+        (
+            "Checkpoint 与证据发布",
+            bool(summary_path and summary_path.is_file()),
+            "协调状态、Worker 结果、合并改动与验证结论已经持久化",
+            "LiveFanoutCoordinator._persist_summary",
+            summary_path,
+        ),
+    ]
+    stage_cards = []
+    for index, (title, observed, detail, owner, artifact_path) in enumerate(
+        stages,
+        start=1,
+    ):
+        state = "已观测" if observed else "未观测"
+        artifact_text = (
+            str(artifact_path)
+            if artifact_path is not None and artifact_path.is_file()
+            else "本阶段没有独立文件，结论来自 Fanout 汇总"
+        )
+        stage_cards.append(
+            "<article class='story-stage'>"
+            "<div class='story-stage-head'>"
+            f"<b>{index:02d}</b><div><h4>{_escape(title)}</h4>"
+            f"<p>{_escape(detail)}</p></div>"
+            f"{_badge(state, 'ok' if observed else 'neutral')}</div>"
+            "<details><summary>实现入口与证据文件</summary>"
+            f"<div class='story-stage-detail'><code>{_escape(owner)}</code>"
+            f"<span>{_escape(artifact_text)}</span></div></details>"
+            "</article>"
+        )
+
+    candidate_state = "present" if _path_is_file(diff_path) else "absent"
+    local_state = "passed" if final_decision.upper() == "PASS" else "not_run"
+    ladder = "".join(
+        [
+            _claim_step(
+                "候选结果",
+                candidate_state,
+                "合并后的候选 Diff 已生成，不代表官方正确",
+                _tone_for_evidence_state(candidate_state),
+            ),
+            _claim_step(
+                "本地验证",
+                local_state,
+                "Finalizer 的聚焦 pytest 结论",
+                _tone_for_status(local_state),
+            ),
+            _claim_step(
+                "官方评测",
+                "not_evaluated",
+                "Lab 2 是确定性协同实验，不执行官方 Benchmark",
+                "neutral",
+            ),
+        ]
+    )
+    provenance_paths = [
+        path
+        for path in (
+            plan_path,
+            checkpoint_path,
+            diff_path,
+            report_path,
+            finalizer_trace_path,
+            finalizer_usage_path,
+            summary_path,
+        )
+        if path is not None and str(path)
+    ]
+    provenance = "".join(
+        f"<code>{_escape(str(path))}</code>" for path in provenance_paths
+    )
+    body = [
+        "<div class='view-heading'><div><span class='view-kicker'>LAB 2 · 多 AGENT 单次运行</span>"
+        "<h2>多 Agent 运行证据</h2></div>"
+        f"{_badge(status, _tone_for_status(status))}</div>",
+        "<p class='help strong'>本页聚合 Coordinator、两个隔离 Worker、候选改动合并和 Finalizer 的分散证据。"
+        "这里的“模型调用”经过真实 ModelPort，但使用确定性本地适配器，不会产生外部 API Token 或费用。</p>",
+        _metric_grid(
+            [
+                ("运行状态", _display_value(status), "Fanout 协调器最终状态", _tone_for_status(status)),
+                ("模型调用（确定性）", str(model_calls), "2 个 Worker + Finalizer", "neutral"),
+                ("工具调用", str(tool_calls), f"Worker {worker_tools} 次 + Finalizer {finalizer_tools} 次", "ok"),
+                ("协调器 Checkpoint", str(checkpoint_count), "Fanout 可恢复状态快照", "ok" if checkpoint_count else "neutral"),
+                ("Token / 成本", f"{int(metrics.get('total_tokens') or 0)} / $0", "未调用外部大模型", "neutral"),
+                ("最终验证", _display_value(final_decision), "聚焦 pytest；不是官方评测", _tone_for_status(final_decision)),
+            ]
+        ),
+        f"<p class='task-summary'><span>本次目标</span>{_escape(fanout.get('goal') or '')}</p>",
+        "<section class='evidence-section run-story'>"
+        "<div class='section-title'><h3>运行全链路</h3>"
+        "<span>计划 → Worker → 门禁 → 合并 → 验证 → 发布</span></div>"
+        "<div class='section-title run-story-subtitle'><h4>当前证据最多支持什么结论</h4>"
+        "<span>本地通过不等于官方解决</span></div>"
+        f"<div class='claim-ladder run-story-ladder'>{ladder}</div>"
+        "<div class='section-title run-story-subtitle'><h4>主链阶段</h4>"
+        "<span>实现类和文件路径默认折叠</span></div>"
+        f"<div class='story-stage-list'>{''.join(stage_cards)}</div>"
+        "<details class='provenance'><summary>查看全部证据文件</summary>"
+        f"{provenance}</details></section>",
+    ]
+    return "<div class='evidence'>" + "".join(body) + "</div>"
+
+
+def _path_is_file(path: Path | None) -> bool:
+    return path is not None and path.is_file()
+
+
+_RUN_STORY_STAGE_EVIDENCE = {
+    "request": "任务、配置、工作区和执行环境已经固定",
+    "loop": "轮次边界、模型请求和模型响应均有记录",
+    "context_model": "模型只接收预算内上下文与允许使用的工具",
+    "tool_governance": "工具意图经过路由、权限、幂等与执行结果链",
+    "lifecycle": "Checkpoint、人工等待和终止状态可持久化",
+    "artifacts": "候选改动、最终回答与运行事实分开保存",
+    "evidence": "候选、本地验证和官方评测使用不同结论等级",
+}
+
+_ARTIFACT_TITLES = {
+    "candidate_diff": "候选代码改动",
+    "execution_environment": "执行环境清单",
+    "final_answer": "最终回答",
+    "run_request": "运行请求",
+    "checkpoint": "运行检查点",
+    "trace": "运行轨迹",
+    "usage_projection": "用量统计",
+    "usage_report": "用量报告",
+    "local_report": "本地验证报告",
+    "official_report": "官方评测报告",
+}
 
 
 def _render_run_story_section(
@@ -1047,77 +1501,97 @@ def _render_run_story_section(
     run_dir: Path | None,
     error: str = "",
 ) -> str:
+    """先展示主链结论，模块名、事件数量和文件血缘按需展开。"""
 
     manifest_path = run_dir / "run_manifest.json" if run_dir is not None else None
     if story is None:
-        if error:
-            message = (
-                "Canonical run_manifest.json could not be loaded: "
-                f"{error}. Legacy-compatible evidence follows."
-            )
-        else:
-            message = (
-                "Canonical run_manifest.json is not available for the latest run. "
-                "Legacy-compatible evidence follows."
-            )
+        message = (
+            f"无法读取标准运行清单：{error}。下面只能展示兼容旧格式的证据。"
+            if error
+            else "最新运行没有标准运行清单，下面只能展示兼容旧格式的证据。"
+        )
         return (
             "<section class='evidence-section run-story'>"
-            "<div class='section-title'><h3>Run Story</h3>"
-            "<span>read-only evidence view</span></div>"
+            "<div class='section-title'><h3>运行全链路</h3>"
+            "<span>兼容旧格式</span></div>"
             f"<div class='diagnosis'>{_escape(message)}</div>"
-            "<p class='boundary-note'><strong>Read-only evidence view.</strong> "
-            "This page only reads existing artifacts; it does not execute tools or "
-            "upgrade any evaluation claim.</p>"
+            "<p class='boundary-note'>此页面只读取已有产物，不会执行工具，也不会提升证据等级。</p>"
             "</section>"
         )
 
-    stage_rows = []
-    for stage in story.stages:
-        state = "observed" if stage.observed else "not observed"
-        artifacts = ", ".join(stage.artifact_ids) or "-"
-        stage_rows.append(
-            "<tr>"
-            f"<td><b>{_escape(stage.title)}</b><small>{_escape(stage.stage_id)}</small></td>"
-            f"<td><code>{_escape(stage.owner_symbol)}</code>"
-            f"<small>upstream: {_escape(stage.canonical_upstream)}</small></td>"
-            f"<td>{_badge(state, 'ok' if stage.observed else 'neutral')}</td>"
-            f"<td>{_escape(stage.event_count)}</td>"
-            f"<td>{_escape(artifacts)}<small>{_escape(stage.invariant)}</small></td>"
-            "</tr>"
+    stage_cards = []
+    for index, stage in enumerate(story.stages, start=1):
+        state = "observed" if stage.observed else "not_observed"
+        artifacts = ", ".join(stage.artifact_ids)
+        evidence_summary = _RUN_STORY_STAGE_EVIDENCE.get(
+            stage.stage_id,
+            "本阶段的运行事实已记录",
+        )
+        if not stage.observed:
+            evidence_summary = "本次运行没有观测到这个阶段"
+        artifact_line = (
+            f"<span>关联产物：{_escape(artifacts)}</span>"
+            if artifacts
+            else "<span>本阶段没有独立文件产物</span>"
+        )
+        stage_cards.append(
+            "<article class='story-stage'>"
+            "<div class='story-stage-head'>"
+            f"<b>{index:02d}</b><div><h4>{_escape(stage.title)}</h4>"
+            f"<p>{_escape(evidence_summary)}</p></div>"
+            f"{_badge(state, 'ok' if stage.observed else 'neutral')}</div>"
+            f"{artifact_line}"
+            "<details><summary>实现与底层证据</summary>"
+            f"<div class='story-stage-detail'><code>{_escape(stage.owner_symbol)}</code>"
+            f"<span>上游入口：{_escape(stage.canonical_upstream)}</span>"
+            f"<span>底层证据记录：{stage.event_count} 条。它们是 Trace 记录，不是 {stage.event_count} 个执行步骤。</span>"
+            f"<span>必须保持：{_escape(stage.invariant)}</span>"
+            f"<span>稳定标识：{_escape(stage.stage_id)}</span></div></details>"
+            "</article>"
         )
 
-    artifact_rows = []
+    artifact_cards = []
     for artifact in story.artifacts:
-        proves = "; ".join(artifact.proves) or "No positive claim registered."
-        boundary = "; ".join(artifact.does_not_prove) or "No boundary registered."
-        deletion = artifact.deletion_impact or "Deletion impact is not registered."
-        consumers = ", ".join(artifact.semantic_consumers) or "-"
-        artifact_rows.append(
-            "<tr>"
-            f"<td><b>{_escape(artifact.kind)}</b>"
-            f"<small class='mono'>{_escape(artifact.relative_path)}</small></td>"
-            f"<td><code>{_escape(artifact.producer_symbol)}</code>"
-            f"<small>consumers: {_escape(consumers)}</small></td>"
-            f"<td>{_badge(artifact.evidence_level, _tone_for_evidence_state(artifact.evidence_level))}"
-            f"<small>{_escape(artifact.byte_size)} bytes</small></td>"
-            f"<td>{_escape(proves)}<small>Does not prove: {_escape(boundary)}</small>"
-            f"<small>Rebuildable: {_escape(str(artifact.rebuildable).lower())}; "
-            f"deletion impact: {_escape(deletion)}</small></td>"
-            "</tr>"
+        proves = "; ".join(artifact.proves) or "没有登记可支持的正向结论。"
+        boundary = "; ".join(artifact.does_not_prove) or "没有登记结论边界。"
+        deletion = artifact.deletion_impact or "没有登记删除影响。"
+        consumers = ", ".join(artifact.semantic_consumers) or "没有登记"
+        artifact_cards.append(
+            "<article class='evidence-artifact'>"
+            "<div class='artifact-head'><div>"
+            f"<span>{_escape(_display_value(artifact.evidence_level))}</span>"
+            f"<h4>{_escape(_ARTIFACT_TITLES.get(artifact.kind, artifact.kind))}</h4>"
+            "</div>"
+            f"{_badge(artifact.evidence_level, _tone_for_evidence_state(artifact.evidence_level))}</div>"
+            f"<p><b>可以证明：</b>{_escape(_translate_evidence_text(proves))}</p>"
+            f"<p class='boundary'><b>不能证明：</b>{_escape(_translate_evidence_text(boundary))}</p>"
+            "<details><summary>文件血缘与维护属性</summary>"
+            f"<code>{_escape(artifact.relative_path)}</code>"
+            f"<span>生产者：{_escape(artifact.producer_symbol)}</span>"
+            f"<span>消费者：{_escape(consumers)}</span>"
+            f"<span>{artifact.byte_size} 字节；可重建：{_display_value(artifact.rebuildable)}</span>"
+            f"<span>删除影响：{_escape(_translate_evidence_text(deletion))}</span>"
+            "</details></article>"
         )
-    if not artifact_rows:
-        artifact_rows.append(
-            "<tr><td colspan='4'>No artifacts are registered in the canonical manifest.</td></tr>"
-        )
+    artifact_content = (
+        "".join(artifact_cards)
+        if artifact_cards
+        else "<div class='empty-inline'>标准运行清单中没有登记产物。</div>"
+    )
 
     ladder_details = {
-        "candidate": "produced output only; not verification",
-        "local": "local checks only; not official evaluation",
-        "official": "authoritative benchmark evidence",
+        "candidate": "只证明产生了候选结果，不代表验证通过",
+        "local": "只代表本地检查，不等于官方评测",
+        "official": "最终正确性只能由官方评测确认",
+    }
+    ladder_titles = {
+        "candidate": "候选结果",
+        "local": "本地验证",
+        "official": "官方评测",
     }
     ladder = "".join(
         _claim_step(
-            f"{level.title()} evidence",
+            ladder_titles[level],
             str(story.evidence_ladder.get(level, "unknown")),
             ladder_details[level],
             _tone_for_evidence_state(str(story.evidence_ladder.get(level, "unknown"))),
@@ -1126,32 +1600,23 @@ def _render_run_story_section(
     )
     return (
         "<section class='evidence-section run-story'>"
-        "<div class='section-title'><h3>Run Story</h3>"
-        "<span>read-only evidence view · canonical run_manifest.json</span></div>"
+        "<div class='section-title'><h3>运行全链路</h3>"
+        "<span>结论 → 阶段 → 原始证据</span></div>"
         "<div class='run-facts'>"
-        f"<span>run <b class='mono'>{_escape(story.run_id or '-')}</b></span>"
-        f"<span>status {_badge(story.status, _tone_for_status(story.status))}</span>"
-        f"<span>stop <b>{_escape(story.stop_reason or '-')}</b></span>"
-        f"<span>task <b>{_escape(story.task or '-')}</b></span>"
+        f"<span>运行 <b class='mono'>{_escape(story.run_id or '-')}</b></span>"
+        f"<span>停止原因 <b>{_escape(_display_value(story.stop_reason or '-'))}</b></span>"
         "</div>"
-        "<p class='boundary-note run-story-readonly'><strong>Read-only evidence view.</strong> "
-        "This is a projection of existing manifest and trace facts. It executes no tools "
-        "and never upgrades candidate or local evidence into an official result.</p>"
-        "<div class='section-title run-story-subtitle'><h4>Stages</h4>"
-        "<span>owner, observation status, events, and artifacts</span></div>"
-        "<table class='run-story-table'><thead><tr><th>stage</th><th>owner</th>"
-        "<th>status</th><th>events</th><th>artifact / invariant</th></tr></thead>"
-        f"<tbody>{''.join(stage_rows)}</tbody></table>"
-        "<div class='section-title run-story-subtitle'><h4>Evidence Ladder</h4>"
-        "<span>presence is not the same as success</span></div>"
+        "<div class='section-title run-story-subtitle'><h4>当前证据最多支持什么结论</h4>"
+        "<span>有文件不等于任务成功</span></div>"
         f"<div class='claim-ladder run-story-ladder'>{ladder}</div>"
-        "<div class='section-title run-story-subtitle'><h4>Artifact Evidence</h4>"
-        "<span>producer, consumer, and claim boundary</span></div>"
-        "<table class='run-story-table'><thead><tr><th>artifact / path</th><th>owner</th>"
-        "<th>level</th><th>claim boundary</th></tr></thead>"
-        f"<tbody>{''.join(artifact_rows)}</tbody></table>"
-        "<details class='provenance'><summary>Canonical provenance</summary>"
-        f"<code>{_escape(str(manifest_path or 'not found'))}</code></details>"
+        "<div class='section-title run-story-subtitle'><h4>主链阶段</h4>"
+        "<span>默认隐藏模块名和事件计数</span></div>"
+        f"<div class='story-stage-list'>{''.join(stage_cards)}</div>"
+        "<details class='drilldown artifact-drilldown'><summary>"
+        f"查看全部 {len(story.artifacts)} 个产物的内容边界与文件血缘</summary>"
+        f"<div class='evidence-artifact-grid'>{artifact_content}</div></details>"
+        "<details class='provenance'><summary>标准证据来源</summary>"
+        f"<code>{_escape(str(manifest_path or '未找到'))}</code></details>"
         "</section>"
     )
 
@@ -1170,7 +1635,7 @@ def _claim_step(title: str, state: str, detail: str, tone: str) -> str:
 
     return (
         f"<div class='claim-step {tone}'><span>{_escape(title)}</span>"
-        f"<strong>{_escape(state)}</strong><small>{_escape(detail)}</small></div>"
+        f"<strong>{_escape(_display_value(state))}</strong><small>{_escape(detail)}</small></div>"
     )
 
 
@@ -1183,20 +1648,20 @@ def _render_role_decision_rows(summary: dict[str, Any]) -> str:
         decision = str(result.get("decision") or result.get("status") or "-")
         rows.append(
             "<tr>"
-            f"<td><b>{_escape(result.get('role') or result.get('name') or '-')}</b></td>"
+            f"<td><b>{_escape(_display_value(result.get('role') or result.get('name') or '-'))}</b></td>"
             f"<td>{_badge(decision, _tone_for_status(decision))}</td>"
             f"<td>{_escape(result.get('round_index', 0))}</td>"
             f"<td>{_escape(excerpt or '-')}</td>"
             "</tr>"
         )
-    return "".join(rows) or "<tr><td colspan='4'>No role decisions were observed in this run.</td></tr>"
+    return "".join(rows) or "<tr><td colspan='4'>本次运行没有观测到角色决策。</td></tr>"
 
 
 def _render_artifact_cards(summary: dict[str, Any]) -> str:
 
     artifacts = summary.get("artifacts") or []
     if not isinstance(artifacts, list) or not artifacts:
-        return "<div class='empty-inline'>No multi-agent artifacts were produced in this run.</div>"
+        return "<div class='empty-inline'>本次运行没有生成多 Agent 产物。</div>"
     consumers = {
         "Implementer": "Reviewer",
         "Reviewer": "Coordinator + Verifier",
@@ -1215,12 +1680,12 @@ def _render_artifact_cards(summary: dict[str, Any]) -> str:
         excerpt = " ".join((content or str(artifact.get("summary") or "")).replace("#", " ").split())[:460]
         cards.append(
             "<article class='artifact-card'>"
-            f"<div class='artifact-head'><div><span>{_escape(role)}</span><h4>{_escape(artifact.get('kind') or artifact.get('id') or 'artifact')}</h4></div>"
-            f"{_badge('round ' + str(artifact.get('round_index', 0)), 'neutral')}</div>"
-            f"<p>{_escape(excerpt or 'No content summary available.')}</p>"
-            f"<div class='artifact-handoff'><span>producer <b>{_escape(role)}</b></span>"
-            f"<span>consumer <b>{_escape(consumers.get(role, 'next stage'))}</b></span></div>"
-            f"<details><summary>Source</summary><code>{_escape(str(path) if path else 'not found')}</code></details>"
+            f"<div class='artifact-head'><div><span>{_escape(_display_value(role))}</span><h4>{_escape(artifact.get('kind') or artifact.get('id') or '产物')}</h4></div>"
+            f"{_badge('第 ' + str(artifact.get('round_index', 0)) + ' 轮', 'neutral')}</div>"
+            f"<p>{_escape(excerpt or '没有可展示的内容摘要。')}</p>"
+            f"<div class='artifact-handoff'><span>生产者 <b>{_escape(_display_value(role))}</b></span>"
+            f"<span>消费者 <b>{_escape(_display_value(consumers.get(role, 'next stage')))}</b></span></div>"
+            f"<details><summary>来源</summary><code>{_escape(str(path) if path else '未找到')}</code></details>"
             "</article>"
         )
     return "<div class='artifact-grid'>" + "".join(cards) + "</div>"
@@ -1228,10 +1693,13 @@ def _render_artifact_cards(summary: dict[str, Any]) -> str:
 
 def _render_runtime_controls(project_dir: Path) -> str:
 
-    trace_path = _latest_trace_path(project_dir)
+    # Lab 1 有独立指针时优先回放；普通 `forge run` 仍可查看自身控制证据。
+    trace_path = _latest_governed_trace_path(project_dir) or _latest_trace_path(
+        project_dir
+    )
     trace = _read_json_file(trace_path)
     if not trace:
-        return _empty_evidence("No trace evidence is available for runtime controls.")
+        return _empty_evidence("当前运行没有可用于展示 Runtime 控制面的 Trace 证据。")
     events = _event_list(trace)
     checkpoint = _last_event(trace, "task_state_checkpoint")
     task_state_value = checkpoint.get("task_state")
@@ -1311,120 +1779,122 @@ def _render_runtime_controls(project_dir: Path) -> str:
             "<tr>"
             f"<td>{_escape(event.get('step', 0))}</td>"
             f"<td>{_escape(event.get('agent_name') or '-')}</td>"
-            f"<td>{_escape(event_type)}</td>"
+            f"<td>{_escape(_TRACE_EVENT_LABELS.get(event_type, event_type))}</td>"
             f"<td>{_badge(state, _tone_for_status(state))}</td>"
-            f"<td>{_escape(event.get('tool_call') or '-')}</td>"
-            f"<td>{_escape(evidence)}</td>"
+        f"<td>{_escape(event.get('tool_call') or '-')}</td>"
+            f"<td>{_escape(_translate_runtime_summary(evidence))}</td>"
             "</tr>"
         )
-    intervention_html = "".join(intervention_rows) or "<tr><td colspan='6'>No approval or recovery intervention was observed.</td></tr>"
+    intervention_html = "".join(intervention_rows) or "<tr><td colspan='6'>本次运行没有观测到审批或恢复介入。</td></tr>"
     body = [
-        "<div class='view-heading'><div><span class='view-kicker'>LAB 1 · GOVERNED RUN</span><h2>Runtime Controls</h2></div>"
+        "<div class='view-heading'><div><span class='view-kicker'>LAB 1 · 受治理运行</span><h2>Runtime 控制面</h2></div>"
         f"{_badge(mode, _tone_for_status(mode))}</div>",
         _metric_grid(
             [
-                ("Environment", mode, "local / worktree / container", "neutral"),
-                ("Network", network, "execution boundary", "ok" if network == "deny" else "warn"),
-                ("Tool Surface", f"{len(allowed)} visible", f"{len(hidden)} hidden", "neutral"),
-                ("Permissions", f"{decisions['allow']} / {decisions['ask']} / {decisions['deny']}", "allow / ask / deny", "neutral"),
-                ("Checkpoints", str(checkpoints), "durable task state", "ok" if checkpoints else "neutral"),
-                ("HITL / Recovery", f"{human_events} / {recovery_events}", "observed trace events", "neutral"),
+                ("执行环境", _display_value(mode), "本地目录 / 隔离工作树 / 容器", "neutral"),
+                ("网络策略", _display_value(network), "执行环境的网络边界", "ok" if network == "deny" else "warn"),
+                ("工具可见面", f"{len(allowed)} 个可见", f"{len(hidden)} 个隐藏", "neutral"),
+                ("权限决策", f"{decisions['allow']} / {decisions['ask']} / {decisions['deny']}", "允许 / 询问 / 拒绝", "neutral"),
+                ("Checkpoint", str(checkpoints), "已持久化的任务状态数量", "ok" if checkpoints else "neutral"),
+                ("人工介入 / 恢复", f"{human_events} / {recovery_events}", "Trace 中实际观测到的事件", "neutral"),
             ]
         ),
-        "<section class='evidence-section'><div class='section-title'><h3>Enforced Boundaries</h3><span>observed, not inferred</span></div>",
-        "<table><thead><tr><th>control</th><th>latest evidence</th><th>runtime owner</th></tr></thead><tbody>",
-        f"<tr><td>Execution isolation</td><td>{_escape(environment.get('active_workspace') or mode)}</td><td>ExecutionEnvironment</td></tr>",
-        f"<tr><td>Network policy</td><td>{_escape(network)}</td><td>ExecutionEnvironment + CommandPolicy</td></tr>",
-        f"<tr><td>Workspace writes</td><td>{_escape(context_snapshot.get('permission_summary') or 'not observed')}</td><td>WorkspaceSandbox + PermissionPolicy</td></tr>",
-        f"<tr><td>Tool visibility</td><td>{_escape(', '.join(str(item) for item in allowed) or 'not observed')}</td><td>ToolRouter</td></tr>",
-        f"<tr><td>Hidden tools</td><td>{_escape(', '.join(str(item) for item in hidden) or 'none observed')}</td><td>ToolRouter</td></tr>",
-        f"<tr><td>Skill injection</td><td>{_escape(active_skills or 'not observed')}</td><td>SkillRegistry + ContextStrategy</td></tr>",
-        f"<tr><td>MCP exposure</td><td>{_escape(', '.join(mcp_tools) or 'none observed')}</td><td>MCP adapter + ToolRegistry</td></tr>",
-        f"<tr><td>Human control barrier</td><td>{human_events} observed events</td><td>HumanInputStore + ApprovalStore</td></tr>",
-        f"<tr><td>Idempotent writes</td><td>{operation_events} operation events</td><td>OperationLedger</td></tr>",
-            "<tr><td>Typed evidence contract</td><td>TraceEvent envelope + named task checkpoint</td><td>TraceRecorder + TaskCheckpoint</td></tr>",
-        "</tbody></table></section>",
-        "<section class='evidence-section'><div class='section-title'><h3>Context, Memory & Model Adaptation</h3><span>latest trace provenance</span></div>",
-        "<table><thead><tr><th>signal</th><th>observed value</th><th>provenance</th></tr></thead><tbody>",
+        "<details class='drilldown'><summary>查看安全、工具可见性与写入边界</summary>"
+        "<div class='drilldown-body'><div class='section-title'><h3>真实生效的边界</h3><span>只展示观测事实</span></div>",
+        "<table><thead><tr><th>控制点</th><th>最新证据</th><th>负责模块</th></tr></thead><tbody>",
+        f"<tr><td>执行隔离</td><td>{_escape(environment.get('active_workspace') or _display_value(mode))}</td><td>ExecutionEnvironment</td></tr>",
+        f"<tr><td>网络策略</td><td>{_escape(_display_value(network))}</td><td>ExecutionEnvironment + CommandPolicy</td></tr>",
+        f"<tr><td>工作区写操作</td><td>{_escape(_translate_runtime_summary(context_snapshot.get('permission_summary') or '本次未观测'))}</td><td>WorkspaceSandbox + PermissionPolicy</td></tr>",
+        f"<tr><td>可见工具</td><td>{_escape(', '.join(str(item) for item in allowed) or '本次未观测')}</td><td>ToolRouter</td></tr>",
+        f"<tr><td>隐藏工具</td><td>{_escape(', '.join(str(item) for item in hidden) or '本次未观测')}</td><td>ToolRouter</td></tr>",
+        f"<tr><td>Skill 注入</td><td>{_escape(active_skills or '本次未观测')}</td><td>SkillRegistry + ContextStrategy</td></tr>",
+        f"<tr><td>MCP 工具暴露</td><td>{_escape(', '.join(mcp_tools) or '本次未观测')}</td><td>MCP Adapter + ToolRegistry</td></tr>",
+        f"<tr><td>人工控制屏障</td><td>{human_events} 个已观测事件</td><td>HumanInputStore + ApprovalStore</td></tr>",
+        f"<tr><td>写操作幂等</td><td>{operation_events} 个操作账本事件</td><td>OperationLedger</td></tr>",
+        "<tr><td>类型化证据契约</td><td>TraceEvent 信封 + 具名任务 Checkpoint</td><td>TraceRecorder + TaskCheckpoint</td></tr>",
+        "</tbody></table></div></details>",
+        "<details class='drilldown'><summary>查看上下文、记忆与模型适配信号</summary>"
+        "<div class='drilldown-body'><div class='section-title'><h3>上下文、记忆与模型适配</h3><span>来自最新 Trace</span></div>",
+        "<table><thead><tr><th>信号</th><th>观测值</th><th>来源</th></tr></thead><tbody>",
         (
-            "<tr><td>Context window</td>"
-            f"<td>compacted={_escape(context_window.get('compacted', False))}; "
-            f"tokens={_escape(context_window.get('estimated_tokens_before', 0))} -> "
+            "<tr><td>上下文窗口</td>"
+            f"<td>是否压缩：{_escape(_display_value(context_window.get('compacted', False)))}；"
+            f"Token：{_escape(context_window.get('estimated_tokens_before', 0))} → "
             f"{_escape(context_window.get('estimated_tokens_after', 0))}</td>"
-            f"<td class='mono'>{_escape(context_window.get('source_hash') or 'raw history')}</td></tr>"
+            f"<td class='mono'>{_escape(context_window.get('source_hash') or '原始会话历史')}</td></tr>"
         ),
         (
-            "<tr><td>Long-term memory</td>"
-            f"<td>{_escape(memory_recall.get('recalled_count', 0))} recalled; "
-            f"kinds={_escape(memory_recall.get('kinds') or [])}</td>"
-            f"<td class='mono'>{_escape(memory_recall.get('memory_ids') or 'none')}</td></tr>"
+            "<tr><td>长期记忆</td>"
+            f"<td>召回 {_escape(memory_recall.get('recalled_count', 0))} 条；"
+            f"类型：{_escape(memory_recall.get('kinds') or [])}</td>"
+            f"<td class='mono'>{_escape(memory_recall.get('memory_ids') or '无')}</td></tr>"
         ),
         (
-            "<tr><td>Tool-call repair</td>"
-            f"<td>{_escape(normalization_repairs or 'none observed')}</td>"
-            f"<td>{len(llm_events)} model invocation(s)</td></tr>"
+            "<tr><td>工具调用修复</td>"
+            f"<td>{_escape(normalization_repairs or '本次未观测')}</td>"
+            f"<td>{len(llm_events)} 次模型调用</td></tr>"
         ),
         (
-            "<tr><td>Tool burst bound</td>"
-            f"<td>limit={_escape(burst.get('limit', 'not triggered'))}; "
-            f"dropped={_escape(burst.get('dropped') or [])}</td>"
-            "<td>ToolExecutionPipeline trace</td></tr>"
+            "<tr><td>单轮工具调用上限</td>"
+            f"<td>上限：{_escape(burst.get('limit', '本次未触发'))}；"
+            f"丢弃调用：{_escape(burst.get('dropped') or [])}</td>"
+            "<td>ToolExecutionPipeline Trace</td></tr>"
         ),
-        "</tbody></table><p class='boundary-note'>Memory IDs and digest hashes expose provenance without pretending the derived summary is the raw source.</p></section>",
-        "<section class='evidence-section'><div class='section-title'><h3>Durability & Human Control</h3><span>latest-run event coverage</span></div>",
+        "</tbody></table><p class='boundary-note'>记忆 ID 和摘要哈希用于追溯来源；派生摘要不会冒充原始数据。</p></div></details>",
+        "<section class='evidence-section'><div class='section-title'><h3>持久化与人工控制</h3><span>当前运行的事件覆盖</span></div>",
         "<div class='capability-strip'>"
-        f"<div><b>{checkpoints}</b><span>state checkpoints</span></div>"
-        f"<div><b>{human_events}</b><span>human-input events</span></div>"
-        f"<div><b>{recovery_events}</b><span>recovery decisions</span></div>"
-        f"<div><b>{len(permission_events)}</b><span>permission checks</span></div>"
-        "</div><p class='boundary-note'>Zero means the capability was not exercised by this run; it does not fabricate a pass.</p></section>",
-        "<section class='evidence-section'><div class='section-title'><h3>Interventions</h3><span>approval and recovery evidence</span></div>"
-        "<table><thead><tr><th>step</th><th>agent</th><th>event</th><th>state</th><th>tool</th><th>evidence</th></tr></thead>"
+        f"<div><b>{checkpoints}</b><span>状态 Checkpoint</span></div>"
+        f"<div><b>{human_events}</b><span>人工输入事件</span></div>"
+        f"<div><b>{recovery_events}</b><span>恢复决策</span></div>"
+        f"<div><b>{len(permission_events)}</b><span>权限检查</span></div>"
+        "</div><p class='boundary-note'>数值为 0 表示本次运行没有触发该能力，不会伪造成“通过”。</p></section>",
+        "<section class='evidence-section'><div class='section-title'><h3>人工与恢复介入</h3><span>审批和恢复证据</span></div>"
+        "<table><thead><tr><th>轮次</th><th>Agent</th><th>事件</th><th>状态</th><th>工具</th><th>证据</th></tr></thead>"
         f"<tbody>{intervention_html}</tbody></table></section>",
-        f"<details class='provenance'><summary>Control provenance</summary><code>{_escape(str(trace_path))}</code></details>",
+        f"<details class='provenance'><summary>控制面证据来源</summary><code>{_escape(str(trace_path))}</code></details>",
     ]
     return "<div class='evidence'>" + "".join(body) + "</div>"
 
 
 def _render_orchestration_dashboard(project_dir: Path) -> str:
 
-    fanout_path = _latest_fanout_summary_path(project_dir)
+    fanout_path = _latest_orchestration_fanout_path(project_dir)
     fanout = _read_json_file(fanout_path)
     if fanout:
         return _render_fanout_result_summary(fanout, fanout_path)
-    summary_path = _latest_multi_agent_summary_path(project_dir)
+    summary_path = _latest_orchestration_summary_path(project_dir)
     summary = _read_json_file(summary_path)
     if not summary:
-        return _empty_evidence("No orchestration artifact is available in the latest run.")
+        return _empty_evidence("尚未找到多 Agent 编排产物，请先执行 Lab 2。")
     decisions = summary.get("role_results") or []
     body = [
-        "<div class='view-heading'><div><span class='view-kicker'>LAB 2 · COORDINATED AGENTS</span><h2>Multi-Agent Coordination</h2></div>"
+        "<div class='view-heading'><div><span class='view-kicker'>LAB 2 · 多 AGENT 协同</span><h2>多 Agent 编排证据</h2></div>"
         f"{_badge(str(summary.get('status') or 'unknown'), _tone_for_status(str(summary.get('status') or '')))}</div>",
         _metric_grid(
             [
-                ("Mode", "sequential roles", "artifact-mediated", "neutral"),
-                ("Roles", str(len(decisions)), "implement / review / verify", "neutral"),
-                ("Revisions", str(summary.get("revision_rounds", 0)), "bounded loop", "neutral"),
-                ("Artifacts", str(len(summary.get("artifacts") or [])), "explicit handoffs", "ok"),
+                ("编排模式", "顺序角色链", "通过显式产物交接", "neutral"),
+                ("角色数量", str(len(decisions)), "实现 / 审查 / 验证", "neutral"),
+                ("修订轮次", str(summary.get("revision_rounds", 0)), "受上限约束的循环", "neutral"),
+                ("产物数量", str(len(summary.get("artifacts") or [])), "角色间显式交接", "ok"),
             ]
         ),
-        "<section class='evidence-section'><div class='section-title'><h3>Coordination Graph</h3><span>sequential path</span></div>"
-        "<div class='coordination-graph'><div><b>Implementer</b><span>candidate + evidence</span></div>"
-        "<i>artifact</i><div><b>Reviewer</b><span>risk + revision decision</span></div>"
-        "<i>artifact</i><div><b>Verifier</b><span>independent validation</span></div>"
-        "<i>verdict</i><div><b>Coordinator</b><span>finish or revise</span></div></div></section>",
-        "<section class='evidence-section'><div class='section-title'><h3>Role Outcomes</h3><span>decisions and evidence</span></div>"
-        "<table><thead><tr><th>role</th><th>decision</th><th>round</th><th>evidence excerpt</th></tr></thead>"
+        "<section class='evidence-section'><div class='section-title'><h3>协同关系</h3><span>本次运行采用顺序角色链</span></div>"
+        "<div class='coordination-graph'><div><b>实现者</b><span>候选改动 + 证据</span></div>"
+        "<i>产物</i><div><b>审查者</b><span>风险 + 修订判断</span></div>"
+        "<i>产物</i><div><b>验证者</b><span>独立验证</span></div>"
+        "<i>结论</i><div><b>协调器</b><span>结束或进入修订</span></div></div></section>",
+        "<section class='evidence-section'><div class='section-title'><h3>角色结果</h3><span>决策与证据摘要</span></div>"
+        "<table><thead><tr><th>角色</th><th>决策</th><th>轮次</th><th>证据摘要</th></tr></thead>"
         f"<tbody>{_render_role_decision_rows(summary)}</tbody></table></section>",
-        "<section class='evidence-section'><div class='section-title'><h3>Artifact Handoffs</h3><span>content visible in place</span></div>"
+        "<section class='evidence-section'><div class='section-title'><h3>产物交接</h3><span>直接查看角色交付内容</span></div>"
         f"{_render_artifact_cards(summary)}</section>",
-        "<section class='evidence-section'><div class='section-title'><h3>Execution Models</h3><span>support is distinct from latest-run evidence</span></div>"
-        "<table><thead><tr><th>mode</th><th>latest run</th><th>runtime contract</th></tr></thead><tbody>"
-        "<tr><td>Single Agent</td><td>observed in paired comparison</td><td>canonical AgentLoop, lowest coordination overhead</td></tr>"
-        "<tr><td>Sequential Multi-Agent</td><td>observed</td><td>role isolation, artifact handoff, bounded revision</td></tr>"
-        "<tr><td>Live Fanout</td><td>supported, not exercised by this run</td><td>validated DAG, worktree workers, scope gate, deterministic merge, isolated finalizer, selective recovery</td></tr>"
+        "<section class='evidence-section'><div class='section-title'><h3>三种执行模式的边界</h3><span>支持某模式，不等于本次运行已触发</span></div>"
+        "<table><thead><tr><th>模式</th><th>本次证据</th><th>Runtime 契约</th></tr></thead><tbody>"
+        "<tr><td>单 Agent</td><td>配对对比中已观测</td><td>标准 AgentLoop，协调开销最低</td></tr>"
+        "<tr><td>顺序多 Agent</td><td>本次已观测</td><td>角色隔离、产物交接、受限修订</td></tr>"
+        "<tr><td>并行 Fanout</td><td>代码支持，本次未执行</td><td>DAG 校验、Worktree Worker、改动范围门禁、确定性合并、隔离 Finalizer、选择性恢复</td></tr>"
         "</tbody></table></section>",
-        f"<details class='provenance'><summary>Orchestration provenance</summary><code>{_escape(str(summary_path))}</code></details>",
+        f"<details class='provenance'><summary>编排证据来源</summary><code>{_escape(str(summary_path))}</code></details>",
     ]
     return "<div class='evidence'>" + "".join(body) + "</div>"
 
@@ -1432,88 +1902,91 @@ def _render_orchestration_dashboard(project_dir: Path) -> str:
 def _render_evaluation_dashboard(project_dir: Path) -> str:
 
     result = _latest_result_record(project_dir)
-    comparison = _read_json_file(_latest_comparison_path(project_dir))
+    comparison = _read_json_file(_latest_benchmark_comparison_path(project_dir))
     direct_baseline = _latest_direct_baseline_record(project_dir)
     baseline_patch = str(direct_baseline.get("model_patch") or "")
     evaluation_status = str(result.get("evaluation_status") or "not_evaluated")
-    diagnosis = str(result.get("diagnosis") or "No diagnosis artifact was found.")
+    diagnosis = _translate_evidence_text(
+        result.get("diagnosis") or "没有找到诊断产物。"
+    )
     diagnosis_source = str(result.get("diagnosis_source") or "legacy_or_unavailable")
     diagnosis_rule = str(result.get("diagnosis_rule_id") or "not_recorded")
     taxonomy_version = str(result.get("diagnosis_taxonomy_version") or "not_recorded")
     evidence = result.get("diagnosis_evidence") or []
     next_actions = result.get("next_actions") or []
     body = [
-        "<div class='view-heading'><div><span class='view-kicker'>EVALUATION</span><h2>Evidence & Claim Boundary</h2></div>"
+        "<div class='view-heading'><div><span class='view-kicker'>评测与诊断</span><h2>证据与结论边界</h2></div>"
         f"{_badge(evaluation_status, _tone_for_status(evaluation_status))}</div>",
         _metric_grid(
             [
-                ("Result", str(result.get("status") or "unknown"), "agent outcome", _tone_for_status(str(result.get("status") or ""))),
-                ("Failure Class", str(result.get("failure_class") or "unclassified"), "ordered taxonomy", _tone_for_status(str(result.get("failure_class") or ""))),
-                ("Diagnosis Source", diagnosis_source, f"rule={diagnosis_rule}; taxonomy={taxonomy_version}", "neutral"),
-                ("Patch", str(result.get("patch_chars") or 0), "candidate characters", "ok" if result.get("patch_chars") else "neutral"),
-                ("Official Eval", evaluation_status, "benchmark authority", _tone_for_status(evaluation_status)),
-                ("Verifier", str(comparison.get("verifier_status") or "not_observed"), "runtime role", _tone_for_status(str(comparison.get("verifier_status") or ""))),
-                ("Direct Baseline", str(len(baseline_patch)) if direct_baseline else "not_run", "one-shot patch chars", "neutral"),
+                ("运行结果", _display_value(result.get("status") or "unknown"), "Agent 最终状态", _tone_for_status(str(result.get("status") or ""))),
+                ("失败分类", _display_value(result.get("failure_class") or "unclassified"), "按固定优先级分类", _tone_for_status(str(result.get("failure_class") or ""))),
+                ("诊断来源", _display_value(diagnosis_source), f"规则={diagnosis_rule}；分类版本={taxonomy_version}", "neutral"),
+                ("候选改动", str(result.get("patch_chars") or 0), "候选 Diff 字符数", "ok" if result.get("patch_chars") else "neutral"),
+                ("官方评测", _display_value(evaluation_status), "最终正确性依据", _tone_for_status(evaluation_status)),
+                ("验证角色", _display_value(comparison.get("verifier_status") or "not_observed"), "Runtime 内部角色", _tone_for_status(str(comparison.get("verifier_status") or ""))),
+                ("直接模型基线", str(len(baseline_patch)) if direct_baseline else "未运行", "一次性回答的改动字符数", "neutral"),
             ]
         ),
-        "<section class='evidence-section'><div class='section-title'><h3>Diagnosis</h3><span>why this status occurred</span></div>"
+        "<section class='evidence-section'><div class='section-title'><h3>失败诊断</h3><span>为什么得到当前状态</span></div>"
         f"<p class='diagnosis'>{_escape(diagnosis)}</p>"
         f"<div class='evidence-list'>{''.join(f'<span>{_escape(item)}</span>' for item in evidence)}</div>"
         "<table><tbody>"
-        f"<tr><td>source</td><td>{_escape(diagnosis_source)}</td></tr>"
-        f"<tr><td>matched rule</td><td>{_escape(diagnosis_rule)}</td></tr>"
-        f"<tr><td>taxonomy version</td><td>{_escape(taxonomy_version)}</td></tr>"
-        "<tr><td>human review</td><td>See Evaluation & Improvement record; automated taxonomy alone is not human judgment.</td></tr>"
+        f"<tr><td>诊断来源</td><td>{_escape(_display_value(diagnosis_source))}</td></tr>"
+        f"<tr><td>命中规则</td><td>{_escape(diagnosis_rule)}</td></tr>"
+        f"<tr><td>分类版本</td><td>{_escape(taxonomy_version)}</td></tr>"
+        "<tr><td>人工复核</td><td>请查看“评测改进闭环”；自动分类结果不等于人工判断。</td></tr>"
         "</tbody></table></section>",
-        "<section class='evidence-section'><div class='section-title'><h3>Next Evidence</h3><span>required before stronger claims</span></div>"
-        f"<ol class='next-actions'>{''.join(f'<li>{_escape(item)}</li>' for item in next_actions) or '<li>No next action recorded.</li>'}</ol></section>",
-        "<section class='evidence-section'><div class='section-title'><h3>Matched Comparison</h3><span>same task, different runtime design</span></div>"
-        "<table><thead><tr><th>metric</th><th>single</th><th>multi</th></tr></thead><tbody>"
-        f"<tr><td>status</td><td>{_escape(comparison.get('single_status', '-'))}</td><td>{_escape(comparison.get('multi_status', '-'))}</td></tr>"
-        f"<tr><td>LLM calls</td><td>{_escape(comparison.get('single_llm_calls', '-'))}</td><td>{_escape(comparison.get('multi_llm_calls', '-'))}</td></tr>"
-        f"<tr><td>tool calls</td><td>{_escape(comparison.get('single_tool_calls', '-'))}</td><td>{_escape(comparison.get('multi_tool_calls', '-'))}</td></tr>"
-        f"<tr><td>cost</td><td>{_format_optional_cost(comparison.get('single_cost_usd'))}</td><td>{_format_optional_cost(comparison.get('multi_cost_usd'))}</td></tr>"
-        f"<tr><td>patch generated</td><td>{_escape(comparison.get('single_patch_generated', '-'))}</td><td>{_escape(comparison.get('multi_patch_generated', '-'))}</td></tr>"
+        "<section class='evidence-section'><div class='section-title'><h3>下一步证据</h3><span>形成更强结论前还缺什么</span></div>"
+        f"<ol class='next-actions'>{''.join(f'<li>{_escape(_translate_evidence_text(item))}</li>' for item in next_actions) or '<li>没有记录下一步动作。</li>'}</ol></section>",
+        "<section class='evidence-section'><div class='section-title'><h3>同任务配对对比</h3><span>任务相同，Runtime 设计不同</span></div>"
+        "<table><thead><tr><th>指标</th><th>单 Agent</th><th>多 Agent</th></tr></thead><tbody>"
+        f"<tr><td>状态</td><td>{_escape(_display_value(comparison.get('single_status', '-')))}</td><td>{_escape(_display_value(comparison.get('multi_status', '-')))}</td></tr>"
+        f"<tr><td>模型调用</td><td>{_escape(comparison.get('single_llm_calls', '-'))}</td><td>{_escape(comparison.get('multi_llm_calls', '-'))}</td></tr>"
+        f"<tr><td>工具调用</td><td>{_escape(comparison.get('single_tool_calls', '-'))}</td><td>{_escape(comparison.get('multi_tool_calls', '-'))}</td></tr>"
+        f"<tr><td>估算成本</td><td>{_format_optional_cost(comparison.get('single_cost_usd'))}</td><td>{_format_optional_cost(comparison.get('multi_cost_usd'))}</td></tr>"
+        f"<tr><td>是否生成候选改动</td><td>{_escape(_display_value(comparison.get('single_patch_generated', '-')))}</td><td>{_escape(_display_value(comparison.get('multi_patch_generated', '-')))}</td></tr>"
         "</tbody></table>"
-        f"<p class='boundary-note'>{_escape(comparison.get('recommendation') or 'No comparison recommendation was recorded.')}</p></section>",
-        "<section class='evidence-section'><div class='section-title'><h3>Harness vs Direct Model</h3><span>one-shot baseline boundary</span></div>"
-        "<table><thead><tr><th>surface</th><th>direct model</th><th>governed runtime</th></tr></thead><tbody>"
-        f"<tr><td>candidate patch</td><td>{len(baseline_patch) if direct_baseline else 'not run'} chars</td><td>{_escape(result.get('patch_chars') or 0)} chars</td></tr>"
-        "<tr><td>tool execution</td><td>none</td><td>routed, policy checked, traced</td></tr>"
-        "<tr><td>validation evidence</td><td>not collected by one-shot baseline</td><td>tool observations + verifier artifacts</td></tr>"
-        "<tr><td>claim</td><td>candidate text only</td><td>candidate plus bounded runtime evidence</td></tr>"
-        "</tbody></table><p class='boundary-note'>Patch length is not quality. Official evaluation remains the common authority for both variants.</p></section>",
+        f"<p class='boundary-note'>{_escape(_translate_evidence_text(comparison.get('recommendation') or '没有记录对比建议。'))}</p></section>",
+        "<section class='evidence-section'><div class='section-title'><h3>Harness 与直接模型对比</h3><span>一次性回答基线的能力边界</span></div>"
+        "<table><thead><tr><th>对比面</th><th>直接模型</th><th>受治理 Runtime</th></tr></thead><tbody>"
+        f"<tr><td>候选改动</td><td>{len(baseline_patch) if direct_baseline else '未运行'} 字符</td><td>{_escape(result.get('patch_chars') or 0)} 字符</td></tr>"
+        "<tr><td>工具执行</td><td>无</td><td>经过路由、策略检查并记录 Trace</td></tr>"
+        "<tr><td>验证证据</td><td>一次性回答不采集</td><td>工具观察 + 验证角色产物</td></tr>"
+        "<tr><td>可支持的结论</td><td>只有候选文本</td><td>候选结果 + 有边界的 Runtime 证据</td></tr>"
+        "</tbody></table><p class='boundary-note'>改动长度不代表质量；两种方案最终都必须服从官方评测结果。</p></section>",
     ]
     return "<div class='evidence'>" + "".join(body) + "</div>"
 
 
 def _render_benchmark_dashboard(project_dir: Path) -> str:
-    """展示 repeated campaign 事实；没有 campaign 时只展示实验契约和入口。"""
+    """展示重复实验事实；没有实验批次时只展示实验契约和入口。"""
 
     campaign_dir = _latest_campaign_dir(project_dir)
     state = _latest_campaign_state(project_dir)
     summary = _latest_campaign_summary(project_dir)
     if not state or not summary:
         body = [
-            "<div class='view-heading'><div><span class='view-kicker'>BENCHMARK</span><h2>Smoke-5 Runtime Campaign</h2></div>"
+            "<div class='view-heading'><div><span class='view-kicker'>基准评测</span><h2>五题冒烟回归集（Smoke-5）</h2></div>"
             f"{_badge('not_run', 'neutral')}</div>",
+            "<p class='help strong'>从 SWE-bench Verified 的 500 个公开任务中人工分层选出 5 题，用于低成本回归 Harness 的检索、工具循环、候选改动、验证与证据链。它不是随机样本，也不代表总体解决率。</p>",
             _metric_grid(
                 [
-                    ("Cases", "5", "five repositories and issue families", "neutral"),
-                    ("Presets", "2", "minimal-control vs governed-runtime", "neutral"),
-                    ("Repeats", "3", "matched repetitions per case", "neutral"),
-                    ("Planned Runs", "30", "5 x 2 x 3", "neutral"),
-                    ("Authority", "Official Eval", "candidate patch is not solved", "warn"),
-                    ("Public Bundle", "On Complete", "sanitized evidence only", "neutral"),
+                    ("Case 数量", "5", "五个代码仓与问题类型", "neutral"),
+                    ("Runtime 配置", "2", "基础控制版 vs 治理增强版", "neutral"),
+                    ("重复次数", "3", "每题每种配置各运行三次", "neutral"),
+                    ("计划运行", "30", "5 × 2 × 3", "neutral"),
+                    ("正确性依据", "官方评测", "生成候选改动不等于解决", "warn"),
+                    ("公开证据包", "完成后生成", "默认只含脱敏证据", "neutral"),
                 ]
             ),
-            "<section class='evidence-section'><div class='section-title'><h3>Experiment Contract</h3><span>fixed before execution</span></div>"
-            "<table><thead><tr><th>held constant</th><th>runtime preset difference</th><th>authority</th></tr></thead><tbody>"
-            "<tr><td>case/task input, model, temperature, budget, safety, execution mode</td><td>tool visibility + Skill-injected context</td><td>official per-case SWE-bench outcome</td></tr>"
-            "</tbody></table><p class='boundary-note'>This is a multi-factor preset comparison. It is not presented as a single-factor causal ablation.</p></section>",
-            "<section class='evidence-section'><div class='section-title'><h3>Run It</h3><span>resumable at every slot boundary</span></div>"
+            "<section class='evidence-section'><div class='section-title'><h3>实验契约</h3><span>运行前固定</span></div>"
+            "<table><thead><tr><th>保持一致</th><th>Runtime 配置差异</th><th>最终依据</th></tr></thead><tbody>"
+            "<tr><td>Case/任务输入、模型、温度、预算、安全策略、执行模式</td><td>工具可见性 + Skill 注入上下文</td><td>每题的 SWE-bench 官方评测结果</td></tr>"
+            "</tbody></table><p class='boundary-note'>这是多因素 Runtime 配置对比，不会包装成单因素因果消融实验。</p></section>",
+            "<section class='evidence-section'><div class='section-title'><h3>运行入口</h3><span>每个运行槽位都可恢复</span></div>"
             "<pre class='raw-text'>forge bench campaign --regression-set smoke-5 --repetitions 3 --evaluate --publish</pre>"
-            "<p class='boundary-note'>Commit the source first. A clean Git revision is required before paid runs unless --allow-dirty is explicitly accepted.</p></section>",
+            "<p class='boundary-note'>付费运行前先提交源码；默认要求干净的 Git Revision，只有显式接受 --allow-dirty 时才允许脏工作区。</p></section>",
         ]
         return "<div class='evidence'>" + "".join(body) + "</div>"
 
@@ -1521,6 +1994,25 @@ def _render_benchmark_dashboard(project_dir: Path) -> str:
     paired = summary.get("paired_official") or {}
     status_counts = summary.get("status_counts") or {}
     source = summary.get("source") or {}
+    records = [
+        record
+        for record in state.get("records") or []
+        if isinstance(record, dict)
+    ]
+    covered_cases = {str(record.get("case_id") or "") for record in records}
+    covered_cases.discard("")
+    covered_variants = {str(record.get("variant") or "") for record in records}
+    covered_variants.discard("")
+    max_repetition = max(
+        (int(record.get("repetition") or 0) for record in records),
+        default=0,
+    )
+    coverage_note = (
+        f"当前载入批次覆盖 {len(covered_cases)} 个 Case、"
+        f"{len(covered_variants)} 种配置、最高 {max_repetition} 次重复。"
+    )
+    if len(covered_cases) < 5 or max_repetition < 3:
+        coverage_note += "这是 Smoke-5 的试运行证据，不是完整的五题三重复实验。"
     variant_rows = []
     for name, item in variants.items():
         official_count = int(item.get("official_evaluated") or 0)
@@ -1528,11 +2020,11 @@ def _render_benchmark_dashboard(project_dir: Path) -> str:
         official_text = (
             f"{official_resolved}/{official_count} ({official_resolved / official_count:.1%})"
             if official_count
-            else "not available"
+            else "无官方结果"
         )
         variant_rows.append(
             "<tr>"
-            f"<td><b>{_escape(name)}</b></td>"
+            f"<td><b>{_escape(_display_value(name))}</b><small class='mono'>{_escape(name)}</small></td>"
             f"<td>{int(item.get('completed') or 0)}/{int(item.get('planned') or 0)}</td>"
             f"<td>{int(item.get('patch_generated') or 0)}/{int(item.get('planned') or 0)}</td>"
             f"<td>{int(item.get('local_verified') or 0)}/{int(item.get('planned') or 0)}</td>"
@@ -1543,95 +2035,96 @@ def _render_benchmark_dashboard(project_dir: Path) -> str:
             "</tr>"
         )
     run_rows = []
-    for record in state.get("records") or []:
-        if not isinstance(record, dict):
-            continue
+    for record in records:
         evidence = record.get("evidence") or {}
         run_rows.append(
             "<tr>"
             f"<td>{int(record.get('ordinal') or 0)}</td>"
             f"<td class='mono'>{_escape(record.get('case_id') or '')}</td>"
             f"<td>{int(record.get('repetition') or 0)}</td>"
-            f"<td>{_escape(record.get('variant') or '')}</td>"
+            f"<td>{_escape(_display_value(record.get('variant') or ''))}</td>"
             f"<td>{_badge(str(record.get('status') or 'pending'), _tone_for_status(str(record.get('status') or '')))}</td>"
-            f"<td>{'yes' if evidence.get('patch_generated') else 'no'}</td>"
-            f"<td>{_escape(evidence.get('official_evaluation_status') or 'not_evaluated')}</td>"
-            f"<td>{_escape(evidence.get('failure_class') or 'unclassified')}</td>"
+            f"<td>{_display_value(bool(evidence.get('patch_generated')))}</td>"
+            f"<td>{_escape(_display_value(evidence.get('official_evaluation_status') or 'not_evaluated'))}</td>"
+            f"<td>{_escape(_display_value(evidence.get('failure_class') or 'unclassified'))}</td>"
             "</tr>"
         )
     wins = paired.get("wins") or {}
     variant_rows_html = "".join(variant_rows) or (
-        "<tr><td colspan='8'>No variant evidence.</td></tr>"
+        "<tr><td colspan='8'>没有 Runtime 配置证据。</td></tr>"
     )
     run_rows_html = "".join(run_rows) or (
-        "<tr><td colspan='8'>No run slots.</td></tr>"
+        "<tr><td colspan='8'>没有运行槽位。</td></tr>"
     )
     paired_metrics = _metric_grid(
         [
             (
-                "Evaluated Pairs",
+                "完成官方评测的配对",
                 str(paired.get("evaluated_pairs") or 0),
-                "official on both presets",
+                "两种配置都有官方结果",
                 "neutral",
             ),
             (
-                "Minimal Wins",
+                "基础控制版胜出",
                 str(wins.get("minimal-control") or 0),
-                "official resolved only on control",
+                "仅基础控制版官方解决",
                 "neutral",
             ),
             (
-                "Governed Wins",
+                "治理增强版胜出",
                 str(wins.get("governed-runtime") or 0),
-                "official resolved only on treatment",
+                "仅治理增强版官方解决",
                 "ok",
             ),
             (
-                "Ties",
+                "结果相同",
                 str(paired.get("ties") or 0),
-                "same official result",
+                "两种配置的官方结果一致",
                 "neutral",
             ),
             (
-                "Correctness Claim",
-                "Official Only",
-                "candidate patch never fills this gap",
+                "正确性结论",
+                "只看官方评测",
+                "候选改动不能填补该证据缺口",
                 "warn" if not paired.get("evaluated_pairs") else "ok",
             ),
             (
-                "Preset Delta",
-                "Routing + Skills",
-                "multi-factor comparison",
+                "配置差异",
+                "路由 + Skills",
+                "多因素 Runtime 配置对比",
                 "neutral",
             ),
         ]
     )
     body = [
-        "<div class='view-heading'><div><span class='view-kicker'>BENCHMARK</span><h2>Repeated Runtime Evidence</h2></div>"
+        "<div class='view-heading'><div><span class='view-kicker'>基准评测</span><h2>重复实验结果</h2></div>"
         f"{_badge(str(summary.get('status') or 'unknown'), _tone_for_status(str(summary.get('status') or '')))}</div>",
+        "<p class='help strong'>Smoke-5 是面向 Harness 机制的五题低成本冒烟回归集，不是模型排行榜，也不能用来外推 SWE-bench Verified 的总体解决率。</p>",
+        f"<p class='boundary-note'><strong>当前覆盖：</strong>{_escape(coverage_note)}</p>",
         _metric_grid(
             [
-                ("Campaign", str(summary.get("campaign_id") or ""), "stable experiment id", "neutral"),
-                ("Revision", str(source.get("revision") or "unknown")[:12], str(source.get("branch") or ""), "neutral"),
-                ("Planned", str(summary.get("planned_runs") or 0), "case x preset x repeat", "neutral"),
-                ("Completed", str(status_counts.get("completed") or 0), "durable completed slots", "ok"),
-                ("Failed", str(status_counts.get("failed") or 0), "retryable on resume", "warn" if status_counts.get("failed") else "ok"),
-                ("Official Pairs", str(paired.get("evaluated_pairs") or 0), "both presets decided", "ok" if paired.get("evaluated_pairs") else "warn"),
+                ("实验批次", str(summary.get("campaign_id") or ""), "稳定的实验 ID", "neutral"),
+                ("代码版本", str(source.get("revision") or "unknown")[:12], str(source.get("branch") or ""), "neutral"),
+                ("计划运行", str(summary.get("planned_runs") or 0), "Case × 配置 × 重复次数", "neutral"),
+                ("已完成", str(status_counts.get("completed") or 0), "持久化完成的运行槽位", "ok"),
+                ("运行失败", str(status_counts.get("failed") or 0), "可在恢复时重试", "warn" if status_counts.get("failed") else "ok"),
+                ("官方评测配对", str(paired.get("evaluated_pairs") or 0), "两种配置都有明确结果", "ok" if paired.get("evaluated_pairs") else "warn"),
             ]
         ),
-        "<section class='evidence-section'><div class='section-title'><h3>Preset Comparison</h3><span>same Runtime kernel, explicit configuration delta</span></div>"
-        "<table><thead><tr><th>preset</th><th>complete</th><th>candidate patch</th><th>local verified</th><th>official resolved</th><th>tokens</th><th>cost</th><th>failed tools</th></tr></thead>"
+        "<section class='evidence-section'><div class='section-title'><h3>Runtime 配置对比</h3><span>核心 Runtime 相同，配置差异显式记录</span></div>"
+        "<table><thead><tr><th>配置</th><th>完成</th><th>候选改动</th><th>本地验证</th><th>官方解决</th><th>Token</th><th>成本</th><th>失败工具调用</th></tr></thead>"
         f"<tbody>{variant_rows_html}</tbody></table>"
-        "<p class='boundary-note'>Patch rate uses every planned slot. Official resolved rate uses only explicit resolved/unresolved outcomes.</p></section>",
-        "<section class='evidence-section'><div class='section-title'><h3>Paired Official Outcomes</h3><span>correctness comparison only</span></div>"
+        "<p class='boundary-note'>候选改动率以全部计划运行作为分母；官方解决率只以明确得到 resolved/unresolved 的运行作为分母。</p></section>",
+        "<section class='evidence-section'><div class='section-title'><h3>官方结果配对</h3><span>这里只比较正确性</span></div>"
         f"{paired_metrics}"
-        "<p class='boundary-note'>Zero paired official outcomes means correctness remains unknown; candidate patches do not fill this gap.</p></section>",
-        "<section class='evidence-section'><div class='section-title'><h3>Run Matrix</h3><span>every slot is independently resumable</span></div>"
-        "<table><thead><tr><th>#</th><th>case</th><th>repeat</th><th>preset</th><th>status</th><th>patch</th><th>official</th><th>failure class</th></tr></thead>"
-        f"<tbody>{run_rows_html}</tbody></table></section>",
-        "<details class='provenance'><summary>Campaign provenance</summary>"
-        f"<code>{_escape(str(campaign_dir or 'not found'))}</code>"
-        f"<code>config sha256: {_escape(summary.get('config_digest') or '')}</code></details>",
+        "<p class='boundary-note'>若官方配对数为 0，正确性仍然未知；生成候选改动不能填补该证据缺口。</p></section>",
+        "<details class='drilldown'><summary>排障：查看每个 Case × 配置 × 重复次数的运行槽位</summary>"
+        "<div class='drilldown-body'><div class='section-title'><h3>运行矩阵</h3><span>每个槽位都可独立恢复</span></div>"
+        "<table><thead><tr><th>#</th><th>Case</th><th>第几次</th><th>配置</th><th>状态</th><th>候选改动</th><th>官方评测</th><th>失败分类</th></tr></thead>"
+        f"<tbody>{run_rows_html}</tbody></table></div></details>",
+        "<details class='provenance'><summary>实验批次来源</summary>"
+        f"<code>{_escape(str(campaign_dir or '未找到'))}</code>"
+        f"<code>配置 SHA-256：{_escape(summary.get('config_digest') or '')}</code></details>",
     ]
     return "<div class='evidence'>" + "".join(body) + "</div>"
 
@@ -1652,54 +2145,55 @@ def _render_feedback_dashboard(project_dir: Path) -> str:
     improvement_status = str(decision.get("status") or "not_recorded")
     chain = (
         "<div class='pipeline improvement-chain'>"
-        f"<div><b>01</b><span>Observed problem</span><small>{_escape(improvement.get('observed_problem') or 'not recorded')}</small></div>"
-        f"<div><b>02</b><span>Diagnosis</span><small>{_escape(diagnosis.get('source') or 'not recorded')} · {_escape(diagnosis.get('review_status') or 'unreviewed')}</small></div>"
-        f"<div><b>03</b><span>Hypothesis</span><small>{_escape(improvement.get('hypothesis') or 'not recorded')}</small></div>"
-        f"<div><b>04</b><span>Change</span><small>{_escape((improvement.get('change') or {}).get('reference') or 'not recorded')}</small></div>"
-        f"<div><b>05</b><span>Regression</span><small>{len(improvement.get('regression_cases') or [])} matched case(s)</small></div>"
-        f"<div><b>06</b><span>Decision</span><small>{_escape(improvement_status)}</small></div>"
+        f"<div><b>01</b><span>观测问题</span><small>{_escape(_translate_evidence_text(improvement.get('observed_problem') or '未记录'))}</small></div>"
+        f"<div><b>02</b><span>失败诊断</span><small>{_escape(_display_value(diagnosis.get('source') or 'not_recorded'))} · {_escape(_display_value(diagnosis.get('review_status') or 'unreviewed'))}</small></div>"
+        f"<div><b>03</b><span>改进假设</span><small>{_escape(_translate_evidence_text(improvement.get('hypothesis') or '未记录'))}</small></div>"
+        f"<div><b>04</b><span>实施改动</span><small>{_escape(_translate_evidence_text((improvement.get('change') or {}).get('reference') or '未记录'))}</small></div>"
+        f"<div><b>05</b><span>回归验证</span><small>{len(improvement.get('regression_cases') or [])} 个配对 Case</small></div>"
+        f"<div><b>06</b><span>人工决策</span><small>{_escape(_display_value(improvement_status))}</small></div>"
         "</div>"
     )
     body = [
-        "<div class='view-heading'><div><span class='view-kicker'>LAB 3 · EVALUATION LOOP</span><h2>Evaluation & Improvement</h2></div>"
+        "<div class='view-heading'><div><span class='view-kicker'>LAB 3 · 评测闭环</span><h2>评测与持续改进</h2></div>"
         f"{_badge(improvement_status, _tone_for_status(improvement_status))}</div>",
+        "<p class='help strong'>本页所有差值都按“治理增强版 - 基础控制版”计算。官方解决数越大越好；失败工具调用和 Token 越小越好，因此这两项出现负数通常代表改善。</p>",
         _metric_grid(
             [
-                ("Decision", improvement_status, "adopt / iterate / reject", _tone_for_status(improvement_status)),
-                ("Diagnosis Review", str(diagnosis.get("review_status") or "unreviewed"), str(diagnosis.get("source") or "not recorded"), "ok" if diagnosis.get("review_status") == "reviewed" else "warn"),
-                ("Official Delta", str(delta.get("official_resolved", "-")), "treatment - control", "neutral"),
-                ("Failed Tool Delta", str(delta.get("failed_tool_calls", "-")), "negative is fewer failures", "ok" if isinstance(delta.get("failed_tool_calls"), (int, float)) and delta.get("failed_tool_calls") < 0 else "neutral"),
-                ("Token Delta", str(delta.get("total_tokens", "-")), "cost of treatment", "warn"),
-                ("Human Outcome", outcome, "per-run curation label", _tone_for_status(outcome)),
+                ("改进决策", _display_value(improvement_status), "采纳 / 继续迭代 / 拒绝", _tone_for_status(improvement_status)),
+                ("诊断复核", _display_value(diagnosis.get("review_status") or "unreviewed"), _display_value(diagnosis.get("source") or "not_recorded"), "ok" if diagnosis.get("review_status") == "reviewed" else "warn"),
+                ("官方解决数差值", _format_delta(delta.get("official_resolved"), kind="official"), "治理增强版 - 基础控制版", "neutral"),
+                ("失败工具调用差值", _format_delta(delta.get("failed_tool_calls"), kind="failed_tools"), "负数表示失败更少", "ok" if isinstance(delta.get("failed_tool_calls"), (int, float)) and delta.get("failed_tool_calls") < 0 else "neutral"),
+                ("Token 差值", _format_delta(delta.get("total_tokens"), kind="tokens"), "正数表示治理增强版消耗更多", "warn" if isinstance(delta.get("total_tokens"), (int, float)) and delta.get("total_tokens") > 0 else "ok"),
+                ("人工标注结果", _display_value(outcome), "单次运行的人工整理标签", _tone_for_status(outcome)),
             ]
         ),
-        "<section class='evidence-section'><div class='section-title'><h3>Improvement Record</h3><span>problem → evidence-backed decision</span></div>"
+        "<section class='evidence-section'><div class='section-title'><h3>改进决策记录</h3><span>问题 → 证据支持的决策</span></div>"
         f"{chain}</section>",
-        "<section class='evidence-section'><div class='section-title'><h3>Before / After Evidence</h3><span>same campaign summary, no metric recomputation</span></div>"
-        "<table><thead><tr><th>metric</th><th>minimal control</th><th>governed runtime</th><th>delta</th></tr></thead><tbody>"
-        f"<tr><td>official resolved</td><td>{_escape(control.get('official_resolved', '-'))}/{_escape(control.get('official_evaluated', '-'))}</td><td>{_escape(treatment.get('official_resolved', '-'))}/{_escape(treatment.get('official_evaluated', '-'))}</td><td>{_escape(delta.get('official_resolved', '-'))}</td></tr>"
-        f"<tr><td>failed tool calls</td><td>{_escape(control.get('failed_tool_calls', '-'))}</td><td>{_escape(treatment.get('failed_tool_calls', '-'))}</td><td>{_escape(delta.get('failed_tool_calls', '-'))}</td></tr>"
-        f"<tr><td>total tokens</td><td>{_escape(control.get('total_tokens', '-'))}</td><td>{_escape(treatment.get('total_tokens', '-'))}</td><td>{_escape(delta.get('total_tokens', '-'))}</td></tr>"
-        f"<tr><td>estimated cost</td><td>${_escape(control.get('estimated_cost_usd', '-'))}</td><td>${_escape(treatment.get('estimated_cost_usd', '-'))}</td><td>${_escape(delta.get('estimated_cost_usd', '-'))}</td></tr>"
+        "<section class='evidence-section'><div class='section-title'><h3>改进前后证据</h3><span>直接读取同一实验批次汇总，不在页面重算指标</span></div>"
+        "<table><thead><tr><th>指标</th><th>基础控制版</th><th>治理增强版</th><th>差值与含义</th></tr></thead><tbody>"
+        f"<tr><td>官方解决</td><td>{_escape(control.get('official_resolved', '-'))}/{_escape(control.get('official_evaluated', '-'))}</td><td>{_escape(treatment.get('official_resolved', '-'))}/{_escape(treatment.get('official_evaluated', '-'))}</td><td>{_escape(_format_delta(delta.get('official_resolved'), kind='official'))}</td></tr>"
+        f"<tr><td>失败工具调用</td><td>{_escape(control.get('failed_tool_calls', '-'))}</td><td>{_escape(treatment.get('failed_tool_calls', '-'))}</td><td>{_escape(_format_delta(delta.get('failed_tool_calls'), kind='failed_tools'))}</td></tr>"
+        f"<tr><td>Token 总量</td><td>{_escape(control.get('total_tokens', '-'))}</td><td>{_escape(treatment.get('total_tokens', '-'))}</td><td>{_escape(_format_delta(delta.get('total_tokens'), kind='tokens'))}</td></tr>"
+        f"<tr><td>估算成本</td><td>${_escape(control.get('estimated_cost_usd', '-'))}</td><td>${_escape(treatment.get('estimated_cost_usd', '-'))}</td><td>{_escape(_format_delta(delta.get('estimated_cost_usd'), kind='cost'))}</td></tr>"
         "</tbody></table>"
-        f"<p class='boundary-note'><strong>Decision rationale:</strong> {_escape(decision.get('rationale') or 'not recorded')}</p>"
-        f"<p class='boundary-note'><strong>Claim boundary:</strong> {_escape(improvement.get('claim_boundary') or 'No stronger claim is supported.')}</p></section>",
-        "<section class='evidence-section'><div class='section-title'><h3>Latest Human Judgment</h3><span>not benchmark authority</span></div>"
+        f"<p class='boundary-note'><strong>决策依据：</strong> {_escape(_translate_evidence_text(decision.get('rationale') or '未记录'))}</p>"
+        f"<p class='boundary-note'><strong>结论边界：</strong> {_escape(_translate_evidence_text(improvement.get('claim_boundary') or '当前证据不支持更强结论。'))}</p></section>",
+        "<section class='evidence-section'><div class='section-title'><h3>最近一次人工判断</h3><span>人工标签不替代 Benchmark 结论</span></div>"
         "<table><tbody>"
-        f"<tr><td>outcome</td><td>{_escape(outcome)}</td></tr>"
-        f"<tr><td>labels</td><td>{_escape(', '.join(str(item) for item in feedback.get('labels') or []) or '-')}</td></tr>"
-        f"<tr><td>note</td><td>{_escape(feedback.get('note') or '-')}</td></tr>"
-        f"<tr><td>reviewer</td><td>{_escape(feedback.get('reviewer') or '-')}</td></tr>"
+        f"<tr><td>结果</td><td>{_escape(_display_value(outcome))}</td></tr>"
+        f"<tr><td>标签</td><td>{_escape(', '.join(str(item) for item in feedback.get('labels') or []) or '-')}</td></tr>"
+        f"<tr><td>备注</td><td>{_escape(feedback.get('note') or '-')}</td></tr>"
+        f"<tr><td>复核人</td><td>{_escape(feedback.get('reviewer') or '-')}</td></tr>"
         "</tbody></table></section>",
-        "<section class='evidence-section'><div class='section-title'><h3>Export Contract</h3><span>privacy-conscious by default</span></div>"
-        "<table><thead><tr><th>included</th><th>excluded by default</th><th>provenance</th></tr></thead><tbody>"
-        "<tr><td>task, stop reason, failure class, eval status</td><td>raw tool arguments and observations</td><td>trace path</td></tr>"
-        "<tr><td>selected context files, tool sequence, policy</td><td>candidate patch text</td><td>artifact-relative paths</td></tr>"
-        "<tr><td>environment, patch size + SHA-256, feedback</td><td>provider secrets</td><td>schema version</td></tr>"
+        "<section class='evidence-section'><div class='section-title'><h3>数据集导出边界</h3><span>默认保护隐私与敏感内容</span></div>"
+        "<table><thead><tr><th>默认包含</th><th>默认排除</th><th>追溯来源</th></tr></thead><tbody>"
+        "<tr><td>任务、停止原因、失败分类、评测状态</td><td>原始工具参数与观察结果</td><td>Trace 路径</td></tr>"
+        "<tr><td>选中的上下文文件、工具序列、策略</td><td>候选改动正文</td><td>产物相对路径</td></tr>"
+        "<tr><td>环境、改动大小与 SHA-256、人工反馈</td><td>模型服务密钥</td><td>Schema 版本</td></tr>"
         "</tbody></table>"
-        "<p class='boundary-note'>Exported records are curation inputs for bad-case analysis and regression selection, not automatically production training data.</p></section>",
-        f"<details class='provenance'><summary>Improvement provenance</summary><code>{_escape(str(improvement_path or 'not found'))}</code>"
-        f"<code>{_escape(str(feedback_path or 'not found'))}</code>"
+        "<p class='boundary-note'>导出的记录只是坏 Case 分析和回归集筛选的整理输入，不会自动成为生产训练数据。</p></section>",
+        f"<details class='provenance'><summary>改进证据来源</summary><code>{_escape(str(improvement_path or '未找到'))}</code>"
+        f"<code>{_escape(str(feedback_path or '未找到'))}</code>"
         f"<code>{_escape(str(dataset_path))}</code></details>",
     ]
     return "<div class='evidence'>" + "".join(body) + "</div>"
@@ -1707,17 +2201,17 @@ def _render_feedback_dashboard(project_dir: Path) -> str:
 
 def _render_compare_dashboard(project_dir: Path) -> str:
 
-    run_dir = _latest_run_dir(project_dir)
-    comparison_path = _latest_comparison_path(project_dir)
-    multi_path = _latest_multi_agent_summary_path(project_dir)
-    usage_path = _latest_usage_path(project_dir)
+    run_dir = _latest_benchmark_run_dir(project_dir)
+    comparison_path = _latest_benchmark_comparison_path(project_dir)
+    multi_path = _latest_benchmark_multi_agent_summary_path(project_dir)
+    usage_path = _latest_benchmark_usage_path(project_dir)
 
     comparison = _read_json_file(comparison_path)
     multi = _read_json_file(multi_path)
     usage = _read_json_file(usage_path)
     summary = usage.get("summary") or {}
 
-    task_id = comparison.get("task_id") or multi.get("task") or "latest local run"
+    task_id = comparison.get("task_id") or multi.get("task") or "最近一次本地运行"
     single_status = str(comparison.get("single_status") or "-")
     multi_status = str(comparison.get("multi_status") or multi.get("status") or "-")
     single_patch = comparison.get("single_patch_generated", "-")
@@ -1729,70 +2223,276 @@ def _render_compare_dashboard(project_dir: Path) -> str:
         cost_delta = float(multi_cost) - float(single_cost)
     verifier_status = comparison.get("verifier_status") or "-"
     revision_rounds = comparison.get("revision_rounds", multi.get("revision_rounds", 0))
-    recommendation = comparison.get("recommendation") or "Run a compare case to generate a recommendation."
+    recommendation = _translate_evidence_text(
+        comparison.get("recommendation")
+        or "请先运行一个配对对比 Case 以生成建议。"
+    )
     reviewer_findings = comparison.get("reviewer_findings") or []
     reviewer_text = "<br>".join(_escape(item) for item in reviewer_findings[:3]) or "-"
 
     body = [
-        "<h2>Single vs Multi 对比</h2>",
+        "<h2>单 Agent 与多 Agent 对比</h2>",
         "<p class='help strong'>这个面板只回答一个问题：同一个真实缺陷，单 Agent 和多 Agent Coordinator 的工程取舍是什么。</p>",
         _metric_grid(
             [
-                ("Case", str(task_id)[:90], "固定 reference case", "neutral"),
-                ("单 Agent", single_status, "canonical AgentLoop", _tone_for_status(single_status)),
-                ("多 Agent Coordinator", multi_status, "Implementer / Reviewer / Verifier", _tone_for_status(multi_status)),
-                ("Patch", f"{single_patch} / {multi_patch}", "single / multi 是否生成 patch", "ok" if single_patch and multi_patch else "warn"),
-                ("Verifier", str(verifier_status), "多 Agent 验证角色结论", _tone_for_status(str(verifier_status))),
-                ("Cost Delta", "-" if cost_delta is None else f"${cost_delta:.6f}", "multi - single", "warn" if cost_delta and cost_delta > 0 else "ok"),
+                ("Case", str(task_id)[:90], "固定参考任务", "neutral"),
+                ("单 Agent", _display_value(single_status), "标准 AgentLoop", _tone_for_status(single_status)),
+                ("多 Agent 协调器", _display_value(multi_status), "实现者 / 审查者 / 验证者", _tone_for_status(multi_status)),
+                ("候选改动", f"{_display_value(single_patch)} / {_display_value(multi_patch)}", "单 Agent / 多 Agent 是否生成", "ok" if single_patch and multi_patch else "warn"),
+                ("验证角色", _display_value(verifier_status), "多 Agent 内部验证结论", _tone_for_status(str(verifier_status))),
+                ("成本差值", "-" if cost_delta is None else f"${cost_delta:.6f}", "多 Agent - 单 Agent", "warn" if cost_delta and cost_delta > 0 else "ok"),
             ]
         ),
         "<div class='lane-grid'>",
         "<div class='lane-card'>",
         "<h3>单 Agent 路径</h3>",
-        "<div class='mini-flow'><span>User task</span><span>AgentLoop</span><span>Tools</span><span>Patch</span></div>",
+        "<div class='mini-flow'><span>用户任务</span><span>AgentLoop</span><span>工具</span><span>候选改动</span></div>",
         "<p class='help'>优点是成本低、路径短、容易理解；风险是缺少独立 review/verifier 控制点。</p>",
         "<table><tbody>",
-        f"<tr><td>status</td><td>{_badge(single_status, _tone_for_status(single_status))}</td></tr>",
-        f"<tr><td>patch generated</td><td>{_escape(single_patch)}</td></tr>",
-        f"<tr><td>LLM calls</td><td>{_escape(comparison.get('single_llm_calls', '-'))}</td></tr>",
-        f"<tr><td>tool calls</td><td>{_escape(comparison.get('single_tool_calls', '-'))}</td></tr>",
-        f"<tr><td>failed tool calls</td><td>{_escape(comparison.get('single_failed_tool_calls', '-'))}</td></tr>",
-        f"<tr><td>cost</td><td>{_format_optional_cost(single_cost)}</td></tr>",
+        f"<tr><td>状态</td><td>{_badge(single_status, _tone_for_status(single_status))}</td></tr>",
+        f"<tr><td>是否生成候选改动</td><td>{_escape(_display_value(single_patch))}</td></tr>",
+        f"<tr><td>模型调用</td><td>{_escape(comparison.get('single_llm_calls', '-'))}</td></tr>",
+        f"<tr><td>工具调用</td><td>{_escape(comparison.get('single_tool_calls', '-'))}</td></tr>",
+        f"<tr><td>失败工具调用</td><td>{_escape(comparison.get('single_failed_tool_calls', '-'))}</td></tr>",
+        f"<tr><td>估算成本</td><td>{_format_optional_cost(single_cost)}</td></tr>",
         "</tbody></table>",
         "</div>",
         "<div class='lane-card'>",
-        "<h3>多 Agent Coordinator 路径</h3>",
-        "<div class='mini-flow'><span>Implementer</span><span>Reviewer</span><span>Verifier</span><span>Artifact</span></div>",
+        "<h3>多 Agent 协调路径</h3>",
+        "<div class='mini-flow'><span>实现者</span><span>审查者</span><span>验证者</span><span>显式产物</span></div>",
         "<p class='help'>优点是把实现、审查、验证拆成显式控制点；代价是 token、延迟和工具调用更多。</p>",
         "<table><tbody>",
-        f"<tr><td>status</td><td>{_badge(multi_status, _tone_for_status(multi_status))}</td></tr>",
-        f"<tr><td>patch generated</td><td>{_escape(multi_patch)}</td></tr>",
-        f"<tr><td>LLM calls</td><td>{_escape(comparison.get('multi_llm_calls', summary.get('llm_calls', '-')))}</td></tr>",
-        f"<tr><td>tool calls</td><td>{_escape(comparison.get('multi_tool_calls', summary.get('tool_calls', '-')))}</td></tr>",
-        f"<tr><td>failed tool calls</td><td>{_escape(comparison.get('multi_failed_tool_calls', summary.get('failed_tool_calls', '-')))}</td></tr>",
-        f"<tr><td>cost</td><td>{_format_optional_cost(multi_cost)}</td></tr>",
-        f"<tr><td>revision rounds</td><td>{_escape(revision_rounds)}</td></tr>",
+        f"<tr><td>状态</td><td>{_badge(multi_status, _tone_for_status(multi_status))}</td></tr>",
+        f"<tr><td>是否生成候选改动</td><td>{_escape(_display_value(multi_patch))}</td></tr>",
+        f"<tr><td>模型调用</td><td>{_escape(comparison.get('multi_llm_calls', summary.get('llm_calls', '-')))}</td></tr>",
+        f"<tr><td>工具调用</td><td>{_escape(comparison.get('multi_tool_calls', summary.get('tool_calls', '-')))}</td></tr>",
+        f"<tr><td>失败工具调用</td><td>{_escape(comparison.get('multi_failed_tool_calls', summary.get('failed_tool_calls', '-')))}</td></tr>",
+        f"<tr><td>估算成本</td><td>{_format_optional_cost(multi_cost)}</td></tr>",
+        f"<tr><td>修订轮次</td><td>{_escape(revision_rounds)}</td></tr>",
         "</tbody></table>",
         "</div>",
         "</div>",
-        "<h3>Engineering Decision</h3>",
+        "<h3>工程决策</h3>",
         f"<p class='diagnosis'>{_escape(recommendation)}</p>",
-        "<p class='boundary-note'>Multi-agent adds explicit review and verification control points. Whether that trade is useful is decided by matched cost, failure, and evaluation evidence.</p>",
-        "<h3>Reviewer / Verifier Decision</h3>",
+        "<p class='boundary-note'>多 Agent 增加显式审查与验证控制点；这项代价是否值得，要由同任务的成本、失败与评测证据决定。</p>",
+        "<h3>审查者 / 验证者结论</h3>",
         "<table><tbody>",
-        f"<tr><td>verifier status</td><td>{_escape(verifier_status)}</td></tr>",
-        f"<tr><td>reviewer findings</td><td>{reviewer_text}</td></tr>",
-        f"<tr><td>recommendation</td><td>{_escape(recommendation)}</td></tr>",
+        f"<tr><td>验证状态</td><td>{_escape(_display_value(verifier_status))}</td></tr>",
+        f"<tr><td>审查发现</td><td>{reviewer_text}</td></tr>",
+        f"<tr><td>建议</td><td>{_escape(recommendation)}</td></tr>",
         "</tbody></table>",
-        "<h3>Produced Artifacts</h3>",
+        "<h3>生成的产物</h3>",
         _render_artifact_cards(multi),
-        "<details class='provenance'><summary>Artifact provenance</summary>"
-        f"<code>{_escape(str(run_dir or 'not found'))}</code>"
-        f"<code>{_escape(str(comparison_path or 'not found'))}</code>"
-        f"<code>{_escape(str(multi_path or 'not found'))}</code>"
-        f"<code>{_escape(str(usage_path or 'not found'))}</code></details>",
+        "<details class='provenance'><summary>产物来源</summary>"
+        f"<code>{_escape(str(run_dir or '未找到'))}</code>"
+        f"<code>{_escape(str(comparison_path or '未找到'))}</code>"
+        f"<code>{_escape(str(multi_path or '未找到'))}</code>"
+        f"<code>{_escape(str(usage_path or '未找到'))}</code></details>",
     ]
     return "<div class='evidence'>" + "".join(body) + "</div>"
+
+
+_DISPLAY_VALUES = {
+    "completed": "已完成",
+    "completed_with_failures": "完成但存在失败",
+    "running": "运行中",
+    "saved": "已保存",
+    "pending": "等待执行",
+    "failed": "失败",
+    "success": "成功",
+    "succeeded": "成功",
+    "passed": "通过",
+    "pass": "通过",
+    "needs_revision": "需要修订",
+    "blocked": "已阻塞",
+    "final_answer": "已生成最终回答",
+    "pending_tool_call_at_stop": "停止时仍有待执行工具",
+    "unknown": "未知",
+    "unclassified": "未分类",
+    "not_evaluated": "未进行官方评测",
+    "not_observed": "本次未观测",
+    "not_recorded": "未记录",
+    "legacy_or_unavailable": "旧格式或不可用",
+    "not_run": "未运行",
+    "unreviewed": "未人工复核",
+    "reviewed": "已人工复核",
+    "iterate": "继续迭代",
+    "adopt": "采纳",
+    "reject": "拒绝",
+    "allow": "允许",
+    "ask": "需要人工确认",
+    "deny": "拒绝",
+    "approved": "已批准",
+    "present": "已存在",
+    "absent": "不存在",
+    "observed": "已观测",
+    "candidate": "候选结果",
+    "local": "本地",
+    "official": "官方评测",
+    "derived": "派生统计",
+    "presentation": "展示产物",
+    "official_resolved": "官方评测已解决",
+    "official_unresolved": "官方评测未解决",
+    "official_eval_failed": "官方评测未通过",
+    "validation_environment_unavailable": "验证环境不可用",
+    "patch_generated_but_unverified": "已生成候选改动，但未验证",
+    "no_patch_generated": "未生成候选改动",
+    "tool_schema_mismatch": "工具参数不符合契约",
+    "tool_execution_failure": "工具执行失败",
+    "repeated_tool_failure": "工具重复失败",
+    "max_steps_reached": "达到最大轮次",
+    "minimal-control": "基础控制版",
+    "governed-runtime": "治理增强版",
+    "implementer": "实现者",
+    "reviewer": "审查者",
+    "verifier": "验证者",
+    "coordinator": "协调器",
+    "coordinator + verifier": "协调器 + 验证者",
+    "run result": "运行结果",
+    "next stage": "下一阶段",
+    "maintainer_review": "维护者人工复核",
+    "worktree": "隔离 Worktree",
+    "container": "OCI 容器",
+    "waiting_approval": "等待审批",
+    "waiting_human_input": "等待人工输入",
+    "cancelled": "已取消",
+    "invalid": "无效",
+    "fact": "运行事实",
+    "none": "无",
+}
+
+
+def _display_value(value: Any) -> str:
+    """把稳定的机器枚举投影为中文；未知值原样保留以便追溯。"""
+
+    if isinstance(value, bool):
+        return "是" if value else "否"
+    text = str(value)
+    return _DISPLAY_VALUES.get(text, _DISPLAY_VALUES.get(text.lower(), text))
+
+
+def _translate_runtime_summary(value: Any) -> str:
+    """翻译 Runtime 生成的固定策略摘要，不改写底层证据。"""
+
+    text = str(value)
+    replacements = (
+        ("read/list/grep allowed", "读取、列目录和搜索允许"),
+        ("replace_text/write_file asks approval", "replace_text/write_file 需要审批"),
+        ("dangerous commands denied", "危险命令拒绝"),
+        ("execution_environment mode=", "执行环境模式="),
+        ("active_workspace=", "活动工作区="),
+        ("network_policy=", "网络策略="),
+        ("writes ask", "写操作需要审批"),
+        ("write needs approval", "写操作需要审批"),
+        ("branch=", "分支="),
+        ("dirty=True", "工作区有未提交改动=是"),
+        ("dirty=False", "工作区有未提交改动=否"),
+        ("执行环境模式=local", "执行环境模式=本地"),
+        ("网络策略=deny", "网络策略=拒绝"),
+        ("approved", "已批准"),
+        (
+            "final step: no more tool calls are available, provide the best evidence-based final answer and clearly mark unverified items",
+            "最后一轮：不能再调用工具，请给出基于证据的最终回答，并明确标注未验证项",
+        ),
+    )
+    for source, target in replacements:
+        text = text.replace(source, target)
+    return text
+
+
+def _translate_evidence_text(value: Any) -> str:
+    """翻译历史证据中的固定实验术语；自由文本和技术标识保持原样。"""
+
+    text = str(value)
+    replacements = (
+        ("commissioning evidence only", "仅限试运行证据"),
+        ("correctness tied and cost increased", "正确性结果相同且成本增加"),
+        ("failed tool calls were noisy", "失败工具调用噪音较多"),
+        ("routing reduces failed calls", "工具路由可减少失败调用"),
+        ("governed-runtime preset", "治理增强版配置"),
+        ("governed preset", "治理增强版配置"),
+        ("governed-runtime", "治理增强版"),
+        ("Minimal-control", "基础控制版"),
+        ("minimal-control", "基础控制版"),
+        ("post-hoc commissioning evidence", "事后分析的试运行证据"),
+        ("commissioning evidence", "试运行证据"),
+        ("commissioning case", "试运行 Case"),
+        ("task-aware routing", "面向任务的工具路由"),
+        ("built-in Skills", "内置 Skills"),
+        ("official resolved", "官方解决"),
+        ("official outcome", "官方结果"),
+        ("a candidate patch was produced", "已生成候选代码改动"),
+        ("official benchmark resolution", "官方基准评测已解决"),
+        ("candidate diff", "候选代码改动"),
+        ("usage projection", "用量统计"),
+        ("provider 账单", "模型服务商账单"),
+        ("stop reason", "停止原因"),
+        ("workspace", "工作区"),
+        ("Runtime", "运行时"),
+        ("trace", "运行轨迹"),
+        ("tool", "工具"),
+        ("checkpoint", "检查点"),
+        ("hostile multi-tenant workload", "恶意多租户负载"),
+        ("source artifact", "源产物"),
+        (" artifact", " 产物"),
+        ("trade-off", "权衡"),
+        ("correctness", "正确性"),
+        ("preset", "配置"),
+    )
+    for source, target in replacements:
+        text = text.replace(source, target)
+    return text
+
+
+_CONTEXT_SECTION_LABELS = {
+    "system_context": "系统上下文",
+    "active_skills": "已激活 Skills",
+    "tool_schemas": "工具 Schema",
+    "working_memory_summary": "工作记忆摘要",
+    "conversation_history": "会话历史",
+    "permission_summary": "权限摘要",
+    "system": "系统指令",
+    "attention_sink": "注意力保留区",
+    "available_tools": "可用工具",
+    "project_instructions": "项目指令",
+    "context_state": "上下文状态",
+    "repo_map": "代码仓地图",
+    "long_term_memory": "长期记忆",
+}
+
+
+def _display_context_section(value: Any) -> str:
+    text = str(value)
+    return _CONTEXT_SECTION_LABELS.get(text, text)
+
+
+def _format_delta(value: Any, *, kind: str) -> str:
+    """把实验差值连同方向含义一起展示，避免读者猜正负号。"""
+
+    if not isinstance(value, (int, float)) or isinstance(value, bool):
+        return "未记录"
+    numeric = float(value)
+    if kind == "cost":
+        signed = f"{numeric:+.6f}"
+        if numeric == 0:
+            return "$0.000000（没有变化）"
+        direction = "多花" if numeric > 0 else "少花"
+        return f"{signed[0]}${signed[1:]}（{direction} ${abs(numeric):.6f}）"
+
+    amount = int(numeric) if numeric.is_integer() else numeric
+    signed = f"{amount:+,}"
+    absolute = f"{abs(amount):,}"
+    if numeric == 0:
+        return "0（没有变化）"
+    if kind == "official":
+        meaning = f"{'多' if numeric > 0 else '少'}解决 {absolute} 个"
+    elif kind == "failed_tools":
+        meaning = f"{'多' if numeric > 0 else '少'} {absolute} 次失败"
+    elif kind == "tokens":
+        meaning = f"{'多用' if numeric > 0 else '少用'} {absolute} Token"
+    else:
+        meaning = "治理增强版高于基础控制版" if numeric > 0 else "治理增强版低于基础控制版"
+    return f"{signed}（{meaning}）"
 
 
 def _format_optional_cost(value: Any) -> str:
@@ -1812,7 +2512,7 @@ def _render_role_rows(summary: dict[str, Any]) -> str:
         final_answer = str(result.get("final_answer") or result.get("output") or "")
         rows.append(
             "<tr>"
-            f"<td>{_escape(result.get('role') or result.get('name') or '-')}</td>"
+            f"<td>{_escape(_display_value(result.get('role') or result.get('name') or '-'))}</td>"
             f"<td>{_badge(str(result.get('decision') or result.get('status') or '-'), _tone_for_status(str(result.get('decision') or result.get('status') or '')))}</td>"
             f"<td>{_escape(result.get('steps', '-'))}</td>"
             f"<td class='mono'>{_escape(result.get('artifact_path') or result.get('artifact') or '-')}</td>"
@@ -1821,7 +2521,7 @@ def _render_role_rows(summary: dict[str, Any]) -> str:
         )
     if rows:
         return "".join(rows)
-    return "<tr><td colspan='5'>No multi-agent role summary found yet. Run multi/compare mode, or use this page as the offline speaking route.</td></tr>"
+    return "<tr><td colspan='5'>尚未找到多 Agent 角色摘要。请运行多 Agent/配对模式，或把此页作为离线讲解路线。</td></tr>"
 
 
 def _render_artifact_rows(summary: dict[str, Any]) -> str:
@@ -1836,7 +2536,7 @@ def _render_artifact_rows(summary: dict[str, Any]) -> str:
         rows.append(
             "<tr>"
             f"<td>{_escape(artifact.get('name') or artifact.get('kind') or artifact.get('artifact_id') or '-')}</td>"
-            f"<td>{_escape(artifact.get('producer') or artifact.get('role') or '-')}</td>"
+            f"<td>{_escape(_display_value(artifact.get('producer') or artifact.get('role') or '-'))}</td>"
             f"<td class='mono'>{_escape(artifact.get('path') or artifact.get('relative_path') or '-')}</td>"
             "<td>后续角色只读取显式 artifact，避免把中间思考和无关上下文全部塞进 prompt。</td>"
             "</tr>"
@@ -1844,11 +2544,11 @@ def _render_artifact_rows(summary: dict[str, Any]) -> str:
     if rows:
         return "".join(rows)
     return (
-        "<tr><td>implementer_output</td><td>Implementer</td><td class='mono'>multi_agent/artifacts/*.md</td>"
+        "<tr><td>implementer_output</td><td>实现者</td><td class='mono'>multi_agent/artifacts/*.md</td>"
         "<td>候选 patch / 方案交给 reviewer。</td></tr>"
-        "<tr><td>review_findings</td><td>Reviewer</td><td class='mono'>multi_agent/artifacts/*.md</td>"
+        "<tr><td>review_findings</td><td>审查者</td><td class='mono'>multi_agent/artifacts/*.md</td>"
         "<td>明确 PASS / NEEDS_REVISION / BLOCKED。</td></tr>"
-        "<tr><td>verification_result</td><td>Verifier</td><td class='mono'>multi_agent/artifacts/*.md</td>"
+        "<tr><td>verification_result</td><td>验证者</td><td class='mono'>multi_agent/artifacts/*.md</td>"
         "<td>验证结果触发修订或结束。</td></tr>"
     )
 
@@ -1869,7 +2569,7 @@ def _metric_grid(items: list[tuple[str, str, str, str]]) -> str:
 
 def _badge(text: str, tone: str) -> str:
 
-    return f"<span class='badge {tone}'>{_escape(text)}</span>"
+    return f"<span class='badge {tone}'>{_escape(_display_value(text))}</span>"
 
 
 def _tone_for_status(value: str) -> str:
@@ -1897,20 +2597,20 @@ def _tone_for_status(value: str) -> str:
 def _trace_scope_label(trace_path: Path | None) -> str:
 
     if not trace_path:
-        return "unknown trace"
+        return "未知 Trace"
     parts = set(trace_path.parts)
     text = str(trace_path)
     if "verify" in parts:
-        return "verify smoke trace"
+        return "验证冒烟 Trace"
     if "multi" in parts or "__multi" in text:
-        return "multi-agent trace"
+        return "多 Agent Trace"
     if "single" in parts or "__single" in text:
-        return "single-agent trace"
-    return "agent run trace"
+        return "单 Agent Trace"
+    return "Agent 运行 Trace"
 
 
 _TRACE_EVENT_LABELS = {
-    "turn_started": "Turn 开始",
+    "turn_started": "轮次开始",
     "task_state_checkpoint": "Checkpoint",
     "model_capabilities": "模型能力",
     "context_assembly": "上下文组装",
@@ -1945,6 +2645,7 @@ _TRACE_EVENT_LABELS = {
     "stop_hooks": "停止 Hook",
     "run_completed": "运行结束",
     "run_control": "运行控制",
+    "execution_environment": "执行环境",
     "multi_agent_start": "多 Agent 开始",
     "handoff": "角色交接",
     "agent_stage_start": "角色开始",
@@ -1970,14 +2671,14 @@ def _format_trace_event_label(index: int, event: dict[str, Any]) -> str:
     fields = [f"{index}. {label}"]
     agent_name = event.get("agent_name") or event.get("agent")
     if agent_name and str(agent_name) not in {"CodingAgent", "Runtime"}:
-        fields.append(f"agent: {agent_name}")
+        fields.append(f"Agent：{agent_name}")
     if event.get("tool_call"):
-        fields.append(f"tool: {event.get('tool_call')}")
+        fields.append(f"工具：{event.get('tool_call')}")
     if event.get("duration_ms"):
         gap = int(event.get("duration_ms") or 0)
         fields.append(f"距上一事件: {_format_milliseconds(gap)}")
     if not bool(event.get("success", True)):
-        fields.append("status: failed")
+        fields.append("状态：失败")
     return " | ".join(fields)
 
 
@@ -2026,7 +2727,7 @@ def _event_tone(event_type: str, success: bool) -> str:
 
 def _empty_evidence(message: str) -> str:
 
-    return f"<div class='evidence'><h2>No Evidence Yet</h2><p>{_escape(message)}</p></div>"
+    return f"<div class='evidence'><h2>尚无证据</h2><p>{_escape(message)}</p></div>"
 
 
 def _escape(value: Any) -> str:
@@ -2038,7 +2739,7 @@ INDEX_HTML = r"""<!doctype html>
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>NanoHarness Workbench</title>
+  <title>NanoHarness 证据工作台</title>
   <link rel="icon" href="data:," />
   <style>
     :root {
@@ -2373,6 +3074,134 @@ INDEX_HTML = r"""<!doctype html>
     .metric-label, .label { color: var(--muted); font-size: 12px; margin-right: 8px; }
     .metric-value { margin-top: 4px; font-size: 18px; font-weight: 800; overflow-wrap: anywhere; }
     .metric-note { margin-top: 4px; color: var(--muted); font-size: 12px; }
+    .task-summary {
+      display: grid;
+      grid-template-columns: 92px minmax(0, 1fr);
+      gap: 12px;
+      align-items: start;
+      margin: 12px 0;
+      padding: 12px 14px;
+      border-left: 3px solid var(--accent);
+      background: rgba(255, 255, 255, .62);
+      line-height: 1.55;
+    }
+    .task-summary > span { color: var(--muted); font-size: 12px; font-weight: 800; }
+    .scope-hierarchy {
+      display: grid;
+      grid-template-columns: repeat(5, minmax(0, 1fr));
+      border: 1px solid var(--line);
+      background: #fff;
+    }
+    .scope-hierarchy > div {
+      min-width: 0;
+      padding: 14px;
+      border-right: 1px solid var(--line);
+    }
+    .scope-hierarchy > div:last-child { border-right: 0; }
+    .scope-hierarchy b {
+      display: block;
+      color: #9aa3af;
+      font: 700 10px/1 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    }
+    .scope-hierarchy span, .scope-hierarchy strong, .scope-hierarchy small { display: block; }
+    .scope-hierarchy span { margin-top: 8px; color: var(--muted); font-size: 11px; }
+    .scope-hierarchy strong { margin-top: 4px; font-size: 15px; overflow-wrap: anywhere; }
+    .scope-hierarchy small { margin-top: 5px; color: var(--muted); font-size: 10px; }
+    .scenario-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 10px;
+    }
+    .scenario-grid button {
+      display: grid;
+      grid-template-columns: 28px 1fr;
+      gap: 4px 10px;
+      align-items: center;
+      margin: 0;
+      padding: 14px;
+      color: var(--text);
+      text-align: left;
+      background: #fff;
+      border: 1px solid var(--line);
+    }
+    .scenario-grid button:hover { border-color: rgba(10, 132, 255, .42); background: #f8fbff; }
+    .scenario-grid button b {
+      grid-row: 1 / span 2;
+      width: 26px;
+      height: 26px;
+      display: grid;
+      place-items: center;
+      color: #fff;
+      background: var(--accent);
+      border-radius: 50%;
+    }
+    .scenario-grid button strong { font-size: 14px; }
+    .scenario-grid button span { color: var(--muted); font-size: 11px; line-height: 1.45; }
+    .answer-strip {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      border: 1px solid var(--line);
+      background: #fff;
+    }
+    .answer-strip > div { padding: 13px 14px; border-right: 1px solid var(--line); }
+    .answer-strip > div:last-child { border-right: 0; }
+    .answer-strip b, .answer-strip span { display: block; }
+    .answer-strip b { font-size: 12px; }
+    .answer-strip span { margin-top: 5px; color: var(--muted); font-size: 11px; line-height: 1.45; }
+    .story-stage-list { border: 1px solid var(--line); background: #fff; }
+    .story-stage { padding: 14px; border-bottom: 1px solid var(--line); }
+    .story-stage:last-child { border-bottom: 0; }
+    .story-stage-head {
+      display: grid;
+      grid-template-columns: 30px minmax(0, 1fr) auto;
+      gap: 10px;
+      align-items: start;
+    }
+    .story-stage-head > b {
+      color: #9aa3af;
+      font: 700 11px/1.4 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    }
+    .story-stage h4 { margin: 0; font-size: 13px; }
+    .story-stage p { margin: 4px 0 0; color: #384454; font-size: 12px; line-height: 1.45; }
+    .story-stage > span { display: block; margin: 8px 0 0 40px; color: var(--muted); font-size: 10px; }
+    .story-stage details { margin-left: 40px; border: 0; padding: 0; }
+    .story-stage-detail { display: grid; gap: 5px; padding-top: 8px; color: var(--muted); font-size: 11px; }
+    .drilldown {
+      margin: 12px 0;
+      padding: 0;
+      border: 1px solid var(--line);
+      background: rgba(255, 255, 255, .62);
+    }
+    .drilldown > summary {
+      padding: 12px 14px;
+      color: #405266;
+      font-weight: 750;
+      list-style-position: inside;
+    }
+    .drilldown[open] > summary { border-bottom: 1px solid var(--line); }
+    .drilldown-body { padding: 12px 14px; }
+    .evidence-artifact-grid, .worker-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 10px;
+      padding: 12px;
+    }
+    .evidence-artifact, .worker-card {
+      min-width: 0;
+      border: 1px solid var(--line);
+      padding: 13px;
+      background: #fff;
+    }
+    .evidence-artifact p, .worker-card p { margin: 8px 0; font-size: 12px; line-height: 1.5; }
+    .evidence-artifact .boundary { color: #8a4f00; }
+    .evidence-artifact details span, .worker-card details code {
+      display: block;
+      margin-top: 6px;
+      color: var(--muted);
+      font-size: 10px;
+      overflow-wrap: anywhere;
+    }
+    .worker-facts { display: flex; gap: 10px; color: var(--muted); font-size: 10px; }
     .mono {
       font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
       overflow-wrap: anywhere;
@@ -2471,6 +3300,14 @@ INDEX_HTML = r"""<!doctype html>
       font-size: 12px;
       background: rgba(255, 255, 255, .72);
     }
+    .timeline-mental-model span { text-align: left; }
+    .timeline-mental-model b, .timeline-mental-model small { display: block; }
+    .timeline-mental-model small {
+      margin-top: 5px;
+      color: var(--muted);
+      font-size: 10px;
+      line-height: 1.4;
+    }
     .timeline-head {
       display: flex;
       align-items: center;
@@ -2493,7 +3330,7 @@ INDEX_HTML = r"""<!doctype html>
     }
     .timeline-phase-grid {
       display: grid;
-      grid-template-columns: repeat(6, minmax(0, 1fr));
+      grid-template-columns: repeat(4, minmax(0, 1fr));
       border: 1px solid var(--line);
       background: #fff;
     }
@@ -2543,6 +3380,14 @@ INDEX_HTML = r"""<!doctype html>
       padding: 0;
       border: 0;
       background: transparent;
+    }
+    .timeline-stage-drilldowns {
+      display: grid;
+      gap: 5px;
+      padding: 9px 10px 2px;
+      border: 1px solid var(--line);
+      border-top: 0;
+      background: #fbfcfd;
     }
     .timeline-raw summary {
       color: #66707d;
@@ -2805,9 +3650,9 @@ INDEX_HTML = r"""<!doctype html>
       .pipeline { grid-template-columns: repeat(3, minmax(0, 1fr)); }
       .pipeline > div:nth-child(3) { border-right: 0; }
       .pipeline > div:nth-child(-n+3) { border-bottom: 1px solid var(--line); }
-      .timeline-phase-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-      .timeline-phase:nth-child(3) { border-right: 0; }
-      .timeline-phase:nth-child(-n+3) { border-bottom: 1px solid var(--line); }
+      .timeline-phase-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .timeline-phase:nth-child(2) { border-right: 0; }
+      .timeline-phase:nth-child(-n+2) { border-bottom: 1px solid var(--line); }
     }
     @media (max-width: 900px) {
       header { position: sticky; padding: 10px 12px; flex-direction: row; align-items: center; gap: 8px; }
@@ -2821,6 +3666,14 @@ INDEX_HTML = r"""<!doctype html>
       .view-tabs .utility { margin-left: 0; }
       .metric-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
       .metric { min-height: 88px; }
+      .scope-hierarchy, .scenario-grid, .answer-strip,
+      .evidence-artifact-grid, .worker-grid { grid-template-columns: 1fr; }
+      .scope-hierarchy > div, .answer-strip > div {
+        border-right: 0;
+        border-bottom: 1px solid var(--line);
+      }
+      .scope-hierarchy > div:last-child, .answer-strip > div:last-child { border-bottom: 0; }
+      .task-summary { grid-template-columns: 1fr; }
       .pipeline, .claim-ladder, .artifact-grid, .capability-strip { grid-template-columns: 1fr; }
       .pipeline > div, .capability-strip div { border-right: 0; border-bottom: 1px solid var(--line); }
       .timeline-phase-grid { grid-template-columns: 1fr; }
@@ -2846,57 +3699,59 @@ INDEX_HTML = r"""<!doctype html>
     <div class="brand-lockup">
       <div class="brand-mark">NH</div>
       <div>
-        <h1>NanoHarness Workbench</h1>
-      <div class="subtitle">Three guided evidence scenes: control, coordination, improvement</div>
+        <h1>NanoHarness 证据工作台</h1>
+      <div class="subtitle">总览 + 三个证据场景：运行控制、多 Agent 协同、评测改进</div>
       </div>
     </div>
     <div class="header-actions">
-      <button id="statusToggle" onclick="toggleStatusBar()" title="Toggle run status">Status</button>
-      <button id="focusToggle" onclick="toggleFocusMode()" title="Focus evidence surface">Focus</button>
+      <button id="statusToggle" onclick="toggleStatusBar()" title="显示或隐藏运行状态">状态</button>
+      <button id="focusToggle" onclick="toggleFocusMode()" title="专注查看证据">专注</button>
       <div class="project-chip" id="projectDir"></div>
     </div>
   </header>
   <main>
     <section>
       <div class="status">
-        <div class="pill"><div class="k">Runtime</div><div class="v" id="python"></div></div>
-        <div class="pill"><div class="k">Latest Run</div><div class="v" id="latestRun"></div></div>
-        <div class="pill"><div class="k">Current View</div><div class="v" id="currentView">Overview</div></div>
+        <div class="pill"><div class="k">Python Runtime</div><div class="v" id="python"></div></div>
+        <div class="pill"><div class="k">最新运行</div><div class="v" id="latestRun"></div></div>
+        <div class="pill"><div class="k">当前视图</div><div class="v" id="currentView">运行控制</div></div>
       </div>
       <div class="view-tabs">
-        <button data-view="controls" onclick="loadEvidence('controls')">1 Governed Run</button>
-        <button data-view="orchestration" onclick="loadEvidence('orchestration')">2 Coordinated Agents</button>
-        <button data-view="feedback" onclick="loadEvidence('feedback')">3 Evaluation Loop</button>
+        <button data-view="overview" onclick="loadEvidence('overview')">总览</button>
+        <button data-view="controls" onclick="loadEvidence('controls')">1 受治理运行</button>
+        <button data-view="orchestration" onclick="loadEvidence('orchestration')">2 多 Agent 协同</button>
+        <button data-view="feedback" onclick="loadEvidence('feedback')">3 评测改进闭环</button>
         <details class="evidence-menu">
-          <summary>Evidence details</summary>
+          <summary>证据详情</summary>
           <div>
-            <button data-view="summary" onclick="loadEvidence('summary')">Overview</button>
-            <button data-view="evidence" onclick="loadEvidence('evidence')">Run Story</button>
-            <button data-view="timeline" onclick="loadEvidence('timeline')">Timeline</button>
-            <button data-view="benchmark" onclick="loadEvidence('benchmark')">Benchmark</button>
-            <button data-view="evaluation" onclick="loadEvidence('evaluation')">Diagnosis</button>
-            <button data-view="compare" onclick="loadEvidence('compare')">Single vs Multi</button>
-            <button data-view="usage" onclick="loadEvidence('usage')">Efficiency</button>
+            <button data-view="summary" onclick="loadEvidence('summary')">结果总览</button>
+            <button data-view="evidence" onclick="loadEvidence('evidence')">运行全链路</button>
+            <button data-view="timeline" onclick="loadEvidence('timeline')">执行时间线</button>
+            <button data-view="benchmark" onclick="loadEvidence('benchmark')">基准评测</button>
+            <button data-view="evaluation" onclick="loadEvidence('evaluation')">失败诊断</button>
+            <button data-view="compare" onclick="loadEvidence('compare')">单 Agent / 多 Agent</button>
+            <button data-view="usage" onclick="loadEvidence('usage')">成本效率</button>
           </div>
         </details>
-        <button class="utility" onclick="refreshStatus()" title="Refresh status">Refresh</button>
+        <button class="utility" onclick="refreshStatus()" title="刷新运行状态">刷新</button>
       </div>
-      <div id="output" class="output">Loading runtime evidence...</div>
+      <div id="output" class="output">正在加载运行证据...</div>
     </section>
   </main>
   <script>
     const evidenceTitles = {
-      summary: 'Overview',
-      evidence: 'Run Evidence',
-      benchmark: 'Benchmark',
-      controls: 'Lab 1 · Governed Run',
-      orchestration: 'Lab 2 · Coordinated Agents',
-      evaluation: 'Evaluation',
-      compare: 'Single vs Multi',
-      usage: 'Efficiency',
-      timeline: 'Execution Timeline',
-      feedback: 'Lab 3 · Evaluation Loop',
-      raw_report: 'Raw Report'
+      overview: '观测总览',
+      summary: '结果总览',
+      evidence: '运行全链路',
+      benchmark: '基准评测',
+      controls: 'Lab 1 · 受治理运行',
+      orchestration: 'Lab 2 · 多 Agent 协同',
+      evaluation: '失败诊断',
+      compare: '单 Agent / 多 Agent',
+      usage: '成本效率',
+      timeline: '执行时间线',
+      feedback: 'Lab 3 · 评测改进闭环',
+      raw_report: '原始报告'
     };
 
     async function refreshStatus() {
@@ -2904,7 +3759,7 @@ INDEX_HTML = r"""<!doctype html>
       const data = await res.json();
       document.getElementById('projectDir').textContent = data.project_dir;
       document.getElementById('python').textContent = data.python;
-      document.getElementById('latestRun').textContent = data.latest_run || 'none';
+      document.getElementById('latestRun').textContent = data.latest_run || '无';
     }
 
     async function loadEvidence(kind) {
@@ -2946,18 +3801,26 @@ INDEX_HTML = r"""<!doctype html>
       const statusToggle = document.getElementById('statusToggle');
       const focusToggle = document.getElementById('focusToggle');
       if (statusToggle) {
-        statusToggle.textContent = statusHidden ? 'Show status' : 'Hide status';
+        statusToggle.textContent = statusHidden ? '显示状态' : '隐藏状态';
       }
       if (focusToggle) {
-        focusToggle.textContent = focused ? 'Exit focus' : 'Focus';
+        focusToggle.textContent = focused ? '退出专注' : '专注';
       }
     }
-    if (new URLSearchParams(window.location.search).has('focus')) {
+    const pageParams = new URLSearchParams(window.location.search);
+    if (pageParams.has('focus')) {
       document.body.classList.add('focus-mode', 'status-collapsed');
     }
+    const requestedView = pageParams.get('view');
+    const initialView = Object.prototype.hasOwnProperty.call(
+      evidenceTitles,
+      requestedView
+    )
+      ? requestedView
+      : 'overview';
     updateLayoutControls();
     refreshStatus();
-    loadEvidence('controls');
+    loadEvidence(initialView);
   </script>
 </body>
 </html>
