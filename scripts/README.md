@@ -20,12 +20,13 @@ scripts/setup_macos_local.sh --quick
 一次即可，不需要手工点断点。
 
 ```bash
-scripts/interview_demo.sh [--live|--show-live|--show-official]
+scripts/interview_demo.sh [--show-governed|--show-coordinated|--show-evaluation]
 ```
 
 面试一键入口。默认复用确定性 Governed Repair 并打开同一份 Evidence 的只读 Workbench；
-`--live` 才调用真实 DeepSeek；两个 `--show-*` 只重新发布已保存的真实模型/official Evidence，不发起
-模型调用。脚本不复制 Runtime、fixture 或 key 管理逻辑。
+三个 `--show-*` 由对应 Lab 自动调用，只打开已发布 Evidence，不发起模型调用。真实模型交互统一
+使用 PyCharm 的 `NanoHarness Operator Console`；完整 official 评测统一使用 `forge bench campaign`。
+脚本不复制 Runtime、fixture 或 key 管理逻辑。
 
 ```text
 scripts/start_workbench.command

@@ -37,8 +37,10 @@ class SourceLanguageTest(unittest.TestCase):
             for token in tokenize.generate_tokens(io.StringIO(source).readline):
                 if token.type != tokenize.COMMENT:
                     continue
-                lowered = token.string.lower()
-                if CHINESE.search(token.string) or lowered.startswith(DIRECTIVES):
+                normalized_comment = token.string.lower()
+                if CHINESE.search(token.string) or normalized_comment.startswith(
+                    DIRECTIVES
+                ):
                     continue
                 issues.append(
                     f"{path.relative_to(PROJECT_ROOT)}:{token.start[0]} "

@@ -41,12 +41,12 @@ class HookPort(Protocol):
 
         ...
 
-    def pre_tool(self, context: HookContext) -> HookResult:
+    def before_tool(self, context: HookContext) -> HookResult:
         """在工具执行前给出 allow、deny 或 ask 决策。"""
 
         ...
 
-    def post_tool(
+    def after_tool(
         self,
         context: HookContext,
         observation: Observation,

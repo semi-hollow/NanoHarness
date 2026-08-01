@@ -6,7 +6,6 @@ from .registry import SkillRegistry, SkillSpec
 
 
 def built_in_skill_specs() -> list[SkillSpec]:
-
     return [
         SkillSpec(
             name="repo_orientation",
@@ -17,7 +16,15 @@ def built_in_skill_specs() -> list[SkillSpec]:
             permissions=["read:repo"],
             dependencies=["git:working-tree"],
             tags=["coding", "read-only", "onboarding"],
-            activation_terms=["read project", "understand", "overview", "architecture", "调用链", "项目结构", "怎么看"],
+            activation_terms=[
+                "read project",
+                "understand",
+                "overview",
+                "architecture",
+                "调用链",
+                "项目结构",
+                "怎么看",
+            ],
             tool_names=["list_files", "read_file", "grep", "grep_search", "git_status"],
             operating_procedure=[
                 "Start with git_status and a shallow file map before reading individual files.",
@@ -43,7 +50,17 @@ def built_in_skill_specs() -> list[SkillSpec]:
             permissions=["read:repo", "write:repo", "run:validation"],
             dependencies=["git:working-tree", "python:local-venv"],
             tags=["coding", "edit", "default"],
-            activation_terms=["implement", "change", "modify", "add", "补", "改", "实现", "优化", "接入"],
+            activation_terms=[
+                "implement",
+                "change",
+                "modify",
+                "add",
+                "补",
+                "改",
+                "实现",
+                "优化",
+                "接入",
+            ],
             tool_names=[
                 "git_status",
                 "list_files",
@@ -54,7 +71,7 @@ def built_in_skill_specs() -> list[SkillSpec]:
                 "write_file",
                 "run_command",
                 "git_diff",
-                "diagnostics",
+                "python_validation",
             ],
             operating_procedure=[
                 "Inspect the current worktree and nearby code patterns before editing.",
@@ -81,9 +98,19 @@ def built_in_skill_specs() -> list[SkillSpec]:
             permissions=["read:repo", "write:repo", "run:validation"],
             dependencies=["git:working-tree", "python:local-venv"],
             tags=["coding", "debug", "repair"],
-            activation_terms=["bug", "fail", "failing", "error", "traceback", "修复", "报错", "失败", "不通过"],
+            activation_terms=[
+                "bug",
+                "fail",
+                "failing",
+                "error",
+                "traceback",
+                "修复",
+                "报错",
+                "失败",
+                "不通过",
+            ],
             tool_names=[
-                "diagnostics",
+                "python_validation",
                 "run_command",
                 "grep",
                 "grep_search",
@@ -115,9 +142,25 @@ def built_in_skill_specs() -> list[SkillSpec]:
             owner="agent-forge",
             permissions=["read:repo", "write:repo", "run:validation"],
             dependencies=["git:working-tree", "python:local-venv"],
-            tags=["coding", "test", "diagnostics"],
-            activation_terms=["test", "unittest", "pytest", "verify", "验证", "测试", "跑通"],
-            tool_names=["run_command", "diagnostics", "grep", "grep_search", "read_file", "replace_text", "git_diff"],
+            tags=["coding", "test", "validation"],
+            activation_terms=[
+                "test",
+                "unittest",
+                "pytest",
+                "verify",
+                "验证",
+                "测试",
+                "跑通",
+            ],
+            tool_names=[
+                "run_command",
+                "python_validation",
+                "grep",
+                "grep_search",
+                "read_file",
+                "replace_text",
+                "git_diff",
+            ],
             operating_procedure=[
                 "Run or inspect the user-provided test command.",
                 "Group failures by root cause instead of editing every failing assertion separately.",
@@ -128,7 +171,7 @@ def built_in_skill_specs() -> list[SkillSpec]:
                 "If still failing, list the next root cause with evidence.",
             ],
             failure_modes=[
-                "If the test command is unsafe or unavailable, use diagnostics and explain the limitation.",
+                "If a broad test command is unsafe or unavailable, use python_validation and explain the limitation.",
             ],
         ),
         SkillSpec(
@@ -140,8 +183,24 @@ def built_in_skill_specs() -> list[SkillSpec]:
             permissions=["read:repo", "write:repo", "run:validation"],
             dependencies=["git:working-tree", "python:local-venv"],
             tags=["coding", "refactor", "safety"],
-            activation_terms=["refactor", "cleanup", "readability", "可读性", "重构", "合并", "删除冗余"],
-            tool_names=["git_status", "grep", "grep_search", "read_file", "replace_text", "run_command", "git_diff"],
+            activation_terms=[
+                "refactor",
+                "cleanup",
+                "readability",
+                "可读性",
+                "重构",
+                "合并",
+                "删除冗余",
+            ],
+            tool_names=[
+                "git_status",
+                "grep",
+                "grep_search",
+                "read_file",
+                "replace_text",
+                "run_command",
+                "git_diff",
+            ],
             operating_procedure=[
                 "Identify call sites before changing a public function, class, or file layout.",
                 "Keep public behavior stable unless the user explicitly asks to change it.",
@@ -165,8 +224,23 @@ def built_in_skill_specs() -> list[SkillSpec]:
             permissions=["read:repo", "write:docs"],
             dependencies=["git:working-tree"],
             tags=["documentation", "learning", "maintenance"],
-            activation_terms=["docs", "readme", "document", "guide", "文档", "教程", "解释"],
-            tool_names=["grep", "grep_search", "read_file", "replace_text", "write_file", "git_diff"],
+            activation_terms=[
+                "docs",
+                "readme",
+                "document",
+                "guide",
+                "文档",
+                "教程",
+                "解释",
+            ],
+            tool_names=[
+                "grep",
+                "grep_search",
+                "read_file",
+                "replace_text",
+                "write_file",
+                "git_diff",
+            ],
             operating_procedure=[
                 "Locate the shortest existing doc that matches the user's learning path.",
                 "Update docs to reflect actual code behavior, not aspirational design.",
@@ -183,8 +257,9 @@ def built_in_skill_specs() -> list[SkillSpec]:
     ]
 
 
-def build_default_skill_registry(manifest_paths: list[str] | None = None) -> SkillRegistry:
-
+def build_default_skill_registry(
+    manifest_paths: list[str] | None = None,
+) -> SkillRegistry:
     registry = SkillRegistry()
     for spec in built_in_skill_specs():
         registry.register(spec)

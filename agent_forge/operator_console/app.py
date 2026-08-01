@@ -275,18 +275,21 @@ class OperatorConsoleApp(App[None]):
     @on(Input.Submitted, "#operator-input")
     def submit_operator_input(self) -> None:
         session = self._session()
-        value = self.query_one("#operator-input", Input).value.strip()
-        if not value:
+        operator_input = self.query_one("#operator-input", Input).value.strip()
+        if not operator_input:
             self._show_error("输入不能为空。")
             return
-        prompt = session.pending_prompt()
+        pending_operator_prompt = session.pending_prompt()
         self.query_one("#operator-input", Input).value = ""
-        if prompt is not None and prompt.kind == "human_input":
+        if (
+            pending_operator_prompt is not None
+            and pending_operator_prompt.kind == "human_input"
+        ):
             self._set_busy(True, "正在保存人工回答并自动续跑...")
-            self._execute_answer(value)
+            self._execute_answer(operator_input)
             return
-        session.steer(value)
-        self._timeline_message(f"操作员 steer 已排队：{value}")
+        session.steer(operator_input)
+        self._timeline_message(f"操作员 steer 已排队：{operator_input}")
 
     @on(Button.Pressed, "#approve")
     def approve(self) -> None:
@@ -347,11 +350,11 @@ class OperatorConsoleApp(App[None]):
                 workspace=workspace,
             )
             self._bundle = bundle
-            result = bundle.session.start()
+            run_result = bundle.session.start()
         except Exception as exc:
             self.call_from_thread(self._finish_error, exc)
             return
-        self.call_from_thread(self._finish_result, result)
+        self.call_from_thread(self._finish_result, run_result)
 
     @work(thread=True, group="runtime", exclusive=True)
     def _execute_attach_latest(self, workspace: str) -> None:
@@ -371,11 +374,11 @@ class OperatorConsoleApp(App[None]):
     @work(thread=True, group="runtime", exclusive=True)
     def _execute_answer(self, answer: str) -> None:
         try:
-            result = self._session().answer_and_resume(answer)
+            run_result = self._session().answer_and_resume(answer)
         except Exception as exc:
             self.call_from_thread(self._finish_error, exc)
             return
-        self.call_from_thread(self._finish_result, result)
+        self.call_from_thread(self._finish_result, run_result)
 
     @work(thread=True, group="runtime", exclusive=True)
     def _execute_decision(
@@ -383,27 +386,27 @@ class OperatorConsoleApp(App[None]):
         decision: Literal["approved", "rejected"],
     ) -> None:
         try:
-            result = self._session().decide_and_resume(decision)
+            run_result = self._session().decide_and_resume(decision)
         except Exception as exc:
             self.call_from_thread(self._finish_error, exc)
             return
-        self.call_from_thread(self._finish_result, result)
+        self.call_from_thread(self._finish_result, run_result)
 
     @work(thread=True, group="runtime", exclusive=True)
     def _execute_resume(self) -> None:
         try:
-            result = self._session().resume()
+            run_result = self._session().resume()
         except Exception as exc:
             self.call_from_thread(self._finish_error, exc)
             return
-        self.call_from_thread(self._finish_result, result)
+        self.call_from_thread(self._finish_result, run_result)
 
-    def _finish_result(self, result: RunResult) -> None:
+    def _finish_result(self, run_result: RunResult) -> None:
         self._set_busy(False)
-        self._render_checkpoint(result.checkpoint, result.artifact_dir)
+        self._render_checkpoint(run_result.checkpoint, run_result.artifact_dir)
         self._render_operator_prompt()
-        if not result.waiting_for_operator:
-            self._show_run_evidence(result)
+        if not run_result.waiting_for_operator:
+            self._show_run_evidence(run_result)
 
     def _finish_attachment(self, checkpoint: TaskCheckpoint) -> None:
         self._set_busy(False)

@@ -147,7 +147,10 @@ class ContainerExecutionEnvironmentTest(unittest.TestCase):
                 )
             )
         self.assertIs(registry.get("run_command").execution_environment, environment)
-        self.assertIs(registry.get("diagnostics").execution_environment, environment)
+        self.assertIs(
+            registry.get("python_validation").execution_environment,
+            environment,
+        )
 
     def test_local_environment_keeps_python_alias_on_active_interpreter(self):
         with tempfile.TemporaryDirectory() as tmp:

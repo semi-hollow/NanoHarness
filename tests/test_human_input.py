@@ -119,7 +119,7 @@ class HumanInputTest(unittest.TestCase):
             final = build_agent_loop(
                 config,
                 trace,
-                build_registry(ToolRegistryBuildRequest(tmp, auto=True)),
+                build_registry(ToolRegistryBuildRequest(workspace=tmp, auto=True)),
                 WriteThenAskLLM(),
             ).run("implement a compatibility update in result.txt")
 
@@ -150,7 +150,7 @@ class HumanInputTest(unittest.TestCase):
             final = build_agent_loop(
                 config,
                 trace,
-                build_registry(ToolRegistryBuildRequest(tmp, auto=True)),
+                build_registry(ToolRegistryBuildRequest(workspace=tmp, auto=True)),
                 llm,
             ).run("inspect the compatibility target and ask when needed")
 

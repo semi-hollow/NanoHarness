@@ -3,9 +3,21 @@ import shlex
 PYTHON_COMMANDS = {"python", "python3", "python3.11"}
 
 DENY_PREFIX = {
-    "rm", "del", "rmdir", "curl", "wget", "ssh", "scp",
-    "chmod", "chown", "format", "mkfs", "powershell", "sudo",
-    "shutdown", "reboot"
+    "rm",
+    "del",
+    "rmdir",
+    "curl",
+    "wget",
+    "ssh",
+    "scp",
+    "chmod",
+    "chown",
+    "format",
+    "mkfs",
+    "powershell",
+    "sudo",
+    "shutdown",
+    "reboot",
 }
 
 DENY_EXACT = {
@@ -15,6 +27,7 @@ DENY_EXACT = {
     "rm -rf",
 }
 
+
 # 运行时端口：解析 shell 命令并拒绝危险程序、参数与链式绕过。
 def check_command(command: str) -> tuple[bool, str]:
     """返回命令是否允许以及拒绝/允许原因，不实际执行进程。"""
@@ -22,12 +35,11 @@ def check_command(command: str) -> tuple[bool, str]:
     if not command.strip():
         return False, "empty command"
 
-    lowered = command.strip().lower()
-    if lowered in DENY_EXACT:
+    normalized_command = command.strip().lower()
+    if normalized_command in DENY_EXACT:
         return False, "dangerous command blocked"
 
     try:
-
         parts = shlex.split(command)
     except ValueError as exc:
         return False, f"invalid command: {exc}"

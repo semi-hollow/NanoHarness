@@ -1,3 +1,9 @@
+"""Runtime Hook 的内置实现与聚合器。
+
+内置 Hook 只有三种：执行环境检查、权限决策和最终敏感信息脱敏。``HookManager``
+再把它们与使用者自定义的 ``RuntimeHook`` 按稳定顺序组合。
+"""
+
 from __future__ import annotations
 
 from functools import partial
@@ -21,6 +27,8 @@ from agent_forge.safety.permission import PermissionDecision, PermissionPolicy
 
 
 class PermissionHook(RuntimeHook):
+    """在 ``before_tool`` 把 PermissionPolicy 结果转成统一 HookDecision。"""
+
     name = "permission_policy"
 
     def __init__(
@@ -31,15 +39,18 @@ class PermissionHook(RuntimeHook):
         self.policy = policy
         self.approval_mode = ApprovalMode(approval_mode)
 
-    def pre_tool(self, context: HookContext) -> HookDecision:
-        decision, reason = self.policy.decide(context.action, context.command)
-        mapping = {
+    def before_tool(self, context: HookContext) -> HookDecision:
+        permission_decision, permission_reason = self.policy.decide(
+            context.action,
+            context.command,
+        )
+        hook_decision_by_permission = {
             PermissionDecision.ALLOW: HookDecisionType.ALLOW,
             PermissionDecision.ASK: HookDecisionType.ASK,
             PermissionDecision.DENY: HookDecisionType.DENY,
         }
-        hook_decision = mapping[decision]
-        hook_reason = reason
+        hook_decision = hook_decision_by_permission[permission_decision]
+        hook_reason = permission_reason
 
         if (
             self.approval_mode in {ApprovalMode.LOCKED, ApprovalMode.DRY_RUN}
@@ -61,58 +72,73 @@ class PermissionHook(RuntimeHook):
             )
 
         return HookDecision(
-            self.name,
-            hook_decision,
-            hook_reason,
-            {
+            hook_name=self.name,
+            decision=hook_decision,
+            reason=hook_reason,
+            metadata={
                 "action": context.action,
                 "tool_name": context.tool_name,
                 "command": context.command,
                 "approval_mode": self.approval_mode.value,
-                "base_permission_decision": decision.value,
+                "base_permission_decision": permission_decision.value,
             },
         )
 
 
 class ExecutionEnvironmentHook(RuntimeHook):
+    """在工具执行前检查命令和路径是否越过当前执行环境边界。"""
+
     name = "execution_environment"
 
     def __init__(self, environment: ExecutionEnvironment) -> None:
         self.environment = environment
 
-    def pre_tool(self, context: HookContext) -> HookDecision:
+    def before_tool(self, context: HookContext) -> HookDecision:
         if context.command:
-            ok, reason = self.environment.validate_command(context.command)
-            if not ok:
-                return HookDecision(self.name, HookDecisionType.DENY, reason)
+            command_is_allowed, rejection_reason = self.environment.validate_command(
+                context.command
+            )
+            if not command_is_allowed:
+                return HookDecision(
+                    hook_name=self.name,
+                    decision=HookDecisionType.DENY,
+                    reason=rejection_reason,
+                )
 
-        for key in ("path", "file", "target_path"):
-            value = context.arguments.get(key)
-            if isinstance(value, str):
-                ok, reason = self.environment.validate_path(value)
-                if not ok:
+        for path_argument_name in ("path", "file", "target_path"):
+            path_argument_value = context.arguments.get(path_argument_name)
+            if isinstance(path_argument_value, str):
+                path_is_allowed, rejection_reason = self.environment.validate_path(
+                    path_argument_value
+                )
+                if not path_is_allowed:
                     return HookDecision(
-                        self.name,
-                        HookDecisionType.DENY,
-                        reason,
-                        {"argument": key, "value": value},
+                        hook_name=self.name,
+                        decision=HookDecisionType.DENY,
+                        reason=rejection_reason,
+                        metadata={
+                            "argument": path_argument_name,
+                            "value": path_argument_value,
+                        },
                     )
 
         return HookDecision(
-            self.name,
-            HookDecisionType.DEFER,
-            "execution environment has no additional restriction",
-            {"environment": self.environment.render_boundary_summary()},
+            hook_name=self.name,
+            decision=HookDecisionType.DEFER,
+            reason="execution environment has no additional restriction",
+            metadata={"environment": self.environment.render_boundary_summary()},
         )
 
 
 class SecretRedactionHook(RuntimeHook):
+    """在 ``after_tool`` 对 Observation 做最终凭据脱敏。"""
+
     name = "secret_redaction"
 
     def __init__(self, environment: ExecutionEnvironment) -> None:
         self.environment = environment
 
-    def post_tool(
+    def after_tool(
         self,
         context: HookContext,
         observation: Observation,
@@ -150,7 +176,7 @@ class HookManager(HookPort):
                     approval_mode=approval_mode,
                 ),
                 *(additional_hooks or []),
-                # 最终脱敏必须位于自定义 post-tool Hook 之后。
+                # 最终脱敏必须位于使用者自定义的工具后置 Hook 之后。
                 SecretRedactionHook(environment),
             ]
         )
@@ -164,7 +190,7 @@ class HookManager(HookPort):
     def before_model(self, context: ModelHookContext) -> HookResult:
         """按拒绝优先级合并全部模型前置 Hook。"""
 
-        decisions = [
+        hook_decisions = [
             self._safe_decision(
                 hook,
                 "before_model",
@@ -174,7 +200,7 @@ class HookManager(HookPort):
             )
             for hook in self.hooks
         ]
-        return self._merge(decisions)
+        return self._merge(hook_decisions)
 
     def after_model(
         self,
@@ -183,10 +209,13 @@ class HookManager(HookPort):
     ) -> AgentResponse:
         """按注册顺序应用模型响应后置 Hook。"""
 
-        current = response
+        current_model_response = response
         for hook in self.hooks:
             try:
-                current = hook.after_model(context, current)
+                current_model_response = hook.after_model(
+                    context,
+                    current_model_response,
+                )
             except Exception as exc:
                 self._record_failure(
                     hook,
@@ -195,44 +224,69 @@ class HookManager(HookPort):
                     context.step,
                     context.agent_name,
                 )
-        return current
+        return current_model_response
 
     # 运行时端口：按拒绝优先级合并所有治理 Hook 的工具前置决策。
-    def pre_tool(self, context: HookContext) -> HookResult:
-        decisions = [
+    def before_tool(self, context: HookContext) -> HookResult:
+        """在工具执行前合并环境、权限和使用者 Hook 的决策。"""
+
+        hook_decisions = [
             self._safe_decision(
                 hook,
                 "before_tool",
                 context.step,
                 context.agent_name,
-                partial(hook.pre_tool, context),
+                partial(hook.before_tool, context),
             )
             for hook in self.hooks
         ]
-        return self._merge(decisions)
+        return self._merge(hook_decisions)
 
     @staticmethod
-    def _merge(decisions: list[HookDecision]) -> HookResult:
+    def _merge(hook_decisions: list[HookDecision]) -> HookResult:
         """DENY > ASK > ALLOW > DEFER，所有独立决定均保留为证据。"""
 
-        for decision in decisions:
-            if decision.decision == HookDecisionType.DENY:
-                return HookResult(HookDecisionType.DENY, decision.reason, decisions)
-        for decision in decisions:
-            if decision.decision == HookDecisionType.ASK:
-                return HookResult(HookDecisionType.ASK, decision.reason, decisions)
-        for decision in decisions:
-            if decision.decision == HookDecisionType.ALLOW:
-                return HookResult(HookDecisionType.ALLOW, decision.reason, decisions)
+        for hook_decision in hook_decisions:
+            if hook_decision.decision == HookDecisionType.DENY:
+                return HookResult(
+                    decision=HookDecisionType.DENY,
+                    reason=hook_decision.reason,
+                    decisions=hook_decisions,
+                )
+        for hook_decision in hook_decisions:
+            if hook_decision.decision == HookDecisionType.ASK:
+                return HookResult(
+                    decision=HookDecisionType.ASK,
+                    reason=hook_decision.reason,
+                    decisions=hook_decisions,
+                )
+        for hook_decision in hook_decisions:
+            if hook_decision.decision == HookDecisionType.ALLOW:
+                return HookResult(
+                    decision=HookDecisionType.ALLOW,
+                    reason=hook_decision.reason,
+                    decisions=hook_decisions,
+                )
         return HookResult(
-            HookDecisionType.ALLOW, "all hooks deferred; default allow", decisions
+            decision=HookDecisionType.ALLOW,
+            reason="all hooks deferred; default allow",
+            decisions=hook_decisions,
         )
 
-    def post_tool(self, context: HookContext, observation: Observation) -> Observation:
-        current = observation
+    def after_tool(
+        self,
+        context: HookContext,
+        observation: Observation,
+    ) -> Observation:
+        """按注册顺序处理工具结果，最终执行敏感信息脱敏。"""
+
+        current_observation = observation
         for hook in self.hooks:
             try:
-                current = hook.post_tool(context, current)
+                current_observation = hook.after_tool(
+                    context,
+                    current_observation,
+                )
             except Exception as exc:
                 self._record_failure(
                     hook,
@@ -241,7 +295,7 @@ class HookManager(HookPort):
                     context.step,
                     context.agent_name,
                 )
-        return current
+        return current_observation
 
     def on_stop(
         self, run_id: str, reason: str, final_answer: str
@@ -276,28 +330,28 @@ class HookManager(HookPort):
     def _safe_decision(
         self,
         hook: RuntimeHook,
-        stage: str,
+        hook_stage: str,
         step: int,
         agent_name: str,
-        invoke: Callable[[], HookDecision],
+        invoke_hook: Callable[[], HookDecision],
     ) -> HookDecision:
         """前置和完成门禁异常时 fail closed，而不是跳过确定性策略。"""
 
         try:
-            return invoke()
+            return invoke_hook()
         except Exception as exc:
-            self._record_failure(hook, stage, exc, step, agent_name)
+            self._record_failure(hook, hook_stage, exc, step, agent_name)
             return HookDecision(
-                hook.name,
-                HookDecisionType.DENY,
-                f"hook failed during {stage}",
-                {"error_type": type(exc).__name__},
+                hook_name=hook.name,
+                decision=HookDecisionType.DENY,
+                reason=f"hook failed during {hook_stage}",
+                metadata={"error_type": type(exc).__name__},
             )
 
     def _record_failure(
         self,
         hook: RuntimeHook,
-        stage: str,
+        hook_stage: str,
         error: Exception,
         step: int,
         agent_name: str,
@@ -312,11 +366,11 @@ class HookManager(HookPort):
             "hook_check",
             success=False,
             error=type(error).__name__,
-            hook_stage=stage,
+            hook_stage=hook_stage,
             hook_name=hook.name,
             failure_policy=(
                 "fail_closed"
-                if stage in {"before_model", "before_tool", "on_stop"}
+                if hook_stage in {"before_model", "before_tool", "on_stop"}
                 else "isolated"
             ),
         )

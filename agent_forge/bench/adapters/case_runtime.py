@@ -54,7 +54,7 @@ class LocalCaseExecutor:
     def __init__(self, workspace_manager: SwebenchWorkspaceManager) -> None:
         self._workspace_manager = workspace_manager
 
-# 主要入口：准备单题隔离环境，运行真实 Runtime，收集 candidate diff 与 trace。
+    # 主要入口：准备单题隔离环境，运行真实 Runtime，收集 candidate diff 与 trace。
     def run(
         self,
         case: BenchCase,
@@ -65,6 +65,7 @@ class LocalCaseExecutor:
     ) -> BenchCaseResult:
         """由 ``RunSwebench`` 调用；返回 candidate diff/local status，不判定 official outcome。"""
 
+        # region 1. Case 沙箱与输出契约：固定 workspace、trace、diff 和默认失败状态
         workspace = self._workspace_manager.prepare(
             case,
             agent_mode if agent_mode in {"single", "multi"} else "",
@@ -78,7 +79,10 @@ class LocalCaseExecutor:
         status = "blocked"
         error = ""
         environment: ExecutionEnvironment | None = None
+        # endregion 1. Case 沙箱与输出契约结束
+
         try:
+            # region 2. Runtime 装配：渲染任务，并为本 Case 创建隔离环境与端口
             ensure_clean_git(workspace)
             task = render_case_task(case)
             trace = TraceRecorder(str(trace_path))
@@ -119,6 +123,9 @@ class LocalCaseExecutor:
                 memory_recall_limit=request.memory_recall_limit,
                 execution_environment=environment,
             )
+            # endregion 2. Runtime 装配结束
+
+            # region 3. Agent 执行与候选采集：运行真实主链，随后冻结 trace/usage/diff
             final_answer = self._execute_runtime(
                 task,
                 agent_mode,
@@ -134,7 +141,9 @@ class LocalCaseExecutor:
             candidate_diff_text = collect_candidate_diff(active_workspace)
             candidate_diff_path.write_text(candidate_diff_text, encoding="utf-8")
             status = _run_status(candidate_diff_text, final_answer)
+            # endregion 3. Agent 执行与候选采集结束
         except Exception as exc:
+            # 异常也必须产出最小 trace/diff，使上层能区分环境失败与 Agent 失败。
             error = str(exc)
             candidate_diff_path.write_text("", encoding="utf-8")
             if not trace_path.exists():
@@ -145,6 +154,7 @@ class LocalCaseExecutor:
         finally:
             error = self._finalize_environment(environment, case_dir, error)
 
+        # region 4. 本地证据映射：只报告 candidate/local validation，不越权判 official
         local_validation = read_local_validation(trace_path)
         patch_chars = (
             len(candidate_diff_path.read_text(encoding="utf-8"))
@@ -170,6 +180,7 @@ class LocalCaseExecutor:
             local_validation_status=local_validation.status,
             local_validation_evidence=local_validation.evidence,
         )
+        # endregion 4. 本地证据映射结束
 
     @staticmethod
     def _prepare_environment(
@@ -350,7 +361,7 @@ def render_case_task(case: BenchCase) -> str:
         "- Do not edit tests unless the issue explicitly requires test infrastructure changes.\n"
         "- Use read_file/grep_search for source inspection; do not use run_command for reading files.\n"
         "- Prefer replace_text once the likely target function is identified; do not keep gathering broad evidence.\n"
-        "- For focused validation, call diagnostics with kind=pytest and the smallest relevant "
+        "- For focused validation, call python_validation with check_type=pytest and the smallest relevant "
         "existing test path or pytest node id. Use kind=unittest only for unittest suites.\n"
         "- Do not use python -c, shell pipes, redirection, or /tmp files.\n"
         "- If validation is blocked, keep the patch and clearly explain the unverified point instead of spending more steps.\n"

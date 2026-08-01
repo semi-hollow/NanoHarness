@@ -1,3 +1,9 @@
+"""为 Agent 工具提供可探测、可限制、可留证的代码执行边界。
+
+可类比为支付系统为外部调用准备的受控执行容器：Sandbox 判断路径，CommandPolicy
+判断命令意图，本类决定命令最终在哪个 workspace/容器中运行并记录环境事实。
+"""
+
 import os
 import re
 import shlex
@@ -10,15 +16,19 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Callable
 
-from agent_forge.runtime.git_workspace import collect_workspace_diff, collect_workspace_status
+from agent_forge.runtime.git_workspace import (
+    collect_workspace_diff,
+    collect_workspace_status,
+)
 
 NETWORK_COMMANDS = {"curl", "wget", "ssh", "scp", "nc", "telnet"}
 PROTECTED_GIT_COMMANDS = {"push", "reset", "checkout", "switch", "merge", "rebase"}
 PROTECTED_PATH_PARTS = {".git", ".venv", ".agent_forge"}
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, kw_only=True)
 class ExecutionEnvironmentConfig:
+    """执行环境声明；只描述边界，不在构造时启动容器或创建 worktree。"""
 
     mode: str = "local"
     workspace: str = "."
@@ -35,8 +45,9 @@ class ExecutionEnvironmentConfig:
     snapshot_root: str = ".agent_forge/snapshots"
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, kw_only=True)
 class EnvironmentProbe:
+    """环境准备后的只读事实快照，供 trace、manifest 和报告消费。"""
 
     mode: str
     requested_workspace: str
@@ -57,11 +68,15 @@ class EnvironmentProbe:
     resource_limits: dict[str, object] = field(default_factory=dict)
 
     def to_dict(self) -> dict:
-
         return asdict(self)
 
 
 class ExecutionEnvironment:
+    """准备 local/worktree/OCI 环境，并作为命令执行的唯一基础设施入口。
+
+    第一遍只读 ``prepare`` 和 ``execute_command``：前者固定运行边界，后者在该边界内
+    执行已经由上层 Tool 与 Hook 授权的 argv。其余方法主要负责检查和留证。
+    """
 
     def __init__(
         self,
@@ -70,7 +85,6 @@ class ExecutionEnvironment:
         oci_runner: Callable[..., subprocess.CompletedProcess[str]] | None = None,
         executable_resolver: Callable[[str], str | None] | None = None,
     ) -> None:
-
         self.config = config
         self.requested_workspace = Path(config.workspace).resolve()
         self.active_workspace = self.requested_workspace
@@ -104,11 +118,25 @@ class ExecutionEnvironment:
         return self.probe()
 
     def probe(self) -> EnvironmentProbe:
+        """读取当前环境事实；不会创建环境，也不会执行用户任务。"""
 
-        git_root = self._git_output(["git", "rev-parse", "--show-toplevel"], cwd=self.active_workspace)
-        branch = self._git_output(["git", "branch", "--show-current"], cwd=self.active_workspace) or "detached"
-        head_sha = self._git_output(["git", "rev-parse", "HEAD"], cwd=self.active_workspace)
-        origin_url = self.redact(self._git_output(["git", "remote", "get-url", "origin"], cwd=self.active_workspace))
+        git_root = self._git_output(
+            ["git", "rev-parse", "--show-toplevel"], cwd=self.active_workspace
+        )
+        branch = (
+            self._git_output(
+                ["git", "branch", "--show-current"], cwd=self.active_workspace
+            )
+            or "detached"
+        )
+        head_sha = self._git_output(
+            ["git", "rev-parse", "HEAD"], cwd=self.active_workspace
+        )
+        origin_url = self.redact(
+            self._git_output(
+                ["git", "remote", "get-url", "origin"], cwd=self.active_workspace
+            )
+        )
         dirty_files = (
             list(self._requested_dirty_files)
             if self._requested_dirty_files is not None
@@ -129,13 +157,18 @@ class ExecutionEnvironment:
             python_executable=sys.executable,
             notes=list(self._notes),
             container_runtime=self._container_runtime_path,
-            container_image=self.config.container_image if self.config.mode == "container" else "",
+            container_image=self.config.container_image
+            if self.config.mode == "container"
+            else "",
             container_image_id=self._container_image_id,
             container_id=self._container_id,
-            resource_limits=self._resource_limits() if self.config.mode == "container" else {},
+            resource_limits=self._resource_limits()
+            if self.config.mode == "container"
+            else {},
         )
 
     def resolve_path(self, path: str | Path) -> Path:
+        """把输入路径解析为当前 active workspace 下的绝对路径。"""
 
         candidate = Path(path)
         if not candidate.is_absolute():
@@ -143,6 +176,7 @@ class ExecutionEnvironment:
         return candidate.resolve()
 
     def validate_path(self, path: str | Path) -> tuple[bool, str]:
+        """检查路径是否逃逸 workspace 或命中受保护目录。"""
 
         resolved = self.resolve_path(path)
         try:
@@ -150,10 +184,14 @@ class ExecutionEnvironment:
         except ValueError:
             return False, "path escapes execution environment"
         if any(part in PROTECTED_PATH_PARTS for part in relative.parts):
-            return False, f"protected path blocked by execution environment: {resolved.name}"
+            return (
+                False,
+                f"protected path blocked by execution environment: {resolved.name}",
+            )
         return True, "path allowed by execution environment"
 
     def validate_command(self, command: str) -> tuple[bool, str]:
+        """执行环境层的最后一道命令边界检查，不替代 CommandPolicy。"""
 
         try:
             parts = shlex.split(command)
@@ -164,7 +202,10 @@ class ExecutionEnvironment:
 
         executable = parts[0].lower()
         if self.config.network_policy == "deny" and executable in NETWORK_COMMANDS:
-            return False, f"network command blocked by execution environment: {executable}"
+            return (
+                False,
+                f"network command blocked by execution environment: {executable}",
+            )
 
         if executable == "git" and len(parts) > 1:
             subcommand = parts[1].lower()
@@ -174,49 +215,73 @@ class ExecutionEnvironment:
         return True, "command allowed by execution environment"
 
     def redact(self, text: str) -> str:
+        """清除 Observation 或 manifest 中可识别的凭据。"""
 
         if not text:
             return text
         patterns = [
-            (r"Authorization:\s*Bearer\s+[A-Za-z0-9._\-]+", "Authorization: Bearer [redacted]"),
-            (r"(?i)(api[_-]?key|token|secret)\s*[:=]\s*[A-Za-z0-9._\-]{12,}", r"\1=[redacted]"),
+            (
+                r"Authorization:\s*Bearer\s+[A-Za-z0-9._\-]+",
+                "Authorization: Bearer [redacted]",
+            ),
+            (
+                r"(?i)(api[_-]?key|token|secret)\s*[:=]\s*[A-Za-z0-9._\-]{12,}",
+                r"\1=[redacted]",
+            ),
             (r"sk-[A-Za-z0-9_\-]{16,}", "sk-[redacted]"),
             (r"Bearer\s+[A-Za-z0-9._\-]{16,}", "Bearer [redacted]"),
         ]
         redacted = text
         for pattern, replacement in patterns:
             redacted = re.sub(pattern, replacement, redacted)
-        for name in ("DEEPSEEK_API_KEY", "AGENT_FORGE_API_KEY", "OPENAI_API_KEY"):
-            value = os.getenv(name, "")
-            if value and len(value) >= 8:
-                redacted = redacted.replace(value, f"[redacted:{name}]")
+        for secret_environment_name in (
+            "DEEPSEEK_API_KEY",
+            "AGENT_FORGE_API_KEY",
+            "OPENAI_API_KEY",
+        ):
+            secret_environment_value = os.getenv(secret_environment_name, "")
+            if secret_environment_value and len(secret_environment_value) >= 8:
+                redacted = redacted.replace(
+                    secret_environment_value,
+                    f"[redacted:{secret_environment_name}]",
+                )
         return redacted
 
     def cleanup(self) -> None:
+        """释放本次运行创建的容器和临时快照。"""
 
         container_target = self._container_id or self._container_name
         if container_target and self._container_runtime_path:
-            removed = self._oci_runner(
+            container_removal_process = self._oci_runner(
                 [self._container_runtime_path, "rm", "-f", container_target],
                 text=True,
                 capture_output=True,
                 timeout=30,
             )
-            if removed.returncode == 0:
+            if container_removal_process.returncode == 0:
                 self._notes.append("removed OCI container")
             else:
-                detail = self.redact((removed.stderr or removed.stdout or "unknown error").strip())
-                self._notes.append(f"OCI container cleanup failed: {detail}")
+                cleanup_failure_detail = self.redact(
+                    (
+                        container_removal_process.stderr
+                        or container_removal_process.stdout
+                        or "unknown error"
+                    ).strip()
+                )
+                self._notes.append(
+                    f"OCI container cleanup failed: {cleanup_failure_detail}"
+                )
             self._container_id = ""
 
         self._cleanup_snapshot()
 
     def write_manifest(self, output_dir: str | Path) -> Path:
+        """把环境事实和命令历史写成可审计 manifest。"""
 
-        output = Path(output_dir)
-        output.mkdir(parents=True, exist_ok=True)
-        path = output / "execution_environment.json"
-        manifest = {
+        manifest_directory = Path(output_dir)
+        manifest_directory.mkdir(parents=True, exist_ok=True)
+        manifest_path = manifest_directory / "execution_environment.json"
+        environment_manifest = {
             "probe": self.probe().to_dict(),
             "worktree_created": str(self.created_worktree or ""),
             "snapshot_created": str(self.created_snapshot or ""),
@@ -228,7 +293,7 @@ class ExecutionEnvironment:
                 and (self.created_worktree or self.created_snapshot)
                 and self._container_start_command
             )
-            manifest["container"] = {
+            environment_manifest["container"] = {
                 "runtime": self.config.container_runtime,
                 "runtime_path": self._container_runtime_path,
                 "image": self.config.container_image,
@@ -238,21 +303,28 @@ class ExecutionEnvironment:
                 "root_read_only": self.config.container_read_only,
                 "resource_limits": self._resource_limits(),
                 "start_command": self._container_start_command,
-                "recreate_command": self._container_start_command if replayable_after_cleanup else [],
+                "recreate_command": self._container_start_command
+                if replayable_after_cleanup
+                else [],
                 "replayable_after_cleanup": replayable_after_cleanup,
-                "exec_prefix": [self._container_runtime_path, "exec", self._container_id],
+                "exec_prefix": [
+                    self._container_runtime_path,
+                    "exec",
+                    self._container_id,
+                ],
                 "command_history": self._command_history,
                 "boundary_note": (
                     "Commands run in the OCI container; host file tools remain constrained to the mounted snapshot."
                 ),
             }
-        path.write_text(
-            self._json_dump(manifest),
+        manifest_path.write_text(
+            self._json_dump(environment_manifest),
             encoding="utf-8",
         )
-        return path
+        return manifest_path
 
     def diff(self) -> str:
+        """读取 active workspace 相对基线的 candidate diff。"""
 
         return collect_workspace_diff(self.active_workspace)
 
@@ -267,7 +339,14 @@ class ExecutionEnvironment:
             f"branch={probe.current_branch}; dirty={probe.dirty}"
         )
 
-    def execute_command(self, argv: list[str], timeout: float) -> subprocess.CompletedProcess[str]:
+    def execute_command(
+        self, argv: list[str], timeout: float
+    ) -> subprocess.CompletedProcess[str]:
+        """执行上层已经授权的 argv，并记录耗时与输出规模。
+
+        本方法只接收参数数组，local 模式固定 ``shell=False``；因此不会解释管道、重定向
+        或命令替换。它类似 Java 中封装后的 ProcessBuilder，而不是开放一个 shell 会话。
+        """
 
         if not argv:
             raise ValueError("empty command argv")
@@ -275,22 +354,27 @@ class ExecutionEnvironment:
         if self.config.mode == "container":
             if not self._container_id or not self._container_runtime_path:
                 raise RuntimeError("container execution environment is not prepared")
-            runtime_command = [self._container_runtime_path, "exec", self._container_id, *argv]
-            result = self._oci_runner(
+            runtime_command = [
+                self._container_runtime_path,
+                "exec",
+                self._container_id,
+                *argv,
+            ]
+            command_process = self._oci_runner(
                 runtime_command,
                 text=True,
                 capture_output=True,
                 timeout=timeout,
             )
         else:
-            normalized = (
+            normalized_command = (
                 [sys.executable, *argv[1:]]
                 if argv[0] in {"python", "python3", "python3.11"}
                 else list(argv)
             )
-            runtime_command = normalized
-            result = subprocess.run(
-                normalized,
+            runtime_command = normalized_command
+            command_process = subprocess.run(
+                normalized_command,
                 cwd=str(self.active_workspace),
                 shell=False,
                 text=True,
@@ -302,16 +386,15 @@ class ExecutionEnvironment:
                 "argv": list(argv),
                 "runtime_command": runtime_command,
                 "timeout_seconds": timeout,
-                "returncode": result.returncode,
+                "returncode": command_process.returncode,
                 "duration_ms": int((time.monotonic() - started) * 1000),
-                "stdout_chars": len(result.stdout or ""),
-                "stderr_chars": len(result.stderr or ""),
+                "stdout_chars": len(command_process.stdout or ""),
+                "stderr_chars": len(command_process.stderr or ""),
             }
         )
-        return result
+        return command_process
 
     def _prepare_container(self) -> None:
-
         runtime = self._executable_resolver(self.config.container_runtime)
         if not runtime:
             raise RuntimeError(
@@ -319,7 +402,14 @@ class ExecutionEnvironment:
             )
         self._container_runtime_path = str(runtime)
         inspect = self._oci_runner(
-            [self._container_runtime_path, "image", "inspect", "--format", "{{.Id}}", self.config.container_image],
+            [
+                self._container_runtime_path,
+                "image",
+                "inspect",
+                "--format",
+                "{{.Id}}",
+                self.config.container_image,
+            ],
             text=True,
             capture_output=True,
             timeout=30,
@@ -331,7 +421,9 @@ class ExecutionEnvironment:
         self._container_image_id = (inspect.stdout or "").strip()
         self._prepare_snapshot()
 
-        safe_run_id = re.sub(r"[^a-zA-Z0-9_.-]+", "-", self.config.run_id or uuid.uuid4().hex[:8])
+        safe_run_id = re.sub(
+            r"[^a-zA-Z0-9_.-]+", "-", self.config.run_id or uuid.uuid4().hex[:8]
+        )
         name = f"agent-forge-{safe_run_id}"[:63]
         self._container_name = name
         network = "none" if self.config.network_policy == "deny" else "bridge"
@@ -388,26 +480,35 @@ class ExecutionEnvironment:
         if not self._container_id:
             self.cleanup()
             raise RuntimeError("container runtime returned no container id")
-        self._notes.append("started constrained OCI container over isolated workspace snapshot")
+        self._notes.append(
+            "started constrained OCI container over isolated workspace snapshot"
+        )
 
     def _prepare_snapshot(self) -> None:
-
-        git_root = self._git_output(["git", "rev-parse", "--show-toplevel"], cwd=self.requested_workspace)
+        git_root = self._git_output(
+            ["git", "rev-parse", "--show-toplevel"], cwd=self.requested_workspace
+        )
         if git_root:
             self._prepare_worktree(required=True)
             return
         run_id = self.config.run_id or uuid.uuid4().hex[:8]
-        target = (self.requested_workspace / self.config.snapshot_root / run_id).resolve()
-        target.parent.mkdir(parents=True, exist_ok=True)
-        if target.exists():
-            target = target.with_name(f"{target.name}-{uuid.uuid4().hex[:6]}")
+        snapshot_path = (
+            self.requested_workspace / self.config.snapshot_root / run_id
+        ).resolve()
+        snapshot_path.parent.mkdir(parents=True, exist_ok=True)
+        if snapshot_path.exists():
+            snapshot_path = snapshot_path.with_name(
+                f"{snapshot_path.name}-{uuid.uuid4().hex[:6]}"
+            )
         shutil.copytree(
             self.requested_workspace,
-            target,
-            ignore=shutil.ignore_patterns(".git", ".agent_forge", ".venv", "__pycache__", "*.pyc"),
+            snapshot_path,
+            ignore=shutil.ignore_patterns(
+                ".git", ".agent_forge", ".venv", "__pycache__", "*.pyc"
+            ),
         )
-        self.created_snapshot = target
-        self.active_workspace = target
+        self.created_snapshot = snapshot_path
+        self.active_workspace = snapshot_path
         self._notes.append("created isolated filesystem snapshot for non-git workspace")
 
     def _resource_limits(self) -> dict[str, object]:
@@ -418,9 +519,10 @@ class ExecutionEnvironment:
         }
 
     def _validate_config(self) -> None:
-
         if self.config.network_policy not in {"deny", "allow"}:
-            raise ValueError(f"unsupported network policy: {self.config.network_policy}")
+            raise ValueError(
+                f"unsupported network policy: {self.config.network_policy}"
+            )
         if self.config.mode != "container":
             return
         if self.config.container_cpus <= 0:
@@ -435,7 +537,6 @@ class ExecutionEnvironment:
             raise ValueError("container image must not be empty")
 
     def _cleanup_snapshot(self) -> None:
-
         snapshot = self.created_worktree or self.created_snapshot
         if not snapshot or self.config.keep_worktree:
             return
@@ -444,44 +545,55 @@ class ExecutionEnvironment:
         self._git_output(["git", "worktree", "prune"], cwd=self.requested_workspace)
 
     def _prepare_worktree(self, required: bool = False) -> None:
-
         if not (self.requested_workspace / ".git").exists():
             git_root = self._git_output(["git", "rev-parse", "--show-toplevel"])
             if not git_root:
                 if required:
-                    raise RuntimeError("isolated git snapshot requested but no git repository was found")
-                self._notes.append("worktree requested but no git repository was found; using local mode")
+                    raise RuntimeError(
+                        "isolated git snapshot requested but no git repository was found"
+                    )
+                self._notes.append(
+                    "worktree requested but no git repository was found; using local mode"
+                )
                 self.active_workspace = self.requested_workspace
                 return
 
         run_id = self.config.run_id or uuid.uuid4().hex[:8]
-        target = (self.requested_workspace / self.config.worktree_root / run_id).resolve()
-        target.parent.mkdir(parents=True, exist_ok=True)
-        if target.exists():
-            suffix = uuid.uuid4().hex[:6]
-            target = target.with_name(f"{target.name}-{suffix}")
+        worktree_path = (
+            self.requested_workspace / self.config.worktree_root / run_id
+        ).resolve()
+        worktree_path.parent.mkdir(parents=True, exist_ok=True)
+        if worktree_path.exists():
+            collision_suffix = uuid.uuid4().hex[:6]
+            worktree_path = worktree_path.with_name(
+                f"{worktree_path.name}-{collision_suffix}"
+            )
 
-        result = subprocess.run(
-            ["git", "worktree", "add", "--detach", str(target), "HEAD"],
+        worktree_creation_process = subprocess.run(
+            ["git", "worktree", "add", "--detach", str(worktree_path), "HEAD"],
             cwd=str(self.requested_workspace),
             text=True,
             capture_output=True,
         )
-        if result.returncode != 0:
+        if worktree_creation_process.returncode != 0:
+            failure_detail = (
+                worktree_creation_process.stderr or worktree_creation_process.stdout
+            ).strip()
             if required:
-                raise RuntimeError(f"isolated worktree creation failed: {(result.stderr or result.stdout).strip()}")
-            self._notes.append(f"worktree creation failed: {(result.stderr or result.stdout).strip()}")
+                raise RuntimeError(
+                    f"isolated worktree creation failed: {failure_detail}"
+                )
+            self._notes.append(f"worktree creation failed: {failure_detail}")
             self.active_workspace = self.requested_workspace
             return
 
-        self.created_worktree = target
-        self.active_workspace = target
+        self.created_worktree = worktree_path
+        self.active_workspace = worktree_path
         self._notes.append("created isolated git worktree from HEAD")
 
     def _git_output(self, command: list[str], cwd: Path | None = None) -> str:
-
         try:
-            result = subprocess.run(
+            git_process = subprocess.run(
                 command,
                 cwd=str(cwd or self.requested_workspace),
                 text=True,
@@ -490,12 +602,11 @@ class ExecutionEnvironment:
             )
         except (OSError, subprocess.SubprocessError):
             return ""
-        if result.returncode != 0:
+        if git_process.returncode != 0:
             return ""
-        return result.stdout.strip()
+        return git_process.stdout.strip()
 
     def _dirty_files(self, cwd: Path | None = None) -> list[str]:
-
         files = []
         for line in collect_workspace_status(cwd or self.active_workspace):
             if len(line) > 2 and line[2] == " ":
@@ -505,7 +616,6 @@ class ExecutionEnvironment:
         return files
 
     def _json_dump(self, data: dict) -> str:
-
         import json
 
         return json.dumps(data, ensure_ascii=False, indent=2)

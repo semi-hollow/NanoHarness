@@ -232,57 +232,53 @@ class OperatorSession:
     ) -> HumanInputRequest | None:
         request_id = str(checkpoint.metadata.get("human_input_request_id") or "")
         if request_id:
-            request = self.human_inputs.get(request_id)
-            if request is not None and request.status == "pending":
-                return request
-        return next(
-            (
-                request
-                for request in self.human_inputs.list_pending()
-                if request.run_id == checkpoint.run_id
-            ),
-            None,
-        )
+            human_input_request = self.human_inputs.get(request_id)
+            if (
+                human_input_request is not None
+                and human_input_request.status == "pending"
+            ):
+                return human_input_request
+        for pending_request in self.human_inputs.list_pending():
+            if pending_request.run_id == checkpoint.run_id:
+                return pending_request
+        return None
 
     def _pending_approval(
         self,
         checkpoint: TaskCheckpoint,
     ) -> ApprovalRequest | None:
-        return next(
-            (
-                request
-                for request in self.approvals.list_pending()
-                if request.run_id == checkpoint.run_id
-                or (
-                    request.workspace == checkpoint.workspace
-                    and request.tool_name == checkpoint.last_tool
-                )
-            ),
-            None,
-        )
+        for pending_approval in self.approvals.list_pending():
+            belongs_to_same_run = pending_approval.run_id == checkpoint.run_id
+            matches_interrupted_tool = (
+                pending_approval.workspace == checkpoint.workspace
+                and pending_approval.tool_name == checkpoint.last_tool
+            )
+            if belongs_to_same_run or matches_interrupted_tool:
+                return pending_approval
+        return None
 
     @staticmethod
-    def _human_prompt(request: HumanInputRequest) -> OperatorPrompt:
+    def _human_prompt(human_input_request: HumanInputRequest) -> OperatorPrompt:
         return OperatorPrompt(
             kind="human_input",
-            key=request.request_id,
+            key=human_input_request.request_id,
             title="Agent 需要你的补充信息",
-            body=request.question,
-            choices=tuple(request.choices),
-            details=request.reason,
+            body=human_input_request.question,
+            choices=tuple(human_input_request.choices),
+            details=human_input_request.reason,
         )
 
     @staticmethod
-    def _approval_prompt(request: ApprovalRequest) -> OperatorPrompt:
+    def _approval_prompt(approval_request: ApprovalRequest) -> OperatorPrompt:
         details = json.dumps(
             {
-                "tool": request.tool_name,
-                "action": request.action,
-                "command": request.command,
-                "arguments": request.arguments,
-                "workspace": request.workspace,
-                "reason": request.reason,
-                "fingerprint": request.operation_fingerprint,
+                "tool": approval_request.tool_name,
+                "action": approval_request.action,
+                "command": approval_request.command,
+                "arguments": approval_request.arguments,
+                "workspace": approval_request.workspace,
+                "reason": approval_request.reason,
+                "fingerprint": approval_request.operation_fingerprint,
             },
             ensure_ascii=False,
             indent=2,
@@ -290,8 +286,8 @@ class OperatorSession:
         )
         return OperatorPrompt(
             kind="approval",
-            key=request.operation_key,
-            title=f"审批副作用：{request.tool_name}",
-            body=request.reason or "该工具调用需要人工授权。",
+            key=approval_request.operation_key,
+            title=f"审批副作用：{approval_request.tool_name}",
+            body=approval_request.reason or "该工具调用需要人工授权。",
             details=details,
         )

@@ -16,7 +16,7 @@ KEYCHAIN_SERVICE = "NanoHarness DeepSeek API"
 DEFAULT_TASK = (
     "先阅读 calculator.py 和 test_calculator.py。修改前必须使用 ask_human "
     "询问我目标 Python 版本；得到回答后修复 add，使 2 + 3 等于 5，"
-    "最后调用 diagnostics 运行 test_calculator.py。"
+    "最后调用 python_validation 运行 test_calculator.py。"
 )
 sys.path.insert(0, str(PROJECT_ROOT))
 

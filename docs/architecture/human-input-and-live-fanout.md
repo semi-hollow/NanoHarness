@@ -61,7 +61,7 @@ AgentLoop / ClarificationPolicy
       "task": "Implement the runtime change",
       "depends_on": [],
       "write_scope": ["agent_forge/runtime/"],
-      "allowed_tools": ["read_file", "grep_search", "replace_text", "diagnostics"],
+      "allowed_tools": ["read_file", "grep_search", "replace_text", "python_validation"],
       "expected_artifact": "runtime_patch",
       "max_steps": 12
     },

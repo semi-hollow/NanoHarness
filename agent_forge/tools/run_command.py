@@ -11,7 +11,6 @@ from .base import Tool
 
 
 class RunCommandTool(Tool):
-
     name = "run_command"
     description = (
         "run allowlisted Python validation (`unittest`, `pytest`, `compileall`) "
@@ -24,13 +23,11 @@ class RunCommandTool(Tool):
         auto_approve_writes: bool = True,
         execution_environment: ExecutionEnvironment | None = None,
     ) -> None:
-
         self.sandbox = sandbox
         self.policy = PermissionPolicy(auto_approve_writes)
         self.execution_environment = execution_environment
 
     def schema(self) -> ToolSchema:
-
         return {
             "name": self.name,
             "description": self.description,
@@ -38,15 +35,18 @@ class RunCommandTool(Tool):
         }
 
     def _normalize_python(self, parts: list[str]) -> list[str]:
-
         if parts and parts[0] in {"python", "python3", "python3.11"}:
             return [sys.executable] + parts[1:]
         return parts
 
     def _validate_command_paths(self, parts: list[str]) -> None:
-
         normalized = list(parts)
-        if normalized and normalized[0] in {"python", "python3", "python3.11", sys.executable}:
+        if normalized and normalized[0] in {
+            "python",
+            "python3",
+            "python3.11",
+            sys.executable,
+        }:
             normalized[0] = "python"
 
         if normalized[:4] == ["python", "-m", "unittest", "discover"]:
@@ -56,7 +56,9 @@ class RunCommandTool(Tool):
             self._validate_path_like_args(normalized[3:])
             return
         if normalized[:3] == ["python", "-m", "compileall"]:
-            self._validate_path_like_args(normalized[3:], treat_positionals_as_paths=True)
+            self._validate_path_like_args(
+                normalized[3:], treat_positionals_as_paths=True
+            )
             return
         if normalized[:3] == ["python", "-m", "pytest"]:
             self._validate_path_like_args(normalized[3:])
@@ -65,27 +67,29 @@ class RunCommandTool(Tool):
             self._validate_path_like_args(normalized[1:])
 
     def _validate_discovery_args(self, args: list[str]) -> None:
-
         path_options = {"-s", "--start-directory", "-t", "--top-level-directory"}
         index = 0
         while index < len(args):
             value = args[index]
-            attached_path = next(
-                (value[len(option):] for option in ("-s", "-t") if value.startswith(option) and value != option),
-                "",
+            attached_option_path = self._extract_attached_short_option_path(
+                value,
+                options=("-s", "-t"),
             )
-            if attached_path:
-                self.sandbox.ensure_safe_path(attached_path)
+            if attached_option_path:
+                self.sandbox.ensure_safe_path(attached_option_path)
                 index += 1
                 continue
             if value in path_options and index + 1 < len(args):
                 self.sandbox.ensure_safe_path(args[index + 1])
                 index += 2
                 continue
-            if any(value.startswith(f"{option}=") for option in path_options if option.startswith("--")):
+            if any(
+                value.startswith(f"{option}=")
+                for option in path_options
+                if option.startswith("--")
+            ):
                 self.sandbox.ensure_safe_path(value.split("=", 1)[1])
             elif not value.startswith("-"):
-
                 self.sandbox.ensure_safe_path(value)
             index += 1
 
@@ -95,7 +99,6 @@ class RunCommandTool(Tool):
         *,
         treat_positionals_as_paths: bool = False,
     ) -> None:
-
         path_options = {
             "-c",
             "--confcutdir",
@@ -109,12 +112,12 @@ class RunCommandTool(Tool):
         index = 0
         while index < len(args):
             value = args[index]
-            attached_path = next(
-                (value[len(option):] for option in ("-c", "-i") if value.startswith(option) and value != option),
-                "",
+            attached_option_path = self._extract_attached_short_option_path(
+                value,
+                options=("-c", "-i"),
             )
-            if attached_path:
-                self._ensure_safe_cli_path(attached_path)
+            if attached_option_path:
+                self._ensure_safe_cli_path(attached_option_path)
                 index += 1
                 continue
             if value in path_options and index + 1 < len(args):
@@ -125,12 +128,27 @@ class RunCommandTool(Tool):
                 option, candidate = value.split("=", 1)
                 if option in path_options:
                     self._ensure_safe_cli_path(candidate)
-            elif not value.startswith("-") and (treat_positionals_as_paths or self._looks_like_path(value)):
+            elif not value.startswith("-") and (
+                treat_positionals_as_paths or self._looks_like_path(value)
+            ):
                 self._ensure_safe_cli_path(value)
             index += 1
 
-    def _ensure_safe_cli_path(self, value: str) -> None:
+    @staticmethod
+    def _extract_attached_short_option_path(
+        argument: str,
+        *,
+        options: tuple[str, ...],
+    ) -> str:
+        """从 ``-spath`` 这类短选项中取出路径；独立 ``-s`` 返回空字符串。"""
 
+        for option in options:
+            has_attached_value = argument.startswith(option) and argument != option
+            if has_attached_value:
+                return argument[len(option) :]
+        return ""
+
+    def _ensure_safe_cli_path(self, value: str) -> None:
         candidate = value.split("::", 1)[0]
         if candidate.startswith("@"):
             candidate = candidate[1:]
@@ -138,7 +156,6 @@ class RunCommandTool(Tool):
             self.sandbox.ensure_safe_path(candidate)
 
     def _looks_like_path(self, value: str) -> bool:
-
         candidate = value.split("::", 1)[0]
         if candidate.startswith("@"):
             candidate = candidate[1:]
@@ -150,7 +167,6 @@ class RunCommandTool(Tool):
         )
 
     def execute(self, arguments: ToolArguments) -> Observation:
-
         cmd = arguments.get("command", "")
         decision, reason = self.policy.decide("run_command", cmd)
         if decision != PermissionDecision.ALLOW:
@@ -166,13 +182,16 @@ class RunCommandTool(Tool):
                 proc = subprocess.run(
                     parts,
                     cwd=str(self.sandbox.workspace_root),
-
                     shell=False,
                     text=True,
                     capture_output=True,
                     timeout=20,
                 )
             output = (proc.stdout + proc.stderr).strip()[:2000]
-            return Observation(self.name, proc.returncode == 0, f"exit_code={proc.returncode}\n{output}")
+            return Observation(
+                self.name,
+                proc.returncode == 0,
+                f"exit_code={proc.returncode}\n{output}",
+            )
         except Exception as e:
             return Observation(self.name, False, f"command execution error: {e}")

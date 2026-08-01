@@ -122,9 +122,9 @@ class TaskCheckpoint:
     def apply_transition(self, update: TaskCheckpointUpdate) -> None:
         """应用一次显式字段转换；持久化由 Repository 在调用后完成。"""
 
-        status = update.status_value()
-        if status is not None:
-            self.status = status
+        next_task_status = update.status_value()
+        if next_task_status is not None:
+            self.status = next_task_status
         if update.current_step is not None:
             self.current_step = update.current_step
         if update.last_tool is not None:
@@ -176,7 +176,7 @@ class TaskCheckpoint:
 def summarize_checkpoint(checkpoint: TaskCheckpoint, max_chars: int = 1400) -> str:
     """生成供 continuation 使用的紧凑、确定性上下文。"""
 
-    summary = (
+    checkpoint_summary = (
         f"resume_from_run={checkpoint.run_id}\n"
         f"previous_status={checkpoint.status}\n"
         f"previous_task={checkpoint.task}\n"
@@ -187,6 +187,6 @@ def summarize_checkpoint(checkpoint: TaskCheckpoint, max_chars: int = 1400) -> s
         f"context_digest={json.dumps(checkpoint.context_digest, ensure_ascii=False)}\n"
         f"final_answer={checkpoint.final_answer}"
     )
-    if len(summary) <= max_chars:
-        return summary
-    return summary[: max_chars - 14] + " [compressed]"
+    if len(checkpoint_summary) <= max_chars:
+        return checkpoint_summary
+    return checkpoint_summary[: max_chars - 14] + " [compressed]"

@@ -2,13 +2,27 @@ from __future__ import annotations
 
 from .domain.models import AgentProfile, RoleSpec
 
-CODING_READ_TOOLS = ["list_files", "read_file", "grep", "grep_search", "git_status", "git_diff", "diagnostics"]
+CODING_READ_TOOLS = [
+    "list_files",
+    "read_file",
+    "grep",
+    "grep_search",
+    "git_status",
+    "git_diff",
+    "python_validation",
+]
 CODING_WRITE_TOOLS = [*CODING_READ_TOOLS, "replace_text", "write_file", "run_command"]
-RESEARCH_TOOLS = ["list_files", "read_file", "grep", "grep_search", "forge.web_search", "forge.web_fetch"]
+RESEARCH_TOOLS = [
+    "list_files",
+    "read_file",
+    "grep",
+    "grep_search",
+    "forge.web_search",
+    "forge.web_fetch",
+]
 
 
 def coding_fix_profile() -> AgentProfile:
-
     return AgentProfile(
         name="coding_fix",
         description="Coordinator-driven coding repair with implementer, reviewer, verifier, and bounded revisions.",
@@ -25,7 +39,7 @@ def coding_fix_profile() -> AgentProfile:
                     "and run a focused validation command when allowed. Do not edit tests unless the task "
                     "is explicitly about test infrastructure. If you are revising, address the review or "
                     "verification artifact directly. For SWE-bench-style tasks, prefer read_file/grep_search "
-                    "for inspection, apply_patch for the first concrete fix, and diagnostics for validation; "
+                    "for inspection, replace_text for the first concrete fix, and python_validation for validation; "
                     "avoid shell-style run_command exploration."
                 ),
                 allowed_tools=CODING_WRITE_TOOLS,
@@ -52,11 +66,16 @@ def coding_fix_profile() -> AgentProfile:
                 instructions=(
                     "Inspect the candidate patch and run the smallest allowed validation command if one is clearly available. "
                     "Start your answer with exactly one marker: PASS, NEEDS_REVISION, or BLOCKED. "
-                    "Use PASS when the patch is present, review evidence is sound, and available diagnostics do not show a regression. "
+                    "Use PASS when the candidate diff is present, review evidence is sound, and available validation does not show a regression. "
                     "Use NEEDS_REVISION when validation fails for a likely fixable code reason. "
                     "Use BLOCKED when external benchmark validation is unavailable; do not spend the final turn requesting another tool."
                 ),
-                allowed_tools=["read_file", "git_status", "git_diff", "diagnostics"],
+                allowed_tools=[
+                    "read_file",
+                    "git_status",
+                    "git_diff",
+                    "python_validation",
+                ],
                 max_steps=8,
                 output_artifact="verification_report",
             ),
@@ -65,7 +84,6 @@ def coding_fix_profile() -> AgentProfile:
 
 
 def research_report_profile() -> AgentProfile:
-
     return AgentProfile(
         name="research_report",
         description="Research draft with skeptical review and fact verification through explicit artifacts.",
@@ -118,12 +136,10 @@ def research_report_profile() -> AgentProfile:
 
 
 def list_profiles() -> list[str]:
-
     return ["coding_fix", "research_report"]
 
 
 def get_profile(name: str) -> AgentProfile:
-
     profiles = {
         "coding_fix": coding_fix_profile,
         "research_report": research_report_profile,

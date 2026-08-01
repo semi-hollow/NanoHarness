@@ -27,11 +27,9 @@ from agent_forge.workbench.presentation.http import (
 
 class SwebenchCompareTest(unittest.TestCase):
     def test_case_task_requires_focused_pytest_diagnostics(self):
-        task = render_case_task(
-            BenchCase("case-1", "owner/repo", "abc123", "Fix it")
-        )
+        task = render_case_task(BenchCase("case-1", "owner/repo", "abc123", "Fix it"))
 
-        self.assertIn("diagnostics with kind=pytest", task)
+        self.assertIn("python_validation with check_type=pytest", task)
         self.assertIn("smallest relevant existing test path or pytest node id", task)
         self.assertIn("kind=unittest only for unittest suites", task)
 
@@ -60,8 +58,14 @@ class SwebenchCompareTest(unittest.TestCase):
                 return AgentResponse("diff --git a/a.py b/a.py\n+fixed\n", [])
 
         case = BenchCase("case-1", "owner/repo", "abc123", "Fix it")
-        with patch("agent_forge.bench.adapters.case_runtime.resolve_llm_config", return_value=Config()), patch(
-            "agent_forge.bench.adapters.case_runtime.build_llm", return_value=LLM()
+        with (
+            patch(
+                "agent_forge.bench.adapters.case_runtime.resolve_llm_config",
+                return_value=Config(),
+            ),
+            patch(
+                "agent_forge.bench.adapters.case_runtime.build_llm", return_value=LLM()
+            ),
         ):
             prediction = DirectModelBaseline().predict(
                 case,
@@ -91,23 +95,48 @@ class SwebenchCompareTest(unittest.TestCase):
             source = root / "source"
             source.mkdir()
             subprocess.run(["git", "init"], cwd=source, check=True, capture_output=True)
-            subprocess.run(["git", "config", "user.email", "test@example.com"], cwd=source, check=True)
-            subprocess.run(["git", "config", "user.name", "Test User"], cwd=source, check=True)
+            subprocess.run(
+                ["git", "config", "user.email", "test@example.com"],
+                cwd=source,
+                check=True,
+            )
+            subprocess.run(
+                ["git", "config", "user.name", "Test User"], cwd=source, check=True
+            )
             (source / "app.py").write_text("value = 1\n", encoding="utf-8")
             subprocess.run(["git", "add", "app.py"], cwd=source, check=True)
-            subprocess.run(["git", "commit", "-m", "initial"], cwd=source, check=True, capture_output=True)
+            subprocess.run(
+                ["git", "commit", "-m", "initial"],
+                cwd=source,
+                check=True,
+                capture_output=True,
+            )
             head = subprocess.run(
-                ["git", "rev-parse", "HEAD"], cwd=source, check=True, capture_output=True, text=True
+                ["git", "rev-parse", "HEAD"],
+                cwd=source,
+                check=True,
+                capture_output=True,
+                text=True,
             ).stdout.strip()
             case = BenchCase("local__case-1", str(source), head, "Change the value")
             manager = SwebenchWorkspaceManager(root / "cache", root / "bench")
             output = root / "output"
 
-            with patch("agent_forge.bench.adapters.case_runtime.resolve_llm_config", return_value=Config()), patch(
-                "agent_forge.bench.adapters.case_runtime.build_llm", return_value=object()
-            ), patch(
-                "agent_forge.bench.adapters.case_runtime.build_agent_loop",
-                side_effect=lambda config, _trace, _registry, _llm: FakeAgentLoop(config, None, None, None),
+            with (
+                patch(
+                    "agent_forge.bench.adapters.case_runtime.resolve_llm_config",
+                    return_value=Config(),
+                ),
+                patch(
+                    "agent_forge.bench.adapters.case_runtime.build_llm",
+                    return_value=object(),
+                ),
+                patch(
+                    "agent_forge.bench.adapters.case_runtime.build_agent_loop",
+                    side_effect=lambda config, _trace, _registry, _llm: FakeAgentLoop(
+                        config, None, None, None
+                    ),
+                ),
             ):
                 result = LocalCaseExecutor(manager).run(
                     case,
@@ -124,8 +153,14 @@ class SwebenchCompareTest(unittest.TestCase):
                 )
 
             self.assertEqual(result.status, "patch_generated")
-            self.assertIn("+value = 2", result.candidate_diff_path.read_text(encoding="utf-8"))
-            self.assertTrue((output / "cases" / "local__case-1" / "execution_environment.json").exists())
+            self.assertIn(
+                "+value = 2", result.candidate_diff_path.read_text(encoding="utf-8")
+            )
+            self.assertTrue(
+                (
+                    output / "cases" / "local__case-1" / "execution_environment.json"
+                ).exists()
+            )
             self.assertFalse(result.workspace.exists())
 
     def test_compare_mode_runs_isolated_single_and_multi_variants(self):
@@ -149,13 +184,17 @@ class SwebenchCompareTest(unittest.TestCase):
                 candidate_diff_path = case_dir / "candidate_changes.diff"
                 trace_path = case_dir / "trace.json"
                 usage_path = case_dir / "usage.json"
-                candidate_diff_path.write_text("diff --git a/a.py b/a.py\n", encoding="utf-8")
+                candidate_diff_path.write_text(
+                    "diff --git a/a.py b/a.py\n", encoding="utf-8"
+                )
                 trace_path.write_text(json.dumps({"events": []}), encoding="utf-8")
                 usage_path.write_text(
                     json.dumps(
                         {
                             "summary": {
-                                "estimated_cost_usd": 0.1 if agent_mode == "single" else 0.2,
+                                "estimated_cost_usd": 0.1
+                                if agent_mode == "single"
+                                else 0.2,
                                 "llm_calls": 1 if agent_mode == "single" else 3,
                                 "tool_calls": 2 if agent_mode == "single" else 5,
                                 "failed_tool_calls": 0,
@@ -173,8 +212,16 @@ class SwebenchCompareTest(unittest.TestCase):
                                 "status": "passed",
                                 "revision_rounds": 1,
                                 "role_results": [
-                                    {"role": "Reviewer", "decision": "PASS", "final_answer": "PASS\nlooks good"},
-                                    {"role": "Verifier", "decision": "PASS", "final_answer": "PASS\nvalidated"},
+                                    {
+                                        "role": "Reviewer",
+                                        "decision": "PASS",
+                                        "final_answer": "PASS\nlooks good",
+                                    },
+                                    {
+                                        "role": "Verifier",
+                                        "decision": "PASS",
+                                        "final_answer": "PASS\nvalidated",
+                                    },
                                 ],
                             }
                         ),
@@ -193,8 +240,15 @@ class SwebenchCompareTest(unittest.TestCase):
                 )
 
         with tempfile.TemporaryDirectory() as tmp:
-            with patch("agent_forge.bench.wiring.SwebenchCaseSource", return_value=FakeSource()), patch(
-                "agent_forge.bench.wiring.LocalCaseExecutor", return_value=FakeExecutor()
+            with (
+                patch(
+                    "agent_forge.bench.wiring.SwebenchCaseSource",
+                    return_value=FakeSource(),
+                ),
+                patch(
+                    "agent_forge.bench.wiring.LocalCaseExecutor",
+                    return_value=FakeExecutor(),
+                ),
             ):
                 summary = run_swebench(
                     SwebenchRunRequest(
@@ -211,23 +265,33 @@ class SwebenchCompareTest(unittest.TestCase):
             comparison_dir = summary.output_dir / "cases" / "local__case-1"
             self.assertTrue((comparison_dir / "comparison.json").exists())
             self.assertTrue((comparison_dir / "evaluation_report.md").exists())
-            report = (comparison_dir / "evaluation_report.md").read_text(encoding="utf-8")
+            report = (comparison_dir / "evaluation_report.md").read_text(
+                encoding="utf-8"
+            )
             self.assertIn("Single vs Multi-Agent Comparison", report)
-            bench_report = (summary.output_dir / "report.md").read_text(encoding="utf-8")
+            bench_report = (summary.output_dir / "report.md").read_text(
+                encoding="utf-8"
+            )
             self.assertIn("comparison", bench_report)
             self.assertIn("evaluation_report.md", bench_report)
 
     def test_direct_baseline_populates_variant_comparison_and_report(self):
         class FakeSource:
             def load(self, request):
-                return [BenchCase("local__case-1", "local/repo", "abc123", "Fix local issue")]
+                return [
+                    BenchCase(
+                        "local__case-1", "local/repo", "abc123", "Fix local issue"
+                    )
+                ]
 
         class FakeExecutor:
             def run(self, case, *, case_dir, agent_mode, request):
                 case_dir.mkdir(parents=True, exist_ok=True)
                 candidate_diff_path = case_dir / "candidate_changes.diff"
                 trace_path = case_dir / "trace.json"
-                candidate_diff_path.write_text("diff --git a/a.py b/a.py\n", encoding="utf-8")
+                candidate_diff_path.write_text(
+                    "diff --git a/a.py b/a.py\n", encoding="utf-8"
+                )
                 trace_path.write_text(json.dumps({"events": []}), encoding="utf-8")
                 return BenchCaseResult(
                     instance_id=case.instance_id,
@@ -251,11 +315,19 @@ class SwebenchCompareTest(unittest.TestCase):
                 }
 
         with tempfile.TemporaryDirectory() as tmp:
-            with patch("agent_forge.bench.wiring.SwebenchCaseSource", return_value=FakeSource()), patch(
-                "agent_forge.bench.wiring.LocalCaseExecutor", return_value=FakeExecutor()
-            ), patch(
-                "agent_forge.bench.wiring.DirectModelBaseline",
-                return_value=FakeBaseline(),
+            with (
+                patch(
+                    "agent_forge.bench.wiring.SwebenchCaseSource",
+                    return_value=FakeSource(),
+                ),
+                patch(
+                    "agent_forge.bench.wiring.LocalCaseExecutor",
+                    return_value=FakeExecutor(),
+                ),
+                patch(
+                    "agent_forge.bench.wiring.DirectModelBaseline",
+                    return_value=FakeBaseline(),
+                ),
             ):
                 summary = run_swebench(
                     SwebenchRunRequest(
@@ -267,7 +339,9 @@ class SwebenchCompareTest(unittest.TestCase):
                 )
             self.assertIn("local__case-1", summary.variant_comparisons)
             comparison = summary.variant_comparisons["local__case-1"]
-            self.assertFalse(comparison["variants"]["direct_baseline"]["patch_generated"])
+            self.assertFalse(
+                comparison["variants"]["direct_baseline"]["patch_generated"]
+            )
             self.assertTrue(comparison["variants"]["agent_runtime"]["patch_generated"])
             self.assertNotIn("governed_agent", comparison["variants"])
             report = (summary.output_dir / "report.md").read_text(encoding="utf-8")
@@ -303,9 +377,15 @@ class SwebenchCompareTest(unittest.TestCase):
                 predictions_path=root / "predictions.jsonl",
                 case_results=[case],
             )
-            with patch("agent_forge.bench.adapters.official_evaluator.importlib.util.find_spec", return_value=True), patch(
-                "agent_forge.bench.adapters.official_evaluator.subprocess.run"
-            ) as run:
+            with (
+                patch(
+                    "agent_forge.bench.adapters.official_evaluator.importlib.util.find_spec",
+                    return_value=True,
+                ),
+                patch(
+                    "agent_forge.bench.adapters.official_evaluator.subprocess.run"
+                ) as run,
+            ):
                 run.return_value.returncode = 2
                 run.return_value.stdout = ""
                 run.return_value.stderr = "docker failed"
@@ -325,8 +405,12 @@ class SwebenchCompareTest(unittest.TestCase):
             for directory in [single_dir, multi_dir]:
                 directory.mkdir(parents=True)
                 (directory / "trace.json").write_text("{}", encoding="utf-8")
-                (directory / "usage.json").write_text(json.dumps({"summary": {}}), encoding="utf-8")
-                (directory / "candidate_changes.diff").write_text("diff", encoding="utf-8")
+                (directory / "usage.json").write_text(
+                    json.dumps({"summary": {}}), encoding="utf-8"
+                )
+                (directory / "candidate_changes.diff").write_text(
+                    "diff", encoding="utf-8"
+                )
             single = BenchCaseResult(
                 instance_id="case-1",
                 repo="local/repo",
@@ -377,11 +461,15 @@ class SwebenchCompareTest(unittest.TestCase):
             summary_path = case_dir / "multi_agent" / "multi_agent_summary.json"
             trace_path.write_text(json.dumps({"events": []}), encoding="utf-8")
             usage_path.write_text(json.dumps({"summary": {}}), encoding="utf-8")
-            summary_path.write_text(json.dumps({"status": "needs_revision"}), encoding="utf-8")
+            summary_path.write_text(
+                json.dumps({"status": "needs_revision"}), encoding="utf-8"
+            )
 
             self.assertEqual(_latest_trace_path(project_dir), trace_path)
             self.assertEqual(_latest_usage_path(project_dir), usage_path)
-            self.assertEqual(_latest_multi_agent_summary_path(project_dir), summary_path)
+            self.assertEqual(
+                _latest_multi_agent_summary_path(project_dir), summary_path
+            )
 
 
 if __name__ == "__main__":

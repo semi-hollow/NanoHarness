@@ -12,6 +12,7 @@ from agent_forge.runtime.config import RuntimeConfig
 from agent_forge.runtime.domain.conversation import Observation, ToolCall
 from agent_forge.runtime.domain.operation import (
     OperationPlan,
+    OperationRecord,
     OperationTarget,
     OperationTransition,
 )
@@ -19,7 +20,7 @@ from agent_forge.runtime.domain.task import TaskCheckpointUpdate, TaskRunStatus
 from agent_forge.runtime.ports import EventSink, OperationLedgerRepository
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, kw_only=True)
 class OperationIntent:
     """原始 ToolCall 经过 Runtime 归一化后的操作身份。
 
@@ -36,12 +37,12 @@ class OperationIntent:
     # 生成稳定 key 和目标指纹所需的工具、参数、工作区事实。
     target: OperationTarget
     # 副作用操作的稳定身份；只读调用不需要幂等记录，因此保持空字符串。
-    key: str = ""
+    operation_key: str = ""
     # 工具执行前目标的当前状态，例如文件路径、SHA256 和大小。
-    fingerprint: dict[str, Any] | None = None
+    pre_execution_fingerprint: dict[str, Any] | None = None
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, kw_only=True)
 class ExistingOperationResolution:
     """恢复时对既有副作用记录作出的唯一决定。
 
@@ -98,14 +99,21 @@ class OperationTracker:
             workspace=self.config.workspace,
         )
         if not side_effect:
-            return OperationIntent(action, command, False, target)
+            return OperationIntent(
+                action=action,
+                command=command,
+                side_effect=False,
+                target=target,
+            )
         return OperationIntent(
             action=action,
             command=command,
             side_effect=True,
             target=target,
-            key=self.operation_repository.operation_key(target),
-            fingerprint=self.operation_repository.operation_fingerprint(target),
+            operation_key=self.operation_repository.operation_key(target),
+            pre_execution_fingerprint=(
+                self.operation_repository.operation_fingerprint(target)
+            ),
         )
 
     # 核心规则：只重放确定完成且未漂移的事实；不确定结果必须停止。
@@ -124,27 +132,27 @@ class OperationTracker:
         ``executing`` 表示进程可能在副作用发生后崩溃，必须 fail closed。
         """
 
-        existing = self.operation_repository.get(intent.key)
-        if existing is None:
-            return ExistingOperationResolution(False)
-        if existing.status == "executing":
+        existing_operation_record = self.operation_repository.get(intent.operation_key)
+        if existing_operation_record is None:
+            return ExistingOperationResolution(consumed=False)
+        if existing_operation_record.status == "executing":
             observation = Observation(
                 tool_call.name,
                 False,
                 (
                     "operation_outcome_unknown: a previous process entered the "
-                    f"side-effect boundary but did not commit its result: {intent.key}"
+                    "side-effect boundary but did not commit its result: "
+                    f"{intent.operation_key}"
                 ),
             )
-            self.trace.add(
-                step,
-                session.agent_name,
-                "operation_ledger",
-                success=False,
-                operation_key=intent.key,
+            self._record_operation_state(
+                step=step,
+                agent_name=session.agent_name,
+                intent=intent,
+                operation_record=existing_operation_record,
                 operation_status="operation_outcome_unknown",
-                operation=existing.to_dict(),
-                current_fingerprint=intent.fingerprint,
+                success=False,
+                current_fingerprint=intent.pre_execution_fingerprint,
             )
             self.tool_feedback.append_tool_observation(
                 session,
@@ -153,8 +161,8 @@ class OperationTracker:
                 step,
             )
             return ExistingOperationResolution(
-                True,
-                StopRequest(
+                consumed=True,
+                stop=StopRequest(
                     status=TaskRunStatus.BLOCKED,
                     reason="operation_outcome_unknown",
                     final_answer="blocked: operation outcome is unknown",
@@ -165,34 +173,36 @@ class OperationTracker:
                         "Inspect the operation ledger and target state, then reconcile "
                         "the operation explicitly before starting a fresh attempt."
                     ),
-                    metadata={"operation_key": intent.key},
+                    metadata={"operation_key": intent.operation_key},
                 ),
             )
-        if existing.status != "executed":
-            return ExistingOperationResolution(False)
+        if existing_operation_record.status != "executed":
+            return ExistingOperationResolution(consumed=False)
 
-        stale = existing.post_fingerprint is not None and not self.same_fingerprint(
-            intent.fingerprint,
-            existing.post_fingerprint,
+        target_state_drifted = (
+            existing_operation_record.post_fingerprint is not None
+            and not self.same_fingerprint(
+                intent.pre_execution_fingerprint,
+                existing_operation_record.post_fingerprint,
+            )
         )
-        if stale:
+        if target_state_drifted:
             observation = Observation(
                 tool_call.name,
                 False,
                 (
                     "stale_operation_record: operation was executed before, "
-                    f"but target state changed since then: {intent.key}"
+                    f"but target state changed since then: {intent.operation_key}"
                 ),
             )
-            self.trace.add(
-                step,
-                session.agent_name,
-                "operation_ledger",
-                success=False,
-                operation_key=intent.key,
+            self._record_operation_state(
+                step=step,
+                agent_name=session.agent_name,
+                intent=intent,
+                operation_record=existing_operation_record,
                 operation_status="stale_operation_record",
-                operation=existing.to_dict(),
-                current_fingerprint=intent.fingerprint,
+                success=False,
+                current_fingerprint=intent.pre_execution_fingerprint,
             )
             self.tool_feedback.append_tool_observation(
                 session,
@@ -201,8 +211,8 @@ class OperationTracker:
                 step,
             )
             return ExistingOperationResolution(
-                True,
-                StopRequest(
+                consumed=True,
+                stop=StopRequest(
                     status=TaskRunStatus.BLOCKED,
                     current_step=step,
                     reason="stale_operation_record",
@@ -212,22 +222,21 @@ class OperationTracker:
                     resume_hint="Reread the target before reissuing a side-effect operation.",
                     messages_count=len(session.messages),
                     observations_count=len(session.observations),
-                    metadata={"operation_key": intent.key},
+                    metadata={"operation_key": intent.operation_key},
                 ),
             )
 
         observation = Observation(
             tool_call.name,
             True,
-            f"skipped: operation already executed: {intent.key}",
+            f"skipped: operation already executed: {intent.operation_key}",
         )
-        self.trace.add(
-            step,
-            session.agent_name,
-            "operation_ledger",
-            operation_key=intent.key,
+        self._record_operation_state(
+            step=step,
+            agent_name=session.agent_name,
+            intent=intent,
+            operation_record=existing_operation_record,
             operation_status="skipped_already_executed",
-            operation=existing.to_dict(),
         )
         self.tool_feedback.append_tool_observation(
             session,
@@ -245,7 +254,7 @@ class OperationTracker:
                 observations_count=len(session.observations),
             )
         )
-        return ExistingOperationResolution(True)
+        return ExistingOperationResolution(consumed=True)
 
     def ensure_planned(
         self,
@@ -279,7 +288,7 @@ class OperationTracker:
 
         self.operation_repository.record_approved(
             OperationTransition(
-                operation_key=intent.key,
+                operation_key=intent.operation_key,
                 status="approved",
                 run_id=self.trace.run_id,
                 step=step,
@@ -293,21 +302,20 @@ class OperationTracker:
         continuation 必须把结果视为未知，而不是再次调用工具。
         """
 
-        record = self.operation_repository.record_executing(
+        executing_operation_record = self.operation_repository.record_executing(
             OperationTransition(
-                operation_key=intent.key,
+                operation_key=intent.operation_key,
                 status="executing",
                 run_id=self.trace.run_id,
                 step=step,
             )
         )
-        self.trace.add(
-            step,
-            "Runtime",
-            "operation_ledger",
-            operation_key=intent.key,
-            operation_status=record.status,
-            operation=record.to_dict(),
+        self._record_operation_state(
+            step=step,
+            agent_name="Runtime",
+            intent=intent,
+            operation_record=executing_operation_record,
+            operation_status=executing_operation_record.status,
         )
 
     # 运行时端口：把真实执行结果与 post-fingerprint 提交到唯一幂等账本。
@@ -330,8 +338,8 @@ class OperationTracker:
         post_fingerprint = self.operation_repository.operation_fingerprint(
             intent.target
         )
-        update = OperationTransition(
-            operation_key=intent.key,
+        execution_result_transition = OperationTransition(
+            operation_key=intent.operation_key,
             status="executed" if observation.success else "failed",
             run_id=self.trace.run_id,
             step=step,
@@ -339,36 +347,67 @@ class OperationTracker:
             post_fingerprint=post_fingerprint,
         )
         if observation.success:
-            record = self.operation_repository.record_executed(update)
+            final_operation_record = self.operation_repository.record_executed(
+                execution_result_transition
+            )
         else:
-            record = self.operation_repository.record_failed(update)
-        self.trace.add(
-            step,
-            session.agent_name,
-            "operation_ledger",
-            operation_key=intent.key,
-            operation_status=record.status,
-            operation=record.to_dict(),
+            final_operation_record = self.operation_repository.record_failed(
+                execution_result_transition
+            )
+        self._record_operation_state(
+            step=step,
+            agent_name=session.agent_name,
+            intent=intent,
+            operation_record=final_operation_record,
+            operation_status=final_operation_record.status,
         )
 
     def has_record(self, intent: OperationIntent) -> bool:
         """判断副作用身份是否已经进入 Ledger。"""
 
-        return self.operation_repository.get(intent.key) is not None
+        return self.operation_repository.get(intent.operation_key) is not None
+
+    def _record_operation_state(
+        self,
+        *,
+        step: int,
+        agent_name: str,
+        intent: OperationIntent,
+        operation_record: OperationRecord,
+        operation_status: str,
+        success: bool = True,
+        current_fingerprint: dict[str, Any] | None = None,
+    ) -> None:
+        """把 Ledger 状态投影到 trace；Ledger 本身仍是可恢复状态的权威来源。"""
+
+        evidence: dict[str, Any] = {
+            "operation_key": intent.operation_key,
+            "operation_status": operation_status,
+            "operation": operation_record.to_dict(),
+        }
+        if current_fingerprint is not None:
+            evidence["current_fingerprint"] = current_fingerprint
+        self.trace.add(
+            step,
+            agent_name,
+            "operation_ledger",
+            success=success,
+            **evidence,
+        )
 
     def _plan(
         self,
         intent: OperationIntent,
         step: int,
-        status: str,
+        operation_status: str,
     ) -> OperationPlan:
         return OperationPlan(
-            operation_key=intent.key,
+            operation_key=intent.operation_key,
             target=intent.target,
             run_id=self.trace.run_id,
             step=step,
-            status=status,
-            pre_fingerprint=intent.fingerprint,
+            status=operation_status,
+            pre_fingerprint=intent.pre_execution_fingerprint,
         )
 
     @staticmethod

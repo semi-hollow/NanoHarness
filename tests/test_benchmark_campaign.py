@@ -174,15 +174,15 @@ class BenchmarkCampaignTest(unittest.TestCase):
                 4,
             )
 
-            public_dir = second.public_dir
-            self.assertIsNotNone(public_dir)
-            assert public_dir is not None
+            published_bundle_dir = second.published_bundle_dir
+            self.assertIsNotNone(published_bundle_dir)
+            assert published_bundle_dir is not None
             manifest = json.loads(
-                (public_dir / "manifest.json").read_text(encoding="utf-8")
+                (published_bundle_dir / "manifest.json").read_text(encoding="utf-8")
             )
             first_record = manifest["records"][0]
             public_scorecard = (
-                public_dir / "runs" / first_record["key"] / "scorecard.json"
+                published_bundle_dir / "runs" / first_record["key"] / "scorecard.json"
             )
             self.assertEqual(
                 first_record["scorecard_sha256"],
@@ -190,11 +190,11 @@ class BenchmarkCampaignTest(unittest.TestCase):
             )
             public_text = "\n".join(
                 path.read_text(encoding="utf-8")
-                for path in public_dir.rglob("*")
+                for path in published_bundle_dir.rglob("*")
                 if path.is_file()
             )
             public_summary = json.loads(
-                (public_dir / "summary.json").read_text(encoding="utf-8")
+                (published_bundle_dir / "summary.json").read_text(encoding="utf-8")
             )
 
         self.assertNotIn("super-secret", public_text)

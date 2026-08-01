@@ -56,7 +56,7 @@ from agent_forge.safety.sandbox import WorkspaceSandbox
 from agent_forge.skills import build_default_skill_registry
 from agent_forge.tools.replace_text import ReplaceTextTool
 from agent_forge.tools.ask_human import AskHumanTool
-from agent_forge.tools.diagnostics import DiagnosticsTool
+from agent_forge.tools.python_validation import PythonValidationTool
 from agent_forge.tools.git_diff import GitDiffTool
 from agent_forge.tools.git_status import GitStatusTool
 from agent_forge.tools.grep import GrepSearchTool, GrepTool
@@ -69,7 +69,7 @@ from agent_forge.tools.write_file import WriteFileTool
 
 
 # 核心数据：装配受治理工具注册表所需的完整输入。
-@dataclass(frozen=True)
+@dataclass(frozen=True, kw_only=True)
 class ToolRegistryBuildRequest:
     """装配受治理工具注册表所需的完整输入。"""
 
@@ -82,7 +82,7 @@ class ToolRegistryBuildRequest:
 
 
 # 核心数据：外围入口提交的一次人工回答或取消命令。
-@dataclass(frozen=True)
+@dataclass(frozen=True, kw_only=True)
 class HumanInputResponseCommand:
     """外围入口提交的一次人工回答或取消命令。"""
 
@@ -93,7 +93,7 @@ class HumanInputResponseCommand:
     note: str = ""
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, kw_only=True)
 class RuntimeDependencyOverrides:
     """供 SDK 或测试按端口替换默认 Adapter 的内部装配请求。
 
@@ -114,7 +114,7 @@ class RuntimeDependencyOverrides:
     control: RunControlPort | None = None
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, kw_only=True)
 class AgentLoopBuildRequest:
     """带可选端口覆盖的完整 AgentLoop 装配请求。"""
 
@@ -144,7 +144,7 @@ def build_registry(request: ToolRegistryBuildRequest) -> ToolRegistry:
         ),
         GitStatusTool(sandbox),
         GitDiffTool(sandbox),
-        DiagnosticsTool(
+        PythonValidationTool(
             sandbox,
             execution_environment=request.execution_environment,
         ),
@@ -197,66 +197,76 @@ def build_runtime_dependencies(
     """
 
     return _build_runtime_dependencies(
-        AgentLoopBuildRequest(config, trace, registry, llm)
+        AgentLoopBuildRequest(
+            config=config,
+            trace=trace,
+            registry=registry,
+            llm=llm,
+        )
     )
 
 
-def _build_runtime_dependencies(request: AgentLoopBuildRequest) -> RuntimeDependencies:
-    config = request.config
-    if request.llm is None:
+def _build_runtime_dependencies(
+    build_request: AgentLoopBuildRequest,
+) -> RuntimeDependencies:
+    runtime_config = build_request.config
+    if build_request.llm is None:
         raise ValueError(
             "AgentLoop requires a real LLM client; build it through runtime.wiring"
         )
-    selected = request.overrides or RuntimeDependencyOverrides()
-    environment = (
-        selected.environment
-        or config.execution_environment
-        or ExecutionEnvironment(ExecutionEnvironmentConfig(workspace=config.workspace))
+    dependency_overrides = build_request.overrides or RuntimeDependencyOverrides()
+    execution_environment = (
+        dependency_overrides.environment
+        or runtime_config.execution_environment
+        or ExecutionEnvironment(
+            ExecutionEnvironmentConfig(workspace=runtime_config.workspace)
+        )
     )
-    if selected.hooks is not None:
-        if selected.additional_hooks:
+    if dependency_overrides.hooks is not None:
+        if dependency_overrides.additional_hooks:
             raise ValueError(
                 "additional lifecycle hooks cannot be combined with a full HookPort override"
             )
-        hooks = selected.hooks
-    elif isinstance(environment, ExecutionEnvironment):
-        hooks = HookManager.default(
-            environment,
-            config.auto_approve_writes,
-            approval_mode=config.approval_mode,
-            additional_hooks=list(selected.additional_hooks),
-        ).observe_with(request.trace)
+        runtime_hooks = dependency_overrides.hooks
+    elif isinstance(execution_environment, ExecutionEnvironment):
+        runtime_hooks = HookManager.default(
+            execution_environment,
+            runtime_config.auto_approve_writes,
+            approval_mode=runtime_config.approval_mode,
+            additional_hooks=list(dependency_overrides.additional_hooks),
+        ).observe_with(build_request.trace)
     else:
         raise ValueError(
             "a custom EnvironmentPort requires a matching HookPort override"
         )
     return RuntimeDependencies(
-        events=request.trace,
-        context=selected.context or RepositoryContextAssembler(),
-        skills=selected.skills
-        or build_default_skill_registry(getattr(config, "skill_manifest_files", [])),
-        tools=request.registry,
-        model=request.llm,
+        events=build_request.trace,
+        context=dependency_overrides.context or RepositoryContextAssembler(),
+        skills=dependency_overrides.skills
+        or build_default_skill_registry(runtime_config.skill_manifest_files),
+        tools=build_request.registry,
+        model=build_request.llm,
         model_capabilities=resolve_model_capabilities(
-            request.llm,
-            config.model_capabilities,
-            fallback_context_window=config.max_prompt_tokens,
+            build_request.llm,
+            runtime_config.model_capabilities,
+            fallback_context_window=runtime_config.max_prompt_tokens,
         ),
-        environment=environment,
-        hooks=hooks,
-        task_states=selected.task_states
-        or JsonTaskStateRepository(config.task_state_root),
-        approvals=selected.approvals or JsonApprovalRepository(config.approval_root),
-        human_inputs=selected.human_inputs
-        or JsonHumanInputRepository(config.human_input_root),
-        operations=selected.operations
-        or JsonOperationLedgerRepository(config.operation_ledger_root),
-        control=selected.control or NoopRunControl(),
-        long_term_memory_recall=selected.long_term_memory_recall
+        environment=execution_environment,
+        hooks=runtime_hooks,
+        task_states=dependency_overrides.task_states
+        or JsonTaskStateRepository(runtime_config.task_state_root),
+        approvals=dependency_overrides.approvals
+        or JsonApprovalRepository(runtime_config.approval_root),
+        human_inputs=dependency_overrides.human_inputs
+        or JsonHumanInputRepository(runtime_config.human_input_root),
+        operations=dependency_overrides.operations
+        or JsonOperationLedgerRepository(runtime_config.operation_ledger_root),
+        control=dependency_overrides.control or NoopRunControl(),
+        long_term_memory_recall=dependency_overrides.long_term_memory_recall
         or LongTermMemoryService(
             JsonLongTermMemoryRepository(
-                config.memory_root
-                or str(Path(config.workspace) / ".agent_forge" / "memory")
+                runtime_config.memory_root
+                or str(Path(runtime_config.workspace) / ".agent_forge" / "memory")
             )
         ),
     )
@@ -278,7 +288,12 @@ def build_agent_loop(
     """
 
     return build_agent_loop_from_request(
-        AgentLoopBuildRequest(config, trace, registry, llm)
+        AgentLoopBuildRequest(
+            config=config,
+            trace=trace,
+            registry=registry,
+            llm=llm,
+        )
     )
 
 

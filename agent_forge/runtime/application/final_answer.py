@@ -7,7 +7,7 @@ from agent_forge.runtime.application.session import AgentRunSession
 from agent_forge.runtime.domain.conversation import AgentResponse
 from agent_forge.runtime.domain.task import TaskRunStatus
 from agent_forge.runtime.ports import EventSink
-from agent_forge.safety.guardrails import output_guardrail
+from agent_forge.safety.guardrails import GuardrailResult, output_guardrail
 
 
 class FinalAnswerBuilder:
@@ -35,14 +35,7 @@ class FinalAnswerBuilder:
 
         if self._contains_raw_tool_call_markup(response.content or ""):
             final_answer = "blocked: pending_tool_call_at_stop"
-            self.trace.add(
-                step,
-                session.agent_name,
-                "final_answer",
-                success=False,
-                observation=final_answer,
-                pending_tool_call=True,
-            )
+            self._record_pending_tool_call(session, step, final_answer)
             return StopRequest(
                 status=TaskRunStatus.BLOCKED,
                 reason="pending_tool_call_at_stop",
@@ -69,6 +62,51 @@ class FinalAnswerBuilder:
             session.ran_tests,
             session.blocked,
         )
+        self._record_final_answer_evidence(
+            session=session,
+            step=step,
+            final_answer=final_answer,
+            citations=citations,
+            output_check=output_check,
+        )
+        return StopRequest(
+            status=TaskRunStatus.COMPLETED,
+            reason="final_answer",
+            final_answer=final_answer,
+            current_step=step,
+            messages_count=len(session.messages),
+            observations_count=len(session.observations),
+        )
+
+    # region 证据记录器（首次阅读可折叠）
+    def _record_pending_tool_call(
+        self,
+        session: AgentRunSession,
+        step: int,
+        final_answer: str,
+    ) -> None:
+        """记录模型把未执行 ToolCall 当成最终文本返回的协议错误。"""
+
+        self.trace.add(
+            step,
+            session.agent_name,
+            "final_answer",
+            success=False,
+            observation=final_answer,
+            pending_tool_call=True,
+        )
+
+    def _record_final_answer_evidence(
+        self,
+        *,
+        session: AgentRunSession,
+        step: int,
+        final_answer: str,
+        citations: list[str],
+        output_check: GuardrailResult,
+    ) -> None:
+        """分别记录输出门禁结论和最终文本引用。"""
+
         self.trace.add(
             step,
             session.agent_name,
@@ -87,16 +125,10 @@ class FinalAnswerBuilder:
             observation=final_answer,
             evidence_refs=citations,
         )
-        return StopRequest(
-            status=TaskRunStatus.COMPLETED,
-            reason="final_answer",
-            final_answer=final_answer,
-            current_step=step,
-            messages_count=len(session.messages),
-            observations_count=len(session.observations),
-        )
+
+    # endregion 证据记录器结束
 
     @staticmethod
     def _contains_raw_tool_call_markup(content: str) -> bool:
-        lowered = content.lower()
-        return "tool_calls" in lowered and "invoke name=" in lowered
+        normalized_answer = content.lower()
+        return "tool_calls" in normalized_answer and "invoke name=" in normalized_answer

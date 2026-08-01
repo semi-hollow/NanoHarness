@@ -39,7 +39,7 @@ class RunController(RunControlPort):
 
         self._set_terminal(
             run_id,
-            RunControlSignal(RunControlKind.PAUSE, reason=reason),
+            RunControlSignal(kind=RunControlKind.PAUSE, reason=reason),
         )
 
     # 主要入口：请求 AgentLoop 在下一个安全边界取消，不回滚既有副作用。
@@ -50,14 +50,14 @@ class RunController(RunControlPort):
 
         self._set_terminal(
             run_id,
-            RunControlSignal(RunControlKind.CANCEL, reason=reason),
+            RunControlSignal(kind=RunControlKind.CANCEL, reason=reason),
         )
 
     # 主要入口：把新的用户方向注入下一次模型调用，不修改已经执行的事实。
     def steer(self, message: str, *, run_id: str = "") -> None:
         """提交 steer，并在下一次安全模型边界追加为用户消息。"""
 
-        signal = RunControlSignal(RunControlKind.STEER, message=message)
+        signal = RunControlSignal(kind=RunControlKind.STEER, message=message)
         with self._lock:
             self._steers[run_id].append(signal)
 

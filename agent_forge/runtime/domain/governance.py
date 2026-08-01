@@ -28,7 +28,7 @@ class ApprovalMode(Enum):
 SIDE_EFFECT_ACTIONS = {"write", "run_command"}
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, kw_only=True)
 class HookDecision:
     """一个 Hook 的独立决策及审计信息。"""
 
@@ -48,7 +48,7 @@ class HookDecision:
         }
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, kw_only=True)
 class HookContext:
     """策略判断一次工具意图所需的完整上下文。"""
 
@@ -64,7 +64,7 @@ class HookContext:
 
 
 # 核心数据：模型生命周期 Hook 可见的非敏感调用摘要。
-@dataclass(frozen=True)
+@dataclass(frozen=True, kw_only=True)
 class ModelHookContext:
     """模型调用身份、规模和压缩状态，不包含 Prompt 正文或凭据。"""
 
@@ -78,7 +78,7 @@ class ModelHookContext:
     compacted: bool
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, kw_only=True)
 class HookResult:
     """多个 Hook 合并后的有效决策。"""
 

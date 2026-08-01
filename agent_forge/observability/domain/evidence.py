@@ -41,7 +41,11 @@ class EvidenceLedger:
             summary = text.replace("\n", " ")[:160]
         elif observation.tool_name in {"replace_text", "write_file"}:
             summary = text[:160]
-        elif observation.tool_name in {"git_diff", "git_status", "diagnostics"}:
+        elif observation.tool_name in {
+            "git_diff",
+            "git_status",
+            "python_validation",
+        }:
             summary = text.replace("\n", " ")[:160]
         elif not observation.success:
             summary = text[:160]

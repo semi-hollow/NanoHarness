@@ -16,27 +16,26 @@ if TYPE_CHECKING:
 
 
 class JsonTraceRecorder(EventSink):
+    """把 Runtime 事件追加为统一信封，并在终态发布 ``trace.json``。
+
+    可类比 Java 中的结构化审计日志 Adapter：业务流程决定“发生了什么”，本类只负责补齐
+    run_id、时间间隔等公共字段并持久化，不参与权限、恢复或评测决策。
+    """
 
     def __init__(self, path: str, verbose: bool = False, write_summary_file: bool = False) -> None:
-
         self.path = path
-
         self.verbose = verbose
         self.write_summary_file = write_summary_file
-
         self.run_id = str(uuid.uuid4())
-
         self.events: list[TraceRecord] = []
         self.started_at = time.time()
-
         self._last_event_at = self.started_at
-
         self.task = ""
         self.stop_reason = ""
         self.final_answer = ""
 
     def set_run_context(self, task: str = "", stop_reason: str = "", final_answer: str = "") -> None:
-
+        """补充整次运行的任务和终态信息；这些字段位于事件流之外。"""
         if task:
             self.task = task
         if stop_reason:
@@ -53,10 +52,9 @@ class JsonTraceRecorder(EventSink):
         error: str = "",
         **data: Any,
     ) -> None:
-
+        """兼容现有调用方的通用记录入口；新增核心事件优先使用类型化方法。"""
         self._append(step, agent_name, event_type, success=success, error=error, data=data)
 
-    # 运行时端口：把 checkpoint 记录为类型化 trace event，而非调试字符串。
     def record_task_state_checkpoint(
         self,
         *,
@@ -64,7 +62,7 @@ class JsonTraceRecorder(EventSink):
         agent_name: str,
         checkpoint: "TaskCheckpoint",
     ) -> None:
-
+        """记录一份可恢复状态快照，供 Workbench 对比相邻状态转换。"""
         self._append(
             step,
             agent_name,
@@ -82,7 +80,7 @@ class JsonTraceRecorder(EventSink):
         error: str = "",
         data: Mapping[str, Any] | None = None,
     ) -> None:
-
+        """实现 EventSink 的类型化事件入口，保留调用方已经定义好的业务字段。"""
         self._append(
             step,
             agent_name,
@@ -102,7 +100,7 @@ class JsonTraceRecorder(EventSink):
         error: str = "",
         data: Mapping[str, Any] | None = None,
     ) -> None:
-
+        """统一补齐事件信封、计算距上次事件的耗时并追加到内存事实流。"""
         now = time.time()
         event = TraceEvent(
             run_id=self.run_id,
@@ -119,9 +117,8 @@ class JsonTraceRecorder(EventSink):
         if self.verbose:
             print(f"[trace] step={step} agent={agent_name} event={event_type} success={success}")
 
-    # 运行时端口：将当前事实流和 run context 原子发布为 trace.json。
     def write(self) -> None:
-
+        """将当前事实流和 run context 发布为 ``trace.json``。"""
         trace = {
             "run_id": self.run_id,
             "task": self.task,

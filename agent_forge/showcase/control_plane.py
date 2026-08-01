@@ -175,8 +175,11 @@ class _ApprovalShowcaseModel:
                 [
                     ToolCall(
                         "showcase-focused-pytest",
-                        "diagnostics",
-                        {"kind": "pytest", "target": "test_target.py"},
+                        "python_validation",
+                        {
+                            "check_type": "pytest",
+                            "validation_target": "test_target.py",
+                        },
                     )
                 ],
             )
@@ -335,6 +338,7 @@ def _run_phase(
         request_id=request_id,
         operation_key=operation_key,
     )
+
 
 def _new_run_dir(output_root: str | Path, scenario: str) -> Path:
     run_id = f"{scenario}-{time.strftime('%Y%m%d-%H%M%S')}-{uuid.uuid4().hex[:7]}"

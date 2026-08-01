@@ -19,16 +19,22 @@ class BuildBenchmarkScorecard:
     ) -> dict[str, Any]:
         """读取运行证据并构造 claim-safe benchmark scorecard。"""
 
-        root = Path(run_dir)
-        raw_cases = results.get("case_results")
-        case_results = raw_cases if isinstance(raw_cases, list) else []
+        run_directory = Path(run_dir)
+        raw_case_results = results.get("case_results")
+        case_results = raw_case_results if isinstance(raw_case_results, list) else []
         normalized_cases = [
             normalize_case(
-                item,
-                usage=self._evidence_reader.load_usage(item, root),
-                environment=self._evidence_reader.load_environment(item, root),
+                case_result,
+                usage=self._evidence_reader.load_usage(
+                    case_result,
+                    run_directory,
+                ),
+                environment=self._evidence_reader.load_environment(
+                    case_result,
+                    run_directory,
+                ),
             )
-            for item in case_results
-            if isinstance(item, dict)
+            for case_result in case_results
+            if isinstance(case_result, dict)
         ]
         return build_scorecard(results, normalized_cases)

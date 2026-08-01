@@ -8,7 +8,7 @@ from typing import Any
 
 
 # 核心数据：副作用操作指向的工具、参数和工作区目标。
-@dataclass(frozen=True)
+@dataclass(frozen=True, kw_only=True)
 class OperationTarget:
     """生成稳定 key 和目标指纹所需的最小事实。"""
 
@@ -19,7 +19,7 @@ class OperationTarget:
 
 
 # 核心数据：副作用进入 planned/pending 账本所需的完整输入。
-@dataclass(frozen=True)
+@dataclass(frozen=True, kw_only=True)
 class OperationPlan:
     """将一个目标绑定到 operation key 和当前 run 位置。"""
 
@@ -32,7 +32,7 @@ class OperationPlan:
 
 
 # 核心数据：已存在 OperationRecord 的一次状态迁移。
-@dataclass(frozen=True)
+@dataclass(frozen=True, kw_only=True)
 class OperationTransition:
     """批准、执行或失败时写入账本的状态和执行证据。"""
 
@@ -46,7 +46,7 @@ class OperationTransition:
 
 
 # 核心数据：可恢复副作用的幂等账本记录和前后目标指纹。
-@dataclass
+@dataclass(kw_only=True)
 class OperationRecord:
     """一次副作用操作的幂等状态和目标指纹。
 

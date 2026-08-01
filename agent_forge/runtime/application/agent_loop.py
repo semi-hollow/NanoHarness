@@ -46,7 +46,7 @@ class AgentLoop:
             dependencies.control,
             dependencies.events,
         )
-        human_thread_id = getattr(config, "human_thread_id", "") or self.trace.run_id
+        human_thread_id = config.human_thread_id or self.trace.run_id
         self.run_preparation = RunPreparation(
             config,
             dependencies,
@@ -87,6 +87,7 @@ class AgentLoop:
         删除/内联影响：会隐藏阶段顺序并让多个入口各自处理停止语义。
         """
 
+        # region 1. 创建会话并处理首次控制/澄清屏障
         run_session = self.run_preparation.create_session(task, agent_name)
         initial_operator_control = self.run_control_handler.consume_pending_signals(
             run_session,
@@ -100,7 +101,9 @@ class AgentLoop:
         preparation_stop = self.run_preparation.prepare_run(run_session)
         if preparation_stop is not None:
             return self._finalize_run(run_session, preparation_stop)
+        # endregion 1. 创建会话并处理首次控制/澄清屏障结束
 
+        # region 2. 有界 Turn Loop：每轮只编排，不复制阶段规则
         for step in range(1, run_session.max_iterations + 1):
             # 模型边界 1：先把已排队 steer 写成 user message，再组装本 turn 上下文。
             operator_control = self.run_control_handler.consume_pending_signals(
@@ -115,7 +118,9 @@ class AgentLoop:
             turn_stop = self._run_turn(run_session, step)
             if turn_stop is not None:
                 return self._finalize_run(run_session, turn_stop)
+        # endregion 2. 有界 Turn Loop结束
 
+        # region 3. 预算耗尽收口：所有退出仍汇合到 RunLifecycle
         return self._finalize_run(
             run_session,
             StopRequest(
@@ -124,6 +129,7 @@ class AgentLoop:
                 final_answer="blocked: max_steps reached",
             ),
         )
+        # endregion 3. 预算耗尽收口结束
 
     # region 第二层内部步骤（首次阅读可折叠）
     def _run_turn(
@@ -133,13 +139,9 @@ class AgentLoop:
     ) -> StopRequest | None:
         """执行一个 turn：准备输入 -> 调用模型 -> final 或工具分支。"""
 
+        # region 1. 准备模型输入并执行一次受 Hook 治理的模型调用
         session.iteration = step
-        self.trace.add(
-            step,
-            session.agent_name,
-            "turn_started",
-            turn={"max_iterations": session.max_iterations},
-        )
+        self._record_turn_started(session, step)
         prepared_turn = self.turn_preparation.prepare_turn(session, step)
         model_response, hook_stop_request = self._call_model(
             session,
@@ -149,7 +151,9 @@ class AgentLoop:
             return hook_stop_request
         if model_response is None:  # pragma: no cover - protected by _call_model
             raise AssertionError("model invocation returned no response")
+        # endregion 1. 准备模型输入并执行一次受 Hook 治理的模型调用结束
 
+        # region 2. 模型返回边界：优先消费操作员控制与预算信号
         # 模型边界 2：模型调用期间到达的 steer 使本次 response 过时；丢弃后重规划。
         operator_control = self.run_control_handler.consume_pending_signals(
             session,
@@ -158,47 +162,34 @@ class AgentLoop:
         if operator_control.stop is not None:
             return operator_control.stop
         if operator_control.steered:
-            self.trace.add(
-                step,
-                session.agent_name,
-                "recovery_decision",
-                recovery_hint="discard model response and re-plan from operator steer",
-                retryable=True,
-                failure_kind="operator_steer",
-            )
+            self._record_steer_replan(session, step)
             return None
 
         budget_stop_request = self._budget_stop_request(session, step)
         if budget_stop_request is not None:
             return budget_stop_request
+        # endregion 2. 模型返回边界结束
 
+        # region 3. 上下文溢出恢复：仅在确实缩小窗口后重试一次
         if model_response.error and _is_context_overflow(model_response.error):
             compacted_turn = self.turn_preparation.prepare_turn(
                 session,
                 step,
                 force_compaction=True,
             )
-            self.trace.add(
-                step,
-                session.agent_name,
-                "context_overflow_recovery",
-                success=(
-                    compacted_turn.compacted
-                    and compacted_turn.estimated_prompt_tokens
-                    < prepared_turn.estimated_prompt_tokens
-                ),
-                context_overflow={
-                    "initial_error": model_response.error,
-                    "tokens_before": prepared_turn.estimated_prompt_tokens,
-                    "tokens_after": compacted_turn.estimated_prompt_tokens,
-                    "compacted": compacted_turn.compacted,
-                },
-            )
-            if (
+            recovery_reduced_context = (
                 compacted_turn.compacted
                 and compacted_turn.estimated_prompt_tokens
                 < prepared_turn.estimated_prompt_tokens
-            ):
+            )
+            self._record_context_overflow_recovery(
+                session=session,
+                initial_turn=prepared_turn,
+                compacted_turn=compacted_turn,
+                model_error=model_response.error,
+                recovery_reduced_context=recovery_reduced_context,
+            )
+            if recovery_reduced_context:
                 prepared_turn = compacted_turn
                 model_response, hook_stop_request = self._call_model(
                     session,
@@ -211,7 +202,9 @@ class AgentLoop:
                 budget_stop_request = self._budget_stop_request(session, step)
                 if budget_stop_request is not None:
                     return budget_stop_request
+        # endregion 3. 上下文溢出恢复结束
 
+        # region 4. 响应分流：失败、最终回答或工具治理三选一
         if model_response.error:
             return self._handle_model_failure(session, model_response, step)
 
@@ -227,6 +220,7 @@ class AgentLoop:
             step=step,
             allowed_tool_names=prepared_turn.allowed_tool_names,
         )
+        # endregion 4. 响应分流结束
 
     def _call_model(
         self,
@@ -246,11 +240,9 @@ class AgentLoop:
             compacted=prepared_turn.compacted,
         )
         before_model_decision = self.hooks.before_model(model_hook_context)
-        self.trace.add(
-            prepared_turn.step,
-            session.agent_name,
-            "hook_check",
-            hook_stage="before_model",
+        self._record_before_model_hook(
+            session=session,
+            prepared_turn=prepared_turn,
             hook_result=before_model_decision.to_dict(),
         )
         if before_model_decision.decision in {
@@ -264,17 +256,7 @@ class AgentLoop:
                 current_step=prepared_turn.step,
                 resume_hint="Adjust the lifecycle hook or task before resuming.",
             )
-        self.trace.add(
-            prepared_turn.step,
-            session.agent_name,
-            "model_started",
-            model_request={
-                "messages_count": len(prepared_turn.messages_for_llm),
-                "tool_count": len(prepared_turn.schemas),
-                "estimated_prompt_tokens": prepared_turn.estimated_prompt_tokens,
-                "compacted": prepared_turn.compacted,
-            },
-        )
+        self._record_model_started(session, prepared_turn)
         model_response = self.hooks.after_model(
             model_hook_context,
             self.llm.chat(
@@ -326,18 +308,10 @@ class AgentLoop:
 
         model_error = model_response.error or {"code": "unknown_error"}
         failure_signal = session.controller.model_failure(model_error)
-        self.trace.add(
-            step,
-            session.agent_name,
-            "error",
-            success=False,
-            error=str(model_error),
-        )
-        self.trace.add(
-            step,
-            session.agent_name,
-            "recovery_decision",
-            success=failure_signal.retryable,
+        self._record_model_failure(
+            session=session,
+            step=step,
+            model_error=model_error,
             failure_kind=failure_signal.kind.value,
             retryable=failure_signal.retryable,
             recovery_hint=failure_signal.recovery_hint,
@@ -387,6 +361,120 @@ class AgentLoop:
             response_normalization=model_response.normalization or {},
         )
 
+    # region 证据记录器（首次阅读可折叠）
+    def _record_turn_started(self, session: AgentRunSession, step: int) -> None:
+        """记录 turn 边界；step 表示模型决策轮次，不是事件序号。"""
+
+        self.trace.add(
+            step,
+            session.agent_name,
+            "turn_started",
+            turn={"max_iterations": session.max_iterations},
+        )
+
+    def _record_steer_replan(self, session: AgentRunSession, step: int) -> None:
+        """记录旧模型响应因 operator steer 到达而被丢弃。"""
+
+        self.trace.add(
+            step,
+            session.agent_name,
+            "recovery_decision",
+            recovery_hint="discard model response and re-plan from operator steer",
+            retryable=True,
+            failure_kind="operator_steer",
+        )
+
+    def _record_context_overflow_recovery(
+        self,
+        *,
+        session: AgentRunSession,
+        initial_turn: PreparedTurn,
+        compacted_turn: PreparedTurn,
+        model_error: dict[str, object] | None,
+        recovery_reduced_context: bool,
+    ) -> None:
+        """记录压缩前后 token 规模，证明恢复动作是否真正缩小输入。"""
+
+        self.trace.add(
+            initial_turn.step,
+            session.agent_name,
+            "context_overflow_recovery",
+            success=recovery_reduced_context,
+            context_overflow={
+                "initial_error": model_error or {},
+                "tokens_before": initial_turn.estimated_prompt_tokens,
+                "tokens_after": compacted_turn.estimated_prompt_tokens,
+                "compacted": compacted_turn.compacted,
+            },
+        )
+
+    def _record_before_model_hook(
+        self,
+        *,
+        session: AgentRunSession,
+        prepared_turn: PreparedTurn,
+        hook_result: dict,
+    ) -> None:
+        """记录模型调用前所有 Hook 合并后的门禁决定。"""
+
+        self.trace.add(
+            prepared_turn.step,
+            session.agent_name,
+            "hook_check",
+            hook_stage="before_model",
+            hook_result=hook_result,
+        )
+
+    def _record_model_started(
+        self,
+        session: AgentRunSession,
+        prepared_turn: PreparedTurn,
+    ) -> None:
+        """记录实际发送给模型前的输入规模，不保存敏感 Prompt 正文。"""
+
+        self.trace.add(
+            prepared_turn.step,
+            session.agent_name,
+            "model_started",
+            model_request={
+                "messages_count": len(prepared_turn.messages_for_llm),
+                "tool_count": len(prepared_turn.schemas),
+                "estimated_prompt_tokens": prepared_turn.estimated_prompt_tokens,
+                "compacted": prepared_turn.compacted,
+            },
+        )
+
+    def _record_model_failure(
+        self,
+        *,
+        session: AgentRunSession,
+        step: int,
+        model_error: dict[str, object],
+        failure_kind: str,
+        retryable: bool,
+        recovery_hint: str,
+    ) -> None:
+        """把 provider 原始错误和 Runtime 恢复判断保留为两条独立事实。"""
+
+        self.trace.add(
+            step,
+            session.agent_name,
+            "error",
+            success=False,
+            error=str(model_error),
+        )
+        self.trace.add(
+            step,
+            session.agent_name,
+            "recovery_decision",
+            success=retryable,
+            failure_kind=failure_kind,
+            retryable=retryable,
+            recovery_hint=recovery_hint,
+        )
+
+    # endregion 证据记录器结束
+
     @staticmethod
     def _finalize_run(
         session: AgentRunSession,
@@ -394,13 +482,12 @@ class AgentLoop:
     ) -> str:
         """更新内存状态，并把唯一 terminal transition 交给 lifecycle。"""
 
-        session.status = (
-            "completed"
-            if stop_request.status == TaskRunStatus.COMPLETED
-            else "failed"
-            if stop_request.status == TaskRunStatus.FAILED
-            else "stopped"
-        )
+        if stop_request.status == TaskRunStatus.COMPLETED:
+            session.status = "completed"
+        elif stop_request.status == TaskRunStatus.FAILED:
+            session.status = "failed"
+        else:
+            session.status = "stopped"
         session.stop_reason = stop_request.reason
         session.final_answer = stop_request.final_answer
         return session.lifecycle.finalize_run(stop_request)

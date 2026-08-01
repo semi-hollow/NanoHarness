@@ -9,17 +9,16 @@ from ..presentation.report import render_multi_agent_report
 
 
 class FileArtifactRepository:
-
     def __init__(self, run_dir: Path) -> None:
-
         self.run_dir = Path(run_dir)
         self.root = self.run_dir / "multi_agent"
         self.artifacts_dir = self.root / "artifacts"
         self.artifacts_dir.mkdir(parents=True, exist_ok=True)
         self.artifacts: list[Artifact] = []
 
-    def write_role_artifact(self, role: RoleSpec, content: str, round_index: int) -> Artifact:
-
+    def write_role_artifact(
+        self, role: RoleSpec, content: str, round_index: int
+    ) -> Artifact:
         slug = _slug(f"r{round_index:02d}-{role.name}-{role.output_artifact}")
         path = self.artifacts_dir / f"{slug}.md"
         body = "\n".join(
@@ -48,38 +47,50 @@ class FileArtifactRepository:
         self.write_index()
         return artifact
 
-    def write_text_artifact(self, role_name: str, kind: str, content: str, round_index: int = 0) -> Artifact:
-
+    def write_text_artifact(
+        self, role_name: str, kind: str, content: str, round_index: int = 0
+    ) -> Artifact:
         slug = _slug(f"r{round_index:02d}-{role_name}-{kind}")
         path = self.artifacts_dir / f"{slug}.md"
         path.write_text(content.strip() + "\n", encoding="utf-8")
-        artifact = Artifact(slug, role_name, kind, path, _summarize(content), round_index)
+        artifact = Artifact(
+            id=slug,
+            role=role_name,
+            kind=kind,
+            path=path,
+            summary=_summarize(content),
+            round_index=round_index,
+        )
         self.artifacts.append(artifact)
         self.write_index()
         return artifact
 
     def write_index(self) -> Path:
-
         index_path = self.root / "artifact_index.json"
         index_path.write_text(
-            json.dumps([artifact.to_dict() for artifact in self.artifacts], ensure_ascii=False, indent=2),
+            json.dumps(
+                [artifact.to_dict() for artifact in self.artifacts],
+                ensure_ascii=False,
+                indent=2,
+            ),
             encoding="utf-8",
         )
         return index_path
 
     def write_summary(self, summary: MultiAgentRunSummary) -> tuple[Path, Path]:
-
         summary.artifacts = list(self.artifacts)
         summary_path = self.root / "multi_agent_summary.json"
         report_path = self.root / "multi_agent_report.md"
         summary.summary_path = summary_path
         summary.report_path = report_path
-        summary_path.write_text(json.dumps(summary.to_dict(), ensure_ascii=False, indent=2), encoding="utf-8")
+        summary_path.write_text(
+            json.dumps(summary.to_dict(), ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
         report_path.write_text(render_multi_agent_report(summary), encoding="utf-8")
         return summary_path, report_path
 
     def render_handoff_context(self, limit_chars: int = 12000) -> str:
-
         sections: list[str] = []
         budget = limit_chars
         for artifact in reversed(self.artifacts[-8:]):
@@ -105,10 +116,8 @@ class FileArtifactRepository:
 
 
 def _slug(value: str) -> str:
-
     return re.sub(r"[^A-Za-z0-9_.-]+", "-", value).strip("-").lower()
 
 
 def _summarize(content: str, limit: int = 240) -> str:
-
     return " ".join((content or "").strip().split())[:limit]

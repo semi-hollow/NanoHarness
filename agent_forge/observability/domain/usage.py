@@ -1,16 +1,24 @@
+"""把 append-only TraceEvent 投影成面向分析的 usage/read model。"""
+
 from collections import Counter
 from typing import Any
 
 
 def build_usage_report(trace: dict[str, Any]) -> dict[str, Any]:
+    """按 step 聚合运行事件，再派生成本、工具效率和控制面摘要。
 
+    类比后端 CQRS：trace 是不可变事件流，本函数是 read-model projector；它不改变
+    Runtime 状态，也不重新判断 benchmark correctness。
+    """
+
+    # region 1. 聚合容器：同一 step/agent 的事件进入同一个读模型槽位
     events = trace.get("events", [])
     steps: dict[tuple[int, str], dict[str, Any]] = {}
     llm_call_index = 0
     evidence_refs: list[str] = []
 
     def step_entry(event: dict[str, Any]) -> dict[str, Any]:
-
+        """取得当前事件所属 step 槽位；首次出现时创建固定 schema。"""
         key = (int(event.get("step", 0) or 0), str(event.get("agent_name") or "agent"))
         if key not in steps:
             steps[key] = {
@@ -33,7 +41,9 @@ def build_usage_report(trace: dict[str, Any]) -> dict[str, Any]:
                 "errors": [],
             }
         return steps[key]
+    # endregion 1. 聚合容器结束
 
+    # region 2. 事件投影：每种 TraceEvent 只更新对应读模型字段
     for event in events:
         entry = step_entry(event)
         event_type = event.get("event_type")
@@ -148,7 +158,9 @@ def build_usage_report(trace: dict[str, Any]) -> dict[str, Any]:
         elif event_type == "final_answer":
             for evidence in event.get("evidence_refs") or []:
                 evidence_refs.append(str(evidence))
+    # endregion 2. 事件投影结束
 
+    # region 3. 派生指标：基于完成的 step 读模型计算汇总，不回写原 trace
     ordered_steps = [steps[key] for key in sorted(steps)]
     tool_efficiency = _tool_efficiency(ordered_steps)
     context_breakdown = _context_breakdown(ordered_steps)
@@ -166,6 +178,7 @@ def build_usage_report(trace: dict[str, Any]) -> dict[str, Any]:
         "runtime_control": _runtime_control(ordered_steps),
         "optimization_notes": _optimization_notes(trace, summary, ordered_steps, context_breakdown, tool_efficiency),
     }
+    # endregion 3. 派生指标结束
 
 
 def _llm_call_summary(event: dict[str, Any], call_index: int, run_id: str) -> dict[str, Any]:

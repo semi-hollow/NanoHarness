@@ -14,7 +14,7 @@ IMPROVEMENT_DECISIONS = {"adopt", "iterate", "reject"}
 
 
 # 核心数据：在既有运行证据上追加人工反馈的完整输入。
-@dataclass(frozen=True)
+@dataclass(frozen=True, kw_only=True)
 class FeedbackRequest:
     """目标 artifact、审核结论、标签、备注和审核人。"""
 
@@ -26,7 +26,7 @@ class FeedbackRequest:
 
 
 # 核心数据：把一次 Runtime 改动与前后评测证据连接起来。
-@dataclass(frozen=True)
+@dataclass(frozen=True, kw_only=True)
 class ImprovementRecordRequest:
     """改进假设、对照变体、人工判断和诚实声明边界。"""
 
@@ -42,6 +42,8 @@ class ImprovementRecordRequest:
     diagnosis_source: str = "maintainer_review"
     diagnosis_review_status: str = "reviewed"
     reviewer: str = "project-maintainer"
+    diagnosis_finding: str = ""
+    diagnosis_evidence: tuple[str, ...] = ()
 
 
 # 主要入口：在现有 run/case artifact 上追加人工 outcome、label 和 note。
@@ -80,6 +82,7 @@ def record_feedback(request: FeedbackRequest) -> Path:
 def write_improvement_record(request: ImprovementRecordRequest) -> Path:
     """只投影既有 benchmark 指标，不重新计算或拔高 correctness 结论。"""
 
+    # region 1. 证据前置条件：改进记录只能引用已发布 campaign 事实
     campaign_dir = Path(request.campaign_dir)
     summary_path = campaign_dir / "summary.json"
     manifest_path = campaign_dir / "manifest.json"
@@ -89,7 +92,9 @@ def write_improvement_record(request: ImprovementRecordRequest) -> Path:
         raise ValueError(
             "improvement record requires campaign summary.json and manifest.json"
         )
+    # endregion 1. 证据前置条件结束
 
+    # region 2. 决策与变体校验：拒绝不存在或不受支持的对照
     decision = request.decision.strip().lower()
     if decision not in IMPROVEMENT_DECISIONS:
         choices = ", ".join(sorted(IMPROVEMENT_DECISIONS))
@@ -107,7 +112,9 @@ def write_improvement_record(request: ImprovementRecordRequest) -> Path:
             "improvement record variants are absent from campaign summary: "
             f"{request.control_variant}, {request.treatment_variant}"
         )
+    # endregion 2. 决策与变体校验结束
 
+    # region 3. 审计载荷：保留来源、诊断、假设、前后指标和 claim boundary
     config = manifest.get("config")
     config = config if isinstance(config, dict) else {}
     case_ids = [
@@ -130,6 +137,8 @@ def write_improvement_record(request: ImprovementRecordRequest) -> Path:
             "source": request.diagnosis_source.strip(),
             "review_status": request.diagnosis_review_status.strip(),
             "reviewer": request.reviewer.strip(),
+            "finding": request.diagnosis_finding.strip(),
+            "evidence": _unique_strings(request.diagnosis_evidence),
         },
         "hypothesis": request.hypothesis.strip(),
         "change": {
@@ -162,6 +171,9 @@ def write_improvement_record(request: ImprovementRecordRequest) -> Path:
         },
         "claim_boundary": request.claim_boundary.strip(),
     }
+    # endregion 3. 审计载荷结束
+
+    # region 4. 原子发布：临时文件完整写入后再替换正式记录
     path = campaign_dir / "improvement_record.json"
     temporary = path.with_suffix(".json.tmp")
     temporary.write_text(
@@ -170,6 +182,7 @@ def write_improvement_record(request: ImprovementRecordRequest) -> Path:
     )
     temporary.replace(path)
     return path
+    # endregion 4. 原子发布结束
 
 
 # 主要入口：将有反馈的 case evidence 导出为可追溯训练/分析 JSONL。
@@ -408,6 +421,7 @@ def _improvement_metrics(variant: dict[str, Any]) -> dict[str, int | float]:
     return {
         "official_evaluated": int(_number(variant, "official_evaluated")),
         "official_resolved": int(_number(variant, "official_resolved")),
+        "tool_calls": int(_number(variant, "tool_calls")),
         "failed_tool_calls": int(_number(variant, "failed_tool_calls")),
         "total_tokens": int(_number(variant, "total_tokens")),
         "estimated_cost_usd": round(

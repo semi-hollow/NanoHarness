@@ -109,7 +109,10 @@ class WorkingMemory:
     def _compact_oldest_observation(self) -> None:
         if not self.observations:
             return
-        oldest = self.observations.pop(0)
-        status = "ok" if oldest.success else "fail"
-        note = f"{oldest.tool_name}:{status}:{oldest.content[:120]}"
-        self.summaries = (self.summaries + [note])[-5:]
+        oldest_observation = self.observations.pop(0)
+        observation_status = "ok" if oldest_observation.success else "fail"
+        compacted_observation_note = (
+            f"{oldest_observation.tool_name}:{observation_status}:"
+            f"{oldest_observation.content[:120]}"
+        )
+        self.summaries = (self.summaries + [compacted_observation_note])[-5:]

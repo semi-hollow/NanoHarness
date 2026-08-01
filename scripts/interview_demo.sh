@@ -16,13 +16,6 @@ pointer_name="run.txt"
 status_evidence_field="latest_run"
 case "${1:-}" in
   "") ;;
-  --live) scenario="single-live" ;;
-  --show-latest)
-    scenario="show-latest"
-    produce_evidence=false
-    ;;
-  --show-live) scenario="show-live" ;;
-  --show-official) scenario="show-official" ;;
   --show-governed)
     scenario="show-governed"
     produce_evidence=false
@@ -40,7 +33,7 @@ case "${1:-}" in
     status_evidence_field="latest_campaign"
     ;;
   *)
-    printf 'Usage: scripts/interview_demo.sh [--live|--show-latest|--show-live|--show-official|--show-governed|--show-coordinated|--show-evaluation]\n' >&2
+    printf 'Usage: scripts/interview_demo.sh [--show-governed|--show-coordinated|--show-evaluation]\n' >&2
     exit 2
     ;;
 esac
@@ -61,9 +54,6 @@ expected_workbench_source="$(
   .venv/bin/python -c \
     'import hashlib,pathlib; print(hashlib.sha256(pathlib.Path("agent_forge/workbench/presentation/http.py").read_bytes()).hexdigest())'
 )"
-if [[ "${scenario}" == "show-official" ]]; then
-  pointer_name="bench.txt"
-fi
 expected_evidence="$(.venv/bin/python -c 'import os,pathlib,sys; print(os.path.realpath(pathlib.Path(".agent_forge/latest", sys.argv[1]).read_text().strip()))' "${pointer_name}")"
 port=8765
 status_json=""

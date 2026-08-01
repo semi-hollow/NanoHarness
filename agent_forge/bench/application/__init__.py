@@ -1,5 +1,5 @@
 from .case_inspection import InspectBenchCase
-from .diagnostics import DiagnoseBenchCase
+from .failure_analysis import BenchFailureAnalyzer
 from .swebench import RunSwebench
 
-__all__ = ["DiagnoseBenchCase", "InspectBenchCase", "RunSwebench"]
+__all__ = ["BenchFailureAnalyzer", "InspectBenchCase", "RunSwebench"]

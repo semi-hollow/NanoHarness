@@ -32,10 +32,14 @@ class DebugLabSupportTest(unittest.TestCase):
             }
 
         main_path = str(scopes["00 NanoHarness Review Path"])
+        extended_flows = str(scopes["05 NanoHarness Extended Flows"])
         production = str(scopes["10 NanoHarness Production Code"])
         tests = str(scopes["90 NanoHarness Tests"])
         self.assertIn("agent_forge/harness.py", main_path)
         self.assertNotIn("tests", main_path)
+        self.assertIn("multi_agent/application/live_fanout.py", extended_flows)
+        self.assertIn("evaluation/adapters/feedback_dataset_files.py", extended_flows)
+        self.assertNotIn("tests", extended_flows)
         self.assertNotIn("tests", production)
         self.assertEqual(tests, "file:tests//*")
 
@@ -56,6 +60,10 @@ class DebugLabSupportTest(unittest.TestCase):
                 option.get("name"): option.get("value")
                 for option in config.findall("option")
             }
+            environment = {
+                variable.get("name"): variable.get("value")
+                for variable in config.findall("./envs/env")
+            }
             self.assertEqual(
                 options["SCRIPT_NAME"],
                 "$PROJECT_DIR$/examples/debug_lab/run.py",
@@ -65,6 +73,7 @@ class DebugLabSupportTest(unittest.TestCase):
                 f"{scenario} --open-workbench",
             )
             self.assertEqual(options["SDK_HOME"], "$PROJECT_DIR$/.venv/bin/python")
+            self.assertEqual(environment["NANOHARNESS_DEBUG_LAB"], scenario)
             actual.append((str(config.get("name")), scenario))
         self.assertEqual(actual, list(expected))
 
@@ -79,10 +88,10 @@ class DebugLabSupportTest(unittest.TestCase):
 
         self.assertEqual(actual, expected)
 
-    def test_run_configuration_guide_only_presents_active_entries(self) -> None:
-        guide = (
-            PROJECT_ROOT / "examples" / "debug_lab" / "RUN_CONFIGURATIONS.md"
-        ).read_text(encoding="utf-8")
+    def test_canonical_debug_lab_guide_only_presents_active_entries(self) -> None:
+        guide = (PROJECT_ROOT / "examples" / "debug_lab" / "README.md").read_text(
+            encoding="utf-8"
+        )
         for name in (
             "NanoHarness Lab 1 - Governed Repair",
             "NanoHarness Lab 2 - Coordinated Agents",
@@ -95,28 +104,36 @@ class DebugLabSupportTest(unittest.TestCase):
             "NanoHarness Interview 1 - Live Control",
             "NanoHarness Interview Fallback - Deterministic Control",
             "NanoHarness Interview Demo",
+            "single-live",
+            "official-rerun",
         ):
             self.assertNotIn(removed, guide)
+        self.assertFalse((PROJECT_ROOT / "examples" / "interview_showcase.py").exists())
         self.assertFalse(
-            (PROJECT_ROOT / "examples" / "interview_showcase.py").exists()
+            (PROJECT_ROOT / "examples" / "debug_lab" / "RUN_CONFIGURATIONS.md").exists()
+        )
+        self.assertFalse(
+            (PROJECT_ROOT / "examples" / "debug_lab" / "MASTERY_SCORECARD.md").exists()
         )
 
     def test_breakpoint_symbols_resolve_and_install_idempotently(self) -> None:
         resolved = resolve_breakpoints(PROJECT_ROOT)
+        self.assertEqual(len(resolved), 14)
         self.assertEqual(len(resolved), len(TARGETS))
         self.assertEqual(
             len({(item["url"], item["line"]) for item in resolved}),
             len(TARGETS),
         )
-        by_label = {str(item["label"]): item for item in resolved}
-        candidate = by_label["Candidate diff"]
-        candidate_line = (
-            PROJECT_ROOT / "agent_forge" / "bench" / "adapters" / "case_runtime.py"
-        ).read_text(encoding="utf-8").splitlines()[int(candidate["line"])]
-        self.assertIn(
-            "status = _run_status(candidate_diff_text, final_answer)",
-            candidate_line,
+        self.assertEqual(
+            {
+                scenario: sum(item["scenario"] == scenario for item in resolved)
+                for scenario in ("governed", "coordinated", "evaluation")
+            },
+            {"governed": 7, "coordinated": 5, "evaluation": 2},
         )
+        for item in resolved:
+            self.assertIn("NANOHARNESS_DEBUG_LAB", str(item["condition"]))
+            self.assertIn(str(item["scenario"]), str(item["condition"]))
 
         with tempfile.TemporaryDirectory() as tmp:
             workspace = Path(tmp) / ".idea" / "workspace.xml"
@@ -149,20 +166,35 @@ class DebugLabSupportTest(unittest.TestCase):
             user = [node for node in nodes if node.findtext("group") != LAB_GROUP]
 
         self.assertEqual(len(managed), len(TARGETS))
+        self.assertTrue(
+            all(
+                node.find("condition") is not None
+                and "NANOHARNESS_DEBUG_LAB"
+                in str(node.find("condition").get("expression"))
+                for node in managed
+            )
+        )
         self.assertEqual(len(user), 1)
         self.assertEqual(
             user[0].find("condition").get("expression"),
             "keep_user_condition",
         )
-        self.assertEqual(tree.getroot().find("./component[@name='KeepMe']").get("name"), "KeepMe")
+        self.assertEqual(
+            tree.getroot().find("./component[@name='KeepMe']").get("name"), "KeepMe"
+        )
 
     def test_fixture_and_interview_entry_do_not_duplicate_runtime(self) -> None:
         fixture = PROJECT_ROOT / "examples" / "debug_lab" / "repository"
         fanout_fixture = (
             PROJECT_ROOT / "examples" / "debug_lab" / "multi_agent_repository"
         )
-        self.assertIn("return a - b", (fixture / "calculator.py").read_text(encoding="utf-8"))
-        self.assertIn("assert add(2, 3) == 5", (fixture / "test_calculator.py").read_text(encoding="utf-8"))
+        self.assertIn(
+            "return a - b", (fixture / "calculator.py").read_text(encoding="utf-8")
+        )
+        self.assertIn(
+            "assert add(2, 3) == 5",
+            (fixture / "test_calculator.py").read_text(encoding="utf-8"),
+        )
         self.assertIn(
             "return subtotal",
             (fanout_fixture / "pricing.py").read_text(encoding="utf-8"),
@@ -182,6 +214,20 @@ class DebugLabSupportTest(unittest.TestCase):
         self.assertIn('open -a "Google Chrome"', interview)
         self.assertNotIn("forge run", interview)
         self.assertNotIn("calculator.py", interview)
+        self.assertNotIn("--live", interview)
+        self.assertNotIn("--show-live", interview)
+        self.assertNotIn("--show-official", interview)
+
+        debug_entry = (PROJECT_ROOT / "examples" / "debug_lab" / "run.py").read_text(
+            encoding="utf-8"
+        )
+        for removed_scenario in (
+            "single-live",
+            "official-rerun",
+            "show-live",
+            "show-official",
+        ):
+            self.assertNotIn(removed_scenario, debug_entry)
 
     def test_core_labs_open_workbench_by_default_and_can_opt_out(self) -> None:
         with (
@@ -243,77 +289,7 @@ class DebugLabSupportTest(unittest.TestCase):
             setup,
         )
 
-    def test_live_lab_republishes_harness_workspace_pointer(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
-            workspace = root / "fixture"
-            artifact = root / ".agent_forge" / "runs" / "run-live"
-            received_argv: list[str] = []
-            workspace.mkdir()
-            artifact.mkdir(parents=True)
-
-            def fake_forge(argv: list[str]) -> None:
-                received_argv.extend(argv)
-                pointer = workspace / ".agent_forge" / "latest" / "run.txt"
-                pointer.parent.mkdir(parents=True)
-                pointer.write_text(str(artifact), encoding="utf-8")
-
-            with (
-                patch.object(debug_lab, "PROJECT_ROOT", root),
-                patch.object(debug_lab, "STATE_ROOT", root / ".agent_forge" / "debug-lab"),
-                patch.object(debug_lab, "RUNS_ROOT", root / ".agent_forge" / "runs"),
-                patch.object(debug_lab, "_load_or_store_deepseek_key"),
-                patch.object(debug_lab, "_new_workspace", return_value=workspace),
-                patch.object(debug_lab, "_forge_main", side_effect=fake_forge),
-            ):
-                debug_lab.run_live()
-
-            published = root / ".agent_forge" / "latest" / "run.txt"
-            remembered = root / ".agent_forge" / "debug-lab" / "state" / "live_artifact.txt"
-            self.assertEqual(published.read_text(encoding="utf-8"), str(artifact.resolve()))
-            self.assertEqual(remembered.read_text(encoding="utf-8"), str(artifact.resolve()))
-            self.assertIn("--tool-routing", received_argv)
-            self.assertIn("all", received_argv)
-            self.assertIn("--skills", received_argv)
-            self.assertIn("none", received_argv)
-            model = received_argv.index("--model")
-            self.assertEqual(received_argv[model + 1], "deepseek-v4-pro")
-            thinking = received_argv.index("--thinking")
-            self.assertEqual(received_argv[thinking + 1], "enabled")
-            effort = received_argv.index("--reasoning-effort")
-            self.assertEqual(received_argv[effort + 1], "max")
-            self.assertEqual(
-                [
-                    received_argv[index + 1]
-                    for index, value in enumerate(received_argv)
-                    if value == "--tool"
-                ],
-                ["read_file", "replace_text", "diagnostics"],
-            )
-
-    def test_astropy_lab_uses_budget_sufficient_for_official_evidence(self) -> None:
-        received_argv: list[str] = []
-
-        with (
-            patch.object(debug_lab, "_load_or_store_deepseek_key"),
-            patch.object(debug_lab, "_ensure_docker"),
-            patch.object(debug_lab, "_ensure_swebench"),
-            patch.object(debug_lab, "_forge_main", side_effect=received_argv.extend),
-            patch.object(debug_lab, "_remember_root_pointer"),
-        ):
-            debug_lab.run_astropy()
-
-        max_steps = received_argv.index("--max-steps")
-        self.assertEqual(received_argv[max_steps + 1], "16")
-        model = received_argv.index("--model")
-        self.assertEqual(received_argv[model + 1], "deepseek-v4-pro")
-        thinking = received_argv.index("--thinking")
-        self.assertEqual(received_argv[thinking + 1], "enabled")
-        effort = received_argv.index("--reasoning-effort")
-        self.assertEqual(received_argv[effort + 1], "max")
-        self.assertIn("--evaluate", received_argv)
-
-    def test_debug_lab_accepts_any_ready_docker_compatible_daemon(self) -> None:
+    def test_benchmark_support_accepts_any_ready_docker_compatible_daemon(self) -> None:
         completed = unittest.mock.Mock(returncode=0)
         with (
             patch.object(
@@ -327,7 +303,7 @@ class DebugLabSupportTest(unittest.TestCase):
                 return_value=completed,
             ) as run,
         ):
-            debug_lab._ensure_docker()
+            debug_support.ensure_docker()
 
         run.assert_called_once_with(
             ["docker", "info"],

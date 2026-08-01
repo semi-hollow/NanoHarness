@@ -1,9 +1,12 @@
 import json
 import os
+import re
 import tempfile
 import unittest
 from pathlib import Path
 
+from agent_forge.multi_agent.adapters.local_worker import LocalAgentWorkerAdapter
+from agent_forge.multi_agent.application.live_fanout import LiveFanoutCoordinator
 from agent_forge.workbench.adapters.evidence_files import FileEvidenceCatalog
 from agent_forge.workbench.presentation.http import (
     INDEX_HTML,
@@ -196,6 +199,30 @@ class WorkbenchRunStoryTest(unittest.TestCase):
                 finalizer_dir / "verification.md",
             ):
                 path.write_text("evidence", encoding="utf-8")
+            (fanout_dir / "fanout_plan.json").write_text(
+                json.dumps(
+                    {
+                        "goal": "repair pricing and shipping",
+                        "tasks": [
+                            {
+                                "id": "pricing",
+                                "task": "fix pricing",
+                                "depends_on": [],
+                                "write_scope": ["pricing.py"],
+                                "allowed_tools": ["replace_text", "git_diff"],
+                            },
+                            {
+                                "id": "shipping",
+                                "task": "fix shipping",
+                                "depends_on": [],
+                                "write_scope": ["shipping.py"],
+                                "allowed_tools": ["replace_text", "git_diff"],
+                            },
+                        ],
+                    }
+                ),
+                encoding="utf-8",
+            )
             summary_path = fanout_dir / "fanout_summary.json"
             summary_path.write_text(
                 json.dumps(
@@ -209,13 +236,19 @@ class WorkbenchRunStoryTest(unittest.TestCase):
                                 "task_id": "pricing",
                                 "status": "completed",
                                 "touched_files": ["pricing.py"],
-                                "usage_summary": {"tool_calls": 1},
+                                "usage_summary": {
+                                    "tool_calls": 1,
+                                    "failed_tool_calls": 0,
+                                },
                             },
                             {
                                 "task_id": "shipping",
                                 "status": "completed",
                                 "touched_files": ["shipping.py"],
-                                "usage_summary": {"tool_calls": 1},
+                                "usage_summary": {
+                                    "tool_calls": 1,
+                                    "failed_tool_calls": 0,
+                                },
                             },
                         ],
                         "merged_task_ids": ["pricing", "shipping"],
@@ -247,7 +280,43 @@ class WorkbenchRunStoryTest(unittest.TestCase):
         self.assertIn("候选改动合并", rendered)
         self.assertIn("隔离 Finalizer", rendered)
         self.assertIn("未调用外部大模型", rendered)
+        self.assertIn("任务契约与真实结果", rendered)
+        self.assertIn("无前置依赖：允许与同批次任务并行", rendered)
+        self.assertIn("replace_text", rendered)
+        self.assertIn("失败调用：0 次", rendered)
+        self.assertIn("LiveFanoutCoordinator.run", rendered)
+        self.assertIn("LiveFanoutCoordinator._mark_dynamic_conflicts", rendered)
+        self.assertNotIn("LiveFanoutCoordinator._validate_plan", rendered)
+        rendered_entrypoints = set(
+            re.findall(
+                r"(?:LiveFanoutCoordinator|LocalAgentWorkerAdapter)\.[A-Za-z_][A-Za-z0-9_]*",
+                rendered,
+            )
+        )
+        self.assertEqual(
+            rendered_entrypoints,
+            {
+                "LiveFanoutCoordinator.run",
+                "LiveFanoutCoordinator._run_batch",
+                "LiveFanoutCoordinator._mark_dynamic_conflicts",
+                "LiveFanoutCoordinator._merge_batch",
+                "LocalAgentWorkerAdapter.run_finalizer",
+            },
+        )
         self.assertNotIn("最新运行没有标准运行清单", rendered)
+
+    def test_workbench_fanout_entrypoints_exist_in_code(self):
+        entrypoints = (
+            (LiveFanoutCoordinator, "run"),
+            (LiveFanoutCoordinator, "_run_batch"),
+            (LiveFanoutCoordinator, "_mark_dynamic_conflicts"),
+            (LiveFanoutCoordinator, "_merge_batch"),
+            (LocalAgentWorkerAdapter, "run_finalizer"),
+        )
+
+        for owner, method_name in entrypoints:
+            with self.subTest(entrypoint=f"{owner.__name__}.{method_name}"):
+                self.assertTrue(hasattr(owner, method_name))
 
     def test_governed_view_keeps_lab1_evidence_after_lab2_updates_latest_run(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -309,6 +378,145 @@ class WorkbenchRunStoryTest(unittest.TestCase):
         self.assertIn("Agent 轮次", rendered)
         self.assertIn("语义阶段", rendered)
         self.assertIn("原始事件", rendered)
+
+    def test_timeline_explains_each_checkpoint_transition(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            project_dir = Path(tmp)
+            run_dir = project_dir / ".agent_forge/runs/control-run"
+            run_dir.mkdir(parents=True)
+            trace_path = run_dir / "trace.json"
+            trace_path.write_text(
+                json.dumps(
+                    {
+                        "run_id": "control-run",
+                        "events": [
+                            {
+                                "step": 0,
+                                "event_type": "task_state_checkpoint",
+                                "task_state": {
+                                    "status": "created",
+                                    "current_step": 0,
+                                    "messages_count": 0,
+                                    "observations_count": 0,
+                                },
+                            },
+                            {
+                                "step": 1,
+                                "event_type": "task_state_checkpoint",
+                                "task_state": {
+                                    "status": "running",
+                                    "current_step": 1,
+                                    "messages_count": 1,
+                                    "observations_count": 0,
+                                },
+                            },
+                            {
+                                "step": 1,
+                                "event_type": "task_state_checkpoint",
+                                "task_state": {
+                                    "status": "waiting_approval",
+                                    "current_step": 1,
+                                    "last_tool": "replace_text",
+                                    "messages_count": 1,
+                                    "observations_count": 0,
+                                },
+                            },
+                            {
+                                "step": 1,
+                                "event_type": "task_state_checkpoint",
+                                "task_state": {
+                                    "status": "running",
+                                    "current_step": 1,
+                                    "last_tool": "replace_text",
+                                    "messages_count": 1,
+                                    "observations_count": 0,
+                                },
+                            },
+                            {
+                                "step": 1,
+                                "event_type": "task_state_checkpoint",
+                                "task_state": {
+                                    "status": "running",
+                                    "current_step": 1,
+                                    "last_tool": "replace_text",
+                                    "last_observation": "changed target.py",
+                                    "messages_count": 2,
+                                    "observations_count": 1,
+                                },
+                            },
+                        ],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            state_dir = project_dir / ".agent_forge/debug-lab/state"
+            state_dir.mkdir(parents=True)
+            (state_dir / "control_artifact.txt").write_text(
+                str(run_dir),
+                encoding="utf-8",
+            )
+
+            rendered = _render_evidence_html(project_dir, "timeline")
+
+        self.assertIn("记录第 1 轮起点", rendered)
+        self.assertIn("进入审批等待", rendered)
+        self.assertIn("审批后恢复运行", rendered)
+        self.assertIn("保存工具结果", rendered)
+        self.assertIn("副作用执行前形成可恢复人工屏障", rendered)
+        self.assertIn("恢复时不重复执行", rendered)
+
+    def test_evaluation_page_declares_independent_swebench_scope(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            project_dir = Path(tmp)
+            benchmark_run = project_dir / ".agent_forge/runs/swebench-run"
+            benchmark_run.mkdir(parents=True)
+            (benchmark_run / "results.json").write_text(
+                json.dumps(
+                    {
+                        "case_results": [
+                            {
+                                "instance_id": "demo__case-1",
+                                "status": "blocked",
+                                "evaluation_status": "official_eval_skipped_empty_patch",
+                                "failure_class": "pending_tool_call_at_stop",
+                                "diagnosis": (
+                                    "The model still requested a tool on the final turn, "
+                                    "so the runtime blocked an incomplete artifact."
+                                ),
+                                "next_actions": [
+                                    "Inspect the final model action and increase budget or force "
+                                    "an earlier patch/no-patch decision."
+                                ],
+                            }
+                        ]
+                    }
+                ),
+                encoding="utf-8",
+            )
+            latest_dir = project_dir / ".agent_forge/latest"
+            latest_dir.mkdir(parents=True)
+            (latest_dir / "bench.txt").write_text(
+                str(benchmark_run),
+                encoding="utf-8",
+            )
+            fanout_path = (
+                project_dir
+                / ".agent_forge/runs/fanout-run/fanout/fanout_summary.json"
+            )
+            fanout_path.parent.mkdir(parents=True)
+            fanout_path.write_text(json.dumps({"status": "passed"}), encoding="utf-8")
+
+            rendered = _render_evidence_html(project_dir, "evaluation")
+
+        self.assertIn("独立证据 · SWE-BENCH CASE", rendered)
+        self.assertIn("demo__case-1", rendered)
+        self.assertIn("不评价 Lab 2", rendered)
+        self.assertIn("来自不同 run", rendered)
+        self.assertIn(str(benchmark_run / "results.json"), rendered)
+        self.assertIn(str(fanout_path), rendered)
+        self.assertIn("模型在最后一轮仍请求调用工具，因此运行时阻断了不完整产物", rendered)
+        self.assertIn("增加步骤预算，或要求模型更早明确", rendered)
+        self.assertIn("SWE-bench Case 诊断", INDEX_HTML)
 
     def test_published_campaign_bundle_uses_manifest_and_summary_filenames(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -376,6 +584,11 @@ class WorkbenchRunStoryTest(unittest.TestCase):
                         "diagnosis": {
                             "source": "maintainer_review",
                             "review_status": "reviewed",
+                            "finding": "Failures came from validation environments, not edit-tool crashes.",
+                            "evidence": [
+                                "Control: 8/27; six environment failures and two policy denials.",
+                                "Treatment: 5/32; four environment failures and one invalid target.",
+                            ],
                         },
                         "hypothesis": "routing reduces failed calls",
                         "change": {"reference": "governed preset"},
@@ -384,6 +597,7 @@ class WorkbenchRunStoryTest(unittest.TestCase):
                             "control": {
                                 "official_evaluated": 2,
                                 "official_resolved": 2,
+                                "tool_calls": 27,
                                 "failed_tool_calls": 8,
                                 "total_tokens": 100,
                                 "estimated_cost_usd": 0.1,
@@ -391,6 +605,7 @@ class WorkbenchRunStoryTest(unittest.TestCase):
                             "treatment": {
                                 "official_evaluated": 2,
                                 "official_resolved": 2,
+                                "tool_calls": 32,
                                 "failed_tool_calls": 5,
                                 "total_tokens": 130,
                                 "estimated_cost_usd": 0.13,
@@ -421,7 +636,10 @@ class WorkbenchRunStoryTest(unittest.TestCase):
         self.assertIn("维护者人工复核", rendered)
         self.assertIn("已人工复核", rendered)
         self.assertIn("失败工具调用差值", rendered)
-        self.assertIn("-3（少 3 次失败）", rendered)
+        self.assertIn("5 - 8 = -3", rendered)
+        self.assertIn("8 / 27（29.6%）", rendered)
+        self.assertIn("5 / 32（15.6%）", rendered)
+        self.assertIn("six environment failures and two policy denials", rendered)
         self.assertIn("+30（多用 30 Token）", rendered)
         self.assertIn("差值都按“治理增强版 - 基础控制版”计算", rendered)
         self.assertIn("继续迭代", rendered)

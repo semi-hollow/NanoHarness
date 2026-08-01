@@ -173,11 +173,13 @@ class OperationLedgerTest(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, "crash before executed commit"):
                 build_agent_loop_from_request(
                     AgentLoopBuildRequest(
-                        first_config,
-                        first_trace,
-                        _registry(root),
-                        ReplaceThenFinalLLM(),
-                        RuntimeDependencyOverrides(operations=crashing_ledger),
+                        config=first_config,
+                        trace=first_trace,
+                        registry=_registry(root),
+                        llm=ReplaceThenFinalLLM(),
+                        overrides=RuntimeDependencyOverrides(
+                            operations=crashing_ledger
+                        ),
                     )
                 ).run("fix target")
 
@@ -188,9 +190,7 @@ class OperationLedgerTest(unittest.TestCase):
             records = list(ledger_root.glob("*.json"))
             self.assertEqual(len(records), 1)
             self.assertEqual(
-                JsonOperationLedgerRepository(ledger_root)
-                .get(records[0].stem)
-                .status,
+                JsonOperationLedgerRepository(ledger_root).get(records[0].stem).status,
                 "executing",
             )
 
@@ -216,8 +216,7 @@ class OperationLedgerTest(unittest.TestCase):
             self.assertTrue(
                 any(
                     event["event_type"] == "operation_ledger"
-                    and event.get("operation_status")
-                    == "operation_outcome_unknown"
+                    and event.get("operation_status") == "operation_outcome_unknown"
                     for event in second_trace.events
                 )
             )

@@ -16,7 +16,7 @@ class RunControlKind(Enum):
 
 
 # 核心数据：操作员提交给运行中 AgentLoop 的一次控制信号。
-@dataclass(frozen=True)
+@dataclass(frozen=True, kw_only=True)
 class RunControlSignal:
     """``kind`` 标识动作，``message`` 携带 steer 内容，``reason`` 用于审计。"""
 

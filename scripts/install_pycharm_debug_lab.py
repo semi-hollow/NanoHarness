@@ -33,8 +33,11 @@ READING_SCOPES = (
         "05 NanoHarness Extended Flows",
         "file:agent_forge/runtime/wiring.py"
         "||file:agent_forge/multi_agent/application/live_fanout.py"
+        "||file:agent_forge/multi_agent/adapters/local_worker.py"
         "||file:agent_forge/bench/application/swebench.py"
-        "||file:agent_forge/bench/application/campaign.py",
+        "||file:agent_forge/bench/application/campaign.py"
+        "||file:agent_forge/evaluation/adapters/feedback_dataset_files.py"
+        "||file:examples/debug_lab/run.py",
     ),
     (
         "10_NanoHarness_Production_Code.xml",
@@ -49,8 +52,11 @@ READING_SCOPES = (
 )
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, kw_only=True)
 class BreakpointTarget:
+    """一个按 Lab 场景启用的源码断点，不干扰其他运行配置。"""
+
+    scenario: str
     label: str
     relative_path: str
     class_name: str
@@ -60,151 +66,103 @@ class BreakpointTarget:
 
 
 TARGETS = (
-    BreakpointTarget("Facade", "agent_forge/harness.py", "Harness", "run"),
     BreakpointTarget(
-        "Runtime loop",
-        "agent_forge/runtime/application/agent_loop.py",
-        "AgentLoop",
-        "run",
+        scenario="governed",
+        label="Lab 1 - Facade",
+        relative_path="agent_forge/harness.py",
+        class_name="Harness",
+        function_name="run",
     ),
     BreakpointTarget(
-        "Turn preparation",
-        "agent_forge/runtime/application/turn_preparation.py",
-        "TurnPreparation",
-        "prepare_turn",
+        scenario="governed",
+        label="Lab 1 - Runtime loop",
+        relative_path="agent_forge/runtime/application/agent_loop.py",
+        class_name="AgentLoop",
+        function_name="run",
     ),
     BreakpointTarget(
-        "Model boundary",
-        "agent_forge/runtime/application/agent_loop.py",
-        "AgentLoop",
-        "_call_model",
+        scenario="governed",
+        label="Lab 1 - Tool intent",
+        relative_path="agent_forge/runtime/application/tool_execution.py",
+        class_name="ToolExecutionPipeline",
+        function_name="_execute_call",
     ),
     BreakpointTarget(
-        "Tool intent",
-        "agent_forge/runtime/application/tool_execution.py",
-        "ToolExecutionPipeline",
-        "_execute_call",
+        scenario="governed",
+        label="Lab 1 - Operation identity",
+        relative_path="agent_forge/runtime/application/operation_tracker.py",
+        class_name="OperationTracker",
+        function_name="build_operation_intent",
     ),
     BreakpointTarget(
-        "Operation identity",
-        "agent_forge/runtime/application/operation_tracker.py",
-        "OperationTracker",
-        "build_operation_intent",
+        scenario="governed",
+        label="Lab 1 - Approval gate",
+        relative_path="agent_forge/runtime/application/tool_authorization.py",
+        class_name="ToolAuthorizationGate",
+        function_name="_resolve_approval",
     ),
     BreakpointTarget(
-        "Approval gate",
-        "agent_forge/runtime/application/tool_authorization.py",
-        "ToolAuthorizationGate",
-        "_resolve_approval",
+        scenario="governed",
+        label="Lab 1 - Restricted validation",
+        relative_path="agent_forge/tools/python_validation.py",
+        class_name="PythonValidationTool",
+        function_name="execute",
     ),
     BreakpointTarget(
-        "Real pytest",
-        "agent_forge/tools/diagnostics.py",
-        "DiagnosticsTool",
-        "execute",
+        scenario="governed",
+        label="Lab 1 - Durable stop",
+        relative_path="agent_forge/runtime/application/run_lifecycle.py",
+        class_name="RunLifecycle",
+        function_name="finalize_run",
     ),
     BreakpointTarget(
-        "Durable stop",
-        "agent_forge/runtime/application/run_lifecycle.py",
-        "RunLifecycle",
-        "finalize_run",
+        scenario="coordinated",
+        label="Lab 2 - Fanout coordinator",
+        relative_path="agent_forge/multi_agent/application/live_fanout.py",
+        class_name="LiveFanoutCoordinator",
+        function_name="run",
     ),
     BreakpointTarget(
-        "Fanout coordinator",
-        "agent_forge/multi_agent/application/live_fanout.py",
-        "LiveFanoutCoordinator",
-        "run",
+        scenario="coordinated",
+        label="Lab 2 - Dependency batch",
+        relative_path="agent_forge/multi_agent/application/live_fanout.py",
+        class_name="LiveFanoutCoordinator",
+        function_name="_run_batch",
     ),
     BreakpointTarget(
-        "Fanout batch",
-        "agent_forge/multi_agent/application/live_fanout.py",
-        "LiveFanoutCoordinator",
-        "_run_batch",
+        scenario="coordinated",
+        label="Lab 2 - Isolated worker",
+        relative_path="agent_forge/multi_agent/adapters/local_worker.py",
+        class_name="LocalAgentWorkerAdapter",
+        function_name="run_worker",
     ),
     BreakpointTarget(
-        "Fanout worker",
-        "agent_forge/multi_agent/adapters/local_worker.py",
-        "LocalAgentWorkerAdapter",
-        "run_worker",
+        scenario="coordinated",
+        label="Lab 2 - Scoped merge",
+        relative_path="agent_forge/multi_agent/application/live_fanout.py",
+        class_name="LiveFanoutCoordinator",
+        function_name="_merge_batch",
     ),
     BreakpointTarget(
-        "Fanout merge",
-        "agent_forge/multi_agent/application/live_fanout.py",
-        "LiveFanoutCoordinator",
-        "_merge_batch",
+        scenario="coordinated",
+        label="Lab 2 - Finalizer",
+        relative_path="agent_forge/multi_agent/adapters/local_worker.py",
+        class_name="LocalAgentWorkerAdapter",
+        function_name="run_finalizer",
     ),
     BreakpointTarget(
-        "Fanout finalizer",
-        "agent_forge/multi_agent/adapters/local_worker.py",
-        "LocalAgentWorkerAdapter",
-        "run_finalizer",
+        scenario="evaluation",
+        label="Lab 3 - Evaluation entry",
+        relative_path="examples/debug_lab/run.py",
+        class_name="",
+        function_name="run_evaluation",
     ),
     BreakpointTarget(
-        "Benchmark orchestration",
-        "agent_forge/bench/application/swebench.py",
-        "RunSwebench",
-        "run_benchmark",
-    ),
-    BreakpointTarget(
-        "Dataset selection",
-        "agent_forge/bench/adapters/dataset.py",
-        "SwebenchCaseSource",
-        "load",
-    ),
-    BreakpointTarget(
-        "Case runtime",
-        "agent_forge/bench/adapters/case_runtime.py",
-        "LocalCaseExecutor",
-        "run",
-    ),
-    BreakpointTarget(
-        "Workspace checkout",
-        "agent_forge/bench/adapters/git_workspace.py",
-        "SwebenchWorkspaceManager",
-        "prepare",
-    ),
-    BreakpointTarget(
-        "Candidate diff",
-        "agent_forge/bench/adapters/case_runtime.py",
-        "LocalCaseExecutor",
-        "run",
-        anchor="status = _run_status(candidate_diff_text, final_answer)",
-    ),
-    BreakpointTarget(
-        "Local evidence",
-        "agent_forge/bench/adapters/local_validation.py",
-        "",
-        "read_local_validation",
-    ),
-    BreakpointTarget(
-        "Official oracle",
-        "agent_forge/bench/adapters/official_evaluator.py",
-        "SwebenchOfficialEvaluator",
-        "evaluate",
-    ),
-    BreakpointTarget(
-        "Official result parsing",
-        "agent_forge/bench/adapters/official_results.py",
-        "",
-        "parse_official_results",
-    ),
-    BreakpointTarget(
-        "Official outcome apply",
-        "agent_forge/bench/adapters/official_results.py",
-        "",
-        "apply_official_results",
-    ),
-    BreakpointTarget(
-        "Final diagnosis",
-        "agent_forge/bench/application/diagnostics.py",
-        "DiagnoseBenchCase",
-        "attach",
-    ),
-    BreakpointTarget(
-        "Report publication",
-        "agent_forge/bench/adapters/artifact_files.py",
-        "FileBenchArtifacts",
-        "publish_run",
+        scenario="evaluation",
+        label="Lab 3 - Improvement decision",
+        relative_path="agent_forge/evaluation/adapters/feedback_dataset_files.py",
+        class_name="",
+        function_name="write_improvement_record",
     ),
 )
 
@@ -271,9 +229,14 @@ def _target_line(root: Path, target: BreakpointTarget) -> int:
 def resolve_breakpoints(root: Path = PROJECT_ROOT) -> list[dict[str, object]]:
     return [
         {
+            "scenario": target.scenario,
             "label": target.label,
             "url": f"file://$PROJECT_DIR$/{target.relative_path}",
             "line": _target_line(root, target),
+            "condition": (
+                "__import__('os').environ.get('NANOHARNESS_DEBUG_LAB') "
+                f"== '{target.scenario}'"
+            ),
         }
         for target in TARGETS
     ]
@@ -351,10 +314,13 @@ def install_breakpoints(
         if node.get("type") == "python-line"
         and (key := _breakpoint_key(node)) is not None
     }
-    next_timestamp = max(
-        (_timestamp(node) for node in container.findall("line-breakpoint")),
-        default=0,
-    ) + 1
+    next_timestamp = (
+        max(
+            (_timestamp(node) for node in container.findall("line-breakpoint")),
+            default=0,
+        )
+        + 1
+    )
     for index, item in enumerate(resolved):
         key = (str(item["url"]), int(item["line"]))
         if key in existing:
@@ -368,6 +334,11 @@ def install_breakpoints(
         ET.SubElement(node, "line").text = str(key[1])
         ET.SubElement(node, "group").text = LAB_GROUP
         ET.SubElement(node, "description").text = str(item["label"])
+        ET.SubElement(
+            node,
+            "condition",
+            {"expression": str(item["condition"]), "language": "Python"},
+        )
         ET.SubElement(
             node,
             "option",
@@ -411,12 +382,16 @@ def install_reading_scopes(root: Path = PROJECT_ROOT) -> list[Path]:
 def _pycharm_is_running() -> bool:
     if sys.platform != "darwin":
         return False
-    result = subprocess.run(
-        ["ps", "-axo", "comm="],
-        check=False,
-        capture_output=True,
-        text=True,
-    )
+    try:
+        result = subprocess.run(
+            ["ps", "-axo", "comm="],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+    except OSError:
+        # 无法确认 IDE 状态时按“仍在运行”处理，避免 workspace.xml 被覆盖。
+        return True
     if result.returncode != 0:
         return False
     return any(

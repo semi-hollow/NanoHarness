@@ -23,7 +23,7 @@ NanoHarness 对 Coding Agent failure 做结构化分类，使一次坏 run 成�
 | `context_miss` | Agent 没有找到具体 source file。 | 调整 file ranking、symbol search 或 external context retrieval。 |
 | `tool_not_available` | 请求的 tool 失败或不可用。 | 区分 retryable、hidden-by-policy、schema-invalid。 |
 | `tool_schema_mismatch` | 模型使用了自然参数形态，但 tool contract 不支持。 | 根据真实 model behavior 调整 schema/coercion。 |
-| `unsafe_or_blocked_command` | Command/permission policy 阻断了不安全 action。 | 使用 diagnostics 或 approval 替代自由 shell。 |
+| `unsafe_or_blocked_command` | Command/permission policy 阻断了不安全 action。 | 使用 `python_validation` 或 approval 替代自由 shell。 |
 | `repeated_action_loop` | Agent 没有新信息却重复 action。 | 增加 recovery，强制进入不同 observation path。 |
 | `pending_tool_call_at_stop` | Run 结束时模型仍准备调用工具。 | 增加 budget，或更早要求 patch/no-patch decision。 |
 | `provider_transport_error` | Provider transport 失败。 | 与 Agent logic failure 分开处理。 |
@@ -38,4 +38,4 @@ NanoHarness 对 Coding Agent failure 做结构化分类，使一次坏 run 成�
 ## 工程意义
 
 目标不是事后给 failure 贴标签，而是判断下一步改进属于 context selection、tool
-governance、sandbox policy、diagnostics、provider handling，还是 prompt procedure。
+governance、sandbox policy、validation、provider handling，还是 prompt procedure。

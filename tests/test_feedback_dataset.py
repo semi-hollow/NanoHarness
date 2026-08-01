@@ -145,6 +145,7 @@ class FeedbackDatasetTest(unittest.TestCase):
                             "minimal-control": {
                                 "official_evaluated": 2,
                                 "official_resolved": 2,
+                                "tool_calls": 27,
                                 "failed_tool_calls": 8,
                                 "total_tokens": 100,
                                 "estimated_cost_usd": 0.1,
@@ -152,6 +153,7 @@ class FeedbackDatasetTest(unittest.TestCase):
                             "governed-runtime": {
                                 "official_evaluated": 2,
                                 "official_resolved": 2,
+                                "tool_calls": 32,
                                 "failed_tool_calls": 5,
                                 "total_tokens": 130,
                                 "estimated_cost_usd": 0.13,
@@ -182,6 +184,8 @@ class FeedbackDatasetTest(unittest.TestCase):
                     decision="iterate",
                     decision_rationale="Correctness tied and cost increased.",
                     claim_boundary="Two commissioning cases only.",
+                    diagnosis_finding="Validation environment failures dominated.",
+                    diagnosis_evidence=("Control failed 8/27 calls.",),
                 )
             )
 
@@ -190,6 +194,11 @@ class FeedbackDatasetTest(unittest.TestCase):
             self.assertEqual(record["before_after"]["delta"]["failed_tool_calls"], -3)
             self.assertEqual(record["before_after"]["delta"]["official_resolved"], 0)
             self.assertEqual(record["diagnosis"]["review_status"], "reviewed")
+            self.assertEqual(record["before_after"]["control"]["tool_calls"], 27)
+            self.assertIn("Validation environment", record["diagnosis"]["finding"])
+            self.assertEqual(
+                record["diagnosis"]["evidence"], ["Control failed 8/27 calls."]
+            )
             self.assertEqual(record["decision"]["status"], "iterate")
             self.assertIn("commissioning", record["claim_boundary"].lower())
 

@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Any
 
 from agent_forge.bench.adapters.case_evidence import JsonCaseEvidenceReader
-from agent_forge.bench.application.diagnostics import DiagnoseBenchCase
+from agent_forge.bench.application.failure_analysis import BenchFailureAnalyzer
 from agent_forge.bench.domain.config import BenchRunLayout
 from agent_forge.bench.domain.models import BenchCaseResult, BenchRunSummary
 from agent_forge.bench.presentation.case_study import write_case_study
@@ -19,7 +19,7 @@ from agent_forge.evaluation.api import (
 
 class FileBenchArtifacts:
     def __init__(self) -> None:
-        self._diagnose = DiagnoseBenchCase(JsonCaseEvidenceReader())
+        self._failure_analyzer = BenchFailureAnalyzer(JsonCaseEvidenceReader())
 
     def create_layout(
         self,
@@ -84,7 +84,7 @@ class FileBenchArtifacts:
         )
 
     def finalize_case(self, result: BenchCaseResult) -> None:
-        self._diagnose.attach(result)
+        self._failure_analyzer.enrich_result_with_failure_diagnosis(result)
         write_case_study(result)
 
     def publish_run(

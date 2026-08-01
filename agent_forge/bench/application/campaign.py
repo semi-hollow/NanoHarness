@@ -29,7 +29,7 @@ from agent_forge.bench.ports import (
 )
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, kw_only=True)
 class BenchmarkCampaignResult:
     """公开调用方真正需要的 campaign 状态和 artifact 位置。"""
 
@@ -37,7 +37,7 @@ class BenchmarkCampaignResult:
     campaign_dir: Path
     summary_path: Path
     report_path: Path
-    public_dir: Path | None
+    published_bundle_dir: Path | None
 
 
 class RunBenchmarkCampaign:
@@ -89,34 +89,45 @@ class RunBenchmarkCampaign:
         variants_by_name = {variant.name: variant for variant in request.variants}
         # endregion 准备区结束
 
-        # 执行区：每个 record 是一个可单独 checkpoint、可恢复的实验槽位。
-        for record in sorted(
+        # region 2. 交错实验：每个 run slot 都是可 checkpoint、可恢复的最小单元
+        for campaign_run_slot in sorted(
             campaign_state.records,
-            key=lambda item: item.ordinal,
+            key=lambda campaign_run_slot: campaign_run_slot.ordinal,
         ):
-            if record.status == "completed":
+            if campaign_run_slot.status == "completed":
                 continue
-            self._start_record(record, campaign_state, campaign_dir)
+            self._mark_run_slot_started(
+                campaign_run_slot,
+                campaign_state,
+                campaign_dir,
+            )
             try:
-                benchmark_request = self._benchmark_request(
+                benchmark_request = self._build_run_slot_request(
                     request,
                     campaign_dir=campaign_dir,
-                    record=record,
-                    variant=variants_by_name[record.variant],
+                    campaign_run_slot=campaign_run_slot,
+                    variant=variants_by_name[campaign_run_slot.variant],
                 )
                 benchmark_run = self._runner(benchmark_request)
-                self._complete_record(record, benchmark_run)
+                self._record_run_slot_completion(
+                    campaign_run_slot,
+                    benchmark_run,
+                )
             except Exception as exc:
-                record.status = "failed"
-                record.error = f"{type(exc).__name__}: {exc}"
+                campaign_run_slot.status = "failed"
+                campaign_run_slot.error = f"{type(exc).__name__}: {exc}"
             finally:
                 campaign_state.updated_at = self._now()
                 self._artifacts.save_state(campaign_dir, campaign_state)
+        # endregion 2. 交错实验结束
 
-        # 收口区：聚合只消费已经持久化的槽位事实，不重新推断 case 结果。
+        # region 3. 聚合发布：只消费已持久化槽位，不重新推断 Case 正确性
         campaign_state.status = (
             "completed"
-            if all(record.status == "completed" for record in campaign_state.records)
+            if all(
+                campaign_run_slot.status == "completed"
+                for campaign_run_slot in campaign_state.records
+            )
             else "completed_with_failures"
         )
         campaign_state.updated_at = self._now()
@@ -143,8 +154,9 @@ class RunBenchmarkCampaign:
             campaign_dir=campaign_dir,
             summary_path=summary_path,
             report_path=report_path,
-            public_dir=published_bundle_dir,
+            published_bundle_dir=published_bundle_dir,
         )
+        # endregion 3. 聚合发布结束
 
     # region 单槽位与恢复细节（首次阅读可折叠）
     def _load_or_create_state(
@@ -180,38 +192,45 @@ class RunBenchmarkCampaign:
         self._artifacts.save_state(campaign_dir, new_campaign_state)
         return new_campaign_state
 
-    def _start_record(
+    def _mark_run_slot_started(
         self,
-        record: CampaignRunRecord,
+        campaign_run_slot: CampaignRunRecord,
         campaign_state: CampaignState,
         campaign_dir: Path,
     ) -> None:
-        record.status = "running"
-        record.attempts += 1
-        record.error = ""
+        """先保存 running 状态，使进程崩溃后该槽位可被识别并重试。"""
+
+        campaign_run_slot.status = "running"
+        campaign_run_slot.attempts += 1
+        campaign_run_slot.error = ""
         campaign_state.status = "running"
         campaign_state.updated_at = self._now()
         self._artifacts.save_state(campaign_dir, campaign_state)
 
-    def _benchmark_request(
+    def _build_run_slot_request(
         self,
-        campaign: BenchmarkCampaignRequest,
+        campaign_request: BenchmarkCampaignRequest,
         *,
         campaign_dir: Path,
-        record: CampaignRunRecord,
+        campaign_run_slot: CampaignRunRecord,
         variant: CampaignVariant,
     ) -> SwebenchRunRequest:
+        """为一个 case/repetition/variant 槽位构造独立 benchmark 请求。"""
+
         # 每个槽位拥有独立目录，恢复时不会覆盖另一 case/repetition。
         slot_output_root = (
             campaign_dir
             / "runs"
             / safe_id(variant.name)
-            / f"r{record.repetition:02d}-{safe_id(record.case_id)}"
+            / (
+                f"r{campaign_run_slot.repetition:02d}-"
+                f"{safe_id(campaign_run_slot.case_id)}"
+            )
         )
         return replace(
-            campaign.benchmark,
+            campaign_request.benchmark,
             limit=1,
-            instance_ids=(record.case_id,),
+            instance_ids=(campaign_run_slot.case_id,),
             output_root=str(slot_output_root),
             direct_baseline=False,
             agent_mode="single",
@@ -224,22 +243,24 @@ class RunBenchmarkCampaign:
             memory_recall_limit=0,
         )
 
-    def _complete_record(
+    def _record_run_slot_completion(
         self,
-        record: CampaignRunRecord,
+        campaign_run_slot: CampaignRunRecord,
         benchmark_run: BenchRunSummary,
     ) -> None:
-        record.status = "completed"
-        record.run_id = benchmark_run.run_id
-        record.run_dir = str(benchmark_run.output_dir)
-        record.scorecard_sha256 = self._artifacts.scorecard_sha256(
+        """把一次 benchmark 的身份、证据摘要和 digest 提交到对应槽位。"""
+
+        campaign_run_slot.status = "completed"
+        campaign_run_slot.run_id = benchmark_run.run_id
+        campaign_run_slot.run_dir = str(benchmark_run.output_dir)
+        campaign_run_slot.scorecard_sha256 = self._artifacts.scorecard_sha256(
             benchmark_run.output_dir
         )
-        record.evidence = _extract_run_evidence(
+        campaign_run_slot.evidence = _extract_run_evidence(
             benchmark_run,
             self._artifacts.read_scorecard(benchmark_run.output_dir),
         )
-        record.error = ""
+        campaign_run_slot.error = ""
 
     # endregion 单槽位与恢复细节结束
 

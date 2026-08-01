@@ -13,14 +13,11 @@ from .llm_config import LLMConfig
 
 
 class LLMClient:
-
     def chat(self, messages: list[Message], tools: list[dict]) -> AgentResponse:
-
         raise NotImplementedError
 
 
 class OpenAICompatibleLLMClient(LLMClient):
-
     def __init__(
         self,
         base_url: str | None = None,
@@ -32,7 +29,6 @@ class OpenAICompatibleLLMClient(LLMClient):
         reasoning_effort: str | None = None,
         capabilities: ModelCapabilities | None = None,
     ) -> None:
-
         resolved_base_url = (
             base_url
             or os.getenv("AGENT_FORGE_BASE_URL")
@@ -45,7 +41,9 @@ class OpenAICompatibleLLMClient(LLMClient):
             or os.getenv("AGENT_FORGE_API_KEY")
             or os.getenv("OPENAI_API_KEY", "")
         )
-        self.model = model or os.getenv("AGENT_FORGE_MODEL") or os.getenv("OPENAI_MODEL", "")
+        self.model = (
+            model or os.getenv("AGENT_FORGE_MODEL") or os.getenv("OPENAI_MODEL", "")
+        )
         self.timeout = timeout
         self.temperature = temperature
         self.thinking_mode = thinking_mode
@@ -55,12 +53,10 @@ class OpenAICompatibleLLMClient(LLMClient):
 
     @classmethod
     def from_env(cls) -> "OpenAICompatibleLLMClient":
-
         return cls()
 
     @classmethod
     def from_config(cls, config: LLMConfig) -> "OpenAICompatibleLLMClient":
-
         return cls(
             base_url=config.base_url,
             api_key=config.api_key,
@@ -73,36 +69,39 @@ class OpenAICompatibleLLMClient(LLMClient):
         )
 
     def is_configured(self) -> bool:
-
         return bool(self.base_url and self.api_key and self.model)
 
     def chat(self, messages: list[Message], tools: list[dict]) -> AgentResponse:
-
         if not self.is_configured():
             return self._invalid(
                 "missing_config",
                 "AGENT_FORGE_BASE_URL, AGENT_FORGE_API_KEY, and AGENT_FORGE_MODEL are required",
             )
 
-        payload: dict[str, Any] = {
+        provider_request_payload: dict[str, Any] = {
             "model": self.model,
             "messages": [
-                self._message_to_dict(message)
-                for message in self._transport_messages(messages, tools)
+                self._message_to_dict(provider_input_message)
+                for provider_input_message in self._transport_messages(
+                    messages,
+                    tools,
+                )
             ],
             "stream": False,
         }
         if self.thinking_mode != "enabled":
-            payload["temperature"] = self.temperature
+            provider_request_payload["temperature"] = self.temperature
         if self.thinking_mode != "auto":
-            payload["thinking"] = {"type": self.thinking_mode}
+            provider_request_payload["thinking"] = {"type": self.thinking_mode}
         if self.reasoning_effort:
-            payload["reasoning_effort"] = self.reasoning_effort
+            provider_request_payload["reasoning_effort"] = self.reasoning_effort
         if self.capabilities.native_tool_calling and tools:
-            payload["tools"] = [self._tool_to_openai_schema(tool) for tool in tools]
-        request = urllib.request.Request(
+            provider_request_payload["tools"] = [
+                self._tool_to_openai_schema(tool) for tool in tools
+            ]
+        http_request = urllib.request.Request(
             f"{self.base_url}/chat/completions",
-            data=json.dumps(payload).encode("utf-8"),
+            data=json.dumps(provider_request_payload).encode("utf-8"),
             headers={
                 "Authorization": f"Bearer {self.api_key}",
                 "Content-Type": "application/json",
@@ -111,25 +110,36 @@ class OpenAICompatibleLLMClient(LLMClient):
         )
 
         try:
-            with urllib.request.urlopen(request, timeout=self.timeout) as response:
-                raw = response.read().decode("utf-8")
+            with urllib.request.urlopen(
+                http_request,
+                timeout=self.timeout,
+            ) as http_response:
+                raw_response_body = http_response.read().decode("utf-8")
         except urllib.error.HTTPError as exc:
-
-            raw = exc.read().decode("utf-8", errors="replace")
+            raw_response_body = exc.read().decode("utf-8", errors="replace")
             return self._invalid(
-                self._classify_http_error(exc.code, raw),
+                self._classify_http_error(exc.code, raw_response_body),
                 f"HTTP Error {exc.code}: {exc.reason}",
-                raw[:1000],
+                raw_response_body[:1000],
             )
-        except (urllib.error.URLError, TimeoutError, OSError, http.client.IncompleteRead) as exc:
+        except (
+            urllib.error.URLError,
+            TimeoutError,
+            OSError,
+            http.client.IncompleteRead,
+        ) as exc:
             return self._invalid("request_failed", f"{type(exc).__name__}: {exc}")
 
         try:
-            data = json.loads(raw)
+            provider_response_payload = json.loads(raw_response_body)
         except json.JSONDecodeError as exc:
-            return self._invalid("invalid_json", str(exc), raw[:500])
+            return self._invalid(
+                "invalid_json",
+                str(exc),
+                raw_response_body[:500],
+            )
 
-        return self.parse_response(data, tools=tools)
+        return self.parse_response(provider_response_payload, tools=tools)
 
     def _transport_messages(
         self,
@@ -140,7 +150,7 @@ class OpenAICompatibleLLMClient(LLMClient):
 
         if self.capabilities.native_tool_calling or not tools:
             return messages
-        catalog = [
+        visible_tool_catalog = [
             {
                 "name": _tool_definition(tool).get("name", ""),
                 "description": _tool_definition(tool).get("description", ""),
@@ -151,76 +161,94 @@ class OpenAICompatibleLLMClient(LLMClient):
             }
             for tool in tools
         ]
-        instruction = "\n".join(
+        fallback_tool_protocol_instruction = "\n".join(
             [
                 "This model transport has no native tool calling.",
                 "To call a tool, return only one JSON object with this shape:",
                 '{"name":"visible_tool_name","arguments":{"key":"value"}}',
                 "Do not invent tool names or omit required arguments.",
                 "Visible tools:",
-                json.dumps(catalog, ensure_ascii=False, separators=(",", ":")),
+                json.dumps(
+                    visible_tool_catalog,
+                    ensure_ascii=False,
+                    separators=(",", ":"),
+                ),
             ]
         )
-        return [*messages, Message("system", instruction)]
+        return [
+            *messages,
+            Message(
+                role="system",
+                content=fallback_tool_protocol_instruction,
+            ),
+        ]
 
     def parse_response(
         self,
-        data: dict[str, Any],
+        provider_response_payload: dict[str, Any],
         tools: list[dict[str, Any]] | None = None,
     ) -> AgentResponse:
         """归一化 provider 响应，并对弱模型格式做受限修复。"""
 
         try:
-            choices = data.get("choices")
-            if not choices:
+            response_choices = provider_response_payload.get("choices")
+            if not response_choices:
                 return self._invalid("missing_choices", "response has no choices")
-            message = choices[0].get("message")
-            if not isinstance(message, dict):
+            assistant_message_payload = response_choices[0].get("message")
+            if not isinstance(assistant_message_payload, dict):
                 return self._invalid("missing_message", "first choice has no message")
-            raw_content = message.get("content")
-            content = str(raw_content) if raw_content is not None else None
-            raw_calls = message.get("tool_calls") or []
-            if not isinstance(raw_calls, list) or not all(
-                isinstance(item, dict) for item in raw_calls
+            provider_content = assistant_message_payload.get("content")
+            normalized_content = (
+                str(provider_content) if provider_content is not None else None
+            )
+            provider_tool_calls = assistant_message_payload.get("tool_calls") or []
+            if not isinstance(provider_tool_calls, list) or not all(
+                isinstance(tool_call_payload, dict)
+                for tool_call_payload in provider_tool_calls
             ):
                 return self._invalid(
                     "invalid_tool_call",
                     "tool_calls must be a list of objects",
-                    json.dumps(message, ensure_ascii=False)[:1000],
+                    json.dumps(assistant_message_payload, ensure_ascii=False)[:1000],
                 )
-            legacy = message.get("function_call")
-            if legacy is not None and not isinstance(legacy, dict):
+            legacy_function_call = assistant_message_payload.get("function_call")
+            if legacy_function_call is not None and not isinstance(
+                legacy_function_call,
+                dict,
+            ):
                 return self._invalid(
                     "invalid_tool_call",
                     "function_call must be an object",
-                    json.dumps(message, ensure_ascii=False)[:1000],
+                    json.dumps(assistant_message_payload, ensure_ascii=False)[:1000],
                 )
-            normalized = self.tool_calls.normalize(
-                raw_calls=raw_calls,
-                legacy_function_call=legacy,
-                content=content,
+            normalized_tool_calls = self.tool_calls.normalize(
+                raw_calls=provider_tool_calls,
+                legacy_function_call=legacy_function_call,
+                content=normalized_content,
                 allowed_tool_names=self._allowed_tool_names(tools or []),
             )
-            if normalized.error:
+            if normalized_tool_calls.error:
                 return self._invalid(
                     "invalid_tool_call",
-                    normalized.error,
-                    json.dumps(message, ensure_ascii=False)[:1000],
-                    repair_prompt=normalized.repair_prompt,
+                    normalized_tool_calls.error,
+                    json.dumps(assistant_message_payload, ensure_ascii=False)[:1000],
+                    repair_prompt=normalized_tool_calls.repair_prompt,
                 )
-            content = normalized.content
-            tool_calls = normalized.calls
-            if content is None and not tool_calls:
-                return self._invalid("empty_message", "message has neither content nor tool calls")
+            normalized_content = normalized_tool_calls.content
+            normalized_tool_call_objects = normalized_tool_calls.calls
+            if normalized_content is None and not normalized_tool_call_objects:
+                return self._invalid(
+                    "empty_message", "message has neither content nor tool calls"
+                )
             return AgentResponse(
-                content,
-                tool_calls,
-                reasoning_content=message.get("reasoning_content"),
-                usage=data.get("usage"),
-                response_id=data.get("id"),
+                content=normalized_content,
+                tool_calls=normalized_tool_call_objects,
+                reasoning_content=assistant_message_payload.get("reasoning_content"),
+                usage=provider_response_payload.get("usage"),
+                response_id=provider_response_payload.get("id"),
                 normalization={
-                    "tool_call_source": normalized.source,
-                    "repairs": normalized.repairs,
+                    "tool_call_source": normalized_tool_calls.source,
+                    "repairs": normalized_tool_calls.repairs,
                 },
             )
         except Exception as exc:
@@ -236,21 +264,22 @@ class OpenAICompatibleLLMClient(LLMClient):
         return names
 
     def _message_to_dict(self, message: Message) -> dict[str, Any]:
-
-        item: dict[str, Any] = {"role": message.role, "content": message.content}
+        provider_message_payload: dict[str, Any] = {
+            "role": message.role,
+            "content": message.content,
+        }
 
         if message.name and message.role != "tool":
-            item["name"] = message.name
+            provider_message_payload["name"] = message.name
         if message.tool_call_id:
-            item["tool_call_id"] = message.tool_call_id
+            provider_message_payload["tool_call_id"] = message.tool_call_id
         if message.tool_calls:
-            item["tool_calls"] = message.tool_calls
+            provider_message_payload["tool_calls"] = message.tool_calls
         if message.reasoning_content:
-            item["reasoning_content"] = message.reasoning_content
-        return item
+            provider_message_payload["reasoning_content"] = message.reasoning_content
+        return provider_message_payload
 
     def _tool_to_openai_schema(self, schema: dict[str, Any]) -> dict[str, Any]:
-
         if schema.get("type") == "function":
             return schema
         properties = {}
@@ -272,7 +301,6 @@ class OpenAICompatibleLLMClient(LLMClient):
         }
 
     def _json_type(self, typ: Any) -> str:
-
         if typ in {"int", "integer"}:
             return "integer"
         if typ in {"float", "number"}:
@@ -289,7 +317,7 @@ class OpenAICompatibleLLMClient(LLMClient):
     def _classify_http_error(status: int, raw: str) -> str:
         """先识别需要改变请求的错误，再区分可重试 transport 状态。"""
 
-        lowered = raw.lower()
+        normalized_error = raw.lower()
         context_markers = (
             "context_length_exceeded",
             "maximum context length",
@@ -297,7 +325,7 @@ class OpenAICompatibleLLMClient(LLMClient):
             "too many tokens",
             "prompt is too long",
         )
-        if any(marker in lowered for marker in context_markers):
+        if any(marker in normalized_error for marker in context_markers):
             return "context_length_exceeded"
         if status == 408:
             return "request_timeout"
@@ -314,11 +342,10 @@ class OpenAICompatibleLLMClient(LLMClient):
         raw: str = "",
         **details: Any,
     ) -> AgentResponse:
-
         return AgentResponse(
-            None,
-            [],
-            {
+            content=None,
+            tool_calls=[],
+            error={
                 "type": "invalid_response",
                 "code": code,
                 "message": message,

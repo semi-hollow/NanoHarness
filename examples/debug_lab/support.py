@@ -50,8 +50,11 @@ class DeterministicRepairModel:
             ),
             4: ToolCall(
                 "lab-pytest",
-                "diagnostics",
-                {"kind": "pytest", "target": "test_calculator.py"},
+                "python_validation",
+                {
+                    "check_type": "pytest",
+                    "validation_target": "test_calculator.py",
+                },
             ),
         }
         if self.calls in scripted_calls:
@@ -74,7 +77,9 @@ class DeterministicFanoutModel:
         from agent_forge.extensions import AgentResponse, ToolCall
 
         self.calls += 1
-        prompt = "\n".join(str(getattr(message, "content", "") or "") for message in messages)
+        prompt = "\n".join(
+            str(getattr(message, "content", "") or "") for message in messages
+        )
         if "FanoutVerifier" in prompt:
             if self.calls == 1:
                 return AgentResponse(
@@ -82,8 +87,11 @@ class DeterministicFanoutModel:
                     [
                         ToolCall(
                             "lab-fanout-pytest",
-                            "diagnostics",
-                            {"kind": "pytest", "target": "test_checkout.py"},
+                            "python_validation",
+                            {
+                                "check_type": "pytest",
+                                "validation_target": "test_checkout.py",
+                            },
                         )
                     ],
                 )

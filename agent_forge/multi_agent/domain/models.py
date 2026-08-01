@@ -23,7 +23,6 @@ class RoleSpec:
     read_only: bool = False
 
     def to_dict(self) -> dict[str, Any]:
-
         return {
             "name": self.name,
             "role": self.role,
@@ -53,19 +52,16 @@ class AgentProfile:
     default_max_revision_rounds: int = 2
 
     def role_by_name(self, name: str) -> RoleSpec:
-
         for role in self.roles:
             if role.name == name:
                 return role
         raise KeyError(f"profile {self.name} has no role named {name}")
 
     def ordered_review_roles(self) -> list[RoleSpec]:
-
         names = [*self.review_roles, *self.verifier_roles]
         return [self.role_by_name(name) for name in names]
 
     def to_dict(self) -> dict[str, Any]:
-
         return {
             "name": self.name,
             "description": self.description,
@@ -78,7 +74,7 @@ class AgentProfile:
 
 
 # 核心数据：角色交给后续角色的显式文件 artifact。
-@dataclass
+@dataclass(frozen=True, kw_only=True)
 class Artifact:
     """记录 artifact 身份、owner、类型、路径、摘要和修订轮次。"""
 
@@ -90,7 +86,6 @@ class Artifact:
     round_index: int = 0
 
     def to_dict(self) -> dict[str, Any]:
-
         return {
             "id": self.id,
             "role": self.role,
@@ -115,7 +110,6 @@ class RoleRunResult:
     error: str = ""
 
     def to_dict(self) -> dict[str, Any]:
-
         return {
             "role": self.role,
             "status": self.status,
@@ -144,7 +138,6 @@ class MultiAgentRunSummary:
     report_path: Path | None = None
 
     def to_dict(self) -> dict[str, Any]:
-
         return {
             "run_id": self.run_id,
             "task": self.task,

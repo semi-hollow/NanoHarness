@@ -174,10 +174,11 @@ dataset issue/base commit
   -> scorecard / failure class
 ```
 
-PyCharm 直接运行 `NanoHarness Benchmark Smoke-5`，会执行
-`5 cases x 2 presets x 1 repetition = 10 runs` 的初始证据闭环。正式 campaign 再固定
-case、模型、温度、预算、安全策略和执行环境，交错重复比较两个同核 Runtime preset；公开
-运行使用 `forge bench campaign --regression-set smoke-5 --repetitions 3 --evaluate --publish`。
+面试学习直接运行现有 `NanoHarness Lab 3 - Evaluation Loop`：它回放已保存的 commissioning
+evidence，展示分层正确性、失败归因、前后对比和结论边界，不重新调用模型或 Docker。需要真正
+扩大样本时，再固定 case、模型、温度、预算、安全策略和执行环境，交错重复比较两个同核 Runtime
+preset；完整 campaign 使用
+`forge bench campaign --regression-set smoke-5 --repetitions 3 --evaluate --publish`。
 
 这会规划 `5 cases x 2 presets x 3 repetitions = 30 runs`。每个槽位原子保存，恢复时只重试
 未完成项；两个 preset 同时改变 routing 与 Skill，因此不伪装成单因素因果实验。当前公开的
@@ -208,8 +209,8 @@ flowchart LR
 
 Capability 内部按需使用 `domain -> application -> ports <- adapters`，外部调用只经过具名
 API 和 composition root。六边形边界用于替换外部 Port、隔离副作用和测试核心规则，不为目录
-风格增加转发层。架构依赖约束由测试执行，不只写在图里；理解预算、抽象收益与 Navigation
-Contract 见[架构契约](docs/ARCHITECTURE.md)。
+风格增加转发层。架构依赖约束由测试执行，理解预算与 Navigation Contract 见[架构契约](docs/ARCHITECTURE.md)。
+从能力拆包、AgentLoop 职责膨胀到分层、显式类型和导航守卫的取舍，见[代码结构演进](docs/architecture/code-structure-evolution.md)。
 
 ## 当前边界
 

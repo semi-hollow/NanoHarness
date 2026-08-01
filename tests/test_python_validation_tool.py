@@ -4,10 +4,10 @@ import unittest
 from pathlib import Path
 
 from agent_forge.safety.sandbox import WorkspaceSandbox
-from agent_forge.tools.diagnostics import DiagnosticsTool
+from agent_forge.tools.python_validation import PythonValidationTool
 
 
-class DiagnosticsToolTest(unittest.TestCase):
+class PythonValidationToolTest(unittest.TestCase):
     def test_unittest_delegates_relative_target_to_execution_environment(self):
         class Environment:
             def __init__(self):
@@ -21,9 +21,14 @@ class DiagnosticsToolTest(unittest.TestCase):
             root = Path(tmp)
             (root / "tests").mkdir()
             environment = Environment()
-            tool = DiagnosticsTool(WorkspaceSandbox(root), execution_environment=environment)
+            tool = PythonValidationTool(
+                WorkspaceSandbox(root),
+                execution_environment=environment,
+            )
 
-            observation = tool.execute({"kind": "unittest", "target": "tests"})
+            observation = tool.execute(
+                {"check_type": "unittest", "validation_target": "tests"}
+            )
 
         self.assertTrue(observation.success)
         self.assertEqual(
@@ -44,9 +49,14 @@ class DiagnosticsToolTest(unittest.TestCase):
                 "        self.assertEqual(1, 1)\n",
                 encoding="utf-8",
             )
-            tool = DiagnosticsTool(WorkspaceSandbox(root))
+            tool = PythonValidationTool(WorkspaceSandbox(root))
 
-            observation = tool.execute({"kind": "unittest", "target": "pkg.test_sample"})
+            observation = tool.execute(
+                {
+                    "check_type": "unittest",
+                    "validation_target": "pkg.test_sample",
+                }
+            )
 
             self.assertTrue(observation.success, observation.content)
             self.assertIn("exit_code=0", observation.content)
@@ -69,12 +79,17 @@ class DiagnosticsToolTest(unittest.TestCase):
             root = Path(tmp)
             (root / "test_sample.py").write_text("", encoding="utf-8")
             environment = Environment()
-            tool = DiagnosticsTool(
+            tool = PythonValidationTool(
                 WorkspaceSandbox(root),
                 execution_environment=environment,
             )
 
-            observation = tool.execute({"kind": "unittest", "target": "test_sample.py"})
+            observation = tool.execute(
+                {
+                    "check_type": "unittest",
+                    "validation_target": "test_sample.py",
+                }
+            )
 
         self.assertTrue(observation.success, observation.content)
         self.assertEqual(
@@ -102,13 +117,16 @@ class DiagnosticsToolTest(unittest.TestCase):
             tests.mkdir()
             (tests / "test_sample.py").write_text("", encoding="utf-8")
             environment = Environment()
-            tool = DiagnosticsTool(
+            tool = PythonValidationTool(
                 WorkspaceSandbox(root),
                 execution_environment=environment,
             )
 
             observation = tool.execute(
-                {"kind": "pytest", "target": "tests/test_sample.py::test_ok"}
+                {
+                    "check_type": "pytest",
+                    "validation_target": "tests/test_sample.py::test_ok",
+                }
             )
 
         self.assertTrue(observation.success, observation.content)
@@ -144,12 +162,17 @@ class DiagnosticsToolTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             (root / "test_needs_pytest.py").write_text("", encoding="utf-8")
-            tool = DiagnosticsTool(
+            tool = PythonValidationTool(
                 WorkspaceSandbox(root),
                 execution_environment=Environment(),
             )
 
-            observation = tool.execute({"kind": "pytest", "target": "test_needs_pytest.py"})
+            observation = tool.execute(
+                {
+                    "check_type": "pytest",
+                    "validation_target": "test_needs_pytest.py",
+                }
+            )
 
             self.assertTrue(observation.success, observation.content)
             self.assertIn("validation_blocked", observation.content)
@@ -167,13 +190,16 @@ class DiagnosticsToolTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             (root / "test_pytest_style.py").write_text("", encoding="utf-8")
-            tool = DiagnosticsTool(
+            tool = PythonValidationTool(
                 WorkspaceSandbox(root),
                 execution_environment=Environment(),
             )
 
             observation = tool.execute(
-                {"kind": "unittest", "target": "test_pytest_style.py"}
+                {
+                    "check_type": "unittest",
+                    "validation_target": "test_pytest_style.py",
+                }
             )
 
         self.assertTrue(observation.success, observation.content)

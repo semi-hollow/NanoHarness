@@ -116,6 +116,7 @@ class Harness:
         run_result: RunResult | None = None
         failure_stop_reason = ""
         # endregion 准备区结束
+        # region 2. 执行环境与 Runtime：隔离副作用，再进入唯一 AgentLoop
         try:
             environment: EnvironmentPort
             if self._extensions.execution_environment is None:
@@ -157,6 +158,9 @@ class Harness:
                 result=run_result,
                 failure_stop_reason=failure_stop_reason,
             )
+        # endregion 2. 执行环境与 Runtime结束
+
+        # region 3. Public API 收口：拒绝无结果运行，并发布 latest 指针
         if run_result is None:
             raise RuntimeError("Harness run ended without a typed result")
         write_latest_run_pointer(
@@ -164,6 +168,7 @@ class Harness:
             run_paths.artifact_dir,
         )
         return run_result
+        # endregion 3. Public API 收口结束
 
     # region Runtime 装配细节（首次阅读可折叠）
     def _execute_run(
@@ -223,7 +228,7 @@ class Harness:
         )
         # endregion 装配准备结束
 
-        # 主执行区：记录环境事实，随后只调用一次规范 AgentLoop。
+        # region 2. 规范执行：记录环境事实，随后只调用一次 AgentLoop
         events.add(
             0,
             "Runtime",
@@ -247,8 +252,9 @@ class Harness:
                 owned_environment.diff(),
                 encoding="utf-8",
             )
+        # endregion 2. 规范执行结束
 
-        # 收口区：只从最新 durable checkpoint 构造对外 RunResult。
+        # region 3. 结果收口：只从最新 durable checkpoint 构造对外 RunResult
         final_checkpoint = tracked_task_states.latest
         if final_checkpoint is None:
             raise RuntimeError("AgentLoop completed without creating a checkpoint")
@@ -270,6 +276,7 @@ class Harness:
             ),
             manifest_path=run_paths.manifest_file,
         )
+        # endregion 3. 结果收口结束
 
     def _build_owned_environment(
         self,

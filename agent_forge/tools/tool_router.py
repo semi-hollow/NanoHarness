@@ -2,7 +2,7 @@ from dataclasses import dataclass
 
 
 # 核心数据：一次工具可见性决策的任务、候选 schema 与运行上下文。
-@dataclass(frozen=True)
+@dataclass(frozen=True, kw_only=True)
 class ToolRoutingRequest:
     """Router 的完整输入；schema 不在 Router 内修改。"""
 
@@ -15,7 +15,7 @@ class ToolRoutingRequest:
 
 
 # 核心数据：本 turn 展示给模型和隐藏于模型的真实工具可见性决策。
-@dataclass(frozen=True)
+@dataclass(frozen=True, kw_only=True)
 class ToolRoute:
     """一次工具可见性决策，明确记录展示、隐藏和治理元数据。"""
 
@@ -67,7 +67,7 @@ class ToolRouter:
             "latency": "low",
             "mode": "read",
         },
-        "diagnostics": {
+        "python_validation": {
             "capability": "validate",
             "risk": "low",
             "latency": "medium",
@@ -115,13 +115,14 @@ class ToolRouter:
     def route(self, request: ToolRoutingRequest) -> ToolRoute:
         """返回本轮允许展示给模型的 schema，并保留隐藏原因证据。"""
 
+        # region 1. 输入规范化：建立 schema 索引，并处理显式 all 模式
         task = request.task
         schemas = request.schemas
         step = request.step
         agent_name = request.agent_name
         skill_tool_names = request.skill_tool_names
         mode = request.mode
-        lowered = (task or "").lower()
+        normalized_task = (task or "").lower()
         by_name = {schema.get("name", ""): schema for schema in schemas}
         names = set(by_name)
         if mode not in {"task-aware", "all"}:
@@ -148,6 +149,9 @@ class ToolRouter:
                     for name in sorted(names)
                 },
             )
+        # endregion 1. 输入规范化结束
+
+        # region 2. 任务意图：先识别只读边界，再选择 Coding Agent 基础能力
         read_only_markers = [
             "不要修改",
             "不修改",
@@ -160,9 +164,11 @@ class ToolRouter:
             "read only",
             "without editing",
         ]
-        read_only_requested = any(marker in lowered for marker in read_only_markers)
+        read_only_requested = any(
+            marker in normalized_task for marker in read_only_markers
+        )
         if read_only_requested and any(
-            marker in lowered
+            marker in normalized_task
             for marker in [
                 "do not edit tests unless",
                 "do not modify tests unless",
@@ -182,7 +188,7 @@ class ToolRouter:
         selected |= names & {"ask_human"}
 
         if not read_only_requested and any(
-            token in lowered
+            token in normalized_task
             for token in [
                 "fix",
                 "repair",
@@ -198,34 +204,38 @@ class ToolRouter:
                 "replace_text",
                 "write_file",
                 "run_command",
-                "diagnostics",
+                "python_validation",
                 "git_status",
                 "git_diff",
             }
         if not read_only_requested and any(
-            token in lowered
+            token in normalized_task
             for token in ["test", "validate", "验证", "测试", "unittest"]
         ):
-            selected |= names & {"run_command", "diagnostics"}
-        if any(token in lowered for token in ["review", "diff", "审查", "回滚"]):
+            selected |= names & {"run_command", "python_validation"}
+        if any(
+            token in normalized_task for token in ["review", "diff", "审查", "回滚"]
+        ):
             selected |= names & {"git_diff", "git_status", "read_file"}
         if any(
-            token in lowered
+            token in normalized_task
             for token in ["clarify", "unclear", "ambiguous", "澄清", "不明确"]
         ):
             selected |= names & {"ask_human"}
+        # endregion 2. 任务意图结束
 
+        # region 3. 专项约束：合并 Skill、SWE-bench 和外部 MCP 工具信号
         if skill_tool_names:
             selected |= names & skill_tool_names
         if read_only_requested:
             selected -= {"replace_text", "write_file", "run_command"}
 
-        swebench_task = "swe-bench" in lowered or "swebench" in lowered
+        swebench_task = "swe-bench" in normalized_task or "swebench" in normalized_task
         if swebench_task:
             selected -= {"run_command", "write_file"}
             selected |= names & {
                 "replace_text",
-                "diagnostics",
+                "python_validation",
                 "git_diff",
                 "git_status",
             }
@@ -233,20 +243,22 @@ class ToolRouter:
         external_names = names - set(self.DEFAULT_METADATA)
         task_terms = {
             term
-            for term in lowered.replace("_", " ").replace(".", " ").split()
+            for term in normalized_task.replace("_", " ").replace(".", " ").split()
             if len(term) >= 3
         }
         for name in external_names:
             schema = by_name[name]
             searchable = f"{name} {schema.get('description', '')}".lower()
             if (
-                "mcp" in lowered
-                or "tool" in lowered
-                or "policy" in lowered
+                "mcp" in normalized_task
+                or "tool" in normalized_task
+                or "policy" in normalized_task
                 or any(term in searchable for term in task_terms)
             ):
                 selected.add(name)
+        # endregion 3. 专项约束结束
 
+        # region 4. 路由证据：保持原 schema 顺序，并解释选择/隐藏结果
         if not selected:
             selected = set(names)
 
@@ -256,8 +268,8 @@ class ToolRouter:
             f"selected={len(routed)} dropped={len(dropped)} step={step} "
             f"agent={agent_name or 'agent'} skill_tools={len(skill_tool_names or set())}"
         )
-        if swebench_task and "diagnostics" in selected:
-            reason += " swebench_validation=diagnostics:pytest"
+        if swebench_task and "python_validation" in selected:
+            reason += " swebench_validation=python_validation:pytest"
         return ToolRoute(
             schemas=routed,
             allowed_names={schema.get("name", "") for schema in routed},
@@ -276,3 +288,4 @@ class ToolRouter:
                 for name in sorted(selected)
             },
         )
+        # endregion 4. 路由证据结束

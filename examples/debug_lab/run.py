@@ -14,16 +14,9 @@ from pathlib import Path
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
-SINGLE_AGENT_TEMPLATE_ROOT = Path(__file__).resolve().parent / "repository"
-MULTI_AGENT_TEMPLATE_ROOT = (
-    Path(__file__).resolve().parent / "multi_agent_repository"
-)
+MULTI_AGENT_TEMPLATE_ROOT = Path(__file__).resolve().parent / "multi_agent_repository"
 STATE_ROOT = PROJECT_ROOT / ".agent_forge" / "debug-lab"
 RUNS_ROOT = PROJECT_ROOT / ".agent_forge" / "runs"
-KEYCHAIN_SERVICE = "NanoHarness DeepSeek API"
-ASTROPY_INSTANCE = "astropy__astropy-12907"
-SWEBENCH_REPOSITORY = "https://github.com/SWE-bench/SWE-bench.git"
-SWEBENCH_REVISION = "f7bbbb2ccdf479001d6467c9e34af59e44a840f9"
 PUBLIC_CAMPAIGN_ROOT = (
     PROJECT_ROOT / "benchmarks" / "campaigns" / "verified-commissioning-2-20260726"
 )
@@ -33,37 +26,14 @@ WORKBENCH_FLAGS = {
     "coordinated": "--show-coordinated",
     "evaluation": "--show-evaluation",
 }
-TASK = (
-    "修复 calculator.py 的 add：2 + 3 必须等于 5。不要修改测试；"
-    "修改后必须调用 diagnostics，kind=pytest，target=test_calculator.py。"
-)
 sys.path.insert(0, str(PROJECT_ROOT))
 
 from examples.debug_lab.support import (  # noqa: E402
     DeterministicFanoutModel,
-    artifact_from_pointer,
     create_workspace,
-    ensure_docker,
-    ensure_swebench,
-    load_or_store_deepseek_key,
     publish_latest,
-    remember_root_pointer,
     restore_evidence as restore_saved_evidence,
 )
-
-
-def _forge_main(argv: list[str]) -> None:
-    from agent_forge.cli.dispatch import main as dispatch_main
-
-    dispatch_main(argv)
-
-
-def _new_workspace(scenario: str) -> Path:
-    return create_workspace(
-        scenario,
-        template_root=SINGLE_AGENT_TEMPLATE_ROOT,
-        state_root=STATE_ROOT,
-    )
 
 
 def _publish_latest(artifact_dir: Path, *, scenario: str = "") -> None:
@@ -75,42 +45,14 @@ def _publish_latest(artifact_dir: Path, *, scenario: str = "") -> None:
     )
 
 
-def _artifact_from_pointer(pointer: Path) -> Path:
-    return artifact_from_pointer(pointer)
+def _restore_saved_astropy_evidence() -> None:
+    """让 Lab 3 可下钻到已保存的 official 单题 Evidence。"""
 
-
-def _remember_root_pointer(scenario: str, pointer_name: str) -> None:
-    remember_root_pointer(
-        scenario,
-        pointer_name,
-        project_root=PROJECT_ROOT,
-        state_root=STATE_ROOT,
-    )
-
-
-def restore_evidence(scenario: str) -> None:
     restore_saved_evidence(
-        scenario,
+        "astropy",
         project_root=PROJECT_ROOT,
         state_root=STATE_ROOT,
         runs_root=RUNS_ROOT,
-    )
-
-
-def _load_or_store_deepseek_key() -> None:
-    load_or_store_deepseek_key(KEYCHAIN_SERVICE)
-
-
-def _ensure_docker() -> None:
-    ensure_docker()
-
-
-def _ensure_swebench() -> None:
-    ensure_swebench(
-        project_root=PROJECT_ROOT,
-        state_root=STATE_ROOT,
-        repository=SWEBENCH_REPOSITORY,
-        revision=SWEBENCH_REVISION,
     )
 
 
@@ -135,10 +77,13 @@ def run_governed() -> None:
         "LAB 1/3: approval -> checkpoint -> continuation -> write "
         "-> focused pytest -> evidence"
     )
-    result = run_governed_demo("approval", output_root=RUNS_ROOT)
-    _publish_latest(result.inspect_target, scenario="control")
-    print(f"STATUS: {result.waiting_status} -> {result.completed_status}")
-    print(f"ARTIFACT: {result.inspect_target}")
+    governed_demo_result = run_governed_demo("approval", output_root=RUNS_ROOT)
+    _publish_latest(governed_demo_result.inspect_target, scenario="control")
+    print(
+        f"STATUS: {governed_demo_result.waiting_status} "
+        f"-> {governed_demo_result.completed_status}"
+    )
+    print(f"ARTIFACT: {governed_demo_result.inspect_target}")
 
 
 def run_coordinated() -> None:
@@ -205,7 +150,7 @@ def run_coordinated() -> None:
         "LAB 2/3: parallel workers -> scoped diffs -> deterministic merge "
         "-> read-only pytest finalizer"
     )
-    summary = build_live_fanout(
+    fanout_summary = build_live_fanout(
         LiveFanoutBuildRequest(
             plan=plan,
             base_config=RuntimeConfig(
@@ -225,94 +170,18 @@ def run_coordinated() -> None:
         )
     ).run()
     trace.set_run_context(
-        stop_reason=f"fanout_{summary.status}",
-        final_answer=summary.final_answer,
+        stop_reason=f"fanout_{fanout_summary.status}",
+        final_answer=fanout_summary.final_answer,
     )
     trace.write()
     _publish_latest(run_dir, scenario="coordinated")
     print(
-        f"STATUS: {summary.status}\n"
-        f"BATCHES: {summary.batches}\n"
-        f"MERGED: {summary.merged_task_ids}\n"
-        f"FINALIZER: {summary.final_decision}\n"
+        f"STATUS: {fanout_summary.status}\n"
+        f"BATCHES: {fanout_summary.batches}\n"
+        f"MERGED: {fanout_summary.merged_task_ids}\n"
+        f"FINALIZER: {fanout_summary.final_decision}\n"
         f"ARTIFACT: {run_dir}"
     )
-
-
-def run_live() -> None:
-    _load_or_store_deepseek_key()
-    workspace = _new_workspace("live")
-    print(f"LAB 3/4: real DeepSeek, same input\nFIXED INPUT: {workspace}")
-    _forge_main(
-        [
-            "run",
-            TASK,
-            "--workspace",
-            str(workspace),
-            "--output-root",
-            str(RUNS_ROOT),
-            "--provider",
-            "deepseek",
-            "--model",
-            "deepseek-v4-pro",
-            "--thinking",
-            "enabled",
-            "--reasoning-effort",
-            "max",
-            "--max-steps",
-            "8",
-            "--approval-mode",
-            "on-write",
-            "--auto-approve-writes",
-            "--tool-routing",
-            "all",
-            "--skills",
-            "none",
-            "--memory-recall-limit",
-            "0",
-            "--tool",
-            "read_file",
-            "--tool",
-            "replace_text",
-            "--tool",
-            "diagnostics",
-        ]
-    )
-    artifact = _artifact_from_pointer(workspace / ".agent_forge" / "latest" / "run.txt")
-    _publish_latest(artifact, scenario="live")
-
-
-def run_astropy() -> None:
-    _load_or_store_deepseek_key()
-    _ensure_docker()
-    _ensure_swebench()
-    print(f"LAB 4/4: {ASTROPY_INSTANCE} -> local evidence -> official oracle")
-    _forge_main(
-        [
-            "bench",
-            "swebench",
-            "--instance-id",
-            ASTROPY_INSTANCE,
-            "--provider",
-            "deepseek",
-            "--model",
-            "deepseek-v4-pro",
-            "--thinking",
-            "enabled",
-            "--reasoning-effort",
-            "max",
-            "--max-steps",
-            "16",
-            "--timeout-seconds",
-            "900",
-            "--evaluate",
-            "--max-workers",
-            "1",
-            "--output-root",
-            str(RUNS_ROOT),
-        ]
-    )
-    _remember_root_pointer("astropy", "bench.txt")
 
 
 def run_evaluation() -> None:
@@ -333,18 +202,18 @@ def run_evaluation() -> None:
     )
     saved_official = STATE_ROOT / "state" / "astropy_artifact.txt"
     if saved_official.is_file():
-        restore_evidence("astropy")
+        _restore_saved_astropy_evidence()
 
-    summary = json.loads(
+    campaign_summary = json.loads(
         (PUBLIC_CAMPAIGN_ROOT / "summary.json").read_text(encoding="utf-8")
     )
-    minimal = summary["variants"]["minimal-control"]
-    governed = summary["variants"]["governed-runtime"]
+    minimal_control_metrics = campaign_summary["variants"]["minimal-control"]
+    governed_runtime_metrics = campaign_summary["variants"]["governed-runtime"]
     improvement_path = write_improvement_record(
         ImprovementRecordRequest(
             campaign_dir=PUBLIC_CAMPAIGN_ROOT,
             observed_problem=(
-                "Minimal-control 在两个 commissioning case 中出现 8 次失败工具调用，"
+                "Minimal-control 在两个 commissioning case 中出现 8/27 次失败工具调用，"
                 "需要验证 task-aware routing 与 Skill 是否减少无效动作。"
             ),
             hypothesis=(
@@ -361,6 +230,15 @@ def run_evaluation() -> None:
                 "这是两个 case、单次重复的 post-hoc commissioning evidence，"
                 "只证明证据闭环和已观察 trade-off，不是总体成功率或因果结论。"
             ),
+            diagnosis_finding=(
+                "13 次失败并非内置编辑工具崩溃；主要来自本地验证依赖缺失和验证目标选择，"
+                "另有两次安全策略按设计拒绝危险或未放行命令。"
+            ),
+            diagnosis_evidence=(
+                "基础控制版：8/27 次失败（29.6%）；6 次依赖或导入环境失败，2 次策略拒绝。",
+                "治理增强版：5/32 次失败（15.6%）；4 次依赖或导入环境失败，1 次验证目标格式错误。",
+                "两种配置均 official resolved 2/2；失败调用减少不能解释为正确性提升。",
+            ),
         )
     )
     print(
@@ -369,15 +247,19 @@ def run_evaluation() -> None:
     )
     print(
         "OFFICIAL: "
-        f"minimal={minimal['official_resolved']}/{minimal['official_evaluated']} "
-        f"governed={governed['official_resolved']}/{governed['official_evaluated']}"
+        f"minimal={minimal_control_metrics['official_resolved']}/"
+        f"{minimal_control_metrics['official_evaluated']} "
+        f"governed={governed_runtime_metrics['official_resolved']}/"
+        f"{governed_runtime_metrics['official_evaluated']}"
     )
     print(
         "TRADE-OFF: "
-        f"failed_tools {minimal['failed_tool_calls']} -> {governed['failed_tool_calls']}; "
-        f"tokens {minimal['total_tokens']} -> {governed['total_tokens']}; "
-        f"cost ${minimal['estimated_cost_usd']:.6f} -> "
-        f"${governed['estimated_cost_usd']:.6f}"
+        f"failed_tools {minimal_control_metrics['failed_tool_calls']} "
+        f"-> {governed_runtime_metrics['failed_tool_calls']}; "
+        f"tokens {minimal_control_metrics['total_tokens']} "
+        f"-> {governed_runtime_metrics['total_tokens']}; "
+        f"cost ${minimal_control_metrics['estimated_cost_usd']:.6f} -> "
+        f"${governed_runtime_metrics['estimated_cost_usd']:.6f}"
     )
     print("CLAIM: no observed correctness delta; commissioning evidence only")
     print(f"IMPROVEMENT RECORD: {improvement_path}")
@@ -392,10 +274,6 @@ def main() -> None:
             "governed",
             "coordinated",
             "evaluation",
-            "single-live",
-            "official-rerun",
-            "show-live",
-            "show-official",
         ),
     )
     parser.add_argument(
@@ -413,10 +291,6 @@ def main() -> None:
         "governed": run_governed,
         "coordinated": run_coordinated,
         "evaluation": run_evaluation,
-        "single-live": run_live,
-        "official-rerun": run_astropy,
-        "show-live": lambda: restore_evidence("live"),
-        "show-official": lambda: restore_evidence("astropy"),
     }[args.scenario]()
     should_open_workbench = (
         args.scenario in WORKBENCH_FLAGS

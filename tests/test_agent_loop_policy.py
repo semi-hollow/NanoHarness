@@ -36,8 +36,13 @@ class RepeatReadThenFinalLLM:
     def chat(self, messages, tools):
         self.calls += 1
         if self.calls <= 3:
-            return AgentResponse(None, [ToolCall(f"read-{self.calls}", "read_file", {"path": "target.py"})])
-        return AgentResponse("PASS\nused prior observation instead of reading again", [])
+            return AgentResponse(
+                None,
+                [ToolCall(f"read-{self.calls}", "read_file", {"path": "target.py"})],
+            )
+        return AgentResponse(
+            "PASS\nused prior observation instead of reading again", []
+        )
 
 
 class RepeatPatchLLM:
@@ -50,21 +55,39 @@ class RepeatPatchLLM:
         self.calls += 1
         return AgentResponse(
             None,
-            [ToolCall(f"replace-{self.calls}", "replace_text", {"path": "target.py", "old": "missing", "new": "value"})],
+            [
+                ToolCall(
+                    f"replace-{self.calls}",
+                    "replace_text",
+                    {"path": "target.py", "old": "missing", "new": "value"},
+                )
+            ],
         )
 
 
-class DiagnosticsThenFinalLLM:
+class ValidationThenFinalLLM:
     last_usage = None
 
-    def __init__(self, kind):
-        self.kind = kind
+    def __init__(self, check_type):
+        self.check_type = check_type
         self.calls = 0
 
     def chat(self, messages, tools):
         self.calls += 1
         if self.calls == 1:
-            return AgentResponse(None, [ToolCall("diag-1", "diagnostics", {"kind": self.kind, "target": "."})])
+            return AgentResponse(
+                None,
+                [
+                    ToolCall(
+                        "validation-1",
+                        "python_validation",
+                        {
+                            "check_type": self.check_type,
+                            "validation_target": ".",
+                        },
+                    )
+                ],
+            )
         return AgentResponse("validation complete", [])
 
 
@@ -155,18 +178,25 @@ class CostlyModelFailureLLM:
         )
 
 
-class SuccessfulDiagnosticsTool:
-    name = "diagnostics"
+class SuccessfulPythonValidationTool:
+    name = "python_validation"
 
     def schema(self):
-        return {"name": self.name, "description": "diagnostics", "arguments": {"kind": "str", "target": "str"}}
+        return {
+            "name": self.name,
+            "description": "Python validation",
+            "arguments": {
+                "check_type": "str",
+                "validation_target": "str",
+            },
+        }
 
     def execute(self, arguments):
-        kind = arguments["kind"]
+        check_type = arguments["check_type"]
         return Observation(
             self.name,
             True,
-            f"validation_command=python -m {kind} .\n{kind} ok",
+            f"validation_command=python -m {check_type} .\n{check_type} ok",
         )
 
 
@@ -175,7 +205,9 @@ class AgentLoopPolicyTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             trace_path = Path(tmp) / "trace.json"
             trace = TraceRecorder(str(trace_path))
-            config = RuntimeConfig(workspace=tmp, max_steps=2, trace_file=str(trace_path))
+            config = RuntimeConfig(
+                workspace=tmp, max_steps=2, trace_file=str(trace_path)
+            )
             final = build_agent_loop(
                 config,
                 trace,
@@ -185,16 +217,26 @@ class AgentLoopPolicyTest(unittest.TestCase):
             self.assertIn("final answer", final)
             agent_names = {event["agent_name"] for event in trace.events}
             self.assertIn("Reviewer", agent_names)
-            self.assertTrue(any(event["event_type"] == "final_answer" for event in trace.events))
+            self.assertTrue(
+                any(event["event_type"] == "final_answer" for event in trace.events)
+            )
 
     def test_raw_tool_markup_final_answer_is_blocked_as_pending_tool_call(self):
         with tempfile.TemporaryDirectory() as tmp:
             trace_path = Path(tmp) / "trace.json"
             trace = TraceRecorder(str(trace_path))
-            config = RuntimeConfig(workspace=tmp, max_steps=1, trace_file=str(trace_path))
-            final = build_agent_loop(config, trace, ToolRegistry(), RawToolMarkupLLM()).run("resolve a coding issue")
+            config = RuntimeConfig(
+                workspace=tmp, max_steps=1, trace_file=str(trace_path)
+            )
+            final = build_agent_loop(
+                config, trace, ToolRegistry(), RawToolMarkupLLM()
+            ).run("resolve a coding issue")
             self.assertIn("blocked: pending_tool_call_at_stop", final)
-            stop_reasons = [event.get("stop_reason") for event in trace.events if event["event_type"] == "stop_hooks"]
+            stop_reasons = [
+                event.get("stop_reason")
+                for event in trace.events
+                if event["event_type"] == "stop_hooks"
+            ]
             self.assertIn("pending_tool_call_at_stop", stop_reasons)
 
     def test_repeated_read_only_tool_call_warns_and_continues(self):
@@ -205,12 +247,20 @@ class AgentLoopPolicyTest(unittest.TestCase):
             trace = TraceRecorder(str(trace_path))
             registry = ToolRegistry()
             registry.register(ReadFileTool(WorkspaceSandbox(root)))
-            config = RuntimeConfig(workspace=tmp, max_steps=4, trace_file=str(trace_path))
+            config = RuntimeConfig(
+                workspace=tmp, max_steps=4, trace_file=str(trace_path)
+            )
 
-            final = build_agent_loop(config, trace, registry, RepeatReadThenFinalLLM()).run("resolve a coding issue")
+            final = build_agent_loop(
+                config, trace, registry, RepeatReadThenFinalLLM()
+            ).run("resolve a coding issue")
 
             self.assertIn("used prior observation", final)
-            stop_reasons = [event.get("stop_reason") for event in trace.events if event["event_type"] == "stop_hooks"]
+            stop_reasons = [
+                event.get("stop_reason")
+                for event in trace.events
+                if event["event_type"] == "stop_hooks"
+            ]
             self.assertNotIn("repeated_tool_call", stop_reasons)
             self.assertTrue(
                 any(
@@ -248,7 +298,9 @@ class AgentLoopPolicyTest(unittest.TestCase):
 
         self.assertIn("bounded burst", final)
         budget_events = [
-            event for event in trace.events if event["event_type"] == "tool_calls_bounded"
+            event
+            for event in trace.events
+            if event["event_type"] == "tool_calls_bounded"
         ]
         self.assertEqual(len(budget_events), 1)
         self.assertEqual(budget_events[0]["tool_call_budget"]["limit"], 2)
@@ -273,9 +325,7 @@ class AgentLoopPolicyTest(unittest.TestCase):
                 trace_file=str(trace_path),
             )
 
-            final = build_agent_loop(config, trace, registry, llm).run(
-                "read target.py"
-            )
+            final = build_agent_loop(config, trace, registry, llm).run("read target.py")
 
         self.assertEqual(llm.calls, 2)
         self.assertEqual(final, "blocked: cost budget exceeded")
@@ -315,11 +365,7 @@ class AgentLoopPolicyTest(unittest.TestCase):
         self.assertIn("invalid llm response", final)
         self.assertEqual(usage["summary"]["llm_calls"], 1)
         self.assertEqual(usage["summary"]["estimated_cost_usd"], 0.02)
-        llm_calls = [
-            call
-            for step in usage["steps"]
-            for call in step["llm_calls"]
-        ]
+        llm_calls = [call for step in usage["steps"] for call in step["llm_calls"]]
         self.assertEqual(
             llm_calls[0]["response_summary"],
             "error:provider_transport_error",
@@ -333,12 +379,20 @@ class AgentLoopPolicyTest(unittest.TestCase):
             trace = TraceRecorder(str(trace_path))
             registry = ToolRegistry()
             registry.register(ReplaceTextTool(WorkspaceSandbox(root)))
-            config = RuntimeConfig(workspace=tmp, max_steps=4, trace_file=str(trace_path))
+            config = RuntimeConfig(
+                workspace=tmp, max_steps=4, trace_file=str(trace_path)
+            )
 
-            final = build_agent_loop(config, trace, registry, RepeatPatchLLM()).run("resolve a coding issue")
+            final = build_agent_loop(config, trace, registry, RepeatPatchLLM()).run(
+                "resolve a coding issue"
+            )
 
             self.assertEqual(final, "blocked: repeated tool call")
-            stop_reasons = [event.get("stop_reason") for event in trace.events if event["event_type"] == "stop_hooks"]
+            stop_reasons = [
+                event.get("stop_reason")
+                for event in trace.events
+                if event["event_type"] == "stop_hooks"
+            ]
             self.assertIn("repeated_tool_call", stop_reasons)
 
     def test_unittest_diagnostic_emits_explicit_validation_evidence(self):
@@ -346,12 +400,23 @@ class AgentLoopPolicyTest(unittest.TestCase):
             trace_path = Path(tmp) / "trace.json"
             trace = TraceRecorder(str(trace_path))
             registry = ToolRegistry()
-            registry.register(SuccessfulDiagnosticsTool())
-            config = RuntimeConfig(workspace=tmp, max_steps=3, trace_file=str(trace_path))
+            registry.register(SuccessfulPythonValidationTool())
+            config = RuntimeConfig(
+                workspace=tmp, max_steps=3, trace_file=str(trace_path)
+            )
 
-            build_agent_loop(config, trace, registry, DiagnosticsThenFinalLLM("unittest")).run("resolve and test a coding issue")
+            build_agent_loop(
+                config,
+                trace,
+                registry,
+                ValidationThenFinalLLM("unittest"),
+            ).run("resolve and test a coding issue")
 
-            validation = [event for event in trace.events if event["event_type"] == "validation_evidence"]
+            validation = [
+                event
+                for event in trace.events
+                if event["event_type"] == "validation_evidence"
+            ]
         self.assertEqual(len(validation), 1)
         self.assertEqual(validation[0]["validation"]["kind"], "unittest")
         self.assertEqual(validation[0]["validation"]["status"], "passed")
@@ -361,23 +426,36 @@ class AgentLoopPolicyTest(unittest.TestCase):
             trace_path = Path(tmp) / "trace.json"
             trace = TraceRecorder(str(trace_path))
             registry = ToolRegistry()
-            registry.register(SuccessfulDiagnosticsTool())
-            config = RuntimeConfig(workspace=tmp, max_steps=3, trace_file=str(trace_path))
-
-            build_agent_loop(config, trace, registry, DiagnosticsThenFinalLLM("pytest")).run(
-                "resolve a SWE-bench coding issue"
+            registry.register(SuccessfulPythonValidationTool())
+            config = RuntimeConfig(
+                workspace=tmp, max_steps=3, trace_file=str(trace_path)
             )
 
-            validation = [event for event in trace.events if event["event_type"] == "validation_evidence"]
+            build_agent_loop(
+                config, trace, registry, ValidationThenFinalLLM("pytest")
+            ).run("resolve a SWE-bench coding issue")
+
+            validation = [
+                event
+                for event in trace.events
+                if event["event_type"] == "validation_evidence"
+            ]
         self.assertEqual(len(validation), 1)
         self.assertEqual(validation[0]["validation"]["kind"], "pytest")
         self.assertEqual(validation[0]["validation"]["status"], "passed")
 
-    def test_diagnostic_without_runner_command_is_not_validation_evidence(self):
+    def test_validation_without_runner_command_is_not_validation_evidence(self):
         evidence = ToolFeedback.build_validation_evidence(
-            "diagnostics",
-            {"kind": "unittest", "target": "test_pytest_style.py"},
-            Observation("diagnostics", True, "python test_pytest_style.py exited 0"),
+            "python_validation",
+            {
+                "check_type": "unittest",
+                "validation_target": "test_pytest_style.py",
+            },
+            Observation(
+                "python_validation",
+                True,
+                "python test_pytest_style.py exited 0",
+            ),
         )
 
         self.assertIsNone(evidence)
@@ -387,12 +465,23 @@ class AgentLoopPolicyTest(unittest.TestCase):
             trace_path = Path(tmp) / "trace.json"
             trace = TraceRecorder(str(trace_path))
             registry = ToolRegistry()
-            registry.register(SuccessfulDiagnosticsTool())
-            config = RuntimeConfig(workspace=tmp, max_steps=3, trace_file=str(trace_path))
+            registry.register(SuccessfulPythonValidationTool())
+            config = RuntimeConfig(
+                workspace=tmp, max_steps=3, trace_file=str(trace_path)
+            )
 
-            build_agent_loop(config, trace, registry, DiagnosticsThenFinalLLM("compile")).run("resolve and test a coding issue")
+            build_agent_loop(
+                config,
+                trace,
+                registry,
+                ValidationThenFinalLLM("compile"),
+            ).run("resolve and test a coding issue")
 
-            validation = [event for event in trace.events if event["event_type"] == "validation_evidence"]
+            validation = [
+                event
+                for event in trace.events
+                if event["event_type"] == "validation_evidence"
+            ]
         self.assertEqual(validation, [])
 
     def test_agent_loop_applies_all_tools_ablation_mode(self):
@@ -412,11 +501,17 @@ class AgentLoopPolicyTest(unittest.TestCase):
                 tool_routing_mode="all",
             )
 
-            build_agent_loop(config, trace, registry, llm).run("read only inspect target.py")
+            build_agent_loop(config, trace, registry, llm).run(
+                "read only inspect target.py"
+            )
 
         self.assertEqual(set(llm.tool_names), {"read_file", "replace_text"})
-        context_events = [event for event in trace.events if event["event_type"] == "context_assembly"]
-        self.assertIn("mode=all", context_events[0]["context"]["tool_routing"]["reason"])
+        context_events = [
+            event for event in trace.events if event["event_type"] == "context_assembly"
+        ]
+        self.assertIn(
+            "mode=all", context_events[0]["context"]["tool_routing"]["reason"]
+        )
 
     def test_policy_denial_becomes_observation_instead_of_crashing(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -433,9 +528,9 @@ class AgentLoopPolicyTest(unittest.TestCase):
                 trace_file=str(root / "trace.json"),
             )
 
-            final = build_agent_loop(config, trace, registry, ReplaceThenFinalLLM()).run(
-                "implement the requested update in target.py"
-            )
+            final = build_agent_loop(
+                config, trace, registry, ReplaceThenFinalLLM()
+            ).run("implement the requested update in target.py")
             target_content = target.read_text(encoding="utf-8")
 
         self.assertIn("reported the policy block", final)

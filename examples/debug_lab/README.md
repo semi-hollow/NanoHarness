@@ -6,11 +6,7 @@
 三个 Lab 都进入正式 Runtime；`examples/debug_lab` 只固定输入、隔离 workspace 并发布 Evidence。
 确定性模型不是伪造 Runtime，它只移除在线模型随机性，让你先看清控制逻辑。
 
-学习时同时打开 [MASTERY_SCORECARD.md](MASTERY_SCORECARD.md)。本 README 负责运行与理解，
-Scorecard 负责闭卷验收；不要再从其他文档拼接学习顺序。
-
-五个 PyCharm 按钮各自做什么、是否调用模型以及应使用 Run 还是 Debug，统一看
-[RUN_CONFIGURATIONS.md](RUN_CONFIGURATIONS.md)。
+本文件是 Debug、Workbench 和面试演练的唯一说明。不要再从多份清单拼接学习顺序。
 
 ## 首次准备
 
@@ -20,24 +16,33 @@ Scorecard 负责闭卷验收；不要再从其他文档拼接学习顺序。
 scripts/setup_macos_local.sh --quick
 ```
 
-然后用 PyCharm 单独打开 NanoHarness 根目录。脚本会安装按源码 symbol 定位的断点和三个 Run
-Configuration。若安装时 PyCharm 已打开，关闭后再执行：
+然后用 PyCharm 单独打开 NanoHarness 根目录。脚本会安装按源码 symbol 定位的断点；项目已共享
+四个 Run Configuration。若安装时 PyCharm 已打开，关闭后再执行：
 
 ```bash
 .venv/bin/python scripts/install_pycharm_debug_lab.py
 ```
 
-学习时只使用 PyCharm 的绿色 Debug 按钮；不要记长命令，也不要进入第三方库。
+安装器只保留 14 个主链断点，并按 Run Configuration 自动隔离：Lab 1 触发 7 个、Lab 2 触发
+5 个、Lab 3 触发 2 个。运行一个 Lab 时不会停进另外两个 Lab 的代码。
 
-## 三个 Lab
+学习时只使用 PyCharm 的绿色 Debug 按钮；不要记长命令，也不要进入第三方库。Project 面板先选择
+`00 NanoHarness Review Path`，需要看 Lab 2/3 的 owner 时切到 `05 NanoHarness Extended Flows`；
+查调用时把 Find Usages Scope 限制在这两个范围，只有验证行为时才切到 `90 NanoHarness Tests`。
 
-| 顺序 | PyCharm 配置 | 一句话主线 | 面试价值 |
-| --- | --- | --- | --- |
-| 1 | `NanoHarness Lab 1 - Governed Repair` | 写请求 → 审批暂停 → checkpoint → continuation → 写入 → pytest | AgentLoop、HITL、安全与恢复 |
-| 2 | `NanoHarness Lab 2 - Coordinated Agents` | DAG → 两个隔离 worker 并发 → scope 校验 → diff 合并 → finalizer | Multi-Agent 的适用边界与冲突治理 |
-| 3 | `NanoHarness Lab 3 - Evaluation Loop` | campaign → 分层 correctness → 诊断 → 前后对比 → 人工决策 | Benchmark、失败闭环与诚实声明 |
+## 只保留四个按钮
+
+| 顺序 | PyCharm 配置 | 作用 | 模型与成本 | 怎么用 |
+| --- | --- | --- | --- | --- |
+| 1 | `NanoHarness Lab 1 - Governed Repair` | 写请求 → 审批暂停 → checkpoint → continuation → 写入 → pytest | 确定性 ModelPort；无 API 费用 | **必学**，Debug 看状态，结束后自动打开 Workbench |
+| 2 | `NanoHarness Lab 2 - Coordinated Agents` | DAG → 隔离 worker 并发 → scope 校验 → diff 合并 → finalizer | 确定性 ModelPort；无 API 费用 | **必学**，Debug 看并发与合并，结束后自动打开 Workbench |
+| 3 | `NanoHarness Lab 3 - Evaluation Loop` | campaign → 分层 correctness → 诊断 → 前后对比 → 人工决策 | 回放已保存 Evidence；不调用模型或 Docker | **必学**，Debug 看评测闭环，结束后自动打开 Workbench |
+| 可选 | `NanoHarness Operator Console` | 真实模型、交互输入、审批与 continuation | 需要 DeepSeek API Key，会产生费用 | 只体验产品效果，不进入首次代码主线 |
 
 每个 Lab 只跑到下方“学会标准”全部通过。通过后停止，不继续扩展模块。
+
+PyCharm 额外显示的 `Current File` 是 IDE 临时动作，不属于 NanoHarness。项目约束是共享配置始终
+只有以上四个；新能力必须进入现有主线，不能继续增加按钮。
 
 ## Lab 1：受治理修复
 
@@ -170,9 +175,8 @@ Debugger 看动态因果；Workbench 看最终留下的可验证 Evidence。两�
 
 ## 可选能力，不进入首次学习主线
 
-- `single-live`：真实 DeepSeek 对固定 calculator 输入的行为观察。
-- `official-rerun`：重新运行 SWE-bench official evaluator。
-- `forge bench campaign`：扩大样本或重复次数时才使用。
+- `NanoHarness Operator Console`：需要体验真实 DeepSeek、交互输入和 continuation 时使用。
+- `forge bench campaign`：扩大样本、重复次数或重跑 official evaluator 时才使用。
 - Workbench 前端、JSON 文件适配器、Windows setup、通用 renderer：会用即可，不要求讲实现。
 
 面试前的完成条件不是“会全部模块”，而是三条主线和三个设计决策能被连续追问三层。

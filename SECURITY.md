@@ -13,7 +13,7 @@ NanoHarness 是本地软件工程智能体，可以在 workspace 中读写文件
 - Multi-agent coordinator 中的 role-level tool allowlist。
 - Multi-agent 通过 artifact handoff 通信，而不是隐藏 peer chat。
 - 可选 worktree execution，将代码修改与主 checkout 隔离。
-- 可选 OCI execution，在 detached snapshot 上隔离 command/diagnostics process，并限制
+- 可选 OCI execution，在 detached snapshot 上隔离 command/validation process，并限制
   network、CPU、memory、PID、capability 和 read-only root。
 - `network-policy=deny` 时，environment hook 阻断已知 network executable；所有 mode
   下 command allowlist 也独立排除 network tool。

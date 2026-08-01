@@ -10,7 +10,7 @@ from agent_forge.contracts import ToolSchema
 
 
 # 核心数据：Runtime 请求 Context capability 组装一次模型输入的完整契约。
-@dataclass(frozen=True)
+@dataclass(frozen=True, kw_only=True)
 class ContextAssemblyRequest:
     """每 turn 的任务、工作区、记忆、工具和治理预算。"""
 

@@ -17,7 +17,7 @@ T = TypeVar("T")
 
 
 # 核心数据：一次模型请求允许使用的输入窗口与输出预留预算。
-@dataclass(frozen=True)
+@dataclass(frozen=True, kw_only=True)
 class PromptBudget:
     """模型窗口中输入与预留输出的显式预算。
 
@@ -57,7 +57,7 @@ class PromptBudget:
 
 
 # 核心数据：上下文治理后真正发送给模型的消息与压缩证据。
-@dataclass(frozen=True)
+@dataclass(frozen=True, kw_only=True)
 class ContextWindowResult:
     """一次预算决策产生的最终消息和可审计度量。
 
@@ -77,7 +77,7 @@ class ContextWindowResult:
 
 
 # 核心数据：完整模型请求进入窗口治理前的输入快照。
-@dataclass(frozen=True)
+@dataclass(frozen=True, kw_only=True)
 class ContextWindowRequest:
     """System、历史、Observation、工具和强制压缩信号。"""
 
@@ -113,67 +113,99 @@ class ContextWindowManager:
         压缩时不得伪称已经满足 hard limit。
         """
 
+        # region 1. 预算判定：先估算完整请求，未超软限制时保持原文
         full_messages = [request.system_message, *request.history]
-        before = estimate_prompt_tokens(full_messages, request.tools, self.budget)
-        if before <= self.budget.soft_input_limit and not request.force_compaction:
+        estimated_tokens_before = estimate_prompt_tokens(
+            full_messages,
+            request.tools,
+            self.budget,
+        )
+        if (
+            estimated_tokens_before <= self.budget.soft_input_limit
+            and not request.force_compaction
+        ):
             return ContextWindowResult(
                 messages=full_messages,
                 digest=None,
                 compacted=False,
                 covered_message_count=0,
-                estimated_tokens_before=before,
-                estimated_tokens_after=before,
+                estimated_tokens_before=estimated_tokens_before,
+                estimated_tokens_after=estimated_tokens_before,
                 hard_input_limit=self.budget.hard_input_limit,
                 reason="within_soft_limit",
             )
+        # endregion 1. 预算判定结束
 
-        segments = _segments(request.history, request.observations)
-        if len(segments) < 2:
+        # region 2. 安全切分：assistant ToolCall 与对应 tool Observation 不可拆散
+        history_segments = _group_history_segments(
+            request.history,
+            request.observations,
+        )
+        if len(history_segments) < 2:
             return ContextWindowResult(
                 messages=full_messages,
                 digest=None,
                 compacted=False,
                 covered_message_count=0,
-                estimated_tokens_before=before,
-                estimated_tokens_after=before,
+                estimated_tokens_before=estimated_tokens_before,
+                estimated_tokens_after=estimated_tokens_before,
                 hard_input_limit=self.budget.hard_input_limit,
                 reason="insufficient_history_to_compact",
             )
+        # endregion 2. 安全切分结束
 
-        target = (
+        # region 3. 候选搜索：逐步扩大旧历史摘要范围，保留最新原始消息
+        target_token_count = (
             max(256, int(self.budget.soft_input_limit * 0.65))
             if request.force_compaction
             else self.budget.soft_input_limit
         )
-        best: ContextWindowResult | None = None
-        for cut in range(1, len(segments)):
-            omitted = segments[:cut]
-            recent = _flatten(segments[cut:])
-            recent = _trim_large_messages(
-                recent,
+        best_compaction_result: ContextWindowResult | None = None
+        for cut_index in range(1, len(history_segments)):
+            omitted_segments = history_segments[:cut_index]
+            recent_messages = _flatten(history_segments[cut_index:])
+            recent_messages = _trim_large_messages(
+                recent_messages,
                 max_chars=800 if request.force_compaction else 2_000,
             )
-            digest = _build_digest(
+            session_digest = _build_digest(
                 request.task,
-                omitted,
-                estimated_tokens_before=before,
+                omitted_segments,
+                estimated_tokens_before=estimated_tokens_before,
             )
-            candidate = [
+            candidate_messages = [
                 request.system_message,
-                Message("system", digest.render()),
-                *recent,
+                Message(role="system", content=session_digest.render()),
+                *recent_messages,
             ]
-            after = estimate_prompt_tokens(candidate, request.tools, self.budget)
-            digest = replace(digest, estimated_tokens_after=after)
-            candidate[1] = Message("system", digest.render())
-            after = estimate_prompt_tokens(candidate, request.tools, self.budget)
-            result = ContextWindowResult(
-                messages=candidate,
-                digest=replace(digest, estimated_tokens_after=after),
+            estimated_tokens_after = estimate_prompt_tokens(
+                candidate_messages,
+                request.tools,
+                self.budget,
+            )
+            session_digest = replace(
+                session_digest,
+                estimated_tokens_after=estimated_tokens_after,
+            )
+            candidate_messages[1] = Message(
+                role="system",
+                content=session_digest.render(),
+            )
+            estimated_tokens_after = estimate_prompt_tokens(
+                candidate_messages,
+                request.tools,
+                self.budget,
+            )
+            candidate_window_result = ContextWindowResult(
+                messages=candidate_messages,
+                digest=replace(
+                    session_digest,
+                    estimated_tokens_after=estimated_tokens_after,
+                ),
                 compacted=True,
-                covered_message_count=digest.covered_message_count,
-                estimated_tokens_before=before,
-                estimated_tokens_after=after,
+                covered_message_count=session_digest.covered_message_count,
+                estimated_tokens_before=estimated_tokens_before,
+                estimated_tokens_after=estimated_tokens_after,
                 hard_input_limit=self.budget.hard_input_limit,
                 reason=(
                     "provider_overflow_recovery"
@@ -181,23 +213,36 @@ class ContextWindowManager:
                     else "soft_limit_exceeded"
                 ),
             )
-            if best is None or after < best.estimated_tokens_after:
-                best = result
-            if after <= target and after < before:
-                return result
+            if (
+                best_compaction_result is None
+                or estimated_tokens_after
+                < best_compaction_result.estimated_tokens_after
+            ):
+                best_compaction_result = candidate_window_result
+            if (
+                estimated_tokens_after <= target_token_count
+                and estimated_tokens_after < estimated_tokens_before
+            ):
+                return candidate_window_result
+        # endregion 3. 候选搜索结束
 
-        if best is not None and best.estimated_tokens_after < before:
-            return best
+        # region 4. 保守回退：只接受真实缩小的结果，否则明确报告无法安全压缩
+        if (
+            best_compaction_result is not None
+            and best_compaction_result.estimated_tokens_after < estimated_tokens_before
+        ):
+            return best_compaction_result
         return ContextWindowResult(
             messages=full_messages,
             digest=None,
             compacted=False,
             covered_message_count=0,
-            estimated_tokens_before=before,
-            estimated_tokens_after=before,
+            estimated_tokens_before=estimated_tokens_before,
+            estimated_tokens_after=estimated_tokens_before,
             hard_input_limit=self.budget.hard_input_limit,
             reason="no_safe_compaction_boundary",
         )
+        # endregion 4. 保守回退结束
 
 
 def estimate_prompt_tokens(
@@ -218,12 +263,14 @@ def estimate_prompt_tokens(
     return max(1, int(chars / max(1.0, budget.chars_per_token)))
 
 
-def _segments(
+def _group_history_segments(
     messages: list[Message],
     observations: list[Observation],
 ) -> list[_HistorySegment]:
+    """把一轮 assistant tool intent 与随后的 tool 结果绑定成不可拆分单元。"""
+
     observation_index = 0
-    segments: list[_HistorySegment] = []
+    grouped_history_segments: list[_HistorySegment] = []
     index = 0
     while index < len(messages):
         message = messages[index]
@@ -249,22 +296,35 @@ def _segments(
             )
             segment_observations[0] = observation
             observation_index += 1
-        segments.append(_HistorySegment(segment_messages, segment_observations))
-    return segments
+        grouped_history_segments.append(
+            _HistorySegment(
+                messages=segment_messages,
+                observations=segment_observations,
+            )
+        )
+    return grouped_history_segments
 
 
-def _flatten(segments: list[_HistorySegment]) -> list[Message]:
-    return [message for segment in segments for message in segment.messages]
+def _flatten(history_segments: list[_HistorySegment]) -> list[Message]:
+    return [
+        message
+        for history_segment in history_segments
+        for message in history_segment.messages
+    ]
 
 
 def _build_digest(
     task: str,
-    segments: list[_HistorySegment],
+    history_segments: list[_HistorySegment],
     *,
     estimated_tokens_before: int,
 ) -> SessionDigest:
-    messages = [message for segment in segments for message in segment.messages]
-    source = json.dumps(
+    covered_messages = [
+        message
+        for history_segment in history_segments
+        for message in history_segment.messages
+    ]
+    digest_source_payload = json.dumps(
         [
             {
                 "role": message.role,
@@ -273,7 +333,7 @@ def _build_digest(
                 "tool_call_id": message.tool_call_id,
                 "tool_calls": message.tool_calls,
             }
-            for message in messages
+            for message in covered_messages
         ],
         ensure_ascii=False,
         sort_keys=True,
@@ -281,7 +341,7 @@ def _build_digest(
     user_updates = _bounded(
         [
             _excerpt(message.content, 320)
-            for message in messages
+            for message in covered_messages
             if message.role == "user" and message.content.strip() != task.strip()
         ],
         6,
@@ -289,52 +349,71 @@ def _build_digest(
     assistant_updates = _bounded(
         [
             _excerpt(message.content, 320)
-            for message in messages
+            for message in covered_messages
             if message.role == "assistant" and message.content.strip()
         ],
         6,
     )
-    transactions: list[ToolTransactionDigest] = []
+    tool_transactions: list[ToolTransactionDigest] = []
     open_failures: list[str] = []
-    for segment in segments:
+    for history_segment in history_segments:
         tool_messages = {
             message.tool_call_id: (message, observation)
             for message, observation in zip(
-                segment.messages,
-                segment.observations,
+                history_segment.messages,
+                history_segment.observations,
             )
             if message.role == "tool"
         }
-        for message in segment.messages:
+        for message in history_segment.messages:
             if message.role != "assistant":
                 continue
-            for call in message.tool_calls or []:
-                call_id = str(call.get("id") or "")
-                function = call.get("function") if isinstance(call, dict) else None
-                if isinstance(function, dict):
-                    tool_name = str(function.get("name") or "unknown")
-                    arguments = function.get("arguments") or ""
-                else:
-                    tool_name = str(call.get("name") or "unknown")
-                    arguments = call.get("arguments") or ""
-                tool_message, observation = tool_messages.get(call_id, (None, None))
-                content = tool_message.content if tool_message is not None else ""
-                success = observation.success if observation is not None else None
-                transaction = ToolTransactionDigest(
-                    tool_name=tool_name,
-                    arguments_summary=_excerpt(_stable_text(arguments), 220),
-                    success=success,
-                    observation_excerpt=_excerpt(content, 320),
+            for tool_call_payload in message.tool_calls or []:
+                tool_call_id = str(tool_call_payload.get("id") or "")
+                function_payload = (
+                    tool_call_payload.get("function")
+                    if isinstance(tool_call_payload, dict)
+                    else None
                 )
-                transactions.append(transaction)
-                if success is False:
-                    open_failures.append(f"{tool_name}: {_excerpt(content, 240)}")
+                if isinstance(function_payload, dict):
+                    tool_name = str(function_payload.get("name") or "unknown")
+                    tool_arguments = function_payload.get("arguments") or ""
+                else:
+                    tool_name = str(tool_call_payload.get("name") or "unknown")
+                    tool_arguments = tool_call_payload.get("arguments") or ""
+                tool_message, observation = tool_messages.get(
+                    tool_call_id,
+                    (None, None),
+                )
+                tool_observation_content = (
+                    tool_message.content if tool_message is not None else ""
+                )
+                tool_succeeded = (
+                    observation.success if observation is not None else None
+                )
+                tool_transaction = ToolTransactionDigest(
+                    tool_name=tool_name,
+                    arguments_summary=_excerpt(
+                        _stable_text(tool_arguments),
+                        220,
+                    ),
+                    success=tool_succeeded,
+                    observation_excerpt=_excerpt(
+                        tool_observation_content,
+                        320,
+                    ),
+                )
+                tool_transactions.append(tool_transaction)
+                if tool_succeeded is False:
+                    open_failures.append(
+                        f"{tool_name}: {_excerpt(tool_observation_content, 240)}"
+                    )
     return SessionDigest(
         task=task,
-        covered_message_count=len(messages),
-        source_hash=hashlib.sha256(source.encode("utf-8")).hexdigest(),
+        covered_message_count=len(covered_messages),
+        source_hash=hashlib.sha256(digest_source_payload.encode("utf-8")).hexdigest(),
         user_updates=user_updates,
-        tool_transactions=_bounded(transactions, 16),
+        tool_transactions=_bounded(tool_transactions, 16),
         assistant_updates=assistant_updates,
         open_failures=_bounded(open_failures, 8),
         estimated_tokens_before=estimated_tokens_before,
@@ -377,5 +456,8 @@ def _bounded(values: list[T], limit: int) -> list[T]:
 
     if len(values) <= limit:
         return list(values)
-    head = max(1, limit // 3)
-    return [*values[:head], *values[-(limit - head) :]]
+    retained_prefix_count = max(1, limit // 3)
+    return [
+        *values[:retained_prefix_count],
+        *values[-(limit - retained_prefix_count) :],
+    ]

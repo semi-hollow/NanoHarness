@@ -10,7 +10,7 @@ from agent_forge.runtime.domain.conversation import ToolCall
 from agent_forge.runtime.structured_output import StructuredOutputParser
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, kw_only=True)
 class ToolCallNormalizationResult:
     """归一化结果包含修复证据，失败时给出一次受限重试提示。"""
 
@@ -36,49 +36,60 @@ class ToolCallNormalizer:
     ) -> ToolCallNormalizationResult:
         """把 provider wire format 转成类型化 ToolCall。"""
 
-        rows = list(raw_calls)
+        tool_call_rows = list(raw_calls)
         if legacy_function_call:
-            rows.insert(
+            tool_call_rows.insert(
                 0,
                 {"id": "function_call", "function": legacy_function_call},
             )
-        source = "native"
-        repairs: list[str] = []
-        if not rows and content:
-            rows = self._extract_text_calls(content, allowed_tool_names)
-            if rows:
-                source = "text_fallback"
-                repairs.append("text_tool_call_promoted")
-        if not rows:
+        tool_call_source = "native"
+        normalization_repairs: list[str] = []
+        if not tool_call_rows and content:
+            tool_call_rows = self._extract_text_calls(
+                content,
+                allowed_tool_names,
+            )
+            if tool_call_rows:
+                tool_call_source = "text_fallback"
+                normalization_repairs.append("text_tool_call_promoted")
+        if not tool_call_rows:
             return ToolCallNormalizationResult(content=content)
 
-        calls: list[ToolCall] = []
-        for index, raw in enumerate(rows):
-            function = raw.get("function", raw)
-            if not isinstance(function, dict):
-                return self._failure(content, "tool call function must be an object")
-            name = str(function.get("name") or function.get("tool") or "").strip()
-            if not name:
-                return self._failure(content, "tool call is missing a function name")
-            arguments, argument_repair, error = self._arguments(
-                function.get("arguments", {})
+        normalized_tool_calls: list[ToolCall] = []
+        for index, provider_tool_call in enumerate(tool_call_rows):
+            function_payload = provider_tool_call.get(
+                "function",
+                provider_tool_call,
             )
-            if error:
-                return self._failure(content, f"{name} arguments: {error}")
+            if not isinstance(function_payload, dict):
+                return self._failure(content, "tool call function must be an object")
+            tool_name = str(
+                function_payload.get("name") or function_payload.get("tool") or ""
+            ).strip()
+            if not tool_name:
+                return self._failure(content, "tool call is missing a function name")
+            normalized_arguments, argument_repair, argument_error = self._arguments(
+                function_payload.get("arguments", {})
+            )
+            if argument_error:
+                return self._failure(
+                    content,
+                    f"{tool_name} arguments: {argument_error}",
+                )
             if argument_repair:
-                repairs.append(f"{name}:{argument_repair}")
-            calls.append(
+                normalization_repairs.append(f"{tool_name}:{argument_repair}")
+            normalized_tool_calls.append(
                 ToolCall(
-                    id=str(raw.get("id") or f"call_{index}"),
-                    name=name,
-                    arguments=arguments,
+                    id=str(provider_tool_call.get("id") or f"call_{index}"),
+                    name=tool_name,
+                    arguments=normalized_arguments,
                 )
             )
         return ToolCallNormalizationResult(
-            calls=calls,
-            content=None if source == "text_fallback" else content,
-            repairs=repairs,
-            source=source,
+            calls=normalized_tool_calls,
+            content=None if tool_call_source == "text_fallback" else content,
+            repairs=normalization_repairs,
+            source=tool_call_source,
         )
 
     def _extract_text_calls(
@@ -86,68 +97,87 @@ class ToolCallNormalizer:
         content: str,
         allowed_tool_names: set[str],
     ) -> list[dict[str, Any]]:
-        parsed = StructuredOutputParser({"type": "object"}).parse(content)
-        if not parsed.ok or not isinstance(parsed.data, dict):
-            return []
-        data = parsed.data
-        raw_calls = data.get("tool_calls")
-        if isinstance(raw_calls, list) and all(
-            isinstance(item, dict) for item in raw_calls
+        parsed_tool_call_payload = StructuredOutputParser({"type": "object"}).parse(
+            content
+        )
+        if not parsed_tool_call_payload.ok or not isinstance(
+            parsed_tool_call_payload.data,
+            dict,
         ):
-            candidates = list(raw_calls)
-        elif data.get("name") or data.get("tool"):
-            candidates = [data]
+            return []
+        structured_call_data = parsed_tool_call_payload.data
+        structured_tool_calls = structured_call_data.get("tool_calls")
+        if isinstance(structured_tool_calls, list) and all(
+            isinstance(tool_call_payload, dict)
+            for tool_call_payload in structured_tool_calls
+        ):
+            candidate_call_payloads = list(structured_tool_calls)
+        elif structured_call_data.get("name") or structured_call_data.get("tool"):
+            candidate_call_payloads = [structured_call_data]
         else:
             return []
-        names = []
-        for candidate in candidates:
-            function = candidate.get("function", candidate)
-            if not isinstance(function, dict):
+        candidate_tool_names = []
+        for candidate_call_payload in candidate_call_payloads:
+            function_payload = candidate_call_payload.get(
+                "function",
+                candidate_call_payload,
+            )
+            if not isinstance(function_payload, dict):
                 return []
-            names.append(str(function.get("name") or function.get("tool") or ""))
-        if not names or any(name not in allowed_tool_names for name in names):
+            candidate_tool_names.append(
+                str(function_payload.get("name") or function_payload.get("tool") or "")
+            )
+        if not candidate_tool_names or any(
+            tool_name not in allowed_tool_names for tool_name in candidate_tool_names
+        ):
             return []
-        return candidates
+        return candidate_call_payloads
 
     def _arguments(
         self,
-        value: object,
+        encoded_arguments: object,
     ) -> tuple[dict[str, Any], str, str]:
-        if value is None:
+        if encoded_arguments is None:
             return {}, "null_arguments_normalized", ""
-        if isinstance(value, dict):
-            return dict(value), "", ""
-        if not isinstance(value, str):
+        if isinstance(encoded_arguments, dict):
+            return dict(encoded_arguments), "", ""
+        if not isinstance(encoded_arguments, str):
             return {}, "", "must be an object or encoded object"
 
-        parsed = StructuredOutputParser({"type": "object"}).parse(value or "{}")
-        if parsed.ok and isinstance(parsed.data, dict):
-            return dict(parsed.data), "json_arguments_extracted", ""
+        parsed_arguments = StructuredOutputParser({"type": "object"}).parse(
+            encoded_arguments or "{}"
+        )
+        if parsed_arguments.ok and isinstance(parsed_arguments.data, dict):
+            return dict(parsed_arguments.data), "json_arguments_extracted", ""
         try:
-            literal = ast.literal_eval(value)
+            literal_arguments = ast.literal_eval(encoded_arguments)
         except (SyntaxError, ValueError):
-            literal = None
-        if isinstance(literal, dict):
-            return dict(literal), "python_literal_arguments_repaired", ""
-        return {}, "", parsed.error or "invalid encoded object"
+            literal_arguments = None
+        if isinstance(literal_arguments, dict):
+            return (
+                dict(literal_arguments),
+                "python_literal_arguments_repaired",
+                "",
+            )
+        return {}, "", parsed_arguments.error or "invalid encoded object"
 
     @staticmethod
     def _failure(
         content: str | None,
         error: str,
     ) -> ToolCallNormalizationResult:
-        raw = content or ""
-        prompt = "\n".join(
+        failed_content = content or ""
+        repair_prompt = "\n".join(
             [
                 "Your previous tool call did not match the tool contract.",
                 f"Error: {error}",
                 "Return one valid tool call with JSON object arguments.",
                 "Do not explain the repair and do not invent a tool name.",
-                f"Previous content: {raw[:1000]}",
+                f"Previous content: {failed_content[:1000]}",
             ]
         )
         return ToolCallNormalizationResult(
             content=content,
             error=error,
-            repair_prompt=prompt,
+            repair_prompt=repair_prompt,
         )

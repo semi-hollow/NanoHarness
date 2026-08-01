@@ -78,8 +78,8 @@ def main(argv: list[str] | None = None) -> None:
         print(f"Campaign status: {campaign.state.status}")
         print(f"Campaign directory: {campaign.campaign_dir}")
         print(f"Campaign report: {campaign.report_path}")
-        if campaign.public_dir:
-            print(f"Public evidence: {campaign.public_dir}")
+        if campaign.published_bundle_dir:
+            print(f"Public evidence: {campaign.published_bundle_dir}")
     elif args.command == "eval":
         _dispatch_evaluation(args)
     elif args.command == "skills":

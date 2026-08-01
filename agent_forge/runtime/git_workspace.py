@@ -8,12 +8,11 @@ RESERVED_UNTRACKED_ROOTS = {".agent_forge"}
 
 
 def collect_workspace_diff(workspace: str | Path) -> str:
-
     root = Path(workspace).resolve()
-    tracked = _tracked_diff(root)
-    additions: list[str] = []
-    for relative in _untracked_files(root):
-        result = subprocess.run(
+    tracked_diff_text = _tracked_diff(root)
+    untracked_file_diff_fragments: list[str] = []
+    for untracked_file_path in _untracked_files(root):
+        git_diff_process = subprocess.run(
             [
                 "git",
                 "diff",
@@ -22,7 +21,7 @@ def collect_workspace_diff(workspace: str | Path) -> str:
                 "--binary",
                 "--",
                 os.devnull,
-                relative,
+                untracked_file_path,
             ],
             cwd=root,
             text=True,
@@ -30,47 +29,72 @@ def collect_workspace_diff(workspace: str | Path) -> str:
             timeout=30,
             check=False,
         )
-        if result.returncode not in {0, 1}:
-            detail = (result.stderr or result.stdout).strip()
-            raise RuntimeError(f"could not capture untracked file {relative}: {detail}")
-        if result.stdout:
-            additions.append(result.stdout)
-    return _join_patches([tracked, *additions])
+        if git_diff_process.returncode not in {0, 1}:
+            failure_detail = (
+                git_diff_process.stderr or git_diff_process.stdout
+            ).strip()
+            raise RuntimeError(
+                f"could not capture untracked file {untracked_file_path}: "
+                f"{failure_detail}"
+            )
+        if git_diff_process.stdout:
+            untracked_file_diff_fragments.append(git_diff_process.stdout)
+    return _join_diff_fragments([tracked_diff_text, *untracked_file_diff_fragments])
 
 
 def collect_changed_files(workspace: str | Path) -> list[str]:
-
     root = Path(workspace).resolve()
-    tracked = _git_name_list(root, ["diff", "HEAD", "--name-only", "-z", "--", "."])
-    if tracked is None:
-        tracked = _git_name_list(root, ["diff", "--name-only", "-z", "--", "."]) or []
-    return sorted(set([*tracked, *_untracked_files(root)]))
+    tracked_file_names = _git_name_list(
+        root,
+        ["diff", "HEAD", "--name-only", "-z", "--", "."],
+    )
+    if tracked_file_names is None:
+        tracked_file_names = (
+            _git_name_list(
+                root,
+                ["diff", "--name-only", "-z", "--", "."],
+            )
+            or []
+        )
+    return sorted(set([*tracked_file_names, *_untracked_files(root)]))
 
 
 def collect_workspace_status(workspace: str | Path) -> list[str]:
-
     root = Path(workspace).resolve()
-    result = _run_git(root, ["status", "--porcelain", "--untracked-files=all"])
-    if result.returncode != 0:
+    git_status_process = _run_git(
+        root,
+        ["status", "--porcelain", "--untracked-files=all"],
+    )
+    if git_status_process.returncode != 0:
         return []
-    lines = []
-    for line in result.stdout.splitlines():
-        path = line[3:].strip().strip('"') if len(line) > 3 else ""
-        if line.startswith("?? ") and _is_reserved_untracked(path):
+    visible_status_lines = []
+    for status_line in git_status_process.stdout.splitlines():
+        changed_file_path = (
+            status_line[3:].strip().strip('"') if len(status_line) > 3 else ""
+        )
+        if status_line.startswith("?? ") and _is_reserved_untracked(changed_file_path):
             continue
-        lines.append(line)
-    return lines
+        visible_status_lines.append(status_line)
+    return visible_status_lines
 
 
 def _tracked_diff(root: Path) -> str:
-    result = _run_git(root, ["diff", "--no-ext-diff", "--binary", "HEAD", "--", "."])
-    if result.returncode != 0:
-        result = _run_git(root, ["diff", "--no-ext-diff", "--binary", "--", "."])
-    return result.stdout if result.returncode == 0 else ""
+    git_diff_process = _run_git(
+        root,
+        ["diff", "--no-ext-diff", "--binary", "HEAD", "--", "."],
+    )
+    if git_diff_process.returncode != 0:
+        git_diff_process = _run_git(
+            root,
+            ["diff", "--no-ext-diff", "--binary", "--", "."],
+        )
+    return git_diff_process.stdout if git_diff_process.returncode == 0 else ""
 
 
 def _untracked_files(root: Path) -> list[str]:
-    names = _git_name_list(root, ["ls-files", "--others", "--exclude-standard", "-z", "--", "."])
+    names = _git_name_list(
+        root, ["ls-files", "--others", "--exclude-standard", "-z", "--", "."]
+    )
     return sorted(name for name in names or [] if not _is_reserved_untracked(name))
 
 
@@ -80,10 +104,10 @@ def _is_reserved_untracked(path: str) -> bool:
 
 
 def _git_name_list(root: Path, args: list[str]) -> list[str] | None:
-    result = _run_git(root, args)
-    if result.returncode != 0:
+    git_process = _run_git(root, args)
+    if git_process.returncode != 0:
         return None
-    return [name for name in result.stdout.split("\0") if name]
+    return [name for name in git_process.stdout.split("\0") if name]
 
 
 def _run_git(root: Path, args: list[str]) -> subprocess.CompletedProcess[str]:
@@ -97,6 +121,10 @@ def _run_git(root: Path, args: list[str]) -> subprocess.CompletedProcess[str]:
     )
 
 
-def _join_patches(parts: list[str]) -> str:
-    normalized = [part if part.endswith("\n") else f"{part}\n" for part in parts if part]
-    return "".join(normalized)
+def _join_diff_fragments(diff_fragments: list[str]) -> str:
+    normalized_diff_fragments = [
+        fragment if fragment.endswith("\n") else f"{fragment}\n"
+        for fragment in diff_fragments
+        if fragment
+    ]
+    return "".join(normalized_diff_fragments)

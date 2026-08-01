@@ -14,7 +14,7 @@ official evaluator report。
 3. 解析 official SWE-bench per-case report，而不是根据 evaluator process exit code
    推断正确性。
 4. 增加 OCI-backed execution mode，在保留现有 runtime policy chain 的同时，让
-   command/diagnostics tool 在隔离 repository snapshot 上的受限短生命周期 container
+   command/`python_validation` tool 在隔离 repository snapshot 上的受限短生命周期 container
    中运行。
 
 ## 证据流
@@ -69,7 +69,7 @@ container command 观察同一份 repository state。
 聚合 runtime 报告的 immutable image ID。除非 execution environment 本身就是声明的
 实验 factor，否则 ablation comparator 会拒绝这些字段发生 drift。
 
-Command 和 unittest diagnostics 通过 environment adapter 执行。普通 file tool 仍在
+Command 和 Python validation 通过 environment adapter 执行。普通 file tool 仍在
 host process 中运行，并受 `WorkspaceSandbox` 限制，只能访问 mounted snapshot。这比
 local/worktree mode 提供更强 process isolation，但不声称 hostile multi-tenant security。
 

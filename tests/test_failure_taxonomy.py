@@ -4,13 +4,20 @@ import unittest
 from pathlib import Path
 
 from agent_forge.bench.adapters.case_evidence import JsonCaseEvidenceReader
-from agent_forge.bench.application.diagnostics import DiagnoseBenchCase
+from agent_forge.bench.application.failure_analysis import BenchFailureAnalyzer
+from agent_forge.bench.domain.failure_taxonomy import FailureDiagnosis
 from agent_forge.bench.domain.models import BenchCaseResult
 
-diagnose_case_result = DiagnoseBenchCase(JsonCaseEvidenceReader()).diagnose
+analyze_case_result = BenchFailureAnalyzer(
+    JsonCaseEvidenceReader()
+).classify_case_failure
 
 
 class FailureTaxonomyTest(unittest.TestCase):
+    def test_failure_diagnosis_requires_named_fields(self):
+        with self.assertRaises(TypeError):
+            FailureDiagnosis("failure", "summary", [], [])  # type: ignore[misc]
+
     def _result(
         self,
         root: Path,
@@ -58,7 +65,9 @@ class FailureTaxonomyTest(unittest.TestCase):
 
     def test_patch_generated_is_not_called_resolved(self):
         with tempfile.TemporaryDirectory() as tmp:
-            diagnosis = diagnose_case_result(self._result(Path(tmp), status="patch_generated", patch_chars=12))
+            diagnosis = analyze_case_result(
+                self._result(Path(tmp), status="patch_generated", patch_chars=12)
+            )
         self.assertEqual(diagnosis.failure_class, "patch_generated_but_unverified")
         self.assertEqual(diagnosis.rule_id, "patch_generated_but_unverified")
         self.assertEqual(diagnosis.source, "ordered_rule_taxonomy")
@@ -68,15 +77,23 @@ class FailureTaxonomyTest(unittest.TestCase):
 
     def test_validation_environment_unavailable_beats_tool_failure(self):
         with tempfile.TemporaryDirectory() as tmp:
-            result = self._result(Path(tmp), final_answer="diagnostics: missing dependency erfa; validation_blocked")
-            diagnosis = diagnose_case_result(result)
+            result = self._result(
+                Path(tmp),
+                final_answer=(
+                    "python_validation: missing dependency erfa; validation_blocked"
+                ),
+            )
+            diagnosis = analyze_case_result(result)
         self.assertEqual(diagnosis.failure_class, "validation_environment_unavailable")
         self.assertIn("environment", diagnosis.impact.lower())
 
     def test_tool_schema_mismatch_has_engineering_lesson(self):
         with tempfile.TemporaryDirectory() as tmp:
-            result = self._result(Path(tmp), final_answer="read_file ignored offset limit; wrong line window")
-            diagnosis = diagnose_case_result(result)
+            result = self._result(
+                Path(tmp),
+                final_answer="read_file ignored offset limit; wrong line window",
+            )
+            diagnosis = analyze_case_result(result)
         self.assertEqual(diagnosis.failure_class, "tool_schema_mismatch")
         self.assertIn("schema", diagnosis.engineering_lesson.lower())
 
@@ -89,7 +106,7 @@ class FailureTaxonomyTest(unittest.TestCase):
                     "context_length_exceeded after compaction"
                 ),
             )
-            diagnosis = diagnose_case_result(result)
+            diagnosis = analyze_case_result(result)
 
         self.assertEqual(diagnosis.failure_class, "context_window_exceeded")
         self.assertIn("complete model request", diagnosis.summary.lower())
@@ -100,32 +117,38 @@ class FailureTaxonomyTest(unittest.TestCase):
                 Path(tmp),
                 final_answer="blocked: blocked risky input: https://",
             )
-            diagnosis = diagnose_case_result(result)
+            diagnosis = analyze_case_result(result)
 
         self.assertEqual(diagnosis.failure_class, "input_policy_block")
         self.assertIn("before the first model call", diagnosis.summary.lower())
 
     def test_official_eval_error_is_not_reported_as_patch_rejected(self):
         with tempfile.TemporaryDirectory() as tmp:
-            result = self._result(Path(tmp), evaluation_status="official_eval_error", patch_chars=12)
-            diagnosis = diagnose_case_result(result)
+            result = self._result(
+                Path(tmp), evaluation_status="official_eval_error", patch_chars=12
+            )
+            diagnosis = analyze_case_result(result)
         self.assertEqual(diagnosis.failure_class, "official_eval_error")
         self.assertIn("harness", diagnosis.summary.lower())
         self.assertNotIn("rejected", diagnosis.summary.lower())
 
     def test_official_resolved_is_not_labeled_unverified(self):
         with tempfile.TemporaryDirectory() as tmp:
-            result = self._result(Path(tmp), evaluation_status="official_resolved", patch_chars=12)
+            result = self._result(
+                Path(tmp), evaluation_status="official_resolved", patch_chars=12
+            )
             result.official_evaluation_status = "official_resolved"
-            diagnosis = diagnose_case_result(result)
+            diagnosis = analyze_case_result(result)
         self.assertEqual(diagnosis.failure_class, "official_resolved")
         self.assertNotIn("unverified", diagnosis.summary.lower())
 
     def test_local_test_pass_is_not_labeled_unverified(self):
         with tempfile.TemporaryDirectory() as tmp:
-            result = self._result(Path(tmp), evaluation_status="local_verified", patch_chars=12)
+            result = self._result(
+                Path(tmp), evaluation_status="local_verified", patch_chars=12
+            )
             result.local_validation_status = "passed"
-            diagnosis = diagnose_case_result(result)
+            diagnosis = analyze_case_result(result)
         self.assertEqual(diagnosis.failure_class, "locally_verified_candidate")
         self.assertIn("official", diagnosis.summary.lower())
 

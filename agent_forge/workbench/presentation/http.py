@@ -48,7 +48,9 @@ class ForgeUiHandler(BaseHTTPRequestHandler):
             return
         if path == "/api/evidence":
             kind = (query.get("kind") or ["summary"])[0]
-            self._send_json({"html": _render_evidence_html(self.state.project_dir, kind)})
+            self._send_json(
+                {"html": _render_evidence_html(self.state.project_dir, kind)}
+            )
             return
         self._send_json({"error": "not found"}, HTTPStatus.NOT_FOUND)
 
@@ -61,19 +63,15 @@ class ForgeUiHandler(BaseHTTPRequestHandler):
         )
 
     def log_message(self, fmt: str, *args: Any) -> None:
-
         return
 
     def _status_payload(self) -> dict[str, Any]:
-
         return {
             "project_dir": str(self.state.project_dir),
             "python": sys.version.split()[0],
             "workbench_source_sha256": WORKBENCH_SOURCE_SHA256,
             "latest_run": str(_latest_run_dir(self.state.project_dir) or ""),
-            "latest_campaign": str(
-                _latest_campaign_dir(self.state.project_dir) or ""
-            ),
+            "latest_campaign": str(_latest_campaign_dir(self.state.project_dir) or ""),
             "latest_report": _latest_report_path(self.state.project_dir),
             "feedback": _latest_feedback_outcome(self.state.project_dir),
         }
@@ -88,18 +86,25 @@ class ForgeUiHandler(BaseHTTPRequestHandler):
         except (BrokenPipeError, ConnectionResetError):
             return
 
-    def _send_json(self, data: dict[str, Any], status: HTTPStatus = HTTPStatus.OK) -> None:
+    def _send_json(
+        self, data: dict[str, Any], status: HTTPStatus = HTTPStatus.OK
+    ) -> None:
         self.send_response(status)
         self.send_header("Content-Type", "application/json; charset=utf-8")
         self.send_header("Cache-Control", "no-store")
         self.end_headers()
         try:
-            self.wfile.write(json.dumps(data, ensure_ascii=False, indent=2).encode("utf-8"))
+            self.wfile.write(
+                json.dumps(data, ensure_ascii=False, indent=2).encode("utf-8")
+            )
         except (BrokenPipeError, ConnectionResetError):
             return
 
+
 # 主要入口：启动只读取 canonical evidence 的本地 Workbench。
-def run_ui(host: str = "127.0.0.1", port: int = 8765, open_browser: bool = True) -> None:
+def run_ui(
+    host: str = "127.0.0.1", port: int = 8765, open_browser: bool = True
+) -> None:
     """启动只读 Workbench；所有执行和人工决定仍通过 CLI/Public API。"""
 
     project_dir = _find_project_dir(Path.cwd())
@@ -123,38 +128,34 @@ def run_ui(host: str = "127.0.0.1", port: int = 8765, open_browser: bool = True)
 
 
 def build_ui_parser(parser: argparse.ArgumentParser) -> None:
-
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=8765)
     parser.add_argument("--no-open", action="store_true")
 
 
 def run_ui_from_args(args: argparse.Namespace) -> None:
-
     run_ui(host=args.host, port=args.port, open_browser=not args.no_open)
 
 
 def _find_project_dir(start: Path) -> Path:
-
     current = start.resolve()
     for candidate in (current, *current.parents):
-        if (candidate / "pyproject.toml").exists() and (candidate / "agent_forge").is_dir():
+        if (candidate / "pyproject.toml").exists() and (
+            candidate / "agent_forge"
+        ).is_dir():
             return candidate
     return current
 
 
 def _latest_report_path(project_dir: Path) -> str:
-
     return build_evidence_catalog(project_dir).latest_report_path()
 
 
 def _read_latest_report(project_dir: Path) -> str:
-
     return build_evidence_catalog(project_dir).read_latest_report()
 
 
 def _render_evidence_html(project_dir: Path, kind: str) -> str:
-
     if kind == "overview":
         return _render_observability_overview(project_dir)
     if kind == "summary":
@@ -178,87 +179,75 @@ def _render_evidence_html(project_dir: Path, kind: str) -> str:
     if kind == "feedback":
         return _render_feedback_dashboard(project_dir)
     if kind == "raw_report":
-        return f"<pre class='raw-text'>{_escape(_read_latest_report(project_dir))}</pre>"
+        return (
+            f"<pre class='raw-text'>{_escape(_read_latest_report(project_dir))}</pre>"
+        )
     return _empty_evidence(f"Unsupported evidence view: {kind}")
 
 
 def _latest_run_dir(project_dir: Path) -> Path | None:
-
     return build_evidence_catalog(project_dir).latest_run_dir()
 
 
 def _latest_run_story(project_dir: Path) -> RunStory | None:
-
     return build_evidence_catalog(project_dir).latest_run_story()
 
 
 def _latest_governed_run_story(project_dir: Path) -> RunStory | None:
-
     return build_evidence_catalog(project_dir).latest_governed_run_story()
 
 
 def _latest_governed_trace_path(project_dir: Path) -> Path | None:
-
     return build_evidence_catalog(project_dir).latest_governed_trace_path()
 
 
 def _latest_governed_usage_path(project_dir: Path) -> Path | None:
-
     return build_evidence_catalog(project_dir).latest_governed_usage_path()
 
 
 def _latest_trace_path(project_dir: Path) -> Path | None:
-
     return build_evidence_catalog(project_dir).latest_trace_path()
 
 
 def _latest_usage_path(project_dir: Path) -> Path | None:
-
     return build_evidence_catalog(project_dir).latest_usage_path()
 
 
 def _latest_comparison_path(project_dir: Path) -> Path | None:
-
     return build_evidence_catalog(project_dir).latest_comparison_path()
 
 
 def _latest_multi_agent_summary_path(project_dir: Path) -> Path | None:
-
     return build_evidence_catalog(project_dir).latest_multi_agent_summary_path()
 
 
 def _latest_fanout_summary_path(project_dir: Path) -> Path | None:
-
     return build_evidence_catalog(project_dir).latest_fanout_summary_path()
 
 
 def _latest_orchestration_summary_path(project_dir: Path) -> Path | None:
-
     return build_evidence_catalog(project_dir).latest_orchestration_summary_path()
 
 
 def _latest_orchestration_fanout_path(project_dir: Path) -> Path | None:
-
     return build_evidence_catalog(project_dir).latest_orchestration_fanout_path()
 
 
 def _latest_benchmark_run_dir(project_dir: Path) -> Path | None:
-
     return build_evidence_catalog(project_dir).latest_benchmark_run_dir()
 
 
 def _latest_benchmark_comparison_path(project_dir: Path) -> Path | None:
-
     return build_evidence_catalog(project_dir).latest_benchmark_comparison_path()
 
 
 def _latest_benchmark_multi_agent_summary_path(project_dir: Path) -> Path | None:
-
-    return build_evidence_catalog(project_dir).latest_benchmark_multi_agent_summary_path()
+    return build_evidence_catalog(
+        project_dir
+    ).latest_benchmark_multi_agent_summary_path()
 
 
 def _latest_benchmark_usage_path(project_dir: Path) -> Path | None:
-
     return build_evidence_catalog(project_dir).latest_benchmark_usage_path()
 
 
@@ -273,22 +262,18 @@ def _trace_paths_for_timeline(project_dir: Path) -> list[tuple[str, Path]]:
 
 
 def _latest_feedback_path(project_dir: Path) -> Path | None:
-
     return build_evidence_catalog(project_dir).latest_feedback_path()
 
 
 def _latest_feedback_outcome(project_dir: Path) -> str:
-
     return build_evidence_catalog(project_dir).latest_feedback_outcome()
 
 
 def _latest_result_record(project_dir: Path) -> dict[str, Any]:
-
     return build_evidence_catalog(project_dir).latest_result_record()
 
 
 def _latest_direct_baseline_record(project_dir: Path) -> dict[str, Any]:
-
     return build_evidence_catalog(project_dir).latest_direct_baseline_record()
 
 
@@ -309,12 +294,32 @@ def _latest_improvement_record_path(project_dir: Path) -> Path | None:
 
 
 def _event_list(trace: dict[str, Any]) -> list[dict[str, Any]]:
-
     return [event for event in trace.get("events") or [] if isinstance(event, dict)]
 
 
-def _last_event(trace: dict[str, Any], *event_types: str) -> dict[str, Any]:
+def _string_items(value: Any) -> list[str]:
+    """把证据字段收敛成可展示的非空字符串列表。"""
 
+    if value is None:
+        return []
+    items = value if isinstance(value, (list, tuple, set)) else [value]
+    return [str(item).strip() for item in items if str(item).strip()]
+
+
+def _render_fact_list(values: Any, *, empty_message: str) -> str:
+    """逐行展示复合事实，避免权限、工具和文件被挤成一段文本。"""
+
+    items = _string_items(values)
+    if not items:
+        items = [empty_message]
+    return (
+        "<ul class='fact-list'>"
+        + "".join(f"<li>{_escape(item)}</li>" for item in items)
+        + "</ul>"
+    )
+
+
+def _last_event(trace: dict[str, Any], *event_types: str) -> dict[str, Any]:
     allowed = set(event_types)
     for event in reversed(_event_list(trace)):
         if str(event.get("event_type") or "") in allowed:
@@ -323,7 +328,6 @@ def _last_event(trace: dict[str, Any], *event_types: str) -> dict[str, Any]:
 
 
 def _read_json_file(path: Path | None) -> dict[str, Any]:
-
     return read_evidence_json(path)
 
 
@@ -408,12 +412,37 @@ def _render_observability_overview(project_dir: Path) -> str:
         "<p class='help strong'>当前页面同时索引三类独立证据：最近一次受治理运行、最近一次多 Agent 协同、最近一次评测实验。它们不会再因为 Lab 的执行顺序相互覆盖。</p>",
         _metric_grid(
             [
-                ("受治理运行", _display_value(run_status), f"{len(turns)} 轮 · {checkpoint_count} 个 Checkpoint", _tone_for_status(run_status)),
-                ("多 Agent 协同", _display_value(orchestration_status), f"{task_count} 个任务 · 独立证据范围", _tone_for_status(orchestration_status)),
-                ("评测证据上限", evidence_text, "候选、本地、官方分层", "ok" if paired.get("evaluated_pairs") else "warn"),
-                ("失败工具调用", str(failed_tools), "来自最近一次 Single-Run", "bad" if failed_tools else "ok"),
+                (
+                    "受治理运行",
+                    _display_value(run_status),
+                    f"{len(turns)} 轮 · {checkpoint_count} 个 Checkpoint",
+                    _tone_for_status(run_status),
+                ),
+                (
+                    "多 Agent 协同",
+                    _display_value(orchestration_status),
+                    f"{task_count} 个任务 · 独立证据范围",
+                    _tone_for_status(orchestration_status),
+                ),
+                (
+                    "评测证据上限",
+                    evidence_text,
+                    "候选、本地、官方分层",
+                    "ok" if paired.get("evaluated_pairs") else "warn",
+                ),
+                (
+                    "失败工具调用",
+                    str(failed_tools),
+                    "来自最近一次 Single-Run",
+                    "bad" if failed_tools else "ok",
+                ),
                 ("底层事件", str(len(events)), "默认折叠，只用于定位原因", "neutral"),
-                ("实验 Case", str(len(campaign_cases)), "当前已载入的实际覆盖", "neutral"),
+                (
+                    "实验 Case",
+                    str(len(campaign_cases)),
+                    "当前已载入的实际覆盖",
+                    "neutral",
+                ),
             ]
         ),
         "<section class='evidence-section'><div class='section-title'><h3>证据层级</h3>"
@@ -442,7 +471,6 @@ def _render_observability_overview(project_dir: Path) -> str:
 
 
 def _render_result_summary(project_dir: Path) -> str:
-
     run_dir = _latest_run_dir(project_dir)
     if not run_dir:
         return _empty_evidence("还没有运行产物，请先执行一个 Lab 或 Agent 任务。")
@@ -487,7 +515,12 @@ def _render_result_summary(project_dir: Path) -> str:
             "<p class='help strong'>从 results.json、usage.json 与 trace.json 汇总任务结果；原始产物仍保留用于追溯。</p>",
             _metric_grid(
                 [
-                    ("运行 ID", results.get("run_id", ""), "本次基准运行的唯一标识", "neutral"),
+                    (
+                        "运行 ID",
+                        results.get("run_id", ""),
+                        "本次基准运行的唯一标识",
+                        "neutral",
+                    ),
                     (
                         "模型服务",
                         (
@@ -497,10 +530,30 @@ def _render_result_summary(project_dir: Path) -> str:
                         "真实模型与采样配置",
                         "ok",
                     ),
-                    ("Case 数量", str(len(cases)), "本次运行的 SWE-bench 任务数", "neutral"),
-                    ("候选改动", f"{patch_count}/{len(cases)}", "产生候选 diff 的任务数", "ok" if patch_count else "warn"),
-                    ("结束状态", status_text, "Agent 的最终状态", _tone_for_status(status_text)),
-                    ("估算成本", f"${float(summary.get('estimated_cost_usd') or 0):.6f}", "DeepSeek 估算费用", "ok"),
+                    (
+                        "Case 数量",
+                        str(len(cases)),
+                        "本次运行的 SWE-bench 任务数",
+                        "neutral",
+                    ),
+                    (
+                        "候选改动",
+                        f"{patch_count}/{len(cases)}",
+                        "产生候选 diff 的任务数",
+                        "ok" if patch_count else "warn",
+                    ),
+                    (
+                        "结束状态",
+                        status_text,
+                        "Agent 的最终状态",
+                        _tone_for_status(status_text),
+                    ),
+                    (
+                        "估算成本",
+                        f"${float(summary.get('estimated_cost_usd') or 0):.6f}",
+                        "DeepSeek 估算费用",
+                        "ok",
+                    ),
                 ]
             ),
             "<h3>固定演示 Case</h3>",
@@ -516,11 +569,36 @@ def _render_result_summary(project_dir: Path) -> str:
             _metric_grid(
                 [
                     ("运行 ID", usage.get("run_id", ""), "普通 Agent 运行", "neutral"),
-                    ("停止原因", _display_value(usage.get("stop_reason", "")), "为什么结束本次运行", _tone_for_status(usage.get("stop_reason", ""))),
-                    ("模型调用", str(summary.get("llm_calls", 0)), "调用大模型的次数", "neutral"),
-                    ("Token 总量", str(summary.get("total_tokens", 0)), "输入与输出 Token 总和", "neutral"),
-                    ("估算成本", f"${float(summary.get('estimated_cost_usd') or 0):.6f}", "模型调用估算费用", "ok"),
-                    ("工具调用", str(summary.get("tool_calls", 0)), "执行工具的总次数", "neutral"),
+                    (
+                        "停止原因",
+                        _display_value(usage.get("stop_reason", "")),
+                        "为什么结束本次运行",
+                        _tone_for_status(usage.get("stop_reason", "")),
+                    ),
+                    (
+                        "模型调用",
+                        str(summary.get("llm_calls", 0)),
+                        "调用大模型的次数",
+                        "neutral",
+                    ),
+                    (
+                        "Token 总量",
+                        str(summary.get("total_tokens", 0)),
+                        "输入与输出 Token 总和",
+                        "neutral",
+                    ),
+                    (
+                        "估算成本",
+                        f"${float(summary.get('estimated_cost_usd') or 0):.6f}",
+                        "模型调用估算费用",
+                        "ok",
+                    ),
+                    (
+                        "工具调用",
+                        str(summary.get("tool_calls", 0)),
+                        "执行工具的总次数",
+                        "neutral",
+                    ),
                 ]
             ),
             f"<p><span class='label'>任务</span>{_escape((usage.get('task') or trace.get('task') or '')[:800])}</p>",
@@ -529,7 +607,6 @@ def _render_result_summary(project_dir: Path) -> str:
 
 
 def _render_usage_dashboard(project_dir: Path) -> str:
-
     fanout_path = _latest_fanout_summary_path(project_dir)
     fanout = _read_json_file(fanout_path)
     if fanout:
@@ -569,9 +646,11 @@ def _render_usage_dashboard(project_dir: Path) -> str:
     context_sections = (usage.get("context_breakdown") or {}).get("section_chars") or {}
     context_rows = "".join(
         f"<tr><td>{_escape(_display_context_section(name))}</td><td>{int(value)}</td></tr>"
-        for name, value in sorted(context_sections.items(), key=lambda item: int(item[1]), reverse=True)
+        for name, value in sorted(
+            context_sections.items(), key=lambda item: int(item[1]), reverse=True
+        )
     )
-    tools = ((usage.get("tool_efficiency") or {}).get("by_tool") or {})
+    tools = (usage.get("tool_efficiency") or {}).get("by_tool") or {}
     tool_rows = "".join(
         "<tr>"
         f"<td>{_escape(name)}</td>"
@@ -616,12 +695,42 @@ def _render_usage_dashboard(project_dir: Path) -> str:
         "<p class='help strong'>这里回答一次真实运行花了多少 token、多少钱、哪里消耗上下文，以及工具调用是否高效。</p>",
         _metric_grid(
             [
-                ("模型调用", str(summary.get("llm_calls", 0)), "模型调用轮数", "neutral"),
-                ("Token 总量", str(summary.get("total_tokens", 0)), "输入 + 输出", "neutral"),
-                ("缓存命中率", f"{float(summary.get('cache_hit_rate') or 0):.2%}", "模型侧缓存命中比例", "ok"),
-                ("估算成本", f"${float(summary.get('estimated_cost_usd') or 0):.6f}", "模型调用估算费用", "ok"),
-                ("模型延迟", f"{int(summary.get('llm_latency_ms') or 0)} ms", "模型调用总耗时", "neutral"),
-                ("失败工具调用", str(summary.get("failed_tool_calls", 0)), "执行失败的工具次数", "bad" if summary.get("failed_tool_calls") else "ok"),
+                (
+                    "模型调用",
+                    str(summary.get("llm_calls", 0)),
+                    "模型调用轮数",
+                    "neutral",
+                ),
+                (
+                    "Token 总量",
+                    str(summary.get("total_tokens", 0)),
+                    "输入 + 输出",
+                    "neutral",
+                ),
+                (
+                    "缓存命中率",
+                    f"{float(summary.get('cache_hit_rate') or 0):.2%}",
+                    "模型侧缓存命中比例",
+                    "ok",
+                ),
+                (
+                    "估算成本",
+                    f"${float(summary.get('estimated_cost_usd') or 0):.6f}",
+                    "模型调用估算费用",
+                    "ok",
+                ),
+                (
+                    "模型延迟",
+                    f"{int(summary.get('llm_latency_ms') or 0)} ms",
+                    "模型调用总耗时",
+                    "neutral",
+                ),
+                (
+                    "失败工具调用",
+                    str(summary.get("failed_tool_calls", 0)),
+                    "执行失败的工具次数",
+                    "bad" if summary.get("failed_tool_calls") else "ok",
+                ),
             ]
         ),
         "<section class='evidence-section'><div class='section-title'><h3>自适应运行信号</h3><span>只显示本次真实观测</span></div>",
@@ -643,8 +752,57 @@ def _render_usage_dashboard(project_dir: Path) -> str:
     return "<div class='evidence'>" + "".join(body) + "</div>"
 
 
-def _render_fanout_result_summary(fanout: dict[str, Any], path: Path | None) -> str:
+def _render_fanout_task_contract(
+    fanout: dict[str, Any],
+    summary_path: Path | None,
+) -> str:
+    """对照计划约束与 Worker 事实，解释为什么可并发以及实际做了什么。"""
 
+    plan_path = summary_path.parent / "fanout_plan.json" if summary_path else None
+    plan = _read_json_file(plan_path)
+    task_specs = [
+        task for task in plan.get("tasks") or [] if isinstance(task, dict)
+    ]
+    results = [
+        result for result in fanout.get("results") or [] if isinstance(result, dict)
+    ]
+    result_by_task = {str(result.get("task_id") or ""): result for result in results}
+    rows = []
+    for task in task_specs:
+        task_id = str(task.get("id") or "unknown")
+        result = result_by_task.get(task_id, {})
+        usage = result.get("usage_summary") or {}
+        dependencies = _string_items(task.get("depends_on"))
+        dependency_facts = dependencies or ["无前置依赖：允许与同批次任务并行"]
+        outcome_facts = [
+            f"状态：{_display_value(result.get('status') or 'not_observed')}",
+            f"工具调用：{int(usage.get('tool_calls') or 0)} 次",
+            f"失败调用：{int(usage.get('failed_tool_calls') or 0)} 次",
+        ]
+        rows.append(
+            "<tr>"
+            f"<td><b>{_escape(task_id)}</b><br><span class='table-note'>{_escape(task.get('task') or '')}</span></td>"
+            f"<td>{_render_fact_list(dependency_facts, empty_message='无')}</td>"
+            f"<td>{_render_fact_list(task.get('write_scope'), empty_message='未声明写入范围')}</td>"
+            f"<td>{_render_fact_list(task.get('allowed_tools'), empty_message='未声明工具白名单')}</td>"
+            f"<td>{_render_fact_list(result.get('touched_files'), empty_message='没有改动文件')}</td>"
+            f"<td>{_render_fact_list(outcome_facts, empty_message='未产生结果')}</td>"
+            "</tr>"
+        )
+    rows_html = (
+        "".join(rows)
+        or "<tr><td colspan='6'>本次 Fanout 没有可读取的任务计划。</td></tr>"
+    )
+    return (
+        "<section class='evidence-section'><div class='section-title'><h3>任务契约与真实结果</h3>"
+        "<span>先限定依赖、写入范围和工具，再核对实际改动</span></div>"
+        "<table><thead><tr><th>任务</th><th>依赖关系</th><th>允许写入</th><th>允许工具</th><th>实际改动</th><th>执行结果</th></tr></thead>"
+        f"<tbody>{rows_html}</tbody></table>"
+        "<p class='boundary-note'>Worker 只有在依赖满足且写入范围不重叠时才进入同一并发批次；合并后由独立 Finalizer 做只读验证。</p></section>"
+    )
+
+
+def _render_fanout_result_summary(fanout: dict[str, Any], path: Path | None) -> str:
     metrics = fanout.get("metrics") or {}
     results = [
         result for result in fanout.get("results") or [] if isinstance(result, dict)
@@ -653,7 +811,9 @@ def _render_fanout_result_summary(fanout: dict[str, Any], path: Path | None) -> 
     conflicts = fanout.get("conflicts") or []
     task_cards = []
     for result in results:
-        touched_files = ", ".join(str(item) for item in result.get("touched_files") or [])
+        touched_files = ", ".join(
+            str(item) for item in result.get("touched_files") or []
+        )
         final_answer = " ".join(str(result.get("final_answer") or "").split())
         task_cards.append(
             "<article class='worker-card'>"
@@ -675,10 +835,13 @@ def _render_fanout_result_summary(fanout: dict[str, Any], path: Path | None) -> 
         if task_cards
         else "<div class='empty-inline'>没有 Worker 结果。</div>"
     )
-    batch_text = "；".join(
-        f"批次 {index}: {', '.join(str(task) for task in batch)}"
-        for index, batch in enumerate(batches, start=1)
-    ) or "未记录"
+    batch_text = (
+        "；".join(
+            f"批次 {index}: {', '.join(str(task) for task in batch)}"
+            for index, batch in enumerate(batches, start=1)
+        )
+        or "未记录"
+    )
     body = [
         "<div class='view-heading'><div><span class='view-kicker'>LAB 2 · 多 Agent 协同</span>"
         "<h2>并行任务与最终收口</h2></div>"
@@ -686,15 +849,46 @@ def _render_fanout_result_summary(fanout: dict[str, Any], path: Path | None) -> 
         "<p class='help strong'>这里只把依赖满足且写入范围可分离的任务放入同一批并发；每个 Worker 在独立工作区运行，之后统一检查改动范围、合并并验证。</p>",
         _metric_grid(
             [
-                ("协调状态", _display_value(fanout.get("status", "")), "协调器最终状态", _tone_for_status(str(fanout.get("status", "")))),
-                ("任务完成", f"{metrics.get('completed_count', 0)}/{metrics.get('task_count', 0)}", "通过依赖与范围校验", "ok"),
-                ("并发批次", str(len(batches)), f"最大并发 {metrics.get('max_workers', 0)}", "neutral"),
-                ("改动冲突", str(len(conflicts)), "检测到的文件范围冲突", "bad" if conflicts else "ok"),
-                ("端到端耗时", _format_milliseconds(int(metrics.get("wall_time_ms") or 0)), "包含合并与最终验证", "neutral"),
-                ("最终决策", _display_value(fanout.get("final_decision") or "not_run"), "隔离验证器结论", _tone_for_status(str(fanout.get("final_decision") or ""))),
+                (
+                    "协调状态",
+                    _display_value(fanout.get("status", "")),
+                    "协调器最终状态",
+                    _tone_for_status(str(fanout.get("status", ""))),
+                ),
+                (
+                    "任务完成",
+                    f"{metrics.get('completed_count', 0)}/{metrics.get('task_count', 0)}",
+                    "通过依赖与范围校验",
+                    "ok",
+                ),
+                (
+                    "并发批次",
+                    str(len(batches)),
+                    f"最大并发 {metrics.get('max_workers', 0)}",
+                    "neutral",
+                ),
+                (
+                    "改动冲突",
+                    str(len(conflicts)),
+                    "检测到的文件范围冲突",
+                    "bad" if conflicts else "ok",
+                ),
+                (
+                    "端到端耗时",
+                    _format_milliseconds(int(metrics.get("wall_time_ms") or 0)),
+                    "包含合并与最终验证",
+                    "neutral",
+                ),
+                (
+                    "最终决策",
+                    _display_value(fanout.get("final_decision") or "not_run"),
+                    "隔离验证器结论",
+                    _tone_for_status(str(fanout.get("final_decision") or "")),
+                ),
             ]
         ),
         f"<p class='task-summary'><span>总体目标</span>{_escape(fanout.get('goal', ''))}</p>",
+        _render_fanout_task_contract(fanout, path),
         "<section class='evidence-section'><div class='section-title'><h3>为什么允许并行</h3>"
         "<span>依赖和改动范围先于并发</span></div>"
         "<div class='answer-strip'>"
@@ -716,7 +910,6 @@ def _render_fanout_result_summary(fanout: dict[str, Any], path: Path | None) -> 
 
 
 def _render_fanout_usage_dashboard(fanout: dict[str, Any], path: Path | None) -> str:
-
     metrics = fanout.get("metrics") or {}
     body = [
         "<h2>Live Fanout 成本与并发证据</h2>",
@@ -724,14 +917,54 @@ def _render_fanout_usage_dashboard(fanout: dict[str, Any], path: Path | None) ->
         _metric_grid(
             [
                 ("模型调用", str(metrics.get("llm_calls", 0)), "本次运行", "neutral"),
-                ("Token 总量", str(metrics.get("total_tokens", 0)), "本次运行", "neutral"),
-                ("估算成本", f"${float(metrics.get('estimated_cost_usd') or 0):.6f}", "本次运行估算", "ok"),
-                ("总耗时", f"{int(metrics.get('wall_time_ms') or 0)} ms", "端到端耗时", "neutral"),
-                ("本次 Worker 耗时", f"{int(metrics.get('current_worker_duration_ms') or 0)} ms", "仅本次执行", "neutral"),
-                ("恢复 Worker 耗时", f"{int(metrics.get('resumed_worker_duration_ms') or 0)} ms", "来自历史产物", "neutral"),
-                ("最大并发数", str(metrics.get("max_workers", 0)), "配置的并发上限", "neutral"),
-                ("工具调用", str(metrics.get("tool_calls", 0)), "Worker 与验证器总和", "neutral"),
-                ("失败工具调用", str(metrics.get("failed_tool_calls", 0)), "失败观测数量", "bad" if metrics.get("failed_tool_calls") else "ok"),
+                (
+                    "Token 总量",
+                    str(metrics.get("total_tokens", 0)),
+                    "本次运行",
+                    "neutral",
+                ),
+                (
+                    "估算成本",
+                    f"${float(metrics.get('estimated_cost_usd') or 0):.6f}",
+                    "本次运行估算",
+                    "ok",
+                ),
+                (
+                    "总耗时",
+                    f"{int(metrics.get('wall_time_ms') or 0)} ms",
+                    "端到端耗时",
+                    "neutral",
+                ),
+                (
+                    "本次 Worker 耗时",
+                    f"{int(metrics.get('current_worker_duration_ms') or 0)} ms",
+                    "仅本次执行",
+                    "neutral",
+                ),
+                (
+                    "恢复 Worker 耗时",
+                    f"{int(metrics.get('resumed_worker_duration_ms') or 0)} ms",
+                    "来自历史产物",
+                    "neutral",
+                ),
+                (
+                    "最大并发数",
+                    str(metrics.get("max_workers", 0)),
+                    "配置的并发上限",
+                    "neutral",
+                ),
+                (
+                    "工具调用",
+                    str(metrics.get("tool_calls", 0)),
+                    "Worker 与验证器总和",
+                    "neutral",
+                ),
+                (
+                    "失败工具调用",
+                    str(metrics.get("failed_tool_calls", 0)),
+                    "失败观测数量",
+                    "bad" if metrics.get("failed_tool_calls") else "ok",
+                ),
             ]
         ),
         f"<p><span class='label'>fanout_summary.json</span><span class='mono'>{_escape(str(path or '未找到'))}</span></p>",
@@ -741,7 +974,6 @@ def _render_fanout_usage_dashboard(fanout: dict[str, Any], path: Path | None) ->
 
 # 主要入口：把底层 Trace 投影成“运行级事件 + 每轮四段主链”。
 def _render_trace_timeline(project_dir: Path) -> str:
-
     trace_entries = _trace_paths_for_timeline(project_dir)
     if not trace_entries:
         return _empty_evidence("没有找到 trace.json，请先运行 Agent 或一个 Debug Lab。")
@@ -765,9 +997,10 @@ def _render_trace_timeline(project_dir: Path) -> str:
 
 
 def _render_trace_lane(label: str, trace_path: Path) -> str:
-
     trace = _read_json_file(trace_path)
-    events = _event_list(trace)
+    # Checkpoint 在 Trace 中保存完整快照；先与上一快照做差分，展示时才能解释
+    # “为什么这一轮写了多次”，而不是把不同状态转换都叫作 Checkpoint。
+    events = _annotate_checkpoint_transitions(_event_list(trace))
     run_events = [event for event in events if int(event.get("step") or 0) == 0]
     turns: dict[int, list[dict[str, Any]]] = {}
     for event in events:
@@ -801,7 +1034,13 @@ _TIMELINE_STAGES = (
         "安全检查、扩展钩子、权限、操作账本与工具调用",
         "warn",
     ),
-    ("persistence", "04", "回填并持久化", "观察、证据、Checkpoint 与停止状态", "neutral"),
+    (
+        "persistence",
+        "04",
+        "回填并持久化",
+        "观察、证据、Checkpoint 与停止状态",
+        "neutral",
+    ),
 )
 
 _TRACE_STAGE_BY_EVENT = {
@@ -847,7 +1086,6 @@ _TRACE_STAGE_BY_EVENT = {
 
 
 def _render_run_level_events(events: list[dict[str, Any]]) -> str:
-
     if not events:
         return ""
     failures = sum(1 for event in events if not bool(event.get("success", True)))
@@ -861,9 +1099,149 @@ def _render_run_level_events(events: list[dict[str, Any]]) -> str:
     )
 
 
-def _render_timeline_turn(turn: int, events: list[dict[str, Any]]) -> str:
+def _annotate_checkpoint_transitions(
+    events: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """用相邻完整快照推导每次 Checkpoint 的业务原因。
 
-    grouped = {stage[0]: [] for stage in _TIMELINE_STAGES}
+    Runtime 保留完整 ``TaskCheckpoint`` 是为了可靠恢复；Workbench 在只读侧做差分，
+    把同名写入解释成“轮次起点、审批屏障、恢复、工具结果或终态”。
+    """
+
+    annotated_events: list[dict[str, Any]] = []
+    previous_state: dict[str, Any] | None = None
+    checkpoint_sequence = 0
+    for event in events:
+        annotated_event = dict(event)
+        if str(event.get("event_type") or "") == "task_state_checkpoint":
+            current_state_value = event.get("task_state") or {}
+            current_state = (
+                dict(current_state_value)
+                if isinstance(current_state_value, dict)
+                else {}
+            )
+            checkpoint_sequence += 1
+            annotated_event["_checkpoint_transition"] = _checkpoint_transition(
+                previous_state,
+                current_state,
+                sequence=checkpoint_sequence,
+            )
+            previous_state = current_state
+        annotated_events.append(annotated_event)
+    return annotated_events
+
+
+def _checkpoint_transition(
+    previous_state: dict[str, Any] | None,
+    current_state: dict[str, Any],
+    *,
+    sequence: int,
+) -> dict[str, Any]:
+    """返回给 UI 使用的 Checkpoint 迁移名称、差异摘要和持久化原因。"""
+
+    previous = previous_state or {}
+    previous_status = str(previous.get("status") or "未创建")
+    current_status = str(current_state.get("status") or "unknown")
+    changed_fields = {
+        key
+        for key in current_state
+        if key not in {"created_at", "updated_at"}
+        and previous.get(key) != current_state.get(key)
+    }
+
+    if previous_state is None:
+        label = "创建可恢复任务"
+        reason = "首次模型调用前建立 run 身份和初始恢复点"
+    elif current_status == "waiting_approval":
+        label = "进入审批等待"
+        reason = "副作用执行前形成可恢复人工屏障，进程退出也不会丢失请求"
+    elif previous_status == "waiting_approval" and current_status == "running":
+        label = "审批后恢复运行"
+        reason = "记录批准已被消费，恢复时不再重复发起同一审批"
+    elif current_status == "waiting_human":
+        label = "等待人工输入"
+        reason = "保存 request_id 与恢复位置，回答后可从同一问题继续"
+    elif previous_status == "waiting_human" and current_status == "running":
+        label = "人工回答后恢复"
+        reason = "记录人工回答已进入会话，避免恢复后重复提问"
+    elif current_status in {"completed", "blocked", "failed", "cancelled", "paused"}:
+        label = f"保存{_display_value(current_status)}状态"
+        reason = "统一落盘最终状态、停止原因和恢复建议，避免报告与任务状态分叉"
+    elif "last_observation" in changed_fields or _count_increased(
+        previous,
+        current_state,
+        "observations_count",
+    ):
+        label = "保存工具结果"
+        reason = "标记工具副作用和 Observation 已提交，恢复时不重复执行"
+    elif "context_digest" in changed_fields:
+        label = "保存上下文摘要"
+        reason = "保留压缩边界，使 continuation 能重建有界上下文"
+    elif "current_step" in changed_fields:
+        label = f"记录第 {int(current_state.get('current_step') or 0)} 轮起点"
+        reason = "模型调用前保存当前轮次和会话计数，异常中断后可定位进度"
+    elif "metadata" in changed_fields:
+        label = "保存恢复定位信息"
+        reason = "持久化人工请求、执行环境等 continuation 所需元数据"
+    elif changed_fields & {"messages_count", "observations_count"}:
+        label = "刷新会话进度"
+        reason = "使 durable state 与已经落盘的消息和 Observation 数量一致"
+    else:
+        label = "刷新任务快照"
+        reason = "保存最新可恢复状态；业务字段未发生新的语义转换"
+
+    return {
+        "sequence": sequence,
+        "label": label,
+        "reason": reason,
+        "status": current_status,
+        "changed_fields": sorted(changed_fields),
+        "change_summary": _checkpoint_change_summary(previous, current_state),
+    }
+
+
+def _count_increased(
+    previous_state: dict[str, Any],
+    current_state: dict[str, Any],
+    field_name: str,
+) -> bool:
+    """动态 JSON 计数字段缺失时按零处理。"""
+
+    return int(current_state.get(field_name) or 0) > int(
+        previous_state.get(field_name) or 0
+    )
+
+
+def _checkpoint_change_summary(
+    previous_state: dict[str, Any],
+    current_state: dict[str, Any],
+) -> str:
+    """生成一行可扫读的状态差异，不倾倒完整 Checkpoint JSON。"""
+
+    previous_status = str(previous_state.get("status") or "未创建")
+    current_status = str(current_state.get("status") or "unknown")
+    parts = [
+        f"{_display_value(previous_status)} → {_display_value(current_status)}",
+        f"step={int(current_state.get('current_step') or 0)}",
+    ]
+    last_tool = str(current_state.get("last_tool") or "")
+    if last_tool:
+        parts.append(f"tool={last_tool}")
+    for field_name, label in (
+        ("messages_count", "消息"),
+        ("observations_count", "观察"),
+    ):
+        before = int(previous_state.get(field_name) or 0)
+        after = int(current_state.get(field_name) or 0)
+        if before != after:
+            parts.append(f"{label} {before}→{after}")
+    return " · ".join(parts)
+
+
+def _render_timeline_turn(turn: int, events: list[dict[str, Any]]) -> str:
+    grouped: dict[str, list[dict[str, Any]]] = {
+        stage[0]: [] for stage in _TIMELINE_STAGES
+    }
     for event in events:
         event_type = str(event.get("event_type") or "")
         grouped[_TRACE_STAGE_BY_EVENT.get(event_type, "persistence")].append(event)
@@ -901,7 +1279,6 @@ def _render_timeline_stage(
     tone: str,
     events: list[dict[str, Any]],
 ) -> str:
-
     if events:
         summary = _summarize_timeline_stage(key, events)
     else:
@@ -917,7 +1294,6 @@ def _render_timeline_stage(
 
 
 def _summarize_timeline_stage(key: str, events: list[dict[str, Any]]) -> str:
-
     if key == "input":
         assembly = _last_trace_event(events, "context_assembly")
         window_event = _last_trace_event(events, "context_window")
@@ -954,14 +1330,18 @@ def _summarize_timeline_stage(key: str, events: list[dict[str, Any]]) -> str:
                 decision = _compact_timeline_text(
                     final_answer.get("observation") or "模型给出最终回答"
                 )
-        elif (action := _last_trace_event(events, "action")) is not None:
-            tool = str(action.get("tool_call") or "未知工具")
-            target = _trace_tool_target(action)
-            decision = f"请求 {tool}" + (f" · {target}" if target else "")
-        elif request.get("messages_count") is not None:
-            decision = f"处理 {int(request['messages_count'])} 条消息"
         else:
-            decision = "模型边界已记录"
+            latest_action_event = _last_trace_event(events, "action")
+            if latest_action_event is not None:
+                tool_name = str(latest_action_event.get("tool_call") or "未知工具")
+                tool_target = _trace_tool_target(latest_action_event)
+                decision = f"请求 {tool_name}"
+                if tool_target:
+                    decision += f" · {tool_target}"
+            elif request.get("messages_count") is not None:
+                decision = f"处理 {int(request['messages_count'])} 条消息"
+            else:
+                decision = "模型边界已记录"
         return " · ".join([decision, *metrics])
 
     if key == "governed_execution":
@@ -979,7 +1359,7 @@ def _summarize_timeline_stage(key: str, events: list[dict[str, Any]]) -> str:
                 "operation_ledger",
             }
         ]
-        denied = any(
+        governance_blocked = any(
             str(event.get("permission_decision") or "").lower() == "deny"
             or (
                 str(event.get("event_type") or "")
@@ -995,7 +1375,7 @@ def _summarize_timeline_stage(key: str, events: list[dict[str, Any]]) -> str:
             )
             for event in events
         )
-        waiting = any(
+        waiting_for_operator = any(
             str(event.get("event_type") or "") == "human_input_requested"
             or (
                 str(event.get("event_type") or "") == "human_approval"
@@ -1004,9 +1384,9 @@ def _summarize_timeline_stage(key: str, events: list[dict[str, Any]]) -> str:
             or str(event.get("permission_decision") or "").lower() == "ask"
             for event in events
         )
-        if denied:
+        if governance_blocked:
             return f"治理阻断 · {len(checks)} 项检查"
-        if waiting:
+        if waiting_for_operator:
             return f"等待人工决策 · {len(checks)} 项检查"
         observations = [
             event
@@ -1037,12 +1417,25 @@ def _summarize_timeline_stage(key: str, events: list[dict[str, Any]]) -> str:
     if checkpoint is not None:
         state = checkpoint.get("task_state") or {}
         status = _display_value(state.get("status") or "saved")
-        messages = state.get("messages_count")
-        observations = state.get("observations_count")
+        checkpoint_events = [
+            event
+            for event in events
+            if str(event.get("event_type") or "") == "task_state_checkpoint"
+        ]
+        latest_transition = checkpoint.get("_checkpoint_transition") or {}
+        transition_label = str(latest_transition.get("label") or "保存任务状态")
+        message_count_value = state.get("messages_count")
+        observation_count_value = state.get("observations_count")
         counts = ""
-        if messages is not None or observations is not None:
-            counts = f"{int(messages or 0)} 条消息 · {int(observations or 0)} 条观察"
-        return f"{status}" + (f" · {counts}" if counts else "")
+        if message_count_value is not None or observation_count_value is not None:
+            counts = (
+                f"{int(message_count_value or 0)} 条消息 · "
+                f"{int(observation_count_value or 0)} 条观察"
+            )
+        return (
+            f"{len(checkpoint_events)} 次状态写入 · {transition_label} · {status}"
+            + (f" · {counts}" if counts else "")
+        )
     return f"{len(events)} 个状态 / 证据事件"
 
 
@@ -1051,14 +1444,14 @@ def _render_raw_event_details(
     *,
     summary: str,
 ) -> str:
-
     rows = "".join(
         "<tr>"
         f"<td>{index}</td>"
-        f"<td>{_escape(_TRACE_EVENT_LABELS.get(str(event.get('event_type') or ''), str(event.get('event_type') or '未知事件')))}</td>"
+        f"<td>{_escape(_event_business_label(event))}</td>"
         f"<td><code>{_escape(str(event.get('event_type') or ''))}</code></td>"
         f"<td>{_escape(_event_subject(event))}</td>"
-        f"<td>{_badge('success' if bool(event.get('success', True)) else 'failed', 'ok' if bool(event.get('success', True)) else 'bad')}</td>"
+        f"<td>{_escape(_event_learning_reason(event))}</td>"
+        f"<td>{_render_event_result(event)}</td>"
         f"<td>{_escape(_format_milliseconds(int(event.get('duration_ms') or 0)))}</td>"
         "</tr>"
         for index, event in enumerate(events, start=1)
@@ -1067,7 +1460,8 @@ def _render_raw_event_details(
         "<details class='timeline-raw drilldown'>"
         f"<summary>{_escape(summary)}（{len(events)}）</summary>"
         "<div class='timeline-raw-events'><table><thead><tr>"
-        "<th>#</th><th>业务含义</th><th>机器事件</th><th>对象 / 决策</th><th>结果</th><th>距上一事件</th>"
+        "<th>#</th><th>业务含义</th><th>机器事件</th><th>状态变化 / 对象</th>"
+        "<th>为什么记录</th><th>状态 / 结果</th><th>距上一事件</th>"
         f"</tr></thead><tbody>{rows}</tbody></table></div>"
         "</details>"
     )
@@ -1092,6 +1486,9 @@ def _timeline_turn_summary(events: list[dict[str, Any]]) -> str:
 def _event_subject(event: dict[str, Any]) -> str:
     """提取原始事件中最值得排障者看的对象，不直接倾倒完整 JSON。"""
 
+    checkpoint_transition = event.get("_checkpoint_transition")
+    if isinstance(checkpoint_transition, dict):
+        return str(checkpoint_transition.get("change_summary") or "任务快照已保存")
     tool = event.get("tool_call")
     if tool:
         target = _trace_tool_target(event)
@@ -1108,8 +1505,40 @@ def _event_subject(event: dict[str, Any]) -> str:
     return "-"
 
 
-def _timeline_turn_outcome(events: list[dict[str, Any]]) -> tuple[str, str]:
+def _event_business_label(event: dict[str, Any]) -> str:
+    """Checkpoint 使用状态迁移名称；其他事件使用稳定业务标签。"""
 
+    checkpoint_transition = event.get("_checkpoint_transition")
+    if isinstance(checkpoint_transition, dict):
+        return str(checkpoint_transition.get("label") or "保存任务状态")
+    event_type = str(event.get("event_type") or "未知事件")
+    return _TRACE_EVENT_LABELS.get(event_type, event_type)
+
+
+def _event_learning_reason(event: dict[str, Any]) -> str:
+    """说明事件为何存在；重点解释看似重复的 Checkpoint。"""
+
+    checkpoint_transition = event.get("_checkpoint_transition")
+    if isinstance(checkpoint_transition, dict):
+        return str(
+            checkpoint_transition.get("reason")
+            or "保存最新可恢复状态，供中断续跑和审计使用"
+        )
+    return "底层 Trace 事实；用于展开排障"
+
+
+def _render_event_result(event: dict[str, Any]) -> str:
+    """Checkpoint 显示任务状态，其余事件显示执行成功与否。"""
+
+    checkpoint_transition = event.get("_checkpoint_transition")
+    if isinstance(checkpoint_transition, dict):
+        status = str(checkpoint_transition.get("status") or "saved")
+        return _badge(status, _tone_for_status(status))
+    succeeded = bool(event.get("success", True))
+    return _badge("success" if succeeded else "failed", "ok" if succeeded else "bad")
+
+
+def _timeline_turn_outcome(events: list[dict[str, Any]]) -> tuple[str, str]:
     completed = _last_trace_event(events, "run_completed")
     if completed is not None:
         status = str(completed.get("run_status") or "completed")
@@ -1133,19 +1562,14 @@ def _last_trace_event(
     events: list[dict[str, Any]],
     event_type: str,
 ) -> dict[str, Any] | None:
-
-    return next(
-        (
-            event
-            for event in reversed(events)
-            if str(event.get("event_type") or "") == event_type
-        ),
-        None,
-    )
+    for trace_event in reversed(events):
+        current_event_type = str(trace_event.get("event_type") or "")
+        if current_event_type == event_type:
+            return trace_event
+    return None
 
 
 def _ordered_tool_names(events: list[dict[str, Any]]) -> list[str]:
-
     names: list[str] = []
     for event in events:
         name = str(event.get("tool_call") or "工具")
@@ -1155,7 +1579,6 @@ def _ordered_tool_names(events: list[dict[str, Any]]) -> list[str]:
 
 
 def _trace_tool_target(event: dict[str, Any]) -> str:
-
     arguments = event.get("tool_arguments") or {}
     if not isinstance(arguments, dict):
         return ""
@@ -1167,28 +1590,21 @@ def _trace_tool_target(event: dict[str, Any]) -> str:
 
 
 def _compact_timeline_text(value: object, *, max_chars: int = 96) -> str:
-
     text = " ".join(str(value or "").split())
     return text if len(text) <= max_chars else text[: max_chars - 1] + "…"
 
 
 def _format_milliseconds(value: int) -> str:
-
     return f"{value / 1000:.2f}s" if value >= 1000 else f"{value}ms"
 
 
 def _raw_event_tooltip(event: dict[str, Any]) -> str:
-
     event_type = str(event.get("event_type") or "event")
     gap = int(event.get("duration_ms") or 0)
-    return (
-        f"原始事件：{event_type}；距上一条 Trace 事件："
-        f"{_format_milliseconds(gap)}"
-    )
+    return f"原始事件：{event_type}；距上一条 Trace 事件：{_format_milliseconds(gap)}"
 
 
 def _render_run_evidence(project_dir: Path) -> str:
-
     run_dir = _latest_run_dir(project_dir)
     fanout_path = _latest_fanout_summary_path(project_dir)
     fanout = _read_json_file(fanout_path)
@@ -1243,12 +1659,41 @@ def _render_run_evidence(project_dir: Path) -> str:
         f"{_badge(heading_status, _tone_for_status(heading_status))}</div>",
         _metric_grid(
             [
-                ("运行状态", _display_value(single_status), "当前 Single-Run", _tone_for_status(str(single_status))),
-                ("模型调用", str(summary.get("llm_calls", 0)), "本次实际调用次数", "neutral"),
-                ("工具调用", str(summary.get("tool_calls", 0)), f"失败 {int(summary.get('failed_tool_calls') or 0)} 次", "bad" if summary.get("failed_tool_calls") else "ok"),
-                ("Checkpoint", str(summary.get("checkpoints", summary.get("task_state_checkpoints", 0))), "持久化状态记录", "neutral"),
+                (
+                    "运行状态",
+                    _display_value(single_status),
+                    "当前 Single-Run",
+                    _tone_for_status(str(single_status)),
+                ),
+                (
+                    "模型调用",
+                    str(summary.get("llm_calls", 0)),
+                    "本次实际调用次数",
+                    "neutral",
+                ),
+                (
+                    "工具调用",
+                    str(summary.get("tool_calls", 0)),
+                    f"失败 {int(summary.get('failed_tool_calls') or 0)} 次",
+                    "bad" if summary.get("failed_tool_calls") else "ok",
+                ),
+                (
+                    "Checkpoint",
+                    str(
+                        summary.get(
+                            "checkpoints", summary.get("task_state_checkpoints", 0)
+                        )
+                    ),
+                    "持久化状态记录",
+                    "neutral",
+                ),
                 ("估算成本", f"${cost:.6f}", "当前运行记录", "neutral"),
-                ("失败分类", _display_value(failure), "只有明确诊断时才成立", _tone_for_status(str(failure))),
+                (
+                    "失败分类",
+                    _display_value(failure),
+                    "只有明确诊断时才成立",
+                    _tone_for_status(str(failure)),
+                ),
             ]
         ),
         f"<p class='task-summary'><span>本次目标</span>{_escape(str(task_id)[:420])}</p>",
@@ -1301,7 +1746,6 @@ def _render_fanout_run_evidence(
         if finalizer_trace_path is not None
         else None
     )
-
     worker_tools = sum(
         int((result.get("usage_summary") or {}).get("tool_calls") or 0)
         for result in results
@@ -1311,34 +1755,40 @@ def _render_fanout_run_evidence(
     )
     model_calls = int(metrics.get("llm_calls") or 0)
     tool_calls = int(metrics.get("tool_calls") or worker_tools + finalizer_tools)
+    failed_tool_calls = sum(
+        int((result.get("usage_summary") or {}).get("failed_tool_calls") or 0)
+        for result in results
+    ) + int(
+        (fanout.get("finalizer_usage_summary") or {}).get("failed_tool_calls") or 0
+    )
     final_decision = str(fanout.get("final_decision") or "not_run")
     status = str(fanout.get("status") or "unknown")
     checkpoint_count = int(checkpoint_path is not None and checkpoint_path.is_file())
 
     touched_files = sorted(
-        {
-            str(path)
-            for result in results
-            for path in result.get("touched_files") or []
-        }
+        {str(path) for result in results for path in result.get("touched_files") or []}
     )
-    worker_evidence = ", ".join(
-        f"{result.get('task_id', 'worker')}={_display_value(result.get('status', 'unknown'))}"
-        for result in results
-    ) or "没有 Worker 结果"
+    worker_evidence = (
+        ", ".join(
+            f"{result.get('task_id', 'worker')}={_display_value(result.get('status', 'unknown'))}"
+            for result in results
+        )
+        or "没有 Worker 结果"
+    )
     stages = [
         (
             "计划与依赖检查",
             bool(batches),
             f"{len(results)} 个任务被编排为 {len(batches)} 个依赖批次",
-            "LiveFanoutCoordinator._validate_plan",
+            "LiveFanoutCoordinator.run",
             plan_path,
         ),
         (
             "Worker 隔离执行",
-            bool(results) and all(result.get("status") == "completed" for result in results),
+            bool(results)
+            and all(result.get("status") == "completed" for result in results),
             worker_evidence,
-            "LocalAgentWorkerAdapter.run_worker",
+            "LiveFanoutCoordinator._run_batch",
             None,
         ),
         (
@@ -1348,28 +1798,28 @@ def _render_fanout_run_evidence(
                 f"改动文件：{', '.join(touched_files) or '无'}；"
                 f"检测到 {len(conflicts)} 个范围冲突"
             ),
-            "LiveFanoutCoordinator._validate_worker_scope",
+            "LiveFanoutCoordinator._mark_dynamic_conflicts",
             None,
         ),
         (
             "候选改动合并",
             bool(merged_task_ids) and _path_is_file(diff_path),
             f"已合并：{', '.join(str(item) for item in merged_task_ids) or '无'}",
-            "LiveFanoutCoordinator._merge_completed_workers",
+            "LiveFanoutCoordinator._merge_batch",
             diff_path,
         ),
         (
             "隔离 Finalizer",
             final_decision.upper() == "PASS",
             f"最终决策：{_display_value(final_decision)}；执行只读聚焦验证",
-            "LiveFanoutCoordinator._run_finalizer",
+            "LocalAgentWorkerAdapter.run_finalizer",
             finalizer_verification_path,
         ),
         (
             "Checkpoint 与证据发布",
             bool(summary_path and summary_path.is_file()),
             "协调状态、Worker 结果、合并改动与验证结论已经持久化",
-            "LiveFanoutCoordinator._persist_summary",
+            "LiveFanoutCoordinator.run",
             summary_path,
         ),
     ]
@@ -1444,15 +1894,46 @@ def _render_fanout_run_evidence(
         "这里的“模型调用”经过真实 ModelPort，但使用确定性本地适配器，不会产生外部 API Token 或费用。</p>",
         _metric_grid(
             [
-                ("运行状态", _display_value(status), "Fanout 协调器最终状态", _tone_for_status(status)),
-                ("模型调用（确定性）", str(model_calls), "2 个 Worker + Finalizer", "neutral"),
-                ("工具调用", str(tool_calls), f"Worker {worker_tools} 次 + Finalizer {finalizer_tools} 次", "ok"),
-                ("协调器 Checkpoint", str(checkpoint_count), "Fanout 可恢复状态快照", "ok" if checkpoint_count else "neutral"),
-                ("Token / 成本", f"{int(metrics.get('total_tokens') or 0)} / $0", "未调用外部大模型", "neutral"),
-                ("最终验证", _display_value(final_decision), "聚焦 pytest；不是官方评测", _tone_for_status(final_decision)),
+                (
+                    "运行状态",
+                    _display_value(status),
+                    "Fanout 协调器最终状态",
+                    _tone_for_status(status),
+                ),
+                (
+                    "模型调用（确定性）",
+                    str(model_calls),
+                    "2 个 Worker + Finalizer",
+                    "neutral",
+                ),
+                (
+                    "工具调用",
+                    str(tool_calls),
+                    f"Worker {worker_tools} 次 + Finalizer {finalizer_tools} 次；失败 {failed_tool_calls} 次",
+                    "ok",
+                ),
+                (
+                    "协调器 Checkpoint",
+                    str(checkpoint_count),
+                    "保存协调器当前可恢复状态，不是每个 Turn 一个",
+                    "ok" if checkpoint_count else "neutral",
+                ),
+                (
+                    "Token / 成本",
+                    f"{int(metrics.get('total_tokens') or 0)} / $0",
+                    "未调用外部大模型",
+                    "neutral",
+                ),
+                (
+                    "最终验证",
+                    _display_value(final_decision),
+                    "聚焦 pytest；不是官方评测",
+                    _tone_for_status(final_decision),
+                ),
             ]
         ),
         f"<p class='task-summary'><span>本次目标</span>{_escape(fanout.get('goal') or '')}</p>",
+        _render_fanout_task_contract(fanout, summary_path),
         "<section class='evidence-section run-story'>"
         "<div class='section-title'><h3>运行全链路</h3>"
         "<span>计划 → Worker → 门禁 → 合并 → 验证 → 发布</span></div>"
@@ -1622,17 +2103,15 @@ def _render_run_story_section(
 
 
 def _tone_for_evidence_state(state: str) -> str:
-
-    lowered = state.lower()
-    if lowered == "present":
+    normalized_evidence_state = state.lower()
+    if normalized_evidence_state == "present":
         return "ok"
-    if lowered in {"absent", "failed", "invalid"}:
+    if normalized_evidence_state in {"absent", "failed", "invalid"}:
         return "bad"
     return "neutral"
 
 
 def _claim_step(title: str, state: str, detail: str, tone: str) -> str:
-
     return (
         f"<div class='claim-step {tone}'><span>{_escape(title)}</span>"
         f"<strong>{_escape(_display_value(state))}</strong><small>{_escape(detail)}</small></div>"
@@ -1640,7 +2119,6 @@ def _claim_step(title: str, state: str, detail: str, tone: str) -> str:
 
 
 def _render_role_decision_rows(summary: dict[str, Any]) -> str:
-
     rows = []
     for result in summary.get("role_results") or []:
         excerpt = str(result.get("final_answer") or result.get("output") or "")
@@ -1658,7 +2136,6 @@ def _render_role_decision_rows(summary: dict[str, Any]) -> str:
 
 
 def _render_artifact_cards(summary: dict[str, Any]) -> str:
-
     artifacts = summary.get("artifacts") or []
     if not isinstance(artifacts, list) or not artifacts:
         return "<div class='empty-inline'>本次运行没有生成多 Agent 产物。</div>"
@@ -1677,7 +2154,9 @@ def _render_artifact_cards(summary: dict[str, Any]) -> str:
         content = ""
         if path.exists() and path.is_file():
             content = path.read_text(encoding="utf-8", errors="replace")
-        excerpt = " ".join((content or str(artifact.get("summary") or "")).replace("#", " ").split())[:460]
+        excerpt = " ".join(
+            (content or str(artifact.get("summary") or "")).replace("#", " ").split()
+        )[:460]
         cards.append(
             "<article class='artifact-card'>"
             f"<div class='artifact-head'><div><span>{_escape(_display_value(role))}</span><h4>{_escape(artifact.get('kind') or artifact.get('id') or '产物')}</h4></div>"
@@ -1692,7 +2171,6 @@ def _render_artifact_cards(summary: dict[str, Any]) -> str:
 
 
 def _render_runtime_controls(project_dir: Path) -> str:
-
     # Lab 1 有独立指针时优先回放；普通 `forge run` 仍可查看自身控制证据。
     trace_path = _latest_governed_trace_path(project_dir) or _latest_trace_path(
         project_dir
@@ -1703,23 +2181,71 @@ def _render_runtime_controls(project_dir: Path) -> str:
     events = _event_list(trace)
     checkpoint = _last_event(trace, "task_state_checkpoint")
     task_state_value = checkpoint.get("task_state")
-    task_state: dict[str, Any] = task_state_value if isinstance(task_state_value, dict) else {}
+    task_state: dict[str, Any] = (
+        task_state_value if isinstance(task_state_value, dict) else {}
+    )
     metadata_value = task_state.get("metadata")
-    metadata: dict[str, Any] = metadata_value if isinstance(metadata_value, dict) else {}
+    metadata: dict[str, Any] = (
+        metadata_value if isinstance(metadata_value, dict) else {}
+    )
     environment_value = metadata.get("execution_environment")
-    environment: dict[str, Any] = environment_value if isinstance(environment_value, dict) else {}
-    context_event = _last_event(trace, "context_assembly")
+    environment: dict[str, Any] = (
+        environment_value if isinstance(environment_value, dict) else {}
+    )
+    context_events = [
+        event for event in events if event.get("event_type") == "context_assembly"
+    ]
+    final_context_event = context_events[-1] if context_events else {}
+    # 最终回答轮会主动关闭工具。控制面应回放最后一次真实暴露工具的快照，
+    # 不能把正常的空集合误报成“工具从未被观测”。
+    context_event = next(
+        (
+            event
+            for event in reversed(context_events)
+            if ((event.get("context") or event).get("tool_routing") or {}).get(
+                "allowed_tools"
+            )
+            or ((event.get("context") or event).get("tool_routing") or {}).get(
+                "dropped_tools"
+            )
+        ),
+        final_context_event,
+    )
     context_value = context_event.get("context")
-    context_snapshot: dict[str, Any] = context_value if isinstance(context_value, dict) else context_event
+    context_snapshot: dict[str, Any] = (
+        context_value if isinstance(context_value, dict) else context_event
+    )
     routing_value = context_snapshot.get("tool_routing")
     routing: dict[str, Any] = routing_value if isinstance(routing_value, dict) else {}
-    allowed = routing.get("allowed_tools") or []
-    hidden = routing.get("dropped_tools") or routing.get("hidden_tools") or []
-    permission_events = [event for event in events if event.get("event_type") == "permission_check"]
+    allowed = _string_items(routing.get("allowed_tools"))
+    hidden = _string_items(
+        routing.get("dropped_tools") or routing.get("hidden_tools")
+    )
+    final_context_value = final_context_event.get("context")
+    final_context: dict[str, Any] = (
+        final_context_value
+        if isinstance(final_context_value, dict)
+        else final_context_event
+    )
+    final_routing_value = final_context.get("tool_routing")
+    final_routing: dict[str, Any] = (
+        final_routing_value if isinstance(final_routing_value, dict) else {}
+    )
+    final_answer_tools_closed = bool(
+        context_event
+        and final_context_event
+        and context_event is not final_context_event
+        and not _string_items(final_routing.get("allowed_tools"))
+    )
+    permission_events = [
+        event for event in events if event.get("event_type") == "permission_check"
+    ]
     decisions = {"allow": 0, "ask": 0, "deny": 0}
     for event in permission_events:
         permission_value = event.get("permission")
-        permission: dict[str, Any] = permission_value if isinstance(permission_value, dict) else {}
+        permission: dict[str, Any] = (
+            permission_value if isinstance(permission_value, dict) else {}
+        )
         decision = str(
             event.get("permission_decision")
             or event.get("decision")
@@ -1728,12 +2254,41 @@ def _render_runtime_controls(project_dir: Path) -> str:
         ).lower()
         if decision in decisions:
             decisions[decision] += 1
-    checkpoints = sum(1 for event in events if event.get("event_type") == "task_state_checkpoint")
-    human_events = sum(1 for event in events if "human" in str(event.get("event_type") or ""))
-    recovery_events = sum(1 for event in events if "recovery" in str(event.get("event_type") or ""))
-    operation_events = sum(1 for event in events if "operation" in str(event.get("event_type") or ""))
+    checkpoint_events = [
+        event for event in events if event.get("event_type") == "task_state_checkpoint"
+    ]
+    checkpoints = len(checkpoint_events)
+    checkpoint_statuses: dict[str, int] = {}
+    for event in checkpoint_events:
+        saved_state = event.get("task_state")
+        status = str(
+            saved_state.get("status")
+            if isinstance(saved_state, dict)
+            else "unknown"
+        )
+        checkpoint_statuses[status] = checkpoint_statuses.get(status, 0) + 1
+    task_state_dir = trace_path.parent / "task_state" if trace_path else None
+    current_state_files = (
+        len(list(task_state_dir.glob("*.json")))
+        if task_state_dir is not None and task_state_dir.is_dir()
+        else 0
+    )
+    human_events = sum(
+        1 for event in events if "human" in str(event.get("event_type") or "")
+    )
+    recovery_events = sum(
+        1 for event in events if "recovery" in str(event.get("event_type") or "")
+    )
+    operation_events = sum(
+        1 for event in events if "operation" in str(event.get("event_type") or "")
+    )
     skill_event = _last_event(trace, "skill_selection")
-    active_skills = context_snapshot.get("active_skills") or skill_event.get("selected_skills") or skill_event.get("skills") or []
+    active_skills = (
+        context_snapshot.get("active_skills")
+        or skill_event.get("selected_skills")
+        or skill_event.get("skills")
+        or []
+    )
     context_window_event = _last_event(trace, "context_window")
     context_window_value = context_window_event.get("context_window")
     context_window: dict[str, Any] = (
@@ -1744,31 +2299,83 @@ def _render_runtime_controls(project_dir: Path) -> str:
     memory_recall: dict[str, Any] = (
         memory_value if isinstance(memory_value, dict) else {}
     )
-    llm_events = [
-        event for event in events if event.get("event_type") == "llm_call"
-    ]
+    llm_events = [event for event in events if event.get("event_type") == "llm_call"]
     normalization_repairs = [
         str(repair)
         for event in llm_events
-        for repair in (
-            (event.get("response_normalization") or {}).get("repairs") or []
-        )
+        for repair in ((event.get("response_normalization") or {}).get("repairs") or [])
     ]
     burst_event = _last_event(trace, "tool_calls_bounded")
     burst_value = burst_event.get("tool_call_budget")
     burst: dict[str, Any] = burst_value if isinstance(burst_value, dict) else {}
-    mcp_tools = [str(tool) for tool in allowed if "." in str(tool)]
+    routing_metadata = routing.get("metadata")
+    routing_metadata = (
+        routing_metadata if isinstance(routing_metadata, dict) else {}
+    )
+    run_request = _read_json_file(
+        trace_path.parent / "run_request.json" if trace_path else None
+    )
+    run_config_value = run_request.get("config")
+    run_config: dict[str, Any] = (
+        run_config_value if isinstance(run_config_value, dict) else {}
+    )
+    mcp_config_file = str(run_config.get("mcp_config_file") or "").strip()
+    configured_mcp_tools = _string_items(run_config.get("mcp_allowed_tools"))
+    mcp_tools = [
+        tool
+        for tool in allowed
+        if (
+            tool in configured_mcp_tools
+            or str((routing_metadata.get(tool) or {}).get("mode") or "")
+            == "mcp_style"
+        )
+    ]
+    if not mcp_config_file:
+        mcp_evidence = _render_fact_list(
+            [], empty_message="本次未配置 MCP Server（不适用）"
+        )
+    elif mcp_tools:
+        mcp_evidence = _render_fact_list(
+            mcp_tools, empty_message="已配置，但本次没有暴露 MCP 工具"
+        )
+    else:
+        mcp_evidence = _render_fact_list(
+            [], empty_message="已配置 MCP Server，但本次没有向模型暴露工具"
+        )
+    permission_lines = [
+        _translate_runtime_summary(part.strip())
+        for part in str(context_snapshot.get("permission_summary") or "").split(";")
+        if part.strip()
+    ]
+    routing_note = (
+        f"取 Step {context_event.get('step', 0)} 的最后一次真实工具暴露快照。"
+    )
+    if final_answer_tools_closed:
+        routing_note += " 最终回答轮按设计关闭了工具调用。"
+    checkpoint_status_lines = [
+        f"{_display_value(status)}：{count} 次写入"
+        for status, count in sorted(checkpoint_statuses.items())
+    ]
     mode = str(environment.get("mode") or "not_observed")
     network = str(environment.get("network_policy") or "not_observed")
     intervention_rows = []
     for event in events:
         event_type = str(event.get("event_type") or "")
         permission_decision = str(event.get("permission_decision") or "")
-        if event_type == "permission_check" and permission_decision not in {"ask", "deny"}:
+        if event_type == "permission_check" and permission_decision not in {
+            "ask",
+            "deny",
+        }:
             continue
-        if event_type not in {"permission_check", "human_approval", "recovery_decision"}:
+        if event_type not in {
+            "permission_check",
+            "human_approval",
+            "recovery_decision",
+        }:
             continue
-        state = permission_decision or str(event.get("observation") or event.get("failure_kind") or "observed")
+        state = permission_decision or str(
+            event.get("observation") or event.get("failure_kind") or "observed"
+        )
         evidence = str(
             event.get("reason")
             or event.get("recovery_hint")
@@ -1781,22 +2388,55 @@ def _render_runtime_controls(project_dir: Path) -> str:
             f"<td>{_escape(event.get('agent_name') or '-')}</td>"
             f"<td>{_escape(_TRACE_EVENT_LABELS.get(event_type, event_type))}</td>"
             f"<td>{_badge(state, _tone_for_status(state))}</td>"
-        f"<td>{_escape(event.get('tool_call') or '-')}</td>"
+            f"<td>{_escape(event.get('tool_call') or '-')}</td>"
             f"<td>{_escape(_translate_runtime_summary(evidence))}</td>"
             "</tr>"
         )
-    intervention_html = "".join(intervention_rows) or "<tr><td colspan='6'>本次运行没有观测到审批或恢复介入。</td></tr>"
+    intervention_html = (
+        "".join(intervention_rows)
+        or "<tr><td colspan='6'>本次运行没有观测到审批或恢复介入。</td></tr>"
+    )
     body = [
         "<div class='view-heading'><div><span class='view-kicker'>LAB 1 · 受治理运行</span><h2>Runtime 控制面</h2></div>"
         f"{_badge(mode, _tone_for_status(mode))}</div>",
         _metric_grid(
             [
-                ("执行环境", _display_value(mode), "本地目录 / 隔离工作树 / 容器", "neutral"),
-                ("网络策略", _display_value(network), "执行环境的网络边界", "ok" if network == "deny" else "warn"),
-                ("工具可见面", f"{len(allowed)} 个可见", f"{len(hidden)} 个隐藏", "neutral"),
-                ("权限决策", f"{decisions['allow']} / {decisions['ask']} / {decisions['deny']}", "允许 / 询问 / 拒绝", "neutral"),
-                ("Checkpoint", str(checkpoints), "已持久化的任务状态数量", "ok" if checkpoints else "neutral"),
-                ("人工介入 / 恢复", f"{human_events} / {recovery_events}", "Trace 中实际观测到的事件", "neutral"),
+                (
+                    "执行环境",
+                    _display_value(mode),
+                    "本地目录 / 隔离工作树 / 容器",
+                    "neutral",
+                ),
+                (
+                    "网络策略",
+                    _display_value(network),
+                    "执行环境的网络边界",
+                    "ok" if network == "deny" else "warn",
+                ),
+                (
+                    "工具可见面",
+                    f"{len(allowed)} 个可见",
+                    f"{len(hidden)} 个隐藏",
+                    "neutral",
+                ),
+                (
+                    "权限决策",
+                    f"{decisions['allow']} / {decisions['ask']} / {decisions['deny']}",
+                    "允许 / 询问 / 拒绝",
+                    "neutral",
+                ),
+                (
+                    "Checkpoint 写入",
+                    str(checkpoints),
+                    f"覆盖写入 {current_state_files} 个当前状态文件",
+                    "ok" if checkpoints else "neutral",
+                ),
+                (
+                    "人工介入 / 恢复",
+                    f"{human_events} / {recovery_events}",
+                    "Trace 中实际观测到的事件",
+                    "neutral",
+                ),
             ]
         ),
         "<details class='drilldown'><summary>查看安全、工具可见性与写入边界</summary>"
@@ -1804,15 +2444,19 @@ def _render_runtime_controls(project_dir: Path) -> str:
         "<table><thead><tr><th>控制点</th><th>最新证据</th><th>负责模块</th></tr></thead><tbody>",
         f"<tr><td>执行隔离</td><td>{_escape(environment.get('active_workspace') or _display_value(mode))}</td><td>ExecutionEnvironment</td></tr>",
         f"<tr><td>网络策略</td><td>{_escape(_display_value(network))}</td><td>ExecutionEnvironment + CommandPolicy</td></tr>",
-        f"<tr><td>工作区写操作</td><td>{_escape(_translate_runtime_summary(context_snapshot.get('permission_summary') or '本次未观测'))}</td><td>WorkspaceSandbox + PermissionPolicy</td></tr>",
-        f"<tr><td>可见工具</td><td>{_escape(', '.join(str(item) for item in allowed) or '本次未观测')}</td><td>ToolRouter</td></tr>",
-        f"<tr><td>隐藏工具</td><td>{_escape(', '.join(str(item) for item in hidden) or '本次未观测')}</td><td>ToolRouter</td></tr>",
-        f"<tr><td>Skill 注入</td><td>{_escape(active_skills or '本次未观测')}</td><td>SkillRegistry + ContextStrategy</td></tr>",
-        f"<tr><td>MCP 工具暴露</td><td>{_escape(', '.join(mcp_tools) or '本次未观测')}</td><td>MCP Adapter + ToolRegistry</td></tr>",
+        f"<tr><td>工作区写操作</td><td>{_render_fact_list(permission_lines, empty_message='Trace 中没有权限摘要')}</td><td>WorkspaceSandbox + PermissionPolicy</td></tr>",
+        f"<tr><td>可见工具</td><td>{_render_fact_list(allowed, empty_message='该轮向模型暴露 0 个工具')}</td><td>ToolRouter</td></tr>",
+        f"<tr><td>隐藏工具</td><td>{_render_fact_list(hidden, empty_message='Router 已观测：本轮隐藏 0 个候选工具')}</td><td>ToolRouter</td></tr>",
+        f"<tr><td>Skill 注入</td><td>{_render_fact_list(active_skills, empty_message='Skill 选择已执行：本次激活 0 个')}</td><td>SkillRegistry + ContextStrategy</td></tr>",
+        f"<tr><td>MCP 工具暴露</td><td>{mcp_evidence}</td><td>MCP Adapter + ToolRegistry</td></tr>",
         f"<tr><td>人工控制屏障</td><td>{human_events} 个已观测事件</td><td>HumanInputStore + ApprovalStore</td></tr>",
         f"<tr><td>写操作幂等</td><td>{operation_events} 个操作账本事件</td><td>OperationLedger</td></tr>",
+        f"<tr><td>Checkpoint 触发状态</td><td>{_render_fact_list(checkpoint_status_lines, empty_message='本次没有写入 Checkpoint')}</td><td>TaskStateRepository</td></tr>",
         "<tr><td>类型化证据契约</td><td>TraceEvent 信封 + 具名任务 Checkpoint</td><td>TraceRecorder + TaskCheckpoint</td></tr>",
-        "</tbody></table></div></details>",
+        "</tbody></table>"
+        f"<p class='boundary-note'><strong>工具快照：</strong> {_escape(routing_note)}</p>"
+        "<p class='boundary-note'><strong>MCP 与本地 Tool：</strong> 对模型都是同一份 Tool Schema；本地 Tool 在进程内执行，MCP Tool 通过协议适配器调用外部进程或服务。</p>"
+        "</div></details>",
         "<details class='drilldown'><summary>查看上下文、记忆与模型适配信号</summary>"
         "<div class='drilldown-body'><div class='section-title'><h3>上下文、记忆与模型适配</h3><span>来自最新 Trace</span></div>",
         "<table><thead><tr><th>信号</th><th>观测值</th><th>来源</th></tr></thead><tbody>",
@@ -1843,11 +2487,13 @@ def _render_runtime_controls(project_dir: Path) -> str:
         "</tbody></table><p class='boundary-note'>记忆 ID 和摘要哈希用于追溯来源；派生摘要不会冒充原始数据。</p></div></details>",
         "<section class='evidence-section'><div class='section-title'><h3>持久化与人工控制</h3><span>当前运行的事件覆盖</span></div>",
         "<div class='capability-strip'>"
-        f"<div><b>{checkpoints}</b><span>状态 Checkpoint</span></div>"
+        f"<div><b>{checkpoints}</b><span>Checkpoint 写入事件</span></div>"
         f"<div><b>{human_events}</b><span>人工输入事件</span></div>"
         f"<div><b>{recovery_events}</b><span>恢复决策</span></div>"
         f"<div><b>{len(permission_events)}</b><span>权限检查</span></div>"
-        "</div><p class='boundary-note'>数值为 0 表示本次运行没有触发该能力，不会伪造成“通过”。</p></section>",
+        "</div>"
+        f"<p class='boundary-note'><strong>Checkpoint 口径：</strong> 本次 Trace 记录 {checkpoints} 次关键状态写入，当前由 {current_state_files} 个 JSON 文件保存每个任务的最新可恢复状态。它按创建、等待审批、恢复、工具结果和结束等状态转换写入，不是每个 Turn 固定写一次。</p>"
+        "<p class='boundary-note'>数值为 0 表示本次运行没有触发该能力，不会伪造成“通过”。</p></section>",
         "<section class='evidence-section'><div class='section-title'><h3>人工与恢复介入</h3><span>审批和恢复证据</span></div>"
         "<table><thead><tr><th>轮次</th><th>Agent</th><th>事件</th><th>状态</th><th>工具</th><th>证据</th></tr></thead>"
         f"<tbody>{intervention_html}</tbody></table></section>",
@@ -1857,7 +2503,6 @@ def _render_runtime_controls(project_dir: Path) -> str:
 
 
 def _render_orchestration_dashboard(project_dir: Path) -> str:
-
     fanout_path = _latest_orchestration_fanout_path(project_dir)
     fanout = _read_json_file(fanout_path)
     if fanout:
@@ -1874,8 +2519,18 @@ def _render_orchestration_dashboard(project_dir: Path) -> str:
             [
                 ("编排模式", "顺序角色链", "通过显式产物交接", "neutral"),
                 ("角色数量", str(len(decisions)), "实现 / 审查 / 验证", "neutral"),
-                ("修订轮次", str(summary.get("revision_rounds", 0)), "受上限约束的循环", "neutral"),
-                ("产物数量", str(len(summary.get("artifacts") or [])), "角色间显式交接", "ok"),
+                (
+                    "修订轮次",
+                    str(summary.get("revision_rounds", 0)),
+                    "受上限约束的循环",
+                    "neutral",
+                ),
+                (
+                    "产物数量",
+                    str(len(summary.get("artifacts") or [])),
+                    "角色间显式交接",
+                    "ok",
+                ),
             ]
         ),
         "<section class='evidence-section'><div class='section-title'><h3>协同关系</h3><span>本次运行采用顺序角色链</span></div>"
@@ -1900,7 +2555,11 @@ def _render_orchestration_dashboard(project_dir: Path) -> str:
 
 
 def _render_evaluation_dashboard(project_dir: Path) -> str:
-
+    benchmark_run_dir = _latest_benchmark_run_dir(project_dir)
+    benchmark_result_path = (
+        benchmark_run_dir / "results.json" if benchmark_run_dir is not None else None
+    )
+    fanout_path = _latest_orchestration_fanout_path(project_dir)
     result = _latest_result_record(project_dir)
     comparison = _read_json_file(_latest_benchmark_comparison_path(project_dir))
     direct_baseline = _latest_direct_baseline_record(project_dir)
@@ -1914,18 +2573,62 @@ def _render_evaluation_dashboard(project_dir: Path) -> str:
     taxonomy_version = str(result.get("diagnosis_taxonomy_version") or "not_recorded")
     evidence = result.get("diagnosis_evidence") or []
     next_actions = result.get("next_actions") or []
+    instance_id = str(result.get("instance_id") or "未识别 Case")
+    scope_note = (
+        "此页只诊断最近一次 SWE-bench Case，不评价 Lab 2 的 Fanout 协调结果。"
+        "两页可能同时分别显示“通过”和“阻塞”，因为它们来自不同 run。"
+    )
+    if fanout_path is not None:
+        scope_note += f" Lab 2 来源：{fanout_path}。"
     body = [
-        "<div class='view-heading'><div><span class='view-kicker'>评测与诊断</span><h2>证据与结论边界</h2></div>"
+        "<div class='view-heading'><div><span class='view-kicker'>独立证据 · SWE-BENCH CASE</span>"
+        f"<h2>{_escape(instance_id)} · 证据与结论边界</h2></div>"
         f"{_badge(evaluation_status, _tone_for_status(evaluation_status))}</div>",
+        f"<p class='boundary-note scope-warning'><strong>证据作用域：</strong>{_escape(scope_note)}</p>",
         _metric_grid(
             [
-                ("运行结果", _display_value(result.get("status") or "unknown"), "Agent 最终状态", _tone_for_status(str(result.get("status") or ""))),
-                ("失败分类", _display_value(result.get("failure_class") or "unclassified"), "按固定优先级分类", _tone_for_status(str(result.get("failure_class") or ""))),
-                ("诊断来源", _display_value(diagnosis_source), f"规则={diagnosis_rule}；分类版本={taxonomy_version}", "neutral"),
-                ("候选改动", str(result.get("patch_chars") or 0), "候选 Diff 字符数", "ok" if result.get("patch_chars") else "neutral"),
-                ("官方评测", _display_value(evaluation_status), "最终正确性依据", _tone_for_status(evaluation_status)),
-                ("验证角色", _display_value(comparison.get("verifier_status") or "not_observed"), "Runtime 内部角色", _tone_for_status(str(comparison.get("verifier_status") or ""))),
-                ("直接模型基线", str(len(baseline_patch)) if direct_baseline else "未运行", "一次性回答的改动字符数", "neutral"),
+                (
+                    "运行结果",
+                    _display_value(result.get("status") or "unknown"),
+                    "当前 SWE-bench Case 的 Agent 状态，不是 Lab 2 状态",
+                    _tone_for_status(str(result.get("status") or "")),
+                ),
+                (
+                    "失败分类",
+                    _display_value(result.get("failure_class") or "unclassified"),
+                    "按固定优先级分类",
+                    _tone_for_status(str(result.get("failure_class") or "")),
+                ),
+                (
+                    "诊断来源",
+                    _display_value(diagnosis_source),
+                    f"规则={diagnosis_rule}；分类版本={taxonomy_version}",
+                    "neutral",
+                ),
+                (
+                    "候选改动",
+                    str(result.get("patch_chars") or 0),
+                    "候选 Diff 字符数",
+                    "ok" if result.get("patch_chars") else "neutral",
+                ),
+                (
+                    "官方评测",
+                    _display_value(evaluation_status),
+                    "最终正确性依据",
+                    _tone_for_status(evaluation_status),
+                ),
+                (
+                    "验证角色",
+                    _display_value(comparison.get("verifier_status") or "not_observed"),
+                    "Runtime 内部角色",
+                    _tone_for_status(str(comparison.get("verifier_status") or "")),
+                ),
+                (
+                    "直接模型基线",
+                    str(len(baseline_patch)) if direct_baseline else "未运行",
+                    "一次性回答的改动字符数",
+                    "neutral",
+                ),
             ]
         ),
         "<section class='evidence-section'><div class='section-title'><h3>失败诊断</h3><span>为什么得到当前状态</span></div>"
@@ -1955,6 +2658,7 @@ def _render_evaluation_dashboard(project_dir: Path) -> str:
         "<tr><td>验证证据</td><td>一次性回答不采集</td><td>工具观察 + 验证角色产物</td></tr>"
         "<tr><td>可支持的结论</td><td>只有候选文本</td><td>候选结果 + 有边界的 Runtime 证据</td></tr>"
         "</tbody></table><p class='boundary-note'>改动长度不代表质量；两种方案最终都必须服从官方评测结果。</p></section>",
+        f"<details class='provenance'><summary>当前 Case 诊断来源</summary><code>{_escape(str(benchmark_result_path or '未找到 results.json'))}</code></details>",
     ]
     return "<div class='evidence'>" + "".join(body) + "</div>"
 
@@ -1995,9 +2699,7 @@ def _render_benchmark_dashboard(project_dir: Path) -> str:
     status_counts = summary.get("status_counts") or {}
     source = summary.get("source") or {}
     records = [
-        record
-        for record in state.get("records") or []
-        if isinstance(record, dict)
+        record for record in state.get("records") or [] if isinstance(record, dict)
     ]
     covered_cases = {str(record.get("case_id") or "") for record in records}
     covered_cases.discard("")
@@ -2103,12 +2805,42 @@ def _render_benchmark_dashboard(project_dir: Path) -> str:
         f"<p class='boundary-note'><strong>当前覆盖：</strong>{_escape(coverage_note)}</p>",
         _metric_grid(
             [
-                ("实验批次", str(summary.get("campaign_id") or ""), "稳定的实验 ID", "neutral"),
-                ("代码版本", str(source.get("revision") or "unknown")[:12], str(source.get("branch") or ""), "neutral"),
-                ("计划运行", str(summary.get("planned_runs") or 0), "Case × 配置 × 重复次数", "neutral"),
-                ("已完成", str(status_counts.get("completed") or 0), "持久化完成的运行槽位", "ok"),
-                ("运行失败", str(status_counts.get("failed") or 0), "可在恢复时重试", "warn" if status_counts.get("failed") else "ok"),
-                ("官方评测配对", str(paired.get("evaluated_pairs") or 0), "两种配置都有明确结果", "ok" if paired.get("evaluated_pairs") else "warn"),
+                (
+                    "实验批次",
+                    str(summary.get("campaign_id") or ""),
+                    "稳定的实验 ID",
+                    "neutral",
+                ),
+                (
+                    "代码版本",
+                    str(source.get("revision") or "unknown")[:12],
+                    str(source.get("branch") or ""),
+                    "neutral",
+                ),
+                (
+                    "计划运行",
+                    str(summary.get("planned_runs") or 0),
+                    "Case × 配置 × 重复次数",
+                    "neutral",
+                ),
+                (
+                    "已完成",
+                    str(status_counts.get("completed") or 0),
+                    "持久化完成的运行槽位",
+                    "ok",
+                ),
+                (
+                    "运行失败",
+                    str(status_counts.get("failed") or 0),
+                    "可在恢复时重试",
+                    "warn" if status_counts.get("failed") else "ok",
+                ),
+                (
+                    "官方评测配对",
+                    str(paired.get("evaluated_pairs") or 0),
+                    "两种配置都有明确结果",
+                    "ok" if paired.get("evaluated_pairs") else "warn",
+                ),
             ]
         ),
         "<section class='evidence-section'><div class='section-title'><h3>Runtime 配置对比</h3><span>核心 Runtime 相同，配置差异显式记录</span></div>"
@@ -2142,6 +2874,29 @@ def _render_feedback_dashboard(project_dir: Path) -> str:
     control = before_after.get("control") or {}
     treatment = before_after.get("treatment") or {}
     delta = before_after.get("delta") or {}
+    change = improvement.get("change") or {}
+    control_name = str(change.get("control_variant") or "minimal-control")
+    treatment_name = str(change.get("treatment_variant") or "governed-runtime")
+    campaign_summary = _latest_campaign_summary(project_dir)
+    campaign_variants = campaign_summary.get("variants") or {}
+    campaign_control = campaign_variants.get(control_name) or {}
+    campaign_treatment = campaign_variants.get(treatment_name) or {}
+
+    def metric_value(
+        record: dict[str, Any],
+        fallback: dict[str, Any],
+        name: str,
+    ) -> Any:
+        return record[name] if name in record else fallback.get(name)
+
+    control_failed = metric_value(
+        control, campaign_control, "failed_tool_calls"
+    )
+    treatment_failed = metric_value(
+        treatment, campaign_treatment, "failed_tool_calls"
+    )
+    control_tool_calls = metric_value(control, campaign_control, "tool_calls")
+    treatment_tool_calls = metric_value(treatment, campaign_treatment, "tool_calls")
     improvement_status = str(decision.get("status") or "not_recorded")
     chain = (
         "<div class='pipeline improvement-chain'>"
@@ -2153,26 +2908,84 @@ def _render_feedback_dashboard(project_dir: Path) -> str:
         f"<div><b>06</b><span>人工决策</span><small>{_escape(_display_value(improvement_status))}</small></div>"
         "</div>"
     )
+    failed_tool_call_delta = delta.get("failed_tool_calls")
+    total_token_delta = delta.get("total_tokens")
+    failed_tool_equation = "未记录完整对照"
+    if all(
+        isinstance(value, (int, float)) and not isinstance(value, bool)
+        for value in (control_failed, treatment_failed, failed_tool_call_delta)
+    ):
+        failed_tool_equation = (
+            f"{treatment_failed:g} - {control_failed:g} = "
+            f"{failed_tool_call_delta:+g}"
+        )
+    failure_comparison_note = (
+        f"{_display_value(treatment_name)} - {_display_value(control_name)}；"
+        f"{_format_delta(failed_tool_call_delta, kind='failed_tools')}"
+    )
+    diagnosis_finding = str(diagnosis.get("finding") or "").strip()
+    diagnosis_evidence = _string_items(diagnosis.get("evidence"))
     body = [
         "<div class='view-heading'><div><span class='view-kicker'>LAB 3 · 评测闭环</span><h2>评测与持续改进</h2></div>"
         f"{_badge(improvement_status, _tone_for_status(improvement_status))}</div>",
         "<p class='help strong'>本页所有差值都按“治理增强版 - 基础控制版”计算。官方解决数越大越好；失败工具调用和 Token 越小越好，因此这两项出现负数通常代表改善。</p>",
         _metric_grid(
             [
-                ("改进决策", _display_value(improvement_status), "采纳 / 继续迭代 / 拒绝", _tone_for_status(improvement_status)),
-                ("诊断复核", _display_value(diagnosis.get("review_status") or "unreviewed"), _display_value(diagnosis.get("source") or "not_recorded"), "ok" if diagnosis.get("review_status") == "reviewed" else "warn"),
-                ("官方解决数差值", _format_delta(delta.get("official_resolved"), kind="official"), "治理增强版 - 基础控制版", "neutral"),
-                ("失败工具调用差值", _format_delta(delta.get("failed_tool_calls"), kind="failed_tools"), "负数表示失败更少", "ok" if isinstance(delta.get("failed_tool_calls"), (int, float)) and delta.get("failed_tool_calls") < 0 else "neutral"),
-                ("Token 差值", _format_delta(delta.get("total_tokens"), kind="tokens"), "正数表示治理增强版消耗更多", "warn" if isinstance(delta.get("total_tokens"), (int, float)) and delta.get("total_tokens") > 0 else "ok"),
-                ("人工标注结果", _display_value(outcome), "单次运行的人工整理标签", _tone_for_status(outcome)),
+                (
+                    "改进决策",
+                    _display_value(improvement_status),
+                    "采纳 / 继续迭代 / 拒绝",
+                    _tone_for_status(improvement_status),
+                ),
+                (
+                    "诊断复核",
+                    _display_value(diagnosis.get("review_status") or "unreviewed"),
+                    _display_value(diagnosis.get("source") or "not_recorded"),
+                    "ok" if diagnosis.get("review_status") == "reviewed" else "warn",
+                ),
+                (
+                    "官方解决数差值",
+                    _format_delta(delta.get("official_resolved"), kind="official"),
+                    "治理增强版 - 基础控制版",
+                    "neutral",
+                ),
+                (
+                    "失败工具调用差值",
+                    failed_tool_equation,
+                    failure_comparison_note,
+                    "ok"
+                    if isinstance(failed_tool_call_delta, (int, float))
+                    and failed_tool_call_delta < 0
+                    else "neutral",
+                ),
+                (
+                    "Token 差值",
+                    _format_delta(total_token_delta, kind="tokens"),
+                    "正数表示治理增强版消耗更多",
+                    "warn"
+                    if isinstance(total_token_delta, (int, float))
+                    and total_token_delta > 0
+                    else "ok",
+                ),
+                (
+                    "人工标注结果",
+                    _display_value(outcome),
+                    "单次运行的人工整理标签",
+                    _tone_for_status(outcome),
+                ),
             ]
         ),
         "<section class='evidence-section'><div class='section-title'><h3>改进决策记录</h3><span>问题 → 证据支持的决策</span></div>"
-        f"{chain}</section>",
+        f"{chain}"
+        "<details class='drilldown' open><summary>查看失败调用的人工复核结论</summary>"
+        "<div class='drilldown-body'>"
+        f"<p class='boundary-note'><strong>结论：</strong> {_escape(diagnosis_finding or '当前改进记录还没有保存失败原因复核。')}</p>"
+        f"{_render_fact_list(diagnosis_evidence, empty_message='当前改进记录还没有保存逐项证据。')}"
+        "</div></details></section>",
         "<section class='evidence-section'><div class='section-title'><h3>改进前后证据</h3><span>直接读取同一实验批次汇总，不在页面重算指标</span></div>"
-        "<table><thead><tr><th>指标</th><th>基础控制版</th><th>治理增强版</th><th>差值与含义</th></tr></thead><tbody>"
+        f"<table><thead><tr><th>指标</th><th>{_escape(_display_value(control_name))}</th><th>{_escape(_display_value(treatment_name))}</th><th>差值与含义</th></tr></thead><tbody>"
         f"<tr><td>官方解决</td><td>{_escape(control.get('official_resolved', '-'))}/{_escape(control.get('official_evaluated', '-'))}</td><td>{_escape(treatment.get('official_resolved', '-'))}/{_escape(treatment.get('official_evaluated', '-'))}</td><td>{_escape(_format_delta(delta.get('official_resolved'), kind='official'))}</td></tr>"
-        f"<tr><td>失败工具调用</td><td>{_escape(control.get('failed_tool_calls', '-'))}</td><td>{_escape(treatment.get('failed_tool_calls', '-'))}</td><td>{_escape(_format_delta(delta.get('failed_tool_calls'), kind='failed_tools'))}</td></tr>"
+        f"<tr><td>失败工具调用</td><td>{_escape(_format_failure_fraction(control_failed, control_tool_calls))}</td><td>{_escape(_format_failure_fraction(treatment_failed, treatment_tool_calls))}</td><td>{_escape(failed_tool_equation)}；{_escape(_format_delta(delta.get('failed_tool_calls'), kind='failed_tools'))}</td></tr>"
         f"<tr><td>Token 总量</td><td>{_escape(control.get('total_tokens', '-'))}</td><td>{_escape(treatment.get('total_tokens', '-'))}</td><td>{_escape(_format_delta(delta.get('total_tokens'), kind='tokens'))}</td></tr>"
         f"<tr><td>估算成本</td><td>${_escape(control.get('estimated_cost_usd', '-'))}</td><td>${_escape(treatment.get('estimated_cost_usd', '-'))}</td><td>{_escape(_format_delta(delta.get('estimated_cost_usd'), kind='cost'))}</td></tr>"
         "</tbody></table>"
@@ -2200,7 +3013,6 @@ def _render_feedback_dashboard(project_dir: Path) -> str:
 
 
 def _render_compare_dashboard(project_dir: Path) -> str:
-
     run_dir = _latest_benchmark_run_dir(project_dir)
     comparison_path = _latest_benchmark_comparison_path(project_dir)
     multi_path = _latest_benchmark_multi_agent_summary_path(project_dir)
@@ -2224,8 +3036,7 @@ def _render_compare_dashboard(project_dir: Path) -> str:
     verifier_status = comparison.get("verifier_status") or "-"
     revision_rounds = comparison.get("revision_rounds", multi.get("revision_rounds", 0))
     recommendation = _translate_evidence_text(
-        comparison.get("recommendation")
-        or "请先运行一个配对对比 Case 以生成建议。"
+        comparison.get("recommendation") or "请先运行一个配对对比 Case 以生成建议。"
     )
     reviewer_findings = comparison.get("reviewer_findings") or []
     reviewer_text = "<br>".join(_escape(item) for item in reviewer_findings[:3]) or "-"
@@ -2236,11 +3047,36 @@ def _render_compare_dashboard(project_dir: Path) -> str:
         _metric_grid(
             [
                 ("Case", str(task_id)[:90], "固定参考任务", "neutral"),
-                ("单 Agent", _display_value(single_status), "标准 AgentLoop", _tone_for_status(single_status)),
-                ("多 Agent 协调器", _display_value(multi_status), "实现者 / 审查者 / 验证者", _tone_for_status(multi_status)),
-                ("候选改动", f"{_display_value(single_patch)} / {_display_value(multi_patch)}", "单 Agent / 多 Agent 是否生成", "ok" if single_patch and multi_patch else "warn"),
-                ("验证角色", _display_value(verifier_status), "多 Agent 内部验证结论", _tone_for_status(str(verifier_status))),
-                ("成本差值", "-" if cost_delta is None else f"${cost_delta:.6f}", "多 Agent - 单 Agent", "warn" if cost_delta and cost_delta > 0 else "ok"),
+                (
+                    "单 Agent",
+                    _display_value(single_status),
+                    "标准 AgentLoop",
+                    _tone_for_status(single_status),
+                ),
+                (
+                    "多 Agent 协调器",
+                    _display_value(multi_status),
+                    "实现者 / 审查者 / 验证者",
+                    _tone_for_status(multi_status),
+                ),
+                (
+                    "候选改动",
+                    f"{_display_value(single_patch)} / {_display_value(multi_patch)}",
+                    "单 Agent / 多 Agent 是否生成",
+                    "ok" if single_patch and multi_patch else "warn",
+                ),
+                (
+                    "验证角色",
+                    _display_value(verifier_status),
+                    "多 Agent 内部验证结论",
+                    _tone_for_status(str(verifier_status)),
+                ),
+                (
+                    "成本差值",
+                    "-" if cost_delta is None else f"${cost_delta:.6f}",
+                    "多 Agent - 单 Agent",
+                    "warn" if cost_delta and cost_delta > 0 else "ok",
+                ),
             ]
         ),
         "<div class='lane-grid'>",
@@ -2405,6 +3241,14 @@ def _translate_evidence_text(value: Any) -> str:
 
     text = str(value)
     replacements = (
+        (
+            "The model still requested a tool on the final turn, so the runtime blocked an incomplete artifact.",
+            "模型在最后一轮仍请求调用工具，因此运行时阻断了不完整产物。",
+        ),
+        (
+            "Inspect the final model action and increase budget or force an earlier patch/no-patch decision.",
+            "检查最后一次模型动作；增加步骤预算，或要求模型更早明确“生成改动/无需改动”。",
+        ),
         ("commissioning evidence only", "仅限试运行证据"),
         ("correctness tied and cost increased", "正确性结果相同且成本增加"),
         ("failed tool calls were noisy", "失败工具调用噪音较多"),
@@ -2491,12 +3335,27 @@ def _format_delta(value: Any, *, kind: str) -> str:
     elif kind == "tokens":
         meaning = f"{'多用' if numeric > 0 else '少用'} {absolute} Token"
     else:
-        meaning = "治理增强版高于基础控制版" if numeric > 0 else "治理增强版低于基础控制版"
+        meaning = (
+            "治理增强版高于基础控制版" if numeric > 0 else "治理增强版低于基础控制版"
+        )
     return f"{signed}（{meaning}）"
 
 
-def _format_optional_cost(value: Any) -> str:
+def _format_failure_fraction(failed: Any, total: Any) -> str:
+    """同时展示失败次数、调用总数和比例，避免孤立数字失去分母。"""
 
+    if not all(
+        isinstance(value, (int, float)) and not isinstance(value, bool)
+        for value in (failed, total)
+    ):
+        return "未记录"
+    if float(total) <= 0:
+        return f"{failed:g} / {total:g}（没有可计算的调用）"
+    rate = float(failed) / float(total) * 100
+    return f"{failed:g} / {total:g}（{rate:.1f}%）"
+
+
+def _format_optional_cost(value: Any) -> str:
     if value in (None, ""):
         return "-"
     try:
@@ -2506,7 +3365,6 @@ def _format_optional_cost(value: Any) -> str:
 
 
 def _render_role_rows(summary: dict[str, Any]) -> str:
-
     rows = []
     for result in summary.get("role_results") or []:
         final_answer = str(result.get("final_answer") or result.get("output") or "")
@@ -2525,7 +3383,6 @@ def _render_role_rows(summary: dict[str, Any]) -> str:
 
 
 def _render_artifact_rows(summary: dict[str, Any]) -> str:
-
     artifacts = summary.get("artifacts") or summary.get("artifact_index") or []
     if isinstance(artifacts, dict):
         artifacts = artifacts.get("artifacts") or list(artifacts.values())
@@ -2554,7 +3411,6 @@ def _render_artifact_rows(summary: dict[str, Any]) -> str:
 
 
 def _metric_grid(items: list[tuple[str, str, str, str]]) -> str:
-
     cards = []
     for label, value, note, tone in items:
         cards.append(
@@ -2568,17 +3424,19 @@ def _metric_grid(items: list[tuple[str, str, str, str]]) -> str:
 
 
 def _badge(text: str, tone: str) -> str:
-
     return f"<span class='badge {tone}'>{_escape(_display_value(text))}</span>"
 
 
 def _tone_for_status(value: str) -> str:
-
-    lowered = str(value).lower()
-    if "patch_generated" in lowered or lowered in {"ok", "succeeded", "success"}:
+    normalized_status = str(value).lower()
+    if "patch_generated" in normalized_status or normalized_status in {
+        "ok",
+        "succeeded",
+        "success",
+    }:
         return "ok"
     if any(
-        marker in lowered
+        marker in normalized_status
         for marker in (
             "blocked",
             "failed",
@@ -2589,13 +3447,15 @@ def _tone_for_status(value: str) -> str:
         )
     ):
         return "bad"
-    if any(marker in lowered for marker in ("no_patch", "not_evaluated", "unavailable", "missing")):
+    if any(
+        marker in normalized_status
+        for marker in ("no_patch", "not_evaluated", "unavailable", "missing")
+    ):
         return "warn"
     return "neutral"
 
 
 def _trace_scope_label(trace_path: Path | None) -> str:
-
     if not trace_path:
         return "未知 Trace"
     parts = set(trace_path.parts)
@@ -2660,7 +3520,6 @@ _TRACE_EVENT_LABELS = {
 
 
 def _format_trace_event_label(index: int, event: dict[str, Any]) -> str:
-
     event_type = str(event.get("event_type") or "event")
     label = _TRACE_EVENT_LABELS.get(event_type, event_type)
     if event_type == "hook_check":
@@ -2683,7 +3542,6 @@ def _format_trace_event_label(index: int, event: dict[str, Any]) -> str:
 
 
 def _event_tone(event_type: str, success: bool) -> str:
-
     if not success:
         return "bad"
     if event_type in {"model_started", "llm_call"}:
@@ -2726,13 +3584,12 @@ def _event_tone(event_type: str, success: bool) -> str:
 
 
 def _empty_evidence(message: str) -> str:
-
     return f"<div class='evidence'><h2>尚无证据</h2><p>{_escape(message)}</p></div>"
 
 
 def _escape(value: Any) -> str:
-
     return html.escape(str(value), quote=True)
+
 
 INDEX_HTML = r"""<!doctype html>
 <html lang="zh-CN">
@@ -3245,6 +4102,29 @@ INDEX_HTML = r"""<!doctype html>
     tr:hover td { background: rgba(0, 0, 0, .018); }
     th { color: var(--muted); font-weight: 700; white-space: nowrap; word-break: normal; }
     td { overflow-wrap: anywhere; }
+    .fact-list {
+      display: grid;
+      gap: 5px;
+      margin: 0;
+      padding: 0;
+      list-style: none;
+    }
+    .fact-list li {
+      position: relative;
+      padding-left: 12px;
+      line-height: 1.45;
+    }
+    .fact-list li::before {
+      content: "";
+      position: absolute;
+      top: .58em;
+      left: 0;
+      width: 4px;
+      height: 4px;
+      border-radius: 1px;
+      background: #7a8796;
+    }
+    .table-note { color: var(--muted); font-size: 11px; line-height: 1.45; }
     .split {
       display: grid;
       grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -3728,7 +4608,7 @@ INDEX_HTML = r"""<!doctype html>
             <button data-view="evidence" onclick="loadEvidence('evidence')">运行全链路</button>
             <button data-view="timeline" onclick="loadEvidence('timeline')">执行时间线</button>
             <button data-view="benchmark" onclick="loadEvidence('benchmark')">基准评测</button>
-            <button data-view="evaluation" onclick="loadEvidence('evaluation')">失败诊断</button>
+            <button data-view="evaluation" onclick="loadEvidence('evaluation')">SWE-bench Case 诊断</button>
             <button data-view="compare" onclick="loadEvidence('compare')">单 Agent / 多 Agent</button>
             <button data-view="usage" onclick="loadEvidence('usage')">成本效率</button>
           </div>
@@ -3746,7 +4626,7 @@ INDEX_HTML = r"""<!doctype html>
       benchmark: '基准评测',
       controls: 'Lab 1 · 受治理运行',
       orchestration: 'Lab 2 · 多 Agent 协同',
-      evaluation: '失败诊断',
+      evaluation: 'SWE-bench Case 诊断',
       compare: '单 Agent / 多 Agent',
       usage: '成本效率',
       timeline: '执行时间线',

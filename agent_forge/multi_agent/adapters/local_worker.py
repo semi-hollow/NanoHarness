@@ -18,7 +18,10 @@ from agent_forge.runtime.execution_environment import (
     ExecutionEnvironment,
     ExecutionEnvironmentConfig,
 )
-from agent_forge.runtime.git_workspace import collect_changed_files, collect_workspace_diff
+from agent_forge.runtime.git_workspace import (
+    collect_changed_files,
+    collect_workspace_diff,
+)
 from agent_forge.runtime.llm_client import LLMClient
 from agent_forge.safety.guardrails import sanitize_quoted_evidence
 from agent_forge.tools.registry import ToolRegistry
@@ -38,10 +41,10 @@ READ_TOOLS = {
     "grep_search",
     "git_status",
     "git_diff",
-    "diagnostics",
+    "python_validation",
     "ask_human",
 }
-FINALIZER_READ_TOOLS = {"git_status", "git_diff", "diagnostics"}
+FINALIZER_READ_TOOLS = {"git_status", "git_diff", "python_validation"}
 WRITE_TOOLS = {*READ_TOOLS, "replace_text", "write_file", "run_command"}
 
 RegistryFactory = Callable[[Path, ExecutionEnvironment], ToolRegistry]
@@ -72,6 +75,7 @@ class LocalAgentWorkerAdapter:
         self.workspace = Path(base_config.workspace).resolve()
         self._git_lock = threading.Lock()
 
+    # 主要入口：把一个 SubagentTask 变成隔离运行、候选 Diff 和可合并 Worker 结果。
     def run_worker(
         self,
         task: SubagentTask,
@@ -80,6 +84,7 @@ class LocalAgentWorkerAdapter:
     ) -> LiveSubagentResult:
         """在临时 worktree 中运行一个受 scope 限制的 AgentLoop。"""
 
+        # region 1. 输出契约准备（首遍可折叠）：固定目录，并先准备失败兜底值
         started = time.monotonic()
         worker_dir = self.root / "workers" / task.id
         worker_dir.mkdir(parents=True, exist_ok=True)
@@ -103,11 +108,15 @@ class LocalAgentWorkerAdapter:
         touched_files: list[str] = []
         usage_summary: dict[str, object] = {}
         candidate_diff_sha256 = ""
+        # endregion 1. 输出契约准备结束
         try:
+            # region 2. 隔离工作区（首遍可折叠）：创建 worktree，并带入前置任务的已合并改动
             with self._git_lock:
                 environment.prepare()
             active_workspace = environment.active_workspace
             if base_diff_text.strip():
+                # 有依赖的后续 Worker 必须看见前序改动；提交为新基线后，自己的 Diff
+                # 只包含本任务增量，不会把前序改动重复交给 Coordinator。
                 ok, detail = apply_unified_diff_to_workspace(
                     active_workspace,
                     base_diff_text,
@@ -118,7 +127,9 @@ class LocalAgentWorkerAdapter:
                         f"could not seed integrated diff into worker: {detail}"
                     )
                 commit_worker_baseline(active_workspace)
+            # endregion 2. 隔离工作区结束
 
+            # region 3. 受限 Runtime 装配（首遍可折叠）：收窄工具，并隔离状态存储
             registry = _filtered_registry(
                 self.registry_factory(active_workspace, environment),
                 task,
@@ -130,7 +141,9 @@ class LocalAgentWorkerAdapter:
                 execution_environment=environment,
                 max_steps=min(self.base_config.max_steps, task.max_steps),
                 approval_mode=(
-                    "dry-run" if not task.write_scope else self.base_config.approval_mode
+                    "dry-run"
+                    if not task.write_scope
+                    else self.base_config.approval_mode
                 ),
                 task_state_root=str(worker_dir / "task_state"),
                 approval_root=str(worker_dir / "approvals"),
@@ -139,6 +152,9 @@ class LocalAgentWorkerAdapter:
                 ),
                 operation_ledger_root=str(worker_dir / "operation_ledger"),
             )
+            # endregion 3. 受限 Runtime 装配结束
+
+            # region 4. AgentLoop 执行（主链）：任务契约进入模型，结果写入独立 Trace/Usage
             final_answer = build_agent_loop(
                 worker_config,
                 worker_trace,
@@ -152,6 +168,9 @@ class LocalAgentWorkerAdapter:
             usage_json, _ = write_usage_artifacts(trace_path)
             usage = json.loads(usage_json.read_text(encoding="utf-8"))
             usage_summary = dict(usage.get("summary") or {})
+            # endregion 4. AgentLoop 执行结束
+
+            # region 5. 候选结果收集（主链）：提取本任务 Diff，并校验实际改动没有越界
             candidate_diff_text = collect_workspace_diff(active_workspace)
             candidate_diff_path.write_text(candidate_diff_text, encoding="utf-8")
             candidate_diff_sha256 = hashlib.sha256(
@@ -169,7 +188,9 @@ class LocalAgentWorkerAdapter:
                 ),
                 encoding="utf-8",
             )
+            # endregion 5. 候选结果收集结束
         except Exception as exc:
+            # 失败也必须发布结构稳定的 artifact；Coordinator 不需要靠异常猜 Worker 状态。
             error = str(exc)
             candidate_diff_path.write_text("", encoding="utf-8")
             artifact_path.write_text(
@@ -188,12 +209,14 @@ class LocalAgentWorkerAdapter:
                     encoding="utf-8",
                 )
         finally:
+            # 无论成功或失败都保留环境清单；临时 worktree 最后统一回收。
             try:
                 manifest_path = environment.write_manifest(worker_dir)
             finally:
                 with self._git_lock:
                     environment.cleanup()
 
+        # 返回的是 Coordinator 唯一依赖的 Worker 数据契约，不暴露内部 AgentLoop 对象。
         return LiveSubagentResult(
             task_id=task.id,
             status=status,
@@ -212,6 +235,7 @@ class LocalAgentWorkerAdapter:
             usage_summary=usage_summary,
         )
 
+    # 主要入口：在独立只读环境复核合并结果，且禁止 Finalizer 产生新改动。
     def run_finalizer(
         self,
         goal: str,
@@ -219,6 +243,7 @@ class LocalAgentWorkerAdapter:
     ) -> FinalizerResult:
         """在独立只读 worktree 中验证集成 candidate diff。"""
 
+        # region 1. 验证输出准备（首遍可折叠）：固定 Trace、Usage 和默认阻断结论
         final_dir = self.root / "finalizer"
         final_dir.mkdir(parents=True, exist_ok=True)
         trace_path = final_dir / "trace.json"
@@ -237,7 +262,9 @@ class LocalAgentWorkerAdapter:
         decision = "BLOCKED"
         usage_summary: dict[str, object] = {}
         candidate_snapshot = ""
+        # endregion 1. 验证输出准备结束
         try:
+            # region 2. 隔离候选结果（首遍可折叠）：把 Coordinator 已合并 Diff 复制到新 worktree
             with self._git_lock:
                 environment.prepare()
             workspace = environment.active_workspace
@@ -253,6 +280,9 @@ class LocalAgentWorkerAdapter:
                         f"could not seed integrated diff into finalizer: {detail}"
                     )
             candidate_snapshot = collect_workspace_diff(workspace)
+            # endregion 2. 隔离候选结果结束
+
+            # region 3. 只读 Runtime 装配（首遍可折叠）：只暴露 Diff、状态和验证工具
             full_registry = self.registry_factory(workspace, environment)
             registry = ToolRegistry()
             for name in sorted(FINALIZER_READ_TOOLS):
@@ -271,6 +301,9 @@ class LocalAgentWorkerAdapter:
                 human_thread_id=f"{self.run_id}:finalizer",
                 operation_ledger_root=str(final_dir / "operation_ledger"),
             )
+            # endregion 3. 只读 Runtime 装配结束
+
+            # region 4. Finalizer 执行与质量门（主链）：解析判定，并检查验证者没有改代码
             answer = build_agent_loop(
                 config,
                 final_trace,
@@ -291,7 +324,9 @@ class LocalAgentWorkerAdapter:
                         f"{collect_changed_files(workspace)}",
                     ]
                 )
+            # endregion 4. Finalizer 执行与质量门结束
         except Exception as exc:
+            # 验证基础设施异常按 BLOCKED 处理，不能冒充 PASS。
             answer = f"BLOCKED\nfinalizer error: {exc}"
             final_trace.add(
                 0,
@@ -301,6 +336,7 @@ class LocalAgentWorkerAdapter:
                 error=str(exc),
             )
         finally:
+            # 即使异常也写 Trace/Usage/环境清单，随后回收验证 worktree。
             final_trace.set_run_context(
                 task=finalizer_task_prompt(goal, results),
                 stop_reason=f"finalizer_{decision.lower()}",
@@ -318,6 +354,7 @@ class LocalAgentWorkerAdapter:
                 finally:
                     with self._git_lock:
                         environment.cleanup()
+        # verification.md 是给人看的结论；FinalizerResult 是给 Coordinator 的结构化结果。
         (final_dir / "verification.md").write_text(
             answer.strip() + "\n",
             encoding="utf-8",
@@ -428,7 +465,7 @@ def finalizer_task_prompt(
             "You are FanoutVerifier, the final read-only integration verifier.",
             f"Goal: {goal}",
             "Use worker outputs as primary evidence. Inspect git_status/git_diff once when needed.",
-            "Run diagnostics only when integrated code changes need a focused check.",
+            "Run python_validation only when integrated code changes need a focused check.",
             "Do not explore unrelated files. Use at most two tool-call rounds.",
             "Then start the answer with PASS, NEEDS_REVISION, or BLOCKED. Do not modify files.",
             "Worker results:",
@@ -511,5 +548,6 @@ def _decision(answer: str) -> str:
     if len(decisions) == 1:
         return decisions.pop()
     return "NEEDS_REVISION"
+
 
 _finalizer_task = finalizer_task_prompt

@@ -5,12 +5,13 @@ from __future__ import annotations
 from dataclasses import dataclass, replace
 
 from agent_forge.contracts import JsonObject
+from agent_forge.observability.domain.event import TraceEventType
 from agent_forge.runtime.domain.human_input import (
     HumanInputQuestion,
     HumanInputRequest,
     HumanInputRequestDraft,
 )
-from agent_forge.runtime.domain.governance import HookDecisionType
+from agent_forge.runtime.domain.governance import HookDecision, HookDecisionType
 from agent_forge.runtime.domain.task import (
     TaskCheckpoint,
     TaskCheckpointUpdate,
@@ -24,7 +25,7 @@ from agent_forge.runtime.ports import (
 )
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, kw_only=True)
 class StopRequest:
     """让 ``AgentLoop`` 停止所需的完整、可持久化信息。"""
 
@@ -40,7 +41,7 @@ class StopRequest:
     metadata: JsonObject | None = None
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, kw_only=True)
 class HumanInputResolution:
     """一次人工问题的持久化结果，以及是否需要暂停运行。"""
 
@@ -48,7 +49,7 @@ class HumanInputResolution:
     stop: StopRequest | None = None
 
 
-@dataclass
+@dataclass(kw_only=True)
 class RunLifecycle:
     """统一管理 checkpoint、人工暂停和最终停止。
 
@@ -92,72 +93,57 @@ class RunLifecycle:
         return self.checkpoint
 
     # 运行时端口：统一落盘终态、停止原因和最终文本。
-    def finalize_run(self, request: StopRequest) -> str:
+    def finalize_run(self, requested_stop: StopRequest) -> str:
         """把黄金主链的所有退出分支归一化为唯一 terminal transition。
 
         流程位置：黄金主链唯一 terminal transition。
         规范上游：``AgentLoop._finalize_run``。
         下一 owner：stop hook、``TaskStateRepository``、EventSink。
-        状态与证据：effective status、stop reason、final text 写入 checkpoint/trace。
+        状态与证据：最终 status、stop reason、final text 写入 checkpoint/trace。
         系统不变量：质量门可降级完成状态；外围不能绕过这里宣称完成。
         删除/内联影响：会产生多个 terminal-state owner，并破坏 checkpoint/trace 一致性。
         """
 
+        # region 1. 停止质量门：模型只能提出完成，Hook 可以在落盘前否决
         hook_decisions = self.hooks.on_stop(
             self.trace.run_id,
-            request.reason,
-            request.final_answer,
+            requested_stop.reason,
+            requested_stop.final_answer,
         )
-        denied = next(
-            (
-                decision
-                for decision in hook_decisions
-                if decision.decision in {HookDecisionType.DENY, HookDecisionType.ASK}
-            ),
-            None,
+        final_stop_request = self._apply_completion_quality_gate(
+            requested_stop=requested_stop,
+            hook_decisions=hook_decisions,
         )
-        effective = request
-        if denied is not None and request.status == TaskRunStatus.COMPLETED:
-            effective = replace(
-                request,
-                status=TaskRunStatus.BLOCKED,
-                reason="stop_hook_blocked",
-                final_answer=f"blocked by {denied.hook_name}: {denied.reason}",
-                resume_hint="Satisfy the stop quality gate before claiming completion.",
-            )
+        # endregion 1. 停止质量门结束
+
+        # region 2. Durable state：把最终决定写入 checkpoint，而非原始请求
         self.trace.set_run_context(
-            stop_reason=effective.reason,
-            final_answer=effective.final_answer,
+            stop_reason=final_stop_request.reason,
+            final_answer=final_stop_request.final_answer,
         )
         self.update_checkpoint(
             TaskCheckpointUpdate(
-                status=effective.status,
-                stop_reason=effective.reason,
-                final_answer=effective.final_answer,
-                current_step=effective.current_step,
-                last_tool=effective.last_tool,
-                last_observation=effective.last_observation,
-                resume_hint=effective.resume_hint,
-                messages_count=effective.messages_count,
-                observations_count=effective.observations_count,
-                metadata=effective.metadata,
+                status=final_stop_request.status,
+                stop_reason=final_stop_request.reason,
+                final_answer=final_stop_request.final_answer,
+                current_step=final_stop_request.current_step,
+                last_tool=final_stop_request.last_tool,
+                last_observation=final_stop_request.last_observation,
+                resume_hint=final_stop_request.resume_hint,
+                messages_count=final_stop_request.messages_count,
+                observations_count=final_stop_request.observations_count,
+                metadata=final_stop_request.metadata,
             )
         )
-        self.trace.add(
-            effective.current_step or 0,
-            self.checkpoint.agent_name,
-            "stop_hooks",
-            hook_decisions=[decision.to_dict() for decision in hook_decisions],
-            stop_reason=effective.reason,
+        # endregion 2. Durable state结束
+
+        # region 3. 终态证据：发布质量门与最终状态两个层次的事实
+        self._record_terminal_evidence(
+            final_stop_request=final_stop_request,
+            hook_decisions=hook_decisions,
         )
-        self.trace.add(
-            effective.current_step or 0,
-            self.checkpoint.agent_name,
-            "run_completed",
-            run_status=effective.status.value,
-            stop_reason=effective.reason,
-        )
-        return effective.final_answer
+        return final_stop_request.final_answer
+        # endregion 3. 终态证据结束
 
     # 运行时端口：先持久化人工问题和 checkpoint，再返回 waiting_human。
     def request_human_input(
@@ -174,7 +160,8 @@ class RunLifecycle:
         系统不变量：request 必须先持久化，进程退出后仍能定位同一问题。
         """
 
-        request = self.human_input_store.request(
+        # region 1. 请求落盘：先取得稳定 request_id，再决定继续或暂停
+        human_input_request = self.human_input_store.request(
             HumanInputRequestDraft(
                 thread_id=self.human_thread_id,
                 kind=question.kind,
@@ -187,24 +174,26 @@ class RunLifecycle:
                 reason=question.reason,
             )
         )
-        if request.status == "responded":
-            return HumanInputResolution(request)
+        if human_input_request.status == "responded":
+            return HumanInputResolution(request=human_input_request)
+        # endregion 1. 请求落盘结束
 
+        # region 2. 已取消分支：保留审计事实，并把运行转为不可继续的 BLOCKED
         last_tool = "ask_human" if question.kind == "tool_question" else ""
-        if request.status == "cancelled":
-            self.trace.add(
-                question.step,
-                question.agent_name,
-                "human_input_cancelled",
-                request=request.to_dict(),
+        if human_input_request.status == "cancelled":
+            self._record_human_input_event(
+                event_type="human_input_cancelled",
+                question=question,
+                human_input_request=human_input_request,
             )
             return HumanInputResolution(
-                request,
-                StopRequest(
+                request=human_input_request,
+                stop=StopRequest(
                     status=TaskRunStatus.BLOCKED,
                     reason="human_input_cancelled",
                     final_answer=(
-                        f"blocked: human_input_cancelled request_id={request.request_id}"
+                        "blocked: human_input_cancelled "
+                        f"request_id={human_input_request.request_id}"
                     ),
                     current_step=question.step,
                     last_tool=last_tool,
@@ -213,35 +202,132 @@ class RunLifecycle:
                     ),
                 ),
             )
+        # endregion 2. 已取消分支结束
 
+        # region 3. 待回答分支：把恢复定位信息写入 checkpoint metadata
         metadata = dict(self.checkpoint.metadata or {})
         metadata.update(
             {
                 "human_thread_id": self.human_thread_id,
-                "human_input_request_id": request.request_id,
+                "human_input_request_id": human_input_request.request_id,
             }
         )
-        self.trace.add(
-            question.step,
-            question.agent_name,
-            "human_input_requested",
-            request=request.to_dict(),
+        self._record_human_input_event(
+            event_type="human_input_requested",
+            question=question,
+            human_input_request=human_input_request,
         )
         return HumanInputResolution(
-            request,
-            StopRequest(
+            request=human_input_request,
+            stop=StopRequest(
                 status=TaskRunStatus.WAITING_HUMAN,
                 reason="waiting_human",
                 final_answer=(
-                    f"waiting_human: {request.question} "
-                    f"request_id={request.request_id} request={request.path}"
+                    f"waiting_human: {human_input_request.question} "
+                    f"request_id={human_input_request.request_id} "
+                    f"request={human_input_request.path}"
                 ),
                 current_step=question.step,
                 last_tool=last_tool,
                 resume_hint=(
                     "Run `forge resume <run_dir> --answer <text> "
-                    f"--request-id {request.request_id}`."
+                    f"--request-id {human_input_request.request_id}`."
                 ),
                 metadata=metadata,
             ),
         )
+        # endregion 3. 待回答分支结束
+
+    # region 终态质量门规则（首次阅读可折叠）
+    @staticmethod
+    def _apply_completion_quality_gate(
+        *,
+        requested_stop: StopRequest,
+        hook_decisions: list[HookDecision],
+    ) -> StopRequest:
+        """只在声明完成时执行质量门，并返回最终应持久化的停止请求。
+
+        ``replace`` 会复制不可变 dataclass，只替换列出的字段；原请求保持不变。
+        ASK 与 DENY 都说明完成条件尚未满足，因此统一降级为 BLOCKED。
+        """
+
+        if requested_stop.status != TaskRunStatus.COMPLETED:
+            return requested_stop
+
+        blocking_hook_decision = RunLifecycle._find_completion_blocking_decision(
+            hook_decisions
+        )
+        if blocking_hook_decision is None:
+            return requested_stop
+
+        return replace(
+            requested_stop,
+            status=TaskRunStatus.BLOCKED,
+            reason="stop_hook_blocked",
+            final_answer=(
+                f"blocked by {blocking_hook_decision.hook_name}: "
+                f"{blocking_hook_decision.reason}"
+            ),
+            resume_hint="Satisfy the stop quality gate before claiming completion.",
+        )
+
+    @staticmethod
+    def _find_completion_blocking_decision(
+        hook_decisions: list[HookDecision],
+    ) -> HookDecision | None:
+        """按 Hook 顺序返回第一个拒绝或要求人工介入的完成决定。"""
+
+        for hook_decision in hook_decisions:
+            completion_is_blocked = hook_decision.decision in {
+                HookDecisionType.DENY,
+                HookDecisionType.ASK,
+            }
+            if completion_is_blocked:
+                return hook_decision
+        return None
+
+    # endregion 终态质量门规则结束
+
+    # region 证据记录器（首次阅读可折叠）
+
+    def _record_terminal_evidence(
+        self,
+        *,
+        final_stop_request: StopRequest,
+        hook_decisions: list[HookDecision],
+    ) -> None:
+        """记录“质量门决定”和“最终状态”两个不同层次的终止事实。"""
+
+        event_step = final_stop_request.current_step or 0
+        self.trace.add(
+            event_step,
+            self.checkpoint.agent_name,
+            "stop_hooks",
+            hook_decisions=[decision.to_dict() for decision in hook_decisions],
+            stop_reason=final_stop_request.reason,
+        )
+        self.trace.add(
+            event_step,
+            self.checkpoint.agent_name,
+            "run_completed",
+            run_status=final_stop_request.status.value,
+            stop_reason=final_stop_request.reason,
+        )
+
+    def _record_human_input_event(
+        self,
+        *,
+        event_type: TraceEventType,
+        question: HumanInputQuestion,
+        human_input_request: HumanInputRequest,
+    ) -> None:
+        """记录人工请求进入 pending 或 cancelled 的持久化事实。"""
+
+        self.trace.add(
+            question.step,
+            question.agent_name,
+            event_type,
+            request=human_input_request.to_dict(),
+        )
+
+    # endregion 证据记录器结束

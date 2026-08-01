@@ -53,7 +53,7 @@ def render_case_study(result: BenchCaseResult) -> str:
             "",
             "## Runtime Lesson",
             "",
-            "Use this case to decide whether the next improvement belongs in context selection, tool governance, sandbox policy, diagnostics, or model prompting. Do not treat a candidate diff as official resolution without evaluation evidence.",
+            "Use this case to decide whether the next improvement belongs in context selection, tool governance, sandbox policy, validation, or model prompting. Do not treat a candidate diff as official resolution without evaluation evidence.",
             "",
         ]
     )

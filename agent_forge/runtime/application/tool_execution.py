@@ -13,6 +13,7 @@
 
 from __future__ import annotations
 
+from agent_forge.contracts import JsonObject
 from agent_forge.runtime.application.operation_tracker import (
     OperationIntent,
     OperationTracker,
@@ -41,7 +42,7 @@ from agent_forge.runtime.ports import (
     RunControlPort,
     ToolGateway,
 )
-from agent_forge.safety.guardrails import tool_guardrail
+from agent_forge.safety.guardrails import GuardrailResult, tool_guardrail
 
 
 class ToolExecutionPipeline:
@@ -72,9 +73,7 @@ class ToolExecutionPipeline:
     ) -> None:
         self.trace = trace
         self.tool_gateway = registry
-        configured_tool_calls = max(
-            1, int(getattr(config, "max_tool_calls_per_turn", 4))
-        )
+        configured_tool_calls = max(1, int(config.max_tool_calls_per_turn))
         self.max_tool_calls_per_turn = (
             configured_tool_calls if model_capabilities.parallel_tool_calls else 1
         )
@@ -115,6 +114,7 @@ class ToolExecutionPipeline:
         删除/内联影响：会失去统一副作用治理与幂等重放边界。
         """
 
+        # region 1. 批次整形：限制调用数，并把模型 ToolCall 写入会话协议
         selected_tool_calls = self._select_calls_for_turn(session, response, step)
         session.messages.append(
             Message(
@@ -127,6 +127,9 @@ class ToolExecutionPipeline:
                 ],
             )
         )
+        # endregion 1. 批次整形结束
+
+        # region 2. 顺序执行：每个 ToolCall 都重新经过控制、安全与幂等边界
         for tool_call in selected_tool_calls:
             operator_control = self.run_control_handler.consume_pending_signals(
                 session,
@@ -143,7 +146,11 @@ class ToolExecutionPipeline:
             )
             if tool_stop is not None:
                 return tool_stop
+        # endregion 2. 顺序执行结束
+
+        # region 3. Turn 续跑：无屏障时让 AgentLoop 开始下一轮
         return None
+        # endregion 3. Turn 续跑结束
 
     # 核心主干：一个 ToolCall 从 guardrail 走到人工屏障、幂等、授权或执行。
     def _execute_call(
@@ -156,7 +163,7 @@ class ToolExecutionPipeline:
     ) -> StopRequest | None:
         """核心主干：检查 -> 控制信号 -> 幂等 -> 授权 -> 执行。"""
 
-        # 准备区（首遍可略读）：建立稳定调用身份，并完成无副作用的策略判断。
+        # region 1. 无副作用预检：稳定调用身份、重复检测和工具可见性
         repeated_call_failure = session.controller.record_tool_intent(tool_call)
         tool_call_identity = (tool_call.name, str(tool_call.arguments))
         guardrail_decision = tool_guardrail(
@@ -171,17 +178,7 @@ class ToolExecutionPipeline:
                 or tool_call_identity in session.tool_history[-3:]
             ),
         )
-        self.trace.add(
-            step,
-            session.agent_name,
-            "guardrail_check",
-            guardrail={
-                "category": guardrail_decision.category,
-                "passed": guardrail_decision.passed,
-                "reason": guardrail_decision.reason,
-                "severity": guardrail_decision.severity,
-            },
-        )
+        self._record_tool_guardrail(session, step, guardrail_decision)
 
         if repeated_call_failure is not None:
             return self._handle_repeat(
@@ -193,18 +190,16 @@ class ToolExecutionPipeline:
         if tool_call.name not in allowed_tool_names:
             self._record_unrouted_tool(session, tool_call, step)
             return None
+        # endregion 1. 无副作用预检结束
 
+        # region 2. 协议分支：记录工具意图，ask_human 转入 durable HITL
         session.tool_history.append(tool_call_identity)
-        self.trace.add(
-            step,
-            session.agent_name,
-            "action",
-            tool_call=tool_call.name,
-            tool_arguments=tool_call.arguments,
-        )
+        self._record_tool_intent(session, step, tool_call)
         if tool_call.name == "ask_human":
             return self._handle_human_question(session, tool_call, step)
+        # endregion 2. 协议分支结束
 
+        # region 3. Operation Ledger：副作用在授权前先取得幂等身份和目标指纹
         # 这里是 Operation Ledger 的唯一入口。ToolCall 只是模型给出的原始工具名和参数；
         # 在查询旧记录、申请权限或真正执行前，必须先得到三者共用的副作用分类、
         # operation key 和执行前目标指纹。只读工具也经过归一化，但不会创建 Ledger 记录。
@@ -220,7 +215,9 @@ class ToolExecutionPipeline:
                 return existing_operation.stop
             if existing_operation.consumed:
                 return None
+        # endregion 3. Operation Ledger结束
 
+        # region 4. 权限门与真实执行：只有 proceed 才能到达 ToolGateway
         authorization_decision = self.authorization_gate.authorize(
             session,
             tool_call,
@@ -232,6 +229,7 @@ class ToolExecutionPipeline:
         if not authorization_decision.proceed:
             return None
         return self._run_tool(session, tool_call, operation_intent, step)
+        # endregion 4. 权限门与真实执行结束
 
     # region 分支与证据叶子（首次阅读可折叠）
     # 批次整形：限制本 turn 调用数；ask_human 出现时建立同 turn 屏障。
@@ -250,15 +248,11 @@ class ToolExecutionPipeline:
             selected_tool_calls = response.tool_calls[: self.max_tool_calls_per_turn]
             dropped_tool_calls = response.tool_calls[self.max_tool_calls_per_turn :]
             if dropped_tool_calls:
-                self.trace.add(
-                    step,
-                    session.agent_name,
-                    "tool_calls_bounded",
-                    tool_call_budget={
-                        "limit": self.max_tool_calls_per_turn,
-                        "selected": [call.name for call in selected_tool_calls],
-                        "dropped": [call.name for call in dropped_tool_calls],
-                    },
+                self._record_tool_call_budget(
+                    session=session,
+                    step=step,
+                    selected_tool_calls=selected_tool_calls,
+                    dropped_tool_calls=dropped_tool_calls,
                 )
             return selected_tool_calls
 
@@ -267,11 +261,10 @@ class ToolExecutionPipeline:
             call.name for call in response.tool_calls if call is not selected_human_call
         ]
         if deferred_tool_names:
-            self.trace.add(
-                step,
-                session.agent_name,
-                "tool_calls_deferred_for_human_input",
-                deferred_tools=deferred_tool_names,
+            self._record_deferred_tool_calls(
+                session=session,
+                step=step,
+                deferred_tool_names=deferred_tool_names,
             )
         return [selected_human_call]
 
@@ -300,13 +293,11 @@ class ToolExecutionPipeline:
                 repeated_call_observation,
                 step,
             )
-            self.trace.add(
-                step,
-                session.agent_name,
-                "recovery_decision",
+            self._record_recovery_decision(
+                session=session,
+                step=step,
+                failure_signal=failure_signal,
                 success=True,
-                failure_kind=failure_signal.kind.value,
-                retryable=True,
                 recovery_hint=(
                     "Use existing read/search evidence, inspect a different symbol, "
                     "or proceed to replace_text/git_diff."
@@ -325,20 +316,16 @@ class ToolExecutionPipeline:
             )
             return None
 
-        self.trace.add(
-            step,
-            session.agent_name,
-            "error",
-            success=False,
+        self._record_runtime_error(
+            session=session,
+            step=step,
             error=failure_signal.reason,
         )
-        self.trace.add(
-            step,
-            session.agent_name,
-            "recovery_decision",
+        self._record_recovery_decision(
+            session=session,
+            step=step,
+            failure_signal=failure_signal,
             success=False,
-            failure_kind=failure_signal.kind.value,
-            retryable=failure_signal.retryable,
             recovery_hint=failure_signal.recovery_hint,
         )
         return StopRequest(
@@ -399,7 +386,7 @@ class ToolExecutionPipeline:
     ) -> StopRequest | None:
         """阶段 2：把 ask_human 转成持久化回答或 waiting_human 暂停。"""
 
-        # 准备区：只解析并校验模型提供的人工问题参数。
+        # region 1. 参数校验：坏问题作为 Observation 回填，不建立无效人工请求
         question_arguments = tool_call.arguments or {}
         question_text = question_arguments.get("question")
         choice_values = question_arguments.get("choices", [])
@@ -435,7 +422,9 @@ class ToolExecutionPipeline:
                 )
             )
             return None
+        # endregion 1. 参数校验结束
 
+        # region 2. Durable barrier：已有回答直接返回；否则生成 waiting_human 停止请求
         human_input_resolution = session.lifecycle.request_human_input(
             HumanInputQuestion(
                 agent_name=session.agent_name,
@@ -448,7 +437,9 @@ class ToolExecutionPipeline:
         )
         if human_input_resolution.stop is not None:
             return human_input_resolution.stop
+        # endregion 2. Durable barrier结束
 
+        # region 3. 回答回填：人工输入变成普通 Tool Observation，协议继续
         human_answer_observation = Observation(
             tool_call.name,
             True,
@@ -460,13 +451,13 @@ class ToolExecutionPipeline:
             human_answer_observation,
             step,
         )
-        self.trace.add(
-            step,
-            session.agent_name,
-            "human_input_response_loaded",
-            request=human_input_resolution.request.to_dict(),
+        self._record_human_input_response_loaded(
+            session=session,
+            step=step,
+            human_input_request_data=human_input_resolution.request.to_dict(),
         )
         return None
+        # endregion 3. 回答回填结束
 
     # 执行分支：最后一次控制检查后调用 ToolGateway，并提交状态与证据。
     def _run_tool(
@@ -478,7 +469,7 @@ class ToolExecutionPipeline:
     ) -> StopRequest | None:
         """阶段 5：执行已获授权工具，再提交账本、证据和 checkpoint。"""
 
-        # pause/cancel 必须阻止副作用；steer 不打断当前工具协议，留到下一模型边界。
+        # region 1. 最后控制边界：pause/cancel 阻止副作用，steer 留到模型边界
         operator_control = self.run_control_handler.consume_pending_signals(
             session,
             step,
@@ -486,6 +477,9 @@ class ToolExecutionPipeline:
         )
         if operator_control.stop is not None:
             return operator_control.stop
+        # endregion 1. 最后控制边界结束
+
+        # region 2. 幂等状态迁移：副作用先进入 approved/executing，再调用工具
         # 手动审批路径此前已经创建 Ledger；自动放行的副作用也必须先落一条 approved
         # 记录，确保真实工具返回后 record_execution_result 一定有可迁移的持久化对象。
         if operation_intent.side_effect and not self.operation_tracker.has_record(
@@ -498,18 +492,15 @@ class ToolExecutionPipeline:
             )
         if operation_intent.side_effect:
             self.operation_tracker.record_executing(operation_intent, step=step)
-        self.trace.add(
-            step,
-            session.agent_name,
-            "tool_execution_started",
-            tool_call=tool_call.name,
-            tool_call_id=tool_call.id,
-        )
+        # endregion 2. 幂等状态迁移结束
+
+        # region 3. 工具调用与证据提交：执行、后置 Hook、账本、Observation
+        self._record_tool_execution_started(session, step, tool_call)
         tool_observation = self.tool_gateway.execute(
             tool_call.name,
             tool_call.arguments,
         )
-        tool_observation = self.authorization_gate.apply_post_tool_hooks(
+        tool_observation = self.authorization_gate.apply_after_tool_hooks(
             session,
             tool_call,
             operation_intent,
@@ -536,12 +527,10 @@ class ToolExecutionPipeline:
             session.ran_tests = (
                 session.ran_tests or validation_evidence["status"] == "passed"
             )
-            self.trace.add(
+            self._record_validation_evidence(
+                session,
                 step,
-                session.agent_name,
-                "validation_evidence",
-                success=validation_evidence["status"] == "passed",
-                validation=validation_evidence,
+                validation_evidence,
             )
         self._record_execution_evidence(
             session,
@@ -568,7 +557,9 @@ class ToolExecutionPipeline:
             step,
             remember=True,
         )
+        # endregion 3. 工具调用与证据提交结束
 
+        # region 4. Turn 收口：预算允许时补齐 tool message 供下一轮模型读取
         budget_stop_signal = session.controller.should_stop(
             step,
             estimated_cost_usd=session.estimated_cost_usd,
@@ -593,6 +584,167 @@ class ToolExecutionPipeline:
             )
         )
         return None
+        # endregion 4. Turn 收口结束
+
+    # region 证据记录器（首次阅读可折叠）
+    def _record_tool_call_budget(
+        self,
+        *,
+        session: AgentRunSession,
+        step: int,
+        selected_tool_calls: list[ToolCall],
+        dropped_tool_calls: list[ToolCall],
+    ) -> None:
+        """记录本轮工具预算截断；被丢弃的调用从未执行。"""
+
+        self.trace.add(
+            step,
+            session.agent_name,
+            "tool_calls_bounded",
+            tool_call_budget={
+                "limit": self.max_tool_calls_per_turn,
+                "selected": [call.name for call in selected_tool_calls],
+                "dropped": [call.name for call in dropped_tool_calls],
+            },
+        )
+
+    def _record_deferred_tool_calls(
+        self,
+        *,
+        session: AgentRunSession,
+        step: int,
+        deferred_tool_names: list[str],
+    ) -> None:
+        """记录 HITL barrier 延后的同轮工具调用。"""
+
+        self.trace.add(
+            step,
+            session.agent_name,
+            "tool_calls_deferred_for_human_input",
+            deferred_tools=deferred_tool_names,
+        )
+
+    def _record_runtime_error(
+        self,
+        *,
+        session: AgentRunSession,
+        step: int,
+        error: str,
+    ) -> None:
+        """记录阻断当前工具分支的 Runtime 错误。"""
+
+        self.trace.add(
+            step,
+            session.agent_name,
+            "error",
+            success=False,
+            error=error,
+        )
+
+    def _record_recovery_decision(
+        self,
+        *,
+        session: AgentRunSession,
+        step: int,
+        failure_signal: FailureSignal,
+        success: bool,
+        recovery_hint: str,
+    ) -> None:
+        """记录 Runtime 对当前失败是否允许继续的决定。"""
+
+        self.trace.add(
+            step,
+            session.agent_name,
+            "recovery_decision",
+            success=success,
+            failure_kind=failure_signal.kind.value,
+            retryable=failure_signal.retryable,
+            recovery_hint=recovery_hint,
+        )
+
+    def _record_human_input_response_loaded(
+        self,
+        *,
+        session: AgentRunSession,
+        step: int,
+        human_input_request_data: JsonObject,
+    ) -> None:
+        """记录本轮已消费哪一条持久化人工回答。"""
+
+        self.trace.add(
+            step,
+            session.agent_name,
+            "human_input_response_loaded",
+            request=human_input_request_data,
+        )
+
+    def _record_tool_guardrail(
+        self,
+        session: AgentRunSession,
+        step: int,
+        decision: GuardrailResult,
+    ) -> None:
+        """记录模型工具意图的轻量语义检查结果。"""
+
+        self.trace.add(
+            step,
+            session.agent_name,
+            "guardrail_check",
+            guardrail={
+                "category": decision.category,
+                "passed": decision.passed,
+                "reason": decision.reason,
+                "severity": decision.severity,
+            },
+        )
+
+    def _record_tool_intent(
+        self,
+        session: AgentRunSession,
+        step: int,
+        tool_call: ToolCall,
+    ) -> None:
+        """记录模型提出的原始 ToolCall；它尚不代表工具已经执行。"""
+
+        self.trace.add(
+            step,
+            session.agent_name,
+            "action",
+            tool_call=tool_call.name,
+            tool_arguments=tool_call.arguments,
+        )
+
+    def _record_tool_execution_started(
+        self,
+        session: AgentRunSession,
+        step: int,
+        tool_call: ToolCall,
+    ) -> None:
+        """记录授权已通过、即将越过真实工具执行边界的事实。"""
+
+        self.trace.add(
+            step,
+            session.agent_name,
+            "tool_execution_started",
+            tool_call=tool_call.name,
+            tool_call_id=tool_call.id,
+        )
+
+    def _record_validation_evidence(
+        self,
+        session: AgentRunSession,
+        step: int,
+        validation_evidence: JsonObject,
+    ) -> None:
+        """记录测试通过、失败或环境不可用，供报告与 Failure Taxonomy 消费。"""
+
+        self.trace.add(
+            step,
+            session.agent_name,
+            "validation_evidence",
+            success=validation_evidence["status"] == "passed",
+            validation=validation_evidence,
+        )
 
     # 证据叶子：把同一次执行投影为 call、observation、摘要和 citation 事件。
     def _record_execution_evidence(
@@ -637,6 +789,8 @@ class ToolExecutionPipeline:
                 evidence=citation,
             )
 
+    # endregion 证据记录器结束
+
     # 规则叶子：声明哪些重复调用没有副作用，可以由模型换方向后继续。
     @staticmethod
     def _is_recoverable_repeated_tool(tool_name: str) -> bool:
@@ -649,7 +803,7 @@ class ToolExecutionPipeline:
             "list_files",
             "git_status",
             "git_diff",
-            "diagnostics",
+            "python_validation",
         }
 
     # endregion 分支与证据叶子结束

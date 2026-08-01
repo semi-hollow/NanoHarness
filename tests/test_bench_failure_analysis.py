@@ -4,10 +4,12 @@ import unittest
 from pathlib import Path
 
 from agent_forge.bench.adapters.case_evidence import JsonCaseEvidenceReader
-from agent_forge.bench.application.diagnostics import DiagnoseBenchCase
+from agent_forge.bench.application.failure_analysis import BenchFailureAnalyzer
 from agent_forge.bench.domain.models import BenchCaseResult
 
-diagnose_case_result = DiagnoseBenchCase(JsonCaseEvidenceReader()).diagnose
+analyze_case_result = (
+    BenchFailureAnalyzer(JsonCaseEvidenceReader()).classify_case_failure
+)
 
 
 class BenchDiagnosticsTest(unittest.TestCase):
@@ -47,12 +49,12 @@ class BenchDiagnosticsTest(unittest.TestCase):
 
     def test_pending_tool_call_stop_is_not_misclassified_as_context_miss(self):
         with tempfile.TemporaryDirectory() as tmp:
-            diagnosis = diagnose_case_result(self._result(Path(tmp), "blocked: pending_tool_call_at_stop"))
+            diagnosis = analyze_case_result(self._result(Path(tmp), "blocked: pending_tool_call_at_stop"))
         self.assertEqual(diagnosis.failure_class, "pending_tool_call_at_stop")
 
     def test_provider_incomplete_read_is_classified_before_context_miss(self):
         with tempfile.TemporaryDirectory() as tmp:
-            diagnosis = diagnose_case_result(
+            diagnosis = analyze_case_result(
                 self._result(Path(tmp), "blocked: role Implementer failed with exception: IncompleteRead(790 bytes read)")
             )
         self.assertEqual(diagnosis.failure_class, "provider_transport_error")

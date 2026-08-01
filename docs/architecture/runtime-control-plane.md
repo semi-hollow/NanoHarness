@@ -57,7 +57,44 @@ execute_calls
 首轮只读 `execute_calls`、`OperationTracker` 和 `ToolAuthorizationGate` 的合同。`_` 方法是主链内部
 分支，不是外部 facade；只有排查具体 failure 时才展开。
 
-## 4. 两分钟现场展示
+## 4. Trace、Checkpoint、Ledger 和 Artifact 的边界
+
+这四个概念都可能落成 JSON 文件，但它们不是同一层数据。可以用支付系统类比：
+
+| 概念 | Java / 支付类比 | 回答的问题 | 不是什么 |
+| --- | --- | --- | --- |
+| `TraceEvent` | 审计事件流或分布式 Trace span | 某个 step 发生过什么、顺序和结果是什么 | 不能单独恢复运行，也不直接下 solved 结论 |
+| `TaskCheckpoint` | durable workflow 状态快照 | 从哪个状态、step、消息摘要继续 | 不是数据库 savepoint、进程镜像或模型 KV Cache |
+| `OperationLedger` | 支付订单/幂等操作状态表 | 这个副作用是否 planned、approved、executing、executed，能否重放 | 不是普通日志，也不保存完整会话 |
+| `Artifact` | 对账文件、回执或构建产物 | 哪个消费者可读取的结果文件由谁产生、证明什么 | 文件存在不等于结果正确或 official resolved |
+| 普通 Log | 应用排障日志 | 开发者当时想看的诊断文本 | 不是稳定机器契约，不应驱动报告结论 |
+
+Trace 的真实链路是：
+
+```text
+Application 中的语义动作
+-> _record_model_started / _record_tool_execution_started / _record_...
+-> EventSink.add(统一事件 envelope + capability payload)
+-> JSON Trace Adapter 持久化 trace.json
+-> Run Story Read Model 按阶段投影
+-> forge inspect / Workbench 分层展示
+```
+
+`EventSink.add` 像审计 SDK 的底层写接口；Application 主流程不应直接展开十几行字段。当前原始
+payload 只保留在可折叠的 `_record_*` 证据叶子，并由 `tests/test_code_navigation.py` 静态检查。
+这样折叠代码时先看到业务控制流，排障或修改 schema 时才展开证据字段。
+
+一次 turn 也不保证事件数完全相同：只读工具、写工具、审批、失败恢复和最终回答经过的条件分支
+不同。人类应记住四段稳定主链，而不是背事件数量：
+
+```text
+准备输入 -> 模型决定 -> 治理并执行 -> 回填并持久化
+```
+
+原始事件是机器审计粒度；四段 Run Story 是面试和学习粒度；Failure Taxonomy 与 Evaluation 是
+运行结束后的结论粒度。三层不能相互替代。
+
+## 5. 两分钟现场展示
 
 Approval 是默认 scenario：
 

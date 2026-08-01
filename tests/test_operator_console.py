@@ -114,14 +114,15 @@ class FullConsoleStoryModel:
                 [
                     ToolCall(
                         "validate-target",
-                        "diagnostics",
-                        {"kind": "pytest", "target": "test_target.py"},
+                        "python_validation",
+                        {
+                            "check_type": "pytest",
+                            "validation_target": "test_target.py",
+                        },
                     )
                 ],
             )
-        return AgentResponse(
-            "PASS\nHITL, approval, patch and diagnostics completed", []
-        )
+        return AgentResponse("PASS\nHITL, approval, edit and validation completed", [])
 
 
 class OperatorConsoleTest(unittest.TestCase):
@@ -222,7 +223,11 @@ class OperatorConsoleTest(unittest.TestCase):
             session, events = self._session(
                 root,
                 model=FullConsoleStoryModel(target),
-                enabled_tools=("ask_human", "replace_text", "diagnostics"),
+                enabled_tools=(
+                    "ask_human",
+                    "replace_text",
+                    "python_validation",
+                ),
                 approval_mode="on-write",
                 auto_approve_writes=False,
             )
@@ -243,7 +248,7 @@ class OperatorConsoleTest(unittest.TestCase):
 
             self.assertEqual(completed.status, TaskRunStatus.COMPLETED)
             self.assertEqual(target.read_text(encoding="utf-8"), "value = 2\n")
-            self.assertIn("diagnostics completed", completed.final_answer)
+            self.assertIn("validation completed", completed.final_answer)
             self.assertEqual(
                 len(list((root / ".agent_forge" / "human_input").glob("*.json"))),
                 1,

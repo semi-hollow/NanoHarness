@@ -125,7 +125,11 @@ class RejectCompletionHook(RuntimeHook):
     name = "quality_gate"
 
     def on_stop(self, run_id, reason, final_answer):
-        return HookDecision(self.name, HookDecisionType.DENY, "verification missing")
+        return HookDecision(
+            hook_name=self.name,
+            decision=HookDecisionType.DENY,
+            reason="verification missing",
+        )
 
 
 class RuntimeProductizationTest(unittest.TestCase):
@@ -149,7 +153,9 @@ class RuntimeProductizationTest(unittest.TestCase):
                 ),
             )
             outcome = []
-            worker = threading.Thread(target=lambda: outcome.append(harness.run("old task")))
+            worker = threading.Thread(
+                target=lambda: outcome.append(harness.run("old task"))
+            )
             worker.start()
             self.assertTrue(model.entered.wait(timeout=3))
             controller.steer("first operator direction")
@@ -173,7 +179,9 @@ class RuntimeProductizationTest(unittest.TestCase):
             self.assertIn("run.control", names)
             self.assertIn("checkpoint.saved", names)
             self.assertIn("run.completed", names)
-            control_event = next(event for event in collector.events if event.name == "run.control")
+            control_event = next(
+                event for event in collector.events if event.name == "run.control"
+            )
             serialized_event = json.dumps(control_event.to_dict())
             self.assertNotIn("first operator direction", serialized_event)
             self.assertNotIn("second operator detail", serialized_event)
@@ -194,7 +202,9 @@ class RuntimeProductizationTest(unittest.TestCase):
                 extensions=HarnessExtensions(run_control=controller),
             )
             outcome = []
-            worker = threading.Thread(target=lambda: outcome.append(harness.run("cancel me")))
+            worker = threading.Thread(
+                target=lambda: outcome.append(harness.run("cancel me"))
+            )
             worker.start()
             self.assertTrue(model.entered.wait(timeout=3))
             controller.cancel("operator changed priorities")
@@ -204,7 +214,9 @@ class RuntimeProductizationTest(unittest.TestCase):
             result = outcome[0]
             self.assertEqual(result.status, TaskRunStatus.CANCELLED)
             self.assertEqual(result.stop_reason, "cancel")
-            self.assertIn("already completed side effects", result.checkpoint.resume_hint)
+            self.assertIn(
+                "already completed side effects", result.checkpoint.resume_hint
+            )
 
     def test_pause_persists_a_resumable_checkpoint(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -257,8 +269,7 @@ class RuntimeProductizationTest(unittest.TestCase):
                 and event.get("hook_stage") == "before_model"
             )
             hook_names = {
-                item["hook_name"]
-                for item in before_model["hook_result"]["decisions"]
+                item["hook_name"] for item in before_model["hook_result"]["decisions"]
             }
             self.assertIn("permission_policy", hook_names)
             self.assertIn("rewrite_hook", hook_names)
@@ -271,9 +282,7 @@ class RuntimeProductizationTest(unittest.TestCase):
                     output_root=str(root / "runs-b"),
                     max_steps=2,
                 ),
-                extensions=HarnessExtensions(
-                    lifecycle_hooks=(RejectCompletionHook(),)
-                ),
+                extensions=HarnessExtensions(lifecycle_hooks=(RejectCompletionHook(),)),
             ).run("claim completion")
             self.assertEqual(gated.status, TaskRunStatus.BLOCKED)
             self.assertEqual(gated.stop_reason, "stop_hook_blocked")
@@ -317,7 +326,9 @@ class RuntimeProductizationTest(unittest.TestCase):
                 for event in trace["events"]
                 if event["event_type"] == "context_window"
             )
-            self.assertEqual(context_window["context_window"]["hard_input_limit"], 1_536)
+            self.assertEqual(
+                context_window["context_window"]["hard_input_limit"], 1_536
+            )
 
     def test_instruction_hierarchy_reaches_the_real_model_context_and_trace(self):
         with tempfile.TemporaryDirectory() as tmp:

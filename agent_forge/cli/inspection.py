@@ -127,11 +127,7 @@ def print_skills(args: argparse.Namespace) -> None:
     """只读展示 Skill 版本、权限、依赖和回滚目标。"""
 
     manifests = args.manifest or []
-    registry = (
-        SkillRegistry()
-        if args.no_builtins
-        else build_default_skill_registry([])
-    )
+    registry = SkillRegistry() if args.no_builtins else build_default_skill_registry([])
     try:
         if manifests:
             registry.load_manifests(manifests)
@@ -140,7 +136,9 @@ def print_skills(args: argparse.Namespace) -> None:
 
     specs = registry.list_specs(name=args.name)
     if args.json:
-        print(json.dumps([spec.to_dict() for spec in specs], ensure_ascii=False, indent=2))
+        print(
+            json.dumps([spec.to_dict() for spec in specs], ensure_ascii=False, indent=2)
+        )
         return
     if not specs:
         print("No skills found.")
@@ -192,32 +190,29 @@ def _manifest_root(path: Path) -> Path | None:
 def _render_artifact_card(path: Path, run_dir: Path) -> str:
     relative = path.resolve().relative_to(run_dir.resolve()).as_posix()
     manifest = read_run_manifest(run_dir / "run_manifest.json")
-    artifact = next(
-        (
-            item
-            for item in manifest.artifacts
-            if item.relative_path == relative
-        ),
-        None,
-    )
-    if artifact is None:
+    manifest_artifact = None
+    for registered_artifact in manifest.artifacts:
+        if registered_artifact.relative_path == relative:
+            manifest_artifact = registered_artifact
+            break
+    if manifest_artifact is None:
         raise SystemExit(f"Artifact is not registered in run manifest: {relative}")
     lines = [
         "# Artifact Lineage",
         "",
-        f"- path: `{artifact.relative_path}`",
-        f"- kind / level: `{artifact.kind}` / `{artifact.evidence_level}`",
-        f"- producer: `{artifact.producer_symbol}`",
-        f"- flow stage: `{artifact.flow_stage}`",
-        f"- consumers: `{', '.join(artifact.semantic_consumers) or '-'}`",
-        f"- derived from: `{', '.join(artifact.derived_from) or '-'}`",
-        f"- rebuildable: `{str(artifact.rebuildable).lower()}`",
-        f"- deletion impact: {artifact.deletion_impact or '未登记'}",
-        f"- sha256: `{artifact.sha256}`",
-        f"- proves: {'；'.join(artifact.proves) or '没有登记正向 claim'}",
+        f"- path: `{manifest_artifact.relative_path}`",
+        f"- kind / level: `{manifest_artifact.kind}` / `{manifest_artifact.evidence_level}`",
+        f"- producer: `{manifest_artifact.producer_symbol}`",
+        f"- flow stage: `{manifest_artifact.flow_stage}`",
+        f"- consumers: `{', '.join(manifest_artifact.semantic_consumers) or '-'}`",
+        f"- derived from: `{', '.join(manifest_artifact.derived_from) or '-'}`",
+        f"- rebuildable: `{str(manifest_artifact.rebuildable).lower()}`",
+        f"- deletion impact: {manifest_artifact.deletion_impact or '未登记'}",
+        f"- sha256: `{manifest_artifact.sha256}`",
+        f"- proves: {'；'.join(manifest_artifact.proves) or '没有登记正向 claim'}",
         (
             "- does not prove: "
-            f"{'；'.join(artifact.does_not_prove) or '没有登记边界'}"
+            f"{'；'.join(manifest_artifact.does_not_prove) or '没有登记边界'}"
         ),
     ]
     return "\n".join(lines) + "\n"

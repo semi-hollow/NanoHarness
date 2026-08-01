@@ -173,7 +173,7 @@ main() {
     log "+ python -m pip install -e '.[bench,dev]'"
     if ! python -m pip install -e '.[bench,dev]'; then
       log "Benchmark extras failed to install; core Debug Labs remain available."
-      log "Optional official-rerun mode will retry benchmark preparation when launched."
+      log "Install benchmark extras before running a full official campaign."
     fi
   else
     log "Quick mode defers optional benchmark dependencies."

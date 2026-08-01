@@ -87,7 +87,13 @@ class ToolRegistryRouterTest(unittest.TestCase):
             },
             {"name": "write_file", "arguments": {"path": "str", "content": "str"}},
             {"name": "run_command", "arguments": {"command": "str"}},
-            {"name": "diagnostics", "arguments": {"kind": "str", "target": "str"}},
+            {
+                "name": "python_validation",
+                "arguments": {
+                    "check_type": "str",
+                    "validation_target": "str",
+                },
+            },
             {"name": "git_diff", "arguments": {}},
         ]
         route = ToolRouter().route(
@@ -99,10 +105,10 @@ class ToolRegistryRouterTest(unittest.TestCase):
             )
         )
         self.assertIn("replace_text", route.allowed_names)
-        self.assertIn("diagnostics", route.allowed_names)
+        self.assertIn("python_validation", route.allowed_names)
         self.assertNotIn("write_file", route.allowed_names)
         self.assertNotIn("run_command", route.allowed_names)
-        self.assertIn("swebench_validation=diagnostics:pytest", route.reason)
+        self.assertIn("swebench_validation=python_validation:pytest", route.reason)
 
 
 if __name__ == "__main__":

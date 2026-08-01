@@ -42,7 +42,7 @@ class RunSwebench:
         direct_baseline_by_instance_id: dict[str, dict[str, Any]] = {}
         # endregion 准备区结束
 
-        # 执行区：每个 case 先跑 Harness，再按需运行无 Harness 的直接模型基线。
+        # region 2. Case 执行：先跑 Harness，再按需运行无 Harness 的直接模型基线
         for case in selected_cases:
             case_result = self._execute_case(case, request, layout)
             run_summary.case_results.append(case_result)
@@ -62,8 +62,9 @@ class RunSwebench:
                 direct_baseline_by_instance_id[case.instance_id] = (
                     generated_baseline_prediction
                 )
+        # endregion 2. Case 执行结束
 
-        # 评测区：先发布 evaluator 输入，再由 official harness 写回最终判定。
+        # region 3. Official evaluation：先冻结预测输入，再由官方 harness 写回判定
         self._deps.artifacts.write_predictions(
             run_summary,
             agent_prediction_records,
@@ -71,8 +72,9 @@ class RunSwebench:
         )
         if request.evaluate:
             self._deps.official_evaluator.evaluate(run_summary, request)
+        # endregion 3. Official evaluation结束
 
-        # 收口区：final diagnosis 完成后，才能生成 baseline 对照和最终报告。
+        # region 4. 诊断与发布：final diagnosis 后才能生成对照和最终报告
         for case_result in run_summary.case_results:
             self._deps.artifacts.finalize_case(case_result)
             matching_baseline_prediction = direct_baseline_by_instance_id.get(
@@ -103,6 +105,7 @@ class RunSwebench:
             direct_baseline_prediction_records,
         )
         return run_summary
+        # endregion 4. 诊断与发布结束
 
     # region 单 case 执行细节（首次阅读可折叠）
     def _execute_case(
@@ -126,6 +129,8 @@ class RunSwebench:
         request: SwebenchRunRequest,
         layout: BenchRunLayout,
     ) -> BenchCaseResult:
+        """独立执行 single/multi 两个变体，再生成同 Case 的结构化对照。"""
+
         # region 路径准备（可折叠）：single/multi 共用 case 根，各自独立运行
         case_output_root = layout.case_dir(case.instance_id)
         single_agent_run_dir = case_output_root / "single"
@@ -133,6 +138,7 @@ class RunSwebench:
         selected_candidate_diff_path = case_output_root / "candidate_changes.diff"
         # endregion 路径准备结束
 
+        # region 2. 变体执行：相同 Case 分别进入独立目录，防止状态互相污染
         single_agent_result = self._deps.executor.run(
             case,
             case_dir=single_agent_run_dir,
@@ -145,6 +151,9 @@ class RunSwebench:
             agent_mode="multi",
             request=request,
         )
+        # endregion 2. 变体执行结束
+
+        # region 3. 指标与候选收口：比较运行事实，并显式选择 multi candidate
         run_comparison = compare_runs(
             case.instance_id,
             extract_run_metrics(
@@ -170,6 +179,7 @@ class RunSwebench:
             multi_agent_result.candidate_diff_path,
             selected_candidate_diff_path,
         )
+        # endregion 3. 指标与候选收口结束
         return _combined_result(
             case,
             single_agent_result,

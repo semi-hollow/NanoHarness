@@ -1,5 +1,6 @@
 import contextlib
 import io
+import json
 import os
 import subprocess
 import sys
@@ -358,15 +359,25 @@ class PublicCliSmokeTest(unittest.TestCase):
 {
   "events": [
     {"event_type": "task_state_checkpoint", "task_state": {"metadata": {"execution_environment": {"mode": "worktree", "network_policy": "deny", "active_workspace": "/snapshot"}}}},
-    {"event_type": "context_assembly", "context": {"permission_summary": "writes ask", "active_skills": ["repo_orientation@1.0.0"], "tool_routing": {"allowed_tools": ["read_file"], "dropped_tools": ["run_command"]}}},
+    {"step": 1, "event_type": "context_assembly", "context": {"permission_summary": "writes ask; dangerous commands denied", "active_skills": ["repo_orientation@1.0.0"], "tool_routing": {"allowed_tools": ["read_file"], "dropped_tools": ["run_command"], "metadata": {"read_file": {"mode": "read"}}}}},
     {"step": 3, "agent_name": "Implementer", "event_type": "permission_check", "permission_decision": "ask", "tool_call": "replace_text", "reason": "write needs approval"},
     {"event_type": "human_approval"},
-    {"event_type": "recovery_decision"}
+    {"event_type": "recovery_decision"},
+    {"step": 3, "event_type": "context_assembly", "context": {"permission_summary": "final step", "tool_routing": {"allowed_tools": [], "dropped_tools": []}}}
   ]
 }
 """,
                 encoding="utf-8",
             )
+            (run_dir / "run_request.json").write_text(
+                json.dumps(
+                    {"config": {"mcp_config_file": None, "mcp_allowed_tools": []}}
+                ),
+                encoding="utf-8",
+            )
+            task_state_dir = run_dir / "task_state"
+            task_state_dir.mkdir()
+            (task_state_dir / "task-1.json").write_text("{}", encoding="utf-8")
             latest = root / ".agent_forge" / "latest"
             latest.mkdir(parents=True)
             (latest / "run.txt").write_text(str(run_dir), encoding="utf-8")
@@ -381,6 +392,11 @@ class PublicCliSmokeTest(unittest.TestCase):
         self.assertIn("1 / 1", html)
         self.assertIn("0 / 1 / 0", html)
         self.assertIn("写操作需要审批", html)
+        self.assertIn("最终回答轮按设计关闭了工具调用", html)
+        self.assertIn("本次未配置 MCP Server（不适用）", html)
+        self.assertIn("覆盖写入 1 个当前状态文件", html)
+        self.assertIn("不是每个 Turn 固定写一次", html)
+        self.assertIn("class='fact-list'", html)
 
     def test_compare_evidence_view_has_clear_single_multi_story(self):
         with tempfile.TemporaryDirectory() as tmp:

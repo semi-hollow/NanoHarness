@@ -7,12 +7,12 @@ from dataclasses import dataclass
 from agent_forge.runtime.application.run_lifecycle import StopRequest
 from agent_forge.runtime.application.session import AgentRunSession
 from agent_forge.runtime.domain.conversation import Message
-from agent_forge.runtime.domain.run_control import RunControlKind
+from agent_forge.runtime.domain.run_control import RunControlKind, RunControlSignal
 from agent_forge.runtime.domain.task import TaskCheckpointUpdate, TaskRunStatus
 from agent_forge.runtime.ports import EventSink, RunControlPort
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, kw_only=True)
 class RunControlOutcome:
     """一次安全边界检查产生的停止请求和 steer 事实。"""
 
@@ -46,24 +46,23 @@ class RunControlHandler:
         AgentLoop 会丢弃已经过时的模型响应，再开始下一 turn。
         """
 
-        terminal = self.control.take_terminal(self.trace.run_id)
-        if terminal is not None:
-            self.trace.add(
-                step,
-                session.agent_name,
-                "run_control",
-                control=terminal.to_dict(),
-            )
-            status = (
+        # region 1. 终止类信号：pause/cancel 优先，并转换为可持久化 StopRequest
+        terminal_control_signal = self.control.take_terminal(self.trace.run_id)
+        if terminal_control_signal is not None:
+            self._record_control_signal(session, step, terminal_control_signal)
+            terminal_stop_status = (
                 TaskRunStatus.CANCELLED
-                if terminal.kind == RunControlKind.CANCEL
+                if terminal_control_signal.kind == RunControlKind.CANCEL
                 else TaskRunStatus.PAUSED
             )
             return RunControlOutcome(
                 stop=StopRequest(
-                    status=status,
-                    reason=terminal.kind.value,
-                    final_answer=f"{terminal.kind.value}: {terminal.reason}",
+                    status=terminal_stop_status,
+                    reason=terminal_control_signal.kind.value,
+                    final_answer=(
+                        f"{terminal_control_signal.kind.value}: "
+                        f"{terminal_control_signal.reason}"
+                    ),
                     current_step=step,
                     messages_count=len(session.messages),
                     observations_count=len(session.observations),
@@ -73,30 +72,38 @@ class RunControlHandler:
                     ),
                 )
             )
+        # endregion 1. 终止类信号结束
+
+        # region 2. 工具边界：保留 steer，避免插入 assistant/tool 协议事务中间
         if not include_steer:
             return RunControlOutcome()
 
-        steers = self.control.drain_steers(self.trace.run_id)
-        if not steers:
+        pending_steer_signals = self.control.drain_steers(self.trace.run_id)
+        if not pending_steer_signals:
             return RunControlOutcome()
-        for signal in steers:
+        # endregion 2. 工具边界结束
+
+        # region 3. 模型边界：按到达顺序注入 steer，并持久化最近控制历史
+        for steer_signal in pending_steer_signals:
             session.messages.append(
                 Message(
                     "user",
-                    "Operator steer for the current task:\n" + signal.message.strip(),
+                    "Operator steer for the current task:\n"
+                    + steer_signal.message.strip(),
                 )
             )
-            self.trace.add(
-                step,
-                session.agent_name,
-                "run_control",
-                control=signal.to_dict(),
-            )
+            self._record_control_signal(session, step, steer_signal)
         metadata = dict(session.lifecycle.checkpoint.metadata)
-        prior = metadata.get("steer_messages")
-        messages = list(prior) if isinstance(prior, list) else []
-        messages.extend(signal.message[:1_000] for signal in steers)
-        metadata["steer_messages"] = messages[-10:]
+        stored_steer_messages = metadata.get("steer_messages")
+        updated_steer_messages = (
+            list(stored_steer_messages)
+            if isinstance(stored_steer_messages, list)
+            else []
+        )
+        updated_steer_messages.extend(
+            steer_signal.message[:1_000] for steer_signal in pending_steer_signals
+        )
+        metadata["steer_messages"] = updated_steer_messages[-10:]
         session.lifecycle.update_checkpoint(
             TaskCheckpointUpdate(
                 current_step=step,
@@ -105,3 +112,19 @@ class RunControlHandler:
             )
         )
         return RunControlOutcome(steered=True)
+        # endregion 3. 模型边界结束
+
+    def _record_control_signal(
+        self,
+        session: AgentRunSession,
+        step: int,
+        signal: RunControlSignal,
+    ) -> None:
+        """记录在安全边界实际消费的 pause、cancel 或 steer。"""
+
+        self.trace.add(
+            step,
+            session.agent_name,
+            "run_control",
+            control=signal.to_dict(),
+        )

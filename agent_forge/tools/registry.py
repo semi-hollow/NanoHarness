@@ -1,3 +1,5 @@
+"""工具注册、schema 汇总和统一调用入口。"""
+
 from __future__ import annotations
 
 from typing import Any
@@ -10,21 +12,28 @@ from .base import Tool
 
 
 class ToolRegistry(ToolGateway):
+    """按名称管理 Tool，并把参数错误或异常归一化为 Observation。
+
+    可类比 Spring 容器中的 bean registry 加统一调用门面。Router 决定哪些 schema 给
+    模型看；本类只负责查找并执行已经选中的 Tool。
+    """
 
     def __init__(self) -> None:
-
         self._tools: dict[str, Tool] = {}
         self.mcp_config_report: Any | None = None
 
     def register(self, tool: Tool) -> None:
+        """注册一个内置或 MCP Tool 实现。"""
 
         self._tools[tool.name] = tool
 
     def schemas(self) -> list[ToolSchema]:
+        """返回当前所有已注册 Tool 的模型契约。"""
 
         return [t.schema() for t in self._tools.values()]
 
     def get(self, name: str) -> Tool | None:
+        """按稳定工具名查找实现；找不到时返回 None。"""
 
         return self._tools.get(name)
 
@@ -34,20 +43,16 @@ class ToolRegistry(ToolGateway):
 
         tool = self.get(name)
         if not tool:
-
             return Observation(name, False, f"unknown tool: {name}")
         validation_error = self._validate_arguments(tool, arguments or {})
         if validation_error:
-
             return Observation(name, False, validation_error)
         try:
             return tool.execute(arguments)
         except Exception as e:
-
             return Observation(name, False, f"tool execution error: {e}")
 
     def _validate_arguments(self, tool: Tool, arguments: ToolArguments) -> str:
-
         schema = tool.schema()
 
         expected = schema.get("arguments", {})
@@ -56,7 +61,9 @@ class ToolRegistry(ToolGateway):
         required_value = schema.get("required")
         if required_value is None:
             required = list(expected.keys())
-        elif isinstance(required_value, list) and all(isinstance(name, str) for name in required_value):
+        elif isinstance(required_value, list) and all(
+            isinstance(name, str) for name in required_value
+        ):
             required = [str(name) for name in required_value]
         else:
             return "invalid tool schema: required must be a list of strings"
@@ -71,7 +78,6 @@ class ToolRegistry(ToolGateway):
         return ""
 
     def _matches_type(self, value: Any, typ: Any) -> bool:
-
         if isinstance(typ, dict):
             typ = typ.get("type", "object")
         if typ in {"str", "string"}:

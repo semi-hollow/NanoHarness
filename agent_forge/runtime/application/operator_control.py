@@ -89,20 +89,20 @@ class BuildContinuationPlan:
         )
 
     def _append_human_response(self, task: str, request_id: str) -> str:
-        request = self.human_inputs.get(request_id)
-        if request is None:
+        human_input_request = self.human_inputs.get(request_id)
+        if human_input_request is None:
             raise ValueError(f"human input request not found: {request_id}")
-        if request.status == "pending":
+        if human_input_request.status == "pending":
             raise ValueError(f"human input is still pending: {request_id}")
-        if request.status == "cancelled":
+        if human_input_request.status == "cancelled":
             raise ValueError(f"human input request was cancelled: {request_id}")
         return "\n".join(
             [
                 task,
                 "",
                 "Human response from the previous run:",
-                f"Question: {request.question}",
-                f"Answer: {request.answer}",
+                f"Question: {human_input_request.question}",
+                f"Answer: {human_input_request.answer}",
                 "Continue from this explicit operator input; do not ask the same question again.",
             ]
         )

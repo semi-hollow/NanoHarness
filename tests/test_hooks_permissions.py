@@ -36,7 +36,7 @@ class HooksPermissionsTest(unittest.TestCase):
                 auto_approve_writes=True,
                 approval_mode="dry-run",
             )
-            result = manager.pre_tool(
+            result = manager.before_tool(
                 HookContext(
                     run_id="r1",
                     step=1,
@@ -56,7 +56,7 @@ class HooksPermissionsTest(unittest.TestCase):
                 auto_approve_writes=True,
                 approval_mode="on-risk",
             )
-            result = manager.pre_tool(
+            result = manager.before_tool(
                 HookContext(
                     run_id="r1",
                     step=1,
@@ -77,7 +77,7 @@ class HooksPermissionsTest(unittest.TestCase):
                 additional_hooks=[BrokenBeforeToolHook()],
             )
 
-            result = manager.pre_tool(
+            result = manager.before_tool(
                 HookContext(
                     run_id="r1",
                     step=1,
@@ -106,7 +106,7 @@ class HooksPermissionsTest(unittest.TestCase):
                 action="read",
             )
 
-            result = manager.post_tool(
+            result = manager.after_tool(
                 context,
                 Observation("read_file", True, "safe"),
             )

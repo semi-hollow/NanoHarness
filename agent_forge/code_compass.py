@@ -51,7 +51,9 @@ def inspect_symbol(
 ) -> SymbolCard:
     """解析一个类、方法或函数，并返回不夸大动态边的导航卡。"""
 
-    root = Path(project_root) if project_root is not None else Path(__file__).parent.parent
+    root = (
+        Path(project_root) if project_root is not None else Path(__file__).parent.parent
+    )
     definitions = _definitions(root)
     normalized = _normalize_query(query)
     matches = [
@@ -69,7 +71,9 @@ def inspect_symbol(
             matches = exact
         else:
             candidates = ", ".join(item.symbol for item in matches[:8])
-            raise ValueError(f"source symbol is ambiguous: {query}; candidates: {candidates}")
+            raise ValueError(
+                f"source symbol is ambiguous: {query}; candidates: {candidates}"
+            )
     selected = matches[0]
     callers = _static_callers(definitions, selected)
     callees = _direct_callees(selected.node)
@@ -268,7 +272,9 @@ def _compass_fields(docstring: str) -> dict[str, str]:
             prefix = f"{label}："
             if normalized.startswith(prefix):
                 fields[label] = normalized.removeprefix(prefix).strip()
-    flattened = " ".join(line.strip() for line in docstring.splitlines() if line.strip())
+    flattened = " ".join(
+        line.strip() for line in docstring.splitlines() if line.strip()
+    )
     label_pattern = "|".join(re.escape(label) for label in labels)
     pattern = re.compile(
         rf"(?P<label>{label_pattern})\s*(?:依次是|：|:|是)\s*"
@@ -291,7 +297,11 @@ def _snake_case(value: str) -> str:
 
 
 def _purpose(docstring: str) -> str:
-    return next((line.strip() for line in docstring.splitlines() if line.strip()), "")
+    for docstring_line in docstring.splitlines():
+        first_non_empty_line = docstring_line.strip()
+        if first_non_empty_line:
+            return first_non_empty_line
+    return ""
 
 
 def _short_symbol(symbol: str) -> str:
