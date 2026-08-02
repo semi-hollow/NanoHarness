@@ -38,6 +38,7 @@ TraceEventType: TypeAlias = Literal[
     "multi_agent_start",
     "observation",
     "operation_ledger",
+    "pending_tool_call_rejected",
     "permission_check",
     "recovery_decision",
     "resume_state_loaded",
@@ -88,7 +89,6 @@ class TraceEvent:
     data: Mapping[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> TraceRecord:
-
         overlap = RESERVED_EVENT_FIELDS.intersection(self.data)
         if overlap:
             names = ", ".join(sorted(overlap))

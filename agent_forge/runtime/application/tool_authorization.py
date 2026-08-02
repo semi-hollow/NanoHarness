@@ -115,16 +115,20 @@ class ToolAuthorizationGate:
         step: int,
     ) -> GateResult:
         session.blocked = True
-        observation = Observation(tool_call.name, False, f"blocked: {reason}")
+        denied_tool_observation = Observation(
+            tool_name=tool_call.name,
+            success=False,
+            content=f"blocked: {reason}",
+        )
         self.tool_feedback.append_tool_observation(
             session,
             tool_call,
-            observation,
+            denied_tool_observation,
             step,
         )
-        signal = self.tool_feedback.record_recovery_decision(
+        recovery_signal = self.tool_feedback.record_recovery_decision(
             session,
-            observation,
+            denied_tool_observation,
             step,
         )
         session.lifecycle.update_checkpoint(
@@ -132,10 +136,10 @@ class ToolAuthorizationGate:
                 status=TaskRunStatus.BLOCKED,
                 current_step=step,
                 last_tool=tool_call.name,
-                last_observation=observation.content,
+                last_observation=denied_tool_observation.content,
                 resume_hint=(
-                    signal.recovery_hint
-                    if signal is not None
+                    recovery_signal.recovery_hint
+                    if recovery_signal is not None
                     else "Action was blocked by runtime policy."
                 ),
             )
@@ -294,15 +298,15 @@ class ToolAuthorizationGate:
         step: int,
     ) -> GateResult:
         session.blocked = True
-        observation = Observation(
-            tool_call.name,
-            False,
-            f"{tool_call.name}: human approval rejected",
+        rejected_approval_observation = Observation(
+            tool_name=tool_call.name,
+            success=False,
+            content=f"{tool_call.name}: human approval rejected",
         )
         self.tool_feedback.append_tool_observation(
             session,
             tool_call,
-            observation,
+            rejected_approval_observation,
             step,
         )
         session.lifecycle.update_checkpoint(
@@ -310,7 +314,7 @@ class ToolAuthorizationGate:
                 status=TaskRunStatus.WAITING_APPROVAL,
                 current_step=step,
                 last_tool=tool_call.name,
-                last_observation=observation.content,
+                last_observation=rejected_approval_observation.content,
                 resume_hint=(
                     "Human approval was rejected; rerun after narrowing the requested edit."
                 ),
@@ -333,6 +337,7 @@ class ToolAuthorizationGate:
             step,
             session.agent_name,
             "hook_check",
+            hook_stage="before_tool",
             hook_result=hook_result.to_dict(),
             tool_call=tool_call.name,
         )

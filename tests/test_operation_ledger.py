@@ -155,6 +155,23 @@ class OperationLedgerTest(unittest.TestCase):
                     for event in second_trace.events
                 )
             )
+            replayed_observations = [
+                event.get("observation", "")
+                for event in second_trace.events
+                if event["event_type"] == "tool_observation"
+            ]
+            self.assertTrue(
+                any(
+                    "previous_observation=" in observation
+                    for observation in replayed_observations
+                )
+            )
+            self.assertFalse(
+                any(
+                    event["event_type"] == "tool_execution_started"
+                    for event in second_trace.events
+                )
+            )
 
     def test_resume_does_not_repeat_side_effect_when_previous_outcome_is_unknown(self):
         with tempfile.TemporaryDirectory() as tmp:

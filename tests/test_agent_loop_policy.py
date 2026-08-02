@@ -6,6 +6,7 @@ from types import SimpleNamespace
 from agent_forge.runtime.api import build_agent_loop
 from agent_forge.runtime.application.tool_feedback import ToolFeedback
 from agent_forge.runtime.config import RuntimeConfig
+from agent_forge.runtime.control import ExecutionBudget, StepController
 from agent_forge.runtime.llm_client import AgentResponse
 from agent_forge.runtime.domain.conversation import Observation, ToolCall
 from agent_forge.observability.api import TraceRecorder
@@ -238,6 +239,21 @@ class AgentLoopPolicyTest(unittest.TestCase):
                 if event["event_type"] == "stop_hooks"
             ]
             self.assertIn("pending_tool_call_at_stop", stop_reasons)
+            rejected_requests = [
+                event
+                for event in trace.events
+                if event["event_type"] == "pending_tool_call_rejected"
+            ]
+            self.assertEqual(len(rejected_requests), 1)
+            self.assertEqual(rejected_requests[0]["tool_call"], "read_file")
+            self.assertFalse(rejected_requests[0]["success"])
+            self.assertFalse(
+                any(
+                    event["event_type"] == "final_answer"
+                    and event.get("pending_tool_call")
+                    for event in trace.events
+                )
+            )
 
     def test_repeated_read_only_tool_call_warns_and_continues(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -264,11 +280,54 @@ class AgentLoopPolicyTest(unittest.TestCase):
             self.assertNotIn("repeated_tool_call", stop_reasons)
             self.assertTrue(
                 any(
-                    "repeated read-only tool call" in event.get("observation", "")
+                    "skipped consecutive identical call" in event.get("observation", "")
                     for event in trace.events
                     if event["event_type"] == "tool_observation"
                 )
             )
+            executed_read_calls = [
+                event
+                for event in trace.events
+                if event["event_type"] == "tool_call"
+                and event.get("tool_call") == "read_file"
+            ]
+            self.assertEqual(len(executed_read_calls), 2)
+            routed_guardrail_checks = [
+                event
+                for event in trace.events
+                if event["event_type"] == "guardrail_check"
+            ]
+            self.assertTrue(routed_guardrail_checks)
+            self.assertTrue(
+                all(event["guardrail"]["passed"] for event in routed_guardrail_checks)
+            )
+
+    def test_repeat_limit_resets_after_a_different_tool_intent(self):
+        controller = StepController(
+            budget=ExecutionBudget(max_consecutive_identical_tool_calls=2)
+        )
+        first_read = ToolCall("read-1", "read_file", {"path": "target.py"})
+        same_read_retry = ToolCall(
+            "read-2",
+            "read_file",
+            {"path": "target.py"},
+        )
+        different_read = ToolCall("read-3", "read_file", {"path": "other.py"})
+
+        self.assertIsNone(controller.observe_tool_intent_for_repeat_limit(first_read))
+        self.assertIsNone(
+            controller.observe_tool_intent_for_repeat_limit(same_read_retry)
+        )
+        self.assertIsNone(
+            controller.observe_tool_intent_for_repeat_limit(different_read)
+        )
+        self.assertIsNone(controller.observe_tool_intent_for_repeat_limit(first_read))
+        self.assertIsNone(
+            controller.observe_tool_intent_for_repeat_limit(same_read_retry)
+        )
+        self.assertIsNotNone(
+            controller.observe_tool_intent_for_repeat_limit(first_read)
+        )
 
     def test_tool_call_burst_is_bounded_before_execution(self):
         with tempfile.TemporaryDirectory() as tmp:

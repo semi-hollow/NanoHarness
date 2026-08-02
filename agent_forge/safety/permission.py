@@ -20,6 +20,8 @@ class PermissionPolicy:
 
         if action in {"read", "list", "grep"}:
             return PermissionDecision.ALLOW, "read/list/grep allowed"
+        if action == "validate":
+            return PermissionDecision.ALLOW, "bounded validation allowed"
         if action == "write":
             return PermissionDecision.ASK, "write needs approval"
         if action == "run_command":

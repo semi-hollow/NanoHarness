@@ -11,6 +11,8 @@ from pathlib import Path
 from agent_forge.cli.parser import build_parser
 from agent_forge.workbench.presentation.http import (
     INDEX_HTML,
+    _TRACE_EVENT_LABELS,
+    _TRACE_EVENT_PURPOSES,
     _latest_report_path,
     _latest_run_dir,
     _render_evidence_html,
@@ -38,6 +40,25 @@ class PublicCliSmokeTest(unittest.TestCase):
             self.assertIn(command, result.stdout)
         for legacy in ("approve", "respond", "eval", "showcase", "memory", "tui"):
             self.assertNotIn(legacy, result.stdout)
+
+    def test_every_named_trace_event_has_a_business_reason(self):
+        """新增事件不能只获得中文标签，还必须解释它保护的运行边界。"""
+
+        dynamically_explained_events = {
+            "task_state_checkpoint",
+            "hook_check",
+            "permission_check",
+            "tool_execution_started",
+            "tool_call",
+            "tool_observation",
+            "validation_evidence",
+            "operation_ledger",
+        }
+        missing_reasons = set(_TRACE_EVENT_LABELS) - (
+            set(_TRACE_EVENT_PURPOSES) | dynamically_explained_events
+        )
+
+        self.assertEqual(missing_reasons, set())
 
     def test_duplicate_legacy_commands_are_not_parseable(self):
         parser = build_parser()
@@ -444,10 +465,19 @@ class PublicCliSmokeTest(unittest.TestCase):
     {"step": 0, "event_type": "model_capabilities", "success": true},
     {"step": 0, "event_type": "skill_selection", "success": true},
     {"step": 1, "event_type": "context_assembly", "success": true},
+    {"step": 1, "event_type": "hook_check", "success": true,
+     "hook_stage": "before_model",
+     "hook_result": {"decision": "allow", "reason": "all hooks deferred; default allow",
+                     "decisions": [{"hook_name": "permission_policy", "decision": "defer"}]}},
     {"step": 1, "event_type": "llm_call", "success": true, "duration_ms": 12},
     {"step": 1, "event_type": "action", "success": true, "tool_call": "git_diff"},
-    {"step": 1, "event_type": "hook_check", "success": true, "tool_call": "git_diff"},
-    {"step": 1, "event_type": "operation_ledger", "success": true, "tool_call": "git_diff"},
+    {"step": 1, "event_type": "hook_check", "success": true, "tool_call": "git_diff",
+     "hook_result": {"decision": "allow", "reason": "read/list/grep allowed",
+                     "decisions": [{"hook_name": "permission_policy", "decision": "allow"}]}},
+    {"step": 1, "event_type": "permission_check", "success": true,
+     "tool_call": "git_diff", "permission_decision": "allow", "reason": "read/list/grep allowed"},
+    {"step": 1, "event_type": "operation_ledger", "success": true,
+     "tool_call": "git_diff", "operation_status": "executed"},
     {"step": 1, "event_type": "tool_observation", "success": false, "tool_call": "git_diff"},
     {"step": 1, "event_type": "task_state_checkpoint", "success": true}
   ]
@@ -492,6 +522,17 @@ class PublicCliSmokeTest(unittest.TestCase):
         self.assertIn("扩展钩子（Hook）、权限、操作账本", html)
         self.assertIn("03 治理并执行：查看本段底层证据", html)
         self.assertIn("git_diff · 1 次失败", html)
+        self.assertIn("模型调用前 Hook", html)
+        self.assertIn("工具执行前 Hook", html)
+        self.assertIn("模型调用 · 最终决定=允许 · 1 个 Hook 均无额外意见", html)
+        self.assertIn("git_diff · 最终决定=允许 · permission_policy: 允许", html)
+        self.assertIn("在上下文发送给模型前汇总外部策略", html)
+        self.assertIn("在 git_diff 执行前汇总环境与权限策略", html)
+        self.assertIn("全部 Hook 均无额外意见，按默认规则允许", html)
+        self.assertIn("最终权限=允许", html)
+        self.assertIn("账本状态=已执行", html)
+        self.assertNotIn("底层 Trace 事实；用于展开排障", html)
+        self.assertNotIn("all hooks deferred; default allow", html)
         self.assertIn("<td>12ms</td>", html)
         self.assertNotIn("固定六阶段", html)
         self.assertNotIn("排障：展开本轮原始事件", html)
@@ -567,7 +608,7 @@ class PublicCliSmokeTest(unittest.TestCase):
         self.assertIn("治理增强版胜出", html)
         self.assertIn("case-1", html)
         self.assertIn("官方解决率只以明确得到", html)
-        self.assertIn("这是 Smoke-5 的试运行证据", html)
+        self.assertIn("这是 commissioning 子集，不是完整的五题三重复实验", html)
 
     def test_empty_benchmark_contract_does_not_claim_prompt_is_constant(self):
         with tempfile.TemporaryDirectory() as tmp:

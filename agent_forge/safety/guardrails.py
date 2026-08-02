@@ -76,19 +76,14 @@ def output_guardrail(
 
 
 def tool_guardrail(
-    tool_name: str, arguments: dict, exists: bool = True, repeated: bool = False
+    tool_name: str,
+    arguments: dict,
+    exists: bool = True,
 ) -> GuardrailResult:
     if not exists:
         return GuardrailResult(
             passed=False,
             reason=f"unknown tool: {tool_name}",
-            severity="medium",
-            category="tool",
-        )
-    if repeated:
-        return GuardrailResult(
-            passed=False,
-            reason=f"repeated tool call: {tool_name}",
             severity="medium",
             category="tool",
         )

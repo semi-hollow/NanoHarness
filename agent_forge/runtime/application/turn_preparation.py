@@ -170,7 +170,10 @@ class TurnPreparation:
             tool_route=tool_route,
             allowed_tool_names=allowed_tool_names,
         )
-        system_context_message = Message("system", assembled_context.render())
+        system_context_message = Message(
+            role="system",
+            content=assembled_context.render(),
+        )
         prepared_window = self.context_window.prepare(
             ContextWindowRequest(
                 system_message=system_context_message,

@@ -74,7 +74,11 @@ class WorkingMemory:
         if isinstance(observation, Observation):
             normalized = observation
         else:
-            normalized = Observation("memory", True, str(observation))
+            normalized = Observation(
+                tool_name="memory",
+                success=True,
+                content=str(observation),
+            )
         self.observations.append(normalized)
         if len(self.observations) > self.n:
             self._compact_oldest_observation()

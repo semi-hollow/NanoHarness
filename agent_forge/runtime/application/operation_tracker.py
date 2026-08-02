@@ -28,15 +28,16 @@ class OperationIntent:
     避免三个阶段分别解释模型参数，得到不同的“同一次操作”。
     """
 
-    # 权限系统认识的动作类型，例如 read、write、run_command。
+    # 权限系统认识的动作类型，例如 read、validate、write、run_command。
     action: str
     # 仅 run_command 使用；授权策略需要单独检查命令文本。
     command: str
-    # True 表示操作可能改变外部状态，必须经过 Ledger 和副作用授权。
+    # True 表示操作会形成需要防重放的持久状态变化，必须经过 Ledger 和副作用授权。
+    # 验证工具可能在隔离工作区生成可丢弃缓存，但不属于这个 durable side-effect 分类。
     side_effect: bool
     # 生成稳定 key 和目标指纹所需的工具、参数、工作区事实。
     target: OperationTarget
-    # 副作用操作的稳定身份；只读调用不需要幂等记录，因此保持空字符串。
+    # 需要 durable side-effect Ledger 的操作才有稳定身份；其他调用保持空字符串。
     operation_key: str = ""
     # 工具执行前目标的当前状态，例如文件路径、SHA256 和大小。
     pre_execution_fingerprint: dict[str, Any] | None = None
@@ -46,12 +47,13 @@ class OperationIntent:
 class ExistingOperationResolution:
     """恢复时对既有副作用记录作出的唯一决定。
 
-    ``consumed`` 表示当前 ToolCall 已由账本处理，不应继续授权或执行；``stop`` 非空
-    表示结果不安全，需要由 ``AgentLoop`` 以显式 BLOCKED 状态结束本次 continuation。
+    ``handled_without_execution`` 表示 Ledger 已经给出确定事实，本次不能再次越过真实
+    工具边界；``stop_request`` 非空表示既有状态不安全，需要由 ``AgentLoop`` 以显式
+    BLOCKED 状态结束本次 continuation。
     """
 
-    consumed: bool
-    stop: StopRequest | None = None
+    handled_without_execution: bool
+    stop_request: StopRequest | None = None
 
 
 class OperationTracker:
@@ -134,12 +136,12 @@ class OperationTracker:
 
         existing_operation_record = self.operation_repository.get(intent.operation_key)
         if existing_operation_record is None:
-            return ExistingOperationResolution(consumed=False)
+            return ExistingOperationResolution(handled_without_execution=False)
         if existing_operation_record.status == "executing":
-            observation = Observation(
-                tool_call.name,
-                False,
-                (
+            unknown_outcome_observation = Observation(
+                tool_name=tool_call.name,
+                success=False,
+                content=(
                     "operation_outcome_unknown: a previous process entered the "
                     "side-effect boundary but did not commit its result: "
                     f"{intent.operation_key}"
@@ -157,18 +159,18 @@ class OperationTracker:
             self.tool_feedback.append_tool_observation(
                 session,
                 tool_call,
-                observation,
+                unknown_outcome_observation,
                 step,
             )
             return ExistingOperationResolution(
-                consumed=True,
-                stop=StopRequest(
+                handled_without_execution=True,
+                stop_request=StopRequest(
                     status=TaskRunStatus.BLOCKED,
                     reason="operation_outcome_unknown",
                     final_answer="blocked: operation outcome is unknown",
                     current_step=step,
                     last_tool=tool_call.name,
-                    last_observation=observation.content,
+                    last_observation=unknown_outcome_observation.content,
                     resume_hint=(
                         "Inspect the operation ledger and target state, then reconcile "
                         "the operation explicitly before starting a fresh attempt."
@@ -177,7 +179,7 @@ class OperationTracker:
                 ),
             )
         if existing_operation_record.status != "executed":
-            return ExistingOperationResolution(consumed=False)
+            return ExistingOperationResolution(handled_without_execution=False)
 
         target_state_drifted = (
             existing_operation_record.post_fingerprint is not None
@@ -187,10 +189,10 @@ class OperationTracker:
             )
         )
         if target_state_drifted:
-            observation = Observation(
-                tool_call.name,
-                False,
-                (
+            stale_record_observation = Observation(
+                tool_name=tool_call.name,
+                success=False,
+                content=(
                     "stale_operation_record: operation was executed before, "
                     f"but target state changed since then: {intent.operation_key}"
                 ),
@@ -207,18 +209,18 @@ class OperationTracker:
             self.tool_feedback.append_tool_observation(
                 session,
                 tool_call,
-                observation,
+                stale_record_observation,
                 step,
             )
             return ExistingOperationResolution(
-                consumed=True,
-                stop=StopRequest(
+                handled_without_execution=True,
+                stop_request=StopRequest(
                     status=TaskRunStatus.BLOCKED,
                     current_step=step,
                     reason="stale_operation_record",
                     final_answer="blocked: executed operation target has changed",
                     last_tool=tool_call.name,
-                    last_observation=observation.content,
+                    last_observation=stale_record_observation.content,
                     resume_hint="Reread the target before reissuing a side-effect operation.",
                     messages_count=len(session.messages),
                     observations_count=len(session.observations),
@@ -226,10 +228,18 @@ class OperationTracker:
                 ),
             )
 
-        observation = Observation(
-            tool_call.name,
-            True,
-            f"skipped: operation already executed: {intent.operation_key}",
+        # 重放的是上次执行结果这个事实，不是再次调用会修改外部状态的工具。
+        prior_execution_fact = (
+            existing_operation_record.observation or "operation completed successfully"
+        )
+        replayed_operation_observation = Observation(
+            tool_name=tool_call.name,
+            success=True,
+            content=(
+                "skipped tool execution: ledger already records this operation as "
+                f"executed: {intent.operation_key}; "
+                f"previous_observation={prior_execution_fact}"
+            ),
         )
         self._record_operation_state(
             step=step,
@@ -241,7 +251,7 @@ class OperationTracker:
         self.tool_feedback.append_tool_observation(
             session,
             tool_call,
-            observation,
+            replayed_operation_observation,
             step,
         )
         session.lifecycle.update_checkpoint(
@@ -249,12 +259,12 @@ class OperationTracker:
                 status=TaskRunStatus.RUNNING,
                 current_step=step,
                 last_tool=tool_call.name,
-                last_observation=observation.content,
+                last_observation=replayed_operation_observation.content,
                 messages_count=len(session.messages),
                 observations_count=len(session.observations),
             )
         )
-        return ExistingOperationResolution(consumed=True)
+        return ExistingOperationResolution(handled_without_execution=True)
 
     def ensure_planned(
         self,
@@ -427,10 +437,12 @@ class OperationTracker:
             return "run_command"
         if tool_name in {"replace_text", "write_file"}:
             return "write"
+        if tool_name == "python_validation":
+            return "validate"
         return "read"
 
     @staticmethod
     def _is_side_effect_action(action: str) -> bool:
-        """只让可能改变工作区或外部状态的动作进入 Operation Ledger。"""
+        """只让需要审批与幂等保护的持久状态变化进入 Operation Ledger。"""
 
         return action in {"write", "run_command"}

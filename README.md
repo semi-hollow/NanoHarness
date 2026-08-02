@@ -231,11 +231,11 @@ API 和 composition root。六边形边界用于替换外部 Port、隔离副作
 - **动态掌握：**从 [Debug Lab](examples/debug_lab/README.md) 按 1 → 3 掌握受治理运行、
   协作式 Multi-Agent 与 Evaluation Loop；它是 Study Notes 的 A1。
 - **外部动作：**[Facade 目录](docs/architecture/facade-catalog.md)只列 Public CLI/API，不作为第二条学习路线。
-- **系统合同：**[架构契约](docs/ARCHITECTURE.md) -> [Runtime 控制面](docs/architecture/runtime-control-plane.md)。
+- **系统合同：**先看[架构契约](docs/ARCHITECTURE.md)；追问暂停、审批和恢复时再看 [Runtime 控制面](docs/architecture/runtime-control-plane.md)。
 - **能力边界：**[能力真实性矩阵](docs/CAPABILITY_REALITY_MATRIX.md)。
 - **Evaluation 事实：**[Smoke-5](docs/evaluation/smoke-5-case-catalog.md) ->
   [失败分类](docs/evaluation/failure-taxonomy.md)；真实 Case 再查对应 case study。
-- **历史与计划：**[工程演进史](docs/PROJECT_EVOLUTION.md) / [Roadmap](docs/ROADMAP.md)。
+- **历史与计划：**[功能演进](docs/FEATURE_EVOLUTION.md) / [Roadmap](docs/ROADMAP.md)。
 - **一手故障：**[失败驱动改进记录](docs/evaluation/failure-driven-improvements.md)，受保护、只追加，
   遇到具体故障才按关键词检索。
 

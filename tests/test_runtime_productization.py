@@ -329,6 +329,13 @@ class RuntimeProductizationTest(unittest.TestCase):
             self.assertEqual(
                 context_window["context_window"]["hard_input_limit"], 1_536
             )
+            before_tool = next(
+                event
+                for event in trace["events"]
+                if event["event_type"] == "hook_check"
+                and event.get("tool_call") == "tool_one"
+            )
+            self.assertEqual(before_tool["hook_stage"], "before_tool")
 
     def test_instruction_hierarchy_reaches_the_real_model_context_and_trace(self):
         with tempfile.TemporaryDirectory() as tmp:

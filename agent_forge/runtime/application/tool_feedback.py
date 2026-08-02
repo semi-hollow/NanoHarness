@@ -31,8 +31,8 @@ class ToolFeedback:
         session.working_memory.add_observation(observation)
         session.messages.append(
             Message(
-                "tool",
-                observation.content,
+                role="tool",
+                content=observation.content,
                 name=tool_call.name,
                 tool_call_id=tool_call.id,
             )

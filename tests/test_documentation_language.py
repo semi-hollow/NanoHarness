@@ -17,7 +17,7 @@ CHINESE_FIRST_DOCS = (
     "agent_forge/README.md",
     "scripts/README.md",
     "docs/CAPABILITY_REALITY_MATRIX.md",
-    "docs/PROJECT_EVOLUTION.md",
+    "docs/FEATURE_EVOLUTION.md",
     "docs/ROADMAP.md",
     "docs/architecture/evaluation-experiments-and-oci-execution.md",
     "docs/architecture/feedback-evaluation-loop.md",
@@ -34,13 +34,13 @@ PUBLIC_DOC_LINE_BUDGETS = {
     "CONTRIBUTING.md": 140,
     "docs/ARCHITECTURE.md": 420,
     "docs/CAPABILITY_REALITY_MATRIX.md": 120,
-    "docs/PROJECT_EVOLUTION.md": 220,
+    "docs/FEATURE_EVOLUTION.md": 260,
     "docs/ROADMAP.md": 120,
     "examples/debug_lab/README.md": 210,
 }
 
 CANONICAL_README_LINKS = (
-    "docs/PROJECT_EVOLUTION.md",
+    "docs/FEATURE_EVOLUTION.md",
     "docs/ARCHITECTURE.md",
     "docs/CAPABILITY_REALITY_MATRIX.md",
     "docs/evaluation/failure-driven-improvements.md",
@@ -65,7 +65,7 @@ ALLOWED_DOC_SURFACES = (
 ALLOWED_TOP_LEVEL_DOCS = {
     "docs/ARCHITECTURE.md",
     "docs/CAPABILITY_REALITY_MATRIX.md",
-    "docs/PROJECT_EVOLUTION.md",
+    "docs/FEATURE_EVOLUTION.md",
     "docs/ROADMAP.md",
 }
 
@@ -189,7 +189,12 @@ class DocumentationLanguageTest(unittest.TestCase):
             text=True,
             encoding="utf-8",
         )
-        tracked_docs = {path for path in result.stdout.splitlines() if path}
+        # 未暂存重命名时，git 仍会列出已从工作区删除的旧路径；治理只检查当前公开树。
+        tracked_docs = {
+            path
+            for path in result.stdout.splitlines()
+            if path and (PROJECT_ROOT / path).is_file()
+        }
         if len(tracked_docs) > 18:
             violations.append(
                 f"docs tree has {len(tracked_docs)} Markdown files; consolidate before adding more"

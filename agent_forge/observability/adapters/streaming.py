@@ -20,6 +20,7 @@ _EVENT_NAMES: dict[str, str] = {
     "model_started": "model.started",
     "llm_call": "model.completed",
     "action": "tool.proposed",
+    "pending_tool_call_rejected": "tool.rejected",
     "tool_execution_started": "tool.started",
     "tool_call": "tool.recorded",
     "tool_observation": "tool.completed",
@@ -179,7 +180,8 @@ class StreamingEventSink:
         return {
             str(key): self._safe_value(child, key=str(key))
             for key, child in value.items()
-            if self.policy.include_sensitive_data or str(key).lower() not in _SENSITIVE_KEYS
+            if self.policy.include_sensitive_data
+            or str(key).lower() not in _SENSITIVE_KEYS
         }
 
     def _safe_value(self, value: Any, *, key: str = "") -> object:

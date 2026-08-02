@@ -2246,3 +2246,124 @@ Failure scenario：学习者会把每次 Trace 写入误解为新建一个 Check
 验证：Workbench 回归构造四次真实 Checkpoint 状态转换并逐项断言标签；独立证据测试同时提供
 Fanout 与 SWE-bench 产物，确认页面显示两个来源且明确不同结论可以并存。工程结论：状态快照只有
 解释“相对上次改变了什么”才适合人读；任何评测结论都必须携带运行范围与证据来源。
+
+### 92. 演进文档记录了日期和模块，却没有说明能力为什么互相依赖
+
+现象：现有工程演进史能查到 Checkpoint、HITL、Operation Ledger 和 Fingerprint 的提交日期，
+但学习者仍会反复忘记它们的关系，只能背诵“审批后重新校验 operation key 和 fingerprint”。
+
+Failure scenario：面试中从 HITL 跳到幂等恢复时，只能罗列术语，无法回答为什么 Checkpoint 不能
+防止重复写、为什么稳定 operation key 仍不能防止 stale approval，以及进程在工具返回前后崩溃时
+分别应该怎样处理。这会让真实迭代过程听起来像事后拼装的能力清单。
+
+根因：历史文档按提交和模块组织，没有以失败窗口为 owner；“首次出现”和“达到安全语义”混在
+同一时间线中，也没有用熟悉的幂等键、乐观锁和交易状态机建立概念对照。
+
+窄修复：将唯一历史 owner 收敛为 `docs/FEATURE_EVOLUTION.md`，按“已有能力 -> 暴露问题 -> 下一项
+必要能力”重写主线。重点明确 `Checkpoint -> durable approval -> operation key -> target
+fingerprint -> executing/executed ledger` 的递进关系，并把 Context、Multi-Agent、Evaluation 和
+Operator Surface 分成各自的成熟链。结构演进继续由独立文档负责，不再维护两份功能历史。
+
+验证：README、架构文档、贡献指南和文档治理测试只引用新的 canonical owner；文档逐项链接当前
+代码入口，并保留能力真实性边界。工程结论：功能演进文档不应是 changelog，而应解释每项机制所
+封堵的具体失败窗口；否则历史真实存在，也无法转化为可迁移的工程判断。
+
+### 93. Workbench 把不同 Hook 和 Trace 事件压成同名空话
+
+现象：Lab 2 同一轮先执行模型调用前 Hook，再执行 `python_validation` 工具调用前 Hook，但底层证据
+表把两条都显示为“Hook 检查”，对象列只剩 `agent_name=ShowcaseAgent`。包括模型输出检查、权限、
+工具开始、验证证据和 Observation 在内的事件，“为什么记录”又全部显示“底层 Trace 事实；用于展开
+排障”。此外，讲解图把 `_execute_call` 与其内部调用的 `_run_tool` 画成平级阶段。
+
+Failure scenario：学习者无法判断两个 Hook 分别保护模型边界还是工具副作用边界，也看不出本次
+聚合决定是 allow、ask 还是 deny；即使展开全部事件，得到的仍是重复空话。错误调用图还会让人误以为
+`execute_calls` 依次调用两个平级方法，无法准确讲出工具治理主链。
+
+根因：展示层只按 `event_type` 查一个静态标签，没有消费 `hook_stage`、`hook_result.decision`、
+各 Hook 的子决定和工具对象；结果徽标又只看 Trace 写入是否成功。早期工具 Hook 没有显式写入
+`before_tool`，教学图则混淆了业务阶段与 Python 调用层级。
+
+窄修复：Runtime 为工具前 Hook 显式记录 `hook_stage=before_tool`，Workbench 对旧 Trace 根据
+`tool_call` 兼容推断。模型前、工具前、模型后、工具后、Checkpoint 后和停止前 Hook 分别显示阶段，
+对象列展示治理对象、最终决定和实际命中策略；结果徽标展示业务决定。所有已知 Trace 事件都回答
+“没有这条证据会看不清什么”，未知事件明确标记为未注册，不再统一填充排障空话。调用图改为
+`execute_calls -> _execute_call -> _run_tool -> ToolGateway.execute` 的嵌套结构。
+
+验证：Workbench 集成回归同时构造 `before_model` 与历史格式的工具 Hook，断言两条标签、对象、原因
+和结果均不同，并确认页面不再出现旧兜底文案；Runtime 回归断言新 Trace 持久化 `before_tool`；架构
+文档与源码调用点一致。工程结论：Trace UI 是事件语义的 read model，不是 event type 的翻译表；
+业务阶段和函数调用层级也必须分开表达。
+
+### 94. 重复调用同时由两份状态判断，注释、Trace 和真实执行结果可能互相矛盾
+
+现象：`ToolExecutionPipeline` 使用 `session.tool_history` 判断最近是否重复，`StepController` 又按
+整个 run 的累计 `tool_counts` 决定是否达到上限。`Guardrail` 可能把第二次合法重试记录为失败，
+工具却继续执行；一次读取后经过编辑再读取同一文件，也可能因累计次数被误判。重复分支还使用
+`_handle_repeat`、`failure_signal`、`None` 返回值和“只读白名单”，无法直接看出调用究竟执行、跳过、
+失败还是停止；白名单中的 `python_validation` 也不等于严格只读。
+
+Failure scenario：模型首次读取、修改其他目标后再次读取原文件，本应获得新状态，却被旧累计次数
+提前跳过；或者同一副作用已由 Ledger 确认执行，重复检测先行阻断，模型收不到上次执行结果。
+展示层会同时出现“Guardrail 失败”和“工具执行成功”，破坏 Trace 的解释力。
+
+根因：当前 run 的进展检测与跨 continuation 的副作用幂等混在同一阶段；同一重复事实有两份 owner，
+并以工具名白名单代替已经存在的 `OperationIntent.side_effect`。隐式 `None` 又把继续、跳过和停止压成
+同一返回形态。
+
+窄修复：删除 `session.tool_history` 和累计 `tool_counts`，由 `StepController` 唯一跟踪连续、规范化的
+ToolCall。允许首次尝试和一次相同重试；第三次连续相同才触发，任何不同工具或参数立即重置。副作用
+先由 Ledger 解析：未漂移的 `executed` 记录不再调用工具，而是回填已保存的 Observation；结果未知或
+目标漂移则停止。其后重复策略按 `OperationIntent.side_effect` 决定跳过无副作用调用或阻断副作用。
+单次调用改用 `ToolCallOutcome(EXECUTED/SKIPPED/FAILED/STOPPED)`，核心 `Message/Observation` 使用
+关键字参数，AST 导航测试阻止位置参数和双重可读性退化。
+
+验证：行为回归确认第三次连续读取只执行前两次、所有路由 Guardrail 均为通过；不同动作会重置
+计数；第三次相同副作用仍 fail closed；Ledger 命中会回填原 Observation 且不会产生新的
+`tool_execution_started`。工程结论：重复检测回答“模型是否继续推进”，Ledger 回答“副作用是否已
+执行”，两个事实必须有独立 owner 和固定先后顺序。
+
+### 95. 最终轮工具请求被命名成最终回答，跨 Lab 入口继续制造错误结论
+
+现象：SWE-bench 的最后一轮已经关闭工具，但模型仍以原始协议文本请求 `read_file`。Runtime 正确
+阻断了运行，Trace 却把拒绝事件写成 `final_answer`；Timeline 因而显示“模型决定最终回答”。同时，
+Lab 2 页面仍可从通用“证据详情”进入历史 SWE-bench 诊断，把 Lab 2 的通过与旧 Case 的阻塞误认为
+同一次运行。候选 Diff 为 0 时，页面也没有说明模型只做了检索、从未调用写工具。
+
+Failure scenario：演示者看到 Worker 第三轮给出正常文本结论，随后在另一个证据页看到“停止时仍有
+待执行工具”，会误以为 `final_answer` 是 Tool，或认为同一 run 的状态自相矛盾；“0 字符”又可能被
+误判成 Artifact 采集故障。
+
+根因：Trace 事件名描述了“尝试收口”的代码位置，没有描述真实业务结果；Workbench 的详情导航按
+展示类型而不是运行来源组织，且只展示 Patch 长度，没有关联 action 序列。
+
+窄修复：最终轮原始 ToolCall 改记为 `pending_tool_call_rejected`，同时保存工具名和拒绝原因；页面
+兼容旧 Trace，从最后一次模型响应恢复工具名，并显示“收口失败、工具未执行”。证据详情按 Lab 分组，
+Lab 2 增加只读取本次 Worker/Finalizer 的专属时间线；SWE-bench 诊断明确显示评测 run 名。候选 Diff
+为 0 时同时显示是否出现写意图，直接模型基线未运行时不再拼接“字符”。
+
+验证：Runtime 回归断言拒绝事件不再伪装成 `final_answer`；Workbench 回归覆盖旧 Trace 兼容、Lab 2
+专属时间线、评测作用域和“只检索未写入”的 0 Diff 解释。工程结论：事件名必须描述已经发生的事实，
+任何状态、Timeline 和指标都必须绑定唯一 run；数值为零时还要解释产生零值的行为链。
+
+### 96. Lab 页面先展示指标却没有声明问题与输入，详情菜单再次混合证据范围
+
+现象：执行 Lab 3 后，Workbench 直接展示改进差值和运行矩阵，没有先说明它是在实时调用模型，还是
+回放历史实验，也没有列出模型当时处理的 Case。全局“证据详情”同时展开 Lab 1、Lab 2 和 Lab 3
+入口；已载入的两题 commissioning 子集又继续以 Smoke-5 为主标题。
+
+Failure scenario：演示者无法先回答“这个 Lab 在解决什么问题、输入是什么、什么算通过”，只能从
+数字倒推实验设计；面试官还可能把 Lab 2 的 Worker Timeline、旧 SWE-bench 单题诊断和 Lab 3 的
+Runtime preset 实验当成同一次运行。两题证据若被听成完整五题回归，还会形成直接 overclaim。
+
+根因：Workbench 先按 renderer 类型组织页面，再补业务说明；导航 owner 是全部 Evidence kind，
+而不是当前 Lab 的证据作用域。Lab 3 的启动动作只是发布保存好的 campaign，但页面没有区分“历史
+运行的模型输入”和“本次只读回放输入”。
+
+窄修复：三个 Lab 使用同一首屏契约，固定先展示“问题、输入、关键机制、通过标准、证据边界”。
+Lab 3 显式列出 Astropy 与 Django 两个 Case 的任务摘要、两套 Runtime preset、历史模型和四个运行
+槽位，并声明本次 Run 不重新调用模型。详情菜单根据当前 Lab 只显示对应入口；Lab 3 移除不属于当前
+campaign 的单/多 Agent 对比。已载入批次改用真实 regression set 和 commissioning 口径。
+
+验证：Workbench 定向回归保护三个 Lab 的首屏契约、菜单作用域和 Case 摘要；本地只读服务器使用真实
+产物完成桌面视觉验收，三个页面均无首屏内容溢出，且只显示当前 Lab 的详情分组。工程结论：Evidence
+UI 的第一职责是建立问题和证据作用域，指标必须排在实验输入与结论边界之后。

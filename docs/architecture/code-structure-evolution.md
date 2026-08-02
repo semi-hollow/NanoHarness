@@ -1,7 +1,7 @@
 # 代码结构演进：从功能堆叠到可导航的 Harness
 
 本文只讲 **NanoHarness 的代码结构为什么变化、每次解决了什么问题，以及这些选择如何在
-面试中讲清楚**。功能加入顺序见[工程演进史](../PROJECT_EVOLUTION.md)，当前依赖规则见
+面试中讲清楚**。功能加入顺序见[功能演进](../FEATURE_EVOLUTION.md)，当前依赖规则见
 [架构契约](../ARCHITECTURE.md)。
 
 ## 1. 最准确的起点描述
@@ -200,6 +200,18 @@ Debug Lab 的运行说明、入口地图和脱稿验收也收敛到一个 README
 
 这可以类比 Java 的 ArchUnit：代码评审负责判断表达是否清楚，自动测试负责阻止已经确认的架构规则
 随下一次提交悄悄消失。它保护的是核心阅读路径和证据语义，而不是机械追求注释覆盖率。
+
+### 4.9 从双重状态和隐式 `None` 变成单一 owner 与显式结果
+
+重复 ToolCall 曾同时由 `session.tool_history` 和 `StepController.tool_counts` 判断：一份看最近历史，
+一份看全 run 累计，Trace 甚至会出现 Guardrail 失败但工具继续执行。现在由 `StepController` 唯一维护
+连续规范化调用；“副作用是否执行”则只由 Operation Ledger 判断，两个问题不再共享状态。
+
+`_execute_call`、重复分支和 `_run_tool` 原先都返回 `StopRequest | None`，其中 `None` 可能表示执行
+成功、执行失败、主动跳过或只是继续。当前内部统一返回
+`ToolCallOutcome(EXECUTED/SKIPPED/FAILED/STOPPED)`，外围只读取显式 `stop_request`。核心
+`Message/Observation` 也改用关键字参数，AST 测试防止字段顺序、重复 owner 和模糊局部名回退。
+这类结构守卫保护业务边界，不禁止正常的生成器、推导式等 Python 惯用写法。
 
 ## 5. 为什么没有走两个极端
 

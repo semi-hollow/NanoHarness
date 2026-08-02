@@ -24,6 +24,20 @@ class WorkbenchRunStoryTest(unittest.TestCase):
         self.assertIn("2 多 Agent 协同", INDEX_HTML)
         self.assertIn("3 评测改进闭环", INDEX_HTML)
         self.assertIn("loadEvidence('controls')", INDEX_HTML)
+        self.assertIn("当前 Lab · 证据详情", INDEX_HTML)
+        self.assertIn('class="evidence-menu" hidden', INDEX_HTML)
+        self.assertIn('data-lab="lab1"', INDEX_HTML)
+        self.assertIn('data-lab="lab2"', INDEX_HTML)
+        self.assertIn('data-lab="lab3"', INDEX_HTML)
+        self.assertIn("Lab 1 · 受治理运行", INDEX_HTML)
+        self.assertIn("Lab 2 · 多 Agent 协同", INDEX_HTML)
+        self.assertIn("Lab 3 · 评测闭环", INDEX_HTML)
+        self.assertIn("setEvidenceMenuScope(activeLab)", INDEX_HTML)
+        self.assertIn("loadEvidence('orchestration_timeline')", INDEX_HTML)
+        self.assertNotIn(
+            "onclick=\"loadEvidence('compare')\">单 Agent / 多 Agent 对比",
+            INDEX_HTML,
+        )
         self.assertIn("pageParams.get('view')", INDEX_HTML)
         self.assertIn("loadEvidence(initialView)", INDEX_HTML)
         self.assertIn("Workbench 只读", WORKBENCH_READ_ONLY_MESSAGE)
@@ -111,7 +125,9 @@ class WorkbenchRunStoryTest(unittest.TestCase):
             run_dir = project_dir / ".agent_forge" / "runs" / "run-legacy"
             run_dir.mkdir(parents=True)
             (run_dir / "comparison.json").write_text(
-                json.dumps({"task_id": "legacy-only task", "single_status": "completed"}),
+                json.dumps(
+                    {"task_id": "legacy-only task", "single_status": "completed"}
+                ),
                 encoding="utf-8",
             )
 
@@ -151,6 +167,24 @@ class WorkbenchRunStoryTest(unittest.TestCase):
             fanout_run = runs / "fanout-run/fanout"
             single_run.mkdir(parents=True)
             fanout_run.mkdir(parents=True)
+            worker_a_trace = fanout_run / "workers/a/trace.json"
+            worker_b_trace = fanout_run / "workers/b/trace.json"
+            finalizer_trace = fanout_run / "finalizer/trace.json"
+            for trace_path in (worker_a_trace, worker_b_trace, finalizer_trace):
+                trace_path.parent.mkdir(parents=True, exist_ok=True)
+                trace_path.write_text(
+                    json.dumps(
+                        {
+                            "run_id": trace_path.parent.name,
+                            "stop_reason": "final_answer",
+                            "events": [
+                                {"step": 1, "event_type": "llm_call"},
+                                {"step": 1, "event_type": "final_answer"},
+                            ],
+                        }
+                    ),
+                    encoding="utf-8",
+                )
             (single_run / "trace.json").write_text('{"events": []}', encoding="utf-8")
             (fanout_run / "fanout_summary.json").write_text(
                 json.dumps(
@@ -164,9 +198,18 @@ class WorkbenchRunStoryTest(unittest.TestCase):
                             "max_workers": 2,
                         },
                         "results": [
-                            {"task_id": "a", "status": "completed"},
-                            {"task_id": "b", "status": "completed"},
+                            {
+                                "task_id": "a",
+                                "status": "completed",
+                                "trace_path": str(worker_a_trace),
+                            },
+                            {
+                                "task_id": "b",
+                                "status": "completed",
+                                "trace_path": str(worker_b_trace),
+                            },
                         ],
+                        "finalizer_trace_path": str(finalizer_trace),
                     }
                 ),
                 encoding="utf-8",
@@ -176,11 +219,21 @@ class WorkbenchRunStoryTest(unittest.TestCase):
             (latest / "run.txt").write_text(str(single_run), encoding="utf-8")
 
             rendered = _render_evidence_html(project_dir, "orchestration")
+            timeline = _render_evidence_html(project_dir, "orchestration_timeline")
 
         self.assertIn("parallel evidence", rendered)
+        self.assertIn("这个 Lab 要回答的问题", rendered)
+        self.assertIn("两个互不依赖、写入范围不重叠", rendered)
+        self.assertIn("本 Lab 使用确定性 Worker 模型", rendered)
         self.assertIn("为什么允许并行", rendered)
         self.assertIn("a", rendered)
         self.assertIn("b", rendered)
+        self.assertIn("查看本次 AgentLoop 时间线", rendered)
+        self.assertIn("LAB 2 · 多 AGENT 协同", timeline)
+        self.assertIn("Worker · a", timeline)
+        self.assertIn("Worker · b", timeline)
+        self.assertIn("Finalizer · 合并后验证", timeline)
+        self.assertNotIn("single-run", timeline)
 
     def test_run_evidence_aggregates_fanout_metrics_and_full_chain(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -363,6 +416,8 @@ class WorkbenchRunStoryTest(unittest.TestCase):
             timeline = _render_evidence_html(project_dir, "timeline")
 
         self.assertIn("Runtime 控制面", rendered)
+        self.assertIn("写操作需要人工审批时", rendered)
+        self.assertIn("Operation Ledger 与目标 Fingerprint", rendered)
         self.assertIn(str(control_trace), rendered)
         self.assertIn("1 个 Checkpoint", overview)
         self.assertIn("受治理 AgentLoop", timeline)
@@ -465,11 +520,72 @@ class WorkbenchRunStoryTest(unittest.TestCase):
         self.assertIn("副作用执行前形成可恢复人工屏障", rendered)
         self.assertIn("恢复时不重复执行", rendered)
 
+    def test_timeline_does_not_present_rejected_tool_request_as_final_answer(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            project_dir = Path(tmp)
+            run_dir = project_dir / ".agent_forge/runs/governed-run"
+            run_dir.mkdir(parents=True)
+            (run_dir / "trace.json").write_text(
+                json.dumps(
+                    {
+                        "run_id": "blocked-run",
+                        "stop_reason": "pending_tool_call_at_stop",
+                        "events": [
+                            {
+                                "step": 1,
+                                "event_type": "llm_call",
+                                "llm_response_summary": (
+                                    '<tool_calls><invoke name="read_file">'
+                                ),
+                            },
+                            {
+                                "step": 1,
+                                "event_type": "final_answer",
+                                "success": False,
+                                "pending_tool_call": True,
+                            },
+                            {
+                                "step": 1,
+                                "event_type": "run_completed",
+                                "run_status": "blocked",
+                                "stop_reason": "pending_tool_call_at_stop",
+                            },
+                        ],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            state_dir = project_dir / ".agent_forge/debug-lab/state"
+            state_dir.mkdir(parents=True)
+            (state_dir / "control_artifact.txt").write_text(
+                str(run_dir),
+                encoding="utf-8",
+            )
+
+            rendered = _render_evidence_html(project_dir, "timeline")
+
+        self.assertIn("收口失败：仍请求 read_file，未执行", rendered)
+        self.assertIn("收口失败：工具请求未执行", rendered)
+        self.assertIn("read_file · 未进入工具执行链", rendered)
+        self.assertNotIn("第 1 轮 · 形成最终回答", rendered)
+
     def test_evaluation_page_declares_independent_swebench_scope(self):
         with tempfile.TemporaryDirectory() as tmp:
             project_dir = Path(tmp)
             benchmark_run = project_dir / ".agent_forge/runs/swebench-run"
             benchmark_run.mkdir(parents=True)
+            trace_path = benchmark_run / "trace.json"
+            trace_path.write_text(
+                json.dumps(
+                    {
+                        "events": [
+                            {"event_type": "action", "tool_call": "read_file"},
+                            {"event_type": "action", "tool_call": "grep_search"},
+                        ]
+                    }
+                ),
+                encoding="utf-8",
+            )
             (benchmark_run / "results.json").write_text(
                 json.dumps(
                     {
@@ -479,6 +595,8 @@ class WorkbenchRunStoryTest(unittest.TestCase):
                                 "status": "blocked",
                                 "evaluation_status": "official_eval_skipped_empty_patch",
                                 "failure_class": "pending_tool_call_at_stop",
+                                "patch_chars": 0,
+                                "trace_path": str(trace_path),
                                 "diagnosis": (
                                     "The model still requested a tool on the final turn, "
                                     "so the runtime blocked an incomplete artifact."
@@ -499,22 +617,20 @@ class WorkbenchRunStoryTest(unittest.TestCase):
                 str(benchmark_run),
                 encoding="utf-8",
             )
-            fanout_path = (
-                project_dir
-                / ".agent_forge/runs/fanout-run/fanout/fanout_summary.json"
-            )
-            fanout_path.parent.mkdir(parents=True)
-            fanout_path.write_text(json.dumps({"status": "passed"}), encoding="utf-8")
-
             rendered = _render_evidence_html(project_dir, "evaluation")
 
         self.assertIn("独立证据 · SWE-BENCH CASE", rendered)
         self.assertIn("demo__case-1", rendered)
-        self.assertIn("不评价 Lab 2", rendered)
-        self.assertIn("来自不同 run", rendered)
+        self.assertIn("当前结论只属于评测运行 swebench-run", rendered)
+        self.assertIn("Lab 2 的 Worker、Finalizer 和协调结果属于另一条运行", rendered)
         self.assertIn(str(benchmark_run / "results.json"), rendered)
-        self.assertIn(str(fanout_path), rendered)
-        self.assertIn("模型在最后一轮仍请求调用工具，因此运行时阻断了不完整产物", rendered)
+        self.assertIn("0 字符（只检索，未写入）", rendered)
+        self.assertIn("2 次工具调用均未进入写操作", rendered)
+        self.assertIn("本次未运行", rendered)
+        self.assertNotIn("未运行 字符", rendered)
+        self.assertIn(
+            "模型在最后一轮仍请求调用工具，因此运行时阻断了不完整产物", rendered
+        )
         self.assertIn("增加步骤预算，或要求模型更早明确", rendered)
         self.assertIn("SWE-bench Case 诊断", INDEX_HTML)
 
@@ -564,7 +680,50 @@ class WorkbenchRunStoryTest(unittest.TestCase):
             campaign = project_dir / "campaign"
             campaign.mkdir()
             (campaign / "manifest.json").write_text(
-                json.dumps({"campaign_id": "campaign-1", "records": []}),
+                json.dumps(
+                    {
+                        "campaign_id": "campaign-1",
+                        "config": {
+                            "regression_set": "verified-commissioning-2",
+                            "case_ids": [
+                                "astropy__astropy-12907",
+                                "django__django-11133",
+                            ],
+                            "repetitions": 1,
+                            "benchmark": {"model": "deepseek-v4-pro"},
+                            "variants": [
+                                {"name": "minimal-control"},
+                                {"name": "governed-runtime"},
+                            ],
+                        },
+                        "records": [
+                            {
+                                "case_id": "astropy__astropy-12907",
+                                "variant": "minimal-control",
+                                "repetition": 1,
+                                "status": "completed",
+                            },
+                            {
+                                "case_id": "astropy__astropy-12907",
+                                "variant": "governed-runtime",
+                                "repetition": 1,
+                                "status": "completed",
+                            },
+                            {
+                                "case_id": "django__django-11133",
+                                "variant": "minimal-control",
+                                "repetition": 1,
+                                "status": "completed",
+                            },
+                            {
+                                "case_id": "django__django-11133",
+                                "variant": "governed-runtime",
+                                "repetition": 1,
+                                "status": "completed",
+                            },
+                        ],
+                    }
+                ),
                 encoding="utf-8",
             )
             (campaign / "summary.json").write_text(
@@ -572,6 +731,9 @@ class WorkbenchRunStoryTest(unittest.TestCase):
                     {
                         "campaign_id": "campaign-1",
                         "status": "completed",
+                        "planned_runs": 4,
+                        "status_counts": {"completed": 4},
+                        "paired_official": {"evaluated_pairs": 2},
                         "variants": {},
                     }
                 ),
@@ -631,7 +793,14 @@ class WorkbenchRunStoryTest(unittest.TestCase):
             (latest / "campaign.txt").write_text(str(campaign), encoding="utf-8")
 
             rendered = _render_evidence_html(project_dir, "feedback")
+            benchmark = _render_evidence_html(project_dir, "benchmark")
 
+        self.assertIn("这个 Lab 要回答的问题", rendered)
+        self.assertIn("本次载入的历史实验", rendered)
+        self.assertIn("嵌套 CompoundModel 的可分离矩阵错误", rendered)
+        self.assertIn("HttpResponse 错误处理 memoryview", rendered)
+        self.assertIn("点击 Lab 3 不会重新调用模型", rendered)
+        self.assertIn("deepseek-v4-pro", rendered)
         self.assertIn("观测问题", rendered)
         self.assertIn("维护者人工复核", rendered)
         self.assertIn("已人工复核", rendered)
@@ -646,6 +815,11 @@ class WorkbenchRunStoryTest(unittest.TestCase):
         self.assertIn("仅限试运行证据", rendered)
         self.assertNotIn("Failed Tool Delta", rendered)
         self.assertNotIn("negative is fewer failures", rendered)
+        self.assertIn("当前 Case 与重复实验结果", benchmark)
+        self.assertIn("Case 任务摘要", benchmark)
+        self.assertIn("真实运行输入是 SWE-bench 的 problem_statement", benchmark)
+        self.assertIn("commissioning 子集", benchmark)
+        self.assertNotIn("Smoke-5 是面向 Harness 机制", benchmark)
 
 
 if __name__ == "__main__":

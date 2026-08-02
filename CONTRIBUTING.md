@@ -30,6 +30,13 @@ python -m pip install -e '.[bench,dev]'
 11. 每项用户可见能力的 orchestration method 标记 `PRIMARY ENTRYPOINT`。
 12. 跨模块调用的 public persistence/policy/evidence boundary 标记 `RUNTIME PORT`。
 13. Entrypoint docstring 必须写明 caller、下一 owner，以及 evidence 或 return value。
+14. Runtime 主链中的 `Message`、`Observation` 和业务结果对象必须使用关键字参数构造。
+15. 一个状态概念只能有一个 owner；不得用第二份 history/counter 重复推导同一控制决定。
+16. 私有分支方法名必须包含触发条件与结果，例如 `skip_repeated_non_side_effect_call`；禁止用
+    `handle`、`effective`、`recoverable` 掩盖“执行、跳过、失败或停止”。
+17. 注释必须与真实分类规则一致。代码按 `OperationIntent.side_effect` 判断时，不得再把工具白名单
+    描述成“只读工具”。
+18. 控制阈值必须写清允许区间、触发边界和失败行为，并由边界测试保护；不得伪造统计最优结论。
 
 不要给所有 public method 都打标记。Constructor、data accessor、renderer 和 storage
 helper 默认不标记，除非它们是真实跨模块边界。Multi-actor state machine 可以有多个
@@ -64,7 +71,7 @@ real-model smoke 会自动执行。
 | `README.md` | 项目展示、证据语义、五分钟上手和阅读入口 |
 | `docs/ARCHITECTURE.md` | 稳定分层、依赖方向、运行链路和公共契约 |
 | `docs/CAPABILITY_REALITY_MATRIX.md` | 能力成熟度、真实边界和禁止 claim |
-| `docs/PROJECT_EVOLUTION.md` | 已经发生且可由代码、测试或提交验证的演进 |
+| `docs/FEATURE_EVOLUTION.md` | 能力如何被真实问题逐步逼出，以及当前成熟边界 |
 | `docs/ROADMAP.md` | 尚未完成的工作、优先级和完成定义 |
 | `docs/evaluation/failure-driven-improvements.md` | 可检索的真实失败、根因、修复和回归证据 |
 
@@ -97,7 +104,7 @@ real-model smoke 会自动执行。
 - 能力分阶段成熟时，正文标明 `Introduces`、`Hardens` 或 `Replaces`。
 
 已公开的 `master` 不为美化标题而重写历史。历史提交的权威语义索引见
-[工程演进史](docs/PROJECT_EVOLUTION.md)。
+[功能演进](docs/FEATURE_EVOLUTION.md)。
 
 ## Pull Request 检查表
 
@@ -109,3 +116,4 @@ real-model smoke 会自动执行。
 - [ ] README 或 docs 已反映用户可见行为。
 - [ ] 没有 tracked secret、personal path 或 generated run artifact。
 - [ ] 新 runtime behavior 有 trace/evaluation evidence 和 failure-log case。
+- [ ] 主链注释、方法名、Trace/Workbench 文案能对应同一个真实代码分支。

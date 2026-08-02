@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import re
+
 from agent_forge.runtime.application.run_lifecycle import StopRequest
 from agent_forge.runtime.application.session import AgentRunSession
 from agent_forge.runtime.domain.conversation import AgentResponse
@@ -33,9 +35,15 @@ class FinalAnswerBuilder:
         删除/内联影响：会让模型文本绕过 claim boundary 直接成为完成结论。
         """
 
-        if self._contains_raw_tool_call_markup(response.content or ""):
+        rejected_tool_name = self._raw_tool_name(response.content or "")
+        if rejected_tool_name is not None:
             final_answer = "blocked: pending_tool_call_at_stop"
-            self._record_pending_tool_call(session, step, final_answer)
+            self._record_rejected_tool_request(
+                session=session,
+                step=step,
+                final_answer=final_answer,
+                rejected_tool_name=rejected_tool_name,
+            )
             return StopRequest(
                 status=TaskRunStatus.BLOCKED,
                 reason="pending_tool_call_at_stop",
@@ -79,21 +87,25 @@ class FinalAnswerBuilder:
         )
 
     # region 证据记录器（首次阅读可折叠）
-    def _record_pending_tool_call(
+    def _record_rejected_tool_request(
         self,
+        *,
         session: AgentRunSession,
         step: int,
         final_answer: str,
+        rejected_tool_name: str,
     ) -> None:
-        """记录模型把未执行 ToolCall 当成最终文本返回的协议错误。"""
+        """记录最终轮仍出现 ToolCall，且该调用没有进入执行链。"""
 
         self.trace.add(
             step,
             session.agent_name,
-            "final_answer",
+            "pending_tool_call_rejected",
             success=False,
             observation=final_answer,
+            tool_call=rejected_tool_name,
             pending_tool_call=True,
+            rejection_reason="final_turn_tools_closed",
         )
 
     def _record_final_answer_evidence(
@@ -129,6 +141,14 @@ class FinalAnswerBuilder:
     # endregion 证据记录器结束
 
     @staticmethod
-    def _contains_raw_tool_call_markup(content: str) -> bool:
+    def _raw_tool_name(content: str) -> str | None:
+        """从错误落入文本通道的 ToolCall 标记中提取工具名。"""
+
         normalized_answer = content.lower()
-        return "tool_calls" in normalized_answer and "invoke name=" in normalized_answer
+        if (
+            "tool_calls" not in normalized_answer
+            or "invoke name=" not in normalized_answer
+        ):
+            return None
+        match = re.search(r'invoke\s+name=["\']([^"\']+)["\']', content, re.IGNORECASE)
+        return match.group(1) if match else "unknown_tool"

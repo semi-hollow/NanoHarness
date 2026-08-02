@@ -444,6 +444,13 @@ EVIDENCE_RECORDER_MODULES = {
     "agent_forge/runtime/application/turn_preparation.py",
     "agent_forge/multi_agent/application/live_fanout.py",
 }
+
+# 这些消息/结果对象在核心流程中频繁出现，位置参数会迫使读者记字段顺序。
+# 只约束 Runtime 应用层和 Hook 边界，不把测试 fixture 与简单 provider adapter
+# 一并纳入，避免为形式统一制造无关改动。
+EXPLICIT_CORE_RECORD_CALLS = {"Message", "Observation", "ToolCallOutcome"}
+EXPLICIT_CORE_RECORD_DIRECTORIES = ("agent_forge/runtime/application",)
+EXPLICIT_CORE_RECORD_FILES = ("agent_forge/runtime/hooks.py",)
 REMOVED_PATCH_API_MARKERS = {
     '"apply_patch"',
     "'apply_patch'",
@@ -566,6 +573,28 @@ class CodeNavigationContractTest(unittest.TestCase):
                 assert isinstance(owner, ast.ClassDef)
                 with self.subTest(path=relative_path, owner=class_name):
                     self.assertTrue(_dataclass_uses_keyword_only_fields(owner))
+
+    def test_core_runtime_constructs_messages_and_outcomes_with_keywords(self) -> None:
+        """核心消息与结果必须在调用处直接写出每个字段的业务含义。"""
+
+        checked_paths = [
+            path
+            for directory in EXPLICIT_CORE_RECORD_DIRECTORIES
+            for path in (PROJECT_ROOT / directory).rglob("*.py")
+        ]
+        checked_paths.extend(PROJECT_ROOT / path for path in EXPLICIT_CORE_RECORD_FILES)
+
+        for path in checked_paths:
+            tree = ast.parse(path.read_text(encoding="utf-8"))
+            positional_record_calls = [
+                node.lineno
+                for node in ast.walk(tree)
+                if isinstance(node, ast.Call)
+                and _called_symbol_name(node) in EXPLICIT_CORE_RECORD_CALLS
+                and node.args
+            ]
+            with self.subTest(path=path.relative_to(PROJECT_ROOT)):
+                self.assertEqual(positional_record_calls, [])
 
     def test_orchestration_methods_delegate_trace_payload_construction(self) -> None:
         """主流程只出现具名证据动作，不展开 EventSink.add 的字段拼装。"""
@@ -756,6 +785,16 @@ def _is_direct_trace_add(node: ast.AST) -> bool:
         and target.value.id == "self"
         and target.attr in {"trace", "events"}
     )
+
+
+def _called_symbol_name(node: ast.Call) -> str:
+    """返回 ``Message(...)`` 或 ``module.Message(...)`` 的末级符号名。"""
+
+    if isinstance(node.func, ast.Name):
+        return node.func.id
+    if isinstance(node.func, ast.Attribute):
+        return node.func.attr
+    return ""
 
 
 def _is_typed_config_getattr(node: ast.AST) -> bool:

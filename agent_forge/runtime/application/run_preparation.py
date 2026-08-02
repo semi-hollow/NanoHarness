@@ -192,7 +192,7 @@ class RunPreparation:
     def _initialize_memory_context(self, session: AgentRunSession) -> None:
         """创建 working memory，并注入经过权威与隔离过滤的长期召回结果。"""
 
-        session.messages = [Message("user", session.task)]
+        session.messages = [Message(role="user", content=session.task)]
         prior_session_summary = self.config.session_summary
         if session.resume_summary:
             prior_session_summary = "\n".join(

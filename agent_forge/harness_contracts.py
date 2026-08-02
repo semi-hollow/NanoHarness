@@ -42,7 +42,8 @@ class HarnessConfig:
     max_prompt_tokens: int = 32_768
     reserved_output_tokens: int = 4_096
     max_consecutive_failures: int = 3
-    max_tool_repeats: int = 2
+    # 同一个工具和参数最多连续出现两次：首次尝试加一次重试。
+    max_consecutive_identical_tool_calls: int = 2
     max_tool_calls_per_turn: int = 4
     timeout_seconds: float = 900.0
     cost_budget_usd: float | None = None
@@ -98,8 +99,10 @@ class HarnessConfig:
             raise ValueError(f"unsupported skill_mode: {self.skill_mode}")
         if self.max_consecutive_failures < 1:
             raise ValueError("max_consecutive_failures must be positive")
-        if self.max_tool_repeats < 0:
-            raise ValueError("max_tool_repeats must not be negative")
+        if self.max_consecutive_identical_tool_calls < 1:
+            raise ValueError(
+                "max_consecutive_identical_tool_calls must be positive"
+            )
         if self.max_tool_calls_per_turn < 1:
             raise ValueError("max_tool_calls_per_turn must be positive")
         if self.timeout_seconds <= 0:

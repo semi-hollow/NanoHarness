@@ -31,7 +31,7 @@ class RuntimeConfig:
     max_prompt_tokens: int = 32_768
     reserved_output_tokens: int = 4_096
     max_consecutive_failures: int = 3
-    max_tool_repeats: int = 2
+    max_consecutive_identical_tool_calls: int = 2
     max_tool_calls_per_turn: int = 4
     timeout_seconds: float = 120.0
     cost_budget_usd: float | None = None

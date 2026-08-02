@@ -146,7 +146,11 @@ class SecretRedactionHook(RuntimeHook):
         redacted = self.environment.redact(observation.content)
         if redacted == observation.content:
             return observation
-        return Observation(observation.tool_name, observation.success, redacted)
+        return Observation(
+            tool_name=observation.tool_name,
+            success=observation.success,
+            content=redacted,
+        )
 
 
 class HookManager(HookPort):

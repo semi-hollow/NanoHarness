@@ -87,9 +87,11 @@ class RunControlHandler:
         for steer_signal in pending_steer_signals:
             session.messages.append(
                 Message(
-                    "user",
-                    "Operator steer for the current task:\n"
-                    + steer_signal.message.strip(),
+                    role="user",
+                    content=(
+                        "Operator steer for the current task:\n"
+                        + steer_signal.message.strip()
+                    ),
                 )
             )
             self._record_control_signal(session, step, steer_signal)

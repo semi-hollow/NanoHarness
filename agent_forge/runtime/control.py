@@ -41,7 +41,8 @@ class ExecutionBudget:
 
     max_steps: int = 12
     max_consecutive_failures: int = 3
-    max_tool_repeats: int = 2
+    # 同一个工具和参数允许“首次尝试 + 一次重试”；第三次连续重复视为没有进展。
+    max_consecutive_identical_tool_calls: int = 2
     timeout_seconds: float = 120.0
     cost_budget_usd: float | None = None
 
@@ -56,7 +57,8 @@ class StepController:
 
     budget: ExecutionBudget
     started_at: float = field(default_factory=time.time)
-    tool_counts: dict[str, int] = field(default_factory=dict)
+    last_tool_call_key: str = ""
+    consecutive_identical_tool_call_count: int = 0
     failure_count: int = 0
 
     @classmethod
@@ -70,25 +72,49 @@ class StepController:
             budget=ExecutionBudget(
                 max_steps=config.max_steps,
                 max_consecutive_failures=config.max_consecutive_failures,
-                max_tool_repeats=config.max_tool_repeats,
+                max_consecutive_identical_tool_calls=(
+                    config.max_consecutive_identical_tool_calls
+                ),
                 timeout_seconds=config.timeout_seconds,
                 cost_budget_usd=config.cost_budget_usd,
             )
         )
 
-    def record_tool_intent(self, tool_call: ToolCall) -> FailureSignal | None:
-        """按工具名和参数识别同一动作，超过阈值时返回停止信号。"""
+    def observe_tool_intent_for_repeat_limit(
+        self,
+        tool_call: ToolCall,
+    ) -> FailureSignal | None:
+        """识别连续相同 ToolCall；不同动作出现时立即重置计数。
 
-        tool_call_identity = self._tool_key(tool_call)
-        previous_call_count = self.tool_counts.get(tool_call_identity, 0)
-        current_call_count = previous_call_count + 1
-        self.tool_counts[tool_call_identity] = current_call_count
-        if current_call_count > self.budget.max_tool_repeats:
+        这里检查“模型是否仍在推进”，不是 Operation Ledger 的“副作用是否已执行”。
+        首次调用和一次同动作重试被允许；第三次连续给出相同工具和规范化参数时，返回
+        ``REPEATED_ACTION``。调用方再按副作用风险决定跳过本次调用还是停止 run。
+        """
+
+        current_tool_call_key = self._stable_tool_call_key(tool_call)
+        if current_tool_call_key == self.last_tool_call_key:
+            self.consecutive_identical_tool_call_count += 1
+        else:
+            self.last_tool_call_key = current_tool_call_key
+            self.consecutive_identical_tool_call_count = 1
+
+        if (
+            self.consecutive_identical_tool_call_count
+            > self.budget.max_consecutive_identical_tool_calls
+        ):
             return FailureSignal(
                 kind=FailureKind.REPEATED_ACTION,
-                reason=f"repeated tool call: {tool_call.name}",
+                reason=(
+                    "consecutive identical tool-call limit exceeded: "
+                    f"{tool_call.name} "
+                    f"({self.consecutive_identical_tool_call_count} > "
+                    f"{self.budget.max_consecutive_identical_tool_calls})"
+                ),
                 retryable=False,
-                recovery_hint="Stop the loop or choose a materially different action with new evidence.",
+                recovery_hint=(
+                    "Do not issue the same tool and arguments again without a different "
+                    "action that produces new evidence."
+                ),
             )
         return None
 
@@ -231,7 +257,9 @@ class StepController:
             recovery_hint="Retry through ModelGateway fallback if configured; otherwise stop with provider diagnostics.",
         )
 
-    def _tool_key(self, tool_call: ToolCall) -> str:
+    def _stable_tool_call_key(self, tool_call: ToolCall) -> str:
+        """用工具名和排序后的 JSON 参数生成稳定身份；provider call id 不参与。"""
+
         try:
             normalized_arguments = json.dumps(
                 tool_call.arguments or {},

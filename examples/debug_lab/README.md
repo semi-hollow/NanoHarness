@@ -44,6 +44,18 @@ scripts/setup_macos_local.sh --quick
 PyCharm 额外显示的 `Current File` 是 IDE 临时动作，不属于 NanoHarness。项目约束是共享配置始终
 只有以上四个；新能力必须进入现有主线，不能继续增加按钮。
 
+## 三个 Lab 的输入从哪里来
+
+| 场景 | 输入来源 | 每次运行会做什么 |
+| --- | --- | --- |
+| Lab 1 | `agent_forge/showcase/control_plane.py::_start_control_plane_demo` | 在本次 run 的 `workspace/` 中生成 `target.py` 和 `test_target.py`；这是小型控制面 fixture |
+| Lab 2 | `examples/debug_lab/multi_agent_repository/` | `create_workspace` 复制已提交的 `pricing.py`、`shipping.py`、`test_checkout.py`，再初始化一次隔离 Git 仓库 |
+| Lab 3 | `benchmarks/campaigns/verified-commissioning-2-20260726/` | 读取随仓库提交的 manifest、summary 和 per-slot scorecard；不创建题目、不调用模型、不运行 Docker |
+
+`examples/debug_lab/repository/calculator.py` 与 `test_calculator.py` 是 Operator Console 使用的固定模板，
+不属于当前 Lab 1。Workbench 若把 calculator 历史记录显示成 Lab 1，说明读取了旧 artifact 指针，
+不能据此解释当前三条 Lab 主线。
+
 ## Lab 1：受治理修复
 
 主要入口：

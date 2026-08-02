@@ -1,5 +1,8 @@
 # Runtime 控制面：暂停、人工输入与恢复
 
+> 定位：这是面试追问和架构审计材料，不是项目首轮学习必读。首轮只看 README 的运行主链；需要
+> 解释审批、恢复、重复副作用或 Ledger 时再进入本文。
+
 本文只解释控制语义和现场展示。公开动作以 `forge run / resume / demo / inspect` 为准；不会再为
 answer、approval 或展示维护第二套 CLI。
 
@@ -31,6 +34,14 @@ session `active_task` pointer、任务队列或“暂停 A 后自动切换 B”�
 `resume` 先原子记录 answer/decision，再从 durable checkpoint 创建一条新的 continuation run。
 它不会恢复 Python stack、HTTP connection、provider KV Cache 或模型隐藏状态。
 
+写工具没有绕过审批。`PermissionPolicy` 对 `write` 始终返回 `ASK`；随后有两种决定来源：
+
+- `auto_approve_writes=false`：写入 pending approval 和 `WAITING_APPROVAL` checkpoint，等待人批准。
+- `auto_approve_writes=true`：Runtime 记录 `auto_approved` 后继续，主要用于受控 Lab 和测试。
+
+Lab 2 使用第二种配置，使多 Agent 编排演示不被人工输入打断；Approval/HITL Demo 使用第一种。
+两条路径都经过同一 `ToolAuthorizationGate` 和 Operation Ledger。
+
 ### 副作用为何需要独立账本
 
 1. 尚未执行：approval/HITL barrier 保证工具不启动。
@@ -46,16 +57,54 @@ session `active_task` pointer、任务队列或“暂停 A 后自动切换 B”�
 ```text
 execute_calls
   -> _select_calls_for_turn       数量上限 + HITL barrier
-  -> _execute_call
-       -> ToolRouter / ToolGateway
+  -> 对每个 ToolCall 调用 _execute_call
+       -> guardrail / 路由检查
+       -> ask_human 协议分支
        -> OperationTracker        identity + replay/stale
+       -> 连续重复策略             first attempt + one retry
        -> ToolAuthorizationGate   allow / deny / ask
-       -> Tool.execute            真实外部动作
-       -> validation/trace/checkpoint evidence
+       -> 仅当 proceed=True 时调用 _run_tool
+            -> 最后一次 pause / cancel 检查
+            -> Ledger 进入 executing
+            -> ToolGateway.execute
+            -> after_tool Hook
+            -> Observation / evidence / checkpoint
 ```
 
 首轮只读 `execute_calls`、`OperationTracker` 和 `ToolAuthorizationGate` 的合同。`_` 方法是主链内部
-分支，不是外部 facade；只有排查具体 failure 时才展开。
+分支，不是外部 facade。尤其注意：`_run_tool` 是 `_execute_call` 授权通过后的子分支，不是与
+`_execute_call` 平级的第二个入口；只有排查具体 failure 时才展开。
+
+单个调用离开主链时使用显式 `ToolCallOutcome`，而不是让 `None` 同时表示多种结果：
+
+| 结果 | 含义 | 是否调用真实工具 |
+| --- | --- | --- |
+| `EXECUTED` | 已越过治理边界并取得工具结果 | 是 |
+| `SKIPPED` | Ledger 已有确定事实，或无需 durable side-effect Ledger 的相同调用达到上限 | 否 |
+| `FAILED` | 路由、参数、授权或工具结果失败，但 run 可继续 | 视分支而定 |
+| `STOPPED` | 需要人工介入或无法安全继续 | 否或此前结果不确定 |
+
+### “重复请求”和“已经执行”不是同一判断
+
+| 判断 | Owner | 回答的问题 | 当前策略 |
+| --- | --- | --- | --- |
+| 连续重复 | `StepController` | 模型是否连续给出完全相同的工具名与规范化参数、没有推进 | 允许首次尝试和一次重试；第三次连续相同调用进入重复分支；不同动作立即重置 |
+| 已经执行 | `OperationLedger` | 该副作用是否已有 durable `executed` 记录，且当前目标仍匹配执行后 fingerprint | 不再执行工具，只把上次 Observation 作为确定事实回填 |
+
+因此一次调用可能“重复但从未执行”，例如前两次都被权限拒绝；也可能“以前执行过但不是当前连续
+重复”，例如 continuation 再次生成同一写操作。副作用先查 Ledger，再执行重复策略，避免把已经成功
+的写操作误判成普通模型循环。
+
+“重放事实”不是重放副作用：Runtime 不再调用 `ToolGateway.execute`，而是把 Ledger 保存的上次
+Observation 组装成成功 Tool Message，让下一轮模型知道该动作已经完成。这类似支付重试命中幂等
+订单后返回原交易结果，而不是再次扣款。
+
+### Hook 和 Trace 也不是同一机制
+
+Hook 类似 Java Interceptor、Listener 或 AOP 切点：Runtime 到达模型前后、工具前后、Checkpoint 后
+或停止前时，允许外部策略介入。它可以 `ALLOW/DENY/ASK`、改写模型响应、脱敏 Observation 或阻止
+完成。Trace 类似审计流水，只记录 Hook 及其他阶段已经发生的事实，不参与决策。项目会把 Hook 决定
+写入 Trace，但“Hook 被记录”不等于“Hook 就是 Trace”。
 
 ## 4. Trace、Checkpoint、Ledger 和 Artifact 的边界
 

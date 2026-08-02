@@ -142,7 +142,9 @@ def build_runtime_config(
         max_prompt_tokens=config.max_prompt_tokens,
         reserved_output_tokens=config.reserved_output_tokens,
         max_consecutive_failures=config.max_consecutive_failures,
-        max_tool_repeats=config.max_tool_repeats,
+        max_consecutive_identical_tool_calls=(
+            config.max_consecutive_identical_tool_calls
+        ),
         max_tool_calls_per_turn=config.max_tool_calls_per_turn,
         timeout_seconds=config.timeout_seconds,
         cost_budget_usd=config.cost_budget_usd,

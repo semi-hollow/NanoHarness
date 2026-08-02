@@ -41,8 +41,7 @@ class AgentRunSession:
     evidence: EvidenceLedger = field(default_factory=EvidenceLedger)
     active_skills: list[SkillView] = field(default_factory=list)
     skill_tool_names: set[str] = field(default_factory=set)
-    # 工具循环防重复、验证事实和运行资源累计。
-    tool_history: list[tuple[str, str]] = field(default_factory=list)
+    # 工具重复检测由 StepController 拥有；Session 只保存验证事实和资源累计。
     ran_tests: bool = False
     blocked: bool = False
     estimated_cost_usd: float = 0.0
