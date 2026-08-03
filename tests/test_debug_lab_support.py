@@ -1,3 +1,4 @@
+import os
 import sys
 import tempfile
 import unittest
@@ -5,6 +6,7 @@ import xml.etree.ElementTree as ET
 from pathlib import Path
 from unittest.mock import patch
 
+from examples import operator_console
 from examples.debug_lab import run as debug_lab
 from examples.debug_lab import support as debug_support
 from scripts.install_pycharm_debug_lab import (
@@ -38,19 +40,36 @@ class DebugLabSupportTest(unittest.TestCase):
         self.assertIn("agent_forge/harness.py", main_path)
         self.assertNotIn("tests", main_path)
         self.assertIn("multi_agent/application/live_fanout.py", extended_flows)
-        self.assertIn("evaluation/adapters/feedback_dataset_files.py", extended_flows)
+        self.assertIn("context/application/compaction.py", extended_flows)
+        self.assertIn("examples/operator_console.py", extended_flows)
+        self.assertIn("examples/debug_lab/complex_repository", extended_flows)
         self.assertNotIn("tests", extended_flows)
         self.assertNotIn("tests", production)
         self.assertEqual(tests, "file:tests//*")
 
     def test_shared_configs_route_to_one_debug_lab_in_order(self) -> None:
         expected = (
-            ("NanoHarness Lab 1 - Governed Repair", "governed"),
-            ("NanoHarness Lab 2 - Coordinated Agents", "coordinated"),
-            ("NanoHarness Lab 3 - Evaluation Loop", "evaluation"),
+            (
+                "NanoHarness Lab 1 - Governed Repair",
+                "governed",
+                "$PROJECT_DIR$/examples/debug_lab/run.py",
+                "governed --open-workbench",
+            ),
+            (
+                "NanoHarness Lab 2 - Coordinated Agents",
+                "coordinated",
+                "$PROJECT_DIR$/examples/debug_lab/run.py",
+                "coordinated --open-workbench",
+            ),
+            (
+                "NanoHarness Lab 3 - Complex Live Repair",
+                "complex",
+                "$PROJECT_DIR$/examples/operator_console.py",
+                "",
+            ),
         )
         actual: list[tuple[str, str]] = []
-        for name, scenario in expected:
+        for name, scenario, script, parameters in expected:
             path = PROJECT_ROOT / ".run" / f"{name}.run.xml"
             self.assertTrue(path.is_file())
             config = ET.parse(path).getroot().find("configuration")
@@ -64,25 +83,21 @@ class DebugLabSupportTest(unittest.TestCase):
                 variable.get("name"): variable.get("value")
                 for variable in config.findall("./envs/env")
             }
-            self.assertEqual(
-                options["SCRIPT_NAME"],
-                "$PROJECT_DIR$/examples/debug_lab/run.py",
-            )
-            self.assertEqual(
-                options["PARAMETERS"],
-                f"{scenario} --open-workbench",
-            )
+            self.assertEqual(options["SCRIPT_NAME"], script)
+            self.assertEqual(options["PARAMETERS"], parameters)
             self.assertEqual(options["SDK_HOME"], "$PROJECT_DIR$/.venv/bin/python")
             self.assertEqual(environment["NANOHARNESS_DEBUG_LAB"], scenario)
             actual.append((str(config.get("name")), scenario))
-        self.assertEqual(actual, list(expected))
+        self.assertEqual(
+            actual,
+            [(name, scenario) for name, scenario, _, _ in expected],
+        )
 
     def test_shared_run_configuration_catalog_stays_small(self) -> None:
         expected = {
             "NanoHarness Lab 1 - Governed Repair.run.xml",
             "NanoHarness Lab 2 - Coordinated Agents.run.xml",
-            "NanoHarness Lab 3 - Evaluation Loop.run.xml",
-            "NanoHarness Operator Console.run.xml",
+            "NanoHarness Lab 3 - Complex Live Repair.run.xml",
         }
         actual = {path.name for path in (PROJECT_ROOT / ".run").glob("*.run.xml")}
 
@@ -95,8 +110,10 @@ class DebugLabSupportTest(unittest.TestCase):
         for name in (
             "NanoHarness Lab 1 - Governed Repair",
             "NanoHarness Lab 2 - Coordinated Agents",
-            "NanoHarness Lab 3 - Evaluation Loop",
-            "NanoHarness Operator Console",
+            "NanoHarness Lab 3 - Complex Live Repair",
+            "自然修复",
+            "上下文压力",
+            "人工控制与恢复",
         ):
             self.assertIn(name, guide)
         for removed in (
@@ -118,18 +135,23 @@ class DebugLabSupportTest(unittest.TestCase):
 
     def test_breakpoint_symbols_resolve_and_install_idempotently(self) -> None:
         resolved = resolve_breakpoints(PROJECT_ROOT)
-        self.assertEqual(len(resolved), 14)
+        self.assertEqual(len(resolved), 17)
         self.assertEqual(len(resolved), len(TARGETS))
         self.assertEqual(
-            len({(item["url"], item["line"]) for item in resolved}),
+            len(
+                {
+                    (item["url"], item["line"], item["scenario"])
+                    for item in resolved
+                }
+            ),
             len(TARGETS),
         )
         self.assertEqual(
             {
                 scenario: sum(item["scenario"] == scenario for item in resolved)
-                for scenario in ("governed", "coordinated", "evaluation")
+                for scenario in ("governed", "coordinated", "complex")
             },
-            {"governed": 7, "coordinated": 5, "evaluation": 2},
+            {"governed": 7, "coordinated": 5, "complex": 5},
         )
         for item in resolved:
             self.assertIn("NANOHARNESS_DEBUG_LAB", str(item["condition"]))
@@ -183,7 +205,7 @@ class DebugLabSupportTest(unittest.TestCase):
             tree.getroot().find("./component[@name='KeepMe']").get("name"), "KeepMe"
         )
 
-    def test_fixture_and_interview_entry_do_not_duplicate_runtime(self) -> None:
+    def test_fixtures_and_workbench_entry_do_not_duplicate_runtime(self) -> None:
         fixture = PROJECT_ROOT / "examples" / "debug_lab" / "repository"
         fanout_fixture = (
             PROJECT_ROOT / "examples" / "debug_lab" / "multi_agent_repository"
@@ -203,6 +225,27 @@ class DebugLabSupportTest(unittest.TestCase):
             "== 85",
             (fanout_fixture / "test_checkout.py").read_text(encoding="utf-8"),
         )
+        complex_fixture = (
+            PROJECT_ROOT / "examples" / "debug_lab" / "complex_repository"
+        )
+        self.assertIn(
+            "mark_processed",
+            (complex_fixture / "settlement" / "service.py").read_text(
+                encoding="utf-8"
+            ),
+        )
+        self.assertIn(
+            "39.995",
+            (complex_fixture / "tests" / "test_reconciliation.py").read_text(
+                encoding="utf-8"
+            ),
+        )
+        self.assertIn(
+            "retry",
+            (complex_fixture / "tests" / "test_atomicity.py").read_text(
+                encoding="utf-8"
+            ),
+        )
         interview = (PROJECT_ROOT / "scripts" / "interview_demo.sh").read_text(
             encoding="utf-8"
         )
@@ -217,6 +260,7 @@ class DebugLabSupportTest(unittest.TestCase):
         self.assertNotIn("--live", interview)
         self.assertNotIn("--show-live", interview)
         self.assertNotIn("--show-official", interview)
+        self.assertIn("--show-complex", interview)
 
         debug_entry = (PROJECT_ROOT / "examples" / "debug_lab" / "run.py").read_text(
             encoding="utf-8"
@@ -229,7 +273,27 @@ class DebugLabSupportTest(unittest.TestCase):
         ):
             self.assertNotIn(removed_scenario, debug_entry)
 
-    def test_core_labs_open_workbench_by_default_and_can_opt_out(self) -> None:
+    def test_complex_lab_profiles_change_conditions_not_the_task(self) -> None:
+        with patch.dict(
+            os.environ,
+            {"NANOHARNESS_PRACTICE_PROFILE": "context-pressure"},
+        ):
+            profile = operator_console.select_practice_profile()
+
+        self.assertEqual(profile.title, "上下文压力")
+        self.assertEqual(profile.max_context_chars, 6_500)
+        self.assertEqual(operator_console.DEFAULT_TASK.count("Repair"), 1)
+
+        with (
+            patch.dict(os.environ, {}, clear=True),
+            patch("builtins.input", return_value="3"),
+        ):
+            control_profile = operator_console.select_practice_profile()
+
+        self.assertEqual(control_profile.key, "operator-control")
+        self.assertTrue(control_profile.operator_drill)
+
+    def test_optional_evaluation_runner_opens_workbench_and_can_opt_out(self) -> None:
         with (
             patch.object(sys, "argv", ["run.py", "evaluation"]),
             patch.object(debug_lab, "run_evaluation") as run_evaluation,
@@ -261,7 +325,10 @@ class DebugLabSupportTest(unittest.TestCase):
         open_workbench.assert_not_called()
 
     @patch("examples.debug_lab.run.subprocess.run")
-    def test_each_lab_opens_its_matching_workbench_scene(self, run_process) -> None:
+    def test_scripted_scenarios_open_their_matching_workbench_scene(
+        self,
+        run_process,
+    ) -> None:
         expected = {
             "governed": "--show-governed",
             "coordinated": "--show-coordinated",

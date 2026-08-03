@@ -18,11 +18,12 @@ from agent_forge.workbench.presentation.http import (
 class WorkbenchRunStoryTest(unittest.TestCase):
     def test_workbench_default_surface_is_read_only(self):
         self.assertIn('class="read-only status-collapsed', INDEX_HTML)
-        self.assertIn("总览 + 三个证据场景", INDEX_HTML)
+        self.assertIn("总览 + 三条学习主线", INDEX_HTML)
         self.assertIn("loadEvidence('overview')", INDEX_HTML)
         self.assertIn("1 受治理运行", INDEX_HTML)
         self.assertIn("2 多 Agent 协同", INDEX_HTML)
-        self.assertIn("3 评测改进闭环", INDEX_HTML)
+        self.assertIn("3 复杂真实任务", INDEX_HTML)
+        self.assertIn("评测档案", INDEX_HTML)
         self.assertIn("loadEvidence('controls')", INDEX_HTML)
         self.assertIn("当前 Lab · 证据详情", INDEX_HTML)
         self.assertIn('class="evidence-menu" hidden', INDEX_HTML)
@@ -31,7 +32,9 @@ class WorkbenchRunStoryTest(unittest.TestCase):
         self.assertIn('data-lab="lab3"', INDEX_HTML)
         self.assertIn("Lab 1 · 受治理运行", INDEX_HTML)
         self.assertIn("Lab 2 · 多 Agent 协同", INDEX_HTML)
-        self.assertIn("Lab 3 · 评测闭环", INDEX_HTML)
+        self.assertIn("Lab 3 · 复杂真实任务", INDEX_HTML)
+        self.assertIn("loadEvidence('complex')", INDEX_HTML)
+        self.assertIn("loadEvidence('complex_timeline')", INDEX_HTML)
         self.assertIn("setEvidenceMenuScope(activeLab)", INDEX_HTML)
         self.assertIn("loadEvidence('orchestration_timeline')", INDEX_HTML)
         self.assertNotIn(
@@ -41,6 +44,110 @@ class WorkbenchRunStoryTest(unittest.TestCase):
         self.assertIn("pageParams.get('view')", INDEX_HTML)
         self.assertIn("loadEvidence(initialView)", INDEX_HTML)
         self.assertIn("Workbench 只读", WORKBENCH_READ_ONLY_MESSAGE)
+
+    def test_complex_lab_uses_its_own_pointer_and_explains_real_run(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            project_dir = Path(tmp)
+            unrelated = project_dir / ".agent_forge/runs/unrelated"
+            unrelated.mkdir(parents=True)
+            complex_run = project_dir / ".agent_forge/runs/complex-run"
+            complex_run.mkdir()
+            (complex_run / "run_manifest.json").write_text(
+                json.dumps(
+                    {
+                        "schema_version": 1,
+                        "run_id": "complex-run",
+                        "task": "repair settlement atomicity",
+                        "status": "completed",
+                        "stop_reason": "final_answer",
+                        "artifacts": [],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            (complex_run / "trace.json").write_text(
+                json.dumps(
+                    {
+                        "run_id": "complex-run",
+                        "stop_reason": "final_answer",
+                        "events": [
+                            {"step": 1, "event_type": "llm_call"},
+                            {
+                                "step": 1,
+                                "event_type": "validation_evidence",
+                                "success": False,
+                                "validation": {
+                                    "kind": "focused pytest",
+                                    "status": "failed",
+                                    "evidence": "pytest tests/test_reconciliation.py",
+                                },
+                            },
+                            {"step": 2, "event_type": "llm_call"},
+                            {
+                                "step": 2,
+                                "event_type": "validation_evidence",
+                                "success": True,
+                                "validation": {
+                                    "kind": "full pytest",
+                                    "status": "passed",
+                                    "evidence": "pytest -q: 8 passed",
+                                },
+                            },
+                            {"step": 2, "event_type": "task_state_checkpoint"},
+                        ],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            (complex_run / "usage.json").write_text(
+                json.dumps(
+                    {
+                        "summary": {
+                            "latest_task_status": "completed",
+                            "llm_calls": 2,
+                            "tool_calls": 7,
+                            "failed_tool_calls": 1,
+                            "total_tokens": 1234,
+                            "estimated_cost_usd": 0.01,
+                            "compacted_context_turns": 1,
+                        }
+                    }
+                ),
+                encoding="utf-8",
+            )
+            (complex_run / "practice_profile.json").write_text(
+                json.dumps(
+                    {
+                        "key": "context-pressure",
+                        "title": "上下文压力",
+                        "purpose": "观察压缩与信息丢失",
+                        "operator_drill": [],
+                    },
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+            state = project_dir / ".agent_forge/debug-lab/state"
+            state.mkdir(parents=True)
+            (state / "complex_artifact.txt").write_text(
+                str(complex_run),
+                encoding="utf-8",
+            )
+
+            catalog = FileEvidenceCatalog(project_dir)
+            selected_run = catalog.latest_complex_run_dir()
+            rendered = _render_evidence_html(project_dir, "complex")
+            timeline = _render_evidence_html(project_dir, "complex_timeline")
+
+        self.assertEqual(selected_run, complex_run)
+        self.assertIn("repair settlement atomicity", rendered)
+        self.assertIn("上下文压力", rendered)
+        self.assertIn("2", rendered)
+        self.assertIn("focused pytest", rendered)
+        self.assertIn("full pytest", rendered)
+        self.assertIn("pytest -q: 8 passed", rendered)
+        self.assertIn("复杂结算修复 AgentLoop", timeline)
+        self.assertNotIn(str(unrelated), rendered)
 
     def test_run_evidence_prefers_canonical_run_story(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -799,7 +906,7 @@ class WorkbenchRunStoryTest(unittest.TestCase):
         self.assertIn("本次载入的历史实验", rendered)
         self.assertIn("嵌套 CompoundModel 的可分离矩阵错误", rendered)
         self.assertIn("HttpResponse 错误处理 memoryview", rendered)
-        self.assertIn("点击 Lab 3 不会重新调用模型", rendered)
+        self.assertIn("打开评测档案不会重新调用模型", rendered)
         self.assertIn("deepseek-v4-pro", rendered)
         self.assertIn("观测问题", rendered)
         self.assertIn("维护者人工复核", rendered)

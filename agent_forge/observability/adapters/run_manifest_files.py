@@ -56,6 +56,15 @@ _KNOWN_ARTIFACTS: dict[str, _ArtifactSpec] = {
         ("记录了实际 workspace、Git 基线和隔离模式",),
         ("隔离能抵御 hostile multi-tenant workload",),
     ),
+    "practice_profile.json": _ArtifactSpec(
+        "practice_profile",
+        "examples.operator_console.main",
+        "request",
+        ("RunStory", "Workbench", "learning inspection"),
+        "fact",
+        ("记录了复杂任务运行时主动选择的学习条件和上下文预算",),
+        ("任务已完成", "候选改动正确", "官方评测通过"),
+    ),
     "trace.json": _ArtifactSpec(
         "trace",
         "TraceRecorder.publish",

@@ -73,6 +73,10 @@ class ForgeUiHandler(BaseHTTPRequestHandler):
             "python": sys.version.split()[0],
             "workbench_source_sha256": WORKBENCH_SOURCE_SHA256,
             "latest_run": str(_latest_run_dir(self.state.project_dir) or ""),
+            "latest_complex": str(
+                build_evidence_catalog(self.state.project_dir).latest_complex_run_dir()
+                or ""
+            ),
             "latest_campaign": str(_latest_campaign_dir(self.state.project_dir) or ""),
             "latest_report": _latest_report_path(self.state.project_dir),
             "feedback": _latest_feedback_outcome(self.state.project_dir),
@@ -168,6 +172,8 @@ def _render_evidence_html(project_dir: Path, kind: str) -> str:
         return _render_trace_timeline(project_dir)
     if kind == "orchestration_timeline":
         return _render_orchestration_trace_timeline(project_dir)
+    if kind == "complex_timeline":
+        return _render_complex_trace_timeline(project_dir)
     if kind == "evidence":
         return _render_run_evidence(project_dir)
     if kind == "compare":
@@ -176,6 +182,8 @@ def _render_evidence_html(project_dir: Path, kind: str) -> str:
         return _render_runtime_controls(project_dir)
     if kind == "orchestration":
         return _render_orchestration_dashboard(project_dir)
+    if kind == "complex":
+        return _render_complex_lab_dashboard(project_dir)
     if kind == "evaluation":
         return _render_evaluation_dashboard(project_dir)
     if kind == "benchmark":
@@ -207,6 +215,22 @@ def _latest_governed_trace_path(project_dir: Path) -> Path | None:
 
 def _latest_governed_usage_path(project_dir: Path) -> Path | None:
     return build_evidence_catalog(project_dir).latest_governed_usage_path()
+
+
+def _latest_complex_run_dir(project_dir: Path) -> Path | None:
+    return build_evidence_catalog(project_dir).latest_complex_run_dir()
+
+
+def _latest_complex_run_story(project_dir: Path) -> RunStory | None:
+    return build_evidence_catalog(project_dir).latest_complex_run_story()
+
+
+def _latest_complex_trace_path(project_dir: Path) -> Path | None:
+    return build_evidence_catalog(project_dir).latest_complex_trace_path()
+
+
+def _latest_complex_usage_path(project_dir: Path) -> Path | None:
+    return build_evidence_catalog(project_dir).latest_complex_usage_path()
 
 
 def _latest_trace_path(project_dir: Path) -> Path | None:
@@ -361,7 +385,7 @@ def _read_json_file(path: Path | None) -> dict[str, Any]:
 
 
 def _render_observability_overview(project_dir: Path) -> str:
-    """汇总三个稳定证据范围，首页只回答结果、原因和下一层入口。"""
+    """汇总三条学习主线和可选评测档案，首页只回答结果与入口。"""
 
     run_story = _latest_governed_run_story(project_dir)
     trace = _read_json_file(_latest_governed_trace_path(project_dir))
@@ -413,6 +437,26 @@ def _render_observability_overview(project_dir: Path) -> str:
         orchestration_metrics.get("task_count")
         or len(orchestration.get("role_results") or [])
     )
+    complex_story = _latest_complex_run_story(project_dir)
+    complex_trace = _read_json_file(_latest_complex_trace_path(project_dir))
+    complex_usage = _read_json_file(_latest_complex_usage_path(project_dir))
+    complex_summary = complex_usage.get("summary") or {}
+    complex_events = _event_list(complex_trace)
+    complex_turns = {
+        int(event.get("step") or 0)
+        for event in complex_events
+        if int(event.get("step") or 0) > 0
+    }
+    complex_status = (
+        complex_story.status
+        if complex_story is not None
+        else str(complex_summary.get("latest_task_status") or "not_observed")
+    )
+    displayed_failed_tools = (
+        int(complex_summary.get("failed_tool_calls") or 0)
+        if complex_summary
+        else failed_tools
+    )
     evidence_state = "official" if paired.get("evaluated_pairs") else "fact"
     evidence_text = (
         f"{int(paired.get('evaluated_pairs') or 0)} 组官方配对"
@@ -438,7 +482,7 @@ def _render_observability_overview(project_dir: Path) -> str:
         "<div class='view-heading'><div><span class='view-kicker'>观测总览</span>"
         "<h2>先看结论，再逐层下钻</h2></div>"
         f"{_badge(evidence_state, 'ok' if paired.get('evaluated_pairs') else 'neutral')}</div>",
-        "<p class='help strong'>当前页面同时索引三类独立证据：最近一次受治理运行、最近一次多 Agent 协同、最近一次评测实验。它们不会再因为 Lab 的执行顺序相互覆盖。</p>",
+        "<p class='help strong'>当前页面分别索引受治理运行、多 Agent 协同、复杂真实任务和可选评测档案。每条主线使用独立指针，不会因运行顺序相互覆盖。</p>",
         _metric_grid(
             [
                 (
@@ -454,22 +498,27 @@ def _render_observability_overview(project_dir: Path) -> str:
                     _tone_for_status(orchestration_status),
                 ),
                 (
-                    "评测证据上限",
+                    "复杂真实任务",
+                    _display_value(complex_status),
+                    f"{len(complex_turns)} 轮 · 真实模型",
+                    _tone_for_status(complex_status),
+                ),
+                (
+                    "可选评测档案",
                     evidence_text,
                     "候选、本地、官方分层",
                     "ok" if paired.get("evaluated_pairs") else "warn",
                 ),
                 (
                     "失败工具调用",
-                    str(failed_tools),
-                    "来自最近一次 Single-Run",
-                    "bad" if failed_tools else "ok",
+                    str(displayed_failed_tools),
+                    "优先来自复杂真实任务",
+                    "bad" if displayed_failed_tools else "ok",
                 ),
-                ("底层事件", str(len(events)), "默认折叠，只用于定位原因", "neutral"),
                 (
-                    "实验 Case",
-                    str(len(campaign_cases)),
-                    "当前已载入的实际覆盖",
+                    "复杂任务底层事件",
+                    str(len(complex_events)),
+                    "默认折叠，只用于定位原因",
                     "neutral",
                 ),
             ]
@@ -479,14 +528,14 @@ def _render_observability_overview(project_dir: Path) -> str:
         hierarchy,
         "</section>",
         "<section class='evidence-section'><div class='section-title'><h3>三个必学场景</h3>"
-        "<span>首页只保留面试主线</span></div>",
+        "<span>先获得实践经验，再考虑展示</span></div>",
         "<div class='scenario-grid'>"
         "<button onclick=\"loadEvidence('controls')\"><b>1</b><strong>受治理运行</strong>"
         f"<span>{checkpoint_count} 个 Checkpoint · 权限、HITL、恢复</span></button>"
         "<button onclick=\"loadEvidence('orchestration')\"><b>2</b><strong>多 Agent 协同</strong>"
         f"<span>{task_count} 个任务 · 隔离、合并、冲突控制</span></button>"
-        "<button onclick=\"loadEvidence('feedback')\"><b>3</b><strong>评测改进闭环</strong>"
-        f"<span>{len(campaign_cases)} 个 Case · 失败归因、对比、决策</span></button>"
+        "<button onclick=\"loadEvidence('complex')\"><b>3</b><strong>复杂真实任务</strong>"
+        f"<span>{len(complex_turns)} 轮 · 检索、失败反馈、修正、回归</span></button>"
         "</div></section>",
         "<section class='evidence-section'><div class='section-title'><h3>阅读原则</h3>"
         "<span>观测面与底层事实分开</span></div>"
@@ -1059,6 +1108,23 @@ def _render_orchestration_trace_timeline(project_dir: Path) -> str:
     )
 
 
+def _render_complex_trace_timeline(project_dir: Path) -> str:
+    """只展示 Lab 3 本次真实模型运行，避免混入其他 Lab 的 Trace。"""
+
+    trace_path = _latest_complex_trace_path(project_dir)
+    if trace_path is None:
+        return _empty_evidence(
+            "Lab 3 尚未产生真实模型 Trace，请先运行 PyCharm 的 "
+            "NanoHarness Lab 3 - Complex Live Repair。"
+        )
+    return _render_trace_timeline_entries(
+        [("复杂结算修复 AgentLoop", trace_path)],
+        scope_label="LAB 3 · 复杂真实任务",
+        title="多轮检索、修改与验证时间线",
+        source_path=trace_path,
+    )
+
+
 def _render_trace_timeline_entries(
     trace_entries: list[tuple[str, Path]],
     *,
@@ -1071,7 +1137,7 @@ def _render_trace_timeline_entries(
     body = [
         f"<div class='view-heading'><div><span class='view-kicker'>{_escape(scope_label)}</span>"
         f"<h2>{_escape(title)}</h2></div>"
-        "<span class='claim-note'>面试只记四段</span></div>",
+        "<span class='claim-note'>先按四段理解，再下钻事件</span></div>",
         "<p class='help strong'>一轮 AgentLoop 只按四件事理解。扩展钩子（Hook）、权限、操作账本、"
         "工具开始与工具结果都归入“治理并执行”；底层 Trace 事件只用于排障，不需要背诵。</p>",
         "<div class='mini-flow timeline-mental-model'>"
@@ -1091,6 +1157,198 @@ def _render_trace_timeline_entries(
             f"<code>{_escape(str(source_path))}</code></details>"
         )
     return "<div class='evidence'>" + "".join(body) + "</div>"
+
+
+def _render_complex_lab_dashboard(project_dir: Path) -> str:
+    """展示真实模型复杂任务的目标、过程、结果与证据边界。"""
+
+    run_dir = _latest_complex_run_dir(project_dir)
+    if run_dir is None:
+        return _empty_evidence(
+            "还没有复杂任务 Evidence。运行 PyCharm 的 "
+            "NanoHarness Lab 3 - Complex Live Repair；完成或主动退出 TUI 后，"
+            "这里会固定展示那一次运行。"
+        )
+
+    story: RunStory | None = None
+    story_error = ""
+    try:
+        story = _latest_complex_run_story(project_dir)
+    except (OSError, ValueError) as exc:
+        story_error = str(exc)
+    trace_path = _latest_complex_trace_path(project_dir)
+    usage_path = _latest_complex_usage_path(project_dir)
+    trace = _read_json_file(trace_path)
+    usage = _read_json_file(usage_path)
+    practice_profile = _read_json_file(run_dir / "practice_profile.json")
+    usage_summary = usage.get("summary") or {}
+    events = _event_list(trace)
+    turns = {
+        int(event.get("step") or 0)
+        for event in events
+        if int(event.get("step") or 0) > 0
+    }
+    task = (
+        story.task
+        if story is not None and story.task
+        else str(usage.get("task") or trace.get("task") or "未记录任务")
+    )
+    status = (
+        story.status
+        if story is not None
+        else str(usage_summary.get("latest_task_status") or trace.get("stop_reason") or "unknown")
+    )
+    checkpoint_count = sum(
+        event.get("event_type") == "task_state_checkpoint" for event in events
+    )
+    approval_events = sum(
+        event.get("event_type") in {"human_approval", "human_input_requested"}
+        for event in events
+    )
+    candidate_diff_bytes = 0
+    if story is not None:
+        candidate_diff = next(
+            (artifact for artifact in story.artifacts if artifact.kind == "candidate_diff"),
+            None,
+        )
+        candidate_diff_bytes = candidate_diff.byte_size if candidate_diff else 0
+
+    validation_events = [
+        event for event in events if event.get("event_type") == "validation_evidence"
+    ]
+    validation_rows = "".join(
+        _render_complex_validation_row(index, event)
+        for index, event in enumerate(validation_events, start=1)
+    ) or "<tr><td colspan='4'>本次运行尚未留下 focused/full pytest 证据。</td></tr>"
+
+    body = [
+        "<div class='view-heading'><div><span class='view-kicker'>LAB 3 · 真实 DEEPSEEK 运行</span>"
+        "<h2>复杂结算修复学习场</h2></div>"
+        f"{_badge(status, _tone_for_status(status))}</div>",
+        _render_lab_brief(
+            question=(
+                "面对同时包含幂等、金额舍入、部分结算和失败原子性的多模块缺陷，"
+                "Agent 能否通过多轮检索、修改、失败反馈和回归验证收敛？"
+            ),
+            input_label="本次 Task",
+            input_items=[task],
+            mechanism=(
+                "真实 DeepSeek + 24 轮有界 AgentLoop；写操作人工审批；先跑 focused tests，"
+                "再跑完整回归；每轮工具、观察、Checkpoint 和用量都进入 Trace。"
+            ),
+            success_criteria=(
+                "不改测试；focused 与完整 pytest 都通过；生成非空 candidate diff；"
+                "最终回答基于实际验证证据。"
+            ),
+            boundary=(
+                "这是本地可控工程场景，不是 SWE-bench official 结果；模型每次路径和轮数可变，"
+                "失败、暂停或未收敛同样是有效学习证据。"
+            ),
+        ),
+        _metric_grid(
+            [
+                (
+                    "练习模式",
+                    str(practice_profile.get("title") or "未记录"),
+                    str(practice_profile.get("purpose") or "真实模型复杂任务"),
+                    "neutral",
+                ),
+                (
+                    "运行状态",
+                    _display_value(status),
+                    str(story.stop_reason if story is not None else trace.get("stop_reason") or "-"),
+                    _tone_for_status(status),
+                ),
+                (
+                    "Agent 轮次",
+                    str(len(turns)),
+                    f"上限 24 轮；实际模型调用 {int(usage_summary.get('llm_calls') or 0)} 次",
+                    "neutral",
+                ),
+                (
+                    "工具调用",
+                    str(int(usage_summary.get("tool_calls") or 0)),
+                    f"失败 {int(usage_summary.get('failed_tool_calls') or 0)} 次",
+                    "bad" if usage_summary.get("failed_tool_calls") else "ok",
+                ),
+                (
+                    "验证证据",
+                    str(len(validation_events)),
+                    "focused / full pytest 的实际结果",
+                    "ok" if validation_events else "warn",
+                ),
+                (
+                    "上下文压缩",
+                    str(int(usage_summary.get("compacted_context_turns") or 0)),
+                    f"截断 {int(usage_summary.get('truncated_context_steps') or 0)} 轮 · 溢出恢复 {int(usage_summary.get('context_overflow_recoveries') or 0)} 次",
+                    "warn" if usage_summary.get("compacted_context_turns") else "neutral",
+                ),
+                (
+                    "Checkpoint / 人工介入",
+                    f"{checkpoint_count} / {approval_events}",
+                    "状态写入次数 / Trace 中的人工事件",
+                    "neutral",
+                ),
+                (
+                    "Token / 估算成本",
+                    f"{int(usage_summary.get('total_tokens') or 0)} / ${float(usage_summary.get('estimated_cost_usd') or 0.0):.4f}",
+                    f"候选改动 {candidate_diff_bytes} 字节",
+                    "neutral",
+                ),
+            ]
+        ),
+        (
+            "<section class='evidence-section'><div class='section-title'>"
+            "<h3>本次亲手练习动作</h3><span>只有实际操作过，才算掌握控制面</span></div>"
+            + _render_fact_list(
+                practice_profile.get("operator_drill"),
+                empty_message="本模式先观察，不要求主动干预。",
+            )
+            + "</section>"
+        ),
+        "<section class='evidence-section'>"
+        "<div class='section-title'><h3>为什么它不是一步修复</h3>"
+        "<span>先暴露局部问题，再由完整回归揭示跨模块不变量</span></div>"
+        "<div class='pipeline'>"
+        "<div><b>01</b><span>仓库定向</span><small>识别 domain、repository、service 与两组测试</small></div>"
+        "<div><b>02</b><span>Focused 失败</span><small>幂等键规范化、金额舍入、partial 状态</small></div>"
+        "<div><b>03</b><span>局部修复</span><small>修改后重新运行 focused tests</small></div>"
+        "<div><b>04</b><span>完整回归</span><small>额外暴露失败原子性与可重试边界</small></div>"
+        "<div><b>05</b><span>再次修正</span><small>校验必须先于 ledger 和幂等状态写入</small></div>"
+        "<div><b>06</b><span>结果收口</span><small>全量通过、检查 Diff、再形成最终回答</small></div>"
+        "</div><p class='boundary-note'>上面是任务的验证漏斗，不伪造模型必然采用的思考顺序；"
+        "实际走了哪些分支，以时间线和验证证据为准。</p></section>",
+        "<section class='evidence-section'><div class='section-title'><h3>实际验证记录</h3>"
+        "<span>命令、状态与结果来自 Trace</span></div>"
+        "<table><thead><tr><th>#</th><th>验证类型</th><th>状态</th><th>实际命令 / 结果摘要</th>"
+        f"</tr></thead><tbody>{validation_rows}</tbody></table></section>",
+        _render_run_story_section(story, run_dir, story_error),
+        "<details class='provenance'><summary>本次复杂任务的固定证据来源</summary>"
+        f"<code>{_escape(str(run_dir))}</code>"
+        f"<code>{_escape(str(trace_path or '未找到 trace.json'))}</code>"
+        f"<code>{_escape(str(usage_path or '未找到 usage.json'))}</code></details>",
+    ]
+    return "<div class='evidence'>" + "".join(body) + "</div>"
+
+
+def _render_complex_validation_row(index: int, event: dict[str, Any]) -> str:
+    """把 validation_evidence 压缩成能直接复核的一行。"""
+
+    validation = event.get("validation") or {}
+    if not isinstance(validation, dict):
+        validation = {}
+    kind = str(validation.get("kind") or "unknown")
+    status = str(validation.get("status") or ("passed" if event.get("success") else "failed"))
+    evidence = str(validation.get("evidence") or "")
+    evidence_lines = [line.strip() for line in evidence.splitlines() if line.strip()]
+    summary = " · ".join(evidence_lines[:3]) or "没有记录命令摘要"
+    return (
+        "<tr>"
+        f"<td>{index}</td><td>{_escape(kind)}</td>"
+        f"<td>{_badge(status, _tone_for_status(status))}</td>"
+        f"<td>{_escape(_compact_timeline_text(summary, max_chars=320))}</td>"
+        "</tr>"
+    )
 
 
 def _render_trace_lane(label: str, trace_path: Path) -> str:
@@ -3522,7 +3780,7 @@ def _render_feedback_dashboard(project_dir: Path) -> str:
                 "并给出不超过证据上限的改进决策。"
             ),
             boundary=(
-                f"点击 Lab 3 不会重新调用模型；它回放由 {historical_model} 产生的已保存实验。"
+                f"打开评测档案不会重新调用模型；它回放由 {historical_model} 产生的已保存实验。"
                 f"当前只有 {len(case_ids)} 个 Case × 2 套配置 × {repetitions} 次重复，"
                 "属于 commissioning 证据，不能估计总体成功率。"
             ),
@@ -5157,7 +5415,7 @@ INDEX_HTML = r"""<!doctype html>
       <div class="brand-mark">NH</div>
       <div>
         <h1>NanoHarness 证据工作台</h1>
-      <div class="subtitle">总览 + 三个证据场景：运行控制、多 Agent 协同、评测改进</div>
+      <div class="subtitle">总览 + 三条学习主线：运行控制、多 Agent 协同、复杂真实任务</div>
       </div>
     </div>
     <div class="header-actions">
@@ -5177,7 +5435,8 @@ INDEX_HTML = r"""<!doctype html>
         <button data-view="overview" onclick="loadEvidence('overview')">总览</button>
         <button data-view="controls" onclick="loadEvidence('controls')">1 受治理运行</button>
         <button data-view="orchestration" onclick="loadEvidence('orchestration')">2 多 Agent 协同</button>
-        <button data-view="feedback" onclick="loadEvidence('feedback')">3 评测改进闭环</button>
+        <button data-view="complex" onclick="loadEvidence('complex')">3 复杂真实任务</button>
+        <button data-view="feedback" onclick="loadEvidence('feedback')">评测档案</button>
         <details class="evidence-menu" hidden>
           <summary id="evidenceMenuTitle">当前 Lab · 证据详情</summary>
           <div>
@@ -5187,9 +5446,8 @@ INDEX_HTML = r"""<!doctype html>
             <div class="menu-group" data-lab="lab2"><span class="menu-label">Lab 2 · 多 Agent 协同</span>
               <button data-view="orchestration_timeline" onclick="loadEvidence('orchestration_timeline')">Worker / Finalizer 时间线</button>
             </div>
-            <div class="menu-group" data-lab="lab3"><span class="menu-label">Lab 3 · 评测闭环</span>
-              <button data-view="benchmark" onclick="loadEvidence('benchmark')">实验批次与 Case</button>
-              <button data-view="evaluation" onclick="loadEvidence('evaluation')">独立 Case 诊断</button>
+            <div class="menu-group" data-lab="lab3"><span class="menu-label">Lab 3 · 复杂真实任务</span>
+              <button data-view="complex_timeline" onclick="loadEvidence('complex_timeline')">多轮 AgentLoop 时间线</button>
             </div>
           </div>
         </details>
@@ -5206,12 +5464,14 @@ INDEX_HTML = r"""<!doctype html>
       benchmark: '基准评测',
       controls: 'Lab 1 · 受治理运行',
       orchestration: 'Lab 2 · 多 Agent 协同',
-      evaluation: 'Lab 3 · SWE-bench Case 诊断',
+      evaluation: '评测档案 · SWE-bench Case 诊断',
       compare: '单 Agent / 多 Agent',
       usage: '成本效率',
       timeline: 'Lab 1 · AgentLoop 时间线',
       orchestration_timeline: 'Lab 2 · Worker / Finalizer 时间线',
-      feedback: 'Lab 3 · 评测改进闭环',
+      complex: 'Lab 3 · 复杂真实任务',
+      complex_timeline: 'Lab 3 · 多轮 AgentLoop 时间线',
+      feedback: '评测档案 · 改进闭环',
       raw_report: '原始报告'
     };
     const evidenceLabs = {
@@ -5219,19 +5479,18 @@ INDEX_HTML = r"""<!doctype html>
       timeline: 'lab1',
       orchestration: 'lab2',
       orchestration_timeline: 'lab2',
-      feedback: 'lab3',
-      benchmark: 'lab3',
-      evaluation: 'lab3'
+      complex: 'lab3',
+      complex_timeline: 'lab3'
     };
     const labMainViews = {
       lab1: 'controls',
       lab2: 'orchestration',
-      lab3: 'feedback'
+      lab3: 'complex'
     };
     const labTitles = {
       lab1: 'Lab 1 · 受治理运行',
       lab2: 'Lab 2 · 多 Agent 协同',
-      lab3: 'Lab 3 · 评测闭环'
+      lab3: 'Lab 3 · 复杂真实任务'
     };
 
     async function refreshStatus() {

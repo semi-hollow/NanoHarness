@@ -73,6 +73,23 @@ resolved/unresolved report 时，不报告 official resolved rate；只有五题
 oracle 和一个不会误导的 denominator。当前项目用 Verified 回答结果正确性，用行为测试回答
 Runtime 契约，用 trace/scorecard 回答过程质量；三者不能互相替代。
 
+## 从运行事实到改进决策
+
+项目的数据闭环不是“失败后自动新增一个测试”，而是：
+
+```text
+Trace / Policy / Environment / Candidate Diff / Official Result
+  -> Failure Taxonomy + 人工反馈
+  -> bad-case 分组与可执行回归
+  -> 固定变量的 matched experiment
+  -> adopt / reject / 继续收集证据
+```
+
+`forge eval feedback` 保存人工 outcome、label 和 note；`forge eval export-dataset` 导出经过复核的
+结构化记录。默认不导出完整 Tool 参数、Observation、绝对路径或 Patch 正文，避免把仓库内容和
+秘密混入分析数据。自动规则负责聚合事实和给出候选诊断，最终改进决策仍需人工复核；该流程是
+Evaluation 数据闭环，不声称已经构成 RL 训练平台。
+
 ## 目标覆盖图
 
 | Case | 目的 | 主要 failure mode |
@@ -138,3 +155,7 @@ cost 或 safety boundary，同时没有隐藏其他 case regression，才算有�
 比较 runtime factor 时使用 `forge eval ablation` 和 matched run；不同 model、dataset、
 split 或 case id 的 run 不应直接比较。Memory 实验还必须固定 snapshot SHA-256，Skill
 实验必须记录 manifest SHA-256；召回或激活次数只能证明机制被触发。
+
+执行环境不是实验因子时也必须固定：local/worktree 与 OCI 的隔离边界、network policy、镜像、
+资源限制或 evaluator coverage 发生 drift，比较应被拒绝。OCI 提供更强的进程隔离，但不声称
+hostile multi-tenant security。

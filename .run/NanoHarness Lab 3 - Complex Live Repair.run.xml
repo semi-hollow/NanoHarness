@@ -1,9 +1,10 @@
 <component name="ProjectRunConfigurationManager">
-  <configuration default="false" name="NanoHarness Operator Console" type="PythonConfigurationType" factoryName="Python">
+  <configuration default="false" name="NanoHarness Lab 3 - Complex Live Repair" type="PythonConfigurationType" factoryName="Python">
     <option name="ENV_FILES" value="" />
     <option name="INTERPRETER_OPTIONS" value="" />
     <option name="PARENT_ENVS" value="true" />
     <envs>
+      <env name="NANOHARNESS_DEBUG_LAB" value="complex" />
       <env name="PYTHONUNBUFFERED" value="1" />
     </envs>
     <option name="SDK_HOME" value="$PROJECT_DIR$/.venv/bin/python" />

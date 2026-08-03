@@ -66,8 +66,8 @@ forge inspect latest
 forge inspect AgentLoop.run
 ```
 
-PyCharm 共享配置 **NanoHarness Operator Console** 会创建安全练习仓库、读取 Keychain 中的
-DeepSeek Key，并预填一条贯穿 HITL、写审批和验证的任务。Core CLI 是
+PyCharm 共享配置 **NanoHarness Lab 3 - Complex Live Repair** 会创建隔离的多模块结算练习仓库、
+读取 Keychain 中的 DeepSeek Key，并提供自然修复、上下文压力和人工控制三种实践模式。Core CLI 是
 `console / run / inspect / demo`；`resume` 是无头 continuation 入口，`bench / ui` 属于 Advanced。
 Console 同屏接收回答或审批并自动续跑；脚本和 CI 仍可使用 `resume --answer/--decision`。
 
@@ -174,10 +174,9 @@ dataset issue/base commit
   -> scorecard / failure class
 ```
 
-面试学习直接运行现有 `NanoHarness Lab 3 - Evaluation Loop`：它回放已保存的 commissioning
-evidence，展示分层正确性、失败归因、前后对比和结论边界，不重新调用模型或 Docker。需要真正
-扩大样本时，再固定 case、模型、温度、预算、安全策略和执行环境，交错重复比较两个同核 Runtime
-preset；完整 campaign 使用
+Workbench 的“评测档案”可以离线查看已保存 commissioning evidence，不重新调用模型或 Docker。
+需要真正扩大样本时，再固定 case、模型、温度、预算、安全策略和执行环境，交错重复比较两个同核
+Runtime preset；完整 campaign 使用
 `forge bench campaign --regression-set smoke-5 --repetitions 3 --evaluate --publish`。
 
 这会规划 `5 cases x 2 presets x 3 repetitions = 30 runs`。每个槽位原子保存，恢复时只重试
@@ -224,20 +223,16 @@ API 和 composition root。六边形边界用于替换外部 Port、隔离副作
 
 ## 文档
 
-这里不是第二条学习路线。**学习顺序只认
-[Study Notes 总入口](https://github.com/semi-hollow/NanoHarness-Study-Notes)**；本仓文档只保存代码事实和
-正式合同，不按目录通读：
+**学习顺序只认
+[Study Notes 总入口](https://github.com/semi-hollow/NanoHarness-Study-Notes)**，不要通读本仓 `docs/`。
+本仓只保留六类一手资产：
 
-- **动态掌握：**从 [Debug Lab](examples/debug_lab/README.md) 按 1 → 3 掌握受治理运行、
-  协作式 Multi-Agent 与 Evaluation Loop；它是 Study Notes 的 A1。
-- **外部动作：**[Facade 目录](docs/architecture/facade-catalog.md)只列 Public CLI/API，不作为第二条学习路线。
-- **系统合同：**先看[架构契约](docs/ARCHITECTURE.md)；追问暂停、审批和恢复时再看 [Runtime 控制面](docs/architecture/runtime-control-plane.md)。
-- **能力边界：**[能力真实性矩阵](docs/CAPABILITY_REALITY_MATRIX.md)。
-- **Evaluation 事实：**[Smoke-5](docs/evaluation/smoke-5-case-catalog.md) ->
-  [失败分类](docs/evaluation/failure-taxonomy.md)；真实 Case 再查对应 case study。
-- **历史与计划：**[功能演进](docs/FEATURE_EVOLUTION.md) / [Roadmap](docs/ROADMAP.md)。
-- **一手故障：**[失败驱动改进记录](docs/evaluation/failure-driven-improvements.md)，受保护、只追加，
-  遇到具体故障才按关键词检索。
+1. [Debug Lab](examples/debug_lab/README.md)：运行与展示入口。
+2. [架构契约](docs/ARCHITECTURE.md)与 [Runtime 控制面](docs/architecture/runtime-control-plane.md)：稳定结构、状态和恢复边界。
+3. [能力真实性矩阵](docs/CAPABILITY_REALITY_MATRIX.md)：能声称什么、不能声称什么。
+4. [Regression Set](docs/evaluation/regression-set.md)与[失败分类](docs/evaluation/failure-taxonomy.md)：评测、实验和改进闭环。
+5. [功能演进](docs/FEATURE_EVOLUTION.md)、[代码结构演进](docs/architecture/code-structure-evolution.md)与 [Roadmap](docs/ROADMAP.md)：设计历史和下一步。
+6. [失败驱动改进记录](docs/evaluation/failure-driven-improvements.md)：受保护的一手故障档案，只按关键词检索。
 
 ## 开发验证
 

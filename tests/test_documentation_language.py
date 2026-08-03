@@ -15,13 +15,9 @@ CHINESE_FIRST_DOCS = (
     "FORGE.md",
     "SECURITY.md",
     "agent_forge/README.md",
-    "scripts/README.md",
     "docs/CAPABILITY_REALITY_MATRIX.md",
     "docs/FEATURE_EVOLUTION.md",
     "docs/ROADMAP.md",
-    "docs/architecture/evaluation-experiments-and-oci-execution.md",
-    "docs/architecture/feedback-evaluation-loop.md",
-    "docs/architecture/human-input-and-live-fanout.md",
     "docs/case-studies/astropy-12907.md",
     "docs/evaluation/failure-taxonomy.md",
     "docs/evaluation/mini-cases/README.md",
@@ -44,6 +40,7 @@ CANONICAL_README_LINKS = (
     "docs/ARCHITECTURE.md",
     "docs/CAPABILITY_REALITY_MATRIX.md",
     "docs/evaluation/failure-driven-improvements.md",
+    "docs/evaluation/regression-set.md",
     "examples/debug_lab/README.md",
 )
 
@@ -123,10 +120,12 @@ class DocumentationLanguageTest(unittest.TestCase):
         required_lab_contracts = (
             "NanoHarness Lab 1 - Governed Repair",
             "NanoHarness Lab 2 - Coordinated Agents",
-            "NanoHarness Lab 3 - Evaluation Loop",
+            "NanoHarness Lab 3 - Complex Live Repair",
             "scripts/install_pycharm_debug_lab.py",
             "Debugger 看动态因果；Workbench 看最终留下的可验证 Evidence",
-            "astropy__astropy-12907",
+            "自然修复",
+            "上下文压力",
+            "人工控制与恢复",
             "六问不过，就不算学会",
         )
         for contract in required_lab_contracts:
@@ -140,11 +139,15 @@ class DocumentationLanguageTest(unittest.TestCase):
             "examples/debug_lab/multi_agent_repository/pricing.py",
             "examples/debug_lab/multi_agent_repository/shipping.py",
             "examples/debug_lab/multi_agent_repository/test_checkout.py",
+            "examples/debug_lab/complex_repository/settlement/service.py",
+            "examples/debug_lab/complex_repository/tests/test_reconciliation.py",
+            "examples/debug_lab/complex_repository/tests/test_atomicity.py",
+            "examples/operator_console.py",
             "scripts/install_pycharm_debug_lab.py",
             "scripts/interview_demo.sh",
             ".run/NanoHarness Lab 1 - Governed Repair.run.xml",
             ".run/NanoHarness Lab 2 - Coordinated Agents.run.xml",
-            ".run/NanoHarness Lab 3 - Evaluation Loop.run.xml",
+            ".run/NanoHarness Lab 3 - Complex Live Repair.run.xml",
         ):
             if not (PROJECT_ROOT / relative_path).is_file():
                 violations.append(f"Debug Lab support is missing: {relative_path}")

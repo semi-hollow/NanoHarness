@@ -33,6 +33,10 @@ class RunStoryTest(unittest.TestCase):
                 "+candidate\n", encoding="utf-8"
             )
             (root / "task_state" / "run-1.json").write_text("{}", encoding="utf-8")
+            (root / "practice_profile.json").write_text(
+                '{"key":"context-pressure"}',
+                encoding="utf-8",
+            )
             (root / "custom.txt").write_text("unowned", encoding="utf-8")
 
             path = write_run_manifest(
@@ -58,6 +62,10 @@ class RunStoryTest(unittest.TestCase):
                 "RunLifecycle.update_checkpoint / finalize_run",
             )
             self.assertEqual(by_path["custom.txt"].kind, "unclassified")
+            self.assertEqual(
+                by_path["practice_profile.json"].kind,
+                "practice_profile",
+            )
 
             story = load_run_story(root)
             self.assertEqual(story.evidence_ladder["candidate"], "present")

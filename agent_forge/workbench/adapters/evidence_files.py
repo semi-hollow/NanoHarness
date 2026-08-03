@@ -84,6 +84,42 @@ class FileEvidenceCatalog:
             nested_pattern="cases/**/usage.json",
         )
 
+    def latest_complex_run_dir(self) -> Path | None:
+        """返回 Lab 3 真实模型运行，绝不回退到其他 Lab 或 Benchmark。"""
+
+        pointer = self.project_dir / ".agent_forge/debug-lab/state/complex_artifact.txt"
+        run_dir = self._run_dir_from_pointer(pointer)
+        runs_dir = self.project_dir / ".agent_forge/runs"
+        if run_dir is not None and _is_under(run_dir, runs_dir):
+            return run_dir
+        return None
+
+    def latest_complex_run_story(self) -> RunStory | None:
+        """加载复杂真实任务的标准 Run Story。"""
+
+        run_dir = self.latest_complex_run_dir()
+        if run_dir is None or not (run_dir / "run_manifest.json").is_file():
+            return None
+        return load_run_story(run_dir)
+
+    def latest_complex_trace_path(self) -> Path | None:
+        """返回复杂真实任务的 Trace。"""
+
+        return _latest_artifact_in_run(
+            self.latest_complex_run_dir(),
+            direct_name="trace.json",
+            nested_pattern="cases/**/trace.json",
+        )
+
+    def latest_complex_usage_path(self) -> Path | None:
+        """返回复杂真实任务的 Usage 投影。"""
+
+        return _latest_artifact_in_run(
+            self.latest_complex_run_dir(),
+            direct_name="usage.json",
+            nested_pattern="cases/**/usage.json",
+        )
+
     def latest_report_path(self) -> str:
         run_dir = self.latest_run_dir()
         if run_dir:
@@ -295,10 +331,14 @@ class FileEvidenceCatalog:
         return {}
 
     def latest_campaign_dir(self) -> Path | None:
+        """优先返回显式发布的 Campaign，避免工作台悄悄切换实验批次。"""
+
         latest = self.project_dir / ".agent_forge/latest/campaign.txt"
         campaigns = self.project_dir / ".agent_forge/campaigns"
         pointed = self._run_dir_from_pointer(latest)
-        candidates = [pointed] if pointed is not None else []
+        if pointed is not None:
+            return pointed
+        candidates: list[Path] = []
         if campaigns.exists():
             candidates.extend(path for path in campaigns.iterdir() if path.is_dir())
         return _newest_existing(candidates)

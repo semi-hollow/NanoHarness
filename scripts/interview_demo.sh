@@ -32,8 +32,14 @@ case "${1:-}" in
     pointer_name="campaign.txt"
     status_evidence_field="latest_campaign"
     ;;
+  --show-complex)
+    scenario="show-complex"
+    produce_evidence=false
+    workbench_view="complex"
+    status_evidence_field="latest_complex"
+    ;;
   *)
-    printf 'Usage: scripts/interview_demo.sh [--show-governed|--show-coordinated|--show-evaluation]\n' >&2
+    printf 'Usage: scripts/interview_demo.sh [--show-governed|--show-coordinated|--show-complex|--show-evaluation]\n' >&2
     exit 2
     ;;
 esac
@@ -145,5 +151,5 @@ else
 fi
 
 printf '%s\n' \
-  'Narrative: Governed Run -> Coordinated Agents -> Evaluation Loop -> Evidence details' \
+  'Learning path: Governed Run -> Coordinated Agents -> Complex Live Repair -> optional Evaluation Archive' \
   'Boundary: Workbench reads Evidence; Harness/CLI owns execution.'

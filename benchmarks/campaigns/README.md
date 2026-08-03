@@ -27,9 +27,9 @@ resolved/unresolved outcome 的 pair，才进入 correctness comparison。
 - 该包来自一次中断 Smoke-5 的前四个完成槽位，只有一次 repetition 且 source 为 dirty；
   它用于核验 end-to-end evidence pipeline，不是预注册通过率或总体性能结果。
 
-学习和面试演练使用 `NanoHarness Lab 3 - Evaluation Loop` 回放当前 commissioning evidence；
-它不会冒充已完成 Smoke-5。真正补充 10-slot 初始运行或正式公开结果时，再使用下方 campaign
-命令；公开结果必须来自 clean revision。
+需要复核历史 commissioning evidence 时，打开 Workbench 的“评测档案”；它只读回放已保存产物，
+不会占用 Debug Lab 编号，也不会冒充已完成 Smoke-5。真正补充 10-slot 初始运行或正式公开结果时，
+再使用下方 campaign 命令；公开结果必须来自 clean revision。
 
 ```bash
 forge bench campaign \

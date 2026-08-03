@@ -34,10 +34,9 @@ READING_SCOPES = (
         "file:agent_forge/runtime/wiring.py"
         "||file:agent_forge/multi_agent/application/live_fanout.py"
         "||file:agent_forge/multi_agent/adapters/local_worker.py"
-        "||file:agent_forge/bench/application/swebench.py"
-        "||file:agent_forge/bench/application/campaign.py"
-        "||file:agent_forge/evaluation/adapters/feedback_dataset_files.py"
-        "||file:examples/debug_lab/run.py",
+        "||file:agent_forge/context/application/compaction.py"
+        "||file:examples/operator_console.py"
+        "||file:examples/debug_lab/complex_repository//*",
     ),
     (
         "10_NanoHarness_Production_Code.xml",
@@ -151,18 +150,39 @@ TARGETS = (
         function_name="run_finalizer",
     ),
     BreakpointTarget(
-        scenario="evaluation",
-        label="Lab 3 - Evaluation entry",
-        relative_path="examples/debug_lab/run.py",
+        scenario="complex",
+        label="Lab 3 - Practice entry",
+        relative_path="examples/operator_console.py",
         class_name="",
-        function_name="run_evaluation",
+        function_name="main",
     ),
     BreakpointTarget(
-        scenario="evaluation",
-        label="Lab 3 - Improvement decision",
-        relative_path="agent_forge/evaluation/adapters/feedback_dataset_files.py",
-        class_name="",
-        function_name="write_improvement_record",
+        scenario="complex",
+        label="Lab 3 - One agent turn",
+        relative_path="agent_forge/runtime/application/agent_loop.py",
+        class_name="AgentLoop",
+        function_name="_run_turn",
+    ),
+    BreakpointTarget(
+        scenario="complex",
+        label="Lab 3 - Context budget",
+        relative_path="agent_forge/context/application/compaction.py",
+        class_name="ContextWindowManager",
+        function_name="prepare",
+    ),
+    BreakpointTarget(
+        scenario="complex",
+        label="Lab 3 - One tool call",
+        relative_path="agent_forge/runtime/application/tool_execution.py",
+        class_name="ToolExecutionPipeline",
+        function_name="_execute_call",
+    ),
+    BreakpointTarget(
+        scenario="complex",
+        label="Lab 3 - Focused or full validation",
+        relative_path="agent_forge/tools/python_validation.py",
+        class_name="PythonValidationTool",
+        function_name="execute",
     ),
 )
 

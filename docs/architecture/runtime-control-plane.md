@@ -1,10 +1,158 @@
-# Runtime 控制面：暂停、人工输入与恢复
+# Runtime 控制面：工具、暂停、人工输入与恢复
 
 > 定位：这是面试追问和架构审计材料，不是项目首轮学习必读。首轮只看 README 的运行主链；需要
-> 解释审批、恢复、重复副作用或 Ledger 时再进入本文。
+> 解释工具检索与路由、审批、恢复、重复副作用或 Ledger 时再进入本文。
 
 本文只解释控制语义和现场展示。公开动作以 `forge run / resume / demo / inspect` 为准；不会再为
 answer、approval 或展示维护第二套 CLI。
+
+## 0. 先分清工具链上的五个概念
+
+```text
+RepositoryContextAssembler                      先给模型仓库地图和少量相关文件预览
+        ↓
+ToolRegistry / MCP tools/list                   建立“系统有什么工具”的候选目录
+        ↓
+ToolRouter.route                                生成“本 turn 模型能看见什么”的工具视图
+        ↓
+LLM 从可见 schema 中返回 ToolCall              模型选择工具，不直接访问 Python 或文件系统
+        ↓
+ToolExecutionPipeline -> ToolGateway.execute    Runtime 复核、授权、执行并回填 Observation
+```
+
+| 概念 | 回答的问题 | 当前实现 | 不是什么 |
+| --- | --- | --- | --- |
+| Repo Map | 仓库大致有哪些文件 | 过滤生成物后的相对文件路径清单 | 文件内容索引、调用图或向量库 |
+| Tool Registry | Runtime 已装配哪些工具 | 内置工具显式注册；MCP 通过 `initialize + tools/list` 注册 | 当前 task 的规划结果 |
+| Tool Router | 当前 turn 给模型哪些 schema | task、Skill、模式和关键词的确定性可见性规则 | 服务注册中心、工具执行器或权限最终裁决者 |
+| Tool Gateway | Application 如何统一查询和调用工具 | `schemas/get/execute` Port；默认实现是 `ToolRegistry` | 智能选工具的模型 |
+| ToolCall | 模型希望 Runtime 执行什么 | 工具名加结构化参数 | 已执行事实；仍须经过路由和治理复核 |
+
+### 工具怎样与模型交换数据
+
+工具协议类似一组很小的 OpenAPI：Runtime 先给模型 schema，模型返回结构化调用意图，工具再返回
+统一 Observation。内部使用 Python dataclass，经过模型 Provider 时转换成 JSON。
+
+```text
+ToolSchema（给模型）
+{"name": "read_file", "arguments": {"path": "str", "offset": "any", "limit": "any"}}
+
+ToolCall（模型返回）
+{"id": "call-1", "name": "read_file", "arguments": {"path": "pricing.py", "offset": 1, "limit": 80}}
+
+Observation（Runtime 回填）
+{"tool_name": "read_file", "success": true, "content": "path=pricing.py ..."}
+
+下一 turn
+Message(role="tool", name="read_file", tool_call_id="call-1", content="...")
+```
+
+内置工具保持为解决代码任务所需的最小集合：
+
+| 阶段 | 工具 | 主要参数 | 返回事实与当前边界 |
+| --- | --- | --- | --- |
+| 定位 | `list_files` | 可选 `path` | 递归返回最多 200 个相对文件路径 |
+| 定位 | `grep` / `grep_search` | `keyword` | 扫描 `*.py`，大小写敏感子串匹配，最多 50 条；两者当前实现相同 |
+| 阅读 | `read_file` | `path`，可选 `offset/limit` | 默认 120 行、最多 240 行，并把总文本限制在约 5000 字符 |
+| 编辑 | `replace_text` | `path/old/new` | 只替换唯一命中的旧文本，属于写副作用 |
+| 编辑 | `write_file` | `path/content` | 创建或覆盖整文件，属于写副作用 |
+| 验证 | `python_validation` | `check_type/validation_target` | 固定支持 compile、unittest、pytest，不接受任意 shell 文本 |
+| 检查 | `git_status` / `git_diff` | 无 | 返回工作区状态或最多约 6000 字符的候选 Diff |
+| 逃生口 | `run_command` | `command` | 经过命令策略和执行环境控制；按副作用操作治理 |
+| 人工控制 | `ask_human` | `question`，可选 `choices` | 执行管线持久化问题并暂停；Tool 本体直接调用时 fail closed |
+
+`grep_search` 目前只是 `GrepTool` 的同实现别名，不应讲成独立的语义搜索能力。`run_command` 是受控
+逃生口而不是默认检索方式；常见代码阅读主链仍是 `list_files -> grep -> read_file`。
+
+### Repo Map、主动上下文与 Agent 读取
+
+用户不需要手工指定首轮文件，但也不能说“所有文件都等模型调用 `read_file` 后才进入 Context”。
+每个 turn 的 `RepositoryContextAssembler` 会先自动：
+
+```text
+扫描 workspace
+-> 忽略 .git/.venv/.agent_forge、构建目录和生成物
+-> 生成按路径排序的 Repo Map
+-> 根据 task 对路径和文件内容做关键词计分
+-> 选择前 8 个文件，读取前 4 个文件的有界预览
+-> 与 task、Memory、Skill、权限摘要一起放进 system context
+```
+
+Repo Map 只列文件，不单独列目录；目录通过 `agent_forge/tools/read_file.py` 这样的路径隐式体现。
+因此它更接近“过滤并排序后的递归 `find`”，不是只看当前目录的 `ls`，也不是符号调用图。
+
+文件预览不是固定截取前 N 行。Runtime 最多选择 8 个文件，只预览前 4 个；预算按字符分配。文件超过
+预算时通过 `truncate_middle` 保留前半段和后半段，在中间插入 `middle truncated` 标记。这能同时看到
+imports/定义开头与文件末尾入口，但可能漏掉恰好位于中间的核心方法。
+
+模型得到这份启动上下文后，仍可用 `list_files / grep / read_file` 主动检索。工具结果成为
+`Observation`，进入下一 turn。前者是 Runtime 主动提供的 lexical context selection；后者是模型
+驱动的 agentic retrieval。
+
+项目存在名为 `rag.py` 的关键词 Top-K helper，但没有 embedding、向量库、chunk index 或语义
+reranker。准确口径是：**使用 Repo Map、lexical ranking、文件预览和 agentic retrieval，不声称
+Vector RAG**。小型代码仓中，路径、符号和 grep 通常更直接可审计；大型 monorepo 会暴露语义
+错配、Repo Map 截断、重复读取和 token/turn 增长，届时再引入符号索引、BM25 与向量 rerank 的
+混合检索，而不是默认把整套 Vector RAG 加进 Runtime。
+
+模型反复 `grep/read_file` 的具体成因和当前处理如下：
+
+| 成因 | 当前处理 | 仍然存在的边界 |
+| --- | --- | --- |
+| Repo Map 只有路径，无法表达符号和调用关系 | task 关键词 ranking + 4 个文件预览 | 同义词、跨文件调用链可能选错 |
+| `grep` 只支持 Python 文件和精确子串 | 最多返回 50 条，防止 Context 爆炸 | 不支持 regex、glob、大小写策略和多语言源码 |
+| 大文件不能一次完整读取 | `offset/limit` 分页，Observation 回填下一 turn | 模型必须主动决定下一窗口，增加 turn |
+| 模型重复完全相同的观察动作 | 连续重复读取达到上限后跳过执行并要求换方向 | 参数略有变化的近似重复仍可能发生 |
+
+低成本的后续演进顺序应是：先把搜索后端换成结构化 `rg`（query、glob、case、limit），再给 Repo Map
+增加符号/import 摘要和 Observation 缓存；只有仓库规模和语义错配证据足够时，才增加向量 rerank。
+
+### 工具发现与每轮可见性不是一件事
+
+内置工具没有使用 Consul 式服务发现，而是在 composition root 显式注册。MCP stdio server 才通过
+协议执行 `initialize -> tools/list`，再经过 allowlist 包装为本地 `Tool`。这一步回答“系统有什么”。
+
+`ToolRouter.route` 随后根据 task 文本、Skill 和模式，从候选 schema 中生成 `allowed_names` 与
+`dropped_names`。模型只在可见 schema 中选择 ToolCall，执行管线还会再次检查工具是否已注册且在
+本轮 allowlist 中。因此准确术语是：**工具注册/MCP discovery + turn-level visibility routing +
+LLM tool selection + governed execution**。
+
+当前 `task-aware` Router 是关键词启发式，不是模型规划器或语义路由器。例如修复词扩展编辑和
+验证工具，只读词移除写工具，SWE-bench 再隐藏自由命令和整文件覆盖。这种实现确定、可测试、
+可解释，但不能包装成智能服务发现。候选工具很多时，成熟方案应优先使用角色/场景 preset、结构化
+capability/effect metadata 和 fail-closed policy；目录继续变大时再增加 Tool Search 或语义召回。
+
+### “副作用”是一种操作性质，不是三个组件的统称
+
+```text
+read_file("pricing.py")
+-> 返回文本，pricing.py 没变：没有持久副作用
+
+replace_text("pricing.py", old, new)
+-> 即使忽略返回值，pricing.py 也已经改变：产生持久副作用
+```
+
+所以副作用不是某个类或文件，而是“调用结束后，外部可观察状态是否发生变化”这个属性。广义上
+写文件、改数据库、发消息、扣款、启动可能改变环境的命令都属于副作用。NanoHarness 的
+`OperationIntent.side_effect` 使用更窄的 durable 定义：`write_file`、`replace_text` 和
+`run_command` 进入副作用协议；读取、搜索和可丢弃验证缓存不进入。
+
+`operation key + fingerprint + Operation Ledger` 是保护副作用的三种机制，不是副作用本身：
+
+- operation key：标识“工具、参数、workspace 和 action 相同的这次操作意图”；
+- fingerprint：记录执行/批准时目标文件的版本，类似乐观锁；
+- Ledger：记录 planned/pending/approved/executing/executed/failed，类似支付幂等状态表。
+
+检测发生在 `ToolExecutionPipeline._execute_call` 内：`OperationTracker` 先按工具名映射 action，再用
+`action in {write, run_command}` 得到 `side_effect`。它是执行前的静态分类，不是执行后猜测文件是否
+变化。分类结果决定是否查 Ledger、绑定审批、记录 fingerprint、在真实调用前写 `executing`，以及
+重复/恢复时能否重放。
+
+这里的 Ledger 协议只治理**模型请求的工具副作用**。LLM API 成本、Trace/Checkpoint 落盘、benchmark
+checkout 和 workspace 创建也属于广义基础设施副作用，但由各自 Adapter/Lifecycle 管理，不进入
+Operation Ledger。当前还存在一个必须诚实说明的边界：未知 MCP 工具默认映射为 `read`，因此不能
+声称任意外部写工具都已获得副作用治理；生产化应强制外部工具声明 effect/risk/approval metadata，
+未知 effect 默认 ASK 或 DENY。
 
 ## 1. 当前任务模型
 
