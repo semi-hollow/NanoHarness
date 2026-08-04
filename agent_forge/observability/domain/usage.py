@@ -82,6 +82,7 @@ def build_usage_report(trace: dict[str, Any]) -> dict[str, Any]:
                     "tool": event.get("tool_call", ""),
                     "arguments_keys": sorted((event.get("tool_arguments") or {}).keys()),
                     "success": None,
+                    "execution_succeeded": None,
                     "observation_chars": 0,
                     "duration_ms": 0,
                 }
@@ -94,12 +95,14 @@ def build_usage_report(trace: dict[str, Any]) -> dict[str, Any]:
                     "tool": event.get("tool_call", "unknown"),
                     "arguments_keys": [],
                     "success": None,
+                    "execution_succeeded": None,
                     "observation_chars": 0,
                     "duration_ms": 0,
                 }
                 entry["actions"].append(action)
             observation = str(event.get("observation") or "")
             action["success"] = bool(event.get("success", True))
+            action["execution_succeeded"] = event.get("execution_succeeded")
             action["observation_chars"] = len(observation)
             action["duration_ms"] = int(event.get("duration_ms", 0) or 0)
 
@@ -238,11 +241,21 @@ def _tool_efficiency(steps: list[dict[str, Any]]) -> dict[str, Any]:
             tool = action.get("tool") or "unknown"
             stats = by_tool.setdefault(
                 tool,
-                {"calls": 0, "success": 0, "failed": 0, "observation_chars": 0, "duration_ms": 0},
+                {
+                    "calls": 0,
+                    "success": 0,
+                    "failed": 0,
+                    "validation_failed": 0,
+                    "observation_chars": 0,
+                    "duration_ms": 0,
+                },
             )
             stats["calls"] += 1
             if action.get("success") is False:
-                stats["failed"] += 1
+                if action.get("execution_succeeded") is True:
+                    stats["validation_failed"] += 1
+                else:
+                    stats["failed"] += 1
             else:
                 stats["success"] += 1
             stats["observation_chars"] += _int(action.get("observation_chars"))
@@ -251,6 +264,9 @@ def _tool_efficiency(steps: list[dict[str, Any]]) -> dict[str, Any]:
         "by_tool": dict(sorted(by_tool.items())),
         "total_calls": sum(item["calls"] for item in by_tool.values()),
         "failed_calls": sum(item["failed"] for item in by_tool.values()),
+        "validation_failed_calls": sum(
+            item["validation_failed"] for item in by_tool.values()
+        ),
     }
 
 
@@ -319,6 +335,7 @@ def _summary(
         "steps": len(steps),
         "tool_calls": tool_efficiency["total_calls"],
         "failed_tool_calls": tool_efficiency["failed_calls"],
+        "failed_validations": tool_efficiency["validation_failed_calls"],
         "hook_checks": len(hook_checks),
         "latest_task_status": task_states[-1]["status"] if task_states else "",
         "truncated_context_steps": context_breakdown["truncated_steps"],

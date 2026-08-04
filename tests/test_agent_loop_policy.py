@@ -6,7 +6,7 @@ from types import SimpleNamespace
 from agent_forge.runtime.api import build_agent_loop
 from agent_forge.runtime.application.tool_feedback import ToolFeedback
 from agent_forge.runtime.config import RuntimeConfig
-from agent_forge.runtime.control import ExecutionBudget, StepController
+from agent_forge.runtime.control import ExecutionBudget, FailureKind, StepController
 from agent_forge.runtime.llm_client import AgentResponse
 from agent_forge.runtime.domain.conversation import Observation, ToolCall
 from agent_forge.observability.api import TraceRecorder
@@ -201,6 +201,54 @@ class SuccessfulPythonValidationTool:
         )
 
 
+class ValidationFailureRecoveryTool(SuccessfulPythonValidationTool):
+    """前三次返回测试红灯，第四次返回通过；工具执行本身始终正常。"""
+
+    def __init__(self):
+        self.calls = 0
+
+    def execute(self, arguments):
+        self.calls += 1
+        passed = self.calls >= 4
+        return Observation(
+            tool_name=self.name,
+            success=passed,
+            content=(
+                "validation_command=python -m pytest "
+                f"{arguments['validation_target']}\n"
+                f"exit_code={0 if passed else 1}"
+            ),
+            execution_succeeded=True,
+        )
+
+
+class ValidationFailureRecoveryLLM:
+    """每轮消费一条失败证据，最终在验证通过后结束。"""
+
+    last_usage = None
+
+    def __init__(self):
+        self.calls = 0
+
+    def chat(self, messages, tools):
+        self.calls += 1
+        if self.calls <= 4:
+            return AgentResponse(
+                None,
+                [
+                    ToolCall(
+                        f"validation-{self.calls}",
+                        "python_validation",
+                        {
+                            "check_type": "pytest",
+                            "validation_target": f"tests/stage_{self.calls}.py",
+                        },
+                    )
+                ],
+            )
+        return AgentResponse("PASS\nvalidation-driven repair converged", [])
+
+
 class AgentLoopPolicyTest(unittest.TestCase):
     def test_agent_name_flows_into_trace(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -328,6 +376,77 @@ class AgentLoopPolicyTest(unittest.TestCase):
         self.assertIsNotNone(
             controller.observe_tool_intent_for_repeat_limit(first_read)
         )
+
+    def test_consecutive_failure_stop_reason_includes_count_and_limit(self):
+        controller = StepController(
+            budget=ExecutionBudget(max_consecutive_failures=3)
+        )
+        for failure_number in range(1, 4):
+            controller.classify_observation(
+                Observation(
+                    tool_name=f"tool-{failure_number}",
+                    success=False,
+                    content=f"exit_code={failure_number}",
+                )
+            )
+
+        stop_signal = controller.should_stop(step=1)
+
+        self.assertIsNotNone(stop_signal)
+        self.assertEqual(
+            stop_signal.reason,
+            "too many consecutive failed tools: 3 >= limit 3",
+        )
+
+    def test_failed_validations_do_not_trip_tool_infrastructure_breaker(self):
+        controller = StepController(
+            budget=ExecutionBudget(max_consecutive_failures=3)
+        )
+
+        for _ in range(4):
+            recovery_signal = controller.classify_observation(
+                Observation(
+                    tool_name="python_validation",
+                    success=False,
+                    content="validation_command=python -m pytest tests\nexit_code=1",
+                    execution_succeeded=True,
+                )
+            )
+
+        self.assertEqual(recovery_signal.kind, FailureKind.VALIDATION_FAILED)
+        self.assertIsNone(controller.should_stop(step=1))
+
+    def test_agent_loop_can_converge_after_three_failed_validations(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            trace_path = Path(tmp) / "trace.json"
+            trace = TraceRecorder(str(trace_path))
+            registry = ToolRegistry()
+            registry.register(ValidationFailureRecoveryTool())
+
+            final = build_agent_loop(
+                RuntimeConfig(
+                    workspace=tmp,
+                    max_steps=6,
+                    max_consecutive_failures=3,
+                    trace_file=str(trace_path),
+                ),
+                trace,
+                registry,
+                ValidationFailureRecoveryLLM(),
+            ).run("repair the failing tests and validate the result")
+            usage = build_usage_report(
+                {
+                    "run_id": trace.run_id,
+                    "task": trace.task,
+                    "stop_reason": trace.stop_reason,
+                    "final_answer": trace.final_answer,
+                    "events": trace.events,
+                }
+            )
+
+        self.assertIn("converged", final)
+        self.assertEqual(usage["summary"]["failed_tool_calls"], 0)
+        self.assertEqual(usage["summary"]["failed_validations"], 3)
 
     def test_tool_call_burst_is_bounded_before_execution(self):
         with tempfile.TemporaryDirectory() as tmp:

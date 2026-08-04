@@ -147,16 +147,6 @@ class PublicCliSmokeTest(unittest.TestCase):
 
     def test_eval_commands_expose_feedback_and_dataset_export(self):
         result = subprocess.run(
-            [sys.executable, "-m", "agent_forge", "eval", "mini-cases", "--help"],
-            text=True,
-            capture_output=True,
-        )
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn("--case", result.stdout)
-        self.assertIn("--evidence", result.stdout)
-        self.assertIn("--output-root", result.stdout)
-
-        result = subprocess.run(
             [sys.executable, "-m", "agent_forge", "eval", "feedback", "--help"],
             text=True,
             capture_output=True,
@@ -514,7 +504,7 @@ class PublicCliSmokeTest(unittest.TestCase):
         self.assertIn("不计入 Agent 轮次", html)
         self.assertIn("1 个 Agent 轮次", html)
         self.assertIn("2 个运行级事件", html)
-        self.assertIn("面试只记四段", html)
+        self.assertIn("先按四段理解", html)
         self.assertIn("01</b><span>准备输入", html)
         self.assertIn("02</b><span>模型决定", html)
         self.assertIn("03</b><span>治理并执行", html)
@@ -545,11 +535,11 @@ class PublicCliSmokeTest(unittest.TestCase):
         self.assertIn("基准评测", INDEX_HTML)
         self.assertIn("1 受治理运行", INDEX_HTML)
         self.assertIn("2 多 Agent 协同", INDEX_HTML)
-        self.assertIn("3 评测改进闭环", INDEX_HTML)
+        self.assertIn("3 复杂真实任务", INDEX_HTML)
         self.assertIn("证据详情", INDEX_HTML)
         self.assertIn("td .badge", INDEX_HTML)
         self.assertIn("white-space: normal", INDEX_HTML)
-        self.assertIn("总览 + 三个证据场景", INDEX_HTML)
+        self.assertIn("总览 + 三条学习主线", INDEX_HTML)
         self.assertIn("loadEvidence('overview')", INDEX_HTML)
         self.assertNotIn("Failed Tool Delta", INDEX_HTML)
         self.assertNotIn("startJob(", INDEX_HTML)

@@ -42,6 +42,12 @@ class CaseEvidenceReader(Protocol):
 
 
 class BenchArtifactPort(Protocol):
+    """Benchmark 产物边界；调用方只依赖该契约。
+
+    Python 支持按方法形状隐式满足 Protocol；本项目的正式内置 Adapter 仍显式继承
+    对应 Port，方便 IDE 查看层级并让类型检查尽早发现漏实现。测试替身可保持结构化实现。
+    """
+
     def create_layout(
         self,
         output_root: str,

@@ -184,17 +184,6 @@ def _add_evaluation_command(subparsers: argparse._SubParsersAction) -> None:
     )
     eval_subparsers = eval_parser.add_subparsers(dest="eval_name", required=True)
 
-    mini = eval_subparsers.add_parser(
-        "mini-cases",
-        help="Score small non-coding Agent application cases from explicit evidence.",
-    )
-    mini.add_argument("--case", default="all", help="Mini case id to run, or all.")
-    mini.add_argument(
-        "--evidence",
-        help="JSON evidence file: one object or a dict keyed by case_id.",
-    )
-    mini.add_argument("--output-root", default=".agent_forge/mini_cases")
-
     feedback = eval_subparsers.add_parser(
         "feedback",
         help="Attach a human outcome and labels to one run or benchmark case.",

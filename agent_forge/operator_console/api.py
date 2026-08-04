@@ -16,6 +16,8 @@ from agent_forge.cli.repository import (
 from agent_forge.control import RunController
 from agent_forge.harness import HarnessExtensions, RunRequest
 from agent_forge.observability.adapters.streaming import EventStreamPolicy
+from agent_forge.operator_console.adapters import JsonTaskSessionCatalog
+from agent_forge.operator_console.application import TaskSessionLibrary
 from agent_forge.operator_console.events import RuntimeEventBuffer
 from agent_forge.operator_console.session import OperatorSession
 from agent_forge.runtime.api import (
@@ -31,6 +33,17 @@ class OperatorSessionBundle:
     session: OperatorSession
     events: RuntimeEventBuffer
     request: RunRequest
+    task_session_id: str = ""
+
+
+def build_task_session_library(base_args: argparse.Namespace) -> TaskSessionLibrary:
+    """按 output root 构造项目级会话目录；Run artifact 仍放在原目录。"""
+
+    output_root = Path(
+        getattr(base_args, "output_root", "") or ".agent_forge/runs"
+    ).expanduser()
+    catalog_root = output_root.resolve().parent / "sessions"
+    return TaskSessionLibrary(JsonTaskSessionCatalog(catalog_root))
 
 
 def build_operator_session(
@@ -38,12 +51,26 @@ def build_operator_session(
     *,
     task: str,
     workspace: str,
+    task_session_id: str = "",
+    session_title: str = "",
+    task_sessions: TaskSessionLibrary | None = None,
 ) -> OperatorSessionBundle:
     """复用 CLI 的配置优先级和 Harness 装配，创建前台操作会话。"""
 
     args = copy.deepcopy(base_args)
+    session_library = task_sessions or build_task_session_library(args)
+    task_session = (
+        session_library.require(task_session_id)
+        if task_session_id
+        else session_library.create(
+            task=task,
+            workspace=workspace,
+            title=session_title,
+        )
+    )
     args.task = task
-    args.workspace = workspace
+    args.workspace = task_session.workspace
+    args.human_thread_id = task_session.human_thread_id
     args.agent_mode = "single"
     config_document = resolve_repository_arguments(args)
 
@@ -73,8 +100,15 @@ def build_operator_session(
         controller=controller,
         approvals=approvals,
         human_inputs=human_inputs,
+        task_sessions=session_library,
+        task_session_id=task_session.session_id,
     )
-    return OperatorSessionBundle(session=session, events=events, request=request)
+    return OperatorSessionBundle(
+        session=session,
+        events=events,
+        request=request,
+        task_session_id=task_session.session_id,
+    )
 
 
 # 主要入口：由 ``forge console`` 启动本地交互操作台。
@@ -89,4 +123,7 @@ def run_console_from_args(args: argparse.Namespace) -> None:
                 "Operator Console 需要 Textual；请重新安装当前项目依赖。"
             ) from exc
         raise
-    OperatorConsoleApp(args).run()
+    session_library = build_task_session_library(args)
+    output_root = getattr(args, "output_root", "") or ".agent_forge/runs"
+    session_library.import_existing_runs(output_root)
+    OperatorConsoleApp(args, task_sessions=session_library).run()

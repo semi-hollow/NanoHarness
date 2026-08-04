@@ -11,9 +11,10 @@ from agent_forge.bench.adapters.official_results import (
 )
 from agent_forge.bench.domain.config import SwebenchRunRequest
 from agent_forge.bench.domain.models import BenchRunSummary
+from agent_forge.bench.ports import OfficialEvaluatorPort
 
 
-class SwebenchOfficialEvaluator:
+class SwebenchOfficialEvaluator(OfficialEvaluatorPort):
 
     def evaluate(
         self,

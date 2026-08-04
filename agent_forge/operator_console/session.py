@@ -14,6 +14,7 @@ from typing import Literal
 
 from agent_forge.control import RunController
 from agent_forge.harness import Harness, RunRequest, RunResult
+from agent_forge.operator_console.application import TaskSessionLibrary
 from agent_forge.runtime.application.operator_control import (
     BuildContinuationPlan,
     DecideApproval,
@@ -53,12 +54,16 @@ class OperatorSession:
         controller: RunController,
         approvals: ApprovalRepository,
         human_inputs: HumanInputRepository,
+        task_sessions: TaskSessionLibrary | None = None,
+        task_session_id: str = "",
     ) -> None:
         self.harness = harness
         self.request = request
         self.controller = controller
         self.approvals = approvals
         self.human_inputs = human_inputs
+        self.task_sessions = task_sessions
+        self.task_session_id = task_session_id
         self._lock = RLock()
         self._result: RunResult | None = None
         self._checkpoint: TaskCheckpoint | None = None
@@ -84,7 +89,10 @@ class OperatorSession:
     def start(self) -> RunResult:
         """执行 ``Harness.run``，并保存后续人工控制所需的当前状态。"""
 
-        return self._remember_result(self.harness.run(self.request))
+        return self._remember_result(
+            self.harness.run(self.request),
+            relationship="initial",
+        )
 
     # 主要入口：保存人工答案，并立即从当前 durable checkpoint 续跑。
     def answer_and_resume(self, answer: str) -> RunResult:
@@ -100,7 +108,11 @@ class OperatorSession:
             checkpoint,
             override_task=checkpoint.task,
         )
-        return self._resume(task=continuation.task)
+        return self._resume(
+            task=continuation.task,
+            relationship="continuation",
+            parent_run_id=checkpoint.run_id,
+        )
 
     # 主要入口：保存工具审批决定，并立即从当前 durable checkpoint 续跑。
     def decide_and_resume(
@@ -123,7 +135,42 @@ class OperatorSession:
     def resume(self) -> RunResult:
         """恢复可见任务状态；不声称恢复模型栈、KV Cache 或进程现场。"""
 
-        return self._resume()
+        checkpoint = self._require_checkpoint()
+        return self._resume(
+            relationship="continuation",
+            parent_run_id=checkpoint.run_id,
+        )
+
+    # 主要入口：终态后接收新要求，在同一 Task Session 下创建后续 Run。
+    def continue_with_user_message(self, message: str) -> RunResult:
+        """利用最新 checkpoint 摘要继续对话，不伪装成恢复进程或 KV Cache。"""
+
+        user_message = message.strip()
+        if not user_message:
+            raise ValueError("follow-up message must not be empty")
+        checkpoint = self._require_checkpoint()
+        if checkpoint.status in {
+            TaskRunStatus.WAITING_APPROVAL.value,
+            TaskRunStatus.WAITING_HUMAN.value,
+            TaskRunStatus.PAUSED.value,
+            TaskRunStatus.RUNNING.value,
+        }:
+            raise RuntimeError(
+                f"当前状态 {checkpoint.status} 不能创建后续 Run；请先完成或恢复当前 Run"
+            )
+        follow_up_task = "\n".join(
+            [
+                "Continue the same durable task session.",
+                "Use the restored checkpoint summary as prior context.",
+                "The following operator message is the new authoritative request:",
+                user_message,
+            ]
+        )
+        return self._resume(
+            task=follow_up_task,
+            relationship="follow_up",
+            parent_run_id=checkpoint.run_id,
+        )
 
     def attach_run(self, run_dir: str | Path) -> TaskCheckpoint:
         """载入已有 run 的最新 checkpoint，供进程重启后继续操作。"""
@@ -196,7 +243,13 @@ class OperatorSession:
             raise ValueError("steer message must not be empty")
         self.controller.steer(message.strip())
 
-    def _remember_result(self, result: RunResult) -> RunResult:
+    def _remember_result(
+        self,
+        result: RunResult,
+        *,
+        relationship: str,
+        parent_run_id: str = "",
+    ) -> RunResult:
         checkpoint_path = (
             result.artifact_dir / "task_state" / f"{result.checkpoint.run_id}.json"
         )
@@ -207,6 +260,13 @@ class OperatorSession:
             self._checkpoint = result.checkpoint
             self._checkpoint_path = checkpoint_path
             self._artifact_dir = result.artifact_dir
+        if self.task_sessions is not None and self.task_session_id:
+            self.task_sessions.record_result(
+                self.task_session_id,
+                result,
+                relationship=relationship,
+                parent_run_id=parent_run_id,
+            )
         return result
 
     def _require_checkpoint_path(self) -> Path:
@@ -222,9 +282,19 @@ class OperatorSession:
             raise RuntimeError("当前会话还没有可恢复 checkpoint")
         return checkpoint
 
-    def _resume(self, *, task: str = "") -> RunResult:
+    def _resume(
+        self,
+        *,
+        task: str = "",
+        relationship: str,
+        parent_run_id: str,
+    ) -> RunResult:
         checkpoint_path = self._require_checkpoint_path()
-        return self._remember_result(self.harness.resume(checkpoint_path, task=task))
+        return self._remember_result(
+            self.harness.resume(checkpoint_path, task=task),
+            relationship=relationship,
+            parent_run_id=parent_run_id,
+        )
 
     def _pending_human_input(
         self,

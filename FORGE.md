@@ -2,11 +2,11 @@
 
 ## 目标顺序
 
-NanoHarness 是用于三年以上 AI Agent 开发岗位面试的 Coding Agent Runtime 项目。
-决策顺序固定为：维护者能彻底掌握 > 主链唯一 > 状态、副作用与 Evidence
-正确 > 代码精简 > 演示简单 > 扩展性 > 功能数量。
+NanoHarness 是面向真实代码仓库的可治理软件工程智能体与评测工作台。
+决策顺序固定为：运行语义正确 > 主链唯一 > 状态、副作用与 Evidence 可审计 >
+代码精简 > 操作与审查简单 > 扩展性 > 功能数量。
 
-新增或保留抽象必须能说明真实 Runtime 问题、面试回报、Evidence 和学习成本；
+新增或保留抽象必须能说明真实 Runtime 问题、运行或评测收益、Evidence 和维护成本；
 “更像框架”或“以后也许扩展”不能单独构成理由。六边形边界只在能隔离真实外部变化、
 保护领域语义或支持可替换测试时保留。
 
@@ -48,10 +48,9 @@ NanoHarness 是用于三年以上 AI Agent 开发岗位面试的 Coding Agent Ru
 ## 编辑与验证
 
 - 删除前检查 wiring、Port/Protocol、console script、动态 artifact consumer 和 re-export。
-- 真死代码删除；测试 fake 放测试目录；低面试回报的生产 Adapter 保留并标为 Advanced，
+- 真死代码删除；测试 fake 放测试目录；非主链的生产 Adapter 保留并标为 Advanced，
   不伪装成 `test_only`。
 - Generated artifact 只放 `.agent_forge/`；不得提交 API key、provider profile、raw trace、
   benchmark checkout 或第三方 Dataset 内容。
-- 开发中优先运行与改动直接相关的定向测试。Windows 最小检查用
-  `powershell -ExecutionPolicy Bypass -File scripts/verify.ps1`；真实模型和 Official Harness
-  是额外 Evidence，不得用模拟结果替代。
+- 开发中优先运行与改动直接相关的定向测试；提交前统一执行 `scripts/verify.sh`。真实模型和
+  Official Harness 是额外 Evidence，不得用模拟结果替代。

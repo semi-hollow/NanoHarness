@@ -32,7 +32,7 @@ NanoHarness 是一个以运行时控制、可恢复执行和评测证据闭环�
 状态与副作用正确、Evidence 真实可信是硬底线。在满足底线的设计中，复杂度按以下四条规则
 分配，而不是按“框架是否看起来完整”分配。
 
-#### 面试回报优先（项目定位与核心机制）
+#### 运行主线价值优先（项目定位与核心机制）
 
 每个新增或保留的能力、抽象、CLI、状态和 artifact 必须至少直接服务一项：
 
@@ -332,6 +332,13 @@ wiring` 拆分。只有流程与外部副作用混杂、变化原因明显不同
 | Presentation | 构造 Request、调用 API、查询 Read Model、渲染 | 编排 Agent、从原始 JSON 推断新结论 |
 | Wiring | 构造函数注入并选择具体实现 | 向调用方泄漏 concrete Adapter |
 
+### 3.1 Protocol 与实现关系
+
+`class XxxPort(Protocol)` 声明调用方需要的方法形状，接近 Java interface。Python 不会扫描
+仓库寻找实现；`wiring.py` 在装配点选择对象，mypy 比较方法签名，运行时仍是普通对象调用。
+项目自有、长期装配的 Adapter 显式继承主要 Port；测试替身、第三方对象、callable Port 与避免
+反向依赖的通用对象可以结构化满足 Protocol。继承帮助导航，不负责实例选择。
+
 状态优先使用 Enum + 命名转换，值对象/DTO 优先 dataclass，边界 JSON 可用 TypedDict；公共方法
 必须有完整类型。Workbench 只查询并呈现 canonical Evidence，POST 默认拒绝；执行、审批和恢复
 留在 `forge` CLI/Public API。
@@ -408,12 +415,6 @@ wiring` 拆分。只有流程与外部副作用混杂、变化原因明显不同
 - README 只链接权威文档，不重复复制架构细节。
 
 ## 9. 架构决策标准
-
-出现以下情况时新增 ADR：
-
-- 调整 bounded context 或模块所有权。
-- 引入新的外部 Port 或替换关键 Adapter。
-- 修改持久化、恢复、幂等或状态语义。
-- 改变评测结论或 Evidence truth model。
-
+调整 bounded context 或模块所有权、引入外部 Port 或替换关键 Adapter、修改持久化/恢复/幂等/
+状态语义、改变评测结论或 Evidence truth model 时新增 ADR。
 普通函数重命名、局部实现优化和无语义变化的文件移动不需要 ADR。

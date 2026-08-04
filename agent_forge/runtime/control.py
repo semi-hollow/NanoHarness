@@ -19,6 +19,7 @@ class FailureKind(Enum):
     PERMISSION_DENIED = "permission_denied"
     PATCH_MISMATCH = "patch_mismatch"
     COMMAND_FAILED = "command_failed"
+    VALIDATION_FAILED = "validation_failed"
     TOOL_EXCEPTION = "tool_exception"
     REPEATED_ACTION = "repeated_action"
     MODEL_RESPONSE = "model_response"
@@ -131,6 +132,21 @@ class StepController:
             self.failure_count = 0
             return None
 
+        # pytest/unittest 已正常运行但断言失败，是模型下一轮要消费的业务反馈，
+        # 不是工具网关、参数或执行环境故障。它会产生 recovery signal，但不会
+        # 累加“连续工具故障”熔断计数；原地重复同一验证仍由 ToolCall 重复保护拦截。
+        if observation.execution_succeeded is True:
+            self.failure_count = 0
+            return FailureSignal(
+                kind=FailureKind.VALIDATION_FAILED,
+                reason=observation.content,
+                retryable=True,
+                recovery_hint=(
+                    "Use the failing validation as evidence, patch the root cause, "
+                    "then rerun the smallest relevant validation."
+                ),
+            )
+
         self.failure_count += 1
         normalized_observation_text = observation.content.lower()
         if (
@@ -209,7 +225,11 @@ class StepController:
         if self.failure_count >= self.budget.max_consecutive_failures:
             return FailureSignal(
                 kind=FailureKind.BUDGET_EXCEEDED,
-                reason="too many consecutive failed tools",
+                reason=(
+                    "too many consecutive failed tools: "
+                    f"{self.failure_count} >= limit "
+                    f"{self.budget.max_consecutive_failures}"
+                ),
                 retryable=False,
                 recovery_hint="Stop and report the failure chain instead of looping.",
             )

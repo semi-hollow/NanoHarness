@@ -2,21 +2,23 @@
 
 from __future__ import annotations
 
-from agent_forge.observability.adapters.json_trace import TraceRecorder
 from agent_forge.runtime.api import build_agent_loop
 from agent_forge.runtime.config import RuntimeConfig
-from agent_forge.runtime.llm_client import LLMClient
+from agent_forge.runtime.ports.events import EventSink
+from agent_forge.runtime.ports.model import ModelPort
 from agent_forge.tools.registry import ToolRegistry
 
+from ..ports import CandidateDiffPort, RoleRunnerPort
 
-class AgentLoopRoleRunner:
+
+class AgentLoopRoleRunner(RoleRunnerPort):
     """为每个角色创建工具子集并复用同一个 Runtime。"""
 
     def __init__(
         self,
-        trace: TraceRecorder,
+        trace: EventSink,
         registry: ToolRegistry,
-        llm: LLMClient,
+        llm: ModelPort,
     ) -> None:
         self.trace = trace
         self.registry = registry
@@ -41,7 +43,7 @@ class AgentLoopRoleRunner:
         )
 
 
-class GitCandidateDiff:
+class GitCandidateDiff(CandidateDiffPort):
     """查询 workspace 是否已有未提交候选 diff 的降级安全 adapter。"""
 
     def __init__(self, workspace: GitFanoutWorkspace) -> None:

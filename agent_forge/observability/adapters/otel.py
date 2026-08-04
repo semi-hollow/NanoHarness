@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from typing import Protocol
 
 from agent_forge.observability.domain.live_event import RuntimeEvent
+from agent_forge.observability.ports.events import RuntimeEventListener
 
 
 class SpanLike(Protocol):
@@ -32,7 +33,7 @@ class OpenTelemetryPolicy:
     max_attribute_chars: int = 300
 
 
-class OpenTelemetryEventListener:
+class OpenTelemetryEventListener(RuntimeEventListener):
     """不改变内部 trace 的可选 OTEL 双写 listener。
 
     ``model.started/tool.started`` 打开 span，对应 completed 事件关闭 span；只有

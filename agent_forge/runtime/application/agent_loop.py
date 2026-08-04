@@ -350,6 +350,9 @@ class AgentLoop:
                 else model_response.content
                 or ("tool_calls" if model_response.tool_calls else "empty_response")
             ),
+            # 一个模型响应可以批量返回多个 ToolCall；实时操作台用这个计数明确
+            # “一次模型决策”和“多次顺序工具执行”的边界。
+            tool_call_count=len(model_response.tool_calls),
             llm_input_breakdown_chars={
                 "system_context": len(prepared_turn.context_message.content),
                 "conversation_history": prepared_turn.history_chars,

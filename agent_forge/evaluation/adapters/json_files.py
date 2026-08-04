@@ -4,6 +4,8 @@ import json
 from pathlib import Path
 from typing import Any
 
+from agent_forge.evaluation.ports import CaseEvidenceReader
+
 
 def load_json_if_exists(path: str | Path | None) -> dict[str, Any]:
     if not path:
@@ -18,7 +20,7 @@ def load_json_if_exists(path: str | Path | None) -> dict[str, Any]:
     return data if isinstance(data, dict) else {}
 
 
-class JsonCaseEvidenceReader:
+class JsonCaseEvidenceReader(CaseEvidenceReader):
     def load_usage(self, case: dict[str, Any], run_dir: Path) -> dict[str, Any]:
         candidates: list[Path] = []
         report_value = str(case.get("usage_report_path") or "").strip()

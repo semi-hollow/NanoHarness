@@ -118,14 +118,13 @@ class DebugLabSupportTest(unittest.TestCase):
             self.assertIn(name, guide)
         for removed in (
             "NanoHarness Inspect Latest",
-            "NanoHarness Interview 1 - Live Control",
-            "NanoHarness Interview Fallback - Deterministic Control",
-            "NanoHarness Interview Demo",
+            "NanoHarness Legacy Live Control",
+            "NanoHarness Legacy Deterministic Control",
+            "NanoHarness Legacy Demo",
             "single-live",
             "official-rerun",
         ):
             self.assertNotIn(removed, guide)
-        self.assertFalse((PROJECT_ROOT / "examples" / "interview_showcase.py").exists())
         self.assertFalse(
             (PROJECT_ROOT / "examples" / "debug_lab" / "RUN_CONFIGURATIONS.md").exists()
         )
@@ -246,21 +245,21 @@ class DebugLabSupportTest(unittest.TestCase):
                 encoding="utf-8"
             ),
         )
-        interview = (PROJECT_ROOT / "scripts" / "interview_demo.sh").read_text(
+        showcase_script = (PROJECT_ROOT / "scripts" / "showcase_demo.sh").read_text(
             encoding="utf-8"
         )
-        self.assertIn("examples/debug_lab/run.py", interview)
-        self.assertIn('"${scenario}" --no-open-workbench', interview)
-        self.assertIn("workbench_source_sha256", interview)
-        self.assertIn("kill -0", interview)
-        self.assertIn("build=${expected_workbench_source:0:12}", interview)
-        self.assertIn('open -a "Google Chrome"', interview)
-        self.assertNotIn("forge run", interview)
-        self.assertNotIn("calculator.py", interview)
-        self.assertNotIn("--live", interview)
-        self.assertNotIn("--show-live", interview)
-        self.assertNotIn("--show-official", interview)
-        self.assertIn("--show-complex", interview)
+        self.assertIn("examples/debug_lab/run.py", showcase_script)
+        self.assertIn('"${scenario}" --no-open-workbench', showcase_script)
+        self.assertIn("workbench_source_sha256", showcase_script)
+        self.assertIn("kill -0", showcase_script)
+        self.assertIn("build=${expected_workbench_source:0:12}", showcase_script)
+        self.assertIn('open -a "Google Chrome"', showcase_script)
+        self.assertNotIn("forge run", showcase_script)
+        self.assertNotIn("calculator.py", showcase_script)
+        self.assertNotIn("--live", showcase_script)
+        self.assertNotIn("--show-live", showcase_script)
+        self.assertNotIn("--show-official", showcase_script)
+        self.assertIn("--show-complex", showcase_script)
 
         debug_entry = (PROJECT_ROOT / "examples" / "debug_lab" / "run.py").read_text(
             encoding="utf-8"
@@ -286,12 +285,38 @@ class DebugLabSupportTest(unittest.TestCase):
 
         with (
             patch.dict(os.environ, {}, clear=True),
+            patch("builtins.input", return_value="") as read_choice,
+            patch("builtins.print") as print_line,
+        ):
+            default_profile = operator_console.select_practice_profile()
+
+        self.assertEqual(default_profile.key, "natural")
+        read_choice.assert_called_once_with("请输入模式编号 1、2、3 或 4：")
+        rendered_menu = "\n".join(
+            " ".join(str(argument) for argument in call.args)
+            for call in print_line.call_args_list
+        )
+        self.assertIn("1. 自然修复（默认，直接回车）", rendered_menu)
+
+        with (
+            patch.dict(os.environ, {}, clear=True),
             patch("builtins.input", return_value="3"),
         ):
             control_profile = operator_console.select_practice_profile()
 
         self.assertEqual(control_profile.key, "operator-control")
         self.assertTrue(control_profile.operator_drill)
+
+        with (
+            patch.dict(os.environ, {}, clear=True),
+            patch("builtins.input", return_value="4"),
+        ):
+            full_auto_profile = operator_console.select_practice_profile()
+
+        self.assertEqual(full_auto_profile.key, "full-auto")
+        self.assertTrue(full_auto_profile.auto_approve_writes)
+        self.assertFalse(full_auto_profile.allow_human_question)
+        self.assertEqual(full_auto_profile.max_steps, 40)
 
     def test_optional_evaluation_runner_opens_workbench_and_can_opt_out(self) -> None:
         with (
@@ -344,17 +369,6 @@ class DebugLabSupportTest(unittest.TestCase):
                 )
 
         self.assertEqual(run_process.call_count, 3)
-
-    def test_setup_handles_deferred_breakpoint_status_before_err_trap(self) -> None:
-        setup = (PROJECT_ROOT / "scripts" / "setup_macos_local.sh").read_text(
-            encoding="utf-8"
-        )
-        invocation = "if python scripts/install_pycharm_debug_lab.py; then"
-        self.assertIn(invocation, setup)
-        self.assertNotIn(
-            "set +e\n  python scripts/install_pycharm_debug_lab.py",
-            setup,
-        )
 
     def test_benchmark_support_accepts_any_ready_docker_compatible_daemon(self) -> None:
         completed = unittest.mock.Mock(returncode=0)

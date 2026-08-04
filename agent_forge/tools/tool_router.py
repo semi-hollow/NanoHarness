@@ -1,4 +1,51 @@
+import re
 from dataclasses import dataclass
+
+
+_GLOBAL_READ_ONLY_MARKERS = (
+    "不要修改",
+    "不修改",
+    "不要改",
+    "不改",
+    "只读",
+    "仅阅读",
+    "不要写",
+    "do not modify",
+    "do not edit",
+    "read only",
+    "without editing",
+)
+_SCOPED_TEST_RESTRICTIONS = (
+    # “不要改测试”约束的是写入目标，不代表整个修复任务只读。若同时写了
+    # “或源码”，负向前瞻会保留原文，让全局只读规则继续生效。
+    re.compile(
+        r"(?:不要|不)(?:修改|改)(?:测试文件|测试)"
+        r"(?!\s*(?:和|及|与|或))(?:(?:，|,)?\s*除非[^。.!?]*)?"
+    ),
+    re.compile(
+        r"\bdo not (?:modify|edit) (?:the )?tests?\b"
+        r"(?!\s+(?:or|and)\b)(?:\s+unless[^.!?]*)?"
+    ),
+)
+
+
+def task_requests_read_only(task: str) -> bool:
+    """判断任务是否整体只读，而不是只禁止修改测试等特定目标。
+
+    Tool Router 与 Skill discovery 共用这一判断，避免一处允许修复工具、另一处又
+    隐藏写入 Skill。它只识别明确约束；真实写权限仍由执行阶段的 Policy 决定。
+    """
+
+    task_without_scoped_restrictions = (task or "").lower()
+    for pattern in _SCOPED_TEST_RESTRICTIONS:
+        task_without_scoped_restrictions = pattern.sub(
+            "",
+            task_without_scoped_restrictions,
+        )
+    return any(
+        marker in task_without_scoped_restrictions
+        for marker in _GLOBAL_READ_ONLY_MARKERS
+    )
 
 
 # 核心数据：一次工具可见性决策的任务、候选 schema 与运行上下文。
@@ -183,33 +230,7 @@ class ToolRouter:
         # region 2. 通用任务意图：先给只读基础能力，再按任务目的逐步扩展
         # 只读判断必须最先完成，因为后面的修复/验证关键词只能扩展候选能力，不能覆盖
         # 用户明确给出的禁止写入约束。
-        read_only_markers = [
-            "不要修改",
-            "不修改",
-            "不要改",
-            "不改",
-            "只读",
-            "仅阅读",
-            "do not modify",
-            "do not edit",
-            "read only",
-            "without editing",
-        ]
-        is_read_only_task = any(
-            marker in normalized_task_text for marker in read_only_markers
-        )
-
-        # “不要修改测试，除非……”约束的是测试文件，不等于整个修复任务只读。
-        if is_read_only_task and any(
-            marker in normalized_task_text
-            for marker in [
-                "do not edit tests unless",
-                "do not modify tests unless",
-                "不要修改测试，除非",
-                "不要改测试，除非",
-            ]
-        ):
-            is_read_only_task = False
+        is_read_only_task = task_requests_read_only(normalized_task_text)
 
         # 所有任务先获得仓库发现、读取和搜索能力；ask_human 是独立澄清通道。
         visible_tool_names = {

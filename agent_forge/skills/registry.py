@@ -8,6 +8,9 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from agent_forge.runtime.ports.skills import SkillSelectorPort
+from agent_forge.tools.tool_router import task_requests_read_only
+
 
 @dataclass(frozen=True)
 class SkillSpec:
@@ -136,7 +139,7 @@ class SkillCatalogEntry:
     selection_reason: str = ""
 
 
-class SkillRegistry:
+class SkillRegistry(SkillSelectorPort):
     """保存版本化 Skill，并分开 metadata discovery 与正文 activation。"""
 
     def __init__(self) -> None:
@@ -245,7 +248,7 @@ class SkillRegistry:
             ]
 
         task_lower = (task or "").lower()
-        read_only_requested = _read_only_requested(task_lower)
+        read_only_requested = task_requests_read_only(task_lower)
         scored: list[tuple[int, SkillSpec]] = []
         for spec in self.list_specs():
             latest = self.resolve(spec.name)
@@ -338,23 +341,6 @@ def _version_key(version: str) -> tuple[Any, ...]:
         else:
             parts.append((1, token))
     return tuple(parts)
-
-
-def _read_only_requested(task_lower: str) -> bool:
-    markers = [
-        "不要修改",
-        "不修改",
-        "不要改",
-        "不改",
-        "只读",
-        "仅阅读",
-        "不要写",
-        "do not modify",
-        "do not edit",
-        "read only",
-        "without editing",
-    ]
-    return any(marker in task_lower for marker in markers)
 
 
 def _is_write_skill(spec: SkillSpec) -> bool:

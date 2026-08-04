@@ -8,13 +8,14 @@ from __future__ import annotations
 
 import argparse
 import json
+from datetime import datetime
 from pathlib import Path
 from typing import Literal
 
 from rich.text import Text
 from textual import on, work
 from textual.app import App, ComposeResult
-from textual.containers import Horizontal, Vertical
+from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.css.query import NoMatches
 from textual.widgets import (
     Button,
@@ -23,6 +24,7 @@ from textual.widgets import (
     Input,
     Label,
     RichLog,
+    Select,
     Static,
     TextArea,
 )
@@ -31,7 +33,10 @@ from agent_forge.harness import RunResult
 from agent_forge.operator_console.api import (
     OperatorSessionBundle,
     build_operator_session,
+    build_task_session_library,
 )
+from agent_forge.operator_console.application import TaskSessionLibrary
+from agent_forge.operator_console.domain import TaskSession
 from agent_forge.observability.domain.live_event import RuntimeEvent
 from agent_forge.operator_console.events import render_event, should_render_event
 from agent_forge.operator_console.session import OperatorPrompt, OperatorSession
@@ -55,9 +60,29 @@ class OperatorConsoleApp(App[None]):
     }
 
     #launch {
-        height: 12;
+        height: 20;
         padding: 1 2;
         border-bottom: solid #3c464d;
+    }
+
+    #session-row, #workspace-row, #session-actions {
+        height: 3;
+    }
+
+    #session-picker {
+        width: 2fr;
+        margin-right: 1;
+    }
+
+    #session-title {
+        width: 1fr;
+    }
+
+    #session-summary {
+        height: 4;
+        padding: 0 1;
+        color: #b9c3c9;
+        overflow-y: auto;
     }
 
     #workspace {
@@ -65,14 +90,13 @@ class OperatorConsoleApp(App[None]):
         margin-right: 1;
     }
 
-    #launch-actions {
+    #launch-actions, #session-actions {
         width: 1fr;
         align: right middle;
     }
 
     #task {
         height: 6;
-        margin-top: 1;
         border: solid #465159;
         background: #171b1e;
     }
@@ -111,6 +135,14 @@ class OperatorConsoleApp(App[None]):
         background: #30383d;
     }
 
+    #sessions {
+        width: 10;
+        min-width: 10;
+        height: 3;
+        margin: 0 1 0 0;
+        background: #30383d;
+    }
+
     #timeline {
         height: 1fr;
         padding: 0 2 1 2;
@@ -132,14 +164,19 @@ class OperatorConsoleApp(App[None]):
         overflow-y: auto;
     }
 
-    #prompt {
+    #prompt-scroll {
         height: 1fr;
         min-height: 4;
         margin-top: 1;
-        padding: 1;
         border: solid #7b6a3a;
         background: #181713;
-        overflow-y: auto;
+        scrollbar-color: #8b7b47;
+    }
+
+    #prompt {
+        height: auto;
+        padding: 1;
+        background: #181713;
     }
 
     #operator-input {
@@ -183,9 +220,16 @@ class OperatorConsoleApp(App[None]):
         ("f8", "cancel_run", "取消"),
     ]
 
-    def __init__(self, args: argparse.Namespace) -> None:
+    def __init__(
+        self,
+        args: argparse.Namespace,
+        *,
+        task_sessions: TaskSessionLibrary | None = None,
+    ) -> None:
         super().__init__()
         self._args = args
+        self._task_sessions = task_sessions or build_task_session_library(args)
+        self._selected_task_session_id = ""
         self._bundle: OperatorSessionBundle | None = None
         self._busy = False
         self._event_history: list[RuntimeEvent] = []
@@ -194,15 +238,34 @@ class OperatorConsoleApp(App[None]):
     def compose(self) -> ComposeResult:
         yield Header()
         with Vertical(id="launch"):
-            with Horizontal():
+            with Horizontal(id="session-row"):
+                yield Select(
+                    self._session_options(),
+                    prompt="新建任务会话",
+                    id="session-picker",
+                )
+                yield Input(
+                    placeholder="会话名称（可选，可随时重命名）",
+                    id="session-title",
+                )
+            with Horizontal(id="session-actions"):
+                yield Button("新会话", id="new-session")
+                yield Button("打开", id="open-session", variant="primary")
+                yield Button("重命名", id="rename-session")
+                yield Button("置顶", id="pin-session")
+                yield Button("归档", id="archive-session")
+            yield Static(
+                "选择历史会话可接管最新 Checkpoint；新任务则填写下面两项。",
+                id="session-summary",
+            )
+            with Horizontal(id="workspace-row"):
                 yield Input(
                     value=str(getattr(self._args, "workspace", "") or Path.cwd()),
                     placeholder="Repository workspace",
                     id="workspace",
                 )
                 with Horizontal(id="launch-actions"):
-                    yield Button("运行", id="start", variant="primary")
-                    yield Button("恢复最近", id="attach-latest")
+                    yield Button("运行新会话", id="start", variant="primary")
             yield TextArea(
                 str(getattr(self._args, "task", "") or ""),
                 language="markdown",
@@ -212,6 +275,7 @@ class OperatorConsoleApp(App[None]):
             with Vertical(id="timeline-pane"):
                 with Horizontal(id="timeline-header"):
                     yield Label("Execution Timeline · 主流程", id="timeline-title")
+                    yield Button("会话库", id="sessions")
                     yield Button("显示底层事件", id="timeline-mode")
                 yield RichLog(id="timeline", highlight=True, markup=False, wrap=True)
             with Vertical(id="control-pane"):
@@ -220,10 +284,11 @@ class OperatorConsoleApp(App[None]):
                     "状态：READY\n等待输入任务并点击“运行”。",
                     id="status",
                 )
-                yield Static(
-                    "这里显示当前 Checkpoint、人工问题、审批目标和最终 Artifact。",
-                    id="prompt",
-                )
+                with VerticalScroll(id="prompt-scroll", can_focus=True):
+                    yield Static(
+                        "这里显示当前 Checkpoint、人工问题、审批目标和最终 Artifact。",
+                        id="prompt",
+                    )
                 yield Input(
                     placeholder="运行中输入 steer；等待人工时输入回答",
                     id="operator-input",
@@ -242,13 +307,106 @@ class OperatorConsoleApp(App[None]):
         self.query_one("#approve", Button).display = False
         self.query_one("#reject", Button).display = False
         self.query_one("#resume", Button).display = False
+        self._refresh_session_picker()
         self.set_interval(0.10, self._drain_runtime_events)
         self.query_one("#task", TextArea).focus()
+
+    @on(Select.Changed, "#session-picker")
+    def select_task_session(self, event: Select.Changed) -> None:
+        """选择只更新预览；真正加载 checkpoint 仍需点击“打开”。"""
+
+        self._selected_task_session_id = (
+            event.value if isinstance(event.value, str) else ""
+        )
+        self._render_selected_session_summary()
+
+    @on(Button.Pressed, "#new-session")
+    def prepare_new_session(self) -> None:
+        if self._busy:
+            return
+        self._selected_task_session_id = ""
+        self.query_one("#session-picker", Select).clear()
+        self.query_one("#session-title", Input).value = ""
+        self.query_one("#workspace", Input).value = str(
+            getattr(self._args, "workspace", "") or Path.cwd()
+        )
+        self.query_one("#task", TextArea).text = str(
+            getattr(self._args, "task", "") or ""
+        )
+        self.query_one("#session-summary", Static).update(
+            "新会话会获得稳定 Session ID；每次执行仍生成独立 Run 和证据目录。"
+        )
+        self._bundle = None
+        self.query_one("#task", TextArea).focus()
+
+    @on(Button.Pressed, "#open-session")
+    def open_selected_session(self) -> None:
+        session_id = self._selected_task_session_id
+        if not session_id:
+            self._show_error("请先选择一个历史会话。")
+            return
+        self.query_one("#timeline", RichLog).clear()
+        self._event_history.clear()
+        self.query_one("#launch", Vertical).display = False
+        self._set_busy(True, "正在接管该会话最近一次 durable checkpoint...")
+        self._execute_attach_session(session_id)
+
+    @on(Button.Pressed, "#rename-session")
+    def rename_selected_session(self) -> None:
+        session_id = self._selected_task_session_id
+        title = self.query_one("#session-title", Input).value.strip()
+        if not session_id or not title:
+            self._show_error("请选择会话并输入新的名称。")
+            return
+        self._task_sessions.rename(session_id, title)
+        self._refresh_session_picker(selected_session_id=session_id)
+        self._render_selected_session_summary()
+
+    @on(Button.Pressed, "#pin-session")
+    def pin_selected_session(self) -> None:
+        session_id = self._selected_task_session_id
+        if not session_id:
+            self._show_error("请先选择一个会话。")
+            return
+        session = self._task_sessions.toggle_pinned(session_id)
+        self._refresh_session_picker(selected_session_id=session_id)
+        self.query_one("#pin-session", Button).label = (
+            "取消置顶" if session.pinned else "置顶"
+        )
+
+    @on(Button.Pressed, "#archive-session")
+    def archive_selected_session(self) -> None:
+        session_id = self._selected_task_session_id
+        if not session_id:
+            self._show_error("请先选择一个会话。")
+            return
+        self._task_sessions.set_archived(session_id)
+        self._selected_task_session_id = ""
+        self._refresh_session_picker()
+        self.query_one("#session-summary", Static).update(
+            "会话已归档；Run、Workspace 和证据均未删除。"
+        )
+
+    @on(Button.Pressed, "#sessions")
+    def show_session_library(self) -> None:
+        if self._busy:
+            self._show_error("当前 Run 仍在执行；请先暂停或等待到达终态。")
+            return
+        self._refresh_session_picker(
+            selected_session_id=(
+                self._bundle.task_session_id if self._bundle is not None else ""
+            )
+        )
+        self.query_one("#launch", Vertical).display = True
 
     @on(Button.Pressed, "#start")
     def start_run(self) -> None:
         task = self.query_one("#task", TextArea).text.strip()
         workspace = self.query_one("#workspace", Input).value.strip()
+        session_title = self.query_one("#session-title", Input).value.strip()
+        if self._selected_task_session_id:
+            self._show_error("历史会话请点击“打开”；新任务请先点击“新会话”。")
+            return
         if not task:
             self._show_error("任务不能为空。")
             return
@@ -259,17 +417,7 @@ class OperatorConsoleApp(App[None]):
         self._event_history.clear()
         self.query_one("#launch", Vertical).display = False
         self._set_busy(True, "正在装配 Runtime...")
-        self._execute_start(task, workspace)
-
-    @on(Button.Pressed, "#attach-latest")
-    def attach_latest(self) -> None:
-        workspace = self.query_one("#workspace", Input).value.strip()
-        if not workspace:
-            self._show_error("Workspace 不能为空。")
-            return
-        self.query_one("#launch", Vertical).display = False
-        self._set_busy(True, "正在读取最近一次 durable checkpoint...")
-        self._execute_attach_latest(workspace)
+        self._execute_start(task, workspace, session_title)
 
     @on(Button.Pressed, "#send")
     @on(Input.Submitted, "#operator-input")
@@ -287,6 +435,21 @@ class OperatorConsoleApp(App[None]):
         ):
             self._set_busy(True, "正在保存人工回答并自动续跑...")
             self._execute_answer(operator_input)
+            return
+        checkpoint = session.checkpoint
+        if (
+            not self._busy
+            and checkpoint is not None
+            and checkpoint.status
+            in {
+                TaskRunStatus.COMPLETED.value,
+                TaskRunStatus.BLOCKED.value,
+                TaskRunStatus.FAILED.value,
+                TaskRunStatus.CANCELLED.value,
+            }
+        ):
+            self._set_busy(True, "正在同一任务会话中创建后续 Run...")
+            self._execute_follow_up(operator_input)
             return
         session.steer(operator_input)
         self._timeline_message(f"操作员 steer 已排队：{operator_input}")
@@ -342,12 +505,14 @@ class OperatorConsoleApp(App[None]):
         self._timeline_message("已请求取消；既有副作用不会自动回滚。")
 
     @work(thread=True, group="runtime", exclusive=True)
-    def _execute_start(self, task: str, workspace: str) -> None:
+    def _execute_start(self, task: str, workspace: str, session_title: str) -> None:
         try:
             bundle = build_operator_session(
                 self._args,
                 task=task,
                 workspace=workspace,
+                session_title=session_title,
+                task_sessions=self._task_sessions,
             )
             self._bundle = bundle
             run_result = bundle.session.start()
@@ -357,19 +522,34 @@ class OperatorConsoleApp(App[None]):
         self.call_from_thread(self._finish_result, run_result)
 
     @work(thread=True, group="runtime", exclusive=True)
-    def _execute_attach_latest(self, workspace: str) -> None:
+    def _execute_attach_session(self, task_session_id: str) -> None:
         try:
+            task_session = self._task_sessions.require(task_session_id)
+            latest_run = task_session.latest_run
+            if latest_run is None:
+                raise RuntimeError("该会话还没有可接管的 Run")
             bundle = build_operator_session(
                 self._args,
-                task="continue the latest durable NanoHarness run",
-                workspace=workspace,
+                task=latest_run.task or task_session.initial_task,
+                workspace=task_session.workspace,
+                task_session_id=task_session_id,
+                task_sessions=self._task_sessions,
             )
             self._bundle = bundle
-            checkpoint = bundle.session.attach_latest(workspace)
+            checkpoint = bundle.session.attach_run(latest_run.artifact_dir)
         except Exception as exc:
             self.call_from_thread(self._finish_error, exc)
             return
         self.call_from_thread(self._finish_attachment, checkpoint)
+
+    @work(thread=True, group="runtime", exclusive=True)
+    def _execute_follow_up(self, message: str) -> None:
+        try:
+            run_result = self._session().continue_with_user_message(message)
+        except Exception as exc:
+            self.call_from_thread(self._finish_error, exc)
+            return
+        self.call_from_thread(self._finish_result, run_result)
 
     @work(thread=True, group="runtime", exclusive=True)
     def _execute_answer(self, answer: str) -> None:
@@ -403,6 +583,11 @@ class OperatorConsoleApp(App[None]):
 
     def _finish_result(self, run_result: RunResult) -> None:
         self._set_busy(False)
+        if self._bundle is not None:
+            self._selected_task_session_id = self._bundle.task_session_id
+            self._refresh_session_picker(
+                selected_session_id=self._bundle.task_session_id
+            )
         self._render_checkpoint(run_result.checkpoint, run_result.artifact_dir)
         self._render_operator_prompt()
         if not run_result.waiting_for_operator:
@@ -410,6 +595,8 @@ class OperatorConsoleApp(App[None]):
 
     def _finish_attachment(self, checkpoint: TaskCheckpoint) -> None:
         self._set_busy(False)
+        if self._bundle is not None:
+            self._selected_task_session_id = self._bundle.task_session_id
         artifact_dir = self._session().artifact_dir
         self._render_checkpoint(checkpoint, artifact_dir)
         self._render_operator_prompt()
@@ -425,7 +612,15 @@ class OperatorConsoleApp(App[None]):
     def _set_busy(self, busy: bool, message: str = "") -> None:
         self._busy = busy
         self.query_one("#start", Button).disabled = busy
-        self.query_one("#attach-latest", Button).disabled = busy
+        for selector in (
+            "#new-session",
+            "#open-session",
+            "#rename-session",
+            "#pin-session",
+            "#archive-session",
+            "#sessions",
+        ):
+            self.query_one(selector, Button).disabled = busy
         self.query_one("#pause", Button).disabled = not busy
         self.query_one("#cancel", Button).disabled = not busy
         operator_input = self.query_one("#operator-input", Input)
@@ -463,15 +658,43 @@ class OperatorConsoleApp(App[None]):
         reject.display = bool(prompt and prompt.kind == "approval")
         checkpoint = self._session().checkpoint
         resume.display = bool(
-            checkpoint is not None and checkpoint.status == TaskRunStatus.PAUSED.value
+            checkpoint is not None
+            and checkpoint.status
+            in {
+                TaskRunStatus.RUNNING.value,
+                TaskRunStatus.PAUSED.value,
+            }
         )
         if prompt is None:
+            checkpoint = self._session().checkpoint
+            operator_input = self.query_one("#operator-input", Input)
+            if checkpoint is not None and checkpoint.status in {
+                TaskRunStatus.RUNNING.value,
+                TaskRunStatus.PAUSED.value,
+            }:
+                operator_input.placeholder = "先点击“继续”，恢复后才能发送 steer"
+                operator_input.disabled = True
+                self.query_one("#send", Button).disabled = True
+                self.query_one("#prompt", Static).update(
+                    "当前 Run 已停在 durable checkpoint。\n"
+                    "点击“继续”会创建 continuation Run；不会恢复旧进程、HTTP 请求或 KV Cache。"
+                )
+                return
+            if checkpoint is not None and checkpoint.status in {
+                TaskRunStatus.COMPLETED.value,
+                TaskRunStatus.BLOCKED.value,
+                TaskRunStatus.FAILED.value,
+                TaskRunStatus.CANCELLED.value,
+            }:
+                operator_input.placeholder = "输入后续要求，作为同一会话的新 Run"
             self.query_one("#prompt", Static).update(
                 "当前没有待处理的人工问题或审批。\n"
-                "运行中可在下方输入 steer，方向会在下一次模型边界生效。"
+                "运行中输入会成为 steer；终态后输入会创建同一 Session 的后续 Run。"
             )
             return
         self.query_one("#prompt", Static).update(Text(self._prompt_text(prompt)))
+        prompt_scroll = self.query_one("#prompt-scroll", VerticalScroll)
+        prompt_scroll.scroll_home(animate=False)
         operator_input = self.query_one("#operator-input", Input)
         if prompt.kind == "human_input" and prompt.choices:
             operator_input.placeholder = f"输入可选值：{', '.join(prompt.choices)}"
@@ -483,6 +706,8 @@ class OperatorConsoleApp(App[None]):
         self.query_one("#send", Button).disabled = prompt.kind != "human_input"
         if prompt.kind == "human_input":
             operator_input.focus()
+        else:
+            prompt_scroll.focus()
 
     def _drain_runtime_events(self) -> None:
         if self._bundle is None:
@@ -571,13 +796,150 @@ class OperatorConsoleApp(App[None]):
             raise RuntimeError("请先运行或接管一个 NanoHarness 会话")
         return self._bundle.session
 
+    def _session_options(self) -> list[tuple[str, str]]:
+        return [
+            (self._session_option_label(session), session.session_id)
+            for session in self._task_sessions.list_active()
+        ]
+
+    def _refresh_session_picker(self, *, selected_session_id: str = "") -> None:
+        """刷新会话下拉框，同时尽量保留当前选择。"""
+
+        picker = self.query_one("#session-picker", Select)
+        picker.set_options(self._session_options())
+        session_ids = {session.session_id for session in self._task_sessions.list_active()}
+        desired = selected_session_id or self._selected_task_session_id
+        if desired and desired in session_ids:
+            self._selected_task_session_id = desired
+            picker.value = desired
+        else:
+            self._selected_task_session_id = ""
+            picker.clear()
+
+    def _render_selected_session_summary(self) -> None:
+        session_id = self._selected_task_session_id
+        if not session_id:
+            self.query_one("#session-summary", Static).update(
+                "新会话会获得稳定 Session ID；每次执行仍生成独立 Run 和证据目录。"
+            )
+            self.query_one("#pin-session", Button).label = "置顶"
+            return
+        session = self._task_sessions.require(session_id)
+        latest = session.latest_run
+        self.query_one("#session-title", Input).value = session.title
+        self.query_one("#workspace", Input).value = session.workspace
+        self.query_one("#pin-session", Button).label = (
+            "取消置顶" if session.pinned else "置顶"
+        )
+        if latest is None:
+            summary = f"{session.title} · 尚未运行 · Workspace: {session.workspace}"
+        else:
+            updated = datetime.fromtimestamp(latest.updated_at).strftime("%m-%d %H:%M")
+            summary = (
+                f"{session.title} · {len(session.runs)} 次 Run · 最近 {updated}\n"
+                f"状态 {latest.status.upper()} · Step {latest.current_step} · "
+                f"{'可从 Checkpoint 继续' if latest.checkpoint_path else '无 Checkpoint'}"
+            )
+        self.query_one("#session-summary", Static).update(summary)
+
+    @staticmethod
+    def _session_option_label(session: TaskSession) -> str:
+        latest = session.latest_run
+        status = latest.status.upper() if latest is not None else "NEW"
+        updated_at = latest.updated_at if latest is not None else session.updated_at
+        updated = datetime.fromtimestamp(updated_at).strftime("%m-%d %H:%M")
+        prefix = "★ " if session.pinned else ""
+        return (
+            f"{prefix}{session.title} · {status} · "
+            f"{len(session.runs)} Runs · {updated}"
+        )
+
     @staticmethod
     def _prompt_text(prompt: OperatorPrompt) -> str:
         lines = [prompt.title, "", prompt.body]
         if prompt.choices:
             lines.extend(["", f"可选值：{', '.join(prompt.choices)}"])
         if prompt.details:
-            lines.extend(["", "Evidence", prompt.details])
+            if prompt.kind == "approval":
+                lines.extend(
+                    [
+                        "",
+                        "审批前请完整核对目标、原内容和新内容。",
+                        "可使用鼠标滚轮、方向键或 Page Up / Page Down 查看全部详情。",
+                        f"Operation Key：{prompt.key}",
+                        "",
+                        OperatorConsoleApp._format_approval_details(prompt.details),
+                    ]
+                )
+            else:
+                lines.extend(["", "Evidence", prompt.details])
+        return "\n".join(lines)
+
+    @staticmethod
+    def _format_approval_details(details: str) -> str:
+        """把机器审批 JSON 投影成人能逐项核对的完整视图。"""
+
+        try:
+            payload = json.loads(details)
+        except (json.JSONDecodeError, TypeError):
+            return details
+        if not isinstance(payload, dict):
+            return details
+
+        arguments = payload.get("arguments")
+        arguments = arguments if isinstance(arguments, dict) else {}
+        lines = [
+            f"工具：{payload.get('tool') or '-'}",
+            f"动作：{payload.get('action') or '-'}",
+        ]
+        command = str(payload.get("command") or "")
+        if command:
+            lines.append(f"命令：{command}")
+
+        target_path = arguments.get("path")
+        if target_path is not None:
+            lines.extend(["", f"目标文件：{target_path}"])
+        if "old" in arguments:
+            lines.extend(["", "原内容（old）：", str(arguments["old"])])
+        if "new" in arguments:
+            lines.extend(["", "新内容（new）：", str(arguments["new"])])
+
+        remaining_arguments = {
+            key: value
+            for key, value in arguments.items()
+            if key not in {"path", "old", "new"}
+        }
+        if remaining_arguments:
+            lines.extend(
+                [
+                    "",
+                    "其他参数：",
+                    json.dumps(
+                        remaining_arguments,
+                        ensure_ascii=False,
+                        indent=2,
+                        default=str,
+                    ),
+                ]
+            )
+
+        workspace = str(payload.get("workspace") or "")
+        if workspace:
+            lines.extend(["", f"隔离工作区：{workspace}"])
+        fingerprint = payload.get("fingerprint")
+        if fingerprint:
+            lines.extend(
+                [
+                    "",
+                    "审批时目标指纹：",
+                    json.dumps(
+                        fingerprint,
+                        ensure_ascii=False,
+                        indent=2,
+                        default=str,
+                    ),
+                ]
+            )
         return "\n".join(lines)
 
     @staticmethod

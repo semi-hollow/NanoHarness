@@ -8,6 +8,7 @@ from agent_forge.bench.adapters.case_evidence import JsonCaseEvidenceReader
 from agent_forge.bench.application.failure_analysis import BenchFailureAnalyzer
 from agent_forge.bench.domain.config import BenchRunLayout
 from agent_forge.bench.domain.models import BenchCaseResult, BenchRunSummary
+from agent_forge.bench.ports.benchmark import BenchArtifactPort
 from agent_forge.bench.presentation.case_study import write_case_study
 from agent_forge.bench.presentation.report import write_bench_artifacts
 from agent_forge.evaluation.api import (
@@ -17,7 +18,9 @@ from agent_forge.evaluation.api import (
 )
 
 
-class FileBenchArtifacts:
+class FileBenchArtifacts(BenchArtifactPort):
+    """文件系统产物 Adapter；显式继承 Port 以便 IDE 直接跳转实现。"""
+
     def __init__(self) -> None:
         self._failure_analyzer = BenchFailureAnalyzer(JsonCaseEvidenceReader())
 
@@ -84,6 +87,8 @@ class FileBenchArtifacts:
         )
 
     def finalize_case(self, result: BenchCaseResult) -> None:
+        """最终评测结束后归因，并基于同一最终结果写 Case Study。"""
+
         self._failure_analyzer.enrich_result_with_failure_diagnosis(result)
         write_case_study(result)
 

@@ -121,6 +121,7 @@ class WorkbenchRunStoryTest(unittest.TestCase):
                         "key": "context-pressure",
                         "title": "上下文压力",
                         "purpose": "观察压缩与信息丢失",
+                        "auto_approve_writes": False,
                         "operator_drill": [],
                     },
                     ensure_ascii=False,
@@ -142,6 +143,7 @@ class WorkbenchRunStoryTest(unittest.TestCase):
         self.assertEqual(selected_run, complex_run)
         self.assertIn("repair settlement atomicity", rendered)
         self.assertIn("上下文压力", rendered)
+        self.assertIn("逐项人工审批", rendered)
         self.assertIn("2", rendered)
         self.assertIn("focused pytest", rendered)
         self.assertIn("full pytest", rendered)

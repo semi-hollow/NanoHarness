@@ -5,13 +5,16 @@ Evidence。不要通读仓库，也不要另记长命令。
 
 ## 首次准备
 
-关闭 PyCharm，在项目根目录执行一次：
+首次 clone 后，在项目根目录执行 README 的标准安装命令：
 
 ```bash
-scripts/setup_macos_local.sh --quick
+python3.11 -m venv .venv
+source .venv/bin/activate
+python -m pip install -e '.[dev]'
 ```
 
-该脚本会调用 `scripts/install_pycharm_debug_lab.py`，按函数名重新定位断点；代码行号变化后无需手工维护。
+三个 `.run` 配置已经随仓库提供。只有需要自动安装阅读 Scope 和按函数名重新定位断点时，才关闭
+PyCharm 并额外执行一次 `.venv/bin/python scripts/install_pycharm_debug_lab.py`；平时不需要阅读该脚本。
 
 然后用 PyCharm 单独打开 NanoHarness，使用右上角绿色 Debug 按钮。共享配置只有三个：
 
@@ -67,7 +70,9 @@ run_coordinated
 
 ## Lab 3：复杂真实任务
 
-Lab 3 每次从 [`complex_repository`](complex_repository/) 创建全新 Git 仓库。任务不是一步改错：
+Lab 3 首次从 [`complex_repository`](complex_repository/) 创建 Git 仓库；之后默认复用该练习模式的
+Workspace。Operator Console 会用人类可读的 Task Session 归组多次 Run，可直接打开历史会话并从最新
+Checkpoint 继续，不需要查随机目录。任务不是一步改错：
 
 - 渠道重试的 provider / event id 需要规范化，否则幂等失效。
 - `39.995` 必须按业务规则舍入为 `40.00`，否则 partial capture 无法正确收口。
@@ -81,8 +86,11 @@ Lab 3 每次从 [`complex_repository`](complex_repository/) 创建全新 Git 仓
 | `1 自然修复` | 第一次必跑 | 不干预模型；记录它如何定位文件、选择工具、遇到失败并收敛 |
 | `2 上下文压力` | 自然修复看懂后 | 同一任务降到 6500 字符预算；观察压缩、重复检索、遗漏和恢复 |
 | `3 人工控制与恢复` | 最后跑 | 亲自输入 steer、按 F6 暂停、继续、检查写参数并批准 |
+| `4 全自动修复` | 先建立全局视角时 | 隔离工作区内自动批准普通写操作，一次看完检索、修改、验证与收敛；越界路径、网络和危险命令仍拒绝 |
 
-进入 Operator Console 后点击“运行”。写操作会停在批准界面；确认目标和参数后再批准。运行结束后按
+进入 Operator Console 后，新任务点击“运行新会话”；中断过的任务从会话列表选择后点击“打开”，再按
+“继续”。模式 1/2/3 的写操作会停在批准界面；确认目标和参数后再批准。模式 4 会自动批准隔离
+Workspace 内的普通写操作，但不会绕过路径、命令和网络边界。运行结束后按
 `Ctrl+Q` 退出，脚本会把最终 run 固定为 `complex_artifact.txt`，并自动在 Chrome 打开 Lab 3 页面。
 
 Lab 3 的五个断点分别回答：

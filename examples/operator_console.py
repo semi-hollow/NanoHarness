@@ -27,12 +27,12 @@ DEFAULT_TASK = (
     "tests/test_reconciliation.py tests. After the focused behavior passes, run the "
     "complete test suite, inspect the final git diff, and only then finish."
 )
-WORKBENCH_LAUNCHER = PROJECT_ROOT / "scripts" / "interview_demo.sh"
+WORKBENCH_LAUNCHER = PROJECT_ROOT / "scripts" / "showcase_demo.sh"
 sys.path.insert(0, str(PROJECT_ROOT))
 
 from examples.debug_lab.support import (  # noqa: E402
     artifact_from_pointer,
-    create_workspace,
+    load_or_create_workspace,
     load_or_store_deepseek_key,
     publish_latest,
 )
@@ -46,6 +46,9 @@ class PracticeProfile:
     title: str
     purpose: str
     max_context_chars: int
+    max_steps: int = 24
+    auto_approve_writes: bool = False
+    allow_human_question: bool = True
     operator_drill: tuple[str, ...] = ()
 
 
@@ -73,6 +76,18 @@ PRACTICE_PROFILES = (
             "点击“继续”恢复；遇到写操作后检查目标与参数，再点击“批准”。",
         ),
     ),
+    PracticeProfile(
+        key="full-auto",
+        title="全自动修复",
+        purpose=(
+            "隔离工作区内自动批准普通写操作，连续观察完整修复；"
+            "越界路径、网络与危险命令仍被拒绝。"
+        ),
+        max_context_chars=16_000,
+        max_steps=40,
+        auto_approve_writes=True,
+        allow_human_question=False,
+    ),
 )
 
 
@@ -88,12 +103,13 @@ def select_practice_profile() -> PracticeProfile:
 
     print("\nNanoHarness Lab 3 · 复杂任务深度练习")
     for index, profile in enumerate(PRACTICE_PROFILES, start=1):
-        print(f"  {index}. {profile.title}：{profile.purpose}")
-    selected = input("选择模式 [1]: ").strip() or "1"
+        default_hint = "（默认，直接回车）" if index == 1 else ""
+        print(f"  {index}. {profile.title}{default_hint}：{profile.purpose}")
+    selected = input("请输入模式编号 1、2、3 或 4：").strip() or "1"
     try:
         return PRACTICE_PROFILES[int(selected) - 1]
     except (ValueError, IndexError) as exc:
-        raise SystemExit("请输入 1、2 或 3。") from exc
+        raise SystemExit("请输入 1、2、3 或 4。") from exc
 
 
 def print_operator_drill(profile: PracticeProfile) -> None:
@@ -118,42 +134,72 @@ def main() -> None:
     profile = select_practice_profile()
     print_operator_drill(profile)
     load_or_store_deepseek_key(KEYCHAIN_SERVICE)
-    workspace = create_workspace(
+    workspace = load_or_create_workspace(
         f"complex-{profile.key}",
         template_root=TEMPLATE_ROOT,
         state_root=STATE_ROOT,
     )
-    forge_main(
-        [
-            "console",
-            DEFAULT_TASK,
-            "--workspace",
-            str(workspace),
-            "--output-root",
-            str(RUNS_ROOT),
-            "--provider",
-            "deepseek",
-            "--model",
-            "deepseek-v4-pro",
-            "--thinking",
-            "enabled",
-            "--reasoning-effort",
-            "max",
-            "--max-steps",
-            "24",
-            "--max-context-chars",
-            str(profile.max_context_chars),
-            "--approval-mode",
-            "on-write",
-            "--no-auto-approve-writes",
-            "--tool-routing",
-            "task-aware",
-            "--skills",
-            "auto",
-            "--memory-recall-limit",
-            "0",
-        ]
+    write_approval_flag = (
+        "--auto-approve-writes"
+        if profile.auto_approve_writes
+        else "--no-auto-approve-writes"
     )
+    runtime_arguments = [
+        "console",
+        DEFAULT_TASK,
+        "--workspace",
+        str(workspace),
+        "--output-root",
+        str(RUNS_ROOT),
+        "--provider",
+        "deepseek",
+        "--model",
+        "deepseek-v4-pro",
+        "--thinking",
+        "enabled",
+        "--reasoning-effort",
+        "max",
+        "--max-steps",
+        str(profile.max_steps),
+        "--max-context-chars",
+        str(profile.max_context_chars),
+        "--approval-mode",
+        "on-write",
+        write_approval_flag,
+        "--tool-routing",
+        "task-aware",
+        "--skills",
+        "auto",
+        "--memory-recall-limit",
+        "0",
+    ]
+    if not profile.allow_human_question:
+        # 全自动模式仍使用同一 Runtime，只是不向模型暴露人工提问协议。
+        # 普通写操作自动批准；路径、命令、网络和隔离边界继续生效。
+        runtime_arguments.extend(
+            [
+                "--runtime-instructions",
+                (
+                    "Work autonomously until the requested focused and full validations pass. "
+                    "Do not ask the operator to run tests or provide implementation decisions; "
+                    "use the available repository and validation tools."
+                ),
+            ]
+        )
+        for tool_name in (
+            "list_files",
+            "read_file",
+            "grep",
+            "grep_search",
+            "git_status",
+            "git_diff",
+            "replace_text",
+            "write_file",
+            "python_validation",
+            "run_command",
+        ):
+            runtime_arguments.extend(["--tool", tool_name])
+    forge_main(runtime_arguments)
     workspace_pointer = workspace / ".agent_forge" / "latest" / "run.txt"
     if workspace_pointer.is_file():
         artifact_dir = artifact_from_pointer(workspace_pointer)
@@ -164,6 +210,9 @@ def main() -> None:
                     "title": profile.title,
                     "purpose": profile.purpose,
                     "max_context_chars": profile.max_context_chars,
+                    "max_steps": profile.max_steps,
+                    "auto_approve_writes": profile.auto_approve_writes,
+                    "allow_human_question": profile.allow_human_question,
                     "operator_drill": list(profile.operator_drill),
                 },
                 ensure_ascii=False,

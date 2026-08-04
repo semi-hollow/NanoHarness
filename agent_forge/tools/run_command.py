@@ -13,8 +13,9 @@ from .base import Tool
 class RunCommandTool(Tool):
     name = "run_command"
     description = (
-        "run allowlisted Python validation (`unittest`, `pytest`, `compileall`) "
-        "or read-only git inspection; shell operators, `cd`, and `python -c` are blocked"
+        "low-level fallback for allowlisted Python validation (`unittest`, `pytest`, "
+        "`compileall`) or read-only git inspection; prefer python_validation for tests; "
+        "shell operators, `cd`, and `python -c` are blocked"
     )
 
     def __init__(
@@ -37,6 +38,14 @@ class RunCommandTool(Tool):
     def _normalize_python(self, parts: list[str]) -> list[str]:
         if parts and parts[0] in {"python", "python3", "python3.11"}:
             return [sys.executable] + parts[1:]
+        return parts
+
+    @staticmethod
+    def _normalize_validation_entrypoint(parts: list[str]) -> list[str]:
+        """把裸 ``pytest`` 收敛成模块调用，确保 workspace 位于 import path。"""
+
+        if parts and parts[0] == "pytest":
+            return ["python", "-m", "pytest", *parts[1:]]
         return parts
 
     def _validate_command_paths(self, parts: list[str]) -> None:
@@ -167,14 +176,19 @@ class RunCommandTool(Tool):
         )
 
     def execute(self, arguments: ToolArguments) -> Observation:
-        cmd = arguments.get("command", "")
+        cmd = str(arguments.get("command", "") or "")
         decision, reason = self.policy.decide("run_command", cmd)
         if decision != PermissionDecision.ALLOW:
-            return Observation(self.name, False, reason)
+            return Observation(
+                tool_name=self.name,
+                success=False,
+                content=reason,
+            )
 
         try:
             parts = shlex.split(cmd)
             self._validate_command_paths(parts)
+            parts = self._normalize_validation_entrypoint(parts)
             if self.execution_environment is not None:
                 proc = self.execution_environment.execute_command(parts, timeout=20)
             else:
@@ -189,9 +203,13 @@ class RunCommandTool(Tool):
                 )
             output = (proc.stdout + proc.stderr).strip()[:2000]
             return Observation(
-                self.name,
-                proc.returncode == 0,
-                f"exit_code={proc.returncode}\n{output}",
+                tool_name=self.name,
+                success=proc.returncode == 0,
+                content=f"exit_code={proc.returncode}\n{output}",
             )
         except Exception as e:
-            return Observation(self.name, False, f"command execution error: {e}")
+            return Observation(
+                tool_name=self.name,
+                success=False,
+                content=f"command execution error: {e}",
+            )

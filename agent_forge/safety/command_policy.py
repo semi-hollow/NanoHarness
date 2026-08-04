@@ -47,6 +47,12 @@ def check_command(command: str) -> tuple[bool, str]:
     if not parts:
         return False, "empty command"
 
+    if any(
+        any(operator in part for operator in ("|", ";", "&", "<", ">", "`", "$("))
+        for part in parts
+    ):
+        return False, "shell operators are blocked; pass an argv-style command"
+
     first = parts[0].lower()
     if first in DENY_PREFIX:
         return False, "dangerous command blocked"

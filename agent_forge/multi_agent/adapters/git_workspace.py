@@ -9,9 +9,10 @@ from agent_forge.runtime.git_workspace import (
     collect_workspace_diff,
     collect_workspace_status,
 )
+from agent_forge.multi_agent.ports import FanoutWorkspacePort
 
 
-class GitFanoutWorkspace:
+class GitFanoutWorkspace(FanoutWorkspacePort):
     """封装主 workspace 的 unified diff 检查、合并和状态读取。"""
 
     def __init__(self, workspace: str | Path) -> None:

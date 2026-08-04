@@ -25,6 +25,7 @@ from agent_forge.bench.adapters.git_workspace import (
 from agent_forge.bench.adapters.local_validation import read_local_validation
 from agent_forge.bench.domain.config import SwebenchRunRequest, safe_id
 from agent_forge.bench.domain.models import BenchCase, BenchCaseResult
+from agent_forge.bench.ports import CaseExecutorPort, DirectBaselinePort
 from agent_forge.models.gateway import ModelGateway
 from agent_forge.multi_agent.profiles import get_profile
 from agent_forge.multi_agent.wiring import (
@@ -48,7 +49,7 @@ from agent_forge.runtime.wiring import (
 )
 
 
-class LocalCaseExecutor:
+class LocalCaseExecutor(CaseExecutorPort):
     """把一个类型化 benchmark case 映射到 Runtime 执行与 Evidence 文件。"""
 
     def __init__(self, workspace_manager: SwebenchWorkspaceManager) -> None:
@@ -281,7 +282,7 @@ class LocalCaseExecutor:
         return error
 
 
-class DirectModelBaseline:
+class DirectModelBaseline(DirectBaselinePort):
     def predict(
         self,
         case: BenchCase,

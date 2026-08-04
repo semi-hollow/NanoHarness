@@ -31,7 +31,6 @@ from agent_forge.evaluation.api import (
     FeedbackRequest,
     export_feedback_dataset,
     record_feedback,
-    run_mini_cases,
     write_ablation_comparison,
 )
 from agent_forge.showcase import run_governed_demo
@@ -90,24 +89,7 @@ def main(argv: list[str] | None = None) -> None:
         run_ui_from_args(args)
 
 
-def run_mini_cases_from_args(args: argparse.Namespace) -> list[Path]:
-    """把 CLI evidence 文件适配为 mini-case 公共 API。"""
-
-    evidence = {}
-    if args.evidence:
-        evidence = json.loads(Path(args.evidence).read_text(encoding="utf-8"))
-    return run_mini_cases(
-        case_id=args.case,
-        evidence=evidence,
-        output_dir=args.output_root,
-    )
-
-
 def _dispatch_evaluation(args: argparse.Namespace) -> None:
-    if args.eval_name == "mini-cases":
-        for path in run_mini_cases_from_args(args):
-            print(f"Mini case report: {path}")
-        return
     if args.eval_name == "feedback":
         try:
             path = record_feedback(

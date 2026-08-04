@@ -881,6 +881,7 @@ class ToolExecutionPipeline:
             session.agent_name,
             "tool_observation",
             success=observation.success,
+            execution_succeeded=observation.execution_succeeded,
             tool_call=tool_call.name,
             tool_call_id=tool_call.id,
             observation=observation.content,

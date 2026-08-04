@@ -10,10 +10,11 @@ from pathlib import Path
 from typing import Any
 
 from ..domain.live import FanoutCheckpoint, FanoutPlan, LiveFanoutSummary
+from ..ports import FanoutArtifactPort
 from ..presentation.live_report import render_live_fanout_report
 
 
-class FanoutFileRepository:
+class FanoutFileRepository(FanoutArtifactPort):
     """保存计划、恢复点、合并 diff 和最终 summary。"""
 
     def __init__(self, run_dir: str | Path) -> None:

@@ -1,12 +1,13 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-# 面试只编排正式 Debug Lab 与只读 Workbench，不复制 Runtime、fixture 或凭据逻辑。
+# 统一编排正式 Debug Lab 与只读 Workbench，不复制 Runtime、fixture 或凭据逻辑。
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
 cd "${ROOT_DIR}"
 
 if [[ ! -x .venv/bin/python ]]; then
-  scripts/setup_macos_local.sh --quick
+  printf 'Missing .venv. Complete the README Quick Start once before opening the Workbench.\n' >&2
+  exit 2
 fi
 
 scenario="governed"
@@ -39,7 +40,7 @@ case "${1:-}" in
     status_evidence_field="latest_complex"
     ;;
   *)
-    printf 'Usage: scripts/interview_demo.sh [--show-governed|--show-coordinated|--show-complex|--show-evaluation]\n' >&2
+    printf 'Usage: scripts/showcase_demo.sh [--show-governed|--show-coordinated|--show-complex|--show-evaluation]\n' >&2
     exit 2
     ;;
 esac

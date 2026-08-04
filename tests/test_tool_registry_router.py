@@ -78,6 +78,50 @@ class ToolRegistryRouterTest(unittest.TestCase):
         self.assertIn("run_command", route.allowed_names)
         self.assertIn("git_diff", route.allowed_names)
 
+    def test_complex_repair_task_does_not_treat_test_protection_as_global_read_only(
+        self,
+    ):
+        schemas = [
+            {"name": "read_file", "arguments": {"path": "str"}},
+            {
+                "name": "replace_text",
+                "arguments": {"path": "str", "old": "str", "new": "str"},
+            },
+            {
+                "name": "python_validation",
+                "arguments": {"check_type": "str", "validation_target": "str"},
+            },
+            {"name": "ask_human", "arguments": {"question": "str"}},
+        ]
+        route = ToolRouter().route(
+            ToolRoutingRequest(
+                task=(
+                    "Repair the settlement service. Do not modify tests. "
+                    "Run the focused tests before finishing."
+                ),
+                schemas=schemas,
+                step=1,
+                agent_name="CodingAgent",
+            )
+        )
+
+        self.assertIn("replace_text", route.allowed_names)
+        self.assertIn("python_validation", route.allowed_names)
+
+    def test_test_and_source_write_ban_remains_global_read_only(self):
+        schemas = [
+            {"name": "read_file", "arguments": {"path": "str"}},
+            {"name": "replace_text", "arguments": {"path": "str"}},
+        ]
+        route = ToolRouter().route(
+            ToolRoutingRequest(
+                task="Review only. Do not modify tests or source files.",
+                schemas=schemas,
+            )
+        )
+
+        self.assertNotIn("replace_text", route.allowed_names)
+
     def test_router_prefers_diagnostics_over_shell_commands_for_swebench(self):
         schemas = [
             {"name": "read_file", "arguments": {"path": "str"}},

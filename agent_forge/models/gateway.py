@@ -1,6 +1,7 @@
 import time
 from dataclasses import dataclass
 
+from agent_forge.contracts import ToolSchema
 from agent_forge.runtime.llm_client import AgentResponse, LLMClient
 from agent_forge.runtime.domain.conversation import Message
 from agent_forge.runtime.domain.model import ModelCapabilities
@@ -67,7 +68,11 @@ class ModelGateway(LLMClient):
         self.last_usage = ModelUsage(provider=provider, model=model)
 
     # 主要入口：调用主模型，并统一处理重试、协议修复、fallback 与 usage。
-    def chat(self, messages: list[Message], tools: list[dict]) -> AgentResponse:
+    def chat(
+        self,
+        messages: list[Message],
+        tools: list[ToolSchema],
+    ) -> AgentResponse:
         """执行一次与供应商无关的模型调用，并统一重试、回退和用量。"""
 
         self.last_usage = ModelUsage(provider=self.provider, model=self.model)
@@ -108,7 +113,7 @@ class ModelGateway(LLMClient):
         model_client: LLMClient,
         model_usage: ModelUsage,
         messages: list[Message],
-        tools: list[dict],
+        tools: list[ToolSchema],
     ) -> AgentResponse:
         max_attempts = max(1, self.retry_policy.max_attempts)
         latest_model_response = AgentResponse(
@@ -178,7 +183,7 @@ class ModelGateway(LLMClient):
         return None
 
     def _estimate_prompt_tokens(
-        self, messages: list[Message], tools: list[dict]
+        self, messages: list[Message], tools: list[ToolSchema]
     ) -> int:
         text_chars = sum(len(message.content or "") for message in messages)
         tool_chars = sum(len(str(tool)) for tool in tools)

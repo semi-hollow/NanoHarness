@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any
 
 from agent_forge.bench.domain.campaign import CampaignState
+from agent_forge.bench.ports import CampaignArtifactPort, SourceIdentityPort
 from agent_forge.bench.presentation.campaign_report import render_campaign_report
 
 
@@ -27,7 +28,7 @@ _SECRET_ASSIGNMENT = re.compile(
 _LOCAL_PATH = re.compile(r"(?<![A-Za-z0-9])/(?:Users|home|private|tmp)/[^\s\"'<>]*")
 
 
-class GitSourceIdentity:
+class GitSourceIdentity(SourceIdentityPort):
     """读取 campaign 所属代码快照；不读取 remote 或用户身份。"""
 
     def __init__(self, project_dir: Path) -> None:
@@ -85,7 +86,7 @@ class GitSourceIdentity:
         return digest.hexdigest()
 
 
-class FileCampaignArtifacts:
+class FileCampaignArtifacts(CampaignArtifactPort):
     """本地状态保留完整 provenance；公开 bundle 只保留脱敏聚合与 scorecard。"""
 
     def __init__(self, project_dir: Path) -> None:

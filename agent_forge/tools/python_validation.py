@@ -26,7 +26,8 @@ class PythonValidationTool(Tool):
     name = "python_validation"
     description = (
         "validate Python code with one allowlisted check_type: compile, unittest, or pytest; "
-        "validation_target must stay inside the workspace and no shell is used"
+        "validation_target is only a workspace path or path::node_id, without pytest flags "
+        "such as -v; no shell is used"
     )
 
     def __init__(
@@ -96,6 +97,7 @@ class PythonValidationTool(Tool):
                     f"exit_code={process.returncode}\n"
                     f"{output or f'compile ok: {relative_target}'}"
                 ),
+                execution_succeeded=True,
             )
 
         python_files = (
@@ -126,6 +128,7 @@ class PythonValidationTool(Tool):
                 tool_name=self.name,
                 success=False,
                 content="\n".join(compile_errors[:20]),
+                execution_succeeded=True,
             )
         return Observation(
             tool_name=self.name,
@@ -221,6 +224,7 @@ class PythonValidationTool(Tool):
                 f"exit_code={process.returncode}\n"
                 f"{output}"
             ),
+            execution_succeeded=True,
         )
 
     def _build_unittest_command(
@@ -265,6 +269,19 @@ class PythonValidationTool(Tool):
         path_target, separator, node_id = target.partition("::")
         resolved_target = self.sandbox.ensure_safe_path(path_target)
         if not resolved_target.exists():
+            target_parts = shlex.split(path_target)
+            if len(target_parts) > 1 and self.sandbox.ensure_safe_path(
+                target_parts[0]
+            ).exists():
+                return Observation(
+                    tool_name=self.name,
+                    success=False,
+                    content=(
+                        "invalid arguments: validation_target accepts only a workspace "
+                        "path or path::node_id; do not append pytest flags. "
+                        f"Use {target_parts[0]!r}, not {path_target!r}."
+                    ),
+                )
             return Observation(
                 tool_name=self.name,
                 success=False,

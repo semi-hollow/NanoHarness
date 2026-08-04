@@ -6,11 +6,14 @@ from typing import Any, Mapping, Protocol
 
 from agent_forge.observability.domain.event import TraceEventType
 from agent_forge.runtime.config import RuntimeConfig
+from agent_forge.runtime.ports.events import EventSink
 
 from ..domain.models import Artifact, MultiAgentRunSummary, RoleSpec
 
 
-class CoordinatorEventSink(Protocol):
+class CoordinatorEventSink(EventSink, Protocol):
+    """Coordinator 额外需要 ``record_event`` 的 EventSink 扩展契约。"""
+
     run_id: str
 
     def set_run_context(

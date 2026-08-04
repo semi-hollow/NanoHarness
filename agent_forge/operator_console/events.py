@@ -11,6 +11,7 @@ from pathlib import PurePath
 from queue import Empty, SimpleQueue
 
 from agent_forge.observability.domain.live_event import RuntimeEvent
+from agent_forge.observability.ports.events import RuntimeEventListener
 
 
 _EVENT_LABELS = {
@@ -54,7 +55,7 @@ _CORE_EVENT_NAMES = {
 }
 
 
-class RuntimeEventBuffer:
+class RuntimeEventBuffer(RuntimeEventListener):
     """线程安全事件缓冲区；Runtime 写入，Textual 主线程批量读取。"""
 
     def __init__(self) -> None:
@@ -107,7 +108,11 @@ def render_event(
     scope = "Run" if event.name in _RUN_LEVEL_EVENTS else f"Step {event.step}"
     details = _render_summary(event)
     if include_infrastructure and event.name not in _CORE_EVENT_NAMES:
-        details = _render_payload(event.payload, max_chars=220)
+        details = (
+            _render_hook_check(event)
+            if event.name == "runtime.hook_check"
+            else _render_payload(event.payload, max_chars=220)
+        )
     prefix = f"{scope:<7} {label}{outcome}"
     return f"{prefix}  ·  {details}" if details else prefix
 
@@ -141,6 +146,12 @@ def _render_summary(event: RuntimeEvent) -> str:
     if event.name == "model.completed":
         usage = _mapping(payload.get("model_usage"))
         model = str(usage.get("model") or "")
+        tool_call_count = payload.get("tool_call_count")
+        model_decision = (
+            f"本轮返回 {tool_call_count} 个 ToolCall"
+            if isinstance(tool_call_count, int) and tool_call_count > 0
+            else ""
+        )
         total_tokens = _count_text(usage.get("total_tokens"), "tokens")
         latency_ms = usage.get("latency_ms")
         latency = (
@@ -153,7 +164,9 @@ def _render_summary(event: RuntimeEvent) -> str:
             f"${float(cost):.4f}" if isinstance(cost, (int, float)) else ""
         )
         return " · ".join(
-            part for part in (model, total_tokens, latency, cost_text) if part
+            part
+            for part in (model, model_decision, total_tokens, latency, cost_text)
+            if part
         )
     if event.name in {"tool.proposed", "tool.completed"}:
         tool_name = str(
@@ -161,7 +174,12 @@ def _render_summary(event: RuntimeEvent) -> str:
             or payload.get("tool_name")
             or "unknown tool"
         )
-        arguments = _mapping(payload.get("arguments"))
+        # StreamingEventSink 使用真实 Trace 字段名 ``tool_arguments``；测试或外部
+        # listener 也可能传入简写 ``arguments``。两者都支持，主时间线才不会把
+        # README.md、domain.py 等不同读取压成一串无法区分的 ``read_file``。
+        arguments = _mapping(
+            payload.get("tool_arguments") or payload.get("arguments")
+        )
         target = (
             arguments.get("path")
             or arguments.get("target")
@@ -222,6 +240,54 @@ def _render_payload(payload: object, *, max_chars: int) -> str:
         json.dumps(visible, ensure_ascii=False, sort_keys=True, default=str),
         max_chars=max_chars,
     )
+
+
+def _render_hook_check(event: RuntimeEvent) -> str:
+    """把 Hook 投票翻译成人能理解的治理结论，而不是直接展示嵌套 JSON。"""
+
+    payload = event.payload
+    hook_result = _mapping(payload.get("hook_result"))
+    stage = {
+        "before_model": "模型调用前",
+        "before_tool": "工具执行前",
+    }.get(str(payload.get("hook_stage") or ""), "生命周期边界")
+    aggregate_decision = {
+        "allow": "最终允许",
+        "ask": "需要人工确认",
+        "deny": "最终拒绝",
+        "defer": "全部 Hook 不表态",
+    }.get(
+        str(hook_result.get("decision") or "").lower(),
+        str(hook_result.get("decision") or "未记录"),
+    )
+    decision_summaries: list[str] = []
+    decisions = hook_result.get("decisions")
+    if isinstance(decisions, list):
+        for raw_decision in decisions:
+            decision = _mapping(raw_decision)
+            hook_name = str(decision.get("hook_name") or "unknown_hook")
+            decision_type = str(decision.get("decision") or "").lower()
+            reason = str(decision.get("reason") or "")
+            if decision_type == "defer":
+                readable_decision = "不表态"
+            elif decision_type == "allow":
+                readable_decision = "允许"
+            elif decision_type == "ask":
+                readable_decision = "询问"
+            elif decision_type == "deny":
+                readable_decision = "拒绝"
+            else:
+                readable_decision = decision_type or "未记录"
+            if reason == "execution environment has no additional restriction":
+                readable_decision = "边界检查通过，不追加限制"
+            elif reason == "no hook opinion":
+                readable_decision = "本阶段不参与"
+            elif reason == "bounded validation allowed":
+                readable_decision = "允许受限验证"
+            decision_summaries.append(f"{hook_name}={readable_decision}")
+    tool_name = str(payload.get("tool_call") or "")
+    parts = [stage, tool_name, aggregate_decision, "；".join(decision_summaries)]
+    return _short_text(" · ".join(part for part in parts if part), max_chars=220)
 
 
 def _mapping(value: object) -> dict[str, object]:

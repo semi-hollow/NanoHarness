@@ -91,7 +91,7 @@ Console 同屏接收回答或审批并自动续跑；脚本和 CI 仍可使用 `
 | Context | 分区预算、安全压缩、完整 model request 组装 | 不恢复 KV Cache，不声称 vector RAG |
 | Tool Governance | routing、schema、permission、command policy、workspace sandbox | prompt 不是安全边界 |
 | Human Control | clarification、写操作审批、pause/cancel/steer、checkpoint/resume | 不自动回滚已执行副作用 |
-| Operator Console | 实时 RuntimeEvent、HITL/审批、自动 continuation、latest 接管 | 展示适配层；不提供隐藏思维链或 IDE 编辑器 |
+| Operator Console | 实时 RuntimeEvent、HITL/审批、自动 continuation、Task Session 历史与 checkpoint 接管 | 本地操作适配层；不提供隐藏思维链、多用户服务或 IDE 编辑器 |
 | Advanced：Memory / Integration | long-term memory、Skills、MCP | 不进入默认学习面，不创建第二套 Runtime |
 | Advanced：Isolation / Multi-Agent | local/worktree/OCI、顺序 artifact handoff、DAG fanout | 本机 coordinator，不是 distributed swarm |
 | Evaluation | Smoke-5、official parser、taxonomy、scorecard、ablation、campaign | 小集合不代表总体 resolved rate |
@@ -111,11 +111,8 @@ python -m pip install -e '.[bench,dev]'
 forge --help
 ```
 
-Windows 原生安装入口（macOS/WSL 流程不变）：
-```powershell
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\setup_windows_local.ps1
-```
-该脚本只保留跨平台开发支持；共享 PyCharm 学习入口统一为 macOS 的三条 Debug Lab。
+Windows PowerShell 只需把激活命令换成 `.\.venv\Scripts\Activate.ps1`。项目不维护按操作系统
+复制的 setup wrapper；依赖声明以 `pyproject.toml` 为准，安装步骤以本节为唯一入口。
 
 运行一个真实 repository task：
 
@@ -213,7 +210,7 @@ API 和 composition root。六边形边界用于替换外部 Port、隔离副作
 
 ## 当前边界
 
-- 一条命令对应一个 run/task；没有会话级 `active_task` 调度器。
+- Core Harness 的一次调用仍对应一个 run/task；Operator Console 用稳定 Task Session 归组 initial、resume 和 follow-up Run，但不提供多 active-task 调度器。
 - Pause/cancel 是协作式 safe point，不会强制终止正在执行的 HTTP 或进程调用。
 - Resume 恢复显式 checkpoint 与 continuation context，不恢复模型隐藏状态。
 - Operator Console 展示 Runtime 已产生的事件和模型可见输出，不展示或伪造隐藏思维链。
@@ -243,3 +240,6 @@ scripts/verify.sh
 该脚本执行 compile、mypy、CLI 检查和 regression suite；配置模型凭据后还会执行真实模型
 Single Agent 与双 worker 只读 fanout smoke。行为改动必须同时提供测试或可复核 artifact，
 不能只修改 README claim。
+
+`scripts/` 只保留 CI 验证、Workbench 启动和可选 PyCharm 断点安装等基础设施入口。理解
+Agent Runtime 不需要阅读这些脚本。

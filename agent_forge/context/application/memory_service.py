@@ -14,10 +14,13 @@ from agent_forge.context.domain import (
     MemoryProposal,
     MemoryStatus,
 )
-from agent_forge.context.ports import LongTermMemoryRepository
+from agent_forge.context.ports import (
+    LongTermMemoryRecallPort,
+    LongTermMemoryRepository,
+)
 
 
-class LongTermMemoryService:
+class LongTermMemoryService(LongTermMemoryRecallPort):
     """长期记忆生命周期用例。
 
     主链路是 ``propose -> promote -> recall``；``retire`` 和 ``reject`` 处理失效

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+
 from agent_forge.bench.adapters.artifact_files import FileBenchArtifacts
 from agent_forge.bench.adapters.campaign_files import (
     FileCampaignArtifacts,
@@ -14,15 +15,16 @@ from agent_forge.bench.application.dependencies import BenchDependencies
 from agent_forge.bench.application.campaign import RunBenchmarkCampaign
 from agent_forge.bench.application.swebench import RunSwebench
 from agent_forge.bench.domain.config import BenchRunLayout, SwebenchRunRequest
-from agent_forge.bench.ports import BenchmarkRunnerPort
+from agent_forge.bench.ports import BenchmarkRunnerPort, BenchArtifactPort
 
 
 def build_swebench_runner(
     request: SwebenchRunRequest,
     layout: BenchRunLayout,
     *,
-    artifacts: FileBenchArtifacts | None = None,
+    artifacts: BenchArtifactPort | None = None,
 ) -> RunSwebench:
+    """Composition root：把文件、数据集和评测 Adapter 绑定到应用层 Port。"""
 
     artifact_adapter = artifacts or FileBenchArtifacts()
     workspace_manager = SwebenchWorkspaceManager(

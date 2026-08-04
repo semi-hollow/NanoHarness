@@ -416,7 +416,7 @@ def _unique_strings(values: Iterable[str]) -> list[str]:
 
 
 def _improvement_metrics(variant: dict[str, Any]) -> dict[str, int | float]:
-    """投影面试需要解释的少量指标，避免复制整个 campaign summary。"""
+    """投影维护者复核改进决策所需的少量指标，避免复制整个 campaign summary。"""
 
     return {
         "official_evaluated": int(_number(variant, "official_evaluated")),

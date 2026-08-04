@@ -1,4 +1,12 @@
-# 小型 Regression Set
+# SWE-bench Smoke-5 与 Runtime 行为门禁
+
+本文维护两套不能混为一谈的验证：
+
+1. **Smoke-5**：五个真实 SWE-bench Verified Case，端到端运行模型、工具、候选改动和官方评测。
+2. **Runtime 行为门禁**：针对审批、恢复、压缩、幂等和熔断等机制的 pytest 单元/集成测试。
+
+前者回答“Agent 能否在真实仓库问题上形成可验收结果”，后者回答“某条 Runtime 契约有没有回归”。
+行为门禁不是额外的 Benchmark Case，不进入 Smoke-5 的分母，也不能用来计算模型解决率。
 
 ## 评测目的
 
@@ -67,7 +75,7 @@ resolved/unresolved report 时，不报告 official resolved rate；只有五题
 | [BFCL V4](https://gorilla.cs.berkeley.edu/leaderboard) | 不作为 Runtime 结果 | 主要衡量模型的函数/工具调用能力；NanoHarness 通过 schema repair 与行为测试治理调用，但不把模型能力分数归功于 Harness。 |
 | [τ-bench](https://arxiv.org/abs/2406.12045) | 暂不接 | 需要业务领域 API、policy 和 user simulator；适合业务 Agent，不是当前 repository-task 主线。 |
 | 内部行为测试 | 必跑契约门禁 | 验证 checkpoint、HITL、安全和 evidence 语义；它不是外部 Agent 能力分数。 |
-| Research/Ops mini-case | 仅 evaluation contract | 当前只评估显式 evidence，没有运行真实 AgentLoop，因此不能作为非 Coding benchmark 成绩。 |
+| 非 Coding 业务基准 | 当前不接 | 需要真实 domain API、policy、user simulator 和 executable oracle；不使用手写 evidence scorecard 代替真实运行。 |
 
 选择原则不是“benchmark 越多越好”，而是每套评测都必须对应一个真实产品边界、一个可执行
 oracle 和一个不会误导的 denominator。当前项目用 Verified 回答结果正确性，用行为测试回答
@@ -90,28 +98,25 @@ Trace / Policy / Environment / Candidate Diff / Official Result
 秘密混入分析数据。自动规则负责聚合事实和给出候选诊断，最终改进决策仍需人工复核；该流程是
 Evaluation 数据闭环，不声称已经构成 RL 训练平台。
 
-## 目标覆盖图
+## Runtime 行为门禁（不是 SWE-bench Case）
 
-| Case | 目的 | 主要 failure mode |
+下表每一行是一个**机制验收场景**。除第一行的 Astropy 端到端 Case 外，其余主要由 pytest
+单元/集成测试构造最小输入并验证 Runtime invariant；它们是特性回归证据，不是模型任务样本。
+
+| 场景 | 保护的 Runtime 契约 | 主要测试证据 |
 | --- | --- | --- |
-| `astropy__astropy-12907` | 真实 SWE-bench patch path 和 line-window tool behavior。 | `tool_schema_mismatch` / `patch_generated_but_unverified` |
-| `validation-env-unavailable` | 区分 code failure 与 test dependency 缺失。 | `validation_environment_unavailable` |
-| `tool-governance-blocked-command` | 说明为什么 free-form shell/write tool 必须收敛。 | `unsafe_or_blocked_command` |
-| `context-miss-file-selection` | 确认 edit decision 前出现预期 source file。 | `context_miss` |
-| `repeated-action-loop` | 确认重复 read/search 可恢复，重复 write 被阻断。 | `repeated_action_loop` |
-| `manual-approval-pending` | 确认 manual approval 在副作用前停机，批准后可以继续。 | `human_approval_required` |
-| `stale-approval-fingerprint` | Target 在审批后改变时，已批准副作用不能执行。 | `approval_stale` |
-| `resume-state-continuation` | Checkpoint summary 为 next run 提供上下文，但不声称 hidden chat replay。 | `partial_execution_recovery` |
-| `context-window-tool-transaction` | 压缩旧历史时 assistant tool intent 与对应 result 不被拆开，失败仍保留。 | `context_compaction_loss` |
-| `long-term-memory-authority` | Candidate 不召回；带证据的 active 记录受 namespace、agent 和 TTL 约束。 | `memory_contamination` |
-| `model-tool-call-repair` | 只修复可确定的参数格式，可见工具外的文本调用不提升。 | `tool_schema_mismatch` |
-| `tool-call-burst-bound` | 单次模型响应超额调用不会全部执行，HITL 仍是 barrier。 | `unbounded_tool_burst` |
-| `failed-model-usage-accounting` | Provider 失败与 overflow 首次调用仍进入累计成本和 usage。 | `usage_underreporting` |
-| `subagent-fanout-conflict` | 独立 task 可同 batch；write scope 重叠需要 conflict resolution。 | `subagent_conflict_resolution` |
-| `operation-ledger-idempotency` | 已执行 side effect 在 rerun/resume 时被跳过。 | `duplicate_side_effect_prevented` |
-| `operation-ledger-stale-target` | Target drift 后，历史 executed operation 不能被安全跳过。 | `stale_operation_record` |
-| `research-citation-quality` | 非 coding 场景，检查 source-backed claim 和 source limitation。 | `unsupported_claim_control` |
-| `ops-approval-workflow` | 非 coding 场景，检查 policy-sensitive action、HITL 和 audit summary。 | `human_approval_required` |
+| `astropy__astropy-12907` | 真实仓库的检索、工具循环、候选改动和评测链路。 | `tests/test_swebench_compare.py`、官方 Case artifact |
+| `validation-env-unavailable` / `context-miss-file-selection` | 环境故障与代码失败、检索缺失不能混淆。 | `tests/test_failure_taxonomy.py`、`tests/test_bench_failure_analysis.py` |
+| `tool-governance-blocked-command` | 未授权命令不能越过 Tool/Command policy。 | `tests/test_command_policy.py`、`tests/test_agent_loop_policy.py` |
+| `repeated-action-loop` / `tool-call-burst-bound` | 原地打转和单轮超额 ToolCall 必须受控。 | `tests/test_agent_loop_policy.py` |
+| `manual-approval-pending` / `stale-approval-fingerprint` | 副作用前停机；目标漂移后旧批准失效。 | `tests/test_human_approval.py` |
+| `resume-state-continuation` | Checkpoint 恢复显式状态，不伪装成隐藏会话重放。 | `tests/test_task_resume.py`、`tests/test_resume_cli.py` |
+| `context-window-tool-transaction` | 压缩不能拆散 ToolCall 与对应 Observation。 | `tests/test_context_window.py` |
+| `long-term-memory-authority` | 只有带证据的 active memory 可按 namespace、agent 和 TTL 召回。 | `tests/test_long_term_memory.py` |
+| `model-tool-call-repair` | 只修复可确定的协议格式，不提升不可见工具。 | `tests/test_model_adaptation.py` |
+| `failed-model-usage-accounting` | 失败请求和 overflow 尝试也必须计入 usage/cost。 | `tests/test_agent_loop_policy.py`、`tests/test_llm_client_transport.py` |
+| `subagent-fanout-conflict` | 依赖和 write scope 决定并发；冲突必须显式收口。 | `tests/test_live_fanout.py`、`tests/test_subagent_fanout.py` |
+| `operation-ledger-idempotency` / `operation-ledger-stale-target` | 已执行副作用不重复；目标漂移时不能误用旧记录。 | `tests/test_operation_ledger.py` |
 
 ## 指标
 
@@ -133,19 +138,6 @@ Evaluation 数据闭环，不声称已经构成 RL 训练平台。
 - duplicate side-effect skips
 - stale approval / stale operation count
 - unsupported claim count
-
-## 非 Coding Mini-Case
-
-`docs/evaluation/mini-cases/` 存放小型 JSON case，它们不是完整 benchmark，而是覆盖
-code repair 之外 Agent application 共用的 evaluation dimension。
-`agent_forge/evaluation/application/mini_cases.py` 负责确定性评估，case 文件加载和
-artifact 写入由 `evaluation/adapters/mini_case_files.py` 负责。
-
-运行方式：
-
-```bash
-forge eval mini-cases --case research-citation-quality --evidence evidence.json
-```
 
 ## 规则
 

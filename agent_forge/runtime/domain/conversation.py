@@ -32,11 +32,18 @@ class ToolCall:
 # 核心数据：任意工具返回 Runtime 的统一成功/失败结果。
 @dataclass
 class Observation:
-    """所有工具返回给 Runtime 的统一结果。"""
+    """所有工具返回给 Runtime 的统一结果。
+
+    ``success`` 表示工具所检查的业务目标是否通过；``execution_succeeded``
+    表示工具基础设施本身是否完成调用。大多数工具两者含义相同，因此后者默认
+    为 ``None``。验证工具会显式区分“pytest 成功运行但测试未通过”和“pytest
+    根本没有运行起来”，避免 Runtime 把正常的修复反馈误判成工具故障。
+    """
 
     tool_name: str
     success: bool
     content: str
+    execution_succeeded: bool | None = None
 
 
 # 核心数据：ModelPort 返回的文本、工具意图、错误与用量事实。

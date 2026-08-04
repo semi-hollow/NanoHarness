@@ -1,6 +1,8 @@
 import asyncio
+import json
 import tempfile
 import unittest
+from dataclasses import replace
 from pathlib import Path
 from unittest.mock import patch
 
@@ -8,6 +10,8 @@ from agent_forge.control import RunController
 from agent_forge.cli.parser import build_parser
 from agent_forge.harness import Harness, HarnessConfig, HarnessExtensions, RunRequest
 from agent_forge.observability.adapters.streaming import EventStreamPolicy
+from agent_forge.operator_console.adapters import JsonTaskSessionCatalog
+from agent_forge.operator_console.application import TaskSessionLibrary
 from agent_forge.operator_console.events import (
     RuntimeEventBuffer,
     render_event,
@@ -125,6 +129,20 @@ class FullConsoleStoryModel:
         return AgentResponse("PASS\nHITL, approval, edit and validation completed", [])
 
 
+class CompleteThenFollowUpModel:
+    """验证同一 Task Session 可以在终态后接收新的用户要求。"""
+
+    last_usage = None
+
+    def chat(self, messages, tools):
+        visible_context = "\n".join(
+            str(getattr(message, "content", "")) for message in messages
+        )
+        if "new authoritative request" in visible_context:
+            return AgentResponse("PASS\nfollow-up completed", [])
+        return AgentResponse("PASS\ninitial run completed", [])
+
+
 class OperatorConsoleTest(unittest.TestCase):
     def test_human_answer_is_persisted_and_console_continues_automatically(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -210,6 +228,42 @@ class OperatorConsoleTest(unittest.TestCase):
             self.assertEqual(attached.artifact_dir, waiting.artifact_dir.resolve())
             self.assertEqual(attached.pending_prompt().kind, "human_input")
 
+    def test_completed_run_accepts_follow_up_in_same_task_session(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            session, _ = self._session(
+                root,
+                model=CompleteThenFollowUpModel(),
+                enabled_tools=(),
+            )
+            library = TaskSessionLibrary(
+                JsonTaskSessionCatalog(root / ".agent_forge" / "sessions")
+            )
+            task_session = library.create(
+                task=session.request.task,
+                workspace=root,
+                title="结算修复会话",
+            )
+            session.task_sessions = library
+            session.task_session_id = task_session.session_id
+            session.request = replace(
+                session.request,
+                human_thread_id=task_session.human_thread_id,
+            )
+
+            initial = session.start()
+            follow_up = session.continue_with_user_message(
+                "Explain the final validation evidence."
+            )
+            persisted = library.require(task_session.session_id)
+
+            self.assertEqual(initial.status, TaskRunStatus.COMPLETED)
+            self.assertEqual(follow_up.status, TaskRunStatus.COMPLETED)
+            self.assertIn("follow-up completed", follow_up.final_answer)
+            self.assertEqual(len(persisted.runs), 2)
+            self.assertEqual(persisted.runs[-1].relationship, "follow_up")
+            self.assertEqual(persisted.runs[-1].parent_run_id, initial.run_id)
+
     def test_full_console_story_asks_once_then_approves_patches_and_validates(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -282,6 +336,84 @@ class OperatorConsoleTest(unittest.TestCase):
         self.assertIn("a.py", rendered)
         self.assertEqual(rendered.count("\n"), 0)
 
+    def test_event_rendering_uses_real_trace_tool_arguments_field(self):
+        from agent_forge.observability.domain.live_event import RuntimeEvent
+
+        rendered = render_event(
+            RuntimeEvent(
+                name="tool.proposed",
+                run_id="run-1",
+                sequence=8,
+                step=2,
+                agent_name="CodingAgent",
+                payload={
+                    "tool_call": "read_file",
+                    "tool_arguments": {
+                        "path": "/tmp/workspace/settlement/service.py"
+                    },
+                },
+            )
+        )
+
+        self.assertIn("read_file", rendered)
+        self.assertIn("settlement/service.py", rendered)
+
+    def test_model_response_shows_tool_call_batch_size(self):
+        from agent_forge.observability.domain.live_event import RuntimeEvent
+
+        rendered = render_event(
+            RuntimeEvent(
+                name="model.completed",
+                run_id="run-1",
+                sequence=9,
+                step=3,
+                agent_name="CodingAgent",
+                payload={
+                    "tool_call_count": 4,
+                    "model_usage": {"model": "deepseek-v4-pro"},
+                },
+            )
+        )
+
+        self.assertIn("本轮返回 4 个 ToolCall", rendered)
+
+    def test_hook_event_explains_defer_as_abstention(self):
+        from agent_forge.observability.domain.live_event import RuntimeEvent
+
+        rendered = render_event(
+            RuntimeEvent(
+                name="runtime.hook_check",
+                run_id="run-1",
+                sequence=10,
+                step=4,
+                agent_name="CodingAgent",
+                payload={
+                    "hook_stage": "before_tool",
+                    "tool_call": "python_validation",
+                    "hook_result": {
+                        "decision": "allow",
+                        "decisions": [
+                            {
+                                "hook_name": "execution_environment",
+                                "decision": "defer",
+                                "reason": "execution environment has no additional restriction",
+                            },
+                            {
+                                "hook_name": "permission_policy",
+                                "decision": "allow",
+                                "reason": "bounded validation allowed",
+                            },
+                        ],
+                    },
+                },
+            ),
+            include_infrastructure=True,
+        )
+
+        self.assertIn("工具执行前", rendered)
+        self.assertIn("边界检查通过，不追加限制", rendered)
+        self.assertIn("允许受限验证", rendered)
+
     def test_run_level_event_does_not_look_like_step_zero(self):
         from agent_forge.observability.domain.live_event import RuntimeEvent
 
@@ -353,14 +485,22 @@ class OperatorConsoleTest(unittest.TestCase):
 
     def test_textual_console_mounts_with_primary_controls(self):
         from agent_forge.operator_console.app import OperatorConsoleApp
-        from textual.widgets import Button, RichLog, TextArea
+        from textual.containers import VerticalScroll
+        from textual.widgets import Button, RichLog, Select, TextArea
 
         async def exercise() -> None:
             app = OperatorConsoleApp(build_parser().parse_args(["console"]))
             async with app.run_test(size=(140, 44)) as pilot:
                 self.assertIsNotNone(app.query_one("#task", TextArea))
                 self.assertIsNotNone(app.query_one("#timeline", RichLog))
-                self.assertEqual(app.query_one("#start", Button).label.plain, "运行")
+                self.assertTrue(
+                    app.query_one("#prompt-scroll", VerticalScroll).can_focus
+                )
+                self.assertEqual(
+                    app.query_one("#start", Button).label.plain,
+                    "运行新会话",
+                )
+                self.assertIsNotNone(app.query_one("#session-picker", Select))
                 self.assertEqual(
                     app.query_one("#timeline-mode", Button).label.plain,
                     "显示底层事件",
@@ -374,10 +514,81 @@ class OperatorConsoleTest(unittest.TestCase):
 
         asyncio.run(exercise())
 
+    def test_approval_prompt_separates_complete_old_and_new_content(self):
+        from agent_forge.operator_console.app import OperatorConsoleApp
+        from agent_forge.operator_console.session import OperatorPrompt
+
+        prompt = OperatorPrompt(
+            kind="approval",
+            key="operation-1",
+            title="审批副作用：replace_text",
+            body="write needs approval",
+            details=json.dumps(
+                {
+                    "tool": "replace_text",
+                    "action": "write",
+                    "arguments": {
+                        "path": "settlement/idempotency.py",
+                        "old": "old-content\nsecond-old-line",
+                        "new": "new-content\nsecond-new-line",
+                    },
+                    "workspace": "/tmp/workspace",
+                    "fingerprint": {"sha256": "abc123"},
+                }
+            ),
+        )
+
+        rendered = OperatorConsoleApp._prompt_text(prompt)
+
+        self.assertIn("目标文件：settlement/idempotency.py", rendered)
+        self.assertIn("原内容（old）：\nold-content\nsecond-old-line", rendered)
+        self.assertIn("新内容（new）：\nnew-content\nsecond-new-line", rendered)
+        self.assertIn("Operation Key：operation-1", rendered)
+
+    def test_textual_session_picker_renames_pins_and_archives_without_deleting_runs(self):
+        from agent_forge.operator_console.app import OperatorConsoleApp
+        from textual.widgets import Input, Select, Static
+
+        async def exercise(root: Path) -> None:
+            library = TaskSessionLibrary(
+                JsonTaskSessionCatalog(root / ".agent_forge" / "sessions")
+            )
+            task_session = library.create(
+                task="Repair settlement service",
+                workspace=root,
+                title="结算修复",
+            )
+            app = OperatorConsoleApp(
+                build_parser().parse_args(["console", "--workspace", str(root)]),
+                task_sessions=library,
+            )
+            async with app.run_test(size=(140, 44)) as pilot:
+                picker = app.query_one("#session-picker", Select)
+                picker.value = task_session.session_id
+                await pilot.pause()
+                self.assertIn(
+                    "结算修复",
+                    str(app.query_one("#session-summary", Static).render()),
+                )
+
+                app.query_one("#session-title", Input).value = "结算失败原子性"
+                await pilot.click("#rename-session")
+                await pilot.click("#pin-session")
+                persisted = library.require(task_session.session_id)
+                self.assertEqual(persisted.title, "结算失败原子性")
+                self.assertTrue(persisted.pinned)
+
+                await pilot.click("#archive-session")
+                self.assertEqual(library.list_active(), [])
+                self.assertTrue(library.require(task_session.session_id).archived)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            asyncio.run(exercise(Path(tmp)))
+
     def test_textual_console_drives_real_hitl_continuation(self):
         from agent_forge.operator_console.api import OperatorSessionBundle
         from agent_forge.operator_console.app import OperatorConsoleApp
-        from textual.containers import Vertical
+        from textual.containers import Vertical, VerticalScroll
         from textual.widgets import Input, Static
 
         async def exercise(root: Path) -> None:
@@ -418,7 +629,7 @@ class OperatorConsoleTest(unittest.TestCase):
                     self.assertFalse(operator_input.disabled)
                     for selector in (
                         "#status",
-                        "#prompt",
+                        "#prompt-scroll",
                         "#operator-input",
                         "#operator-actions",
                         "#send",
@@ -440,6 +651,9 @@ class OperatorConsoleTest(unittest.TestCase):
                     self.assertIn(
                         "Python version",
                         str(app.query_one("#prompt", Static).render()),
+                    )
+                    self.assertTrue(
+                        app.query_one("#prompt-scroll", VerticalScroll).can_focus
                     )
 
                     operator_input.value = "Python 3.11"

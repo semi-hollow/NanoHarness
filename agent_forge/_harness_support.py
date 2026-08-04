@@ -48,7 +48,7 @@ class HarnessRunPaths:
     manifest_file: Path
 
 
-class TrackingTaskStateRepository:
+class TrackingTaskStateRepository(TaskStateRepository):
     """代理 checkpoint Port，并保留最近状态供 ``RunResult`` 收口。"""
 
     def __init__(self, delegate: TaskStateRepository) -> None:

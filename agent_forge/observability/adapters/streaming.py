@@ -59,7 +59,7 @@ class EventStreamPolicy:
     fail_on_listener_error: bool = False
 
 
-class StreamingEventSink:
+class StreamingEventSink(EventSink):
     """保留原始 EventSink，同时按提交顺序通知实时 listener。"""
 
     def __init__(

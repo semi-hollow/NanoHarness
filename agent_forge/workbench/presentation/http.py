@@ -1181,6 +1181,16 @@ def _render_complex_lab_dashboard(project_dir: Path) -> str:
     trace = _read_json_file(trace_path)
     usage = _read_json_file(usage_path)
     practice_profile = _read_json_file(run_dir / "practice_profile.json")
+    auto_approve_writes = practice_profile.get("auto_approve_writes") is True
+    max_steps = int(practice_profile.get("max_steps") or 24)
+    write_approval_label = (
+        "隔离区内自动批准" if auto_approve_writes else "逐项人工审批"
+    )
+    write_approval_boundary = (
+        "普通写操作不中断；路径、命令与网络边界仍执行"
+        if auto_approve_writes
+        else "每个具体写操作绑定 Operation Key 与目标 Fingerprint"
+    )
     usage_summary = usage.get("summary") or {}
     events = _event_list(trace)
     turns = {
@@ -1233,7 +1243,8 @@ def _render_complex_lab_dashboard(project_dir: Path) -> str:
             input_label="本次 Task",
             input_items=[task],
             mechanism=(
-                "真实 DeepSeek + 24 轮有界 AgentLoop；写操作人工审批；先跑 focused tests，"
+                f"真实 DeepSeek + {max_steps} 轮有界 AgentLoop；写操作{write_approval_label}；"
+                "先跑 focused tests，"
                 "再跑完整回归；每轮工具、观察、Checkpoint 和用量都进入 Trace。"
             ),
             success_criteria=(
@@ -1254,6 +1265,12 @@ def _render_complex_lab_dashboard(project_dir: Path) -> str:
                     "neutral",
                 ),
                 (
+                    "写操作策略",
+                    write_approval_label,
+                    write_approval_boundary,
+                    "warn" if not auto_approve_writes else "ok",
+                ),
+                (
                     "运行状态",
                     _display_value(status),
                     str(story.stop_reason if story is not None else trace.get("stop_reason") or "-"),
@@ -1262,13 +1279,16 @@ def _render_complex_lab_dashboard(project_dir: Path) -> str:
                 (
                     "Agent 轮次",
                     str(len(turns)),
-                    f"上限 24 轮；实际模型调用 {int(usage_summary.get('llm_calls') or 0)} 次",
+                    f"上限 {max_steps} 轮；实际模型调用 {int(usage_summary.get('llm_calls') or 0)} 次",
                     "neutral",
                 ),
                 (
                     "工具调用",
                     str(int(usage_summary.get("tool_calls") or 0)),
-                    f"失败 {int(usage_summary.get('failed_tool_calls') or 0)} 次",
+                    (
+                        f"执行故障 {int(usage_summary.get('failed_tool_calls') or 0)} 次；"
+                        f"验证未通过 {int(usage_summary.get('failed_validations') or 0)} 次"
+                    ),
                     "bad" if usage_summary.get("failed_tool_calls") else "ok",
                 ),
                 (
@@ -2127,10 +2147,10 @@ def _event_subject(event: dict[str, Any]) -> str:
         status = _display_value(event.get("run_status") or "unknown")
         reason = _display_value(event.get("stop_reason") or "unknown")
         return f"最终状态={status} · 停止原因={reason}"
-    tool = event.get("tool_call")
-    if tool:
+    fallback_tool_name = str(event.get("tool_call") or "")
+    if fallback_tool_name:
         target = _trace_tool_target(event)
-        return f"{tool}" + (f" · {target}" if target else "")
+        return f"{fallback_tool_name}" + (f" · {target}" if target else "")
     for key in (
         "permission_decision",
         "decision",

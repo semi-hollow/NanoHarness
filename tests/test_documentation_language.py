@@ -20,7 +20,6 @@ CHINESE_FIRST_DOCS = (
     "docs/ROADMAP.md",
     "docs/case-studies/astropy-12907.md",
     "docs/evaluation/failure-taxonomy.md",
-    "docs/evaluation/mini-cases/README.md",
     "docs/evaluation/regression-set.md",
     "examples/debug_lab/README.md",
 )
@@ -66,6 +65,14 @@ ALLOWED_TOP_LEVEL_DOCS = {
     "docs/ROADMAP.md",
 }
 
+PUBLIC_POSITIONING_FORBIDDEN = (
+    "面" + "试",
+    "求" + "职",
+    "简" + "历",
+    "inter" + "view",
+    "offer" + "-readiness",
+)
+
 
 class DocumentationLanguageTest(unittest.TestCase):
     def test_public_documents_are_chinese_first(self) -> None:
@@ -94,6 +101,38 @@ class DocumentationLanguageTest(unittest.TestCase):
                 if latin_count >= 40 and not HAN_CHARACTER.search(visible):
                     violations.append(f"{relative_path}:{line_number}: English prose remains: {line}")
         self.assertEqual(violations, [], "Public documentation must be Chinese-first")
+
+    def test_public_repository_does_not_describe_itself_as_job_preparation(self) -> None:
+        """公开源码只描述产品范围和工程事实，不暴露维护者的个人准备过程。"""
+
+        result = subprocess.run(
+            ["git", "ls-files", "--cached", "--others", "--exclude-standard"],
+            cwd=PROJECT_ROOT,
+            check=True,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+        )
+        text_suffixes = {
+            ".md",
+            ".py",
+            ".sh",
+            ".json",
+            ".xml",
+            ".toml",
+            ".yaml",
+            ".yml",
+        }
+        violations: list[str] = []
+        for relative_path in result.stdout.splitlines():
+            path = PROJECT_ROOT / relative_path
+            if path.suffix.lower() not in text_suffixes or not path.is_file():
+                continue
+            content = path.read_text(encoding="utf-8").casefold()
+            for forbidden in PUBLIC_POSITIONING_FORBIDDEN:
+                if forbidden.casefold() in content:
+                    violations.append(f"{relative_path}: contains private positioning: {forbidden}")
+        self.assertEqual(violations, [], "Public repository positioning has drifted")
 
     def test_public_document_control_plane_stays_focused(self) -> None:
         violations: list[str] = []
@@ -144,7 +183,7 @@ class DocumentationLanguageTest(unittest.TestCase):
             "examples/debug_lab/complex_repository/tests/test_atomicity.py",
             "examples/operator_console.py",
             "scripts/install_pycharm_debug_lab.py",
-            "scripts/interview_demo.sh",
+            "scripts/showcase_demo.sh",
             ".run/NanoHarness Lab 1 - Governed Repair.run.xml",
             ".run/NanoHarness Lab 2 - Coordinated Agents.run.xml",
             ".run/NanoHarness Lab 3 - Complex Live Repair.run.xml",
@@ -154,6 +193,12 @@ class DocumentationLanguageTest(unittest.TestCase):
         for obsolete in (
             "scripts/learning_session.sh",
             "scripts/learning_debug.py",
+            "scripts/setup_macos_local.sh",
+            "scripts/setup_windows_local.ps1",
+            "scripts/setup_wsl_local.sh",
+            "scripts/start_workbench.command",
+            "scripts/verify.ps1",
+            "scripts/verify_mcp.ps1",
             "docs/runbooks/从命令到Evidence全链路实操.md",
         ):
             if (PROJECT_ROOT / obsolete).exists():

@@ -61,7 +61,7 @@ contract test，并为 checkpoint/trace/evaluation schema 增加版本与 migrat
 | 语义冲突解决 | 文本可合并但行为冲突成为主要失败 | symbol/test ownership 与 verifier evidence |
 | Trace-to-dataset | 存在真实训练或数据协作方 | privacy、dedupe、provenance、version manifest 与人工审核 |
 | 远端执行平面 | 本地 worker 无法满足团队规模 | queue、lease、heartbeat、RBAC、SLO、成本与隔离验证 |
-| LangGraph 互操作 | 团队接入需要而非简历关键词 | 一个 node/middleware 示例复用现有 policy 与 evaluation |
+| LangGraph 互操作 | 团队接入出现真实需求 | 一个 node/middleware 示例复用现有 policy 与 evaluation |
 
 Later 不是承诺排期，只证明系统边界和演进方向已经考虑。
 

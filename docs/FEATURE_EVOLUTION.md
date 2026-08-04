@@ -234,7 +234,7 @@ study 和 official solved 语义；`2a7fd69`、`0961f00` 增加官方解析、�
 ## 10. 第九阶段：最后才补框架入口和展示控制面
 
 内部 owner 稳定后，项目才提供 `Harness.run/resume`、类型化配置、Ports、Hooks 和 composition
-root，让调用方不需要认识全部内部阶段。原始 Artifact 已能审计，但不适合实时操作和面试讲解，
+root，让调用方不需要认识全部内部阶段。原始 Artifact 已能审计，但不适合实时操作和技术讲解，
 因此再增加：
 
 - Operator Console：运行时事件、审批、回答和 continuation。
@@ -244,7 +244,7 @@ root，让调用方不需要认识全部内部阶段。原始 Artifact 已能审
 这些是 Presentation/Read Model，不是第二套 Runtime。展示层只能解释已产生事实，不能提升证据
 等级或替 Runtime 宣称 solved。
 
-## 11. 面试时怎样讲这段历史
+## 11. 怎样对外讲清这段历史
 
 不要从十五个模块开始背。先用一句话给出主线，再选一条深入：
 

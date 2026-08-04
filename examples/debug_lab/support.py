@@ -168,6 +168,30 @@ def create_workspace(
     return workspace
 
 
+def load_or_create_workspace(
+    scenario: str,
+    *,
+    template_root: Path,
+    state_root: Path,
+) -> Path:
+    """优先复用该场景最近的 Workspace，避免每次打开 Console 都制造新目录。
+
+    这是操作体验策略，不改变 Run 的不可变语义。需要全新现场时仍可显式调用
+    ``create_workspace``；普通重新打开 Lab 则回到上次会话所在代码现场。
+    """
+
+    pointer = state_root / "state" / f"{scenario}_workspace.txt"
+    if pointer.is_file():
+        workspace = Path(pointer.read_text(encoding="utf-8").strip())
+        if workspace.is_dir():
+            return workspace.resolve()
+    return create_workspace(
+        scenario,
+        template_root=template_root,
+        state_root=state_root,
+    )
+
+
 def publish_latest(
     artifact_dir: Path,
     *,

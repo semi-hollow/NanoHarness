@@ -22,7 +22,7 @@ from agent_forge.runtime.git_workspace import (
     collect_changed_files,
     collect_workspace_diff,
 )
-from agent_forge.runtime.llm_client import LLMClient
+from agent_forge.runtime.ports.model import ModelPort
 from agent_forge.safety.guardrails import sanitize_quoted_evidence
 from agent_forge.tools.registry import ToolRegistry
 
@@ -32,6 +32,7 @@ from ..domain.live import (
     FinalizerResult,
     LiveSubagentResult,
 )
+from ..ports import FanoutWorkerPort
 from .git_workspace import apply_unified_diff_to_workspace, commit_worker_baseline
 
 READ_TOOLS = {
@@ -48,10 +49,10 @@ FINALIZER_READ_TOOLS = {"git_status", "git_diff", "python_validation"}
 WRITE_TOOLS = {*READ_TOOLS, "replace_text", "write_file", "run_command"}
 
 RegistryFactory = Callable[[Path, ExecutionEnvironment], ToolRegistry]
-LLMFactory = Callable[[], LLMClient]
+LLMFactory = Callable[[], ModelPort]
 
 
-class LocalAgentWorkerAdapter:
+class LocalAgentWorkerAdapter(FanoutWorkerPort):
     """执行隔离 worker、只读 finalizer 和恢复 diff 验证。"""
 
     def __init__(

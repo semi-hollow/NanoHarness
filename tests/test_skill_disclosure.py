@@ -3,7 +3,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from agent_forge.skills import SkillRegistry
+from agent_forge.skills import SkillRegistry, build_default_skill_registry
 
 
 class SkillDisclosureTest(unittest.TestCase):
@@ -37,6 +37,15 @@ class SkillDisclosureTest(unittest.TestCase):
             activated = registry.activate(discovered[0])
             self.assertIn("Inspect the lockfile", activated.prompt_card())
             self.assertEqual(activated.tool_names, ["read_file"])
+
+    def test_test_protection_does_not_hide_repair_skills(self):
+        registry = build_default_skill_registry()
+
+        discovered = registry.discover_for_task(
+            "Repair the settlement service. Do not modify tests. Run pytest."
+        )
+
+        self.assertIn("bug_fix", {entry.name for entry in discovered})
 
 
 if __name__ == "__main__":

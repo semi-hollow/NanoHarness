@@ -5,15 +5,23 @@ import urllib.error
 import urllib.request
 from typing import Any
 
+from agent_forge.contracts import ToolSchema
 from agent_forge.models.tool_call_normalizer import ToolCallNormalizer
+from agent_forge.runtime.ports.model import ModelPort
 
 from .domain.conversation import AgentResponse, Message
 from .domain.model import ModelCapabilities
 from .llm_config import LLMConfig
 
 
-class LLMClient:
-    def chat(self, messages: list[Message], tools: list[dict]) -> AgentResponse:
+class LLMClient(ModelPort):
+    """模型 Adapter 基类；显式实现 ``ModelPort`` 供 IDE 追踪装配关系。"""
+
+    def chat(
+        self,
+        messages: list[Message],
+        tools: list[ToolSchema],
+    ) -> AgentResponse:
         raise NotImplementedError
 
 
@@ -71,7 +79,11 @@ class OpenAICompatibleLLMClient(LLMClient):
     def is_configured(self) -> bool:
         return bool(self.base_url and self.api_key and self.model)
 
-    def chat(self, messages: list[Message], tools: list[dict]) -> AgentResponse:
+    def chat(
+        self,
+        messages: list[Message],
+        tools: list[ToolSchema],
+    ) -> AgentResponse:
         if not self.is_configured():
             return self._invalid(
                 "missing_config",

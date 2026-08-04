@@ -6,9 +6,10 @@ from typing import Any
 
 from agent_forge.bench.domain.campaign import CampaignState, summarize_campaign
 from agent_forge.observability.api import RunStory, load_run_story
+from agent_forge.workbench.ports import EvidenceCatalogPort
 
 
-class FileEvidenceCatalog:
+class FileEvidenceCatalog(EvidenceCatalogPort):
 
     def __init__(self, project_dir: Path) -> None:
 
@@ -29,7 +30,7 @@ class FileEvidenceCatalog:
                 not bench_pointer.exists()
                 or run_pointer.stat().st_mtime >= bench_pointer.stat().st_mtime
             ):
-                # run.txt 是 Single-Run 发布合同；Debug Lab/面试必须回放刚发布的
+                # run.txt 是 Single-Run 发布合同；Debug Lab/项目展示必须回放刚发布的
                 # continuation artifact，而不是被旧目录的异常 mtime 抢走。
                 return latest_run
             candidates.append(latest_run)

@@ -1,7 +1,7 @@
 # 代码结构演进：从功能堆叠到可导航的 Harness
 
 本文只讲 **NanoHarness 的代码结构为什么变化、每次解决了什么问题，以及这些选择如何在
-面试中讲清楚**。功能加入顺序见[功能演进](../FEATURE_EVOLUTION.md)，当前依赖规则见
+外部技术评审中讲清楚**。功能加入顺序见[功能演进](../FEATURE_EVOLUTION.md)，当前依赖规则见
 [架构契约](../ARCHITECTURE.md)。
 
 ## 1. 最准确的起点描述
@@ -230,7 +230,7 @@ Agent Runtime 的核心复杂度在循环、状态、边界和证据，不在庞
 万能记录器会知道所有 capability 的字段，形成新的耦合中心。当前由各能力拥有事件语义，统一
 `EventSink` 只负责追加和发布；主流程通过语义化 `_record_*` 隐藏载荷细节。
 
-## 6. 面试时的 90 秒讲法
+## 6. 90 秒架构说明
 
 > 项目最早是 capability-first 的 MVP，我先闭合 context-model-tool-observation 循环。随着
 > checkpoint、HITL、operation ledger、multi-agent 和 evaluation 加入，AgentLoop 开始同时承担

@@ -16,28 +16,17 @@ from agent_forge.evaluation.adapters.json_files import (
     read_json_object,
     write_json_object,
 )
-from agent_forge.evaluation.adapters.mini_case_files import (
-    load_mini_cases,
-    write_mini_case_artifacts,
-)
-from agent_forge.evaluation.application.mini_cases import evaluate_selected_cases
 from agent_forge.evaluation.domain.ablation import (
     AblationComparisonRequest,
     compare_benchmark_scorecards,
 )
 from agent_forge.evaluation.domain.comparison import compare_runs, compare_variants
-from agent_forge.evaluation.domain.mini_cases import (
-    MiniAgentCase,
-    MiniCaseEvaluation,
-    evaluate_mini_case,
-)
 from agent_forge.evaluation.domain.models import EvaluationComparison
 from agent_forge.evaluation.domain.run_metrics import extract_run_metrics
 from agent_forge.evaluation.presentation.ablation_report import render_ablation_report
 from agent_forge.evaluation.presentation.comparison_report import (
     render_evaluation_report,
 )
-from agent_forge.evaluation.presentation.mini_case_report import render_mini_case_report
 from agent_forge.evaluation.presentation.scorecard_report import (
     render_benchmark_scorecard,
 )
@@ -126,62 +115,26 @@ def write_ablation_comparison(
     return json_path, report_path
 
 
-def write_mini_case_report(
-    case: MiniAgentCase,
-    result: MiniCaseEvaluation,
-    output_dir: str | Path,
-) -> Path:
-    return write_mini_case_artifacts(
-        case,
-        result,
-        output_dir,
-        render_mini_case_report(case, result),
-    )
-
-
-def run_mini_cases(
-    *,
-    case_id: str = "all",
-    evidence: dict[str, Any] | None = None,
-    output_dir: str | Path = ".agent_forge/mini_cases",
-    case_root: str | Path | None = None,
-) -> list[Path]:
-    evaluated = evaluate_selected_cases(
-        load_mini_cases(case_root),
-        case_id=case_id,
-        evidence=evidence,
-    )
-    return [
-        write_mini_case_report(case, result, output_dir) for case, result in evaluated
-    ]
-
-
 __all__ = [
     "AblationArtifactRequest",
     "AblationComparisonRequest",
     "EvaluationComparison",
     "FeedbackRequest",
     "ImprovementRecordRequest",
-    "MiniAgentCase",
-    "MiniCaseEvaluation",
     "build_benchmark_scorecard",
     "compare_benchmark_scorecards",
     "compare_runs",
     "compare_variants",
-    "evaluate_mini_case",
     "export_feedback_dataset",
     "extract_run_metrics",
     "load_benchmark_scorecard",
     "load_json_if_exists",
-    "load_mini_cases",
     "record_feedback",
     "render_ablation_report",
     "render_benchmark_scorecard",
     "render_evaluation_report",
-    "run_mini_cases",
     "write_ablation_comparison",
     "write_benchmark_scorecard",
     "write_evaluation_artifacts",
     "write_improvement_record",
-    "write_mini_case_report",
 ]

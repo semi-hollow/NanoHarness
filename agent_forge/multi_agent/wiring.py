@@ -6,10 +6,9 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable
 
-from agent_forge.observability.adapters.json_trace import TraceRecorder
 from agent_forge.runtime.config import RuntimeConfig
 from agent_forge.runtime.execution_environment import ExecutionEnvironment
-from agent_forge.runtime.llm_client import LLMClient
+from agent_forge.runtime.ports.model import ModelPort
 from agent_forge.tools.registry import ToolRegistry
 
 from .adapters.fanout_files import FanoutFileRepository
@@ -25,9 +24,10 @@ from .application.dependencies import (
 from .application.live_fanout import LiveFanoutCoordinator
 from .domain.live import FanoutPlan
 from .domain.models import AgentProfile
+from .ports import CoordinatorEventSink, LiveFanoutEvents
 
 RegistryFactory = Callable[[Path, ExecutionEnvironment], ToolRegistry]
-LLMFactory = Callable[[], LLMClient]
+LLMFactory = Callable[[], ModelPort]
 
 
 # 核心数据：装配真实 fanout coordinator 所需的计划、Runtime 与 factory。
@@ -37,7 +37,7 @@ class LiveFanoutBuildRequest:
 
     plan: FanoutPlan
     base_config: RuntimeConfig
-    trace: TraceRecorder
+    trace: LiveFanoutEvents
     run_dir: str | Path
     llm_factory: LLMFactory
     registry_factory: RegistryFactory
@@ -53,9 +53,9 @@ class SequentialCoordinatorBuildRequest:
     task: str
     profile: AgentProfile
     runtime_config: RuntimeConfig
-    trace: TraceRecorder
+    trace: CoordinatorEventSink
     registry: ToolRegistry
-    llm: LLMClient
+    llm: ModelPort
     run_dir: str | Path
     max_revision_rounds: int | None = None
 

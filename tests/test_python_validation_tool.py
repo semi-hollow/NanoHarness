@@ -149,6 +149,54 @@ class PythonValidationToolTest(unittest.TestCase):
             ],
         )
 
+    def test_failed_assertion_is_validation_evidence_not_tool_execution_failure(self):
+        class Environment:
+            def execute_command(self, argv, timeout):
+                return subprocess.CompletedProcess(
+                    argv,
+                    1,
+                    stdout="1 failed in 0.02s",
+                    stderr="",
+                )
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "test_sample.py").write_text("", encoding="utf-8")
+            tool = PythonValidationTool(
+                WorkspaceSandbox(root),
+                execution_environment=Environment(),
+            )
+
+            observation = tool.execute(
+                {
+                    "check_type": "pytest",
+                    "validation_target": "test_sample.py",
+                }
+            )
+
+        self.assertFalse(observation.success)
+        self.assertTrue(observation.execution_succeeded)
+        self.assertIn("exit_code=1", observation.content)
+
+    def test_pytest_target_rejects_cli_flags_with_actionable_message(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            tests = root / "tests"
+            tests.mkdir()
+            (tests / "test_sample.py").write_text("", encoding="utf-8")
+            tool = PythonValidationTool(WorkspaceSandbox(root))
+
+            observation = tool.execute(
+                {
+                    "check_type": "pytest",
+                    "validation_target": "tests/test_sample.py -v",
+                }
+            )
+
+        self.assertFalse(observation.success)
+        self.assertIn("invalid arguments", observation.content)
+        self.assertIn("do not append pytest flags", observation.content)
+
     def test_missing_pytest_marks_validation_blocked_not_tool_failure(self):
         class Environment:
             def execute_command(self, argv, timeout):

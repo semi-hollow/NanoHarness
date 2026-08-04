@@ -32,7 +32,8 @@ def render_usage_markdown(usage: dict[str, Any]) -> str:
         f"- llm_latency_ms: {summary['llm_latency_ms']}",
         (
             f"- tool_calls: {summary['tool_calls']} "
-            f"failed={summary['failed_tool_calls']}"
+            f"execution_failed={summary['failed_tool_calls']} "
+            f"validation_failed={summary.get('failed_validations', 0)}"
         ),
         f"- hook_checks: {summary['hook_checks']}",
         f"- latest_task_status: `{summary['latest_task_status']}`",

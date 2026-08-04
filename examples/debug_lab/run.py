@@ -20,7 +20,7 @@ RUNS_ROOT = PROJECT_ROOT / ".agent_forge" / "runs"
 PUBLIC_CAMPAIGN_ROOT = (
     PROJECT_ROOT / "benchmarks" / "campaigns" / "verified-commissioning-2-20260726"
 )
-WORKBENCH_LAUNCHER = PROJECT_ROOT / "scripts" / "interview_demo.sh"
+WORKBENCH_LAUNCHER = PROJECT_ROOT / "scripts" / "showcase_demo.sh"
 WORKBENCH_FLAGS = {
     "governed": "--show-governed",
     "coordinated": "--show-coordinated",

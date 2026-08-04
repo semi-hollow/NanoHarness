@@ -5,10 +5,11 @@ import re
 from pathlib import Path
 
 from ..domain.models import Artifact, MultiAgentRunSummary, RoleSpec
+from ..ports import RoleArtifactPort
 from ..presentation.report import render_multi_agent_report
 
 
-class FileArtifactRepository:
+class FileArtifactRepository(RoleArtifactPort):
     def __init__(self, run_dir: Path) -> None:
         self.run_dir = Path(run_dir)
         self.root = self.run_dir / "multi_agent"

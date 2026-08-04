@@ -23,6 +23,16 @@ class CommandPolicyTest(unittest.TestCase):
             ok, reason = check_command(command)
             self.assertTrue(ok, f"{command}: {reason}")
 
+    def test_blocks_shell_operators_even_after_allowlisted_command(self):
+        for command in [
+            "pytest tests 2>&1",
+            "python -m pytest tests | tee result.txt",
+            "git status && git show HEAD",
+        ]:
+            ok, reason = check_command(command)
+            self.assertFalse(ok, command)
+            self.assertIn("shell operators", reason)
+
     def test_task_text_is_not_an_execution_authorization_boundary(self):
         tasks = [
             "Read https://github.com/example/project/issues/1 and explain the bug.",

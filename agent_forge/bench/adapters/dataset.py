@@ -7,9 +7,10 @@ from typing import Any
 
 from agent_forge.bench.domain.config import SwebenchRunRequest
 from agent_forge.bench.domain.models import BenchCase
+from agent_forge.bench.ports import CaseSourcePort
 
 
-class SwebenchCaseSource:
+class SwebenchCaseSource(CaseSourcePort):
     def load(self, request: SwebenchRunRequest) -> list[BenchCase]:
         wanted = set(request.instance_ids)
         raw_cases = (

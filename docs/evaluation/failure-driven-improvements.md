@@ -1566,7 +1566,7 @@ checkpoint，等待审批 checkpoint 保留，底层 payload 仍可见但长度�
 旧 Matplotlib/Pytest 题又不属于更稳定的 Verified 集合。介绍时只能罗列 Smoke-5、official
 evaluation 和测试数量，无法回答“为什么选这套 benchmark、五题覆盖什么、结果能外推到哪里”。
 
-Failure scenario：面试官追问总体 case 数、选题依据和通过率，单题 resolved 容易被误听成
+Failure scenario：外部评审者追问总体 case 数、选题依据和通过率，单题 resolved 容易被误听成
 Smoke-5 或 SWE-bench 总体成绩；内部行为测试、Research/Ops mini-case 与外部正确性 benchmark
 也可能被混成一个数字，形成不可验证 claim。
 
@@ -1642,7 +1642,7 @@ Smoke-5 campaign 使用 `instance`，让同 case 的第二个 preset 复用镜�
 set”。README 同时残留从 Lite 时代继承的“不能外推到 300 题”，与当前 Verified 500 题候选全集
 冲突。
 
-Failure scenario：面试官打开一次 repetition 的真实报告，看见“三次重复”后无法判断运行矩阵和
+Failure scenario：外部评审者打开一次 repetition 的真实报告，看见“三次重复”后无法判断运行矩阵和
 结论边界哪个可信；继续对照 README 又发现 300/500 分母不一致。即使 official result 正确，展示层
 也会让整个 evidence pipeline 像手工包装。
 
@@ -1663,7 +1663,7 @@ commissioning set，不把任意 campaign 冒充 Smoke-5；README 分母同步�
 `mean_tokens_per_completed_run`、`max_prompt_tokens` 等非敏感指标也被替换为 `<redacted>`；
 README 却承诺公开 token、cost 和 tool failure 聚合。
 
-Failure scenario：面试官打开公开证据只能看到成本，无法核验两个 Runtime preset 的 token
+Failure scenario：外部评审者打开公开证据只能看到成本，无法核验两个 Runtime preset 的 token
 消耗；同一份报告声称有 usage evidence，JSON 实际将它删掉。为了绕过问题手工粘贴数字，又会破坏
 统一 publisher 和 scorecard hash 的可信链。
 
@@ -1807,10 +1807,10 @@ executing，resume 明确 blocked。工程结论：当前实现提供的是保�
 
 ### 75. 每补一个能力就新增一个 Lab，学习入口反而成为噪音
 
-现象：控制面、固定修复、真实模型、Astropy Evidence、Fanout 和多组 Interview 配置分别拥有入口。
+现象：控制面、固定修复、真实模型、Astropy Evidence、Fanout 和多组 Showcase 配置分别拥有入口。
 能力都能运行，但使用者面对十余个绿色按钮，不知道哪些必须掌握、哪些只是展示适配层。
 
-Failure scenario：准备面试时在多个近似场景之间反复切换，能够“点开”功能却无法稳定预测下一步
+Failure scenario：准备项目演示时在多个近似场景之间反复切换，能够“点开”功能却无法稳定预测下一步
 状态、注入故障或指出证据路径；项目能力增加，个人掌控度反而下降。
 
 根因：过去按 feature delivery 增加 demo，没有给学习面设置总预算，也没有把“功能存在”与
@@ -1819,7 +1819,7 @@ Failure scenario：准备面试时在多个近似场景之间反复切换，能�
 窄修复：Debug Lab 固定为三条主线：Governed Repair、Coordinated Agents、Evaluation Loop。
 每条主线统一使用定位、预测、观察、故障注入、证据复核和设计取舍六个掌握门槛；真实模型重跑、
 official evaluator 和历史详情降为可选证据，不再占用新的 Lab 编号。删除重复启动配置和只转发
-参数的示例 wrapper，保留一个 Interview Demo 与一个 Operator Console。
+参数的示例 wrapper，保留一个 Showcase Demo 与一个 Operator Console。
 
 验证：入口契约测试锁定三条 Lab、一个演示入口和一个 Console；README 明确每条链路与验收问题；
 Lab 2 使用两个真实 worktree worker、disjoint scope 合并和只读 pytest finalizer，不再用空任务
@@ -1834,7 +1834,7 @@ Lab 2 使用两个真实 worktree worker、disjoint scope 合并和只读 pytest
 采纳或拒绝。
 
 Failure scenario：Workbench 能展示失败分类和一组 before/after 数字，但二者没有可追溯关系；
-面试时容易把后验整理说成实验设计，或把工具失败下降误讲成 official resolved 提升。
+技术说明中容易把后验整理说成实验设计，或把工具失败下降误讲成 official resolved 提升。
 
 根因：数据飞轮停在“收集并分类”，缺少 improvement decision 这一层领域对象；taxonomy 结果也
 没有记录规则版本、命中规则和人工复核状态。
@@ -1935,7 +1935,7 @@ Failure scenario：共享 `.run` 配置已经增加 `--open-workbench`，但 PyC
 窄修复：`governed`、`coordinated`、`evaluation` 三条正式 Lab 在没有显式选项时默认打开
 Workbench，自动化可用 `--no-open-workbench` 禁止弹窗；macOS 启动器检测到 Chrome 后显式执行
 `open -a "Google Chrome" <url>`，只有未安装 Chrome 才回退默认浏览器。共享 PyCharm 配置继续
-保留显式参数，形成配置与代码双保险。Interview Demo 作为外层展示编排器调用 Lab 时显式使用
+保留显式参数，形成配置与代码双保险。Showcase Demo 作为外层展示编排器调用 Lab 时显式使用
 `--no-open-workbench`，只由外层完成 readiness 校验和一次 Chrome 打开，避免重复标签页。
 
 验证：参数回归覆盖默认打开与显式关闭，启动器测试锁定 Chrome 选择；实际执行只读
@@ -1946,13 +1946,13 @@ Workbench，自动化可用 `--no-open-workbench` 禁止弹窗；macOS 启动器
 
 现象：一次普通工具轮次会产生上下文装配、模型边界、动作解析、安全检查、Hook、权限判断、
 Operation Ledger、工具开始、工具结果、观察回填和 Checkpoint 等十余条事件。旧 Timeline 虽然
-把它们投影成六阶段，仍在每轮下方平铺一张完整事件表，操作者会误以为面试时需要记住二十个步骤
+把它们投影成六阶段，仍在每轮下方平铺一张完整事件表，操作者会误以为技术说明中需要记住二十个步骤
 及其固定顺序。
 
 Failure scenario：模型请求 `replace_text` 时，读者知道“模型响应之后执行工具”，却无法把
 guardrail、Hook、permission、ledger 和 tool execution 组织成一件完整的“受治理副作用执行”；
 不同分支缺少某些事件时，又会怀疑流程是否执行完整。PyCharm 同时保留 Lab 1 和功能相同的
-Interview Demo，也让学习入口看起来像两套流程。
+Showcase Demo，也让学习入口看起来像两套流程。
 
 根因：Trace 的设计目标是机器审计和故障定位，事件粒度不能直接充当人类心智模型。展示层虽然
 做了语义映射，却仍把基础设施实现细节提升为一级流程；入口层也保留了已经被正式 Lab 覆盖的
@@ -1961,12 +1961,12 @@ Interview Demo，也让学习入口看起来像两套流程。
 窄修复：不修改 Runtime 与 Trace schema，只把每轮投影为四段稳定主链：
 “准备输入 → 模型决定 → 治理并执行 → 回填并持久化”。安全检查、Hook、权限、Ledger 和工具
 调用统一归入第三段，每段只显示一句业务结论，底层事件按所属段分别折叠；完整 Trace 文件继续
-作为审计真相源。删除重复的 Interview Demo Run 配置和无业务逻辑的 Python wrapper，三个 Lab
+作为审计真相源。删除重复的 Showcase Demo Run 配置和无业务逻辑的 Python wrapper，三个 Lab
 直接兼任学习与展示入口。
 
 验证：回归锁定四段名称、分段底层证据、工具失败不被误报为治理阻断，以及共享 Run 配置精确
 收敛为四个；浏览器检查每轮默认只呈现四张主链卡片，第三段展开后仍可看到 Hook、Ledger 和工具
-结果。工程结论：面试叙事应稳定在业务控制流，Trace 事件只在被追问实现或排障时下钻；可观测
+结果。工程结论：技术讲解应稳定在业务控制流，Trace 事件只在被追问实现或排障时下钻；可观测
 schema 不等于人类必须背诵的执行步骤。
 
 ### 82. Hook 与失败诊断使用同义入口和位置参数，调用链只能靠猜
@@ -2143,7 +2143,7 @@ Docker、SWE-bench 准备和 Evidence 指针包装。该文件因此同时承担
 benchmark launcher 三种变化原因。
 
 Failure scenario：学习者读完 Lab 2 后继续向下，会进入一段真实 DeepSeek 参数和一段 Astropy
-official rerun 参数，无法判断它们是否也是必须掌握的 Lab；`interview_demo.sh` 又暴露同义 flag，
+official rerun 参数，无法判断它们是否也是必须掌握的 Lab；`showcase_demo.sh` 又暴露同义 flag，
 使 Operator Console、Lab 3 和正式 campaign 看起来像重复实现。
 
 根因：早期按能力增量把每个演示都接到同一脚本；后来已经建立 Operator Console 和独立 benchmark
@@ -2151,7 +2151,7 @@ campaign owner，却只隐藏旧 scenario，没有删除重复的 Presentation �
 
 窄修复：Debug runner 只保留 `governed/coordinated/evaluation`。真实模型交互统一进入
 `NanoHarness Operator Console`，完整 SWE-bench 运行统一进入 `forge bench campaign`；Lab 3 仅在
-已有单题 official Evidence 时恢复指针，供 Workbench 下钻，不重新提供运行入口。Interview launcher
+已有单题 official Evidence 时恢复指针，供 Workbench 下钻，不重新提供运行入口。Showcase launcher
 只保留三个 Workbench 视图参数，文档和测试同步移除旧名称。
 
 验证：Debug、Operator Console 和 benchmark launcher 12 项定向回归通过；源码守卫确认四个旧
@@ -2184,7 +2184,7 @@ IDE 持久状态时。
 
 Failure scenario：学习者会误判 ToolRouter 没有工作、MCP 证据缺失、每轮应创建一个 Checkpoint，
 或在 IDE 中搜索一个根本不存在的方法。即使 Runtime 行为正确，展示层也会破坏对代码链路的掌控，
-面试演示还可能暴露“文案与实现脱节”。
+项目演示还可能暴露“文案与实现脱节”。
 
 根因：Workbench 把“最后一个事件”误当成“最后一个有意义的工具暴露快照”；同时没有区分
 未配置、已观测为零、已配置但未暴露和证据缺失。部分阶段 owner 是手写的架构职责名，没有与真实
@@ -2232,7 +2232,7 @@ docstring、阶段数量和成对边界。短委托、序列化和纯 renderer �
 通过，通用诊断页面却显示 `pending_tool_call_at_stop`、空 Patch 和运行阻塞。
 
 Failure scenario：学习者会把每次 Trace 写入误解为新建一个 Checkpoint，并认为同一 Lab 同时“通过”
-和“阻塞”。面试演示中无法回答一次状态为何多次落盘，也无法证明失败诊断究竟属于哪个 Case。
+和“阻塞”。项目演示中无法回答一次状态为何多次落盘，也无法证明失败诊断究竟属于哪个 Case。
 
 根因：Trace 中的 Checkpoint 是完整状态快照，但 Workbench 没有对相邻快照做差分；Evidence 索引又
 同时读取最近 Fanout 与最近 SWE-bench 产物，却没有在诊断页声明运行类型、Case 和来源路径。
@@ -2252,7 +2252,7 @@ Fanout 与 SWE-bench 产物，确认页面显示两个来源且明确不同结�
 现象：现有工程演进史能查到 Checkpoint、HITL、Operation Ledger 和 Fingerprint 的提交日期，
 但学习者仍会反复忘记它们的关系，只能背诵“审批后重新校验 operation key 和 fingerprint”。
 
-Failure scenario：面试中从 HITL 跳到幂等恢复时，只能罗列术语，无法回答为什么 Checkpoint 不能
+Failure scenario：外部评审中从 HITL 跳到幂等恢复时，只能罗列术语，无法回答为什么 Checkpoint 不能
 防止重复写、为什么稳定 operation key 仍不能防止 stale approval，以及进程在工具返回前后崩溃时
 分别应该怎样处理。这会让真实迭代过程听起来像事后拼装的能力清单。
 
@@ -2352,7 +2352,7 @@ Lab 2 增加只读取本次 Worker/Finalizer 的专属时间线；SWE-bench 诊�
 入口；已载入的两题 commissioning 子集又继续以 Smoke-5 为主标题。
 
 Failure scenario：演示者无法先回答“这个 Lab 在解决什么问题、输入是什么、什么算通过”，只能从
-数字倒推实验设计；面试官还可能把 Lab 2 的 Worker Timeline、旧 SWE-bench 单题诊断和 Lab 3 的
+数字倒推实验设计；外部评审者还可能把 Lab 2 的 Worker Timeline、旧 SWE-bench 单题诊断和 Lab 3 的
 Runtime preset 实验当成同一次运行。两题证据若被听成完整五题回归，还会形成直接 overclaim。
 
 根因：Workbench 先按 renderer 类型组织页面，再补业务说明；导航 owner 是全部 Evidence kind，
@@ -2367,3 +2367,136 @@ campaign 的单/多 Agent 对比。已载入批次改用真实 regression set �
 验证：Workbench 定向回归保护三个 Lab 的首屏契约、菜单作用域和 Case 摘要；本地只读服务器使用真实
 产物完成桌面视觉验收，三个页面均无首屏内容溢出，且只显示当前 Lab 的详情分组。工程结论：Evidence
 UI 的第一职责是建立问题和证据作用域，指标必须排在实验输入与结论边界之后。
+
+### 97. 局部“禁止修改测试”被误判为全局只读，Agent 只能把验证工作转交给人
+
+现象：复杂修复 Lab 的任务要求修复结算服务、运行 focused tests，同时明确 `Do not modify tests`。
+模型完成仓库映射并准确指出幂等键、金额舍入和失败原子性三个缺陷后，没有获得 `replace_text` 或
+`python_validation`，第 6 轮只能调用 `ask_human`，要求操作员手工运行 pytest，run 随即进入
+`WAITING_HUMAN`。实时主时间线又只显示多组同名 `read_file`，没有显示实际读取目标。
+
+Failure scenario：面向源码的局部写入约束被扩散成整个任务只读，Harness 表面上支持修复、验证和
+HITL，实际却在最需要自动执行时把工作错误地交回用户。若继续回答人工问题，后续 turn 仍看不到写入
+与验证工具，无法形成修复闭环；展示层也让四次并行文件读取看起来像无意义重复。
+
+根因：Tool Router 和 Skill discovery 各自维护一份关键词判断；`do not modify` 在识别具体宾语前
+就命中全局只读，已有豁免只覆盖 `unless explicitly asked` 句式。Operator Console 则读取
+`arguments`，而真实 Streaming Event 使用 `tool_arguments`，测试构造的数据形态没有覆盖生产投影。
+
+窄修复：Tool Router 提供单一 `task_requests_read_only` 判断，先剥离“禁止修改测试”这类目标级
+约束，再识别全局只读；Skill discovery 复用同一 owner。`tests or source files` 仍保持全局只读。
+Operator Console 同时接受真实 `tool_arguments` 和外部简写字段，把绝对路径压缩成末两级文件名。
+
+验证：复杂任务回归确认 `replace_text` 与 `python_validation` 可见，测试与源码同时禁止时写工具仍被
+隐藏；默认 Skill catalog 不再错误过滤 `bug_fix`；实时事件回归使用真实字段并显示
+`settlement/service.py`。工程结论：自然语言权限必须区分约束对象与约束范围；工具可见性和 Skill
+可见性必须共享同一判定 owner，展示测试也必须使用生产事件契约。
+
+### 98. 复杂修复中验证工具重叠，参数错误与业务测试失败被混成同一种失败
+
+现象：同一模型响应可批量返回四个 `read_file`，操作台却只显示一次模型响应和四组同名工具行，
+看不出这是“一次批量规划、四次顺序执行”。后续模型把 `-v` 塞进 `python_validation` 的路径字段，
+再改用两次裸 `pytest`；前者被误报为目标不存在，后两次因入口形式导致 workspace 包无法导入。
+三条失败 Observation 连续出现后，Runtime 以 `too many consecutive failed tools` 正确停止，但展示者
+容易误以为同一个 `python_validation` 重复失败三次，或与“连续相同 ToolCall”保护混淆。
+
+Failure scenario：模型本来面对两个真实业务断言失败，却因工具契约不清和验证入口差异消耗全部连续
+失败预算。Harness 最终阻断的是验证调用噪音，而不是代码修复没有进展；Trace 又不能直接回答一次
+LLM 响应究竟产生了几个 ToolCall、各 Hook 的 `defer` 是否代表延迟执行。
+
+根因：`validation_target` 描述没有强调它只接受路径或 node id；`run_command` 允许裸 `pytest`，但
+console-script 入口不保证当前 workspace 位于 import path。命令策略虽以 `shell=False` 执行，仍把
+`2>&1` 当普通 argv 传给 pytest。实时模型事件也没有保存 ToolCall 数量，底层 Hook 只展示嵌套 JSON。
+
+窄修复：`python_validation` 对路径后追加 flag 返回明确 `invalid arguments`；裸 `pytest` 统一归一化为
+`python -m pytest`，shell 操作符在执行前拒绝。模型边界记录 `tool_call_count`，操作台显示“本轮返回
+N 个 ToolCall”；Hook 证据把 `DEFER` 翻译为“本 Hook 不表态”，并分别展示环境、权限和聚合结论。
+
+验证：真实复杂 workspace 已从“收集阶段 `ModuleNotFoundError`”恢复为正确收集两题并报告两个业务
+断言失败；工具、策略和操作台聚焦回归通过。工程结论：批量 ToolCall、相同调用重复、连续失败预算
+是三种不同控制事实；验证 Tool 必须把参数协议错误、环境不可用和业务测试失败分层反馈。
+
+### 99. 私人准备语境与旁路评分能力泄漏到公开产品范围
+
+现象：公开源码和文档仍直接描述维护者的个人准备目标；`docs/technical-defense/demo` 还保存约
+301 MB 的历史 benchmark checkout 与运行副本。另一套旁路评分 CLI 读取手写 research/ops JSON
+并确定性打分，却不运行 AgentLoop、工具或评测环境。
+
+Failure scenario：外部评审者打开仓库后，会把 Runtime 和 Evidence 设计理解成围绕个人讲解搭建的
+包装；mini-case 又用场景名称暗示通用 Agent 能力，却只能证明评分函数能读取 JSON。生成物放在 docs
+下还让源代码、产品文档和一次性运行现场失去边界。
+
+根因：内部学习入口、项目展示入口和公开产品边界长期共用命名；临时扩展面在主线收窄后没有同步
+退出。仓库也缺少针对私人定位措辞的自动防回归约束。
+
+窄修复：删除未跟踪的历史 demo 运行副本；完整移除 mini-case 的 domain、application、adapter、
+presentation、CLI、测试和文档，避免留下坏入口。统一展示脚本改名为 `showcase_demo.sh`；公开文本
+只描述“真实代码仓库上的可治理软件工程智能体与评测工作台”及其明确边界。新增 tracked text 扫描，
+阻止私人准备语境再次进入公开树。
+
+验证：mini-case 与旧展示命名引用归零；生成运行只保存在 `.agent_forge/` 或明确发布的 benchmark
+bundle；文档治理测试扫描 Markdown、Python、Shell 和配置文本。工程结论：产品范围必须由真实运行
+闭环和可验证 Evidence 证明，不能用旁路 scorecard 或维护者的个人目标代替。
+
+### 100. Regression 文档把真实 Benchmark Case 与内部行为门禁混成一套 Case
+
+现象：`regression-set.md` 先定义五个真实 SWE-bench Case，又在“目标覆盖图”中列出审批、恢复、
+Memory、Ledger 等十余个带 Case 风格名称的场景。读者无法判断这些条目是否也会调用模型、是否进入
+Smoke-5 分母，或是否只是 pytest 验证的特性数；已经移除的 Research/Ops mini-case 仍留在表中。
+
+Failure scenario：维护者把内部门禁数量当成 Benchmark 覆盖规模，对外声称运行了更多 Agent Case；
+或者看到一条行为门禁通过，就误以为模型在真实仓库任务上具备对应成功率。失效条目还会指向不存在的
+执行入口。
+
+根因：外部能力评测与内部契约回归共享“Case/覆盖图”命名，文档没有标注每条证据的执行 owner；
+功能删除后也缺少同步清理对应覆盖行。
+
+窄修复：文档开头固定区分 Smoke-5 与 Runtime 行为门禁；前者是五个真实 SWE-bench 端到端任务，
+后者主要是 pytest 单元/集成测试。覆盖表改名并为每条机制列出真实测试文件，删除已退出主线的
+Research/Ops 行；非 Coding benchmark 明确要求真实 API、policy、user simulator 和 executable
+oracle，不再用手写 scorecard 替代运行。
+
+验证：Smoke-5 的五题和 denominator 保持不变；行为门禁表的每一行都能导航到现存测试文件；公开
+文档不再引用 mini-case。工程结论：Benchmark 回答 Agent 在真实任务上的结果，行为测试回答 Runtime
+契约是否回归；二者都必要，但绝不能共用一个分母或一套能力 claim。
+
+### 101. 按操作系统复制环境脚本，安装与学习入口逐步失去唯一 owner
+
+现象：仓库同时维护 macOS、Windows、WSL setup，Shell 与 PowerShell 两套 verify，以及一个 macOS
+双击 Workbench 包装器。README、FORGE 和 Debug Lab 分别跳转到不同脚本；Workbench 启动脚本在
+缺少虚拟环境时又隐式调用 macOS setup。阅读文档时，基础设施实现不断打断 Runtime 主线。
+
+Failure scenario：维护者只想运行三个 PyCharm Lab，却需要判断六个 setup/verify wrapper 的关系；
+某个平台脚本更新依赖或验证步骤后，其他副本没有同步，公开安装说明和 CI 行为产生漂移。隐式 setup
+还可能在一次展示动作中安装依赖或修改本地 IDE 状态，超出使用者预期。
+
+根因：早期为每个平台增加便利入口时复制了流程，而没有固定“依赖、安装、CI、IDE”各自的唯一 owner。
+脚本既承担环境声明，又承担本机便利操作和展示启动，边界逐渐混合。
+
+窄修复：`pyproject.toml` 成为依赖唯一 owner，README Quick Start 成为安装唯一 owner，`.run` 只保留
+三个学习配置。删除 macOS/Windows/WSL setup、PowerShell verify 和双击 Workbench wrapper；保留 CI
+真正调用的 `verify.sh`/`verify_mcp.sh`、Lab 真正调用的 `showcase_demo.sh`，以及可选的 PyCharm 断点
+安装器。Workbench 缺少 `.venv` 时明确失败，不再隐式安装。
+
+验证：公开文档和生产入口不再引用已删除 wrapper；三个 `.run` 配置与 Workbench 自动打开链保持；
+CI 仍从单一 Shell verify 入口执行。工程结论：跨平台支持应共享依赖和命令契约，不应靠复制整套脚本；
+便利包装器只有拥有独立、持续验证的行为时才值得保留。
+
+### 102. 随机 Run 与 Workspace 身份直接暴露给操作员，导致中断恢复不可导航
+
+现象：每次运行都有正确的不可变 Run ID 和隔离 artifact，但操作员只能靠随机目录或 latest 指针寻找
+上次现场。强制退出后重新启动 Lab，容易误开新 Workspace、从 Step 1 重跑，或把历史 Run 当成彼此
+无关的任务；旧 Run 没有 human thread 时，直接导入还会在列表中制造大量伪会话。
+
+Failure scenario：同一复杂修复已运行多轮并留下 checkpoint，用户中断进程后无法从名称识别它，只能
+新建现场；已有上下文、人工决定和失败证据虽然都在磁盘上，却没有可操作的导航层。若把随机 Run ID
+直接改成人类名称，又会破坏 artifact 的唯一性与不可变证据语义。
+
+窄修复：增加独立 Task Session catalog，用稳定 ID、人类标题和 run lineage 归组 initial、resume 与
+follow-up；真实 Trace、Diff、Usage、Checkpoint 仍保留在各自 Run。Console 支持选择、重命名、置顶、
+归档和接管最新 checkpoint；旧数据优先按 human thread 归组，没有 thread 的 Run 按规范化任务迁移。
+Lab 3 默认复用该练习模式的 Workspace，避免每次打开都复制一份代码现场。
+
+验证：catalog 持久化、归档、旧 continuation 血缘与幂等导入均有回归；Textual 定向测试覆盖会话选择器，
+Operator Console/Harness 类型检查通过。工程结论：Session 是人类导航和连续意图边界，Run 是一次不可变
+执行与证据边界，Workspace 是副作用发生的位置；三者不能用同一个随机目录概念替代。

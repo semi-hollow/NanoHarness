@@ -26,6 +26,55 @@ class RunCommandToolTest(unittest.TestCase):
         self.assertTrue(observation.success)
         self.assertEqual(environment.calls, [(["python", "-m", "unittest", "discover", "tests"], 20)])
 
+    def test_normalizes_bare_pytest_to_python_module_entrypoint(self):
+        class Environment:
+            def __init__(self):
+                self.calls = []
+
+            def execute_command(self, argv, timeout):
+                self.calls.append((argv, timeout))
+                return subprocess.CompletedProcess(argv, 0, stdout="1 passed", stderr="")
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "tests").mkdir()
+            (root / "tests" / "test_sample.py").write_text("", encoding="utf-8")
+            environment = Environment()
+            tool = RunCommandTool(
+                WorkspaceSandbox(root),
+                execution_environment=environment,
+            )
+
+            observation = tool.execute({"command": "pytest tests/test_sample.py -v"})
+
+        self.assertTrue(observation.success, observation.content)
+        self.assertEqual(
+            environment.calls,
+            [(["python", "-m", "pytest", "tests/test_sample.py", "-v"], 20)],
+        )
+
+    def test_rejects_shell_redirection_before_execution(self):
+        class Environment:
+            def __init__(self):
+                self.calls = []
+
+            def execute_command(self, argv, timeout):
+                self.calls.append((argv, timeout))
+                return subprocess.CompletedProcess(argv, 0, stdout="unexpected", stderr="")
+
+        with tempfile.TemporaryDirectory() as tmp:
+            environment = Environment()
+            tool = RunCommandTool(
+                WorkspaceSandbox(tmp),
+                execution_environment=environment,
+            )
+
+            observation = tool.execute({"command": "pytest tests 2>&1"})
+
+        self.assertFalse(observation.success)
+        self.assertIn("shell operators are blocked", observation.content)
+        self.assertEqual(environment.calls, [])
+
     def test_allows_unittest_discover_inside_workspace(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

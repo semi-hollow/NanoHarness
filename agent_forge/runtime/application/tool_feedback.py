@@ -82,6 +82,7 @@ class ToolFeedback:
             session.agent_name,
             "tool_observation",
             success=observation.success,
+            execution_succeeded=observation.execution_succeeded,
             observation=observation.content,
         )
 

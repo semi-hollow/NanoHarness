@@ -5,9 +5,10 @@ from pathlib import Path
 from typing import Any
 
 from agent_forge.bench.domain.models import BenchCaseResult
+from agent_forge.bench.ports import CaseEvidenceReader
 
 
-class JsonCaseEvidenceReader:
+class JsonCaseEvidenceReader(CaseEvidenceReader):
 
     def load_usage(self, result: BenchCaseResult) -> dict[str, Any]:
         return self._read_json(_usage_json_path(result.usage_report_path))
