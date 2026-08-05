@@ -6,7 +6,7 @@
 工具执行阶段追加 ``Observation``；
 ``ContextAssemblerPort`` 只读取 ``recent/summary/long_term`` 视图。
 
-长期记忆生命周期由 ``context.application.memory_service`` 管理，完整会话窗口压缩由
+长期记忆的显式 remember/forget 由 ``context.application.memory_service`` 管理，完整会话窗口压缩由
 ``context.application.compaction`` 管理。三者不要混为同一个“Memory”。
 """
 
@@ -24,7 +24,7 @@ class WorkingMemory:
 
     - ``items``：最近的普通事实；``observations``：最近的类型化工具结果。
     - ``summaries``：移出最近窗口的有界摘要；``store``：当前 run 的显式键值。
-    - ``long_term_records``：已经过隔离和权威过滤的只读长期记忆。
+    - ``long_term_records``：本 Run 启动时固定的只读长期记忆快照。
     - ``n``：最近事实与 Observation 的保留上限。
     """
 
@@ -56,7 +56,7 @@ class WorkingMemory:
             self.summaries.append(session_summary)
 
     def seed_long_term(self, records: list[LongTermMemoryRecord]) -> None:
-        """注入本次任务已经通过 policy 的只读召回结果。"""
+        """注入本 Run 之后不再变化的用户/项目记忆快照。"""
 
         self.long_term_records = list(records)
 

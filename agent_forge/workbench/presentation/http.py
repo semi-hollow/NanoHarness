@@ -14,8 +14,16 @@ from typing import Any
 from urllib.parse import parse_qs, urlparse
 
 from agent_forge.bench.domain.catalog import CASE_PROFILES
+from agent_forge.observability.api import load_run_story
 from agent_forge.observability.domain.run_story import RunStory
+from agent_forge.workbench.application.context_inspection import (
+    ContextComponent,
+    ContextTurnInspection,
+    ToolDecision,
+    build_context_turn_inspections,
+)
 from agent_forge.workbench.application.services import WorkbenchServices
+from agent_forge.workbench.domain import EvidenceSource
 from agent_forge.workbench.wiring import (
     build_evidence_catalog,
     build_workbench_services,
@@ -49,6 +57,20 @@ class ForgeUiHandler(BaseHTTPRequestHandler):
             self._send_json({"content": _read_latest_report(self.state.project_dir)})
             return
         if path == "/api/evidence":
+            source_key = (query.get("source") or [""])[0]
+            view = (query.get("view") or [""])[0]
+            if source_key or view:
+                self._send_json(
+                    {
+                        "html": _render_workspace_view(
+                            self.state.project_dir,
+                            source_key=source_key,
+                            view=view or "overview",
+                        )
+                    }
+                )
+                return
+            # 兼容已有书签和测试；新的 Workbench 页面只使用 source + view。
             kind = (query.get("kind") or ["summary"])[0]
             self._send_json(
                 {"html": _render_evidence_html(self.state.project_dir, kind)}
@@ -68,6 +90,7 @@ class ForgeUiHandler(BaseHTTPRequestHandler):
         return
 
     def _status_payload(self) -> dict[str, Any]:
+        evidence_sources = self.state.evidence.evidence_sources()
         return {
             "project_dir": str(self.state.project_dir),
             "python": sys.version.split()[0],
@@ -80,6 +103,13 @@ class ForgeUiHandler(BaseHTTPRequestHandler):
             "latest_campaign": str(_latest_campaign_dir(self.state.project_dir) or ""),
             "latest_report": _latest_report_path(self.state.project_dir),
             "feedback": _latest_feedback_outcome(self.state.project_dir),
+            "selected_source": _selected_evidence_source(
+                self.state.project_dir,
+                evidence_sources,
+            ),
+            "evidence_sources": [
+                source.to_public_dict() for source in evidence_sources
+            ],
         }
 
     def _send_html(self, text: str, status: HTTPStatus = HTTPStatus.OK) -> None:
@@ -174,6 +204,8 @@ def _render_evidence_html(project_dir: Path, kind: str) -> str:
         return _render_orchestration_trace_timeline(project_dir)
     if kind == "complex_timeline":
         return _render_complex_trace_timeline(project_dir)
+    if kind == "complex_context":
+        return _render_complex_context_inspector(project_dir)
     if kind == "evidence":
         return _render_run_evidence(project_dir)
     if kind == "compare":
@@ -195,6 +227,363 @@ def _render_evidence_html(project_dir: Path, kind: str) -> str:
             f"<pre class='raw-text'>{_escape(_read_latest_report(project_dir))}</pre>"
         )
     return _empty_evidence(f"Unsupported evidence view: {kind}")
+
+
+_WORKSPACE_VIEWS = {"overview", "timeline", "context", "results"}
+
+
+def _render_workspace_view(
+    project_dir: Path,
+    *,
+    source_key: str,
+    view: str,
+) -> str:
+    """统一入口：选定一次运行后，用相同四层结构读取它的证据。"""
+
+    catalog = build_evidence_catalog(project_dir)
+    sources = catalog.evidence_sources()
+    source = _find_evidence_source(
+        sources,
+        source_key or _selected_evidence_source(project_dir, sources),
+    )
+    if source is None:
+        return _empty_evidence("还没有可读取的运行证据，请先执行任意 Agent 任务。")
+    if not source.available:
+        return _render_source_shell(
+            source,
+            _empty_evidence(
+                f"“{source.title}”尚未产生证据。运行对应场景后刷新即可；"
+                "Workbench 不会为了展示而伪造数据。"
+            ),
+        )
+
+    normalized_view = view if view in _WORKSPACE_VIEWS else "overview"
+    if normalized_view == "overview":
+        content = _render_source_overview(project_dir, source)
+    elif normalized_view == "timeline":
+        content = _render_source_timeline(source)
+    elif normalized_view == "context":
+        content = _render_source_context(source)
+    else:
+        content = _render_source_results(project_dir, source)
+    return _render_source_shell(source, content)
+
+
+def _find_evidence_source(
+    sources: tuple[EvidenceSource, ...],
+    source_key: str,
+) -> EvidenceSource | None:
+    return next((source for source in sources if source.key == source_key), None)
+
+
+def _selected_evidence_source(
+    project_dir: Path,
+    sources: tuple[EvidenceSource, ...],
+) -> str:
+    """解析稳定首页默认选择；运行脚本只更新指针，不再生成不同 URL。"""
+
+    pointer = project_dir / ".agent_forge/debug-lab/state/workbench_source.txt"
+    if pointer.is_file():
+        selected_key = pointer.read_text(encoding="utf-8").strip()
+        selected = _find_evidence_source(sources, selected_key)
+        if selected is not None and selected.available:
+            return selected.key
+    available = [source for source in sources if source.available]
+    if not available:
+        return sources[0].key if sources else ""
+    newest = max(
+        available,
+        key=lambda source: (
+            source.primary_path.stat().st_mtime if source.primary_path else 0.0
+        ),
+    )
+    return newest.key
+
+
+def _render_source_shell(source: EvidenceSource, content: str) -> str:
+    """每个视图都保留同一份运行身份，避免切页后忘记自己在看哪次证据。"""
+
+    source_label = {
+        "runtime": "Runtime 运行",
+        "scenario": "可复现场景",
+        "benchmark": "评测批次",
+    }.get(source.source_type, "运行证据")
+    evidence_id = source.primary_path.name if source.primary_path else "未产生"
+    return (
+        "<div class='workspace-source'>"
+        "<section class='source-identity'>"
+        f"<div><span>{_escape(source_label)}</span><h2>{_escape(source.title)}</h2>"
+        f"<p>{_escape(source.description)}</p></div>"
+        f"{_badge(_display_value(source.status), _tone_for_status(source.status))}"
+        "<dl>"
+        f"<div><dt>任务</dt><dd>{_escape(source.task)}</dd></div>"
+        f"<div><dt>证据 ID</dt><dd class='mono'>{_escape(evidence_id)}</dd></div>"
+        "</dl>"
+        "<details class='source-provenance'><summary>查看原始产物位置</summary>"
+        f"<code>{_escape(str(source.primary_path or '未产生'))}</code></details>"
+        "</section>"
+        f"{content}</div>"
+    )
+
+
+def _render_source_overview(project_dir: Path, source: EvidenceSource) -> str:
+    """用同一套摘要回答“这次运行是什么、发生了什么、能证明什么”。"""
+
+    metrics, boundary = _source_overview_facts(project_dir, source)
+    return (
+        "<div class='evidence'><div class='view-heading'><div>"
+        "<span class='view-kicker'>RUN SUMMARY</span><h2>运行摘要</h2></div>"
+        f"{_badge(_display_value(source.status), _tone_for_status(source.status))}</div>"
+        "<p class='help strong'>先用这一页确认任务、状态和关键计数；需要解释过程时看“执行过程”，"
+        "需要解释模型输入与动作时看“上下文与决策”，需要判断结论边界时看“结果与证据”。</p>"
+        + _metric_grid(metrics)
+        + "<section class='evidence-section'><div class='section-title'><h3>统一阅读顺序</h3>"
+        "<span>所有运行都使用同一套读法</span></div>"
+        "<div class='answer-strip overview-reading-path'>"
+        "<div><b>01 运行概览</b><span>任务、状态、成本和证据是否齐全</span></div>"
+        "<div><b>02 执行过程</b><span>每轮经过了哪些稳定阶段</span></div>"
+        "<div><b>03 上下文与决策</b><span>输入如何变化，模型显式选择了什么动作</span></div>"
+        "<div><b>04 结果与证据</b><span>产物、验证和失败结论究竟能证明到哪一层</span></div>"
+        "</div></section>"
+        f"<p class='boundary-note'><strong>当前证据边界：</strong>{_escape(boundary)}</p>"
+        "</div>"
+    )
+
+
+def _source_overview_facts(
+    project_dir: Path,
+    source: EvidenceSource,
+) -> tuple[list[tuple[str, str, str, str]], str]:
+    """按来源提取少量关键事实；详细诊断留给“结果与证据”。"""
+
+    if source.key == "orchestration":
+        fanout = _read_json_file(source.primary_path)
+        metrics = fanout.get("metrics") or {}
+        task_count = int(metrics.get("task_count") or len(fanout.get("results") or []))
+        completed_count = int(metrics.get("completed_count") or 0)
+        conflicts = len(fanout.get("conflicts") or [])
+        batches = len(fanout.get("batches") or [])
+        return (
+            [
+                ("任务完成", f"{completed_count}/{task_count}", "Worker 最终状态", "ok" if task_count and completed_count == task_count else "warn"),
+                ("并发批次", str(batches), "按依赖和写入范围分组", "neutral"),
+                ("范围冲突", str(conflicts), "合并前确定性门禁", "bad" if conflicts else "ok"),
+                ("Agent Trace", str(len(source.trace_entries)), "Worker 与 Finalizer", "neutral"),
+            ],
+            "这里只证明这次显式计划的依赖、隔离、合并和 Finalizer 结果；不外推通用多 Agent 收益。",
+        )
+
+    if source.key == "evaluation":
+        summary = _latest_campaign_summary(project_dir)
+        state = _latest_campaign_state(project_dir)
+        paired = summary.get("paired_official") or {}
+        status_counts = summary.get("status_counts") or {}
+        records = [item for item in state.get("records") or [] if isinstance(item, dict)]
+        case_count = len({str(item.get("case_id")) for item in records if item.get("case_id")})
+        variant_count = len(summary.get("variants") or {})
+        planned = int(summary.get("planned_runs") or 0)
+        completed = int(status_counts.get("completed") or 0)
+        return (
+            [
+                ("运行槽位", f"{completed}/{planned}", "Case × 配置 × 重复", "ok" if planned and completed == planned else "warn"),
+                ("Case", str(case_count), "当前批次实际覆盖", "neutral"),
+                ("配置", str(variant_count), "受控变量对比", "neutral"),
+                ("官方配对", str(int(paired.get("evaluated_pairs") or 0)), "具有明确官方结果的配对", "ok" if paired.get("evaluated_pairs") else "warn"),
+            ],
+            "批次只支持当前样本和配置的比较；小样本 commissioning 结果不能写成总体解决率。",
+        )
+
+    usage = _read_json_file(source.usage_path)
+    summary = usage.get("summary") or {}
+    trace_path = source.trace_entries[0][1] if source.trace_entries else None
+    trace = _read_json_file(trace_path)
+    events = _event_list(trace)
+    turns = {int(event.get("step") or 0) for event in events if int(event.get("step") or 0) > 0}
+    checkpoints = sum(event.get("event_type") == "task_state_checkpoint" for event in events)
+    failed_tools = int(summary.get("failed_tool_calls") or 0)
+    return (
+        [
+            ("Agent Turn", str(len(turns)), "真实模型边界", "neutral"),
+            ("模型调用", str(int(summary.get("llm_calls") or 0)), "实际请求次数", "neutral"),
+            ("工具调用", str(int(summary.get("tool_calls") or 0)), f"失败 {failed_tools} 次", "bad" if failed_tools else "ok"),
+            ("Checkpoint", str(checkpoints), "可恢复状态边界", "neutral"),
+        ],
+        "本页描述单次 Runtime 事实；候选改动、本地验证和官方解决必须继续分层判断。",
+    )
+
+
+def _render_source_timeline(source: EvidenceSource) -> str:
+    if not source.trace_entries:
+        return _empty_evidence(
+            "当前发布包没有 Turn 级 Trace。它仍可用于结果与改进复盘，但不能展示模型轮次。"
+        )
+    visible_entries = list(source.trace_entries[:8])
+    hidden_count = max(len(source.trace_entries) - len(visible_entries), 0)
+    title = "执行时间线"
+    if source.key == "orchestration":
+        title = "Worker 与 Finalizer 执行时间线"
+    rendered = _render_trace_timeline_entries(
+        visible_entries,
+        scope_label=source.title,
+        title=title,
+        source_path=source.primary_path,
+    )
+    if hidden_count:
+        rendered += (
+            "<p class='boundary-note'>为控制阅读噪音，本页只展开前 8 条 Trace；"
+            f"还有 {hidden_count} 条可在原始评测目录中按 Case 查看。</p>"
+        )
+    return rendered
+
+
+def _render_source_context(source: EvidenceSource) -> str:
+    """让所有 AgentLoop Trace 共享同一套 Context -> Decision -> Feedback 投影。"""
+
+    if not source.trace_entries:
+        return _empty_evidence(
+            "当前证据没有 AgentLoop Trace，因此无法还原逐轮上下文。"
+            "这不是 0 次调用，而是该发布包没有保存这一层证据。"
+        )
+    panels: list[str] = []
+    for index, (label, trace_path) in enumerate(source.trace_entries[:8]):
+        trace = _read_json_file(trace_path)
+        turns = build_context_turn_inspections(trace)
+        if not turns:
+            panels.append(
+                "<details class='trace-context-unit'"
+                + (" open" if index == 0 else "")
+                + f"><summary>{_escape(label)} · 无可投影 Turn</summary>"
+                f"<p class='empty-inline'>{_escape(str(trace_path))}</p></details>"
+            )
+            continue
+        panels.append(
+            _render_context_trace_panel(
+                label=label,
+                trace_path=trace_path,
+                trace=trace,
+                turns=turns,
+                open_panel=index == 0,
+            )
+        )
+    return (
+        "<div class='evidence'><div class='view-heading'><div>"
+        "<span class='view-kicker'>CONTEXT LENS</span><h2>上下文与决策</h2></div>"
+        "<span class='claim-note'>可审计输入与动作，不是隐藏思维链</span></div>"
+        "<p class='help strong'>统一按四步阅读：上一轮新增证据、当前输入组成、"
+        "模型显式决定、工具反馈。普通运行、复杂任务和每个 Worker 都使用同一投影。</p>"
+        f"{''.join(panels)}</div>"
+    )
+
+
+def _render_context_trace_panel(
+    *,
+    label: str,
+    trace_path: Path,
+    trace: dict[str, Any],
+    turns: tuple[ContextTurnInspection, ...],
+    open_panel: bool,
+) -> str:
+    key_turns = [turn for turn in turns if turn.is_key_turn]
+    peak_tokens = max((turn.estimated_tokens for turn in turns), default=0)
+    compacted_turns = sum(turn.compacted for turn in turns)
+    tool_names = {
+        decision.tool_name for turn in turns for decision in turn.tool_decisions
+    }
+    key_links = "".join(
+        "<a class='context-jump' "
+        f"href='#context-{_safe_html_id(label)}-{turn.step}'><b>Turn {turn.step}</b>"
+        f"<span>{_escape(turn.key_reason)}</span></a>"
+        for turn in key_turns
+    )
+    turn_blocks = "".join(
+        _render_context_turn(
+            turn,
+            element_id=f"context-{_safe_html_id(label)}-{turn.step}",
+        )
+        for turn in turns
+    )
+    task = str(trace.get("task") or "未记录任务")
+    open_attribute = " open" if open_panel else ""
+    return (
+        f"<details class='trace-context-unit'{open_attribute}>"
+        f"<summary><b>{_escape(label)}</b><span>{len(turns)} Turn · "
+        f"{len(key_turns)} 个关键转折 · 峰值 {peak_tokens:,} tokens</span></summary>"
+        "<div class='trace-context-body'>"
+        f"<p class='task-summary'><span>任务</span>{_escape(task)}</p>"
+        + _metric_grid(
+            [
+                ("Agent Turn", str(len(turns)), "真实模型边界", "neutral"),
+                ("关键转折", str(len(key_turns)), "优先展开", "ok"),
+                ("上下文压缩", str(compacted_turns), "触发压缩的 Turn", "neutral"),
+                ("实际工具", str(len(tool_names)), "实际调用种类", "neutral"),
+            ]
+        )
+        + (f"<div class='context-jumps'>{key_links}</div>" if key_links else "")
+        + f"<div class='context-turns'>{turn_blocks}</div>"
+        "<details class='provenance'><summary>证据来源</summary>"
+        f"<code>{_escape(str(trace_path))}</code></details>"
+        "</div></details>"
+    )
+
+
+def _safe_html_id(value: str) -> str:
+    return re.sub(r"[^a-zA-Z0-9_-]+", "-", value).strip("-") or "trace"
+
+
+def _render_source_results(project_dir: Path, source: EvidenceSource) -> str:
+    if source.key == "orchestration":
+        summary = _read_json_file(source.primary_path)
+        return _render_fanout_run_evidence(summary, source.primary_path)
+    if source.key == "evaluation":
+        return _render_feedback_dashboard(project_dir)
+    return _render_single_source_results(source)
+
+
+def _render_single_source_results(source: EvidenceSource) -> str:
+    """渲染一条 Single-Run 的状态、成本、产物与证据等级。"""
+
+    usage = _read_json_file(source.usage_path)
+    summary = usage.get("summary") or {}
+    trace_path = source.trace_entries[0][1] if source.trace_entries else None
+    trace = _read_json_file(trace_path)
+    story: RunStory | None = None
+    story_error = ""
+    if source.run_dir is not None and (source.run_dir / "run_manifest.json").is_file():
+        try:
+            # latest 指针可能指向别的运行；直接从当前目录加载才不会串证据。
+            story = load_run_story(source.run_dir)
+        except (OSError, ValueError) as exc:
+            story_error = str(exc)
+    checkpoint_count = int(
+        summary.get("checkpoints")
+        or summary.get("task_state_checkpoints")
+        or sum(
+            event.get("event_type") == "task_state_checkpoint"
+            for event in _event_list(trace)
+        )
+    )
+    cost = float(summary.get("estimated_cost_usd") or 0.0)
+    return (
+        "<div class='evidence'><div class='view-heading'><div>"
+        "<span class='view-kicker'>RESULTS & EVIDENCE</span><h2>结果与证据边界</h2></div>"
+        f"{_badge(_display_value(source.status), _tone_for_status(source.status))}</div>"
+        + _metric_grid(
+            [
+                ("模型调用", str(summary.get("llm_calls", 0)), "实际请求次数", "neutral"),
+                (
+                    "工具调用",
+                    str(summary.get("tool_calls", 0)),
+                    f"失败 {int(summary.get('failed_tool_calls') or 0)} 次",
+                    "bad" if summary.get("failed_tool_calls") else "ok",
+                ),
+                ("Checkpoint", str(checkpoint_count), "持久化状态边界", "neutral"),
+                ("估算成本", f"${cost:.6f}", "当前运行", "neutral"),
+            ]
+        )
+        + _render_run_story_section(story, source.run_dir, story_error)
+        + "<details class='provenance'><summary>运行产物目录</summary>"
+        f"<code>{_escape(str(source.run_dir or '未找到'))}</code></details></div>"
+    )
 
 
 def _latest_run_dir(project_dir: Path) -> Path | None:
@@ -360,7 +749,7 @@ def _render_lab_brief(
 
     return (
         "<section class='lab-brief'>"
-        "<div class='lab-question'><span>这个 Lab 要回答的问题</span>"
+        "<div class='lab-question'><span>这次运行要回答的问题</span>"
         f"<strong>{_escape(question)}</strong></div>"
         "<div class='lab-brief-grid'>"
         f"<div><b>{_escape(input_label)}</b>"
@@ -919,9 +1308,9 @@ def _render_fanout_result_summary(fanout: dict[str, Any], path: Path | None) -> 
         or "未记录"
     )
     body = [
-        "<div class='view-heading'><div><span class='view-kicker'>LAB 2 · 多 Agent 协同</span>"
+        "<div class='view-heading'><div><span class='view-kicker'>并行多 Agent</span>"
         "<h2>并行任务与最终收口</h2></div><div class='view-heading-actions'>"
-        "<button onclick=\"loadEvidence('orchestration_timeline')\">查看本次 AgentLoop 时间线</button>"
+        "<button onclick=\"loadEvidence('timeline')\">查看本次执行过程</button>"
         f"{_badge(str(fanout.get('status') or 'unknown'), _tone_for_status(str(fanout.get('status') or '')))}</div></div>",
         _render_lab_brief(
             question=(
@@ -940,7 +1329,7 @@ def _render_fanout_result_summary(fanout: dict[str, Any], path: Path | None) -> 
                 f"{_display_value(fanout.get('final_decision') or 'not_run')}。"
             ),
             boundary=(
-                "本 Lab 使用确定性 Worker 模型验证编排与隔离机制，不调用外部大模型；"
+                "本次可复现运行使用确定性 Worker 模型验证编排与隔离机制，不调用外部大模型；"
                 "本地 Finalizer 通过也不等于官方 Benchmark 已解决。"
             ),
         ),
@@ -1075,7 +1464,7 @@ def _render_trace_timeline(project_dir: Path) -> str:
         return _empty_evidence("没有找到 trace.json，请先运行 Agent 或一个 Debug Lab。")
     return _render_trace_timeline_entries(
         trace_entries,
-        scope_label="LAB 1 · 受治理运行",
+        scope_label="受治理单 Agent",
         title="AgentLoop 执行时间线",
     )
 
@@ -1098,11 +1487,11 @@ def _render_orchestration_trace_timeline(project_dir: Path) -> str:
         trace_entries.append(("Finalizer · 合并后验证", finalizer_path))
     if not trace_entries:
         return _empty_evidence(
-            "Lab 2 尚未产生 Worker/Finalizer Trace，请先运行 Lab 2。"
+            "并行多 Agent 尚未产生 Worker/Finalizer Trace，请先执行该运行。"
         )
     return _render_trace_timeline_entries(
         trace_entries,
-        scope_label="LAB 2 · 多 AGENT 协同",
+        scope_label="并行多 Agent",
         title="Worker 与 Finalizer 时间线",
         source_path=fanout_path,
     )
@@ -1114,15 +1503,267 @@ def _render_complex_trace_timeline(project_dir: Path) -> str:
     trace_path = _latest_complex_trace_path(project_dir)
     if trace_path is None:
         return _empty_evidence(
-            "Lab 3 尚未产生真实模型 Trace，请先运行 PyCharm 的 "
+            "复杂真实修复尚未产生模型 Trace，请先运行 PyCharm 的 "
             "NanoHarness Lab 3 - Complex Live Repair。"
         )
     return _render_trace_timeline_entries(
         [("复杂结算修复 AgentLoop", trace_path)],
-        scope_label="LAB 3 · 复杂真实任务",
+        scope_label="复杂真实修复",
         title="多轮检索、修改与验证时间线",
         source_path=trace_path,
     )
+
+
+def _render_complex_context_inspector(project_dir: Path) -> str:
+    """把 Lab 3 的长 Context 投影为逐轮可学习的输入与决定。"""
+
+    trace_path = _latest_complex_trace_path(project_dir)
+    if trace_path is None:
+        return _empty_evidence(
+            "复杂真实修复尚未发布 Context Evidence。完成运行并退出 Operator Console 后，"
+            "这里会读取该次 Trace；不会要求重新调用模型。"
+        )
+    trace = _read_json_file(trace_path)
+    turns = build_context_turn_inspections(trace)
+    if not turns:
+        return _empty_evidence("当前 Trace 没有可投影的 AgentLoop Turn。")
+
+    key_turns = [turn for turn in turns if turn.is_key_turn]
+    unique_tools = sorted(
+        {
+            decision.tool_name
+            for turn in turns
+            for decision in turn.tool_decisions
+        }
+    )
+    peak_tokens = max((turn.estimated_tokens for turn in turns), default=0)
+    compacted_turns = sum(turn.compacted for turn in turns)
+    key_turn_links = "".join(
+        "<a class='context-jump' "
+        f"href='#context-turn-{turn.step}'><b>Turn {turn.step}</b>"
+        f"<span>{_escape(turn.key_reason)}</span></a>"
+        for turn in key_turns
+    )
+    turn_blocks = "".join(_render_context_turn(turn) for turn in turns)
+    task = str(trace.get("task") or "未记录任务")
+
+    return (
+        "<div class='evidence'>"
+        "<div class='view-heading'><div><span class='view-kicker'>CONTEXT LENS</span>"
+        "<h2>上下文与决策观察器</h2></div>"
+        "<span class='claim-note'>真实输入形状，不是隐藏思维链</span></div>"
+        "<p class='help strong'>这里回答四个问题：上一轮新增了什么事实、本轮给模型看了什么、"
+        "模型选择了什么动作、执行结果怎样进入下一轮。完整 Prompt 不重复落盘，页面只使用"
+        "可审计的 Trace 来源、长度、摘要和工具结果。</p>"
+        + _render_lab_brief(
+            question="AgentLoop 为什么在这一轮作出当前工具选择，下一轮又为什么改变方向？",
+            input_label="本次 Task",
+            input_items=[task],
+            mechanism=(
+                "按 Turn 关联 context_assembly、context_window、llm_call、action 与 "
+                "tool_observation；比较相邻轮的消息数、Token 和新增 Evidence。"
+            ),
+            success_criteria=(
+                "不用阅读几千 Token 原文，也能指出关键转折、输入来源、模型动作和反馈闭环。"
+            ),
+            boundary=(
+                "模型内部推理不可观测；llm_response_summary 只代表模型显式输出。"
+                "阶段标签由 Workbench 根据工具与结果归类，不冒充模型思维。"
+            ),
+        )
+        + _metric_grid(
+            [
+                ("Agent Turn", str(len(turns)), "本次真实模型边界", "neutral"),
+                ("关键转折", str(len(key_turns)), "建议优先展开", "ok"),
+                ("峰值输入", f"{peak_tokens:,} tokens", "压缩后的估算输入", "neutral"),
+                (
+                    "上下文压缩",
+                    str(compacted_turns),
+                    "发生压缩的 Turn 数",
+                    "warn" if compacted_turns else "neutral",
+                ),
+                ("实际工具", str(len(unique_tools)), "本次真正调用过的工具种类", "neutral"),
+            ]
+        )
+        + "<section class='evidence-section'><div class='section-title'>"
+        "<h3>最短学习路径</h3><span>先看转折，再按需展开普通轮次</span></div>"
+        f"<div class='context-jumps'>{key_turn_links}</div></section>"
+        "<section class='evidence-section'><div class='section-title'>"
+        "<h3>每轮固定读法</h3><span>四步足够，不背原始消息数组</span></div>"
+        "<div class='mini-flow context-mental-model'>"
+        "<span><b>1 新增证据</b><small>上一轮 Observation</small></span>"
+        "<span><b>2 输入组成</b><small>系统上下文 + 历史 + Tool Schema</small></span>"
+        "<span><b>3 模型决定</b><small>显式回答或 ToolCall</small></span>"
+        "<span><b>4 执行反馈</b><small>结果写回下一轮</small></span>"
+        "</div></section>"
+        "<section class='evidence-section context-turns'><div class='section-title'>"
+        "<h3>逐轮观察</h3><span>关键转折默认展开</span></div>"
+        f"{turn_blocks}</section>"
+        "<details class='provenance'><summary>本页证据来源与边界</summary>"
+        f"<code>{_escape(str(trace_path))}</code>"
+        "<p>页面没有重新调用模型，也没有用 LLM 二次总结；所有标签由确定性投影生成。</p>"
+        "</details></div>"
+    )
+
+
+def _render_context_turn(
+    turn: ContextTurnInspection,
+    *,
+    element_id: str | None = None,
+) -> str:
+    """渲染一轮四段式 Context 学习视图。"""
+
+    open_attribute = " open" if turn.is_key_turn else ""
+    key_badge = (
+        f"<span class='context-key'>{_escape(turn.key_reason)}</span>"
+        if turn.is_key_turn
+        else ""
+    )
+    previous_evidence = _render_context_fact_list(turn.previous_evidence)
+    decision_summary = _compact_timeline_text(
+        turn.model_response_summary or "模型只返回了结构化 ToolCall。",
+        max_chars=520,
+    )
+    action_rows = _render_context_action_list(turn.tool_decisions)
+    feedback_rows = _render_context_feedback_list(turn.tool_decisions)
+    input_bars = _render_context_component_bars(turn.input_components)
+    message_delta = _signed_number(turn.message_delta)
+    token_delta = _signed_number(turn.token_delta)
+    pressure = (
+        turn.estimated_tokens / turn.hard_input_limit * 100
+        if turn.hard_input_limit
+        else 0.0
+    )
+    technical_details = _render_context_technical_details(turn)
+
+    resolved_element_id = element_id or f"context-turn-{turn.step}"
+    return (
+        f"<details class='context-turn' id='{_escape(resolved_element_id)}'{open_attribute}>"
+        "<summary>"
+        f"<span><b>Turn {turn.step}</b><small>{_escape(turn.phase)}</small></span>"
+        f"<span class='context-turn-summary'>{_escape(turn.phase_reason)}</span>"
+        f"<span class='context-turn-metrics'>{turn.message_count} messages "
+        f"({message_delta}) · {turn.estimated_tokens:,} tokens ({token_delta})</span>"
+        f"{key_badge}</summary>"
+        "<div class='context-turn-body'>"
+        "<div class='context-flow-grid'>"
+        "<section><span class='context-stage'>01 · 上一轮新增证据</span>"
+        f"{previous_evidence}</section>"
+        "<section><span class='context-stage'>02 · 本轮输入组成</span>"
+        f"{input_bars}"
+        f"<p class='context-caption'>窗口占用约 {pressure:.1f}% · "
+        f"{'已压缩' if turn.compacted else '未压缩'} · "
+        f"系统 Context {turn.total_context_chars:,}/{turn.max_context_chars:,} chars</p>"
+        "</section>"
+        "<section><span class='context-stage'>03 · 模型可观测决定</span>"
+        f"<p class='context-decision'>{_escape(decision_summary)}</p>{action_rows}</section>"
+        "<section><span class='context-stage'>04 · 执行反馈</span>"
+        f"{feedback_rows}<p class='context-caption'>这些 Observation 会进入下一 Turn。"
+        "若本轮已经形成最终答案，则不再回填工具结果。</p></section>"
+        "</div>"
+        f"{technical_details}</div></details>"
+    )
+
+
+def _render_context_component_bars(
+    components: tuple[ContextComponent, ...],
+) -> str:
+    labels = {
+        "system_context": "系统上下文",
+        "conversation_history": "对话与工具历史",
+        "tool_schemas": "Tool Schema",
+    }
+    total = max(sum(component.chars for component in components), 1)
+    rows = "".join(
+        "<div class='context-bar-row'>"
+        f"<span>{_escape(labels.get(component.key, component.key))}</span>"
+        "<div class='context-bar-track'>"
+        f"<i style='width:{max(component.chars / total * 100, 1.5):.1f}%'></i></div>"
+        f"<b>{component.chars:,}</b></div>"
+        for component in components
+    )
+    return f"<div class='context-bars'>{rows}</div>"
+
+
+def _render_context_action_list(decisions: tuple[ToolDecision, ...]) -> str:
+    if not decisions:
+        return "<p class='empty-inline'>没有 ToolCall，本轮输出最终文本。</p>"
+    rows = "".join(
+        "<li><b class='mono'>"
+        f"{_escape(decision.tool_name)}</b><span>{_escape(decision.target)}</span></li>"
+        for decision in decisions
+    )
+    return f"<ol class='context-actions'>{rows}</ol>"
+
+
+def _render_context_feedback_list(decisions: tuple[ToolDecision, ...]) -> str:
+    if not decisions:
+        return "<p class='empty-inline'>本轮没有工具执行反馈。</p>"
+    rows = "".join(
+        "<li>"
+        + _badge(
+            "成功"
+            if decision.succeeded is True
+            else "未通过"
+            if decision.succeeded is False
+            else "未执行",
+            "ok"
+            if decision.succeeded is True
+            else "bad"
+            if decision.succeeded is False
+            else "neutral",
+        )
+        + f"<span>{_escape(decision.feedback)}</span></li>"
+        for decision in decisions
+    )
+    return f"<ul class='context-feedback'>{rows}</ul>"
+
+
+def _render_context_technical_details(turn: ContextTurnInspection) -> str:
+    system_rows = "".join(
+        f"<tr><td>{_escape(_display_context_section(component.key))}</td>"
+        f"<td>{component.chars:,}</td></tr>"
+        for component in turn.system_sections
+    ) or "<tr><td colspan='2'>没有区段数据</td></tr>"
+    tools_state = "发生变化" if turn.tools_changed else "与上一轮相同"
+    skills_state = "发生变化" if turn.skills_changed else "与上一轮相同"
+    files_seen = "、".join(turn.files_seen) or "尚未通过 read_file 取得文件正文"
+    selected_files = "、".join(turn.selected_files) or "0（本次文件正文来自工具 Observation）"
+    visible_tools = "、".join(turn.visible_tools) or "无"
+    active_skills = "、".join(turn.active_skills) or "无"
+    dropped_tools = "、".join(turn.dropped_tools) or "无"
+    working_memory = turn.working_memory_summary or "未记录"
+
+    return (
+        "<details class='context-technical'><summary>查看这一轮怎样组装 Context</summary>"
+        "<div class='context-technical-grid'>"
+        "<div><h4>来源与可见性</h4><table><tbody>"
+        f"<tr><td>历史已读文件</td><td>{_escape(files_seen)}</td></tr>"
+        f"<tr><td>主动选择文件</td><td>{_escape(selected_files)}</td></tr>"
+        f"<tr><td>可见工具</td><td>{_escape(visible_tools)}（{_escape(tools_state)}）</td></tr>"
+        f"<tr><td>隐藏工具</td><td>{_escape(dropped_tools)}</td></tr>"
+        f"<tr><td>激活 Skill</td><td>{_escape(active_skills)}（{_escape(skills_state)}）</td></tr>"
+        "</tbody></table></div>"
+        "<div><h4>系统 Context 内部预算</h4><table><thead>"
+        f"<tr><th>区段</th><th>字符数</th></tr></thead><tbody>{system_rows}</tbody></table></div>"
+        "</div>"
+        "<details class='context-memory'><summary>查看 Working Memory 摘要</summary>"
+        f"<pre>{_escape(working_memory)}</pre></details>"
+        f"<p class='boundary-note'>模型：{_escape(turn.model_name)}；reasoning tokens："
+        f"{turn.reasoning_tokens}；本轮估算成本：${turn.estimated_cost_usd:.6f}；"
+        f"压缩原因：{_escape(turn.compaction_reason)}。Trace 不复制完整 Prompt，"
+        "避免重复大文本和敏感内容；这里展示的是可复核的输入结构。</p>"
+        "</details>"
+    )
+
+
+def _render_context_fact_list(values: tuple[str, ...]) -> str:
+    rows = "".join(f"<li>{_escape(value)}</li>" for value in values)
+    return f"<ul class='context-facts'>{rows}</ul>"
+
+
+def _signed_number(value: int) -> str:
+    return f"+{value}" if value > 0 else str(value)
 
 
 def _render_trace_timeline_entries(
@@ -1232,9 +1873,10 @@ def _render_complex_lab_dashboard(project_dir: Path) -> str:
     ) or "<tr><td colspan='4'>本次运行尚未留下 focused/full pytest 证据。</td></tr>"
 
     body = [
-        "<div class='view-heading'><div><span class='view-kicker'>LAB 3 · 真实 DEEPSEEK 运行</span>"
-        "<h2>复杂结算修复学习场</h2></div>"
-        f"{_badge(status, _tone_for_status(status))}</div>",
+        "<div class='view-heading'><div><span class='view-kicker'>真实 DEEPSEEK 运行</span>"
+        "<h2>复杂结算修复学习场</h2></div><div class='view-heading-actions'>"
+        "<button onclick=\"loadEvidence('context')\">查看上下文与决策</button>"
+        f"{_badge(status, _tone_for_status(status))}</div></div>",
         _render_lab_brief(
             question=(
                 "面对同时包含幂等、金额舍入、部分结算和失败原子性的多模块缺陷，"
@@ -2588,7 +3230,7 @@ def _render_fanout_run_evidence(
             _claim_step(
                 "官方评测",
                 "not_evaluated",
-                "Lab 2 是确定性协同实验，不执行官方 Benchmark",
+                "该协同运行验证编排机制，不执行官方 Benchmark",
                 "neutral",
             ),
         ]
@@ -2610,7 +3252,7 @@ def _render_fanout_run_evidence(
         f"<code>{_escape(str(path))}</code>" for path in provenance_paths
     )
     body = [
-        "<div class='view-heading'><div><span class='view-kicker'>LAB 2 · 多 AGENT 单次运行</span>"
+        "<div class='view-heading'><div><span class='view-kicker'>多 AGENT 单次运行</span>"
         "<h2>多 Agent 运行证据</h2></div>"
         f"{_badge(status, _tone_for_status(status))}</div>",
         "<p class='help strong'>本页聚合 Coordinator、两个隔离 Worker、候选改动合并和 Finalizer 的分散证据。"
@@ -3018,6 +3660,14 @@ def _render_runtime_controls(project_dir: Path) -> str:
     memory_recall: dict[str, Any] = (
         memory_value if isinstance(memory_value, dict) else {}
     )
+    memory_snapshot_lines = [
+        f"{scope} · {key} · revision {revision}"
+        for key, scope, revision in zip(
+            memory_recall.get("keys") or [],
+            memory_recall.get("scopes") or [],
+            memory_recall.get("revisions") or [],
+        )
+    ]
     llm_events = [event for event in events if event.get("event_type") == "llm_call"]
     normalization_repairs = [
         str(repair)
@@ -3119,7 +3769,7 @@ def _render_runtime_controls(project_dir: Path) -> str:
         or "<tr><td colspan='6'>本次运行没有观测到审批或恢复介入。</td></tr>"
     )
     body = [
-        "<div class='view-heading'><div><span class='view-kicker'>LAB 1 · 受治理运行</span><h2>Runtime 控制面</h2></div>"
+        "<div class='view-heading'><div><span class='view-kicker'>受治理单 Agent</span><h2>Runtime 控制面</h2></div>"
         f"{_badge(mode, _tone_for_status(mode))}</div>",
         _render_lab_brief(
             question=(
@@ -3212,8 +3862,8 @@ def _render_runtime_controls(project_dir: Path) -> str:
         (
             "<tr><td>长期记忆</td>"
             f"<td>召回 {_escape(memory_recall.get('recalled_count', 0))} 条；"
-            f"类型：{_escape(memory_recall.get('kinds') or [])}</td>"
-            f"<td class='mono'>{_escape(memory_recall.get('memory_ids') or '无')}</td></tr>"
+            f"{_render_fact_list(memory_snapshot_lines, empty_message='本 Run 没有召回长期记忆')}</td>"
+            f"<td class='mono'>snapshot {_escape(str(memory_recall.get('snapshot_sha256') or '未记录')[:12])}</td></tr>"
         ),
         (
             "<tr><td>工具调用修复</td>"
@@ -3252,10 +3902,10 @@ def _render_orchestration_dashboard(project_dir: Path) -> str:
     summary_path = _latest_orchestration_summary_path(project_dir)
     summary = _read_json_file(summary_path)
     if not summary:
-        return _empty_evidence("尚未找到多 Agent 编排产物，请先执行 Lab 2。")
+        return _empty_evidence("尚未找到多 Agent 编排产物，请先执行并行协同运行。")
     decisions = summary.get("role_results") or []
     body = [
-        "<div class='view-heading'><div><span class='view-kicker'>LAB 2 · 多 AGENT 协同</span><h2>多 Agent 编排证据</h2></div>"
+        "<div class='view-heading'><div><span class='view-kicker'>并行多 AGENT</span><h2>多 Agent 编排证据</h2></div>"
         f"{_badge(str(summary.get('status') or 'unknown'), _tone_for_status(str(summary.get('status') or '')))}</div>",
         _metric_grid(
             [
@@ -3351,7 +4001,7 @@ def _render_evaluation_dashboard(project_dir: Path) -> str:
     benchmark_run_name = benchmark_run_dir.name if benchmark_run_dir else "未找到"
     scope_note = (
         f"当前结论只属于评测运行 {benchmark_run_name}。"
-        "Lab 2 的 Worker、Finalizer 和协调结果属于另一条运行，请在“2 多 Agent 协同”查看。"
+        "Worker、Finalizer 和协调结果属于另一条运行，请切换到“并行多 Agent”查看。"
     )
     body = [
         "<div class='view-heading'><div><span class='view-kicker'>独立证据 · SWE-BENCH CASE</span>"
@@ -3601,7 +4251,7 @@ def _render_benchmark_dashboard(project_dir: Path) -> str:
         ]
     )
     body = [
-        "<div class='view-heading'><div><span class='view-kicker'>LAB 3 · 实验批次</span><h2>当前 Case 与重复实验结果</h2></div>"
+        "<div class='view-heading'><div><span class='view-kicker'>评测批次</span><h2>当前 Case 与重复实验结果</h2></div>"
         f"{_badge(str(summary.get('status') or 'unknown'), _tone_for_status(str(summary.get('status') or '')))}</div>",
         _render_lab_brief(
             question=(
@@ -3780,7 +4430,7 @@ def _render_feedback_dashboard(project_dir: Path) -> str:
     diagnosis_finding = str(diagnosis.get("finding") or "").strip()
     diagnosis_evidence = _string_items(diagnosis.get("evidence"))
     body = [
-        "<div class='view-heading'><div><span class='view-kicker'>LAB 3 · 评测闭环</span><h2>评测与持续改进</h2></div>"
+        "<div class='view-heading'><div><span class='view-kicker'>评测闭环</span><h2>评测与持续改进</h2></div>"
         f"{_badge(improvement_status, _tone_for_status(improvement_status))}</div>",
         _render_lab_brief(
             question=(
@@ -5377,6 +6027,79 @@ INDEX_HTML = r"""<!doctype html>
     .run-facts { display: flex; flex-wrap: wrap; gap: 14px; margin: 10px 0 14px; color: var(--muted); font-size: 10px; }
     .event-pill, .legend-item { border-radius: 4px; }
     .empty-inline { padding: 18px; border: 1px dashed #c7cdd5; color: var(--muted); font-size: 12px; }
+    .context-jumps { display: flex; flex-wrap: wrap; gap: 8px; }
+    .context-jump { min-width: 180px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 5px; background: #fff; color: var(--ink); text-decoration: none; }
+    .context-jump b, .context-jump span { display: block; }
+    .context-jump span { margin-top: 4px; color: var(--muted); font-size: 10px; }
+    .context-turn { margin-top: 10px; scroll-margin-top: 132px; border: 1px solid var(--line); border-radius: 5px; background: #fff; }
+    .context-turn > summary { display: grid; grid-template-columns: 110px minmax(220px, 1fr) auto auto; align-items: center; gap: 12px; min-height: 62px; padding: 10px 14px; cursor: pointer; list-style: none; }
+    .context-turn > summary::-webkit-details-marker { display: none; }
+    .context-turn > summary > span:first-child b, .context-turn > summary > span:first-child small { display: block; }
+    .context-turn > summary > span:first-child small { margin-top: 3px; color: var(--accent); font-size: 10px; }
+    .context-turn-summary { color: #485466; font-size: 11px; }
+    .context-turn-metrics { color: var(--muted); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 10px; white-space: nowrap; }
+    .context-key { padding: 5px 7px; border: 1px solid #c9d7f6; border-radius: 4px; background: #eef4ff; color: #2758a6; font-size: 9px; }
+    .context-turn-body { border-top: 1px solid var(--line); }
+    .context-flow-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); }
+    .context-flow-grid > section { min-width: 0; padding: 14px; border-right: 1px solid var(--line); }
+    .context-flow-grid > section:last-child { border-right: 0; }
+    .context-stage { display: block; margin-bottom: 10px; color: #657185; font-size: 9px; font-weight: 700; text-transform: uppercase; }
+    .context-facts, .context-actions, .context-feedback { margin: 0; padding-left: 18px; }
+    .context-facts li, .context-actions li, .context-feedback li { margin: 0 0 7px; color: #303b4a; font-size: 11px; line-height: 1.45; }
+    .context-actions li b, .context-actions li span { display: block; }
+    .context-actions li span { margin-top: 2px; color: var(--muted); overflow-wrap: anywhere; }
+    .context-feedback { padding-left: 0; list-style: none; }
+    .context-feedback li { display: grid; grid-template-columns: auto 1fr; align-items: start; gap: 7px; }
+    .context-decision { min-height: 38px; margin: 0 0 10px; font-size: 11px; line-height: 1.5; white-space: pre-line; }
+    .context-caption { margin: 9px 0 0; color: var(--muted); font-size: 9px; line-height: 1.45; }
+    .context-bars { display: grid; gap: 7px; }
+    .context-bar-row { display: grid; grid-template-columns: 88px minmax(50px, 1fr) 48px; align-items: center; gap: 6px; font-size: 9px; }
+    .context-bar-row > span { color: #4d5969; }
+    .context-bar-row > b { text-align: right; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-weight: 500; }
+    .context-bar-track { height: 7px; overflow: hidden; border-radius: 3px; background: #e8ecf2; }
+    .context-bar-track i { display: block; height: 100%; border-radius: 3px; background: #537fcf; }
+    .context-technical { border-top: 1px solid var(--line); background: #f8fafc; }
+    .context-technical > summary, .context-memory > summary { padding: 10px 14px; color: #4f5d70; cursor: pointer; font-size: 10px; font-weight: 600; }
+    .context-technical-grid { display: grid; grid-template-columns: 1.2fr 0.8fr; gap: 14px; padding: 0 14px 14px; }
+    .context-technical-grid h4 { margin: 0 0 8px; font-size: 11px; }
+    .context-technical-grid table { margin: 0; background: #fff; }
+    .context-memory { margin: 0 14px 12px; border: 1px solid var(--line); background: #fff; }
+    .context-memory pre { max-height: 280px; margin: 0; padding: 12px; overflow: auto; color: #334052; font-size: 10px; line-height: 1.45; white-space: pre-wrap; overflow-wrap: anywhere; }
+    .context-technical > .boundary-note { margin: 0; padding: 0 14px 14px; }
+    .workspace-toolbar {
+      display: grid;
+      grid-template-columns: minmax(280px, 0.8fr) minmax(320px, 1.2fr);
+      gap: 0;
+      border-bottom: 1px solid var(--line);
+      background: #fff;
+    }
+    .source-picker, .source-picker-meta { min-width: 0; padding: 12px 18px; }
+    .source-picker { border-right: 1px solid var(--line); }
+    .source-picker label { display: block; margin: 0 0 6px; color: var(--muted); font-size: 10px; font-weight: 800; }
+    .source-picker select {
+      width: 100%; height: 38px; border: 1px solid #c7cfda; border-radius: 4px;
+      background: #fff; color: var(--ink); padding: 0 10px; font: inherit; font-weight: 700;
+    }
+    .source-picker-meta { display: flex; align-items: center; color: var(--muted); font-size: 11px; line-height: 1.5; }
+    .source-identity {
+      display: grid; grid-template-columns: minmax(260px, 1fr) auto; gap: 16px;
+      margin: 0 0 14px; padding: 18px 20px; border: 1px solid var(--line); background: #fff;
+    }
+    .source-identity > div > span { color: var(--accent); font-size: 10px; font-weight: 800; text-transform: uppercase; }
+    .source-identity h2 { margin: 5px 0 4px; font-size: 20px; }
+    .source-identity p { margin: 0; color: var(--muted); font-size: 11px; }
+    .source-identity dl { grid-column: 1 / -1; display: grid; grid-template-columns: 1fr 1fr; margin: 0; border-top: 1px solid var(--line); }
+    .source-identity dl > div { min-width: 0; padding: 12px 14px 0 0; }
+    .source-identity dt { margin-bottom: 4px; color: var(--muted); font-size: 9px; font-weight: 800; }
+    .source-identity dd { margin: 0; overflow-wrap: anywhere; font-size: 11px; line-height: 1.45; }
+    .source-provenance { grid-column: 1 / -1; margin-top: 2px; color: var(--muted); font-size: 10px; }
+    .source-provenance summary { cursor: pointer; }
+    .source-provenance code { display: block; margin-top: 7px; overflow-wrap: anywhere; white-space: normal; }
+    .overview-reading-path { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+    .trace-context-unit { margin: 10px 0; border: 1px solid var(--line); background: #fff; }
+    .trace-context-unit > summary { display: flex; justify-content: space-between; gap: 14px; padding: 14px 16px; cursor: pointer; }
+    .trace-context-unit > summary span { color: var(--muted); font-size: 10px; }
+    .trace-context-body { padding: 0 14px 14px; border-top: 1px solid var(--line); }
     @media (max-width: 1100px) {
       .metric-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
       .pipeline { grid-template-columns: repeat(3, minmax(0, 1fr)); }
@@ -5385,6 +6108,9 @@ INDEX_HTML = r"""<!doctype html>
       .timeline-phase-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
       .timeline-phase:nth-child(2) { border-right: 0; }
       .timeline-phase:nth-child(-n+2) { border-bottom: 1px solid var(--line); }
+      .context-flow-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .context-flow-grid > section:nth-child(2) { border-right: 0; }
+      .context-flow-grid > section:nth-child(-n+2) { border-bottom: 1px solid var(--line); }
     }
     @media (max-width: 900px) {
       header { position: sticky; padding: 10px 12px; flex-direction: row; align-items: center; gap: 8px; }
@@ -5395,6 +6121,7 @@ INDEX_HTML = r"""<!doctype html>
       .status { top: 58px; margin: 0 -12px; padding: 0 12px; grid-template-columns: repeat(2, minmax(0, 1fr)); }
       .status .pill:nth-child(n+3) { display: none; }
       .view-tabs { top: 105px; margin: 0 -12px 16px; padding: 0 12px; }
+      .context-turn { scroll-margin-top: 210px; }
       .view-tabs .utility { margin-left: 0; }
       .metric-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
       .metric { min-height: 88px; }
@@ -5419,6 +6146,11 @@ INDEX_HTML = r"""<!doctype html>
       }
       .timeline-phase:last-child { border-bottom: 0; }
       .timeline-phase > strong { min-height: 0; }
+      .context-turn > summary { grid-template-columns: 90px 1fr; }
+      .context-turn-metrics, .context-key { grid-column: 2; white-space: normal; }
+      .context-flow-grid, .context-technical-grid { grid-template-columns: 1fr; }
+      .context-flow-grid > section { border-right: 0; border-bottom: 1px solid var(--line); }
+      .context-flow-grid > section:last-child { border-bottom: 0; }
       .coordination-graph { grid-template-columns: 1fr; }
       .coordination-graph i { text-align: center; }
       table { display: block; overflow-x: auto; table-layout: auto; }
@@ -5426,6 +6158,10 @@ INDEX_HTML = r"""<!doctype html>
       th, td { overflow-wrap: normal; word-break: normal; }
       .artifact-card p { min-height: 0; }
       .view-heading { align-items: center; }
+      .workspace-toolbar, .source-identity, .source-identity dl { grid-template-columns: 1fr; }
+      .source-picker { border-right: 0; border-bottom: 1px solid var(--line); }
+      .source-identity dl > div { padding-right: 0; }
+      .trace-context-unit > summary { display: grid; }
     }
   </style>
 </head>
@@ -5435,7 +6171,7 @@ INDEX_HTML = r"""<!doctype html>
       <div class="brand-mark">NH</div>
       <div>
         <h1>NanoHarness 证据工作台</h1>
-      <div class="subtitle">总览 + 三条学习主线：运行控制、多 Agent 协同、复杂真实任务</div>
+      <div class="subtitle">一次选择运行，逐层读懂 AgentLoop、上下文、控制决策与证据边界</div>
       </div>
     </div>
     <div class="header-actions">
@@ -5449,110 +6185,98 @@ INDEX_HTML = r"""<!doctype html>
       <div class="status">
         <div class="pill"><div class="k">Python Runtime</div><div class="v" id="python"></div></div>
         <div class="pill"><div class="k">最新运行</div><div class="v" id="latestRun"></div></div>
-        <div class="pill"><div class="k">当前视图</div><div class="v" id="currentView">运行控制</div></div>
+        <div class="pill"><div class="k">当前运行</div><div class="v" id="currentSource">-</div></div>
+        <div class="pill"><div class="k">当前视图</div><div class="v" id="currentView">运行概览</div></div>
+      </div>
+      <div class="workspace-toolbar">
+        <div class="source-picker">
+          <label for="sourceSelect">选择运行证据</label>
+          <select id="sourceSelect" onchange="changeEvidenceSource()"></select>
+        </div>
+        <div class="source-picker-meta" id="sourceDescription">正在发现可读取的运行...</div>
       </div>
       <div class="view-tabs">
-        <button data-view="overview" onclick="loadEvidence('overview')">总览</button>
-        <button data-view="controls" onclick="loadEvidence('controls')">1 受治理运行</button>
-        <button data-view="orchestration" onclick="loadEvidence('orchestration')">2 多 Agent 协同</button>
-        <button data-view="complex" onclick="loadEvidence('complex')">3 复杂真实任务</button>
-        <button data-view="feedback" onclick="loadEvidence('feedback')">评测档案</button>
-        <details class="evidence-menu" hidden>
-          <summary id="evidenceMenuTitle">当前 Lab · 证据详情</summary>
-          <div>
-            <div class="menu-group" data-lab="lab1"><span class="menu-label">Lab 1 · 受治理运行</span>
-              <button data-view="timeline" onclick="loadEvidence('timeline')">AgentLoop 时间线</button>
-            </div>
-            <div class="menu-group" data-lab="lab2"><span class="menu-label">Lab 2 · 多 Agent 协同</span>
-              <button data-view="orchestration_timeline" onclick="loadEvidence('orchestration_timeline')">Worker / Finalizer 时间线</button>
-            </div>
-            <div class="menu-group" data-lab="lab3"><span class="menu-label">Lab 3 · 复杂真实任务</span>
-              <button data-view="complex_timeline" onclick="loadEvidence('complex_timeline')">多轮 AgentLoop 时间线</button>
-            </div>
-          </div>
-        </details>
-        <button class="utility" onclick="refreshStatus()" title="刷新运行状态">刷新</button>
+        <button data-view="overview" onclick="loadEvidence('overview')">运行概览</button>
+        <button data-view="timeline" onclick="loadEvidence('timeline')">执行过程</button>
+        <button data-view="context" onclick="loadEvidence('context')">上下文与决策</button>
+        <button data-view="results" onclick="loadEvidence('results')">结果与证据</button>
+        <button class="utility" onclick="refreshWorkspace()" title="重新发现最新运行并刷新">刷新</button>
       </div>
       <div id="output" class="output">正在加载运行证据...</div>
     </section>
   </main>
   <script>
     const evidenceTitles = {
-      overview: '观测总览',
-      summary: '结果总览',
-      evidence: '运行全链路',
-      benchmark: '基准评测',
-      controls: 'Lab 1 · 受治理运行',
-      orchestration: 'Lab 2 · 多 Agent 协同',
-      evaluation: '评测档案 · SWE-bench Case 诊断',
-      compare: '单 Agent / 多 Agent',
-      usage: '成本效率',
-      timeline: 'Lab 1 · AgentLoop 时间线',
-      orchestration_timeline: 'Lab 2 · Worker / Finalizer 时间线',
-      complex: 'Lab 3 · 复杂真实任务',
-      complex_timeline: 'Lab 3 · 多轮 AgentLoop 时间线',
-      feedback: '评测档案 · 改进闭环',
-      raw_report: '原始报告'
+      overview: '运行概览',
+      timeline: '执行过程',
+      context: '上下文与决策',
+      results: '结果与证据'
     };
-    const evidenceLabs = {
-      controls: 'lab1',
-      timeline: 'lab1',
-      orchestration: 'lab2',
-      orchestration_timeline: 'lab2',
-      complex: 'lab3',
-      complex_timeline: 'lab3'
-    };
-    const labMainViews = {
-      lab1: 'controls',
-      lab2: 'orchestration',
-      lab3: 'complex'
-    };
-    const labTitles = {
-      lab1: 'Lab 1 · 受治理运行',
-      lab2: 'Lab 2 · 多 Agent 协同',
-      lab3: 'Lab 3 · 复杂真实任务'
-    };
+    let evidenceSources = [];
+    let activeSource = '';
+    let activeView = 'overview';
 
-    async function refreshStatus() {
+    async function fetchStatus(selectPublishedSource = false) {
       const res = await fetch('/api/status');
       const data = await res.json();
       document.getElementById('projectDir').textContent = data.project_dir;
       document.getElementById('python').textContent = data.python;
       document.getElementById('latestRun').textContent = data.latest_run || '无';
+      evidenceSources = data.evidence_sources || [];
+      if (selectPublishedSource || !activeSource) {
+        activeSource = data.selected_source || (evidenceSources[0] || {}).key || '';
+      }
+      renderSourceSelector();
+      return data;
     }
 
-    async function loadEvidence(kind) {
-      const res = await fetch(`/api/evidence?kind=${encodeURIComponent(kind)}`);
+    function renderSourceSelector() {
+      const selector = document.getElementById('sourceSelect');
+      selector.innerHTML = '';
+      for (const source of evidenceSources) {
+        const option = document.createElement('option');
+        option.value = source.key;
+        option.textContent = source.available
+          ? `${source.title} · ${source.status}`
+          : `${source.title} · 尚未运行`;
+        option.selected = source.key === activeSource;
+        selector.appendChild(option);
+      }
+      const source = evidenceSources.find(item => item.key === activeSource);
+      document.getElementById('currentSource').textContent = source?.title || '-';
+      document.getElementById('sourceDescription').textContent = source
+        ? `${source.description} · ${source.trace_count} 条 Trace`
+        : '没有发现运行证据';
+    }
+
+    async function changeEvidenceSource() {
+      activeSource = document.getElementById('sourceSelect').value;
+      renderSourceSelector();
+      await loadEvidence(activeView);
+    }
+
+    async function loadEvidence(view) {
+      activeView = Object.prototype.hasOwnProperty.call(evidenceTitles, view)
+        ? view
+        : 'overview';
+      const query = new URLSearchParams({source: activeSource, view: activeView});
+      const res = await fetch(`/api/evidence?${query.toString()}`);
       const data = await res.json();
       document.getElementById('output').innerHTML = data.html;
-      setActiveEvidence(kind);
-      const menu = document.querySelector('.evidence-menu');
-      if (menu) menu.removeAttribute('open');
-      refreshStatus();
+      setActiveEvidence(activeView);
     }
 
-    function setActiveEvidence(kind) {
-      const title = evidenceTitles[kind] || kind;
-      const activeLab = evidenceLabs[kind];
+    function setActiveEvidence(view) {
+      const title = evidenceTitles[view] || view;
       document.getElementById('currentView').textContent = title;
       for (const button of document.querySelectorAll('[data-view]')) {
-        const isMainTab = Object.values(labMainViews).includes(button.dataset.view);
-        const activeView = isMainTab && activeLab ? labMainViews[activeLab] : kind;
-        button.classList.toggle('active', button.dataset.view === activeView);
+        button.classList.toggle('active', button.dataset.view === view);
       }
-      setEvidenceMenuScope(activeLab);
     }
 
-    function setEvidenceMenuScope(activeLab) {
-      const menu = document.querySelector('.evidence-menu');
-      if (!menu) return;
-      menu.hidden = !activeLab;
-      if (!activeLab) return;
-      const title = document.getElementById('evidenceMenuTitle');
-      if (title) title.textContent = `${labTitles[activeLab]} · 证据详情`;
-      for (const group of menu.querySelectorAll('.menu-group')) {
-        group.hidden = group.dataset.lab !== activeLab;
-      }
+    async function refreshWorkspace() {
+      await fetchStatus(true);
+      await loadEvidence(activeView);
     }
 
     function toggleFocusMode() {
@@ -5586,16 +6310,16 @@ INDEX_HTML = r"""<!doctype html>
     if (pageParams.has('focus')) {
       document.body.classList.add('focus-mode', 'status-collapsed');
     }
-    const requestedView = pageParams.get('view');
-    const initialView = Object.prototype.hasOwnProperty.call(
-      evidenceTitles,
-      requestedView
-    )
-      ? requestedView
-      : 'overview';
-    updateLayoutControls();
-    refreshStatus();
-    loadEvidence(initialView);
+    async function initializeWorkbench() {
+      const requestedView = pageParams.get('view');
+      activeView = Object.prototype.hasOwnProperty.call(evidenceTitles, requestedView)
+        ? requestedView
+        : 'overview';
+      updateLayoutControls();
+      await fetchStatus(true);
+      await loadEvidence(activeView);
+    }
+    initializeWorkbench();
   </script>
 </body>
 </html>

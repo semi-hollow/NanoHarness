@@ -126,24 +126,32 @@ class PublicCliSmokeTest(unittest.TestCase):
         self.assertIn("--decision", result.stdout)
         self.assertIn("--operation-ledger-root", result.stdout)
 
-    def test_memory_cli_exposes_authority_lifecycle(self):
+    def test_memory_cli_exposes_explicit_user_lifecycle(self):
         result = subprocess.run(
-            [sys.executable, "-m", "agent_forge", "memory", "propose", "--help"],
+            [sys.executable, "-m", "agent_forge", "memory", "remember", "--help"],
             text=True,
             capture_output=True,
         )
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn("--kind", result.stdout)
+        self.assertIn("--key", result.stdout)
+        self.assertIn("--content", result.stdout)
         self.assertIn("--scope", result.stdout)
-        self.assertIn("--confidence", result.stdout)
 
         result = subprocess.run(
-            [sys.executable, "-m", "agent_forge", "memory", "promote", "--help"],
+            [sys.executable, "-m", "agent_forge", "memory", "forget", "--help"],
             text=True,
             capture_output=True,
         )
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn("--evidence", result.stdout)
+        self.assertIn("memory_id", result.stdout)
+
+        result = subprocess.run(
+            [sys.executable, "-m", "agent_forge", "memory", "list", "--help"],
+            text=True,
+            capture_output=True,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("--json", result.stdout)
 
     def test_eval_commands_expose_feedback_and_dataset_export(self):
         result = subprocess.run(
@@ -531,15 +539,14 @@ class PublicCliSmokeTest(unittest.TestCase):
 
     def test_ui_is_a_read_only_evidence_surface(self):
         self.assertIn("NanoHarness 证据工作台", INDEX_HTML)
-        self.assertIn("运行全链路", INDEX_HTML)
-        self.assertIn("基准评测", INDEX_HTML)
-        self.assertIn("1 受治理运行", INDEX_HTML)
-        self.assertIn("2 多 Agent 协同", INDEX_HTML)
-        self.assertIn("3 复杂真实任务", INDEX_HTML)
-        self.assertIn("证据详情", INDEX_HTML)
+        self.assertIn("执行过程", INDEX_HTML)
+        self.assertIn("上下文与决策", INDEX_HTML)
+        self.assertIn("结果与证据", INDEX_HTML)
+        self.assertIn("选择运行证据", INDEX_HTML)
+        self.assertIn('id="sourceSelect"', INDEX_HTML)
         self.assertIn("td .badge", INDEX_HTML)
         self.assertIn("white-space: normal", INDEX_HTML)
-        self.assertIn("总览 + 三条学习主线", INDEX_HTML)
+        self.assertIn("一次选择运行，逐层读懂", INDEX_HTML)
         self.assertIn("loadEvidence('overview')", INDEX_HTML)
         self.assertNotIn("Failed Tool Delta", INDEX_HTML)
         self.assertNotIn("startJob(", INDEX_HTML)

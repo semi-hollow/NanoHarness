@@ -19,16 +19,17 @@ class LongTermMemoryRepository(Protocol):
     def list_records(self, namespace: str | None = None) -> list[LongTermMemoryRecord]:
         """列出全部记录，或只列出一个隔离命名空间。"""
 
+    def delete(self, memory_id: str) -> None:
+        """按稳定 ID 物理删除一条记忆。"""
+
 
 class LongTermMemoryRecallPort(Protocol):
     """Runtime 只需要长期记忆的只读召回能力。"""
 
     def recall(
         self,
-        query: str,
         *,
         namespace: str,
-        agent_name: str,
         limit: int = 6,
     ) -> list[LongTermMemoryRecord]:
-        """返回已经过状态和隔离过滤的记录。"""
+        """返回 Run 开始时固定的用户/项目记忆快照。"""

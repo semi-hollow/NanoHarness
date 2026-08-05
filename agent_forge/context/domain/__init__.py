@@ -1,23 +1,21 @@
 """Context 能力拥有的数据结构。"""
 
 from .memory import (
-    EvidenceReference,
     LongTermMemoryRecord,
-    MemoryKind,
-    MemoryProposal,
     MemoryScope,
+    MemorySource,
     MemoryStatus,
     SessionDigest,
     ToolTransactionDigest,
+    USER_MEMORY_NAMESPACE,
 )
 
 __all__ = [
-    "EvidenceReference",
     "LongTermMemoryRecord",
-    "MemoryKind",
-    "MemoryProposal",
     "MemoryScope",
+    "MemorySource",
     "MemoryStatus",
     "SessionDigest",
     "ToolTransactionDigest",
+    "USER_MEMORY_NAMESPACE",
 ]

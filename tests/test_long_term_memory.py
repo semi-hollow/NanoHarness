@@ -1,14 +1,12 @@
 import tempfile
-import time
 import unittest
 from pathlib import Path
 
 from agent_forge.context.adapters import JsonLongTermMemoryRepository
-from agent_forge.context.api import build_evidence_reference
 from agent_forge.context.application import LongTermMemoryService
-from agent_forge.context.domain import EvidenceReference, MemoryProposal
-from agent_forge.runtime.application.working_memory import WorkingMemory
+from agent_forge.context.domain import MemoryScope
 from agent_forge.runtime.adapters import RepositoryContextAssembler
+from agent_forge.runtime.application.working_memory import WorkingMemory
 from agent_forge.runtime.ports.context import ContextAssemblyRequest
 
 
@@ -16,178 +14,91 @@ class LongTermMemoryTest(unittest.TestCase):
     def setUp(self) -> None:
         self.temporary = tempfile.TemporaryDirectory()
         self.root = Path(self.temporary.name)
-        self.repository = JsonLongTermMemoryRepository(self.root / "memory")
+        # 真实运行把状态放在隐藏目录；不能让 Context 检索把记忆 JSON 当源码读取。
+        self.repository = JsonLongTermMemoryRepository(
+            self.root / ".agent_forge/memory"
+        )
         self.service = LongTermMemoryService(self.repository)
 
     def tearDown(self) -> None:
         self.temporary.cleanup()
 
-    def test_candidate_is_not_recalled_until_evidence_backed_promotion(self) -> None:
-        record = self.service.propose(
-            MemoryProposal(
-                namespace="repo-a",
-                key="test command",
-                kind="constraint",
-                content="Run python -m unittest before completion.",
-                confidence=0.9,
-                importance=0.9,
-            )
+    def test_explicit_remember_is_immediately_active(self) -> None:
+        record = self.service.remember(
+            project_namespace="repo-a",
+            key="test command",
+            content="Run python -m unittest before completion.",
+            scope=MemoryScope.PROJECT.value,
         )
 
-        self.assertEqual(
-            self.service.recall(
-                "complete the implementation",
-                namespace="repo-a",
-                agent_name="CodingAgent",
-            ),
-            [],
-        )
+        recalled = self.service.recall(namespace="repo-a")
 
-        promoted = self.service.promote(
-            record.memory_id,
-            [EvidenceReference("human", "review-1")],
-        )
-        recalled = self.service.recall(
-            "complete the implementation",
-            namespace="repo-a",
-            agent_name="CodingAgent",
-        )
-
-        self.assertEqual(promoted.status, "active")
+        self.assertEqual(record.source, "user_explicit")
+        self.assertEqual(record.status, "active")
         self.assertEqual([item.memory_id for item in recalled], [record.memory_id])
 
-    def test_local_file_evidence_records_content_hash(self) -> None:
-        evidence_path = self.root / "decision.md"
-        evidence_path.write_text("approved architecture decision\n", encoding="utf-8")
-
-        evidence = build_evidence_reference(str(evidence_path))
-
-        self.assertEqual(evidence.source_type, "local_file")
-        self.assertEqual(evidence.path, str(evidence_path.resolve()))
-        self.assertEqual(len(evidence.sha256), 64)
-
-    def test_workspace_and_agent_private_memory_do_not_leak(self) -> None:
-        record = self.service.propose(
-            MemoryProposal(
-                namespace="repo-a",
-                key="parser failure",
-                kind="failure_pattern",
-                content="Parser failures require inspecting malformed JSON.",
-                scope="agent_private",
-                agent_name="Reviewer",
-                confidence=0.9,
-                importance=0.8,
-            )
-        )
-        self.service.promote(
-            record.memory_id,
-            [EvidenceReference("trace", "run-1")],
+    def test_same_scope_and_key_updates_in_place(self) -> None:
+        original = self.service.remember(
+            project_namespace="repo-a",
+            key="validation command",
+            content="Run the focused test.",
+            scope=MemoryScope.PROJECT.value,
         )
 
-        self.assertEqual(
-            self.service.recall(
-                "parser failure",
-                namespace="repo-b",
-                agent_name="Reviewer",
-            ),
-            [],
-        )
-        self.assertEqual(
-            self.service.recall(
-                "parser failure",
-                namespace="repo-a",
-                agent_name="Implementer",
-            ),
-            [],
-        )
-        self.assertEqual(
-            len(
-                self.service.recall(
-                    "parser failure",
-                    namespace="repo-a",
-                    agent_name="Reviewer",
-                )
-            ),
-            1,
+        updated = self.service.remember(
+            project_namespace="repo-a",
+            key="Validation Command",
+            content="Run focused and full tests.",
+            scope=MemoryScope.PROJECT.value,
         )
 
-    def test_new_active_record_supersedes_same_key(self) -> None:
-        old = self.service.propose(
-            MemoryProposal(
-                namespace="repo-a",
-                key="validation command",
-                kind="decision",
-                content="Run the old test command.",
-            )
+        self.assertEqual(updated.memory_id, original.memory_id)
+        self.assertEqual(updated.revision, 2)
+        self.assertEqual(updated.content, "Run focused and full tests.")
+
+    def test_project_value_overrides_user_default_with_same_key(self) -> None:
+        user_default = self.service.remember(
+            project_namespace="repo-a",
+            key="response language",
+            content="Use English.",
+            scope=MemoryScope.USER.value,
         )
-        self.service.promote(old.memory_id, [EvidenceReference("human", "old")])
-        new = self.service.propose(
-            MemoryProposal(
-                namespace="repo-a",
-                key="validation command",
-                kind="decision",
-                content="Run the new test command.",
-            )
-        )
-        promoted = self.service.promote(
-            new.memory_id,
-            [EvidenceReference("human", "new")],
+        project_value = self.service.remember(
+            project_namespace="repo-a",
+            key="response language",
+            content="Use Chinese comments in this project.",
+            scope=MemoryScope.PROJECT.value,
         )
 
-        self.assertEqual(promoted.supersedes, old.memory_id)
-        self.assertEqual(self.repository.get(old.memory_id).status, "superseded")
-        recalled = self.service.recall(
-            "validation command",
-            namespace="repo-a",
-            agent_name="CodingAgent",
-        )
-        self.assertEqual([item.memory_id for item in recalled], [new.memory_id])
+        repo_a_memories = self.service.recall(namespace="repo-a")
+        repo_b_memories = self.service.recall(namespace="repo-b")
 
-    def test_expired_record_is_not_recalled(self) -> None:
-        record = self.service.propose(
-            MemoryProposal(
-                namespace="repo-a",
-                key="temporary constraint",
-                kind="constraint",
-                content="Use the temporary endpoint.",
-                importance=1.0,
-                expires_at=time.time() - 1,
-            )
-        )
-        self.service.promote(record.memory_id, [EvidenceReference("human", "temp")])
+        self.assertEqual([item.memory_id for item in repo_a_memories], [project_value.memory_id])
+        self.assertEqual([item.memory_id for item in repo_b_memories], [user_default.memory_id])
 
-        self.assertEqual(
-            self.service.recall(
-                "temporary endpoint",
-                namespace="repo-a",
-                agent_name="CodingAgent",
-            ),
-            [],
+    def test_forget_physically_removes_record(self) -> None:
+        record = self.service.remember(
+            project_namespace="repo-a",
+            key="temporary preference",
+            content="Keep explanations short.",
+            scope=MemoryScope.USER.value,
         )
+
+        deleted = self.service.forget(record.memory_id)
+
+        self.assertEqual(deleted.memory_id, record.memory_id)
+        self.assertIsNone(self.repository.get(record.memory_id))
+        self.assertEqual(self.service.recall(namespace="repo-a"), [])
 
     def test_recalled_memory_is_rendered_as_separate_context_section(self) -> None:
-        record = self.service.propose(
-            MemoryProposal(
-                namespace="repo-a",
-                key="parser convention",
-                kind="fact",
-                content="The parser accepts JSON objects only.",
-                confidence=1.0,
-                importance=0.8,
-            )
-        )
-        self.service.promote(
-            record.memory_id,
-            [EvidenceReference("test", "parser-contract")],
+        record = self.service.remember(
+            project_namespace="repo-a",
+            key="parser convention",
+            content="The parser accepts JSON objects only.",
+            scope=MemoryScope.PROJECT.value,
         )
         memory = WorkingMemory()
-        memory.seed_long_term(
-            self.service.recall(
-                "parser JSON",
-                namespace="repo-a",
-                agent_name="CodingAgent",
-            )
-        )
+        memory.seed_long_term(self.service.recall(namespace="repo-a"))
         (self.root / "target.py").write_text("VALUE = 1\n", encoding="utf-8")
 
         report = RepositoryContextAssembler().build(
@@ -202,11 +113,12 @@ class LongTermMemoryTest(unittest.TestCase):
             )
         )
 
-        self.assertEqual(len(report.long_term_memory), 1)
         rendered = report.render()
+        self.assertEqual(len(report.long_term_memory), 1)
         self.assertIn("long_term_memory", rendered)
-        self.assertIn(record.memory_id, rendered)
-        self.assertIn("parser-contract", rendered)
+        self.assertIn("parser convention", rendered)
+        self.assertIn("revision=1", rendered)
+        self.assertNotIn(record.memory_id, rendered)
 
 
 if __name__ == "__main__":

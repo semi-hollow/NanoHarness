@@ -26,6 +26,25 @@ from agent_forge.runtime.api import (
 )
 
 
+def resolve_operator_memory_root(
+    base_args: argparse.Namespace,
+    workspace: str,
+) -> Path:
+    """解析 Operator Console 与 Runtime 共用的长期记忆目录。"""
+
+    configured_root = getattr(base_args, "memory_root", None)
+    if configured_root is None and getattr(base_args, "config", None):
+        from agent_forge.configuration import load_run_config
+
+        config_document = load_run_config(base_args.config)
+        configured_root = config_document.values.get("memory_root")
+    return control_path(
+        str(configured_root or ".agent_forge/memory"),
+        Path(workspace).expanduser().resolve(),
+        "memory",
+    )
+
+
 @dataclass(frozen=True)
 class OperatorSessionBundle:
     """Textual 界面启动一次真实运行所需的全部对象。"""

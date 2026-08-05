@@ -112,7 +112,7 @@ Evaluation 数据闭环，不声称已经构成 RL 训练平台。
 | `manual-approval-pending` / `stale-approval-fingerprint` | 副作用前停机；目标漂移后旧批准失效。 | `tests/test_human_approval.py` |
 | `resume-state-continuation` | Checkpoint 恢复显式状态，不伪装成隐藏会话重放。 | `tests/test_task_resume.py`、`tests/test_resume_cli.py` |
 | `context-window-tool-transaction` | 压缩不能拆散 ToolCall 与对应 Observation。 | `tests/test_context_window.py` |
-| `long-term-memory-authority` | 只有带证据的 active memory 可按 namespace、agent 和 TTL 召回。 | `tests/test_long_term_memory.py` |
+| `long-term-memory-authority` | 只有用户显式 remember 的记录可跨 Run 召回；项目同 key 覆盖用户默认值，更新保留 ID 并递增 revision。 | `tests/test_long_term_memory.py` |
 | `model-tool-call-repair` | 只修复可确定的协议格式，不提升不可见工具。 | `tests/test_model_adaptation.py` |
 | `failed-model-usage-accounting` | 失败请求和 overflow 尝试也必须计入 usage/cost。 | `tests/test_agent_loop_policy.py`、`tests/test_llm_client_transport.py` |
 | `subagent-fanout-conflict` | 依赖和 write scope 决定并发；冲突必须显式收口。 | `tests/test_live_fanout.py`、`tests/test_subagent_fanout.py` |

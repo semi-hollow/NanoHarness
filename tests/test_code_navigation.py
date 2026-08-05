@@ -66,7 +66,9 @@ CORE_WORKFLOW_ENTRYPOINTS = {
         "ContextWindowManager.prepare": 4,
     },
     "agent_forge/context/application/memory_service.py": {
-        "LongTermMemoryService.promote": 3,
+        "LongTermMemoryService.remember": 3,
+        "LongTermMemoryService.forget": 2,
+        "LongTermMemoryService.list_for_project": 2,
         "LongTermMemoryService.recall": 3,
     },
     "agent_forge/tools/tool_router.py": {

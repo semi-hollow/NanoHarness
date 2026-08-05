@@ -1,18 +1,20 @@
-"""长期记忆的候选、晋升、退役和召回用例。"""
+"""用户显式控制的长期记忆用例。
+
+这里故意只保留 ``remember / forget / list / recall`` 四个动作。
+模型不能自行候选、打分或晋升跨 Run 记忆，避免错误结论污染后续任务。
+"""
 
 from __future__ import annotations
 
-import math
-import re
 import time
 import uuid
 
 from agent_forge.context.domain import (
-    EvidenceReference,
     LongTermMemoryRecord,
-    MemoryKind,
-    MemoryProposal,
+    MemoryScope,
+    MemorySource,
     MemoryStatus,
+    USER_MEMORY_NAMESPACE,
 )
 from agent_forge.context.ports import (
     LongTermMemoryRecallPort,
@@ -21,167 +23,176 @@ from agent_forge.context.ports import (
 
 
 class LongTermMemoryService(LongTermMemoryRecallPort):
-    """长期记忆生命周期用例。
+    """长期记忆的唯一应用服务。
 
-    主链路是 ``propose -> promote -> recall``；``retire`` 和 ``reject`` 处理失效
-    记录。Repository 只负责存取；本类决定哪些记录能进入模型上下文。
+    可以类比 Java 中的 Application Service：Repository 只负责 JSON 存取，
+    本类负责作用域、同 key 更新和项目值覆盖用户默认值等业务规则。
     """
 
     def __init__(self, repository: LongTermMemoryRepository) -> None:
         self._repository = repository
 
-    # 主要入口：创建低权威候选，不自动进入模型上下文。
-    def propose(self, proposal: MemoryProposal) -> LongTermMemoryRecord:
-        """保存 candidate；只有显式 promote 后才允许召回。"""
-
-        candidate_memory = LongTermMemoryRecord(
-            memory_id=uuid.uuid4().hex,
-            namespace=proposal.namespace,
-            key=proposal.key.strip(),
-            kind=proposal.kind,
-            content=proposal.content.strip(),
-            scope=proposal.scope,
-            status=MemoryStatus.CANDIDATE.value,
-            confidence=proposal.confidence,
-            importance=proposal.importance,
-            agent_name=proposal.agent_name,
-            tags=list(proposal.tags),
-            expires_at=proposal.expires_at,
-        )
-        candidate_memory.validate()
-        self._repository.save(candidate_memory)
-        return candidate_memory
-
-    # 主要入口：证据通过后晋升，并退役相同 key 的旧真相。
-    def promote(
+    # 主要入口：用户显式新增或更新一条跨 Run 记忆。
+    def remember(
         self,
-        memory_id: str,
-        evidence_refs: list[EvidenceReference],
+        *,
+        project_namespace: str,
+        key: str,
+        content: str,
+        scope: str,
     ) -> LongTermMemoryRecord:
-        """将候选变为 active，并保留 supersede 链。"""
+        """同作用域、同 key 原地更新，保留 ID 并递增 revision。"""
 
-        # region 1. 晋升资格：只有候选/活跃记录且具备证据才能成为长期真相
-        memory_to_promote = self._require(memory_id)
-        if memory_to_promote.status not in {
-            MemoryStatus.CANDIDATE.value,
-            MemoryStatus.ACTIVE.value,
-        }:
-            raise ValueError(
-                f"memory {memory_id} cannot be promoted from {memory_to_promote.status}"
-            )
-        merged_evidence_refs = _merge_evidence(
-            memory_to_promote.evidence_refs,
-            evidence_refs,
+        # region 1. 校验用户命令
+        normalized_key = key.strip()
+        normalized_content = content.strip()
+        if not normalized_key or not normalized_content:
+            raise ValueError("memory key and content are required")
+        if scope not in {memory_scope.value for memory_scope in MemoryScope}:
+            raise ValueError(f"unsupported memory scope: {scope}")
+        # endregion 1. 校验用户命令结束
+
+        # region 2. 定位同作用域、同 key 的已有记忆
+        storage_namespace = self._storage_namespace(
+            project_namespace=project_namespace,
+            scope=scope,
         )
-        if not merged_evidence_refs:
-            raise ValueError("promoting long-term memory requires evidence")
-        # endregion 1. 晋升资格结束
+        existing_record = self._find_by_key(
+            namespace=storage_namespace,
+            scope=scope,
+            key=normalized_key,
+        )
+        # endregion 2. 定位同作用域、同 key 的已有记忆结束
 
-        # region 2. 单一活跃版本：相同 namespace/key/scope 的旧真相先退役
-        previous_active_memories = [
-            existing_memory
-            for existing_memory in self._repository.list_records(
-                memory_to_promote.namespace
-            )
-            if existing_memory.memory_id != memory_to_promote.memory_id
-            and existing_memory.key == memory_to_promote.key
-            and existing_memory.scope == memory_to_promote.scope
-            and existing_memory.agent_name == memory_to_promote.agent_name
-            and existing_memory.status == MemoryStatus.ACTIVE.value
+        # region 3. 更新原记录，或创建第一版记录
+        now = time.time()
+        if existing_record is not None:
+            existing_record.key = normalized_key
+            existing_record.content = normalized_content
+            existing_record.revision += 1
+            existing_record.updated_at = now
+            existing_record.validate()
+            self._repository.save(existing_record)
+            return existing_record
+
+        new_record = LongTermMemoryRecord(
+            memory_id=uuid.uuid4().hex,
+            namespace=storage_namespace,
+            key=normalized_key,
+            content=normalized_content,
+            scope=scope,
+            source=MemorySource.USER_EXPLICIT.value,
+            status=MemoryStatus.ACTIVE.value,
+            revision=1,
+            created_at=now,
+            updated_at=now,
+        )
+        new_record.validate()
+        self._repository.save(new_record)
+        return new_record
+        # endregion 3. 更新原记录，或创建第一版记录结束
+
+    # 主要入口：用户显式忘记一条记忆。
+    def forget(self, memory_id: str) -> LongTermMemoryRecord:
+        """物理删除记录；已启动 Run 的快照不受影响。"""
+
+        # region 1. 确认目标存在
+        memory_record = self._require(memory_id)
+        # endregion 1. 确认目标存在结束
+
+        # region 2. 删除并返回被删除的事实
+        self._repository.delete(memory_id)
+        return memory_record
+        # endregion 2. 删除并返回被删除的事实结束
+
+    # 主要入口：列出用户全局记忆和当前项目记忆。
+    def list_for_project(
+        self,
+        *,
+        project_namespace: str,
+        scope: str | None = None,
+    ) -> list[LongTermMemoryRecord]:
+        """返回可管理的原始记录，不合并同 key 覆盖关系。"""
+
+        # region 1. 校验作用域并加载用户级、项目级记录
+        if scope is not None and scope not in {
+            memory_scope.value for memory_scope in MemoryScope
+        }:
+            raise ValueError(f"unsupported memory scope: {scope}")
+        stored_memories = [
+            *self._repository.list_records(USER_MEMORY_NAMESPACE),
+            *self._repository.list_records(project_namespace),
         ]
-        promotion_timestamp = time.time()
-        for previous_active_memory in previous_active_memories:
-            previous_active_memory.status = MemoryStatus.SUPERSEDED.value
-            previous_active_memory.updated_at = promotion_timestamp
-            self._repository.save(previous_active_memory)
-        # endregion 2. 单一活跃版本结束
+        # endregion 1. 校验作用域并加载用户级、项目级记录结束
 
-        # region 3. 新真相落盘：保留证据和 supersede 链供审计
-        memory_to_promote.evidence_refs = merged_evidence_refs
-        memory_to_promote.status = MemoryStatus.ACTIVE.value
-        memory_to_promote.updated_at = promotion_timestamp
-        if previous_active_memories:
-            memory_to_promote.supersedes = previous_active_memories[0].memory_id
-        memory_to_promote.validate()
-        self._repository.save(memory_to_promote)
-        return memory_to_promote
-        # endregion 3. 新真相落盘结束
+        # region 2. 过滤当前项目可见记录并稳定排序
+        visible_records = [
+            memory_record
+            for memory_record in stored_memories
+            if memory_record.visible_to(project_namespace)
+            and (scope is None or memory_record.scope == scope)
+        ]
+        return sorted(
+            visible_records,
+            key=lambda memory_record: (
+                0 if memory_record.scope == MemoryScope.USER.value else 1,
+                memory_record.key.casefold(),
+                memory_record.memory_id,
+            ),
+        )
+        # endregion 2. 过滤当前项目可见记录并稳定排序结束
 
-    # 主要入口：按任务相关性召回，不返回候选、过期或越界记录。
+    # Runtime 入口：在 Run 开始时生成一份固定记忆快照。
     def recall(
         self,
-        query: str,
         *,
         namespace: str,
-        agent_name: str,
         limit: int = 6,
     ) -> list[LongTermMemoryRecord]:
-        """组合词项相关度、置信度和重要度进行透明排序。"""
+        """项目级同 key 覆盖用户级默认值，不做模型或词项打分。"""
 
-        # region 1. 可见性过滤：候选、过期、越 namespace/agent 的记录不参与排序
-        query_terms = _terms(query)
-        scored_memories: list[tuple[float, LongTermMemoryRecord]] = []
-        for memory_record in self._repository.list_records(namespace):
-            if not memory_record.visible_to(namespace, agent_name):
-                continue
-            # endregion 1. 可见性过滤结束
+        # region 1. 在 Run 开始时加载当前可见记录
+        if limit <= 0:
+            return []
+        visible_records = self.list_for_project(project_namespace=namespace)
+        # endregion 1. 在 Run 开始时加载当前可见记录结束
 
-            # region 2. 可解释评分：相关度为主，置信度和重要度只做辅助
-            memory_terms = _terms(
-                " ".join(
-                    [memory_record.key, memory_record.content, *memory_record.tags]
-                )
-            )
-            overlapping_term_count = len(query_terms & memory_terms)
-            relevance = overlapping_term_count / math.sqrt(
-                max(1, len(query_terms)) * max(1, len(memory_terms))
-            )
-            always_relevant = (
-                memory_record.kind
-                in {MemoryKind.CONSTRAINT.value, MemoryKind.PREFERENCE.value}
-                and memory_record.importance >= 0.8
-            )
-            if relevance <= 0 and not always_relevant:
-                continue
-            recall_score = (
-                relevance * 0.65
-                + memory_record.confidence * 0.2
-                + memory_record.importance * 0.15
-                + (0.1 if always_relevant else 0.0)
-            )
-            scored_memories.append((recall_score, memory_record))
-            # endregion 2. 可解释评分结束
+        # region 2. 同 key 冲突时让项目记忆覆盖用户默认值
+        selected_by_key: dict[str, LongTermMemoryRecord] = {}
+        for memory_record in visible_records:
+            normalized_key = memory_record.key.casefold()
+            current_selected_memory = selected_by_key.get(normalized_key)
+            if (
+                current_selected_memory is None
+                or memory_record.scope == MemoryScope.PROJECT.value
+            ):
+                selected_by_key[normalized_key] = memory_record
+        # endregion 2. 同 key 冲突时让项目记忆覆盖用户默认值结束
 
-        # region 3. 稳定排序：分数、更新时间、memory_id 共同保证可复现结果
-        scored_memories.sort(
-            key=lambda scored_memory: (
-                -scored_memory[0],
-                -scored_memory[1].updated_at,
-                scored_memory[1].memory_id,
-            )
+        # region 3. 稳定排序并冻结本次 Run 的记忆上限
+        return sorted(
+            selected_by_key.values(),
+            key=lambda memory_record: memory_record.key.casefold(),
+        )[:limit]
+        # endregion 3. 稳定排序并冻结本次 Run 的记忆上限结束
+
+    def _find_by_key(
+        self,
+        *,
+        namespace: str,
+        scope: str,
+        key: str,
+    ) -> LongTermMemoryRecord | None:
+        normalized_key = key.casefold()
+        return next(
+            (
+                memory_record
+                for memory_record in self._repository.list_records(namespace)
+                if memory_record.scope == scope
+                and memory_record.key.casefold() == normalized_key
+            ),
+            None,
         )
-        return [memory_record for _, memory_record in scored_memories[: max(0, limit)]]
-        # endregion 3. 稳定排序结束
-
-    # 主要入口：将已不适用的 active 记录退役，使后续召回不可见。
-    def retire(self, memory_id: str) -> LongTermMemoryRecord:
-        """显式退役不再可信或不再适用的记忆。"""
-
-        memory_to_retire = self._require(memory_id)
-        memory_to_retire.status = MemoryStatus.RETIRED.value
-        memory_to_retire.updated_at = time.time()
-        self._repository.save(memory_to_retire)
-        return memory_to_retire
-
-    # 主要入口：拒绝错误候选并保留审计记录，不物理删除历史。
-    def reject(self, memory_id: str) -> LongTermMemoryRecord:
-        """拒绝错误候选，保留审计事实。"""
-
-        memory_to_reject = self._require(memory_id)
-        memory_to_reject.status = MemoryStatus.REJECTED.value
-        memory_to_reject.updated_at = time.time()
-        self._repository.save(memory_to_reject)
-        return memory_to_reject
 
     def _require(self, memory_id: str) -> LongTermMemoryRecord:
         memory_record = self._repository.get(memory_id)
@@ -189,35 +200,11 @@ class LongTermMemoryService(LongTermMemoryRecallPort):
             raise ValueError(f"memory not found: {memory_id}")
         return memory_record
 
-
-def _merge_evidence(
-    existing_evidence_refs: list[EvidenceReference],
-    incoming_evidence_refs: list[EvidenceReference],
-) -> list[EvidenceReference]:
-    evidence_by_identity: dict[
-        tuple[str, str, str, str],
-        EvidenceReference,
-    ] = {}
-    for evidence_ref in [*existing_evidence_refs, *incoming_evidence_refs]:
-        evidence_identity = (
-            evidence_ref.source_type,
-            evidence_ref.source_id,
-            evidence_ref.path,
-            evidence_ref.sha256,
-        )
-        evidence_by_identity[evidence_identity] = evidence_ref
-    return list(evidence_by_identity.values())
-
-
-def _terms(text: str) -> set[str]:
-    """同时生成英文词项、中文单字和中文双字词项。"""
-
-    normalized_memory_text = text.lower()
-    normalized_terms = set(re.findall(r"[a-z0-9_]+", normalized_memory_text))
-    chinese_characters = re.findall(r"[\u4e00-\u9fff]", normalized_memory_text)
-    normalized_terms.update(chinese_characters)
-    normalized_terms.update(
-        "".join(chinese_characters[index : index + 2])
-        for index in range(len(chinese_characters) - 1)
-    )
-    return {term for term in normalized_terms if term}
+    @staticmethod
+    def _storage_namespace(*, project_namespace: str, scope: str) -> str:
+        if scope == MemoryScope.USER.value:
+            return USER_MEMORY_NAMESPACE
+        normalized_project_namespace = project_namespace.strip()
+        if not normalized_project_namespace:
+            raise ValueError("project memory requires a project namespace")
+        return normalized_project_namespace

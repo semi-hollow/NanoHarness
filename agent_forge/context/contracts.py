@@ -24,6 +24,6 @@ class ContextMemory(Protocol):
         """返回适合模型上下文的有界摘要。"""
 
     def long_term(self) -> list[LongTermMemoryRecord]:
-        """返回已经完成隔离和权威过滤的长期记忆。"""
+        """返回本 Run 开始时已经固定的长期记忆快照。"""
 
 __all__ = ["ContextMemory"]

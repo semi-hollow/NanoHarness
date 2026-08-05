@@ -6,6 +6,7 @@ from typing import Any
 
 from agent_forge.bench.domain.campaign import CampaignState, summarize_campaign
 from agent_forge.observability.api import RunStory, load_run_story
+from agent_forge.workbench.domain import EvidenceSource
 from agent_forge.workbench.ports import EvidenceCatalogPort
 
 
@@ -14,6 +15,192 @@ class FileEvidenceCatalog(EvidenceCatalogPort):
     def __init__(self, project_dir: Path) -> None:
 
         self.project_dir = project_dir.absolute()
+
+    # 主要入口：把不同目录布局的运行统一成 Workbench 可选择的证据来源。
+    def evidence_sources(self) -> tuple[EvidenceSource, ...]:
+        """返回稳定的运行选择列表，并消除同一 artifact 的重复入口。
+
+        三个预置场景和评测批次即使尚未运行也保留，帮助使用者发现入口。普通
+        ``Harness.run`` 只有在不属于这些预置场景时才以“最近运行”出现；否则同一份
+        证据会在下拉框里出现两次，反而让人误以为它们是两次不同实验。
+        """
+
+        governed = self._governed_source()
+        orchestration = self._orchestration_source()
+        complex_repair = self._complex_source()
+        evaluation = self._benchmark_source()
+        preset_sources = (governed, orchestration, complex_repair, evaluation)
+        latest = self._latest_runtime_source()
+
+        if latest.available and not any(
+            self._same_run(latest, source) for source in preset_sources
+        ):
+            return (latest, *preset_sources)
+        return preset_sources
+
+    @staticmethod
+    def _same_run(left: EvidenceSource, right: EvidenceSource) -> bool:
+        """判断两个选择项是否最终指向同一个不可变 Run 目录。"""
+
+        if left.run_dir is None or right.run_dir is None:
+            return False
+        return left.run_dir.resolve() == right.run_dir.resolve()
+
+    def _latest_runtime_source(self) -> EvidenceSource:
+        """把 ``run.txt`` 指向的任意运行接入公共视图，而非只支持预置场景。"""
+
+        pointer = self.project_dir / ".agent_forge/latest/run.txt"
+        run_dir = self._run_dir_from_pointer(pointer)
+        story = self._load_story_if_present(run_dir)
+        trace_path = run_dir / "trace.json" if run_dir is not None else None
+        trace = read_json_file(trace_path)
+        usage_path = run_dir / "usage.json" if run_dir is not None else None
+        return EvidenceSource(
+            key="latest",
+            title="最近一次 Runtime 运行",
+            description="任何通过 Harness 或 forge 发布的 Single-Run 证据",
+            source_type="runtime",
+            task=str((story.task if story else "") or trace.get("task") or "尚未运行"),
+            status=str(
+                (story.status if story else "")
+                or trace.get("status")
+                or trace.get("stop_reason")
+                or "not_run"
+            ),
+            primary_path=run_dir,
+            run_dir=run_dir,
+            trace_entries=(
+                (("AgentLoop", trace_path),)
+                if trace_path is not None and trace_path.is_file()
+                else ()
+            ),
+            usage_path=(
+                usage_path
+                if usage_path is not None and usage_path.is_file()
+                else None
+            ),
+        )
+
+    def _governed_source(self) -> EvidenceSource:
+        run_dir = self.latest_governed_run_dir()
+        trace_path = self.latest_governed_trace_path()
+        story = self._load_story_if_present(run_dir)
+        trace = read_json_file(trace_path)
+        return EvidenceSource(
+            key="governed",
+            title="受治理单 Agent",
+            description="审批、Checkpoint、恢复与副作用幂等",
+            source_type="scenario",
+            task=str((story.task if story else "") or trace.get("task") or "尚未运行"),
+            status=str(
+                (story.status if story else "")
+                or trace.get("status")
+                or trace.get("stop_reason")
+                or "not_run"
+            ),
+            primary_path=run_dir,
+            run_dir=run_dir,
+            trace_entries=(("AgentLoop", trace_path),) if trace_path else (),
+            usage_path=self.latest_governed_usage_path(),
+        )
+
+    def _orchestration_source(self) -> EvidenceSource:
+        summary_path = self.latest_orchestration_fanout_path()
+        summary = read_json_file(summary_path)
+        trace_entries: list[tuple[str, Path]] = []
+        for result in summary.get("results") or []:
+            if not isinstance(result, dict):
+                continue
+            trace_path = Path(str(result.get("trace_path") or ""))
+            if trace_path.is_file():
+                trace_entries.append(
+                    (f"Worker · {result.get('task_id') or '未命名任务'}", trace_path)
+                )
+        finalizer_value = str(summary.get("finalizer_trace_path") or "")
+        finalizer_path = Path(finalizer_value) if finalizer_value else None
+        if finalizer_path is not None and finalizer_path.is_file():
+            trace_entries.append(("Finalizer · 合并后验证", finalizer_path))
+        usage_value = str(summary.get("finalizer_usage_path") or "")
+        usage_path = Path(usage_value) if usage_value else None
+        run_dir = summary_path.parent.parent if summary_path is not None else None
+        return EvidenceSource(
+            key="orchestration",
+            title="并行多 Agent",
+            description="依赖批次、隔离 Worker、冲突门禁与只读 Finalizer",
+            source_type="scenario",
+            task=str(summary.get("goal") or "尚未运行"),
+            status=str(summary.get("status") or "not_run"),
+            primary_path=summary_path,
+            run_dir=run_dir,
+            trace_entries=tuple(trace_entries),
+            usage_path=usage_path if usage_path and usage_path.is_file() else None,
+        )
+
+    def _complex_source(self) -> EvidenceSource:
+        run_dir = self.latest_complex_run_dir()
+        trace_path = self.latest_complex_trace_path()
+        story = self._load_story_if_present(run_dir)
+        trace = read_json_file(trace_path)
+        return EvidenceSource(
+            key="complex",
+            title="复杂真实修复",
+            description="多轮检索、修改、验证失败、人工控制与最终收敛",
+            source_type="scenario",
+            task=str((story.task if story else "") or trace.get("task") or "尚未运行"),
+            status=str(
+                (story.status if story else "")
+                or trace.get("status")
+                or trace.get("stop_reason")
+                or "not_run"
+            ),
+            primary_path=run_dir,
+            run_dir=run_dir,
+            trace_entries=(("复杂修复 AgentLoop", trace_path),) if trace_path else (),
+            usage_path=self.latest_complex_usage_path(),
+        )
+
+    def _benchmark_source(self) -> EvidenceSource:
+        campaign_dir = self.latest_campaign_dir()
+        campaign_state = self.latest_campaign_state()
+        campaign_summary = self.latest_campaign_summary()
+        benchmark_run = self.latest_benchmark_run_dir()
+        trace_entries: list[tuple[str, Path]] = []
+        if benchmark_run is not None:
+            for trace_path in sorted(benchmark_run.glob("cases/**/trace.json")):
+                relative = trace_path.relative_to(benchmark_run)
+                trace_entries.append((str(relative.parent), trace_path))
+        status = str(
+            campaign_state.get("status")
+            or campaign_summary.get("status")
+            or ("published" if campaign_dir else "not_run")
+        )
+        task = str(
+            campaign_state.get("name")
+            or campaign_state.get("campaign_id")
+            or campaign_summary.get("campaign_id")
+            or "Harness 配置配对评测"
+        )
+        return EvidenceSource(
+            key="evaluation",
+            title="评测与改进批次",
+            description="配对运行、失败归因、证据等级与改进决策",
+            source_type="benchmark",
+            task=task,
+            status=status,
+            primary_path=campaign_dir,
+            run_dir=benchmark_run,
+            trace_entries=tuple(trace_entries),
+            usage_path=self.latest_benchmark_usage_path(),
+        )
+
+    @staticmethod
+    def _load_story_if_present(run_dir: Path | None) -> RunStory | None:
+        if run_dir is None or not (run_dir / "run_manifest.json").is_file():
+            return None
+        try:
+            return load_run_story(run_dir)
+        except (OSError, ValueError):
+            return None
 
     def latest_run_dir(self) -> Path | None:
         latest = self.project_dir / ".agent_forge/latest"
@@ -50,7 +237,7 @@ class FileEvidenceCatalog(EvidenceCatalogPort):
         return load_run_story(run_dir)
 
     def latest_governed_run_dir(self) -> Path | None:
-        """返回 Lab 1 的受治理运行，不被随后执行的 Lab 2 覆盖。"""
+        """返回受治理恢复场景，不被随后执行的多 Agent 场景覆盖。"""
 
         pointer = self.project_dir / ".agent_forge/debug-lab/state/control_artifact.txt"
         run_dir = self._run_dir_from_pointer(pointer)
@@ -60,7 +247,7 @@ class FileEvidenceCatalog(EvidenceCatalogPort):
         return None
 
     def latest_governed_run_story(self) -> RunStory | None:
-        """加载 Lab 1 受治理运行的标准 Run Story。"""
+        """加载受治理恢复场景的标准 Run Story。"""
 
         run_dir = self.latest_governed_run_dir()
         if run_dir is None or not (run_dir / "run_manifest.json").is_file():
@@ -68,7 +255,7 @@ class FileEvidenceCatalog(EvidenceCatalogPort):
         return load_run_story(run_dir)
 
     def latest_governed_trace_path(self) -> Path | None:
-        """返回 Lab 1 受治理运行的 Trace。"""
+        """返回受治理恢复场景的 Trace。"""
 
         return _latest_artifact_in_run(
             self.latest_governed_run_dir(),
@@ -77,7 +264,7 @@ class FileEvidenceCatalog(EvidenceCatalogPort):
         )
 
     def latest_governed_usage_path(self) -> Path | None:
-        """返回 Lab 1 受治理运行的 Usage 证据。"""
+        """返回受治理恢复场景的 Usage 证据。"""
 
         return _latest_artifact_in_run(
             self.latest_governed_run_dir(),
@@ -86,7 +273,7 @@ class FileEvidenceCatalog(EvidenceCatalogPort):
         )
 
     def latest_complex_run_dir(self) -> Path | None:
-        """返回 Lab 3 真实模型运行，绝不回退到其他 Lab 或 Benchmark。"""
+        """返回复杂真实修复场景，绝不回退到其他运行或 Benchmark。"""
 
         pointer = self.project_dir / ".agent_forge/debug-lab/state/complex_artifact.txt"
         run_dir = self._run_dir_from_pointer(pointer)

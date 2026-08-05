@@ -2,7 +2,7 @@
 
 阅读本文件时先看两个核心数据：
 
-- ``LongTermMemoryRecord``：跨 run 持久化、经过证据晋升的长期知识。
+- ``LongTermMemoryRecord``：用户显式授权、跨 run 持久化的长期记忆。
 - ``SessionDigest``：会话窗口压缩后交给模型的摘要视图，不是长期真相。
 
 本文件只定义数据、校验和状态语义，不负责召回、文件读写或模型调用。
@@ -19,161 +19,85 @@ from agent_forge.contracts import JsonObject
 
 
 class MemoryScope(str, Enum):
-    """NanoHarness 当前真正支持的记忆隔离范围。"""
+    """一条记忆在哪些 Run 中可见。"""
 
-    WORKSPACE = "workspace"
-    AGENT_PRIVATE = "agent_private"
-
-
-class MemoryKind(str, Enum):
-    """长期记忆保存的原子知识类型。"""
-
-    FACT = "fact"
-    DECISION = "decision"
-    CONSTRAINT = "constraint"
-    PREFERENCE = "preference"
-    FAILURE_PATTERN = "failure_pattern"
+    USER = "user"
+    PROJECT = "project"
 
 
 class MemoryStatus(str, Enum):
-    """长期记忆从候选到退役的显式生命周期。"""
+    """方案 2 只保留一种可用状态；删除即物理忘记。"""
 
-    CANDIDATE = "candidate"
     ACTIVE = "active"
-    SUPERSEDED = "superseded"
-    RETIRED = "retired"
-    REJECTED = "rejected"
 
 
-# 核心数据：提交给长期记忆用例的归一化候选知识。
-@dataclass(frozen=True)
-class MemoryProposal:
-    """候选正文、隔离范围、排序信号和可选有效期。"""
+class MemorySource(str, Enum):
+    """记忆的授权来源；模型不能自行写入该值。"""
 
-    namespace: str
-    key: str
-    kind: str
-    content: str
-    scope: str = MemoryScope.WORKSPACE.value
-    agent_name: str = ""
-    confidence: float = 0.5
-    importance: float = 0.5
-    tags: tuple[str, ...] = ()
-    expires_at: float | None = None
+    USER_EXPLICIT = "user_explicit"
 
 
-@dataclass(frozen=True)
-class EvidenceReference:
-    """支持一条记忆的可追溯证据，而不是摘要正文的复制。
-
-    字段说明：``source_type`` 表示证据类型；``source_id`` 是稳定标识；
-    ``path`` 和 ``sha256`` 在证据来自文件时记录位置与内容指纹。
-    """
-
-    source_type: str
-    source_id: str
-    path: str = ""
-    sha256: str = ""
-
-    def to_dict(self) -> JsonObject:
-        return {
-            "source_type": self.source_type,
-            "source_id": self.source_id,
-            "path": self.path,
-            "sha256": self.sha256,
-        }
-
-    @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "EvidenceReference":
-        return cls(
-            source_type=str(data.get("source_type") or "unknown"),
-            source_id=str(data.get("source_id") or ""),
-            path=str(data.get("path") or ""),
-            sha256=str(data.get("sha256") or ""),
-        )
+# user 作用域不属于任何项目，因此使用稳定专用 namespace。
+USER_MEMORY_NAMESPACE = "__user__"
 
 
 # 核心数据：一条长期记忆的身份、权威状态、隔离范围与失效规则。
 @dataclass
 class LongTermMemoryRecord:
-    """可验证、可失效、可被新版本替代的一条长期记忆。
+    """用户显式保存的一条长期记忆。
 
     字段说明：
 
-    - ``memory_id``：记录主键；``namespace``：workspace 隔离键；``key``：知识主题。
-    - ``kind``：fact/decision/constraint 等知识类型；``content``：实际知识正文。
-    - ``scope``：workspace 或 agent_private；``agent_name``：私有记忆的可见 Agent。
-    - ``status``：candidate/active/superseded/retired/rejected 权威状态。
-    - ``confidence``、``importance``：透明召回排序信号，不代表正确性证明。
-    - ``evidence_refs``：晋升 active 所需证据；``tags``：词项召回的补充标签。
-    - ``created_at``、``updated_at``、``expires_at``：创建、更新和显式过期时间。
-    - ``supersedes``：同 key 新记录替代旧记录时保存的版本链。
+    - ``memory_id``：稳定主键；同 key 更新时不改变。
+    - ``namespace``：用户全局命名空间，或项目的绝对路径。
+    - ``key`` / ``content``：人可识别的配置键和注入 Prompt 的正文。
+    - ``scope``：``user`` 或 ``project``；项目级同 key 覆盖用户级默认值。
+    - ``revision``：每次显式 remember 同 key 时递增，供 Run 快照审计。
+    - ``source`` 固定为 ``user_explicit``，表示模型无权自动污染跨 Run 记忆。
     """
 
     memory_id: str
     namespace: str
     key: str
-    kind: str
     content: str
-    scope: str = MemoryScope.WORKSPACE.value
-    status: str = MemoryStatus.CANDIDATE.value
-    confidence: float = 0.5
-    importance: float = 0.5
-    agent_name: str = ""
-    evidence_refs: list[EvidenceReference] = field(default_factory=list)
-    tags: list[str] = field(default_factory=list)
+    scope: str = MemoryScope.PROJECT.value
+    source: str = MemorySource.USER_EXPLICIT.value
+    status: str = MemoryStatus.ACTIVE.value
+    revision: int = 1
     created_at: float = field(default_factory=time.time)
     updated_at: float = field(default_factory=time.time)
-    expires_at: float | None = None
-    supersedes: str = ""
 
     def validate(self) -> None:
         """在持久化边界前检查字段和权威约束。"""
 
         if not self.memory_id or not self.namespace or not self.key or not self.content:
             raise ValueError("memory_id, namespace, key and content are required")
-        if self.kind not in {item.value for item in MemoryKind}:
-            raise ValueError(f"unsupported memory kind: {self.kind}")
         if self.scope not in {item.value for item in MemoryScope}:
             raise ValueError(f"unsupported memory scope: {self.scope}")
-        if self.status not in {item.value for item in MemoryStatus}:
+        if self.source != MemorySource.USER_EXPLICIT.value:
+            raise ValueError("long-term memory must be explicitly authorized by the user")
+        if self.status != MemoryStatus.ACTIVE.value:
             raise ValueError(f"unsupported memory status: {self.status}")
-        if not 0.0 <= self.confidence <= 1.0:
-            raise ValueError("memory confidence must be between 0 and 1")
-        if not 0.0 <= self.importance <= 1.0:
-            raise ValueError("memory importance must be between 0 and 1")
-        if self.scope == MemoryScope.AGENT_PRIVATE.value and not self.agent_name:
-            raise ValueError("agent_private memory requires agent_name")
-        if self.status == MemoryStatus.ACTIVE.value and not self.evidence_refs:
-            raise ValueError("active long-term memory requires evidence")
+        if self.revision < 1:
+            raise ValueError("memory revision must be positive")
+        if self.scope == MemoryScope.USER.value:
+            if self.namespace != USER_MEMORY_NAMESPACE:
+                raise ValueError("user memory must use the user namespace")
+        elif self.namespace == USER_MEMORY_NAMESPACE:
+            raise ValueError("project memory requires a project namespace")
 
-    def is_expired(self, now: float | None = None) -> bool:
-        """判断该记忆是否已经超过显式有效期。"""
+    def visible_to(self, project_namespace: str) -> bool:
+        """判断记忆是用户全局默认值，或当前项目的局部值。"""
 
-        reference_time = now if now is not None else time.time()
-        return self.expires_at is not None and self.expires_at <= reference_time
-
-    def visible_to(self, namespace: str, agent_name: str) -> bool:
-        """应用 workspace、状态、有效期和 agent 私有边界。"""
-
-        if self.namespace != namespace:
-            return False
-        if self.status != MemoryStatus.ACTIVE.value or self.is_expired():
-            return False
-        if self.scope == MemoryScope.AGENT_PRIVATE.value:
-            return self.agent_name == agent_name
-        return True
+        return self.scope == MemoryScope.USER.value or (
+            self.scope == MemoryScope.PROJECT.value
+            and self.namespace == project_namespace
+        )
 
     def render_prompt_line(self) -> str:
-        """只渲染模型需要的结论和 provenance 标识。"""
+        """渲染必要语义；ID 不进入 Prompt，仅进入 Trace。"""
 
-        evidence = ",".join(
-            f"{item.source_type}:{item.source_id}" for item in self.evidence_refs
-        )
-        return (
-            f"[{self.kind}] {self.key}: {self.content} "
-            f"(memory_id={self.memory_id}; evidence={evidence})"
-        )
+        return f"[{self.scope}; revision={self.revision}] {self.key}: {self.content}"
 
     def to_dict(self) -> JsonObject:
         """返回可原子写入 JSON 的稳定结构。"""
@@ -182,51 +106,30 @@ class LongTermMemoryRecord:
             "memory_id": self.memory_id,
             "namespace": self.namespace,
             "key": self.key,
-            "kind": self.kind,
             "content": self.content,
             "scope": self.scope,
+            "source": self.source,
             "status": self.status,
-            "confidence": self.confidence,
-            "importance": self.importance,
-            "agent_name": self.agent_name,
-            "evidence_refs": [item.to_dict() for item in self.evidence_refs],
-            "tags": list(self.tags),
+            "revision": self.revision,
             "created_at": self.created_at,
             "updated_at": self.updated_at,
-            "expires_at": self.expires_at,
-            "supersedes": self.supersedes,
         }
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "LongTermMemoryRecord":
         """在文件适配器边界恢复领域对象。"""
 
-        raw_evidence = data.get("evidence_refs") or []
         record = cls(
             memory_id=str(data.get("memory_id") or ""),
             namespace=str(data.get("namespace") or ""),
             key=str(data.get("key") or ""),
-            kind=str(data.get("kind") or ""),
             content=str(data.get("content") or ""),
-            scope=str(data.get("scope") or MemoryScope.WORKSPACE.value),
-            status=str(data.get("status") or MemoryStatus.CANDIDATE.value),
-            confidence=float(data.get("confidence") or 0.0),
-            importance=float(data.get("importance") or 0.0),
-            agent_name=str(data.get("agent_name") or ""),
-            evidence_refs=[
-                EvidenceReference.from_dict(item)
-                for item in raw_evidence
-                if isinstance(item, dict)
-            ],
-            tags=[str(item) for item in (data.get("tags") or [])],
+            scope=str(data.get("scope") or MemoryScope.PROJECT.value),
+            source=str(data.get("source") or ""),
+            status=str(data.get("status") or MemoryStatus.ACTIVE.value),
+            revision=int(data.get("revision") or 1),
             created_at=float(data.get("created_at") or time.time()),
             updated_at=float(data.get("updated_at") or time.time()),
-            expires_at=(
-                float(data["expires_at"])
-                if data.get("expires_at") is not None
-                else None
-            ),
-            supersedes=str(data.get("supersedes") or ""),
         )
         record.validate()
         return record

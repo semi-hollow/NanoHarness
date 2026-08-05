@@ -8,42 +8,102 @@ from pathlib import Path
 from agent_forge.multi_agent.adapters.local_worker import LocalAgentWorkerAdapter
 from agent_forge.multi_agent.application.live_fanout import LiveFanoutCoordinator
 from agent_forge.workbench.adapters.evidence_files import FileEvidenceCatalog
+from agent_forge.workbench.application.context_inspection import (
+    build_context_turn_inspections,
+)
 from agent_forge.workbench.presentation.http import (
     INDEX_HTML,
     WORKBENCH_READ_ONLY_MESSAGE,
     _render_evidence_html,
+    _render_workspace_view,
 )
 
 
 class WorkbenchRunStoryTest(unittest.TestCase):
     def test_workbench_default_surface_is_read_only(self):
         self.assertIn('class="read-only status-collapsed', INDEX_HTML)
-        self.assertIn("总览 + 三条学习主线", INDEX_HTML)
+        self.assertIn("一次选择运行，逐层读懂", INDEX_HTML)
+        self.assertIn('id="sourceSelect"', INDEX_HTML)
+        self.assertIn("选择运行证据", INDEX_HTML)
         self.assertIn("loadEvidence('overview')", INDEX_HTML)
-        self.assertIn("1 受治理运行", INDEX_HTML)
-        self.assertIn("2 多 Agent 协同", INDEX_HTML)
-        self.assertIn("3 复杂真实任务", INDEX_HTML)
-        self.assertIn("评测档案", INDEX_HTML)
-        self.assertIn("loadEvidence('controls')", INDEX_HTML)
-        self.assertIn("当前 Lab · 证据详情", INDEX_HTML)
-        self.assertIn('class="evidence-menu" hidden', INDEX_HTML)
-        self.assertIn('data-lab="lab1"', INDEX_HTML)
-        self.assertIn('data-lab="lab2"', INDEX_HTML)
-        self.assertIn('data-lab="lab3"', INDEX_HTML)
-        self.assertIn("Lab 1 · 受治理运行", INDEX_HTML)
-        self.assertIn("Lab 2 · 多 Agent 协同", INDEX_HTML)
-        self.assertIn("Lab 3 · 复杂真实任务", INDEX_HTML)
-        self.assertIn("loadEvidence('complex')", INDEX_HTML)
-        self.assertIn("loadEvidence('complex_timeline')", INDEX_HTML)
-        self.assertIn("setEvidenceMenuScope(activeLab)", INDEX_HTML)
-        self.assertIn("loadEvidence('orchestration_timeline')", INDEX_HTML)
-        self.assertNotIn(
-            "onclick=\"loadEvidence('compare')\">单 Agent / 多 Agent 对比",
+        self.assertIn("loadEvidence('timeline')", INDEX_HTML)
+        self.assertIn("loadEvidence('context')", INDEX_HTML)
+        self.assertIn("loadEvidence('results')", INDEX_HTML)
+        self.assertIn(
+            "new URLSearchParams({source: activeSource, view: activeView})",
             INDEX_HTML,
         )
+        self.assertNotIn('data-lab="lab1"', INDEX_HTML)
+        self.assertNotIn('class="evidence-menu"', INDEX_HTML)
         self.assertIn("pageParams.get('view')", INDEX_HTML)
-        self.assertIn("loadEvidence(initialView)", INDEX_HTML)
+        self.assertIn("loadEvidence(activeView)", INDEX_HTML)
         self.assertIn("Workbench 只读", WORKBENCH_READ_ONLY_MESSAGE)
+
+    def test_catalog_deduplicates_latest_run_when_it_is_a_preset(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            project_dir = Path(tmp)
+            run_dir = project_dir / ".agent_forge/runs/governed-run"
+            state_dir = project_dir / ".agent_forge/debug-lab/state"
+            latest_dir = project_dir / ".agent_forge/latest"
+            run_dir.mkdir(parents=True)
+            state_dir.mkdir(parents=True)
+            latest_dir.mkdir(parents=True)
+            (run_dir / "trace.json").write_text(
+                json.dumps({"task": "governed repair", "events": []}),
+                encoding="utf-8",
+            )
+            (latest_dir / "run.txt").write_text(str(run_dir), encoding="utf-8")
+            (state_dir / "control_artifact.txt").write_text(
+                str(run_dir),
+                encoding="utf-8",
+            )
+
+            sources = FileEvidenceCatalog(project_dir).evidence_sources()
+
+        self.assertEqual(
+            [source.key for source in sources],
+            ["governed", "orchestration", "complex", "evaluation"],
+        )
+
+    def test_all_common_views_render_for_a_single_runtime_source(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            project_dir = Path(tmp)
+            run_dir = project_dir / ".agent_forge/runs/runtime-run"
+            latest_dir = project_dir / ".agent_forge/latest"
+            run_dir.mkdir(parents=True)
+            latest_dir.mkdir(parents=True)
+            (run_dir / "trace.json").write_text(
+                json.dumps(
+                    {
+                        "task": "repair parser",
+                        "status": "completed",
+                        "events": [
+                            {"step": 1, "event_type": "turn_started"},
+                            {"step": 1, "event_type": "llm_call"},
+                        ],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            (run_dir / "usage.json").write_text(
+                json.dumps({"summary": {"llm_calls": 1, "tool_calls": 0}}),
+                encoding="utf-8",
+            )
+            (latest_dir / "run.txt").write_text(str(run_dir), encoding="utf-8")
+
+            rendered = {
+                view: _render_workspace_view(
+                    project_dir,
+                    source_key="latest",
+                    view=view,
+                )
+                for view in ("overview", "timeline", "context", "results")
+            }
+
+        self.assertIn("运行摘要", rendered["overview"])
+        self.assertIn("执行时间线", rendered["timeline"])
+        self.assertIn("上下文与决策", rendered["context"])
+        self.assertIn("结果与证据", rendered["results"])
 
     def test_complex_lab_uses_its_own_pointer_and_explains_real_run(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -138,6 +198,7 @@ class WorkbenchRunStoryTest(unittest.TestCase):
             catalog = FileEvidenceCatalog(project_dir)
             selected_run = catalog.latest_complex_run_dir()
             rendered = _render_evidence_html(project_dir, "complex")
+            context_view = _render_evidence_html(project_dir, "complex_context")
             timeline = _render_evidence_html(project_dir, "complex_timeline")
 
         self.assertEqual(selected_run, complex_run)
@@ -148,8 +209,118 @@ class WorkbenchRunStoryTest(unittest.TestCase):
         self.assertIn("focused pytest", rendered)
         self.assertIn("full pytest", rendered)
         self.assertIn("pytest -q: 8 passed", rendered)
+        self.assertIn("上下文与决策观察器", context_view)
+        self.assertIn("不是隐藏思维链", context_view)
+        self.assertIn("Turn 1", context_view)
         self.assertIn("复杂结算修复 AgentLoop", timeline)
         self.assertNotIn(str(unrelated), rendered)
+
+    def test_context_inspector_links_previous_feedback_to_next_turn(self):
+        trace = {
+            "events": [
+                {
+                    "step": 1,
+                    "event_type": "context_assembly",
+                    "context": {
+                        "total_chars": 1000,
+                        "max_chars": 8000,
+                        "available_tools": ["python_validation"],
+                        "active_skills": ["bug_fix@1.0.0"],
+                        "budget_breakdown": {"system": 200},
+                    },
+                },
+                {
+                    "step": 1,
+                    "event_type": "context_window",
+                    "context_window": {
+                        "estimated_tokens_after": 500,
+                        "hard_input_limit": 4000,
+                        "compacted": False,
+                    },
+                },
+                {
+                    "step": 1,
+                    "event_type": "model_started",
+                    "model_request": {"messages_count": 2},
+                },
+                {
+                    "step": 1,
+                    "event_type": "llm_call",
+                    "llm_response_summary": "run focused tests",
+                    "llm_input_breakdown_chars": {
+                        "system_context": 1000,
+                        "conversation_history": 200,
+                        "tool_schemas": 100,
+                    },
+                    "model_usage": {"model": "test-model"},
+                },
+                {
+                    "step": 1,
+                    "event_type": "action",
+                    "tool_call": "python_validation",
+                    "tool_arguments": {
+                        "validation_target": "tests/test_reconciliation.py"
+                    },
+                },
+                {
+                    "step": 1,
+                    "event_type": "tool_observation",
+                    "success": False,
+                    "observation": "exit_code=1\n2 failed",
+                },
+                {
+                    "step": 2,
+                    "event_type": "context_assembly",
+                    "context": {
+                        "total_chars": 1200,
+                        "max_chars": 8000,
+                        "available_tools": ["replace_text"],
+                        "active_skills": ["bug_fix@1.0.0"],
+                    },
+                },
+                {
+                    "step": 2,
+                    "event_type": "context_window",
+                    "context_window": {
+                        "estimated_tokens_after": 700,
+                        "hard_input_limit": 4000,
+                        "compacted": False,
+                    },
+                },
+                {
+                    "step": 2,
+                    "event_type": "model_started",
+                    "model_request": {"messages_count": 4},
+                },
+                {
+                    "step": 2,
+                    "event_type": "llm_call",
+                    "llm_response_summary": "patch the root cause",
+                    "model_usage": {"model": "test-model"},
+                },
+                {
+                    "step": 2,
+                    "event_type": "action",
+                    "tool_call": "replace_text",
+                    "tool_arguments": {"path": "settlement/service.py"},
+                },
+                {
+                    "step": 2,
+                    "event_type": "tool_observation",
+                    "success": True,
+                    "observation": "updated settlement/service.py",
+                },
+            ]
+        }
+
+        turns = build_context_turn_inspections(trace)
+
+        self.assertEqual(len(turns), 2)
+        self.assertEqual(turns[0].phase, "验证失败")
+        self.assertIn("2 failed", turns[1].previous_evidence[0])
+        self.assertEqual(turns[1].message_delta, 2)
+        self.assertTrue(turns[1].tools_changed)
+        self.assertEqual(turns[1].phase, "修改代码")
 
     def test_run_evidence_prefers_canonical_run_story(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -331,14 +502,14 @@ class WorkbenchRunStoryTest(unittest.TestCase):
             timeline = _render_evidence_html(project_dir, "orchestration_timeline")
 
         self.assertIn("parallel evidence", rendered)
-        self.assertIn("这个 Lab 要回答的问题", rendered)
+        self.assertIn("这次运行要回答的问题", rendered)
         self.assertIn("两个互不依赖、写入范围不重叠", rendered)
-        self.assertIn("本 Lab 使用确定性 Worker 模型", rendered)
+        self.assertIn("本次可复现运行使用确定性 Worker 模型", rendered)
         self.assertIn("为什么允许并行", rendered)
         self.assertIn("a", rendered)
         self.assertIn("b", rendered)
-        self.assertIn("查看本次 AgentLoop 时间线", rendered)
-        self.assertIn("LAB 2 · 多 AGENT 协同", timeline)
+        self.assertIn("查看本次执行过程", rendered)
+        self.assertIn("并行多 Agent", timeline)
         self.assertIn("Worker · a", timeline)
         self.assertIn("Worker · b", timeline)
         self.assertIn("Finalizer · 合并后验证", timeline)
@@ -731,7 +902,7 @@ class WorkbenchRunStoryTest(unittest.TestCase):
         self.assertIn("独立证据 · SWE-BENCH CASE", rendered)
         self.assertIn("demo__case-1", rendered)
         self.assertIn("当前结论只属于评测运行 swebench-run", rendered)
-        self.assertIn("Lab 2 的 Worker、Finalizer 和协调结果属于另一条运行", rendered)
+        self.assertIn("Worker、Finalizer 和协调结果属于另一条运行", rendered)
         self.assertIn(str(benchmark_run / "results.json"), rendered)
         self.assertIn("0 字符（只检索，未写入）", rendered)
         self.assertIn("2 次工具调用均未进入写操作", rendered)
@@ -741,7 +912,7 @@ class WorkbenchRunStoryTest(unittest.TestCase):
             "模型在最后一轮仍请求调用工具，因此运行时阻断了不完整产物", rendered
         )
         self.assertIn("增加步骤预算，或要求模型更早明确", rendered)
-        self.assertIn("SWE-bench Case 诊断", INDEX_HTML)
+        self.assertIn("结果与证据", INDEX_HTML)
 
     def test_published_campaign_bundle_uses_manifest_and_summary_filenames(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -904,7 +1075,7 @@ class WorkbenchRunStoryTest(unittest.TestCase):
             rendered = _render_evidence_html(project_dir, "feedback")
             benchmark = _render_evidence_html(project_dir, "benchmark")
 
-        self.assertIn("这个 Lab 要回答的问题", rendered)
+        self.assertIn("这次运行要回答的问题", rendered)
         self.assertIn("本次载入的历史实验", rendered)
         self.assertIn("嵌套 CompoundModel 的可分离矩阵错误", rendered)
         self.assertIn("HttpResponse 错误处理 memoryview", rendered)

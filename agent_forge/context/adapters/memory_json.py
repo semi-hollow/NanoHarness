@@ -32,7 +32,7 @@ class JsonLongTermMemoryRepository(LongTermMemoryRepository):
         )
         os.replace(temporary, path)
 
-    # 运行时端口：按稳定 ID 读取记录，供生命周期用例修改或审计。
+    # 运行时端口：按稳定 ID 读取记录，供更新或删除用例使用。
     def get(self, memory_id: str) -> LongTermMemoryRecord | None:
         """在隔离目录中查找稳定 ID；记录规模刻意保持轻量。"""
 
@@ -41,7 +41,7 @@ class JsonLongTermMemoryRepository(LongTermMemoryRepository):
             return self._load(path)
         return None
 
-    # 运行时端口：列出候选记录；可见性过滤仍由 LongTermMemoryService 负责。
+    # 运行时端口：列出记录；可见性过滤仍由 LongTermMemoryService 负责。
     def list_records(self, namespace: str | None = None) -> list[LongTermMemoryRecord]:
         """跳过损坏文件，并按更新时间倒序返回。"""
 
@@ -53,6 +53,16 @@ class JsonLongTermMemoryRepository(LongTermMemoryRepository):
             except (OSError, ValueError, TypeError, json.JSONDecodeError):
                 continue
         return sorted(records, key=lambda item: item.updated_at, reverse=True)
+
+    # 运行时端口：用户显式 forget 时删除对应 JSON 文件。
+    def delete(self, memory_id: str) -> None:
+        """只删除唯一命中的记录；不影响已启动 Run 的内存快照。"""
+
+        self._validate_memory_id(memory_id)
+        matching_paths = list(self.root.glob(f"*/{memory_id}.json"))
+        if not matching_paths:
+            raise ValueError(f"memory not found: {memory_id}")
+        matching_paths[0].unlink()
 
     def _path_for(self, namespace: str, memory_id: str) -> Path:
         self._validate_memory_id(memory_id)

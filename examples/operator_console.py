@@ -170,8 +170,10 @@ def main() -> None:
         "task-aware",
         "--skills",
         "auto",
+        "--memory-root",
+        str(PROJECT_ROOT / ".agent_forge" / "memory"),
         "--memory-recall-limit",
-        "0",
+        "12",
     ]
     if not profile.allow_human_question:
         # 全自动模式仍使用同一 Runtime，只是不向模型暴露人工提问协议。

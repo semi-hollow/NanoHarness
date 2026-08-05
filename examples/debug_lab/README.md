@@ -116,11 +116,17 @@ PythonValidationTool.execute       focused/full pytest 怎样成为证据
 
 ## Workbench 阅读顺序
 
-每个 Lab 结束后只按三层看：
+Workbench 始终使用同一个地址。先在“选择运行证据”中切换本次运行，再按固定四层阅读；普通
+`Harness.run`、三个预置场景和已发布评测共用这套结构，不需要记不同页面链接。
 
-1. 主页面：任务、状态、通过标准和证据边界。
-2. 时间线：每轮只看“准备输入 → 模型决定 → 治理并执行 → 回填持久化”。
-3. 底层事件：只有结论不清楚时才展开 Hook、权限、Ledger、Checkpoint 和文件来源。
+1. **运行概览：**确认任务、最终状态、关键计数和证据边界。
+2. **执行过程：**看“准备输入 → 模型决定 → 治理并执行 → 回填持久化”四个稳定阶段。
+3. **上下文与决策：**观察上一轮 Evidence 怎样改变本轮输入、工具决定与反馈；所有带 Trace 的运行都支持。
+4. **结果与证据：**看 candidate、验证、恢复、编排或评测结论，只有结论不清楚时才展开底层事件。
+
+“上下文与决策”是 Workbench 对 AgentLoop Trace 的通用投影，不是固定样例，也不会重新调用模型。
+它展示实际记录的 Context 组成、可见工具、Skill、文件、模型响应摘要和 Observation；完整 Prompt 与隐藏
+思维链不会被复制到页面。
 
 Debugger 看动态因果；Workbench 看最终留下的可验证 Evidence。历史 SWE-bench campaign 仍保留在
 Workbench 的“评测档案”，但它不再占用 Lab 编号，也不是首次实践前置条件。

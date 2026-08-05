@@ -4,242 +4,145 @@
 [![Python 3.11](https://img.shields.io/badge/python-3.11-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-**面向真实代码仓库的可治理软件工程智能体与评测工作台。**
+**一个可治理、可恢复，并以运行证据为核心的 Coding Agent Runtime。**
 
-NanoHarness 接收 repository issue，在隔离快照中驱动模型检索、编辑和验证代码；同时把
-工具策略、人工控制、恢复状态、成本与评测结论保存为可检查证据。核心闭环只有一条：
+NanoHarness 在隔离的真实代码仓库中驱动模型检索、编辑和验证代码。它不只交付一个
+final answer，还把上下文、工具、权限、人工控制、恢复状态、成本和评测结论收敛为可检查的
+Run Evidence。
 
 ```text
-issue + base commit
+repository task
   -> isolated workspace
   -> governed AgentLoop
-  -> candidate diff + trace/checkpoint/usage
-  -> local/official evaluation
-  -> repeated campaign + failure diagnosis
+  -> candidate diff + validation
+  -> trace + checkpoint + usage
+  -> evaluation + failure diagnosis
 ```
 
-模型负责提出下一步意图，Harness 负责决定它看见什么、能调用什么、动作如何执行、状态如何
-恢复，以及结果能被怎样证明。
+## 项目解决什么
 
-工程形态固定为：**统一薄 CLI 与单一 Single-Run Public API + 深度 Agent Runtime 机制 +
-统一 Run Story 与可审计 Evidence**。状态、副作用和 Evidence 正确性是底线；在满足底线的
-方案中，优先选择更短、更容易定位和解释的实现。
+模型会写代码，不等于它能稳定完成长周期工程任务。真实运行中还需要回答：
 
-## 为什么做这个项目
+- 模型这一轮应该看到哪些 Context 和 Tool？
+- 写操作、命令和越界路径如何被确定性约束？
+- 审批、进程中断或目标文件漂移后，副作用能否安全恢复？
+- 多个 Agent 什么时候可以并行，最终由谁检查合并后的整体结果？
+- 生成了 Diff、本地测试通过和官方解决之间，证据边界在哪里？
 
-模型能生成代码，不代表它能稳定完成真实软件工程任务。长任务常见问题包括上下文漂移、工具
-误用、重复动作、危险副作用、中断后重复执行，以及把“生成了候选 diff”误报成“解决了问题”。
+NanoHarness 把这些问题放进 Runtime 控制面，而不是交给 Prompt 或模型自我声明。
 
-NanoHarness 因此聚焦三个层面：
+## 核心设计
 
-| 层面 | 解决的问题 |
+| 能力 | 关键设计 | 可检查结果 |
+| --- | --- | --- |
+| AgentLoop | Context -> Model -> Tool -> Observation 的有界循环 | 逐轮 Trace、停止原因、Usage |
+| Tool Governance | 任务级可见性、Schema、Hook、Permission、Sandbox | 路由、权限决策与真实 Observation |
+| Durable Control | HITL、Approval、Checkpoint、Operation Key、Fingerprint、Ledger | 等待状态、恢复来源与副作用帐本 |
+| Context & Memory | 分区预算、安全压缩、显式授权的跨 Run 记忆 | 每轮输入结构、压缩不变量、记忆快照 |
+| Multi-Agent | 显式 DAG、独立 worktree、声明/实际写入范围校验、Finalizer | Worker Diff、冲突与最终验证 |
+| Evaluation | candidate/local/official 分层，Taxonomy、Scorecard、配对实验 | per-case result、失败归因与 claim boundary |
+
+## 证据工作台
+
+Agent 运行往往介于白盒和黑盒之间：事件很多，但原始 JSON 并不能帮助人理解因果。
+NanoHarness 的 Workbench 使用一个稳定 URL。先选择任意已发布的 Runtime Run、预置场景或评测
+批次，再用四个不重叠的 Read Model 阅读同一份 Evidence：
+
+- **运行概览：**任务、状态、关键计数和本次证据边界。
+- **执行过程：**准备输入、模型决定、治理执行、回填持久化四个稳定阶段。
+- **上下文与决策：**上一轮证据怎样改变本轮输入、可见工具和显式动作。
+- **结果与证据：**候选改动、验证、恢复、编排或评测结论，以及它们不能证明什么。
+
+页面不伪造隐藏思维链，也不用第二个 LLM 编故事；展示内容由真实 Runtime Event 确定性生成。
+三个预置场景只是可复现样本，普通 `Harness.run` 发布的运行也会自动进入同一工作台。
+
+## 运行证据与预置场景
+
+| 场景 | 核心问题 | 作用 |
+| --- | --- | --- |
+| Lab 1 · Governed Repair | 写操作如何审批、停机、持久化并且只恢复一次 | 确定性验证控制面 |
+| Lab 2 · Coordinated Agents | 独立任务如何并行、限制改动范围并最终收口 | 确定性验证编排不变量 |
+| Lab 3 · Complex Live Repair | 真实模型如何在多模块缺陷中检索、试错、修改、回归和收敛 | 观察长任务行为与 Context 压力 |
+
+Lab 1/2 故意排除模型随机性，用于证明 Runtime 不变量；Lab 3 调用真实模型，用于形成运行直觉和
+失败样本。它们不是 Workbench 能读取的全部范围：普通 Single-Run 会作为最近一次 Runtime 运行出现，
+已保存的 SWE-bench Campaign 则作为评测批次读取，彼此不混用结论。
+
+## 与常见 Agent Demo 的差异
+
+| 常见 Demo | NanoHarness |
 | --- | --- |
-| 任务执行 | 在真实 repository、真实工具和固定 base commit 上完成 issue |
-| Runtime 控制 | 治理 context、tool visibility、权限、隔离、HITL、checkpoint 和并发 |
-| Evaluation 证据 | 区分 candidate、local verified、official resolved，并比较 Runtime 改动 |
-
-项目不定位为通用 workflow 框架或完整 IDE Agent 产品。成熟框架适合快速交付通用 workflow；
-NanoHarness 刻意收窄到软件工程执行与评测边界，让关键决策和失败原因可以完整检查。
-
-## 证据语义
-
-| 证据层级 | 能证明什么 | 不能证明什么 |
-| --- | --- | --- |
-| Candidate diff | Agent 到达有效编辑阶段 | 修改正确或任务 solved |
-| Local verified | 已记录的测试型本地验证通过 | 官方环境一定通过 |
-| Official resolved | SWE-bench per-case report 明确 `resolved=true` | 能外推到全部 500 题 |
-| Repeated campaign | 同配置多次运行的稳定性、成本与 paired outcome | 单因素因果或模型排行榜 |
-
-没有 official evaluator 时，resolved rate 保持 `null`；Reviewer `PASS` 不会替代官方结果。
-
-## 五分钟审查
-
-```bash
-# 真实模型 + 实时事件 + HITL/审批自动续跑
-forge console
-
-# 无在线模型时，确定性展示 approval -> checkpoint -> continuation
-forge demo
-
-# 只读检查 run、artifact 或源码 symbol
-forge inspect latest
-forge inspect AgentLoop.run
-```
-
-PyCharm 共享配置 **NanoHarness Lab 3 - Complex Live Repair** 会创建隔离的多模块结算练习仓库、
-读取 Keychain 中的 DeepSeek Key，并提供自然修复、上下文压力和人工控制三种实践模式。Core CLI 是
-`console / run / inspect / demo`；`resume` 是无头 continuation 入口，`bench / ui` 属于 Advanced。
-Console 同屏接收回答或审批并自动续跑；脚本和 CI 仍可使用 `resume --answer/--decision`。
-
-随后只展开五个语义 owner：
-
-1. [`Harness.run`](agent_forge/harness.py)：唯一 Single-Run Public API。
-2. [`AgentLoop.run`](agent_forge/runtime/application/agent_loop.py)：单次运行阶段编排。
-3. [`ToolExecutionPipeline.execute_calls`](agent_forge/runtime/application/tool_execution.py)：工具治理与副作用边界。
-4. [`OperationTracker`](agent_forge/runtime/application/operation_tracker.py) 与
-   [`RunLifecycle`](agent_forge/runtime/application/run_lifecycle.py)：幂等、审批、checkpoint 与恢复。
-5. [`RunStory`](agent_forge/observability/domain/run_story.py)：artifact 血缘和 Evidence Read Model。
-
-完整 12-file Core Scope 和闭卷训练见
-[NanoHarness Study Notes](https://github.com/semi-hollow/NanoHarness-Study-Notes)。
-
-## 核心能力
-
-| 能力 | 当前主链 | 明确边界 |
-| --- | --- | --- |
-| Agent Runtime | context -> model -> tool -> observation 的有界循环 | 不是完整 IDE Agent 产品 |
-| Context | 分区预算、安全压缩、完整 model request 组装 | 不恢复 KV Cache，不声称 vector RAG |
-| Tool Governance | routing、schema、permission、command policy、workspace sandbox | prompt 不是安全边界 |
-| Human Control | clarification、写操作审批、pause/cancel/steer、checkpoint/resume | 不自动回滚已执行副作用 |
-| Operator Console | 实时 RuntimeEvent、HITL/审批、自动 continuation、Task Session 历史与 checkpoint 接管 | 本地操作适配层；不提供隐藏思维链、多用户服务或 IDE 编辑器 |
-| Advanced：Memory / Integration | long-term memory、Skills、MCP | 不进入默认学习面，不创建第二套 Runtime |
-| Advanced：Isolation / Multi-Agent | local/worktree/OCI、顺序 artifact handoff、DAG fanout | 本机 coordinator，不是 distributed swarm |
-| Evaluation | Smoke-5、official parser、taxonomy、scorecard、ablation、campaign | 小集合不代表总体 resolved rate |
-| Integration | `Harness` facade、类型化配置、Ports、Hooks、事件流、OTEL adapter | 当前是 `0.x` 本地 Runtime SDK |
-
-完整状态与不能声称的内容见[能力真实性矩阵](docs/CAPABILITY_REALITY_MATRIX.md)。
-
-## 快速开始
-
-```bash
-git clone https://github.com/semi-hollow/NanoHarness.git
-cd NanoHarness
-python3.11 -m venv .venv
-source .venv/bin/activate
-python -m pip install -U pip setuptools wheel
-python -m pip install -e '.[bench,dev]'
-forge --help
-```
-
-Windows PowerShell 只需把激活命令换成 `.\.venv\Scripts\Activate.ps1`。项目不维护按操作系统
-复制的 setup wrapper；依赖声明以 `pyproject.toml` 为准，安装步骤以本节为唯一入口。
-
-运行一个真实 repository task：
-
-```bash
-export DEEPSEEK_API_KEY=...
-forge run "fix the failing test in this repository" \
-  --provider deepseek \
-  --execution-mode worktree \
-  --network-policy deny
-```
-
-配置驱动运行：
-
-```bash
-forge run --config examples/agent.sample.yaml
-```
-
-Core 命令查各自 `--help`；Advanced 能力再查 `forge bench --help` 或 `forge ui --help`。
-项目名是 NanoHarness；distribution package 是 `agent-forge`，Python import package 是
-`agent_forge`，唯一 shell command 是 `forge`。
-
-## 嵌入式 API
-
-外部项目只需要顶层 facade，不需要了解内部 application service 和 adapter：
-
-```python
-from agent_forge import Harness, HarnessConfig
-
-harness = Harness(
-    model=my_model,
-    tools=my_tool_gateway,
-    config=HarnessConfig(workspace="/path/to/repository"),
-)
-result = harness.run("fix the failing test")
-
-print(result.status.value)
-print(result.artifact_dir)
-```
-
-稳定扩展协议从 `agent_forge.extensions` 导入。`Harness.resume` 从 durable checkpoint 创建
-continuation run，不声称恢复隐藏模型状态。完整 consumer 见
-[`examples/embed_harness.py`](examples/embed_harness.py)。
-
-## Advanced：Benchmark 闭环
-
-主外部基准选择 SWE-bench Verified：它保留真实 GitHub issue/仓库修复任务，并将候选全集
-收敛为 500 个经人工确认、可稳定复现的 case。`smoke-5` 再从中分层选择五个不同仓库和
-问题族，用于低成本机制回归，不声称统计代表性。一个 case 的证据链是：
-
-```text
-dataset issue/base commit
-  -> clean checkout
-  -> AgentLoop + candidate diff
-  -> FAIL_TO_PASS / PASS_TO_PASS
-  -> per-case official result
-  -> scorecard / failure class
-```
-
-Workbench 的“评测档案”可以离线查看已保存 commissioning evidence，不重新调用模型或 Docker。
-需要真正扩大样本时，再固定 case、模型、温度、预算、安全策略和执行环境，交错重复比较两个同核
-Runtime preset；完整 campaign 使用
-`forge bench campaign --regression-set smoke-5 --repetitions 3 --evaluate --publish`。
-
-这会规划 `5 cases x 2 presets x 3 repetitions = 30 runs`。每个槽位原子保存，恢复时只重试
-未完成项；两个 preset 同时改变 routing 与 Skill，因此不伪装成单因素因果实验。当前公开的
-[两题四次 commissioning evidence](benchmarks/campaigns/verified-commissioning-2-20260726/README.md)
-只证明端到端闭环，不代表 Smoke-5 完成率；正式结果入口见[`benchmarks/campaigns`](benchmarks/campaigns/README.md)。
-
-项目没有为了堆名词接入所有 Agent benchmark。Terminal-Bench 2.0 的宽泛终端/多容器任务、
-BFCL 的模型函数调用准确率，以及 τ-bench 的业务工具与用户模拟，分别属于后续执行面扩展、
-模型能力评测和业务 Agent 评测；当前均不冒充 NanoHarness Runtime 的直接结果。完整选型与
-结论边界见[评测契约](docs/evaluation/regression-set.md)。
+| 只展示最终回答或 Diff | 同时保留输入结构、工具过程、状态和验证证据 |
+| 用 Prompt 要求模型“不要做危险操作” | 由 Permission、Command Policy、Sandbox 和 Approval 确定性执行 |
+| 中断后从头重跑 | 通过 Checkpoint 恢复显式状态，通过 Ledger/Fingerprint 防止盲目重放 |
+| 将“多个 Agent”当作并行的充分条件 | 只对依赖满足、写入范围可分离的任务并发，合并后独立验证 |
+| 把本地通过直接写成 solved | 严格区分 candidate、local verified 和 official resolved |
 
 ## 架构
 
 ```mermaid
 flowchart LR
-    Console["Operator Console"] --> Entry["Core CLI / Harness"]
-    Entry --> Loop["AgentLoop"]
-    Bench["Advanced: SWE-bench / Campaign"] --> Loop
-    Loop --> Context["Context (Memory optional)"]
+    UI["Operator Console"] --> API["Harness.run / resume"]
+    API --> Loop["AgentLoop"]
+    Loop --> Context["Context + Memory"]
     Loop --> Model["Model Port"]
     Loop --> Tools["Tool Pipeline"]
-    Tools --> Safety["Policy + Sandbox + Approval"]
-    Loop --> State["Checkpoint + Human Input + Ledger"]
-    Loop --> Evidence["Trace + Usage + Patch"]
-    Evidence --> Eval["Official Result + Scorecard + Diagnosis"]
-    UI["Advanced: Workbench"] --> Evidence
+    Tools --> Guard["Policy + Sandbox + Approval"]
+    Loop --> State["Checkpoint + Ledger"]
+    Loop --> Evidence["Trace + Usage + Candidate Diff"]
+    Evidence --> Eval["Evaluation + Diagnosis"]
+    Workbench["Evidence Workbench"] --> Evidence
 ```
 
-Capability 内部按需使用 `domain -> application -> ports <- adapters`，外部调用只经过具名
-API 和 composition root。六边形边界用于替换外部 Port、隔离副作用和测试核心规则，不为目录
-风格增加转发层。架构依赖约束由测试执行，理解预算与 Navigation Contract 见[架构契约](docs/ARCHITECTURE.md)。
-从能力拆包、AgentLoop 职责膨胀到分层、显式类型和导航守卫的取舍，见[代码结构演进](docs/architecture/code-structure-evolution.md)。
+代码是一个模块化单体；Capability 内部按需使用
+`domain -> application -> ports <- adapters`，对外保留一条 `Harness` 主入口。分层用来隔离副作用和
+替换外部实现，不为形式增加空转发。
+
+## Evidence 边界
+
+| 层级 | 能证明 | 不能证明 |
+| --- | --- | --- |
+| Candidate diff | Agent 到达了有效编辑阶段 | 修改正确 |
+| Local verified | 已记录的本地验证通过 | 官方环境一定通过 |
+| Official resolved | per-case official report 明确 `resolved=true` | 小样本能外推总体解决率 |
+| Repeated campaign | 同配置多次运行的稳定性和成本 | 未控制变量的因果结论 |
+
+没有 official evaluator 时，resolved rate 保持未知；Reviewer `PASS` 不代替官方结果。
+
+## 快速体验
+
+环境要求为 Python 3.11。安装依赖后，可以从实时操作台或三个 PyCharm 共享场景进入：
+
+```bash
+python -m pip install -e '.[dev]'
+forge console
+forge ui
+```
+
+PyCharm 运行配置：
+
+- `NanoHarness Lab 1 - Governed Repair`
+- `NanoHarness Lab 2 - Coordinated Agents`
+- `NanoHarness Lab 3 - Complex Live Repair`
+
+所有入口发布的 Evidence 都在同一个 Workbench 地址中切换，不需要记不同页面链接。具体运行顺序见
+[Debug Lab](examples/debug_lab/README.md)。外部项目也可以通过
+[`Harness`](agent_forge/harness.py) facade 注入自己的 Model 和 ToolGateway。
 
 ## 当前边界
 
-- Core Harness 的一次调用仍对应一个 run/task；Operator Console 用稳定 Task Session 归组 initial、resume 和 follow-up Run，但不提供多 active-task 调度器。
-- Pause/cancel 是协作式 safe point，不会强制终止正在执行的 HTTP 或进程调用。
-- Resume 恢复显式 checkpoint 与 continuation context，不恢复模型隐藏状态。
-- Operator Console 展示 Runtime 已产生的事件和模型可见输出，不展示或伪造隐藏思维链。
-- Fanout 接收显式 DAG；scope overlap 串行化，scope escape 或 diff apply conflict fail closed。
-- Local mode 不是 OS 级隔离；OCI mode 也不宣称 hostile multi-tenant security。
-- 项目不是 hosted SaaS、distributed swarm、RL training platform 或 benchmark leaderboard。
+- Pause/cancel 在 Runtime safe point 协作式生效，不强制中断正在进行的 HTTP 请求。
+- Resume 恢复显式 Checkpoint 和 continuation context，不恢复模型 KV Cache 或隐藏状态。
+- Fanout 是本机 Coordinator 和显式 DAG，不是 distributed swarm。
+- Local mode 不是 OS 级隔离；OCI mode 也不声称 hostile multi-tenant security。
+- 当前是本地 Runtime/Workbench，不是 hosted SaaS、完整 IDE 或模型训练平台。
 
-## 文档
+## 进一步阅读
 
-**学习顺序只认
-[Study Notes 总入口](https://github.com/semi-hollow/NanoHarness-Study-Notes)**，不要通读本仓 `docs/`。
-本仓只保留六类一手资产：
-
-1. [Debug Lab](examples/debug_lab/README.md)：运行与展示入口。
-2. [架构契约](docs/ARCHITECTURE.md)与 [Runtime 控制面](docs/architecture/runtime-control-plane.md)：稳定结构、状态和恢复边界。
-3. [能力真实性矩阵](docs/CAPABILITY_REALITY_MATRIX.md)：能声称什么、不能声称什么。
-4. [Regression Set](docs/evaluation/regression-set.md)与[失败分类](docs/evaluation/failure-taxonomy.md)：评测、实验和改进闭环。
-5. [功能演进](docs/FEATURE_EVOLUTION.md)、[代码结构演进](docs/architecture/code-structure-evolution.md)与 [Roadmap](docs/ROADMAP.md)：设计历史和下一步。
-6. [失败驱动改进记录](docs/evaluation/failure-driven-improvements.md)：受保护的一手故障档案，只按关键词检索。
-
-## 开发验证
-
-```bash
-scripts/verify.sh
-```
-
-该脚本执行 compile、mypy、CLI 检查和 regression suite；配置模型凭据后还会执行真实模型
-Single Agent 与双 worker 只读 fanout smoke。行为改动必须同时提供测试或可复核 artifact，
-不能只修改 README claim。
-
-`scripts/` 只保留 CI 验证、Workbench 启动和可选 PyCharm 断点安装等基础设施入口。理解
-Agent Runtime 不需要阅读这些脚本。
+- 学习顺序只认 [NanoHarness Study Notes](https://github.com/semi-hollow/NanoHarness-Study-Notes)，公开仓库只维护产品事实与工程契约。
+- [架构契约](docs/ARCHITECTURE.md)
+- [能力真实性矩阵](docs/CAPABILITY_REALITY_MATRIX.md)
+- [功能演进](docs/FEATURE_EVOLUTION.md)
+- [代码结构演进](docs/architecture/code-structure-evolution.md)
+- [评测契约](docs/evaluation/regression-set.md)
+- [失败驱动改进记录](docs/evaluation/failure-driven-improvements.md)

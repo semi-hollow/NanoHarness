@@ -200,6 +200,12 @@ def run_evaluation() -> None:
         str(PUBLIC_CAMPAIGN_ROOT.resolve()),
         encoding="utf-8",
     )
+    state_dir = STATE_ROOT / "state"
+    state_dir.mkdir(parents=True, exist_ok=True)
+    (state_dir / "workbench_source.txt").write_text(
+        "evaluation",
+        encoding="utf-8",
+    )
     saved_official = STATE_ROOT / "state" / "astropy_artifact.txt"
     if saved_official.is_file():
         _restore_saved_astropy_evidence()

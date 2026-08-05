@@ -17,6 +17,7 @@ from textual import on, work
 from textual.app import App, ComposeResult
 from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.css.query import NoMatches
+from textual.screen import ModalScreen
 from textual.widgets import (
     Button,
     Footer,
@@ -29,11 +30,19 @@ from textual.widgets import (
     TextArea,
 )
 
+from agent_forge.context.api import (
+    forget_memory,
+    list_memories,
+    RememberMemoryRequest,
+    remember_memory,
+)
+from agent_forge.context.domain import LongTermMemoryRecord
 from agent_forge.harness import RunResult
 from agent_forge.operator_console.api import (
     OperatorSessionBundle,
     build_operator_session,
     build_task_session_library,
+    resolve_operator_memory_root,
 )
 from agent_forge.operator_console.application import TaskSessionLibrary
 from agent_forge.operator_console.domain import TaskSession
@@ -41,6 +50,190 @@ from agent_forge.observability.domain.live_event import RuntimeEvent
 from agent_forge.operator_console.events import render_event, should_render_event
 from agent_forge.operator_console.session import OperatorPrompt, OperatorSession
 from agent_forge.runtime.domain.task import TaskCheckpoint, TaskRunStatus
+
+
+class LongTermMemoryScreen(ModalScreen[None]):
+    """管理用户显式授权的跨 Run 记忆。
+
+    这是一个展示层适配器：它只调用 Context 公共 API，不修改
+    已启动 Run 的 ``WorkingMemory`` 快照。
+    """
+
+    CSS = """
+    LongTermMemoryScreen {
+        align: center middle;
+        background: rgba(0, 0, 0, 0.62);
+    }
+
+    #memory-dialog {
+        width: 92;
+        height: 35;
+        padding: 1 2;
+        border: solid #64717a;
+        background: #171b1e;
+    }
+
+    #memory-heading {
+        height: 2;
+        color: #a9d8b8;
+        text-style: bold;
+    }
+
+    #memory-help, #memory-feedback {
+        height: 3;
+        color: #b9c3c9;
+    }
+
+    #memory-records, #memory-scope, #memory-key {
+        margin-bottom: 1;
+    }
+
+    #memory-content {
+        height: 8;
+        margin-bottom: 1;
+        border: solid #465159;
+        background: #111416;
+    }
+
+    #memory-actions {
+        height: 3;
+        align: right middle;
+    }
+
+    #memory-forget {
+        background: #8b3a3a;
+    }
+    """
+
+    def __init__(
+        self,
+        *,
+        memory_root: Path,
+        workspace: str,
+    ) -> None:
+        super().__init__()
+        self._memory_root = memory_root
+        self._workspace = workspace
+        self._records_by_id: dict[str, LongTermMemoryRecord] = {}
+
+    def compose(self) -> ComposeResult:
+        with Vertical(id="memory-dialog"):
+            yield Label("长期记忆", id="memory-heading")
+            yield Static(
+                "只有你显式保存的内容才会进入长期记忆；修改从下一个 Run 生效。",
+                id="memory-help",
+            )
+            yield Select([], prompt="选择已有记忆（可选）", id="memory-records")
+            yield Select(
+                [("当前项目", "project"), ("用户全局", "user")],
+                value="project",
+                allow_blank=False,
+                id="memory-scope",
+            )
+            yield Input(
+                placeholder="Key，例如 response.style",
+                id="memory-key",
+            )
+            yield TextArea(
+                language="markdown",
+                id="memory-content",
+            )
+            yield Static("填写 key 和内容后保存。", id="memory-feedback")
+            with Horizontal(id="memory-actions"):
+                yield Button("记住 / 更新", id="memory-remember", variant="primary")
+                yield Button("忘记选中项", id="memory-forget")
+                yield Button("关闭", id="memory-close")
+
+    def on_mount(self) -> None:
+        self._refresh_records()
+        self.query_one("#memory-key", Input).focus()
+
+    @on(Select.Changed, "#memory-records")
+    def load_selected_memory(self, event: Select.Changed) -> None:
+        """把选中记忆回填到编辑区，让更新与新增共用同一入口。"""
+
+        memory_id = event.value if isinstance(event.value, str) else ""
+        memory_record = self._records_by_id.get(memory_id)
+        if memory_record is None:
+            return
+        self.query_one("#memory-scope", Select).value = memory_record.scope
+        self.query_one("#memory-key", Input).value = memory_record.key
+        self.query_one("#memory-content", TextArea).text = memory_record.content
+        self.query_one("#memory-feedback", Static).update(
+            f"已选中 {memory_record.key} · revision {memory_record.revision}"
+        )
+
+    @on(Button.Pressed, "#memory-remember")
+    def remember(self) -> None:
+        """显式 upsert：同 scope/key 更新 revision，不生成重复记录。"""
+
+        scope_value = self.query_one("#memory-scope", Select).value
+        scope = scope_value if isinstance(scope_value, str) else "project"
+        key = self.query_one("#memory-key", Input).value.strip()
+        content = self.query_one("#memory-content", TextArea).text.strip()
+        try:
+            record = remember_memory(
+                RememberMemoryRequest(
+                    memory_root=str(self._memory_root),
+                    workspace=self._workspace,
+                    key=key,
+                    content=content,
+                    scope=scope,
+                )
+            )
+        except ValueError as exc:
+            self.query_one("#memory-feedback", Static).update(f"无法保存：{exc}")
+            return
+        self._refresh_records(selected_memory_id=record.memory_id)
+        self.query_one("#memory-feedback", Static).update(
+            f"已保存 {record.key} · revision {record.revision}；下一个 Run 生效。"
+        )
+
+    @on(Button.Pressed, "#memory-forget")
+    def forget(self) -> None:
+        """物理删除选中记忆；已启动 Run 仍使用旧快照。"""
+
+        selected_value = self.query_one("#memory-records", Select).value
+        memory_id = selected_value if isinstance(selected_value, str) else ""
+        if not memory_id:
+            self.query_one("#memory-feedback", Static).update("请先选择要忘记的记忆。")
+            return
+        try:
+            forgotten = forget_memory(str(self._memory_root), memory_id)
+        except ValueError as exc:
+            self.query_one("#memory-feedback", Static).update(f"无法忘记：{exc}")
+            return
+        self.query_one("#memory-key", Input).value = ""
+        self.query_one("#memory-content", TextArea).text = ""
+        self._refresh_records()
+        self.query_one("#memory-feedback", Static).update(
+            f"已忘记 {forgotten.key}；下一个 Run 不再召回。"
+        )
+
+    @on(Button.Pressed, "#memory-close")
+    def close(self) -> None:
+        self.dismiss(None)
+
+    def _refresh_records(self, *, selected_memory_id: str = "") -> None:
+        records = list_memories(
+            str(self._memory_root),
+            self._workspace,
+        )
+        self._records_by_id = {record.memory_id: record for record in records}
+        selector = self.query_one("#memory-records", Select)
+        selector.set_options(
+            [
+                (
+                    f"{record.scope} · {record.key} · r{record.revision}",
+                    record.memory_id,
+                )
+                for record in records
+            ]
+        )
+        if selected_memory_id:
+            selector.value = selected_memory_id
+        else:
+            selector.clear()
 
 
 class OperatorConsoleApp(App[None]):
@@ -265,6 +458,7 @@ class OperatorConsoleApp(App[None]):
                     id="workspace",
                 )
                 with Horizontal(id="launch-actions"):
+                    yield Button("长期记忆", id="memory")
                     yield Button("运行新会话", id="start", variant="primary")
             yield TextArea(
                 str(getattr(self._args, "task", "") or ""),
@@ -418,6 +612,22 @@ class OperatorConsoleApp(App[None]):
         self.query_one("#launch", Vertical).display = False
         self._set_busy(True, "正在装配 Runtime...")
         self._execute_start(task, workspace, session_title)
+
+    @on(Button.Pressed, "#memory")
+    def show_long_term_memory(self) -> None:
+        """从当前 workspace 打开记忆管理；不干扰正在运行的快照。"""
+
+        workspace = self.query_one("#workspace", Input).value.strip()
+        if not workspace:
+            self._show_error("请先填写 Workspace。")
+            return
+        memory_root = resolve_operator_memory_root(self._args, workspace)
+        self.push_screen(
+            LongTermMemoryScreen(
+                memory_root=memory_root,
+                workspace=workspace,
+            )
+        )
 
     @on(Button.Pressed, "#send")
     @on(Input.Submitted, "#operator-input")
@@ -619,6 +829,7 @@ class OperatorConsoleApp(App[None]):
             "#pin-session",
             "#archive-session",
             "#sessions",
+            "#memory",
         ):
             self.query_one(selector, Button).disabled = busy
         self.query_one("#pause", Button).disabled = not busy

@@ -210,6 +210,16 @@ def publish_latest(
     os.utime(artifact_dir, None)
     if scenario:
         _remember_artifact(scenario, artifact_dir, state_root=state_root)
+        source_key = {
+            "control": "governed",
+            "coordinated": "orchestration",
+            "complex": "complex",
+        }.get(scenario)
+        if source_key:
+            (state_root / "state" / "workbench_source.txt").write_text(
+                source_key,
+                encoding="utf-8",
+            )
 
 
 def artifact_from_pointer(pointer: Path) -> Path:

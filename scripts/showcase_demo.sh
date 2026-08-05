@@ -12,7 +12,7 @@ fi
 
 scenario="governed"
 produce_evidence=true
-workbench_view="controls"
+workbench_source="governed"
 pointer_name="run.txt"
 status_evidence_field="latest_run"
 case "${1:-}" in
@@ -24,19 +24,19 @@ case "${1:-}" in
   --show-coordinated)
     scenario="show-coordinated"
     produce_evidence=false
-    workbench_view="orchestration"
+    workbench_source="orchestration"
     ;;
   --show-evaluation)
     scenario="show-evaluation"
     produce_evidence=false
-    workbench_view="feedback"
+    workbench_source="evaluation"
     pointer_name="campaign.txt"
     status_evidence_field="latest_campaign"
     ;;
   --show-complex)
     scenario="show-complex"
     produce_evidence=false
-    workbench_view="complex"
+    workbench_source="complex"
     status_evidence_field="latest_complex"
     ;;
   *)
@@ -55,6 +55,8 @@ fi
 
 state_dir=".agent_forge/debug-lab/state"
 mkdir -p "${state_dir}"
+# Workbench 使用同一个稳定 URL；这个小指针只决定首页默认选中哪次运行。
+printf '%s\n' "${workbench_source}" >"${state_dir}/workbench_source.txt"
 printf '\n=== NanoHarness: open the same Evidence in read-only Workbench ===\n'
 expected_project="$(pwd -P)"
 expected_workbench_source="$(
@@ -142,7 +144,7 @@ if [[ "${ready}" != true ]]; then
   printf 'Workbench did not expose the new Evidence. See %s/workbench.log\n' "${state_dir}" >&2
   exit 1
 fi
-workbench_url="http://127.0.0.1:${port}/?focus=1&view=${workbench_view}&build=${expected_workbench_source:0:12}"
+workbench_url="http://127.0.0.1:${port}/?focus=1"
 printf 'WORKBENCH: %s\n' "${workbench_url}"
 if [[ -d "/Applications/Google Chrome.app" ]]; then
   open -a "Google Chrome" "${workbench_url}"

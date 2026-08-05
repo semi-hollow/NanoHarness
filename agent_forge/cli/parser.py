@@ -272,52 +272,31 @@ def _add_memory_command(subparsers: argparse._SubParsersAction) -> None:
     )
     commands = parser.add_subparsers(dest="memory_command", required=True)
 
-    propose = commands.add_parser(
-        "propose",
-        help="Create a candidate that is not recalled until promoted.",
+    remember = commands.add_parser(
+        "remember",
+        help="Create or update an explicitly authorized durable memory.",
     )
-    propose.add_argument("--workspace", default=".")
-    propose.add_argument(
-        "--namespace",
-        default="",
-        help="Stable logical namespace; defaults to the resolved workspace path.",
-    )
-    propose.add_argument("--memory-root", default=".agent_forge/memory")
-    propose.add_argument("--key", required=True)
-    propose.add_argument(
-        "--kind",
-        required=True,
-        choices=["fact", "decision", "constraint", "preference", "failure_pattern"],
-    )
-    propose.add_argument("--content", required=True)
-    propose.add_argument(
+    remember.add_argument("--workspace", default=".")
+    remember.add_argument("--memory-root", default=".agent_forge/memory")
+    remember.add_argument("--key", required=True)
+    remember.add_argument("--content", required=True)
+    remember.add_argument(
         "--scope",
-        default="workspace",
-        choices=["workspace", "agent_private"],
+        default="project",
+        choices=["user", "project"],
     )
-    propose.add_argument("--agent-name", default="")
-    propose.add_argument("--confidence", type=float, default=0.5)
-    propose.add_argument("--importance", type=float, default=0.5)
-    propose.add_argument("--tag", action="append", default=[])
-    propose.add_argument("--ttl-seconds", type=float)
 
-    promote = commands.add_parser(
-        "promote",
-        help="Promote a candidate with one or more evidence references.",
+    forget = commands.add_parser(
+        "forget",
+        help="Delete one durable memory by its stable ID.",
     )
-    promote.add_argument("memory_id")
-    promote.add_argument("--memory-root", default=".agent_forge/memory")
-    promote.add_argument("--evidence", action="append", required=True)
-
-    for command_name in ["retire", "reject"]:
-        command = commands.add_parser(command_name)
-        command.add_argument("memory_id")
-        command.add_argument("--memory-root", default=".agent_forge/memory")
+    forget.add_argument("memory_id")
+    forget.add_argument("--memory-root", default=".agent_forge/memory")
 
     list_parser = commands.add_parser("list")
-    list_parser.add_argument("--workspace")
-    list_parser.add_argument("--namespace", default="")
+    list_parser.add_argument("--workspace", default=".")
     list_parser.add_argument("--memory-root", default=".agent_forge/memory")
+    list_parser.add_argument("--scope", choices=["user", "project"])
     list_parser.add_argument("--json", action="store_true")
 
 

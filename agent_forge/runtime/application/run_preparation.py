@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import hashlib
+import json
+
 from agent_forge.context.domain import LongTermMemoryRecord
 from agent_forge.runtime.application.dependencies import RuntimeDependencies
 from agent_forge.runtime.application.run_lifecycle import RunLifecycle, StopRequest
@@ -190,7 +193,12 @@ class RunPreparation:
         self._record_skill_selection(session)
 
     def _initialize_memory_context(self, session: AgentRunSession) -> None:
-        """创建 working memory，并注入经过权威与隔离过滤的长期召回结果。"""
+        """创建 working memory，并在 Run 开始时固定长期记忆快照。
+
+        这里只读一次 Repository。后续每个 Turn 都复用
+        ``WorkingMemory.long_term_records``，因此运行中 remember/forget 不会
+        悄悄改变已启动 Run 的判断依据。
+        """
 
         session.messages = [Message(role="user", content=session.task)]
         prior_session_summary = self.config.session_summary
@@ -204,9 +212,7 @@ class RunPreparation:
         )
         memory_namespace = self.config.memory_namespace or str(self.config.workspace)
         recalled_memories = self.memory_recall.recall(
-            session.task,
             namespace=memory_namespace,
-            agent_name=session.agent_name,
             limit=max(0, int(self.config.memory_recall_limit)),
         )
         session.working_memory.seed_long_term(recalled_memories)
@@ -337,7 +343,19 @@ class RunPreparation:
         memory_namespace: str,
         recalled_memories: list[LongTermMemoryRecord],
     ) -> None:
-        """记录被选中的长期记忆身份，不复制完整记忆正文。"""
+        """记录本 Run 固定快照的身份和指纹，不复制记忆正文。"""
+
+        snapshot_payload = [
+            memory_record.to_dict() for memory_record in recalled_memories
+        ]
+        snapshot_sha256 = hashlib.sha256(
+            json.dumps(
+                snapshot_payload,
+                ensure_ascii=False,
+                sort_keys=True,
+                separators=(",", ":"),
+            ).encode("utf-8")
+        ).hexdigest()
 
         self.trace.add(
             0,
@@ -349,7 +367,14 @@ class RunPreparation:
                 "memory_ids": [
                     memory_record.memory_id for memory_record in recalled_memories
                 ],
-                "kinds": [memory_record.kind for memory_record in recalled_memories],
+                "keys": [memory_record.key for memory_record in recalled_memories],
+                "revisions": [
+                    memory_record.revision for memory_record in recalled_memories
+                ],
+                "scopes": [
+                    memory_record.scope for memory_record in recalled_memories
+                ],
+                "snapshot_sha256": snapshot_sha256,
             },
         )
 

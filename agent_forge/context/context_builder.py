@@ -182,11 +182,16 @@ def _fit_context_sections(
         ("available_tools", ", ".join(report.available_tools), 5),
         ("active_skills", "\n\n".join(report.active_skill_cards), 8),
         (
+            "project_instructions",
+            report.project_instructions,
+            10,
+        ),
+        # 稳定前缀的最后一段：放在动态文件、检索和会话历史之前。
+        (
             "long_term_memory",
             "\n".join(f"- {item}" for item in report.long_term_memory),
             11,
         ),
-        ("project_instructions", report.project_instructions, 10),
         (
             "selected_file_previews",
             "\n\n".join(report.selected_file_previews),
