@@ -67,6 +67,12 @@ class DebugLabSupportTest(unittest.TestCase):
                 "$PROJECT_DIR$/examples/operator_console.py",
                 "",
             ),
+            (
+                "NanoHarness Evidence Workbench - Read Only",
+                "workbench",
+                "$PROJECT_DIR$/examples/debug_lab/run.py",
+                "workbench",
+            ),
         )
         actual: list[tuple[str, str]] = []
         for name, scenario, script, parameters in expected:
@@ -98,6 +104,7 @@ class DebugLabSupportTest(unittest.TestCase):
             "NanoHarness Lab 1 - Governed Repair.run.xml",
             "NanoHarness Lab 2 - Coordinated Agents.run.xml",
             "NanoHarness Lab 3 - Complex Live Repair.run.xml",
+            "NanoHarness Evidence Workbench - Read Only.run.xml",
         }
         actual = {path.name for path in (PROJECT_ROOT / ".run").glob("*.run.xml")}
 
@@ -111,6 +118,7 @@ class DebugLabSupportTest(unittest.TestCase):
             "NanoHarness Lab 1 - Governed Repair",
             "NanoHarness Lab 2 - Coordinated Agents",
             "NanoHarness Lab 3 - Complex Live Repair",
+            "NanoHarness Evidence Workbench - Read Only",
             "自然修复",
             "上下文压力",
             "人工控制与恢复",
@@ -350,6 +358,24 @@ class DebugLabSupportTest(unittest.TestCase):
         run_evaluation.assert_called_once_with()
         open_workbench.assert_not_called()
 
+    def test_read_only_workbench_entry_does_not_run_a_lab(self) -> None:
+        with (
+            patch.object(sys, "argv", ["run.py", "workbench"]),
+            patch.object(debug_lab, "run_governed") as run_governed,
+            patch.object(debug_lab, "run_coordinated") as run_coordinated,
+            patch.object(debug_lab, "run_evaluation") as run_evaluation,
+            patch.object(
+                debug_lab,
+                "_open_published_evidence_in_workbench",
+            ) as open_workbench,
+        ):
+            debug_lab.main()
+
+        run_governed.assert_not_called()
+        run_coordinated.assert_not_called()
+        run_evaluation.assert_not_called()
+        open_workbench.assert_called_once_with("complex", stay_attached=True)
+
     @patch("examples.debug_lab.run.subprocess.run")
     def test_scripted_scenarios_open_their_matching_workbench_scene(
         self,
@@ -359,6 +385,7 @@ class DebugLabSupportTest(unittest.TestCase):
             "governed": "--show-governed",
             "coordinated": "--show-coordinated",
             "evaluation": "--show-evaluation",
+            "complex": "--show-complex",
         }
         for scenario, flag in expected.items():
             with self.subTest(scenario=scenario):
@@ -369,7 +396,17 @@ class DebugLabSupportTest(unittest.TestCase):
                     check=True,
                 )
 
-        self.assertEqual(run_process.call_count, 3)
+        self.assertEqual(run_process.call_count, 4)
+
+        debug_lab._open_published_evidence_in_workbench(
+            "complex",
+            stay_attached=True,
+        )
+        run_process.assert_called_with(
+            [str(debug_lab.WORKBENCH_LAUNCHER), "--serve-complex"],
+            cwd=debug_lab.PROJECT_ROOT,
+            check=True,
+        )
 
     def test_benchmark_support_accepts_any_ready_docker_compatible_daemon(self) -> None:
         completed = unittest.mock.Mock(returncode=0)

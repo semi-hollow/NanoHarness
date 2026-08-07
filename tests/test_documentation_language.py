@@ -48,8 +48,32 @@ STUDY_NOTES_CONTROL_PLANE = (
 )
 
 PROTECTED_PUBLIC_RECORDS = {
-    "docs/evaluation/failure-driven-improvements.md": 56,
+    "docs/evaluation/failure-driven-improvements.md": 15,
 }
+
+REQUIRED_FAILURE_RECORD_TOPICS = (
+    "相同 ToolCall",
+    "ToolRouter",
+    "Context",
+    "长期记忆",
+    "`ask_human`",
+    "operation key",
+    "Operation Ledger",
+    "Checkpoint",
+    "Multi-Agent",
+    "Failure Taxonomy",
+    "Usage",
+    "数据飞轮",
+)
+
+LOW_VALUE_FAILURE_HEADING_MARKERS = (
+    "Workbench",
+    "PyCharm",
+    "Windows",
+    "Docker",
+    "浏览器",
+    "窄屏",
+)
 
 ALLOWED_DOC_SURFACES = (
     "docs/adr/",
@@ -160,6 +184,7 @@ class DocumentationLanguageTest(unittest.TestCase):
             "NanoHarness Lab 1 - Governed Repair",
             "NanoHarness Lab 2 - Coordinated Agents",
             "NanoHarness Lab 3 - Complex Live Repair",
+            "NanoHarness Evidence Workbench - Read Only",
             "scripts/install_pycharm_debug_lab.py",
             "Debugger 看动态因果；Workbench 看最终留下的可验证 Evidence",
             "自然修复",
@@ -187,6 +212,7 @@ class DocumentationLanguageTest(unittest.TestCase):
             ".run/NanoHarness Lab 1 - Governed Repair.run.xml",
             ".run/NanoHarness Lab 2 - Coordinated Agents.run.xml",
             ".run/NanoHarness Lab 3 - Complex Live Repair.run.xml",
+            ".run/NanoHarness Evidence Workbench - Read Only.run.xml",
         ):
             if not (PROJECT_ROOT / relative_path).is_file():
                 violations.append(f"Debug Lab support is missing: {relative_path}")
@@ -209,14 +235,29 @@ class DocumentationLanguageTest(unittest.TestCase):
             if not path.exists():
                 violations.append(f"protected first-party record was deleted: {relative_path}")
                 continue
-            case_count = len(
-                re.findall(r"^### \d+\.", path.read_text(encoding="utf-8"), re.MULTILINE)
+            record_text = path.read_text(encoding="utf-8")
+            case_headings = re.findall(
+                r"^### \d+\. .+$",
+                record_text,
+                re.MULTILINE,
             )
+            case_count = len(case_headings)
             if case_count < minimum_case_count:
                 violations.append(
-                    f"{relative_path}: protected cases fell from {minimum_case_count} "
-                    f"to {case_count}"
+                    f"{relative_path}: curated runtime cases fell below "
+                    f"{minimum_case_count}: {case_count}"
                 )
+            for topic in REQUIRED_FAILURE_RECORD_TOPICS:
+                if topic not in record_text:
+                    violations.append(
+                        f"{relative_path}: required runtime topic is missing: {topic}"
+                    )
+            for marker in LOW_VALUE_FAILURE_HEADING_MARKERS:
+                if any(marker in heading for heading in case_headings):
+                    violations.append(
+                        f"{relative_path}: low-value delivery issue returned as a case: "
+                        f"{marker}"
+                    )
 
         result = subprocess.run(
             [

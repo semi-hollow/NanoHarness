@@ -24,6 +24,27 @@ NanoHarness 使用 SWE-bench Verified `test` split 的 500 个公开 case 作为
 4. 每题都有 `FAIL_TO_PASS` 与 `PASS_TO_PASS`，可以区分目标修复和回归保护；
 5. 五题足以做每次提交的低成本机制诊断，不足以估计 SWE-bench Verified 总体解决率。
 
+## 固定 100 题样本与增量分片
+
+需要形成比 Smoke-5 更稳定的项目指标时，使用
+[`swebench-verified-100-v1.json`](../../benchmarks/cohorts/swebench-verified-100-v1.json)。
+它把 Verified 500 题按固定 seed 与 `instance_id` 的 SHA-256 排序，取前 100 题；选择过程
+不读取题目正文、test patch、gold patch 或历史运行结果。母集再按顺序拆成互斥的 `a`、`b`
+两个 50 题分片：先跑 `a`，以后扩到 100 时只跑 `b`，不会重复计费。
+
+```bash
+forge bench campaign \
+  --cohort-manifest benchmarks/cohorts/swebench-verified-100-v1.json \
+  --cohort-shard a --repetitions 1 \
+  --provider deepseek --model deepseek-v4-flash \
+  --thinking enabled --reasoning-effort max \
+  --max-steps 16 --cost-budget-usd 0.05 \
+  --evaluate --official-cache-level env --publish
+```
+
+输出口径必须是“固定 50 题样本上 official resolved `X/50`”。它能证明项目有预注册分母、
+官方 oracle 和成本意识，但一次运行不能估计随机稳定性，也不是官方排行榜提交。
+
 ## 固定 SWE-bench Verified Smoke-5
 
 下表中的参考 patch 规模只用于运行后的样本审计，不会进入 Agent prompt。

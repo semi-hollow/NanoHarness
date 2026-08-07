@@ -13,16 +13,17 @@ source .venv/bin/activate
 python -m pip install -e '.[dev]'
 ```
 
-三个 `.run` 配置已经随仓库提供。只有需要自动安装阅读 Scope 和按函数名重新定位断点时，才关闭
+四个 `.run` 配置已经随仓库提供。只有需要自动安装阅读 Scope 和按函数名重新定位断点时，才关闭
 PyCharm 并额外执行一次 `.venv/bin/python scripts/install_pycharm_debug_lab.py`；平时不需要阅读该脚本。
 
-然后用 PyCharm 单独打开 NanoHarness，使用右上角绿色 Debug 按钮。共享配置只有三个：
+然后用 PyCharm 单独打开 NanoHarness，使用右上角绿色 Debug 按钮。前三个配置负责运行，最后一个只读复盘：
 
 | 顺序 | PyCharm 配置 | 你要掌握的主问题 | 模型 |
 | --- | --- | --- | --- |
 | 1 | `NanoHarness Lab 1 - Governed Repair` | 写操作如何经过审批、Checkpoint、恢复、幂等与验证 | 确定性适配器，免费 |
 | 2 | `NanoHarness Lab 2 - Coordinated Agents` | 无冲突任务如何并行，怎样隔离、校验范围、合并并最终收口 | 确定性适配器，免费 |
 | 3 | `NanoHarness Lab 3 - Complex Live Repair` | 真实模型怎样在多模块缺陷中检索、试错、修改、回归并收敛 | DeepSeek，产生费用 |
+| - | `NanoHarness Evidence Workbench - Read Only` | 不重跑 Lab，直接打开最近一次 Lab 3 Evidence；页面内可切换其他来源 | 不调用模型，免费 |
 
 断点按场景自动隔离：Lab 1 有 7 个、Lab 2 有 5 个、Lab 3 有 5 个。运行一个 Lab 不会停进另一个
 Lab。Project 面板优先选择 `00 NanoHarness Review Path`；Lab 2/3 再切到

@@ -164,7 +164,7 @@ Python 的 `next(generator, None)`、推导式、`any/all` 和海象运算符都
 
 代码减重不等于删除真实能力。CLI、Adapter、完整 benchmark campaign 和跨平台安装脚本仍是可用
 边界，但不应同时成为首次学习入口。项目现在只保留四个共享 PyCharm 配置：三个正式 Lab 分别
-覆盖受治理运行、多 Agent 协同和评测改进闭环；Operator Console 只承担可选的真实模型体验。
+覆盖受治理运行、多 Agent 协同和复杂真实修复；第四个只读打开已持久化的 Evidence，不重新执行模型。
 
 三个 Lab 统一完成以下动作：固定输入，进入正式 Runtime，发布 Evidence，自动打开对应 Workbench
 场景。Debugger 用于观察动态因果，Workbench 用于回放已经落盘的状态、Trace、Artifact 和评测
@@ -172,7 +172,7 @@ Python 的 `next(generator, None)`、推导式、`any/all` 和海象运算符都
 脚本或文档。
 
 Debug Lab 的运行说明、入口地图和脱稿验收也收敛到一个 README。评分卡、重复的 Run 配置目录和
-不存在的旧按钮被删除；AST/回归测试精确锁定四个共享配置和三个自动打开 Workbench 的场景。
+不存在的旧按钮被删除；AST/回归测试精确锁定四个共享配置、三个产证 Lab 和一个只读复盘入口。
 14 个 symbol 断点按 `7 + 5 + 2` 绑定各自场景，运行一个 Lab 不会再停进另一条主线。真实模型
 交互和完整 benchmark 分别只有 Operator Console 与 campaign 一个操作 owner，不再从 Debug runner
 暴露重复 wrapper。后续增加能力时，优先接入现有三条心智模型，不按 feature 新建 Lab。只有真实

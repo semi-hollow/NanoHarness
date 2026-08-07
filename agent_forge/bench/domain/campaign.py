@@ -14,6 +14,7 @@ from dataclasses import asdict, dataclass, field
 from typing import Any
 from urllib.parse import urlsplit, urlunsplit
 
+from agent_forge.bench.domain.cohort import CohortSelection
 from agent_forge.bench.domain.config import SwebenchRunRequest, safe_id
 
 
@@ -90,6 +91,7 @@ class BenchmarkCampaignRequest:
     resume: bool = True
     allow_dirty: bool = False
     variants: tuple[CampaignVariant, ...] = DEFAULT_CAMPAIGN_VARIANTS
+    cohort: CohortSelection | None = None
 
     def __post_init__(self) -> None:
         if not _CAMPAIGN_ID.fullmatch(self.campaign_id) or self.campaign_id in {".", ".."}:
@@ -110,6 +112,15 @@ class BenchmarkCampaignRequest:
                 "campaign currently requires a versioned dataset/regression set; "
                 "custom cases_file needs a content digest contract first"
             )
+        if self.cohort is not None:
+            if self.case_ids != self.cohort.case_ids:
+                raise ValueError(
+                    "campaign case_ids must exactly match the selected cohort shard"
+                )
+            if self.benchmark.dataset_name != self.cohort.dataset_name:
+                raise ValueError("campaign dataset must match the cohort manifest")
+            if self.benchmark.split != self.cohort.split:
+                raise ValueError("campaign split must match the cohort manifest")
 
     def identity(self) -> dict[str, Any]:
         """返回可持久化的实验身份，刻意排除密钥和本机绝对路径。"""
@@ -134,7 +145,7 @@ class BenchmarkCampaignRequest:
             base.pop(key, None)
         base["base_url"] = _safe_base_url(str(base.get("base_url") or ""))
         base["cases_file"] = "custom" if base.get("cases_file") else ""
-        return {
+        identity = {
             "schema_version": CAMPAIGN_SCHEMA_VERSION,
             "campaign_id": self.campaign_id,
             "regression_set": self.regression_set,
@@ -144,6 +155,9 @@ class BenchmarkCampaignRequest:
             "benchmark": base,
             "variants": [variant.to_dict() for variant in self.variants],
         }
+        if self.cohort is not None:
+            identity["cohort"] = self.cohort.to_dict()
+        return identity
 
 
 # 核心数据：campaign 中一个 case、一次 repetition、一个 variant 的执行槽位。

@@ -28,6 +28,7 @@ from agent_forge.bench.domain.catalog import (
     SHOWCASE_INSTANCE_NOTE,
 )
 from agent_forge.bench.domain.campaign import BenchmarkCampaignRequest
+from agent_forge.bench.domain.cohort import load_benchmark_cohort
 from agent_forge.bench.domain.config import SwebenchRunRequest
 from agent_forge.bench.domain.models import BenchRunSummary
 from agent_forge.bench.presentation.case_inspection import (
@@ -194,13 +195,21 @@ def build_swebench_parser(parser: argparse.ArgumentParser) -> None:
 
 
 def build_campaign_parser(parser: argparse.ArgumentParser) -> None:
-    """注册可恢复的 Smoke-5 repeated matched campaign 参数。"""
+    """注册固定集合或预注册 cohort 的可恢复配对 campaign 参数。"""
 
     parser.add_argument("--campaign-id")
     parser.add_argument(
         "--regression-set",
         choices=sorted(REGRESSION_SETS),
         default="smoke-5",
+    )
+    parser.add_argument(
+        "--cohort-manifest",
+        help="Versioned cohort JSON; when set, it owns dataset, split and case ids.",
+    )
+    parser.add_argument(
+        "--cohort-shard",
+        help="Named non-overlapping shard inside --cohort-manifest.",
     )
     parser.add_argument("--repetitions", type=int, default=3)
     parser.add_argument("--dataset", default=DEFAULT_DATASET)
@@ -339,8 +348,25 @@ def run_swebench_from_args(args: argparse.Namespace) -> BenchRunSummary:
 def run_campaign_from_args(args: argparse.Namespace) -> BenchmarkCampaignResult:
     """Campaign 不接受任意 factor 组合，避免 UI/CLI 产生不可解释实验。"""
 
-    case_ids = tuple(REGRESSION_SETS[args.regression_set])
-    campaign_id = args.campaign_id or create_campaign_id(args.regression_set)
+    cohort = None
+    cohort_manifest_path = getattr(args, "cohort_manifest", None)
+    cohort_shard = getattr(args, "cohort_shard", None)
+    if cohort_manifest_path:
+        if not cohort_shard:
+            raise ValueError("--cohort-shard is required with --cohort-manifest")
+        cohort = load_benchmark_cohort(cohort_manifest_path).select_shard(cohort_shard)
+        if args.dataset != cohort.dataset_name or args.split != cohort.split:
+            raise ValueError("--dataset/--split must match the cohort manifest")
+        case_ids = cohort.case_ids
+        regression_set = f"{cohort.cohort_id}:{cohort.shard}"
+        campaign_prefix = f"{cohort.cohort_id}-{cohort.shard}"
+    else:
+        if cohort_shard:
+            raise ValueError("--cohort-shard requires --cohort-manifest")
+        case_ids = tuple(REGRESSION_SETS[args.regression_set])
+        regression_set = args.regression_set
+        campaign_prefix = regression_set
+    campaign_id = args.campaign_id or create_campaign_id(campaign_prefix)
     benchmark = SwebenchRunRequest(
         dataset_name=args.dataset,
         split=args.split,
@@ -372,12 +398,13 @@ def run_campaign_from_args(args: argparse.Namespace) -> BenchmarkCampaignResult:
             benchmark=benchmark,
             case_ids=case_ids,
             campaign_id=campaign_id,
-            regression_set=args.regression_set,
+            regression_set=regression_set,
             repetitions=args.repetitions,
             output_root=args.output_root,
             publish_root=args.publish_root if args.publish else "",
             resume=args.resume,
             allow_dirty=args.allow_dirty,
+            cohort=cohort,
         )
     )
 

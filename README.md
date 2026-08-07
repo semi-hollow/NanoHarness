@@ -124,6 +124,7 @@ PyCharm 运行配置：
 - `NanoHarness Lab 1 - Governed Repair`
 - `NanoHarness Lab 2 - Coordinated Agents`
 - `NanoHarness Lab 3 - Complex Live Repair`
+- `NanoHarness Evidence Workbench - Read Only`：不执行 Agent，直接在 Chrome 打开最近一次 Lab 3 Evidence；页面内可切换其他已发布来源。
 
 所有入口发布的 Evidence 都在同一个 Workbench 地址中切换，不需要记不同页面链接。具体运行顺序见
 [Debug Lab](examples/debug_lab/README.md)。外部项目也可以通过

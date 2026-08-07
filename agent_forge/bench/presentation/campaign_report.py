@@ -39,6 +39,17 @@ def render_campaign_report(
         f"- planned runs: `{summary.get('planned_runs')}`",
         f"- config digest: `{state.config_digest}`",
     ]
+    cohort = config.get("cohort")
+    if isinstance(cohort, dict):
+        lines.extend(
+            [
+                f"- cohort/shard: `{cohort.get('cohort_id')}` / `{cohort.get('shard')}`",
+                f"- cohort cases/universe: `{cohort.get('case_count')}` / `{cohort.get('universe_size')}`",
+                f"- selection: `{cohort.get('selection_method')}`",
+                f"- dataset revision: `{cohort.get('dataset_revision')}`",
+                f"- cohort SHA-256: `{cohort.get('cohort_sha256')}`",
+            ]
+        )
     provenance_note = str(config.get("provenance_note") or "").strip()
     if provenance_note:
         lines.append(f"- provenance note: {provenance_note}")
@@ -148,8 +159,8 @@ def render_campaign_report(
             "- Candidate patch rate uses all planned runs and measures edit reachability, not correctness.",
             "- Official resolved rate uses only explicit resolved/unresolved official reports; missing evaluation is never converted to 0%.",
             "- The two presets intentionally differ in both tool routing and Skill activation, so this campaign evaluates the preset as a whole.",
-            "- The selected case set is for mechanism regression or commissioning. It does not estimate SWE-bench Verified population performance or rank models.",
-            _repetition_boundary(repetitions),
+            _selection_boundary(config),
+            _repetition_boundary(repetitions, len(config.get("case_ids") or [])),
             "",
         ]
     )
@@ -167,7 +178,12 @@ def _rate_with_denominator(numerator: Any, denominator: Any) -> str:
     return f"{top}/{bottom} ({top / bottom:.1%})" if bottom else "not available"
 
 
-def _repetition_boundary(repetitions: int) -> str:
+def _repetition_boundary(repetitions: int, case_count: int) -> str:
+    if repetitions == 1 and case_count >= 30:
+        return (
+            f"- Each of the `{case_count}` cases was run once per preset. This measures "
+            "sample coverage, but it does not estimate run-to-run stochastic stability."
+        )
     if repetitions < 3:
         return (
             f"- Repetition count is `{repetitions}`; fewer than three repetitions are "
@@ -176,6 +192,20 @@ def _repetition_boundary(repetitions: int) -> str:
     return (
         f"- Repetition count is `{repetitions}`; repeated observations expose obvious "
         "instability but do not establish strong statistical significance."
+    )
+
+
+def _selection_boundary(config: dict[str, Any]) -> str:
+    cohort = config.get("cohort")
+    if not isinstance(cohort, dict):
+        return (
+            "- The selected case set is for mechanism regression or commissioning. "
+            "It does not estimate SWE-bench Verified population performance or rank models."
+        )
+    return (
+        "- Report the result as the resolved rate on this pre-registered deterministic "
+        "sample. Sampling error, one run per case and provider behavior prevent treating "
+        "it as an official leaderboard score."
     )
 
 

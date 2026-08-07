@@ -12,8 +12,9 @@ fi
 
 scenario="governed"
 produce_evidence=true
+stay_attached=false
 workbench_source="governed"
-pointer_name="run.txt"
+pointer_path=".agent_forge/latest/run.txt"
 status_evidence_field="latest_run"
 case "${1:-}" in
   "") ;;
@@ -30,17 +31,26 @@ case "${1:-}" in
     scenario="show-evaluation"
     produce_evidence=false
     workbench_source="evaluation"
-    pointer_name="campaign.txt"
+    pointer_path=".agent_forge/latest/campaign.txt"
     status_evidence_field="latest_campaign"
     ;;
   --show-complex)
     scenario="show-complex"
     produce_evidence=false
     workbench_source="complex"
+    pointer_path=".agent_forge/debug-lab/state/complex_artifact.txt"
+    status_evidence_field="latest_complex"
+    ;;
+  --serve-complex)
+    scenario="serve-complex"
+    produce_evidence=false
+    stay_attached=true
+    workbench_source="complex"
+    pointer_path=".agent_forge/debug-lab/state/complex_artifact.txt"
     status_evidence_field="latest_complex"
     ;;
   *)
-    printf 'Usage: scripts/showcase_demo.sh [--show-governed|--show-coordinated|--show-complex|--show-evaluation]\n' >&2
+    printf 'Usage: scripts/showcase_demo.sh [--show-governed|--show-coordinated|--show-complex|--serve-complex|--show-evaluation]\n' >&2
     exit 2
     ;;
 esac
@@ -63,7 +73,11 @@ expected_workbench_source="$(
   .venv/bin/python -c \
     'import hashlib,pathlib; print(hashlib.sha256(pathlib.Path("agent_forge/workbench/presentation/http.py").read_bytes()).hexdigest())'
 )"
-expected_evidence="$(.venv/bin/python -c 'import os,pathlib,sys; print(os.path.realpath(pathlib.Path(".agent_forge/latest", sys.argv[1]).read_text().strip()))' "${pointer_name}")"
+if [[ ! -f "${pointer_path}" ]]; then
+  printf 'No published Evidence found at %s. Run the matching Lab once first.\n' "${pointer_path}" >&2
+  exit 2
+fi
+expected_evidence="$(.venv/bin/python -c 'import os,pathlib,sys; print(os.path.realpath(pathlib.Path(sys.argv[1]).read_text().strip()))' "${pointer_path}")"
 port=8765
 status_json=""
 if [[ -f "${state_dir}/workbench.port" ]]; then
@@ -119,9 +133,15 @@ elif [[ -n "${running_project}" ]] && \
 fi
 
 if [[ -z "${status_json}" ]]; then
-  nohup .venv/bin/python -m agent_forge ui --no-open --port "${port}" \
-    >"${state_dir}/workbench.log" 2>&1 &
-  printf '%s\n' "$!" >"${state_dir}/workbench.pid"
+  if [[ "${stay_attached}" == true ]]; then
+    .venv/bin/python -m agent_forge ui --no-open --port "${port}" \
+      >"${state_dir}/workbench.log" 2>&1 &
+  else
+    nohup .venv/bin/python -m agent_forge ui --no-open --port "${port}" \
+      >"${state_dir}/workbench.log" 2>&1 &
+  fi
+  workbench_pid="$!"
+  printf '%s\n' "${workbench_pid}" >"${state_dir}/workbench.pid"
   printf '%s\n' "${port}" >"${state_dir}/workbench.port"
 fi
 
@@ -156,3 +176,12 @@ fi
 printf '%s\n' \
   'Learning path: Governed Run -> Coordinated Agents -> Complex Live Repair -> optional Evaluation Archive' \
   'Boundary: Workbench reads Evidence; Harness/CLI owns execution.'
+
+if [[ "${stay_attached}" == true ]] && [[ -n "${workbench_pid:-}" ]]; then
+  printf 'Workbench stays attached to this Run Configuration; click Stop to close it.\n'
+  cleanup_workbench() {
+    kill "${workbench_pid}" 2>/dev/null || true
+  }
+  trap cleanup_workbench EXIT INT TERM
+  wait "${workbench_pid}" || true
+fi

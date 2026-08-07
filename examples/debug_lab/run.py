@@ -25,6 +25,7 @@ WORKBENCH_FLAGS = {
     "governed": "--show-governed",
     "coordinated": "--show-coordinated",
     "evaluation": "--show-evaluation",
+    "complex": "--show-complex",
 }
 sys.path.insert(0, str(PROJECT_ROOT))
 
@@ -56,18 +57,45 @@ def _restore_saved_astropy_evidence() -> None:
     )
 
 
-def _open_published_evidence_in_workbench(scenario: str) -> None:
-    """复用统一启动器，打开当前 Lab 对应的只读 Evidence 场景。"""
+def _open_published_evidence_in_workbench(
+    scenario: str,
+    *,
+    stay_attached: bool = False,
+) -> None:
+    """复用统一启动器，打开当前 Lab 对应的只读 Evidence 场景。
+
+    ``stay_attached`` 只给独立 Workbench 配置使用：PyCharm 持有服务进程，
+    点击停止即可关闭；三个 Lab 完成后仍只负责弹出已有的后台服务。
+    """
 
     try:
         show_flag = WORKBENCH_FLAGS[scenario]
     except KeyError as exc:
         raise ValueError(f"场景不支持自动打开 Workbench: {scenario}") from exc
-    subprocess.run(
-        [str(WORKBENCH_LAUNCHER), show_flag],
-        cwd=PROJECT_ROOT,
-        check=True,
+    if stay_attached:
+        if scenario != "complex":
+            raise ValueError("当前只有复杂任务 Evidence 支持独立前台 Workbench")
+        show_flag = "--serve-complex"
+    try:
+        subprocess.run(
+            [str(WORKBENCH_LAUNCHER), show_flag],
+            cwd=PROJECT_ROOT,
+            check=True,
+        )
+    except KeyboardInterrupt:
+        if not stay_attached:
+            raise
+        print("\n只读 Workbench 已停止。")
+
+
+def open_existing_evidence_workbench() -> None:
+    """只读打开最近一次 Lab 3 Evidence，不重新执行 Agent。"""
+
+    print(
+        "WORKBENCH ONLY: 不运行 Agent、不调用模型；"
+        "默认打开最近一次 Lab 3，页面内可切换其他已发布证据。"
     )
+    _open_published_evidence_in_workbench("complex", stay_attached=True)
 
 
 def run_governed() -> None:
@@ -280,6 +308,7 @@ def main() -> None:
             "governed",
             "coordinated",
             "evaluation",
+            "workbench",
         ),
     )
     parser.add_argument(
@@ -293,6 +322,12 @@ def main() -> None:
     )
     args = parser.parse_args()
     os.chdir(PROJECT_ROOT)
+
+    # 只读入口与三个产证 Lab 分开：复盘历史运行不应再次消耗模型 token。
+    if args.scenario == "workbench":
+        open_existing_evidence_workbench()
+        return
+
     {
         "governed": run_governed,
         "coordinated": run_coordinated,

@@ -180,10 +180,20 @@ class FileEvidenceCatalog(EvidenceCatalogPort):
             or campaign_summary.get("campaign_id")
             or "Harness 配置配对评测"
         )
+        campaign_config = campaign_state.get("config")
+        if not isinstance(campaign_config, dict):
+            campaign_config = {}
+        case_count = len(campaign_config.get("case_ids") or [])
+        variant_count = len(campaign_config.get("variants") or [])
+        title = (
+            f"SWE-bench 样本评测 · {case_count} Case × {variant_count} 配置"
+            if case_count and variant_count
+            else "SWE-bench 样本评测"
+        )
         return EvidenceSource(
             key="evaluation",
-            title="评测与改进批次",
-            description="配对运行、失败归因、证据等级与改进决策",
+            title=title,
+            description="固定样本、配对运行、官方结果、成本与失败分布",
             source_type="benchmark",
             task=task,
             status=status,
