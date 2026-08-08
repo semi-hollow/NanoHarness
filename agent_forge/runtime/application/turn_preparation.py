@@ -42,6 +42,7 @@ class PreparedTurn:
     estimated_prompt_tokens: int
     compacted: bool
     session_digest: SessionDigest | None
+    phase: str
 
 
 class TurnPreparation:
@@ -118,6 +119,7 @@ class TurnPreparation:
                 task=session.task,
                 schemas=self.tool_gateway.schemas(),
                 step=step,
+                max_steps=session.max_iterations,
                 agent_name=session.agent_name,
                 skill_tool_names=session.skill_tool_names,
                 mode=self.config.tool_routing_mode,
@@ -130,12 +132,15 @@ class TurnPreparation:
             "dangerous commands denied; "
             f"{self.execution_environment.render_boundary_summary()}"
         )
-        if step == session.max_iterations:
-            visible_tool_schemas = []
-            allowed_tool_names = set()
+        if tool_route.phase == "finalize":
             model_permission_summary += (
                 "; final step: no more tool calls are available, provide the best "
                 "evidence-based final answer and clearly mark unverified items"
+            )
+        elif tool_route.phase == "closeout":
+            model_permission_summary += (
+                "; closure phase: broad discovery is closed; use this last tool "
+                "turn only to finish the smallest repair and inspect evidence"
             )
         # endregion 2. 工具路由结束
 
@@ -174,10 +179,17 @@ class TurnPreparation:
             role="system",
             content=assembled_context.render(),
         )
+        model_history = list(session.messages)
+        runtime_control_message = self._turn_budget_control_message(
+            step=step,
+            max_steps=session.max_iterations,
+        )
+        if runtime_control_message is not None:
+            model_history.append(runtime_control_message)
         prepared_window = self.context_window.prepare(
             ContextWindowRequest(
                 system_message=system_context_message,
-                history=session.messages,
+                history=model_history,
                 observations=session.observations,
                 tools=visible_tool_schemas,
                 task=session.task,
@@ -205,8 +217,45 @@ class TurnPreparation:
             estimated_prompt_tokens=prepared_window.estimated_tokens_after,
             compacted=prepared_window.compacted,
             session_digest=prepared_window.digest,
+            phase=tool_route.phase,
         )
         # endregion 4. 会话窗口治理结束
+
+    @staticmethod
+    def _turn_budget_control_message(
+        *,
+        step: int,
+        max_steps: int,
+    ) -> Message | None:
+        """在接近预算边界时追加不落入会话历史的 Runtime 控制消息。"""
+
+        remaining_tool_turns = max(0, max_steps - step)
+        if remaining_tool_turns == 0:
+            return Message(
+                role="user",
+                content=(
+                    "[RUNTIME CONTROL] Tool execution is closed. Return the final "
+                    "evidence-based answer now. Do not emit tool-call markup."
+                ),
+            )
+        if remaining_tool_turns == 1:
+            return Message(
+                role="user",
+                content=(
+                    "[RUNTIME CONTROL] This is the last tool-enabled turn. Do not "
+                    "start broad discovery. Finish the smallest repair, validation, "
+                    "or diff check that can still change the outcome."
+                ),
+            )
+        if remaining_tool_turns == 2:
+            return Message(
+                role="user",
+                content=(
+                    "[RUNTIME CONTROL] Closure phase has started. Stop broad "
+                    "search and converge on the strongest supported repair."
+                ),
+            )
+        return None
 
     # region 证据记录器（首次阅读可折叠）
     def _record_context_assembly(
@@ -243,6 +292,8 @@ class TurnPreparation:
                 "instructions": assembled_context.instruction_evidence,
                 "tool_routing": {
                     "reason": tool_route.reason,
+                    "phase": tool_route.phase,
+                    "remaining_tool_turns": tool_route.remaining_tool_turns,
                     "allowed_tools": sorted(allowed_tool_names),
                     "dropped_tools": tool_route.dropped_names,
                     "metadata": tool_route.metadata,

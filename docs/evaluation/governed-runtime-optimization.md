@@ -63,14 +63,52 @@ v2 选择第三种，固定以下不变量：
 | 轮次 | 数据角色 | 主动变化 | 结果 | 决策 |
 | --- | --- | --- | --- | --- |
 | v1 / A | 开发证据 | 通用 3-Skill + 原 task-aware 路由 | Governed 14/50，Minimal 20/50 | 拒绝发布“治理提升正确性”结论 |
-| v2 / A 子集 | 开发验证 | 单一 Skill、搜索去重、受限验证回退 | 待运行 | 只用于排查实现是否按预期生效 |
-| v2 / B | 未见验收 | 冻结 v2 后盲跑 50×2 | 待运行 | 只以 B 的预注册分母判断是否泛化 |
+| v2 / A 高差异子集 | 开发验证 | 单一 Skill、搜索去重、受限验证回退 | Governed 由 1/7 回升到 3/7；Minimal 为 6/7 | 方向有效，但不足以冻结并盲跑 B |
+| v3 / A 高差异子集 | 开发验证 | 预算阶段、最终轮零工具、创建文件能力、canonical schema | 待运行 | 先验证行为机制，再决定是否冻结 |
+| v3 / B | 未见验收 | 冻结候选后盲跑 50×2 | 待运行 | 只以 B 的预注册分母判断是否泛化 |
 
 A 可以反复用于定位问题，但不能一边查看结果一边宣称泛化。B 在代码和配置冻结后只运行一次。
 如果 v2 在 B 仍未超过 Minimal，必须保留负结果；下一轮可以把 B 变成开发证据，但验收必须换用
 未见 C 分片。反复刷同一 holdout 直到获胜会把 benchmark 变成训练集。
 
-## 5. 可复述的工程结论
+## 5. v2 为什么只恢复到 3/7
+
+这 7 题是从 A 分片中挑出的高差异开发样本，不能当作总体解决率。它们的作用是快速判断修复是否
+击中了机制：v1 Governed 只解决 1 题，v2 解决 3 题，而同批 Minimal 解决 6 题。
+
+Trace 与 official report 将剩余问题收敛为三类：
+
+1. **没有进入编辑**：`django-15375` 为 12 次 grep、9 次 read、0 次 write；
+   `django-16082` 为 11 次 grep、10 次 read、0 次 write。模型已经命中相关文件，却没有在预算内
+   从“继续找”切换到“形成假设并修改”。
+2. **补丁不完整**：`sympy-12489` 修改了构造入口，却遗漏乘法、幂和求逆等内部调用点；
+   `django-11239` 把 SSL 参数放进错误的调用契约。减少工具失败并没有改善语义影响面判断。
+3. **候选正确但运行协议未收口**：`django-16560` 和 `django-13028` 已被 official evaluator 判定
+   resolved，Runtime 却在第 16 步因 pending ToolCall 标记 blocked。候选正确性与运行终止语义被
+   混为一个结论。
+
+另外，v2 的 5 个候选补丁都没有得到有效的本地行为验证反馈，official 结果却为 3 resolved、
+2 failed。这说明通用 `pytest/unittest` 门面还不能替代异构仓库的原生验证入口。
+
+## 6. v3 选择的最小修复
+
+v3 不继续堆 Prompt，而把已观测问题变成 Runtime 不变量：
+
+1. 最终回答轮统一为零工具；structured ToolCall 与文本 ToolCall 使用同一 fail-closed 处理，
+   provider 编码差异不能改变停止语义。
+2. 预算末段由 Runtime 注入短控制消息；最后一个工具轮关闭目录级漫游，但保留 read/grep/edit/
+   validate，使模型在验证失败后仍能读取报错源码，而不是被迫盲改。
+3. 新增 `create_file`，只允许创建不存在的 workspace 文件；保留审批和沙箱，并继续隐藏能覆盖已有
+   内容的 `write_file`。这是补齐任务可达性，不是放宽权限。
+4. Registry 只向模型暴露 canonical `grep_search` schema，历史 `grep` 名称仍可由 Gateway 执行；
+   `mode=all` 不再等于“把同义别名也发给模型”。
+5. Cohort 声明的 Hugging Face revision 真正传入数据加载器，实验身份不再只是 metadata。
+
+尚未在 v3 内扩大的能力边界：验证结果还需要从二值 `success` 演进为 `PASSED / FAILED /
+UNAVAILABLE`；异构仓库更适合由受信任 `project_validation profile` 生成 argv，而不是继续增加 Shell
+自由度。这两项先作为下一轮证据驱动改进，不在当前候选中混入大重构。
+
+## 7. 可复述的工程结论
 
 这次最重要的经验不是“加了 Skill 后分数提高”，而是：
 

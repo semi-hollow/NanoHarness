@@ -424,10 +424,16 @@ Smoke-5 是从 SWE-bench Verified 中分层选择的低成本机制回归集，�
 `grep`/`grep_search` 是同义工具；SWE-bench 路由隐藏了异构仓库需要的受限验证回退。Governed 在
 真正编辑的 Case 中更早修改，但 no-patch Case 更多，已生成 patch 的 official 接受率也更低。
 
-**当前不变量**：自动选择一个主 Skill；SWE-bench 使用专用、短小的修复工作流；task-aware 工具
-视图去掉同义 schema；标准验证失败时只允许回退到 CommandPolicy 白名单，而不是开放任意 shell。
+**v2 结果**：在 7 个高差异 A 分片开发样本上，Governed 从 1/7 回升到 3/7，但仍低于 Minimal
+的 6/7。剩余失败包括命中目标文件却不编辑、语义影响面漏改，以及 official 已 resolved 但 Runtime
+仍以 pending ToolCall 阻断。方向有效，但不能据此冻结候选并盲跑 B。
 
-**验收边界**：A 是开发证据；冻结 v2 后只用未见 B 分片做一次 50×2 验收。若 B 仍失败，保留负
+**当前不变量**：自动选择一个主 Skill；Skill 只提供短认知策略，不拥有工具、权限或预算；模型目录
+只暴露 canonical schema；`create_file` 只补齐新文件能力，不能覆盖已有内容；最后一个工具轮仍保留
+读取错误源码的恢复能力，最终回答轮则对所有配置严格零工具。structured/text ToolCall 使用同一停止
+语义，Cohort 的 dataset revision 必须进入真实加载调用。
+
+**验收边界**：A 是开发证据；冻结候选后只用未见 B 分片做一次 50×2 验收。若 B 仍失败，保留负
 结果并换新 holdout，而不是反复调同一批题直到获胜。完整分析见
 [`governed-runtime-optimization.md`](governed-runtime-optimization.md)。
 

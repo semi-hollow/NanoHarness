@@ -28,6 +28,36 @@ class RawToolMarkupLLM:
         )
 
 
+class StructuredFinalToolCallLLM:
+    last_usage = None
+
+    def chat(self, messages, tools):
+        return AgentResponse(
+            None,
+            [ToolCall("final-read", "read_file", {"path": "target.py"})],
+        )
+
+
+class CaptureFinalTurnControlLLM:
+    """记录每轮真实模型输入，验证 Runtime 的最终收口消息。"""
+
+    last_usage = None
+
+    def __init__(self):
+        self.calls = 0
+        self.requests = []
+
+    def chat(self, messages, tools):
+        self.calls += 1
+        self.requests.append((list(messages), list(tools)))
+        if self.calls == 1:
+            return AgentResponse(
+                None,
+                [ToolCall("read-1", "read_file", {"path": "target.py"})],
+            )
+        return AgentResponse("PASS\nfinal answer", [])
+
+
 class RepeatReadThenFinalLLM:
     last_usage = None
 
@@ -250,6 +280,34 @@ class ValidationFailureRecoveryLLM:
 
 
 class AgentLoopPolicyTest(unittest.TestCase):
+    def test_final_turn_has_no_tools_and_explicit_runtime_control(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "target.py").write_text("value = 1\n", encoding="utf-8")
+            trace_path = root / "trace.json"
+            trace = TraceRecorder(str(trace_path))
+            registry = ToolRegistry()
+            registry.register(ReadFileTool(WorkspaceSandbox(root)))
+            model = CaptureFinalTurnControlLLM()
+
+            final = build_agent_loop(
+                RuntimeConfig(
+                    workspace=tmp,
+                    max_steps=2,
+                    trace_file=str(trace_path),
+                ),
+                trace,
+                registry,
+                model,
+            ).run("resolve this coding issue")
+
+            self.assertIn("final answer", final)
+            self.assertEqual(len(model.requests), 2)
+            final_messages, final_tools = model.requests[1]
+            self.assertEqual(final_tools, [])
+            self.assertEqual(final_messages[-1].role, "user")
+            self.assertIn("Tool execution is closed", final_messages[-1].content)
+
     def test_agent_name_flows_into_trace(self):
         with tempfile.TemporaryDirectory() as tmp:
             trace_path = Path(tmp) / "trace.json"
@@ -302,6 +360,37 @@ class AgentLoopPolicyTest(unittest.TestCase):
                     for event in trace.events
                 )
             )
+
+    def test_structured_tool_call_on_final_turn_uses_same_blocked_reason(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "target.py").write_text("value = 1\n", encoding="utf-8")
+            trace_path = root / "trace.json"
+            trace = TraceRecorder(str(trace_path))
+            registry = ToolRegistry()
+            registry.register(ReadFileTool(WorkspaceSandbox(root)))
+
+            final = build_agent_loop(
+                RuntimeConfig(
+                    workspace=tmp,
+                    max_steps=1,
+                    trace_file=str(trace_path),
+                ),
+                trace,
+                registry,
+                StructuredFinalToolCallLLM(),
+            ).run("resolve a coding issue")
+
+            self.assertIn("blocked: pending_tool_call_at_stop", final)
+            self.assertFalse(
+                any(event["event_type"] == "tool_call" for event in trace.events)
+            )
+            rejected = [
+                event
+                for event in trace.events
+                if event["event_type"] == "pending_tool_call_rejected"
+            ]
+            self.assertEqual(rejected[0]["tool_call"], "read_file")
 
     def test_repeated_read_only_tool_call_warns_and_continues(self):
         with tempfile.TemporaryDirectory() as tmp:

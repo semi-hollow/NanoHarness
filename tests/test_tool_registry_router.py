@@ -15,7 +15,29 @@ class DummyTool:
         return Observation(self.name, True, arguments["path"])
 
 
+class NamedDummyTool:
+    def __init__(self, name: str) -> None:
+        self.name = name
+
+    def schema(self):
+        return {"name": self.name, "arguments": {}}
+
+    def execute(self, arguments):
+        return Observation(self.name, True, "ok")
+
+
 class ToolRegistryRouterTest(unittest.TestCase):
+    def test_registry_executes_legacy_search_alias_but_exposes_one_schema(self):
+        registry = ToolRegistry()
+        registry.register(NamedDummyTool("grep"))
+        registry.register(NamedDummyTool("grep_search"))
+
+        self.assertIsNotNone(registry.get("grep"))
+        self.assertEqual(
+            [schema["name"] for schema in registry.schemas()],
+            ["grep_search"],
+        )
+
     def test_registry_validates_missing_arguments(self):
         registry = ToolRegistry()
         registry.register(DummyTool())
@@ -53,6 +75,7 @@ class ToolRegistryRouterTest(unittest.TestCase):
                 "name": "replace_text",
                 "arguments": {"path": "str", "old": "str", "new": "str"},
             },
+            {"name": "create_file", "arguments": {"path": "str", "content": "str"}},
             {"name": "write_file", "arguments": {"path": "str", "content": "str"}},
             {"name": "run_command", "arguments": {"command": "str"}},
             {"name": "git_diff", "arguments": {}},
@@ -133,6 +156,7 @@ class ToolRegistryRouterTest(unittest.TestCase):
                 "name": "replace_text",
                 "arguments": {"path": "str", "old": "str", "new": "str"},
             },
+            {"name": "create_file", "arguments": {"path": "str", "content": "str"}},
             {"name": "write_file", "arguments": {"path": "str", "content": "str"}},
             {"name": "run_command", "arguments": {"command": "str"}},
             {
@@ -153,6 +177,7 @@ class ToolRegistryRouterTest(unittest.TestCase):
             )
         )
         self.assertIn("replace_text", route.allowed_names)
+        self.assertIn("create_file", route.allowed_names)
         self.assertIn("python_validation", route.allowed_names)
         self.assertNotIn("write_file", route.allowed_names)
         self.assertIn("run_command", route.allowed_names)
@@ -162,6 +187,97 @@ class ToolRegistryRouterTest(unittest.TestCase):
             "swebench_validation=python_validation|allowlisted_run_command",
             route.reason,
         )
+
+    def test_swebench_work_phase_keeps_discovery_before_closeout(self):
+        schemas = [
+            {"name": "list_files"},
+            {"name": "read_file"},
+            {"name": "grep_search"},
+            {"name": "replace_text"},
+            {"name": "create_file"},
+            {"name": "python_validation"},
+            {"name": "run_command"},
+            {"name": "git_status"},
+            {"name": "git_diff"},
+            {"name": "ask_human"},
+        ]
+
+        route = ToolRouter().route(
+            ToolRoutingRequest(
+                task="Resolve this SWE-bench coding issue.",
+                schemas=schemas,
+                step=14,
+                max_steps=16,
+            )
+        )
+
+        self.assertIn("list_files", route.allowed_names)
+        self.assertIn("grep_search", route.allowed_names)
+        self.assertIn("ask_human", route.allowed_names)
+        self.assertIn("read_file", route.allowed_names)
+        self.assertIn("replace_text", route.allowed_names)
+        self.assertIn("python_validation", route.allowed_names)
+        self.assertEqual(route.phase, "work")
+
+    def test_last_swebench_tool_turn_after_write_focuses_on_closure(self):
+        schemas = [
+            {"name": "list_files"},
+            {"name": "read_file"},
+            {"name": "grep_search"},
+            {"name": "replace_text"},
+            {"name": "create_file"},
+            {"name": "python_validation"},
+            {"name": "run_command"},
+            {"name": "git_diff"},
+        ]
+
+        route = ToolRouter().route(
+            ToolRoutingRequest(
+                task="Resolve this SWE-bench coding issue.",
+                schemas=schemas,
+                step=15,
+                max_steps=16,
+            )
+        )
+
+        self.assertEqual(
+            route.allowed_names,
+            {
+                "read_file",
+                "grep_search",
+                "replace_text",
+                "create_file",
+                "python_validation",
+                "run_command",
+                "git_diff",
+            },
+        )
+        self.assertIn("closure_phase=repair_closeout", route.reason)
+        self.assertEqual(route.phase, "closeout")
+
+    def test_final_turn_is_empty_even_in_all_mode(self):
+        schemas = [
+            {"name": "read_file"},
+            {"name": "grep_search"},
+            {"name": "replace_text"},
+            {"name": "python_validation"},
+            {"name": "git_diff"},
+        ]
+
+        route = ToolRouter().route(
+            ToolRoutingRequest(
+                task="Resolve this SWE-bench coding issue.",
+                schemas=schemas,
+                step=16,
+                max_steps=16,
+                mode="all",
+            )
+        )
+
+        self.assertEqual(route.allowed_names, set())
+        self.assertEqual(route.schemas, [])
+        self.assertEqual(route.phase, "finalize")
+        self.assertEqual(route.dropped_names, sorted(item["name"] for item in schemas))
 
 
 if __name__ == "__main__":

@@ -54,6 +54,7 @@ from agent_forge.runtime.ports import (
 )
 from agent_forge.safety.sandbox import WorkspaceSandbox
 from agent_forge.skills import build_default_skill_registry
+from agent_forge.tools.create_file import CreateFileTool
 from agent_forge.tools.replace_text import ReplaceTextTool
 from agent_forge.tools.ask_human import AskHumanTool
 from agent_forge.tools.python_validation import PythonValidationTool
@@ -134,6 +135,7 @@ def build_registry(request: ToolRegistryBuildRequest) -> ToolRegistry:
         ListFilesTool(sandbox),
         ReadFileTool(sandbox),
         WriteFileTool(sandbox, request.auto),
+        CreateFileTool(sandbox, request.auto),
         GrepTool(sandbox),
         GrepSearchTool(sandbox),
         ReplaceTextTool(sandbox, request.auto),

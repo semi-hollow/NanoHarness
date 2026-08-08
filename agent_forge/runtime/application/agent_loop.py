@@ -208,7 +208,9 @@ class AgentLoop:
         if model_response.error:
             return self._handle_model_failure(session, model_response, step)
 
-        if not model_response.tool_calls:
+        # FINALIZE 阶段对 structured ToolCall 和文本 ToolCall 使用同一拒绝路径，
+        # 防止 provider 编码差异改变停止原因或让最终轮意外执行工具。
+        if prepared_turn.phase == "finalize" or not model_response.tool_calls:
             return self.final_answer_builder.build_stop_request(
                 session,
                 model_response,

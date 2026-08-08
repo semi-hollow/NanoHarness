@@ -54,6 +54,11 @@ def build_case_inspection_parser(parser: argparse.ArgumentParser) -> None:
 
     parser.add_argument("instance_id")
     parser.add_argument("--dataset", default=DEFAULT_DATASET)
+    parser.add_argument(
+        "--dataset-revision",
+        default="",
+        help="Optional immutable Hugging Face dataset revision.",
+    )
     parser.add_argument("--split", default="test")
     parser.add_argument("--cases-file")
     parser.add_argument("--show-test-patch", action="store_true")
@@ -67,6 +72,11 @@ def build_swebench_parser(parser: argparse.ArgumentParser) -> None:
     """注册 benchmark 执行、实验身份和隔离环境参数。"""
 
     parser.add_argument("--dataset", default=DEFAULT_DATASET)
+    parser.add_argument(
+        "--dataset-revision",
+        default="",
+        help="Optional immutable Hugging Face dataset revision.",
+    )
     parser.add_argument("--split", default="test")
     parser.add_argument("--limit", type=int, default=1)
     parser.add_argument("--instance-id", action="append", default=[])
@@ -213,6 +223,11 @@ def build_campaign_parser(parser: argparse.ArgumentParser) -> None:
     )
     parser.add_argument("--repetitions", type=int, default=3)
     parser.add_argument("--dataset", default=DEFAULT_DATASET)
+    parser.add_argument(
+        "--dataset-revision",
+        default="",
+        help="Optional immutable Hugging Face dataset revision.",
+    )
     parser.add_argument("--split", default="test")
     parser.add_argument(
         "--provider",
@@ -297,6 +312,7 @@ def run_swebench_from_args(args: argparse.Namespace) -> BenchRunSummary:
     )
     return run_swebench(SwebenchRunRequest(
         dataset_name=args.dataset,
+        dataset_revision=args.dataset_revision,
         split=args.split,
         limit=limit,
         instance_ids=tuple(instance_ids),
@@ -369,6 +385,9 @@ def run_campaign_from_args(args: argparse.Namespace) -> BenchmarkCampaignResult:
     campaign_id = args.campaign_id or create_campaign_id(campaign_prefix)
     benchmark = SwebenchRunRequest(
         dataset_name=args.dataset,
+        dataset_revision=(
+            cohort.dataset_revision if cohort is not None else args.dataset_revision
+        ),
         split=args.split,
         provider=args.provider,
         model=args.model,

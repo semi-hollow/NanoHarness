@@ -16,7 +16,11 @@ class SwebenchCaseSource(CaseSourcePort):
         raw_cases = (
             self._load_cases_file(request.cases_file)
             if request.cases_file
-            else self._load_huggingface_cases(request.dataset_name, request.split)
+            else self._load_huggingface_cases(
+                request.dataset_name,
+                request.split,
+                request.dataset_revision,
+            )
         )
         cases: list[BenchCase] = []
         for raw in raw_cases:
@@ -53,6 +57,7 @@ class SwebenchCaseSource(CaseSourcePort):
     def _load_huggingface_cases(
         dataset_name: str,
         split: str,
+        dataset_revision: str = "",
     ) -> list[dict[str, Any]]:
         if importlib.util.find_spec("datasets") is None:
             raise RuntimeError(
@@ -61,5 +66,8 @@ class SwebenchCaseSource(CaseSourcePort):
             )
         from datasets import load_dataset
 
-        dataset = load_dataset(dataset_name, split=split)
+        load_options: dict[str, str] = {"split": split}
+        if dataset_revision:
+            load_options["revision"] = dataset_revision
+        dataset = load_dataset(dataset_name, **load_options)
         return [dict(row) for row in dataset]

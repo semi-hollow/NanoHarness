@@ -56,6 +56,7 @@ class ToolRoutingRequest:
     task: str
     schemas: list[dict]
     step: int = 1
+    max_steps: int = 0
     agent_name: str = ""
     skill_tool_names: set[str] | None = None
     mode: str = "task-aware"
@@ -71,6 +72,8 @@ class ToolRoute:
     reason: str
     dropped_names: list[str]
     metadata: dict[str, dict]
+    phase: str = "work"
+    remaining_tool_turns: int | None = None
 
     def policy_summary(self) -> dict[str, object]:
         """生成可写入 trace 和 UI 的真实路由摘要。"""
@@ -83,6 +86,8 @@ class ToolRoute:
                 "hidden": len(self.dropped_names),
             },
             "metadata": self.metadata,
+            "phase": self.phase,
+            "remaining_tool_turns": self.remaining_tool_turns,
         }
 
 
@@ -159,6 +164,12 @@ class ToolRouter:
             "latency": "low",
             "mode": "write",
         },
+        "create_file": {
+            "capability": "edit",
+            "risk": "medium",
+            "latency": "low",
+            "mode": "write",
+        },
         "write_file": {
             "capability": "edit",
             "risk": "high",
@@ -191,6 +202,7 @@ class ToolRouter:
         task_text = request.task
         candidate_schemas = request.schemas
         current_step = request.step
+        max_steps = request.max_steps
         agent_name = request.agent_name
         active_skill_tool_names = request.skill_tool_names
         routing_mode = request.mode
@@ -199,8 +211,27 @@ class ToolRouter:
             schema.get("name", ""): schema for schema in candidate_schemas
         }
         registered_tool_names = set(schema_by_tool_name)
+        remaining_tool_turns = (
+            max(0, max_steps - current_step) if max_steps > 0 else None
+        )
         if routing_mode not in {"task-aware", "all"}:
             raise ValueError(f"unsupported tool routing mode: {routing_mode}")
+
+        # FINALIZE 是所有配置共享的硬边界。即使 ``mode=all`` 或 Skill 请求了工具，
+        # 最终 turn 也只能生成结论；这样 schema、执行白名单和 Trace 保持一致。
+        if remaining_tool_turns == 0:
+            return ToolRoute(
+                schemas=[],
+                allowed_names=set(),
+                reason=(
+                    f"phase=finalize selected=0 dropped={len(registered_tool_names)} "
+                    f"step={current_step} agent={agent_name or 'agent'}"
+                ),
+                dropped_names=sorted(registered_tool_names),
+                metadata={},
+                phase="finalize",
+                remaining_tool_turns=0,
+            )
 
         # ``all`` 只表示全部工具对模型可见，执行时仍然要经过权限与安全策略。
         if routing_mode == "all":
@@ -224,6 +255,12 @@ class ToolRouter:
                     )
                     for name in sorted(registered_tool_names)
                 },
+                phase=(
+                    "closeout_unrestricted_ablation"
+                    if remaining_tool_turns == 1
+                    else "work"
+                ),
+                remaining_tool_turns=remaining_tool_turns,
             )
         # endregion 1. 候选目录结束
 
@@ -258,6 +295,7 @@ class ToolRouter:
         ):
             visible_tool_names |= registered_tool_names & {
                 "replace_text",
+                "create_file",
                 "write_file",
                 "run_command",
                 "python_validation",
@@ -306,10 +344,16 @@ class ToolRouter:
 
         # 再次应用只读约束，确保 Skill 也不能把写入或命令工具加回来。
         if is_read_only_task:
-            visible_tool_names -= {"replace_text", "write_file", "run_command"}
+            visible_tool_names -= {
+                "replace_text",
+                "create_file",
+                "write_file",
+                "run_command",
+            }
 
-        # SWE-bench 使用锚点替换并隐藏整文件覆盖。固定 Python 验证器是首选；受命令
-        # 白名单约束的 run_command 作为异构仓库测试入口的回退，不获得任意 shell 能力。
+        # SWE-bench 使用锚点替换或“仅创建”工具，并隐藏可覆盖已有内容的 write_file。
+        # 固定 Python 验证器是首选；受命令白名单约束的 run_command 作为异构仓库
+        # 测试入口回退，不获得任意 shell 能力。
         is_swebench_task = (
             "swe-bench" in normalized_task_text
             or "swebench" in normalized_task_text
@@ -318,6 +362,7 @@ class ToolRouter:
             visible_tool_names.discard("write_file")
             visible_tool_names |= registered_tool_names & {
                 "replace_text",
+                "create_file",
                 "python_validation",
                 "run_command",
                 "git_diff",
@@ -346,12 +391,42 @@ class ToolRouter:
                 or any(keyword in tool_search_text for keyword in task_keywords)
             ):
                 visible_tool_names.add(tool_name)
+
+        # SWE-bench 的最后一个可执行工具 turn 进入收口阶段。这里关闭目录级漫游和
+        # 人工澄清，但保留 read/grep：最后一次验证失败后，模型仍需读取报错相关源码，
+        # 不能被迫盲改。真正的硬边界是下一轮 FINALIZE 的零工具视图。
+        closure_phase = "open"
+        is_closeout_turn = is_swebench_task and remaining_tool_turns == 1
+        if is_closeout_turn:
+            if is_read_only_task:
+                closeout_tool_names = {
+                    "list_files",
+                    "read_file",
+                    "grep",
+                    "grep_search",
+                    "git_status",
+                    "git_diff",
+                }
+                closure_phase = "read_only_closeout"
+            else:
+                closeout_tool_names = {
+                    "read_file",
+                    "grep",
+                    "grep_search",
+                    "replace_text",
+                    "create_file",
+                    "python_validation",
+                    "run_command",
+                    "git_diff",
+                }
+                closure_phase = "repair_closeout"
+            visible_tool_names &= closeout_tool_names
         # endregion 3. 专项策略结束
 
         # region 4. 输出投影：生成模型 schema、执行白名单和可观测证据
         # 兼容兜底：规则未选中任何工具时保持旧行为，暴露全部已注册工具。这是可见性
         # fail-open，不会绕过执行阶段的 Hook 和权限检查。
-        if not visible_tool_names:
+        if not visible_tool_names and not is_closeout_turn:
             visible_tool_names = set(registered_tool_names)
 
         # 保持 Registry 原始 schema 顺序，使 provider 请求和 Trace 在多次运行间稳定。
@@ -369,6 +444,11 @@ class ToolRouter:
         )
         if is_swebench_task and "python_validation" in visible_tool_names:
             routing_reason += " swebench_validation=python_validation|allowlisted_run_command"
+        if remaining_tool_turns is not None:
+            routing_reason += (
+                f" closure_phase={closure_phase}"
+                f" remaining_tool_turns={remaining_tool_turns}"
+            )
         return ToolRoute(
             schemas=visible_tool_schemas,
             allowed_names={
@@ -388,5 +468,7 @@ class ToolRouter:
                 )
                 for name in sorted(visible_tool_names)
             },
+            phase=("closeout" if remaining_tool_turns == 1 else "work"),
+            remaining_tool_turns=remaining_tool_turns,
         )
         # endregion 4. 输出投影结束

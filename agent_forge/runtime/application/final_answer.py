@@ -18,14 +18,14 @@ class FinalAnswerBuilder:
     def __init__(self, trace: EventSink) -> None:
         self.trace = trace
 
-    # 主要入口：把无 tool call 的模型响应归一化为完成、阻塞或继续验证。
+    # 主要入口：把最终模型响应归一化为完成或阻塞，拒绝任何待执行 ToolCall。
     def build_stop_request(
         self,
         session: AgentRunSession,
         response: AgentResponse,
         step: int,
     ) -> StopRequest:
-        """把无 ToolCall 的模型响应转换为可由 lifecycle 持久化的停止请求。
+        """把最终模型响应转换为可由 lifecycle 持久化的停止请求。
 
         流程位置：模型文本与 terminal transition 之间的 claim boundary。
         规范上游：``AgentLoop``。
@@ -35,7 +35,11 @@ class FinalAnswerBuilder:
         删除/内联影响：会让模型文本绕过 claim boundary 直接成为完成结论。
         """
 
-        rejected_tool_name = self._raw_tool_name(response.content or "")
+        rejected_tool_name = (
+            response.tool_calls[0].name
+            if response.tool_calls
+            else self._raw_tool_name(response.content or "")
+        )
         if rejected_tool_name is not None:
             final_answer = "blocked: pending_tool_call_at_stop"
             self._record_rejected_tool_request(

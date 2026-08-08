@@ -101,13 +101,17 @@ class SkillSpec:
         )
         done = "\n".join(f"  - {item}" for item in self.done_criteria)
         failure = "\n".join(f"  - {item}" for item in self.failure_modes)
-        return (
-            f"skill:{self.name}@{self.version}\n"
-            f"purpose:{self.description}\n"
-            f"procedure:\n{procedure or '  1. Follow the skill description.'}\n"
-            f"done_criteria:\n{done or '  - Produce a grounded final answer.'}\n"
-            f"failure_recovery:\n{failure or '  - If blocked, explain the blocker with evidence.'}"
-        )
+        sections = [
+            f"skill:{self.name}@{self.version}",
+            f"purpose:{self.description}",
+        ]
+        if procedure:
+            sections.append(f"procedure:\n{procedure}")
+        if done:
+            sections.append(f"done_criteria:\n{done}")
+        if failure:
+            sections.append(f"failure_recovery:\n{failure}")
+        return "\n".join(sections)
 
     def catalog_entry(self, *, reason: str = "") -> "SkillCatalogEntry":
         """只返回 discovery 所需 metadata，不展开操作步骤正文。"""

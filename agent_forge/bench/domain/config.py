@@ -18,6 +18,7 @@ class SwebenchRunRequest:
 
     # 数据集与 case 选择。
     dataset_name: str = "SWE-bench/SWE-bench_Verified"
+    dataset_revision: str = ""
     split: str = "test"
     limit: int = 1
     instance_ids: tuple[str, ...] = ()

@@ -66,7 +66,10 @@ class SkillDisclosureTest(unittest.TestCase):
         prompt_card = selected[0].prompt_card()
 
         self.assertEqual([skill.name for skill in selected], ["swebench_repair"])
-        self.assertIn("preserve the final two turns", prompt_card)
+        self.assertIn("smallest evidence-backed repair", prompt_card)
+        self.assertLess(len(prompt_card), 500)
+        self.assertNotIn("done_criteria:", prompt_card)
+        self.assertNotIn("failure_recovery:", prompt_card)
         self.assertNotIn("permissions:", prompt_card)
         self.assertNotIn("dependencies:", prompt_card)
         self.assertNotIn("tools:", prompt_card)

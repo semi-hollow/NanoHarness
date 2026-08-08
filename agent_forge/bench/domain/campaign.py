@@ -128,6 +128,8 @@ class BenchmarkCampaignRequest:
                 )
             if self.benchmark.dataset_name != self.cohort.dataset_name:
                 raise ValueError("campaign dataset must match the cohort manifest")
+            if self.benchmark.dataset_revision != self.cohort.dataset_revision:
+                raise ValueError("campaign dataset revision must match the cohort manifest")
             if self.benchmark.split != self.cohort.split:
                 raise ValueError("campaign split must match the cohort manifest")
 

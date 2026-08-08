@@ -3,12 +3,41 @@ import unittest
 from pathlib import Path
 
 from agent_forge.safety.sandbox import WorkspaceSandbox
+from agent_forge.tools.create_file import CreateFileTool
 from agent_forge.tools.replace_text import ReplaceTextTool
 from agent_forge.tools.registry import ToolRegistry
 from agent_forge.tools.write_file import WriteFileTool
 
 
 class WriteReplaceTextToolsTest(unittest.TestCase):
+    def test_create_file_creates_new_path_but_never_overwrites(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            tool = CreateFileTool(WorkspaceSandbox(root))
+
+            created = tool.execute(
+                {"path": "package/new_module.py", "content": "VALUE = 1\n"}
+            )
+            self.assertTrue(created.success, created.content)
+            target = root / "package/new_module.py"
+            self.assertEqual(target.read_text(encoding="utf-8"), "VALUE = 1\n")
+
+            duplicate = tool.execute(
+                {"path": "package/new_module.py", "content": "VALUE = 2\n"}
+            )
+            self.assertFalse(duplicate.success)
+            self.assertIn("already exists", duplicate.content)
+            self.assertEqual(target.read_text(encoding="utf-8"), "VALUE = 1\n")
+
+    def test_create_file_keeps_workspace_and_sensitive_path_boundaries(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tool = CreateFileTool(WorkspaceSandbox(tmp))
+
+            with self.assertRaises(PermissionError):
+                tool.execute({"path": "../escape.py", "content": "bad\n"})
+            with self.assertRaises(PermissionError):
+                tool.execute({"path": ".env", "content": "SECRET=1\n"})
+
     def test_replace_text_requires_exactly_one_old_text(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
