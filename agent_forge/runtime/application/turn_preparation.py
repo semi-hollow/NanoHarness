@@ -114,6 +114,14 @@ class TurnPreparation:
         # endregion 1. Turn 起点结束
 
         # region 2. 工具路由：收敛模型可见 schema，并保持权限摘要一致
+        remaining_tool_turns = max(0, session.max_iterations - step)
+        # 只有临近收口才读取 Git Diff，避免大型仓库每个 turn 都启动一次 git。
+        # 这是真实工作区结果，不以“模型调用过写工具”代替最终改动事实。
+        candidate_diff_present = (
+            bool(self.execution_environment.diff().strip())
+            if remaining_tool_turns <= 2
+            else None
+        )
         tool_route = self.tool_router.route(
             ToolRoutingRequest(
                 task=session.task,
@@ -123,12 +131,13 @@ class TurnPreparation:
                 agent_name=session.agent_name,
                 skill_tool_names=session.skill_tool_names,
                 mode=self.config.tool_routing_mode,
+                candidate_diff_present=candidate_diff_present,
             )
         )
         visible_tool_schemas: list[ToolSchema] = tool_route.schemas
         allowed_tool_names = set(tool_route.allowed_names)
         model_permission_summary = (
-            "read/list/grep allowed; replace_text/write_file asks approval; "
+            "read/list/grep allowed; replace_text/create_file/write_file asks approval; "
             "dangerous commands denied; "
             f"{self.execution_environment.render_boundary_summary()}"
         )
@@ -138,10 +147,16 @@ class TurnPreparation:
                 "evidence-based final answer and clearly mark unverified items"
             )
         elif tool_route.phase == "closeout":
-            model_permission_summary += (
-                "; closure phase: broad discovery is closed; use this last tool "
-                "turn only to finish the smallest repair and inspect evidence"
-            )
+            if candidate_diff_present is False:
+                model_permission_summary += (
+                    "; repair commit phase: no candidate diff exists; this last tool "
+                    "turn is reserved for one evidence-backed workspace mutation"
+                )
+            else:
+                model_permission_summary += (
+                    "; repair verify phase: a candidate diff exists; use this last "
+                    "tool turn only to verify, inspect, or correct it"
+                )
         # endregion 2. 工具路由结束
 
         # region 3. 静态上下文组装：仓库、Memory、Skill 与权限边界汇合
@@ -174,6 +189,7 @@ class TurnPreparation:
             assembled_context=assembled_context,
             tool_route=tool_route,
             allowed_tool_names=allowed_tool_names,
+            candidate_diff_present=candidate_diff_present,
         )
         system_context_message = Message(
             role="system",
@@ -183,6 +199,7 @@ class TurnPreparation:
         runtime_control_message = self._turn_budget_control_message(
             step=step,
             max_steps=session.max_iterations,
+            candidate_diff_present=candidate_diff_present,
         )
         if runtime_control_message is not None:
             model_history.append(runtime_control_message)
@@ -226,6 +243,7 @@ class TurnPreparation:
         *,
         step: int,
         max_steps: int,
+        candidate_diff_present: bool | None = None,
     ) -> Message | None:
         """在接近预算边界时追加不落入会话历史的 Runtime 控制消息。"""
 
@@ -239,20 +257,38 @@ class TurnPreparation:
                 ),
             )
         if remaining_tool_turns == 1:
+            if candidate_diff_present is False:
+                return Message(
+                    role="user",
+                    content=(
+                        "[RUNTIME CONTROL] No candidate diff exists. This is the "
+                        "last tool-enabled turn and it is reserved for the smallest "
+                        "evidence-backed replace_text/create_file mutation. Do not "
+                        "search or validate unchanged code; if evidence is still "
+                        "insufficient, do not guess."
+                    ),
+                )
             return Message(
                 role="user",
                 content=(
-                    "[RUNTIME CONTROL] This is the last tool-enabled turn. Do not "
-                    "start broad discovery. Finish the smallest repair, validation, "
-                    "or diff check that can still change the outcome."
+                    "[RUNTIME CONTROL] A candidate diff exists and this is the last "
+                    "tool-enabled turn. Do not start broad discovery. Validate, inspect, "
+                    "or correct the smallest remaining risk."
                 ),
             )
         if remaining_tool_turns == 2:
+            diff_status = (
+                "No candidate diff exists yet; gather only the final evidence needed "
+                "to make the next turn's concrete edit. "
+                if candidate_diff_present is False
+                else "A candidate diff already exists; focus on its semantic gaps. "
+            )
             return Message(
                 role="user",
                 content=(
-                    "[RUNTIME CONTROL] Closure phase has started. Stop broad "
-                    "search and converge on the strongest supported repair."
+                    "[RUNTIME CONTROL] Closure phase has started. "
+                    f"{diff_status}Stop broad search and converge on the strongest "
+                    "supported repair."
                 ),
             )
         return None
@@ -266,6 +302,7 @@ class TurnPreparation:
         assembled_context: ContextReportView,
         tool_route: ToolRoute,
         allowed_tool_names: set[str],
+        candidate_diff_present: bool | None,
     ) -> None:
         """记录上下文来源、裁剪和工具可见性，不保存完整 Prompt 正文。"""
 
@@ -294,6 +331,7 @@ class TurnPreparation:
                     "reason": tool_route.reason,
                     "phase": tool_route.phase,
                     "remaining_tool_turns": tool_route.remaining_tool_turns,
+                    "candidate_diff_present": candidate_diff_present,
                     "allowed_tools": sorted(allowed_tool_names),
                     "dropped_tools": tool_route.dropped_names,
                     "metadata": tool_route.metadata,

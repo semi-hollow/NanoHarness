@@ -22,3 +22,6 @@ class EnvironmentPort(Protocol):
 
     def render_boundary_summary(self) -> str:
         """返回模型可见的简短权限说明。"""
+
+    def diff(self) -> str:
+        """返回 active workspace 相对基线的真实候选改动。"""

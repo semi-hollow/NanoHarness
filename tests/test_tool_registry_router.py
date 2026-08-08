@@ -85,7 +85,7 @@ class ToolRegistryRouterTest(unittest.TestCase):
                 "You are Implementer, the coding implementer.",
                 "Original task: Resolve this coding issue.",
                 "Role instructions: make the smallest safe code change. Do not edit tests unless explicitly asked.",
-                "Allowed role tools: read_file, replace_text, write_file, run_command, git_diff",
+                "Allowed role tools: read_file, replace_text, create_file, write_file, run_command, git_diff",
             ]
         )
         route = ToolRouter().route(
@@ -97,6 +97,7 @@ class ToolRegistryRouterTest(unittest.TestCase):
             )
         )
         self.assertIn("replace_text", route.allowed_names)
+        self.assertIn("create_file", route.allowed_names)
         self.assertIn("write_file", route.allowed_names)
         self.assertIn("run_command", route.allowed_names)
         self.assertIn("git_diff", route.allowed_names)
@@ -237,6 +238,7 @@ class ToolRegistryRouterTest(unittest.TestCase):
                 schemas=schemas,
                 step=15,
                 max_steps=16,
+                candidate_diff_present=True,
             )
         )
 
@@ -252,7 +254,35 @@ class ToolRegistryRouterTest(unittest.TestCase):
                 "git_diff",
             },
         )
-        self.assertIn("closure_phase=repair_closeout", route.reason)
+        self.assertIn("closure_phase=repair_verify", route.reason)
+        self.assertIn("candidate_diff_present=true", route.reason)
+        self.assertEqual(route.phase, "closeout")
+
+    def test_last_swebench_tool_turn_without_diff_reserves_candidate_commit(self):
+        schemas = [
+            {"name": "list_files"},
+            {"name": "read_file"},
+            {"name": "grep_search"},
+            {"name": "replace_text"},
+            {"name": "create_file"},
+            {"name": "python_validation"},
+            {"name": "run_command"},
+            {"name": "git_diff"},
+        ]
+
+        route = ToolRouter().route(
+            ToolRoutingRequest(
+                task="Resolve this SWE-bench coding issue.",
+                schemas=schemas,
+                step=15,
+                max_steps=16,
+                candidate_diff_present=False,
+            )
+        )
+
+        self.assertEqual(route.allowed_names, {"replace_text", "create_file"})
+        self.assertIn("closure_phase=repair_commit", route.reason)
+        self.assertIn("candidate_diff_present=false", route.reason)
         self.assertEqual(route.phase, "closeout")
 
     def test_final_turn_is_empty_even_in_all_mode(self):

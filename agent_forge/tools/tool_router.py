@@ -60,6 +60,8 @@ class ToolRoutingRequest:
     agent_name: str = ""
     skill_tool_names: set[str] | None = None
     mode: str = "task-aware"
+    # ``None`` 表示本轮未读取工作区 Diff；收口轮必须传入明确事实。
+    candidate_diff_present: bool | None = None
 
 
 # 核心数据：本 turn 展示给模型和隐藏于模型的真实工具可见性决策。
@@ -392,9 +394,10 @@ class ToolRouter:
             ):
                 visible_tool_names.add(tool_name)
 
-        # SWE-bench 的最后一个可执行工具 turn 进入收口阶段。这里关闭目录级漫游和
-        # 人工澄清，但保留 read/grep：最后一次验证失败后，模型仍需读取报错相关源码，
-        # 不能被迫盲改。真正的硬边界是下一轮 FINALIZE 的零工具视图。
+        # SWE-bench 的最后一个可执行工具 turn 进入收口阶段。此时不再只看“调用过
+        # 什么工具”，而看 active workspace 是否已经存在真实 Candidate Diff：
+        # 无 Diff 时保留最后一次落地修改机会；已有 Diff 时保留验证和修正能力。
+        # 真正的硬边界是下一轮 FINALIZE 的零工具视图。
         closure_phase = "open"
         is_closeout_turn = is_swebench_task and remaining_tool_turns == 1
         if is_closeout_turn:
@@ -408,6 +411,15 @@ class ToolRouter:
                     "git_diff",
                 }
                 closure_phase = "read_only_closeout"
+            elif request.candidate_diff_present is False:
+                # 最后一轮仍没有候选改动时，继续搜索只会得到“Final Answer 里描述
+                # 了补丁、工作区却没有 Diff”的假完成。这里只提供最小写能力；若
+                # 证据仍不足，模型可以不调用工具并如实说明，而不是被迫猜测。
+                closeout_tool_names = {
+                    "replace_text",
+                    "create_file",
+                }
+                closure_phase = "repair_commit"
             else:
                 closeout_tool_names = {
                     "read_file",
@@ -419,7 +431,11 @@ class ToolRouter:
                     "run_command",
                     "git_diff",
                 }
-                closure_phase = "repair_closeout"
+                closure_phase = (
+                    "repair_verify"
+                    if request.candidate_diff_present is True
+                    else "repair_closeout_unknown"
+                )
             visible_tool_names &= closeout_tool_names
         # endregion 3. 专项策略结束
 
@@ -448,6 +464,10 @@ class ToolRouter:
             routing_reason += (
                 f" closure_phase={closure_phase}"
                 f" remaining_tool_turns={remaining_tool_turns}"
+            )
+        if request.candidate_diff_present is not None:
+            routing_reason += (
+                f" candidate_diff_present={str(request.candidate_diff_present).lower()}"
             )
         return ToolRoute(
             schemas=visible_tool_schemas,

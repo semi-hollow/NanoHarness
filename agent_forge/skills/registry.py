@@ -8,6 +8,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from agent_forge.contracts import WORKSPACE_WRITE_TOOL_NAMES
 from agent_forge.runtime.ports.skills import SkillSelectorPort
 from agent_forge.tools.tool_router import task_requests_read_only
 
@@ -340,7 +341,7 @@ def _version_key(version: str) -> tuple[Any, ...]:
 
 
 def _is_write_skill(spec: SkillSpec) -> bool:
-    write_tools = {"replace_text", "write_file", "run_command"}
+    write_tools = {*WORKSPACE_WRITE_TOOL_NAMES, "run_command"}
     return any(tool in write_tools for tool in spec.tool_names) or any(
         permission.startswith("write:") for permission in spec.permissions
     )
