@@ -59,11 +59,16 @@ scorecard。
 
 治理配置减少了约 60.3% 的失败工具调用率和 2.8% 的 Token，但降低了候选改动覆盖和当前样本
 correctness。项目因此**没有**把它包装成全面提升，而是拒绝整套采纳，并将 Tool Routing 与 Skills
-拆成后续单因素实验。50 题每种配置只运行一次；其中一组治理版在一次重试后仍发生 provider
-基础设施错误，所以配对裁决为 49 组（Minimal 6 胜、Governed 1 胜、42 平）。
+拆开定位。50 题每种配置只运行一次；其中一组治理版在一次重试后仍发生 provider 基础设施错误，
+所以配对裁决为 49 组（Minimal 6 胜、Governed 1 胜、42 平）。
+
+表中的 Governed 是被拒绝的 v1 preset，不代表当前冻结实现。后续开发集上，精简为单一 Skill、
+canonical Tool schema 和零工具终态后，7 个高差异 Case 从 v1 的 1/7 恢复到 v3 的 4/7；更复杂的
+v4/v5 又退化到 2/7，因此已回滚。该 7 题集合参与过调试，只能证明故障修复方向，不能作为盲测
+解决率。当前冻结代码另有 397/397 项自动化行为回归通过；这衡量 Runtime 契约，不替代 SWE-bench。
 
 [查看脱敏证据包](benchmarks/campaigns/swebench-verified-100-v1-a-flash-20260808/README.md) ·
-[查看如何从 Case 形成改进闭环](docs/evaluation/benchmark-improvement-loop.md)
+[查看失败与调优的统一证据链](docs/evaluation/failure-driven-improvements.md)
 
 ## 证据工作台
 
