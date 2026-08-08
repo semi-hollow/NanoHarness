@@ -1,0 +1,116 @@
+{
+  "campaign_id": "swebench-verified-100-v1-a-flash-20260808",
+  "claim_boundary": {
+    "comparison_factor": "runtime-preset; multiple control features differ",
+    "evaluated_patch_acceptance_denominator": "runs with explicit official resolved/unresolved outcome",
+    "infrastructure_policy": "one bounded retry; exhausted infrastructure slots stay visible and are excluded only from adjudicated paired comparison",
+    "official_resolved_rate_denominator": "all pre-registered runs",
+    "patch_rate_denominator": "all planned runs",
+    "statistical_limit": "pre-registered engineering sample, not an official leaderboard or population estimate"
+  },
+  "config_digest": "ec110d094ebdc4c444b8393666b202ae9d164de7b2a600cf7ef38ca37b7c2a1e",
+  "execution_estimated_cost_usd": 2.367105,
+  "paired_official": {
+    "control": "minimal-control",
+    "evaluated_pairs": 25,
+    "ties": 21,
+    "treatment": "governed-runtime",
+    "wins": {
+      "governed-runtime": 0,
+      "minimal-control": 4
+    }
+  },
+  "paired_sample": {
+    "adjudicated_pairs": 49,
+    "control": "minimal-control",
+    "excluded_infrastructure_pairs": 1,
+    "ties": 42,
+    "treatment": "governed-runtime",
+    "wins": {
+      "governed-runtime": 1,
+      "minimal-control": 6
+    }
+  },
+  "planned_runs": 100,
+  "schema_version": 1,
+  "source": {
+    "branch": "master",
+    "dirty": false,
+    "revision": "34cbe9113bccd62438065cc7ce99af3c653aad4e",
+    "working_tree_sha256": ""
+  },
+  "status": "completed",
+  "status_counts": {
+    "completed": 100
+  },
+  "variants": {
+    "governed-runtime": {
+      "completed": 50,
+      "completion_rate": 1.0,
+      "estimated_cost_usd": 1.121733,
+      "evaluated_patch_acceptance_rate": 0.5185185185185185,
+      "execution_estimated_cost_usd": 1.12499,
+      "failed": 0,
+      "failed_tool_call_rate": 0.014388489208633094,
+      "failed_tool_calls": 14,
+      "failure_classes": {
+        "official_eval_failed": 8,
+        "official_resolved": 14,
+        "pending_tool_call_at_stop": 22,
+        "provider_transport_error": 1,
+        "validation_environment_unavailable": 5
+      },
+      "infrastructure_failures": 1,
+      "label": "Governed Runtime",
+      "llm_latency_ms": 5533461,
+      "local_verified": 0,
+      "mean_tokens_per_completed_run": 161577.66,
+      "official_evaluated": 27,
+      "official_evaluation_coverage_rate": 0.54,
+      "official_resolved": 14,
+      "official_resolved_rate": 0.28,
+      "patch_generated": 27,
+      "patch_generated_rate": 0.54,
+      "planned": 50,
+      "retry_attempts": 1,
+      "retry_estimated_cost_usd": 0.003257,
+      "retry_tokens": 25876,
+      "tool_calls": 973,
+      "total_tokens": 8078883
+    },
+    "minimal-control": {
+      "completed": 50,
+      "completion_rate": 1.0,
+      "estimated_cost_usd": 1.193568,
+      "evaluated_patch_acceptance_rate": 0.625,
+      "execution_estimated_cost_usd": 1.242115,
+      "failed": 0,
+      "failed_tool_call_rate": 0.03625377643504532,
+      "failed_tool_calls": 36,
+      "failure_classes": {
+        "locally_verified_candidate": 1,
+        "official_eval_failed": 8,
+        "official_resolved": 20,
+        "pending_tool_call_at_stop": 17,
+        "validation_environment_unavailable": 4
+      },
+      "infrastructure_failures": 0,
+      "label": "Minimal Control",
+      "llm_latency_ms": 4877029,
+      "local_verified": 0,
+      "mean_tokens_per_completed_run": 166178.62,
+      "official_evaluated": 32,
+      "official_evaluation_coverage_rate": 0.64,
+      "official_resolved": 20,
+      "official_resolved_rate": 0.4,
+      "patch_generated": 32,
+      "patch_generated_rate": 0.64,
+      "planned": 50,
+      "retry_attempts": 2,
+      "retry_estimated_cost_usd": 0.048547,
+      "retry_tokens": 327802,
+      "tool_calls": 993,
+      "total_tokens": 8308931
+    }
+  }
+}

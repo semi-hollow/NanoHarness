@@ -20,6 +20,13 @@ from agent_forge.bench.domain.config import SwebenchRunRequest, safe_id
 
 CAMPAIGN_SCHEMA_VERSION = 1
 OFFICIAL_DECIDED = {"official_resolved", "official_eval_failed"}
+RETRYABLE_INFRASTRUCTURE_FAILURES = frozenset(
+    {
+        "provider_transport_error",
+        "official_eval_error",
+        "runner_or_environment_error",
+    }
+)
 _CAMPAIGN_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,79}$")
 
 
@@ -180,6 +187,7 @@ class CampaignRunRecord:
     run_dir: str = ""
     scorecard_sha256: str = ""
     evidence: dict[str, Any] = field(default_factory=dict)
+    attempt_history: list[dict[str, Any]] = field(default_factory=list)
     error: str = ""
 
     def to_dict(self) -> dict[str, Any]:
@@ -195,6 +203,7 @@ class CampaignRunRecord:
             "run_dir": self.run_dir,
             "scorecard_sha256": self.scorecard_sha256,
             "evidence": self.evidence,
+            "attempt_history": self.attempt_history,
             "error": self.error,
         }
 
@@ -212,6 +221,11 @@ class CampaignRunRecord:
             run_dir=str(data.get("run_dir") or ""),
             scorecard_sha256=str(data.get("scorecard_sha256") or ""),
             evidence=dict(data.get("evidence") or {}),
+            attempt_history=[
+                dict(item)
+                for item in data.get("attempt_history") or []
+                if isinstance(item, dict)
+            ],
             error=str(data.get("error") or ""),
         )
 
@@ -302,7 +316,7 @@ def build_campaign_records(request: BenchmarkCampaignRequest) -> list[CampaignRu
 
 # 主要入口：按 planned denominator 聚合进度、成本和 claim-safe 质量证据。
 def summarize_campaign(state: CampaignState) -> dict[str, Any]:
-    """聚合重复运行；official rate 只使用明确 resolved/unresolved 的分母。"""
+    """聚合重复运行，并把样本解决率与候选补丁接受率分开。"""
 
     variants = {
         str(item.get("name")): _empty_variant_summary(str(item.get("label") or item.get("name")))
@@ -312,6 +326,15 @@ def summarize_campaign(state: CampaignState) -> dict[str, Any]:
     for record in state.records:
         summary = variants.setdefault(record.variant, _empty_variant_summary(record.variant))
         summary["planned"] += 1
+        for prior_attempt in record.attempt_history:
+            prior_evidence = prior_attempt.get("evidence")
+            if not isinstance(prior_evidence, dict):
+                continue
+            summary["retry_attempts"] += 1
+            summary["retry_tokens"] += int(prior_evidence.get("total_tokens") or 0)
+            summary["retry_estimated_cost_usd"] += float(
+                prior_evidence.get("estimated_cost_usd") or 0.0
+            )
         if record.status == "failed":
             summary["failed"] += 1
             continue
@@ -321,7 +344,12 @@ def summarize_campaign(state: CampaignState) -> dict[str, Any]:
         evidence = record.evidence
         summary["patch_generated"] += int(bool(evidence.get("patch_generated")))
         summary["local_verified"] += int(
-            evidence.get("local_validation_status") == "passed"
+            bool(evidence.get("patch_generated"))
+            and evidence.get("local_validation_status") == "passed"
+        )
+        failure = str(evidence.get("failure_class") or "unclassified")
+        summary["infrastructure_failures"] += int(
+            failure in RETRYABLE_INFRASTRUCTURE_FAILURES
         )
         official = str(evidence.get("official_evaluation_status") or "not_evaluated")
         if official in OFFICIAL_DECIDED:
@@ -337,7 +365,6 @@ def summarize_campaign(state: CampaignState) -> dict[str, Any]:
         summary["estimated_cost_usd"] += float(
             evidence.get("estimated_cost_usd") or 0.0
         )
-        failure = str(evidence.get("failure_class") or "unclassified")
         summary["failure_classes"][failure] = (
             int(summary["failure_classes"].get(failure) or 0) + 1
         )
@@ -350,13 +377,33 @@ def summarize_campaign(state: CampaignState) -> dict[str, Any]:
         summary["patch_generated_rate"] = (
             int(summary["patch_generated"]) / planned if planned else None
         )
+        # 主指标使用预注册样本作为分母。只在已产出 patch 中计算的比率单独命名，
+        # 防止把“补丁被接受的概率”误读为“随机任务解决率”。
         summary["official_resolved_rate"] = (
+            int(summary["official_resolved"]) / planned if planned else None
+        )
+        summary["evaluated_patch_acceptance_rate"] = (
             int(summary["official_resolved"]) / official_count
             if official_count
             else None
         )
+        summary["official_evaluation_coverage_rate"] = (
+            official_count / planned if planned else None
+        )
+        tool_calls = int(summary["tool_calls"])
+        summary["failed_tool_call_rate"] = (
+            int(summary["failed_tool_calls"]) / tool_calls if tool_calls else None
+        )
         summary["estimated_cost_usd"] = round(
             float(summary["estimated_cost_usd"]), 6
+        )
+        summary["retry_estimated_cost_usd"] = round(
+            float(summary["retry_estimated_cost_usd"]), 6
+        )
+        summary["execution_estimated_cost_usd"] = round(
+            float(summary["estimated_cost_usd"])
+            + float(summary["retry_estimated_cost_usd"]),
+            6,
         )
         summary["mean_tokens_per_completed_run"] = (
             int(summary["total_tokens"]) / completed if completed else None
@@ -364,6 +411,7 @@ def summarize_campaign(state: CampaignState) -> dict[str, Any]:
         summary["failure_classes"] = dict(sorted(summary["failure_classes"].items()))
 
     paired = _paired_official_summary(state)
+    paired_sample = _paired_sample_summary(state)
     status_counts: dict[str, int] = {}
     for record in state.records:
         status_counts[record.status] = status_counts.get(record.status, 0) + 1
@@ -377,11 +425,21 @@ def summarize_campaign(state: CampaignState) -> dict[str, Any]:
         "status_counts": dict(sorted(status_counts.items())),
         "variants": variants,
         "paired_official": paired,
+        "paired_sample": paired_sample,
+        "execution_estimated_cost_usd": round(
+            sum(
+                float(item.get("execution_estimated_cost_usd") or 0.0)
+                for item in variants.values()
+            ),
+            6,
+        ),
         "claim_boundary": {
             "comparison_factor": "runtime-preset; multiple control features differ",
             "patch_rate_denominator": "all planned runs",
-            "official_rate_denominator": "runs with explicit official resolved/unresolved outcome",
-            "statistical_limit": "small repeated engineering campaign, not a model leaderboard or population estimate",
+            "official_resolved_rate_denominator": "all pre-registered runs",
+            "evaluated_patch_acceptance_denominator": "runs with explicit official resolved/unresolved outcome",
+            "infrastructure_policy": "one bounded retry; exhausted infrastructure slots stay visible and are excluded only from adjudicated paired comparison",
+            "statistical_limit": "pre-registered engineering sample, not an official leaderboard or population estimate",
         },
     }
 
@@ -396,8 +454,12 @@ def _empty_variant_summary(label: str) -> dict[str, Any]:
         "local_verified": 0,
         "official_evaluated": 0,
         "official_resolved": 0,
+        "infrastructure_failures": 0,
         "total_tokens": 0,
         "estimated_cost_usd": 0.0,
+        "retry_attempts": 0,
+        "retry_tokens": 0,
+        "retry_estimated_cost_usd": 0.0,
         "llm_latency_ms": 0,
         "tool_calls": 0,
         "failed_tool_calls": 0,
@@ -450,6 +512,70 @@ def _paired_official_summary(state: CampaignState) -> dict[str, Any]:
         "treatment": treatment,
         "evaluated_pairs": evaluated_pairs,
         "wins": {control: control_wins, treatment: treatment_wins},
+        "ties": ties,
+    }
+
+
+def _paired_sample_summary(state: CampaignState) -> dict[str, Any]:
+    """在全部可裁决样本上配对；稳定 no-patch 也计为未解决。"""
+
+    variant_names = [
+        str(item.get("name"))
+        for item in state.config.get("variants") or []
+        if isinstance(item, dict)
+    ]
+    if len(variant_names) != 2:
+        return {
+            "adjudicated_pairs": 0,
+            "excluded_infrastructure_pairs": 0,
+            "wins": {},
+            "ties": 0,
+        }
+    control, treatment = variant_names
+    grouped: dict[tuple[str, int], dict[str, CampaignRunRecord]] = {}
+    for record in state.records:
+        grouped.setdefault((record.case_id, record.repetition), {})[
+            record.variant
+        ] = record
+
+    wins = {control: 0, treatment: 0}
+    ties = 0
+    adjudicated_pairs = 0
+    excluded_infrastructure_pairs = 0
+    for pair in grouped.values():
+        left = pair.get(control)
+        right = pair.get(treatment)
+        if not left or not right or left.status != "completed" or right.status != "completed":
+            excluded_infrastructure_pairs += 1
+            continue
+        failure_classes = {
+            str(left.evidence.get("failure_class") or ""),
+            str(right.evidence.get("failure_class") or ""),
+        }
+        if failure_classes & RETRYABLE_INFRASTRUCTURE_FAILURES:
+            excluded_infrastructure_pairs += 1
+            continue
+        adjudicated_pairs += 1
+        left_resolved = (
+            str(left.evidence.get("official_evaluation_status") or "")
+            == "official_resolved"
+        )
+        right_resolved = (
+            str(right.evidence.get("official_evaluation_status") or "")
+            == "official_resolved"
+        )
+        if left_resolved and not right_resolved:
+            wins[control] += 1
+        elif right_resolved and not left_resolved:
+            wins[treatment] += 1
+        else:
+            ties += 1
+    return {
+        "control": control,
+        "treatment": treatment,
+        "adjudicated_pairs": adjudicated_pairs,
+        "excluded_infrastructure_pairs": excluded_infrastructure_pairs,
+        "wins": wins,
         "ties": ties,
     }
 

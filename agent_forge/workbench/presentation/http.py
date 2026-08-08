@@ -376,7 +376,7 @@ def _source_overview_facts(
     if source.key == "evaluation":
         summary = _latest_campaign_summary(project_dir)
         state = _latest_campaign_state(project_dir)
-        paired = summary.get("paired_official") or {}
+        paired = summary.get("paired_sample") or summary.get("paired_official") or {}
         status_counts = summary.get("status_counts") or {}
         records = [item for item in state.get("records") or [] if isinstance(item, dict)]
         case_count = len({str(item.get("case_id")) for item in records if item.get("case_id")})
@@ -388,9 +388,22 @@ def _source_overview_facts(
                 ("运行槽位", f"{completed}/{planned}", "Case × 配置 × 重复", "ok" if planned and completed == planned else "warn"),
                 ("Case", str(case_count), "当前批次实际覆盖", "neutral"),
                 ("配置", str(variant_count), "受控变量对比", "neutral"),
-                ("官方配对", str(int(paired.get("evaluated_pairs") or 0)), "具有明确官方结果的配对", "ok" if paired.get("evaluated_pairs") else "warn"),
+                (
+                    "可裁决配对",
+                    str(
+                        int(
+                            paired.get("adjudicated_pairs")
+                            or paired.get("evaluated_pairs")
+                            or 0
+                        )
+                    ),
+                    "基础设施故障单独排除",
+                    "ok"
+                    if paired.get("adjudicated_pairs") or paired.get("evaluated_pairs")
+                    else "warn",
+                ),
             ],
-            "批次只支持当前样本和配置的比较；小样本 commissioning 结果不能写成总体解决率。",
+            "批次只支持当前预注册样本和配置的比较；不能写成官方排行榜或总体解决率。",
         )
 
     usage = _read_json_file(source.usage_path)
@@ -806,7 +819,7 @@ def _render_observability_overview(project_dir: Path) -> str:
         for record in campaign_records
         if record.get("case_id")
     }
-    paired = campaign.get("paired_official") or {}
+    paired = campaign.get("paired_sample") or campaign.get("paired_official") or {}
 
     run_status = (
         run_story.status
@@ -846,10 +859,13 @@ def _render_observability_overview(project_dir: Path) -> str:
         if complex_summary
         else failed_tools
     )
-    evidence_state = "official" if paired.get("evaluated_pairs") else "fact"
+    paired_count = int(
+        paired.get("adjudicated_pairs") or paired.get("evaluated_pairs") or 0
+    )
+    evidence_state = "official" if paired_count else "fact"
     evidence_text = (
-        f"{int(paired.get('evaluated_pairs') or 0)} 组官方配对"
-        if paired.get("evaluated_pairs")
+        f"{paired_count} 组可裁决配对"
+        if paired_count
         else "只有运行事实"
     )
 
@@ -870,7 +886,7 @@ def _render_observability_overview(project_dir: Path) -> str:
     body = [
         "<div class='view-heading'><div><span class='view-kicker'>观测总览</span>"
         "<h2>先看结论，再逐层下钻</h2></div>"
-        f"{_badge(evidence_state, 'ok' if paired.get('evaluated_pairs') else 'neutral')}</div>",
+        f"{_badge(evidence_state, 'ok' if paired_count else 'neutral')}</div>",
         "<p class='help strong'>当前页面分别索引受治理运行、多 Agent 协同、复杂真实任务和可选评测档案。每条主线使用独立指针，不会因运行顺序相互覆盖。</p>",
         _metric_grid(
             [
@@ -896,7 +912,7 @@ def _render_observability_overview(project_dir: Path) -> str:
                     "可选评测档案",
                     evidence_text,
                     "候选、本地、官方分层",
-                    "ok" if paired.get("evaluated_pairs") else "warn",
+                    "ok" if paired_count else "warn",
                 ),
                 (
                     "失败工具调用",
@@ -4126,7 +4142,8 @@ def _render_benchmark_dashboard(project_dir: Path) -> str:
         benchmark_config_value if isinstance(benchmark_config_value, dict) else {}
     )
     variants = summary.get("variants") or {}
-    paired = summary.get("paired_official") or {}
+    paired_official = summary.get("paired_official") or {}
+    paired_sample = summary.get("paired_sample") or paired_official
     status_counts = summary.get("status_counts") or {}
     source = summary.get("source") or {}
     records = [
@@ -4140,11 +4157,18 @@ def _render_benchmark_dashboard(project_dir: Path) -> str:
         (int(record.get("repetition") or 0) for record in records),
         default=0,
     )
+    cohort = campaign_config.get("cohort")
     coverage_note = (
         f"当前载入批次覆盖 {len(covered_cases)} 个 Case、"
         f"{len(covered_variants)} 种配置、最高 {max_repetition} 次重复。"
     )
-    if len(covered_cases) < 5 or max_repetition < 3:
+    if isinstance(cohort, dict):
+        coverage_note += (
+            f"它来自预注册集合 {cohort.get('cohort_id') or '未命名'} 的 "
+            f"{cohort.get('shard') or '未命名'} 分片；每题只运行一次，"
+            "可衡量当前样本覆盖，不能估计随机稳定性。"
+        )
+    elif len(covered_cases) < 5 or max_repetition < 3:
         coverage_note += "这是 commissioning 子集，不是完整的五题三重复实验。"
     case_input_items = []
     case_profile_rows = []
@@ -4169,12 +4193,25 @@ def _render_benchmark_dashboard(project_dir: Path) -> str:
     regression_set = str(campaign_config.get("regression_set") or "未记录")
     variant_rows = []
     for name, item in variants.items():
+        planned = int(item.get("planned") or 0)
         official_count = int(item.get("official_evaluated") or 0)
         official_resolved = int(item.get("official_resolved") or 0)
-        official_text = (
+        selected_sample_text = (
+            f"{official_resolved}/{planned} ({official_resolved / planned:.1%})"
+            if planned
+            else "无计划样本"
+        )
+        evaluated_patch_text = (
             f"{official_resolved}/{official_count} ({official_resolved / official_count:.1%})"
             if official_count
             else "无官方结果"
+        )
+        failed_tool_calls = int(item.get("failed_tool_calls") or 0)
+        tool_calls = int(item.get("tool_calls") or 0)
+        failed_tool_text = (
+            f"{failed_tool_calls}/{tool_calls} ({failed_tool_calls / tool_calls:.2%})"
+            if tool_calls
+            else "0/0"
         )
         variant_rows.append(
             "<tr>"
@@ -4182,10 +4219,12 @@ def _render_benchmark_dashboard(project_dir: Path) -> str:
             f"<td>{int(item.get('completed') or 0)}/{int(item.get('planned') or 0)}</td>"
             f"<td>{int(item.get('patch_generated') or 0)}/{int(item.get('planned') or 0)}</td>"
             f"<td>{int(item.get('local_verified') or 0)}/{int(item.get('planned') or 0)}</td>"
-            f"<td>{_escape(official_text)}</td>"
+            f"<td>{_escape(selected_sample_text)}</td>"
+            f"<td>{_escape(evaluated_patch_text)}</td>"
+            f"<td>{int(item.get('infrastructure_failures') or 0)}</td>"
             f"<td>{int(item.get('total_tokens') or 0)}</td>"
-            f"<td>${float(item.get('estimated_cost_usd') or 0.0):.6f}</td>"
-            f"<td>{int(item.get('failed_tool_calls') or 0)}</td>"
+            f"<td>${float(item.get('execution_estimated_cost_usd') or item.get('estimated_cost_usd') or 0.0):.6f}</td>"
+            f"<td>{_escape(failed_tool_text)}</td>"
             "</tr>"
         )
     run_rows = []
@@ -4203,9 +4242,9 @@ def _render_benchmark_dashboard(project_dir: Path) -> str:
             f"<td>{_escape(_display_value(evidence.get('failure_class') or 'unclassified'))}</td>"
             "</tr>"
         )
-    wins = paired.get("wins") or {}
+    wins = paired_sample.get("wins") or {}
     variant_rows_html = "".join(variant_rows) or (
-        "<tr><td colspan='8'>没有 Runtime 配置证据。</td></tr>"
+        "<tr><td colspan='10'>没有 Runtime 配置证据。</td></tr>"
     )
     run_rows_html = "".join(run_rows) or (
         "<tr><td colspan='8'>没有运行槽位。</td></tr>"
@@ -4213,9 +4252,13 @@ def _render_benchmark_dashboard(project_dir: Path) -> str:
     paired_metrics = _metric_grid(
         [
             (
-                "完成官方评测的配对",
-                str(paired.get("evaluated_pairs") or 0),
-                "两种配置都有官方结果",
+                "可裁决样本配对",
+                str(
+                    paired_sample.get("adjudicated_pairs")
+                    or paired_sample.get("evaluated_pairs")
+                    or 0
+                ),
+                "稳定 no-patch 计未解决，基础设施故障不裁决",
                 "neutral",
             ),
             (
@@ -4232,15 +4275,17 @@ def _render_benchmark_dashboard(project_dir: Path) -> str:
             ),
             (
                 "结果相同",
-                str(paired.get("ties") or 0),
-                "两种配置的官方结果一致",
+                str(paired_sample.get("ties") or 0),
+                "两种配置在该题是否解决一致",
                 "neutral",
             ),
             (
-                "正确性结论",
-                "只看官方评测",
-                "候选改动不能填补该证据缺口",
-                "warn" if not paired.get("evaluated_pairs") else "ok",
+                "基础设施排除",
+                str(paired_sample.get("excluded_infrastructure_pairs") or 0),
+                "重试一次后仍失败，不归因到 Agent",
+                "warn"
+                if paired_sample.get("excluded_infrastructure_pairs")
+                else "ok",
             ),
             (
                 "配置差异",
@@ -4266,7 +4311,9 @@ def _render_benchmark_dashboard(project_dir: Path) -> str:
             ),
             success_criteria=(
                 f"{int(status_counts.get('completed') or 0)}/{int(summary.get('planned_runs') or 0)} "
-                f"个运行槽位完成，{int(paired.get('evaluated_pairs') or 0)} 组得到配对官方结果。"
+                "个运行槽位完成，"
+                f"{int(paired_sample.get('adjudicated_pairs') or paired_sample.get('evaluated_pairs') or 0)} "
+                "组得到可裁决的配对结果。"
             ),
             boundary=(
                 f"当前页面读取 {regression_set} 的已保存证据；本次打开页面不会调用模型。"
@@ -4308,9 +4355,16 @@ def _render_benchmark_dashboard(project_dir: Path) -> str:
                 ),
                 (
                     "官方评测配对",
-                    str(paired.get("evaluated_pairs") or 0),
-                    "两种配置都有明确结果",
-                    "ok" if paired.get("evaluated_pairs") else "warn",
+                    str(
+                        paired_sample.get("adjudicated_pairs")
+                        or paired_sample.get("evaluated_pairs")
+                        or 0
+                    ),
+                    "排除重试耗尽的基础设施槽位",
+                    "ok"
+                    if paired_sample.get("adjudicated_pairs")
+                    or paired_sample.get("evaluated_pairs")
+                    else "warn",
                 ),
             ]
         ),
@@ -4320,12 +4374,12 @@ def _render_benchmark_dashboard(project_dir: Path) -> str:
         f"<tbody>{''.join(case_profile_rows)}</tbody></table>"
         "<p class='boundary-note'>真实运行输入是 SWE-bench 的 problem_statement、仓库和 base commit；公开批次保留 Case ID 与人工摘要，不向 Agent 暴露 test patch 或 gold patch。</p></section>",
         "<section class='evidence-section'><div class='section-title'><h3>Runtime 配置对比</h3><span>核心 Runtime 相同，配置差异显式记录</span></div>"
-        "<table><thead><tr><th>配置</th><th>完成</th><th>候选改动</th><th>本地验证</th><th>官方解决</th><th>Token</th><th>成本</th><th>失败工具调用</th></tr></thead>"
+        "<table><thead><tr><th>配置</th><th>完成</th><th>候选改动</th><th>本地验证候选</th><th>样本解决率</th><th>已评测补丁接受率</th><th>基础设施失败</th><th>Token</th><th>执行成本</th><th>失败工具调用率</th></tr></thead>"
         f"<tbody>{variant_rows_html}</tbody></table>"
-        "<p class='boundary-note'>候选改动率以全部计划运行作为分母；官方解决率只以明确得到 resolved/unresolved 的运行作为分母。</p></section>",
-        "<section class='evidence-section'><div class='section-title'><h3>官方结果配对</h3><span>这里只比较正确性</span></div>"
+        "<p class='boundary-note'>样本解决率以全部预注册 Case 为分母；已评测补丁接受率只回答“进入官方评测的补丁有多少被接受”，两者不能互换。</p></section>",
+        "<section class='evidence-section'><div class='section-title'><h3>样本结果配对</h3><span>稳定 no-patch 计未解决；基础设施故障单独排除</span></div>"
         f"{paired_metrics}"
-        "<p class='boundary-note'>若官方配对数为 0，正确性仍然未知；生成候选改动不能填补该证据缺口。</p></section>",
+        "<p class='boundary-note'>候选改动和本地通过都不能替代 official resolved；被排除的基础设施槽位也不能算作模型失败。</p></section>",
         "<details class='drilldown'><summary>排障：查看每个 Case × 配置 × 重复次数的运行槽位</summary>"
         "<div class='drilldown-body'><div class='section-title'><h3>运行矩阵</h3><span>每个槽位都可独立恢复</span></div>"
         "<table><thead><tr><th>#</th><th>Case</th><th>第几次</th><th>配置</th><th>状态</th><th>候选改动</th><th>官方评测</th><th>失败分类</th></tr></thead>"
@@ -4390,6 +4444,7 @@ def _render_feedback_dashboard(project_dir: Path) -> str:
         (campaign_summary.get("status_counts") or {}).get("completed") or 0
     )
     paired_official = campaign_summary.get("paired_official") or {}
+    paired_sample = campaign_summary.get("paired_sample") or paired_official
 
     def metric_value(
         record: dict[str, Any],
@@ -4446,13 +4501,13 @@ def _render_feedback_dashboard(project_dir: Path) -> str:
             ),
             success_criteria=(
                 f"{completed_runs}/{planned_runs} 个运行槽位完成，"
-                f"{int(paired_official.get('evaluated_pairs') or 0)} 组配置得到配对官方结果，"
+                f"{int(paired_sample.get('adjudicated_pairs') or paired_sample.get('evaluated_pairs') or 0)} 组配置得到可裁决配对结果，"
                 "并给出不超过证据上限的改进决策。"
             ),
             boundary=(
                 f"打开评测档案不会重新调用模型；它回放由 {historical_model} 产生的已保存实验。"
-                f"当前只有 {len(case_ids)} 个 Case × 2 套配置 × {repetitions} 次重复，"
-                "属于 commissioning 证据，不能估计总体成功率。"
+                f"当前是 {len(case_ids)} 个 Case × 2 套配置 × {repetitions} 次重复；"
+                "该结果只代表固定样本，不能冒充官方排行榜或总体性能。"
             ),
         ),
         "<p class='help strong'>本页所有差值都按“治理增强版 - 基础控制版”计算。官方解决数越大越好；失败工具调用和 Token 越小越好，因此这两项出现负数通常代表改善。</p>",

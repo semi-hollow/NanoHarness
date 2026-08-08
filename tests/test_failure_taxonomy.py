@@ -71,7 +71,7 @@ class FailureTaxonomyTest(unittest.TestCase):
         self.assertEqual(diagnosis.failure_class, "patch_generated_but_unverified")
         self.assertEqual(diagnosis.rule_id, "patch_generated_but_unverified")
         self.assertEqual(diagnosis.source, "ordered_rule_taxonomy")
-        self.assertEqual(diagnosis.taxonomy_version, "1.0")
+        self.assertEqual(diagnosis.taxonomy_version, "1.1")
         self.assertIn("official", " ".join(diagnosis.next_actions).lower())
         self.assertIn("candidate", diagnosis.summary.lower())
 
@@ -132,6 +132,28 @@ class FailureTaxonomyTest(unittest.TestCase):
         self.assertIn("harness", diagnosis.summary.lower())
         self.assertNotIn("rejected", diagnosis.summary.lower())
 
+    def test_official_rejection_beats_local_missing_dependency_text(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            result = self._result(
+                Path(tmp),
+                final_answer="python_validation: no module named asgiref",
+                patch_chars=12,
+            )
+            result.official_evaluation_status = "official_eval_failed"
+            diagnosis = analyze_case_result(result)
+
+        self.assertEqual(diagnosis.failure_class, "official_eval_failed")
+
+    def test_provider_marker_in_runner_error_is_not_collapsed_into_generic_error(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            result = self._result(
+                Path(tmp),
+                error="request_timeout while reading provider response",
+            )
+            diagnosis = analyze_case_result(result)
+
+        self.assertEqual(diagnosis.failure_class, "provider_transport_error")
+
     def test_official_resolved_is_not_labeled_unverified(self):
         with tempfile.TemporaryDirectory() as tmp:
             result = self._result(
@@ -151,6 +173,18 @@ class FailureTaxonomyTest(unittest.TestCase):
             diagnosis = analyze_case_result(result)
         self.assertEqual(diagnosis.failure_class, "locally_verified_candidate")
         self.assertIn("official", diagnosis.summary.lower())
+
+    def test_local_pass_without_patch_is_not_a_verified_candidate(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            result = self._result(Path(tmp), status="no_patch", patch_chars=0)
+            result.local_validation_status = "passed"
+            diagnosis = analyze_case_result(result)
+
+        self.assertEqual(
+            diagnosis.failure_class,
+            "local_validation_passed_without_patch",
+        )
+        self.assertIn("unchanged", diagnosis.summary.lower())
 
 
 if __name__ == "__main__":

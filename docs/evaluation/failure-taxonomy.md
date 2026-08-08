@@ -8,8 +8,8 @@ NanoHarness 对 Coding Agent failure 做结构化分类，使一次坏 run 成�
 - 它是 **benchmark 结束后的确定性规则链**，不是模型可调用的 Tool，也不调用 LLM。
 - `Failure Class` 是项目根据真实失败现象预先定义的稳定类别；新增类别需要同时补规则和回归测试。
 - 分类器读取结构化 `BenchCaseResult`、`usage.json` 和 `trace.json`，按固定优先级返回第一条命中的
-  `FailureDiagnosis`。规则顺序本身就是设计：Official 结果和环境故障优先于 patch、本地验证和
-  Runtime 症状，避免把 Docker 故障误判成模型能力问题。
+  `FailureDiagnosis`。规则顺序本身就是设计：Official 结果优先于 provider/runner/local 环境，
+  环境又优先于 patch 和 Runtime 症状，避免把官方拒绝误判成本地依赖故障。
 
 可类比支付系统的差错归因服务：交易流水已经产生后，再根据状态、渠道回执和异常码归入唯一差错类型；
 不是让另一个模型阅读日志后自由发挥。
@@ -53,8 +53,8 @@ Failure Taxonomy 在整次 benchmark 及 official evaluation 结束后给整个 
 
 ## Failure Class（互斥结果分类）
 
-当前规则链共有 18 个稳定结果值，其中包含成功证据 `official_resolved` 和保守兜底
-`unclassified`，所以不能把这个数字口述成“18 种失败”。
+当前规则链共有 19 个稳定结果值，其中包含成功证据 `official_resolved` 和保守兜底
+`unclassified`，所以不能把这个数字口述成“19 种失败”。
 
 | Class | 含义 | 典型下一步 |
 | --- | --- | --- |
@@ -71,6 +71,7 @@ Failure Taxonomy 在整次 benchmark 及 official evaluation 结束后给整个 
 | `input_policy_block` | Task 文本在第一次模型调用前被输入策略阻断。 | 检查是否把引用内容误当成可执行动作。 |
 | `patch_generated_but_unverified` | 存在 candidate patch，但正确性未知。 | 执行 local 或 official evaluation。 |
 | `locally_verified_candidate` | 显式 local test 通过，但没有 official resolution。 | 需要 benchmark claim 时运行 official evaluation。 |
+| `local_validation_passed_without_patch` | 未改代码时 local test 通过，不存在可验证候选。 | 按 no-patch 复盘，不把基线通过写成修复证据。 |
 | `official_resolved` | Parsed per-case official evidence 接受 patch。 | 保留 artifact，并将 case 纳入 paired scorecard。 |
 | `official_eval_error` | Official harness process/environment 在判断 patch 前失败。 | 修复 Docker/SWE-bench/environment，再评测。 |
 | `official_eval_failed` | Official harness 完成并拒绝该 case 的 patch。 | 分析 patch，并把 case 加入 regression。 |
@@ -81,3 +82,7 @@ Failure Taxonomy 在整次 benchmark 及 official evaluation 结束后给整个 
 
 目标不是事后给 failure 贴标签，而是判断下一步改进属于 context selection、tool
 governance、sandbox policy、validation、provider handling，还是 prompt procedure。
+
+当前分类版本为 `1.1`。50×2 Campaign 暴露了两个优先级冲突：official evaluator 已拒绝时，
+本地 `missing dependency` 不能覆盖官方结果；没有 Diff 时，本地测试通过也不能叫
+`locally_verified_candidate`。这两条都已经成为规则回归。

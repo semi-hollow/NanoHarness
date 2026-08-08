@@ -1,7 +1,7 @@
 # Public Benchmark Campaigns
 
-此目录只接收由 `forge bench campaign --publish` 生成的脱敏证据包。当前固定集合是从
-SWE-bench Verified 500 题中分层选择的五题；它用于 Runtime 机制比较，不代表总体解决率。
+此目录只接收由 `forge bench campaign --publish` 生成的脱敏证据包。结果必须绑定固定 Case、
+Runtime 配置、模型、预算和源码版本；这里的样本结果不冒充 SWE-bench 官方排行榜。
 
 公开 bundle 包含：
 
@@ -14,9 +14,26 @@ SWE-bench Verified 500 题中分层选择的五题；它用于 Runtime 机制比
 公开 bundle 不包含 API key、本机绝对路径、raw prompt、trace 内容、模型最终回答或
 candidate patch 正文。
 
-当前没有提交可形成总体 correctness claim 的完整 Smoke-5 repeated campaign。生成 candidate
-patch 或本地 Reviewer `PASS` 都不会被写成 solved；只有两侧都存在 official per-case
-resolved/unresolved outcome 的 pair，才进入 correctness comparison。
+生成 candidate patch 或本地 Reviewer `PASS` 都不会被写成 solved。样本解决率使用全部预注册
+Case 作为分母；“已评测补丁接受率”只描述进入 official evaluator 的候选，不能替代样本解决率。
+
+## 当前固定样本结果
+
+[`swebench-verified-100-v1-a-flash-20260808`](swebench-verified-100-v1-a-flash-20260808/README.md)
+冻结了 Verified 100 题集合的 A 分片，使用 `deepseek-v4-flash` 跑 50 Case × 2 Runtime preset：
+
+| 配置 | Official resolved / 50 | Candidate patch | 失败工具调用率 | Token | 实际执行成本 |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Minimal Control | 20/50（40.0%） | 32/50 | 36/993（3.63%） | 8,308,931 | $1.242115 |
+| Governed Runtime | 14/50（28.0%） | 27/50 | 14/973（1.44%） | 8,078,883 | $1.124990 |
+
+- 100 个计划槽位全部结束；3 个基础设施异常各重试一次，1 个 provider error 仍未恢复。
+- 原始执行绑定 clean revision `34cbe91`；后续统计审计没有改写单 Case scorecard。
+- 排除该基础设施 pair 后，49 组配对为 Minimal 6 胜、Governed 1 胜、42 平。
+- 治理配置降低工具失败率和 Token，但牺牲 patch reachability 与当前样本 correctness，因此决策是
+  `reject` 整体 preset，后续只在未运行的 B 分片分别消融 Routing 和 Skills。
+- 包中 `manifest.json` 记录完整 50 题、源码 revision、配置 digest、尝试次数和每个 scorecard hash；
+  后续扩到 100 题时只运行 B 分片，不重复 A 分片。
 
 ## 当前 Commissioning Evidence
 
@@ -27,14 +44,13 @@ resolved/unresolved outcome 的 pair，才进入 correctness comparison。
 - 该包来自一次中断 Smoke-5 的前四个完成槽位，只有一次 repetition 且 source 为 dirty；
   它用于核验 end-to-end evidence pipeline，不是预注册通过率或总体性能结果。
 
-需要复核历史 commissioning evidence 时，打开 Workbench 的“评测档案”；它只读回放已保存产物，
-不会占用 Debug Lab 编号，也不会冒充已完成 Smoke-5。真正补充 10-slot 初始运行或正式公开结果时，
-再使用下方 campaign 命令；公开结果必须来自 clean revision。
+需要复核时，打开 Workbench 的“评测档案”；它只读回放已保存产物。未来扩容使用固定 cohort 的
+B 分片，公开结果仍必须来自 clean revision。
 
 ```bash
 forge bench campaign \
-  --regression-set smoke-5 \
-  --repetitions 3 \
-  --evaluate \
-  --publish
+  --cohort-manifest benchmarks/cohorts/swebench-verified-100-v1.json \
+  --cohort-shard b --repetitions 1 \
+  --provider deepseek --model deepseek-v4-flash \
+  --evaluate --publish
 ```

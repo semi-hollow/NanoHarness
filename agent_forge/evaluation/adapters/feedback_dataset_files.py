@@ -161,8 +161,20 @@ def write_improvement_record(request: ImprovementRecordRequest) -> Path:
                     - _number(control, "estimated_cost_usd"),
                     6,
                 ),
+                "execution_estimated_cost_usd": round(
+                    _number(treatment, "execution_estimated_cost_usd")
+                    - _number(control, "execution_estimated_cost_usd"),
+                    6,
+                ),
                 "official_resolved": _number(treatment, "official_resolved")
                 - _number(control, "official_resolved"),
+                "patch_generated": _number(treatment, "patch_generated")
+                - _number(control, "patch_generated"),
+                "infrastructure_failures": _number(
+                    treatment,
+                    "infrastructure_failures",
+                )
+                - _number(control, "infrastructure_failures"),
             },
         },
         "decision": {
@@ -419,13 +431,22 @@ def _improvement_metrics(variant: dict[str, Any]) -> dict[str, int | float]:
     """投影维护者复核改进决策所需的少量指标，避免复制整个 campaign summary。"""
 
     return {
+        "planned": int(_number(variant, "planned")),
+        "patch_generated": int(_number(variant, "patch_generated")),
         "official_evaluated": int(_number(variant, "official_evaluated")),
         "official_resolved": int(_number(variant, "official_resolved")),
+        "infrastructure_failures": int(
+            _number(variant, "infrastructure_failures")
+        ),
         "tool_calls": int(_number(variant, "tool_calls")),
         "failed_tool_calls": int(_number(variant, "failed_tool_calls")),
         "total_tokens": int(_number(variant, "total_tokens")),
         "estimated_cost_usd": round(
             _number(variant, "estimated_cost_usd"),
+            6,
+        ),
+        "execution_estimated_cost_usd": round(
+            _number(variant, "execution_estimated_cost_usd"),
             6,
         ),
     }

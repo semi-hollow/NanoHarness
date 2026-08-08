@@ -16,6 +16,7 @@ from agent_forge.bench.domain.campaign import (
     CampaignRunRecord,
     CampaignState,
     CampaignVariant,
+    RETRYABLE_INFRASTRUCTURE_FAILURES,
     build_campaign_records,
     campaign_config_digest,
     summarize_campaign,
@@ -27,6 +28,9 @@ from agent_forge.bench.ports import (
     CampaignArtifactPort,
     SourceIdentityPort,
 )
+
+
+MAX_INFRASTRUCTURE_ATTEMPTS = 2
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -96,29 +100,32 @@ class RunBenchmarkCampaign:
         ):
             if campaign_run_slot.status == "completed":
                 continue
-            self._mark_run_slot_started(
-                campaign_run_slot,
-                campaign_state,
-                campaign_dir,
-            )
-            try:
-                benchmark_request = self._build_run_slot_request(
-                    request,
-                    campaign_dir=campaign_dir,
-                    campaign_run_slot=campaign_run_slot,
-                    variant=variants_by_name[campaign_run_slot.variant],
-                )
-                benchmark_run = self._runner(benchmark_request)
-                self._record_run_slot_completion(
+            retry_same_slot = True
+            while retry_same_slot:
+                self._mark_run_slot_started(
                     campaign_run_slot,
-                    benchmark_run,
+                    campaign_state,
+                    campaign_dir,
                 )
-            except Exception as exc:
-                campaign_run_slot.status = "failed"
-                campaign_run_slot.error = f"{type(exc).__name__}: {exc}"
-            finally:
-                campaign_state.updated_at = self._now()
-                self._artifacts.save_state(campaign_dir, campaign_state)
+                try:
+                    benchmark_request = self._build_run_slot_request(
+                        request,
+                        campaign_dir=campaign_dir,
+                        campaign_run_slot=campaign_run_slot,
+                        variant=variants_by_name[campaign_run_slot.variant],
+                    )
+                    benchmark_run = self._runner(benchmark_request)
+                    retry_same_slot = self._record_run_slot_completion(
+                        campaign_run_slot,
+                        benchmark_run,
+                    )
+                except Exception as exc:
+                    campaign_run_slot.status = "failed"
+                    campaign_run_slot.error = f"{type(exc).__name__}: {exc}"
+                    retry_same_slot = False
+                finally:
+                    campaign_state.updated_at = self._now()
+                    self._artifacts.save_state(campaign_dir, campaign_state)
         # endregion 2. 交错实验结束
 
         # region 3. 聚合发布：只消费已持久化槽位，不重新推断 Case 正确性
@@ -247,10 +254,9 @@ class RunBenchmarkCampaign:
         self,
         campaign_run_slot: CampaignRunRecord,
         benchmark_run: BenchRunSummary,
-    ) -> None:
-        """把一次 benchmark 的身份、证据摘要和 digest 提交到对应槽位。"""
+    ) -> bool:
+        """提交一次尝试；瞬时基础设施失败最多原位重试一次。"""
 
-        campaign_run_slot.status = "completed"
         campaign_run_slot.run_id = benchmark_run.run_id
         campaign_run_slot.run_dir = str(benchmark_run.output_dir)
         campaign_run_slot.scorecard_sha256 = self._artifacts.scorecard_sha256(
@@ -261,6 +267,26 @@ class RunBenchmarkCampaign:
             self._artifacts.read_scorecard(benchmark_run.output_dir),
         )
         campaign_run_slot.error = ""
+        failure_class = str(campaign_run_slot.evidence.get("failure_class") or "")
+        if (
+            failure_class in RETRYABLE_INFRASTRUCTURE_FAILURES
+            and campaign_run_slot.attempts < MAX_INFRASTRUCTURE_ATTEMPTS
+        ):
+            campaign_run_slot.attempt_history.append(
+                {
+                    "attempt": campaign_run_slot.attempts,
+                    "run_id": campaign_run_slot.run_id,
+                    "scorecard_sha256": campaign_run_slot.scorecard_sha256,
+                    "evidence": dict(campaign_run_slot.evidence),
+                }
+            )
+            campaign_run_slot.status = "retry_pending"
+            campaign_run_slot.error = f"retry_scheduled:{failure_class}"
+            return True
+        campaign_run_slot.status = "completed"
+        if failure_class in RETRYABLE_INFRASTRUCTURE_FAILURES:
+            campaign_run_slot.evidence["infrastructure_retry_exhausted"] = True
+        return False
 
     # endregion 单槽位与恢复细节结束
 

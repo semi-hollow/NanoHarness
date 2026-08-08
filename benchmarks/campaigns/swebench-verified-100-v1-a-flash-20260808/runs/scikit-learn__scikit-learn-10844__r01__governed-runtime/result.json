@@ -1,0 +1,20 @@
+{
+  "case_id": "scikit-learn__scikit-learn-10844",
+  "evidence": {
+    "estimated_cost_usd": 0.004022,
+    "failed_tool_calls": 0,
+    "failure_class": "official_resolved",
+    "llm_latency_ms": 16496,
+    "local_validation_status": "unavailable",
+    "official_evaluation_status": "official_resolved",
+    "patch_chars": 633,
+    "patch_generated": true,
+    "status": "patch_generated",
+    "tool_calls": 6,
+    "total_tokens": 29936
+  },
+  "repetition": 1,
+  "run_id": "swebench-20260808-084621-d3d3819",
+  "scorecard_sha256": "9b278ce8a49da14e91eec1b6288f6ef74d435035e71c53f7e0868ff921f46be0",
+  "variant": "governed-runtime"
+}

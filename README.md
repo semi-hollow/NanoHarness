@@ -42,6 +42,29 @@ NanoHarness 把这些问题放进 Runtime 控制面，而不是交给 Prompt 或
 | Multi-Agent | 显式 DAG、独立 worktree、声明/实际写入范围校验、Finalizer | Worker Diff、冲突与最终验证 |
 | Evaluation | candidate/local/official 分层，Taxonomy、Scorecard、配对实验 | per-case result、失败归因与 claim boundary |
 
+## 固定样本实测
+
+2026-08-08 使用 `deepseek-v4-flash` 在预注册的 SWE-bench Verified 50 题分片上，分别运行
+`minimal-control` 与 `governed-runtime`，共完成 100 个运行槽位。两套配置使用相同 AgentLoop、
+模型、任务、预算、安全和执行环境；治理版同时启用 task-aware Tool Routing 与 Skills，因此这是
+Runtime preset 对比，不是单因素消融。
+
+原始运行绑定 clean revision `34cbe91`；运行后的审计只修正统计口径和展示，不改写单 Case
+scorecard。
+
+| 配置 | Official resolved / 50 | Candidate patch | 失败工具调用率 | Token | 实际执行成本 |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Minimal Control | 20/50（40.0%） | 32/50 | 36/993（3.63%） | 8,308,931 | $1.242115 |
+| Governed Runtime | 14/50（28.0%） | 27/50 | 14/973（1.44%） | 8,078,883 | $1.124990 |
+
+治理配置减少了约 60.3% 的失败工具调用率和 2.8% 的 Token，但降低了候选改动覆盖和当前样本
+correctness。项目因此**没有**把它包装成全面提升，而是拒绝整套采纳，并将 Tool Routing 与 Skills
+拆成后续单因素实验。50 题每种配置只运行一次；其中一组治理版在一次重试后仍发生 provider
+基础设施错误，所以配对裁决为 49 组（Minimal 6 胜、Governed 1 胜、42 平）。
+
+[查看脱敏证据包](benchmarks/campaigns/swebench-verified-100-v1-a-flash-20260808/README.md) ·
+[查看如何从 Case 形成改进闭环](docs/evaluation/benchmark-improvement-loop.md)
+
 ## 证据工作台
 
 Agent 运行往往介于白盒和黑盒之间：事件很多，但原始 JSON 并不能帮助人理解因果。

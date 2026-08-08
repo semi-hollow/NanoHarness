@@ -604,7 +604,8 @@ class PublicCliSmokeTest(unittest.TestCase):
         self.assertIn("1/1 (100.0%)", html)
         self.assertIn("治理增强版胜出", html)
         self.assertIn("case-1", html)
-        self.assertIn("官方解决率只以明确得到", html)
+        self.assertIn("样本解决率以全部预注册 Case 为分母", html)
+        self.assertIn("已评测补丁接受率", html)
         self.assertIn("这是 commissioning 子集，不是完整的五题三重复实验", html)
 
     def test_empty_benchmark_contract_does_not_claim_prompt_is_constant(self):

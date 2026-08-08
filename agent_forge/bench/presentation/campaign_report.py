@@ -14,7 +14,7 @@ def render_campaign_report(
     *,
     public: bool = False,
 ) -> str:
-    """报告只陈述已有证据；没有 official denominator 时不显示 0%。"""
+    """报告同时给出样本解决率与已评测补丁接受率，避免混淆分母。"""
 
     config = state.config
     source = state.source
@@ -83,26 +83,32 @@ def render_campaign_report(
             "",
             "## Aggregate Evidence",
             "",
-            "| Variant | Complete | Candidate patch | Local verified | Official resolved | Tokens | Cost USD | Failed tools |",
-            "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
+            "| Variant | Complete | Candidate patch | Local verified candidate | Official resolved / selected | Accepted / evaluated patch | Infra | Failed tools | Execution cost USD |",
+            "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
         ]
     )
     for name, item in (summary.get("variants") or {}).items():
-        official = _rate_with_denominator(
+        selected_official = _rate_with_denominator(
+            item.get("official_resolved"),
+            item.get("planned"),
+        )
+        evaluated_acceptance = _rate_with_denominator(
             item.get("official_resolved"),
             item.get("official_evaluated"),
         )
         lines.append(
-            "| `{name}` | {completed}/{planned} | {patch}/{planned} | {local}/{planned} | {official} | {tokens} | {cost:.6f} | {failed} |".format(
+            "| `{name}` | {completed}/{planned} | {patch}/{planned} | {local}/{planned} | {selected_official} | {evaluated_acceptance} | {infra} | {failed}/{tools} | {cost:.6f} |".format(
                 name=name,
                 completed=item.get("completed", 0),
                 planned=item.get("planned", 0),
                 patch=item.get("patch_generated", 0),
                 local=item.get("local_verified", 0),
-                official=official,
-                tokens=item.get("total_tokens", 0),
-                cost=float(item.get("estimated_cost_usd") or 0.0),
+                selected_official=selected_official,
+                evaluated_acceptance=evaluated_acceptance,
+                infra=item.get("infrastructure_failures", 0),
                 failed=item.get("failed_tool_calls", 0),
+                tools=item.get("tool_calls", 0),
+                cost=float(item.get("execution_estimated_cost_usd") or item.get("estimated_cost_usd") or 0.0),
             )
         )
     paired = summary.get("paired_official") or {}
@@ -121,6 +127,19 @@ def render_campaign_report(
         lines.append(
             "- No comparative correctness claim is available because no pair has official outcomes for both variants."
         )
+    paired_sample = summary.get("paired_sample") or {}
+    sample_wins = paired_sample.get("wins") or {}
+    lines.extend(
+        [
+            "",
+            "## Paired Selected-Sample Outcomes",
+            "",
+            f"- adjudicated pairs: `{paired_sample.get('adjudicated_pairs', 0)}`",
+            f"- pairs excluded for infrastructure failure: `{paired_sample.get('excluded_infrastructure_pairs', 0)}`",
+            f"- wins: `{sample_wins}`",
+            f"- ties: `{paired_sample.get('ties', 0)}`",
+        ]
+    )
     lines.extend(
         [
             "",
@@ -157,7 +176,9 @@ def render_campaign_report(
             "## Claim Boundary",
             "",
             "- Candidate patch rate uses all planned runs and measures edit reachability, not correctness.",
-            "- Official resolved rate uses only explicit resolved/unresolved official reports; missing evaluation is never converted to 0%.",
+            "- Official resolved / selected uses every pre-registered case as the denominator; a stable no-patch run is unresolved.",
+            "- Accepted / evaluated patch only measures official acceptance among patches that reached an explicit evaluator verdict.",
+            "- A provider or evaluator infrastructure failure is retried once, then disclosed and excluded from adjudicated pair claims.",
             "- The two presets intentionally differ in both tool routing and Skill activation, so this campaign evaluates the preset as a whole.",
             _selection_boundary(config),
             _repetition_boundary(repetitions, len(config.get("case_ids") or [])),

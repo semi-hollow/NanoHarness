@@ -1,0 +1,20 @@
+{
+  "case_id": "sympy__sympy-12489",
+  "evidence": {
+    "estimated_cost_usd": 0.033631,
+    "failed_tool_calls": 0,
+    "failure_class": "official_eval_failed",
+    "llm_latency_ms": 78775,
+    "local_validation_status": "failed",
+    "official_evaluation_status": "official_eval_failed",
+    "patch_chars": 1931,
+    "patch_generated": true,
+    "status": "patch_generated",
+    "tool_calls": 24,
+    "total_tokens": 243709
+  },
+  "repetition": 1,
+  "run_id": "swebench-20260808-084323-09d196d",
+  "scorecard_sha256": "ca4cc309ab2b02d4173f27007d22e7b05af16f1882730cf1ca98329752cd6708",
+  "variant": "governed-runtime"
+}

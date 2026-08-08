@@ -45,6 +45,11 @@ forge bench campaign \
 输出口径必须是“固定 50 题样本上 official resolved `X/50`”。它能证明项目有预注册分母、
 官方 oracle 和成本意识，但一次运行不能估计随机稳定性，也不是官方排行榜提交。
 
+A 分片已经在 `deepseek-v4-flash` 上完成 50 Case × 2 preset。结果与逐槽位证据见
+[`swebench-verified-100-v1-a-flash-20260808`](../../benchmarks/campaigns/swebench-verified-100-v1-a-flash-20260808/README.md)。
+后续扩容只运行 B 分片；若要研究 Routing 或 Skills 的因果影响，应保持另一因素不变，不能继续用
+当前多因素 preset 对比替代消融实验。
+
 ## 固定 SWE-bench Verified Smoke-5
 
 下表中的参考 patch 规模只用于运行后的样本审计，不会进入 Agent prompt。

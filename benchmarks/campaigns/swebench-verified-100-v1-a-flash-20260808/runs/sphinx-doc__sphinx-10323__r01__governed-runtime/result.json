@@ -1,0 +1,20 @@
+{
+  "case_id": "sphinx-doc__sphinx-10323",
+  "evidence": {
+    "estimated_cost_usd": 0.029556,
+    "failed_tool_calls": 1,
+    "failure_class": "pending_tool_call_at_stop",
+    "llm_latency_ms": 125097,
+    "local_validation_status": "not_run",
+    "official_evaluation_status": "official_eval_skipped_empty_patch",
+    "patch_chars": 0,
+    "patch_generated": false,
+    "status": "blocked",
+    "tool_calls": 27,
+    "total_tokens": 208676
+  },
+  "repetition": 1,
+  "run_id": "swebench-20260808-041113-869188b",
+  "scorecard_sha256": "6aff04662eeb54c4ac7eebf7ffefd1d2e46f89d48be61d4dbde6686de04f03f1",
+  "variant": "governed-runtime"
+}

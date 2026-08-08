@@ -1,0 +1,20 @@
+{
+  "case_id": "pydata__xarray-3993",
+  "evidence": {
+    "estimated_cost_usd": 0.021092,
+    "failed_tool_calls": 0,
+    "failure_class": "validation_environment_unavailable",
+    "llm_latency_ms": 83715,
+    "local_validation_status": "unavailable",
+    "official_evaluation_status": "official_eval_failed",
+    "patch_chars": 1688,
+    "patch_generated": true,
+    "status": "patch_generated",
+    "tool_calls": 17,
+    "total_tokens": 144372
+  },
+  "repetition": 1,
+  "run_id": "swebench-20260808-045900-a23d632",
+  "scorecard_sha256": "b4060c67e7fcd81b70f4eca038189c75cad455044dd1c440a9de78c768ee1521",
+  "variant": "minimal-control"
+}

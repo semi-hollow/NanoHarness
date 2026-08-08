@@ -35,6 +35,7 @@ class _FakeBenchmarkRunner:
         self.requests = []
         self.fail_once_for = ""
         self.failed = False
+        self.structured_failures_remaining: dict[str, int] = {}
 
     def __call__(self, request):
         self.requests.append(request)
@@ -45,19 +46,32 @@ class _FakeBenchmarkRunner:
         run_dir = Path(request.output_root) / f"swebench-fake-{index}"
         run_dir.mkdir(parents=True, exist_ok=True)
         case_id = request.instance_ids[0]
+        remaining = self.structured_failures_remaining.get(
+            request.tool_routing_mode,
+            0,
+        )
+        structured_failure = remaining > 0
+        if structured_failure:
+            self.structured_failures_remaining[request.tool_routing_mode] = remaining - 1
         official = (
-            "official_resolved"
-            if request.tool_routing_mode == "task-aware"
-            else "official_eval_failed"
+            "official_eval_skipped_empty_patch"
+            if structured_failure
+            else (
+                "official_resolved"
+                if request.tool_routing_mode == "task-aware"
+                else "official_eval_failed"
+            )
         )
         case_data = {
             "instance_id": case_id,
-            "status": "patch_generated",
-            "patch_generated": True,
-            "patch_chars": 12,
-            "local_validation_status": "passed",
+            "status": "blocked" if structured_failure else "patch_generated",
+            "patch_generated": not structured_failure,
+            "patch_chars": 0 if structured_failure else 12,
+            "local_validation_status": "not_run" if structured_failure else "passed",
             "official_evaluation_status": official,
-            "failure_class": official,
+            "failure_class": (
+                "provider_transport_error" if structured_failure else official
+            ),
             "total_tokens": 100,
             "estimated_cost_usd": 0.01,
             "llm_latency_ms": 40,
@@ -85,7 +99,10 @@ class _FakeBenchmarkRunner:
         trace = run_dir / "trace.json"
         patch = run_dir / "candidate_changes.diff"
         trace.write_text("{}", encoding="utf-8")
-        patch.write_text("diff --git a/a.py b/a.py\n", encoding="utf-8")
+        patch.write_text(
+            "" if structured_failure else "diff --git a/a.py b/a.py\n",
+            encoding="utf-8",
+        )
         result = BenchCaseResult(
             instance_id=case_id,
             repo="owner/repo",
@@ -93,12 +110,14 @@ class _FakeBenchmarkRunner:
             trace_path=trace,
             usage_report_path=None,
             candidate_diff_path=patch,
-            status="patch_generated",
-            final_answer="candidate",
-            patch_chars=12,
-            local_validation_status="passed",
+            status="blocked" if structured_failure else "patch_generated",
+            final_answer="request_timeout" if structured_failure else "candidate",
+            patch_chars=0 if structured_failure else 12,
+            local_validation_status="not_run" if structured_failure else "passed",
             official_evaluation_status=official,
-            failure_class=official,
+            failure_class=(
+                "provider_transport_error" if structured_failure else official
+            ),
         )
         return BenchRunSummary(
             run_id=f"swebench-fake-{index}",
@@ -208,6 +227,58 @@ class BenchmarkCampaignTest(unittest.TestCase):
         self.assertEqual(
             public_summary["variants"]["minimal-control"]["total_tokens"],
             400,
+        )
+
+    def test_structured_infrastructure_failure_is_retried_once_in_same_campaign(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            runner = _FakeBenchmarkRunner()
+            runner.structured_failures_remaining["all"] = 1
+            result = RunBenchmarkCampaign(
+                runner,
+                FileCampaignArtifacts(root),
+                _SourceIdentity(),
+            ).run_campaign(self._request(root, repetitions=1))
+
+        retried = [record for record in result.state.records if record.attempts == 2]
+        self.assertEqual(result.state.status, "completed")
+        self.assertEqual(len(runner.requests), 5)
+        self.assertEqual(len(retried), 1)
+        self.assertEqual(len(retried[0].attempt_history), 1)
+        self.assertEqual(
+            retried[0].attempt_history[0]["evidence"]["failure_class"],
+            "provider_transport_error",
+        )
+        self.assertNotIn("infrastructure_retry_exhausted", retried[0].evidence)
+
+    def test_persistent_infrastructure_failure_stops_after_two_attempts(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            runner = _FakeBenchmarkRunner()
+            runner.structured_failures_remaining["all"] = 10
+            result = RunBenchmarkCampaign(
+                runner,
+                FileCampaignArtifacts(root),
+                _SourceIdentity(),
+            ).run_campaign(self._request(root, repetitions=1))
+            summary = json.loads(result.summary_path.read_text(encoding="utf-8"))
+
+        persistent = [
+            record
+            for record in result.state.records
+            if record.evidence.get("infrastructure_retry_exhausted")
+        ]
+        self.assertEqual(result.state.status, "completed")
+        self.assertEqual(len(runner.requests), 6)
+        self.assertEqual(len(persistent), 2)
+        self.assertTrue(all(record.attempts == 2 for record in persistent))
+        self.assertEqual(
+            summary["variants"]["minimal-control"]["infrastructure_failures"],
+            2,
+        )
+        self.assertEqual(
+            summary["paired_sample"]["excluded_infrastructure_pairs"],
+            2,
         )
 
     def test_dirty_source_is_rejected_before_any_paid_run(self):

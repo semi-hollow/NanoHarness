@@ -1,0 +1,20 @@
+{
+  "case_id": "pytest-dev__pytest-5809",
+  "evidence": {
+    "estimated_cost_usd": 0.015955,
+    "failed_tool_calls": 3,
+    "failure_class": "official_resolved",
+    "llm_latency_ms": 95506,
+    "local_validation_status": "failed",
+    "official_evaluation_status": "official_resolved",
+    "patch_chars": 987,
+    "patch_generated": true,
+    "status": "patch_generated",
+    "tool_calls": 14,
+    "total_tokens": 108714
+  },
+  "repetition": 1,
+  "run_id": "swebench-20260808-101510-b1c4ba1",
+  "scorecard_sha256": "c5dff6873fdb6a3d9f9da9c52adcbae1672f70ecaa43f5eb4dd95df5737fceb3",
+  "variant": "minimal-control"
+}

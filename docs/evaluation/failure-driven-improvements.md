@@ -378,6 +378,40 @@ Smoke-5 是从 SWE-bench Verified 中分层选择的低成本机制回归集，�
 **工程结论**：Trace 只能记录已经发生的事实。一个能力若不改变输入、状态、权限、执行或结果，
 就不能仅凭事件名称对外宣称存在。
 
+### 20. Campaign 完成不等于所有槽位都产生了可裁决证据
+
+**现象**：50×2 实跑中，provider transport 和 official evaluator 环境错误被保存成普通
+`completed` 槽位；报告又用 `resolved / official_evaluated` 展示“Official resolved”，容易把
+补丁接受率误读成整个固定样本的解决率。
+
+**根因**：Campaign 只区分“runner 是否返回”，没有区分稳定 Agent 结果与基础设施失败；同一个字段
+还承担了两个不同分母。
+
+**当前规则**：provider、official evaluator 或 runner 基础设施错误最多自动重试一次，并保存首次尝试；
+重试耗尽后仍保留在样本中，但从可裁决 pair 中单独排除。主指标固定为 `resolved / 全部预注册 Case`，
+`resolved / 已得到 official verdict 的 patch` 只能称为“已评测补丁接受率”。
+
+**真实证据**：A 分片共 100 个槽位，3 个基础设施异常触发重试，1 个 provider error 在第二次仍失败；
+最终只裁决 49 个 pair。总估算执行成本包含首次失败尝试，而不是只统计最终槽位。
+
+**工程结论**：评测系统必须把任务失败、基础设施失败和缺失证据分开；分母命名错误会比计算错误更容易
+制造误导性结论。
+
+### 21. 本地测试通过不一定存在“已验证候选”
+
+**现象**：一个 Case 没有生成 Diff，但原仓 local validation 通过，旧规则将它分类为
+`locally_verified_candidate`；另一个 Case 已被 official evaluator 拒绝，却因日志中有
+`missing dependency` 被更早归类为本地环境不可用。
+
+**根因**：分类顺序没有真正落实“权威结果优先”，且 local pass 分支没有检查 candidate 是否存在。
+
+**当前规则**：official resolved/error/failed 先于 provider、runner 和 local environment；只有
+`patch_chars > 0` 时 local pass 才能形成 `locally_verified_candidate`。未改代码但测试通过单独归为
+`local_validation_passed_without_patch`。
+
+**工程结论**：Taxonomy 是有序裁决规则，不是关键词标签集合。每个成功语义都必须同时满足它所声称的
+证据前提。
+
 ## 统一复盘模板
 
 以后出现新问题，只使用下面六问判断是否值得进入本文件：

@@ -1,0 +1,20 @@
+{
+  "case_id": "matplotlib__matplotlib-25960",
+  "evidence": {
+    "estimated_cost_usd": 0.029712,
+    "failed_tool_calls": 0,
+    "failure_class": "pending_tool_call_at_stop",
+    "llm_latency_ms": 57359,
+    "local_validation_status": "not_run",
+    "official_evaluation_status": "official_eval_skipped_empty_patch",
+    "patch_chars": 0,
+    "patch_generated": false,
+    "status": "blocked",
+    "tool_calls": 21,
+    "total_tokens": 210601
+  },
+  "repetition": 1,
+  "run_id": "swebench-20260808-083726-d4568ff",
+  "scorecard_sha256": "2e5d60bf7c181372fe8dd41513ca914423936740fe5b1330e0e8ef0c83de5ed9",
+  "variant": "minimal-control"
+}

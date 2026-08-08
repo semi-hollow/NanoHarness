@@ -11,7 +11,7 @@ from typing import Any
 
 from .models import BenchCaseResult
 
-FAILURE_TAXONOMY_VERSION = "1.0"
+FAILURE_TAXONOMY_VERSION = "1.1"
 FAILURE_DIAGNOSIS_SOURCE = "ordered_rule_taxonomy"
 
 
@@ -112,7 +112,52 @@ def classify_case_result(
             engineering_lesson="Resolved claims should be backed by parsed per-case evaluator artifacts.",
         )
 
+    if official_evaluation_status == "official_eval_error":
+        return FailureDiagnosis(
+            failure_class="official_eval_error",
+            summary="The official SWE-bench harness or its environment failed before patch correctness could be judged.",
+            evidence=diagnosis_evidence,
+            next_actions=[
+                "Fix the official evaluation environment, then rerun without changing the agent patch."
+            ],
+            severity="high",
+            impact="The run cannot distinguish patch correctness from harness, Docker, or dependency failure.",
+            engineering_lesson="Official evaluation process failures must not be reported as patch rejection.",
+        )
+    if official_evaluation_status == "official_eval_failed":
+        return FailureDiagnosis(
+            failure_class="official_eval_failed",
+            summary="The official SWE-bench harness completed and rejected the candidate patch for this case.",
+            evidence=diagnosis_evidence,
+            next_actions=[
+                "Read official per-case output and candidate_changes.diff together; "
+                "add this case to regression before tuning."
+            ],
+            severity="high",
+            impact="The generated patch did not satisfy benchmark correctness criteria.",
+            engineering_lesson="Patch generation, local validation, and official resolution are different evidence levels.",
+        )
+
     # 2. Harness/环境不可用时，不能误归因到 Agent 推理或 patch correctness。
+    provider_error_markers = (
+        "incompleteread",
+        "request_failed",
+        "request_timeout",
+        "rate_limited",
+        "server_error",
+    )
+    if any(marker in normalized_failure_text for marker in provider_error_markers):
+        return FailureDiagnosis(
+            failure_class="provider_transport_error",
+            summary="The provider transport failed or returned an incomplete response before the agent finished.",
+            evidence=diagnosis_evidence,
+            next_actions=[
+                "Treat as provider instability; retry once without changing the agent policy."
+            ],
+            severity="high",
+            impact="The failure says little about coding ability until transport errors are isolated.",
+            engineering_lesson="Runtime observability should separate model/provider transport from agent logic failures.",
+        )
     if result.error:
         return FailureDiagnosis(
             failure_class="runner_or_environment_error",
@@ -141,35 +186,10 @@ def classify_case_result(
             impact="A candidate patch may be correct, but the validation environment cannot prove it locally.",
             engineering_lesson="Evaluation must distinguish code failure from environment failure so optimization targets stay accurate.",
         )
-    if official_evaluation_status == "official_eval_error":
-        return FailureDiagnosis(
-            failure_class="official_eval_error",
-            summary="The official SWE-bench harness or its environment failed before patch correctness could be judged.",
-            evidence=diagnosis_evidence,
-            next_actions=[
-                "Fix the official evaluation environment, then rerun without changing the agent patch."
-            ],
-            severity="high",
-            impact="The run cannot distinguish patch correctness from harness, Docker, or dependency failure.",
-            engineering_lesson="Official evaluation process failures must not be reported as patch rejection.",
-        )
-    if official_evaluation_status == "official_eval_failed":
-        return FailureDiagnosis(
-            failure_class="official_eval_failed",
-            summary="The official SWE-bench harness completed and rejected the candidate patch for this case.",
-            evidence=diagnosis_evidence,
-            next_actions=[
-                "Read official per-case output and candidate_changes.diff together; "
-                "add this case to regression before tuning."
-            ],
-            severity="high",
-            impact="The generated patch did not satisfy benchmark correctness criteria.",
-            engineering_lesson="Patch generation, local validation, and official resolution are different evidence levels.",
-        )
     # endregion 2. 权威结果与环境故障结束
 
     # region 3. 候选证据：local pass 或 diff 只能证明候选存在，不能外推 official
-    if result.local_validation_status == "passed":
+    if result.local_validation_status == "passed" and result.patch_chars > 0:
         return FailureDiagnosis(
             failure_class="locally_verified_candidate",
             summary="Local test evidence passed for the candidate patch; official SWE-bench resolution is still not claimed.",
@@ -180,6 +200,18 @@ def classify_case_result(
             severity="low",
             impact="The patch has local validation evidence but no official benchmark outcome.",
             engineering_lesson="Local and official validation should remain separate evidence levels.",
+        )
+    if result.local_validation_status == "passed":
+        return FailureDiagnosis(
+            failure_class="local_validation_passed_without_patch",
+            summary="Local tests passed on the unchanged checkout, but the agent produced no candidate patch.",
+            evidence=diagnosis_evidence,
+            next_actions=[
+                "Treat this as a no-patch outcome; inspect why the agent stopped before editing."
+            ],
+            severity="medium",
+            impact="Passing baseline tests do not prove that the benchmark issue was fixed.",
+            engineering_lesson="Validation evidence only supports a candidate when a candidate change actually exists.",
         )
     if result.patch_chars > 0:
         return FailureDiagnosis(
@@ -247,27 +279,6 @@ def classify_case_result(
             severity="high",
             impact="The model could not continue even if repository file selection itself was correct.",
             engineering_lesson="Full-request window failures must be separated from repository retrieval misses and transport instability.",
-        )
-    if any(
-        marker in normalized_failure_text
-        for marker in (
-            "incompleteread",
-            "request_failed",
-            "request_timeout",
-            "rate_limited",
-            "server_error",
-        )
-    ):
-        return FailureDiagnosis(
-            failure_class="provider_transport_error",
-            summary="The provider transport failed or returned an incomplete response before the agent finished.",
-            evidence=diagnosis_evidence,
-            next_actions=[
-                "Treat as provider instability; retry only after the client converts transport failures into structured observations."
-            ],
-            severity="high",
-            impact="The failure says little about coding ability until transport errors are isolated.",
-            engineering_lesson="Runtime observability should separate model/provider transport from agent logic failures.",
         )
     if "repeated" in normalized_failure_text:
         return FailureDiagnosis(

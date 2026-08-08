@@ -1,0 +1,20 @@
+{
+  "case_id": "django__django-12663",
+  "evidence": {
+    "estimated_cost_usd": 0.035098,
+    "failed_tool_calls": 0,
+    "failure_class": "pending_tool_call_at_stop",
+    "llm_latency_ms": 169612,
+    "local_validation_status": "not_run",
+    "official_evaluation_status": "official_eval_skipped_empty_patch",
+    "patch_chars": 0,
+    "patch_generated": false,
+    "status": "blocked",
+    "tool_calls": 25,
+    "total_tokens": 240280
+  },
+  "repetition": 1,
+  "run_id": "swebench-20260808-104647-d917b1a",
+  "scorecard_sha256": "6d2c870fe2648a87a19e13bda500f861e0c2e5959ca73166485cf1e6a11f550e",
+  "variant": "governed-runtime"
+}
