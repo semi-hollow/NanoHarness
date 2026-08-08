@@ -1,7 +1,7 @@
 """Runtime 对外部能力的最小契约。"""
 
 from .context import ContextAssemblerPort, ContextAssemblyRequest, ContextReportView
-from .environment import EnvironmentPort
+from .environment import EnvironmentPort, WorkspaceDiffPort
 from .events import EventSink
 from .hooks import HookPort
 from .model import ModelPort
@@ -31,4 +31,5 @@ __all__ = [
     "SkillView",
     "TaskStateRepository",
     "ToolGateway",
+    "WorkspaceDiffPort",
 ]

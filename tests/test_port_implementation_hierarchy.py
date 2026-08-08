@@ -83,6 +83,7 @@ from agent_forge.runtime.ports import (
     SkillSelectorPort,
     TaskStateRepository,
     ToolGateway,
+    WorkspaceDiffPort,
 )
 from agent_forge.skills.registry import SkillRegistry
 from agent_forge.tools.registry import ToolRegistry
@@ -94,6 +95,7 @@ FORMAL_IMPLEMENTATIONS = (
     (JsonLongTermMemoryRepository, LongTermMemoryRepository),
     (LongTermMemoryService, LongTermMemoryRecallPort),
     (ExecutionEnvironment, EnvironmentPort),
+    (ExecutionEnvironment, WorkspaceDiffPort),
     (LLMClient, ModelPort),
     (ModelGateway, LLMClient),
     (JsonTraceRecorder, EventSink),

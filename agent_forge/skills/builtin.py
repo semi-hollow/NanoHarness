@@ -88,6 +88,7 @@ def built_in_skill_specs() -> list[SkillSpec]:
                 "grep_search",
                 "read_file",
                 "replace_text",
+                "create_file",
                 "write_file",
                 "run_command",
                 "git_diff",
