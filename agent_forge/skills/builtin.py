@@ -9,7 +9,7 @@ def built_in_skill_specs() -> list[SkillSpec]:
     return [
         SkillSpec(
             name="swebench_repair",
-            version="2.1.0",
+            version="2.0.0",
             description=(
                 "Diagnose one root cause and produce the smallest evidence-backed repair."
             ),
@@ -23,7 +23,6 @@ def built_in_skill_specs() -> list[SkillSpec]:
             tool_names=[],
             operating_procedure=[
                 "Ground one hypothesis in the issue, relevant source, and focused test before editing.",
-                "Before finalizing, check alternate callers or construction paths affected by the changed invariant and remove temporary validation artifacts from the diff.",
                 "Make the smallest coherent change; if evidence is insufficient, state the uncertainty instead of guessing.",
             ],
         ),

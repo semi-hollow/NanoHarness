@@ -134,8 +134,8 @@ replace_text("pricing.py", old, new)
 
 所以副作用不是某个类或文件，而是“调用结束后，外部可观察状态是否发生变化”这个属性。广义上
 写文件、改数据库、发消息、扣款、启动可能改变环境的命令都属于副作用。NanoHarness 的
-`OperationIntent.side_effect` 使用更窄的 durable 定义：`write_file`、`create_file`、
-`replace_text` 和 `run_command` 进入副作用协议；读取、搜索和可丢弃验证缓存不进入。
+`OperationIntent.side_effect` 使用更窄的 durable 定义：`write_file`、`replace_text` 和
+`run_command` 进入副作用协议；读取、搜索和可丢弃验证缓存不进入。
 
 `operation key + fingerprint + Operation Ledger` 是保护副作用的三种机制，不是副作用本身：
 

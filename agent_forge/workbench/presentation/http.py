@@ -4813,10 +4813,7 @@ def _translate_runtime_summary(value: Any) -> str:
         ),
         ("no hook opinion", "该 Hook 无额外意见"),
         ("read/list/grep allowed", "读取、列目录和搜索允许"),
-        (
-            "replace_text/create_file/write_file asks approval",
-            "replace_text/create_file/write_file 需要审批",
-        ),
+        ("replace_text/write_file asks approval", "replace_text/write_file 需要审批"),
         ("dangerous commands denied", "危险命令拒绝"),
         ("execution_environment mode=", "执行环境模式="),
         ("active_workspace=", "活动工作区="),

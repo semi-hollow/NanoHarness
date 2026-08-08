@@ -1,6 +1,5 @@
 import re
 from dataclasses import dataclass
-from typing import Literal
 
 
 _GLOBAL_READ_ONLY_MARKERS = (
@@ -28,25 +27,6 @@ _SCOPED_TEST_RESTRICTIONS = (
         r"(?!\s+(?:or|and)\b)(?:\s+unless[^.!?]*)?"
     ),
 )
-_REPAIR_MARKERS = (
-    "fix",
-    "repair",
-    "resolve",
-    "patch",
-    "implement",
-    "修复",
-    "实现",
-    "补充",
-)
-
-ClosureMode = Literal[
-    "open",
-    "read_only_closeout",
-    "repair_evidence",
-    "repair_commit",
-    "repair_verify",
-    "repair_unavailable",
-]
 
 
 def task_requests_read_only(task: str) -> bool:
@@ -68,22 +48,6 @@ def task_requests_read_only(task: str) -> bool:
     )
 
 
-def task_is_swebench(task: str) -> bool:
-    """返回任务是否声明为 SWE-bench 修复任务。"""
-
-    normalized_task = (task or "").lower()
-    return "swe-bench" in normalized_task or "swebench" in normalized_task
-
-
-def task_requests_repair(task: str) -> bool:
-    """识别需要产生代码改动的任务，用于 Router 与收口证据保持一致。"""
-
-    normalized_task = (task or "").lower()
-    return task_is_swebench(normalized_task) or any(
-        marker in normalized_task for marker in _REPAIR_MARKERS
-    )
-
-
 # 核心数据：一次工具可见性决策的任务、候选 schema 与运行上下文。
 @dataclass(frozen=True, kw_only=True)
 class ToolRoutingRequest:
@@ -96,8 +60,6 @@ class ToolRoutingRequest:
     agent_name: str = ""
     skill_tool_names: set[str] | None = None
     mode: str = "task-aware"
-    # ``None`` 表示执行环境不支持 Diff，或本轮不需要读取该可选能力。
-    workspace_diff_present: bool | None = None
 
 
 # 核心数据：本 turn 展示给模型和隐藏于模型的真实工具可见性决策。
@@ -112,7 +74,6 @@ class ToolRoute:
     metadata: dict[str, dict]
     phase: str = "work"
     remaining_tool_turns: int | None = None
-    closure_mode: ClosureMode = "open"
 
     def policy_summary(self) -> dict[str, object]:
         """生成可写入 trace 和 UI 的真实路由摘要。"""
@@ -127,7 +88,6 @@ class ToolRoute:
             "metadata": self.metadata,
             "phase": self.phase,
             "remaining_tool_turns": self.remaining_tool_turns,
-            "closure_mode": self.closure_mode,
         }
 
 
@@ -271,7 +231,6 @@ class ToolRouter:
                 metadata={},
                 phase="finalize",
                 remaining_tool_turns=0,
-                closure_mode="open",
             )
 
         # ``all`` 只表示全部工具对模型可见，执行时仍然要经过权限与安全策略。
@@ -302,7 +261,6 @@ class ToolRouter:
                     else "work"
                 ),
                 remaining_tool_turns=remaining_tool_turns,
-                closure_mode="open",
             )
         # endregion 1. 候选目录结束
 
@@ -322,7 +280,19 @@ class ToolRouter:
 
         # 修复任务需要“检查 -> 编辑 -> 验证 -> 查看改动”的完整闭环。这里允许模型看见
         # 写工具，真实写入仍然由执行阶段的权限链审批。
-        if not is_read_only_task and task_requests_repair(normalized_task_text):
+        if not is_read_only_task and any(
+            token in normalized_task_text
+            for token in [
+                "fix",
+                "repair",
+                "resolve",
+                "patch",
+                "implement",
+                "修复",
+                "实现",
+                "补充",
+            ]
+        ):
             visible_tool_names |= registered_tool_names & {
                 "replace_text",
                 "create_file",
@@ -384,7 +354,10 @@ class ToolRouter:
         # SWE-bench 使用锚点替换或“仅创建”工具，并隐藏可覆盖已有内容的 write_file。
         # 固定 Python 验证器是首选；受命令白名单约束的 run_command 作为异构仓库
         # 测试入口回退，不获得任意 shell 能力。
-        is_swebench_task = task_is_swebench(normalized_task_text)
+        is_swebench_task = (
+            "swe-bench" in normalized_task_text
+            or "swebench" in normalized_task_text
+        )
         if is_swebench_task:
             visible_tool_names.discard("write_file")
             visible_tool_names |= registered_tool_names & {
@@ -419,71 +392,41 @@ class ToolRouter:
             ):
                 visible_tool_names.add(tool_name)
 
-        # SWE-bench 的最后两个工具 turn 使用显式收口状态：先收集可落地的锚点，再
-        # 提交改动；若工作区已有 Diff，则把剩余预算留给验证和最小修正。这里的
-        # ``closure_mode`` 会直接驱动 Prompt，不再从 ``reason`` 文本反推策略。
-        closure_mode: ClosureMode = "open"
-        if is_swebench_task and remaining_tool_turns in {1, 2}:
-            if is_read_only_task and remaining_tool_turns == 1:
-                closure_mode = "read_only_closeout"
+        # SWE-bench 的最后一个可执行工具 turn 进入收口阶段。这里关闭目录级漫游和
+        # 人工澄清，但保留 read/grep：最后一次验证失败后，模型仍需读取报错相关源码，
+        # 不能被迫盲改。真正的硬边界是下一轮 FINALIZE 的零工具视图。
+        closure_phase = "open"
+        is_closeout_turn = is_swebench_task and remaining_tool_turns == 1
+        if is_closeout_turn:
+            if is_read_only_task:
                 closeout_tool_names = {
                     "list_files",
                     "read_file",
+                    "grep",
                     "grep_search",
                     "git_status",
                     "git_diff",
                 }
-                visible_tool_names &= closeout_tool_names
-            elif not is_read_only_task and request.workspace_diff_present is True:
-                closure_mode = "repair_verify"
+                closure_phase = "read_only_closeout"
+            else:
                 closeout_tool_names = {
                     "read_file",
+                    "grep",
                     "grep_search",
                     "replace_text",
                     "create_file",
                     "python_validation",
                     "run_command",
-                    "git_status",
                     "git_diff",
                 }
-                visible_tool_names &= closeout_tool_names
-            elif (
-                not is_read_only_task
-                and request.workspace_diff_present is False
-                and remaining_tool_turns == 2
-            ):
-                # 倒数第二个工具 turn 只补齐精确 edit anchor；验证未改代码既浪费
-                # 预算，也不能帮助最后一轮形成真实 Candidate Diff。
-                closure_mode = "repair_evidence"
-                closeout_tool_names = {
-                    "read_file",
-                    "grep_search",
-                    "git_status",
-                    "git_diff",
-                }
-                visible_tool_names &= closeout_tool_names
-            elif (
-                not is_read_only_task
-                and request.workspace_diff_present is False
-                and remaining_tool_turns == 1
-            ):
-                registered_mutation_tools = registered_tool_names & {
-                    "replace_text",
-                    "create_file",
-                }
-                if registered_mutation_tools:
-                    closure_mode = "repair_commit"
-                    visible_tool_names = set(registered_mutation_tools)
-                else:
-                    # 不伪造不存在的写能力；最终回答必须明确“未生成候选改动”。
-                    closure_mode = "repair_unavailable"
-                    visible_tool_names = set()
+                closure_phase = "repair_closeout"
+            visible_tool_names &= closeout_tool_names
         # endregion 3. 专项策略结束
 
         # region 4. 输出投影：生成模型 schema、执行白名单和可观测证据
         # 兼容兜底：规则未选中任何工具时保持旧行为，暴露全部已注册工具。这是可见性
         # fail-open，不会绕过执行阶段的 Hook 和权限检查。
-        if not visible_tool_names and closure_mode == "open":
+        if not visible_tool_names and not is_closeout_turn:
             visible_tool_names = set(registered_tool_names)
 
         # 保持 Registry 原始 schema 顺序，使 provider 请求和 Trace 在多次运行间稳定。
@@ -503,13 +446,8 @@ class ToolRouter:
             routing_reason += " swebench_validation=python_validation|allowlisted_run_command"
         if remaining_tool_turns is not None:
             routing_reason += (
-                f" closure_mode={closure_mode}"
+                f" closure_phase={closure_phase}"
                 f" remaining_tool_turns={remaining_tool_turns}"
-            )
-        if request.workspace_diff_present is not None:
-            routing_reason += (
-                " workspace_diff_present="
-                f"{str(request.workspace_diff_present).lower()}"
             )
         return ToolRoute(
             schemas=visible_tool_schemas,
@@ -530,8 +468,7 @@ class ToolRouter:
                 )
                 for name in sorted(visible_tool_names)
             },
-            phase=("closeout" if closure_mode != "open" else "work"),
+            phase=("closeout" if remaining_tool_turns == 1 else "work"),
             remaining_tool_turns=remaining_tool_turns,
-            closure_mode=closure_mode,
         )
         # endregion 4. 输出投影结束

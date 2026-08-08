@@ -52,7 +52,6 @@ from agent_forge.runtime.ports import (
     SkillSelectorPort,
     TaskStateRepository,
     ToolGateway,
-    WorkspaceDiffPort,
 )
 from agent_forge.tools.base import Tool
 from agent_forge.tools.registry import ToolRegistry
@@ -101,6 +100,5 @@ __all__ = [
     "ToolGateway",
     "ToolRegistry",
     "ToolSchema",
-    "WorkspaceDiffPort",
     "resolve_instructions",
 ]

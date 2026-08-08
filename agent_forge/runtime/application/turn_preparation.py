@@ -24,16 +24,8 @@ from agent_forge.runtime.ports import (
     EnvironmentPort,
     EventSink,
     ToolGateway,
-    WorkspaceDiffPort,
 )
-from agent_forge.tools.tool_router import (
-    ClosureMode,
-    ToolRoute,
-    ToolRouter,
-    ToolRoutingRequest,
-    task_requests_read_only,
-    task_requests_repair,
-)
+from agent_forge.tools.tool_router import ToolRoute, ToolRouter, ToolRoutingRequest
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -122,23 +114,6 @@ class TurnPreparation:
         # endregion 1. Turn 起点结束
 
         # region 2. 工具路由：收敛模型可见 schema，并保持权限摘要一致
-        remaining_tool_turns = max(0, session.max_iterations - step)
-        is_read_only_task = task_requests_read_only(session.task)
-        is_repair_task = task_requests_repair(session.task)
-
-        # Diff 是可选环境能力，只在修复任务最后两个“仍可调用工具”的 turn 读取。
-        # 最终零工具 turn 不启动 Git；旧的第三方 EnvironmentPort 也无需实现 diff()。
-        should_read_workspace_diff = (
-            remaining_tool_turns in {1, 2}
-            and is_repair_task
-            and not is_read_only_task
-            and isinstance(self.execution_environment, WorkspaceDiffPort)
-        )
-        workspace_diff_present = (
-            bool(self.execution_environment.diff().strip())
-            if should_read_workspace_diff
-            else None
-        )
         tool_route = self.tool_router.route(
             ToolRoutingRequest(
                 task=session.task,
@@ -148,15 +123,25 @@ class TurnPreparation:
                 agent_name=session.agent_name,
                 skill_tool_names=session.skill_tool_names,
                 mode=self.config.tool_routing_mode,
-                workspace_diff_present=workspace_diff_present,
             )
         )
         visible_tool_schemas: list[ToolSchema] = tool_route.schemas
         allowed_tool_names = set(tool_route.allowed_names)
-        model_permission_summary = self._build_model_permission_summary(
-            tool_route=tool_route,
-            allowed_tool_names=allowed_tool_names,
+        model_permission_summary = (
+            "read/list/grep allowed; replace_text/write_file asks approval; "
+            "dangerous commands denied; "
+            f"{self.execution_environment.render_boundary_summary()}"
         )
+        if tool_route.phase == "finalize":
+            model_permission_summary += (
+                "; final step: no more tool calls are available, provide the best "
+                "evidence-based final answer and clearly mark unverified items"
+            )
+        elif tool_route.phase == "closeout":
+            model_permission_summary += (
+                "; closure phase: broad discovery is closed; use this last tool "
+                "turn only to finish the smallest repair and inspect evidence"
+            )
         # endregion 2. 工具路由结束
 
         # region 3. 静态上下文组装：仓库、Memory、Skill 与权限边界汇合
@@ -189,7 +174,6 @@ class TurnPreparation:
             assembled_context=assembled_context,
             tool_route=tool_route,
             allowed_tool_names=allowed_tool_names,
-            workspace_diff_present=workspace_diff_present,
         )
         system_context_message = Message(
             role="system",
@@ -199,7 +183,6 @@ class TurnPreparation:
         runtime_control_message = self._turn_budget_control_message(
             step=step,
             max_steps=session.max_iterations,
-            closure_mode=tool_route.closure_mode,
         )
         if runtime_control_message is not None:
             model_history.append(runtime_control_message)
@@ -243,9 +226,8 @@ class TurnPreparation:
         *,
         step: int,
         max_steps: int,
-        closure_mode: ClosureMode,
     ) -> Message | None:
-        """按显式收口模式追加不落入会话历史的 Runtime 控制消息。"""
+        """在接近预算边界时追加不落入会话历史的 Runtime 控制消息。"""
 
         remaining_tool_turns = max(0, max_steps - step)
         if remaining_tool_turns == 0:
@@ -256,103 +238,24 @@ class TurnPreparation:
                     "evidence-based answer now. Do not emit tool-call markup."
                 ),
             )
-        if closure_mode == "read_only_closeout":
+        if remaining_tool_turns == 1:
             return Message(
                 role="user",
                 content=(
-                    "[RUNTIME CONTROL] This task is read-only. Use the remaining turn "
-                    "only to confirm the strongest evidence; do not modify files."
+                    "[RUNTIME CONTROL] This is the last tool-enabled turn. Do not "
+                    "start broad discovery. Finish the smallest repair, validation, "
+                    "or diff check that can still change the outcome."
                 ),
             )
-        if closure_mode == "repair_evidence":
+        if remaining_tool_turns == 2:
             return Message(
                 role="user",
                 content=(
-                    "[RUNTIME CONTROL] No workspace diff exists. Use this evidence "
-                    "turn only to locate the exact file and edit anchor needed by the "
-                    "next turn. Do not run validation against unchanged code."
-                ),
-            )
-        if closure_mode == "repair_commit":
-            return Message(
-                role="user",
-                content=(
-                    "[RUNTIME CONTROL] No workspace diff exists. This is the last "
-                    "tool-enabled turn; make the smallest evidence-backed mutation "
-                    "with an available edit tool. If the evidence is insufficient, "
-                    "do not guess."
-                ),
-            )
-        if closure_mode == "repair_verify":
-            return Message(
-                role="user",
-                content=(
-                    "[RUNTIME CONTROL] A workspace diff exists. Spend the remaining "
-                    "tool budget only on targeted verification, inspection, or the "
-                    "smallest correction to that diff."
-                ),
-            )
-        if closure_mode == "repair_unavailable":
-            return Message(
-                role="user",
-                content=(
-                    "[RUNTIME CONTROL] No workspace diff exists and no supported "
-                    "mutation tool is registered. Do not invent a tool call; report "
-                    "that no candidate change could be produced."
+                    "[RUNTIME CONTROL] Closure phase has started. Stop broad "
+                    "search and converge on the strongest supported repair."
                 ),
             )
         return None
-
-    def _build_model_permission_summary(
-        self,
-        *,
-        tool_route: ToolRoute,
-        allowed_tool_names: set[str],
-    ) -> str:
-        """把真实工具视图和收口状态转成模型可见边界，不提不存在的能力。"""
-
-        visible_write_tools = sorted(
-            allowed_tool_names & {"replace_text", "create_file", "write_file"}
-        )
-        if visible_write_tools:
-            write_boundary = (
-                f"visible write tools={','.join(visible_write_tools)} require approval"
-            )
-        else:
-            write_boundary = "no write tools are visible in this turn"
-
-        summary = (
-            f"{write_boundary}; dangerous commands denied; "
-            f"{self.execution_environment.render_boundary_summary()}"
-        )
-        closure_notes = {
-            "read_only_closeout": (
-                "read-only closeout: inspect evidence only and do not modify files"
-            ),
-            "repair_evidence": (
-                "repair evidence phase: collect an exact edit anchor; do not validate "
-                "unchanged code"
-            ),
-            "repair_commit": (
-                "repair commit phase: use one available mutation tool to create the "
-                "smallest supported workspace diff"
-            ),
-            "repair_verify": (
-                "repair verify phase: inspect, validate, or minimally correct the "
-                "existing workspace diff"
-            ),
-            "repair_unavailable": (
-                "repair unavailable: no supported mutation tool is registered; report "
-                "the missing capability honestly"
-            ),
-        }
-        if tool_route.phase == "finalize":
-            return (
-                f"{summary}; final step: no more tool calls are available, provide the "
-                "best evidence-based final answer and clearly mark unverified items"
-            )
-        closure_note = closure_notes.get(tool_route.closure_mode)
-        return f"{summary}; {closure_note}" if closure_note else summary
 
     # region 证据记录器（首次阅读可折叠）
     def _record_context_assembly(
@@ -363,7 +266,6 @@ class TurnPreparation:
         assembled_context: ContextReportView,
         tool_route: ToolRoute,
         allowed_tool_names: set[str],
-        workspace_diff_present: bool | None,
     ) -> None:
         """记录上下文来源、裁剪和工具可见性，不保存完整 Prompt 正文。"""
 
@@ -391,9 +293,7 @@ class TurnPreparation:
                 "tool_routing": {
                     "reason": tool_route.reason,
                     "phase": tool_route.phase,
-                    "closure_mode": tool_route.closure_mode,
                     "remaining_tool_turns": tool_route.remaining_tool_turns,
-                    "workspace_diff_present": workspace_diff_present,
                     "allowed_tools": sorted(allowed_tool_names),
                     "dropped_tools": tool_route.dropped_names,
                     "metadata": tool_route.metadata,

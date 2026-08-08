@@ -695,11 +695,7 @@ class AgentLoopPolicyTest(unittest.TestCase):
             registry = ToolRegistry()
             registry.register(SuccessfulPythonValidationTool())
             config = RuntimeConfig(
-                # Step 1 保持在普通工作阶段；SWE-bench 无 Diff 的倒数第二个
-                # 工具轮会按设计只收集编辑锚点，不运行验证。
-                workspace=tmp,
-                max_steps=4,
-                trace_file=str(trace_path),
+                workspace=tmp, max_steps=3, trace_file=str(trace_path)
             )
 
             build_agent_loop(

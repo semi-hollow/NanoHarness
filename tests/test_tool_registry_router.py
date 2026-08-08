@@ -85,7 +85,7 @@ class ToolRegistryRouterTest(unittest.TestCase):
                 "You are Implementer, the coding implementer.",
                 "Original task: Resolve this coding issue.",
                 "Role instructions: make the smallest safe code change. Do not edit tests unless explicitly asked.",
-                "Allowed role tools: read_file, replace_text, create_file, write_file, run_command, git_diff",
+                "Allowed role tools: read_file, replace_text, write_file, run_command, git_diff",
             ]
         )
         route = ToolRouter().route(
@@ -97,7 +97,6 @@ class ToolRegistryRouterTest(unittest.TestCase):
             )
         )
         self.assertIn("replace_text", route.allowed_names)
-        self.assertIn("create_file", route.allowed_names)
         self.assertIn("write_file", route.allowed_names)
         self.assertIn("run_command", route.allowed_names)
         self.assertIn("git_diff", route.allowed_names)
@@ -189,7 +188,7 @@ class ToolRegistryRouterTest(unittest.TestCase):
             route.reason,
         )
 
-    def test_swebench_without_diff_uses_penultimate_turn_for_edit_evidence(self):
+    def test_swebench_work_phase_keeps_discovery_before_closeout(self):
         schemas = [
             {"name": "list_files"},
             {"name": "read_file"},
@@ -209,16 +208,16 @@ class ToolRegistryRouterTest(unittest.TestCase):
                 schemas=schemas,
                 step=14,
                 max_steps=16,
-                workspace_diff_present=False,
             )
         )
 
-        self.assertEqual(
-            route.allowed_names,
-            {"read_file", "grep_search", "git_status", "git_diff"},
-        )
-        self.assertEqual(route.closure_mode, "repair_evidence")
-        self.assertEqual(route.phase, "closeout")
+        self.assertIn("list_files", route.allowed_names)
+        self.assertIn("grep_search", route.allowed_names)
+        self.assertIn("ask_human", route.allowed_names)
+        self.assertIn("read_file", route.allowed_names)
+        self.assertIn("replace_text", route.allowed_names)
+        self.assertIn("python_validation", route.allowed_names)
+        self.assertEqual(route.phase, "work")
 
     def test_last_swebench_tool_turn_after_write_focuses_on_closure(self):
         schemas = [
@@ -238,7 +237,6 @@ class ToolRegistryRouterTest(unittest.TestCase):
                 schemas=schemas,
                 step=15,
                 max_steps=16,
-                workspace_diff_present=True,
             )
         )
 
@@ -254,86 +252,8 @@ class ToolRegistryRouterTest(unittest.TestCase):
                 "git_diff",
             },
         )
-        self.assertIn("closure_mode=repair_verify", route.reason)
-        self.assertIn("workspace_diff_present=true", route.reason)
-        self.assertEqual(route.closure_mode, "repair_verify")
+        self.assertIn("closure_phase=repair_closeout", route.reason)
         self.assertEqual(route.phase, "closeout")
-
-    def test_last_swebench_tool_turn_without_diff_reserves_candidate_commit(self):
-        schemas = [
-            {"name": "list_files"},
-            {"name": "read_file"},
-            {"name": "grep_search"},
-            {"name": "replace_text"},
-            {"name": "create_file"},
-            {"name": "python_validation"},
-            {"name": "run_command"},
-            {"name": "git_diff"},
-        ]
-
-        route = ToolRouter().route(
-            ToolRoutingRequest(
-                task="Resolve this SWE-bench coding issue.",
-                schemas=schemas,
-                step=15,
-                max_steps=16,
-                workspace_diff_present=False,
-            )
-        )
-
-        self.assertEqual(route.allowed_names, {"replace_text", "create_file"})
-        self.assertIn("closure_mode=repair_commit", route.reason)
-        self.assertIn("workspace_diff_present=false", route.reason)
-        self.assertEqual(route.closure_mode, "repair_commit")
-        self.assertEqual(route.phase, "closeout")
-
-    def test_last_swebench_tool_turn_without_mutation_tool_is_unavailable(self):
-        schemas = [
-            {"name": "read_file"},
-            {"name": "grep_search"},
-            {"name": "python_validation"},
-            {"name": "git_diff"},
-        ]
-
-        route = ToolRouter().route(
-            ToolRoutingRequest(
-                task="Resolve this SWE-bench coding issue.",
-                schemas=schemas,
-                step=15,
-                max_steps=16,
-                workspace_diff_present=False,
-            )
-        )
-
-        self.assertEqual(route.allowed_names, set())
-        self.assertEqual(route.schemas, [])
-        self.assertEqual(route.closure_mode, "repair_unavailable")
-        self.assertEqual(route.phase, "closeout")
-
-    def test_read_only_swebench_closeout_never_exposes_write_tools(self):
-        schemas = [
-            {"name": "read_file"},
-            {"name": "grep_search"},
-            {"name": "replace_text"},
-            {"name": "create_file"},
-            {"name": "git_status"},
-            {"name": "git_diff"},
-        ]
-
-        route = ToolRouter().route(
-            ToolRoutingRequest(
-                task="Read only: inspect this SWE-bench issue; do not modify files.",
-                schemas=schemas,
-                step=15,
-                max_steps=16,
-            )
-        )
-
-        self.assertEqual(
-            route.allowed_names,
-            {"read_file", "grep_search", "git_status", "git_diff"},
-        )
-        self.assertEqual(route.closure_mode, "read_only_closeout")
 
     def test_final_turn_is_empty_even_in_all_mode(self):
         schemas = [
@@ -357,7 +277,6 @@ class ToolRegistryRouterTest(unittest.TestCase):
         self.assertEqual(route.allowed_names, set())
         self.assertEqual(route.schemas, [])
         self.assertEqual(route.phase, "finalize")
-        self.assertEqual(route.closure_mode, "open")
         self.assertEqual(route.dropped_names, sorted(item["name"] for item in schemas))
 
 

@@ -20,7 +20,7 @@ from agent_forge.runtime.git_workspace import (
     collect_workspace_diff,
     collect_workspace_status,
 )
-from agent_forge.runtime.ports.environment import EnvironmentPort, WorkspaceDiffPort
+from agent_forge.runtime.ports.environment import EnvironmentPort
 
 NETWORK_COMMANDS = {"curl", "wget", "ssh", "scp", "nc", "telnet"}
 PROTECTED_GIT_COMMANDS = {"push", "reset", "checkout", "switch", "merge", "rebase"}
@@ -72,7 +72,7 @@ class EnvironmentProbe:
         return asdict(self)
 
 
-class ExecutionEnvironment(EnvironmentPort, WorkspaceDiffPort):
+class ExecutionEnvironment(EnvironmentPort):
     """准备 local/worktree/OCI 环境，并作为命令执行的唯一基础设施入口。
 
     第一遍只读 ``prepare`` 和 ``execute_command``：前者固定运行边界，后者在该边界内
