@@ -64,7 +64,7 @@ v2 选择第三种，固定以下不变量：
 | --- | --- | --- | --- | --- |
 | v1 / A | 开发证据 | 通用 3-Skill + 原 task-aware 路由 | Governed 14/50，Minimal 20/50 | 拒绝发布“治理提升正确性”结论 |
 | v2 / A 高差异子集 | 开发验证 | 单一 Skill、搜索去重、受限验证回退 | Governed 由 1/7 回升到 3/7；Minimal 为 6/7 | 方向有效，但不足以冻结并盲跑 B |
-| v3 / A 高差异子集 | 开发验证 | 预算阶段、最终轮零工具、创建文件能力、canonical schema | 待运行 | 先验证行为机制，再决定是否冻结 |
+| v3 / A 高差异子集 | 开发验证 | 预算阶段、最终轮零工具、创建文件能力、canonical schema | Governed 由 3/7 回升到 4/7；7 个 Run 均以 `final_answer` 收口 | 终止协议已修复，但正确性增益有限，仍不能据此宣称泛化 |
 | v3 / B | 未见验收 | 冻结候选后盲跑 50×2 | 待运行 | 只以 B 的预注册分母判断是否泛化 |
 
 A 可以反复用于定位问题，但不能一边查看结果一边宣称泛化。B 在代码和配置冻结后只运行一次。
@@ -108,7 +108,41 @@ v3 不继续堆 Prompt，而把已观测问题变成 Runtime 不变量：
 UNAVAILABLE`；异构仓库更适合由受信任 `project_validation profile` 生成 argv，而不是继续增加 Shell
 自由度。这两项先作为下一轮证据驱动改进，不在当前候选中混入大重构。
 
-## 7. 可复述的工程结论
+## 7. v3 开发验证：终止协议修复不等于正确性已提升
+
+**触发失败**：v2 在 7 个 A 分片高差异开发 Case 上只解决 3 题；其中正确候选还可能因为最终轮继续
+请求工具而以 `pending_tool_call_at_stop` 阻断。与此同时，未进入编辑和补丁影响面不完整仍是独立
+问题，不能把它们都归因于停止协议。
+
+**备选方案**：一是增加最大 step，让模型继续尝试；二是允许最终轮继续调用工具；三是把“最后工具
+轮”和“最终回答轮”分开，由 Runtime 在最终回答轮关闭工具，并统一处理 structured/text ToolCall。
+前两种会分别掩盖收敛问题或保留终止歧义，因此 v3 选择第三种，并同时补齐受治理的 `create_file`、
+canonical Tool schema 和真实 dataset revision。
+
+**选定不变量**：最终回答轮必须零工具；只要模型仍请求 ToolCall，就不能把文本当作完成结果；新文件
+只能通过受路径、权限和审批约束的 `create_file` 产生；实验声明的 dataset revision 必须进入真实加载
+调用。预算阶段只改变可见能力和收口提示，不能绕过既有安全边界。
+
+**真实证据**：v3 在同一 7 题开发集上得到 4/7，较 v2 的 3/7 增加 1 题。
+
+| Case | v3 official verdict | 候选状态 |
+| --- | --- | --- |
+| `django__django-15375` | resolved | 生成 patch |
+| `django__django-16082` | resolved | 生成 patch |
+| `django__django-16560` | resolved | 生成 patch |
+| `matplotlib__matplotlib-24026` | resolved | 生成 patch |
+| `django__django-11239` | failed | 生成 patch，但语义不正确 |
+| `sympy__sympy-12489` | failed | 生成 patch，但影响面不完整 |
+| `django__django-13028` | skipped empty patch | 未形成候选改动 |
+
+7 个 Run 的 `trace.stop_reason` 均为 `final_answer`，不再出现 `pending_tool_call_at_stop`。这证明停止协议
+修复命中了目标故障；失败 Case 仍分别保留为 official failed 或 empty patch，没有被完成状态掩盖。
+
+**证据边界**：这 7 题来自已经分析并反复用于调试的 A 分片，只能作为开发证据。3/7 到 4/7 不能拆分
+归因到某一个 v3 机制，也不能代表总体解决率；在冻结候选并完成未见 B 分片的 50x2 一次性验收前，
+不得声称 Governed Runtime 已优于 Minimal Control 或盲测通过。
+
+## 8. 可复述的工程结论
 
 这次最重要的经验不是“加了 Skill 后分数提高”，而是：
 

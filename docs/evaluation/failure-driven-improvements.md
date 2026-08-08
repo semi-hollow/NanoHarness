@@ -440,6 +440,36 @@ Smoke-5 是从 SWE-bench Verified 中分层选择的低成本机制回归集，�
 **工程结论**：Harness 不能把“工具失败更少”当成“任务完成得更好”。治理必须同时守住任务可达性，
 并联合观察 resolved、candidate reachability、patch acceptance、失败工具调用和成本。
 
+### 23. 修复最终轮 ToolCall 歧义后，正确性只从 3/7 回升到 4/7
+
+**触发现象**：v2 在 7 个 A 分片高差异开发 Case 上解决 3 题；其中正确候选仍可能因为最终轮继续
+请求工具而以 `pending_tool_call_at_stop` 阻断。未编辑和补丁语义不完整也同时存在，说明停止协议不是
+唯一瓶颈。
+
+**备选方案**：增加最大 step 会把预算耗尽问题向后拖；允许最终轮继续调用工具会保留“回答还是行动”
+的歧义。最终选择把最后工具轮和最终回答轮分开：最终回答轮严格零工具，structured/text ToolCall
+使用同一 fail-closed 语义；同时只补齐受治理的 `create_file`、canonical Tool schema 和真实 dataset
+revision，不扩大 Shell 权限。
+
+**当前不变量**：模型仍请求 ToolCall 时不得宣称完成；新文件必须经过路径、权限和审批边界；实验声明
+的 dataset revision 必须进入真实加载调用。预算阶段可以收敛工具面，但不能绕过安全策略。
+
+**真实证据**：在同一 7 题开发集上，v2 Governed 为 3/7，v3 为 4/7。v3 resolved 为
+`django__django-15375`、`django__django-16082`、`django__django-16560` 和
+`matplotlib__matplotlib-24026`；`django__django-11239`、`sympy__sympy-12489` 为 official failed；
+`django__django-13028` 为 empty patch。7 个 Run 的 `trace.stop_reason` 均为 `final_answer`，不再出现
+`pending_tool_call_at_stop`。
+
+**失败行为**：终止协议修复后，错误补丁继续由 official evaluator 判为 failed，未生成改动的 Case
+继续保留为 empty patch；Runtime 不用“正常结束”替代任务正确性，也不把无候选运行算作 solved。
+
+**当前边界**：A 分片已经参与定位和调参，4/7 只能证明开发集行为变化，不能证明泛化，也不能把增加的
+1 题归因于某个单独机制。冻结候选并完成未见 B 分片的一次性 50x2 验收前，不声称盲测通过或整体优于
+Minimal Control。
+
+**工程结论**：状态机修复与任务正确性是两层证据。停止原因全部收口证明 Runtime 协议变得一致，
+official resolved 仍只增加 1 题则说明下一瓶颈在任务可达性和补丁语义，而不是继续包装完成状态。
+
 ## 统一复盘模板
 
 以后出现新问题，只使用下面六问判断是否值得进入本文件：
