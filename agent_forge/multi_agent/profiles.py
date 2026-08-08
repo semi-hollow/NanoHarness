@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from agent_forge.contracts import WORKSPACE_WRITE_TOOL_NAMES
+
 from .domain.models import AgentProfile, RoleSpec
 
 CODING_READ_TOOLS = [
@@ -11,7 +13,11 @@ CODING_READ_TOOLS = [
     "git_diff",
     "python_validation",
 ]
-CODING_WRITE_TOOLS = [*CODING_READ_TOOLS, "replace_text", "write_file", "run_command"]
+CODING_WRITE_TOOLS = [
+    *CODING_READ_TOOLS,
+    *WORKSPACE_WRITE_TOOL_NAMES,
+    "run_command",
+]
 RESEARCH_TOOLS = [
     "list_files",
     "read_file",

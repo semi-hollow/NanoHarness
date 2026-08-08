@@ -1,6 +1,8 @@
 from dataclasses import dataclass
 from typing import Protocol
 
+from agent_forge.contracts import WORKSPACE_WRITE_TOOL_NAMES
+
 
 class ObservationView(Protocol):
     tool_name: str
@@ -39,7 +41,7 @@ class EvidenceLedger:
             summary = "file inspected"
         elif observation.tool_name == "run_command":
             summary = text.replace("\n", " ")[:160]
-        elif observation.tool_name in {"replace_text", "write_file"}:
+        elif observation.tool_name in WORKSPACE_WRITE_TOOL_NAMES:
             summary = text[:160]
         elif observation.tool_name in {
             "git_diff",

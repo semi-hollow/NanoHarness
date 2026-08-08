@@ -286,12 +286,14 @@ class ArchitectureBoundaryTest(unittest.TestCase):
         self.assertEqual([str(path) for path in expected if not path.is_file()], [])
 
     def test_observability_domain_has_no_outward_dependencies(self) -> None:
+        allowed = (
+            "agent_forge.contracts",
+            "agent_forge.observability.domain",
+        )
         violations: list[str] = []
         for path in sorted((OBSERVABILITY_ROOT / "domain").glob("*.py")):
             for line, imported in _absolute_imports(path):
-                if imported.startswith("agent_forge") and not imported.startswith(
-                    "agent_forge.observability.domain"
-                ):
+                if imported.startswith("agent_forge") and not imported.startswith(allowed):
                     violations.append(
                         f"{path.relative_to(PROJECT_ROOT)}:{line} -> {imported}"
                     )

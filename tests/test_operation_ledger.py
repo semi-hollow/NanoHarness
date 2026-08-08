@@ -3,7 +3,10 @@ import unittest
 from pathlib import Path
 
 from agent_forge.observability.api import TraceRecorder
-from agent_forge.runtime.adapters import JsonOperationLedgerRepository
+from agent_forge.runtime.adapters import (
+    JsonApprovalRepository,
+    JsonOperationLedgerRepository,
+)
 from agent_forge.runtime.api import build_agent_loop
 from agent_forge.runtime.wiring import (
     AgentLoopBuildRequest,
@@ -19,6 +22,7 @@ from agent_forge.runtime.domain.operation import (
     OperationTransition,
 )
 from agent_forge.safety.sandbox import WorkspaceSandbox
+from agent_forge.tools.create_file import CreateFileTool
 from agent_forge.tools.replace_text import ReplaceTextTool
 from agent_forge.tools.registry import ToolRegistry
 
@@ -49,6 +53,30 @@ class ReplaceThenFinalLLM:
         return AgentResponse("PASS\nfinished", [])
 
 
+class CreateThenFinalLLM:
+    """首轮创建文件，次轮结束；用于验证完整写副作用链。"""
+
+    last_usage = None
+
+    def __init__(self):
+        self.calls = 0
+
+    def chat(self, messages, tools):
+        self.calls += 1
+        if self.calls == 1:
+            return AgentResponse(
+                None,
+                [
+                    ToolCall(
+                        "create-1",
+                        "create_file",
+                        {"path": "generated.py", "content": "value = 1\n"},
+                    )
+                ],
+            )
+        return AgentResponse("PASS\nfile created", [])
+
+
 class CrashBeforeLedgerCommit(JsonOperationLedgerRepository):
     """故障注入：副作用已发生，但最终 executed 事实尚未提交时进程崩溃。"""
 
@@ -62,7 +90,104 @@ def _registry(root: Path) -> ToolRegistry:
     return registry
 
 
+def _create_registry(root: Path) -> ToolRegistry:
+    registry = ToolRegistry()
+    registry.register(
+        CreateFileTool(WorkspaceSandbox(root), auto_approve_writes=True)
+    )
+    return registry
+
+
 class OperationLedgerTest(unittest.TestCase):
+    def test_create_file_passes_approval_ledger_and_evidence_chain(self):
+        """证明 create_file 是真实副作用行为，不只是写工具名单中的字符串。"""
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            ledger_root = root / "ledger"
+            approval_root = root / "approvals"
+            approvals = JsonApprovalRepository(approval_root)
+            first_trace = TraceRecorder(str(root / "first-trace.json"))
+            first_config = RuntimeConfig(
+                workspace=str(root),
+                max_steps=2,
+                trace_file=str(root / "first-trace.json"),
+                auto_approve_writes=False,
+                approval_root=str(approval_root),
+                operation_ledger_root=str(ledger_root),
+            )
+
+            waiting = build_agent_loop(
+                first_config,
+                first_trace,
+                _create_registry(root),
+                CreateThenFinalLLM(),
+            ).run("create generated.py")
+
+            self.assertIn("waiting_approval", waiting)
+            self.assertFalse((root / "generated.py").exists())
+            pending_approvals = approvals.list_pending()
+            self.assertEqual(len(pending_approvals), 1)
+            self.assertEqual(pending_approvals[0].tool_name, "create_file")
+
+            ledger_files = list(ledger_root.glob("*.json"))
+            self.assertEqual(len(ledger_files), 1)
+            pending_operation = JsonOperationLedgerRepository(ledger_root).get(
+                ledger_files[0].stem
+            )
+            self.assertIsNotNone(pending_operation)
+            assert pending_operation is not None
+            self.assertEqual(pending_operation.action, "write")
+            self.assertEqual(pending_operation.history, ["planned", "pending"])
+
+            approvals.decide(pending_approvals[0].operation_key, "approved")
+            second_trace = TraceRecorder(str(root / "second-trace.json"))
+            second_config = RuntimeConfig(
+                workspace=str(root),
+                max_steps=3,
+                trace_file=str(root / "second-trace.json"),
+                auto_approve_writes=False,
+                approval_root=str(approval_root),
+                operation_ledger_root=str(ledger_root),
+            )
+            final = build_agent_loop(
+                second_config,
+                second_trace,
+                _create_registry(root),
+                CreateThenFinalLLM(),
+            ).run("create generated.py")
+
+            self.assertIn("file created", final)
+            self.assertEqual(
+                (root / "generated.py").read_text(encoding="utf-8"),
+                "value = 1\n",
+            )
+            operation = JsonOperationLedgerRepository(ledger_root).get(
+                ledger_files[0].stem
+            )
+            self.assertIsNotNone(operation)
+            assert operation is not None
+            self.assertEqual(operation.tool_name, "create_file")
+            self.assertEqual(operation.action, "write")
+            self.assertEqual(
+                operation.history,
+                ["planned", "pending", "approved", "executing", "executed"],
+            )
+            self.assertTrue(
+                any(
+                    event["event_type"] == "human_approval"
+                    and event.get("observation") == "approved"
+                    for event in second_trace.events
+                )
+            )
+            self.assertTrue(
+                any(
+                    event["event_type"] == "evidence_collected"
+                    and "create_file" in str(event.get("evidence"))
+                    for event in second_trace.events
+                )
+            )
+
     def test_store_records_pending_approved_and_executed_states(self):
         with tempfile.TemporaryDirectory() as tmp:
             store = JsonOperationLedgerRepository(Path(tmp) / "ledger")

@@ -14,6 +14,7 @@ from typing import Any
 from urllib.parse import parse_qs, urlparse
 
 from agent_forge.bench.domain.catalog import CASE_PROFILES
+from agent_forge.contracts import WORKSPACE_WRITE_TOOL_NAMES
 from agent_forge.observability.api import load_run_story
 from agent_forge.observability.domain.run_story import RunStory
 from agent_forge.workbench.application.context_inspection import (
@@ -3981,7 +3982,7 @@ def _render_evaluation_dashboard(project_dir: Path) -> str:
         if event.get("event_type") == "action"
     ]
     write_action_count = sum(
-        tool_name in {"replace_text", "write_file"} for tool_name in tool_actions
+        tool_name in WORKSPACE_WRITE_TOOL_NAMES for tool_name in tool_actions
     )
     patch_chars = int(result.get("patch_chars") or 0)
     if patch_chars > 0:

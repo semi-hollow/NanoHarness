@@ -5,6 +5,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from agent_forge.contracts import WORKSPACE_WRITE_TOOL_NAMES
+
 
 @dataclass(frozen=True)
 class ContextComponent:
@@ -183,7 +185,8 @@ def build_context_turn_inspections(
             tool_decisions, succeeded=False
         )
         saw_write = saw_write or any(
-            decision.tool_name in _WRITE_TOOLS for decision in tool_decisions
+            decision.tool_name in WORKSPACE_WRITE_TOOL_NAMES
+            for decision in tool_decisions
         )
         saw_validation_pass = saw_validation_pass or _has_validation_result(
             tool_decisions, succeeded=True
@@ -193,7 +196,6 @@ def build_context_turn_inspections(
 
 
 _READ_TOOLS = {"list_files", "read_file", "grep", "grep_search", "git_status"}
-_WRITE_TOOLS = {"replace_text", "write_file"}
 _VALIDATION_TOOLS = {"python_validation", "run_command"}
 
 
@@ -237,9 +239,10 @@ def _classify_turn(decisions: tuple[ToolDecision, ...]) -> tuple[str, str]:
     if not decisions:
         return "形成答案", "模型没有继续请求工具，本轮进入结果收口。"
     names = {decision.tool_name for decision in decisions}
-    if names & _WRITE_TOOLS:
+    if names & set(WORKSPACE_WRITE_TOOL_NAMES):
         write_count = sum(
-            decision.tool_name in _WRITE_TOOLS for decision in decisions
+            decision.tool_name in WORKSPACE_WRITE_TOOL_NAMES
+            for decision in decisions
         )
         return (
             "修改代码",
@@ -271,7 +274,8 @@ def _key_turn_reason(
     if _has_validation_result(tool_decisions, succeeded=False):
         return "新增失败证据，后续路径应发生变化"
     if not saw_write and any(
-        decision.tool_name in _WRITE_TOOLS for decision in tool_decisions
+        decision.tool_name in WORKSPACE_WRITE_TOOL_NAMES
+        for decision in tool_decisions
     ):
         return "从诊断转入代码修改"
     if (

@@ -10,6 +10,7 @@ from dataclasses import replace
 from pathlib import Path
 from typing import Callable
 
+from agent_forge.contracts import WORKSPACE_WRITE_TOOL_NAMES
 from agent_forge.observability.adapters.json_trace import TraceRecorder
 from agent_forge.observability.api import write_usage_artifacts
 from agent_forge.runtime.api import build_agent_loop
@@ -46,7 +47,7 @@ READ_TOOLS = {
     "ask_human",
 }
 FINALIZER_READ_TOOLS = {"git_status", "git_diff", "python_validation"}
-WRITE_TOOLS = {*READ_TOOLS, "replace_text", "write_file", "run_command"}
+WRITE_TOOLS = {*READ_TOOLS, *WORKSPACE_WRITE_TOOL_NAMES, "run_command"}
 
 RegistryFactory = Callable[[Path, ExecutionEnvironment], ToolRegistry]
 LLMFactory = Callable[[], ModelPort]

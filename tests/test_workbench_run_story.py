@@ -274,7 +274,7 @@ class WorkbenchRunStoryTest(unittest.TestCase):
                     "context": {
                         "total_chars": 1200,
                         "max_chars": 8000,
-                        "available_tools": ["replace_text"],
+                        "available_tools": ["create_file"],
                         "active_skills": ["bug_fix@1.0.0"],
                     },
                 },
@@ -301,14 +301,14 @@ class WorkbenchRunStoryTest(unittest.TestCase):
                 {
                     "step": 2,
                     "event_type": "action",
-                    "tool_call": "replace_text",
-                    "tool_arguments": {"path": "settlement/service.py"},
+                    "tool_call": "create_file",
+                    "tool_arguments": {"path": "settlement/new_rule.py"},
                 },
                 {
                     "step": 2,
                     "event_type": "tool_observation",
                     "success": True,
-                    "observation": "updated settlement/service.py",
+                    "observation": "created settlement/new_rule.py",
                 },
             ]
         }
@@ -321,6 +321,7 @@ class WorkbenchRunStoryTest(unittest.TestCase):
         self.assertEqual(turns[1].message_delta, 2)
         self.assertTrue(turns[1].tools_changed)
         self.assertEqual(turns[1].phase, "修改代码")
+        self.assertEqual(turns[1].tool_decisions[0].tool_name, "create_file")
 
     def test_run_evidence_prefers_canonical_run_story(self):
         with tempfile.TemporaryDirectory() as tmp:

@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
+from agent_forge.contracts import WORKSPACE_WRITE_TOOL_NAMES
 from agent_forge.runtime.application.session import AgentRunSession
 from agent_forge.runtime.application.run_lifecycle import StopRequest
 from agent_forge.runtime.application.tool_feedback import ToolFeedback
@@ -435,7 +436,7 @@ class OperationTracker:
 
         if tool_name == "run_command":
             return "run_command"
-        if tool_name in {"replace_text", "write_file"}:
+        if tool_name in WORKSPACE_WRITE_TOOL_NAMES:
             return "write"
         if tool_name == "python_validation":
             return "validate"

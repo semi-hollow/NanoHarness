@@ -68,13 +68,15 @@ class MultiAgentCoordinatorTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             trace = TraceRecorder(str(root / "trace.json"))
+            profile = get_profile("coding_fix")
+            self.assertIn("create_file", profile.roles[0].allowed_tools)
             config = RuntimeConfig(
                 workspace=tmp, max_steps=2, trace_file=str(root / "trace.json")
             )
             summary = build_multi_agent_coordinator(
                 SequentialCoordinatorBuildRequest(
                     "fix a small issue",
-                    get_profile("coding_fix"),
+                    profile,
                     config,
                     trace,
                     ToolRegistry(),
