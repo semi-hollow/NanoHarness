@@ -43,7 +43,7 @@ Context、Memory、HITL、恢复、多 Agent 和评测闭环的代表性案例�
 | P1 | 多 Agent | 并发的正确性边界在哪里，冲突为何要 fail closed？ |
 | P1 | 失败归因 | 为什么规则分类可以稳定复现，但 official resolved 不能猜？ |
 | P1 | 评测闭环 | 一次改进怎样从 badcase 走到配对实验和采纳决策？ |
-| P2 | Provider 适配 | 半包、坏 ToolCall 和 context overflow 为什么不能盲重试？ |
+| P2 | Provider 适配 | 响应中途断开、坏 ToolCall 和 context overflow 为什么不能盲重试？ |
 
 ## 核心案例
 
@@ -121,22 +121,30 @@ schema 又只符合普通 Python 函数习惯，没有吸收模型常见调用�
 **工程结论**：final answer 不是天然可信的终态。Runtime 必须根据动作协议、预算和状态机决定
 是否允许发布结果。
 
-### 5. Provider 半包与异常 ToolCall 被错误归因成 Agent 能力失败
+### 5. 模型 API 响应中途断开、ToolCall 格式异常，被误判成 Agent 能力失败
 
-**现象**：HTTP `IncompleteRead`、timeout、429、5xx、非 JSON 参数或文本中的 ToolCall 曾直接
-穿透 AgentLoop，或在输入完全不变时盲目重试。
+**现象**：模型 API（Provider）已经开始返回 HTTP 响应，但连接在响应正文读完前断开，Python 会
+报告 `IncompleteRead`；timeout、429、5xx 也属于这一层的传输或服务错误。另一类失败是 HTTP 请求
+成功，但模型返回的 ToolCall 不符合协议，例如参数不是 JSON object，或把调用写在普通文本里。
+这些问题曾以未分类异常到达 AgentLoop，被误记成 Agent 能力失败，或没有区分原因就直接重试。
 
-**根因**：transport failure、model protocol failure、context overflow 和 tool failure 没有
-分层；“再试一次”也没有要求输入或 provider 条件发生变化。
+**根因**：模型服务传输失败、模型输出协议错误、context overflow 和 Tool 执行失败没有分层；系统
+也没有区分“外部服务可能短暂恢复”和“必须修改请求后才能恢复”。
 
-**当前规则**：HTTP 边界先分类；ToolCall 只做确定性、低歧义的格式修复，未知工具不会被猜测提升；
-context overflow 只有在结构化压缩确实降低估算 token 后才重试；实际 fallback provider/model
-进入 Usage 证据。
+**当前规则**：HTTP Adapter 把连接中断、timeout、429 和 5xx 归一化为明确 error code，ModelGateway
+只对允许的 code 做有界重试或 fallback；ToolCall 只做确定性、低歧义的格式修复，协议错误通过
+repair prompt 重试，不猜工具名或缺失业务参数；context overflow 只有在压缩确实降低估算 token 后
+才重试。每次 attempt 和实际 fallback provider/model 都进入 Usage 证据。
 
-**代码与证据**：Model Gateway、[`StepController.model_failure`](../../agent_forge/runtime/control.py)
-和 `tests/test_model_adaptation.py`。
+**代码与证据**：[`OpenAICompatibleLLMClient`](../../agent_forge/runtime/llm_client.py)、
+[`ModelGateway`](../../agent_forge/models/gateway.py)、
+[`ToolCallNormalizer`](../../agent_forge/models/tool_call_normalizer.py)、
+[`StepController.model_failure`](../../agent_forge/runtime/control.py)、
+[`test_llm_client_transport.py`](../../tests/test_llm_client_transport.py) 和
+[`test_model_adaptation.py`](../../tests/test_model_adaptation.py)。
 
-**工程结论**：重试必须改变失败条件。不能改变输入、provider 或状态的重试只会增加成本和噪音。
+**工程结论**：同一输入只允许对显式标记的暂态传输错误做有界重试；协议错误必须增加修复信息，
+context overflow 必须缩小请求。既没有外部条件恢复依据、也没有改变请求的重试，只会增加成本和噪音。
 
 ### 6. 验证失败、工具失败和环境不可用被混为一种错误
 
