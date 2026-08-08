@@ -31,7 +31,8 @@ class SwebenchCompareTest(unittest.TestCase):
 
         self.assertIn("python_validation with check_type=pytest", task)
         self.assertIn("smallest relevant existing test path or pytest node id", task)
-        self.assertIn("kind=unittest only for unittest suites", task)
+        self.assertIn("check_type=unittest only for unittest suites", task)
+        self.assertIn("allowlisted run_command fallback", task)
 
     def test_smoke_5_regression_set_has_five_cross_repository_cases(self):
         cases = REGRESSION_SETS["smoke-5"]

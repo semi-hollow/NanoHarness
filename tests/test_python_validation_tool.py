@@ -253,6 +253,36 @@ class PythonValidationToolTest(unittest.TestCase):
         self.assertTrue(observation.success, observation.content)
         self.assertIn("validation_blocked: unittest collected 0 tests", observation.content)
 
+    def test_pytest_zero_collection_requests_project_runner_fallback(self):
+        class Environment:
+            def execute_command(self, argv, timeout):
+                return subprocess.CompletedProcess(
+                    argv,
+                    5,
+                    stdout="no tests ran in 0.01s",
+                    stderr="",
+                )
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "tests").mkdir()
+            tool = PythonValidationTool(
+                WorkspaceSandbox(root),
+                execution_environment=Environment(),
+            )
+
+            observation = tool.execute(
+                {
+                    "check_type": "pytest",
+                    "validation_target": "tests",
+                }
+            )
+
+        self.assertTrue(observation.success, observation.content)
+        self.assertTrue(observation.execution_succeeded)
+        self.assertIn("pytest collected no tests", observation.content)
+        self.assertIn("allowlisted run_command fallback", observation.content)
+
 
 if __name__ == "__main__":
     unittest.main()

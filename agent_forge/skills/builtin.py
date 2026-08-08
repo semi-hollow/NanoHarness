@@ -8,6 +8,44 @@ from .registry import SkillRegistry, SkillSpec
 def built_in_skill_specs() -> list[SkillSpec]:
     return [
         SkillSpec(
+            name="swebench_repair",
+            version="1.0.0",
+            description=(
+                "Repair one SWE-bench case while preserving enough turn budget "
+                "for a candidate diff and explicit validation evidence."
+            ),
+            entrypoint="builtin:swebench_repair",
+            owner="agent-forge",
+            permissions=["read:repo", "write:repo", "run:validation"],
+            dependencies=["git:working-tree", "python:local-venv"],
+            tags=["coding", "swe-bench", "repair", "validation"],
+            activation_terms=["swe-bench", "swebench"],
+            tool_names=[
+                "list_files",
+                "read_file",
+                "grep_search",
+                "replace_text",
+                "python_validation",
+                "run_command",
+                "git_status",
+                "git_diff",
+            ],
+            operating_procedure=[
+                "Use the issue, nearby source, and the smallest relevant test to form one root-cause hypothesis.",
+                "After two searches without new evidence, change the query or inspect the named call path; do not repeat broad browsing.",
+                "Once the hypothesis is supported, edit source code and preserve the final two turns for validation, git_diff, and a final answer.",
+                "Prefer python_validation; use the allowlisted run_command only when the repository needs test flags or a project-native test entrypoint.",
+            ],
+            done_criteria=[
+                "A candidate diff exists and is inspected before the final answer.",
+                "Focused validation ran, or the exact environment blocker is preserved without discarding the patch.",
+            ],
+            failure_modes=[
+                "If validation collects no tests or the runner contract does not fit, switch once to the allowlisted validation fallback.",
+                "If the remaining turn budget cannot support another edit-and-check cycle, stop exploring and report the current evidence boundary.",
+            ],
+        ),
+        SkillSpec(
             name="repo_orientation",
             version="1.0.0",
             description="Understand an unfamiliar repository before editing.",
@@ -100,6 +138,7 @@ def built_in_skill_specs() -> list[SkillSpec]:
             tags=["coding", "debug", "repair"],
             activation_terms=[
                 "bug",
+                "repair",
                 "fail",
                 "failing",
                 "error",

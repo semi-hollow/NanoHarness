@@ -47,6 +47,30 @@ class SkillDisclosureTest(unittest.TestCase):
 
         self.assertIn("bug_fix", {entry.name for entry in discovered})
 
+    def test_auto_selection_activates_one_primary_workflow(self):
+        registry = build_default_skill_registry()
+
+        selected = registry.select_for_task(
+            "Fix the failing pytest and update the implementation docs."
+        )
+
+        self.assertEqual(len(selected), 1)
+
+    def test_explicit_swebench_skill_uses_compact_prompt_card(self):
+        registry = build_default_skill_registry()
+
+        selected = registry.select_for_task(
+            "Resolve this SWE-bench coding issue.",
+            names=["swebench_repair"],
+        )
+        prompt_card = selected[0].prompt_card()
+
+        self.assertEqual([skill.name for skill in selected], ["swebench_repair"])
+        self.assertIn("preserve the final two turns", prompt_card)
+        self.assertNotIn("permissions:", prompt_card)
+        self.assertNotIn("dependencies:", prompt_card)
+        self.assertNotIn("tools:", prompt_card)
+
 
 if __name__ == "__main__":
     unittest.main()

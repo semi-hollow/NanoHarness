@@ -89,7 +89,11 @@ class SkillSpec:
         }
 
     def prompt_card(self) -> str:
-        """只在 activation 后渲染模型可见的完整操作卡。"""
+        """只渲染模型执行当前工作流所需的信息。
+
+        权限、依赖和工具 schema 已分别由 Runtime policy 与 Tool Gateway 提供；若在
+        Skill 卡里再次展开，不会增加能力，只会挤占任务证据的上下文预算。
+        """
 
         procedure = "\n".join(
             f"  {index}. {step}"
@@ -97,15 +101,9 @@ class SkillSpec:
         )
         done = "\n".join(f"  - {item}" for item in self.done_criteria)
         failure = "\n".join(f"  - {item}" for item in self.failure_modes)
-        tools = ", ".join(self.tool_names) or "no extra tools"
-        permissions = ", ".join(self.permissions) or "none declared"
-        dependencies = ", ".join(self.dependencies) or "none declared"
         return (
             f"skill:{self.name}@{self.version}\n"
-            f"description:{self.description}\n"
-            f"permissions:{permissions}\n"
-            f"dependencies:{dependencies}\n"
-            f"tools:{tools}\n"
+            f"purpose:{self.description}\n"
             f"procedure:\n{procedure or '  1. Follow the skill description.'}\n"
             f"done_criteria:\n{done or '  - Produce a grounded final answer.'}\n"
             f"failure_recovery:\n{failure or '  - If blocked, explain the blocker with evidence.'}"
@@ -224,7 +222,7 @@ class SkillRegistry(SkillSelectorPort):
         task: str,
         *,
         names: list[str] | None = None,
-        limit: int = 3,
+        limit: int = 1,
     ) -> list[SkillSpec]:
         """根据任务选择有界 Skill，并只激活 metadata 命中的版本。"""
 
@@ -237,7 +235,7 @@ class SkillRegistry(SkillSelectorPort):
         task: str,
         *,
         names: list[str] | None = None,
-        limit: int = 3,
+        limit: int = 1,
     ) -> list[SkillCatalogEntry]:
         """返回轻量 catalog 命中，完整正文由 ``activate`` 延迟解析。"""
 
@@ -257,16 +255,10 @@ class SkillRegistry(SkillSelectorPort):
             if read_only_requested and _is_write_skill(spec):
                 continue
             score = 0
-            searchable = " ".join(
-                [spec.name, spec.description, *spec.activation_terms, *spec.tags]
-            ).lower()
             for term in spec.activation_terms:
                 term_lower = term.lower()
-                if term_lower and term_lower in task_lower:
+                if _task_contains_activation_term(task_lower, term_lower):
                     score += 4
-            for token in task_lower.replace("_", " ").replace("-", " ").split():
-                if len(token) >= 3 and token in searchable:
-                    score += 1
             if score:
                 scored.append((score, spec))
 
@@ -347,4 +339,19 @@ def _is_write_skill(spec: SkillSpec) -> bool:
     write_tools = {"replace_text", "write_file", "run_command"}
     return any(tool in write_tools for tool in spec.tool_names) or any(
         permission.startswith("write:") for permission in spec.permissions
+    )
+
+
+def _task_contains_activation_term(task: str, term: str) -> bool:
+    """匹配一个显式意图词，避免英文短词命中更长单词的中间部分。"""
+
+    if not term:
+        return False
+    if any("\u4e00" <= character <= "\u9fff" for character in term):
+        return term in task
+    return bool(
+        re.search(
+            rf"(?<![a-z0-9_]){re.escape(term)}(?![a-z0-9_])",
+            task,
+        )
     )

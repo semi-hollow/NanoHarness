@@ -412,6 +412,28 @@ Smoke-5 是从 SWE-bench Verified 中分层选择的低成本机制回归集，�
 **工程结论**：Taxonomy 是有序裁决规则，不是关键词标签集合。每个成功语义都必须同时满足它所声称的
 证据前提。
 
+### 22. Tool/Skill 治理让运行更整洁，却降低了任务解决率
+
+**现象**：固定 A 分片 50×2 中，Governed Runtime 的失败工具调用从 36/993 降到 14/973，成本也
+更低，但 official resolved 从 Minimal 的 20/50 降到 14/50；candidate patch 从 32 降到 27。
+
+**最初误判**：只看失败工具调用率，会认为 task-aware routing 与 Skill 已经改善 Runtime。Official
+结果排除了这个判断：治理减少了错误动作，也可能剪掉必要能力或使模型过早收敛。
+
+**根因证据**：每题自动叠加 3 张通用 Skill，平均占约 2,581 字符，`docs_update` 还误入 33/50；
+`grep`/`grep_search` 是同义工具；SWE-bench 路由隐藏了异构仓库需要的受限验证回退。Governed 在
+真正编辑的 Case 中更早修改，但 no-patch Case 更多，已生成 patch 的 official 接受率也更低。
+
+**当前不变量**：自动选择一个主 Skill；SWE-bench 使用专用、短小的修复工作流；task-aware 工具
+视图去掉同义 schema；标准验证失败时只允许回退到 CommandPolicy 白名单，而不是开放任意 shell。
+
+**验收边界**：A 是开发证据；冻结 v2 后只用未见 B 分片做一次 50×2 验收。若 B 仍失败，保留负
+结果并换新 holdout，而不是反复调同一批题直到获胜。完整分析见
+[`governed-runtime-optimization.md`](governed-runtime-optimization.md)。
+
+**工程结论**：Harness 不能把“工具失败更少”当成“任务完成得更好”。治理必须同时守住任务可达性，
+并联合观察 resolved、candidate reachability、patch acceptance、失败工具调用和成本。
+
 ## 统一复盘模板
 
 以后出现新问题，只使用下面六问判断是否值得进入本文件：

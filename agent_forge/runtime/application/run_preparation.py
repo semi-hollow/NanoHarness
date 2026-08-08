@@ -246,7 +246,9 @@ class RunPreparation:
             self.skill_selector.select_for_task(
                 task,
                 names=explicitly_requested_skill_names or None,
-                limit=3,
+                # 自动模式只选一个主工作流。多个重叠 Skill 会重复指令并挤占任务证据；
+                # 需要组合时由调用方通过 skill_names 显式声明。
+                limit=1,
             )
         )
 

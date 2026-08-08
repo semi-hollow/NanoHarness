@@ -70,10 +70,12 @@ GOVERNED_RUNTIME = CampaignVariant(
     name="governed-runtime",
     label="Governed Runtime",
     description=(
-        "同一 AgentLoop、模型、任务、预算和安全边界；启用 task-aware routing 与内置 Skill。"
+        "同一 AgentLoop、模型、任务、预算和安全边界；启用去重后的 task-aware routing "
+        "与单一 SWE-bench 修复 Skill。"
     ),
     tool_routing_mode="task-aware",
     skill_mode="auto",
+    skill_names=("swebench_repair",),
 )
 DEFAULT_CAMPAIGN_VARIANTS = (MINIMAL_CONTROL, GOVERNED_RUNTIME)
 

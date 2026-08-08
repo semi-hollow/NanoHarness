@@ -122,9 +122,13 @@ class ToolRegistryRouterTest(unittest.TestCase):
 
         self.assertNotIn("replace_text", route.allowed_names)
 
-    def test_router_prefers_diagnostics_over_shell_commands_for_swebench(self):
+    def test_router_uses_deduplicated_search_and_allowlisted_validation_fallback_for_swebench(
+        self,
+    ):
         schemas = [
             {"name": "read_file", "arguments": {"path": "str"}},
+            {"name": "grep", "arguments": {"pattern": "str"}},
+            {"name": "grep_search", "arguments": {"pattern": "str"}},
             {
                 "name": "replace_text",
                 "arguments": {"path": "str", "old": "str", "new": "str"},
@@ -151,8 +155,13 @@ class ToolRegistryRouterTest(unittest.TestCase):
         self.assertIn("replace_text", route.allowed_names)
         self.assertIn("python_validation", route.allowed_names)
         self.assertNotIn("write_file", route.allowed_names)
-        self.assertNotIn("run_command", route.allowed_names)
-        self.assertIn("swebench_validation=python_validation:pytest", route.reason)
+        self.assertIn("run_command", route.allowed_names)
+        self.assertNotIn("grep", route.allowed_names)
+        self.assertIn("grep_search", route.allowed_names)
+        self.assertIn(
+            "swebench_validation=python_validation|allowlisted_run_command",
+            route.reason,
+        )
 
 
 if __name__ == "__main__":

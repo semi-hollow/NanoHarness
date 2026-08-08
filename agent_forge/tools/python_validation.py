@@ -216,6 +216,18 @@ class PythonValidationTool(Tool):
                     "check_type=pytest for pytest-style test files."
                 ),
             )
+        if check_type == "pytest" and process.returncode == 5:
+            return Observation(
+                tool_name=self.name,
+                success=True,
+                content=(
+                    f"{command_evidence}\n"
+                    "validation_blocked: pytest collected no tests for this target; "
+                    "inspect the repository test entrypoint and use the allowlisted "
+                    "run_command fallback when project-specific flags are required."
+                ),
+                execution_succeeded=True,
+            )
         return Observation(
             tool_name=self.name,
             success=process.returncode == 0,

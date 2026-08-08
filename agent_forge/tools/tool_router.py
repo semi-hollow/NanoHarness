@@ -299,21 +299,27 @@ class ToolRouter:
         if active_skill_tool_names:
             visible_tool_names |= registered_tool_names & active_skill_tool_names
 
+        # ``grep`` 与 ``grep_search`` 当前执行契约相同。task-aware 模式只向模型暴露
+        # 描述更明确的后者，避免两个同义 schema 分散模型选择；兼容工具仍保留在 Registry。
+        if "grep_search" in registered_tool_names:
+            visible_tool_names.discard("grep")
+
         # 再次应用只读约束，确保 Skill 也不能把写入或命令工具加回来。
         if is_read_only_task:
             visible_tool_names -= {"replace_text", "write_file", "run_command"}
 
-        # SWE-bench 使用锚点替换和固定 Python 验证器，隐藏自由命令与整文件覆盖，减少
-        # 不可审计操作，同时保留 candidate diff 和工作区状态证据。
+        # SWE-bench 使用锚点替换并隐藏整文件覆盖。固定 Python 验证器是首选；受命令
+        # 白名单约束的 run_command 作为异构仓库测试入口的回退，不获得任意 shell 能力。
         is_swebench_task = (
             "swe-bench" in normalized_task_text
             or "swebench" in normalized_task_text
         )
         if is_swebench_task:
-            visible_tool_names -= {"run_command", "write_file"}
+            visible_tool_names.discard("write_file")
             visible_tool_names |= registered_tool_names & {
                 "replace_text",
                 "python_validation",
+                "run_command",
                 "git_diff",
                 "git_status",
             }
@@ -362,7 +368,7 @@ class ToolRouter:
             f"skill_tools={len(active_skill_tool_names or set())}"
         )
         if is_swebench_task and "python_validation" in visible_tool_names:
-            routing_reason += " swebench_validation=python_validation:pytest"
+            routing_reason += " swebench_validation=python_validation|allowlisted_run_command"
         return ToolRoute(
             schemas=visible_tool_schemas,
             allowed_names={
