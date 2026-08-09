@@ -18,8 +18,8 @@ class PermissionPolicy:
     def decide(self, action: str, command: str = "") -> tuple[PermissionDecision, str]:
         """返回确定性权限决策和可写入 trace 的原因。"""
 
-        if action in {"read", "list", "grep"}:
-            return PermissionDecision.ALLOW, "read/list/grep allowed"
+        if action in {"read", "list", "search"}:
+            return PermissionDecision.ALLOW, "read/list/search allowed"
         if action == "validate":
             return PermissionDecision.ALLOW, "bounded validation allowed"
         if action == "write":

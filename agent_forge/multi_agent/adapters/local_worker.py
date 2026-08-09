@@ -39,7 +39,6 @@ from .git_workspace import apply_unified_diff_to_workspace, commit_worker_baseli
 READ_TOOLS = {
     "list_files",
     "read_file",
-    "grep",
     "grep_search",
     "git_status",
     "git_diff",
@@ -86,7 +85,9 @@ class LocalAgentWorkerAdapter(FanoutWorkerPort):
     ) -> LiveSubagentResult:
         """在临时 worktree 中运行一个受 scope 限制的 AgentLoop。"""
 
-        # region 1. 输出契约准备（首遍可折叠）：固定目录，并先准备失败兜底值
+        # region 1. 输出契约准备（实现细节）：固定目录，并先准备失败兜底值
+        # 先创建所有稳定路径和默认失败值，保证后续任意阶段抛异常时仍能返回结构完整的
+        # LiveSubagentResult，而不是让 Coordinator 依赖临时 worktree 内部状态。
         started = time.monotonic()
         worker_dir = self.root / "workers" / task.id
         worker_dir.mkdir(parents=True, exist_ok=True)
@@ -112,7 +113,7 @@ class LocalAgentWorkerAdapter(FanoutWorkerPort):
         candidate_diff_sha256 = ""
         # endregion 1. 输出契约准备结束
         try:
-            # region 2. 隔离工作区（首遍可折叠）：创建 worktree，并带入前置任务的已合并改动
+            # region 2. 隔离工作区（实现细节）：创建 worktree，并带入前置任务的已合并改动
             with self._git_lock:
                 environment.prepare()
             active_workspace = environment.active_workspace
@@ -131,7 +132,9 @@ class LocalAgentWorkerAdapter(FanoutWorkerPort):
                 commit_worker_baseline(active_workspace)
             # endregion 2. 隔离工作区结束
 
-            # region 3. 受限 Runtime 装配（首遍可折叠）：收窄工具，并隔离状态存储
+            # region 3. 受限 Runtime 装配（实现细节）：收窄工具，并隔离状态存储
+            # Registry 按任务允许工具过滤；RuntimeConfig 的 checkpoint、approval 和操作状态表
+            # 全部写入 worker_dir，多个并发 Worker 不会共享可变运行状态。
             registry = _filtered_registry(
                 self.registry_factory(active_workspace, environment),
                 task,
@@ -157,6 +160,8 @@ class LocalAgentWorkerAdapter(FanoutWorkerPort):
             # endregion 3. 受限 Runtime 装配结束
 
             # region 4. AgentLoop 执行（主链）：任务契约进入模型，结果写入独立 Trace/Usage
+            # worker_task_prompt 把总目标与子任务 scope 合并；AgentLoop 完成后立即冻结
+            # Trace/Usage，后续候选收集只读取 workspace，不修改模型运行证据。
             final_answer = build_agent_loop(
                 worker_config,
                 worker_trace,
@@ -173,6 +178,8 @@ class LocalAgentWorkerAdapter(FanoutWorkerPort):
             # endregion 4. AgentLoop 执行结束
 
             # region 5. 候选结果收集（主链）：提取本任务 Diff，并校验实际改动没有越界
+            # touched_files 是动态冲突和 scope_violation 的共同事实来源；即使最终文本声称
+            # 完成，_worker_status 也会依据真实文件范围决定是否允许 Coordinator 合并。
             candidate_diff_text = collect_workspace_diff(active_workspace)
             candidate_diff_path.write_text(candidate_diff_text, encoding="utf-8")
             candidate_diff_sha256 = hashlib.sha256(
@@ -245,7 +252,9 @@ class LocalAgentWorkerAdapter(FanoutWorkerPort):
     ) -> FinalizerResult:
         """在独立只读 worktree 中验证集成 candidate diff。"""
 
-        # region 1. 验证输出准备（首遍可折叠）：固定 Trace、Usage 和默认阻断结论
+        # region 1. 验证输出准备（实现细节）：固定 Trace、Usage 和默认阻断结论
+        # Finalizer 默认 BLOCKED，只有只读验证明确返回 PASS 才能升级；所有输出路径
+        # 预先固定，保证验证基础设施异常也能留下证据。
         final_dir = self.root / "finalizer"
         final_dir.mkdir(parents=True, exist_ok=True)
         trace_path = final_dir / "trace.json"
@@ -266,7 +275,9 @@ class LocalAgentWorkerAdapter(FanoutWorkerPort):
         candidate_snapshot = ""
         # endregion 1. 验证输出准备结束
         try:
-            # region 2. 隔离候选结果（首遍可折叠）：把 Coordinator 已合并 Diff 复制到新 worktree
+            # region 2. 隔离候选结果（实现细节）：把 Coordinator 已合并 Diff 复制到新 worktree
+            # Finalizer 不直接进入集成 workspace；先复制当前 integrated diff 到隔离 worktree，
+            # 既能验证真实候选，也能在验证器误写时保护主结果。
             with self._git_lock:
                 environment.prepare()
             workspace = environment.active_workspace
@@ -284,7 +295,9 @@ class LocalAgentWorkerAdapter(FanoutWorkerPort):
             candidate_snapshot = collect_workspace_diff(workspace)
             # endregion 2. 隔离候选结果结束
 
-            # region 3. 只读 Runtime 装配（首遍可折叠）：只暴露 Diff、状态和验证工具
+            # region 3. 只读 Runtime 装配（实现细节）：只暴露 Diff、状态和验证工具
+            # 从完整 Registry 中只复制 FINALIZER_READ_TOOLS，并使用 dry-run 配置；
+            # 工具可见性和执行权限两层都禁止 Finalizer 修补候选代码。
             full_registry = self.registry_factory(workspace, environment)
             registry = ToolRegistry()
             for name in sorted(FINALIZER_READ_TOOLS):
@@ -306,6 +319,8 @@ class LocalAgentWorkerAdapter(FanoutWorkerPort):
             # endregion 3. 只读 Runtime 装配结束
 
             # region 4. Finalizer 执行与质量门（主链）：解析判定，并检查验证者没有改代码
+            # 模型判定后再次比较 workspace diff；任何新增改动都会把 decision 强制降为
+            # BLOCKED，防止“验证者顺手修好代码”被误算成 Worker 结果通过。
             answer = build_agent_loop(
                 config,
                 final_trace,
@@ -313,7 +328,7 @@ class LocalAgentWorkerAdapter(FanoutWorkerPort):
                 self.llm_factory(),
             ).run(
                 finalizer_task_prompt(goal, results),
-                agent_name="FanoutVerifier",
+                agent_name="FanoutFinalizer",
             )
             decision = _decision(answer)
             if collect_workspace_diff(workspace) != candidate_snapshot:
@@ -332,7 +347,7 @@ class LocalAgentWorkerAdapter(FanoutWorkerPort):
             answer = f"BLOCKED\nfinalizer error: {exc}"
             final_trace.add(
                 0,
-                "FanoutVerifier",
+                "FanoutFinalizer",
                 "finalizer_error",
                 success=False,
                 error=str(exc),
@@ -464,7 +479,7 @@ def finalizer_task_prompt(
     ]
     return "\n".join(
         [
-            "You are FanoutVerifier, the final read-only integration verifier.",
+            "You are FanoutFinalizer, the final read-only integration verifier.",
             f"Goal: {goal}",
             "Use worker outputs as primary evidence. Inspect git_status/git_diff once when needed.",
             "Run python_validation only when integrated code changes need a focused check.",

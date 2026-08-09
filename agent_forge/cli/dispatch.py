@@ -24,11 +24,9 @@ from agent_forge.cli.parser import build_parser
 from agent_forge.cli.repository import run_repository_task
 from agent_forge.cli.resume import resume_repository_task
 from agent_forge.evaluation.api import (
-    AblationArtifactRequest,
     FeedbackRequest,
     export_feedback_dataset,
     record_feedback,
-    write_ablation_comparison,
 )
 from agent_forge.showcase import run_governed_demo
 from agent_forge.workbench.api import run_ui_from_args
@@ -115,24 +113,6 @@ def _dispatch_evaluation(args: argparse.Namespace) -> None:
         print(f"Dataset: {args.output}")
         print(f"Records: {len(records)}")
         return
-    if args.eval_name == "ablation":
-        try:
-            json_path, report_path = write_ablation_comparison(
-                AblationArtifactRequest(
-                    control_dir=args.control,
-                    treatment_dir=args.treatment,
-                    factor=args.factor,
-                    output_dir=args.output,
-                    control_label=args.control_label,
-                    treatment_label=args.treatment_label,
-                )
-            )
-        except ValueError as exc:
-            raise SystemExit(str(exc)) from exc
-        print(f"Ablation JSON: {json_path}")
-        print(f"Ablation report: {report_path}")
-
-
 def _print_run_location(run_dir: Path) -> None:
     print(f"Run directory: {run_dir}")
     print(f"Report: {run_dir / 'usage_report.md'}")

@@ -100,6 +100,8 @@ class TurnPreparation:
         """
 
         # region 1. Turn 起点：先持久化恢复位置，再准备任何模型输入
+        # 先记录“即将准备第几轮”及当前消息计数；若后续 context/model 阶段异常，
+        # resume 仍能从稳定的 turn 边界继续，而不是猜测执行到了哪里。
         session.lifecycle.update_checkpoint(
             TaskCheckpointUpdate(
                 status=TaskRunStatus.RUNNING,
@@ -114,10 +116,17 @@ class TurnPreparation:
         # endregion 1. Turn 起点结束
 
         # region 2. 工具路由：收敛模型可见 schema，并保持权限摘要一致
+        # ToolRouter 同时返回 schema 和 allowed_names：前者发给模型，后者供执行时复核。
+        # 两份视图来自同一 ToolRoute，避免模型看见的工具与 Runtime 放行集合不一致。
+        registered_tool_schemas = self.tool_gateway.schemas()
+        self._verify_skill_tool_dependencies(
+            session=session,
+            registered_tool_schemas=registered_tool_schemas,
+        )
         tool_route = self.tool_router.route(
             ToolRoutingRequest(
                 task=session.task,
-                schemas=self.tool_gateway.schemas(),
+                schemas=registered_tool_schemas,
                 step=step,
                 max_steps=session.max_iterations,
                 agent_name=session.agent_name,
@@ -128,7 +137,7 @@ class TurnPreparation:
         visible_tool_schemas: list[ToolSchema] = tool_route.schemas
         allowed_tool_names = set(tool_route.allowed_names)
         model_permission_summary = (
-            "read/list/grep allowed; replace_text/write_file asks approval; "
+            "read/list/search allowed; replace_text/write_file asks approval; "
             "dangerous commands denied; "
             f"{self.execution_environment.render_boundary_summary()}"
         )
@@ -145,6 +154,8 @@ class TurnPreparation:
         # endregion 2. 工具路由结束
 
         # region 3. 静态上下文组装：仓库、Memory、Skill 与权限边界汇合
+        # ContextAssembler 只拼装本轮稳定事实，不携带会话历史；历史压缩由下一阶段
+        # ContextWindowManager 独立负责，避免仓库上下文和对话裁剪互相污染。
         assembled_context = self.context_assembler.build(
             ContextAssemblyRequest(
                 task=session.task,
@@ -168,6 +179,8 @@ class TurnPreparation:
         # endregion 3. 静态上下文组装结束
 
         # region 4. 会话窗口治理：压缩历史并返回模型可直接消费的 PreparedTurn
+        # 先记录静态 context，再把 system context、历史和临时预算提示交给窗口管理器；
+        # PreparedTurn 是 ModelPort 的唯一输入快照，后续不得再单独修改工具或消息。
         self._record_context_assembly(
             session=session,
             step=step,
@@ -198,6 +211,7 @@ class TurnPreparation:
         )
         self._record_context_window(session, step, prepared_window)
         if prepared_window.digest is not None:
+            # 只把摘要引用写入 checkpoint；原始消息仍保留在 session/trace 中，不被压缩删除。
             session.lifecycle.update_checkpoint(
                 TaskCheckpointUpdate(context_digest=prepared_window.digest.to_dict())
             )
@@ -220,6 +234,33 @@ class TurnPreparation:
             phase=tool_route.phase,
         )
         # endregion 4. 会话窗口治理结束
+
+    @staticmethod
+    def _verify_skill_tool_dependencies(
+        *,
+        session: AgentRunSession,
+        registered_tool_schemas: list[ToolSchema],
+    ) -> None:
+        """在模型调用前拒绝依赖不完整的 Skill，避免只注入说明却无法执行。
+
+        这类似 Spring 启动期 bean 依赖校验：Skill 可以推荐可选工具，但它声明的
+        required tools 必须真实存在于当前 ToolGateway。这里仅校验“已注册”；写权限、
+        审批、命令与路径安全仍由执行阶段独立判断，Skill 不能借声明绕过治理。
+        """
+
+        registered_tool_names = {
+            str(schema.get("name") or "") for schema in registered_tool_schemas
+        }
+        for skill in session.active_skills:
+            missing_tool_names = sorted(
+                set(skill.required_tool_names) - registered_tool_names
+            )
+            if missing_tool_names:
+                missing = ", ".join(missing_tool_names)
+                raise ValueError(
+                    f"activated skill {skill.name}@{skill.version} requires "
+                    f"unavailable tools: {missing}"
+                )
 
     @staticmethod
     def _turn_budget_control_message(
@@ -257,7 +298,7 @@ class TurnPreparation:
             )
         return None
 
-    # region 证据记录器（首次阅读可折叠）
+    # region 证据记录器
     def _record_context_assembly(
         self,
         *,

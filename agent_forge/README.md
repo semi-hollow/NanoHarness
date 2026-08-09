@@ -1,8 +1,7 @@
 # `agent_forge` 包内导航
 
-本文件只帮助从 package 目录定位代码。项目定位和公开命令见根目录 `README.md`，硬约束见
-`docs/ARCHITECTURE.md`；训练与闭卷问题见
-[NanoHarness Study Notes](https://github.com/semi-hollow/NanoHarness-Study-Notes)。
+本文件只帮助从 package 目录定位代码。项目定位和公开命令见根目录 `README.md`，
+架构约束见 `docs/项目架构与代码导航.md`，机制语义见 `docs/运行生命周期与异常处理机制.md`。
 
 ## 唯一 Single-Run 入口
 
@@ -20,22 +19,28 @@ __main__.py / forge_cli.py
 Single mode 中，`cli/repository.py` 不拥有第二套 trace、environment、AgentLoop、patch 或 cleanup。
 Multi/Fanout 保留为 Advanced coordinator，不属于这条黄金主链。
 
-## 12 文件核心阅读面
+## Single-Run 核心入口
 
-1. `harness.py`：Public request/result 与 run 边界。
-2. `runtime/wiring.py`：唯一 Runtime composition owner。
-3. `runtime/application/agent_loop.py`：阶段编排。
-4. `runtime/application/session.py`：进程内 run state。
-5. `runtime/application/turn_preparation.py`：Context/Tool schema -> Model。
-6. `runtime/application/tool_execution.py`：确定性工具治理与执行。
-7. `runtime/application/operation_tracker.py`：identity、approval、stale、ledger。
-8. `runtime/application/run_lifecycle.py`：checkpoint、HITL、stop。
-9. `runtime/domain/task.py`：durable task state。
-10. `runtime/domain/operation.py`：副作用状态机。
-11. `observability/domain/event.py`：运行事实。
-12. `observability/domain/run_story.py`：artifact 血缘与 canonical Read Model。
+1. `harness.py::Harness.run`：一次 Run 从哪里进入和返回。
+2. `runtime/application/agent_loop.py::AgentLoop.run`：模型循环怎样推进和停止。
+3. `runtime/application/turn_preparation.py::TurnPreparation.prepare_turn`：模型本轮看到什么。
+4. `runtime/application/tool_execution.py::ToolExecutionPipeline.execute_calls`：ToolCall 怎样被治理和执行。
+5. `runtime/application/run_lifecycle.py::RunLifecycle.finalize_run`：等待、恢复和终态怎样落盘。
 
-第一遍不要进入 CLI parser、Adapter 序列化、Memory、MCP、Skills、Multi/Fanout、Campaign 或 UI。
+CLI parser、Adapter 序列化、Memory、MCP、Skills、Multi/Fanout、Campaign 和 UI 属于扩展实现，
+不在 Single-Run 核心路径内。具体机制可按下面四层定位，无需沿 import 关系遍历全部源码。
+
+## ToolCall 四层代码地图
+
+| 主视图 | 核心问题 | 主要入口 | 深入实现 |
+| --- | --- | --- | --- |
+| 入口控制 | 调用是否合法、当前是否可用 | `turn_preparation.py`、`tool_execution.py` | `tools/tool_router.py`、`models/tool_call_normalizer.py`、`tools/registry.py` |
+| 执行决策 | 允许、拒绝、询问人工，还是已有结果 | `tool_execution.py::_execute_call` | `operation_tracker.py`、`tool_authorization.py`、`runtime/hooks.py` |
+| 受限执行 | 获准后最多能影响哪里 | `tools/<tool>.py::execute` | `safety/command_policy.py`、`safety/sandbox.py`、`runtime/execution_environment.py` |
+| 结果与恢复 | 发生了什么，中断后怎样继续 | `tool_execution.py::_run_tool` | `run_lifecycle.py`、`domain/operation.py`、`observability/domain/event.py` |
+
+本表只给代码路径；四层、Hook 和操作状态表的语义由
+`docs/运行生命周期与异常处理机制.md` 统一说明。
 
 ## Capability 地图
 
@@ -58,7 +63,7 @@ forge inspect ToolExecutionPipeline.execute_calls
 forge inspect <run-or-artifact>
 ```
 
-随机 symbol 必须能说明层级、规范上游、下一 owner、状态/副作用、Evidence 和删除影响；随机
+随机 symbol 必须能说明层级、规范上游、下一 owner、状态变更、Evidence 和删除影响；随机
 artifact 必须能说明 producer、consumer、source/authority、claim boundary 与可重建性。Code
 Compass 的静态 caller/callee 不等于完整运行时调用图，动态注入边以 Core owner 契约为准。
 

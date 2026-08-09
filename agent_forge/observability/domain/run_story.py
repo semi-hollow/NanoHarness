@@ -167,10 +167,10 @@ _STAGE_SPECS = (
     ),
     (
         "tool_governance",
-        "工具与副作用治理",
+        "工具调用治理",
         "ToolExecutionPipeline.execute_calls",
         "AgentLoop._run_turn",
-        "所有模型 ToolCall 必须经过路由、幂等、授权和执行证据链。",
+        "所有模型 ToolCall 必须经过入口控制、执行决策、受限执行和结果记录。",
         (
             "tool_call",
             "permission_check",

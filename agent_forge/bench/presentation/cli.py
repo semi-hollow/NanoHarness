@@ -148,13 +148,13 @@ def build_swebench_parser(parser: argparse.ArgumentParser) -> None:
         default="task-aware",
         help=(
             "Select task-aware tool visibility or expose all tools for a controlled "
-            "ablation; runtime safety policy remains enabled."
+            "controlled comparison; runtime safety policy remains enabled."
         ),
     )
     parser.add_argument(
         "--skills",
         default="auto",
-        help="auto, none, or comma-separated skill names for matched ablation.",
+        help="auto, none, or comma-separated skill names for matched comparison.",
     )
     parser.add_argument("--skill-manifest", action="append", default=[])
     parser.add_argument(
@@ -171,7 +171,7 @@ def build_swebench_parser(parser: argparse.ArgumentParser) -> None:
         "--memory-recall-limit",
         type=int,
         default=0,
-        help="Enable matched memory ablation explicitly; default 0 prevents leakage.",
+        help="Enable memory recall explicitly for a matched comparison; default 0 prevents leakage.",
     )
     parser.add_argument(
         "--execution-mode",

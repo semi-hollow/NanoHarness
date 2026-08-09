@@ -221,22 +221,6 @@ def _add_evaluation_command(subparsers: argparse._SubParsersAction) -> None:
         help="Include candidate patch text; default export keeps size and SHA-256 only.",
     )
 
-    ablation = eval_subparsers.add_parser(
-        "ablation",
-        help="Compare two matched benchmark run scorecards as a paired ablation.",
-    )
-    ablation.add_argument("control", help="Control benchmark run directory.")
-    ablation.add_argument("treatment", help="Treatment benchmark run directory.")
-    ablation.add_argument(
-        "--factor",
-        required=True,
-        help="Single runtime factor changed between runs.",
-    )
-    ablation.add_argument("--control-label", default="control")
-    ablation.add_argument("--treatment-label", default="treatment")
-    ablation.add_argument("--output", default=".agent_forge/evaluation/ablation")
-
-
 def _add_inspection_commands(subparsers: argparse._SubParsersAction) -> None:
     skills = subparsers.add_parser(
         "skills",
@@ -593,5 +577,5 @@ def _add_tool_routing_arg(
         "--tool-routing",
         choices=["task-aware", "all"],
         default="task-aware" if defaults else None,
-        help="Change model-visible schemas for ablation; runtime safety remains enabled.",
+        help="Change model-visible schemas for a controlled comparison; runtime safety remains enabled.",
     )

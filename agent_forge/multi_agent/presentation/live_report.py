@@ -105,7 +105,7 @@ def render_live_fanout_report(summary: LiveFanoutSummary) -> str:
             "",
             "## Claim Boundary",
             "",
-            "An integrated diff and FanoutVerifier PASS are runtime evidence, "
+            "An integrated diff and Finalizer PASS are runtime evidence, "
             "not official benchmark resolution.",
             "",
         ]

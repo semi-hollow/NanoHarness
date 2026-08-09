@@ -1,8 +1,8 @@
 """Benchmark Case Explorer 的只读领域数据。
 
-阅读顺序：``BenchmarkSetProfile`` 解释为什么选择一组 case，
-``BenchmarkCaseProfile`` 解释为什么选择某一道题，``BenchmarkCaseInspection``
-保存该题实际输入与验收契约。这里不加载数据集、不运行 Agent，
+``BenchmarkSetProfile`` 说明 case 集合的选择依据，``BenchmarkCaseProfile``
+说明单个 case 的选择依据，``BenchmarkCaseInspection`` 保存实际输入与验收契约。
+这里不加载数据集、不运行 Agent，
 也不渲染页面。
 """
 
@@ -12,7 +12,7 @@ from dataclasses import dataclass
 from typing import Any
 
 
-# 核心数据：固定回归集中一道题的人工选择语义。
+# 核心数据：固定回归集中单个 case 的人工选择语义。
 @dataclass(frozen=True)
 class BenchmarkCaseProfile:
     """项目为固定回归 case 补充的人类可读语义。

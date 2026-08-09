@@ -1,7 +1,7 @@
 """Single Agent 的主控制循环。
 
-首次阅读只展开 ``AgentLoop.run``。运行前决策、turn 输入、工具治理和最终答案均由
-同目录中具名应用服务负责，本类只保留真正的控制流。
+``AgentLoop.run`` 是主入口。运行前决策、turn 输入、工具治理和最终答案均由
+同目录中具名应用服务负责，本类只保留控制流。
 """
 
 from __future__ import annotations
@@ -27,7 +27,7 @@ class AgentLoop:
     """单 Agent 控制流的应用服务。
 
     完整链路：``run`` -> ``_run_turn`` -> model -> final answer/tool pipeline。
-    第一遍无需展开其余应用服务；需要定位策略时，再按类名进入对应文件。
+    具体策略由具名应用服务负责，可按类名定位对应文件。
     """
 
     def __init__(
@@ -80,7 +80,7 @@ class AgentLoop:
         规范上游：``Harness.run`` 装配完成的 Runtime。
         下一 owner：``RunPreparation``、``TurnPreparation``、模型端口、
         ``ToolExecutionPipeline``、``RunLifecycle``。
-        状态与证据：返回值只是最终文本；checkpoint、trace 与 operation ledger 才是
+        状态与证据：返回值只是最终文本；checkpoint、trace 与操作状态表才是
         可恢复、可审计的运行事实。
         系统不变量：所有退出分支必须汇合到
         ``RunLifecycle.finalize_run``。
@@ -88,6 +88,8 @@ class AgentLoop:
         """
 
         # region 1. 创建会话并处理首次控制/澄清屏障
+        # 创建 session 后先消费 pause/cancel/steer，再执行输入策略、Memory 与澄清准备；
+        # 任一步产生 StopRequest 都直接汇合到唯一终态 owner，而不进入 Turn Loop。
         run_session = self.run_preparation.create_session(task, agent_name)
         initial_operator_control = self.run_control_handler.consume_pending_signals(
             run_session,
@@ -131,7 +133,7 @@ class AgentLoop:
         )
         # endregion 3. 预算耗尽收口结束
 
-    # region 第二层内部步骤（首次阅读可折叠）
+    # region 第二层内部步骤
     def _run_turn(
         self,
         session: AgentRunSession,
@@ -140,6 +142,8 @@ class AgentLoop:
         """执行一个 turn：准备输入 -> 调用模型 -> final 或工具分支。"""
 
         # region 1. 准备模型输入并执行一次受 Hook 治理的模型调用
+        # TurnPreparation 冻结本轮 context、可见工具和预算；_call_model 负责模型前后 Hook，
+        # 因而模型响应只有通过 Hook 后才允许进入后续控制与工具分支。
         session.iteration = step
         self._record_turn_started(session, step)
         prepared_turn = self.turn_preparation.prepare_turn(session, step)
@@ -171,6 +175,8 @@ class AgentLoop:
         # endregion 2. 模型返回边界结束
 
         # region 3. 上下文溢出恢复：仅在确实缩小窗口后重试一次
+        # Provider 明确报告窗口溢出时，强制生成更小的 PreparedTurn；只有 token 估算
+        # 确实下降才重试，防止用同一请求盲重放并重复计费。
         if model_response.error and _is_context_overflow(model_response.error):
             compacted_turn = self.turn_preparation.prepare_turn(
                 session,
@@ -190,6 +196,7 @@ class AgentLoop:
                 recovery_reduced_context=recovery_reduced_context,
             )
             if recovery_reduced_context:
+                # 重试仍走同一个模型 Hook 和预算检查，恢复路径不能绕过正常治理。
                 prepared_turn = compacted_turn
                 model_response, hook_stop_request = self._call_model(
                     session,
@@ -366,7 +373,7 @@ class AgentLoop:
             response_normalization=model_response.normalization or {},
         )
 
-    # region 证据记录器（首次阅读可折叠）
+    # region 证据记录器
     def _record_turn_started(self, session: AgentRunSession, step: int) -> None:
         """记录 turn 边界；step 表示模型决策轮次，不是事件序号。"""
 

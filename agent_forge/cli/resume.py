@@ -180,7 +180,7 @@ def _persist_operator_decision(
     human_input_root: str,
     approval_root: str,
 ) -> None:
-    """让 ``resume`` 同时承担待处理人工决定，避免记忆第二组入口。"""
+    """让 ``resume`` 同时承担待处理人工决定，统一恢复入口。"""
 
     if checkpoint_status == "waiting_human":
         pending_human_inputs = list_pending_human_inputs(human_input_root)

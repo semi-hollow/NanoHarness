@@ -64,7 +64,7 @@ class HumanInputRepository(Protocol):
 
 
 class ApprovalRepository(Protocol):
-    """副作用审批记录。"""
+    """可能改变持久状态的操作审批记录。"""
 
     def get(self, operation_key: str) -> ApprovalRequest | None:
         """按 operation key 查询审批。"""
@@ -88,11 +88,11 @@ class ApprovalRepository(Protocol):
         """保存操作员的批准或拒绝。"""
 
     def list_pending(self) -> list[ApprovalRequest]:
-        """返回尚未决定的副作用请求。"""
+        """返回尚未决定、工具尚未执行的操作审批请求。"""
 
 
 class OperationLedgerRepository(Protocol):
-    """副作用操作的幂等账本。"""
+    """持久状态变更操作的状态表仓储。"""
 
     def operation_key(self, target: OperationTarget) -> str:
         """构造稳定操作标识。"""
@@ -101,7 +101,7 @@ class OperationLedgerRepository(Protocol):
         """读取目标当前状态的最小指纹。"""
 
     def get(self, operation_key: str) -> OperationRecord | None:
-        """读取现有账本记录。"""
+        """读取现有操作状态记录。"""
 
     def ensure_planned(self, plan: OperationPlan) -> OperationRecord:
         """创建或恢复 planned 记录。"""
@@ -113,7 +113,7 @@ class OperationLedgerRepository(Protocol):
         """记录已授权。"""
 
     def record_executing(self, update: OperationTransition) -> OperationRecord:
-        """在调用真实副作用工具前，记录结果尚未确定的执行中状态。"""
+        """在调用真实状态变更工具前，记录结果尚未确定的执行中状态。"""
 
     def record_executed(self, update: OperationTransition) -> OperationRecord:
         """记录成功执行。"""

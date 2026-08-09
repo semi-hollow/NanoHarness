@@ -67,7 +67,7 @@ class ToolFeedback:
         )
         return recovery_signal
 
-    # region 证据记录器（首次阅读可折叠）
+    # region 证据记录器
     def _record_tool_observation(
         self,
         *,

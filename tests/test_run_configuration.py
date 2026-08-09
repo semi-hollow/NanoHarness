@@ -32,7 +32,7 @@ model:
 runtime:
   max_steps: 3
 tools:
-  enabled: [read_file, grep]
+  enabled: [read_file, grep_search]
 """,
                 encoding="utf-8",
             )
@@ -53,7 +53,7 @@ tools:
             self.assertEqual(args.thinking_mode, "enabled")
             self.assertEqual(args.reasoning_effort, "max")
             self.assertTrue(args.reasoning_tokens)
-            self.assertEqual(args.enabled_tools, ["read_file", "grep"])
+            self.assertEqual(args.enabled_tools, ["read_file", "grep_search"])
             artifact = resolved_run_config(args, document)
             self.assertEqual(
                 artifact["precedence"],
@@ -166,12 +166,12 @@ runtime:
                 ToolRegistryBuildRequest(
                     workspace=tmp,
                     auto=True,
-                    enabled_tools=("read_file", "grep"),
+                    enabled_tools=("read_file", "grep_search"),
                 )
             )
             self.assertEqual(
                 {schema["name"] for schema in registry.schemas()},
-                {"read_file", "grep"},
+                {"read_file", "grep_search"},
             )
             empty_registry = build_registry(
                 ToolRegistryBuildRequest(

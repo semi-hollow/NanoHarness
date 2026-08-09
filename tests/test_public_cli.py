@@ -172,17 +172,7 @@ class PublicCliSmokeTest(unittest.TestCase):
         self.assertIn("--require-feedback", result.stdout)
         self.assertIn("--include-patch", result.stdout)
 
-        result = subprocess.run(
-            [sys.executable, "-m", "agent_forge", "eval", "ablation", "--help"],
-            text=True,
-            capture_output=True,
-        )
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn("control", result.stdout)
-        self.assertIn("treatment", result.stdout)
-        self.assertIn("--factor", result.stdout)
-
-    def test_swebench_help_exposes_scorecard_ablation_factor(self):
+    def test_swebench_help_exposes_scorecard_experiment_controls(self):
         result = subprocess.run(
             [sys.executable, "-m", "agent_forge", "bench", "swebench", "--help"],
             text=True,
@@ -470,10 +460,10 @@ class PublicCliSmokeTest(unittest.TestCase):
     {"step": 1, "event_type": "llm_call", "success": true, "duration_ms": 12},
     {"step": 1, "event_type": "action", "success": true, "tool_call": "git_diff"},
     {"step": 1, "event_type": "hook_check", "success": true, "tool_call": "git_diff",
-     "hook_result": {"decision": "allow", "reason": "read/list/grep allowed",
+     "hook_result": {"decision": "allow", "reason": "read/list/search allowed",
                      "decisions": [{"hook_name": "permission_policy", "decision": "allow"}]}},
     {"step": 1, "event_type": "permission_check", "success": true,
-     "tool_call": "git_diff", "permission_decision": "allow", "reason": "read/list/grep allowed"},
+     "tool_call": "git_diff", "permission_decision": "allow", "reason": "read/list/search allowed"},
     {"step": 1, "event_type": "operation_ledger", "success": true,
      "tool_call": "git_diff", "operation_status": "executed"},
     {"step": 1, "event_type": "tool_observation", "success": false, "tool_call": "git_diff"},
@@ -512,23 +502,23 @@ class PublicCliSmokeTest(unittest.TestCase):
         self.assertIn("不计入 Agent 轮次", html)
         self.assertIn("1 个 Agent 轮次", html)
         self.assertIn("2 个运行级事件", html)
-        self.assertIn("先按四段理解", html)
-        self.assertIn("01</b><span>准备输入", html)
-        self.assertIn("02</b><span>模型决定", html)
-        self.assertIn("03</b><span>治理并执行", html)
-        self.assertIn("04</b><span>回填并持久化", html)
-        self.assertIn("扩展钩子（Hook）、权限、操作账本", html)
-        self.assertIn("03 治理并执行：查看本段底层证据", html)
+        self.assertIn("AgentLoop 主链与 ToolCall 四层明细", html)
+        self.assertIn("01</b><span>准备模型输入", html)
+        self.assertIn("02</b><span>模型提出意图", html)
+        self.assertIn("03</b><span>Runtime 处理意图", html)
+        self.assertIn("04</b><span>结果回填", html)
+        self.assertIn("入口控制 → 执行决策 → 受限执行 → 结果与恢复", html)
+        self.assertIn("03 Runtime 处理意图：查看本段底层证据", html)
         self.assertIn("git_diff · 1 次失败", html)
-        self.assertIn("模型调用前 Hook", html)
-        self.assertIn("工具执行前 Hook", html)
-        self.assertIn("模型调用 · 最终决定=允许 · 1 个 Hook 均无额外意见", html)
+        self.assertIn("模型调用前处理器", html)
+        self.assertIn("工具执行前规则", html)
+        self.assertIn("模型调用 · 最终决定=允许 · 1 个处理器均无额外意见", html)
         self.assertIn("git_diff · 最终决定=允许 · permission_policy: 允许", html)
         self.assertIn("在上下文发送给模型前汇总外部策略", html)
         self.assertIn("在 git_diff 执行前汇总环境与权限策略", html)
-        self.assertIn("全部 Hook 均无额外意见，按默认规则允许", html)
+        self.assertIn("全部处理器均无额外意见，按默认规则允许", html)
         self.assertIn("最终权限=允许", html)
-        self.assertIn("账本状态=已执行", html)
+        self.assertIn("操作状态=已执行", html)
         self.assertNotIn("底层 Trace 事实；用于展开排障", html)
         self.assertNotIn("all hooks deferred; default allow", html)
         self.assertIn("<td>12ms</td>", html)

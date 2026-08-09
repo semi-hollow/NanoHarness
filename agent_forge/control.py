@@ -42,11 +42,11 @@ class RunController(RunControlPort):
             RunControlSignal(kind=RunControlKind.PAUSE, reason=reason),
         )
 
-    # 主要入口：请求 AgentLoop 在下一个安全边界取消，不回滚既有副作用。
+    # 主要入口：请求 AgentLoop 在下一个安全边界取消，不回滚已经发生的状态变更。
     def cancel(
         self, reason: str = "operator requested cancel", *, run_id: str = ""
     ) -> None:
-        """提交 cancel；已完成副作用仍由 operation ledger 保留。"""
+        """提交 cancel；已完成操作的状态仍由操作状态表保留。"""
 
         self._set_terminal(
             run_id,

@@ -59,7 +59,7 @@ class EditingLLM:
     def chat(self, messages, tools):
         self.calls += 1
         prompt = "\n".join(message.content or "" for message in messages)
-        if "FanoutVerifier" in prompt:
+        if "FanoutFinalizer" in prompt:
             return AgentResponse("PASS\nintegrated artifacts are present", [])
         task_id = (
             "alpha"
@@ -113,7 +113,7 @@ class AskThenEditLLM:
     def chat(self, messages, tools):
         self.calls += 1
         prompt = "\n".join(message.content or "" for message in messages)
-        if "FanoutVerifier" in prompt:
+        if "FanoutFinalizer" in prompt:
             return AgentResponse("PASS\nintegration verified", [])
         if self.calls == 1:
             return AgentResponse(
@@ -155,7 +155,7 @@ class BudgetAwareLLM:
 
     def chat(self, messages, tools):
         prompt = "\n".join(message.content or "" for message in messages)
-        if "FanoutVerifier" in prompt:
+        if "FanoutFinalizer" in prompt:
             return AgentResponse(
                 "PASS\nworker respected its structured step budget", []
             )
@@ -177,7 +177,7 @@ class DiffInspectingLLM:
     def chat(self, messages, tools):
         self.calls += 1
         prompt = "\n".join(message.content or "" for message in messages)
-        if "FanoutVerifier" in prompt:
+        if "FanoutFinalizer" in prompt:
             if self.calls == 1:
                 return AgentResponse(
                     None, [ToolCall("inspect-candidate", "git_diff", {})]

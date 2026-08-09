@@ -54,7 +54,7 @@ class ReplaceThenFinalLLM:
 
 
 class CreateThenFinalLLM:
-    """首轮创建文件，次轮结束；用于验证完整写副作用链。"""
+    """首轮创建文件，次轮结束；用于验证完整持久状态变更链。"""
 
     last_usage = None
 
@@ -78,7 +78,7 @@ class CreateThenFinalLLM:
 
 
 class CrashBeforeLedgerCommit(JsonOperationLedgerRepository):
-    """故障注入：副作用已发生，但最终 executed 事实尚未提交时进程崩溃。"""
+    """故障注入：文件已改变，但最终 executed 事实尚未提交时进程崩溃。"""
 
     def record_executed(self, update):
         raise RuntimeError("fault injection: crash before executed commit")
@@ -100,7 +100,7 @@ def _create_registry(root: Path) -> ToolRegistry:
 
 class OperationLedgerTest(unittest.TestCase):
     def test_create_file_passes_approval_ledger_and_evidence_chain(self):
-        """证明 create_file 是真实副作用行为，不只是写工具名单中的字符串。"""
+        """证明 create_file 会真实改变文件，而不只是写工具名单中的字符串。"""
 
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

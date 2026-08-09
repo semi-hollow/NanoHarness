@@ -89,7 +89,7 @@ class FileEvidenceCatalog(EvidenceCatalogPort):
         return EvidenceSource(
             key="governed",
             title="受治理单 Agent",
-            description="审批、Checkpoint、恢复与副作用幂等",
+            description="人工授权、操作状态、Checkpoint 与防重复恢复",
             source_type="scenario",
             task=str((story.task if story else "") or trace.get("task") or "尚未运行"),
             status=str(

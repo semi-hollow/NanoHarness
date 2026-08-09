@@ -60,7 +60,7 @@ from agent_forge.tools.ask_human import AskHumanTool
 from agent_forge.tools.python_validation import PythonValidationTool
 from agent_forge.tools.git_diff import GitDiffTool
 from agent_forge.tools.git_status import GitStatusTool
-from agent_forge.tools.grep import GrepSearchTool, GrepTool
+from agent_forge.tools.grep import GrepSearchTool
 from agent_forge.tools.list_files import ListFilesTool
 from agent_forge.tools.mcp_config import MCPConfigLoader
 from agent_forge.tools.read_file import ReadFileTool
@@ -136,7 +136,6 @@ def build_registry(request: ToolRegistryBuildRequest) -> ToolRegistry:
         ReadFileTool(sandbox),
         WriteFileTool(sandbox, request.auto),
         CreateFileTool(sandbox, request.auto),
-        GrepTool(sandbox),
         GrepSearchTool(sandbox),
         ReplaceTextTool(sandbox, request.auto),
         RunCommandTool(
@@ -392,7 +391,7 @@ def list_pending_human_inputs(root: str) -> list[HumanInputRequest]:
 
 
 def list_pending_approvals(root: str) -> list[ApprovalRequest]:
-    """查询指定控制面目录中的待审批副作用。"""
+    """查询指定控制面目录中尚未执行的待审批操作。"""
 
     return JsonApprovalRepository(root).list_pending()
 

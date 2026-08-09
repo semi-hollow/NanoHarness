@@ -37,7 +37,7 @@ class ReconciliationService:
                 status=account.status,
             )
 
-        # 当前顺序故意暴露练习缺陷：校验失败也可能提前污染幂等状态或账本。
+        # 当前顺序用于复现预置缺陷：校验失败也可能提前污染幂等状态或账本。
         self.repository.mark_processed(operation_key)
         normalized_amount = normalize_amount(event.amount, event.currency)
         self.repository.append_ledger_entry(

@@ -41,12 +41,14 @@ class RunControlHandler:
     ) -> RunControlOutcome:
         """返回 pause/cancel 停止请求；steer 只追加新的用户消息。
 
-        ``include_steer=False`` 用于工具前的最后检查：仍允许操作员阻止副作用，但把
+        ``include_steer=False`` 用于工具前的最后检查：仍允许操作员阻止状态变更操作启动，但把
         改方向消息留在队列，直到下一次模型输入组装前。若 steer 在模型调用期间到达，
         AgentLoop 会丢弃已经过时的模型响应，再开始下一 turn。
         """
 
         # region 1. 终止类信号：pause/cancel 优先，并转换为可持久化 StopRequest
+        # RunController 每个 run 只保留一个最新 terminal 信号；消费后立即返回，
+        # 保证 pause/cancel 不会与后面的 steer 同时改变同一个安全边界。
         terminal_control_signal = self.control.take_terminal(self.trace.run_id)
         if terminal_control_signal is not None:
             self._record_control_signal(session, step, terminal_control_signal)
@@ -84,6 +86,8 @@ class RunControlHandler:
         # endregion 2. 工具边界结束
 
         # region 3. 模型边界：按到达顺序注入 steer，并持久化最近控制历史
+        # drain_steers 一次取走当前 FIFO 队列；每条消息以 user role 追加，
+        # 使下一次 llm.chat 看见新方向，同时 checkpoint 只保留最近十条审计摘要。
         for steer_signal in pending_steer_signals:
             session.messages.append(
                 Message(

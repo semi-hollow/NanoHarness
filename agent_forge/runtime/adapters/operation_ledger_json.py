@@ -38,9 +38,9 @@ class JsonOperationLedgerRepository(OperationLedgerRepository):
 
     @staticmethod
     def operation_fingerprint(target: OperationTarget) -> dict[str, Any]:
-        """读取操作目标此刻的最小状态，用于审批和重放时检测漂移。
+        """读取操作目标此刻的最小状态，用于审批和恢复时检测漂移。
 
-        文件类操作记录解析路径及内容哈希；命令类操作只能记录命令文本；其他副作用退化
+        文件类操作记录解析路径及内容哈希；命令类操作只能记录命令文本；其他状态变更操作退化
         为参数哈希。Fingerprint 描述当前状态，不等于 operation key。
         """
 
@@ -116,7 +116,7 @@ class JsonOperationLedgerRepository(OperationLedgerRepository):
         return self._transition(self._require(update.operation_key), update)
 
     def record_executing(self, update: OperationTransition) -> OperationRecord:
-        """在副作用调用前保存执行中状态。
+        """在状态变更操作调用前保存执行中状态。
 
         如果进程在工具返回后、最终结果提交前崩溃，这个状态会留在磁盘上。恢复流程
         因而知道结果不确定，不能把操作当作“尚未执行”而盲目重试。
@@ -124,20 +124,20 @@ class JsonOperationLedgerRepository(OperationLedgerRepository):
 
         return self._transition(self._require(update.operation_key), update)
 
-    # 运行时端口：记录副作用已执行及执行后的目标指纹。
+    # 运行时端口：记录状态变更操作已执行及执行后的目标指纹。
     def record_executed(self, update: OperationTransition) -> OperationRecord:
         return self._transition(self._require(update.operation_key), update)
 
-    # 运行时端口：记录副作用失败，供恢复流程决定是否可重试。
+    # 运行时端口：记录状态变更操作失败，供恢复流程决定是否可重试。
     def record_failed(self, update: OperationTransition) -> OperationRecord:
         return self._transition(self._require(update.operation_key), update)
 
-    # 运行时端口：首次见到 operation 时创建 planned 账本记录。
+    # 运行时端口：首次见到 operation 时创建 planned 状态记录。
     def ensure_planned(self, plan: OperationPlan) -> OperationRecord:
         """返回已有操作记录，或持久化新的 planned 状态。
 
-        ``ToolExecutionPipeline`` 在副作用前调用这里。稳定 key 和 pre-fingerprint
-        让 continuation 跳过已完成操作，并拒绝盲目重放已变化的目标。
+        ``ToolExecutionPipeline`` 在状态变更操作启动前调用这里。稳定 key 和 pre-fingerprint
+        让 continuation 不再执行已完成操作，并在目标变化时拒绝复用旧结果。
         """
 
         existing = self.get(plan.operation_key)

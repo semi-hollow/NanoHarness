@@ -37,9 +37,9 @@ class JsonApprovalRepository(ApprovalRepository):
         data = json.loads(path.read_text(encoding="utf-8"))
         return ApprovalRequest(**data)
 
-    # 运行时端口：按 operation key 幂等创建待审批副作用请求。
+    # 运行时端口：按 operation key 幂等创建尚未执行的操作审批请求。
     def request(self, draft: ApprovalRequestDraft) -> ApprovalRequest:
-        """为一次副作用创建或复用持久化授权记录。
+        """为一次可能改变持久状态的操作创建或复用持久化授权记录。
 
         ``ToolExecutionPipeline`` 在 permission hook 返回 ASK 后调用这里。Operation
         key 和 fingerprint 将后续决定绑定到具体 tool intent 与 target state。

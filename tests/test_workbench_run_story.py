@@ -676,7 +676,29 @@ class WorkbenchRunStoryTest(unittest.TestCase):
                                         }
                                     }
                                 },
-                            }
+                            },
+                            {
+                                "event_type": "skill_selection",
+                                "step": 0,
+                                "skills": [
+                                    {
+                                        "name": "swebench_repair",
+                                        "version": "3.0.0",
+                                        "selection_reason": "explicit invocation",
+                                        "required_tools": ["read_file", "replace_text"],
+                                        "optional_tools": ["git_status"],
+                                        "resources": [
+                                            {
+                                                "path": "references/failure-triage.md",
+                                                "sha256": "a" * 64,
+                                                "original_chars": 900,
+                                                "disclosed_chars": 900,
+                                                "truncated": False,
+                                            }
+                                        ],
+                                    }
+                                ],
+                            },
                         ]
                     }
                 ),
@@ -697,8 +719,13 @@ class WorkbenchRunStoryTest(unittest.TestCase):
             timeline = _render_evidence_html(project_dir, "timeline")
 
         self.assertIn("Runtime 控制面", rendered)
-        self.assertIn("写操作需要人工审批时", rendered)
-        self.assertIn("Operation Ledger 与目标 Fingerprint", rendered)
+        self.assertIn("写操作需要人工授权时", rendered)
+        self.assertIn("入口控制 → 执行决策", rendered)
+        self.assertIn("写操作防重复", rendered)
+        self.assertIn("swebench_repair@3.0.0", rendered)
+        self.assertIn("metadata 发现 → SKILL.md 激活", rendered)
+        self.assertIn("references/failure-triage.md", rendered)
+        self.assertIn("披露 900 / 900 字符", rendered)
         self.assertIn(str(control_trace), rendered)
         self.assertIn("1 个 Checkpoint", overview)
         self.assertIn("受治理 AgentLoop", timeline)
@@ -798,7 +825,7 @@ class WorkbenchRunStoryTest(unittest.TestCase):
         self.assertIn("进入审批等待", rendered)
         self.assertIn("审批后恢复运行", rendered)
         self.assertIn("保存工具结果", rendered)
-        self.assertIn("副作用执行前形成可恢复人工屏障", rendered)
+        self.assertIn("持久状态变更操作启动前形成可恢复人工屏障", rendered)
         self.assertIn("恢复时不重复执行", rendered)
 
     def test_timeline_does_not_present_rejected_tool_request_as_final_answer(self):

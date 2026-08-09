@@ -1,4 +1,4 @@
-"""Single Agent 最终答案的证据拼接与输出校验。"""
+"""Single Agent 最终答案的证据拼接与输出声明检查。"""
 
 from __future__ import annotations
 
@@ -69,6 +69,7 @@ class FinalAnswerBuilder:
             + evidence_text
             + "\n未验证点: 未进行真实线上压测。"
         )
+        # 当前 output_guardrail 只生成审计检查结果，不改变本次 terminal status。
         output_check = output_guardrail(
             final_answer,
             session.ran_tests,
@@ -90,7 +91,7 @@ class FinalAnswerBuilder:
             observations_count=len(session.observations),
         )
 
-    # region 证据记录器（首次阅读可折叠）
+    # region 证据记录器
     def _record_rejected_tool_request(
         self,
         *,
@@ -121,7 +122,7 @@ class FinalAnswerBuilder:
         citations: list[str],
         output_check: GuardrailResult,
     ) -> None:
-        """分别记录输出门禁结论和最终文本引用。"""
+        """分别记录输出语义检查结论和最终文本引用。"""
 
         self.trace.add(
             step,

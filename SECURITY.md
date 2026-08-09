@@ -5,19 +5,24 @@ NanoHarness 是本地软件工程智能体，可以在 workspace 中读写文件
 
 ## 当前安全边界
 
-仓库目前提供：
+完整工具治理分层见[运行生命周期与异常处理机制](docs/运行生命周期与异常处理机制.md)；本文只列
+真正实施限制的安全边界：
 
+- `ToolRouter` 收窄本轮工具范围，执行管线再次复核，隐藏工具不能靠伪造 ToolCall 绕过。
 - 通过 `WorkspaceSandbox` 检查 workspace path。
 - 通过 `CommandPolicy` 使用 command allowlist，并阻断高风险 command。
-- 通过 runtime hook 提供 approval mode。
+- `before_tool` 只是生命周期时机；`PermissionHook` 和 `ExecutionEnvironmentHook` 执行具体
+  规则，`ApprovalRepository` 保存人工授权事实，`ToolAuthorizationGate` 决定是否进入 Gateway。
+- `OperationLedger`（操作状态表）防止恢复时盲目重复持久状态变更操作；工具结果最终脱敏。
 - Multi-agent coordinator 中的 role-level tool allowlist。
 - Multi-agent 通过 artifact handoff 通信，而不是隐藏 peer chat。
 - 可选 worktree execution，将代码修改与主 checkout 隔离。
 - 可选 OCI execution，在 detached snapshot 上隔离 command/validation process，并限制
   network、CPU、memory、PID、capability 和 read-only root。
-- `network-policy=deny` 时，environment hook 阻断已知 network executable；所有 mode
+- `network-policy=deny` 时，`ExecutionEnvironmentHook` 预检查已知 network executable；所有 mode
   下 command allowlist 也独立排除 network tool。
-- MCP web tool 默认 offline。
+- MCP web tool 默认 offline。外部 MCP 工具仍应通过 allowlist；当前未知工具不会自动获得完整的
+  effect/risk 元数据，因此不能声称任意第三方写工具都受操作状态表保护。
 
 Local 和 worktree mode 不是 OS sandbox。OCI mode 使用 Docker-compatible runtime，
 但不等价于 Firecracker、gVisor 或 managed remote execution service，也不是 hardened

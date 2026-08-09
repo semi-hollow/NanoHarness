@@ -21,7 +21,7 @@ class MultiAgentCoordinator:
     """协调角色顺序、Artifact 交接和 revision loop。
 
     可类比支付流程中的工作流编排器：它决定下一岗位是谁、何时退回重做，但每个岗位
-    仍通过同一个 AgentLoop 执行。第一遍只读 ``run`` 的四个阶段注释。
+    仍通过同一个 AgentLoop 执行；``run`` 中的四个阶段构成完整主链。
     """
 
     def __init__(
@@ -56,6 +56,8 @@ class MultiAgentCoordinator:
         """按角色顺序执行 Implementer、Reviewer、Verifier 和有界修订。"""
 
         # region 1. 运行初始化：冻结 profile、角色顺序和 revision 上限
+        # profile 在本次 Run 内不可变：primary 决定谁产出候选，ordered_review_roles
+        # 决定谁按顺序消费 Artifact，revision 上限则是防止角色互相打回的硬边界。
         multi_agent_summary = MultiAgentRunSummary(
             run_id=self.trace.run_id,
             task=self.task,
@@ -189,6 +191,8 @@ class MultiAgentCoordinator:
         # endregion 2. 角色状态机结束
 
         # region 3. 证据收口：冻结最终结论和 Artifact 索引，供报告与评测读取
+        # Coordinator 不重新判断角色内容；这里只把状态机已经形成的状态、轮数和文本
+        # 固化为最终 Artifact，并让 Summary/Trace 引用同一结论。
         final_artifact = self.store.write_text_artifact(
             "Coordinator",
             "final_summary",
@@ -241,6 +245,8 @@ class MultiAgentCoordinator:
 
         try:
             # region 2. 角色执行：调用隔离 Runtime，并物化 decision 与 artifact
+            # RoleRunner 返回角色 Runtime 的最终文本；随后按角色契约解析 decision，
+            # 并在返回 Coordinator 前先写 Artifact，确保下一个角色只消费稳定交接物。
             final_answer = self.role_runner.run_role(
                 config=role_config,
                 allowed_tools=allowed_role_tools,
@@ -323,10 +329,19 @@ class MultiAgentCoordinator:
             else role.max_steps
         )
         approval_mode = "dry-run" if role.read_only else self.base_config.approval_mode
+        # Profile 已经给每个角色固定了 instructions 与工具范围。默认自动 Skill 可能再选中
+        # 一个需要写工具的工作流，使只读 Reviewer/Verifier 在模型调用前因依赖缺失失败。
+        # 因此角色运行默认关闭自动 Skill；调用方显式指定 skill_names 时才保留该选择。
+        role_skill_mode = (
+            self.base_config.skill_mode
+            if self.base_config.skill_names
+            else "none"
+        )
         return replace(
             self.base_config,
             max_steps=role_steps,
             approval_mode=approval_mode,
+            skill_mode=role_skill_mode,
             task_state_root=str(
                 self.run_dir
                 / "multi_agent"
@@ -441,11 +456,13 @@ class MultiAgentCoordinator:
     ) -> None:
         self._event_step += 1
         agent_name = str(event_data.pop("agent_name", "MultiAgentCoordinator"))
+        error_message = str(event_data.pop("error", ""))
         self.trace.record_event(
             step=self._event_step,
             agent_name=agent_name,
             event_type=event_type,
             success=success,
+            error=error_message,
             data=event_data,
         )
 

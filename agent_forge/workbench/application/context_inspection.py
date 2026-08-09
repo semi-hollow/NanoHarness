@@ -64,7 +64,7 @@ class ContextTurnInspection:
     tool_decisions: tuple[ToolDecision, ...]
 
 
-# 主要入口：把细粒度 Trace 投影为面向学习者的逐轮上下文视图。
+# 主要入口：把细粒度 Trace 投影为便于检查的逐轮上下文视图。
 def build_context_turn_inspections(
     trace: dict[str, Any],
 ) -> tuple[ContextTurnInspection, ...]:
@@ -195,7 +195,7 @@ def build_context_turn_inspections(
     return tuple(turns)
 
 
-_READ_TOOLS = {"list_files", "read_file", "grep", "grep_search", "git_status"}
+_READ_TOOLS = {"list_files", "read_file", "grep_search", "git_status"}
 _VALIDATION_TOOLS = {"python_validation", "run_command"}
 
 

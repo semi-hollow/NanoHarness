@@ -1,4 +1,4 @@
-"""副作用操作账本的领域数据。"""
+"""需审批和防重复保护的持久状态变更操作状态。"""
 
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ from dataclasses import asdict, dataclass, field
 from typing import Any
 
 
-# 核心数据：副作用操作指向的工具、参数和工作区目标。
+# 核心数据：状态变更操作指向的工具、参数和工作区目标。
 @dataclass(frozen=True, kw_only=True)
 class OperationTarget:
     """生成稳定 key 和目标指纹所需的最小事实。"""
@@ -18,7 +18,7 @@ class OperationTarget:
     workspace: str
 
 
-# 核心数据：副作用进入 planned/pending 账本所需的完整输入。
+# 核心数据：操作意图进入 planned/pending 状态所需的完整输入。
 @dataclass(frozen=True, kw_only=True)
 class OperationPlan:
     """将一个目标绑定到 operation key 和当前 run 位置。"""
@@ -34,7 +34,7 @@ class OperationPlan:
 # 核心数据：已存在 OperationRecord 的一次状态迁移。
 @dataclass(frozen=True, kw_only=True)
 class OperationTransition:
-    """批准、执行或失败时写入账本的状态和执行证据。"""
+    """批准、执行或失败时写入操作状态表的状态和执行证据。"""
 
     operation_key: str
     status: str
@@ -45,10 +45,10 @@ class OperationTransition:
     post_fingerprint: dict[str, Any] | None = None
 
 
-# 核心数据：可恢复副作用的幂等账本记录和前后目标指纹。
+# 核心数据：可恢复状态变更操作的状态记录和前后目标指纹。
 @dataclass(kw_only=True)
 class OperationRecord:
-    """一次副作用操作的幂等状态和目标指纹。
+    """一次状态变更操作的幂等状态和目标指纹。
 
     ``operation_key`` 标识同一次意图；status/history 保存 planned/executed/failed 链；
     tool/arguments/action/workspace 描述操作；run/step/observation 记录最近执行；
@@ -72,7 +72,7 @@ class OperationRecord:
     path: str = ""
 
     def transition(self, update: OperationTransition) -> None:
-        """应用一次账本状态转换并保留转换历史。"""
+        """应用一次操作状态转换并保留转换历史。"""
 
         self.status = update.status
         self.run_id = update.run_id

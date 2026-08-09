@@ -1,7 +1,7 @@
 """任务进入 AgentLoop 前的澄清边界。
 
-可类比为 Java 服务入口的参数校验器：它只决定“继续、追问还是拒绝”，不执行任务，
-也不保存人工回答。人工问题的持久化由 HumanInputRepository 负责。
+可类比为 Java 服务入口的参数校验器：它只决定“继续、请求补充信息还是拒绝”，
+不执行任务，也不保存人工回答。人工问题的持久化由 HumanInputRepository 负责。
 """
 
 from dataclasses import dataclass, field
@@ -75,9 +75,9 @@ class ClarificationPolicy:
         "真实转账",
     }
 
-    # 主要入口：在创建运行状态前，决定继续、追问或拒绝。
+    # 主要入口：在创建运行状态前，决定继续、请求补充信息或拒绝。
     def evaluate_task(self, task: str) -> ClarificationDecision:
-        """返回任务的澄清决策，不产生副作用。"""
+        """返回任务的澄清决策，不修改外部状态。"""
 
         text = (task or "").strip()
         normalized_task = text.lower()
@@ -105,7 +105,7 @@ class ClarificationPolicy:
 
         missing_fields: list[str] = []
 
-        # 对“看这个项目”这类仓库导览任务，Agent 可以先检查项目，再判断是否确实需要追问。
+        # 对“看这个项目”这类仓库导览任务，Agent 可先检查项目，再判断是否需要补充信息。
 
         if has_vague_reference and not has_target:
             missing_fields.append("referenced_object")

@@ -67,7 +67,9 @@ class RunBenchmarkCampaign:
     ) -> BenchmarkCampaignResult:
         """已完成槽位幂等跳过；失败槽位在下一次相同配置恢复时重试。"""
 
-        # region 准备区（首遍可折叠）：目录、源码、实验身份与可恢复状态
+        # region 准备区（实现细节）：目录、源码、实验身份与可恢复状态
+        # configuration_digest 同时绑定实验配置和源码身份；恢复只接受同一 digest，
+        # 防止把不同代码或不同 Case 集的槽位拼进一个 Campaign 结论。
         campaign_dir = self._artifacts.campaign_dir(
             request.output_root,
             request.campaign_id,
@@ -94,6 +96,8 @@ class RunBenchmarkCampaign:
         # endregion 准备区结束
 
         # region 2. 交错实验：每个 run slot 都是可 checkpoint、可恢复的最小单元
+        # record 已按预注册 ordinal 固定顺序；完成槽位幂等跳过，失败槽位保留原 ordinal，
+        # 每次状态变化都立即 save_state，因此中断不会要求整批重跑。
         for campaign_run_slot in sorted(
             campaign_state.records,
             key=lambda campaign_run_slot: campaign_run_slot.ordinal,
@@ -102,6 +106,7 @@ class RunBenchmarkCampaign:
                 continue
             retry_same_slot = True
             while retry_same_slot:
+                # retry_same_slot 只由明确的基础设施重试分类返回，任务失败不会在同槽位刷到成功。
                 self._mark_run_slot_started(
                     campaign_run_slot,
                     campaign_state,
@@ -165,7 +170,7 @@ class RunBenchmarkCampaign:
         )
         # endregion 3. 聚合发布结束
 
-    # region 单槽位与恢复细节（首次阅读可折叠）
+    # region 单槽位与恢复细节
     def _load_or_create_state(
         self,
         request: BenchmarkCampaignRequest,

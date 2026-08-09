@@ -40,7 +40,7 @@ class RuntimeConfig:
     execution_environment: Any | None = None
     model_capabilities: ModelCapabilities | None = None
 
-    # Checkpoint、人工控制和副作用幂等状态的持久化位置。
+    # Checkpoint、人工控制和状态变更操作幂等状态的持久化位置。
     task_state_root: str = ".agent_forge/task_state"
     resume_state: str = ""
     approval_root: str = ".agent_forge/approvals"

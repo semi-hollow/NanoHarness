@@ -75,8 +75,8 @@ class EnvironmentProbe:
 class ExecutionEnvironment(EnvironmentPort):
     """准备 local/worktree/OCI 环境，并作为命令执行的唯一基础设施入口。
 
-    第一遍只读 ``prepare`` 和 ``execute_command``：前者固定运行边界，后者在该边界内
-    执行已经由上层 Tool 与 Hook 授权的 argv。其余方法主要负责检查和留证。
+    ``prepare`` 固定运行边界，``execute_command`` 在该边界内执行已经由上层 Tool
+    与 Hook 授权的 argv；其余方法负责检查和留证。
     """
 
     def __init__(

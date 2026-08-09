@@ -87,9 +87,9 @@ class StepController:
     ) -> FailureSignal | None:
         """识别连续相同 ToolCall；不同动作出现时立即重置计数。
 
-        这里检查“模型是否仍在推进”，不是 Operation Ledger 的“副作用是否已执行”。
+        这里检查“模型是否仍在推进”，不是操作状态表的“状态变更操作是否已执行”。
         首次调用和一次同动作重试被允许；第三次连续给出相同工具和规范化参数时，返回
-        ``REPEATED_ACTION``。调用方再按副作用风险决定跳过本次调用还是停止 run。
+        ``REPEATED_ACTION``。调用方再按操作是否可能改变持久状态，决定跳过本次调用还是停止 run。
         """
 
         current_tool_call_key = self._stable_tool_call_key(tool_call)

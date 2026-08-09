@@ -1,4 +1,4 @@
-"""Executable dependency rules from docs/ARCHITECTURE.md."""
+"""Executable dependency rules from docs/项目架构与代码导航.md."""
 
 from __future__ import annotations
 

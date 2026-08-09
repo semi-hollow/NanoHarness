@@ -1,4 +1,4 @@
-"""工具执行前的 hook policy 与人工审批门禁。"""
+"""工具执行许可：汇总生命周期处理器决策与人工授权事实。"""
 
 from __future__ import annotations
 
@@ -26,14 +26,18 @@ from agent_forge.runtime.ports import ApprovalRepository, EventSink, HookPort
 
 @dataclass(frozen=True, kw_only=True)
 class GateResult:
-    """工具通过策略链后的下一步。"""
+    """执行授权门的结论：是否允许调用方进入 ToolGateway。"""
 
     proceed: bool
     stop: StopRequest | None = None
 
 
 class ToolAuthorizationGate:
-    """统一执行 ALLOW/DENY/ASK 策略，并维护审批状态。"""
+    """汇总 ALLOW/DENY/ASK 与人工授权事实，决定是否进入 ToolGateway。
+
+    ``ApprovalRepository`` 保存人工授权请求与结论；本类不把批准本身当成工具执行，
+    只根据处理器决策、授权事实和目标指纹返回 ``GateResult``。
+    """
 
     def __init__(
         self,
@@ -51,7 +55,7 @@ class ToolAuthorizationGate:
         self.operation_tracker = operation_tracker
         self.tool_feedback = tool_feedback
 
-    # 主要入口：合并 Hook、审批和指纹检查，决定工具能否执行。
+    # 主要入口：汇总 before_tool 处理器、人工授权事实和指纹，决定能否进入 Gateway。
     def authorize(
         self,
         session: AgentRunSession,
@@ -59,15 +63,15 @@ class ToolAuthorizationGate:
         intent: OperationIntent,
         step: int,
     ) -> GateResult:
-        """在真实副作用之前合并 Hook、审批和目标指纹决定。
+        """在 ToolGateway 前汇总生命周期处理器、授权事实和目标指纹。
 
         规范上游是 ``ToolExecutionPipeline``；ALLOW 后的下一 owner 才是
-        ``ToolGateway``，ASK/DENY 则返回可持久化的治理结果。每次 hook、permission
-        与 approval 决定都进入 trace。系统不变量是模型不能绕过门禁，历史批准也
+        ``ToolGateway``，ASK/DENY 则返回可持久化的治理结果。具体 ``before_tool``
+        处理器的决定和人工授权事实都进入 trace。系统不变量是模型不能绕过授权门，历史批准也
         不能授权已发生指纹漂移的目标。
         """
 
-        # region 1. Hook 决策：把工具意图映射到统一治理上下文
+        # region 1. before_tool 时机：具体处理器读取统一上下文并返回决策
         hook_context = self._hook_context(session, tool_call, intent, step)
         hook_result = self.hooks.before_tool(hook_context)
         self._record_authorization_decision(
@@ -76,9 +80,11 @@ class ToolAuthorizationGate:
             hook_result=hook_result,
             step=step,
         )
-        # endregion 1. Hook 决策结束
+        # endregion 1. before_tool 处理结束
 
         # region 2. 决策分流：DENY 回填失败，ASK 进入审批，ALLOW 直接放行
+        # HookResult 决定当前分支：DENY 形成失败 Observation，ASK 查询或创建人工授权事实，
+        # ALLOW 只表示 Gate 可放行；真实工具仍由 ToolExecutionPipeline 在门后执行。
         if hook_result.decision == HookDecisionType.DENY:
             return self._deny(session, tool_call, hook_result.reason, step)
         if hook_result.decision == HookDecisionType.ASK:
@@ -100,7 +106,7 @@ class ToolAuthorizationGate:
         observation: Observation,
         step: int,
     ) -> Observation:
-        """在同一个授权上下文中执行工具后置 Hook 并返回最终 Observation。"""
+        """在 ``after_tool`` 时机调用结果处理器并返回最终 Observation。"""
 
         return self.hooks.after_tool(
             self._hook_context(session, tool_call, intent, step),
@@ -155,9 +161,11 @@ class ToolAuthorizationGate:
         reason: str,
         step: int,
     ) -> GateResult:
-        """创建或读取审批，并拒绝复用目标已变化的批准。"""
+        """创建或读取人工授权事实，并拒绝复用目标已变化的批准。"""
 
-        # region 1. 建立审批请求：副作用先进入 planned/pending，进程退出后仍可恢复
+        # region 1. 建立审批请求：操作意图先进入 planned/pending，进程退出后仍可恢复
+        # operation_key 同时索引操作状态表与 ApprovalStore，因此 resume 能定位原操作，
+        # 而不会仅凭工具名重新创建一次可能重复的写入。
         self.operation_tracker.ensure_planned(intent, step=step)
         approval = self.approvals.get(intent.operation_key)
         if approval is None and not self.config.auto_approve_writes:
@@ -179,7 +187,10 @@ class ToolAuthorizationGate:
                 self.operation_tracker.record_pending(intent, step=step)
         # endregion 1. 建立审批请求结束
 
-        # region 2. 保存等待位置，并计算当前审批是否允许继续
+        # region 2. 保存等待位置，并计算当前授权事实是否允许继续
+        # 先落 WAITING_APPROVAL checkpoint，再读取人工授权事实或自动放行配置；即使进程在判断后
+        # 立即退出，恢复端仍能定位这项待审批、尚未执行的操作意图。“可能产生持久状态
+        # 变化”只是执行前的风险分类，不表示变化已经发生。
         session.lifecycle.update_checkpoint(
             TaskCheckpointUpdate(
                 status=TaskRunStatus.WAITING_APPROVAL,
@@ -196,6 +207,8 @@ class ToolAuthorizationGate:
         # endregion 2. 保存等待位置结束
 
         # region 3. TOCTOU 防护：批准后的目标指纹变化会使旧批准失效
+        # Approval 批准的是“当时那份目标状态上的这次操作”。当前指纹漂移说明审批对象
+        # 已变化，旧批准必须标记 stale 并重新申请，不能继续执行。
         if (
             intent.side_effect
             and approval is not None
@@ -235,7 +248,10 @@ class ToolAuthorizationGate:
             )
         # endregion 3. TOCTOU 防护结束
 
-        # region 4. 审批收口：记录决定，并返回等待、拒绝或继续三种结果
+        # region 4. 授权收口：记录事实，并返回等待、拒绝或继续三种结果
+        # ApprovalStore 保存人工授权事实；OperationTracker 保存获批后的操作状态，Trace 保存证据。
+        # Gate 再把事实映射为三种控制结果：pending -> 暂停，rejected -> 失败 Observation，
+        # approved -> 恢复 RUNNING 并允许调用方进入 ToolGateway。
         if intent.side_effect and approved:
             self.operation_tracker.record_approved(intent, step=step)
         approval_trace = (
@@ -289,7 +305,7 @@ class ToolAuthorizationGate:
             TaskCheckpointUpdate(status=TaskRunStatus.RUNNING, current_step=step)
         )
         return GateResult(proceed=True)
-        # endregion 4. 审批收口结束
+        # endregion 4. 授权收口结束
 
     def _rejected(
         self,
@@ -322,7 +338,7 @@ class ToolAuthorizationGate:
         )
         return GateResult(proceed=False)
 
-    # region 证据记录器（首次阅读可折叠）
+    # region 证据记录器
     def _record_authorization_decision(
         self,
         *,
@@ -331,7 +347,7 @@ class ToolAuthorizationGate:
         hook_result: HookResult,
         step: int,
     ) -> None:
-        """分别保留 Hook 原始决定和 Runtime 最终权限判断。"""
+        """分别保留具体生命周期处理器决定和 Runtime 执行许可判断。"""
 
         self.trace.add(
             step,
@@ -359,7 +375,7 @@ class ToolAuthorizationGate:
         approval_request: dict,
         current_fingerprint: dict | None = None,
     ) -> None:
-        """记录审批状态；只在 stale 时附加当前目标指纹。"""
+        """记录人工授权事实或自动放行证据；只在 stale 时附加当前目标指纹。"""
 
         evidence: dict[str, Any] = {
             "observation": observation,

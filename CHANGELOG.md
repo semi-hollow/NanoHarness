@@ -6,10 +6,10 @@
   runtime override 合并规则，并记录来源、优先级、哈希、字节预算和截断事实。
 - 将 Skill 选择拆为 metadata discovery 与正文 activation；模型只接收已激活 Skill，
   trace 保留版本、来源、选择原因和正文规模，不执行任意 Skill 脚本。
-- 增加可组合 Lifecycle Hook API，覆盖 model/tool/checkpoint/stop；默认安全 Hook 不会被
-  附加 Hook 替换，前置与完成门禁异常 fail closed，后置异常隔离，最终脱敏固定最后执行。
+- 增加 Lifecycle Hook API，在 model/tool/checkpoint/stop 固定时机调用处理器；内置环境、
+  权限和脱敏处理器保持稳定顺序，决策型处理器异常 fail closed，结果处理异常隔离。
 - 增加嵌入式 `RunController` 的协作式 pause、cancel、steer；控制信号只在模型/工具安全
-  边界生效，checkpoint 保留 continuation，已执行副作用不自动回滚。
+  边界生效，checkpoint 保留 continuation，已完成的持久状态变更不自动回滚。
 - 增加脱敏有序 `RuntimeEvent` 流和可选 OpenTelemetry 双写 Adapter；model/tool span 由
   真实 started/completed 事件配对，内部 JSON evidence 仍是权威事实源。
 - 增加 `ModelCapabilities` 协商：模型 context window 限制输入预算，非并行模型每 turn
@@ -35,7 +35,7 @@
 
 ## 版本 0.6.0 - 2026-07-12
 
-- 用原子 pending/responded/cancelled request、同 turn 副作用 barrier、`waiting_human`
+- 用原子 pending/responded/cancelled request、同 turn 持久状态变更屏障、`waiting_human`
   checkpoint、当时的 `forge respond` 加 resume，替换模拟 `ask_human` 行为；该旧入口现已并入 `forge resume`。
 - 增加基于真实隔离 AgentLoop worker 的 validated live fanout，包括 declared/actual
   write-scope gate、确定性 binary patch integration，以及能看见 candidate diff 且带
@@ -78,5 +78,5 @@
 ## 更早版本
 
 早期版本建立了标准 AgentLoop、context construction、governed tools、human approval、
-operation ledger、checkpoint resume、SWE-bench-shaped run、failure taxonomy 和 direct
+操作状态表、checkpoint resume、SWE-bench-shaped run、failure taxonomy 和 direct
 baseline comparison 和 artifact-based multi-agent coordination。

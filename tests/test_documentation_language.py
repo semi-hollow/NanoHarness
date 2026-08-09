@@ -15,40 +15,43 @@ CHINESE_FIRST_DOCS = (
     "FORGE.md",
     "SECURITY.md",
     "agent_forge/README.md",
-    "docs/CAPABILITY_REALITY_MATRIX.md",
-    "docs/FEATURE_EVOLUTION.md",
-    "docs/ROADMAP.md",
-    "docs/case-studies/astropy-12907.md",
-    "docs/evaluation/failure-taxonomy.md",
-    "docs/evaluation/regression-set.md",
+    "docs/项目架构与代码导航.md",
+    "docs/能力实现状态与使用边界.md",
+    "docs/运行生命周期与异常处理机制.md",
+    "docs/功能演进与设计取舍.md",
+    "docs/后续能力规划.md",
+    "docs/adr/0001-按能力分包与六边形架构.md",
+    "docs/architecture/代码结构演进与可读性治理.md",
+    "docs/architecture/运行时工具治理与人工恢复.md",
+    "docs/case-studies/astropy-12907-真实案例复盘.md",
+    "docs/evaluation/典型故障与系统调优记录.md",
+    "docs/evaluation/评测结果驱动的系统调优.md",
+    "docs/evaluation/失败分类规则与诊断流程.md",
+    "docs/evaluation/回归测试与评测范围.md",
     "examples/debug_lab/README.md",
 )
 
 PUBLIC_DOC_LINE_BUDGETS = {
     "README.md": 250,
     "CONTRIBUTING.md": 140,
-    "docs/ARCHITECTURE.md": 420,
-    "docs/CAPABILITY_REALITY_MATRIX.md": 120,
-    "docs/FEATURE_EVOLUTION.md": 260,
-    "docs/ROADMAP.md": 120,
+    "docs/项目架构与代码导航.md": 420,
+    "docs/能力实现状态与使用边界.md": 120,
+    "docs/功能演进与设计取舍.md": 270,
+    "docs/后续能力规划.md": 120,
     "examples/debug_lab/README.md": 210,
 }
 
 CANONICAL_README_LINKS = (
-    "docs/FEATURE_EVOLUTION.md",
-    "docs/ARCHITECTURE.md",
-    "docs/CAPABILITY_REALITY_MATRIX.md",
-    "docs/evaluation/failure-driven-improvements.md",
-    "docs/evaluation/regression-set.md",
+    "docs/运行生命周期与异常处理机制.md",
+    "docs/项目架构与代码导航.md",
+    "docs/能力实现状态与使用边界.md",
+    "docs/evaluation/典型故障与系统调优记录.md",
+    "docs/evaluation/回归测试与评测范围.md",
     "examples/debug_lab/README.md",
 )
 
-STUDY_NOTES_CONTROL_PLANE = (
-    "https://github.com/semi-hollow/NanoHarness-Study-Notes"
-)
-
 PROTECTED_PUBLIC_RECORDS = {
-    "docs/evaluation/failure-driven-improvements.md": 15,
+    "docs/evaluation/典型故障与系统调优记录.md": 15,
 }
 
 REQUIRED_FAILURE_RECORD_TOPICS = (
@@ -58,7 +61,7 @@ REQUIRED_FAILURE_RECORD_TOPICS = (
     "长期记忆",
     "`ask_human`",
     "operation key",
-    "Operation Ledger",
+    "操作状态表",
     "Checkpoint",
     "Multi-Agent",
     "Failure Taxonomy",
@@ -83,10 +86,11 @@ ALLOWED_DOC_SURFACES = (
 )
 
 ALLOWED_TOP_LEVEL_DOCS = {
-    "docs/ARCHITECTURE.md",
-    "docs/CAPABILITY_REALITY_MATRIX.md",
-    "docs/FEATURE_EVOLUTION.md",
-    "docs/ROADMAP.md",
+    "docs/项目架构与代码导航.md",
+    "docs/能力实现状态与使用边界.md",
+    "docs/运行生命周期与异常处理机制.md",
+    "docs/功能演进与设计取舍.md",
+    "docs/后续能力规划.md",
 }
 
 PUBLIC_POSITIONING_FORBIDDEN = (
@@ -97,8 +101,51 @@ PUBLIC_POSITIONING_FORBIDDEN = (
     "offer" + "-readiness",
 )
 
+# 公开仓库可以提供教程和渐进式代码导航，但必须保持项目文档口径，且不能依赖未作为
+# 公开项目组成部分交付的外部资料仓库。字符串拆分可避免本测试扫描自身。
+PUBLIC_NON_PROJECT_LANGUAGE_FORBIDDEN = (
+    "NanoHarness-Study" + "-Notes",
+    "追问时" + "才展开",
+    "追问时" + "再展开",
+    "被追问时" + "应",
+    "不要整页" + "背诵",
+    "不需要先" + "背诵",
+    "技术讲解" + "主口径",
+    "唯一动态" + "学习入口",
+    "学会" + "标准",
+    "六问" + "不过",
+    "最短学习" + "路径",
+    "面向学习" + "者",
+    "复杂结算修复" + "学习场",
+    "对外怎么" + "讲",
+    "准备技术" + "追问",
+    "第一遍" + "只读",
+    "首遍" + "只读",
+    "首次阅读" + "只看",
+    "首次学习" + "可",
+    "学习主线" + "时",
+    "必须亲手" + "完成",
+    "亲手" + "练习",
+    "才算" + "掌握",
+    "复杂任务深度" + "练习",
+    "学习目标" + "：",
+    "闭卷" + "自检",
+    "90 秒架构" + "说明",
+    "可以诚实承认的" + "不足",
+)
+
 
 class DocumentationLanguageTest(unittest.TestCase):
+    def test_explanatory_document_filenames_are_chinese_first(self) -> None:
+        """面向读者的 docs 文件名必须直接说明用途，不再使用模糊英文组合词。"""
+
+        violations = [
+            path.relative_to(PROJECT_ROOT).as_posix()
+            for path in (PROJECT_ROOT / "docs").rglob("*.md")
+            if not HAN_CHARACTER.search(path.name)
+        ]
+        self.assertEqual(violations, [], "Explanatory Markdown filenames must be Chinese-first")
+
     def test_public_documents_are_chinese_first(self) -> None:
         self.maxDiff = None
         violations: list[str] = []
@@ -126,8 +173,8 @@ class DocumentationLanguageTest(unittest.TestCase):
                     violations.append(f"{relative_path}:{line_number}: English prose remains: {line}")
         self.assertEqual(violations, [], "Public documentation must be Chinese-first")
 
-    def test_public_repository_does_not_describe_itself_as_job_preparation(self) -> None:
-        """公开源码只描述产品范围和工程事实，不暴露维护者的个人准备过程。"""
+    def test_public_repository_uses_project_facing_language(self) -> None:
+        """公开源码只描述项目范围、工程事实、操作方法和验证标准。"""
 
         result = subprocess.run(
             ["git", "ls-files", "--cached", "--others", "--exclude-standard"],
@@ -153,10 +200,15 @@ class DocumentationLanguageTest(unittest.TestCase):
             if path.suffix.lower() not in text_suffixes or not path.is_file():
                 continue
             content = path.read_text(encoding="utf-8").casefold()
-            for forbidden in PUBLIC_POSITIONING_FORBIDDEN:
+            for forbidden in (
+                *PUBLIC_POSITIONING_FORBIDDEN,
+                *PUBLIC_NON_PROJECT_LANGUAGE_FORBIDDEN,
+            ):
                 if forbidden.casefold() in content:
-                    violations.append(f"{relative_path}: contains private positioning: {forbidden}")
-        self.assertEqual(violations, [], "Public repository positioning has drifted")
+                    violations.append(
+                        f"{relative_path}: contains non-project positioning: {forbidden}"
+                    )
+        self.assertEqual(violations, [], "Public repository language has drifted")
 
     def test_public_document_control_plane_stays_focused(self) -> None:
         violations: list[str] = []
@@ -173,11 +225,6 @@ class DocumentationLanguageTest(unittest.TestCase):
         for relative_path in CANONICAL_README_LINKS:
             if relative_path not in readme:
                 violations.append(f"README does not link canonical document: {relative_path}")
-        if STUDY_NOTES_CONTROL_PLANE not in readme or "学习顺序只认" not in readme:
-            violations.append(
-                "README must defer learning order to the Study Notes control plane"
-            )
-
         lab_path = PROJECT_ROOT / "examples/debug_lab/README.md"
         lab = lab_path.read_text(encoding="utf-8")
         required_lab_contracts = (
@@ -190,7 +237,7 @@ class DocumentationLanguageTest(unittest.TestCase):
             "自然修复",
             "上下文压力",
             "人工控制与恢复",
-            "六问不过，就不算学会",
+            "以上结论必须由本次 Trace 支撑",
         )
         for contract in required_lab_contracts:
             if contract not in lab:

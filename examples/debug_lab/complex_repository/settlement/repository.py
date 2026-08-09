@@ -1,4 +1,4 @@
-"""练习场景使用的内存仓储；接口形状接近真实 Repository。"""
+"""Debug Lab 场景使用的内存仓储；接口形状接近真实 Repository。"""
 
 from __future__ import annotations
 

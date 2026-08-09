@@ -62,7 +62,7 @@ class RunPreparation:
         删除/内联影响：会失去 turn 前 durable-state 屏障并扩大 ``AgentLoop``。
         """
 
-        # region 准备区（首遍可折叠）：恢复摘要与首个 durable checkpoint
+        # region 准备区（实现细节）：恢复摘要与首个 durable checkpoint
         self.trace.set_run_context(task=task)
         restored_state_summary = self._load_resume_summary(agent_name)
         initial_checkpoint = self.task_states.start(
@@ -128,7 +128,7 @@ class RunPreparation:
         self._initialize_memory_context(session)
         return None
 
-    # region 一次性准备规则（首次阅读可折叠）
+    # region 一次性准备规则
     def _apply_input_policy(self, session: AgentRunSession) -> StopRequest | None:
         guardrail_decision = input_guardrail(session.task)
         self._record_input_guardrail(session, guardrail_decision)
@@ -184,6 +184,8 @@ class RunPreparation:
         return None
 
     def _activate_skills(self, session: AgentRunSession) -> None:
+        """固定本 Run 的 Skill 快照，并把其工具声明交给后续 Router。"""
+
         session.active_skills = self._select_active_skills(session.task)
         session.skill_tool_names = {
             tool_name
@@ -252,7 +254,7 @@ class RunPreparation:
             )
         )
 
-    # region 证据记录器（首次阅读可折叠）
+    # region 证据记录器
     def _record_model_capabilities(self, agent_name: str) -> None:
         """记录本次运行实际采用的模型能力边界。"""
 
@@ -287,7 +289,7 @@ class RunPreparation:
         session: AgentRunSession,
         decision: ClarificationDecision,
     ) -> None:
-        """记录继续、追问或拒绝及其判断依据。"""
+        """记录继续、请求补充信息或拒绝及其判断依据。"""
 
         self.trace.add(
             0,
@@ -317,7 +319,7 @@ class RunPreparation:
         )
 
     def _record_skill_selection(self, session: AgentRunSession) -> None:
-        """记录 Skill 选择结果和它扩展的工具集合。"""
+        """记录三层披露结果；资源只记身份与规模，不复制正文。"""
 
         self.trace.add(
             0,
@@ -327,15 +329,33 @@ class RunPreparation:
                 {
                     "name": skill.name,
                     "version": skill.version,
+                    "required_tools": skill.required_tool_names,
+                    "optional_tools": skill.optional_tool_names,
                     "tools": skill.tool_names,
                     "entrypoint": skill.entrypoint,
-                    "source": getattr(skill, "source", skill.entrypoint),
+                    "source": skill.source,
+                    "content_sha256": skill.content_sha256,
+                    "selection_reason": skill.selection_reason,
+                    "resources": [
+                        {
+                            "path": resource.path,
+                            "description": resource.description,
+                            "sha256": resource.sha256,
+                            "original_chars": resource.original_chars,
+                            "disclosed_chars": resource.disclosed_chars,
+                            "truncated": resource.truncated,
+                        }
+                        for resource in skill.loaded_resources
+                    ],
                     "prompt_chars": len(skill.prompt_card()),
                 }
                 for skill in session.active_skills
             ],
             skill_mode=self.config.skill_mode,
-            disclosure="metadata discovery -> selected full prompt card",
+            disclosure=(
+                "catalog metadata -> selected SKILL.md instructions -> "
+                "task-matched bounded reference"
+            ),
         )
 
     def _record_memory_recall(

@@ -1,13 +1,13 @@
 """模型工具请求的确定性治理管线。
 
-折叠阅读顺序只有两个方法：
+两个核心方法构成执行主链：
 
 1. ``execute_calls``：一次模型响应的公开入口，决定本轮真正处理哪些调用。
 2. ``_execute_call``：单个调用的主干，按治理顺序把请求送到工具或暂停点。
 
 其余私有方法都是这条主干的叶子规则，不会被外围直接调用。完整链路是：
-``选择调用 -> 路由检查 -> HITL 屏障 -> Ledger 事实 -> 连续重复策略 -> 授权 -> 执行 -> 证据``。
-审批、账本和反馈格式分别由 ``tool_authorization.py``、
+``选择调用 -> 路由检查 -> HITL 屏障 -> 操作状态 -> 连续重复策略 -> 授权 -> 执行 -> 证据``。
+执行授权、操作状态和反馈格式分别由 ``tool_authorization.py``、
 ``operation_tracker.py`` 和 ``tool_feedback.py`` 拥有。
 """
 
@@ -70,14 +70,14 @@ class ToolExecutionPipeline:
     """把模型工具请求转换为受治理、可恢复的 Observation。
 
     本类只有 ``execute_calls`` 是外围入口。下划线方法是按执行阶段命名的内部步骤，
-    每个步骤只拥有一种决策；它们不是一组需要分别学习的公共 API。当前所有私有方法
+    每个步骤只拥有一种决策；它们不构成独立的公共 API。当前所有私有方法
     都由本类主链调用，没有预留但未接线的方法。
 
     折叠后按下面的纵向顺序读即可：
 
     ``execute_calls`` -> ``_select_calls_for_turn`` -> ``_execute_call``
 
-    ``_execute_call`` 再按条件进入 Ledger / repeat / authorization / run-tool 分支；
+    ``_execute_call`` 再按条件进入操作状态、重复策略、执行授权或真实执行分支；
     ``_run_tool`` 最后调用 evidence 叶子。
     """
 
@@ -126,16 +126,18 @@ class ToolExecutionPipeline:
     ) -> StopRequest | None:
         """治理并执行一次模型响应中的 ToolCall，随后决定继续或停止。
 
-        流程位置：模型意图进入真实工具与副作用之前的治理管线。
+        流程位置：模型意图进入真实工具、可能改变外部状态之前的治理管线。
         规范上游：``AgentLoop`` 的模型响应分支。
         下一 owner：``OperationTracker``、``ToolAuthorizationGate``、``ToolGateway``、
         ``RunLifecycle``。
         状态与证据：授权、operation、执行、Observation 与 citation 事件。
-        系统不变量：副作用先登记并通过确定性门；已执行操作只能重放证据。
-        删除/内联影响：会失去统一副作用治理与幂等重放边界。
+        系统不变量：状态变更操作先登记并通过确定性门；已执行操作只能回填既有结果。
+        删除/内联影响：会失去统一状态变更治理与防重复执行边界。
         """
 
         # region 1. 批次整形：限制调用数，并把模型 ToolCall 写入会话协议
+        # 先截断本轮调用并建立 assistant ToolCall 消息；后续每个已保留调用必须产生
+        # tool Observation 或 StopRequest，保证 assistant/tool 协议不悬空。
         selected_tool_calls = self._select_calls_for_turn(session, response, step)
         session.messages.append(
             Message(
@@ -151,6 +153,8 @@ class ToolExecutionPipeline:
         # endregion 1. 批次整形结束
 
         # region 2. 顺序执行：每个 ToolCall 都重新经过控制、安全与幂等边界
+        # 同一模型响应可以包含多个 ToolCall，但这里故意顺序执行：前一个状态变更操作可能改变
+        # 后一个调用的目标指纹，且操作员必须能在每项此类操作启动前 pause/cancel。
         for tool_call in selected_tool_calls:
             operator_control = self.run_control_handler.consume_pending_signals(
                 session,
@@ -173,7 +177,7 @@ class ToolExecutionPipeline:
         return None
         # endregion 3. Turn 续跑结束
 
-    # 核心主干：一个 ToolCall 从 guardrail 走到人工屏障、幂等、授权或执行。
+    # 核心主干：一个 ToolCall 从入口控制走到人工屏障、防重复、授权或执行。
     def _execute_call(
         self,
         session: AgentRunSession,
@@ -182,9 +186,11 @@ class ToolExecutionPipeline:
         step: int,
         allowed_tool_names: set[str],
     ) -> ToolCallOutcome:
-        """核心主干：路由 -> 协议 -> Ledger -> 重复策略 -> 授权 -> 执行。"""
+        """核心主干：路由 -> 协议 -> 操作状态 -> 重复策略 -> 授权 -> 执行。"""
 
         # region 1. 调用意图预检：唯一计数器观察连续相同调用，并确认本轮可见性
+        # 重复检测回答“模型是否原地打转”；路由复核回答“本轮是否向模型暴露该工具”。
+        # 两者都在持久状态变化风险分类和授权前完成，但路由失败优先返回明确 Observation。
         repeat_limit_signal = (
             session.controller.observe_tool_intent_for_repeat_limit(tool_call)
         )
@@ -213,10 +219,12 @@ class ToolExecutionPipeline:
             return self._handle_human_question(session, tool_call, step)
         # endregion 2. 协议分支结束
 
-        # region 3. Operation Ledger：副作用先复用确定事实，再考虑无进展重复
-        # 这里是 Operation Ledger 的唯一入口。ToolCall 只是模型给出的原始工具名和参数；
-        # 在查询旧记录、申请权限或真正执行前，必须先得到三者共用的副作用分类、
-        # operation key 和执行前目标指纹。无需 durable side-effect Ledger 的调用也会归一化，
+        # tool_guardrail 只形成语义检查证据；真正的阻断条件是上面的路由复核结果。
+
+        # region 3. 操作状态表：状态变更操作先复用确定结果，再考虑无进展重复
+        # 这里是 OperationLedgerRepository（操作状态表）的唯一入口。ToolCall 只是模型给出的原始工具名和参数；
+        # 在查询旧记录、申请权限或真正执行前，必须先得到三者共用的状态变更风险分类、
+        # operation key 和执行前目标指纹。无需操作状态表治理的调用也会归一化，
         # 但不会创建 operation record。
         operation_intent = self.operation_tracker.build_operation_intent(tool_call)
         if operation_intent.side_effect:
@@ -237,9 +245,9 @@ class ToolExecutionPipeline:
                     status=ToolCallStatus.SKIPPED,
                     reason="replayed_executed_operation_fact",
                 )
-        # endregion 3. Operation Ledger结束
+        # endregion 3. 操作状态表结束
 
-        # region 4. 连续重复策略：无 durable 副作用的调用跳过，副作用调用停止
+        # region 4. 连续重复策略：无持久状态变化的调用跳过，可能改变持久状态的调用停止
         if repeat_limit_signal is not None:
             return self._handle_exceeded_repeat_limit(
                 session=session,
@@ -251,6 +259,8 @@ class ToolExecutionPipeline:
         # endregion 4. 连续重复策略结束
 
         # region 5. 权限门与真实执行：只有 proceed 才能到达 ToolGateway
+        # authorize 只返回治理结论，不执行工具；唯一真实执行入口仍是 _run_tool，
+        # 从而保证 DENY、WAITING_APPROVAL 和 stale approval 都无法触达 ToolGateway。
         authorization_decision = self.authorization_gate.authorize(
             session,
             tool_call,
@@ -271,7 +281,7 @@ class ToolExecutionPipeline:
         return self._run_tool(session, tool_call, operation_intent, step)
         # endregion 5. 权限门与真实执行结束
 
-    # region 分支与证据叶子（首次阅读可折叠）
+    # region 分支与证据叶子
     # 批次整形：限制本 turn 调用数；ask_human 出现时建立同 turn 屏障。
     def _select_calls_for_turn(
         self,
@@ -308,7 +318,7 @@ class ToolExecutionPipeline:
             )
         return [selected_human_call]
 
-    # 重复上限分支：Ledger 无可复用事实时，按副作用风险决定“跳过”还是“停止”。
+    # 重复上限分支：操作状态表无可复用结果时，按是否可能改变持久状态决定“跳过”还是“停止”。
     def _handle_exceeded_repeat_limit(
         self,
         *,
@@ -394,7 +404,7 @@ class ToolExecutionPipeline:
         repeat_limit_signal: FailureSignal,
         step: int,
     ) -> ToolCallOutcome:
-        """副作用连续请求三次且 Ledger 无确定结果时，停止而不执行第三次。"""
+        """状态变更操作连续请求三次且操作状态表无确定结果时，停止而不执行第三次。"""
 
         self._record_runtime_error(
             session=session,
@@ -472,6 +482,8 @@ class ToolExecutionPipeline:
         """阶段 2：把 ask_human 转成持久化回答或 waiting_human 暂停。"""
 
         # region 1. 参数校验：坏问题作为 Observation 回填，不建立无效人工请求
+        # ask_human 也是模型工具协议的一部分；参数错误应作为失败 Observation 反馈给模型，
+        # 不能创建一个无法回答的持久化请求并让整个 Run 永久等待。
         question_arguments = tool_call.arguments or {}
         question_text = question_arguments.get("question")
         choice_values = question_arguments.get("choices", [])
@@ -513,6 +525,8 @@ class ToolExecutionPipeline:
         # endregion 1. 参数校验结束
 
         # region 2. Durable barrier：已有回答直接返回；否则生成 waiting_human 停止请求
+        # request_human_input 以稳定 request_id 查找同一问题：已有回答则继续，
+        # 尚未回答则返回 StopRequest，由 AgentLoop 统一落成 WAITING_HUMAN checkpoint。
         human_input_resolution = session.lifecycle.request_human_input(
             HumanInputQuestion(
                 agent_name=session.agent_name,
@@ -562,9 +576,11 @@ class ToolExecutionPipeline:
         operation_intent: OperationIntent,
         step: int,
     ) -> ToolCallOutcome:
-        """阶段 5：执行已获授权工具，再提交账本、证据和 checkpoint。"""
+        """阶段 5：执行已获授权工具，再提交操作状态、证据和 checkpoint。"""
 
-        # region 1. 最后控制边界：pause/cancel 阻止副作用，steer 留到模型边界
+        # region 1. 最后控制边界：pause/cancel 阻止状态变更操作启动，steer 留到模型边界
+        # 这是 ToolGateway 前最后一个 safe point。这里只消费终止类信号；steer 不能插在
+        # assistant ToolCall 与 tool Observation 中间，必须留到下一模型边界。
         operator_control = self.run_control_handler.consume_pending_signals(
             session,
             step,
@@ -578,8 +594,8 @@ class ToolExecutionPipeline:
             )
         # endregion 1. 最后控制边界结束
 
-        # region 2. 幂等状态迁移：副作用先进入 approved/executing，再调用工具
-        # 手动审批路径此前已经创建 Ledger；自动放行的副作用也必须先落一条 approved
+        # region 2. 幂等状态迁移：状态变更操作先进入 approved/executing，再调用工具
+        # 手动审批路径此前已经创建操作状态；自动放行的状态变更操作也必须先落一条 approved
         # 记录，确保真实工具返回后 record_execution_result 一定有可迁移的持久化对象。
         if operation_intent.side_effect and not self.operation_tracker.has_record(
             operation_intent
@@ -593,7 +609,9 @@ class ToolExecutionPipeline:
             self.operation_tracker.record_executing(operation_intent, step=step)
         # endregion 2. 幂等状态迁移结束
 
-        # region 3. 工具调用与证据提交：执行、后置 Hook、账本、Observation
+        # region 3. 工具调用与证据提交：执行、after_tool 处理、操作状态、Observation
+        # 执行顺序固定为：Gateway 返回原始 Observation -> after_tool 时机的具体处理器规范化/脱敏
+        # -> 操作状态表提交执行结果 -> WorkingMemory/Evidence/Checkpoint 投影同一最终事实。
         self._record_tool_execution_started(session, step, tool_call)
         tool_observation = self.tool_gateway.execute(
             tool_call.name,
@@ -607,6 +625,7 @@ class ToolExecutionPipeline:
             step,
         )
         if operation_intent.side_effect:
+            # 操作状态表记录工具执行后的最终 Observation，不能在 Gateway 调用前抢先写 executed。
             self.operation_tracker.record_execution_result(
                 session,
                 tool_call,
@@ -697,7 +716,7 @@ class ToolExecutionPipeline:
         )
         # endregion 4. Turn 收口结束
 
-    # region 证据记录器（首次阅读可折叠）
+    # region 证据记录器
     def _record_tool_call_budget(
         self,
         *,

@@ -65,6 +65,8 @@ class LongTermMemoryService(LongTermMemoryRecallPort):
         # endregion 2. 定位同作用域、同 key 的已有记忆结束
 
         # region 3. 更新原记录，或创建第一版记录
+        # 同 key 更新保留 memory_id，便于外部引用稳定；新 key 才创建新 ID。
+        # 两条路径都先通过领域 validate，再交给 Repository 原子持久化。
         now = time.time()
         if existing_record is not None:
             existing_record.key = normalized_key
@@ -126,6 +128,8 @@ class LongTermMemoryService(LongTermMemoryRecallPort):
         # endregion 1. 校验作用域并加载用户级、项目级记录结束
 
         # region 2. 过滤当前项目可见记录并稳定排序
+        # list 是管理视图，不做同 key 覆盖；用户需要同时看见全局默认值和项目值，
+        # 真正注入 Runtime 时才由 recall 执行项目级覆盖规则。
         visible_records = [
             memory_record
             for memory_record in stored_memories

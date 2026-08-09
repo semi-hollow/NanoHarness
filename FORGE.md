@@ -3,7 +3,7 @@
 ## 目标顺序
 
 NanoHarness 是面向真实代码仓库的可治理软件工程智能体与评测工作台。
-决策顺序固定为：运行语义正确 > 主链唯一 > 状态、副作用与 Evidence 可审计 >
+决策顺序固定为：运行语义正确 > 主链唯一 > 状态变更与 Evidence 可审计 >
 代码精简 > 操作与审查简单 > 扩展性 > 功能数量。
 
 新增或保留抽象必须能说明真实 Runtime 问题、运行或评测收益、Evidence 和维护成本；
@@ -35,15 +35,18 @@ NanoHarness 是面向真实代码仓库的可治理软件工程智能体与评�
   或没有收集到测试，不得标记 `local_verified`。
 - Workbench 是只读 Evidence Viewer，不拥有执行、checkpoint、permission 或状态推断。
 
-## 理解预算与文档 owner
+## 核心阅读范围与文档 owner
 
-- 第一遍 Runtime Core 固定为 `docs/ARCHITECTURE.md` 中的 12 个文件。
-- Evaluation 是第二条学习线，只掌握执行顺序、Scorecard、Ablation 和 Failure Taxonomy；
-  JSON/HTML、Docker、Worktree 清理和官方报告兼容细节退出首轮阅读。
-- `docs/ARCHITECTURE.md` 是唯一生产架构契约；Facade Catalog 是唯一入口总表；
-  学习顺序、闭卷题和演示脚本由 NanoHarness-Study-Notes 持有。
+- Runtime 核心阅读范围限定为 `Harness.run`、`AgentLoop.run`、`TurnPreparation.prepare_turn`、
+  `ToolExecutionPipeline.execute_calls` 和 `RunLifecycle.finalize_run` 五个入口；工具调用实现按
+  “入口控制 -> 执行决策 -> 受限执行 -> 结果与恢复”四层定位。
+- Evaluation 核心范围包括执行顺序、Scorecard 和 Failure Taxonomy；JSON/HTML、
+  Docker、Worktree 清理和官方报告兼容属于按需查阅的适配器细节。
+- `docs/项目架构与代码导航.md` 拥有架构和代码契约；
+  `docs/运行生命周期与异常处理机制.md` 拥有四层机制语义；`agent_forge/README.md` 只提供 package 代码地图。
+- 个人笔记、问答清单和阶段性计划不属于本公开仓库的架构契约。
 - 不新增平行治理文档、重构总结或第二套注释标签。关键 owner 使用现有 Code Compass
-  说明上游、下游、状态、副作用、Evidence 和删除影响。
+  说明上游、下游、状态变更、Evidence 和删除影响。
 
 ## 编辑与验证
 

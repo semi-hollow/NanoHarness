@@ -1,7 +1,7 @@
 """Operator Console 与 Harness 之间唯一的应用层桥梁。
 
-首次阅读只看 ``start``、``answer_and_resume``、``decide_and_resume`` 和
-``resume``。路径查找、pending request 选择等方法都是展示层准备工作。
+核心入口是 ``start``、``answer_and_resume``、``decide_and_resume`` 和
+``resume``；路径查找、pending request 选择等方法负责展示层准备工作。
 """
 
 from __future__ import annotations
@@ -29,7 +29,7 @@ from agent_forge.runtime.api import latest_checkpoint_path, load_task_checkpoint
 
 @dataclass(frozen=True)
 class OperatorPrompt:
-    """操作台需要展示的一次人工问题或副作用审批。"""
+    """操作台需要展示的一次人工问题或状态变更操作审批。"""
 
     kind: Literal["human_input", "approval"]
     key: str
@@ -232,7 +232,7 @@ class OperatorSession:
         self.controller.pause()
 
     def cancel(self) -> None:
-        """请求 Runtime 在下一个安全边界取消；不回滚既有副作用。"""
+        """请求 Runtime 在下一个安全边界取消；不回滚已经发生的状态变更。"""
 
         self.controller.cancel()
 
@@ -357,7 +357,7 @@ class OperatorSession:
         return OperatorPrompt(
             kind="approval",
             key=approval_request.operation_key,
-            title=f"审批副作用：{approval_request.tool_name}",
+            title=f"审批状态变更操作：{approval_request.tool_name}",
             body=approval_request.reason or "该工具调用需要人工授权。",
             details=details,
         )

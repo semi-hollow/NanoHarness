@@ -12,6 +12,8 @@ def build_usage_report(trace: dict[str, Any]) -> dict[str, Any]:
     """
 
     # region 1. 聚合容器：同一 step/agent 的事件进入同一个读模型槽位
+    # Trace 允许同一 step 出现多种事件；这里按 (step, agent) 建固定 schema，
+    # 后续投影只更新对应字段，Workbench 无需重新理解原始事件顺序。
     events = trace.get("events", [])
     steps: dict[tuple[int, str], dict[str, Any]] = {}
     llm_call_index = 0
@@ -44,6 +46,8 @@ def build_usage_report(trace: dict[str, Any]) -> dict[str, Any]:
     # endregion 1. 聚合容器结束
 
     # region 2. 事件投影：每种 TraceEvent 只更新对应读模型字段
+    # 这是单向 projector：每个 event_type 只映射已有事实，不调用 Runtime、Tool 或 LLM，
+    # 未识别事件保持在原 Trace 中但不会被猜测成 usage 指标。
     for event in events:
         entry = step_entry(event)
         event_type = event.get("event_type")
@@ -89,6 +93,8 @@ def build_usage_report(trace: dict[str, Any]) -> dict[str, Any]:
             )
 
         elif event_type == "tool_observation":
+            # Observation 回填最近一个尚未配对的 action；旧 Trace 缺 action 时创建兼容槽位，
+            # 但不会伪造调用参数或执行成功状态。
             action = _last_action_without_observation(entry)
             if action is None:
                 action = {

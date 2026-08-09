@@ -1,4 +1,4 @@
-"""HITL 与副作用审批的可重复控制面展示。
+"""HITL 与状态变更操作审批的可重复控制面展示。
 
 这里仅用确定性 ``ModelPort`` 固定模型会提出什么工具请求；暂停、持久化、审批、
 checkpoint、恢复和文件修改全部经过正式 Runtime。这样现场演示不依赖模型随机性，
@@ -223,7 +223,7 @@ def _continue_control_plane_demo(
     *,
     answer: str = "",
 ) -> ControlPlaneShowcaseResult:
-    """回答 HITL 或批准副作用，然后重新进入正式 AgentLoop。"""
+    """回答 HITL 或批准状态变更操作，然后重新进入正式 AgentLoop。"""
 
     _validate_scenario(scenario)
     root = Path(run_dir).resolve()
@@ -443,7 +443,7 @@ def _render_governed_demo(
         "# Governed Run Demo",
         "",
         "本演示使用确定性 ModelPort 固定工具意图，但 checkpoint、审批/HITL、",
-        "operation ledger、工具执行和 continuation 均经过正式 Runtime。它证明控制面，",
+        "操作状态表、工具执行和 continuation 均经过正式 Runtime。它证明控制面，",
         "不证明在线模型能力或 official resolved。",
         "",
         f"- scenario: `{waiting.scenario}`",
@@ -461,7 +461,7 @@ def _render_governed_demo(
         "## Claim Boundary",
         "",
         "- proves: 人工屏障先持久化、continuation 显式加载 checkpoint、"
-        "写副作用受治理且 focused pytest 形成验证证据。",
+        "写操作受治理且 focused pytest 形成验证证据。",
         "- does not prove: 模型任务质量、测试通过、SWE-bench official resolved。",
         "",
     ]

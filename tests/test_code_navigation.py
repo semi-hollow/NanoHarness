@@ -14,7 +14,8 @@ from agent_forge.runtime.ports import HookPort, RunControlPort
 
 PROJECT_ROOT = Path(__file__).parents[1]
 
-# 这是首遍阅读 Runtime 的固定预算；Evaluation 的后续地图不能挤掉状态 owner。
+# 这是架构导航必须保留的 Runtime owner 集合；五个主入口负责提供整体控制流，
+# 其余 owner 按四层工具治理结构承载具体机制。
 RUNTIME_CORE = {
     "agent_forge/harness.py": "Harness.run",
     "agent_forge/runtime/wiring.py": "build_agent_loop_from_request",
@@ -30,8 +31,8 @@ RUNTIME_CORE = {
     "agent_forge/observability/domain/run_story.py": "RunStory",
 }
 
-# 这些是学习、演示和排障会直接进入的长主链。除 docstring 外，它们必须切成
-# 可折叠阶段，使 Collapse All 后先看到架构骨架；普通 serializer/renderer 不在此
+# 这些是演示和排障会直接进入的长主链。除 docstring 外，它们必须切成
+# 可折叠阶段，使 Collapse All 后呈现架构骨架；普通 serializer/renderer 不在此
 # 机械加注释，避免注释本身变成新噪音。
 CORE_WORKFLOW_ENTRYPOINTS = {
     "agent_forge/harness.py": {
@@ -226,6 +227,7 @@ KEYWORD_ONLY_RECORDS = {
         "ToolRegistryBuildRequest",
     },
     "agent_forge/safety/guardrails.py": {"GuardrailResult"},
+    "agent_forge/skills/models.py": {"ActivatedSkill", "SkillSpec"},
     "agent_forge/tools/tool_router.py": {"ToolRoute", "ToolRoutingRequest"},
 }
 
@@ -391,7 +393,7 @@ MODULE_SCOPED_VAGUE_LOCAL_NAMES = {
     },
 }
 
-# 这些方法是首遍阅读主干。结构化事件字段只能出现在具名证据记录器中。
+# 这些方法构成核心运行主干。结构化事件字段只能出现在具名证据记录器中。
 TRACE_FREE_ORCHESTRATION_METHODS = {
     "agent_forge/runtime/application/agent_loop.py": {
         "_call_model",
@@ -486,6 +488,33 @@ class CodeNavigationContractTest(unittest.TestCase):
                     ast.get_docstring(node), f"{owner} needs a concise owner docstring"
                 )
 
+    def test_skill_registry_puts_the_three_step_control_chain_first(self) -> None:
+        """Skill 辅助装配不能挡在 select/discover/activate 主链前面。"""
+
+        registry_path = PROJECT_ROOT / "agent_forge/skills/registry.py"
+        registry_tree = ast.parse(registry_path.read_text(encoding="utf-8"))
+        registry_class = _find_owner(registry_tree, "SkillRegistry")
+        self.assertIsInstance(registry_class, ast.ClassDef)
+        assert isinstance(registry_class, ast.ClassDef)
+        method_names = [
+            node.name
+            for node in registry_class.body
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+        ]
+        self.assertEqual(
+            method_names[:4],
+            ["__init__", "select_for_task", "discover_for_task", "activate"],
+        )
+        self.assertLessEqual(
+            len(registry_path.read_text(encoding="utf-8").splitlines()),
+            300,
+            "Skill 主链文件过长时，应把数据映射或包 I/O 移出 registry.py",
+        )
+
+        support_path = PROJECT_ROOT / "agent_forge/skills/_package_support.py"
+        support_tree = ast.parse(support_path.read_text(encoding="utf-8"))
+        self.assertIn("不参与运行时选择决策", ast.get_docstring(support_tree) or "")
+
     def test_core_workflows_partition_long_flows_for_collapse_all(self) -> None:
         """核心长入口必须说明阶段，并保持 region 成对。"""
 
@@ -510,6 +539,29 @@ class CodeNavigationContractTest(unittest.TestCase):
                         region_count,
                         endregion_count,
                         f"unpaired regions in {relative_path}:{owner_name}",
+                    )
+
+    def test_long_core_workflow_regions_explain_internal_calls(self) -> None:
+        """长 region 不能只有标题；内部还要解释关键调用和状态语义。"""
+
+        for relative_path, owners in CORE_WORKFLOW_ENTRYPOINTS.items():
+            source_lines = (PROJECT_ROOT / relative_path).read_text(
+                encoding="utf-8"
+            ).splitlines()
+            tree = ast.parse("\n".join(source_lines))
+            for owner_name in owners:
+                owner = _find_owner(tree, owner_name)
+                self.assertIsInstance(owner, (ast.FunctionDef, ast.AsyncFunctionDef))
+                assert isinstance(owner, (ast.FunctionDef, ast.AsyncFunctionDef))
+                unexplained_regions = _long_regions_without_navigation_comment(
+                    source_lines,
+                    owner,
+                )
+                with self.subTest(path=relative_path, owner=owner_name):
+                    self.assertEqual(
+                        unexplained_regions,
+                        [],
+                        "long core regions need a call-site navigation comment",
                     )
 
     def test_control_adapters_explicitly_expose_their_port_hierarchy(self) -> None:
@@ -544,7 +596,7 @@ class CodeNavigationContractTest(unittest.TestCase):
         self.assertEqual(private_methods - self_calls, set())
 
     def test_critical_application_services_do_not_expose_vague_verbs(self) -> None:
-        """关键调用点应直接说明动作，不要求读者先记住所属类。"""
+        """关键调用点应直接说明动作，不依赖所属类补充方法语义。"""
 
         for relative_path, class_names in CRITICAL_APPLICATION_SERVICES.items():
             tree = ast.parse((PROJECT_ROOT / relative_path).read_text(encoding="utf-8"))
@@ -758,6 +810,40 @@ def _function_source_with_trailing_regions(
             break
         end_index += 1
     return "\n".join(source_lines[owner.lineno - 1 : end_index])
+
+
+def _long_regions_without_navigation_comment(
+    source_lines: list[str],
+    owner: ast.FunctionDef | ast.AsyncFunctionDef,
+) -> list[int]:
+    """返回只有 region 标题、却没有内部导航注释的长逻辑段起始行。"""
+
+    region_stack: list[tuple[int, list[str]]] = []
+    unexplained_region_lines: list[int] = []
+    for line_number in range(owner.lineno, owner.end_lineno + 1):
+        line = source_lines[line_number - 1]
+        stripped = line.strip()
+        if stripped.startswith("# region "):
+            region_stack.append((line_number, []))
+            continue
+        if stripped.startswith("# endregion ") and region_stack:
+            region_start, region_body = region_stack.pop()
+            code_line_count = sum(
+                1
+                for body_line in region_body
+                if body_line.strip() and not body_line.strip().startswith("#")
+            )
+            has_navigation_comment = any(
+                body_line.strip().startswith("#")
+                and not body_line.strip().startswith(("# region ", "# endregion "))
+                for body_line in region_body
+            )
+            if code_line_count >= 10 and not has_navigation_comment:
+                unexplained_region_lines.append(region_start)
+            continue
+        if region_stack:
+            region_stack[-1][1].append(line)
+    return unexplained_region_lines
 
 
 def _dataclass_uses_keyword_only_fields(owner: ast.ClassDef) -> bool:

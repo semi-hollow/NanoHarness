@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""PyCharm 一键启动的复杂真实模型学习场景。"""
+"""PyCharm 一键启动的复杂真实模型诊断场景。"""
 
 from __future__ import annotations
 
@@ -40,7 +40,7 @@ from examples.debug_lab.support import (  # noqa: E402
 
 @dataclass(frozen=True, kw_only=True)
 class PracticeProfile:
-    """同一复杂任务的一种学习条件；不改变待修复仓库。"""
+    """同一复杂任务的一种运行条件；不改变待修复仓库。"""
 
     key: str
     title: str
@@ -56,19 +56,19 @@ PRACTICE_PROFILES = (
     PracticeProfile(
         key="natural",
         title="自然修复",
-        purpose="先不干预，完整观察模型怎样检索、修改、失败和收敛。",
+        purpose="不施加人工干预，记录模型的检索、修改、失败和收敛过程。",
         max_context_chars=16_000,
     ),
     PracticeProfile(
         key="context-pressure",
         title="上下文压力",
-        purpose="降低上下文预算，观察压缩、文件选择、重复检索和信息丢失。",
+        purpose="降低上下文预算，检查压缩、文件选择、重复检索和信息丢失。",
         max_context_chars=6_500,
     ),
     PracticeProfile(
         key="operator-control",
         title="人工控制与恢复",
-        purpose="亲自 steer、pause、approve 和 resume，掌握控制面的真实时序。",
+        purpose="触发 steer、pause、approve 和 resume，验证控制面的真实时序。",
         max_context_chars=16_000,
         operator_drill=(
             "运行中输入 steer：Prioritize failure atomicity before editing.",
@@ -92,16 +92,16 @@ PRACTICE_PROFILES = (
 
 
 def select_practice_profile() -> PracticeProfile:
-    """从环境变量或运行前菜单选择练习；直接回车使用首次推荐模式。"""
+    """从环境变量或运行前菜单选择运行模式；直接回车使用默认模式。"""
 
     configured_key = os.environ.get("NANOHARNESS_PRACTICE_PROFILE", "").strip()
     if configured_key:
         for profile in PRACTICE_PROFILES:
             if profile.key == configured_key:
                 return profile
-        raise SystemExit(f"未知练习模式: {configured_key}")
+        raise SystemExit(f"未知运行模式: {configured_key}")
 
-    print("\nNanoHarness Lab 3 · 复杂任务深度练习")
+    print("\nNanoHarness Lab 3 · 复杂任务运行诊断")
     for index, profile in enumerate(PRACTICE_PROFILES, start=1):
         default_hint = "（默认，直接回车）" if index == 1 else ""
         print(f"  {index}. {profile.title}{default_hint}：{profile.purpose}")
@@ -113,19 +113,19 @@ def select_practice_profile() -> PracticeProfile:
 
 
 def print_operator_drill(profile: PracticeProfile) -> None:
-    """在进入全屏 TUI 前说明本次要亲手完成的动作。"""
+    """在进入全屏 TUI 前列出本次需要由操作者执行的控制动作。"""
 
     print(f"\n本次模式：{profile.title}")
-    print(f"学习目标：{profile.purpose}")
+    print(f"运行目标：{profile.purpose}")
     if profile.operator_drill:
-        print("必须亲手完成：")
+        print("需要人工执行：")
         for index, instruction in enumerate(profile.operator_drill, start=1):
             print(f"  {index}. {instruction}")
     input("按 Enter 进入 Operator Console...")
 
 
 def main() -> None:
-    """准备多模块练习仓库和 API Key，再进入真实 TUI。"""
+    """准备多模块诊断仓库和 API Key，再进入真实 TUI。"""
 
     from agent_forge.cli.dispatch import main as forge_main
     from agent_forge.observability.api import refresh_run_manifest
@@ -191,7 +191,6 @@ def main() -> None:
         for tool_name in (
             "list_files",
             "read_file",
-            "grep",
             "grep_search",
             "git_status",
             "git_diff",

@@ -521,7 +521,7 @@ class OperatorConsoleTest(unittest.TestCase):
         prompt = OperatorPrompt(
             kind="approval",
             key="operation-1",
-            title="审批副作用：replace_text",
+            title="审批状态变更操作：replace_text",
             body="write needs approval",
             details=json.dumps(
                 {

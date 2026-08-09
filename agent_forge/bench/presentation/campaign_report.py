@@ -79,7 +79,7 @@ def render_campaign_report(
     lines.extend(
         [
             "",
-            "> This is a multi-factor runtime-preset comparison, not a single-factor causal ablation.",
+            "> This is a multi-factor runtime-preset comparison, not a single-factor causal experiment.",
             "",
             "## Aggregate Evidence",
             "",

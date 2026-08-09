@@ -25,8 +25,9 @@ python -m pip install -e '.[bench,dev]'
 6. 不复用同一个变量名表示不同类型或含义。
 7. 在 storage boundary 使用 `to_dict` 序列化，不要在远端 caller 提前序列化。
 8. 高价值 trace event 应有带类型签名的具名 `record_*` 方法。
-9. Side effect 必须在拥有它的函数中可见。
-10. Behavior change 必须增加 regression test，并更新 failure-driven improvement log。
+9. 可能改变持久状态的操作必须在拥有它的函数中可见。
+10. Behavior change 必须增加 regression test；代表性故障同步更新
+    `docs/evaluation/典型故障与系统调优记录.md`。
 11. 每项用户可见能力的 orchestration method 标记 `PRIMARY ENTRYPOINT`。
 12. 跨模块调用的 public persistence/policy/evidence boundary 标记 `RUNTIME PORT`。
 13. Entrypoint docstring 必须写明 caller、下一 owner，以及 evidence 或 return value。
@@ -40,7 +41,7 @@ python -m pip install -e '.[bench,dev]'
 
 不要给所有 public method 都打标记。Constructor、data accessor、renderer 和 storage
 helper 默认不标记，除非它们是真实跨模块边界。Multi-actor state machine 可以有多个
-primary entry，但必须在 `docs/ARCHITECTURE.md` 或对应 ADR 中说明它们之间的 transition。
+primary entry，但必须在 `docs/项目架构与代码导航.md` 或对应 ADR 中说明它们之间的 transition。
 
 ## 验证
 
@@ -50,7 +51,7 @@ scripts/verify.sh
 ```
 
 验证流程会 compile package、对 `agent_forge` 运行 mypy，并执行 behavior regression
-suite。修改 runtime contract 前先阅读 `docs/ARCHITECTURE.md` 和对应 Capability API。
+suite。修改 runtime contract 前先阅读 `docs/项目架构与代码导航.md` 和对应 Capability API。
 
 MCP behavior 改变时同时运行 `scripts/verify_mcp.sh`。配置 `DEEPSEEK_API_KEY` 后，
 real-model smoke 会自动执行。
@@ -60,7 +61,7 @@ real-model smoke 会自动执行。
 - 项目介绍、架构契约、能力边界、环境搭建和评测证据文档统一使用中文。
 - 类名、方法名、CLI、状态值、artifact 字段和行业术语保留源码中的英文，确保可搜索。
 - 第三方仓库原文、真实 benchmark 输出和历史运行 artifact 保持原样，不改写证据。
-- 个人学习路径、代码阅读笔记和个人准备材料不属于本仓库范围。
+- 个人笔记、代码阅读记录和非项目资料不属于本仓库范围。
 
 ## 文档治理
 
@@ -68,23 +69,25 @@ real-model smoke 会自动执行。
 
 | 文档 | 唯一职责 |
 | --- | --- |
-| `README.md` | 项目展示、证据语义、五分钟上手和阅读入口 |
-| `docs/ARCHITECTURE.md` | 稳定分层、依赖方向、运行链路和公共契约 |
-| `docs/CAPABILITY_REALITY_MATRIX.md` | 能力成熟度、真实边界和禁止 claim |
-| `docs/FEATURE_EVOLUTION.md` | 能力如何被真实问题逐步逼出，以及当前成熟边界 |
-| `docs/ROADMAP.md` | 尚未完成的工作、优先级和完成定义 |
-| `docs/evaluation/failure-driven-improvements.md` | 可检索的真实失败、根因、修复和回归证据 |
+| `README.md` | 项目定位、证据摘要、快速启动和问题导航 |
+| `docs/运行生命周期与异常处理机制.md` | 四层主视图、异常状态和恢复机制 |
+| `docs/项目架构与代码导航.md` | 稳定分层、依赖方向、代码位置和公共契约 |
+| `docs/能力实现状态与使用边界.md` | 能力成熟度、真实边界和禁止 claim |
+| `docs/功能演进与设计取舍.md` | 能力如何被真实问题逐步逼出，以及当前成熟边界 |
+| `docs/evaluation/典型故障与系统调优记录.md` | 可检索的真实失败、根因、修复和回归证据 |
+| `agent_forge/README.md` | package 级代码地图 |
+| `examples/debug_lab/README.md` | 断点、运行模式和 Workbench 实操 |
 
 其余文档只能归入 `docs/adr`、`docs/architecture`、`docs/case-studies` 或
 `docs/evaluation`，并回答一个稳定且独立的问题。新增前先更新既有 owner；确实无法归入时，
 新文档必须从 README 或 owner 文档获得入口，并说明它替代了什么重复内容。
 
-- 不在公开仓库新增个人学习路线、个人问答、复盘或阶段实施计划。
+- 不在公开仓库新增个人笔记、问答清单或阶段性实施计划。
 - 生成的 trace、report 和 benchmark artifact 留在 `.agent_forge`，不复制进 `docs`。
 - 运行时事实变化时更新 owner；其他文档只引用，不复制完整说明。
 - 历史计划和过时方案由 Git 历史保留，不维持第二套“历史文档树”。
-- README、演进史和路线图有体量门禁；失败案例日志允许随真实证据持续增长。
-- `docs/evaluation/failure-driven-improvements.md` 是受保护的一手记录；文档清理不得删除案例、
+- README、架构入口和演进史有体量门禁；失败案例日志允许随真实证据持续增长。
+- `docs/evaluation/典型故障与系统调优记录.md` 是受保护的一手记录；文档清理不得删除案例、
   截断证据链，或用“可从 Git 恢复”替代当前树中的可检索档案。
 
 ## 仓库卫生
@@ -104,7 +107,7 @@ real-model smoke 会自动执行。
 - 能力分阶段成熟时，正文标明 `Introduces`、`Hardens` 或 `Replaces`。
 
 已公开的 `master` 不为美化标题而重写历史。历史提交的权威语义索引见
-[功能演进](docs/FEATURE_EVOLUTION.md)。
+[功能演进与设计取舍](docs/功能演进与设计取舍.md)。
 
 ## Pull Request 检查表
 

@@ -122,12 +122,6 @@ class ToolRouter:
             "latency": "low",
             "mode": "read",
         },
-        "grep": {
-            "capability": "search",
-            "risk": "low",
-            "latency": "low",
-            "mode": "read",
-        },
         "grep_search": {
             "capability": "search",
             "risk": "low",
@@ -192,8 +186,8 @@ class ToolRouter:
         返回的 ``schemas`` 会真正进入模型请求，``allowed_names`` 交给执行管线复核，
         ``dropped_names`` 和 ``metadata`` 则解释“为什么模型看得见或看不见某个工具”。
 
-        这里的规则只决定可见性，不代表授权。写操作即使可见，仍需经过 Hook、权限
-        策略、Approval 和 Operation Ledger。
+        这里的规则只决定可见性，不代表授权。写操作即使可见，仍需经过工具执行前的
+        具体规则、人工授权和操作状态表。
         """
 
         # region 1. 候选目录：索引 Gateway 已注册的 schema，处理显式全量模式
@@ -256,7 +250,7 @@ class ToolRouter:
                     for name in sorted(registered_tool_names)
                 },
                 phase=(
-                    "closeout_unrestricted_ablation"
+                    "closeout_all_tools_visible"
                     if remaining_tool_turns == 1
                     else "work"
                 ),
@@ -337,11 +331,6 @@ class ToolRouter:
         if active_skill_tool_names:
             visible_tool_names |= registered_tool_names & active_skill_tool_names
 
-        # ``grep`` 与 ``grep_search`` 当前执行契约相同。task-aware 模式只向模型暴露
-        # 描述更明确的后者，避免两个同义 schema 分散模型选择；兼容工具仍保留在 Registry。
-        if "grep_search" in registered_tool_names:
-            visible_tool_names.discard("grep")
-
         # 再次应用只读约束，确保 Skill 也不能把写入或命令工具加回来。
         if is_read_only_task:
             visible_tool_names -= {
@@ -370,7 +359,7 @@ class ToolRouter:
             }
 
         # 外部 MCP 工具没有内置 capability 映射，只在任务明确提及 MCP/工具/策略，或
-        # 任务关键词命中工具名称与描述时暴露。这里只判断可见性，不判断副作用风险。
+        # 任务关键词命中工具名称与描述时暴露。这里只判断可见性，不判断持久状态变更风险。
         external_tool_names = registered_tool_names - set(self.DEFAULT_METADATA)
         task_keywords = {
             term
@@ -402,7 +391,6 @@ class ToolRouter:
                 closeout_tool_names = {
                     "list_files",
                     "read_file",
-                    "grep",
                     "grep_search",
                     "git_status",
                     "git_diff",
@@ -411,7 +399,6 @@ class ToolRouter:
             else:
                 closeout_tool_names = {
                     "read_file",
-                    "grep",
                     "grep_search",
                     "replace_text",
                     "create_file",

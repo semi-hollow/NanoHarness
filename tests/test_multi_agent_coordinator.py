@@ -45,6 +45,13 @@ class BlockingPrimaryLLM:
         return AgentResponse("blocked: too many consecutive failed tools", [])
 
 
+class FailingRoleLLM:
+    last_usage = None
+
+    def chat(self, messages, tools):
+        raise RuntimeError("provider unavailable")
+
+
 def _init_git_with_modified_file(root: Path) -> None:
     subprocess.run(["git", "init"], cwd=root, check=True, stdout=subprocess.DEVNULL)
     subprocess.run(
@@ -95,6 +102,37 @@ class MultiAgentCoordinatorTest(unittest.TestCase):
             self.assertIn("multi_agent_start", event_types)
             self.assertIn("artifact_created", event_types)
             self.assertIn("multi_agent_done", event_types)
+
+    def test_role_exception_uses_trace_error_envelope(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            trace = TraceRecorder(str(root / "trace.json"))
+            summary = build_multi_agent_coordinator(
+                SequentialCoordinatorBuildRequest(
+                    "fix a small issue",
+                    get_profile("coding_fix"),
+                    RuntimeConfig(
+                        workspace=tmp,
+                        max_steps=1,
+                        trace_file=str(root / "trace.json"),
+                    ),
+                    trace,
+                    ToolRegistry(),
+                    FailingRoleLLM(),
+                    run_dir=root,
+                )
+            ).run()
+
+            failed_role_events = [
+                event
+                for event in trace.events
+                if event["event_type"] == "agent_stage_end"
+                and event["success"] is False
+            ]
+
+        self.assertEqual(summary.status, "blocked")
+        self.assertEqual(len(failed_role_events), 1)
+        self.assertIn("provider unavailable", failed_role_events[0]["error"])
 
     def test_decision_parser_uses_first_line_marker(self):
         with tempfile.TemporaryDirectory() as tmp:

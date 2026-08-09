@@ -114,6 +114,8 @@ class ContextWindowManager:
         """
 
         # region 1. 预算判定：先估算完整请求，未超软限制时保持原文
+        # 估算覆盖 system、完整历史和 Tool schema；软限制以内直接透传，
+        # force_compaction 仅用于 Provider 已明确拒绝当前窗口后的恢复重试。
         full_messages = [request.system_message, *request.history]
         estimated_tokens_before = estimate_prompt_tokens(
             full_messages,
@@ -137,6 +139,8 @@ class ContextWindowManager:
         # endregion 1. 预算判定结束
 
         # region 2. 安全切分：assistant ToolCall 与对应 tool Observation 不可拆散
+        # 历史先按协议事务分组，再选择摘要边界；少于两个 segment 时没有“旧历史”
+        # 可以安全替换，所以宁可报告无法压缩，也不拆坏 ToolCall 对应关系。
         history_segments = _group_history_segments(
             request.history,
             request.observations,
@@ -155,6 +159,8 @@ class ContextWindowManager:
         # endregion 2. 安全切分结束
 
         # region 3. 候选搜索：逐步扩大旧历史摘要范围，保留最新原始消息
+        # cut_index 从最小旧历史开始递增；每个候选都重建摘要并重新估算 token，
+        # 第一个达到目标且确实变小的候选立即返回，同时保留最小候选作为保守回退。
         target_token_count = (
             max(256, int(self.budget.soft_input_limit * 0.65))
             if request.force_compaction
@@ -218,6 +224,7 @@ class ContextWindowManager:
                 or estimated_tokens_after
                 < best_compaction_result.estimated_tokens_after
             ):
+                # 记录所有已尝试候选中最小的一份，供未达到软目标时做降级选择。
                 best_compaction_result = candidate_window_result
             if (
                 estimated_tokens_after <= target_token_count

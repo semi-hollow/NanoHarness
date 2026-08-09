@@ -23,7 +23,7 @@ class ToolRouterPolicySummaryTest(unittest.TestCase):
         self.assertEqual(summary["hidden_tools"], ["replace_text", "run_command"])
         self.assertEqual(summary["tool_count"], {"allowed": 1, "hidden": 2})
 
-    def test_all_mode_is_an_observable_ablation_without_hiding_tools(self):
+    def test_all_mode_keeps_every_registered_tool_visible(self):
         schemas = [
             {"name": "read_file"},
             {"name": "replace_text"},

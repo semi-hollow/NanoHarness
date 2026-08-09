@@ -97,7 +97,7 @@ class Harness:
         删除/内联影响：会失去唯一装配 owner，并重新产生 CLI/demo wiring 漂移。
         """
 
-        # region 准备区（首遍可折叠）：输入、路径与唯一事件出口
+        # region 准备区（实现细节）：输入、路径与唯一事件出口
         run_request = (
             request if isinstance(request, RunRequest) else RunRequest(request)
         )
@@ -116,7 +116,7 @@ class Harness:
         run_result: RunResult | None = None
         failure_stop_reason = ""
         # endregion 准备区结束
-        # region 2. 执行环境与 Runtime：隔离副作用，再进入唯一 AgentLoop
+        # region 2. 执行环境与 Runtime：约束外部状态变化，再进入唯一 AgentLoop
         try:
             environment: EnvironmentPort
             if self._extensions.execution_environment is None:
@@ -170,7 +170,7 @@ class Harness:
         return run_result
         # endregion 3. Public API 收口结束
 
-    # region Runtime 装配细节（首次阅读可折叠）
+    # region Runtime 装配细节
     def _execute_run(
         self,
         request: RunRequest,
@@ -181,7 +181,7 @@ class Harness:
     ) -> RunResult:
         """在已准备环境中装配唯一 AgentLoop，并构造 Public API 结果。"""
 
-        # region 准备区（首遍可折叠）：环境探测结果与 Runtime 依赖
+        # region 准备区（实现细节）：环境探测结果与 Runtime 依赖
         environment_evidence = environment.probe().to_dict()
         active_workspace_from_probe = environment_evidence.get("active_workspace")
         runtime_workspace = (
@@ -229,6 +229,8 @@ class Harness:
         # endregion 装配准备结束
 
         # region 2. 规范执行：记录环境事实，随后只调用一次 AgentLoop
+        # Harness 到这里已经完成所有 Adapter 装配；本段只发布运行边界、调用一次
+        # AgentLoop，并把返回文本及 owned workspace 的候选 Diff 固化为顶层 artifact。
         events.add(
             0,
             "Runtime",
@@ -255,6 +257,8 @@ class Harness:
         # endregion 2. 规范执行结束
 
         # region 3. 结果收口：只从最新 durable checkpoint 构造对外 RunResult
+        # AgentLoop 的字符串返回值不是状态真相。对外 status/stop_reason 必须读取
+        # RunLifecycle 最后持久化的 checkpoint，避免文本“完成”覆盖真实阻断状态。
         final_checkpoint = tracked_task_states.latest
         if final_checkpoint is None:
             raise RuntimeError("AgentLoop completed without creating a checkpoint")

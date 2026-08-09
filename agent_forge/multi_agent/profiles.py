@@ -7,7 +7,6 @@ from .domain.models import AgentProfile, RoleSpec
 CODING_READ_TOOLS = [
     "list_files",
     "read_file",
-    "grep",
     "grep_search",
     "git_status",
     "git_diff",
@@ -21,7 +20,6 @@ CODING_WRITE_TOOLS = [
 RESEARCH_TOOLS = [
     "list_files",
     "read_file",
-    "grep",
     "grep_search",
     "forge.web_search",
     "forge.web_fetch",

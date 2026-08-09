@@ -20,12 +20,12 @@ class ContinuationPlan:
 
 
 class DecideApproval:
-    """保存一次副作用审批决定。"""
+    """保存一次可能改变持久状态的操作审批决定。"""
 
     def __init__(self, approvals: ApprovalRepository) -> None:
         self.approvals = approvals
 
-    # 主要入口：验证并持久化一次明确的副作用审批决定。
+    # 主要入口：验证并持久化一次明确的状态变更操作审批决定。
     def decide(
         self,
         operation_key: str,

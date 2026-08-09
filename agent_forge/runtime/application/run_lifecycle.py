@@ -65,7 +65,7 @@ class RunLifecycle:
     trace: EventSink
     hooks: HookPort
 
-    # 第一遍：三个 public port 分别对应更新、停止和人工暂停。
+    # 三个公开入口分别对应更新、停止和人工暂停。
     # 运行时端口：同步更新内存 checkpoint、持久化状态和 trace 事实。
     def update_checkpoint(
         self,
@@ -117,6 +117,8 @@ class RunLifecycle:
         # endregion 1. 停止质量门结束
 
         # region 2. Durable state：把最终决定写入 checkpoint，而非原始请求
+        # 质量门可能把 requested COMPLETED 降级为 BLOCKED；Trace 上下文和 checkpoint
+        # 必须共同使用 final_stop_request，不能分别记录模型请求和治理后状态。
         self.trace.set_run_context(
             stop_reason=final_stop_request.reason,
             final_answer=final_stop_request.final_answer,
@@ -161,6 +163,8 @@ class RunLifecycle:
         """
 
         # region 1. 请求落盘：先取得稳定 request_id，再决定继续或暂停
+        # 相同 thread/kind/step 会定位同一 durable 请求；responded 表示恢复路径已带回答，
+        # 可以立即返回给调用方，不再制造第二个问题。
         human_input_request = self.human_input_store.request(
             HumanInputRequestDraft(
                 thread_id=self.human_thread_id,
@@ -179,6 +183,8 @@ class RunLifecycle:
         # endregion 1. 请求落盘结束
 
         # region 2. 已取消分支：保留审计事实，并把运行转为不可继续的 BLOCKED
+        # cancel 表示操作员拒绝继续这个问题，不等同于“尚未回答”；因此不能继续等待，
+        # 也不能把空答案注入模型，而要形成明确的 terminal StopRequest。
         last_tool = "ask_human" if question.kind == "tool_question" else ""
         if human_input_request.status == "cancelled":
             self._record_human_input_event(
@@ -238,7 +244,7 @@ class RunLifecycle:
         )
         # endregion 3. 待回答分支结束
 
-    # region 终态质量门规则（首次阅读可折叠）
+    # region 终态质量门规则
     @staticmethod
     def _apply_completion_quality_gate(
         *,
@@ -288,7 +294,7 @@ class RunLifecycle:
 
     # endregion 终态质量门规则结束
 
-    # region 证据记录器（首次阅读可折叠）
+    # region 证据记录器
 
     def _record_terminal_evidence(
         self,

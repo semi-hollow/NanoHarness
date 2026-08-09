@@ -1,4 +1,4 @@
-"""工具治理 Hook 使用的领域决策。"""
+"""生命周期处理器在模型或工具边界返回的领域决策。"""
 
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ from enum import Enum
 
 
 class HookDecisionType(Enum):
-    """治理链对一次工具意图的决策。"""
+    """前置处理器对模型调用或工具意图表达的决定。"""
 
     ALLOW = "allow"
     DENY = "deny"
@@ -30,7 +30,7 @@ SIDE_EFFECT_ACTIONS = {"write", "run_command"}
 
 @dataclass(frozen=True, kw_only=True)
 class HookDecision:
-    """一个 Hook 的独立决策及审计信息。"""
+    """一个生命周期处理器的独立决定及审计信息。"""
 
     hook_name: str
     decision: HookDecisionType
@@ -50,7 +50,7 @@ class HookDecision:
 
 @dataclass(frozen=True, kw_only=True)
 class HookContext:
-    """策略判断一次工具意图所需的完整上下文。"""
+    """工具执行前处理器判断一次工具意图所需的完整上下文。"""
 
     run_id: str
     step: int
@@ -80,7 +80,7 @@ class ModelHookContext:
 
 @dataclass(frozen=True, kw_only=True)
 class HookResult:
-    """多个 Hook 合并后的有效决策。"""
+    """多个前置生命周期处理器合并后的有效决定。"""
 
     decision: HookDecisionType
     reason: str

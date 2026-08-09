@@ -712,7 +712,7 @@ class OperatorConsoleApp(App[None]):
         if self._bundle is None or not self._busy:
             return
         self._bundle.session.cancel()
-        self._timeline_message("已请求取消；既有副作用不会自动回滚。")
+        self._timeline_message("已请求取消；已经发生的状态变更不会自动回滚。")
 
     @work(thread=True, group="runtime", exclusive=True)
     def _execute_start(self, task: str, workspace: str, session_title: str) -> None:

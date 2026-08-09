@@ -788,7 +788,7 @@ def _read_json_file(path: Path | None) -> dict[str, Any]:
 
 
 def _render_observability_overview(project_dir: Path) -> str:
-    """汇总三条学习主线和可选评测档案，首页只回答结果与入口。"""
+    """汇总三类运行证据和可选评测档案，首页只回答结果与入口。"""
 
     run_story = _latest_governed_run_story(project_dir)
     trace = _read_json_file(_latest_governed_trace_path(project_dir))
@@ -1532,7 +1532,7 @@ def _render_complex_trace_timeline(project_dir: Path) -> str:
 
 
 def _render_complex_context_inspector(project_dir: Path) -> str:
-    """把 Lab 3 的长 Context 投影为逐轮可学习的输入与决定。"""
+    """把 Lab 3 的长 Context 投影为逐轮可检查的输入与决定。"""
 
     trace_path = _latest_complex_trace_path(project_dir)
     if trace_path is None:
@@ -1603,10 +1603,10 @@ def _render_complex_context_inspector(project_dir: Path) -> str:
             ]
         )
         + "<section class='evidence-section'><div class='section-title'>"
-        "<h3>最短学习路径</h3><span>先看转折，再按需展开普通轮次</span></div>"
+        "<h3>关键轮次导航</h3><span>优先检查转折，再按需展开其他轮次</span></div>"
         f"<div class='context-jumps'>{key_turn_links}</div></section>"
         "<section class='evidence-section'><div class='section-title'>"
-        "<h3>每轮固定读法</h3><span>四步足够，不背原始消息数组</span></div>"
+        "<h3>每轮检查结构</h3><span>按四个阶段展示，不重复原始消息数组</span></div>"
         "<div class='mini-flow context-mental-model'>"
         "<span><b>1 新增证据</b><small>上一轮 Observation</small></span>"
         "<span><b>2 输入组成</b><small>系统上下文 + 历史 + Tool Schema</small></span>"
@@ -1628,7 +1628,7 @@ def _render_context_turn(
     *,
     element_id: str | None = None,
 ) -> str:
-    """渲染一轮四段式 Context 学习视图。"""
+    """渲染一轮四段式 Context 检查视图。"""
 
     open_attribute = " open" if turn.is_key_turn else ""
     key_badge = (
@@ -1790,22 +1790,23 @@ def _render_trace_timeline_entries(
     title: str,
     source_path: Path | None = None,
 ) -> str:
-    """把同一证据作用域内的 Trace 渲染成四段式时间线。"""
+    """先展示 AgentLoop 时间线，再允许按 ToolCall 四层下钻 Trace。"""
 
     body = [
         f"<div class='view-heading'><div><span class='view-kicker'>{_escape(scope_label)}</span>"
         f"<h2>{_escape(title)}</h2></div>"
-        "<span class='claim-note'>先按四段理解，再下钻事件</span></div>",
-        "<p class='help strong'>一轮 AgentLoop 只按四件事理解。扩展钩子（Hook）、权限、操作账本、"
-        "工具开始与工具结果都归入“治理并执行”；底层 Trace 事件只用于排障，不需要背诵。</p>",
+        "<span class='claim-note'>AgentLoop 主链与 ToolCall 四层明细</span></div>",
+        "<p class='help strong'>时间线只回答一轮发生了什么。出现 ToolCall 时，统一按"
+        "“入口控制 → 执行决策 → 受限执行 → 结果与恢复”理解；具体 Hook、权限、操作状态表"
+        "和 Trace 事件作为各阶段的实现与审计证据按需展开。</p>",
         "<div class='mini-flow timeline-mental-model'>"
-        "<span><b>1 准备输入</b><small>组装本轮模型可见上下文</small></span>"
-        "<span><b>2 模型决定</b><small>回答问题或提出工具意图</small></span>"
-        "<span><b>3 治理并执行</b><small>检查副作用，再调用工具</small></span>"
-        "<span><b>4 回填并持久化</b><small>写回观察、证据与 Checkpoint</small></span>"
+        "<span><b>1 准备模型输入</b><small>组装上下文与本轮工具范围</small></span>"
+        "<span><b>2 模型提出意图</b><small>回答问题或提出 ToolCall</small></span>"
+        "<span><b>3 Runtime 处理意图</b><small>入口控制、执行决策与受限执行</small></span>"
+        "<span><b>4 结果回填</b><small>Observation、证据与恢复状态</small></span>"
         "</div>",
-        "<p class='boundary-note'>没有工具意图时，第 3 段可以不执行工具；需要精确事件顺序时，"
-        "再展开对应阶段的底层证据。</p>",
+        "<p class='boundary-note'>没有 ToolCall 时，Runtime 不进入工具治理；需要定位具体机制时，"
+        "再展开对应阶段的底层证据和代码 owner。</p>",
     ]
     for label, trace_path in trace_entries:
         body.append(_render_trace_lane(label, trace_path))
@@ -1891,7 +1892,7 @@ def _render_complex_lab_dashboard(project_dir: Path) -> str:
 
     body = [
         "<div class='view-heading'><div><span class='view-kicker'>真实 DEEPSEEK 运行</span>"
-        "<h2>复杂结算修复学习场</h2></div><div class='view-heading-actions'>"
+        "<h2>复杂结算修复运行场景</h2></div><div class='view-heading-actions'>"
         "<button onclick=\"loadEvidence('context')\">查看上下文与决策</button>"
         f"{_badge(status, _tone_for_status(status))}</div></div>",
         _render_lab_brief(
@@ -1912,13 +1913,13 @@ def _render_complex_lab_dashboard(project_dir: Path) -> str:
             ),
             boundary=(
                 "这是本地可控工程场景，不是 SWE-bench official 结果；模型每次路径和轮数可变，"
-                "失败、暂停或未收敛同样是有效学习证据。"
+                "失败、暂停或未收敛同样会留下可诊断的运行证据。"
             ),
         ),
         _metric_grid(
             [
                 (
-                    "练习模式",
+                    "运行模式",
                     str(practice_profile.get("title") or "未记录"),
                     str(practice_profile.get("purpose") or "真实模型复杂任务"),
                     "neutral",
@@ -1978,7 +1979,7 @@ def _render_complex_lab_dashboard(project_dir: Path) -> str:
         ),
         (
             "<section class='evidence-section'><div class='section-title'>"
-            "<h3>本次亲手练习动作</h3><span>只有实际操作过，才算掌握控制面</span></div>"
+            "<h3>本次人工控制动作</h3><span>用于验证控制面行为</span></div>"
             + _render_fact_list(
                 practice_profile.get("operator_drill"),
                 empty_message="本模式先观察，不要求主动干预。",
@@ -2061,20 +2062,20 @@ def _render_trace_lane(label: str, trace_path: Path) -> str:
 
 
 _TIMELINE_STAGES = (
-    ("input", "01", "准备输入", "上下文、记忆、Skill 与工具可见性", "purple"),
-    ("decision", "02", "模型决定", "模型调用、回答或工具意图", "blue"),
+    ("input", "01", "准备模型输入", "上下文、记忆、Skill 与工具范围", "purple"),
+    ("decision", "02", "模型提出意图", "模型调用、回答或 ToolCall", "blue"),
     (
         "governed_execution",
         "03",
-        "治理并执行",
-        "安全检查、扩展钩子、权限、操作账本与工具调用",
+        "Runtime 处理意图",
+        "入口控制、执行决策与受限执行",
         "warn",
     ),
     (
         "persistence",
         "04",
-        "回填并持久化",
-        "观察、证据、Checkpoint 与停止状态",
+        "结果回填",
+        "Observation、证据、恢复状态与停止原因",
         "neutral",
     ),
 )
@@ -2122,12 +2123,12 @@ _TRACE_STAGE_BY_EVENT = {
 }
 
 _HOOK_STAGE_LABELS = {
-    "before_model": "模型调用前 Hook",
-    "after_model": "模型返回后 Hook",
-    "before_tool": "工具执行前 Hook",
-    "after_tool": "工具返回后 Hook",
-    "on_checkpoint": "Checkpoint 落盘后 Hook",
-    "on_stop": "运行结束前 Hook",
+    "before_model": "模型调用前处理器",
+    "after_model": "模型返回后处理器",
+    "before_tool": "工具执行前规则",
+    "after_tool": "工具结果处理器",
+    "on_checkpoint": "Checkpoint 落盘后通知",
+    "on_stop": "运行结束前检查",
 }
 
 _TRACE_EVENT_LABELS = {
@@ -2139,14 +2140,14 @@ _TRACE_EVENT_LABELS = {
     "context_overflow_recovery": "上下文恢复",
     "model_started": "模型请求",
     "llm_call": "模型响应",
-    "guardrail_check": "模型输出检查",
+    "guardrail_check": "轻量语义检查记录",
     "clarification_decision": "澄清判断",
     "skill_selection": "Skill 选择",
     "memory_recall": "记忆召回",
     "action": "工具意图",
     "file_write": "产物写入",
     "permission_check": "工具最终权限",
-    "hook_check": "Hook 检查",
+    "hook_check": "生命周期处理器事件",
     "human_approval": "人工审批",
     "human_input_requested": "等待人工输入",
     "human_input_response_loaded": "载入人工回答",
@@ -2159,7 +2160,7 @@ _TRACE_EVENT_LABELS = {
     "validation_evidence": "验证证据",
     "observation": "会话回填",
     "evidence_collected": "证据记录",
-    "operation_ledger": "操作账本",
+    "operation_ledger": "操作状态表",
     "recovery_decision": "恢复判断",
     "resume_state_loaded": "恢复状态载入",
     "verifier_result": "验证结论",
@@ -2192,7 +2193,7 @@ _TRACE_EVENT_PURPOSES = {
     "context_overflow_recovery": "对比压缩前后输入规模，证明上下文超限恢复确实缩小了窗口。",
     "model_started": "标记请求已经交给模型，并记录输入规模；可区分调用前失败与模型服务失败。",
     "llm_call": "记录模型响应形态、用量和归一化结果，把本轮决定与成本、延迟关联起来。",
-    "guardrail_check": "在工具层之前确认模型输出能被安全解析，避免非法动作直接进入执行链。",
+    "guardrail_check": "记录输入、ToolCall 或最终声明的轻量语义检查；真实阻断仍由路由、授权和执行边界负责。",
     "clarification_decision": "记录任务信息是否足够，解释为什么继续执行或转入人工澄清。",
     "skill_selection": "记录本轮激活的 Skill，解释额外指令和工具偏好从哪里进入上下文。",
     "memory_recall": "记录召回或放弃了哪些记忆，解释历史信息是否影响本轮判断。",
@@ -2201,7 +2202,7 @@ _TRACE_EVENT_PURPOSES = {
     "human_approval": "保存人工对高风险操作的决定，使恢复后的执行仍有可审计授权依据。",
     "human_input_requested": "记录 Agent 缺少的具体信息，并把运行切换到可恢复的等待状态。",
     "human_input_response_loaded": "证明恢复时载入了哪次人工回答，避免把旧输入注入新任务。",
-    "human_input_cancelled": "记录人工取消及其副作用检查结果，防止把取消误报为正常完成。",
+    "human_input_cancelled": "记录人工取消及后续控制结果，防止把取消误报为正常完成。",
     "tool_calls_deferred_for_human_input": "冻结尚未执行的工具请求，等待人工信息后重新规划。",
     "tool_calls_bounded": "记录预算裁剪，解释为什么模型请求的部分工具没有进入执行链。",
     "observation": "把工具结果写回会话，明确下一轮模型判断能够看到的反馈。",
@@ -2218,7 +2219,7 @@ _TRACE_EVENT_PURPOSES = {
     "stop_hooks": "运行宣称完成前执行质量门，防止带待处理工具或缺失证据的结果被误报为完成。",
     "run_completed": "固定最终状态和停止原因，使调用方不必从最后一条模型消息猜测结果。",
     "run_control": "记录暂停、取消或 steer 信号如何改变运行，便于复盘人工控制路径。",
-    "execution_environment": "记录实际工作区、隔离模式和网络边界，说明工具在哪个环境产生副作用。",
+    "execution_environment": "记录实际工作区、隔离模式和网络边界，说明工具在哪个环境运行。",
     "error": "保留失败阶段和错误类型，使异常不会只剩一条笼统的运行失败。",
     "multi_agent_start": "记录多 Agent 计划和参与角色，建立后续任务证据的共同起点。",
     "handoff": "记录角色间交付的任务和产物，避免把协作误解为共享聊天记录。",
@@ -2302,7 +2303,7 @@ def _checkpoint_transition(
         reason = "首次模型调用前建立 run 身份和初始恢复点"
     elif current_status == "waiting_approval":
         label = "进入审批等待"
-        reason = "副作用执行前形成可恢复人工屏障，进程退出也不会丢失请求"
+        reason = "持久状态变更操作启动前形成可恢复人工屏障，进程退出也不会丢失请求"
     elif previous_status == "waiting_approval" and current_status == "running":
         label = "审批后恢复运行"
         reason = "记录批准已被消费，恢复时不再重复发起同一审批"
@@ -2321,7 +2322,7 @@ def _checkpoint_transition(
         "observations_count",
     ):
         label = "保存工具结果"
-        reason = "标记工具副作用和 Observation 已提交，恢复时不重复执行"
+        reason = "标记工具结果和 Observation 已提交，恢复时不重复执行已完成操作"
     elif "context_digest" in changed_fields:
         label = "保存上下文摘要"
         reason = "保留压缩边界，使 continuation 能重建有界上下文"
@@ -2722,9 +2723,9 @@ def _hook_subject(event: dict[str, Any]) -> str:
     if decisive_hooks:
         policy_summary = "、".join(decisive_hooks)
     elif decisions:
-        policy_summary = f"{len(decisions)} 个 Hook 均无额外意见"
+        policy_summary = f"{len(decisions)} 个处理器均无额外意见"
     else:
-        policy_summary = str(event.get("hook_name") or "未记录具体 Hook")
+        policy_summary = str(event.get("hook_name") or "未记录具体处理器")
 
     governed_object = str(event.get("tool_call") or "模型调用")
     if stage == "on_checkpoint":
@@ -2735,7 +2736,7 @@ def _hook_subject(event: dict[str, Any]) -> str:
 
 
 def _hook_learning_reason(event: dict[str, Any]) -> str:
-    """说明各阶段 Hook 拦截的风险，不再把不同检查渲染成同一句话。"""
+    """说明生命周期处理器在当前时机做什么，不把 Hook 统称为校验。"""
 
     stage = _hook_stage(event)
     tool = str(event.get("tool_call") or "工具")
@@ -2751,7 +2752,7 @@ def _hook_learning_reason(event: dict[str, Any]) -> str:
         "after_tool": "工具返回后处理和脱敏 Observation，再把结果交回模型。",
         "on_checkpoint": "Checkpoint 落盘后通知审计或指标扩展，不改变已持久化状态。",
         "on_stop": "Runtime 宣称完成前执行外部质量门，阻止缺证据或未收口的结果。",
-    }.get(stage, "记录扩展策略介入的阶段和结果，避免 Hook 决定成为不可见控制流。")
+    }.get(stage, "记录生命周期处理器介入的时机和结果，避免控制流不可见。")
 
     result = _hook_result(event)
     decision = result.get("decision")
@@ -2762,7 +2763,7 @@ def _hook_learning_reason(event: dict[str, Any]) -> str:
         return f"{stage_reason} 本次结论：{conclusion}（{detail}）。"
     if not bool(event.get("success", True)):
         policy = _display_value(event.get("failure_policy") or "unknown")
-        return f"{stage_reason} 本次 Hook 异常，失败策略={policy}。"
+        return f"{stage_reason} 本次处理器异常，失败策略={policy}。"
     return stage_reason
 
 
@@ -2789,8 +2790,8 @@ def _event_subject(event: dict[str, Any]) -> str:
         guardrail = event.get("guardrail") or {}
         if isinstance(guardrail, dict):
             category = _display_value(guardrail.get("category") or "unknown")
-            outcome = "通过" if bool(guardrail.get("passed", True)) else "未通过"
-            return f"{category} 响应 · {outcome}"
+            outcome = "检查通过" if bool(guardrail.get("passed", True)) else "记录到问题"
+            return f"{category} · {outcome}"
     if event_type == "validation_evidence":
         validation = event.get("validation") or {}
         if isinstance(validation, dict):
@@ -2799,9 +2800,9 @@ def _event_subject(event: dict[str, Any]) -> str:
             tool = str(validation.get("tool") or "")
             return " · ".join(part for part in (kind, tool, status) if part)
     if event_type == "operation_ledger":
-        tool = str(event.get("tool_call") or "副作用操作")
+        tool = str(event.get("tool_call") or "状态变更操作")
         status = _display_value(event.get("operation_status") or "unknown")
-        return f"{tool} · 账本状态={status}"
+        return f"{tool} · 操作状态={status}"
     if event_type == "run_completed":
         status = _display_value(event.get("run_status") or "unknown")
         reason = _display_value(event.get("stop_reason") or "unknown")
@@ -2830,7 +2831,7 @@ def _event_business_label(event: dict[str, Any]) -> str:
         return str(checkpoint_transition.get("label") or "保存任务状态")
     event_type = str(event.get("event_type") or "未知事件")
     if event_type == "hook_check":
-        return _HOOK_STAGE_LABELS.get(_hook_stage(event), "Hook 检查")
+        return _HOOK_STAGE_LABELS.get(_hook_stage(event), "生命周期处理器事件")
     if event_type == "final_answer" and event.get("pending_tool_call"):
         return "收口失败：工具请求未执行"
     return _TRACE_EVENT_LABELS.get(event_type, event_type)
@@ -2861,8 +2862,8 @@ def _event_learning_reason(event: dict[str, Any]) -> str:
         decision = _display_value(event.get("permission_decision") or "unknown")
         reason = _translate_runtime_summary(event.get("reason") or "未记录理由")
         return (
-            f"把 Hook 聚合结果收敛为 Runtime 对 {tool} 的最终权限："
-            f"{decision}（{reason}）；审批和恢复都以此为准。"
+            f"把工具执行前处理器的结果收敛为 Runtime 对 {tool} 的执行许可："
+            f"{decision}（{reason}）；ASK 才进入人工授权，恢复状态另由操作状态表负责。"
         )
     if event_type == "tool_execution_started":
         tool = str(event.get("tool_call") or "工具")
@@ -2888,7 +2889,7 @@ def _event_learning_reason(event: dict[str, Any]) -> str:
         )
         return f"保存 {kind} 的命令、退出码和摘要，让“验证通过”能够被独立复核。"
     if event_type == "operation_ledger":
-        return "记录有副作用操作处于计划、执行中或已完成，供崩溃恢复判断能否安全重放。"
+        return "记录持久状态变更操作处于计划、执行中或已完成，供恢复时判断继续、回填旧结果或阻断。"
 
     purpose = _TRACE_EVENT_PURPOSES.get(event_type)
     if purpose:
@@ -3661,12 +3662,40 @@ def _render_runtime_controls(project_dir: Path) -> str:
         1 for event in events if "operation" in str(event.get("event_type") or "")
     )
     skill_event = _last_event(trace, "skill_selection")
+    skill_records = [
+        item
+        for item in (skill_event.get("skills") or [])
+        if isinstance(item, dict)
+    ]
     active_skills = (
         context_snapshot.get("active_skills")
         or skill_event.get("selected_skills")
-        or skill_event.get("skills")
+        or [
+            f"{item.get('name')}@{item.get('version')}"
+            for item in skill_records
+        ]
         or []
     )
+    skill_activation_lines = [
+        (
+            f"{item.get('name')}@{item.get('version')} · "
+            f"{_translate_runtime_summary(str(item.get('selection_reason') or '未记录选择原因'))} · "
+            f"必需工具 {len(item.get('required_tools') or [])} / "
+            f"可选工具 {len(item.get('optional_tools') or [])}"
+        )
+        for item in skill_records
+    ]
+    skill_resource_lines = [
+        (
+            f"{resource.get('path')} · 披露 {resource.get('disclosed_chars', 0)} / "
+            f"{resource.get('original_chars', 0)} 字符 · "
+            f"SHA {str(resource.get('sha256') or '')[:12]}"
+            + (" · 已按预算裁剪" if resource.get("truncated") else " · 完整披露")
+        )
+        for item in skill_records
+        for resource in (item.get("resources") or [])
+        if isinstance(resource, dict)
+    ]
     context_window_event = _last_event(trace, "context_window")
     context_window_value = context_window_event.get("context_window")
     context_window: dict[str, Any] = (
@@ -3790,14 +3819,14 @@ def _render_runtime_controls(project_dir: Path) -> str:
         f"{_badge(mode, _tone_for_status(mode))}</div>",
         _render_lab_brief(
             question=(
-                "写操作需要人工审批时，Runtime 能否在副作用发生前停稳，"
+                "写操作需要人工授权时，Runtime 能否在持久状态改变前停稳，"
                 "持久化状态，并在批准后只执行一次？"
             ),
             input_label="本次 Task",
             input_items=[task_description],
             mechanism=(
-                "AgentLoop → 工具前 Hook 与权限决策 → Approval → Checkpoint → "
-                "Resume → Operation Ledger 与目标 Fingerprint"
+                "入口控制 → 执行决策（操作状态 + 权限 + 人工授权）→ 受限执行 → "
+                "结果与恢复（Observation + Checkpoint）"
             ),
             success_criteria=(
                 "未批准不写入；批准后从已保存状态继续；恢复时拒绝重复或目标已漂移的写操作；"
@@ -3856,10 +3885,11 @@ def _render_runtime_controls(project_dir: Path) -> str:
         f"<tr><td>工作区写操作</td><td>{_render_fact_list(permission_lines, empty_message='Trace 中没有权限摘要')}</td><td>WorkspaceSandbox + PermissionPolicy</td></tr>",
         f"<tr><td>可见工具</td><td>{_render_fact_list(allowed, empty_message='该轮向模型暴露 0 个工具')}</td><td>ToolRouter</td></tr>",
         f"<tr><td>隐藏工具</td><td>{_render_fact_list(hidden, empty_message='Router 已观测：本轮隐藏 0 个候选工具')}</td><td>ToolRouter</td></tr>",
-        f"<tr><td>Skill 注入</td><td>{_render_fact_list(active_skills, empty_message='Skill 选择已执行：本次激活 0 个')}</td><td>SkillRegistry + ContextStrategy</td></tr>",
+        f"<tr><td>Skill 激活</td><td>{_render_fact_list(skill_activation_lines or active_skills, empty_message='Skill 选择已执行：本次激活 0 个')}</td><td>SkillRegistry：metadata 发现 → SKILL.md 激活</td></tr>",
+        f"<tr><td>Skill 资源披露</td><td>{_render_fact_list(skill_resource_lines, empty_message='本次没有匹配参考资源；不会为完整性强塞正文')}</td><td>SkillRegistry：每个 Run 最多披露 1 份有界资源</td></tr>",
         f"<tr><td>MCP 工具暴露</td><td>{mcp_evidence}</td><td>MCP Adapter + ToolRegistry</td></tr>",
         f"<tr><td>人工控制屏障</td><td>{human_events} 个已观测事件</td><td>HumanInputStore + ApprovalStore</td></tr>",
-        f"<tr><td>写操作幂等</td><td>{operation_events} 个操作账本事件</td><td>OperationLedger</td></tr>",
+        f"<tr><td>写操作防重复</td><td>{operation_events} 个操作状态事件</td><td>OperationLedger</td></tr>",
         f"<tr><td>Checkpoint 触发状态</td><td>{_render_fact_list(checkpoint_status_lines, empty_message='本次没有写入 Checkpoint')}</td><td>TaskStateRepository</td></tr>",
         "<tr><td>类型化证据契约</td><td>TraceEvent 信封 + 具名任务 Checkpoint</td><td>TraceRecorder + TaskCheckpoint</td></tr>",
         "</tbody></table>"
@@ -4805,14 +4835,17 @@ def _translate_runtime_summary(value: Any) -> str:
     replacements = (
         (
             "all hooks deferred; default allow",
-            "全部 Hook 均无额外意见，按默认规则允许",
+            "全部处理器均无额外意见，按默认规则允许",
         ),
         (
             "execution environment has no additional restriction",
             "执行环境没有附加限制",
         ),
-        ("no hook opinion", "该 Hook 无额外意见"),
-        ("read/list/grep allowed", "读取、列目录和搜索允许"),
+        ("no hook opinion", "该处理器无额外意见"),
+        ("explicit invocation", "显式指定"),
+        ("task metadata score=", "任务元数据命中分="),
+        ("bounded fallback", "有界兜底选择"),
+        ("read/list/search allowed", "读取、列目录和搜索允许"),
         ("replace_text/write_file asks approval", "replace_text/write_file 需要审批"),
         ("dangerous commands denied", "危险命令拒绝"),
         ("execution_environment mode=", "执行环境模式="),
@@ -4979,7 +5012,7 @@ def _render_role_rows(summary: dict[str, Any]) -> str:
         )
     if rows:
         return "".join(rows)
-    return "<tr><td colspan='5'>尚未找到多 Agent 角色摘要。请运行多 Agent/配对模式，或把此页作为离线讲解路线。</td></tr>"
+    return "<tr><td colspan='5'>尚未找到多 Agent 角色摘要。请运行多 Agent/配对模式，或把此页作为离线证据导航入口。</td></tr>"
 
 
 def _render_artifact_rows(summary: dict[str, Any]) -> str:

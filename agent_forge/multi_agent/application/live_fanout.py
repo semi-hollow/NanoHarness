@@ -29,8 +29,8 @@ from .dependencies import LiveFanoutDependencies
 class LiveFanoutCoordinator:
     """协调真实 AgentLoop worker，但不实现 Git、文件或 worker runtime。
 
-    第一遍只读 ``run``。它拥有依赖批次、动态冲突、diff 合并顺序、恢复资格和最终
-    状态；所有外部副作用均通过 ``LiveFanoutDependencies`` 完成。
+    ``run`` 是公开主入口。它拥有依赖批次、动态冲突、diff 合并顺序、恢复资格和
+    最终状态；所有外部 IO 和状态变更均通过 ``LiveFanoutDependencies`` 完成。
     """
 
     def __init__(
@@ -51,15 +51,31 @@ class LiveFanoutCoordinator:
         self.max_workers = max(1, min(int(max_workers), 8))
         self.resume_from = resume_from
 
-    # 主要入口：按依赖批次并发 worker，校验合并 candidate diff，再运行 finalizer。
+    # 主要入口：这是多 Agent 用例的完整主链，编号注释标明各执行阶段。
     def run(self) -> LiveFanoutSummary:
-        """执行 dependency-aware worker，并返回可审计的集成结果。"""
+        """执行 dependency-aware worker，并返回可审计的集成结果。
 
-        # region 准备区（首遍可折叠）：固定 base revision 并验证集成前提
+        主链分成六步：
+        1. 固定集成基线并检查写任务前提；
+        2. 根据依赖和声明写入范围生成无冲突批次；
+        3. 在隔离 workspace 中并发运行同批 Worker；
+        4. 根据 Worker 实际改动文件做动态冲突检查；
+        5. 按稳定顺序检查并合并 candidate diff；
+        6. 全部任务成功且无冲突时，运行只读 Finalizer 并发布证据。
+
+        ``build_conflict_free_batches`` 处理执行前可知的静态冲突；
+        ``_mark_dynamic_conflicts`` 处理 Worker 运行后才知道的实际文件冲突；
+        ``_merge_batch`` 才真正把 candidate diff 写入集成 workspace。
+        """
+
+        # region 1. 集成前提（主链）：固定基线，写任务必须可安全自动恢复
         started_at = time.monotonic()
         base_revision = self.workspace.head()
         if not base_revision:
             raise RuntimeError("live fanout requires a git workspace")
+
+        # Live Fanout 的 Worker 使用临时 worktree。若写操作等待逐次人工审批，
+        # 临时环境退出后无法原地续跑，所以这里只接受已显式开启自动审批的写任务。
         contains_write_tasks = any(task.write_scope for task in self.plan.tasks)
         if contains_write_tasks and not self.base_config.auto_approve_writes:
             raise RuntimeError(
@@ -69,20 +85,27 @@ class LiveFanoutCoordinator:
         if contains_write_tasks and self.workspace.status():
             raise RuntimeError("write fanout requires a clean integration workspace")
 
-        # 调度视图：依赖 DAG 被切成可并发、且写集合不冲突的批次。
+        # 第 2 步：根据 depends_on 和声明的 write_scope 建批次。
+        # 同批任务可以并发；存在依赖或静态写入冲突的任务会进入后续批次。
         dependency_batches = build_conflict_free_batches(self.plan.tasks)
         batch_task_ids = [[task.id for task in batch] for batch in dependency_batches]
-        # 运行账本：四个容器分别记录结果、合并顺序、依赖完成状态和冲突事实。
+
+        # 主链状态：successful_task_ids 只包含已经完成且成功集成的任务，
+        # 因此它既是后续依赖门禁，也是 Finalizer 是否可运行的判断依据。
         all_worker_results: list[LiveSubagentResult] = []
         merged_task_ids: list[str] = []
         successful_task_ids: set[str] = set()
         detected_conflicts: list[FanoutConflict] = []
-        # endregion 准备区结束
+        # endregion 1. 集成前提结束
+
         # region 2. 依赖调度与批次执行（主链）：恢复历史结果，同批并发，批间串行合并
+        # 先发布经过固定的计划和批次。此事件只表示“准备执行”，不表示任务成功。
         self._record_fanout_started(
             batch_task_ids=batch_task_ids,
         )
 
+        # 恢复时先校验 plan/base/diff 摘要，再把历史成功 diff 重放到当前集成 workspace。
+        # 恢复完成的任务会进入 successful_task_ids，后续不会再次执行。
         if self.resume_from:
             restored_results = self._restore_previous(base_revision)
             all_worker_results.extend(restored_results)
@@ -92,6 +115,8 @@ class LiveFanoutCoordinator:
             merged_task_ids.extend(
                 worker_result.task_id for worker_result in restored_results
             )
+
+        # 在任何新 Worker 启动前保存计划和第一个恢复点，确保中断后有确定入口。
         self.artifacts.write_plan(self.plan)
         self._checkpoint(
             base_revision,
@@ -100,8 +125,9 @@ class LiveFanoutCoordinator:
             "running",
         )
 
-        # 执行区：同一批并发，批次之间按依赖顺序串行并合并 candidate diff。
+        # 第 3 至 5 步：每个批次内部并发执行，批次之间串行集成。
         for batch_index, batch in enumerate(dependency_batches):
+            # 依赖门禁：只启动前置任务已经成功集成的任务；依赖失败则记录 blocked_dependency。
             runnable_tasks = self._runnable_tasks(
                 batch,
                 successful_task_ids,
@@ -117,13 +143,21 @@ class LiveFanoutCoordinator:
                 )
                 continue
 
+            # Worker 执行：每个任务在独立 workspace 中运行真实 AgentLoop，
+            # 返回 candidate diff 和 touched_files，不直接修改主集成 workspace。
             completed_batch_results = self._run_batch(
                 runnable_tasks,
                 batch_index,
                 self.workspace.diff(),
             )
+
+            # 动态冲突门：根据实际 touched_files 检查同批 Worker 是否碰到同一文件。
+            # 命中冲突的结果会改成 dynamic_conflict，禁止进入下一步合并。
             batch_conflicts = self._mark_dynamic_conflicts(completed_batch_results)
             detected_conflicts.extend(batch_conflicts)
+
+            # 真正合并点：按计划中的稳定任务顺序执行“先 check、后 apply”。
+            # 空 diff、不可应用 diff 和应用失败都会留下明确状态，不会记为依赖成功。
             self._merge_batch(
                 runnable_tasks,
                 completed_batch_results,
@@ -131,6 +165,8 @@ class LiveFanoutCoordinator:
                 merged_task_ids,
                 detected_conflicts,
             )
+
+            # 合并后再汇总 Worker 结果并持久化恢复点，避免 checkpoint 声称尚未落地的成功。
             all_worker_results.extend(completed_batch_results)
             self._checkpoint(
                 base_revision,
@@ -147,9 +183,14 @@ class LiveFanoutCoordinator:
         # endregion 2. 依赖调度与批次执行结束
 
         # region 3. Finalizer 与证据发布（主链）：只有全部成功且无冲突才允许最终判定
+        # 先把集成 workspace 当前状态固化为最终 candidate diff artifact。
+        # 这一步只发布候选改动，不等于 Finalizer 已经判定通过。
         integrated_diff_file = self.artifacts.write_integrated_diff(
             self.workspace.diff()
         )
+
+        # Finalizer 是最后的 correctness gate，不负责合并。
+        # 只有每个计划任务都已成功集成，且静态/动态/应用冲突均为空，才允许启动只读复核。
         every_task_succeeded = len(successful_task_ids) == len(self.plan.tasks)
         finalizer_result = None
         if every_task_succeeded and not detected_conflicts:
@@ -158,6 +199,8 @@ class LiveFanoutCoordinator:
                 all_worker_results,
             )
 
+        # 状态裁决集中在 _fanout_status：冲突优先于部分失败，部分失败优先于 Finalizer 结论。
+        # 因此 Worker 没有全部成功时，不会因为缺少 Finalizer 结果而被误写成 needs_revision。
         finalizer_decision = finalizer_result.decision if finalizer_result else ""
         fanout_status = _fanout_status(
             worker_results=all_worker_results,
@@ -165,6 +208,9 @@ class LiveFanoutCoordinator:
             every_task_succeeded=every_task_succeeded,
             finalizer_decision=finalizer_decision,
         )
+
+        # 汇总层只组装已发生的事实：Worker 结果、冲突、用量、Finalizer 证据和集成 diff 路径。
+        # 它不再次执行工具，也不修改任何任务状态。
         elapsed_ms = int((time.monotonic() - started_at) * 1000)
         finalizer_usage_summary = (
             finalizer_result.usage_summary if finalizer_result else {}
@@ -197,6 +243,9 @@ class LiveFanoutCoordinator:
             finalizer_usage_summary=finalizer_usage_summary,
             integrated_diff_path=integrated_diff_file,
         )
+
+        # 最终持久化顺序：先写可恢复 checkpoint，再写面向人/Workbench 的 summary，
+        # 最后发布完成事件。即使 summary 发布中断，恢复状态也不会丢失。
         self._checkpoint(
             base_revision,
             all_worker_results,
@@ -211,7 +260,7 @@ class LiveFanoutCoordinator:
         # endregion 3. Finalizer 与证据发布结束
         return fanout_summary
 
-    # region 证据记录器（首次阅读可折叠）
+    # region 证据记录器
     def _record_fanout_started(self, *, batch_task_ids: list[list[str]]) -> None:
         """记录固定后的计划和依赖批次，不代表 worker 已经执行。"""
 
@@ -263,7 +312,7 @@ class LiveFanoutCoordinator:
 
     # endregion 证据记录器结束
 
-    # region 调度、合并与恢复细节（首次阅读可折叠）
+    # region 调度、合并与恢复细节
     def _runnable_tasks(
         self,
         batch: list[SubagentTask],
@@ -330,6 +379,7 @@ class LiveFanoutCoordinator:
     ) -> list[FanoutConflict]:
         """把 worker 实际触碰文件形成的动态冲突写回任务状态。"""
 
+        # 只有完成的 Worker 才有可参与集成的真实改动范围；失败结果不进入文件冲突比较。
         detected_conflicts = detect_result_conflicts(
             [
                 SubagentResult(
@@ -342,6 +392,7 @@ class LiveFanoutCoordinator:
                 if worker_result.status == "completed"
             ]
         )
+        # 将领域层返回的冲突事实写回每个 Worker 结果，后续 _merge_batch 会跳过这些结果。
         conflicting_task_ids = {
             task_id for conflict in detected_conflicts for task_id in conflict.task_ids
         }
@@ -360,12 +411,16 @@ class LiveFanoutCoordinator:
     ) -> None:
         """按稳定任务顺序校验并应用本批次 candidate diff。"""
 
+        # batch_results 来自并发 Future，先映射回原计划任务，随后按稳定结果顺序处理。
         task_by_id = {task.id: task for task in tasks}
         for worker_result in batch_results:
             task = task_by_id[worker_result.task_id]
+
+            # failed、blocked_dependency 和 dynamic_conflict 都不能进入集成 workspace。
             if worker_result.status != "completed":
                 continue
             if task.write_scope:
+                # 写任务必须提供非空 candidate diff；只有最终答案而没有改动不能算任务成功。
                 candidate_diff_text = (
                     self.artifacts.read_text(worker_result.candidate_diff_path)
                     if worker_result.candidate_diff_path
@@ -374,6 +429,8 @@ class LiveFanoutCoordinator:
                 if not candidate_diff_text.strip():
                     worker_result.status = "no_patch"
                     continue
+
+                # 第一遍只做适用性检查，不修改集成 workspace，作用类似数据库事务提交前校验。
                 diff_is_applicable, applicability_detail = (
                     self.workspace.apply_unified_diff(
                         candidate_diff_text,
@@ -389,6 +446,8 @@ class LiveFanoutCoordinator:
                         ),
                     )
                     continue
+
+                # 检查通过后才真正应用 diff；检查与应用之间仍可能发生失败，因此两步都要判断。
                 diff_was_applied, application_detail = (
                     self.workspace.apply_unified_diff(
                         candidate_diff_text,
@@ -404,6 +463,8 @@ class LiveFanoutCoordinator:
                         ),
                     )
                     continue
+
+            # 读任务完成，或写任务已经成功合并后，才能解锁依赖它的后续任务。
             successful_task_ids.add(worker_result.task_id)
             merged_task_ids.append(worker_result.task_id)
 
@@ -412,11 +473,14 @@ class LiveFanoutCoordinator:
 
         if not self.resume_from:
             return []
+
+        # 恢复身份门：计划和 Git 基线必须与 checkpoint 完全一致，避免把旧任务结果接到新代码上。
         resume_payload = self.artifacts.load_resume(self.resume_from)
         if resume_payload.get("plan_digest") != self.plan.digest:
             raise RuntimeError("fanout resume plan digest does not match")
         if resume_payload.get("base_head") != base_revision:
             raise RuntimeError("fanout resume base commit does not match")
+        # checkpoint 是外部持久化数据，先建立显式索引并拒绝当前计划中不存在的任务。
         previous_result_by_task_id = {
             str(saved_result.get("task_id")): saved_result
             for saved_result in resume_payload.get("results", [])
@@ -431,7 +495,8 @@ class LiveFanoutCoordinator:
                 f"{', '.join(unknown_merged_task_ids)}"
             )
 
-        # 恢复容器：每项同时保存任务定义、结果快照和待重放 candidate diff。
+        # 逐任务恢复：重建结果对象，并用 SHA-256 确认 candidate diff 没有在落盘后被替换。
+        # 容器中的每项同时保存任务定义、结果快照和待重放 candidate diff。
         prepared_recovery_items: list[tuple[SubagentTask, LiveSubagentResult, str]] = []
         for task in self.plan.tasks:
             if task.id not in previously_merged_task_ids:
@@ -475,6 +540,8 @@ class LiveFanoutCoordinator:
                     )
             prepared_recovery_items.append((task, restored_result, candidate_diff_text))
 
+        # 先在临时环境联合校验所有历史 diff，再一次性应用到当前集成 workspace。
+        # 这样不会出现前几个任务已恢复、后一个任务失败而留下半恢复状态。
         recovery_diffs = [
             (task.id, candidate_diff_text)
             for task, _, candidate_diff_text in prepared_recovery_items

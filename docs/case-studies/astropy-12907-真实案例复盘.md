@@ -1,12 +1,11 @@
-# 案例研究：astropy__astropy-12907
+# astropy__astropy-12907 真实案例复盘
 
 ## 为什么这个 Case 重要
 
-这是一个紧凑的真实仓库案例，适合观察 Coding Agent tool contract、candidate diff
-evidence 和保守 evaluation claim。学习目标不是背官方 Harness 实现，而是亲自区分 case 输入、
-Agent 产生的修改、仓库自带测试和独立 evaluator。
+这是一个紧凑的真实仓库案例，用于验证 Coding Agent tool contract、candidate diff evidence
+和保守 evaluation claim。复盘重点是区分 case 输入、Agent 产生的修改、仓库自带测试和独立 evaluator。
 
-## 先看 Case，不运行 Agent
+## 只读检查 Case
 
 ```bash
 forge bench case astropy__astropy-12907
@@ -18,8 +17,8 @@ forge bench case astropy__astropy-12907
 ## Runtime 教训
 
 Agent 需要检查 separability logic 附近的一小段代码。如果 `read_file` 不支持模型自然
-使用的 `offset` / `limit` 参数，模型可能反复读取错误位置。这是 tool schema mismatch，
-不只是 prompt 问题。
+使用的 `offset` / `limit` 参数，模型可能反复读取错误位置。这属于
+[工具治理主视图](../运行生命周期与异常处理机制.md)中的入口合同不匹配，不是 Prompt、权限或执行环境问题。
 
 仓库测试命令示例：
 
@@ -28,8 +27,8 @@ python -m pytest astropy/modeling/tests/test_separable.py
 ```
 
 `pytest` 是第三方 Python 测试运行器；`python -m pytest` 明确使用当前虚拟环境的 Python，随后
-收集并运行指定文件中的测试。Tool 的 `schema()` 只把名称和参数合同展示给模型；真正的进程调用
-发生在 Tool Gateway 校验后进入 `execute()`，再由 Execution Environment/subprocess 执行。
+收集并运行指定文件中的测试。Tool 的 `schema()` 只把名称和参数合同展示给模型；默认
+`ToolRegistry` 在调用工具实现前校验参数，真正的测试进程再由 Execution Environment/subprocess 执行。
 
 SWE-bench 路由必须留下实际测试类型、目标、argv、exit code 和输出证据。只执行 `.py` 文件却没有
 pytest collection，或依赖缺失时，local 状态必须是 failed/unavailable，不能标为 verified。

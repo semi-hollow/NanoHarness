@@ -1,6 +1,8 @@
+import tempfile
 import unittest
 
 from agent_forge.runtime.domain.conversation import Observation
+from agent_forge.runtime.wiring import ToolRegistryBuildRequest, build_registry
 from agent_forge.tools.registry import ToolRegistry
 from agent_forge.tools.tool_router import ToolRouter, ToolRoutingRequest
 
@@ -15,28 +17,23 @@ class DummyTool:
         return Observation(self.name, True, arguments["path"])
 
 
-class NamedDummyTool:
-    def __init__(self, name: str) -> None:
-        self.name = name
-
-    def schema(self):
-        return {"name": self.name, "arguments": {}}
-
-    def execute(self, arguments):
-        return Observation(self.name, True, "ok")
-
-
 class ToolRegistryRouterTest(unittest.TestCase):
-    def test_registry_executes_legacy_search_alias_but_exposes_one_schema(self):
-        registry = ToolRegistry()
-        registry.register(NamedDummyTool("grep"))
-        registry.register(NamedDummyTool("grep_search"))
+    def test_default_registry_has_one_keyword_search_tool(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            registry = build_registry(
+                ToolRegistryBuildRequest(workspace=tmp, auto=True)
+            )
 
-        self.assertIsNotNone(registry.get("grep"))
-        self.assertEqual(
-            [schema["name"] for schema in registry.schemas()],
-            ["grep_search"],
-        )
+            self.assertIsNone(registry.get("grep"))
+            self.assertIsNotNone(registry.get("grep_search"))
+            self.assertEqual(
+                [
+                    schema["name"]
+                    for schema in registry.schemas()
+                    if schema["name"] == "grep_search"
+                ],
+                ["grep_search"],
+            )
 
     def test_registry_validates_missing_arguments(self):
         registry = ToolRegistry()
@@ -145,12 +142,28 @@ class ToolRegistryRouterTest(unittest.TestCase):
 
         self.assertNotIn("replace_text", route.allowed_names)
 
-    def test_router_uses_deduplicated_search_and_allowlisted_validation_fallback_for_swebench(
+    def test_skill_tool_preferences_cannot_override_read_only_policy(self):
+        schemas = [
+            {"name": "read_file", "arguments": {"path": "str"}},
+            {"name": "replace_text", "arguments": {"path": "str"}},
+            {"name": "run_command", "arguments": {"command": "str"}},
+        ]
+
+        route = ToolRouter().route(
+            ToolRoutingRequest(
+                task="只读分析这个问题，不要修改文件",
+                schemas=schemas,
+                skill_tool_names={"read_file", "replace_text", "run_command"},
+            )
+        )
+
+        self.assertEqual(route.allowed_names, {"read_file"})
+
+    def test_router_uses_keyword_search_and_allowlisted_validation_fallback_for_swebench(
         self,
     ):
         schemas = [
             {"name": "read_file", "arguments": {"path": "str"}},
-            {"name": "grep", "arguments": {"pattern": "str"}},
             {"name": "grep_search", "arguments": {"pattern": "str"}},
             {
                 "name": "replace_text",
@@ -181,7 +194,6 @@ class ToolRegistryRouterTest(unittest.TestCase):
         self.assertIn("python_validation", route.allowed_names)
         self.assertNotIn("write_file", route.allowed_names)
         self.assertIn("run_command", route.allowed_names)
-        self.assertNotIn("grep", route.allowed_names)
         self.assertIn("grep_search", route.allowed_names)
         self.assertIn(
             "swebench_validation=python_validation|allowlisted_run_command",

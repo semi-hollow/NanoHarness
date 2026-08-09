@@ -15,7 +15,7 @@ from agent_forge.evaluation.api import (
 
 
 class RunSwebench:
-    """SWE-bench 的阶段编排器；第一遍只读 ``execute``。"""
+    """SWE-bench 的阶段编排器；``run_benchmark`` 是公开主入口。"""
 
     def __init__(self, dependencies: BenchDependencies) -> None:
         self._deps = dependencies
@@ -30,7 +30,7 @@ class RunSwebench:
     ) -> BenchRunSummary:
         """按 case 执行、official evaluation、最终诊断和发布顺序运行评测。"""
 
-        # region 准备区（首遍可折叠）：固定输入与跨 case 累积容器
+        # region 准备区（实现细节）：固定输入与跨 case 累积容器
         _validate_frozen_inputs(request)
         selected_cases = self._deps.cases.load(request)
         run_summary = _new_summary(request, run_id, layout)
@@ -43,6 +43,8 @@ class RunSwebench:
         # endregion 准备区结束
 
         # region 2. Case 执行：先跑 Harness，再按需运行无 Harness 的直接模型基线
+        # 每个 Case 的 Agent 结果先变成官方 evaluator 所需 prediction；direct baseline
+        # 单独执行、单独索引，不能覆盖或补写 Agent 的运行事实。
         for case in selected_cases:
             case_result = self._execute_case(case, request, layout)
             run_summary.case_results.append(case_result)
@@ -75,6 +77,8 @@ class RunSwebench:
         # endregion 3. Official evaluation结束
 
         # region 4. 诊断与发布：final diagnosis 后才能生成对照和最终报告
+        # finalize_case 必须在 official evaluator 写回后调用，确保 Taxonomy 能看见权威结果；
+        # variant comparison 只读最终 Case 和 Usage artifact，不重新猜测 correctness。
         for case_result in run_summary.case_results:
             self._deps.artifacts.finalize_case(case_result)
             matching_baseline_prediction = direct_baseline_by_instance_id.get(
@@ -107,7 +111,7 @@ class RunSwebench:
         return run_summary
         # endregion 4. 诊断与发布结束
 
-    # region 单 case 执行细节（首次阅读可折叠）
+    # region 单 case 执行细节
     def _execute_case(
         self,
         case: BenchCase,
@@ -139,6 +143,8 @@ class RunSwebench:
         # endregion 路径准备结束
 
         # region 2. 变体执行：相同 Case 分别进入独立目录，防止状态互相污染
+        # single 与 multi 使用相同 Case/请求，但拥有独立 workspace、trace 和 artifact；
+        # 这保证差异来自 Runtime 变体，而不是前一个变体留下的文件状态。
         single_agent_result = self._deps.executor.run(
             case,
             case_dir=single_agent_run_dir,
@@ -154,6 +160,8 @@ class RunSwebench:
         # endregion 2. 变体执行结束
 
         # region 3. 指标与候选收口：比较运行事实，并显式选择 multi candidate
+        # compare_runs 生成解释性指标；当前 compare 模式的交付候选明确取 multi diff，
+        # 不能根据对照分数偷偷切换候选，否则实验与实际输出会失去对应关系。
         run_comparison = compare_runs(
             case.instance_id,
             extract_run_metrics(

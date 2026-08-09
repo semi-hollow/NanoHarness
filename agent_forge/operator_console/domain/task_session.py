@@ -11,7 +11,7 @@ class TaskSessionRun:
     """一个 Task Session 中的一次不可变运行记录。
 
     Session 用于人类导航；Run 仍保留独立随机 ID 和 artifact 目录。一个恢复、
-    后续追问或重新尝试都会产生新的本对象，不会覆盖历史证据。
+    后续交互或重新尝试都会产生新的本对象，不会覆盖历史证据。
     """
 
     run_id: str
@@ -66,7 +66,7 @@ class TaskSession:
     """跨多个 Run 的人类可读任务会话。
 
     ``session_id`` 是本地目录身份；``human_thread_id`` 会写进每次 checkpoint，
-    让恢复和后续追问保持同一人工交互线程。``runs`` 只保存索引，真实 Trace、Diff、
+    让恢复和后续交互保持同一人工交互线程。``runs`` 只保存索引，真实 Trace、Diff、
     Usage 和 Checkpoint 仍由各自 artifact 目录负责。
     """
 

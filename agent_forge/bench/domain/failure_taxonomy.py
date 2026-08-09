@@ -189,6 +189,8 @@ def classify_case_result(
     # endregion 2. 权威结果与环境故障结束
 
     # region 3. 候选证据：local pass 或 diff 只能证明候选存在，不能外推 official
+    # 该层按“local pass + patch”组合从强到弱裁决：本地验证和 candidate diff 都是
+    # 候选证据，任何分支都刻意不返回 official_resolved。
     if result.local_validation_status == "passed" and result.patch_chars > 0:
         return FailureDiagnosis(
             failure_class="locally_verified_candidate",
@@ -228,6 +230,8 @@ def classify_case_result(
     # endregion 3. 候选证据结束
 
     # region 4. Runtime 症状：没有 correctness 证据时再分析协议、窗口和工具行为
+    # 以下规则按可行动性排序并在首次命中时返回：schema/终止/窗口等明确协议故障
+    # 优先于通用 tool/context 症状，避免低信息量分类遮住真正根因。
     if (
         "offset" in normalized_failure_text
         and "limit" in normalized_failure_text
@@ -324,6 +328,7 @@ def classify_case_result(
             engineering_lesson="Tool governance should narrow side effects while still giving agents a valid path to complete work.",
         )
     if failed_tool_call_count > 0:
+        # 只有更具体的协议、安全和重复规则均未命中时，才退化为通用工具不可用。
         return FailureDiagnosis(
             failure_class="tool_not_available",
             summary="One or more requested tools failed or were unavailable, and the agent did not recover into a patch.",
@@ -336,6 +341,7 @@ def classify_case_result(
             engineering_lesson="Tool availability and recovery policy are part of the agent control plane.",
         )
     if max_selected_files == 0 and result.status in {"blocked", "no_patch"}:
+        # context_miss 是末级行为推断：它只说明未观测到具体文件，不声称 RAG 或模型必然失败。
         return FailureDiagnosis(
             failure_class="context_miss",
             summary="The agent did not surface concrete source files before stopping.",

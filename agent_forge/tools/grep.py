@@ -5,10 +5,11 @@ from agent_forge.safety.sandbox import WorkspaceSandbox
 from .base import Tool
 
 
-class GrepTool(Tool):
+class GrepSearchTool(Tool):
+    """在工作区的 Python 文件中执行有界关键词搜索。"""
 
-    name = "grep"
-    description = "keyword search"
+    name = "grep_search"
+    description = "search Python files for an exact, case-sensitive keyword"
 
     def __init__(self, sandbox: WorkspaceSandbox) -> None:
 
@@ -16,7 +17,11 @@ class GrepTool(Tool):
 
     def schema(self) -> ToolSchema:
 
-        return {"name": self.name, "description": self.description, "arguments": {"keyword": "str"}}
+        return {
+            "name": self.name,
+            "description": self.description,
+            "arguments": {"keyword": "str"},
+        }
 
     def execute(self, arguments: ToolArguments) -> Observation:
 
@@ -33,9 +38,3 @@ class GrepTool(Tool):
                 if len(matches) >= 50:
                     break
         return Observation(self.name, True, "\n".join(matches))
-
-
-class GrepSearchTool(GrepTool):
-
-    name = "grep_search"
-    description = "keyword or simple substring search"

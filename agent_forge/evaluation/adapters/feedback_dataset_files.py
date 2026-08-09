@@ -95,6 +95,8 @@ def write_improvement_record(request: ImprovementRecordRequest) -> Path:
     # endregion 1. 证据前置条件结束
 
     # region 2. 决策与变体校验：拒绝不存在或不受支持的对照
+    # decision 必须是预定义采纳动作，control/treatment 必须真实存在于 summary；
+    # 本函数不允许调用方凭空提交一个没有配对指标支持的“改进”。
     decision = request.decision.strip().lower()
     if decision not in IMPROVEMENT_DECISIONS:
         choices = ", ".join(sorted(IMPROVEMENT_DECISIONS))
@@ -115,6 +117,8 @@ def write_improvement_record(request: ImprovementRecordRequest) -> Path:
     # endregion 2. 决策与变体校验结束
 
     # region 3. 审计载荷：保留来源、诊断、假设、前后指标和 claim boundary
+    # payload 把“观察 -> 诊断 -> 假设 -> 改动 -> 指标差值 -> 人工决策”固化在一起；
+    # delta 只做确定性算术，诊断和采纳理由仍明确标注来源与人工复核状态。
     config = manifest.get("config")
     config = config if isinstance(config, dict) else {}
     case_ids = [

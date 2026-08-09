@@ -1,7 +1,7 @@
 """Harness Public API 使用的数据契约。
 
-学习主流程时可以跳过本文件；这里只定义配置、输入、输出和可替换扩展点，
-不执行 AgentLoop，也不包含文件系统副作用。
+本文件只定义配置、输入、输出和可替换扩展点，不执行 AgentLoop，
+也不修改文件系统状态。
 """
 
 from __future__ import annotations

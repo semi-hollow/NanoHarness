@@ -1,7 +1,8 @@
-"""Runtime Hook 的内置实现与聚合器。
+"""Runtime 内置生命周期处理器与聚合器。
 
-内置 Hook 只有三种：执行环境检查、权限决策和最终敏感信息脱敏。``HookManager``
-再把它们与使用者自定义的 ``RuntimeHook`` 按稳定顺序组合。
+当前只有三个内置处理器：工具执行前的环境边界检查、权限判断，以及工具执行后的
+敏感信息脱敏。``HookManager`` 在六个固定时机调用内置和调用方注册的处理器；它只
+负责顺序、决策合并与异常隔离，不拥有审批、Checkpoint 或工具执行状态。
 """
 
 from __future__ import annotations
@@ -27,7 +28,7 @@ from agent_forge.safety.permission import PermissionDecision, PermissionPolicy
 
 
 class PermissionHook(RuntimeHook):
-    """在 ``before_tool`` 把 PermissionPolicy 结果转成统一 HookDecision。"""
+    """在 ``before_tool`` 时机执行动作权限规则并返回统一决策。"""
 
     name = "permission_policy"
 
@@ -86,7 +87,7 @@ class PermissionHook(RuntimeHook):
 
 
 class ExecutionEnvironmentHook(RuntimeHook):
-    """在工具执行前检查命令和路径是否越过当前执行环境边界。"""
+    """在 ``before_tool`` 时机预检查命令和路径是否越过执行环境边界。"""
 
     name = "execution_environment"
 
@@ -131,7 +132,7 @@ class ExecutionEnvironmentHook(RuntimeHook):
 
 
 class SecretRedactionHook(RuntimeHook):
-    """在 ``after_tool`` 对 Observation 做最终凭据脱敏。"""
+    """在 ``after_tool`` 时机对 Observation 做最终凭据脱敏。"""
 
     name = "secret_redaction"
 
@@ -154,7 +155,7 @@ class SecretRedactionHook(RuntimeHook):
 
 
 class HookManager(HookPort):
-    """按稳定顺序组合安全 Hook 与使用者 Hook，并隔离扩展异常。"""
+    """按稳定顺序调用生命周期处理器，合并决策并隔离处理器异常。"""
 
     def __init__(
         self,
@@ -186,13 +187,13 @@ class HookManager(HookPort):
         )
 
     def observe_with(self, events: EventSink) -> "HookManager":
-        """由 composition root 绑定 Hook 异常证据，不扩大策略工厂签名。"""
+        """由 composition root 绑定处理器异常证据，不扩大策略工厂签名。"""
 
         self.events = events
         return self
 
     def before_model(self, context: ModelHookContext) -> HookResult:
-        """按拒绝优先级合并全部模型前置 Hook。"""
+        """在 ``before_model`` 时机按拒绝优先级合并具体处理器决策。"""
 
         hook_decisions = [
             self._safe_decision(
@@ -211,7 +212,7 @@ class HookManager(HookPort):
         context: ModelHookContext,
         response: AgentResponse,
     ) -> AgentResponse:
-        """按注册顺序应用模型响应后置 Hook。"""
+        """在 ``after_model`` 时机按注册顺序处理模型响应。"""
 
         current_model_response = response
         for hook in self.hooks:
@@ -230,9 +231,9 @@ class HookManager(HookPort):
                 )
         return current_model_response
 
-    # 运行时端口：按拒绝优先级合并所有治理 Hook 的工具前置决策。
+    # 运行时端口：在 before_tool 时机按拒绝优先级合并具体处理器决策。
     def before_tool(self, context: HookContext) -> HookResult:
-        """在工具执行前合并环境、权限和使用者 Hook 的决策。"""
+        """合并环境检查、权限规则和调用方注册处理器的决策。"""
 
         hook_decisions = [
             self._safe_decision(
@@ -282,7 +283,7 @@ class HookManager(HookPort):
         context: HookContext,
         observation: Observation,
     ) -> Observation:
-        """按注册顺序处理工具结果，最终执行敏感信息脱敏。"""
+        """在 ``after_tool`` 时机按注册顺序处理结果，最后执行敏感信息脱敏。"""
 
         current_observation = observation
         for hook in self.hooks:
@@ -315,9 +316,9 @@ class HookManager(HookPort):
             for hook in self.hooks
         ]
 
-    # HookPort 的真实聚合实现：checkpoint 落盘后逐个通知 RuntimeHook。
+    # HookPort 的真实聚合实现：checkpoint 落盘后逐个通知生命周期处理器。
     def on_checkpoint(self, checkpoint: TaskCheckpoint) -> None:
-        """checkpoint 已落盘后依次通知 Hook。"""
+        """checkpoint 已落盘后依次通知处理器；处理器不拥有该状态。"""
 
         for hook in self.hooks:
             try:
@@ -339,7 +340,7 @@ class HookManager(HookPort):
         agent_name: str,
         invoke_hook: Callable[[], HookDecision],
     ) -> HookDecision:
-        """前置和完成门禁异常时 fail closed，而不是跳过确定性策略。"""
+        """决策型处理器异常时 fail closed，而不是跳过确定性规则。"""
 
         try:
             return invoke_hook()
@@ -360,7 +361,7 @@ class HookManager(HookPort):
         step: int,
         agent_name: str,
     ) -> None:
-        """只记录异常类型和短消息，不把 Hook 内部对象写入 evidence。"""
+        """只记录异常类型和短消息，不把处理器内部对象写入 evidence。"""
 
         if self.events is None:
             return

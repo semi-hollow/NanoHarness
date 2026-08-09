@@ -22,26 +22,15 @@ class ToolRegistry(ToolGateway):
         self._tools: dict[str, Tool] = {}
         self.mcp_config_report: Any | None = None
 
-    # 兼容名称仍可执行，但模型目录只暴露 canonical schema，避免同义选项分散决策。
-    _MODEL_SCHEMA_ALIASES = {"grep": "grep_search"}
-
     def register(self, tool: Tool) -> None:
         """注册一个内置或 MCP Tool 实现。"""
 
         self._tools[tool.name] = tool
 
     def schemas(self) -> list[ToolSchema]:
-        """返回去除兼容别名后的模型工具契约。"""
+        """返回当前已注册工具的唯一模型契约。"""
 
-        registered_names = set(self._tools)
-        return [
-            tool.schema()
-            for name, tool in self._tools.items()
-            if not (
-                name in self._MODEL_SCHEMA_ALIASES
-                and self._MODEL_SCHEMA_ALIASES[name] in registered_names
-            )
-        ]
+        return [tool.schema() for tool in self._tools.values()]
 
     def get(self, name: str) -> Tool | None:
         """按稳定工具名查找实现；找不到时返回 None。"""

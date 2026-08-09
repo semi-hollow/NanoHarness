@@ -1,4 +1,4 @@
-"""结算对账练习包。"""
+"""结算对账 Debug Lab 示例包。"""
 
 from .domain import CaptureEvent, SettlementAccount, SettlementStatus
 from .repository import InMemorySettlementRepository

@@ -1,7 +1,9 @@
-"""AgentLoop 输入、工具意图和最终回答的轻量语义门禁。
+"""AgentLoop 输入、工具意图和最终回答的轻量语义检查。
 
-它类似支付系统中的业务校验器：只返回结构化校验结果。路径、命令、审批等强约束由
-Sandbox、CommandPolicy 和 Hook 治理链负责，不能把这里的文本检查当成安全边界。
+代码沿用 ``guardrail`` 名称，但这三个函数只生成结构化检查结果，不共同构成一层
+安全门禁。当前输入风险词和最终回答检查用于记录证据；工具检查也只记录最小完整性，
+本轮可见性由执行管线复核。执行许可由 ``ToolAuthorizationGate`` 决定，命令和路径
+边界分别由 ``CommandPolicy``、``WorkspaceSandbox`` 与执行环境强制实施。
 """
 
 from dataclasses import dataclass
@@ -11,7 +13,7 @@ RISKY_INPUT_MARKERS = ("rm -rf", "删除", ".env", "id_rsa", "http://", "https:/
 
 @dataclass(frozen=True, kw_only=True)
 class GuardrailResult:
-    """一次门禁判断；关键字构造使布尔值、原因、等级和类别一眼可辨。"""
+    """一次语义检查结果；关键字构造使布尔值、原因、等级和类别一眼可辨。"""
 
     passed: bool
     reason: str
@@ -22,9 +24,9 @@ class GuardrailResult:
 def input_guardrail(task: str) -> GuardrailResult:
     """检查任务文本并留下风险提示，但不把“提到”误当成“执行”。
 
-    用户任务、issue 和日志都可能合法包含 URL、敏感文件名或危险命令示例。真正的副作用
-    授权由工具可见性、CommandPolicy、Sandbox 和 Approval 负责；这里仅记录命中的文本，
-    供 trace 与后续策略观察。
+    用户任务、issue 和日志都可能合法包含 URL、敏感文件名或危险命令示例。这里仅记录
+    命中的文本，不据此阻断任务。真正的工具范围、执行许可和执行边界分别由 Router/
+    执行管线、ToolAuthorizationGate、CommandPolicy/Sandbox/执行环境负责。
     """
 
     observed_markers = tuple(marker for marker in RISKY_INPUT_MARKERS if marker in task)
@@ -51,6 +53,8 @@ def sanitize_quoted_evidence(text: str) -> str:
 def output_guardrail(
     final_answer: str, ran_tests: bool, had_block: bool
 ) -> GuardrailResult:
+    """检查最终文本是否夸大验证结果或隐藏阻断；当前调用方只把结论写入 Trace。"""
+
     if "测试通过" in final_answer and not ran_tests:
         return GuardrailResult(
             passed=False,
@@ -80,6 +84,12 @@ def tool_guardrail(
     arguments: dict,
     exists: bool = True,
 ) -> GuardrailResult:
+    """生成规范化 ToolCall 的最小完整性检查结果，不直接决定是否执行。
+
+    Provider 格式由 ``ToolCallNormalizer`` 处理，本轮路由由执行管线强制复核，
+    必填参数和类型由 ``ToolRegistry`` 在调用工具实现前校验；本函数的结果只写入 Trace。
+    """
+
     if not exists:
         return GuardrailResult(
             passed=False,

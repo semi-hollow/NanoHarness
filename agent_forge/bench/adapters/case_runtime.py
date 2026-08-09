@@ -67,6 +67,8 @@ class LocalCaseExecutor(CaseExecutorPort):
         """由 ``RunSwebench`` 调用；返回 candidate diff/local status，不判定 official outcome。"""
 
         # region 1. Case 沙箱与输出契约：固定 workspace、trace、diff 和默认失败状态
+        # CaseExecutor 默认 BLOCKED，并预先固定所有 artifact 路径；任何准备或 Provider
+        # 异常仍会留下可分类的 trace/diff，而不会被上层误判成 no-patch。
         workspace = self._workspace_manager.prepare(
             case,
             agent_mode if agent_mode in {"single", "multi"} else "",
@@ -84,6 +86,8 @@ class LocalCaseExecutor(CaseExecutorPort):
 
         try:
             # region 2. Runtime 装配：渲染任务，并为本 Case 创建隔离环境与端口
+            # 每题使用独立 ExecutionEnvironment、Registry、Model 和状态根目录；
+            # RuntimeConfig 完整复制实验参数，使 Case 结果可以追溯到同一配置身份。
             ensure_clean_git(workspace)
             task = render_case_task(case)
             trace = TraceRecorder(str(trace_path))
@@ -127,6 +131,8 @@ class LocalCaseExecutor(CaseExecutorPort):
             # endregion 2. Runtime 装配结束
 
             # region 3. Agent 执行与候选采集：运行真实主链，随后冻结 trace/usage/diff
+            # _execute_runtime 只返回 Agent 最终文本；运行后再从实际 workspace 收集 diff，
+            # status 必须同时依据候选改动和停止文本，而不能仅相信模型自报完成。
             final_answer = self._execute_runtime(
                 task,
                 agent_mode,

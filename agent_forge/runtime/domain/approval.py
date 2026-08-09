@@ -1,4 +1,4 @@
-"""副作用审批请求的领域数据。"""
+"""可能改变持久状态的操作审批请求领域数据。"""
 
 from __future__ import annotations
 
@@ -29,7 +29,8 @@ class ApprovalRequestDraft:
 class ApprovalRequest:
     """绑定到具体 operation fingerprint 的人工授权。
 
-    ``operation_key`` 是幂等主键；tool/action/arguments/command 描述待执行副作用；
+    ``operation_key`` 是幂等主键；tool/action/arguments/command 描述待审批操作意图；
+    请求存在不表示工具已经执行，也不表示外部状态已经改变；
     workspace/run/step/agent 标识来源；``operation_fingerprint`` 防止审批后目标漂移；
     status、decision_note 和时间字段保存人工决定生命周期。
     """

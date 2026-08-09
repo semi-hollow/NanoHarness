@@ -37,7 +37,6 @@ tools:
   enabled:
     - list_files
     - read_file
-    - grep
     - grep_search
     - git_status
     - git_diff

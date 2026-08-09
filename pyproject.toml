@@ -55,3 +55,9 @@ testpaths = ["tests"]
 [tool.setuptools.packages.find]
 include = ["agent_forge*"]
 exclude = ["tests*", "docs*", "scripts*"]
+
+[tool.setuptools.package-data]
+"agent_forge.skills" = [
+  "packages/*/SKILL.md",
+  "packages/*/references/*.md",
+]

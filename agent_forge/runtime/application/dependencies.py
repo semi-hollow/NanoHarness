@@ -29,8 +29,7 @@ class RuntimeDependencies:
 
     ``events`` 写事实，``context/skills/tools/model`` 提供每 turn 输入输出，
     ``environment/hooks`` 治理执行，四个 Repository 保存 checkpoint、审批、
-    人工输入和
-    operation ledger，``long_term_memory_recall`` 只暴露 Run 开始时的只读快照能力。
+    人工输入和操作状态表，``long_term_memory_recall`` 只暴露 Run 开始时的只读快照能力。
     """
 
     events: EventSink

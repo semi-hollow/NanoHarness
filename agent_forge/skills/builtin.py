@@ -1,31 +1,17 @@
+"""默认 Skill 目录数据；这里不包含选择或执行逻辑。"""
+
 from __future__ import annotations
 
 from pathlib import Path
 
-from .registry import SkillRegistry, SkillSpec
+from .models import SkillSpec
+from .registry import SkillRegistry
 
 
 def built_in_skill_specs() -> list[SkillSpec]:
+    """返回无需外部参考资料的轻量内置 Skill 定义。"""
+
     return [
-        SkillSpec(
-            name="swebench_repair",
-            version="2.0.0",
-            description=(
-                "Diagnose one root cause and produce the smallest evidence-backed repair."
-            ),
-            entrypoint="builtin:swebench_repair",
-            owner="agent-forge",
-            permissions=["read:repo", "write:repo", "run:validation"],
-            dependencies=["git:working-tree", "python:local-venv"],
-            tags=["coding", "swe-bench", "repair", "validation"],
-            activation_terms=["swe-bench", "swebench"],
-            # Skill 只提供认知方法；工具可见性、预算与权限由 Runtime 控制面负责。
-            tool_names=[],
-            operating_procedure=[
-                "Ground one hypothesis in the issue, relevant source, and focused test before editing.",
-                "Make the smallest coherent change; if evidence is insufficient, state the uncertainty instead of guessing.",
-            ],
-        ),
         SkillSpec(
             name="repo_orientation",
             version="1.0.0",
@@ -44,7 +30,7 @@ def built_in_skill_specs() -> list[SkillSpec]:
                 "项目结构",
                 "怎么看",
             ],
-            tool_names=["list_files", "read_file", "grep", "grep_search", "git_status"],
+            tool_names=["list_files", "read_file", "grep_search", "git_status"],
             operating_procedure=[
                 "Start with git_status and a shallow file map before reading individual files.",
                 "Prefer README, FORGE.md, pyproject, package config, and module entrypoints.",
@@ -83,7 +69,6 @@ def built_in_skill_specs() -> list[SkillSpec]:
             tool_names=[
                 "git_status",
                 "list_files",
-                "grep",
                 "grep_search",
                 "read_file",
                 "replace_text",
@@ -133,7 +118,6 @@ def built_in_skill_specs() -> list[SkillSpec]:
             tool_names=[
                 "python_validation",
                 "run_command",
-                "grep",
                 "grep_search",
                 "read_file",
                 "replace_text",
@@ -176,7 +160,6 @@ def built_in_skill_specs() -> list[SkillSpec]:
             tool_names=[
                 "run_command",
                 "python_validation",
-                "grep",
                 "grep_search",
                 "read_file",
                 "replace_text",
@@ -215,7 +198,6 @@ def built_in_skill_specs() -> list[SkillSpec]:
             ],
             tool_names=[
                 "git_status",
-                "grep",
                 "grep_search",
                 "read_file",
                 "replace_text",
@@ -255,7 +237,6 @@ def built_in_skill_specs() -> list[SkillSpec]:
                 "解释",
             ],
             tool_names=[
-                "grep",
                 "grep_search",
                 "read_file",
                 "replace_text",
@@ -281,9 +262,12 @@ def built_in_skill_specs() -> list[SkillSpec]:
 def build_default_skill_registry(
     manifest_paths: list[str] | None = None,
 ) -> SkillRegistry:
+    """装配内置 Skill，并加载一个可完整审计的标准修复 Skill 包。"""
+
     registry = SkillRegistry()
     for spec in built_in_skill_specs():
         registry.register(spec)
+    registry.load_package(Path(__file__).with_name("packages") / "swebench_repair")
     for path in manifest_paths or []:
         if Path(path).exists():
             registry.load_manifest(path)

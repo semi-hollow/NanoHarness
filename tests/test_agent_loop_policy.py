@@ -669,7 +669,10 @@ class AgentLoopPolicyTest(unittest.TestCase):
             registry = ToolRegistry()
             registry.register(SuccessfulPythonValidationTool())
             config = RuntimeConfig(
-                workspace=tmp, max_steps=3, trace_file=str(trace_path)
+                workspace=tmp,
+                max_steps=3,
+                trace_file=str(trace_path),
+                skill_mode="none",
             )
 
             build_agent_loop(
@@ -695,7 +698,10 @@ class AgentLoopPolicyTest(unittest.TestCase):
             registry = ToolRegistry()
             registry.register(SuccessfulPythonValidationTool())
             config = RuntimeConfig(
-                workspace=tmp, max_steps=3, trace_file=str(trace_path)
+                workspace=tmp,
+                max_steps=3,
+                trace_file=str(trace_path),
+                skill_mode="none",
             )
 
             build_agent_loop(
@@ -751,7 +757,7 @@ class AgentLoopPolicyTest(unittest.TestCase):
             ]
         self.assertEqual(validation, [])
 
-    def test_agent_loop_applies_all_tools_ablation_mode(self):
+    def test_agent_loop_applies_explicit_all_tools_mode(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             (root / "target.py").write_text("value = 1\n", encoding="utf-8")
