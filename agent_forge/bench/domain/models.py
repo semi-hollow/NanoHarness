@@ -126,7 +126,7 @@ class BenchRunSummary:
     """可写入 ``results.json``、report 和 scorecard 的 run truth model。
 
     前半部分保存 dataset/provider/agent/sampling 身份；中间保存 Skill、Memory、
-    execution environment 与预算；后半部分保存 baseline、official evaluator、case 结果
+    execution environment 与预算；后半部分保存变体对照、official evaluator、case 结果
     和 notes。Renderer 只能消费这里的事实，不能把 candidate diff 推断成 solved。
     """
 
@@ -171,8 +171,6 @@ class BenchRunSummary:
     memory_recall_limit: int = 0
     memory_snapshot_sha256: str = ""
     # 对照实验、official evaluator 和 per-case 最终结果。
-    baseline_predictions_path: Path | None = None
-    variant_comparisons: dict[str, dict[str, Any]] = field(default_factory=dict)
     official_eval_command: list[str] = field(default_factory=list)
     official_eval_exit_code: int | None = None
     official_eval_output: str = ""
@@ -219,12 +217,6 @@ class BenchRunSummary:
             "memory_snapshot_sha256": self.memory_snapshot_sha256,
             "output_dir": str(self.output_dir),
             "predictions_path": str(self.predictions_path),
-            "baseline_predictions_path": (
-                str(self.baseline_predictions_path)
-                if self.baseline_predictions_path
-                else ""
-            ),
-            "variant_comparisons": self.variant_comparisons,
             "official_eval_command": self.official_eval_command,
             "official_eval_exit_code": self.official_eval_exit_code,
             "official_eval_output": self.official_eval_output,

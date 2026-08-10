@@ -6,7 +6,6 @@ from agent_forge.bench.ports.benchmark import (
     BenchArtifactPort,
     CaseExecutorPort,
     CaseSourcePort,
-    DirectBaselinePort,
     OfficialEvaluatorPort,
 )
 
@@ -17,6 +16,5 @@ class BenchDependencies:
 
     cases: CaseSourcePort
     executor: CaseExecutorPort
-    baseline: DirectBaselinePort
     official_evaluator: OfficialEvaluatorPort
     artifacts: BenchArtifactPort

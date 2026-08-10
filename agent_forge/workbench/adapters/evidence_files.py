@@ -508,26 +508,6 @@ class FileEvidenceCatalog(EvidenceCatalogPort):
             else {}
         )
 
-    def latest_direct_baseline_record(self) -> dict[str, Any]:
-        run_dir = self.latest_benchmark_run_dir()
-        path = (
-            run_dir / "direct_baseline_predictions.jsonl"
-            if run_dir is not None
-            else None
-        )
-        if path is None or not path.exists():
-            return {}
-        for line in path.read_text(encoding="utf-8").splitlines():
-            if not line.strip():
-                continue
-            try:
-                record = json.loads(line)
-            except json.JSONDecodeError:
-                continue
-            if isinstance(record, dict):
-                return record
-        return {}
-
     def latest_campaign_dir(self) -> Path | None:
         """优先返回显式发布的 Campaign，避免工作台悄悄切换实验批次。"""
 

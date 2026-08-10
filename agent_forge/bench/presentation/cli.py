@@ -35,6 +35,12 @@ from agent_forge.bench.presentation.case_inspection import (
     render_case_catalog,
     render_case_inspection,
 )
+from agent_forge.runtime.config import (
+    DEFAULT_MAX_CONTEXT_CHARS,
+    DEFAULT_MAX_PROMPT_TOKENS,
+    DEFAULT_MAX_STEPS,
+    DEFAULT_TIMEOUT_SECONDS,
+)
 
 
 def build_case_catalog_parser(parser: argparse.ArgumentParser) -> None:
@@ -117,16 +123,26 @@ def build_swebench_parser(parser: argparse.ArgumentParser) -> None:
         "--reasoning-effort",
         choices=["high", "max"],
     )
-    parser.add_argument("--max-steps", type=int, default=16)
-    parser.add_argument("--max-context-chars", type=int, default=12000)
-    parser.add_argument("--max-prompt-tokens", type=int, default=32_768)
+    parser.add_argument(
+        "--max-steps",
+        type=int,
+        default=DEFAULT_MAX_STEPS,
+        help="Total model turns; the final turn is reserved for a tool-free conclusion.",
+    )
+    parser.add_argument(
+        "--max-context-chars", type=int, default=DEFAULT_MAX_CONTEXT_CHARS
+    )
+    parser.add_argument(
+        "--max-prompt-tokens", type=int, default=DEFAULT_MAX_PROMPT_TOKENS
+    )
     parser.add_argument("--reserved-output-tokens", type=int, default=4_096)
     parser.add_argument("--max-tool-calls-per-turn", type=int, default=4)
     parser.add_argument("--cost-budget-usd", type=float)
-    parser.add_argument("--timeout-seconds", type=float, default=900.0)
+    parser.add_argument(
+        "--timeout-seconds", type=float, default=DEFAULT_TIMEOUT_SECONDS
+    )
     parser.add_argument("--repo-cache", default=".agent_forge/bench/repos")
     parser.add_argument("--output-root", default=".agent_forge/runs")
-    parser.add_argument("--direct-baseline", action="store_true")
     parser.add_argument("--evaluate", action="store_true")
     parser.add_argument("--max-workers", type=int, default=1)
     parser.add_argument("--namespace-empty", action="store_true")
@@ -244,13 +260,24 @@ def build_campaign_parser(parser: argparse.ArgumentParser) -> None:
         default="disabled",
     )
     parser.add_argument("--reasoning-effort", choices=["high", "max"])
-    parser.add_argument("--max-steps", type=int, default=16)
-    parser.add_argument("--max-context-chars", type=int, default=12000)
-    parser.add_argument("--max-prompt-tokens", type=int, default=32_768)
+    parser.add_argument(
+        "--max-steps",
+        type=int,
+        default=DEFAULT_MAX_STEPS,
+        help="Total model turns; the final turn is reserved for a tool-free conclusion.",
+    )
+    parser.add_argument(
+        "--max-context-chars", type=int, default=DEFAULT_MAX_CONTEXT_CHARS
+    )
+    parser.add_argument(
+        "--max-prompt-tokens", type=int, default=DEFAULT_MAX_PROMPT_TOKENS
+    )
     parser.add_argument("--reserved-output-tokens", type=int, default=4_096)
     parser.add_argument("--max-tool-calls-per-turn", type=int, default=4)
     parser.add_argument("--cost-budget-usd", type=float)
-    parser.add_argument("--timeout-seconds", type=float, default=900.0)
+    parser.add_argument(
+        "--timeout-seconds", type=float, default=DEFAULT_TIMEOUT_SECONDS
+    )
     parser.add_argument("--repo-cache", default=".agent_forge/bench/repos")
     parser.add_argument("--output-root", default=".agent_forge/campaigns")
     parser.add_argument("--evaluate", action="store_true")
@@ -333,7 +360,6 @@ def run_swebench_from_args(args: argparse.Namespace) -> BenchRunSummary:
         timeout_seconds=args.timeout_seconds,
         repo_cache=args.repo_cache,
         output_root=args.output_root,
-        direct_baseline=args.direct_baseline,
         evaluate=args.evaluate,
         max_workers=args.max_workers,
         namespace_empty=args.namespace_empty,

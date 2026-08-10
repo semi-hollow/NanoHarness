@@ -167,31 +167,6 @@ class EvaluationScorecardTest(unittest.TestCase):
         self.assertIn("Evidence Denominators", report)
         self.assertIn("No official resolved rate", report)
 
-    def test_variant_aggregation_derives_official_denominator_from_status(self):
-        results = {
-            "run_id": "run-4",
-            "dataset_name": "dataset",
-            "split": "test",
-            "provider": "provider",
-            "model": "model",
-            "case_results": [],
-            "variant_comparisons": {
-                "case-1": {
-                    "variants": {
-                        "agent_runtime": {
-                            "patch_generated": True,
-                            "official_evaluation_status": "official_resolved",
-                            "official_resolved": True,
-                        }
-                    }
-                }
-            },
-        }
-        scorecard = build_benchmark_scorecard(results, Path("."))
-        metrics = scorecard["variants"]["agent_runtime"]
-        self.assertEqual(metrics["official_evaluated_count"], 1)
-        self.assertEqual(metrics["official_resolved_rate"], 1.0)
-
 
 if __name__ == "__main__":
     unittest.main()

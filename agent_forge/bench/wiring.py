@@ -7,7 +7,7 @@ from agent_forge.bench.adapters.campaign_files import (
     FileCampaignArtifacts,
     GitSourceIdentity,
 )
-from agent_forge.bench.adapters.case_runtime import DirectModelBaseline, LocalCaseExecutor
+from agent_forge.bench.adapters.case_runtime import LocalCaseExecutor
 from agent_forge.bench.adapters.dataset import SwebenchCaseSource
 from agent_forge.bench.adapters.git_workspace import SwebenchWorkspaceManager
 from agent_forge.bench.adapters.official_evaluator import SwebenchOfficialEvaluator
@@ -35,7 +35,6 @@ def build_swebench_runner(
         BenchDependencies(
             cases=SwebenchCaseSource(),
             executor=LocalCaseExecutor(workspace_manager),
-            baseline=DirectModelBaseline(),
             official_evaluator=SwebenchOfficialEvaluator(),
             artifacts=artifact_adapter,
         )

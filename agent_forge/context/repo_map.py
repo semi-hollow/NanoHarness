@@ -15,22 +15,31 @@ GENERATED_NAMES = {"agent_forge_trace.json", "eval_report.md", "summary.md"}
 
 
 def build_repo_map(root: str | Path) -> str:
+    """返回工作区内可供模型发现的相对文件路径。
 
-    root_path = Path(root)
+    忽略规则只能检查 ``root`` 以内的相对路径。Benchmark 工作区本身通常位于
+    ``.agent_forge`` 目录下；若检查绝对路径，父目录中的 ``.agent_forge`` 会让整个
+    仓库被误判为应忽略，最终给模型一个空 Repo Map。
+    """
+
+    root_path = Path(root).resolve()
     files: list[str] = []
     for path in root_path.rglob("*"):
         if not path.is_file():
             continue
-        if any(part in IGNORE or part.endswith(".egg-info") for part in path.parts):
+        relative_path = path.relative_to(root_path)
+        if any(
+            part in IGNORE or part.endswith(".egg-info")
+            for part in relative_path.parts
+        ):
             continue
-        if _is_generated(path):
+        if _is_generated(relative_path):
             continue
-        files.append(str(path.relative_to(root_path)))
+        files.append(relative_path.as_posix())
     return "\n".join(sorted(files))
 
 
 def _is_generated(path: Path) -> bool:
-
     name = path.name
     return (
         name in GENERATED_NAMES

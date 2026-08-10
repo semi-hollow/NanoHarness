@@ -9,7 +9,11 @@ import time
 from dataclasses import dataclass, field
 from enum import Enum
 
-from agent_forge.runtime.config import RuntimeConfig
+from agent_forge.runtime.config import (
+    DEFAULT_MAX_STEPS,
+    DEFAULT_TIMEOUT_SECONDS,
+    RuntimeConfig,
+)
 from agent_forge.runtime.domain.conversation import Observation, ToolCall
 
 
@@ -40,11 +44,11 @@ class FailureSignal:
 class ExecutionBudget:
     """单次 Agent run 的步数、失败、时间和费用上限。"""
 
-    max_steps: int = 12
+    max_steps: int = DEFAULT_MAX_STEPS
     max_consecutive_failures: int = 3
     # 同一个工具和参数允许“首次尝试 + 一次重试”；第三次连续重复视为没有进展。
     max_consecutive_identical_tool_calls: int = 2
-    timeout_seconds: float = 120.0
+    timeout_seconds: float = DEFAULT_TIMEOUT_SECONDS
     cost_budget_usd: float | None = None
 
 

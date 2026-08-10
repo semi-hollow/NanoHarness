@@ -5,6 +5,13 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
+from agent_forge.contracts import (
+    DEFAULT_MAX_CONTEXT_CHARS,
+    DEFAULT_MAX_PROMPT_TOKENS,
+    DEFAULT_MAX_STEPS,
+    DEFAULT_TIMEOUT_SECONDS,
+)
+
 
 # 核心数据：一次可复现实验的 dataset、模型、Runtime、Memory 与隔离参数。
 @dataclass(frozen=True)
@@ -34,18 +41,17 @@ class SwebenchRunRequest:
     reasoning_effort: str | None = None
 
     # 每个 AgentLoop case 的资源预算。
-    max_steps: int = 16
-    max_context_chars: int = 12000
-    max_prompt_tokens: int = 32_768
+    max_steps: int = DEFAULT_MAX_STEPS
+    max_context_chars: int = DEFAULT_MAX_CONTEXT_CHARS
+    max_prompt_tokens: int = DEFAULT_MAX_PROMPT_TOKENS
     reserved_output_tokens: int = 4_096
     max_tool_calls_per_turn: int = 4
     cost_budget_usd: float | None = None
-    timeout_seconds: float = 900.0
+    timeout_seconds: float = DEFAULT_TIMEOUT_SECONDS
 
     # Repository cache、artifact 输出与 official evaluation 开关。
     repo_cache: str = ".agent_forge/bench/repos"
     output_root: str = ".agent_forge/runs"
-    direct_baseline: bool = False
     evaluate: bool = False
     max_workers: int = 1
     namespace_empty: bool = False
@@ -90,7 +96,6 @@ class BenchRunLayout:
 
     output_dir: Path
     predictions_path: Path
-    baseline_predictions_path: Path | None
 
     def case_dir(self, instance_id: str) -> Path:
         return self.output_dir / "cases" / safe_id(instance_id)

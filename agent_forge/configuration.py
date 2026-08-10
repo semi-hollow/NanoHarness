@@ -12,6 +12,11 @@ from pathlib import Path
 import yaml
 
 from agent_forge.contracts import JsonObject
+from agent_forge.runtime.config import (
+    DEFAULT_MAX_CONTEXT_CHARS,
+    DEFAULT_MAX_PROMPT_TOKENS,
+    DEFAULT_MAX_STEPS,
+)
 
 
 CONFIG_SCHEMA_VERSION = 1
@@ -151,11 +156,12 @@ _RUN_DEFAULTS: dict[str, object] = {
     "temperature": 0.0,
     "thinking_mode": "disabled",
     "reasoning_effort": None,
-    "max_steps": 16,
-    "max_context_chars": 12_000,
-    "max_prompt_tokens": 32_768,
+    "max_steps": DEFAULT_MAX_STEPS,
+    "max_context_chars": DEFAULT_MAX_CONTEXT_CHARS,
+    "max_prompt_tokens": DEFAULT_MAX_PROMPT_TOKENS,
     "reserved_output_tokens": 4_096,
-    "model_context_window": 32_768,
+    # 0 表示按 provider/model 契约推导；显式正数始终优先。
+    "model_context_window": 0,
     "native_tool_calling": True,
     "parallel_tool_calls": True,
     "structured_output": False,
@@ -410,8 +416,8 @@ def _validate_run_arguments(args: argparse.Namespace) -> None:
         args.reasoning_tokens = True
     if not 1 <= args.max_workers <= 8:
         raise ValueError("max_workers must be between 1 and 8")
-    if args.model_context_window < 1_024:
-        raise ValueError("model_context_window must be at least 1024")
+    if args.model_context_window != 0 and args.model_context_window < 1_024:
+        raise ValueError("model_context_window must be 0 (auto) or at least 1024")
 
 
 def _normalize_value(value: object, spec: _FieldSpec, *, location: str) -> object:

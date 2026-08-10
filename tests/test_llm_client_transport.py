@@ -6,7 +6,11 @@ from unittest.mock import patch
 from agent_forge.runtime.llm_client import OpenAICompatibleLLMClient
 from agent_forge.runtime.domain.conversation import Message
 from agent_forge.runtime.domain.model import ModelCapabilities
-from agent_forge.runtime.llm_config import LLMConfigRequest, resolve_llm_config
+from agent_forge.runtime.llm_config import (
+    DEEPSEEK_V4_CONTEXT_WINDOW,
+    LLMConfigRequest,
+    resolve_llm_config,
+)
 
 
 TOOLS = [
@@ -27,6 +31,42 @@ class LLMClientTransportTest(unittest.TestCase):
                     temperature=2.1,
                 )
             )
+
+    def test_deepseek_v4_uses_provider_context_window_by_default(self):
+        config = resolve_llm_config(
+            LLMConfigRequest(
+                provider="deepseek",
+                api_key="test-key",
+                model="deepseek-v4-flash",
+            )
+        )
+
+        self.assertEqual(
+            config.capabilities.context_window,
+            DEEPSEEK_V4_CONTEXT_WINDOW,
+        )
+        self.assertEqual(
+            config.capabilities.source,
+            "provider_default:deepseek:deepseek-v4-flash",
+        )
+
+    def test_explicit_model_capabilities_override_provider_defaults(self):
+        declared = ModelCapabilities(
+            native_tool_calling=False,
+            context_window=8_192,
+            source="test-declaration",
+        )
+
+        config = resolve_llm_config(
+            LLMConfigRequest(
+                provider="deepseek",
+                api_key="test-key",
+                model="deepseek-v4-flash",
+                capabilities=declared,
+            )
+        )
+
+        self.assertIs(config.capabilities, declared)
 
     def test_chat_sends_configured_temperature(self):
         client = OpenAICompatibleLLMClient(

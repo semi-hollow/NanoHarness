@@ -934,8 +934,6 @@ class WorkbenchRunStoryTest(unittest.TestCase):
         self.assertIn(str(benchmark_run / "results.json"), rendered)
         self.assertIn("0 字符（只检索，未写入）", rendered)
         self.assertIn("2 次工具调用均未进入写操作", rendered)
-        self.assertIn("本次未运行", rendered)
-        self.assertNotIn("未运行 字符", rendered)
         self.assertIn(
             "模型在最后一轮仍请求调用工具，因此运行时阻断了不完整产物", rendered
         )

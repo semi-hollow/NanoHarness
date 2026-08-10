@@ -15,6 +15,12 @@ from agent_forge.contracts import JsonObject
 from agent_forge.hooks import RuntimeHook
 from agent_forge.observability.adapters.streaming import EventStreamPolicy
 from agent_forge.observability.ports import RuntimeEventListener
+from agent_forge.runtime.config import (
+    DEFAULT_MAX_CONTEXT_CHARS,
+    DEFAULT_MAX_PROMPT_TOKENS,
+    DEFAULT_MAX_STEPS,
+    DEFAULT_TIMEOUT_SECONDS,
+)
 from agent_forge.runtime.domain.model import ModelCapabilities
 from agent_forge.runtime.domain.task import TaskCheckpoint, TaskRunStatus
 from agent_forge.runtime.ports import (
@@ -37,15 +43,16 @@ class HarnessConfig:
 
     workspace: str = "."
     output_root: str = ".agent_forge/runs"
-    max_steps: int = 16
-    max_context_chars: int = 12_000
-    max_prompt_tokens: int = 32_768
+    # 总模型 Turn 数；最后一轮只生成结论，不再执行新工具。
+    max_steps: int = DEFAULT_MAX_STEPS
+    max_context_chars: int = DEFAULT_MAX_CONTEXT_CHARS
+    max_prompt_tokens: int = DEFAULT_MAX_PROMPT_TOKENS
     reserved_output_tokens: int = 4_096
     max_consecutive_failures: int = 3
     # 同一个工具和参数最多连续出现两次：首次尝试加一次重试。
     max_consecutive_identical_tool_calls: int = 2
     max_tool_calls_per_turn: int = 4
-    timeout_seconds: float = 900.0
+    timeout_seconds: float = DEFAULT_TIMEOUT_SECONDS
     cost_budget_usd: float | None = None
     approval_mode: str = "trusted"
     auto_approve_writes: bool = True

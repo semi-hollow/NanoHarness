@@ -244,7 +244,6 @@ class RunBenchmarkCampaign:
             limit=1,
             instance_ids=(campaign_run_slot.case_id,),
             output_root=str(slot_output_root),
-            direct_baseline=False,
             agent_mode="single",
             tool_routing_mode=variant.tool_routing_mode,
             skill_mode=variant.skill_mode,

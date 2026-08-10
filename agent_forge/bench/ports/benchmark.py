@@ -23,14 +23,6 @@ class CaseExecutorPort(Protocol):
     ) -> BenchCaseResult: ...
 
 
-class DirectBaselinePort(Protocol):
-    def predict(
-        self,
-        case: BenchCase,
-        request: SwebenchRunRequest,
-    ) -> dict[str, Any]: ...
-
-
 class OfficialEvaluatorPort(Protocol):
     def evaluate(self, summary: BenchRunSummary, request: SwebenchRunRequest) -> None: ...
 
@@ -52,8 +44,6 @@ class BenchArtifactPort(Protocol):
         self,
         output_root: str,
         run_id: str,
-        *,
-        include_baseline: bool,
     ) -> BenchRunLayout: ...
 
     def read_json(self, path: Path) -> dict[str, Any]: ...
@@ -80,12 +70,10 @@ class BenchArtifactPort(Protocol):
         self,
         summary: BenchRunSummary,
         predictions: list[dict[str, Any]],
-        baseline_predictions: list[dict[str, Any]],
     ) -> None: ...
 
     def publish_run(
         self,
         summary: BenchRunSummary,
         predictions: list[dict[str, Any]],
-        baseline_predictions: list[dict[str, Any]],
     ) -> None: ...

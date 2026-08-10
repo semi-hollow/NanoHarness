@@ -145,7 +145,6 @@ class BenchmarkCampaignRequest:
             "memory_namespace",
             "instance_ids",
             "limit",
-            "direct_baseline",
             "agent_mode",
             "tool_routing_mode",
             "skill_mode",

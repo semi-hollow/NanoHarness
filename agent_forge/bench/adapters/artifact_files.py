@@ -28,19 +28,12 @@ class FileBenchArtifacts(BenchArtifactPort):
         self,
         output_root: str,
         run_id: str,
-        *,
-        include_baseline: bool,
     ) -> BenchRunLayout:
         output_dir = (Path(output_root) / run_id).resolve()
         output_dir.mkdir(parents=True, exist_ok=True)
         return BenchRunLayout(
             output_dir=output_dir,
             predictions_path=output_dir / "predictions.jsonl",
-            baseline_predictions_path=(
-                output_dir / "direct_baseline_predictions.jsonl"
-                if include_baseline
-                else None
-            ),
         )
 
     def read_json(self, path: Path) -> dict[str, Any]:
@@ -96,9 +89,8 @@ class FileBenchArtifacts(BenchArtifactPort):
         self,
         summary: BenchRunSummary,
         predictions: list[dict[str, Any]],
-        baseline_predictions: list[dict[str, Any]],
     ) -> None:
-        self.write_predictions(summary, predictions, baseline_predictions)
+        self.write_predictions(summary, predictions)
         write_bench_artifacts(summary)
         latest = Path(".agent_forge/latest")
         latest.mkdir(parents=True, exist_ok=True)
@@ -111,11 +103,8 @@ class FileBenchArtifacts(BenchArtifactPort):
         self,
         summary: BenchRunSummary,
         predictions: list[dict[str, Any]],
-        baseline_predictions: list[dict[str, Any]],
     ) -> None:
         _write_jsonl(summary.predictions_path, predictions)
-        if summary.baseline_predictions_path is not None:
-            _write_jsonl(summary.baseline_predictions_path, baseline_predictions)
 
 
 def _write_jsonl(path: Path, rows: list[dict[str, Any]]) -> None:

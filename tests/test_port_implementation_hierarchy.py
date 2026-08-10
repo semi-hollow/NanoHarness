@@ -9,7 +9,7 @@ from agent_forge.bench.adapters.campaign_files import (
     GitSourceIdentity,
 )
 from agent_forge.bench.adapters.case_evidence import JsonCaseEvidenceReader
-from agent_forge.bench.adapters.case_runtime import DirectModelBaseline, LocalCaseExecutor
+from agent_forge.bench.adapters.case_runtime import LocalCaseExecutor
 from agent_forge.bench.adapters.dataset import SwebenchCaseSource
 from agent_forge.bench.adapters.official_evaluator import SwebenchOfficialEvaluator
 from agent_forge.bench.ports import (
@@ -18,7 +18,6 @@ from agent_forge.bench.ports import (
     CaseEvidenceReader as BenchCaseEvidenceReader,
     CaseExecutorPort,
     CaseSourcePort,
-    DirectBaselinePort,
     OfficialEvaluatorPort,
     SourceIdentityPort,
 )
@@ -114,7 +113,6 @@ FORMAL_IMPLEMENTATIONS = (
     (JsonTaskSessionCatalog, TaskSessionCatalogPort),
     (SwebenchCaseSource, CaseSourcePort),
     (LocalCaseExecutor, CaseExecutorPort),
-    (DirectModelBaseline, DirectBaselinePort),
     (SwebenchOfficialEvaluator, OfficialEvaluatorPort),
     (JsonCaseEvidenceReader, BenchCaseEvidenceReader),
     (FileBenchArtifacts, BenchArtifactPort),

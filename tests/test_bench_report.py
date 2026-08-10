@@ -71,52 +71,6 @@ class BenchReportTests(unittest.TestCase):
         self.assertIn("patch_generated_but_unverified", report)
         self.assertIn("run official evaluation", report)
 
-    def test_report_shows_baseline_comparison_rows(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
-            trace = root / "trace.json"
-            usage = root / "usage_report.md"
-            patch = root / "candidate_changes.diff"
-            trace.write_text("{}", encoding="utf-8")
-            usage.write_text("usage", encoding="utf-8")
-            patch.write_text("diff", encoding="utf-8")
-            case = BenchCaseResult(
-                instance_id="case-1",
-                repo="local/repo",
-                workspace=root,
-                trace_path=trace,
-                usage_report_path=usage,
-                candidate_diff_path=patch,
-                status="patch_generated",
-                final_answer="candidate patch generated",
-                patch_chars=4,
-            )
-            summary = BenchRunSummary(
-                run_id="run-1",
-                dataset_name="local",
-                split="test",
-                provider="deepseek",
-                model="default",
-                output_dir=root,
-                predictions_path=root / "predictions.jsonl",
-                case_results=[case],
-                variant_comparisons={
-                    "case-1": {
-                        "recommendation": "agent_runtime produced a candidate patch where direct_baseline did not.",
-                        "variants": {
-                            "direct_baseline": {"patch_generated": False, "failure_class": "context_miss"},
-                            "agent_runtime": {"patch_generated": True, "failure_class": "patch_generated_but_unverified"},
-                        },
-                    }
-                },
-            )
-            report = render_bench_report(summary)
-        self.assertIn("## Baseline Comparison", report)
-        self.assertIn("direct_baseline", report)
-        self.assertIn("agent_runtime", report)
-        self.assertNotIn("governed_agent", report)
-        self.assertIn("agent_runtime produced", report)
-
     def test_report_separates_local_validation_from_parsed_official_status(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

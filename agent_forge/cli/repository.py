@@ -40,6 +40,7 @@ from agent_forge.runtime.execution_environment import (
 from agent_forge.runtime.llm_config import (
     LLMConfig,
     LLMConfigRequest,
+    default_model_capabilities,
     resolve_llm_config,
 )
 from agent_forge.runtime.wiring import (
@@ -351,15 +352,25 @@ def _build_runtime_config(
 def _model_capabilities_from_args(args: argparse.Namespace) -> ModelCapabilities:
     """将 CLI/config 的模型声明转换为 Runtime 唯一能力对象。"""
 
+    provider = str(args.provider or "")
+    model = str(
+        args.model or ("deepseek-v4-flash" if provider == "deepseek" else "")
+    )
+    inferred = default_model_capabilities(
+        provider=provider,
+        model=model,
+        thinking_mode=str(args.thinking_mode or "auto"),
+    )
+    configured_context_window = int(args.model_context_window or 0)
     return ModelCapabilities(
         native_tool_calling=bool(args.native_tool_calling),
         parallel_tool_calls=bool(args.parallel_tool_calls),
         structured_output=bool(args.structured_output),
         reasoning_tokens=bool(args.reasoning_tokens or args.thinking_mode == "enabled"),
         prompt_cache=bool(args.prompt_cache),
-        context_window=int(args.model_context_window),
+        context_window=configured_context_window or inferred.context_window,
         supports_images=bool(args.supports_images),
-        source="resolved_run_config",
+        source=("resolved_run_config" if configured_context_window else inferred.source),
     )
 
 

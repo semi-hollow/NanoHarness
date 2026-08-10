@@ -9,6 +9,10 @@ from typing import Any
 from agent_forge.runtime.domain.model import ModelCapabilities
 
 
+DEFAULT_MODEL_CONTEXT_WINDOW = 32_768
+DEEPSEEK_V4_CONTEXT_WINDOW = 1_000_000
+
+
 # 核心数据：模型网关需要的 provider、凭据、模型和采样参数。
 @dataclass
 class LLMConfig:
@@ -158,17 +162,42 @@ def resolve_llm_config(request: LLMConfigRequest) -> LLMConfig:
         thinking_mode=resolved_thinking_mode,
         reasoning_effort=resolved_reasoning_effort,
         capabilities=request.capabilities
-        or ModelCapabilities(
-            reasoning_tokens=(
-                resolved_thinking_mode == "enabled"
-                or (
-                    resolved_thinking_mode == "auto"
-                    and (
-                        "reasoner" in resolved_model.lower()
-                        or resolved_model.lower().startswith("deepseek-v4")
-                    )
-                )
-            ),
-            source=f"provider_default:{resolved_provider}",
+        or default_model_capabilities(
+            provider=resolved_provider,
+            model=resolved_model,
+            thinking_mode=resolved_thinking_mode,
         ),
+    )
+
+
+def default_model_capabilities(
+    *,
+    provider: str,
+    model: str,
+    thinking_mode: str,
+) -> ModelCapabilities:
+    """根据已知 Provider 契约生成默认能力；调用方的显式声明仍优先。
+
+    ``max_prompt_tokens`` 是 Runtime 愿意使用的策略预算，``context_window`` 是
+    Provider 的物理上限。两者必须分开：把 DeepSeek V4 的能力误写为 32K，会让
+    Runtime 即使配置了更大的预算也在 32K 提前压缩。
+    """
+
+    normalized_model = model.lower()
+    is_deepseek_v4 = provider == "deepseek" and normalized_model.startswith(
+        "deepseek-v4"
+    )
+    context_window = (
+        DEEPSEEK_V4_CONTEXT_WINDOW
+        if is_deepseek_v4
+        else DEFAULT_MODEL_CONTEXT_WINDOW
+    )
+    supports_reasoning = thinking_mode == "enabled" or (
+        thinking_mode == "auto"
+        and ("reasoner" in normalized_model or is_deepseek_v4)
+    )
+    return ModelCapabilities(
+        reasoning_tokens=supports_reasoning,
+        context_window=context_window,
+        source=f"provider_default:{provider}:{model or 'unknown'}",
     )

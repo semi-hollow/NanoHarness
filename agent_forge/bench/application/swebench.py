@@ -7,11 +7,7 @@ from typing import Any
 from agent_forge.bench.application.dependencies import BenchDependencies
 from agent_forge.bench.domain.config import BenchRunLayout, SwebenchRunRequest
 from agent_forge.bench.domain.models import BenchCase, BenchCaseResult, BenchRunSummary
-from agent_forge.evaluation.api import (
-    compare_runs,
-    compare_variants,
-    extract_run_metrics,
-)
+from agent_forge.evaluation.api import compare_runs, extract_run_metrics
 
 
 class RunSwebench:
@@ -36,15 +32,11 @@ class RunSwebench:
         run_summary = _new_summary(request, run_id, layout)
         # Agent 预测：official evaluator 的正式输入，顺序与 selected_cases 一致。
         agent_prediction_records: list[dict[str, Any]] = []
-        # 直接模型基线：与 Agent 预测分文件发布，避免混成同一种运行结果。
-        direct_baseline_prediction_records: list[dict[str, Any]] = []
-        # 基线索引：final diagnosis 时按 instance_id 做 O(1) 对照查找。
-        direct_baseline_by_instance_id: dict[str, dict[str, Any]] = {}
         # endregion 准备区结束
 
-        # region 2. Case 执行：先跑 Harness，再按需运行无 Harness 的直接模型基线
-        # 每个 Case 的 Agent 结果先变成官方 evaluator 所需 prediction；direct baseline
-        # 单独执行、单独索引，不能覆盖或补写 Agent 的运行事实。
+        # region 2. Case 执行：运行 Harness，并生成 official evaluator 所需预测
+        # 每个 Case 先保留独立 Runtime 结果，再提取官方 harness 需要的最小预测记录；
+        # 此处不判定 solved，避免 Agent 自述或 candidate diff 越级成为 correctness。
         for case in selected_cases:
             case_result = self._execute_case(case, request, layout)
             run_summary.case_results.append(case_result)
@@ -55,22 +47,12 @@ class RunSwebench:
                     model=request.model,
                 )
             )
-            if request.direct_baseline:
-                generated_baseline_prediction = self._deps.baseline.predict(
-                    case,
-                    request,
-                )
-                direct_baseline_prediction_records.append(generated_baseline_prediction)
-                direct_baseline_by_instance_id[case.instance_id] = (
-                    generated_baseline_prediction
-                )
         # endregion 2. Case 执行结束
 
         # region 3. Official evaluation：先冻结预测输入，再由官方 harness 写回判定
         self._deps.artifacts.write_predictions(
             run_summary,
             agent_prediction_records,
-            direct_baseline_prediction_records,
         )
         if request.evaluate:
             self._deps.official_evaluator.evaluate(run_summary, request)
@@ -78,35 +60,14 @@ class RunSwebench:
 
         # region 4. 诊断与发布：final diagnosis 后才能生成对照和最终报告
         # finalize_case 必须在 official evaluator 写回后调用，确保 Taxonomy 能看见权威结果；
-        # variant comparison 只读最终 Case 和 Usage artifact，不重新猜测 correctness。
+        # 后续 renderer 只读最终 Case，不重新猜测 correctness。
         for case_result in run_summary.case_results:
             self._deps.artifacts.finalize_case(case_result)
-            matching_baseline_prediction = direct_baseline_by_instance_id.get(
-                case_result.instance_id
-            )
-            if matching_baseline_prediction is not None:
-                run_summary.variant_comparisons[case_result.instance_id] = (
-                    compare_variants(
-                        case_result.instance_id,
-                        {
-                            "direct_baseline": matching_baseline_prediction,
-                            _agent_variant_name(
-                                run_summary.agent_mode
-                            ): extract_run_metrics(
-                                case_result.to_dict(),
-                                self._deps.artifacts.read_json(
-                                    case_result.trace_path.parent / "usage.json"
-                                ),
-                            ),
-                        },
-                    )
-                )
 
         _verify_frozen_inputs(request, run_summary)
         self._deps.artifacts.publish_run(
             run_summary,
             agent_prediction_records,
-            direct_baseline_prediction_records,
         )
         return run_summary
         # endregion 4. 诊断与发布结束
@@ -244,7 +205,6 @@ def _new_summary(
         memory_namespace=request.memory_namespace or "swebench:<instance_id>",
         memory_recall_limit=request.memory_recall_limit,
         memory_snapshot_sha256=_directory_sha256(request.memory_root),
-        baseline_predictions_path=layout.baseline_predictions_path,
         notes=[
             "Generated patches are not resolved-rate claims until the official SWE-bench harness evaluates them.",
             "Repo workspaces are under .agent_forge/runs so the main checkout stays clean.",
@@ -289,12 +249,6 @@ def _combined_result(
             multi_agent_result.next_actions or single_agent_result.next_actions
         ),
     )
-
-
-def _agent_variant_name(agent_mode: str) -> str:
-    if agent_mode in {"multi", "compare"}:
-        return "multi_agent"
-    return "agent_runtime"
 
 
 def _directory_sha256(root: str) -> str:

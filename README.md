@@ -33,47 +33,38 @@ NanoHarness 把这些问题放进 Runtime 控制面，而不是交给 Prompt 或
 
 ## 阅读入口
 
-运行机制总览由第一项负责；其余文档按具体问题提供代码导航、能力边界和证据索引。
+从核心机制索引开始，沿生命周期理解主链，再按需进入代码或证据。其余文档不重复维护第二套总览。
 
 | 当前问题 | 唯一入口 |
 | --- | --- |
-| 先理解整体机制、异常和恢复 | [运行生命周期与异常处理机制](docs/运行生命周期与异常处理机制.md) |
+| 先按触发时机理解机制并进入核心 Owner | [核心运行机制与代码索引](docs/核心运行机制与代码索引.md) |
+| 串起完整生命周期、状态和异常恢复 | [运行生命周期与异常处理机制](docs/运行生命周期与异常处理机制.md) |
 | 找代码、依赖和状态 owner | [项目架构与代码导航](docs/项目架构与代码导航.md) |
 | 核对能力是否实现以及不能声称什么 | [能力实现状态与使用边界](docs/能力实现状态与使用边界.md) |
 | 动手跑断点和查 Evidence | [Debug Lab](examples/debug_lab/README.md) |
 | 查评测证据范围 | [回归测试与评测范围](docs/evaluation/回归测试与评测范围.md) |
+| 查功能冻结后的质量实验协议 | [Runtime 质量实验计划](docs/evaluation/功能冻结后的Runtime质量实验计划.md) |
 | 查真实失败、根因和回归证据 | [典型故障与系统调优记录](docs/evaluation/典型故障与系统调优记录.md) |
 
 历史背景按需查[功能演进与设计取舍](docs/功能演进与设计取舍.md)和
 [代码结构演进与可读性治理](docs/architecture/代码结构演进与可读性治理.md)。
 
-## 固定样本实测
+## 量化方法与边界
 
-2026-08-08 使用 `deepseek-v4-flash` 在预注册的 SWE-bench Verified 50 题分片上，分别运行
-`minimal-control` 与 `governed-runtime`，共完成 100 个运行槽位。两套配置使用相同 AgentLoop、
-模型、任务、预算、安全和执行环境；治理版同时启用 task-aware Tool Routing 与 Skills，因此这是
-Runtime preset 对比，不是单因素消融。
+NanoHarness 把“机制是否存在”和“Runtime 质量如何”分开验证：前者由 Debug Lab
+和行为回归验收，后者使用预注册 SWE-bench Case、单因素配对实验和 official
+evaluator。
 
-原始运行绑定 clean revision `34cbe91`；运行后的审计只修正统计口径和展示，不改写单 Case
-scorecard。
+历史 50×2 实验中，整套 Governed preset 把失败 ToolCall 从 `36/993` 降到
+`14/973`，但 Official resolved 也从 `20/50` 降到 `14/50`，因此该 preset 被拒绝。
+后续审计还发现，39 个无 Patch 的运行全部在固定 16 轮被截断，Benchmark Workspace
+又因路径忽略错误获得了空 Repo Map。因此这是一次有价值的负实验和测量审计，
+**不是当前实现的对外解决率**。
 
-| 配置 | Official resolved / 50 | Candidate patch | 失败工具调用率 | Token | 实际执行成本 |
-| --- | ---: | ---: | ---: | ---: | ---: |
-| Minimal Control | 20/50（40.0%） | 32/50 | 36/993（3.63%） | 8,308,931 | $1.242115 |
-| Governed Runtime | 14/50（28.0%） | 27/50 | 14/973（1.44%） | 8,078,883 | $1.124990 |
-
-治理配置减少了约 60.3% 的失败工具调用率和 2.8% 的 Token，但降低了候选改动覆盖和当前样本
-correctness。项目因此**没有**把它包装成全面提升，而是拒绝整套采纳，并将 Tool Routing 与 Skills
-拆开定位。50 题每种配置只运行一次；其中一组治理版在一次重试后仍发生 provider 基础设施错误，
-所以配对裁决为 49 组（Minimal 6 胜、Governed 1 胜、42 平）。
-
-表中的 Governed 是被拒绝的 v1 preset，不代表当前冻结实现。后续开发集上，精简为单一 Skill、
-canonical Tool schema 和零工具终态后，7 个高差异 Case 从 v1 的 1/7 恢复到 v3 的 4/7；更复杂的
-v4/v5 又退化到 2/7，因此已回滚。该 7 题集合参与过调试，只能证明故障修复方向，不能作为盲测
-解决率。当前代码另有 405/405 项自动化行为回归通过；这衡量 Runtime 契约，不替代 SWE-bench。
-
-[查看脱敏证据包](benchmarks/campaigns/swebench-verified-100-v1-a-flash-20260808/README.md) ·
-[查看典型故障与系统调优记录](docs/evaluation/典型故障与系统调优记录.md)
+这次负实验保留为 Runtime 质量调优的起点证据，不将 Router、Skill、步数或
+新增 Feature 的单因素对比当成项目主线。后续质量实验会在功能集合冻结后，根据失败
+分布累计调整 Runtime 策略，并联合观察任务正确性、鲁棒性和单位解题成本。原始实验保留在
+[脱敏证据包](benchmarks/campaigns/swebench-verified-100-v1-a-flash-20260808/README.md)。
 
 ## 证据与可复现场景
 

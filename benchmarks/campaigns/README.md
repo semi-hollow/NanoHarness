@@ -31,18 +31,10 @@ Case 作为分母；“已评测补丁接受率”只描述进入 official evalu
 - 原始执行绑定 clean revision `34cbe91`；后续统计审计没有改写单 Case scorecard。
 - 排除该基础设施 pair 后，49 组配对为 Minimal 6 胜、Governed 1 胜、42 平。
 - 治理配置降低工具失败率和 Token，但牺牲 patch reachability 与当前样本 correctness，因此决策是
-  `reject` 整体 preset，后续只在未运行的 B 分片分别消融 Routing 和 Skills。
+  `reject` 整体 preset。当时计划在 B 分片拆分 Routing 和 Skills；该计划未执行，通用 Ablation
+  入口后来也因偏离当前评测主线而删除。
 - 包中 `manifest.json` 记录完整 50 题、源码 revision、配置 digest、尝试次数和每个 scorecard hash；
   后续扩到 100 题时只运行 B 分片，不重复 A 分片。
-
-## 当前 Commissioning Evidence
-
-- [`verified-commissioning-2-20260726`](verified-commissioning-2-20260726/README.md)：
-  Astropy、Django 两题，两个 Runtime preset，共 4 个 official runs。
-- 四次均为 `official_resolved`，两个 preset 在 correctness 上是 2 个 tie；这不能证明
-  governed preset 更优。
-- 该包来自一次中断 Smoke-5 的前四个完成槽位，只有一次 repetition 且 source 为 dirty；
-  它用于核验 end-to-end evidence pipeline，不是预注册通过率或总体性能结果。
 
 需要复核时，打开 Workbench 的“评测档案”；它只读回放已保存产物。未来扩容使用固定 cohort 的
 B 分片，公开结果仍必须来自 clean revision。

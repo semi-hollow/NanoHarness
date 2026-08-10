@@ -8,6 +8,12 @@
 from dataclasses import dataclass, field
 from typing import Any
 
+from agent_forge.contracts import (
+    DEFAULT_MAX_CONTEXT_CHARS,
+    DEFAULT_MAX_PROMPT_TOKENS,
+    DEFAULT_MAX_STEPS,
+    DEFAULT_TIMEOUT_SECONDS,
+)
 from agent_forge.runtime.domain.model import ModelCapabilities
 
 
@@ -24,16 +30,16 @@ class RuntimeConfig:
 
     # 工作区与 AgentLoop 资源预算。
     workspace: str
-    max_steps: int = 12
+    max_steps: int = DEFAULT_MAX_STEPS
     auto_approve_writes: bool = True
     trace_file: str = "agent_forge_trace.json"
-    max_context_chars: int = 8000
-    max_prompt_tokens: int = 32_768
+    max_context_chars: int = DEFAULT_MAX_CONTEXT_CHARS
+    max_prompt_tokens: int = DEFAULT_MAX_PROMPT_TOKENS
     reserved_output_tokens: int = 4_096
     max_consecutive_failures: int = 3
     max_consecutive_identical_tool_calls: int = 2
     max_tool_calls_per_turn: int = 4
-    timeout_seconds: float = 120.0
+    timeout_seconds: float = DEFAULT_TIMEOUT_SECONDS
     cost_budget_usd: float | None = None
     previous_task: str = ""
     session_summary: str = ""

@@ -3,7 +3,7 @@ import unittest
 from pathlib import Path
 
 from agent_forge.safety.sandbox import WorkspaceSandbox
-from agent_forge.tools.read_file import ReadFileTool
+from agent_forge.tools.read_file import MAX_CONTENT_CHARS, ReadFileTool
 
 
 class ReadFileToolTest(unittest.TestCase):
@@ -31,8 +31,28 @@ class ReadFileToolTest(unittest.TestCase):
 
             observation = tool.execute({"path": "module.py", "offset": "10", "limit": "2"})
 
-            self.assertTrue(observation.success, observation.content)
-            self.assertIn("window=10-11", observation.content)
+        self.assertTrue(observation.success, observation.content)
+        self.assertIn("window=10-11", observation.content)
+
+    def test_reports_the_actual_window_when_a_long_line_is_truncated(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            target = root / "module.py"
+            target.write_text(
+                ("x" * (MAX_CONTENT_CHARS + 100)) + "\nsecond line\n",
+                encoding="utf-8",
+            )
+            tool = ReadFileTool(WorkspaceSandbox(root))
+
+            observation = tool.execute(
+                {"path": "module.py", "offset": 1, "limit": 2}
+            )
+
+        self.assertTrue(observation.success, observation.content)
+        self.assertIn("returned_window=1-1", observation.content)
+        self.assertIn("truncated=true", observation.content)
+        self.assertIn("line_content_truncated=true", observation.content)
+        self.assertIn("next_offset=2", observation.content)
 
 
 if __name__ == "__main__":

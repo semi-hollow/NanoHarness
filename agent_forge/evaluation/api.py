@@ -15,7 +15,7 @@ from agent_forge.evaluation.adapters.json_files import (
     read_json_object,
     write_json_object,
 )
-from agent_forge.evaluation.domain.comparison import compare_runs, compare_variants
+from agent_forge.evaluation.domain.comparison import compare_runs
 from agent_forge.evaluation.domain.models import EvaluationComparison
 from agent_forge.evaluation.domain.run_metrics import extract_run_metrics
 from agent_forge.evaluation.presentation.comparison_report import (
@@ -81,7 +81,6 @@ __all__ = [
     "ImprovementRecordRequest",
     "build_benchmark_scorecard",
     "compare_runs",
-    "compare_variants",
     "export_feedback_dataset",
     "extract_run_metrics",
     "load_benchmark_scorecard",

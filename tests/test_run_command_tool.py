@@ -4,7 +4,11 @@ import subprocess
 from pathlib import Path
 
 from agent_forge.safety.sandbox import WorkspaceSandbox
-from agent_forge.tools.run_command import RunCommandTool
+from agent_forge.tools.run_command import (
+    COMMAND_TIMEOUT_SECONDS,
+    MAX_COMMAND_OUTPUT_CHARS,
+    RunCommandTool,
+)
 
 
 class RunCommandToolTest(unittest.TestCase):
@@ -24,7 +28,15 @@ class RunCommandToolTest(unittest.TestCase):
             observation = tool.execute({"command": "python -m unittest discover tests"})
 
         self.assertTrue(observation.success)
-        self.assertEqual(environment.calls, [(["python", "-m", "unittest", "discover", "tests"], 20)])
+        self.assertEqual(
+            environment.calls,
+            [
+                (
+                    ["python", "-m", "unittest", "discover", "tests"],
+                    COMMAND_TIMEOUT_SECONDS,
+                )
+            ],
+        )
 
     def test_normalizes_bare_pytest_to_python_module_entrypoint(self):
         class Environment:
@@ -50,7 +62,37 @@ class RunCommandToolTest(unittest.TestCase):
         self.assertTrue(observation.success, observation.content)
         self.assertEqual(
             environment.calls,
-            [(["python", "-m", "pytest", "tests/test_sample.py", "-v"], 20)],
+            [
+                (
+                    ["python", "-m", "pytest", "tests/test_sample.py", "-v"],
+                    COMMAND_TIMEOUT_SECONDS,
+                )
+            ],
+        )
+
+    def test_reports_when_command_output_is_truncated(self):
+        class Environment:
+            def execute_command(self, argv, timeout):
+                return subprocess.CompletedProcess(
+                    argv,
+                    0,
+                    stdout="x" * (MAX_COMMAND_OUTPUT_CHARS + 1),
+                    stderr="",
+                )
+
+        with tempfile.TemporaryDirectory() as tmp:
+            tool = RunCommandTool(
+                WorkspaceSandbox(tmp),
+                execution_environment=Environment(),
+            )
+
+            observation = tool.execute({"command": "python -m compileall ."})
+
+        self.assertTrue(observation.success)
+        self.assertIn("output_truncated=true", observation.content)
+        self.assertEqual(
+            len(observation.content.split("\n", 1)[1]),
+            MAX_COMMAND_OUTPUT_CHARS,
         )
 
     def test_rejects_shell_redirection_before_execution(self):

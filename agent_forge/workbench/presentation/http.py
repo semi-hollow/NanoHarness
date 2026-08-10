@@ -704,10 +704,6 @@ def _latest_result_record(project_dir: Path) -> dict[str, Any]:
     return build_evidence_catalog(project_dir).latest_result_record()
 
 
-def _latest_direct_baseline_record(project_dir: Path) -> dict[str, Any]:
-    return build_evidence_catalog(project_dir).latest_direct_baseline_record()
-
-
 def _latest_campaign_dir(project_dir: Path) -> Path | None:
     return build_evidence_catalog(project_dir).latest_campaign_dir()
 
@@ -1169,7 +1165,7 @@ def _render_usage_dashboard(project_dir: Path) -> str:
             "<td>ToolExecutionPipeline</td></tr>",
             "<tr><td>Skill 激活</td>"
             f"<td>{_escape(', '.join(str(item) for item in active_skills) or '本次未观测')}</td>"
-            "<td>可以对提示词和工具可见性做消融对比</td>"
+            "<td>可在预注册同任务运行中观察激活前后的差异</td>"
             "<td>SkillRegistry + 评测记分卡</td></tr>",
         ]
     )
@@ -4000,8 +3996,6 @@ def _render_evaluation_dashboard(project_dir: Path) -> str:
     )
     result = _latest_result_record(project_dir)
     comparison = _read_json_file(_latest_benchmark_comparison_path(project_dir))
-    direct_baseline = _latest_direct_baseline_record(project_dir)
-    baseline_patch = str(direct_baseline.get("model_patch") or "").strip()
     case_trace_path_text = str(result.get("trace_path") or "")
     case_trace = _read_json_file(
         Path(case_trace_path_text) if case_trace_path_text else None
@@ -4029,12 +4023,6 @@ def _render_evaluation_dashboard(project_dir: Path) -> str:
     else:
         runtime_patch_display = "0 字符（无可用工具证据）"
         runtime_patch_reason = "当前 Trace 没有可用于解释改动来源的 action 事件"
-    if not direct_baseline:
-        direct_patch_display = "本次未运行"
-    elif not baseline_patch:
-        direct_patch_display = "0 字符（未给出改动）"
-    else:
-        direct_patch_display = f"{len(baseline_patch)} 字符"
     evaluation_status = str(result.get("evaluation_status") or "not_evaluated")
     diagnosis = _translate_evidence_text(
         result.get("diagnosis") or "没有找到诊断产物。"
@@ -4093,12 +4081,6 @@ def _render_evaluation_dashboard(project_dir: Path) -> str:
                     "Runtime 内部角色",
                     _tone_for_status(str(comparison.get("verifier_status") or "")),
                 ),
-                (
-                    "直接模型基线",
-                    str(len(baseline_patch)) if direct_baseline else "未运行",
-                    "一次性回答的改动字符数",
-                    "neutral",
-                ),
             ]
         ),
         "<section class='evidence-section'><div class='section-title'><h3>失败诊断</h3><span>为什么得到当前状态</span></div>"
@@ -4121,13 +4103,6 @@ def _render_evaluation_dashboard(project_dir: Path) -> str:
         f"<tr><td>是否生成候选改动</td><td>{_escape(_display_value(comparison.get('single_patch_generated', '-')))}</td><td>{_escape(_display_value(comparison.get('multi_patch_generated', '-')))}</td></tr>"
         "</tbody></table>"
         f"<p class='boundary-note'>{_escape(_translate_evidence_text(comparison.get('recommendation') or '没有记录对比建议。'))}</p></section>",
-        "<section class='evidence-section'><div class='section-title'><h3>Harness 与直接模型对比</h3><span>一次性回答基线的能力边界</span></div>"
-        "<table><thead><tr><th>对比面</th><th>直接模型</th><th>受治理 Runtime</th></tr></thead><tbody>"
-        f"<tr><td>候选 Diff</td><td>{_escape(direct_patch_display)}</td><td>{_escape(runtime_patch_display)}<br><span class='table-note'>{_escape(runtime_patch_reason)}</span></td></tr>"
-        "<tr><td>工具执行</td><td>无</td><td>经过路由、策略检查并记录 Trace</td></tr>"
-        "<tr><td>验证证据</td><td>一次性回答不采集</td><td>工具观察 + 验证角色产物</td></tr>"
-        "<tr><td>可支持的结论</td><td>只有候选文本</td><td>候选结果 + 有边界的 Runtime 证据</td></tr>"
-        "</tbody></table><p class='boundary-note'>改动长度不代表质量；两种方案最终都必须服从官方评测结果。</p></section>",
         f"<details class='provenance'><summary>当前 Case 诊断来源</summary><code>{_escape(str(benchmark_result_path or '未找到 results.json'))}</code></details>",
     ]
     return "<div class='evidence'>" + "".join(body) + "</div>"

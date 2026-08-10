@@ -231,54 +231,6 @@ def artifact_from_pointer(pointer: Path) -> Path:
     return target.resolve()
 
 
-def remember_root_pointer(
-    scenario: str,
-    pointer_name: str,
-    *,
-    project_root: Path,
-    state_root: Path,
-) -> None:
-    """保存根级 run/bench 指针指向的 Evidence。"""
-
-    pointer = project_root / ".agent_forge" / "latest" / pointer_name
-    _remember_artifact(
-        scenario,
-        artifact_from_pointer(pointer),
-        state_root=state_root,
-    )
-
-
-def restore_evidence(
-    scenario: str,
-    *,
-    project_root: Path,
-    state_root: Path,
-    runs_root: Path,
-) -> None:
-    """恢复已保存场景的 latest 指针，不重新执行模型或评测。"""
-
-    saved_pointer = state_root / "state" / f"{scenario}_artifact.txt"
-    if not saved_pointer.is_file():
-        raise SystemExit(f"没有已保存的 {scenario} Evidence；先运行对应 Debug Lab。")
-    artifact_dir = Path(saved_pointer.read_text(encoding="utf-8").strip()).resolve()
-    try:
-        artifact_dir.relative_to(runs_root.resolve())
-    except ValueError as exc:
-        raise SystemExit(f"拒绝发布 runs 目录外的 Evidence: {artifact_dir}") from exc
-    if not artifact_dir.is_dir():
-        raise SystemExit(f"已保存的 Evidence 不存在: {artifact_dir}")
-
-    latest_dir = project_root / ".agent_forge" / "latest"
-    latest_dir.mkdir(parents=True, exist_ok=True)
-    pointer_name = "bench.txt" if scenario == "astropy" else "run.txt"
-    (latest_dir / pointer_name).write_text(
-        str(artifact_dir),
-        encoding="utf-8",
-    )
-    os.utime(artifact_dir, None)
-    print(f"RESTORED {scenario.upper()} EVIDENCE: {artifact_dir}")
-
-
 def load_or_store_deepseek_key(keychain_service: str) -> None:
     """从 Keychain 加载 API Key；首次缺失时使用隐藏输入框保存。"""
 

@@ -13,6 +13,11 @@ from agent_forge.bench.presentation.cli import (
     build_swebench_parser,
 )
 from agent_forge.multi_agent.profiles import list_profiles
+from agent_forge.runtime.config import (
+    DEFAULT_MAX_CONTEXT_CHARS,
+    DEFAULT_MAX_PROMPT_TOKENS,
+    DEFAULT_MAX_STEPS,
+)
 from agent_forge.workbench.api import build_ui_parser
 
 
@@ -356,16 +361,21 @@ def _add_model_args(
         default=None,
         help="Reasoning budget used when thinking is enabled.",
     )
-    parser.add_argument("--max-steps", type=int, default=16 if defaults else None)
+    parser.add_argument(
+        "--max-steps",
+        type=int,
+        default=DEFAULT_MAX_STEPS if defaults else None,
+        help="Total model turns; the final turn is reserved for a tool-free conclusion.",
+    )
     parser.add_argument(
         "--max-context-chars",
         type=int,
-        default=12000 if defaults else None,
+        default=DEFAULT_MAX_CONTEXT_CHARS if defaults else None,
     )
     parser.add_argument(
         "--max-prompt-tokens",
         type=int,
-        default=32768 if defaults else None,
+        default=DEFAULT_MAX_PROMPT_TOKENS if defaults else None,
         help="Total model context window used by request budgeting.",
     )
     parser.add_argument(
@@ -377,8 +387,11 @@ def _add_model_args(
     parser.add_argument(
         "--model-context-window",
         type=int,
-        default=32768 if defaults else None,
-        help="Provider/model context capacity used to cap the runtime prompt budget.",
+        default=0 if defaults else None,
+        help=(
+            "Provider/model context capacity used to cap the runtime prompt budget; "
+            "0 derives it from the selected provider and model."
+        ),
     )
     for option, destination, help_text in (
         ("native-tool-calling", "native_tool_calling", "native structured tool calls"),

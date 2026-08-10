@@ -70,8 +70,9 @@ class SkillRegistry(SkillSelectorPort):
     ) -> list[SkillCatalogEntry]:
         """只根据轻量 metadata 选择 Skill，不展开主指令或参考资源。
 
-        当前选择策略是可解释的确定性规则：显式指定优先；否则按激活词计分；
-        没有命中时只选一个有界兜底。只读任务在选择阶段就排除写入型 Skill。
+        当前选择策略是可解释的确定性规则：显式指定优先；否则按激活词计分。
+        无命中时，只读任务选 ``repo_orientation``，其他任务优先选
+        ``targeted_code_edit``；最终只返回一个。
         """
 
         # 1. 显式指定用于配置固定实验或运行策略，不再做关键词猜测。
@@ -135,7 +136,7 @@ class SkillRegistry(SkillSelectorPort):
     ) -> ActivatedSkill:
         """把目录命中转换为本 Run 使用的完整、不可变 Skill 快照。
 
-        激活只做两件事：固定明确版本；按任务读取最多一份有界参考资料。
+        激活只做两件事：固定明确版本；按任务读取最多一份有字符数上限的参考资料。
         它不会执行脚本、调用工具或授予权限，后续安全边界仍由 Runtime 负责。
         """
 

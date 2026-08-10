@@ -327,43 +327,11 @@ class DebugLabSupportTest(unittest.TestCase):
         self.assertFalse(full_auto_profile.allow_human_question)
         self.assertEqual(full_auto_profile.max_steps, 40)
 
-    def test_optional_evaluation_runner_opens_workbench_and_can_opt_out(self) -> None:
-        with (
-            patch.object(sys, "argv", ["run.py", "evaluation"]),
-            patch.object(debug_lab, "run_evaluation") as run_evaluation,
-            patch.object(
-                debug_lab,
-                "_open_published_evidence_in_workbench",
-            ) as open_workbench,
-        ):
-            debug_lab.main()
-
-        run_evaluation.assert_called_once_with()
-        open_workbench.assert_called_once_with("evaluation")
-
-        with (
-            patch.object(
-                sys,
-                "argv",
-                ["run.py", "evaluation", "--no-open-workbench"],
-            ),
-            patch.object(debug_lab, "run_evaluation") as run_evaluation,
-            patch.object(
-                debug_lab,
-                "_open_published_evidence_in_workbench",
-            ) as open_workbench,
-        ):
-            debug_lab.main()
-
-        run_evaluation.assert_called_once_with()
-        open_workbench.assert_not_called()
-
     def test_read_only_workbench_entry_does_not_run_a_lab(self) -> None:
         with (
             patch.object(sys, "argv", ["run.py", "workbench"]),
             patch.object(debug_lab, "run_governed") as run_governed,
             patch.object(debug_lab, "run_coordinated") as run_coordinated,
-            patch.object(debug_lab, "run_evaluation") as run_evaluation,
             patch.object(
                 debug_lab,
                 "_open_published_evidence_in_workbench",
@@ -373,7 +341,6 @@ class DebugLabSupportTest(unittest.TestCase):
 
         run_governed.assert_not_called()
         run_coordinated.assert_not_called()
-        run_evaluation.assert_not_called()
         open_workbench.assert_called_once_with("complex", stay_attached=True)
 
     @patch("examples.debug_lab.run.subprocess.run")
@@ -384,7 +351,6 @@ class DebugLabSupportTest(unittest.TestCase):
         expected = {
             "governed": "--show-governed",
             "coordinated": "--show-coordinated",
-            "evaluation": "--show-evaluation",
             "complex": "--show-complex",
         }
         for scenario, flag in expected.items():
@@ -396,7 +362,7 @@ class DebugLabSupportTest(unittest.TestCase):
                     check=True,
                 )
 
-        self.assertEqual(run_process.call_count, 4)
+        self.assertEqual(run_process.call_count, 3)
 
         debug_lab._open_published_evidence_in_workbench(
             "complex",

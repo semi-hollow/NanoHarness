@@ -1,3 +1,4 @@
+import ast
 import re
 import subprocess
 import unittest
@@ -10,22 +11,16 @@ LATIN_CHARACTER = re.compile(r"[A-Za-z]")
 
 CHINESE_FIRST_DOCS = (
     "README.md",
-    "CHANGELOG.md",
-    "CONTRIBUTING.md",
     "FORGE.md",
     "SECURITY.md",
     "agent_forge/README.md",
+    "docs/核心运行机制与代码索引.md",
     "docs/项目架构与代码导航.md",
     "docs/能力实现状态与使用边界.md",
     "docs/运行生命周期与异常处理机制.md",
     "docs/功能演进与设计取舍.md",
-    "docs/后续能力规划.md",
-    "docs/adr/0001-按能力分包与六边形架构.md",
     "docs/architecture/代码结构演进与可读性治理.md",
-    "docs/architecture/运行时工具治理与人工恢复.md",
-    "docs/case-studies/astropy-12907-真实案例复盘.md",
     "docs/evaluation/典型故障与系统调优记录.md",
-    "docs/evaluation/评测结果驱动的系统调优.md",
     "docs/evaluation/失败分类规则与诊断流程.md",
     "docs/evaluation/回归测试与评测范围.md",
     "examples/debug_lab/README.md",
@@ -33,15 +28,15 @@ CHINESE_FIRST_DOCS = (
 
 PUBLIC_DOC_LINE_BUDGETS = {
     "README.md": 250,
-    "CONTRIBUTING.md": 140,
+    "docs/核心运行机制与代码索引.md": 100,
     "docs/项目架构与代码导航.md": 420,
     "docs/能力实现状态与使用边界.md": 120,
     "docs/功能演进与设计取舍.md": 270,
-    "docs/后续能力规划.md": 120,
     "examples/debug_lab/README.md": 210,
 }
 
 CANONICAL_README_LINKS = (
+    "docs/核心运行机制与代码索引.md",
     "docs/运行生命周期与异常处理机制.md",
     "docs/项目架构与代码导航.md",
     "docs/能力实现状态与使用边界.md",
@@ -79,18 +74,16 @@ LOW_VALUE_FAILURE_HEADING_MARKERS = (
 )
 
 ALLOWED_DOC_SURFACES = (
-    "docs/adr/",
     "docs/architecture/",
-    "docs/case-studies/",
     "docs/evaluation/",
 )
 
 ALLOWED_TOP_LEVEL_DOCS = {
+    "docs/核心运行机制与代码索引.md",
     "docs/项目架构与代码导航.md",
     "docs/能力实现状态与使用边界.md",
     "docs/运行生命周期与异常处理机制.md",
     "docs/功能演进与设计取舍.md",
-    "docs/后续能力规划.md",
 }
 
 PUBLIC_POSITIONING_FORBIDDEN = (
@@ -225,6 +218,55 @@ class DocumentationLanguageTest(unittest.TestCase):
         for relative_path in CANONICAL_README_LINKS:
             if relative_path not in readme:
                 violations.append(f"README does not link canonical document: {relative_path}")
+
+        # 机制索引对外提供可点击 Owner；路径和符号必须与当前源码一致。
+        owner_index_path = PROJECT_ROOT / "docs/核心运行机制与代码索引.md"
+        owner_index = owner_index_path.read_text(encoding="utf-8")
+        owner_links = list(
+            re.finditer(
+                r"\[\s*`(?P<symbol>[^`]+)`\s*\]\("
+                r"(?P<target>\.\./agent_forge/[^)#]+\.py)"
+                r"(?:#L(?P<line>[1-9][0-9]*))?\)",
+                owner_index,
+            )
+        )
+        if not owner_links:
+            violations.append("核心机制索引没有可校验的 Owner 链接")
+        parsed_symbols: dict[Path, dict[str, int]] = {}
+        for owner_link in owner_links:
+            symbol = owner_link.group("symbol")
+            target = owner_link.group("target")
+            linked_line = owner_link.group("line")
+            if linked_line is None:
+                violations.append(f"Owner 链接缺少精确行号: {target}::{symbol}")
+                continue
+            source_path = (owner_index_path.parent / target).resolve()
+            try:
+                source_path.relative_to(PROJECT_ROOT / "agent_forge")
+            except ValueError:
+                violations.append(f"Owner 链接逃逸 agent_forge: {target}")
+                continue
+            if not source_path.is_file():
+                violations.append(f"Owner 链接不存在: {target}")
+                continue
+            if source_path not in parsed_symbols:
+                tree = ast.parse(source_path.read_text(encoding="utf-8"))
+                available: dict[str, int] = {}
+                for node in tree.body:
+                    if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+                        available[node.name] = node.lineno
+                    if isinstance(node, ast.ClassDef):
+                        for child in node.body:
+                            if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                                available[f"{node.name}.{child.name}"] = child.lineno
+                parsed_symbols[source_path] = available
+            if symbol not in parsed_symbols[source_path]:
+                violations.append(f"Owner 符号不存在: {target}::{symbol}")
+            elif int(linked_line) != parsed_symbols[source_path][symbol]:
+                violations.append(
+                    f"Owner 行号已漂移: {target}::{symbol} "
+                    f"#L{linked_line} != #L{parsed_symbols[source_path][symbol]}"
+                )
         lab_path = PROJECT_ROOT / "examples/debug_lab/README.md"
         lab = lab_path.read_text(encoding="utf-8")
         required_lab_contracts = (

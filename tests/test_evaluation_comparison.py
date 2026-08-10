@@ -3,7 +3,6 @@ import unittest
 
 from agent_forge.evaluation.api import (
     compare_runs,
-    compare_variants,
     extract_run_metrics,
     write_evaluation_artifacts,
 )
@@ -88,21 +87,6 @@ class EvaluationComparisonTest(unittest.TestCase):
         self.assertEqual(metrics["failed_tool_calls"], 0)
         self.assertEqual(metrics["failure_taxonomy"], "provider_config")
 
-    def test_compare_variants_explains_agent_loop_value(self):
-        result = compare_variants(
-            "case-1",
-            {
-                "direct_baseline": {"patch_generated": False, "estimated_cost_usd": 0.01, "failure_class": "context_miss"},
-                "single_agent": {"patch_generated": True, "tool_calls": 8, "estimated_cost_usd": 0.04, "failure_class": "patch_generated_but_unverified"},
-                "governed_agent": {"patch_generated": True, "tool_calls": 6, "failed_tool_calls": 0, "estimated_cost_usd": 0.045, "failure_class": "patch_generated_but_unverified"},
-            },
-        )
-        self.assertEqual(result["task_id"], "case-1")
-        self.assertFalse(result["variants"]["direct_baseline"]["patch_generated"])
-        self.assertTrue(result["variants"]["single_agent"]["patch_generated"])
-        self.assertIn("AgentLoop", result["before_after_summary"])
-        self.assertIn("governed", result["recommendation"].lower())
-
     def test_compare_runs_treats_string_zero_patch_chars_as_no_patch(self):
         comparison = compare_runs(
             "case-zero",
@@ -111,68 +95,6 @@ class EvaluationComparisonTest(unittest.TestCase):
         )
         self.assertFalse(comparison.single_patch_generated)
         self.assertFalse(comparison.multi_patch_generated)
-
-    def test_compare_variants_treats_model_patch_as_generated_patch(self):
-        result = compare_variants(
-            "case-model-patch",
-            {
-                "direct_baseline": {"model_patch": "diff --git a/file.py b/file.py\n+fixed\n"},
-            },
-        )
-        self.assertTrue(result["variants"]["direct_baseline"]["patch_generated"])
-
-    def test_compare_variants_rejects_non_diff_model_patch_text(self):
-        result = compare_variants(
-            "case-model-prose",
-            {
-                "direct_baseline": {"model_patch": "I cannot produce a patch from the issue alone."},
-            },
-        )
-        self.assertFalse(result["variants"]["direct_baseline"]["patch_generated"])
-
-    def test_compare_variants_uses_actual_agent_runtime_without_fake_governed_claim(self):
-        result = compare_variants(
-            "case-agent-runtime",
-            {
-                "direct_baseline": {"model_patch": ""},
-                "agent_runtime": {"patch_chars": 30, "failure_class": "patch_generated_but_unverified"},
-            },
-        )
-        self.assertTrue(result["variants"]["agent_runtime"]["patch_generated"])
-        self.assertIn("agent_runtime", result["recommendation"])
-        self.assertNotIn("governed_agent", result["recommendation"])
-
-    def test_compare_variants_stays_conservative_when_cost_only_increases(self):
-        result = compare_variants(
-            "case-2",
-            {
-                "direct_baseline": {"patch_generated": True, "estimated_cost_usd": 0.01},
-                "single_agent": {"patch_generated": True, "estimated_cost_usd": 0.05, "failed_tool_calls": 2},
-                "governed_agent": {"patch_generated": True, "estimated_cost_usd": 0.07, "failed_tool_calls": 3},
-            },
-        )
-        self.assertIn("global claim", result["recommendation"].lower())
-
-    def test_compare_variants_preserves_scorecard_metrics_and_evidence_levels(self):
-        result = compare_variants(
-            "case-metrics",
-            {
-                "agent_runtime": {
-                    "patch_chars": 30,
-                    "local_validation_status": "passed",
-                    "official_evaluation_status": "official_eval_failed",
-                    "total_tokens": 1234,
-                    "llm_latency_ms": 456,
-                    "estimated_cost_usd": 0.12,
-                }
-            },
-        )
-        variant = result["variants"]["agent_runtime"]
-        self.assertTrue(variant["local_verified"])
-        self.assertFalse(variant["official_resolved"])
-        self.assertEqual(variant["official_evaluation_status"], "official_eval_failed")
-        self.assertEqual(variant["total_tokens"], 1234)
-        self.assertEqual(variant["llm_latency_ms"], 456)
 
 
 if __name__ == "__main__":

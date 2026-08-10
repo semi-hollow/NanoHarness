@@ -27,13 +27,6 @@ case "${1:-}" in
     produce_evidence=false
     workbench_source="orchestration"
     ;;
-  --show-evaluation)
-    scenario="show-evaluation"
-    produce_evidence=false
-    workbench_source="evaluation"
-    pointer_path=".agent_forge/latest/campaign.txt"
-    status_evidence_field="latest_campaign"
-    ;;
   --show-complex)
     scenario="show-complex"
     produce_evidence=false
@@ -50,7 +43,7 @@ case "${1:-}" in
     status_evidence_field="latest_complex"
     ;;
   *)
-    printf 'Usage: scripts/showcase_demo.sh [--show-governed|--show-coordinated|--show-complex|--serve-complex|--show-evaluation]\n' >&2
+    printf 'Usage: scripts/showcase_demo.sh [--show-governed|--show-coordinated|--show-complex|--serve-complex]\n' >&2
     exit 2
     ;;
 esac

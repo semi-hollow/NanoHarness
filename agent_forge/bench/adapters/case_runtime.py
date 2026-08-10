@@ -25,7 +25,7 @@ from agent_forge.bench.adapters.git_workspace import (
 from agent_forge.bench.adapters.local_validation import read_local_validation
 from agent_forge.bench.domain.config import SwebenchRunRequest, safe_id
 from agent_forge.bench.domain.models import BenchCase, BenchCaseResult
-from agent_forge.bench.ports import CaseExecutorPort, DirectBaselinePort
+from agent_forge.bench.ports import CaseExecutorPort
 from agent_forge.models.gateway import ModelGateway
 from agent_forge.multi_agent.profiles import get_profile
 from agent_forge.multi_agent.wiring import (
@@ -36,12 +36,12 @@ from agent_forge.observability.adapters.json_trace import TraceRecorder
 from agent_forge.observability.api import write_usage_artifacts
 from agent_forge.runtime.api import build_agent_loop
 from agent_forge.runtime.config import RuntimeConfig
+from agent_forge.runtime.domain.model import ModelCapabilities
 from agent_forge.runtime.execution_environment import (
     ExecutionEnvironment,
     ExecutionEnvironmentConfig,
 )
 from agent_forge.runtime.llm_config import LLMConfigRequest, resolve_llm_config
-from agent_forge.runtime.domain.conversation import Message
 from agent_forge.runtime.wiring import (
     ToolRegistryBuildRequest,
     build_llm,
@@ -105,7 +105,7 @@ class LocalCaseExecutor(CaseExecutorPort):
                     execution_environment=environment,
                 )
             )
-            llm = self._build_model(request)
+            llm, model_capabilities = self._build_model(request)
             runtime_config = RuntimeConfig(
                 workspace=str(active_workspace),
                 max_steps=request.max_steps,
@@ -126,6 +126,7 @@ class LocalCaseExecutor(CaseExecutorPort):
                     request.memory_namespace or f"swebench:{case.instance_id}"
                 ),
                 memory_recall_limit=request.memory_recall_limit,
+                model_capabilities=model_capabilities,
                 execution_environment=environment,
             )
             # endregion 2. Runtime 装配结束
@@ -217,7 +218,11 @@ class LocalCaseExecutor(CaseExecutorPort):
         return environment
 
     @staticmethod
-    def _build_model(request: SwebenchRunRequest) -> ModelGateway:
+    def _build_model(
+        request: SwebenchRunRequest,
+    ) -> tuple[ModelGateway, ModelCapabilities]:
+        """同时返回模型 Adapter 与能力事实，避免 Runtime 再退回 32K 默认值。"""
+
         llm_config = resolve_llm_config(
             LLMConfigRequest(
                 provider=request.provider,
@@ -235,7 +240,12 @@ class LocalCaseExecutor(CaseExecutorPort):
                 f"{request.provider} model config is incomplete; "
                 "set API key/base URL/model."
             )
-        return build_llm(llm_config)
+        model_capabilities = getattr(llm_config, "capabilities", None)
+        if not isinstance(model_capabilities, ModelCapabilities):
+            # 正式解析器始终提供能力事实；兼容自定义 Adapter 与测试替身时，
+            # 使用 Runtime 的明确默认值，而不是因缺少可选属性阻断整个 Case。
+            model_capabilities = ModelCapabilities()
+        return build_llm(llm_config), model_capabilities
 
     @staticmethod
     def _execute_runtime(
@@ -288,72 +298,6 @@ class LocalCaseExecutor(CaseExecutorPort):
         return error
 
 
-class DirectModelBaseline(DirectBaselinePort):
-    def predict(
-        self,
-        case: BenchCase,
-        request: SwebenchRunRequest,
-    ) -> dict[str, Any]:
-        llm_config = resolve_llm_config(
-            LLMConfigRequest(
-                provider=request.provider,
-                base_url=request.base_url,
-                api_key=request.api_key,
-                model=request.model,
-                timeout=60,
-                temperature=request.temperature,
-                thinking_mode=request.thinking_mode,
-                reasoning_effort=request.reasoning_effort,
-            )
-        )
-        model_name = f"direct-{request.provider}-{request.model or 'default'}"
-        if not llm_config.is_configured():
-            return {
-                "instance_id": case.instance_id,
-                "model_name_or_path": model_name,
-                "model_patch": "",
-                "error": f"{request.provider} model config is incomplete",
-            }
-        llm = build_llm(llm_config)
-        response = llm.chat(
-            [
-                Message(
-                    "system",
-                    "You are a coding model baseline. Return only a unified diff patch. Do not explain.",
-                ),
-                Message(
-                    "user",
-                    f"Repository: {case.repo}\nBase commit: {case.base_commit}\n"
-                    f"Issue:\n{case.problem_statement}",
-                ),
-            ],
-            [],
-        )
-        usage: dict[str, Any] = {}
-        if getattr(llm, "last_usage", None) is not None:
-            usage = llm.last_usage.to_dict()
-        model_patch = extract_diff(response.content or "")
-        return {
-            "instance_id": case.instance_id,
-            "model_name_or_path": model_name,
-            "model_patch": model_patch,
-            "error": response.error or "",
-            "failure_class": (
-                "baseline_provider_error"
-                if response.error
-                else ""
-                if model_patch
-                else "no_patch_generated"
-            ),
-            "estimated_cost_usd": float(usage.get("estimated_cost_usd") or 0.0),
-            "llm_calls": 1,
-            "total_tokens": int(usage.get("total_tokens") or 0),
-            "llm_latency_ms": int(usage.get("latency_ms") or 0),
-            "tool_calls": 0,
-            "failed_tool_calls": 0,
-        }
-
-
 def render_case_task(case: BenchCase) -> str:
     return (
         "Resolve this SWE-bench coding issue.\n\n"
@@ -375,26 +319,6 @@ def render_case_task(case: BenchCase) -> str:
         "- Do not use python -c, shell pipes, redirection, or /tmp files.\n"
         "- If validation is blocked, keep the patch and clearly explain the unverified point instead of spending more steps.\n"
         "- Finish with a concise summary grounded in files changed and commands run.\n"
-    )
-
-
-def extract_diff(text: str) -> str:
-    stripped = text.strip()
-    if "```" not in stripped:
-        return stripped if looks_like_diff(stripped) else ""
-    for chunk in stripped.split("```"):
-        candidate = chunk.strip()
-        if candidate.startswith("diff"):
-            candidate = candidate[4:].strip()
-        if looks_like_diff(candidate):
-            return candidate
-    return ""
-
-
-def looks_like_diff(text: str) -> bool:
-    stripped = text.strip()
-    return stripped.startswith("diff --git ") or (
-        stripped.startswith("--- ") and "\n+++ " in stripped
     )
 
 

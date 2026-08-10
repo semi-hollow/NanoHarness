@@ -4,7 +4,6 @@
 from __future__ import annotations
 
 import argparse
-import json
 import os
 import subprocess
 import sys
@@ -17,14 +16,10 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 MULTI_AGENT_TEMPLATE_ROOT = Path(__file__).resolve().parent / "multi_agent_repository"
 STATE_ROOT = PROJECT_ROOT / ".agent_forge" / "debug-lab"
 RUNS_ROOT = PROJECT_ROOT / ".agent_forge" / "runs"
-PUBLIC_CAMPAIGN_ROOT = (
-    PROJECT_ROOT / "benchmarks" / "campaigns" / "verified-commissioning-2-20260726"
-)
 WORKBENCH_LAUNCHER = PROJECT_ROOT / "scripts" / "showcase_demo.sh"
 WORKBENCH_FLAGS = {
     "governed": "--show-governed",
     "coordinated": "--show-coordinated",
-    "evaluation": "--show-evaluation",
     "complex": "--show-complex",
 }
 sys.path.insert(0, str(PROJECT_ROOT))
@@ -33,7 +28,6 @@ from examples.debug_lab.support import (  # noqa: E402
     DeterministicFanoutModel,
     create_workspace,
     publish_latest,
-    restore_evidence as restore_saved_evidence,
 )
 
 
@@ -43,17 +37,6 @@ def _publish_latest(artifact_dir: Path, *, scenario: str = "") -> None:
         project_root=PROJECT_ROOT,
         state_root=STATE_ROOT,
         scenario=scenario,
-    )
-
-
-def _restore_saved_astropy_evidence() -> None:
-    """让 Lab 3 可下钻到已保存的 official 单题 Evidence。"""
-
-    restore_saved_evidence(
-        "astropy",
-        project_root=PROJECT_ROOT,
-        state_root=STATE_ROOT,
-        runs_root=RUNS_ROOT,
     )
 
 
@@ -212,94 +195,6 @@ def run_coordinated() -> None:
     )
 
 
-def run_evaluation() -> None:
-    """发布真实 campaign 与已有 official case，供 Workbench 做离线复盘。"""
-
-    from agent_forge.evaluation.api import (
-        ImprovementRecordRequest,
-        write_improvement_record,
-    )
-
-    if not (PUBLIC_CAMPAIGN_ROOT / "manifest.json").is_file():
-        raise SystemExit(f"公开 benchmark campaign 不完整: {PUBLIC_CAMPAIGN_ROOT}")
-    latest_dir = PROJECT_ROOT / ".agent_forge" / "latest"
-    latest_dir.mkdir(parents=True, exist_ok=True)
-    (latest_dir / "campaign.txt").write_text(
-        str(PUBLIC_CAMPAIGN_ROOT.resolve()),
-        encoding="utf-8",
-    )
-    state_dir = STATE_ROOT / "state"
-    state_dir.mkdir(parents=True, exist_ok=True)
-    (state_dir / "workbench_source.txt").write_text(
-        "evaluation",
-        encoding="utf-8",
-    )
-    saved_official = STATE_ROOT / "state" / "astropy_artifact.txt"
-    if saved_official.is_file():
-        _restore_saved_astropy_evidence()
-
-    campaign_summary = json.loads(
-        (PUBLIC_CAMPAIGN_ROOT / "summary.json").read_text(encoding="utf-8")
-    )
-    minimal_control_metrics = campaign_summary["variants"]["minimal-control"]
-    governed_runtime_metrics = campaign_summary["variants"]["governed-runtime"]
-    improvement_path = write_improvement_record(
-        ImprovementRecordRequest(
-            campaign_dir=PUBLIC_CAMPAIGN_ROOT,
-            observed_problem=(
-                "Minimal-control 在两个 commissioning case 中出现 8/27 次失败工具调用，"
-                "需要验证 task-aware routing 与 Skill 是否减少无效动作。"
-            ),
-            hypothesis=(
-                "在相同 AgentLoop、模型、任务、预算和安全边界下，task-aware routing "
-                "与 Skill 可减少失败工具调用，同时不降低 official resolved 结果。"
-            ),
-            change_ref="governed-runtime preset: task-aware routing + built-in Skills",
-            decision="iterate",
-            decision_rationale=(
-                "失败工具调用由 8 降至 5，但 official outcome 为 2 个平局，"
-                "token 与成本上升；保留方向并继续扩大样本，而不声称 correctness 提升。"
-            ),
-            claim_boundary=(
-                "这是两个 case、单次重复的 post-hoc commissioning evidence，"
-                "只证明证据闭环和已观察 trade-off，不是总体成功率或因果结论。"
-            ),
-            diagnosis_finding=(
-                "13 次失败并非内置编辑工具崩溃；主要来自本地验证依赖缺失和验证目标选择，"
-                "另有两次安全策略按设计拒绝危险或未放行命令。"
-            ),
-            diagnosis_evidence=(
-                "基础控制版：8/27 次失败（29.6%）；6 次依赖或导入环境失败，2 次策略拒绝。",
-                "治理增强版：5/32 次失败（15.6%）；4 次依赖或导入环境失败，1 次验证目标格式错误。",
-                "两种配置均 official resolved 2/2；失败调用减少不能解释为正确性提升。",
-            ),
-        )
-    )
-    print(
-        "LAB 3/3: real campaign -> layered correctness -> diagnosis "
-        "-> paired runtime evidence"
-    )
-    print(
-        "OFFICIAL: "
-        f"minimal={minimal_control_metrics['official_resolved']}/"
-        f"{minimal_control_metrics['official_evaluated']} "
-        f"governed={governed_runtime_metrics['official_resolved']}/"
-        f"{governed_runtime_metrics['official_evaluated']}"
-    )
-    print(
-        "TRADE-OFF: "
-        f"failed_tools {minimal_control_metrics['failed_tool_calls']} "
-        f"-> {governed_runtime_metrics['failed_tool_calls']}; "
-        f"tokens {minimal_control_metrics['total_tokens']} "
-        f"-> {governed_runtime_metrics['total_tokens']}; "
-        f"cost ${minimal_control_metrics['estimated_cost_usd']:.6f} -> "
-        f"${governed_runtime_metrics['estimated_cost_usd']:.6f}"
-    )
-    print("CLAIM: no observed correctness delta; commissioning evidence only")
-    print(f"IMPROVEMENT RECORD: {improvement_path}")
-    print(f"ARTIFACT: {PUBLIC_CAMPAIGN_ROOT}")
-
-
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
@@ -307,7 +202,6 @@ def main() -> None:
         choices=(
             "governed",
             "coordinated",
-            "evaluation",
             "workbench",
         ),
     )
@@ -331,7 +225,6 @@ def main() -> None:
     {
         "governed": run_governed,
         "coordinated": run_coordinated,
-        "evaluation": run_evaluation,
     }[args.scenario]()
     should_open_workbench = (
         args.scenario in WORKBENCH_FLAGS

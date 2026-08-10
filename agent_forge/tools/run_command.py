@@ -10,7 +10,13 @@ from agent_forge.safety.sandbox import WorkspaceSandbox
 from .base import Tool
 
 
+COMMAND_TIMEOUT_SECONDS = 120
+MAX_COMMAND_OUTPUT_CHARS = 6_000
+
+
 class RunCommandTool(Tool):
+    """执行受白名单约束的验证命令，而不是提供任意 Shell。"""
+
     name = "run_command"
     description = (
         "low-level fallback for allowlisted Python validation (`unittest`, `pytest`, "
@@ -190,7 +196,10 @@ class RunCommandTool(Tool):
             self._validate_command_paths(parts)
             parts = self._normalize_validation_entrypoint(parts)
             if self.execution_environment is not None:
-                proc = self.execution_environment.execute_command(parts, timeout=20)
+                proc = self.execution_environment.execute_command(
+                    parts,
+                    timeout=COMMAND_TIMEOUT_SECONDS,
+                )
             else:
                 parts = self._normalize_python(parts)
                 proc = subprocess.run(
@@ -199,13 +208,19 @@ class RunCommandTool(Tool):
                     shell=False,
                     text=True,
                     capture_output=True,
-                    timeout=20,
+                    timeout=COMMAND_TIMEOUT_SECONDS,
                 )
-            output = (proc.stdout + proc.stderr).strip()[:2000]
+            complete_output = (proc.stdout + proc.stderr).strip()
+            output_truncated = len(complete_output) > MAX_COMMAND_OUTPUT_CHARS
+            visible_output = complete_output[:MAX_COMMAND_OUTPUT_CHARS]
             return Observation(
                 tool_name=self.name,
                 success=proc.returncode == 0,
-                content=f"exit_code={proc.returncode}\n{output}",
+                content=(
+                    f"exit_code={proc.returncode} "
+                    f"output_truncated={str(output_truncated).lower()}\n"
+                    f"{visible_output}"
+                ),
             )
         except Exception as e:
             return Observation(

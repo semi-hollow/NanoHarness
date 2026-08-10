@@ -103,7 +103,6 @@ def build_scorecard(
         ),
         "metrics": aggregate_cases(cases),
         "cases": cases,
-        "variants": aggregate_variants(results.get("variant_comparisons") or {}),
         "claim_boundary": {
             "candidate_diff": "non-empty unified diff only",
             "local_verified": "all recorded test-oriented validation evidence passed",
@@ -163,21 +162,6 @@ def aggregate_cases(cases: list[dict[str, Any]]) -> dict[str, Any]:
         total = sum(_float(case.get(key)) for case in cases)
         metrics[key] = round(total, 6) if key == "estimated_cost_usd" else int(total)
     return metrics
-
-
-def aggregate_variants(comparisons: object) -> dict[str, Any]:
-
-    if not isinstance(comparisons, dict):
-        return {}
-    rows: dict[str, list[dict[str, Any]]] = {}
-    for comparison in comparisons.values():
-        variants = comparison.get("variants") if isinstance(comparison, dict) else None
-        if not isinstance(variants, dict):
-            continue
-        for name, item in variants.items():
-            if isinstance(item, dict):
-                rows.setdefault(str(name), []).append(dict(item))
-    return {name: aggregate_cases(items) for name, items in sorted(rows.items())}
 
 
 def _metadata(

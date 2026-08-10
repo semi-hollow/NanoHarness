@@ -75,10 +75,6 @@ def render_bench_report(summary: BenchRunSummary) -> str:
         f"- cases: `{total}`",
         f"- predictions: `{summary.predictions_path}`",
     ]
-    if summary.baseline_predictions_path:
-        lines.append(
-            f"- direct baseline predictions: `{summary.baseline_predictions_path}`"
-        )
     lines.extend(
         [
             "",
@@ -114,28 +110,6 @@ def render_bench_report(summary: BenchRunSummary) -> str:
             "- `not_evaluated`: no correctness claim should be made beyond the available trace and patch evidence.",
         ]
     )
-    if summary.variant_comparisons:
-        variant_names = _variant_names(summary.variant_comparisons)
-        lines.extend(
-            [
-                "",
-                "## Baseline Comparison",
-                "",
-                "| instance | " + " | ".join(variant_names) + " | recommendation |",
-                "| --- | " + " | ".join("---" for _ in variant_names) + " | --- |",
-            ]
-        )
-        for instance_id, comparison in summary.variant_comparisons.items():
-            variants = comparison.get("variants") or {}
-            lines.append(
-                "| "
-                f"`{instance_id}` | "
-                + " | ".join(
-                    _variant_cell(variants.get(name) or {}) for name in variant_names
-                )
-                + f" | {_table_cell(str(comparison.get('recommendation') or ''))} |"
-            )
-
     if summary.official_eval_command:
         lines.extend(
             [
@@ -245,30 +219,6 @@ def render_bench_report(summary: BenchRunSummary) -> str:
         lines.append("- No additional notes.")
     lines.append("")
     return "\n".join(lines)
-
-
-def _variant_cell(variant: dict) -> str:
-    patch = "patch" if variant.get("patch_generated") else "no patch"
-    failure = str(variant.get("failure_class") or "-")
-    return _table_cell(f"{patch}; {failure}")
-
-
-def _variant_names(comparisons: dict[str, dict]) -> list[str]:
-    preferred = [
-        "direct_baseline",
-        "agent_runtime",
-        "single_agent",
-        "multi_agent",
-        "governed_agent",
-    ]
-    names: set[str] = set()
-    for comparison in comparisons.values():
-        variants = comparison.get("variants") if isinstance(comparison, dict) else {}
-        if isinstance(variants, dict):
-            names.update(variants)
-    ordered = [name for name in preferred if name in names]
-    ordered.extend(sorted(names - set(ordered)))
-    return ordered
 
 
 def _table_cell(value: str) -> str:

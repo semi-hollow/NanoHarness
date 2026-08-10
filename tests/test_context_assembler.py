@@ -2,12 +2,24 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from agent_forge.context.repo_map import build_repo_map
 from agent_forge.runtime.application.working_memory import WorkingMemory
 from agent_forge.runtime.adapters.context_assembler import RepositoryContextAssembler
 from agent_forge.runtime.ports.context import ContextAssemblyRequest
 
 
 class RepositoryContextAssemblerTest(unittest.TestCase):
+    def test_repo_map_does_not_ignore_workspace_because_of_parent_directory(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            workspace = Path(tmp) / ".agent_forge" / "runs" / "case" / "workspace"
+            source = workspace / "src" / "module.py"
+            source.parent.mkdir(parents=True)
+            source.write_text("VALUE = 1\n", encoding="utf-8")
+
+            repo_map = build_repo_map(workspace)
+
+        self.assertEqual(repo_map, "src/module.py")
+
     def test_builds_bounded_context_from_repository_evidence(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

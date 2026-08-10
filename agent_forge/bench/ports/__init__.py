@@ -3,7 +3,6 @@ from .benchmark import (
     CaseEvidenceReader,
     CaseExecutorPort,
     CaseSourcePort,
-    DirectBaselinePort,
     OfficialEvaluatorPort,
 )
 from .campaign import BenchmarkRunnerPort, CampaignArtifactPort, SourceIdentityPort
@@ -13,7 +12,6 @@ __all__ = [
     "CaseEvidenceReader",
     "CaseExecutorPort",
     "CaseSourcePort",
-    "DirectBaselinePort",
     "OfficialEvaluatorPort",
     "BenchmarkRunnerPort",
     "CampaignArtifactPort",

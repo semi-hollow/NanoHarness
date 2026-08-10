@@ -43,7 +43,6 @@ def run_swebench(request: SwebenchRunRequest) -> BenchRunSummary:
     layout = artifacts.create_layout(
         request.output_root,
         run_id,
-        include_baseline=request.direct_baseline,
     )
     return build_swebench_runner(
         request,
