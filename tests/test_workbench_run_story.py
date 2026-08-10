@@ -940,6 +940,140 @@ class WorkbenchRunStoryTest(unittest.TestCase):
         self.assertIn("增加步骤预算，或要求模型更早明确", rendered)
         self.assertIn("结果与证据", INDEX_HTML)
 
+    def test_runtime_quality_summary_is_the_primary_evaluation_story(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            project_dir = Path(tmp)
+            summary_path = (
+                project_dir
+                / "benchmarks"
+                / "runtime-quality"
+                / "golden-10-v1.json"
+            )
+            summary_path.parent.mkdir(parents=True)
+            summary_path.write_text(
+                json.dumps(
+                    {
+                        "schema_version": 1,
+                        "experiment_type": "runtime_quality",
+                        "title": "Golden-10 · Runtime 质量优化",
+                        "status": "completed",
+                        "question": "功能冻结后，怎样降低成本而不牺牲正确性？",
+                        "success_criteria": "正确性不下降，效率指标显著改善。",
+                        "case_ids": ["demo__case-1"],
+                        "accepted_iteration": "R1",
+                        "accepted_metrics": {
+                            "case_count": 1,
+                            "confirmed_solved": 1,
+                            "confirmed_unresolved": 0,
+                            "not_adjudicated": 0,
+                            "official_resolved": 1,
+                            "official_denominator": 1,
+                            "patch_generated": 1,
+                            "tool_calls": 10,
+                            "failed_tool_calls": 1,
+                            "cost_budget_stops": 0,
+                            "total_tokens": 1000,
+                            "estimated_cost_usd": 0.01,
+                        },
+                        "iterations": [
+                            {
+                                "id": "R0",
+                                "bottleneck": "基线",
+                                "change": "无",
+                                "decision": "baseline",
+                                "metrics": {
+                                    "case_count": 1,
+                                    "confirmed_solved": 1,
+                                    "confirmed_unresolved": 0,
+                                    "not_adjudicated": 0,
+                                    "official_resolved": 1,
+                                    "official_denominator": 1,
+                                    "patch_generated": 1,
+                                    "tool_calls": 20,
+                                    "failed_tool_calls": 2,
+                                    "total_tokens": 2000,
+                                    "estimated_cost_usd": 0.02,
+                                },
+                            },
+                            {
+                                "id": "R1",
+                                "bottleneck": "上下文过长",
+                                "change": "收紧压缩触发点",
+                                "decision": "accepted",
+                                "metrics": {
+                                    "case_count": 1,
+                                    "confirmed_solved": 1,
+                                    "confirmed_unresolved": 0,
+                                    "not_adjudicated": 0,
+                                    "official_resolved": 1,
+                                    "official_denominator": 1,
+                                    "patch_generated": 1,
+                                    "tool_calls": 10,
+                                    "failed_tool_calls": 1,
+                                    "total_tokens": 1000,
+                                    "estimated_cost_usd": 0.01,
+                                },
+                            },
+                        ],
+                        "failure_pareto": [
+                            {
+                                "failure": "预算耗尽",
+                                "count": 1,
+                                "evidence": "停止原因来自 Trace。",
+                            }
+                        ],
+                        "case_results": [
+                            {
+                                "case_id": "demo__case-1",
+                                "R0": {
+                                    "official_status": "official_resolved",
+                                    "patch_generated": True,
+                                    "stop_reason": "final_answer",
+                                },
+                                "R1": {
+                                    "official_status": "official_resolved",
+                                    "patch_generated": True,
+                                    "stop_reason": "final_answer",
+                                },
+                                "note": "正确性保持，成本下降。",
+                            }
+                        ],
+                        "fixed_conditions": {"模型": "demo-model"},
+                        "boundaries": ["固定小样本，不外推总体解决率"],
+                        "decision_story": ["从失败 Pareto 选择第一瓶颈。"],
+                        "conclusion": "R1 在正确性持平时降低了成本。",
+                    },
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+
+            catalog = FileEvidenceCatalog(project_dir)
+            source = next(
+                item for item in catalog.evidence_sources() if item.key == "evaluation"
+            )
+            overview = _render_workspace_view(
+                project_dir,
+                source_key="evaluation",
+                view="overview",
+            )
+            results = _render_workspace_view(
+                project_dir,
+                source_key="evaluation",
+                view="results",
+            )
+
+        self.assertEqual(source.primary_path, summary_path)
+        self.assertEqual(source.title, "Golden-10 · Runtime 质量优化")
+        self.assertIn("已确认解决", overview)
+        self.assertIn("1/1", overview)
+        self.assertIn("版本演进", results)
+        self.assertIn("每题 Token / 成本", results)
+        self.assertIn("失败 Pareto", results)
+        self.assertIn("逐题结果", results)
+        self.assertIn("正确性保持，成本下降", results)
+        self.assertIn("固定小样本，不外推总体解决率", results)
+
     def test_published_campaign_bundle_uses_manifest_and_summary_filenames(self):
         with tempfile.TemporaryDirectory() as tmp:
             project_dir = Path(tmp)

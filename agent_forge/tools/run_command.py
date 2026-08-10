@@ -1,3 +1,4 @@
+import os
 import shlex
 import subprocess
 import sys
@@ -46,13 +47,34 @@ class RunCommandTool(Tool):
             return [sys.executable] + parts[1:]
         return parts
 
-    @staticmethod
-    def _normalize_validation_entrypoint(parts: list[str]) -> list[str]:
-        """把裸 ``pytest`` 收敛成模块调用，确保 workspace 位于 import path。"""
+    def _normalize_validation_entrypoint(self, parts: list[str]) -> list[str]:
+        """统一 pytest 入口，并隔离目标 workspace 与 NanoHarness 的配置。"""
 
         if parts and parts[0] == "pytest":
-            return ["python", "-m", "pytest", *parts[1:]]
-        return parts
+            parts = ["python", "-m", "pytest", *parts[1:]]
+        if parts[:3] != ["python", "-m", "pytest"]:
+            return parts
+
+        pytest_args = list(parts[3:])
+        if not any(
+            value == "--rootdir" or value.startswith("--rootdir=")
+            for value in pytest_args
+        ):
+            pytest_args.insert(0, "--rootdir=.")
+        if not any(
+            value == "-c" or value.startswith("-c")
+            for value in pytest_args
+        ):
+            pytest_args[1:1] = ["-c", self._pytest_config_path()]
+        return ["python", "-m", "pytest", *pytest_args]
+
+    def _pytest_config_path(self) -> str:
+        """优先使用目标仓库配置；没有时禁止读取父仓库配置。"""
+
+        for filename in ("pytest.ini", "pyproject.toml", "tox.ini", "setup.cfg"):
+            if (self.sandbox.workspace_root / filename).is_file():
+                return filename
+        return os.devnull
 
     def _validate_command_paths(self, parts: list[str]) -> None:
         normalized = list(parts)

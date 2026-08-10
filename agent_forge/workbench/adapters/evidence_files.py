@@ -160,6 +160,11 @@ class FileEvidenceCatalog(EvidenceCatalogPort):
         )
 
     def _benchmark_source(self) -> EvidenceSource:
+        quality_path = self.runtime_quality_summary_path()
+        quality_summary = read_json_file(quality_path)
+        if quality_summary:
+            return self._runtime_quality_source(quality_path, quality_summary)
+
         campaign_dir = self.latest_campaign_dir()
         campaign_state = self.latest_campaign_state()
         campaign_summary = self.latest_campaign_summary()
@@ -202,6 +207,83 @@ class FileEvidenceCatalog(EvidenceCatalogPort):
             trace_entries=tuple(trace_entries),
             usage_path=self.latest_benchmark_usage_path(),
         )
+
+    def _runtime_quality_source(
+        self,
+        quality_path: Path | None,
+        quality_summary: dict[str, Any],
+    ) -> EvidenceSource:
+        """把发布的质量实验摘要和本机原始 Trace 组合成一个证据入口。
+
+        Git 仓库只提交小型、可审计的实验摘要；开发机若仍保留 ``.agent_forge``
+        原始运行目录，Workbench 再按摘要中的相对路径补充 Turn 级下钻证据。
+        缺少本地 Trace 不影响公开结果页，也不会伪造运行过程。
+        """
+
+        accepted_iteration = str(quality_summary.get("accepted_iteration") or "")
+        trace_entries: list[tuple[str, Path]] = []
+        usage_paths: list[Path] = []
+        accepted_run_dirs: list[Path] = []
+        for iteration in quality_summary.get("iterations") or []:
+            if not isinstance(iteration, dict):
+                continue
+            if str(iteration.get("id") or "") != accepted_iteration:
+                continue
+            for run_dir_value in iteration.get("run_dirs") or []:
+                run_dir = self.project_dir / str(run_dir_value)
+                if not run_dir.is_dir():
+                    continue
+                accepted_run_dirs.append(run_dir)
+                for trace_path in sorted(run_dir.glob("cases/*/trace.json")):
+                    trace_entries.append((trace_path.parent.name, trace_path))
+                usage_paths.extend(sorted(run_dir.glob("cases/*/usage.json")))
+
+        metrics = quality_summary.get("accepted_metrics")
+        if not isinstance(metrics, dict):
+            metrics = {}
+        resolved = int(
+            metrics.get("confirmed_solved")
+            or metrics.get("official_resolved")
+            or 0
+        )
+        case_count = int(
+            metrics.get("case_count")
+            or metrics.get("official_denominator")
+            or 0
+        )
+        not_adjudicated = int(metrics.get("not_adjudicated") or 0)
+        status = str(quality_summary.get("status") or "not_run")
+        if status == "completed" and case_count:
+            status = (
+                f"completed · 已确认解决 {resolved}/{case_count}"
+                f" · 未裁决 {not_adjudicated}"
+            )
+        return EvidenceSource(
+            key="evaluation",
+            title=str(quality_summary.get("title") or "Runtime 质量优化实验"),
+            description="固定样本、失败驱动迭代、正确性与效率证据",
+            source_type="benchmark",
+            task=str(
+                quality_summary.get("question")
+                or "功能冻结后，Runtime 如何基于失败证据提高质量？"
+            ),
+            status=status,
+            primary_path=quality_path,
+            run_dir=accepted_run_dirs[0] if accepted_run_dirs else None,
+            trace_entries=tuple(trace_entries),
+            usage_path=usage_paths[0] if usage_paths else None,
+        )
+
+    def runtime_quality_summary_path(self) -> Path | None:
+        """返回公开、稳定的 Runtime 质量实验摘要。"""
+
+        path = (
+            self.project_dir
+            / "benchmarks"
+            / "runtime-quality"
+            / "golden-10-v1.json"
+        )
+        return path if path.is_file() else None
 
     @staticmethod
     def _load_story_if_present(run_dir: Path | None) -> RunStory | None:

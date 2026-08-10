@@ -375,6 +375,53 @@ def _source_overview_facts(
         )
 
     if source.key == "evaluation":
+        quality_summary = _read_json_file(
+            source.primary_path
+            if source.primary_path is not None and source.primary_path.is_file()
+            else None
+        )
+        if quality_summary.get("experiment_type") == "runtime_quality":
+            metrics = quality_summary.get("accepted_metrics") or {}
+            resolved = int(
+                metrics.get("confirmed_solved")
+                or metrics.get("official_resolved")
+                or 0
+            )
+            patch_count = int(metrics.get("patch_generated") or 0)
+            case_count = int(metrics.get("case_count") or 0)
+            not_adjudicated = int(metrics.get("not_adjudicated") or 0)
+            failed_calls = int(metrics.get("failed_tool_calls") or 0)
+            tool_calls = int(metrics.get("tool_calls") or 0)
+            return (
+                [
+                    (
+                        "已确认解决",
+                        f"{resolved}/{case_count}",
+                        f"另有 {not_adjudicated} 题尚未完成官方裁决",
+                        "ok" if resolved else "warn",
+                    ),
+                    (
+                        "候选改动",
+                        f"{patch_count}/{case_count}",
+                        "生成 Patch 不等于解决",
+                        "neutral",
+                    ),
+                    (
+                        "失败工具调用",
+                        f"{failed_calls}/{tool_calls}",
+                        "只统计真实 Tool Observation",
+                        "warn" if failed_calls else "ok",
+                    ),
+                    (
+                        "采纳版本",
+                        str(quality_summary.get("accepted_iteration") or "未采纳"),
+                        "按预先写明的门槛决定",
+                        "ok" if quality_summary.get("accepted_iteration") else "warn",
+                    ),
+                ],
+                "这是固定 Golden-10 上的 Runtime 质量实验，不外推为 SWE-bench Verified 总体解决率。",
+            )
+
         summary = _latest_campaign_summary(project_dir)
         state = _latest_campaign_state(project_dir)
         paired = summary.get("paired_sample") or summary.get("paired_official") or {}
@@ -549,6 +596,16 @@ def _render_source_results(project_dir: Path, source: EvidenceSource) -> str:
         summary = _read_json_file(source.primary_path)
         return _render_fanout_run_evidence(summary, source.primary_path)
     if source.key == "evaluation":
+        quality_summary = _read_json_file(
+            source.primary_path
+            if source.primary_path is not None and source.primary_path.is_file()
+            else None
+        )
+        if quality_summary.get("experiment_type") == "runtime_quality":
+            return _render_runtime_quality_dashboard(
+                quality_summary,
+                source.primary_path,
+            )
         return _render_feedback_dashboard(project_dir)
     return _render_single_source_results(source)
 
@@ -3506,7 +3563,7 @@ def _render_role_decision_rows(summary: dict[str, Any]) -> str:
         rows.append(
             "<tr>"
             f"<td><b>{_escape(_display_value(result.get('role') or result.get('name') or '-'))}</b></td>"
-            f"<td>{_badge(decision, _tone_for_status(decision))}</td>"
+            f"<td>{_badge(_display_value(decision), _tone_for_status(decision))}</td>"
             f"<td>{_escape(result.get('round_index', 0))}</td>"
             f"<td>{_escape(excerpt or '-')}</td>"
             "</tr>"
@@ -3987,6 +4044,235 @@ def _render_orchestration_dashboard(project_dir: Path) -> str:
         f"<details class='provenance'><summary>编排证据来源</summary><code>{_escape(str(summary_path))}</code></details>",
     ]
     return "<div class='evidence'>" + "".join(body) + "</div>"
+
+
+def _render_runtime_quality_dashboard(
+    experiment: dict[str, Any],
+    source_path: Path | None,
+) -> str:
+    """把质量实验收敛为“问题、迭代、结果、边界”四层证据。"""
+
+    accepted_iteration = str(experiment.get("accepted_iteration") or "")
+    accepted_metrics = experiment.get("accepted_metrics") or {}
+    iterations = [
+        item for item in experiment.get("iterations") or [] if isinstance(item, dict)
+    ]
+    cases = [
+        item for item in experiment.get("case_results") or [] if isinstance(item, dict)
+    ]
+    fixed_conditions = experiment.get("fixed_conditions") or {}
+    baseline_metrics = (
+        iterations[0].get("metrics") or {} if iterations else {}
+    )
+
+    iteration_rows: list[str] = []
+    for iteration in iterations:
+        metrics = iteration.get("metrics") or {}
+        confirmed_solved = int(
+            metrics.get("confirmed_solved")
+            or metrics.get("official_resolved")
+            or 0
+        )
+        confirmed_unresolved = int(metrics.get("confirmed_unresolved") or 0)
+        not_adjudicated = int(metrics.get("not_adjudicated") or 0)
+        patch_generated = int(metrics.get("patch_generated") or 0)
+        case_count = int(metrics.get("case_count") or 0)
+        total_tokens = int(metrics.get("total_tokens") or 0)
+        estimated_cost = float(metrics.get("estimated_cost_usd") or 0.0)
+        tokens_per_case = total_tokens / case_count if case_count else 0.0
+        cost_per_case = estimated_cost / case_count if case_count else 0.0
+        tool_calls = int(metrics.get("tool_calls") or 0)
+        failed_tool_calls = int(metrics.get("failed_tool_calls") or 0)
+        failed_tool_rate = (
+            f"{failed_tool_calls}/{tool_calls} ({failed_tool_calls / tool_calls:.1%})"
+            if tool_calls
+            else "0/0"
+        )
+        decision = str(iteration.get("decision") or "pending")
+        iteration_rows.append(
+            "<tr>"
+            f"<td><b>{_escape(iteration.get('id') or '')}</b></td>"
+            f"<td>{_escape(iteration.get('scope') or '-')}</td>"
+            f"<td>{_escape(iteration.get('bottleneck') or '基线')}</td>"
+            f"<td>{_escape(iteration.get('change') or '无')}</td>"
+            f"<td>{confirmed_solved}/{case_count}</td>"
+            f"<td>{confirmed_unresolved} / {not_adjudicated}</td>"
+            f"<td>{patch_generated}/{case_count}</td>"
+            f"<td>{_escape(failed_tool_rate)}</td>"
+            f"<td>{tokens_per_case:,.0f}<small>${cost_per_case:.4f}</small></td>"
+            f"<td>{_badge(decision, _tone_for_status(decision))}</td>"
+            "</tr>"
+        )
+
+    case_rows: list[str] = []
+    baseline_id = str(iterations[0].get("id") or "R0") if iterations else "R0"
+    for case in cases:
+        baseline = case.get(baseline_id) or {}
+        accepted = case.get(accepted_iteration) or {}
+        case_rows.append(
+            "<tr>"
+            f"<td class='mono'>{_escape(case.get('case_id') or '')}</td>"
+            f"<td>{_escape(_quality_case_result_label(baseline))}</td>"
+            f"<td>{_escape(_quality_case_result_label(accepted))}</td>"
+            f"<td>{_escape(case.get('note') or '')}</td>"
+            "</tr>"
+        )
+
+    pareto_items = experiment.get("failure_pareto") or []
+    pareto_rows = "".join(
+        "<tr>"
+        f"<td>{index}</td>"
+        f"<td>{_escape(item.get('failure') or '')}</td>"
+        f"<td>{int(item.get('count') or 0)}</td>"
+        f"<td>{_escape(item.get('evidence') or '')}</td>"
+        "</tr>"
+        for index, item in enumerate(pareto_items, start=1)
+        if isinstance(item, dict)
+    )
+    condition_rows = "".join(
+        f"<tr><td>{_escape(key)}</td><td>{_escape(_display_value(value))}</td></tr>"
+        for key, value in fixed_conditions.items()
+    )
+    story = experiment.get("decision_story") or []
+    boundaries = experiment.get("boundaries") or []
+    resolved = int(
+        accepted_metrics.get("confirmed_solved")
+        or accepted_metrics.get("official_resolved")
+        or 0
+    )
+    confirmed_unresolved = int(accepted_metrics.get("confirmed_unresolved") or 0)
+    not_adjudicated = int(accepted_metrics.get("not_adjudicated") or 0)
+    patch_count = int(accepted_metrics.get("patch_generated") or 0)
+    case_count = int(accepted_metrics.get("case_count") or 0)
+    total_tokens = int(accepted_metrics.get("total_tokens") or 0)
+    estimated_cost = float(accepted_metrics.get("estimated_cost_usd") or 0.0)
+    baseline_case_count = int(baseline_metrics.get("case_count") or 0)
+    baseline_patch_count = int(baseline_metrics.get("patch_generated") or 0)
+    baseline_no_patch = baseline_case_count - baseline_patch_count
+    accepted_no_patch = case_count - patch_count
+    baseline_failed_tools = int(baseline_metrics.get("failed_tool_calls") or 0)
+    accepted_failed_tools = int(accepted_metrics.get("failed_tool_calls") or 0)
+    baseline_tokens = int(baseline_metrics.get("total_tokens") or 0)
+    baseline_cost = float(baseline_metrics.get("estimated_cost_usd") or 0.0)
+    patch_delta_points = (
+        (patch_count / case_count - baseline_patch_count / baseline_case_count) * 100
+        if case_count and baseline_case_count
+        else 0.0
+    )
+    no_patch_reduction = (
+        (baseline_no_patch - accepted_no_patch) / baseline_no_patch
+        if baseline_no_patch
+        else 0.0
+    )
+    failed_tool_reduction = (
+        (baseline_failed_tools - accepted_failed_tools) / baseline_failed_tools
+        if baseline_failed_tools
+        else 0.0
+    )
+    token_reduction = (
+        (baseline_tokens - total_tokens) / baseline_tokens if baseline_tokens else 0.0
+    )
+    cost_reduction = (
+        (baseline_cost - estimated_cost) / baseline_cost if baseline_cost else 0.0
+    )
+    status = str(experiment.get("status") or "not_run")
+    empty_iteration_row = '<tr><td colspan="10">尚无迭代结果。</td></tr>'
+    empty_pareto_row = '<tr><td colspan="4">没有失败样本。</td></tr>'
+    empty_case_row = '<tr><td colspan="4">尚无逐题结果。</td></tr>'
+
+    body = [
+        "<div class='view-heading'><div><span class='view-kicker'>功能冻结后的质量优化</span>"
+        f"<h2>{_escape(experiment.get('title') or 'Runtime 质量实验')}</h2></div>"
+        f"{_badge(status, _tone_for_status(status))}</div>",
+        _render_lab_brief(
+            question=str(experiment.get("question") or "Runtime 质量是否可测量、可改进？"),
+            input_label="固定样本",
+            input_items=[str(item) for item in experiment.get("case_ids") or []],
+            mechanism="冻结功能与模型 → 建立 R0 → 统计失败 Pareto → 每轮只改一个瓶颈 → 固定样本复测 → 采纳或回滚",
+            success_criteria=str(
+                experiment.get("success_criteria")
+                or "正确性优先；持平时必须显著改善效率且不破坏安全边界。"
+            ),
+            boundary="；".join(str(item) for item in boundaries),
+        ),
+        _metric_grid(
+            [
+                ("采纳版本", accepted_iteration or "未采纳", "预注册门槛", "ok" if accepted_iteration else "warn"),
+                (
+                    "已确认解决",
+                    f"{resolved}/{case_count}",
+                    "本轮或相同 Patch 已获官方 resolved",
+                    "ok" if resolved else "warn",
+                ),
+                (
+                    "候选改动覆盖",
+                    f"{patch_count}/{case_count}",
+                    f"R0 为 {baseline_patch_count}/{baseline_case_count}；增加 {patch_delta_points:.0f} 个百分点，不等于 solved",
+                    "ok" if patch_count > baseline_patch_count else "neutral",
+                ),
+                (
+                    "无 Patch 退出",
+                    str(accepted_no_patch),
+                    f"R0 为 {baseline_no_patch}；减少 {no_patch_reduction:.1%}",
+                    "ok" if accepted_no_patch < baseline_no_patch else "warn",
+                ),
+                (
+                    "失败工具调用",
+                    str(accepted_failed_tools),
+                    f"R0 为 {baseline_failed_tools}；减少 {failed_tool_reduction:.1%}",
+                    "ok" if accepted_failed_tools < baseline_failed_tools else "warn",
+                ),
+                (
+                    "总 Token",
+                    f"{total_tokens:,}",
+                    f"R0 为 {baseline_tokens:,}；减少 {token_reduction:.1%}",
+                    "ok" if total_tokens < baseline_tokens else "warn",
+                ),
+                (
+                    "估算成本",
+                    f"${estimated_cost:.4f}",
+                    f"R0 为 ${baseline_cost:.4f}；减少 {cost_reduction:.1%}",
+                    "ok" if estimated_cost < baseline_cost else "warn",
+                ),
+                (
+                    "尚未裁决",
+                    str(not_adjudicated),
+                    f"明确未解决 {confirmed_unresolved}；有 Patch 不冒充 solved",
+                    "neutral",
+                ),
+            ]
+        ),
+        "<section class='evidence-section'><div class='section-title'><h3>版本演进</h3><span>测量修复单列，候选版本只改变一个策略域</span></div>"
+        "<table><thead><tr><th>版本</th><th>范围</th><th>主要瓶颈</th><th>改动</th><th>已确认解决</th><th>未解决 / 未裁决</th><th>候选改动</th><th>失败工具</th><th>每题 Token / 成本</th><th>决策</th></tr></thead>"
+        f"<tbody>{''.join(iteration_rows) or empty_iteration_row}</tbody></table></section>",
+        "<section class='evidence-section'><div class='section-title'><h3>失败 Pareto</h3><span>优化对象来自证据，不来自直觉</span></div>"
+        "<table><thead><tr><th>#</th><th>失败模式</th><th>数量</th><th>证据与影响</th></tr></thead>"
+        f"<tbody>{pareto_rows or empty_pareto_row}</tbody></table></section>",
+        "<section class='evidence-section'><div class='section-title'><h3>逐题结果</h3><span>防止聚合指标掩盖回归</span></div>"
+        f"<table><thead><tr><th>Case</th><th>{_escape(baseline_id)}</th><th>{_escape(accepted_iteration or '候选版本')}</th><th>说明</th></tr></thead>"
+        f"<tbody>{''.join(case_rows) or empty_case_row}</tbody></table></section>",
+        "<details class='evidence-section'><summary><b>固定条件与设计复盘</b></summary>"
+        f"<table><tbody>{condition_rows}</tbody></table>"
+        f"<ol class='next-actions'>{''.join(f'<li>{_escape(item)}</li>' for item in story)}</ol></details>",
+        f"<p class='diagnosis'>{_escape(experiment.get('conclusion') or '')}</p>",
+        f"<details class='provenance'><summary>实验摘要来源</summary><code>{_escape(str(source_path or '未找到'))}</code></details>",
+    ]
+    return "<div class='evidence'>" + "".join(body) + "</div>"
+
+
+def _quality_case_result_label(result: object) -> str:
+    """把逐题机器字段压缩成可扫描的一行，不隐含官方解决。"""
+
+    if not isinstance(result, dict):
+        return "未运行"
+    official = _display_value(result.get("official_status") or "not_evaluated")
+    patch = "有 Patch" if result.get("patch_generated") else "无 Patch"
+    stop_reason = str(result.get("stop_reason") or "")
+    if stop_reason.startswith("too_many_consecutive_failed_tools"):
+        stop_reason = "连续失败熔断"
+    else:
+        stop_reason = _display_value(stop_reason)
+    return " · ".join(item for item in (official, patch, stop_reason) if item)
 
 
 def _render_evaluation_dashboard(project_dir: Path) -> str:
@@ -4743,6 +5029,9 @@ _DISPLAY_VALUES = {
     "iterate": "继续迭代",
     "adopt": "采纳",
     "reject": "拒绝",
+    "accepted": "已采纳",
+    "rejected": "已拒绝",
+    "baseline": "基线",
     "tool": "工具动作",
     "allow": "允许",
     "defer": "无额外意见",
@@ -4765,6 +5054,11 @@ _DISPLAY_VALUES = {
     "presentation": "展示产物",
     "official_resolved": "官方评测已解决",
     "official_unresolved": "官方评测未解决",
+    "confirmed_solved": "已确认解决",
+    "confirmed_unresolved": "已确认未解决",
+    "not_adjudicated": "尚未完成官方裁决",
+    "cost_budget_exceeded": "达到成本预算",
+    "tool_failure_circuit_breaker": "连续失败熔断",
     "official_eval_failed": "官方评测未通过",
     "validation_environment_unavailable": "验证环境不可用",
     "patch_generated_but_unverified": "已生成候选改动，但未验证",
@@ -4800,6 +5094,13 @@ def _display_value(value: Any) -> str:
     if isinstance(value, bool):
         return "是" if value else "否"
     text = str(value)
+    if " · " in text:
+        # 运行证据选择器会把机器状态和证据摘要拼成一行；逐段翻译，
+        # 避免出现“completed · 已确认解决”这种中英文混排。
+        return " · ".join(
+            _DISPLAY_VALUES.get(part, _DISPLAY_VALUES.get(part.lower(), part))
+            for part in text.split(" · ")
+        )
     return _DISPLAY_VALUES.get(text, _DISPLAY_VALUES.get(text.lower(), text))
 
 
@@ -6280,6 +6581,21 @@ INDEX_HTML = r"""<!doctype html>
     let activeSource = '';
     let activeView = 'overview';
 
+    function displayStatus(value) {
+      const labels = {
+        completed: '已完成',
+        passed: '通过',
+        blocked: '已阻塞',
+        failed: '失败',
+        paused: '已暂停',
+        not_run: '未运行'
+      };
+      return String(value || '')
+        .split(' · ')
+        .map(part => labels[part] || part)
+        .join(' · ');
+    }
+
     async function fetchStatus(selectPublishedSource = false) {
       const res = await fetch('/api/status');
       const data = await res.json();
@@ -6301,7 +6617,7 @@ INDEX_HTML = r"""<!doctype html>
         const option = document.createElement('option');
         option.value = source.key;
         option.textContent = source.available
-          ? `${source.title} · ${source.status}`
+          ? `${source.title} · ${displayStatus(source.status)}`
           : `${source.title} · 尚未运行`;
         option.selected = source.key === activeSource;
         selector.appendChild(option);

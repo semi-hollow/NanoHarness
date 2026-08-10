@@ -1,6 +1,7 @@
 import subprocess
 import tempfile
 import unittest
+import os
 from pathlib import Path
 
 from agent_forge.safety.sandbox import WorkspaceSandbox
@@ -131,7 +132,8 @@ class PythonValidationToolTest(unittest.TestCase):
 
         self.assertTrue(observation.success, observation.content)
         self.assertIn(
-            "validation_command=python -m pytest tests/test_sample.py::test_ok",
+            "validation_command=python -m pytest --rootdir=. -c "
+            f"{os.devnull} tests/test_sample.py::test_ok",
             observation.content,
         )
         self.assertEqual(
@@ -142,6 +144,9 @@ class PythonValidationToolTest(unittest.TestCase):
                         "python",
                         "-m",
                         "pytest",
+                        "--rootdir=.",
+                        "-c",
+                        os.devnull,
                         "tests/test_sample.py::test_ok",
                     ],
                     120,
@@ -282,6 +287,31 @@ class PythonValidationToolTest(unittest.TestCase):
         self.assertTrue(observation.execution_succeeded)
         self.assertIn("pytest collected no tests", observation.content)
         self.assertIn("allowlisted run_command fallback", observation.content)
+
+    def test_pytest_does_not_load_parent_repository_config(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            parent = Path(tmp)
+            (parent / "pyproject.toml").write_text(
+                "[tool.pytest.ini_options]\naddopts = '--unknown-parent-option'\n",
+                encoding="utf-8",
+            )
+            workspace = parent / "case-workspace"
+            workspace.mkdir()
+            (workspace / "test_sample.py").write_text(
+                "def test_ok():\n    assert True\n",
+                encoding="utf-8",
+            )
+            tool = PythonValidationTool(WorkspaceSandbox(workspace))
+
+            observation = tool.execute(
+                {
+                    "check_type": "pytest",
+                    "validation_target": "test_sample.py",
+                }
+            )
+
+        self.assertTrue(observation.success, observation.content)
+        self.assertIn("1 passed", observation.content)
 
 
 if __name__ == "__main__":

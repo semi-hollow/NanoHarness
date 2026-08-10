@@ -1,6 +1,7 @@
 import tempfile
 import unittest
 import subprocess
+import os
 from pathlib import Path
 
 from agent_forge.safety.sandbox import WorkspaceSandbox
@@ -64,7 +65,16 @@ class RunCommandToolTest(unittest.TestCase):
             environment.calls,
             [
                 (
-                    ["python", "-m", "pytest", "tests/test_sample.py", "-v"],
+                    [
+                        "python",
+                        "-m",
+                        "pytest",
+                        "--rootdir=.",
+                        "-c",
+                        os.devnull,
+                        "tests/test_sample.py",
+                        "-v",
+                    ],
                     COMMAND_TIMEOUT_SECONDS,
                 )
             ],

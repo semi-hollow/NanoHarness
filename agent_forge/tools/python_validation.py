@@ -7,6 +7,7 @@
 
 from __future__ import annotations
 
+import os
 import py_compile
 import shlex
 import subprocess
@@ -275,7 +276,7 @@ class PythonValidationTool(Tool):
         self,
         validation_target: str,
     ) -> list[str] | Observation:
-        """验证路径和 node id，再构造无 shell 的 pytest argv。"""
+        """验证路径和 node id，再构造与父仓库配置隔离的 pytest argv。"""
 
         target = (validation_target or ".").strip() or "."
         path_target, separator, node_id = target.partition("::")
@@ -310,4 +311,20 @@ class PythonValidationTool(Tool):
                     content="invalid pytest node id",
                 )
             relative_target = f"{relative_target}::{node_id}"
-        return ["python", "-m", "pytest", relative_target]
+        return [
+            "python",
+            "-m",
+            "pytest",
+            "--rootdir=.",
+            "-c",
+            self._pytest_config_path(),
+            relative_target,
+        ]
+
+    def _pytest_config_path(self) -> str:
+        """优先复用目标仓库配置；没有时阻止 pytest 向父目录继续搜索。"""
+
+        for filename in ("pytest.ini", "pyproject.toml", "tox.ini", "setup.cfg"):
+            if (self.sandbox.workspace_root / filename).is_file():
+                return filename
+        return os.devnull

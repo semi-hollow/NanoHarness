@@ -33,17 +33,19 @@ NanoHarness 把这些问题放进 Runtime 控制面，而不是交给 Prompt 或
 
 ## 阅读入口
 
-从核心机制索引开始，沿生命周期理解主链，再按需进入代码或证据。其余文档不重复维护第二套总览。
+常用入口只有两份：按能力名称找代码使用“核心能力与代码入口”，按触发时机查运行规则使用
+“核心运行机制与代码索引”。生命周期、架构和证据文档只在需要完整状态或边界时打开。
 
 | 当前问题 | 唯一入口 |
 | --- | --- |
-| 先按触发时机理解机制并进入核心 Owner | [核心运行机制与代码索引](docs/核心运行机制与代码索引.md) |
+| 已知能力名称，直接进入核心 Owner | [核心能力与代码入口](docs/核心能力与代码入口.md) |
+| 按触发时机理解规则、失败和恢复行为 | [核心运行机制与代码索引](docs/核心运行机制与代码索引.md) |
 | 串起完整生命周期、状态和异常恢复 | [运行生命周期与异常处理机制](docs/运行生命周期与异常处理机制.md) |
 | 找代码、依赖和状态 owner | [项目架构与代码导航](docs/项目架构与代码导航.md) |
 | 核对能力是否实现以及不能声称什么 | [能力实现状态与使用边界](docs/能力实现状态与使用边界.md) |
 | 动手跑断点和查 Evidence | [Debug Lab](examples/debug_lab/README.md) |
 | 查评测证据范围 | [回归测试与评测范围](docs/evaluation/回归测试与评测范围.md) |
-| 查功能冻结后的质量实验协议 | [Runtime 质量实验计划](docs/evaluation/功能冻结后的Runtime质量实验计划.md) |
+| 查功能冻结后的质量实验与结果 | [Runtime 质量实验](docs/evaluation/功能冻结后的Runtime质量实验.md) |
 | 查真实失败、根因和回归证据 | [典型故障与系统调优记录](docs/evaluation/典型故障与系统调优记录.md) |
 
 历史背景按需查[功能演进与设计取舍](docs/功能演进与设计取舍.md)和
@@ -55,16 +57,15 @@ NanoHarness 把“机制是否存在”和“Runtime 质量如何”分开验证
 和行为回归验收，后者使用预注册 SWE-bench Case、单因素配对实验和 official
 evaluator。
 
-历史 50×2 实验中，整套 Governed preset 把失败 ToolCall 从 `36/993` 降到
-`14/973`，但 Official resolved 也从 `20/50` 降到 `14/50`，因此该 preset 被拒绝。
-后续审计还发现，39 个无 Patch 的运行全部在固定 16 轮被截断，Benchmark Workspace
-又因路径忽略错误获得了空 Repo Map。因此这是一次有价值的负实验和测量审计，
-**不是当前实现的对外解决率**。
+功能冻结后，项目在固定 Golden-10、模型、工具集合和资源边界上完成了两轮候选优化。
+R1 虽将 Sentinel-4 Token 降低约 15%，却产生语义退化，因此被逐题哨兵拒绝；R2 保住
+已知 solved 锚点，将候选 Patch 覆盖从 `5/10` 提高到 `8/10`、无 Patch 退出从 `5`
+降到 `2`、失败 ToolCall 从 `29` 降到 `19`，同时 Token 下降 13.2%。
 
-这次负实验保留为 Runtime 质量调优的起点证据，不将 Router、Skill、步数或
-新增 Feature 的单因素对比当成项目主线。后续质量实验会在功能集合冻结后，根据失败
-分布累计调整 Runtime 策略，并联合观察任务正确性、鲁棒性和单位解题成本。原始实验保留在
-[脱敏证据包](benchmarks/campaigns/swebench-verified-100-v1-a-flash-20260808/README.md)。
+这些数字证明的是 Runtime 收敛和效率改善，不是 SWE-bench 总体解决率；R2 的 7 个新
+Patch 尚未官方裁决。完整实验协议、负结果和设计复盘见
+[Runtime 质量实验](docs/evaluation/功能冻结后的Runtime质量实验.md)，机器可读摘要见
+[Golden-10 证据](benchmarks/runtime-quality/golden-10-v1.json)。
 
 ## 证据与可复现场景
 

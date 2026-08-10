@@ -27,9 +27,14 @@ class FailureTaxonomyTest(unittest.TestCase):
         error="",
         patch_chars=0,
         evaluation_status="not_evaluated",
+        stop_reason="",
+        failed_tool_calls=0,
     ):
         trace_path = root / "trace.json"
-        trace_path.write_text(json.dumps({"stop_reason": status}), encoding="utf-8")
+        trace_path.write_text(
+            json.dumps({"stop_reason": stop_reason or status}),
+            encoding="utf-8",
+        )
         usage_json = root / "usage.json"
         usage_json.write_text(
             json.dumps(
@@ -37,7 +42,7 @@ class FailureTaxonomyTest(unittest.TestCase):
                     "summary": {
                         "llm_calls": 3,
                         "tool_calls": 5,
-                        "failed_tool_calls": 0,
+                        "failed_tool_calls": failed_tool_calls,
                         "total_tokens": 1000,
                     },
                     "steps": [{"context": {"selected_files_count": 0}}],
@@ -71,7 +76,7 @@ class FailureTaxonomyTest(unittest.TestCase):
         self.assertEqual(diagnosis.failure_class, "patch_generated_but_unverified")
         self.assertEqual(diagnosis.rule_id, "patch_generated_but_unverified")
         self.assertEqual(diagnosis.source, "ordered_rule_taxonomy")
-        self.assertEqual(diagnosis.taxonomy_version, "1.1")
+        self.assertEqual(diagnosis.taxonomy_version, "1.2")
         self.assertIn("official", " ".join(diagnosis.next_actions).lower())
         self.assertIn("candidate", diagnosis.summary.lower())
 
@@ -185,6 +190,37 @@ class FailureTaxonomyTest(unittest.TestCase):
             "local_validation_passed_without_patch",
         )
         self.assertIn("unchanged", diagnosis.summary.lower())
+
+    def test_cost_budget_exhaustion_beats_generic_tool_failure(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            result = self._result(
+                Path(tmp),
+                final_answer="blocked: cost budget exceeded",
+                stop_reason="cost_budget_exceeded",
+                failed_tool_calls=6,
+            )
+            diagnosis = analyze_case_result(result)
+
+        self.assertEqual(diagnosis.failure_class, "runtime_budget_exhausted")
+        self.assertIn("unfinished", diagnosis.impact.lower())
+
+    def test_tool_failure_circuit_breaker_beats_generic_tool_failure(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            result = self._result(
+                Path(tmp),
+                final_answer=(
+                    "blocked: too many consecutive failed tools: 3 >= limit 3"
+                ),
+                stop_reason="too many consecutive failed tools: 3 >= limit 3",
+                failed_tool_calls=3,
+            )
+            diagnosis = analyze_case_result(result)
+
+        self.assertEqual(
+            diagnosis.failure_class,
+            "tool_failure_circuit_breaker",
+        )
+        self.assertIn("recovery", diagnosis.engineering_lesson.lower())
 
 
 if __name__ == "__main__":

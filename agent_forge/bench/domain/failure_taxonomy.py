@@ -11,7 +11,7 @@ from typing import Any
 
 from .models import BenchCaseResult
 
-FAILURE_TAXONOMY_VERSION = "1.1"
+FAILURE_TAXONOMY_VERSION = "1.2"
 FAILURE_DIAGNOSIS_SOURCE = "ordered_rule_taxonomy"
 
 
@@ -262,6 +262,39 @@ def classify_case_result(
             severity="high",
             impact="The final answer is not trustworthy because the model had unfinished tool intent.",
             engineering_lesson="Final answers need runtime validation; unfinished tool calls should not be treated as completed work.",
+        )
+    if any(
+        marker in normalized_failure_text
+        for marker in (
+            "cost_budget_exceeded",
+            "cost budget exceeded",
+            "max_steps reached",
+            "max_steps",
+            "timeout exceeded",
+        )
+    ):
+        return FailureDiagnosis(
+            failure_class="runtime_budget_exhausted",
+            summary="The runtime exhausted its configured step, time, or cost budget before producing a candidate patch.",
+            evidence=diagnosis_evidence,
+            next_actions=[
+                "Inspect token growth, repeated discovery, and first-edit timing before changing the budget itself."
+            ],
+            severity="high",
+            impact="The result measures an unfinished run, so it cannot be attributed to missing tools or patch correctness.",
+            engineering_lesson="Budget exhaustion is a convergence signal; classify it before downstream tool symptoms.",
+        )
+    if "too many consecutive failed tools" in normalized_failure_text:
+        return FailureDiagnosis(
+            failure_class="tool_failure_circuit_breaker",
+            summary="The runtime stopped after the configured number of consecutive failed tool observations.",
+            evidence=diagnosis_evidence,
+            next_actions=[
+                "Compare the failed tool names and arguments to separate repeated-action loops from distinct recoverable lookup misses."
+            ],
+            severity="high",
+            impact="The circuit breaker preserved budget, but may have stopped a run that still had a safe recovery path.",
+            engineering_lesson="A circuit breaker should be evaluated by failure risk and recovery progress, not only by a raw counter.",
         )
     if any(
         marker in normalized_failure_text

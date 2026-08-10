@@ -1,0 +1,230 @@
+{
+  "schema_version": 1,
+  "experiment_type": "runtime_quality",
+  "experiment_id": "runtime-quality-golden-10-v1",
+  "title": "Golden-10 · Runtime 质量优化",
+  "status": "completed",
+  "question": "功能冻结后，如何减少 Runtime 自身造成的无 Patch 退出和失败工具调用，同时保住已知正确结果？",
+  "success_criteria": "保住已知 solved 锚点；减少无 Patch 退出、失败工具调用和资源消耗；新 Patch 未经官方评测时不得计为 solved。",
+  "case_ids": [
+    "django__django-11451",
+    "matplotlib__matplotlib-13989",
+    "scikit-learn__scikit-learn-14629",
+    "django__django-12209",
+    "sphinx-doc__sphinx-10323",
+    "sympy__sympy-20590",
+    "django__django-10097",
+    "psf__requests-2317",
+    "matplotlib__matplotlib-22871",
+    "django__django-13028"
+  ],
+  "fixed_conditions": {
+    "数据集": "SWE-bench Verified test @ c104f840cc67f8b6eec6f759ebc8b2693d585d4a",
+    "样本": "Golden-10 v1，覆盖 6 个仓库与正向锚点、长链收敛、Context、错误 Patch、工具恢复路径",
+    "模型": "deepseek-v4-flash",
+    "采样": "temperature=0；Thinking enabled；reasoning_effort=high",
+    "Runtime": "同一 AgentLoop、Tool、Skill、Memory、安全策略与 worktree 执行环境",
+    "资源边界": "max_steps=32；每轮最多 4 个 ToolCall；单 Case 估算成本上限 $0.05",
+    "重复次数": "每个版本每题 1 次；用于开发期决策，不声称统计显著性",
+    "实验变量": "Context 压缩触发阈值；测量链路修复单独标记，不算 Runtime 收益"
+  },
+  "measurement_hygiene": [
+    "隔离被测仓库与 NanoHarness 自身的 pytest 配置，避免宿主配置污染验证结果。",
+    "修正 Failure Taxonomy 优先级，使预算耗尽和连续失败熔断不再被泛化为 tool_not_available。",
+    "用 Case ID、Patch SHA、Trace、Usage 和不可变数据版本对齐证据；新 Patch 不继承旧 Patch 的裁决。"
+  ],
+  "accepted_iteration": "R2",
+  "accepted_metrics": {
+    "case_count": 10,
+    "confirmed_solved": 1,
+    "confirmed_unresolved": 2,
+    "not_adjudicated": 7,
+    "patch_generated": 8,
+    "llm_calls": 160,
+    "total_tokens": 2641315,
+    "estimated_cost_usd": 0.351386,
+    "tool_calls": 227,
+    "failed_tool_calls": 19,
+    "compacted_context_turns": 2,
+    "cost_budget_stops": 4,
+    "failure_circuit_breaker_stops": 1
+  },
+  "iterations": [
+    {
+      "id": "R0",
+      "scope": "Golden-10",
+      "bottleneck": "基线显示长链任务被资源边界截断，且失败工具调用偏多",
+      "change": "无；max_prompt_tokens=65536",
+      "decision": "baseline",
+      "metrics": {
+        "case_count": 10,
+        "confirmed_solved": 1,
+        "confirmed_unresolved": 5,
+        "not_adjudicated": 4,
+        "patch_generated": 5,
+        "llm_calls": 165,
+        "total_tokens": 3041338,
+        "estimated_cost_usd": 0.409786,
+        "tool_calls": 248,
+        "failed_tool_calls": 29,
+        "compacted_context_turns": 0,
+        "cost_budget_stops": 6,
+        "failure_circuit_breaker_stops": 1
+      },
+      "run_dirs": [
+        ".agent_forge/quality-experiments/e0/swebench-20260810-233150-c7b8d58",
+        ".agent_forge/quality-experiments/r0/shard-a/swebench-20260811-000228-438e7fe",
+        ".agent_forge/quality-experiments/r0/shard-b/swebench-20260811-000240-78ab416"
+      ]
+    },
+    {
+      "id": "R1",
+      "scope": "Sentinel-4",
+      "bottleneck": "上下文持续增长带来成本压力",
+      "change": "测量隔离完成后，将 max_prompt_tokens 从 65536 收紧到 32768",
+      "decision": "rejected",
+      "decision_reason": "Token 下降约 15%，但 SymPy 从源代码修复退化为只新增临时调试测试；聚合效率不能覆盖逐题语义回归。",
+      "metrics": {
+        "case_count": 4,
+        "confirmed_solved": 1,
+        "confirmed_unresolved": 1,
+        "not_adjudicated": 2,
+        "patch_generated": 3,
+        "llm_calls": 68,
+        "total_tokens": 1066854,
+        "estimated_cost_usd": 0.143455,
+        "tool_calls": 98,
+        "failed_tool_calls": 8,
+        "compacted_context_turns": 22,
+        "cost_budget_stops": 1,
+        "failure_circuit_breaker_stops": 0
+      },
+      "run_dirs": [
+        ".agent_forge/quality-experiments/r1/sentinel-a/swebench-20260811-004509-7ab903f",
+        ".agent_forge/quality-experiments/r1/sentinel-b/swebench-20260811-004507-c279006"
+      ]
+    },
+    {
+      "id": "R2",
+      "scope": "Golden-10",
+      "bottleneck": "R1 的激进压缩破坏了长链任务的语义保真",
+      "change": "将 max_prompt_tokens 调整为 49152，在上下文保真和成本之间取平衡",
+      "decision": "accepted",
+      "decision_reason": "保住完全相同的已知 solved Patch；候选改动覆盖 5/10→8/10，无 Patch 退出 5→2，失败工具调用 29→19，总 Token 下降 13.2%。",
+      "metrics": {
+        "case_count": 10,
+        "confirmed_solved": 1,
+        "confirmed_unresolved": 2,
+        "not_adjudicated": 7,
+        "patch_generated": 8,
+        "llm_calls": 160,
+        "total_tokens": 2641315,
+        "estimated_cost_usd": 0.351386,
+        "tool_calls": 227,
+        "failed_tool_calls": 19,
+        "compacted_context_turns": 2,
+        "cost_budget_stops": 4,
+        "failure_circuit_breaker_stops": 1
+      },
+      "run_dirs": [
+        ".agent_forge/quality-experiments/r2/sentinel/swebench-20260811-013400-4f50d00",
+        ".agent_forge/quality-experiments/r2/golden-rest-a/swebench-20260811-020053-a587d7c",
+        ".agent_forge/quality-experiments/r2/golden-rest-b/swebench-20260811-020108-0fb4016"
+      ]
+    }
+  ],
+  "failure_pareto": [
+    {
+      "failure": "达到固定成本预算",
+      "count": 6,
+      "evidence": "R0 有 6 个运行因 cost_budget_exceeded 停止，其中 4 个没有生成 Patch。"
+    },
+    {
+      "failure": "失败工具调用",
+      "count": 29,
+      "evidence": "R0 共 248 次工具调用，其中 29 次 Observation 为失败；验证与检索失败会消耗后续轮次。"
+    },
+    {
+      "failure": "连续失败熔断",
+      "count": 1,
+      "evidence": "R0 的 scikit-learn Case 在连续 3 次失败工具后被 Runtime 熔断，未生成 Patch。"
+    }
+  ],
+  "case_results": [
+    {
+      "case_id": "django__django-10097",
+      "R0": {"official_status": "confirmed_unresolved", "patch_generated": false, "stop_reason": "cost_budget_exceeded"},
+      "R2": {"official_status": "not_adjudicated", "patch_generated": true, "stop_reason": "final_answer"},
+      "note": "R2 从无 Patch 恢复为源代码候选改动；尚未完成官方裁决。"
+    },
+    {
+      "case_id": "django__django-11451",
+      "R0": {"official_status": "confirmed_solved", "patch_generated": true, "stop_reason": "final_answer"},
+      "R2": {"official_status": "confirmed_solved", "patch_generated": true, "stop_reason": "final_answer"},
+      "note": "两轮 Patch SHA256 完全相同；该 Patch 已在同一不可变数据版本上获得 official resolved。"
+    },
+    {
+      "case_id": "django__django-12209",
+      "R0": {"official_status": "confirmed_unresolved", "patch_generated": false, "stop_reason": "cost_budget_exceeded"},
+      "R2": {"official_status": "confirmed_unresolved", "patch_generated": false, "stop_reason": "cost_budget_exceeded"},
+      "note": "仍是长链收敛瓶颈，未为抬高数字继续增加 Runtime 复杂度。"
+    },
+    {
+      "case_id": "django__django-13028",
+      "R0": {"official_status": "confirmed_unresolved", "patch_generated": false, "stop_reason": "cost_budget_exceeded"},
+      "R2": {"official_status": "not_adjudicated", "patch_generated": true, "stop_reason": "final_answer"},
+      "note": "R2 在相同资源边界内生成候选改动；尚未完成官方裁决。"
+    },
+    {
+      "case_id": "matplotlib__matplotlib-13989",
+      "R0": {"official_status": "not_adjudicated", "patch_generated": true, "stop_reason": "cost_budget_exceeded"},
+      "R2": {"official_status": "not_adjudicated", "patch_generated": true, "stop_reason": "final_answer"},
+      "note": "候选 Patch 保持一致，但 R2 不再依赖预算耗尽结束。"
+    },
+    {
+      "case_id": "matplotlib__matplotlib-22871",
+      "R0": {"official_status": "not_adjudicated", "patch_generated": true, "stop_reason": "cost_budget_exceeded"},
+      "R2": {"official_status": "not_adjudicated", "patch_generated": true, "stop_reason": "cost_budget_exceeded"},
+      "note": "两轮均有候选改动；官方环境构建失败不能被记为 solved 或 unresolved。"
+    },
+    {
+      "case_id": "psf__requests-2317",
+      "R0": {"official_status": "not_adjudicated", "patch_generated": true, "stop_reason": "final_answer"},
+      "R2": {"official_status": "not_adjudicated", "patch_generated": true, "stop_reason": "final_answer"},
+      "note": "R2 生成不同且更短的候选 Patch，失败工具调用为 0；新 Patch 需独立裁决。"
+    },
+    {
+      "case_id": "scikit-learn__scikit-learn-14629",
+      "R0": {"official_status": "confirmed_unresolved", "patch_generated": false, "stop_reason": "too_many_consecutive_failed_tools"},
+      "R2": {"official_status": "not_adjudicated", "patch_generated": true, "stop_reason": "cost_budget_exceeded"},
+      "note": "从连续失败熔断恢复到候选改动，R2 该 Case 的失败工具调用为 0。"
+    },
+    {
+      "case_id": "sphinx-doc__sphinx-10323",
+      "R0": {"official_status": "confirmed_unresolved", "patch_generated": false, "stop_reason": "cost_budget_exceeded"},
+      "R2": {"official_status": "confirmed_unresolved", "patch_generated": false, "stop_reason": "tool_failure_circuit_breaker"},
+      "note": "仍未生成 Patch；熔断避免继续消耗预算，但该题没有改善。"
+    },
+    {
+      "case_id": "sympy__sympy-20590",
+      "R0": {"official_status": "not_adjudicated", "patch_generated": true, "stop_reason": "final_answer"},
+      "R2": {"official_status": "not_adjudicated", "patch_generated": true, "stop_reason": "cost_budget_exceeded"},
+      "note": "R1 曾退化为临时调试测试；R2 恢复为与 R0 相同的源代码 Patch，因此通过语义哨兵。"
+    }
+  ],
+  "boundaries": [
+    "Golden-10 是开发样本，不外推为 SWE-bench Verified 总体解决率。",
+    "每个版本每题仅运行一次，结果用于工程决策，不声称统计显著性。",
+    "只有相同 Case、相同不可变数据版本和完全相同 Patch 才继承既有官方裁决。",
+    "新 Patch 未完成官方评测时只记候选改动，不记 solved。",
+    "R2 的采纳表示 Runtime 收敛、工具稳定性与成本改善，不表示官方解决率已经提升。"
+  ],
+  "decision_story": [
+    "功能冻结后，我固定模型、Golden-10、工具集合和资源预算，先建立 R0，而不是继续堆 Feature。",
+    "R0 的失败 Pareto 显示 6 次成本停止、29 次失败工具调用，最终只有 5/10 生成候选 Patch。",
+    "R1 用 32K 激进压缩把 Sentinel-4 Token 降低约 15%，但 SymPy 退化为只新增调试测试；逐题哨兵发现后我拒绝了该版本。",
+    "R2 把阈值调整为 48K：保住已知 solved Patch，候选改动覆盖提高到 8/10，无 Patch 退出从 5 降到 2，失败工具调用下降 34.5%，Token 下降 13.2%。",
+    "我采纳的是 Runtime 的收敛和成本改进；7 个新 Patch 尚未官方裁决，所以没有把 8/10 写成解决率。"
+  ],
+  "conclusion": "R2 在不增加 Feature、保持固定资源边界的前提下，保住已知正确结果，并提高候选改动覆盖、降低无 Patch 退出和运行成本。实验同时保留了 R1 的负结果，证明采纳依据不是单一聚合指标，而是正确性锚点、逐题语义检查和效率指标的联合门槛。48K 是该 DeepSeek 实验配置，不是所有模型的全局默认值。"
+}
