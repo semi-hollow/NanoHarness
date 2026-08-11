@@ -4,7 +4,6 @@ from pathlib import Path
 from types import SimpleNamespace
 
 from agent_forge.runtime.api import build_agent_loop
-from agent_forge.runtime.application.turn_preparation import TurnPreparation
 from agent_forge.runtime.application.tool_feedback import ToolFeedback
 from agent_forge.runtime.config import RuntimeConfig
 from agent_forge.runtime.control import ExecutionBudget, FailureKind, StepController
@@ -190,38 +189,6 @@ class CostlyReadThenFinalLLM:
         return AgentResponse("this answer should be blocked by cumulative cost", [])
 
 
-class CostAwareControlCaptureLLM:
-    """制造跨过 70% 阈值但尚未越界的三轮请求，并捕获真实模型输入。"""
-
-    def __init__(self):
-        self.calls = 0
-        self.requests = []
-        self.last_usage = SimpleNamespace(
-            estimated_cost_usd=0.0,
-            to_dict=lambda: {"estimated_cost_usd": 0.0},
-        )
-
-    def chat(self, messages, tools):
-        self.calls += 1
-        self.requests.append((list(messages), list(tools)))
-        call_cost = {1: 0.036, 2: 0.004, 3: 0.002}[self.calls]
-        self.last_usage = SimpleNamespace(
-            estimated_cost_usd=call_cost,
-            to_dict=lambda: {"estimated_cost_usd": call_cost},
-        )
-        if self.calls == 1:
-            return AgentResponse(
-                None,
-                [ToolCall("read-cost-1", "read_file", {"path": "target.py"})],
-            )
-        if self.calls == 2:
-            return AgentResponse(
-                None,
-                [ToolCall("read-cost-2", "read_file", {"path": "other.py"})],
-            )
-        return AgentResponse("cost-aware closeout complete", [])
-
-
 class CostlyModelFailureLLM:
     def __init__(self):
         self.last_usage = SimpleNamespace(
@@ -313,103 +280,6 @@ class ValidationFailureRecoveryLLM:
 
 
 class AgentLoopPolicyTest(unittest.TestCase):
-    def test_cost_convergence_starts_at_seventy_percent_with_positive_budget(self):
-        self.assertAlmostEqual(
-            TurnPreparation._cost_spent_ratio(
-                estimated_cost_usd=0.035,
-                cost_budget_usd=0.05,
-            ),
-            0.70,
-        )
-        self.assertLess(
-            TurnPreparation._cost_spent_ratio(
-                estimated_cost_usd=0.0349,
-                cost_budget_usd=0.05,
-            ),
-            0.70,
-        )
-        self.assertIsNone(
-            TurnPreparation._cost_spent_ratio(
-                estimated_cost_usd=0.035,
-                cost_budget_usd=None,
-            )
-        )
-        self.assertIsNone(
-            TurnPreparation._cost_spent_ratio(
-                estimated_cost_usd=0.0,
-                cost_budget_usd=0.0,
-            )
-        )
-
-    def test_cost_convergence_message_is_ephemeral_and_traceable(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
-            (root / "target.py").write_text("value = 1\n", encoding="utf-8")
-            (root / "other.py").write_text("value = 2\n", encoding="utf-8")
-            trace_path = root / "trace.json"
-            trace = TraceRecorder(str(trace_path))
-            registry = ToolRegistry()
-            registry.register(ReadFileTool(WorkspaceSandbox(root)))
-            model = CostAwareControlCaptureLLM()
-
-            final = build_agent_loop(
-                RuntimeConfig(
-                    workspace=tmp,
-                    max_steps=6,
-                    cost_budget_usd=0.05,
-                    trace_file=str(trace_path),
-                ),
-                trace,
-                registry,
-                model,
-            ).run("read target.py and other.py, then summarize the evidence")
-
-        self.assertIn("cost-aware closeout complete", final)
-        self.assertEqual(model.calls, 3)
-        first_messages = model.requests[0][0]
-        second_messages = model.requests[1][0]
-        third_messages = model.requests[2][0]
-        self.assertFalse(
-            any("Cost closure has started" in message.content for message in first_messages)
-        )
-        self.assertIn("Cost closure has started", second_messages[-1].content)
-        self.assertIn("source patch already exists", second_messages[-1].content)
-        self.assertIn("temporary/debug files", second_messages[-1].content)
-        self.assertIn(
-            "unless the task explicitly requires test infrastructure",
-            second_messages[-1].content,
-        )
-        self.assertEqual(
-            sum(
-                "Cost closure has started" in message.content
-                for message in third_messages
-            ),
-            1,
-        )
-        context_windows = {
-            event["step"]: event["context_window"]
-            for event in trace.events
-            if event["event_type"] == "context_window"
-        }
-        self.assertFalse(
-            context_windows[1]["cost_convergence_control"]["active"]
-        )
-        self.assertEqual(
-            context_windows[2]["cost_convergence_control"],
-            {"active": True, "spent_ratio": 0.72, "threshold": 0.70},
-        )
-
-    def test_cost_convergence_does_not_replace_final_turn_control(self):
-        message = TurnPreparation._turn_budget_control_message(
-            step=4,
-            max_steps=4,
-            cost_convergence_active=True,
-        )
-
-        self.assertIsNotNone(message)
-        self.assertIn("Tool execution is closed", message.content)
-        self.assertNotIn("Cost closure has started", message.content)
-
     def test_final_turn_has_no_tools_and_explicit_runtime_control(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

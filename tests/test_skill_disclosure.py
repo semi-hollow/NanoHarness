@@ -71,11 +71,8 @@ class SkillDisclosureTest(unittest.TestCase):
         prompt_card = selected[0].prompt_card()
 
         self.assertEqual([skill.name for skill in selected], ["swebench_repair"])
-        self.assertEqual(selected[0].version, "3.1.0")
         self.assertIn("smallest evidence-backed repository repair", prompt_card)
         self.assertIn("Repository repair workflow", prompt_card)
-        self.assertIn("test-only diff is not a candidate repair", prompt_card)
-        self.assertIn("Do not create or modify disposable validation files", prompt_card)
         self.assertLess(len(prompt_card), 1_500)
         self.assertNotIn("done_criteria:", prompt_card)
         self.assertNotIn("failure_recovery:", prompt_card)

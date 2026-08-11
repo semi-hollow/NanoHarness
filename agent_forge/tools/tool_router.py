@@ -340,26 +340,23 @@ class ToolRouter:
                 "run_command",
             }
 
-        # task-aware SWE-bench 当前采用“只修既有文件”的受控工具面：保留锚点替换，
-        # 隐藏可覆盖整文件的 write_file 和会把临时验证产物带入 candidate diff 的
-        # create_file。固定 Python 验证器是首选；受命令白名单约束的 run_command
-        # 作为异构仓库测试入口回退，不获得任意 shell 能力。
+        # SWE-bench 使用锚点替换或“仅创建”工具，并隐藏可覆盖已有内容的 write_file。
+        # 固定 Python 验证器是首选；受命令白名单约束的 run_command 作为异构仓库
+        # 测试入口回退，不获得任意 shell 能力。
         is_swebench_task = (
             "swe-bench" in normalized_task_text
             or "swebench" in normalized_task_text
         )
         if is_swebench_task:
+            visible_tool_names.discard("write_file")
             visible_tool_names |= registered_tool_names & {
                 "replace_text",
+                "create_file",
                 "python_validation",
                 "run_command",
                 "git_diff",
                 "git_status",
             }
-            # 必须在通用任务规则和 Skill 工具合并后再移除；否则前面的 repair/Skill
-            # union 会把 create_file 加回模型 schema。
-            visible_tool_names.discard("write_file")
-            visible_tool_names.discard("create_file")
 
         # 外部 MCP 工具没有内置 capability 映射，只在任务明确提及 MCP/工具/策略，或
         # 任务关键词命中工具名称与描述时暴露。这里只判断可见性，不判断持久状态变更风险。
@@ -404,6 +401,7 @@ class ToolRouter:
                     "read_file",
                     "grep_search",
                     "replace_text",
+                    "create_file",
                     "python_validation",
                     "run_command",
                     "git_diff",

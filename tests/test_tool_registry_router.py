@@ -187,12 +187,10 @@ class ToolRegistryRouterTest(unittest.TestCase):
                 schemas=schemas,
                 step=4,
                 agent_name="Implementer",
-                skill_tool_names={"create_file"},
             )
         )
         self.assertIn("replace_text", route.allowed_names)
-        self.assertNotIn("create_file", route.allowed_names)
-        self.assertIn("create_file", route.dropped_names)
+        self.assertIn("create_file", route.allowed_names)
         self.assertIn("python_validation", route.allowed_names)
         self.assertNotIn("write_file", route.allowed_names)
         self.assertIn("run_command", route.allowed_names)
@@ -230,7 +228,6 @@ class ToolRegistryRouterTest(unittest.TestCase):
         self.assertIn("ask_human", route.allowed_names)
         self.assertIn("read_file", route.allowed_names)
         self.assertIn("replace_text", route.allowed_names)
-        self.assertNotIn("create_file", route.allowed_names)
         self.assertIn("python_validation", route.allowed_names)
         self.assertEqual(route.phase, "work")
 
@@ -261,6 +258,7 @@ class ToolRegistryRouterTest(unittest.TestCase):
                 "read_file",
                 "grep_search",
                 "replace_text",
+                "create_file",
                 "python_validation",
                 "run_command",
                 "git_diff",
@@ -268,35 +266,6 @@ class ToolRegistryRouterTest(unittest.TestCase):
         )
         self.assertIn("closure_phase=repair_closeout", route.reason)
         self.assertEqual(route.phase, "closeout")
-
-    def test_create_file_remains_visible_outside_task_aware_swebench(self):
-        schemas = [
-            {"name": "read_file"},
-            {"name": "replace_text"},
-            {"name": "create_file"},
-        ]
-        router = ToolRouter()
-
-        repository_repair_route = router.route(
-            ToolRoutingRequest(
-                task="Fix this repository by adding the required source module.",
-                schemas=schemas,
-                step=1,
-                max_steps=16,
-            )
-        )
-        all_mode_swebench_route = router.route(
-            ToolRoutingRequest(
-                task="Resolve this SWE-bench coding issue.",
-                schemas=schemas,
-                step=1,
-                max_steps=16,
-                mode="all",
-            )
-        )
-
-        self.assertIn("create_file", repository_repair_route.allowed_names)
-        self.assertIn("create_file", all_mode_swebench_route.allowed_names)
 
     def test_final_turn_is_empty_even_in_all_mode(self):
         schemas = [

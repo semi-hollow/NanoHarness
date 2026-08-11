@@ -28,9 +28,6 @@ from agent_forge.runtime.ports import (
 from agent_forge.tools.tool_router import ToolRoute, ToolRouter, ToolRoutingRequest
 
 
-_COST_CONVERGENCE_SPENT_RATIO = 0.70
-
-
 @dataclass(frozen=True, kw_only=True)
 class PreparedTurn:
     """一次 LLM 调用所需的完整、可度量输入。"""
@@ -196,18 +193,9 @@ class TurnPreparation:
             content=assembled_context.render(),
         )
         model_history = list(session.messages)
-        cost_spent_ratio = self._cost_spent_ratio(
-            estimated_cost_usd=session.estimated_cost_usd,
-            cost_budget_usd=self.config.cost_budget_usd,
-        )
-        cost_convergence_active = (
-            cost_spent_ratio is not None
-            and cost_spent_ratio >= _COST_CONVERGENCE_SPENT_RATIO
-        )
         runtime_control_message = self._turn_budget_control_message(
             step=step,
             max_steps=session.max_iterations,
-            cost_convergence_active=cost_convergence_active,
         )
         if runtime_control_message is not None:
             model_history.append(runtime_control_message)
@@ -221,13 +209,7 @@ class TurnPreparation:
                 force_compaction=force_compaction,
             )
         )
-        self._record_context_window(
-            session,
-            step,
-            prepared_window,
-            cost_convergence_active=cost_convergence_active,
-            cost_spent_ratio=cost_spent_ratio,
-        )
+        self._record_context_window(session, step, prepared_window)
         if prepared_window.digest is not None:
             # 只把摘要引用写入 checkpoint；原始消息仍保留在 session/trace 中，不被压缩删除。
             session.lifecycle.update_checkpoint(
@@ -285,7 +267,6 @@ class TurnPreparation:
         *,
         step: int,
         max_steps: int,
-        cost_convergence_active: bool = False,
     ) -> Message | None:
         """在接近预算边界时追加不落入会话历史的 Runtime 控制消息。"""
 
@@ -296,25 +277,6 @@ class TurnPreparation:
                 content=(
                     "[RUNTIME CONTROL] Tool execution is closed. Return the final "
                     "evidence-based answer now. Do not emit tool-call markup."
-                ),
-            )
-        if cost_convergence_active:
-            last_tool_turn_notice = (
-                " This is also the last tool-enabled turn."
-                if remaining_tool_turns == 1
-                else ""
-            )
-            return Message(
-                role="user",
-                content=(
-                    "[RUNTIME CONTROL] Cost closure has started. Stop broad "
-                    "read/search. If evidence supports a source fix, apply the "
-                    "smallest one now. If a source patch already exists, do not "
-                    "create or modify tests or temporary/debug files unless the task "
-                    "explicitly requires test infrastructure; run the smallest "
-                    "targeted validation and inspect the diff. If one fact is "
-                    "missing, make only one targeted read instead of restarting "
-                    f"discovery.{last_tool_turn_notice}"
                 ),
             )
         if remaining_tool_turns == 1:
@@ -335,18 +297,6 @@ class TurnPreparation:
                 ),
             )
         return None
-
-    @staticmethod
-    def _cost_spent_ratio(
-        *,
-        estimated_cost_usd: float,
-        cost_budget_usd: float | None,
-    ) -> float | None:
-        """返回调用前累计成本比例；无正数成本预算时禁用提示。"""
-
-        if cost_budget_usd is None or cost_budget_usd <= 0:
-            return None
-        return max(0.0, estimated_cost_usd / cost_budget_usd)
 
     # region 证据记录器
     def _record_context_assembly(
@@ -397,9 +347,6 @@ class TurnPreparation:
         session: AgentRunSession,
         step: int,
         prepared_window: ContextWindowResult,
-        *,
-        cost_convergence_active: bool,
-        cost_spent_ratio: float | None,
     ) -> None:
         """记录压缩前后规模和硬上限，不复制完整消息数组。"""
 
@@ -418,15 +365,6 @@ class TurnPreparation:
                     prepared_window.estimated_tokens_after
                     > prepared_window.hard_input_limit
                 ),
-                "cost_convergence_control": {
-                    "active": cost_convergence_active,
-                    "spent_ratio": (
-                        round(cost_spent_ratio, 4)
-                        if cost_spent_ratio is not None
-                        else None
-                    ),
-                    "threshold": _COST_CONVERGENCE_SPENT_RATIO,
-                },
                 "source_hash": (
                     prepared_window.digest.source_hash
                     if prepared_window.digest is not None
