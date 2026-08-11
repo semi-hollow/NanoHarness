@@ -953,26 +953,28 @@ class WorkbenchRunStoryTest(unittest.TestCase):
             summary_path.write_text(
                 json.dumps(
                     {
-                        "schema_version": 1,
+                        "schema_version": 2,
                         "experiment_type": "runtime_quality",
                         "title": "Golden-10 · Runtime 质量优化",
                         "status": "completed",
                         "question": "功能冻结后，怎样降低成本而不牺牲正确性？",
                         "success_criteria": "正确性不下降，效率指标显著改善。",
                         "case_ids": ["demo__case-1"],
-                        "accepted_iteration": "R1",
-                        "accepted_metrics": {
-                            "case_count": 1,
-                            "confirmed_solved": 1,
-                            "confirmed_unresolved": 0,
-                            "not_adjudicated": 0,
+                        "reference_iteration": "R0",
+                        "accepted_iteration": None,
+                        "accepted_metrics": None,
+                        "reference_metrics": {
+                            "planned": 1,
                             "official_resolved": 1,
-                            "official_denominator": 1,
+                            "official_unresolved": 0,
+                            "official_empty_or_skipped": 0,
+                            "official_infrastructure_error": 0,
+                            "official_decided": 1,
                             "patch_generated": 1,
                             "tool_calls": 10,
                             "failed_tool_calls": 1,
                             "cost_budget_stops": 0,
-                            "total_tokens": 1000,
+                            "provider_tokens": 1000,
                             "estimated_cost_usd": 0.01,
                         },
                         "iterations": [
@@ -981,17 +983,18 @@ class WorkbenchRunStoryTest(unittest.TestCase):
                                 "bottleneck": "基线",
                                 "change": "无",
                                 "decision": "baseline",
+                                "cohort": "Golden-1",
                                 "metrics": {
-                                    "case_count": 1,
-                                    "confirmed_solved": 1,
-                                    "confirmed_unresolved": 0,
-                                    "not_adjudicated": 0,
+                                    "planned": 1,
                                     "official_resolved": 1,
-                                    "official_denominator": 1,
+                                    "official_unresolved": 0,
+                                    "official_empty_or_skipped": 0,
+                                    "official_infrastructure_error": 0,
+                                    "official_decided": 1,
                                     "patch_generated": 1,
                                     "tool_calls": 20,
                                     "failed_tool_calls": 2,
-                                    "total_tokens": 2000,
+                                    "provider_tokens": 2000,
                                     "estimated_cost_usd": 0.02,
                                 },
                             },
@@ -999,19 +1002,37 @@ class WorkbenchRunStoryTest(unittest.TestCase):
                                 "id": "R1",
                                 "bottleneck": "上下文过长",
                                 "change": "收紧压缩触发点",
-                                "decision": "accepted",
+                                "decision": "rejected",
+                                "cohort": "Sentinel-1",
                                 "metrics": {
-                                    "case_count": 1,
-                                    "confirmed_solved": 1,
-                                    "confirmed_unresolved": 0,
-                                    "not_adjudicated": 0,
-                                    "official_resolved": 1,
-                                    "official_denominator": 1,
-                                    "patch_generated": 1,
+                                    "planned": 1,
+                                    "official_resolved": 0,
+                                    "official_unresolved": 0,
+                                    "official_empty_or_skipped": 1,
+                                    "official_infrastructure_error": 0,
+                                    "official_decided": 0,
+                                    "patch_generated": 0,
                                     "tool_calls": 10,
                                     "failed_tool_calls": 1,
-                                    "total_tokens": 1000,
+                                    "provider_tokens": 1000,
                                     "estimated_cost_usd": 0.01,
+                                    "runtime_step_entries": 3,
+                                    "llm_calls": 2,
+                                },
+                                "mechanism_check": {
+                                    "context_assembly_count": 3,
+                                    "create_file_visible_context_count": 0,
+                                    "create_file_dropped_context_count": 3,
+                                    "create_file_action_count": 0,
+                                    "mechanism_result": "passed",
+                                    "task_outcome_result": "failed",
+                                },
+                                "invalid_launch_excluded": {
+                                    "reason": "Skill identity drift",
+                                    "observed_but_excluded": "漂亮的产品源码 Patch",
+                                    "provider_tokens_lower_bound": 123,
+                                    "confirmed_cost_usd_lower_bound": 0.001,
+                                    "excluded_from_all_gates_and_valid_metrics": True,
                                 },
                             },
                         ],
@@ -1031,17 +1052,43 @@ class WorkbenchRunStoryTest(unittest.TestCase):
                                     "stop_reason": "final_answer",
                                 },
                                 "R1": {
-                                    "official_status": "official_resolved",
-                                    "patch_generated": True,
-                                    "stop_reason": "final_answer",
+                                    "official_status": "official_eval_skipped_empty_patch",
+                                    "patch_generated": False,
+                                    "stop_reason": "cost_budget_exceeded",
                                 },
-                                "note": "正确性保持，成本下降。",
+                                "transition": "resolved_to_empty_skipped，按 gate 拒绝。",
                             }
                         ],
+                        "historical_exploration": [
+                            {
+                                "id": "P0",
+                                "scope": "Golden-1",
+                                "finding": "候选 Patch 形成率发生变化。",
+                                "claim_boundary": "没有完整 official 裁决，不进入正式基线。",
+                            }
+                        ],
+                        "cost_and_time": {
+                            "observed": [
+                                {
+                                    "iteration": "R0",
+                                    "cohort": "Golden-1",
+                                    "provider_tokens": 1000,
+                                    "cost_usd": 0.01,
+                                    "wall_minutes": 2.0,
+                                    "summed_llm_latency_minutes": 1.0,
+                                }
+                            ],
+                            "uncertainty": "并发墙钟时间不是 LLM latency 求和。",
+                        },
+                        "rollback": {
+                            "commit": "rollback-demo",
+                            "retained_measurement_hygiene_commit": "guard-demo",
+                            "reason": "候选策略未通过 gate。",
+                        },
                         "fixed_conditions": {"模型": "demo-model"},
                         "boundaries": ["固定小样本，不外推总体解决率"],
                         "decision_story": ["从失败 Pareto 选择第一瓶颈。"],
-                        "conclusion": "R1 在正确性持平时降低了成本。",
+                        "conclusion": "R1 触发正确性回归，因此拒绝并回滚。",
                     },
                     ensure_ascii=False,
                 ),
@@ -1065,14 +1112,173 @@ class WorkbenchRunStoryTest(unittest.TestCase):
 
         self.assertEqual(source.primary_path, summary_path)
         self.assertEqual(source.title, "Golden-10 · Runtime 质量优化")
-        self.assertIn("已确认解决", overview)
+        self.assertIn("正式 R0 解决 / 计划", overview)
         self.assertIn("1/1", overview)
-        self.assertIn("版本演进", results)
-        self.assertIn("每题 Token / 成本", results)
+        self.assertIn("正式 R0-R3", results)
+        self.assertIn("Provider Token / 成本", results)
         self.assertIn("失败 Pareto", results)
         self.assertIn("逐题结果", results)
-        self.assertIn("正确性保持，成本下降", results)
+        self.assertIn("resolved_to_empty_skipped，按 gate 拒绝", results)
+        self.assertIn("unresolved 0 · empty 1 · infra 0", results)
+        self.assertIn("机制生效不等于任务成功", results)
+        self.assertIn("3</td><td>0</td><td>3", results)
+        self.assertIn("Step / LLM 3/2", results)
+        self.assertIn("成本与时间", results)
+        self.assertIn("2.0 min", results)
+        self.assertIn("Skill identity drift", results)
+        self.assertIn("漂亮的产品源码 Patch", results)
+        self.assertIn("rollback-demo", results)
+        self.assertIn("guard-demo", results)
+        self.assertIn("Pre-R0 探索性预实验", results)
+        self.assertIn("没有完整 official 裁决", results)
         self.assertIn("固定小样本，不外推总体解决率", results)
+
+    def test_legacy_runtime_quality_summary_fails_closed_as_pre_r0(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            project_dir = Path(tmp)
+            summary_path = (
+                project_dir
+                / "benchmarks"
+                / "runtime-quality"
+                / "golden-10-v1.json"
+            )
+            summary_path.parent.mkdir(parents=True)
+            summary_path.write_text(
+                json.dumps(
+                    {
+                        "schema_version": 1,
+                        "experiment_type": "runtime_quality",
+                        "title": "旧 Golden-10 Runtime 质量优化",
+                        "status": "completed",
+                        "case_ids": ["demo__case-1"],
+                        "accepted_iteration": "R2",
+                        "accepted_metrics": {
+                            "case_count": 1,
+                            "confirmed_solved": 1,
+                            "patch_generated": 1,
+                        },
+                        "iterations": [
+                            {
+                                "id": "R0",
+                                "scope": "Golden-1",
+                                "change": "64K Context",
+                                "decision": "baseline",
+                                "metrics": {
+                                    "case_count": 1,
+                                    "patch_generated": 0,
+                                    "total_tokens": 100,
+                                    "estimated_cost_usd": 0.01,
+                                },
+                            },
+                            {
+                                "id": "R2",
+                                "scope": "Golden-1",
+                                "change": "48K Context",
+                                "decision": "accepted",
+                                "metrics": {
+                                    "case_count": 1,
+                                    "patch_generated": 1,
+                                    "total_tokens": 90,
+                                    "estimated_cost_usd": 0.009,
+                                },
+                            },
+                        ],
+                    },
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+
+            catalog = FileEvidenceCatalog(project_dir)
+            source = next(
+                item for item in catalog.evidence_sources() if item.key == "evaluation"
+            )
+            overview = _render_workspace_view(
+                project_dir,
+                source_key="evaluation",
+                view="overview",
+            )
+            results = _render_workspace_view(
+                project_dir,
+                source_key="evaluation",
+                view="results",
+            )
+
+        self.assertIn("exploratory_only", source.status)
+        self.assertIn("Pre-R0", overview)
+        self.assertIn("旧 accepted 标签", overview)
+        self.assertIn("已撤回", overview)
+        self.assertIn("Fail closed", results)
+        self.assertIn("P0-P2 历史过程", results)
+        self.assertNotIn("正式参考 R2", overview)
+        self.assertNotIn("Official resolved / planned", results)
+
+    def test_runtime_quality_pending_candidate_and_decided_fallback_are_honest(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            project_dir = Path(tmp)
+            summary_path = (
+                project_dir
+                / "benchmarks"
+                / "runtime-quality"
+                / "golden-10-v1.json"
+            )
+            summary_path.parent.mkdir(parents=True)
+            reference_metrics = {
+                "planned": 10,
+                "official_resolved": 4,
+                "official_unresolved": 3,
+                "official_empty_or_skipped": 3,
+                "official_infrastructure_error": 0,
+            }
+            summary_path.write_text(
+                json.dumps(
+                    {
+                        "schema_version": 2,
+                        "experiment_type": "runtime_quality",
+                        "status": "running",
+                        "reference_iteration": "R0",
+                        "accepted_iteration": None,
+                        "reference_metrics": reference_metrics,
+                        "iterations": [
+                            {
+                                "id": "R0",
+                                "cohort": "Golden-10",
+                                "decision": "reference",
+                                "metrics": reference_metrics,
+                            },
+                            {
+                                "id": "R1",
+                                "cohort": "Sentinel-4",
+                                "decision": "pending",
+                                "metrics": {
+                                    "planned": 4,
+                                    "official_resolved": 0,
+                                    "official_unresolved": 0,
+                                    "official_empty_or_skipped": 0,
+                                },
+                            },
+                        ],
+                    },
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+
+            overview = _render_workspace_view(
+                project_dir,
+                source_key="evaluation",
+                view="overview",
+            )
+            results = _render_workspace_view(
+                project_dir,
+                source_key="evaluation",
+                view="results",
+            )
+
+        self.assertIn("官方裁决覆盖 7/10", overview)
+        self.assertIn("未采纳；rejected 0，pending/other 1", results)
+        self.assertNotIn("全部候选轮均拒绝并回滚", results)
+        self.assertNotIn("最终处置", results)
 
     def test_published_campaign_bundle_uses_manifest_and_summary_filenames(self):
         with tempfile.TemporaryDirectory() as tmp:

@@ -220,14 +220,26 @@ class FileEvidenceCatalog(EvidenceCatalogPort):
         缺少本地 Trace 不影响公开结果页，也不会伪造运行过程。
         """
 
-        accepted_iteration = str(quality_summary.get("accepted_iteration") or "")
+        schema_version = int(quality_summary.get("schema_version") or 1)
+        formal_summary = schema_version >= 2
+        iterations = [
+            item
+            for item in quality_summary.get("iterations") or []
+            if isinstance(item, dict)
+        ]
+        reference_iteration = str(
+            quality_summary.get("reference_iteration")
+            or (
+                iterations[0].get("id")
+                if formal_summary and iterations
+                else ""
+            )
+        )
         trace_entries: list[tuple[str, Path]] = []
         usage_paths: list[Path] = []
         accepted_run_dirs: list[Path] = []
-        for iteration in quality_summary.get("iterations") or []:
-            if not isinstance(iteration, dict):
-                continue
-            if str(iteration.get("id") or "") != accepted_iteration:
+        for iteration in iterations:
+            if str(iteration.get("id") or "") != reference_iteration:
                 continue
             for run_dir_value in iteration.get("run_dirs") or []:
                 run_dir = self.project_dir / str(run_dir_value)
@@ -238,30 +250,68 @@ class FileEvidenceCatalog(EvidenceCatalogPort):
                     trace_entries.append((trace_path.parent.name, trace_path))
                 usage_paths.extend(sorted(run_dir.glob("cases/*/usage.json")))
 
-        metrics = quality_summary.get("accepted_metrics")
+        metrics = quality_summary.get("reference_metrics") if formal_summary else None
         if not isinstance(metrics, dict):
             metrics = {}
+        if not metrics:
+            for iteration in iterations:
+                if str(iteration.get("id") or "") == reference_iteration:
+                    value = iteration.get("metrics")
+                    metrics = value if isinstance(value, dict) else {}
+                    break
         resolved = int(
             metrics.get("confirmed_solved")
             or metrics.get("official_resolved")
             or 0
         )
         case_count = int(
-            metrics.get("case_count")
+            metrics.get("planned")
+            or metrics.get("case_count")
             or metrics.get("official_denominator")
             or 0
         )
-        not_adjudicated = int(metrics.get("not_adjudicated") or 0)
+        if metrics.get("official_decided") is not None:
+            decided = int(metrics.get("official_decided") or 0)
+        elif metrics.get("decided") is not None:
+            decided = int(metrics.get("decided") or 0)
+        elif any(
+            name in metrics
+            for name in (
+                "official_resolved",
+                "confirmed_solved",
+                "official_unresolved",
+                "confirmed_unresolved",
+            )
+        ):
+            decided = resolved + int(
+                metrics.get("official_unresolved")
+                if metrics.get("official_unresolved") is not None
+                else metrics.get("confirmed_unresolved") or 0
+            )
+        else:
+            decided = max(
+                0,
+                case_count
+                - int(metrics.get("not_adjudicated") or 0)
+                - int(metrics.get("official_empty_or_skipped") or 0)
+                - int(metrics.get("official_infrastructure_error") or 0),
+            )
         status = str(quality_summary.get("status") or "not_run")
-        if status == "completed" and case_count:
+        if not formal_summary:
+            status = "exploratory_only · 旧摘要不具备正式 official 基线"
+        elif status == "completed" and case_count:
             status = (
-                f"completed · 已确认解决 {resolved}/{case_count}"
-                f" · 未裁决 {not_adjudicated}"
+                f"completed · 正式 {reference_iteration} 解决 {resolved}/{case_count}"
+                f" · 裁决覆盖 {decided}/{case_count}"
             )
         return EvidenceSource(
             key="evaluation",
             title=str(quality_summary.get("title") or "Runtime 质量优化实验"),
-            description="固定样本、失败驱动迭代、正确性与效率证据",
+            description=(
+                "固定样本、失败驱动迭代、正确性与效率证据"
+                if formal_summary
+                else "Pre-R0 探索性过程证据；旧 accepted 结论已撤回"
+            ),
             source_type="benchmark",
             task=str(
                 quality_summary.get("question")

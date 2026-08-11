@@ -381,28 +381,75 @@ def _source_overview_facts(
             else None
         )
         if quality_summary.get("experiment_type") == "runtime_quality":
-            metrics = quality_summary.get("accepted_metrics") or {}
-            resolved = int(
-                metrics.get("confirmed_solved")
-                or metrics.get("official_resolved")
-                or 0
+            schema_version = int(quality_summary.get("schema_version") or 1)
+            if schema_version < 2:
+                historical_iterations = [
+                    item
+                    for item in quality_summary.get("iterations") or []
+                    if isinstance(item, dict)
+                ]
+                return (
+                    [
+                        (
+                            "证据等级",
+                            "Pre-R0",
+                            "旧 schema 仅保留探索信号",
+                            "warn",
+                        ),
+                        (
+                            "Official 主指标",
+                            "不可用",
+                            "裁决与复现协议未完整冻结",
+                            "warn",
+                        ),
+                        (
+                            "历史候选轮",
+                            str(len(historical_iterations)),
+                            "不进入正式 R0-R3 因果链",
+                            "neutral",
+                        ),
+                        (
+                            "旧 accepted 标签",
+                            "已撤回",
+                            "candidate 与过程指标不替代 official resolved",
+                            "warn",
+                        ),
+                    ],
+                    "这是迁移保留的 Pre-R0 探索性摘要；Workbench 会 fail-closed，不把旧 accepted_iteration 提升为正式参考。",
+                )
+            reference_iteration = str(
+                quality_summary.get("reference_iteration")
+                or "R0"
             )
+            metrics = _quality_reference_metrics(quality_summary)
+            planned = _quality_metric(metrics, "planned", "case_count", "official_denominator")
+            resolved = _quality_metric(metrics, "official_resolved", "confirmed_solved")
+            decided = _quality_decided(metrics, planned)
             patch_count = int(metrics.get("patch_generated") or 0)
-            case_count = int(metrics.get("case_count") or 0)
-            not_adjudicated = int(metrics.get("not_adjudicated") or 0)
             failed_calls = int(metrics.get("failed_tool_calls") or 0)
             tool_calls = int(metrics.get("tool_calls") or 0)
+            accepted = str(quality_summary.get("accepted_iteration") or "")
+            candidate_iterations = [
+                item
+                for item in quality_summary.get("iterations") or []
+                if isinstance(item, dict)
+                and str(item.get("id") or "") != reference_iteration
+            ]
+            rejected_count = sum(
+                str(item.get("decision") or "").lower() == "rejected"
+                for item in candidate_iterations
+            )
             return (
                 [
                     (
-                        "已确认解决",
-                        f"{resolved}/{case_count}",
-                        f"另有 {not_adjudicated} 题尚未完成官方裁决",
+                        f"正式 {reference_iteration} 解决 / 计划",
+                        f"{resolved}/{planned}",
+                        f"官方裁决覆盖 {decided}/{planned}",
                         "ok" if resolved else "warn",
                     ),
                     (
                         "候选改动",
-                        f"{patch_count}/{case_count}",
+                        f"{patch_count}/{planned}",
                         "生成 Patch 不等于解决",
                         "neutral",
                     ),
@@ -413,13 +460,13 @@ def _source_overview_facts(
                         "warn" if failed_calls else "ok",
                     ),
                     (
-                        "采纳版本",
-                        str(quality_summary.get("accepted_iteration") or "未采纳"),
-                        "按预先写明的门槛决定",
-                        "ok" if quality_summary.get("accepted_iteration") else "warn",
+                        "候选优化",
+                        accepted or "0 轮采纳",
+                        f"{rejected_count}/{len(candidate_iterations)} 轮按预注册 gate 拒绝",
+                        "ok" if accepted and accepted != reference_iteration else "warn",
                     ),
                 ],
-                "这是固定 Golden-10 上的 Runtime 质量实验，不外推为 SWE-bench Verified 总体解决率。",
+                "主指标始终是 resolved / planned。Sentinel 与 Golden-10 分母不同，不做百分比横比，也不外推为 SWE-bench Verified 总体解决率。",
             )
 
         summary = _latest_campaign_summary(project_dir)
@@ -4046,14 +4093,134 @@ def _render_orchestration_dashboard(project_dir: Path) -> str:
     return "<div class='evidence'>" + "".join(body) + "</div>"
 
 
+def _quality_metric(metrics: dict[str, Any], *names: str) -> int:
+    """读取新旧摘要字段；零值也是有效证据，不能被 truthy fallback 覆盖。"""
+
+    for name in names:
+        value = metrics.get(name)
+        if value is not None:
+            return int(value)
+    return 0
+
+
+def _quality_reference_metrics(experiment: dict[str, Any]) -> dict[str, Any]:
+    """返回 schema v2 的正式参考基线；旧摘要只取首轮过程事实。"""
+
+    schema_version = int(experiment.get("schema_version") or 1)
+    iterations = [
+        item
+        for item in experiment.get("iterations") or []
+        if isinstance(item, dict)
+    ]
+    if schema_version >= 2:
+        value = experiment.get("reference_metrics")
+        if isinstance(value, dict):
+            return value
+        reference_id = str(experiment.get("reference_iteration") or "R0")
+    else:
+        reference_id = str(iterations[0].get("id") or "") if iterations else ""
+    for iteration in iterations:
+        if str(iteration.get("id") or "") != reference_id:
+            continue
+        metrics = iteration.get("metrics")
+        return metrics if isinstance(metrics, dict) else {}
+    return {}
+
+
+def _quality_decided(metrics: dict[str, Any], planned: int) -> int:
+    """返回官方明确 resolved/failed 的数量；empty 与 infra 不进入分母。"""
+
+    for name in ("official_decided", "decided"):
+        value = metrics.get(name)
+        if value is not None:
+            return int(value)
+    resolved_names = ("official_resolved", "confirmed_solved")
+    unresolved_names = ("official_unresolved", "confirmed_unresolved")
+    if any(name in metrics for name in (*resolved_names, *unresolved_names)):
+        return _quality_metric(metrics, *resolved_names) + _quality_metric(
+            metrics,
+            *unresolved_names,
+        )
+    not_adjudicated = _quality_metric(metrics, "not_adjudicated")
+    empty = _quality_metric(
+        metrics,
+        "official_empty_or_skipped",
+        "official_skipped_empty_patch",
+    )
+    infrastructure = _quality_metric(metrics, "official_infrastructure_error")
+    return max(0, planned - not_adjudicated - empty - infrastructure)
+
+
+def _render_legacy_runtime_quality_dashboard(
+    experiment: dict[str, Any],
+    source_path: Path | None,
+) -> str:
+    """旧 schema 只展示探索过程，拒绝把历史 accepted 标签升级为正式结论。"""
+
+    iterations = [
+        item for item in experiment.get("iterations") or [] if isinstance(item, dict)
+    ]
+    rows: list[str] = []
+    for index, iteration in enumerate(iterations):
+        metrics_value = iteration.get("metrics")
+        metrics = metrics_value if isinstance(metrics_value, dict) else {}
+        planned = _quality_metric(metrics, "planned", "case_count")
+        patch_generated = _quality_metric(metrics, "patch_generated")
+        provider_tokens = _quality_metric(metrics, "provider_tokens", "total_tokens")
+        cost = float(metrics.get("estimated_cost_usd") or 0.0)
+        rows.append(
+            "<tr>"
+            f"<td><b>P{index}</b><small>旧 {_escape(iteration.get('id') or '')}</small></td>"
+            f"<td>{_escape(iteration.get('scope') or '-')}</td>"
+            f"<td>{_escape(iteration.get('change') or '-')}</td>"
+            f"<td>{patch_generated}/{planned}</td>"
+            f"<td>{provider_tokens:,}</td>"
+            f"<td>${cost:.6f}</td>"
+            f"<td>{_escape(iteration.get('decision') or '-')}（仅历史标签）</td>"
+            "</tr>"
+        )
+    boundaries = [
+        "旧摘要缺少完整 official 裁决与冻结复现协议，不展示解决率。",
+        "candidate Patch、Token 和失败工具调用只能作为探索信号。",
+        "旧 accepted_iteration 已撤回，正式实验必须从 schema v2 的 R0 开始。",
+    ]
+    empty_row = '<tr><td colspan="7">没有历史迭代。</td></tr>'
+    body = [
+        "<div class='view-heading'><div><span class='view-kicker'>PRE-R0 · 探索性预实验</span>"
+        f"<h2>{_escape(experiment.get('title') or '旧 Runtime 质量摘要')}</h2></div>"
+        f"{_badge('exploratory_only', 'warn')}</div>",
+        _render_lab_brief(
+            question=str(experiment.get("question") or "旧实验留下了哪些探索信号？"),
+            input_label="历史样本",
+            input_items=[str(item) for item in experiment.get("case_ids") or []],
+            mechanism="保留 Trace 与过程指标 → 撤回旧 accepted 标签 → 重新冻结正式 R0 协议",
+            success_criteria="只用于提出假设，不证明 official resolved 提升。",
+            boundary="；".join(boundaries),
+        ),
+        "<p class='boundary-note scope-warning'><strong>Fail closed：</strong>该文件是 schema v1。Workbench 不读取其 accepted_metrics 作为正式参考，也不显示 resolved rate。</p>",
+        "<section class='evidence-section'><div class='section-title'><h3>P0-P2 历史过程</h3><span>candidate 与成本，不是解决率</span></div>"
+        "<table><thead><tr><th>迁移名称</th><th>范围</th><th>变量</th><th>候选 Patch</th><th>Provider Token</th><th>估算成本</th><th>旧决策</th></tr></thead>"
+        f"<tbody>{''.join(rows) or empty_row}</tbody></table></section>",
+        f"<details class='provenance'><summary>旧摘要来源</summary><code>{_escape(str(source_path or '未找到'))}</code></details>",
+    ]
+    return "<div class='evidence'>" + "".join(body) + "</div>"
+
+
 def _render_runtime_quality_dashboard(
     experiment: dict[str, Any],
     source_path: Path | None,
 ) -> str:
-    """把质量实验收敛为“问题、迭代、结果、边界”四层证据。"""
+    """展示正式基线、候选决策和证据边界，不混用不同实验分母。"""
 
+    if int(experiment.get("schema_version") or 1) < 2:
+        return _render_legacy_runtime_quality_dashboard(experiment, source_path)
+
+    reference_iteration = str(
+        experiment.get("reference_iteration")
+        or "R0"
+    )
     accepted_iteration = str(experiment.get("accepted_iteration") or "")
-    accepted_metrics = experiment.get("accepted_metrics") or {}
+    reference_metrics = _quality_reference_metrics(experiment)
     iterations = [
         item for item in experiment.get("iterations") or [] if isinstance(item, dict)
     ]
@@ -4061,26 +4228,44 @@ def _render_runtime_quality_dashboard(
         item for item in experiment.get("case_results") or [] if isinstance(item, dict)
     ]
     fixed_conditions = experiment.get("fixed_conditions") or {}
-    baseline_metrics = (
-        iterations[0].get("metrics") or {} if iterations else {}
-    )
+    iteration_ids = [str(item.get("id") or "") for item in iterations]
+    iteration_ids = [item for item in iteration_ids if item]
 
     iteration_rows: list[str] = []
     for iteration in iterations:
-        metrics = iteration.get("metrics") or {}
-        confirmed_solved = int(
-            metrics.get("confirmed_solved")
-            or metrics.get("official_resolved")
-            or 0
+        metrics_value = iteration.get("metrics")
+        metrics = metrics_value if isinstance(metrics_value, dict) else {}
+        planned = _quality_metric(
+            metrics,
+            "planned",
+            "case_count",
+            "official_denominator",
         )
-        confirmed_unresolved = int(metrics.get("confirmed_unresolved") or 0)
-        not_adjudicated = int(metrics.get("not_adjudicated") or 0)
+        official_resolved = _quality_metric(
+            metrics,
+            "official_resolved",
+            "confirmed_solved",
+        )
+        official_unresolved = _quality_metric(
+            metrics,
+            "official_unresolved",
+            "confirmed_unresolved",
+        )
+        official_empty = _quality_metric(
+            metrics,
+            "official_empty_or_skipped",
+            "official_skipped_empty_patch",
+        )
+        official_infra = _quality_metric(
+            metrics,
+            "official_infrastructure_error",
+        )
+        official_decided = _quality_decided(metrics, planned)
         patch_generated = int(metrics.get("patch_generated") or 0)
-        case_count = int(metrics.get("case_count") or 0)
-        total_tokens = int(metrics.get("total_tokens") or 0)
+        runtime_steps = _quality_metric(metrics, "runtime_step_entries")
+        llm_calls = _quality_metric(metrics, "llm_calls")
+        total_tokens = _quality_metric(metrics, "provider_tokens", "total_tokens")
         estimated_cost = float(metrics.get("estimated_cost_usd") or 0.0)
-        tokens_per_case = total_tokens / case_count if case_count else 0.0
-        cost_per_case = estimated_cost / case_count if case_count else 0.0
         tool_calls = int(metrics.get("tool_calls") or 0)
         failed_tool_calls = int(metrics.get("failed_tool_calls") or 0)
         failed_tool_rate = (
@@ -4092,29 +4277,37 @@ def _render_runtime_quality_dashboard(
         iteration_rows.append(
             "<tr>"
             f"<td><b>{_escape(iteration.get('id') or '')}</b></td>"
-            f"<td>{_escape(iteration.get('scope') or '-')}</td>"
-            f"<td>{_escape(iteration.get('bottleneck') or '基线')}</td>"
-            f"<td>{_escape(iteration.get('change') or '无')}</td>"
-            f"<td>{confirmed_solved}/{case_count}</td>"
-            f"<td>{confirmed_unresolved} / {not_adjudicated}</td>"
-            f"<td>{patch_generated}/{case_count}</td>"
-            f"<td>{_escape(failed_tool_rate)}</td>"
-            f"<td>{tokens_per_case:,.0f}<small>${cost_per_case:.4f}</small></td>"
+            f"<td>{_escape(iteration.get('cohort') or iteration.get('scope') or '-')}</td>"
+            "<td>"
+            f"<b>{_escape(iteration.get('hypothesis') or iteration.get('bottleneck') or '正式基线')}</b>"
+            f"<span class='quality-cell-detail'>{_escape(iteration.get('change') or '无')}</span>"
+            "</td>"
+            "<td>"
+            f"<b>{official_resolved}/{planned} resolved / planned</b>"
+            f"<span class='quality-cell-detail'>decided {official_decided}/{planned} · unresolved {official_unresolved} · empty {official_empty} · infra {official_infra}</span>"
+            "</td>"
+            "<td>"
+            f"<b>Patch {patch_generated}/{planned}</b>"
+            f"<span class='quality-cell-detail'>Step / LLM {runtime_steps}/{llm_calls} · failed Tool {_escape(failed_tool_rate)}</span>"
+            "</td>"
+            f"<td>{total_tokens:,}<small class='quality-cell-detail'>${estimated_cost:.4f}</small></td>"
             f"<td>{_badge(decision, _tone_for_status(decision))}</td>"
             "</tr>"
         )
 
     case_rows: list[str] = []
-    baseline_id = str(iterations[0].get("id") or "R0") if iterations else "R0"
     for case in cases:
-        baseline = case.get(baseline_id) or {}
-        accepted = case.get(accepted_iteration) or {}
+        outcomes_value = case.get("iterations")
+        outcomes = outcomes_value if isinstance(outcomes_value, dict) else case
+        result_cells = "".join(
+            f"<td>{_escape(_quality_case_result_label(outcomes.get(iteration_id)))}</td>"
+            for iteration_id in iteration_ids
+        )
         case_rows.append(
             "<tr>"
             f"<td class='mono'>{_escape(case.get('case_id') or '')}</td>"
-            f"<td>{_escape(_quality_case_result_label(baseline))}</td>"
-            f"<td>{_escape(_quality_case_result_label(accepted))}</td>"
-            f"<td>{_escape(case.get('note') or '')}</td>"
+            f"{result_cells}"
+            f"<td>{_escape(case.get('transition') or case.get('note') or '')}</td>"
             "</tr>"
         )
 
@@ -4129,131 +4322,268 @@ def _render_runtime_quality_dashboard(
         for index, item in enumerate(pareto_items, start=1)
         if isinstance(item, dict)
     )
+    historical_value = experiment.get("historical_exploration") or []
+    if isinstance(historical_value, dict):
+        historical = historical_value.get("iterations") or historical_value.get("runs") or []
+        historical_shortcomings = historical_value.get("three_primary_shortcomings") or []
+    else:
+        historical = historical_value
+        historical_shortcomings = []
+    historical_rows = "".join(
+        "<tr>"
+        f"<td>{_escape(item.get('id') or item.get('name') or '')}</td>"
+        f"<td>{_escape(item.get('scope') or item.get('cohort') or '-')}</td>"
+        f"<td>{_escape(item.get('finding') or item.get('reason') or item.get('legacy_decision') or item.get('decision') or item.get('change') or '')}</td>"
+        f"<td>{_escape(item.get('claim_boundary') or '探索性预实验，不进入正式 R0-R3 因果链')}</td>"
+        "</tr>"
+        for item in historical
+        if isinstance(item, dict)
+    )
+    historical_shortcoming_items = "".join(
+        f"<li>{_escape(item)}</li>" for item in historical_shortcomings
+    )
+    excluded_incidents = [
+        (str(iteration.get("id") or ""), iteration.get("invalid_launch_excluded"))
+        for iteration in iterations
+        if isinstance(iteration.get("invalid_launch_excluded"), dict)
+    ]
+    excluded_rows = "".join(
+        "<tr>"
+        f"<td>{_escape(iteration_id)}</td>"
+        f"<td>{_escape(incident.get('reason') or '')}</td>"
+        f"<td>{_escape(incident.get('observed_but_excluded') or '-')}</td>"
+        f"<td>{int(incident.get('provider_tokens_lower_bound') or 0):,}</td>"
+        f"<td>${float(incident.get('confirmed_cost_usd_lower_bound') or 0.0):.6f}</td>"
+        f"<td>{_escape(_display_value(incident.get('excluded_from_all_gates_and_valid_metrics')))}</td>"
+        "</tr>"
+        for iteration_id, incident in excluded_incidents
+        if isinstance(incident, dict)
+    )
+    mechanism_rows = "".join(
+        "<tr>"
+        f"<td>{_escape(iteration.get('id') or '')}</td>"
+        f"<td>{int(check.get('context_assembly_count') or 0)}</td>"
+        f"<td>{int(check.get('create_file_visible_context_count') or 0)}</td>"
+        f"<td>{int(check.get('create_file_dropped_context_count') or 0)}</td>"
+        f"<td>{int(check.get('create_file_action_count') or 0)}</td>"
+        f"<td>{_escape(_display_value(check.get('mechanism_result') or '-'))}</td>"
+        f"<td>{_escape(_display_value(check.get('task_outcome_result') or '-'))}</td>"
+        "</tr>"
+        for iteration in iterations
+        for check in [iteration.get("mechanism_check")]
+        if isinstance(check, dict)
+    )
+    cost_and_time_value = experiment.get("cost_and_time")
+    cost_and_time = (
+        cost_and_time_value if isinstance(cost_and_time_value, dict) else {}
+    )
+    observed_costs = cost_and_time.get("observed") or []
+    cost_rows = "".join(
+        "<tr>"
+        f"<td>{_escape(item.get('iteration') or '')}</td>"
+        f"<td>{_escape(item.get('cohort') or '')}</td>"
+        f"<td>{int(item.get('provider_tokens') or 0):,}</td>"
+        f"<td>${float(item.get('cost_usd') or 0.0):.6f}</td>"
+        f"<td>{float(item.get('wall_minutes') or 0.0):.1f} min</td>"
+        f"<td>{float(item.get('summed_llm_latency_minutes') or 0.0):.1f} min</td>"
+        "</tr>"
+        for item in observed_costs
+        if isinstance(item, dict)
+    )
+    rollback_value = experiment.get("rollback")
+    rollback = rollback_value if isinstance(rollback_value, dict) else {}
     condition_rows = "".join(
         f"<tr><td>{_escape(key)}</td><td>{_escape(_display_value(value))}</td></tr>"
         for key, value in fixed_conditions.items()
     )
     story = experiment.get("decision_story") or []
     boundaries = experiment.get("boundaries") or []
-    resolved = int(
-        accepted_metrics.get("confirmed_solved")
-        or accepted_metrics.get("official_resolved")
-        or 0
+    planned = _quality_metric(
+        reference_metrics,
+        "planned",
+        "case_count",
+        "official_denominator",
     )
-    confirmed_unresolved = int(accepted_metrics.get("confirmed_unresolved") or 0)
-    not_adjudicated = int(accepted_metrics.get("not_adjudicated") or 0)
-    patch_count = int(accepted_metrics.get("patch_generated") or 0)
-    case_count = int(accepted_metrics.get("case_count") or 0)
-    total_tokens = int(accepted_metrics.get("total_tokens") or 0)
-    estimated_cost = float(accepted_metrics.get("estimated_cost_usd") or 0.0)
-    baseline_case_count = int(baseline_metrics.get("case_count") or 0)
-    baseline_patch_count = int(baseline_metrics.get("patch_generated") or 0)
-    baseline_no_patch = baseline_case_count - baseline_patch_count
-    accepted_no_patch = case_count - patch_count
-    baseline_failed_tools = int(baseline_metrics.get("failed_tool_calls") or 0)
-    accepted_failed_tools = int(accepted_metrics.get("failed_tool_calls") or 0)
-    baseline_tokens = int(baseline_metrics.get("total_tokens") or 0)
-    baseline_cost = float(baseline_metrics.get("estimated_cost_usd") or 0.0)
-    patch_delta_points = (
-        (patch_count / case_count - baseline_patch_count / baseline_case_count) * 100
-        if case_count and baseline_case_count
-        else 0.0
+    resolved = _quality_metric(
+        reference_metrics,
+        "official_resolved",
+        "confirmed_solved",
     )
-    no_patch_reduction = (
-        (baseline_no_patch - accepted_no_patch) / baseline_no_patch
-        if baseline_no_patch
-        else 0.0
+    unresolved = _quality_metric(
+        reference_metrics,
+        "official_unresolved",
+        "confirmed_unresolved",
     )
-    failed_tool_reduction = (
-        (baseline_failed_tools - accepted_failed_tools) / baseline_failed_tools
-        if baseline_failed_tools
-        else 0.0
+    empty = _quality_metric(
+        reference_metrics,
+        "official_empty_or_skipped",
+        "official_skipped_empty_patch",
     )
-    token_reduction = (
-        (baseline_tokens - total_tokens) / baseline_tokens if baseline_tokens else 0.0
+    infrastructure = _quality_metric(
+        reference_metrics,
+        "official_infrastructure_error",
     )
-    cost_reduction = (
-        (baseline_cost - estimated_cost) / baseline_cost if baseline_cost else 0.0
+    decided = _quality_decided(reference_metrics, planned)
+    total_tokens = _quality_metric(
+        reference_metrics,
+        "provider_tokens",
+        "total_tokens",
     )
+    estimated_cost = float(reference_metrics.get("estimated_cost_usd") or 0.0)
+    acceptance_text = str(
+        reference_metrics.get("evaluated_patch_acceptance")
+        or (f"{resolved}/{decided}" if decided else "无可裁决 Patch")
+    )
+    candidate_iterations = [
+        item for item in iterations if str(item.get("id") or "") != reference_iteration
+    ]
+    accepted_candidate_count = sum(
+        str(item.get("decision") or "").lower() in {"accepted", "adopted"}
+        for item in candidate_iterations
+    )
+    rejected_candidate_count = sum(
+        str(item.get("decision") or "").lower() == "rejected"
+        for item in candidate_iterations
+    )
+    pending_candidate_count = (
+        len(candidate_iterations)
+        - accepted_candidate_count
+        - rejected_candidate_count
+    )
+    if accepted_iteration:
+        candidate_decision_note = f"采纳 {accepted_iteration}"
+    elif (
+        candidate_iterations
+        and rejected_candidate_count == len(candidate_iterations)
+        and rollback
+    ):
+        candidate_decision_note = "全部候选轮均拒绝并回滚"
+    elif candidate_iterations:
+        candidate_decision_note = (
+            f"未采纳；rejected {rejected_candidate_count}，"
+            f"pending/other {pending_candidate_count}"
+        )
+    else:
+        candidate_decision_note = "尚无候选轮"
     status = str(experiment.get("status") or "not_run")
-    empty_iteration_row = '<tr><td colspan="10">尚无迭代结果。</td></tr>'
+    empty_iteration_row = '<tr><td colspan="7">尚无迭代结果。</td></tr>'
     empty_pareto_row = '<tr><td colspan="4">没有失败样本。</td></tr>'
-    empty_case_row = '<tr><td colspan="4">尚无逐题结果。</td></tr>'
+    empty_historical_row = '<tr><td colspan="4">没有迁移的历史预实验。</td></tr>'
+    empty_excluded_row = '<tr><td colspan="6">没有无效启动记录。</td></tr>'
+    empty_mechanism_row = '<tr><td colspan="7">没有独立机制检验。</td></tr>'
+    empty_cost_row = '<tr><td colspan="6">没有成本与时间记录。</td></tr>'
+    case_column_count = len(iteration_ids) + 2
+    empty_case_row = (
+        f'<tr><td colspan="{case_column_count}">尚无逐题结果。</td></tr>'
+    )
+    case_headers = "".join(
+        f"<th>{_escape(iteration_id)}</th>" for iteration_id in iteration_ids
+    )
+    rollback_html = ""
+    if rollback:
+        rollback_html = (
+            "<p class='boundary-note scope-warning'><strong>最终处置：</strong>"
+            f"候选策略已在 {_escape(rollback.get('commit') or '未记录提交')} 回滚；"
+            f"测量完整性修复 {_escape(rollback.get('retained_measurement_hygiene_commit') or '未记录')} 保留。"
+            f"{_escape(rollback.get('reason') or '')}</p>"
+        )
 
     body = [
-        "<div class='view-heading'><div><span class='view-kicker'>功能冻结后的质量优化</span>"
+        "<div class='view-heading'><div><span class='view-kicker'>功能冻结后的正式质量实验</span>"
         f"<h2>{_escape(experiment.get('title') or 'Runtime 质量实验')}</h2></div>"
         f"{_badge(status, _tone_for_status(status))}</div>",
         _render_lab_brief(
             question=str(experiment.get("question") or "Runtime 质量是否可测量、可改进？"),
             input_label="固定样本",
             input_items=[str(item) for item in experiment.get("case_ids") or []],
-            mechanism="冻结功能与模型 → 建立 R0 → 统计失败 Pareto → 每轮只改一个瓶颈 → 固定样本复测 → 采纳或回滚",
+            mechanism="冻结 evaluator、模型、Case、工具、预算与环境 → 正式 R0 → Failure Pareto → 单假设 Sentinel → 预注册 gate → 采纳或回滚",
             success_criteria=str(
                 experiment.get("success_criteria")
-                or "正确性优先；持平时必须显著改善效率且不破坏安全边界。"
+                or "official resolved 优先；代表性失败必须转正，正确性 guard 不得退化。"
             ),
             boundary="；".join(str(item) for item in boundaries),
         ),
         _metric_grid(
             [
-                ("采纳版本", accepted_iteration or "未采纳", "预注册门槛", "ok" if accepted_iteration else "warn"),
                 (
-                    "已确认解决",
-                    f"{resolved}/{case_count}",
-                    "本轮或相同 Patch 已获官方 resolved",
+                    "正式参考",
+                    reference_iteration,
+                    "Golden-10 固定 planned 分母",
+                    "neutral",
+                ),
+                (
+                    "Official resolved / planned",
+                    f"{resolved}/{planned}",
+                    "正式主指标；不使用只评非空 Patch 的分母",
                     "ok" if resolved else "warn",
                 ),
                 (
-                    "候选改动覆盖",
-                    f"{patch_count}/{case_count}",
-                    f"R0 为 {baseline_patch_count}/{baseline_case_count}；增加 {patch_delta_points:.0f} 个百分点，不等于 solved",
-                    "ok" if patch_count > baseline_patch_count else "neutral",
+                    "官方裁决覆盖",
+                    f"{decided}/{planned}",
+                    f"resolved {resolved} + unresolved {unresolved}",
+                    "neutral",
                 ),
                 (
-                    "无 Patch 退出",
-                    str(accepted_no_patch),
-                    f"R0 为 {baseline_no_patch}；减少 {no_patch_reduction:.1%}",
-                    "ok" if accepted_no_patch < baseline_no_patch else "warn",
+                    "未进入 correctness 裁决",
+                    f"empty {empty} · infra {infrastructure}",
+                    "empty/skipped 和 infra 都不改写为 unresolved",
+                    "neutral",
                 ),
                 (
-                    "失败工具调用",
-                    str(accepted_failed_tools),
-                    f"R0 为 {baseline_failed_tools}；减少 {failed_tool_reduction:.1%}",
-                    "ok" if accepted_failed_tools < baseline_failed_tools else "warn",
+                    "候选策略采纳",
+                    f"{accepted_candidate_count}/{len(candidate_iterations)}",
+                    candidate_decision_note,
+                    "warn" if candidate_iterations and not accepted_candidate_count else "ok",
                 ),
                 (
-                    "总 Token",
+                    "R0 Provider Token",
                     f"{total_tokens:,}",
-                    f"R0 为 {baseline_tokens:,}；减少 {token_reduction:.1%}",
-                    "ok" if total_tokens < baseline_tokens else "warn",
+                    "DeepSeek 生成阶段；不同 Sentinel 分母不做总量横比",
+                    "neutral",
                 ),
                 (
-                    "估算成本",
+                    "R0 估算成本",
                     f"${estimated_cost:.4f}",
-                    f"R0 为 ${baseline_cost:.4f}；减少 {cost_reduction:.1%}",
-                    "ok" if estimated_cost < baseline_cost else "warn",
+                    "只统计已发布 provider usage",
+                    "neutral",
                 ),
                 (
-                    "尚未裁决",
-                    str(not_adjudicated),
-                    f"明确未解决 {confirmed_unresolved}；有 Patch 不冒充 solved",
+                    "Evaluated-Patch acceptance",
+                    acceptance_text,
+                    "仅辅助诊断；绝不命名为解决率",
                     "neutral",
                 ),
             ]
         ),
-        "<section class='evidence-section'><div class='section-title'><h3>版本演进</h3><span>测量修复单列，候选版本只改变一个策略域</span></div>"
-        "<table><thead><tr><th>版本</th><th>范围</th><th>主要瓶颈</th><th>改动</th><th>已确认解决</th><th>未解决 / 未裁决</th><th>候选改动</th><th>失败工具</th><th>每题 Token / 成本</th><th>决策</th></tr></thead>"
+        "<p class='boundary-note scope-warning'><strong>分母边界：</strong>R0 是 Golden-10；R1-R3 是不同的 Sentinel 子集。表中只展示各轮 resolved / planned，禁止把百分比横向包装成 Golden-10 提升。</p>",
+        "<section class='evidence-section'><div class='section-title'><h3>正式 R0-R3</h3><span>每轮只验证一个主要假设；gate 优先于过程指标</span></div>"
+        "<table><thead><tr><th>轮次</th><th>范围</th><th>假设与单一改动</th><th>官方结果</th><th>过程证据</th><th>Provider Token / 成本</th><th>决策</th></tr></thead>"
         f"<tbody>{''.join(iteration_rows) or empty_iteration_row}</tbody></table></section>",
+        "<section class='evidence-section'><div class='section-title'><h3>机制生效不等于任务成功</h3><span>R3 Trace contract 与任务结果分栏</span></div>"
+        "<table><thead><tr><th>轮次</th><th>Context</th><th>create_file 可见</th><th>create_file 被丢弃</th><th>实际动作</th><th>机制</th><th>任务结果</th></tr></thead>"
+        f"<tbody>{mechanism_rows or empty_mechanism_row}</tbody></table></section>",
+        "<section class='evidence-section'><div class='section-title'><h3>成本与时间</h3><span>只在同一 cohort 内解释；并发 wall time 不等于 LLM latency 求和</span></div>"
+        "<table><thead><tr><th>轮次</th><th>范围</th><th>Provider Token</th><th>估算成本</th><th>墙钟时间</th><th>LLM latency 求和</th></tr></thead>"
+        f"<tbody>{cost_rows or empty_cost_row}</tbody></table>"
+        f"<p class='boundary-note'>{_escape(cost_and_time.get('uncertainty') or '')}</p></section>",
         "<section class='evidence-section'><div class='section-title'><h3>失败 Pareto</h3><span>优化对象来自证据，不来自直觉</span></div>"
         "<table><thead><tr><th>#</th><th>失败模式</th><th>数量</th><th>证据与影响</th></tr></thead>"
         f"<tbody>{pareto_rows or empty_pareto_row}</tbody></table></section>",
         "<section class='evidence-section'><div class='section-title'><h3>逐题结果</h3><span>防止聚合指标掩盖回归</span></div>"
-        f"<table><thead><tr><th>Case</th><th>{_escape(baseline_id)}</th><th>{_escape(accepted_iteration or '候选版本')}</th><th>说明</th></tr></thead>"
+        f"<table><thead><tr><th>Case</th>{case_headers}<th>转移 / 说明</th></tr></thead>"
         f"<tbody>{''.join(case_rows) or empty_case_row}</tbody></table></section>",
+        "<details class='evidence-section'><summary><b>Pre-R0 探索性预实验（不进入正式因果链）</b></summary>"
+        f"<ol class='next-actions'>{historical_shortcoming_items}</ol>"
+        "<table><thead><tr><th>旧标识</th><th>范围</th><th>留下的信号</th><th>证据边界</th></tr></thead>"
+        f"<tbody>{historical_rows or empty_historical_row}</tbody></table></details>",
+        "<details class='evidence-section'><summary><b>排除的无效启动</b></summary>"
+        "<p class='boundary-note'>协议变量漂移的样本无论结果好坏都不进入 gate；成本只报告已确认下界。</p>"
+        "<table><thead><tr><th>轮次</th><th>排除原因</th><th>观察到但不可用于结论</th><th>Provider Token 下界</th><th>成本下界</th><th>已排除</th></tr></thead>"
+        f"<tbody>{excluded_rows or empty_excluded_row}</tbody></table></details>",
         "<details class='evidence-section'><summary><b>固定条件与设计复盘</b></summary>"
         f"<table><tbody>{condition_rows}</tbody></table>"
         f"<ol class='next-actions'>{''.join(f'<li>{_escape(item)}</li>' for item in story)}</ol></details>",
+        rollback_html,
         f"<p class='diagnosis'>{_escape(experiment.get('conclusion') or '')}</p>",
         f"<details class='provenance'><summary>实验摘要来源</summary><code>{_escape(str(source_path or '未找到'))}</code></details>",
     ]
@@ -4267,12 +4597,27 @@ def _quality_case_result_label(result: object) -> str:
         return "未运行"
     official = _display_value(result.get("official_status") or "not_evaluated")
     patch = "有 Patch" if result.get("patch_generated") else "无 Patch"
+    semantics = str(
+        result.get("patch_semantics") or result.get("candidate_semantics") or ""
+    )
+    semantic_labels = {
+        "product_source": "产品源码 Patch",
+        "product_source_plus_disposable_test": "源码 + 临时测试",
+        "product_source_plus_disposable_validation": "源码 + 临时验证文件",
+        "scratch_test_only": "仅临时测试",
+        "empty": "无 Patch",
+    }
+    if semantics:
+        patch = semantic_labels.get(semantics, semantics)
     stop_reason = str(result.get("stop_reason") or "")
     if stop_reason.startswith("too_many_consecutive_failed_tools"):
         stop_reason = "连续失败熔断"
     else:
         stop_reason = _display_value(stop_reason)
-    return " · ".join(item for item in (official, patch, stop_reason) if item)
+    transition = str(result.get("transition") or "")
+    return " · ".join(
+        item for item in (official, patch, stop_reason, transition) if item
+    )
 
 
 def _render_evaluation_dashboard(project_dir: Path) -> str:
@@ -6344,6 +6689,7 @@ INDEX_HTML = r"""<!doctype html>
     table { display: table; width: 100%; table-layout: fixed; border-collapse: collapse; background: #fff; border: 1px solid var(--line); }
     th, td { padding: 10px 12px; border-bottom: 1px solid var(--line); overflow-wrap: anywhere; vertical-align: top; font-size: 12px; }
     th { background: #f4f6f8; color: #647081; font-size: 10px; text-transform: uppercase; }
+    .quality-cell-detail { display: block; margin-top: 6px; color: var(--muted); font-size: 10px; line-height: 1.4; }
     .pipeline { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); border: 1px solid var(--line); background: #fff; }
     .pipeline > div { min-height: 92px; padding: 13px; border-right: 1px solid var(--line); }
     .pipeline > div:last-child { border-right: 0; }
