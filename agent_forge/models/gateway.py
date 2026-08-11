@@ -115,6 +115,12 @@ class ModelGateway(LLMClient):
         messages: list[Message],
         tools: list[ToolSchema],
     ) -> AgentResponse:
+        """在同一 Provider 上执行有界尝试，并累计每次调用的 Usage。
+
+        成功立即返回；传输类错误复用原请求，确定可修复的 ToolCall 错误会追加纠错提示；
+        其他错误或次数耗尽时返回最后一次响应。备用 Provider 由 ``chat`` 负责，本方法不切换。
+        """
+
         max_attempts = max(1, self.retry_policy.max_attempts)
         latest_model_response = AgentResponse(
             content=None,
@@ -219,6 +225,33 @@ class ModelGateway(LLMClient):
                 "output": 0.28,
             },
             ("deepseek", "deepseek-reasoner"): {
+                "input_cache_hit": 0.0028,
+                "input_cache_miss": 0.14,
+                "output": 0.28,
+            },
+            # OpenCode Go 按官网公布的“额度美元价值”计量；这里既用于成本证据，
+            # 也用于 Runtime 的单 Case 熔断，不能让未知价格静默变成 0 成本。
+            ("opencode-go", "glm-5.2"): {
+                "input_cache_hit": 0.26,
+                "input_cache_miss": 1.40,
+                "output": 4.40,
+            },
+            ("opencode-go", "glm-5.1"): {
+                "input_cache_hit": 0.26,
+                "input_cache_miss": 1.40,
+                "output": 4.40,
+            },
+            ("opencode-go", "kimi-k2.7-code"): {
+                "input_cache_hit": 0.19,
+                "input_cache_miss": 0.95,
+                "output": 4.00,
+            },
+            ("opencode-go", "deepseek-v4-pro"): {
+                "input_cache_hit": 0.003625,
+                "input_cache_miss": 0.435,
+                "output": 0.87,
+            },
+            ("opencode-go", "deepseek-v4-flash"): {
                 "input_cache_hit": 0.0028,
                 "input_cache_miss": 0.14,
                 "output": 0.28,

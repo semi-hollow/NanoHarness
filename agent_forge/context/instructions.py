@@ -86,7 +86,11 @@ class InstructionResolutionRequest:
 
 # 主要入口：发现并按稳定优先级合并项目指令，同时返回 provenance。
 def resolve_instructions(request: InstructionResolutionRequest) -> InstructionResolution:
-    """高优先级来源在预算不足时优先保留，低优先级内容不会覆盖它。"""
+    """发现并合并全局、仓库、目录、本地和运行时指令，同时保留来源证据。
+
+    自动发现限定在 workspace 内；预算从高优先级来源向低优先级来源分配。
+    返回正文及 path、hash、字节数和截断信息，不执行指令本身。
+    """
 
     if request.max_bytes < 1:
         raise ValueError("instruction max_bytes must be positive")

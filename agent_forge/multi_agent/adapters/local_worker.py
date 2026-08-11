@@ -250,7 +250,11 @@ class LocalAgentWorkerAdapter(FanoutWorkerPort):
         goal: str,
         results: list[LiveSubagentResult],
     ) -> FinalizerResult:
-        """在独立只读 worktree 中验证集成 candidate diff。"""
+        """把已集成 diff 复制到独立 worktree，并用只读 Runtime 做最终验收。
+
+        Finalizer 只获得检查类 Tool、禁网和 dry-run 权限；只有明确输出 PASS 才通过，
+        异常或非 PASS 均保留证据并返回阻断结论，不修改或回滚 Coordinator 的成果。
+        """
 
         # region 1. 验证输出准备（实现细节）：固定 Trace、Usage 和默认阻断结论
         # Finalizer 默认 BLOCKED，只有只读验证明确返回 PASS 才能升级；所有输出路径

@@ -39,7 +39,11 @@ class ToolRegistry(ToolGateway):
 
     # 主要入口：校验参数并执行已注册 Tool，所有异常归一化为 Observation。
     def execute(self, name: str, arguments: ToolArguments) -> Observation:
-        """执行已注册工具，并把参数错误和异常归一化为 Observation。"""
+        """按名称查找 Tool，校验必填参数和基础类型，再调用实现。
+
+        未注册、参数不合约或执行异常都转换为失败 ``Observation``，不会向主循环抛出。
+        本类不决定本轮可见性或授权；这些检查在进入 Registry 前完成。
+        """
 
         tool = self.get(name)
         if not tool:

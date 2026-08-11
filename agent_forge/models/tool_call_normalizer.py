@@ -34,7 +34,11 @@ class ToolCallNormalizer:
         content: str | None,
         allowed_tool_names: set[str],
     ) -> ToolCallNormalizationResult:
-        """把 provider wire format 转成类型化 ToolCall。"""
+        """把原生、legacy 或受约束文本格式转换为 Runtime 的类型化 ToolCall。
+
+        参数只做可确定的对象解析和字面量修复，并记录修复来源；文本格式仅在所有工具名
+        均属于允许集合时提升为 ToolCall。畸形调用返回纠错提示，但不猜测工具名或业务参数。
+        """
 
         tool_call_rows = list(raw_calls)
         if legacy_function_call:

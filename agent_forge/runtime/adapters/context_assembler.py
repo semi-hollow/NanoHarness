@@ -17,7 +17,11 @@ class RepositoryContextAssembler(ContextAssemblerPort):
 
     # 运行时端口：读取 repository 事实并返回有预算的类型化 ContextReport。
     def build(self, request: ContextAssemblyRequest) -> ContextBuildReport:
-        """读取仓库证据并返回有界上下文报告。"""
+        """先生成仓库结构图，再组装受字符预算约束的类型化 Context 报告。
+
+        报告合并任务、指令、工作记忆、Skill 和 Tool 信息；本 Adapter 只读取并组装证据，
+        不选择 Tool、不压缩会话历史，也不决定模型行为。
+        """
 
         repo_map = build_repo_map(request.workspace)
         return build_context_report(

@@ -2,6 +2,11 @@ from pathlib import Path
 
 
 class WorkspaceSandbox:
+    """把工具路径规范化到 workspace，并拒绝越界、符号链接逃逸和敏感文件。
+
+    本类只治理文件路径；命令内容和进程运行环境分别由 CommandPolicy 与
+    ``ExecutionEnvironment`` 负责。
+    """
 
     def __init__(self, workspace_root: str | Path) -> None:
 

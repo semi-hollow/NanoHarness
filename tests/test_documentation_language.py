@@ -223,9 +223,17 @@ class DocumentationLanguageTest(unittest.TestCase):
             if relative_path not in readme:
                 violations.append(f"README does not link canonical document: {relative_path}")
 
-        # 两份索引都提供可点击 Owner；路径、符号和精确行号必须与当前源码一致。
+        # 能力索引只保留可搜索 Owner，避免把 Markdown 文件链接误写成精确定义跳转。
+        capability_index = (
+            PROJECT_ROOT / "docs/核心能力与代码入口.md"
+        ).read_text(encoding="utf-8")
+        if re.search(r"\]\(\.\./agent_forge/", capability_index):
+            violations.append("核心能力索引不应包含本地源码链接")
+        if re.search(r"`L[1-9][0-9]*`", capability_index):
+            violations.append("核心能力索引不应维护易漂移行号")
+
+        # 机制索引仍保留代码证据链接；路径、符号和行号必须与源码一致。
         owner_index_paths = (
-            PROJECT_ROOT / "docs/核心能力与代码入口.md",
             PROJECT_ROOT / "docs/核心运行机制与代码索引.md",
         )
         parsed_symbols: dict[Path, dict[str, int]] = {}
@@ -234,8 +242,8 @@ class DocumentationLanguageTest(unittest.TestCase):
             owner_links = list(
                 re.finditer(
                     r"\[\s*`(?P<symbol>[^`]+)`\s*\]\("
-                    r"(?P<target>\.\./agent_forge/[^)#]+\.py)"
-                    r"(?:#L(?P<line>[1-9][0-9]*))?\)",
+                    r"(?P<target>\.\./agent_forge/[^)#]+\.py)\)"
+                    r"\s*·\s*`L(?P<line>[1-9][0-9]*)`",
                     owner_index,
                 )
             )
@@ -245,9 +253,6 @@ class DocumentationLanguageTest(unittest.TestCase):
                 symbol = owner_link.group("symbol")
                 target = owner_link.group("target")
                 linked_line = owner_link.group("line")
-                if linked_line is None:
-                    violations.append(f"Owner 链接缺少精确行号: {target}::{symbol}")
-                    continue
                 source_path = (owner_index_path.parent / target).resolve()
                 try:
                     source_path.relative_to(PROJECT_ROOT / "agent_forge")
@@ -392,6 +397,80 @@ class DocumentationLanguageTest(unittest.TestCase):
                 violations.append(f"public document has no approved owner surface: {relative_path}")
 
         self.assertEqual(violations, [], "Public documentation control plane has drifted")
+
+    def test_cheatsheet_owners_have_explanatory_docstrings(self) -> None:
+        """两个代码索引中的每个 Owner 都必须能定位，且入口自身能够解释职责。"""
+
+        capability_path = PROJECT_ROOT / "docs/核心能力与代码入口.md"
+        capability_text = capability_path.read_text(encoding="utf-8")
+        owner_columns = {
+            "最小主链": (1,),
+            "核心能力代码索引": (1, 2),
+            "按需能力代码索引": (1, 2),
+        }
+        owner_symbol_pattern = re.compile(
+            r"`([A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)?)`"
+        )
+        owner_symbols: set[str] = set()
+        active_section = ""
+        for line in capability_text.splitlines():
+            if line.startswith("## "):
+                active_section = line.removeprefix("## ").strip()
+                continue
+            if active_section not in owner_columns or not line.startswith("|"):
+                continue
+            cells = [cell.strip() for cell in line.strip().strip("|").split("|")]
+            for column in owner_columns[active_section]:
+                if column < len(cells):
+                    owner_symbols.update(owner_symbol_pattern.findall(cells[column]))
+
+        mechanism_text = (
+            PROJECT_ROOT / "docs/核心运行机制与代码索引.md"
+        ).read_text(encoding="utf-8")
+        owner_symbols.update(
+            re.findall(
+                r"\[\s*`([^`]+)`\s*\]\(\.\./agent_forge/[^)#]+\.py\)",
+                mechanism_text,
+            )
+        )
+
+        source_index: dict[
+            str,
+            list[tuple[Path, ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef]],
+        ] = {}
+        for source_path in (PROJECT_ROOT / "agent_forge").rglob("*.py"):
+            tree = ast.parse(source_path.read_text(encoding="utf-8"))
+            for node in tree.body:
+                if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+                    source_index.setdefault(node.name, []).append((source_path, node))
+                if isinstance(node, ast.ClassDef):
+                    for child in node.body:
+                        if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                            qualified_name = f"{node.name}.{child.name}"
+                            source_index.setdefault(qualified_name, []).append(
+                                (source_path, child)
+                            )
+
+        violations: list[str] = []
+        for owner_symbol in sorted(owner_symbols):
+            candidates = source_index.get(owner_symbol, [])
+            if len(candidates) != 1:
+                violations.append(
+                    f"Owner 必须唯一对应源码定义: {owner_symbol} ({len(candidates)} matches)"
+                )
+                continue
+            source_path, node = candidates[0]
+            docstring = ast.get_docstring(node, clean=True) or ""
+            visible_length = len(re.sub(r"\s+", "", docstring))
+            if visible_length < 24:
+                relative_path = source_path.relative_to(PROJECT_ROOT).as_posix()
+                violations.append(
+                    f"Owner 注释不足以说明职责: {owner_symbol} "
+                    f"({relative_path}:{node.lineno})"
+                )
+
+        self.assertGreaterEqual(len(owner_symbols), 60, "Cheat Sheet Owner 提取结果异常")
+        self.assertEqual(violations, [], "Cheat Sheet Owner 必须可定位且可直接理解")
 
 
 if __name__ == "__main__":

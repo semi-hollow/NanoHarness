@@ -11,6 +11,28 @@ from agent_forge.runtime.domain.model import ModelCapabilities
 
 DEFAULT_MODEL_CONTEXT_WINDOW = 32_768
 DEEPSEEK_V4_CONTEXT_WINDOW = 1_000_000
+GLM_52_CONTEXT_WINDOW = 1_000_000
+KIMI_K27_CONTEXT_WINDOW = 262_144
+OPENCODE_GO_BASE_URL = "https://opencode.ai/zen/go/v1"
+OPENCODE_GO_DEFAULT_MODEL = "glm-5.2"
+
+# 当前 Runtime 只实现 OpenAI-compatible Chat Completions。Go 中使用 Responses
+# 或 Anthropic Messages 的模型必须先补对应 Adapter，不能假装与本协议兼容。
+OPENCODE_GO_CHAT_COMPLETIONS_MODELS = frozenset(
+    {
+        "grok-4.5",
+        "glm-5.2",
+        "glm-5.1",
+        "kimi-k3",
+        "kimi-k2.7-code",
+        "kimi-k2.6",
+        "deepseek-v4-pro",
+        "deepseek-v4-flash",
+        "mimo-v2.5",
+        "mimo-v2.5-pro",
+        "hy3",
+    }
+)
 
 
 # 核心数据：模型网关需要的 provider、凭据、模型和采样参数。
@@ -35,7 +57,12 @@ class LLMConfig:
 
     @property
     def uses_openai_compatible_api(self) -> bool:
-        return self.provider in {"deepseek", "openai", "openai-compatible"}
+        return self.provider in {
+            "deepseek",
+            "openai",
+            "openai-compatible",
+            "opencode-go",
+        }
 
     def is_configured(self) -> bool:
         return bool(self.base_url and self.api_key and self.model)
@@ -91,12 +118,22 @@ def resolve_llm_config(request: LLMConfigRequest) -> LLMConfig:
         resolved_provider = profile_data.get("provider", request.provider)
 
     deepseek_defaults = resolved_provider == "deepseek"
-    default_base_url = "https://api.deepseek.com" if deepseek_defaults else ""
-    default_model = "deepseek-v4-flash" if deepseek_defaults else ""
+    opencode_go_defaults = resolved_provider == "opencode-go"
+    default_base_url = (
+        "https://api.deepseek.com"
+        if deepseek_defaults
+        else OPENCODE_GO_BASE_URL if opencode_go_defaults else ""
+    )
+    default_model = (
+        "deepseek-v4-flash"
+        if deepseek_defaults
+        else OPENCODE_GO_DEFAULT_MODEL if opencode_go_defaults else ""
+    )
     resolved_model = (
         request.model
         or profile_data.get("model")
         or os.getenv("AGENT_FORGE_MODEL")
+        or os.getenv("OPENCODE_GO_MODEL")
         or os.getenv("DEEPSEEK_MODEL")
         or os.getenv("OPENAI_MODEL")
         or default_model
@@ -136,6 +173,11 @@ def resolve_llm_config(request: LLMConfigRequest) -> LLMConfig:
             raise ValueError(
                 "reasoning_effort requires thinking_mode enabled or auto"
             )
+    if opencode_go_defaults and resolved_model not in OPENCODE_GO_CHAT_COMPLETIONS_MODELS:
+        raise ValueError(
+            "opencode-go model is not supported by the current Chat Completions "
+            f"adapter: {resolved_model!r}"
+        )
 
     return LLMConfig(
         provider=resolved_provider,
@@ -143,6 +185,7 @@ def resolve_llm_config(request: LLMConfigRequest) -> LLMConfig:
             request.base_url
             or profile_data.get("base_url")
             or os.getenv("AGENT_FORGE_BASE_URL")
+            or os.getenv("OPENCODE_GO_BASE_URL")
             or os.getenv("DEEPSEEK_BASE_URL")
             or os.getenv("OPENAI_BASE_URL")
             or default_base_url
@@ -152,6 +195,7 @@ def resolve_llm_config(request: LLMConfigRequest) -> LLMConfig:
             request.api_key
             or profile_data.get("api_key")
             or os.getenv("AGENT_FORGE_API_KEY")
+            or os.getenv("OPENCODE_GO_API_KEY")
             or os.getenv("DEEPSEEK_API_KEY")
             or os.getenv("OPENAI_API_KEY")
             or ""
@@ -184,17 +228,31 @@ def default_model_capabilities(
     """
 
     normalized_model = model.lower()
-    is_deepseek_v4 = provider == "deepseek" and normalized_model.startswith(
-        "deepseek-v4"
+    is_deepseek_v4 = provider in {"deepseek", "opencode-go"} and (
+        normalized_model.startswith("deepseek-v4")
     )
+    known_context_windows = {
+        "glm-5.2": GLM_52_CONTEXT_WINDOW,
+        "kimi-k2.7-code": KIMI_K27_CONTEXT_WINDOW,
+    }
     context_window = (
         DEEPSEEK_V4_CONTEXT_WINDOW
         if is_deepseek_v4
-        else DEFAULT_MODEL_CONTEXT_WINDOW
+        else known_context_windows.get(normalized_model, DEFAULT_MODEL_CONTEXT_WINDOW)
     )
+    opencode_go_reasoning_model = provider == "opencode-go" and normalized_model in {
+        "glm-5.2",
+        "kimi-k2.7-code",
+        "deepseek-v4-pro",
+        "deepseek-v4-flash",
+    }
     supports_reasoning = thinking_mode == "enabled" or (
         thinking_mode == "auto"
-        and ("reasoner" in normalized_model or is_deepseek_v4)
+        and (
+            "reasoner" in normalized_model
+            or is_deepseek_v4
+            or opencode_go_reasoning_model
+        )
     )
     return ModelCapabilities(
         reasoning_tokens=supports_reasoning,

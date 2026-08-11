@@ -112,6 +112,11 @@ def build_scorecard(
 
 
 def aggregate_cases(cases: list[dict[str, Any]]) -> dict[str, Any]:
+    """按固定分母聚合 Case 证据，并汇总失败分类、官方状态和运行指标。
+
+    patch/local rate 以全部 Case 为分母；official resolved rate 只以已独立评测的 Case
+    为分母。分母为空时返回 ``None``，不会把未评测 Case 当作成功或失败。
+    """
 
     case_count = len(cases)
     patch_count = sum(bool(case.get("patch_generated")) for case in cases)

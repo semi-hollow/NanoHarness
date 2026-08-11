@@ -217,7 +217,11 @@ class StepController:
         *,
         include_step_limit: bool = True,
     ) -> FailureSignal | None:
-        """检查累计预算；最终回答前可以跳过 step 上限。"""
+        """依次检查 step、连续工具失败、运行时间和模型成本四项硬上限。
+
+        命中任一上限即返回不可重试的 ``BUDGET_EXCEEDED``；否则返回 ``None``。
+        ``include_step_limit=False`` 只放开 step，供最后一次模型回答使用，其余预算仍生效。
+        """
 
         if include_step_limit and step >= self.budget.max_steps:
             return FailureSignal(

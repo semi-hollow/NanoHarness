@@ -8,7 +8,9 @@ from agent_forge.runtime.domain.conversation import Message
 from agent_forge.runtime.domain.model import ModelCapabilities
 from agent_forge.runtime.llm_config import (
     DEEPSEEK_V4_CONTEXT_WINDOW,
+    GLM_52_CONTEXT_WINDOW,
     LLMConfigRequest,
+    OPENCODE_GO_BASE_URL,
     resolve_llm_config,
 )
 
@@ -68,6 +70,31 @@ class LLMClientTransportTest(unittest.TestCase):
 
         self.assertIs(config.capabilities, declared)
 
+    def test_opencode_go_defaults_to_chat_compatible_glm(self):
+        with patch.dict(
+            "os.environ",
+            {"OPENCODE_GO_API_KEY": "test-go-key"},
+            clear=True,
+        ):
+            config = resolve_llm_config(
+                LLMConfigRequest(provider="opencode-go")
+            )
+
+        self.assertEqual(config.base_url, OPENCODE_GO_BASE_URL)
+        self.assertEqual(config.model, "glm-5.2")
+        self.assertEqual(config.api_key, "test-go-key")
+        self.assertEqual(config.capabilities.context_window, GLM_52_CONTEXT_WINDOW)
+        self.assertTrue(config.uses_openai_compatible_api)
+
+    def test_opencode_go_rejects_models_requiring_an_unimplemented_transport(self):
+        with self.assertRaisesRegex(ValueError, "Chat Completions adapter"):
+            resolve_llm_config(
+                LLMConfigRequest(
+                    provider="opencode-go",
+                    model="gpt-5.6-luna",
+                )
+            )
+
     def test_chat_sends_configured_temperature(self):
         client = OpenAICompatibleLLMClient(
             base_url="http://local.test/v1",
@@ -90,6 +117,7 @@ class LLMClientTransportTest(unittest.TestCase):
         def open_request(request, timeout):
             captured["payload"] = json.loads(request.data.decode("utf-8"))
             captured["timeout"] = timeout
+            captured["user_agent"] = request.get_header("User-agent")
             return Response()
 
         with patch("urllib.request.urlopen", side_effect=open_request):
@@ -99,6 +127,7 @@ class LLMClientTransportTest(unittest.TestCase):
         self.assertEqual(captured["payload"]["temperature"], 0.25)
         self.assertNotIn("thinking", captured["payload"])
         self.assertNotIn("reasoning_effort", captured["payload"])
+        self.assertEqual(captured["user_agent"], "NanoHarness/1.0")
 
     def test_thinking_request_sends_mode_and_effort_without_temperature(self):
         config = resolve_llm_config(

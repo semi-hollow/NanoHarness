@@ -240,6 +240,12 @@ class RunPreparation:
         return restored_summary
 
     def _select_active_skills(self, task: str) -> list[SkillView]:
+        """按运行配置选择最多一个主 Skill，并返回已选择的轻量视图。
+
+        ``none`` 直接禁用；显式名称优先，否则由 Selector 按 metadata 自动匹配。
+        这里不读取 Skill 正文、不注册工具，也不执行 Skill 附带脚本。
+        """
+
         skill_selection_mode = self.config.skill_mode
         if skill_selection_mode == "none":
             return []

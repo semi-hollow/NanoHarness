@@ -19,7 +19,7 @@ class JsonTaskStateRepository(TaskStateRepository):
     def path_for(self, run_id: str) -> Path:
         return self.root / f"{run_id}.json"
 
-    # 运行时端口：创建 run 的首个 checkpoint 并原子写入 JSON。
+    # 运行时端口：创建 run 的首个 checkpoint 并写入 JSON。
     def start(self, request: TaskStartRequest) -> TaskCheckpoint:
         checkpoint = TaskCheckpoint(
             run_id=request.run_id,
@@ -50,6 +50,12 @@ class JsonTaskStateRepository(TaskStateRepository):
         return checkpoint
 
     def save(self, checkpoint: TaskCheckpoint) -> None:
+        """用完整快照覆盖同一 run 的 ``<run_id>.json``。
+
+        状态合法性由 ``TaskCheckpoint.apply_transition`` 校验；本方法只序列化单个文件，
+        不计算状态迁移，也不提供数据库事务或崩溃时的原子替换保证。
+        """
+
         self.path_for(checkpoint.run_id).write_text(
             json.dumps(checkpoint.to_dict(), ensure_ascii=False, indent=2),
             encoding="utf-8",

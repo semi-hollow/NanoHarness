@@ -52,7 +52,11 @@ class JsonTraceRecorder(EventSink):
         error: str = "",
         **data: Any,
     ) -> None:
-        """兼容现有调用方的通用记录入口；新增核心事件优先使用类型化方法。"""
+        """把调用方提供的事件字段封装成统一 Trace 记录并追加到内存事件流。
+
+        本入口用于兼容通用事件；关键状态优先使用类型化 ``record_*`` 方法。
+        它只记录事实，不决定权限、恢复状态或评测结论。
+        """
         self._append(step, agent_name, event_type, success=success, error=error, data=data)
 
     def record_task_state_checkpoint(

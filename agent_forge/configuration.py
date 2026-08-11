@@ -316,6 +316,7 @@ def resolved_run_config(
         "api_key_configured": bool(
             getattr(args, "api_key", None)
             or os.getenv("AGENT_FORGE_API_KEY")
+            or os.getenv("OPENCODE_GO_API_KEY")
             or os.getenv("DEEPSEEK_API_KEY")
             or os.getenv("OPENAI_API_KEY")
         ),
@@ -330,6 +331,7 @@ def _apply_model_environment(args: argparse.Namespace) -> None:
         environment_values["provider"] = provider
     base_url = _first_environment(
         "AGENT_FORGE_BASE_URL",
+        "OPENCODE_GO_BASE_URL",
         "DEEPSEEK_BASE_URL",
         "OPENAI_BASE_URL",
     )
@@ -337,6 +339,7 @@ def _apply_model_environment(args: argparse.Namespace) -> None:
         environment_values["base_url"] = base_url
     model = _first_environment(
         "AGENT_FORGE_MODEL",
+        "OPENCODE_GO_MODEL",
         "DEEPSEEK_MODEL",
         "OPENAI_MODEL",
     )

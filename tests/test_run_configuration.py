@@ -86,6 +86,25 @@ policy:
             self.assertIsNone(args.reasoning_effort)
             self.assertEqual(args.execution_mode, "local")
 
+    def test_opencode_go_environment_is_redacted_from_run_artifact(self):
+        args = build_parser().parse_args(["run", "inspect repository"])
+        with mock.patch.dict(
+            os.environ,
+            {
+                "AGENT_FORGE_DEFAULT_LLM": "opencode-go",
+                "OPENCODE_GO_API_KEY": "private-go-key",
+                "OPENCODE_GO_MODEL": "glm-5.2",
+            },
+            clear=True,
+        ):
+            document = resolve_run_arguments(args)
+            artifact = resolved_run_config(args, document)
+
+        self.assertEqual(args.provider, "opencode-go")
+        self.assertEqual(args.model, "glm-5.2")
+        self.assertTrue(artifact["api_key_configured"])
+        self.assertNotIn("private-go-key", json.dumps(artifact))
+
     def test_model_capabilities_and_runtime_instruction_are_typed_and_redacted(self):
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "agent.yaml"

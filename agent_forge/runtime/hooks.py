@@ -233,7 +233,11 @@ class HookManager(HookPort):
 
     # 运行时端口：在 before_tool 时机按拒绝优先级合并具体处理器决策。
     def before_tool(self, context: HookContext) -> HookResult:
-        """合并环境检查、权限规则和调用方注册处理器的决策。"""
+        """调用所有 ``before_tool`` 处理器，并按 DENY > ASK > ALLOW > DEFER 合并。
+
+        每项判断都保留为证据；决策型处理器异常按 DENY 处理。本方法不读取人工审批，
+        也不执行 Tool，后续由 ``ToolAuthorizationGate`` 完成授权收口。
+        """
 
         hook_decisions = [
             self._safe_decision(

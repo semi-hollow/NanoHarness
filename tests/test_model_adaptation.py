@@ -243,6 +243,32 @@ class ModelAdaptationTest(unittest.TestCase):
 
         self.assertEqual(usage["summary"]["tool_call_repairs"], 1)
 
+    def test_gateway_prices_opencode_go_glm_usage(self) -> None:
+        client = SequenceModel(
+            [
+                AgentResponse(
+                    "done",
+                    [],
+                    usage={
+                        "prompt_tokens": 1_000_000,
+                        "completion_tokens": 100_000,
+                        "total_tokens": 1_100_000,
+                        "prompt_tokens_details": {"cached_tokens": 250_000},
+                    },
+                )
+            ]
+        )
+        gateway = ModelGateway(
+            client,
+            provider="opencode-go",
+            model="glm-5.2",
+        )
+
+        gateway.chat([Message("user", "task")], TOOLS)
+
+        # 250K cached * $0.26/M + 750K miss * $1.40/M + 100K output * $4.40/M
+        self.assertEqual(gateway.last_usage.estimated_cost_usd, 1.555)
+
 
 if __name__ == "__main__":
     unittest.main()

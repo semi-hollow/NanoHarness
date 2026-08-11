@@ -117,6 +117,9 @@ class OpenAICompatibleLLMClient(LLMClient):
             headers={
                 "Authorization": f"Bearer {self.api_key}",
                 "Content-Type": "application/json",
+                # OpenCode Go 的 Cloudflare 边界会拒绝 urllib 默认 UA（1010）。
+                # 显式产品标识同时让其他兼容 Provider 获得可诊断的请求来源。
+                "User-Agent": "NanoHarness/1.0",
             },
             method="POST",
         )

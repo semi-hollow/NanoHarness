@@ -345,7 +345,11 @@ class LiveFanoutCoordinator:
         batch_index: int,
         base_diff_text: str,
     ) -> list[LiveSubagentResult]:
-        """并发执行一个批次，并恢复为原任务顺序返回结果。"""
+        """用 ``ThreadPoolExecutor`` 并发运行同批 Worker，再按计划顺序返回结果。
+
+        每个 Future 对应一个隔离任务；单个 Worker 抛出的异常会转换为 ``failed`` 结果，
+        不取消同批其他任务。完成先后只影响等待顺序，不影响后续合并顺序。
+        """
 
         # 并发收集容器：future 完成顺序不稳定，所以先按 task_id 建索引。
         results_by_task_id: dict[str, LiveSubagentResult] = {}
@@ -409,7 +413,11 @@ class LiveFanoutCoordinator:
         merged_task_ids: list[str],
         detected_conflicts: list[FanoutConflict],
     ) -> None:
-        """按稳定任务顺序校验并应用本批次 candidate diff。"""
+        """按计划顺序检查并应用本批次通过动态冲突检查的 candidate diff。
+
+        写任务先做非空与 ``check_only`` 检查，再真正应用；失败只标记当前任务。
+        只有读任务完成或写任务成功合并后，才加入成功集合并解锁依赖任务。
+        """
 
         # batch_results 来自并发 Future，先映射回原计划任务，随后按稳定结果顺序处理。
         task_by_id = {task.id: task for task in tasks}
@@ -469,7 +477,11 @@ class LiveFanoutCoordinator:
             merged_task_ids.append(worker_result.task_id)
 
     def _restore_previous(self, base_revision: str) -> list[LiveSubagentResult]:
-        """校验 checkpoint 与 diff 摘要后，重放已完成任务的集成结果。"""
+        """校验计划、Git 基线和 patch 哈希，再恢复已合并任务的集成结果。
+
+        所有历史 diff 先在临时环境联合验证，再一次性应用到当前集成 workspace；
+        任一身份、文件或适用性检查失败都会拒绝恢复，未完成任务不在这里伪造结果。
+        """
 
         if not self.resume_from:
             return []
@@ -579,7 +591,11 @@ class LiveFanoutCoordinator:
         merged_task_ids: list[str],
         fanout_status: str,
     ) -> None:
-        """持久化 Fanout 的可恢复进度，不代表整个计划已经成功。"""
+        """原子保存 plan/base、Worker 结果、已合并任务和当前 Fanout 状态。
+
+        该快照用于验证并恢复已验收成果；它记录阶段性事实，不代表全部任务或 Finalizer
+        已经通过。写入原子性由 ``FanoutArtifactPort`` 的实现负责。
+        """
 
         self.artifacts.write_checkpoint(
             FanoutCheckpoint(

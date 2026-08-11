@@ -186,7 +186,11 @@ class ToolExecutionPipeline:
         step: int,
         allowed_tool_names: set[str],
     ) -> ToolCallOutcome:
-        """核心主干：路由 -> 协议 -> 操作状态 -> 重复策略 -> 授权 -> 执行。"""
+        """让一个 ToolCall 依次经过路由、HITL、操作防重、重复保护和授权门。
+
+        只有前述阶段均允许时才进入 ``_run_tool``；每个拒绝、等待、回填或执行分支都返回
+        明确的 ``ToolCallOutcome``，并在对应阶段提交 Observation、Trace 或 Checkpoint。
+        """
 
         # region 1. 调用意图预检：唯一计数器观察连续相同调用，并确认本轮可见性
         # 重复检测回答“模型是否原地打转”；路由复核回答“本轮是否向模型暴露该工具”。
@@ -289,7 +293,11 @@ class ToolExecutionPipeline:
         response: AgentResponse,
         step: int,
     ) -> list[ToolCall]:
-        """阶段 1：限制调用数量；HITL 出现时只保留第一个人工问题。"""
+        """按单轮上限截取普通 ToolCall；出现 ``ask_human`` 时只保留第一个问题。
+
+        被预算截断或因 HITL 屏障延后的调用只写入证据，不在本 Turn 执行；continuation
+        会让模型基于人工回答重新规划，而不是继续消费旧调用列表。
+        """
 
         human_input_calls = [
             call for call in response.tool_calls if call.name == "ask_human"

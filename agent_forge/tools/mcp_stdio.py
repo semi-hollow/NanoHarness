@@ -28,6 +28,10 @@ class MCPStdioClient:
         self.spec = spec
 
     def discover_tools(self) -> list[dict[str, Any]]:
+        """启动短生命周期 stdio 会话，依次调用 ``initialize`` 和 ``tools/list``。
+
+        这里只读取带名称的远端 Tool 描述；注册、本轮可见性和权限仍由上层 Runtime 决定。
+        """
 
         response = self._session_call(
             [
@@ -40,6 +44,10 @@ class MCPStdioClient:
         return [tool for tool in tools if isinstance(tool, dict) and tool.get("name")]
 
     def call_tool(self, tool_name: str, arguments: dict[str, Any]) -> dict[str, Any]:
+        """启动短生命周期 stdio 会话，初始化后发送一次 ``tools/call``。
+
+        本方法只负责 JSON-RPC 传输并返回远端结果，不替代 Runtime 的参数校验、授权或脱敏。
+        """
 
         response = self._session_call(
             [

@@ -15,6 +15,12 @@ from agent_forge.runtime.ports.repositories import OperationLedgerRepository
 
 
 class JsonOperationLedgerRepository(OperationLedgerRepository):
+    """以 operation key 为文件名，持久化每项状态变更操作的最新状态和历史。
+
+    仓储负责 fingerprint、合法状态迁移和 JSON 读写；是否复用结果、申请授权或执行工具
+    由上层 Runtime 决定。每项操作独立落盘，不提供跨操作事务。
+    """
+
     def __init__(self, root: str | Path = ".agent_forge/operation_ledger") -> None:
         self.root = Path(root)
         self.root.mkdir(parents=True, exist_ok=True)
