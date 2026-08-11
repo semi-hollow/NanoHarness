@@ -145,6 +145,14 @@ def build_swebench_parser(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--output-root", default=".agent_forge/runs")
     parser.add_argument("--evaluate", action="store_true")
     parser.add_argument("--max-workers", type=int, default=1)
+    parser.add_argument(
+        "--official-namespace",
+        default="swebench",
+        help=(
+            "SWE-bench evaluator image namespace; use the published 'swebench' "
+            "images by default. --namespace-empty remains the local-build override."
+        ),
+    )
     parser.add_argument("--namespace-empty", action="store_true")
     parser.add_argument(
         "--official-cache-level",
@@ -282,6 +290,14 @@ def build_campaign_parser(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--output-root", default=".agent_forge/campaigns")
     parser.add_argument("--evaluate", action="store_true")
     parser.add_argument("--max-workers", type=int, default=1)
+    parser.add_argument(
+        "--official-namespace",
+        default="swebench",
+        help=(
+            "SWE-bench evaluator image namespace; use the published 'swebench' "
+            "images by default. --namespace-empty remains the local-build override."
+        ),
+    )
     parser.add_argument("--namespace-empty", action="store_true")
     parser.add_argument(
         "--official-cache-level",
@@ -362,6 +378,7 @@ def run_swebench_from_args(args: argparse.Namespace) -> BenchRunSummary:
         output_root=args.output_root,
         evaluate=args.evaluate,
         max_workers=args.max_workers,
+        official_namespace=args.official_namespace,
         namespace_empty=args.namespace_empty,
         official_cache_level=args.official_cache_level,
         agent_mode=args.agent_mode,
@@ -432,6 +449,7 @@ def run_campaign_from_args(args: argparse.Namespace) -> BenchmarkCampaignResult:
         repo_cache=args.repo_cache,
         evaluate=args.evaluate,
         max_workers=args.max_workers,
+        official_namespace=args.official_namespace,
         namespace_empty=args.namespace_empty,
         official_cache_level=args.official_cache_level,
         execution_mode=args.execution_mode,

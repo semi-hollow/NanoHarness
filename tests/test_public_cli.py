@@ -190,6 +190,7 @@ class PublicCliSmokeTest(unittest.TestCase):
         self.assertIn("--temperature", result.stdout)
         self.assertIn("--thinking", result.stdout)
         self.assertIn("--reasoning-effort", result.stdout)
+        self.assertIn("--official-namespace", result.stdout)
 
     def test_benchmark_case_explorer_is_public_and_non_executing(self):
         catalog = subprocess.run(

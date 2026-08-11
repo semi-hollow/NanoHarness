@@ -186,6 +186,11 @@ def _metadata(
         "reasoning_effort": str(results.get("reasoning_effort") or ""),
         "observed_models": observed_models,
         "observed_container_image_ids": observed_container_image_ids,
+        "official_namespace": (
+            str(results.get("official_namespace") or "")
+            if "official_namespace" in results
+            else "unrecorded"
+        ),
         "agent_mode": str(results.get("agent_mode") or ""),
         "profile": str(results.get("profile") or ""),
         "max_steps": _int(results.get("max_steps")),

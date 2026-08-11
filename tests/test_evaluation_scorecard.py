@@ -42,6 +42,7 @@ class EvaluationScorecardTest(unittest.TestCase):
                 "split": "test",
                 "provider": "deepseek",
                 "model": "deepseek-chat",
+                "official_namespace": "swebench",
                 "tool_routing_mode": "task-aware",
                 "max_steps": 16,
                 "max_context_chars": 12000,
@@ -92,6 +93,7 @@ class EvaluationScorecardTest(unittest.TestCase):
         self.assertEqual(scorecard["metadata"]["observed_models"], ["deepseek-chat"])
         self.assertEqual(scorecard["metadata"]["max_steps"], 16)
         self.assertEqual(scorecard["metadata"]["max_context_chars"], 12000)
+        self.assertEqual(scorecard["metadata"]["official_namespace"], "swebench")
 
     def test_scorecard_does_not_turn_missing_official_eval_into_zero_percent(self):
         results = {

@@ -171,6 +171,7 @@ class BenchRunSummary:
     memory_recall_limit: int = 0
     memory_snapshot_sha256: str = ""
     # 对照实验、official evaluator 和 per-case 最终结果。
+    official_namespace: str = "swebench"
     official_eval_command: list[str] = field(default_factory=list)
     official_eval_exit_code: int | None = None
     official_eval_output: str = ""
@@ -215,6 +216,7 @@ class BenchRunSummary:
             "memory_namespace": self.memory_namespace,
             "memory_recall_limit": self.memory_recall_limit,
             "memory_snapshot_sha256": self.memory_snapshot_sha256,
+            "official_namespace": self.official_namespace,
             "output_dir": str(self.output_dir),
             "predictions_path": str(self.predictions_path),
             "official_eval_command": self.official_eval_command,

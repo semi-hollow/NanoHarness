@@ -54,6 +54,7 @@ class SwebenchRunRequest:
     output_root: str = ".agent_forge/runs"
     evaluate: bool = False
     max_workers: int = 1
+    official_namespace: str = "swebench"
     namespace_empty: bool = False
     official_cache_level: str = "env"
 

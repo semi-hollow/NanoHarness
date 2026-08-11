@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import importlib.util
-import platform
 import subprocess
 import sys
 
@@ -87,10 +86,10 @@ class SwebenchOfficialEvaluator(OfficialEvaluatorPort):
         instance_ids = [result.instance_id for result in summary.case_results]
         if instance_ids:
             command.extend(["--instance_ids", *instance_ids])
-        needs_empty_namespace = sys.platform == "darwin" and platform.machine().lower() in {
-            "arm64",
-            "aarch64",
-        }
-        if request.namespace_empty or needs_empty_namespace:
-            command.extend(["--namespace", ""])
+        # 发布镜像避免本机构建时重新访问已经漂移的上游依赖；空 namespace 仅保留为
+        # 显式兼容选项，不能再根据宿主架构静默改变 official evaluator 身份。
+        official_namespace = (
+            "" if request.namespace_empty else request.official_namespace
+        )
+        command.extend(["--namespace", official_namespace])
         return command

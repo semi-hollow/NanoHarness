@@ -8,8 +8,14 @@ from unittest.mock import patch
 from agent_forge.bench.adapters.local_validation import read_local_validation
 from agent_forge.bench.adapters.official_evaluator import SwebenchOfficialEvaluator
 from agent_forge.bench.adapters.official_results import apply_official_results, parse_official_results
+from agent_forge.bench.application.swebench import _new_summary
+from agent_forge.bench.domain.config import BenchRunLayout, SwebenchRunRequest
 from agent_forge.bench.domain.models import BenchCaseResult, BenchRunSummary
-from agent_forge.bench.domain.config import SwebenchRunRequest
+from agent_forge.bench.presentation.cli import (
+    run_campaign_from_args,
+    run_swebench_from_args,
+)
+from agent_forge.cli.parser import build_parser
 
 
 class OfficialResultsTest(unittest.TestCase):
@@ -166,8 +172,97 @@ class OfficialResultsTest(unittest.TestCase):
             observed_commands[0][observed_commands[0].index("--cache_level") + 1],
             "env",
         )
+        self.assertEqual(
+            observed_commands[0][observed_commands[0].index("--namespace") + 1],
+            "swebench",
+        )
         self.assertEqual(case.official_evaluation_status, "official_resolved")
         self.assertTrue(summary.official_eval_report_path.endswith("agent-forge.run-5.json"))
+
+    def test_explicit_empty_namespace_overrides_published_images(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            summary = BenchRunSummary(
+                run_id="run-local-image",
+                dataset_name="dataset",
+                split="test",
+                provider="provider",
+                model="model",
+                output_dir=root,
+                predictions_path=root / "predictions.jsonl",
+            )
+
+            command = SwebenchOfficialEvaluator._command(
+                summary,
+                SwebenchRunRequest(
+                    official_namespace="swebench",
+                    namespace_empty=True,
+                ),
+            )
+
+        self.assertEqual(command[command.index("--namespace") + 1], "")
+
+    def test_cli_and_summary_forward_effective_official_namespace(self):
+        parser = build_parser()
+        default_args = parser.parse_args(["bench", "swebench"])
+        swebench_args = parser.parse_args(
+            [
+                "bench",
+                "swebench",
+                "--official-namespace",
+                "published-test",
+            ]
+        )
+        self.assertEqual(default_args.official_namespace, "swebench")
+        campaign_args = parser.parse_args(
+            [
+                "bench",
+                "campaign",
+                "--campaign-id",
+                "namespace-test",
+                "--official-namespace",
+                "published-test",
+            ]
+        )
+        with patch(
+            "agent_forge.bench.presentation.cli.run_swebench"
+        ) as run_swebench_mock:
+            run_swebench_from_args(swebench_args)
+        with patch(
+            "agent_forge.bench.presentation.cli.run_benchmark_campaign"
+        ) as run_campaign_mock:
+            run_campaign_from_args(campaign_args)
+
+        swebench_request = run_swebench_mock.call_args.args[0]
+        campaign_request = run_campaign_mock.call_args.args[0]
+        self.assertEqual(swebench_request.official_namespace, "published-test")
+        self.assertEqual(
+            campaign_request.benchmark.official_namespace,
+            "published-test",
+        )
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            published_summary = _new_summary(
+                SwebenchRunRequest(official_namespace="published-test"),
+                "run-summary-published",
+                BenchRunLayout(root, root / "published-predictions.jsonl"),
+            )
+            local_summary = _new_summary(
+                SwebenchRunRequest(
+                    official_namespace="published-test",
+                    namespace_empty=True,
+                ),
+                "run-summary-local",
+                BenchRunLayout(root, root / "local-predictions.jsonl"),
+            )
+        self.assertEqual(published_summary.official_namespace, "published-test")
+        self.assertEqual(
+            published_summary.to_dict()["official_namespace"],
+            "published-test",
+        )
+        self.assertEqual(local_summary.official_namespace, "")
+        self.assertEqual(local_summary.to_dict()["official_namespace"], "")
 
     def test_local_validation_requires_all_recorded_test_evidence_to_pass(self):
         with tempfile.TemporaryDirectory() as tmp:

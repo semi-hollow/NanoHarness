@@ -18,6 +18,7 @@ def render_benchmark_scorecard(scorecard: dict[str, Any]) -> str:
         f"- dataset/split: `{metadata.get('dataset_name', '')}` / `{metadata.get('split', '')}`",
         f"- provider/model: `{metadata.get('provider', '')}` / `{metadata.get('requested_model', '') or 'default'}`",
         f"- observed models: `{metadata.get('observed_models', [])}`",
+        f"- official image namespace: `{metadata.get('official_namespace', '') or 'local-build'}`",
         f"- tool routing: `{metadata.get('tool_routing_mode', '')}`",
         f"- execution/network: `{metadata.get('execution_mode', 'local')}` / "
         f"`{metadata.get('network_policy', 'deny')}`",

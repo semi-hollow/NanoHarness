@@ -72,6 +72,7 @@ def render_bench_report(summary: BenchRunSummary) -> str:
             f"snapshot_sha256=`{summary.memory_snapshot_sha256}`"
         ),
         f"- execution/network: `{summary.execution_mode}` / `{summary.network_policy}`",
+        f"- official image namespace: `{summary.official_namespace or 'local-build'}`",
         f"- cases: `{total}`",
         f"- predictions: `{summary.predictions_path}`",
     ]

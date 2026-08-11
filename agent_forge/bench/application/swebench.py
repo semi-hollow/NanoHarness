@@ -205,6 +205,9 @@ def _new_summary(
         memory_namespace=request.memory_namespace or "swebench:<instance_id>",
         memory_recall_limit=request.memory_recall_limit,
         memory_snapshot_sha256=_directory_sha256(request.memory_root),
+        official_namespace=(
+            "" if request.namespace_empty else request.official_namespace
+        ),
         notes=[
             "Generated patches are not resolved-rate claims until the official SWE-bench harness evaluates them.",
             "Repo workspaces are under .agent_forge/runs so the main checkout stays clean.",
