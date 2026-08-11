@@ -58,6 +58,31 @@ class BenchmarkCohortTest(unittest.TestCase):
             {"split": "test", "revision": "immutable-sha"},
         )
 
+    def test_dataset_loader_rejects_missing_explicit_instance_ids(self):
+        available_case = {
+            "instance_id": "case-available",
+            "repo": "owner/repo",
+            "base_commit": "abc123",
+            "problem_statement": "Fix the bug.",
+        }
+        request = SwebenchRunRequest(
+            dataset_name="owner/dataset",
+            split="test",
+            limit=2,
+            instance_ids=("case-available", "case-missing"),
+        )
+
+        with patch.object(
+            SwebenchCaseSource,
+            "_load_huggingface_cases",
+            return_value=[available_case],
+        ):
+            with self.assertRaisesRegex(
+                RuntimeError,
+                "Explicitly requested SWE-bench instance_ids were not found.*case-missing",
+            ):
+                SwebenchCaseSource().load(request)
+
     def test_checked_in_cohort_has_two_disjoint_fifty_case_shards(self):
         cohort = load_benchmark_cohort(COHORT_PATH)
 

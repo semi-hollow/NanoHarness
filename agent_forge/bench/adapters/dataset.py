@@ -22,6 +22,17 @@ class SwebenchCaseSource(CaseSourcePort):
                 request.dataset_revision,
             )
         )
+        if wanted:
+            available_instance_ids = {
+                str(raw.get("instance_id") or raw.get("id") or "")
+                for raw in raw_cases
+            }
+            missing_instance_ids = sorted(wanted - available_instance_ids)
+            if missing_instance_ids:
+                raise RuntimeError(
+                    "Explicitly requested SWE-bench instance_ids were not found "
+                    f"in the dataset: {', '.join(missing_instance_ids)}"
+                )
         cases: list[BenchCase] = []
         for raw in raw_cases:
             case = BenchCase.from_mapping(raw)
