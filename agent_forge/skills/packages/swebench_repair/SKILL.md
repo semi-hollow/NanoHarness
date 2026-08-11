@@ -1,6 +1,6 @@
 ---
 name: swebench_repair
-version: 3.0.0
+version: 3.1.0
 description: Diagnose one root cause and produce the smallest evidence-backed repository repair.
 entrypoint: workflow:swebench_repair
 owner: agent-forge
@@ -53,10 +53,10 @@ resources:
 ---
 # Repository repair workflow
 
-1. Ground one hypothesis in the issue, relevant source, and focused test before editing.
+1. Ground one hypothesis in the issue and relevant product source before editing; prefer an existing focused test for evidence.
 2. Read only the files needed to confirm or reject that hypothesis.
-3. Make the smallest coherent source change; do not edit tests to manufacture a pass.
-4. Inspect the candidate diff, then run the narrowest relevant validation.
+3. Once the source evidence supports the hypothesis, make the smallest coherent product-source change. A scratch, debug, or test-only diff is not a candidate repair.
+4. Do not create or modify disposable validation files unless the task explicitly requires test infrastructure. Inspect the candidate diff, then prefer the narrowest existing validation.
 5. If validation fails, use the new evidence to revise the hypothesis instead of repeating the same action.
 6. Finish with the candidate change, validation result, uncertainty, and next evidence needed.
 
