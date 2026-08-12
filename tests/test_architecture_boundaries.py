@@ -1,4 +1,4 @@
-"""Executable dependency rules from docs/项目架构与代码导航.md."""
+"""可执行的项目依赖边界规则。"""
 
 from __future__ import annotations
 

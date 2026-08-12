@@ -42,8 +42,8 @@ NanoHarness 是面向真实代码仓库的可治理软件工程智能体与评�
   “入口控制 -> 执行决策 -> 受限执行 -> 结果与恢复”四层定位。
 - Evaluation 核心范围包括执行顺序、Scorecard 和 Failure Taxonomy；JSON/HTML、
   Docker、Worktree 清理和官方报告兼容属于按需查阅的适配器细节。
-- `docs/项目架构与代码导航.md` 拥有架构和代码契约；
-  `docs/运行生命周期与异常处理机制.md` 拥有四层机制语义；`agent_forge/README.md` 只提供 package 代码地图。
+- `docs/核心运行机制与代码索引.md` 拥有运行规则和机制语义；
+  `docs/核心能力与代码入口.md` 拥有能力到首个 Owner 的映射；`agent_forge/README.md` 只提供 package 代码地图。
 - 个人笔记、问答清单和阶段性计划不属于本公开仓库的架构契约。
 - 不新增平行治理文档、重构总结或第二套注释标签。关键 owner 使用现有 Code Compass
   说明上游、下游、状态变更、Evidence 和删除影响。

@@ -33,23 +33,15 @@ NanoHarness 把这些问题放进 Runtime 控制面，而不是交给 Prompt 或
 
 ## 阅读入口
 
-常用入口只有两份：按能力名称找代码使用“核心能力与代码入口”，按触发时机查运行规则使用
-“核心运行机制与代码索引”。生命周期、架构和证据文档只在需要完整状态或边界时打开。
+项目文档只保留两份技术入口：按能力名称找代码使用“核心能力与代码入口”，按触发时机查运行规则使用
+“核心运行机制与代码索引”。其余页面都是运行入口或机器证据，不再维护平行说明文档。
 
 | 当前问题 | 唯一入口 |
 | --- | --- |
 | 已知能力名称，直接进入核心 Owner | [核心能力与代码入口](docs/核心能力与代码入口.md) |
 | 按触发时机理解规则、失败和恢复行为 | [核心运行机制与代码索引](docs/核心运行机制与代码索引.md) |
-| 串起完整生命周期、状态和异常恢复 | [运行生命周期与异常处理机制](docs/运行生命周期与异常处理机制.md) |
-| 找代码、依赖和状态 owner | [项目架构与代码导航](docs/项目架构与代码导航.md) |
-| 核对能力是否实现以及不能声称什么 | [能力实现状态与使用边界](docs/能力实现状态与使用边界.md) |
 | 动手跑断点和查 Evidence | [Debug Lab](examples/debug_lab/README.md) |
 | 查当前质量结果、证据边界与下一轮确认实验 | [Quality Showcase](benchmarks/showcase/canonical-showcase-v1.json) |
-| 查评测分层、运行方法和声明边界 | [回归测试与评测范围](docs/evaluation/回归测试与评测范围.md) |
-| 查真实失败、根因和回归证据 | [典型故障与系统调优记录](docs/evaluation/典型故障与系统调优记录.md) |
-
-历史背景按需查[功能演进与设计取舍](docs/功能演进与设计取舍.md)和
-[代码结构演进与可读性治理](docs/architecture/代码结构演进与可读性治理.md)。
 
 ## 当前质量结果
 
@@ -63,8 +55,8 @@ candidate Patch、本地验证、official evaluator、Trace、Usage 与 Workbenc
 100-Case、按仓库分层样本上使用质量优先配置复测；在它完成前不把 `4/10` 改写成虚构的 `40/100`。
 
 当前结果、证据来源和声明边界见 [Quality Showcase](benchmarks/showcase/canonical-showcase-v1.json)。
-早期低预算、模型选型尝试、被拒绝 Treatment 和旧 Campaign 已退出主动展示，仅在被追问实验纪律时
-从[评测历史归档](benchmarks/archive/README.md)按需查阅。
+早期低预算、模型选型尝试、被拒绝 Treatment 和旧 Campaign 已退出当前项目说明；原始演进仍可从
+Git 历史恢复，但不进入 README 阅读路径。
 
 ## 证据与可复现场景
 
@@ -72,8 +64,8 @@ Workbench 只读真实 Runtime Event 与已保存的评测制品，把运行概�
 结果与证据投影成可查阅页面；它不伪造隐藏思维链，也不用另一个模型重写事实。
 
 三个 Debug Lab 分别复现审批与恢复、多 Agent 隔离合并、真实模型复杂修复。运行方式、断点和
-Workbench 阅读顺序只在 [Debug Lab](examples/debug_lab/README.md) 说明；评测结论的证据边界只在
-[回归测试与评测范围](docs/evaluation/回归测试与评测范围.md) 说明。
+Workbench 阅读顺序只在 [Debug Lab](examples/debug_lab/README.md) 说明；结果、分母和声明边界由
+[Quality Showcase](benchmarks/showcase/canonical-showcase-v1.json)统一提供。
 
 ## 快速体验
 
@@ -88,4 +80,5 @@ forge ui
 具体 PyCharm 配置和运行顺序见 [Debug Lab](examples/debug_lab/README.md)。外部项目可通过
 [`Harness`](agent_forge/harness.py) facade 注入自己的 Model 和 ToolGateway。
 
-完整能力边界统一查[能力实现状态与使用边界](docs/能力实现状态与使用边界.md)，README 不复制第二份边界清单。
+需要从能力名称进入源码时查[核心能力与代码入口](docs/核心能力与代码入口.md)；需要解释运行行为和边界时查
+[核心运行机制与代码索引](docs/核心运行机制与代码索引.md)。

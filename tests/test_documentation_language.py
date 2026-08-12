@@ -16,14 +16,6 @@ CHINESE_FIRST_DOCS = (
     "agent_forge/README.md",
     "docs/核心能力与代码入口.md",
     "docs/核心运行机制与代码索引.md",
-    "docs/项目架构与代码导航.md",
-    "docs/能力实现状态与使用边界.md",
-    "docs/运行生命周期与异常处理机制.md",
-    "docs/功能演进与设计取舍.md",
-    "docs/architecture/代码结构演进与可读性治理.md",
-    "docs/evaluation/典型故障与系统调优记录.md",
-    "docs/evaluation/失败分类规则与诊断流程.md",
-    "docs/evaluation/回归测试与评测范围.md",
     "examples/debug_lab/README.md",
 )
 
@@ -31,63 +23,20 @@ PUBLIC_DOC_LINE_BUDGETS = {
     "README.md": 250,
     "docs/核心能力与代码入口.md": 120,
     "docs/核心运行机制与代码索引.md": 100,
-    "docs/项目架构与代码导航.md": 420,
-    "docs/能力实现状态与使用边界.md": 120,
-    "docs/功能演进与设计取舍.md": 270,
     "examples/debug_lab/README.md": 210,
 }
 
 CANONICAL_README_LINKS = (
     "docs/核心能力与代码入口.md",
     "docs/核心运行机制与代码索引.md",
-    "docs/运行生命周期与异常处理机制.md",
-    "docs/项目架构与代码导航.md",
-    "docs/能力实现状态与使用边界.md",
-    "docs/evaluation/典型故障与系统调优记录.md",
-    "docs/evaluation/回归测试与评测范围.md",
     "examples/debug_lab/README.md",
 )
 
-PROTECTED_PUBLIC_RECORDS = {
-    "docs/evaluation/典型故障与系统调优记录.md": 15,
-}
-
-REQUIRED_FAILURE_RECORD_TOPICS = (
-    "相同 ToolCall",
-    "ToolRouter",
-    "Context",
-    "长期记忆",
-    "`ask_human`",
-    "operation key",
-    "操作状态表",
-    "Checkpoint",
-    "Multi-Agent",
-    "Failure Taxonomy",
-    "Usage",
-    "数据飞轮",
-)
-
-LOW_VALUE_FAILURE_HEADING_MARKERS = (
-    "Workbench",
-    "PyCharm",
-    "Windows",
-    "Docker",
-    "浏览器",
-    "窄屏",
-)
-
-ALLOWED_DOC_SURFACES = (
-    "docs/architecture/",
-    "docs/evaluation/",
-)
+ALLOWED_DOC_SURFACES: tuple[str, ...] = ()
 
 ALLOWED_TOP_LEVEL_DOCS = {
     "docs/核心能力与代码入口.md",
     "docs/核心运行机制与代码索引.md",
-    "docs/项目架构与代码导航.md",
-    "docs/能力实现状态与使用边界.md",
-    "docs/运行生命周期与异常处理机制.md",
-    "docs/功能演进与设计取舍.md",
 }
 
 PUBLIC_POSITIONING_FORBIDDEN = (
@@ -332,35 +281,6 @@ class DocumentationLanguageTest(unittest.TestCase):
             if (PROJECT_ROOT / obsolete).exists():
                 violations.append(f"obsolete learning surface returned: {obsolete}")
 
-        for relative_path, minimum_case_count in PROTECTED_PUBLIC_RECORDS.items():
-            path = PROJECT_ROOT / relative_path
-            if not path.exists():
-                violations.append(f"protected first-party record was deleted: {relative_path}")
-                continue
-            record_text = path.read_text(encoding="utf-8")
-            case_headings = re.findall(
-                r"^### \d+\. .+$",
-                record_text,
-                re.MULTILINE,
-            )
-            case_count = len(case_headings)
-            if case_count < minimum_case_count:
-                violations.append(
-                    f"{relative_path}: curated runtime cases fell below "
-                    f"{minimum_case_count}: {case_count}"
-                )
-            for topic in REQUIRED_FAILURE_RECORD_TOPICS:
-                if topic not in record_text:
-                    violations.append(
-                        f"{relative_path}: required runtime topic is missing: {topic}"
-                    )
-            for marker in LOW_VALUE_FAILURE_HEADING_MARKERS:
-                if any(marker in heading for heading in case_headings):
-                    violations.append(
-                        f"{relative_path}: low-value delivery issue returned as a case: "
-                        f"{marker}"
-                    )
-
         result = subprocess.run(
             [
                 "git",
@@ -386,9 +306,9 @@ class DocumentationLanguageTest(unittest.TestCase):
             for path in result.stdout.splitlines()
             if path and (PROJECT_ROOT / path).is_file()
         }
-        if len(tracked_docs) > 18:
+        if len(tracked_docs) > 2:
             violations.append(
-                f"docs tree has {len(tracked_docs)} Markdown files; consolidate before adding more"
+                f"docs tree has {len(tracked_docs)} Markdown files; public surface allows 2"
             )
         for relative_path in sorted(tracked_docs):
             if relative_path in ALLOWED_TOP_LEVEL_DOCS:
