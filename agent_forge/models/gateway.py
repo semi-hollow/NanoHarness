@@ -142,6 +142,7 @@ class ModelGateway(LLMClient):
             model_usage.record_provider_usage(
                 latest_model_response.usage,
                 latest_model_response.response_id,
+                latest_model_response.observed_model,
             )
             model_usage.estimated_cost_usd = self._estimate_cost_usd(model_usage)
             error_code = ""

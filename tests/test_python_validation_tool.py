@@ -9,6 +9,42 @@ from agent_forge.tools.python_validation import PythonValidationTool
 
 
 class PythonValidationToolTest(unittest.TestCase):
+    def test_custom_timeout_is_used_for_every_validator(self):
+        class Environment:
+            def __init__(self):
+                self.calls = []
+
+            def execute_command(self, argv, timeout):
+                self.calls.append((argv, timeout))
+                return subprocess.CompletedProcess(
+                    argv, 0, stdout="1 passed", stderr=""
+                )
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "tests").mkdir()
+            environment = Environment()
+            tool = PythonValidationTool(
+                WorkspaceSandbox(root),
+                execution_environment=environment,
+                timeout_seconds=600,
+            )
+
+            for check_type in ("compile", "unittest", "pytest"):
+                observation = tool.execute(
+                    {"check_type": check_type, "validation_target": "tests"}
+                )
+                self.assertTrue(observation.success, observation.content)
+
+        self.assertEqual([timeout for _, timeout in environment.calls], [600, 600, 600])
+
+    def test_rejects_non_positive_timeout(self):
+        with (
+            tempfile.TemporaryDirectory() as tmp,
+            self.assertRaisesRegex(ValueError, "timeout_seconds must be positive"),
+        ):
+            PythonValidationTool(WorkspaceSandbox(tmp), timeout_seconds=0)
+
     def test_unittest_delegates_relative_target_to_execution_environment(self):
         class Environment:
             def __init__(self):
@@ -16,7 +52,9 @@ class PythonValidationToolTest(unittest.TestCase):
 
             def execute_command(self, argv, timeout):
                 self.calls.append((argv, timeout))
-                return subprocess.CompletedProcess(argv, 0, stdout="container tests ok", stderr="")
+                return subprocess.CompletedProcess(
+                    argv, 0, stdout="container tests ok", stderr=""
+                )
 
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -34,7 +72,7 @@ class PythonValidationToolTest(unittest.TestCase):
         self.assertTrue(observation.success)
         self.assertEqual(
             environment.calls,
-            [(["python", "-m", "unittest", "discover", "tests"], 30)],
+            [(["python", "-m", "unittest", "discover", "tests"], 120)],
         )
 
     def test_unittest_accepts_dotted_module_target(self):
@@ -95,7 +133,7 @@ class PythonValidationToolTest(unittest.TestCase):
         self.assertTrue(observation.success, observation.content)
         self.assertEqual(
             environment.calls,
-            [(["python", "-m", "unittest", "test_sample.py"], 30)],
+            [(["python", "-m", "unittest", "test_sample.py"], 120)],
         )
 
     def test_pytest_delegates_exact_node_to_execution_environment(self):
@@ -256,7 +294,9 @@ class PythonValidationToolTest(unittest.TestCase):
             )
 
         self.assertTrue(observation.success, observation.content)
-        self.assertIn("validation_blocked: unittest collected 0 tests", observation.content)
+        self.assertIn(
+            "validation_blocked: unittest collected 0 tests", observation.content
+        )
 
     def test_pytest_zero_collection_requests_project_runner_fallback(self):
         class Environment:

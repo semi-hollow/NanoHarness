@@ -63,7 +63,7 @@ def run_benchmark_campaign(
     return build_benchmark_campaign_runner(root, run_swebench).run_campaign(request)
 
 
-def create_campaign_id(prefix: str = "smoke-5") -> str:
+def create_campaign_id(prefix: str = "infrastructure-smoke-5") -> str:
     """生成可读且不会碰撞的 campaign id。"""
 
     return f"{prefix}-{time.strftime('%Y%m%d-%H%M%S')}-{uuid.uuid4().hex[:7]}"
@@ -96,7 +96,7 @@ def inspect_swebench_case(
 
 # 主要入口：读取固定集合中每道题的选择理由和 Harness 观察点。
 def list_regression_case_profiles(
-    regression_set: str = "smoke-5",
+    regression_set: str = "infrastructure-smoke-5",
 ) -> tuple[BenchmarkCaseProfile, ...]:
     """返回固定回归集合的人类可读目录，不访问数据集或模型。"""
 
@@ -109,7 +109,7 @@ def list_regression_case_profiles(
 
 # 主要入口：读取固定回归集合的选择依据和结论边界。
 def get_regression_set_profile(
-    regression_set: str = "smoke-5",
+    regression_set: str = "infrastructure-smoke-5",
 ) -> BenchmarkSetProfile:
     """返回集合级评测契约，不访问数据集或模型。"""
 

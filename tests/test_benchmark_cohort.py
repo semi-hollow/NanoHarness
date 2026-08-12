@@ -14,7 +14,7 @@ from agent_forge.cli.parser import build_parser
 
 
 PROJECT_ROOT = Path(__file__).parents[1]
-COHORT_PATH = PROJECT_ROOT / "benchmarks/cohorts/swebench-verified-100-v1.json"
+COHORT_PATH = PROJECT_ROOT / "benchmarks/showcase/canonical-50-v1.json"
 
 
 class BenchmarkCohortTest(unittest.TestCase):
@@ -41,9 +41,12 @@ class BenchmarkCohortTest(unittest.TestCase):
             return [{"instance_id": "case-1"}]
 
         fake_datasets.load_dataset = fake_load_dataset
-        with patch("importlib.util.find_spec", return_value=object()), patch.dict(
-            sys.modules,
-            {"datasets": fake_datasets},
+        with (
+            patch("importlib.util.find_spec", return_value=object()),
+            patch.dict(
+                sys.modules,
+                {"datasets": fake_datasets},
+            ),
         ):
             rows = SwebenchCaseSource._load_huggingface_cases(
                 "owner/dataset",
@@ -83,23 +86,19 @@ class BenchmarkCohortTest(unittest.TestCase):
             ):
                 SwebenchCaseSource().load(request)
 
-    def test_checked_in_cohort_has_two_disjoint_fifty_case_shards(self):
+    def test_checked_in_canonical_cohort_has_five_disjoint_ten_case_waves(self):
         cohort = load_benchmark_cohort(COHORT_PATH)
 
-        shard_a = cohort.select_shard("a")
-        shard_b = cohort.select_shard("b")
+        waves = [cohort.select_shard(name) for name in cohort.shard_order]
 
-        self.assertEqual(len(cohort.case_ids), 100)
-        self.assertEqual(len(shard_a.case_ids), 50)
-        self.assertEqual(len(shard_b.case_ids), 50)
-        self.assertTrue(set(shard_a.case_ids).isdisjoint(shard_b.case_ids))
-        self.assertEqual(
-            set(shard_a.case_ids) | set(shard_b.case_ids),
-            set(cohort.case_ids),
-        )
+        self.assertEqual(len(cohort.case_ids), 50)
+        self.assertEqual([len(wave.case_ids) for wave in waves], [10] * 5)
+        flattened = [case_id for wave in waves for case_id in wave.case_ids]
+        self.assertEqual(flattened, list(cohort.case_ids))
+        self.assertEqual(len(set(flattened)), 50)
 
     def test_campaign_identity_binds_selected_cohort(self):
-        cohort = load_benchmark_cohort(COHORT_PATH).select_shard("a")
+        cohort = load_benchmark_cohort(COHORT_PATH).select_shard("wave-1")
         request = BenchmarkCampaignRequest(
             benchmark=SwebenchRunRequest(
                 dataset_name=cohort.dataset_name,
@@ -116,13 +115,13 @@ class BenchmarkCohortTest(unittest.TestCase):
         identity = request.identity()
 
         self.assertEqual(identity["cohort"]["cohort_id"], cohort.cohort_id)
-        self.assertEqual(identity["cohort"]["shard"], "a")
-        self.assertEqual(identity["cohort"]["case_count"], 50)
+        self.assertEqual(identity["cohort"]["shard"], "wave-1")
+        self.assertEqual(identity["cohort"]["case_count"], 10)
         self.assertEqual(identity["case_ids"], list(cohort.case_ids))
 
     def test_manifest_rejects_overlapping_or_reordered_shards(self):
         payload = json.loads(COHORT_PATH.read_text(encoding="utf-8"))
-        payload["shards"]["b"][0] = payload["shards"]["a"][0]
+        payload["shards"]["wave-2"][0] = payload["shards"]["wave-1"][0]
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "invalid.json"
             path.write_text(json.dumps(payload), encoding="utf-8")

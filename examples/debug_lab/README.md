@@ -140,8 +140,8 @@ Workbench 始终使用同一个地址。先在“选择运行证据”中切换�
 它展示实际记录的 Context 组成、可见工具、Skill、文件、模型响应摘要和 Observation；完整 Prompt 与隐藏
 思维链不会被复制到页面。
 
-Debugger 看动态因果；Workbench 看最终留下的可验证 Evidence。历史 SWE-bench campaign 仍保留在
-Workbench 的“评测档案”，但它不再占用 Lab 编号，也不是运行前置条件。
+Debugger 看动态因果；Workbench 看最终留下的可验证 Evidence。Benchmark 视图默认显示当前
+Canonical Showcase 状态；Golden-10 和 Infrastructure Smoke-5 只作为开发/健康证据，历史 Campaign 只在归档中复核。
 
 ## 场景验证标准
 

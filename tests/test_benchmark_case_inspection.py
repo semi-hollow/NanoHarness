@@ -16,8 +16,8 @@ from agent_forge.bench.presentation.case_inspection import (
 
 class BenchmarkCaseInspectionTest(unittest.TestCase):
     def test_catalog_explains_universe_selection_and_claim_boundary(self):
-        set_profile = get_regression_set_profile("smoke-5")
-        profiles = list_regression_case_profiles("smoke-5")
+        set_profile = get_regression_set_profile("infrastructure-smoke-5")
+        profiles = list_regression_case_profiles("infrastructure-smoke-5")
 
         document = render_case_catalog(set_profile, profiles)
 
@@ -30,6 +30,7 @@ class BenchmarkCaseInspectionTest(unittest.TestCase):
         self.assertIn("候选全集：`500`", document)
         self.assertIn("分层选择", document)
         self.assertIn("不能代表 SWE-bench Verified 总体表现", document)
+        self.assertIn("不进入 Canonical scorecard", document)
         self.assertEqual(
             {profile.instance_id for profile in profiles},
             {

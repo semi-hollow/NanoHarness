@@ -1,0 +1,72 @@
+{
+  "schema_version": 1,
+  "manifest_id": "showcase-quality-v1-selection-golden10-images",
+  "status": "live_verified_before_quality_selection_generation",
+  "verified_at": "2026-08-12T13:39:00+08:00",
+  "platform": "linux/amd64",
+  "images": [
+    {
+      "instance_id": "django__django-11451",
+      "tag": "swebench/sweb.eval.x86_64.django_1776_django-11451:latest",
+      "repo_digest": "sha256:c224c70ff7b4d1fc2443eb5ea5b7359939367c2f8231ffa13d57e6c2877b56ce",
+      "image_id": "sha256:c224c70ff7b4d1fc2443eb5ea5b7359939367c2f8231ffa13d57e6c2877b56ce"
+    },
+    {
+      "instance_id": "matplotlib__matplotlib-13989",
+      "tag": "swebench/sweb.eval.x86_64.matplotlib_1776_matplotlib-13989:latest",
+      "repo_digest": "sha256:223eb3073b901f17e1498ee39364542c44954132f501c9ac2ab74d1d8819af3f",
+      "image_id": "sha256:223eb3073b901f17e1498ee39364542c44954132f501c9ac2ab74d1d8819af3f"
+    },
+    {
+      "instance_id": "scikit-learn__scikit-learn-14629",
+      "tag": "swebench/sweb.eval.x86_64.scikit-learn_1776_scikit-learn-14629:latest",
+      "repo_digest": "sha256:1b9aa339fcc2b5fb8cd0ee533be966babd9cfba43109813820d4d47ebbc87be7",
+      "image_id": "sha256:1b9aa339fcc2b5fb8cd0ee533be966babd9cfba43109813820d4d47ebbc87be7"
+    },
+    {
+      "instance_id": "django__django-12209",
+      "tag": "swebench/sweb.eval.x86_64.django_1776_django-12209:latest",
+      "repo_digest": "sha256:42dd568859db062f96d931059061a1df869380340b85ecd53fc5b81e16c32a03",
+      "image_id": "sha256:42dd568859db062f96d931059061a1df869380340b85ecd53fc5b81e16c32a03"
+    },
+    {
+      "instance_id": "sphinx-doc__sphinx-10323",
+      "tag": "swebench/sweb.eval.x86_64.sphinx-doc_1776_sphinx-10323:latest",
+      "repo_digest": "sha256:e1267f67c6fdb44364aca794fbcde67d09743be40205fcf7931854356b5d1ede",
+      "image_id": "sha256:e1267f67c6fdb44364aca794fbcde67d09743be40205fcf7931854356b5d1ede"
+    },
+    {
+      "instance_id": "sympy__sympy-20590",
+      "tag": "swebench/sweb.eval.x86_64.sympy_1776_sympy-20590:latest",
+      "repo_digest": "sha256:530a7210e4570c9c62b676e316e6d429515749709e1090c8b30c74bdf410c743",
+      "image_id": "sha256:530a7210e4570c9c62b676e316e6d429515749709e1090c8b30c74bdf410c743"
+    },
+    {
+      "instance_id": "django__django-10097",
+      "tag": "swebench/sweb.eval.x86_64.django_1776_django-10097:latest",
+      "repo_digest": "sha256:148894532806828ddd882c6617387910c1be8d064e2496fbe7ec046a30eff6fb",
+      "image_id": "sha256:148894532806828ddd882c6617387910c1be8d064e2496fbe7ec046a30eff6fb"
+    },
+    {
+      "instance_id": "psf__requests-2317",
+      "tag": "swebench/sweb.eval.x86_64.psf_1776_requests-2317:latest",
+      "repo_digest": "sha256:d130bea34677191120d7355e93404cf07c5317c6bcfe1e59f76e71f61bb63cbd",
+      "image_id": "sha256:d130bea34677191120d7355e93404cf07c5317c6bcfe1e59f76e71f61bb63cbd"
+    },
+    {
+      "instance_id": "matplotlib__matplotlib-22871",
+      "tag": "swebench/sweb.eval.x86_64.matplotlib_1776_matplotlib-22871:latest",
+      "repo_digest": "sha256:03d760842dc6f2bc2fd313fbfbda8a3994c15305af9c6075f9032697d146a3f2",
+      "image_id": "sha256:03d760842dc6f2bc2fd313fbfbda8a3994c15305af9c6075f9032697d146a3f2"
+    },
+    {
+      "instance_id": "django__django-13028",
+      "tag": "swebench/sweb.eval.x86_64.django_1776_django-13028:latest",
+      "repo_digest": "sha256:074eefd8f5516ecb01e03780be18942064f1bd63f81c5a3b42875b8edccd9451",
+      "image_id": "sha256:074eefd8f5516ecb01e03780be18942064f1bd63f81c5a3b42875b8edccd9451"
+    }
+  ],
+  "live_verified": "10/10 tag, RepoDigest, image ID, and linux/amd64 exact",
+  "pull_performed": false,
+  "claim": "Image identity is evaluation infrastructure; it does not expose or pre-judge correctness."
+}

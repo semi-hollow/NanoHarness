@@ -9,6 +9,7 @@ from agent_forge.contracts import (
     DEFAULT_MAX_CONTEXT_CHARS,
     DEFAULT_MAX_PROMPT_TOKENS,
     DEFAULT_MAX_STEPS,
+    DEFAULT_TOOL_EXECUTION_TIMEOUT_SECONDS,
     DEFAULT_TIMEOUT_SECONDS,
 )
 
@@ -48,6 +49,8 @@ class SwebenchRunRequest:
     max_tool_calls_per_turn: int = 4
     cost_budget_usd: float | None = None
     timeout_seconds: float = DEFAULT_TIMEOUT_SECONDS
+    model_request_timeout_seconds: int = 60
+    tool_execution_timeout_seconds: int = DEFAULT_TOOL_EXECUTION_TIMEOUT_SECONDS
 
     # Repository cache、artifact 输出与 official evaluation 开关。
     repo_cache: str = ".agent_forge/bench/repos"
@@ -88,6 +91,10 @@ class SwebenchRunRequest:
             raise ValueError(
                 "official_cache_level must be one of: none, base, env, instance"
             )
+        if self.model_request_timeout_seconds <= 0:
+            raise ValueError("model_request_timeout_seconds must be positive")
+        if self.tool_execution_timeout_seconds <= 0:
+            raise ValueError("tool_execution_timeout_seconds must be positive")
 
 
 # 核心数据：一次 benchmark run 的根目录和预测文件位置。
@@ -103,5 +110,4 @@ class BenchRunLayout:
 
 
 def safe_id(value: str) -> str:
-
     return "".join(ch if ch.isalnum() or ch in {"-", "_", "."} else "_" for ch in value)

@@ -60,7 +60,9 @@ def render_bench_report(summary: BenchRunSummary) -> str:
             f"max=`{summary.max_prompt_tokens}` reserved_output=`{summary.reserved_output_tokens}`"
         ),
         f"- max_tool_calls_per_turn: `{summary.max_tool_calls_per_turn}`",
-        f"- cost / timeout budget: `{summary.cost_budget_usd}` / `{summary.timeout_seconds}s`",
+        f"- cost / run timeout / request timeout: `{summary.cost_budget_usd}` / "
+        f"`{summary.timeout_seconds}s` / `{summary.model_request_timeout_seconds}s`",
+        f"- tool execution timeout: `{summary.tool_execution_timeout_seconds}s`",
         f"- tool_routing_mode: `{summary.tool_routing_mode}`",
         (
             f"- skills: mode=`{summary.skill_mode}` names=`{summary.skill_names}` "

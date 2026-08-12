@@ -289,6 +289,11 @@ def _selected_evidence_source(
         selected = _find_evidence_source(sources, selected_key)
         if selected is not None and selected.available:
             return selected.key
+    canonical = _find_evidence_source(sources, "evaluation")
+    if canonical is not None and canonical.available:
+        canonical_summary = _read_json_file(canonical.primary_path)
+        if canonical_summary.get("artifact_type") == "canonical_showcase":
+            return canonical.key
     available = [source for source in sources if source.available]
     if not available:
         return sources[0].key if sources else ""
@@ -389,12 +394,14 @@ def _source_overview_facts(
             "这里只证明这次显式计划的依赖、隔离、合并和 Finalizer 结果；不外推通用多 Agent 收益。",
         )
 
-    if source.key == "evaluation":
+    if source.key in {"evaluation", "evaluation-history"}:
         quality_summary = _read_json_file(
             source.primary_path
             if source.primary_path is not None and source.primary_path.is_file()
             else None
         )
+        if quality_summary.get("artifact_type") == "canonical_showcase":
+            return _canonical_showcase_overview_facts(quality_summary)
         if quality_summary.get("experiment_type") == "runtime_quality":
             schema_version = int(quality_summary.get("schema_version") or 1)
             if schema_version < 2:
@@ -750,18 +757,23 @@ def _render_source_results(project_dir: Path, source: EvidenceSource) -> str:
     if source.key == "orchestration":
         summary = _read_json_file(source.primary_path)
         return _render_fanout_run_evidence(summary, source.primary_path)
-    if source.key == "evaluation":
+    if source.key in {"evaluation", "evaluation-history"}:
         quality_summary = _read_json_file(
             source.primary_path
             if source.primary_path is not None and source.primary_path.is_file()
             else None
         )
+        if quality_summary.get("artifact_type") == "canonical_showcase":
+            return _render_canonical_showcase_dashboard(
+                quality_summary,
+                source.primary_path,
+            )
         if quality_summary.get("experiment_type") == "runtime_quality":
             return _render_runtime_quality_dashboard(
                 quality_summary,
                 source.primary_path,
             )
-        return _render_feedback_dashboard(project_dir)
+        return _render_benchmark_dashboard(project_dir, include_canonical=False)
     return _render_single_source_results(source)
 
 
@@ -931,6 +943,10 @@ def _latest_campaign_state(project_dir: Path) -> dict[str, Any]:
 
 def _latest_campaign_summary(project_dir: Path) -> dict[str, Any]:
     return build_evidence_catalog(project_dir).latest_campaign_summary()
+
+
+def _canonical_showcase_summary_path(project_dir: Path) -> Path | None:
+    return build_evidence_catalog(project_dir).canonical_showcase_summary_path()
 
 
 def _latest_improvement_record_path(project_dir: Path) -> Path | None:
@@ -4232,6 +4248,226 @@ def _quality_metric(metrics: dict[str, Any], *names: str) -> int:
     return 0
 
 
+def _canonical_showcase_overview_facts(
+    showcase: dict[str, Any],
+) -> tuple[list[tuple[str, str, str, str]], str]:
+    """只展示已冻结或已裁决事实；缺失结果必须保持为待运行。"""
+
+    profile = _mapping(showcase.get("current_profile"))
+    evaluation = _mapping(showcase.get("canonical_evaluation"))
+    planned = int(evaluation.get("planned") or 0)
+    completed_value = evaluation.get("completed")
+    completed = int(completed_value) if completed_value is not None else None
+    selected_model = str(profile.get("selected_model") or "").strip()
+    profile_frozen = bool(profile.get("frozen"))
+    candidates = _string_items(profile.get("model_candidates"))
+    return (
+        [
+            (
+                "当前质量配置",
+                str(profile.get("profile_id") or "待命名"),
+                "已冻结" if profile_frozen else "候选比较尚未冻结",
+                "ok" if profile_frozen else "warn",
+            ),
+            (
+                "最终模型",
+                selected_model if selected_model and profile_frozen else "待选择",
+                f"{len(candidates)} 个预注册候选；Golden-10 仅用于开发与回归",
+                "ok" if selected_model and profile_frozen else "warn",
+            ),
+            (
+                "Canonical-50 进度",
+                _pending_progress(completed, planned),
+                "确定性、按仓库分层、预封存样本",
+                "ok" if planned and completed == planned else "warn",
+            ),
+            (
+                "Official Pass@1",
+                _canonical_score(showcase),
+                "配置与协议冻结、终态完整计入且证据校验后发布",
+                "ok" if _canonical_score_is_publishable(showcase) else "warn",
+            ),
+        ],
+        str(
+            evaluation.get("claim")
+            or "结论只属于该确定性 50 题样本，不代表完整 SWE-bench Verified。"
+        ),
+    )
+
+
+def _render_canonical_showcase_dashboard(
+    showcase: dict[str, Any],
+    source_path: Path | None,
+) -> str:
+    """渲染当前展示面；开发集与健康检查永远不冒充质量分数。"""
+
+    profile = _mapping(showcase.get("current_profile"))
+    references = _mapping(profile.get("references"))
+    evaluation = _mapping(showcase.get("canonical_evaluation"))
+    planned = int(evaluation.get("planned") or 0)
+    completed_value = evaluation.get("completed")
+    completed = int(completed_value) if completed_value is not None else None
+    terminal_value = evaluation.get("terminal_accounted")
+    terminal = int(terminal_value) if terminal_value is not None else None
+    selected_model = str(profile.get("selected_model") or "").strip()
+    profile_frozen = bool(profile.get("frozen"))
+    candidate_items = _string_items(profile.get("model_candidates"))
+    candidate_list = _render_fact_list(
+        candidate_items,
+        empty_message="尚未登记模型候选",
+    )
+    support_rows: list[str] = []
+    role_labels = {
+        "development_and_regression_only": "开发与回归专用",
+        "infrastructure_health_only": "基础设施健康检查专用",
+    }
+    for item in showcase.get("supporting_checks") or []:
+        if not isinstance(item, dict):
+            continue
+        role = str(item.get("role") or "未记录")
+        support_rows.append(
+            "<tr>"
+            f"<td><b>{_escape(item.get('label') or item.get('id') or '未命名')}</b></td>"
+            f"<td>{_escape(role_labels.get(role, role))}</td>"
+            f"<td>{_escape(_display_value(item.get('status') or 'not_run'))}</td>"
+            "<td>否</td>"
+            "</tr>"
+        )
+    support_rows_html = "".join(support_rows) or (
+        "<tr><td colspan='4'>尚未登记辅助检查。</td></tr>"
+    )
+    boundaries = _string_items(showcase.get("boundaries"))
+    body = [
+        "<div class='view-heading'><div><span class='view-kicker'>CANONICAL SHOWCASE</span>"
+        f"<h2>{_escape(showcase.get('title') or 'NanoHarness Canonical Showcase')}</h2></div>"
+        f"{_badge(_display_value(showcase.get('status') or 'pending'), _tone_for_status(str(showcase.get('status') or '')))}</div>",
+        "<p class='help strong'>这是当前唯一默认质量展示面：先冻结质量优先配置，再对预封存的 Canonical-50 做一次 Pass@1 官方评测。未完成的指标显示为“待运行”，不会用 0 或历史实验代填。</p>",
+        _metric_grid(
+            [
+                (
+                    "质量配置",
+                    str(profile.get("profile_id") or "待命名"),
+                    "已冻结" if profile_frozen else "候选比较尚未冻结",
+                    "ok" if profile_frozen else "warn",
+                ),
+                (
+                    "最终模型",
+                    selected_model if selected_model and profile_frozen else "待选择",
+                    f"候选 {len(candidate_items)} 个",
+                    "ok" if selected_model and profile_frozen else "warn",
+                ),
+                (
+                    "Canonical-50 完成",
+                    _pending_progress(completed, planned),
+                    "Pass@1；不做正确性重跑",
+                    "ok" if planned and completed == planned else "warn",
+                ),
+                (
+                    "终态证据覆盖",
+                    _pending_progress(terminal, planned),
+                    "官方评测、空 Patch 与基础设施终态必须完整对账",
+                    "ok" if planned and terminal == planned else "warn",
+                ),
+                (
+                    "Official Pass@1",
+                    _canonical_score(showcase),
+                    "只属于这 50 题确定性样本",
+                    "ok" if _canonical_score_is_publishable(showcase) else "warn",
+                ),
+            ]
+        ),
+        "<section class='evidence-section'><div class='section-title'><h3>当前质量配置</h3><span>选择完成前不写最终模型</span></div>"
+        "<table><tbody>"
+        f"<tr><td>Profile ID</td><td class='mono'>{_escape(profile.get('profile_id') or '待命名')}</td></tr>"
+        f"<tr><td>选择状态</td><td>{_escape(_display_value(profile.get('status') or 'pending'))}</td></tr>"
+        f"<tr><td>冻结状态</td><td>{'已冻结' if profile_frozen else '未冻结'}</td></tr>"
+        f"<tr><td>最终模型</td><td>{_escape(selected_model if selected_model and profile_frozen else '待选择')}</td></tr>"
+        f"<tr><td>选择集合</td><td>{_escape(references.get('selection_set') or 'Golden-10')} · 开发与回归专用</td></tr>"
+        "</tbody></table><h4>预注册候选</h4>"
+        f"{candidate_list}</section>",
+        "<section class='evidence-section'><div class='section-title'><h3>Canonical-50 发布契约</h3><span>正式展示分母</span></div>"
+        "<table><tbody>"
+        f"<tr><td>数据集</td><td>{_escape(evaluation.get('dataset') or '未记录')}</td></tr>"
+        f"<tr><td>样本</td><td>{planned} 题 · 确定性、按仓库分层、预封存</td></tr>"
+        f"<tr><td>协议</td><td>{_escape(evaluation.get('protocol') or 'Pass@1')}</td></tr>"
+        f"<tr><td>Cohort 冻结</td><td>{'已冻结' if evaluation.get('cohort_frozen') else '未冻结'}</td></tr>"
+        f"<tr><td>运行协议冻结</td><td>{'已冻结' if evaluation.get('protocol_frozen') else '未冻结'}</td></tr>"
+        f"<tr><td>终态计入</td><td>{_escape(_pending_progress(terminal, planned))}</td></tr>"
+        f"<tr><td>证据校验</td><td>{'已通过' if evaluation.get('evidence_validated') is True else '待校验'}</td></tr>"
+        f"<tr><td>当前状态</td><td>{_escape(_display_value(evaluation.get('status') or 'not_started'))}</td></tr>"
+        "</tbody></table>"
+        f"<p class='boundary-note'><strong>公开口径：</strong>{_escape(evaluation.get('claim') or '只属于该确定性样本。')}</p></section>",
+        "<section class='evidence-section'><div class='section-title'><h3>辅助检查的角色</h3><span>不进入质量 headline</span></div>"
+        "<table><thead><tr><th>集合</th><th>唯一用途</th><th>状态</th><th>质量分数</th></tr></thead>"
+        f"<tbody>{support_rows_html}</tbody></table>"
+        "<p class='boundary-note'>Golden-10 用来选择和回归检查配置；Infrastructure Smoke-5 只验证 dataset、checkout、tools、patch、evaluator 与 evidence wiring 健康。</p></section>",
+        "<section class='evidence-section'><div class='section-title'><h3>结论边界</h3><span>机器摘要中的固定约束</span></div>"
+        f"{_render_fact_list(boundaries, empty_message='尚未记录额外边界')}</section>",
+        "<details class='provenance'><summary>Canonical 摘要来源</summary>"
+        f"<code>{_escape(str(source_path or '未找到'))}</code></details>",
+    ]
+    return "<div class='evidence'>" + "".join(body) + "</div>"
+
+
+def _pending_progress(value: int | None, planned: int) -> str:
+    if value is None:
+        return f"待运行 / {planned}" if planned else "待运行"
+    return f"{value}/{planned}" if planned else str(value)
+
+
+def _canonical_score_is_publishable(showcase: dict[str, Any]) -> bool:
+    profile = _mapping(showcase.get("current_profile"))
+    evaluation = _mapping(showcase.get("canonical_evaluation"))
+    selected_model = profile.get("selected_model")
+    planned = _canonical_nonnegative_int(evaluation.get("planned"))
+    completed = _canonical_nonnegative_int(evaluation.get("completed"))
+    terminal = _canonical_nonnegative_int(evaluation.get("terminal_accounted"))
+    official_evaluated = _canonical_nonnegative_int(
+        evaluation.get("official_evaluated")
+    )
+    empty_patch = _canonical_nonnegative_int(evaluation.get("empty_patch"))
+    provider_infra = _canonical_nonnegative_int(evaluation.get("provider_infra"))
+    evaluator_infra = _canonical_nonnegative_int(evaluation.get("evaluator_infra"))
+    resolved = _canonical_nonnegative_int(evaluation.get("official_resolved"))
+    return bool(
+        planned
+        and str(showcase.get("status") or "") == "completed"
+        and str(evaluation.get("status") or "") == "completed"
+        and profile.get("frozen") is True
+        and isinstance(selected_model, str)
+        and selected_model.strip()
+        and evaluation.get("cohort_frozen") is True
+        and evaluation.get("protocol_frozen") is True
+        and evaluation.get("evidence_validated") is True
+        and completed is not None
+        and completed == planned
+        and terminal is not None
+        and terminal == planned
+        and official_evaluated is not None
+        and empty_patch is not None
+        and official_evaluated + empty_patch == planned
+        and provider_infra == 0
+        and evaluator_infra == 0
+        and resolved is not None
+        and 0 <= resolved <= official_evaluated
+    )
+
+
+def _canonical_nonnegative_int(value: object) -> int | None:
+    """Canonical 发布字段只接受 JSON 非负整数；布尔值不能冒充计数。"""
+
+    if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+        return None
+    return value
+
+
+def _canonical_score(showcase: dict[str, Any]) -> str:
+    if not _canonical_score_is_publishable(showcase):
+        return "待完整裁决"
+    evaluation = _mapping(showcase.get("canonical_evaluation"))
+    return f"{int(evaluation['official_resolved'])}/{int(evaluation['planned'])}"
+
+
 def _mapping(value: object) -> dict[str, Any]:
     """收窄机器摘要的可选对象，避免 schema 演进时渲染器崩溃。"""
 
@@ -4800,12 +5036,9 @@ def _render_phase2_runtime_quality_dashboard(
     usage = _mapping(phase2.get("usage"))
     target_and_guards_usage = _mapping(usage.get("target_and_guards_total"))
     golden10_usage = _mapping(usage.get("golden10_expansion"))
-    phase2_total_usage = _mapping(
-        usage.get("phase2_case_study_and_expansion_total")
-    )
+    phase2_total_usage = _mapping(usage.get("phase2_case_study_and_expansion_total"))
     if not phase2_total_usage and any(
-        name in usage
-        for name in ("provider_tokens", "total_tokens", "llm_calls")
+        name in usage for name in ("provider_tokens", "total_tokens", "llm_calls")
     ):
         # 兼容早期 schema v3 草案的扁平 usage；正式发布摘要优先使用显式总计。
         phase2_total_usage = usage
@@ -5248,33 +5481,47 @@ def _render_evaluation_dashboard(project_dir: Path) -> str:
     return "<div class='evidence'>" + "".join(body) + "</div>"
 
 
-def _render_benchmark_dashboard(project_dir: Path) -> str:
-    """展示重复实验事实；没有实验批次时只展示实验契约和入口。"""
+def _render_benchmark_dashboard(
+    project_dir: Path,
+    *,
+    include_canonical: bool = True,
+) -> str:
+    """默认展示 canonical；显式历史入口仍可读取旧 Campaign。"""
+
+    canonical_path = (
+        _canonical_showcase_summary_path(project_dir) if include_canonical else None
+    )
+    canonical_summary = _read_json_file(canonical_path)
+    if canonical_summary.get("artifact_type") == "canonical_showcase":
+        return _render_canonical_showcase_dashboard(
+            canonical_summary,
+            canonical_path,
+        )
 
     campaign_dir = _latest_campaign_dir(project_dir)
     state = _latest_campaign_state(project_dir)
     summary = _latest_campaign_summary(project_dir)
     if not state or not summary:
         body = [
-            "<div class='view-heading'><div><span class='view-kicker'>基准评测</span><h2>五题冒烟回归集（Smoke-5）</h2></div>"
+            "<div class='view-heading'><div><span class='view-kicker'>基础设施健康检查</span><h2>Infrastructure Smoke-5</h2></div>"
             f"{_badge('not_run', 'neutral')}</div>",
-            "<p class='help strong'>从 SWE-bench Verified 的 500 个公开任务中人工分层选出 5 题，用于低成本回归 Harness 的检索、工具循环、候选改动、验证与证据链。它不是随机样本，也不代表总体解决率。</p>",
+            "<p class='help strong'>从 Verified 的 500 个公开任务中人工分层选出 5 题，只用于低成本检查 dataset、checkout、tools、patch、evaluator 与 evidence wiring 是否健康。它不是随机样本、质量选择集或解决率证据。</p>",
             _metric_grid(
                 [
                     ("Case 数量", "5", "五个代码仓与问题类型", "neutral"),
                     ("Runtime 配置", "2", "基础控制版 vs 治理增强版", "neutral"),
                     ("重复次数", "3", "每题每种配置各运行三次", "neutral"),
                     ("计划运行", "30", "5 × 2 × 3", "neutral"),
-                    ("正确性依据", "官方评测", "生成候选改动不等于解决", "warn"),
+                    ("质量分数", "不适用", "健康检查不得进入质量 headline", "warn"),
                     ("公开证据包", "完成后生成", "默认只含脱敏证据", "neutral"),
                 ]
             ),
             "<section class='evidence-section'><div class='section-title'><h3>实验契约</h3><span>运行前固定</span></div>"
             "<table><thead><tr><th>保持一致</th><th>Runtime 配置差异</th><th>最终依据</th></tr></thead><tbody>"
             "<tr><td>Case/任务输入、模型、温度、预算、安全策略、执行模式</td><td>工具可见性 + Skill 注入上下文</td><td>每题的 SWE-bench 官方评测结果</td></tr>"
-            "</tbody></table><p class='boundary-note'>这是多因素 Runtime 配置对比，不会包装成单因素因果消融实验。</p></section>",
+            "</tbody></table><p class='boundary-note'>这里只判断基础设施链路能否完成，不用于选择模型、配置或报告解决率。</p></section>",
             "<section class='evidence-section'><div class='section-title'><h3>运行入口</h3><span>每个运行槽位都可恢复</span></div>"
-            "<pre class='raw-text'>forge bench campaign --regression-set smoke-5 --repetitions 3 --evaluate --publish</pre>"
+            "<pre class='raw-text'>forge bench campaign --regression-set infrastructure-smoke-5 --repetitions 3 --evaluate --publish</pre>"
             "<p class='boundary-note'>付费运行前先提交源码；默认要求干净的 Git Revision，只有显式接受 --allow-dirty 时才允许脏工作区。</p></section>",
         ]
         return "<div class='evidence'>" + "".join(body) + "</div>"
@@ -6220,9 +6467,7 @@ def _tone_for_status(value: str) -> str:
         }
     ):
         return "ok"
-    if any(
-        marker in normalized_status for marker in failure_markers
-    ):
+    if any(marker in normalized_status for marker in failure_markers):
         return "bad"
     if normalized_status in {"ask", "executing", "planned", "waiting_approval"}:
         return "warn"

@@ -11,6 +11,7 @@ from pathlib import Path
 from agent_forge.context.adapters import JsonLongTermMemoryRepository
 from agent_forge.context.application import LongTermMemoryService
 from agent_forge.context.ports import LongTermMemoryRecallPort
+from agent_forge.contracts import DEFAULT_TOOL_EXECUTION_TIMEOUT_SECONDS
 from agent_forge.models.gateway import ModelGateway, RetryPolicy
 from agent_forge.hooks import RuntimeHook
 from agent_forge.runtime.adapters import (
@@ -80,6 +81,11 @@ class ToolRegistryBuildRequest:
     mcp_allowed_tools: tuple[str, ...] = ()
     enabled_tools: tuple[str, ...] | None = None
     execution_environment: ExecutionEnvironment | None = None
+    tool_execution_timeout_seconds: int = DEFAULT_TOOL_EXECUTION_TIMEOUT_SECONDS
+
+    def __post_init__(self) -> None:
+        if self.tool_execution_timeout_seconds <= 0:
+            raise ValueError("tool_execution_timeout_seconds must be positive")
 
 
 # 核心数据：外围入口提交的一次人工回答或取消命令。
@@ -142,12 +148,14 @@ def build_registry(request: ToolRegistryBuildRequest) -> ToolRegistry:
             sandbox,
             request.auto,
             execution_environment=request.execution_environment,
+            timeout_seconds=request.tool_execution_timeout_seconds,
         ),
         GitStatusTool(sandbox),
         GitDiffTool(sandbox),
         PythonValidationTool(
             sandbox,
             execution_environment=request.execution_environment,
+            timeout_seconds=request.tool_execution_timeout_seconds,
         ),
         AskHumanTool(),
     ]

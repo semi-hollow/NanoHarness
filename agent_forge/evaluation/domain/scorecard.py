@@ -25,7 +25,6 @@ def normalize_case(
     usage: dict[str, Any],
     environment: dict[str, Any],
 ) -> dict[str, Any]:
-
     probe_value = environment.get("probe")
     probe: dict[str, Any] = probe_value if isinstance(probe_value, dict) else {}
     summary_value = usage.get("summary")
@@ -56,17 +55,11 @@ def normalize_case(
         "llm_latency_ms": _int(summary.get("llm_latency_ms")),
         "tool_calls": _int(summary.get("tool_calls")),
         "failed_tool_calls": _int(summary.get("failed_tool_calls")),
-        "compacted_context_turns": _int(
-            summary.get("compacted_context_turns")
-        ),
-        "context_overflow_recoveries": _int(
-            summary.get("context_overflow_recoveries")
-        ),
+        "compacted_context_turns": _int(summary.get("compacted_context_turns")),
+        "context_overflow_recoveries": _int(summary.get("context_overflow_recoveries")),
         "memory_recalled": _int(summary.get("memory_recalled")),
         "tool_call_repairs": _int(summary.get("tool_call_repairs")),
-        "bounded_tool_call_bursts": _int(
-            summary.get("bounded_tool_call_bursts")
-        ),
+        "bounded_tool_call_bursts": _int(summary.get("bounded_tool_call_bursts")),
         "_observed_models": _observed_models(usage),
         "_observed_container_image_id": str(probe.get("container_image_id") or ""),
     }
@@ -76,15 +69,9 @@ def build_scorecard(
     results: dict[str, Any],
     normalized_cases: list[dict[str, Any]],
 ) -> dict[str, Any]:
-
     cases = [dict(case) for case in normalized_cases]
     observed_models = sorted(
-        {
-            model
-            for case in cases
-            for model in case.pop("_observed_models", [])
-            if model
-        }
+        {model for case in cases for model in case.pop("_observed_models", []) if model}
     )
     observed_container_image_ids = sorted(
         {
@@ -149,8 +136,7 @@ def aggregate_cases(cases: list[dict[str, Any]]) -> dict[str, Any]:
         "failure_classes": dict(
             sorted(
                 Counter(
-                    str(case.get("failure_class") or "unclassified")
-                    for case in cases
+                    str(case.get("failure_class") or "unclassified") for case in cases
                 ).items()
             )
         ),
@@ -203,18 +189,20 @@ def _metadata(
             results.get("skill_manifest_sha256") or "builtins_only"
         ),
         "max_prompt_tokens": _int(results.get("max_prompt_tokens") or 32_768),
-        "reserved_output_tokens": _int(
-            results.get("reserved_output_tokens") or 4_096
-        ),
-        "max_tool_calls_per_turn": _int(
-            results.get("max_tool_calls_per_turn") or 4
-        ),
+        "reserved_output_tokens": _int(results.get("reserved_output_tokens") or 4_096),
+        "max_tool_calls_per_turn": _int(results.get("max_tool_calls_per_turn") or 4),
         "cost_budget_usd": (
             _float(results.get("cost_budget_usd"))
             if results.get("cost_budget_usd") is not None
             else None
         ),
         "timeout_seconds": _float(results.get("timeout_seconds") or 900.0),
+        "model_request_timeout_seconds": _int(
+            results.get("model_request_timeout_seconds") or 60
+        ),
+        "tool_execution_timeout_seconds": _int(
+            results.get("tool_execution_timeout_seconds") or 120
+        ),
         "memory_namespace": str(results.get("memory_namespace") or ""),
         "memory_recall_limit": _int(results.get("memory_recall_limit")),
         "memory_snapshot_sha256": str(
@@ -233,7 +221,14 @@ def _metadata(
 
 
 def _observed_models(usage: dict[str, Any]) -> list[str]:
-    models = set()
+    """优先汇总 provider ``response.model``，并兼容旧版请求模型字段。
+
+    新 Usage 通过 ``provider_reported_models`` 单独保存远端实际身份；旧产物只记录
+    请求用的 ``model``，因此逐调用保留兼容回退。一旦新产物已有远端身份，就不能再
+    混入请求别名，否则会把同一次模型调用错误描述成两个模型。
+    """
+
+    models: set[str] = set()
     steps = usage.get("steps")
     if not isinstance(steps, list):
         return []
@@ -245,6 +240,10 @@ def _observed_models(usage: dict[str, Any]) -> list[str]:
             continue
         for call in calls:
             if not isinstance(call, dict):
+                continue
+            provider_reported = call.get("provider_reported_models")
+            if isinstance(provider_reported, list) and provider_reported:
+                models.update(str(item) for item in provider_reported if item)
                 continue
             if call.get("model"):
                 models.add(str(call["model"]))

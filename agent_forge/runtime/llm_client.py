@@ -261,6 +261,11 @@ class OpenAICompatibleLLMClient(LLMClient):
                 reasoning_content=assistant_message_payload.get("reasoning_content"),
                 usage=provider_response_payload.get("usage"),
                 response_id=provider_response_payload.get("id"),
+                observed_model=(
+                    str(provider_response_payload["model"])
+                    if provider_response_payload.get("model")
+                    else None
+                ),
                 normalization={
                     "tool_call_source": normalized_tool_calls.source,
                     "repairs": normalized_tool_calls.repairs,

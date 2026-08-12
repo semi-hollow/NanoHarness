@@ -1,0 +1,114 @@
+{
+  "schema_version": 1,
+  "protocol_id": "showcase-quality-v1-selection",
+  "status": "preregistered_before_any_quality_selection_model_call",
+  "purpose": "Select one quality-first single-Agent profile for Canonical-50; this development comparison is not the public benchmark headline.",
+  "development_set": {
+    "manifest": "benchmarks/regression/golden-10-v1.json",
+    "role": "seen_development_and_regression_only",
+    "planned_cases_per_candidate": 10,
+    "planned_total_starts": 20
+  },
+  "candidates": [
+    {
+      "candidate_id": "v4-pro",
+      "provider": "opencode-go",
+      "model": "deepseek-v4-pro",
+      "rationale": "quality-oriented coding model available through the OpenCode Go subscription"
+    },
+    {
+      "candidate_id": "glm",
+      "provider": "opencode-go",
+      "model": "glm-5.2",
+      "rationale": "strong current Chat-Completions coding model available through the same OpenCode Go subscription"
+    }
+  ],
+  "fixed_runtime": {
+    "billing_boundary": "OpenCode Go subscription only; no separately funded DeepSeek endpoint",
+    "agent_mode": "single",
+    "temperature": 0.0,
+    "thinking_mode": "enabled",
+    "reasoning_effort": "high",
+    "max_steps": 128,
+    "max_steps_role": "high safety ceiling only; not a token or quality budget",
+    "max_context_chars": 64000,
+    "max_prompt_tokens": 131072,
+    "reserved_output_tokens": 16384,
+    "max_tool_calls_per_turn": 4,
+    "cost_budget_usd_per_case": null,
+    "cost_budget_policy": "disabled for quality selection",
+    "run_timeout_seconds_per_case": 3600,
+    "model_request_timeout_seconds": 600,
+    "tool_execution_timeout_seconds": 600,
+    "tool_execution_timeout_role": "quality-preserving safety ceiling for one validation command, not a cost budget",
+    "tool_routing_mode": "task-aware",
+    "skill": "swebench_repair@3.0.0",
+    "memory_recall_limit": 0,
+    "execution_mode": "worktree",
+    "network_policy": "deny",
+    "keep_worktree": false,
+    "official_namespace": "swebench",
+    "official_cache_level": "instance",
+    "official_max_workers_per_shard": 1,
+    "fallback_allowed": false
+  },
+  "execution": {
+    "pass_at": 1,
+    "candidate_order": ["v4-pro", "glm"],
+    "logical_case_order": "exact Golden-10 manifest order within each candidate",
+    "schedule": "serial interleaved command order: v4-pro shard-a, glm shard-a, v4-pro shard-b, glm shard-b, v4-pro shard-c, glm shard-c",
+    "cross_shard_concurrency": 1,
+    "reason_for_serialization": "avoid shared repository-cache and official evaluator resource races; candidate interleaving reduces subscription-quota and time-of-day confounding",
+    "correctness_rerun": 0,
+    "whole_case_provider_retry": 0,
+    "built_in_identical_transport_attempts_per_llm_call": 2,
+    "official_evaluator_rerun": 0,
+    "result_driven_parameter_change": false
+  },
+  "capability_preflight": {
+    "required_before_formal_starts": true,
+    "kind": "outcome-blind two-call native tool round-trip transport probe",
+    "command_source": "quality-selection-command-manifest-v1.json capability_probes in listed order",
+    "allowed_model_calls": "one probe per candidate before the Golden-10 denominator starts",
+    "dataset_or_case_access": false,
+    "tool_execution": false,
+    "enters_planned_denominator": false,
+    "must_match": [
+      "exact requested provider/model/base URL",
+      "thinking mode and reasoning effort",
+      "one native tool call with exact schema arguments followed by a synthetic tool result and successful final response",
+      "non-empty provider response.model captured as the candidate's preflight observed-model identity",
+      "fallback_used=false"
+    ],
+    "formal_identity_rule": "Every successful formal LLM call must retain the exact requested provider/model and report the same observed response.model identity frozen by that candidate's probe.",
+    "failure_rule": "A candidate whose requested identity, observed response.model identity, or native-tool contract cannot pass the frozen probe is invalid and may not enter formal selection."
+  },
+  "valid_candidate": [
+    "10/10 planned starts have finalized artifacts",
+    "all successful LLM calls report the exact provider/model identity",
+    "all successful LLM calls report the candidate's preflight-bound observed response.model identity",
+    "no fallback model is used",
+    "candidate/prediction/official patch bytes align for every non-empty patch",
+    "official evaluator exits cleanly without structural warnings"
+  ],
+  "selection_rule": {
+    "primary": "highest official_resolved over the fixed planned denominator of 10",
+    "tie_break_order": [
+      "higher official_decided coverage",
+      "fewer empty patches",
+      "fewer provider or evaluator infrastructure failures",
+      "fewer failed tool calls",
+      "candidate_order"
+    ],
+    "validity_requirement": "both candidates must complete and remain protocol-valid",
+    "if_either_invalid": "do not select a winner; repair infrastructure under a new preregistration"
+  },
+  "freeze_rule": "Only the mechanically selected winner may be written to showcase-quality-v1 and used for Canonical-50. Canonical-50 outcomes cannot reopen this choice.",
+  "claim_limits": [
+    "Golden-10 is a development set and does not measure general SWE-bench Verified performance.",
+    "This comparison chooses a current model/profile; it does not isolate Harness uplift.",
+    "Thinking mode omits transport temperature, so temperature=0 is recorded configuration rather than deterministic output.",
+    "GPT 5.6 Luna is excluded from this comparison because the current Harness transport is Chat-Completions native; adding Responses reasoning-item state would be a second experimental factor.",
+    "The 128-step ceiling is an emergency convergence guard, not a cost or token optimization; normal completion should be governed by final-answer and tool-loop stop conditions."
+  ]
+}

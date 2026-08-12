@@ -3,7 +3,11 @@ import shlex
 import subprocess
 import sys
 
-from agent_forge.contracts import ToolArguments, ToolSchema
+from agent_forge.contracts import (
+    DEFAULT_TOOL_EXECUTION_TIMEOUT_SECONDS,
+    ToolArguments,
+    ToolSchema,
+)
 from agent_forge.runtime.execution_environment import ExecutionEnvironment
 from agent_forge.runtime.domain.conversation import Observation
 from agent_forge.safety.permission import PermissionPolicy, PermissionDecision
@@ -11,7 +15,7 @@ from agent_forge.safety.sandbox import WorkspaceSandbox
 from .base import Tool
 
 
-COMMAND_TIMEOUT_SECONDS = 120
+COMMAND_TIMEOUT_SECONDS = DEFAULT_TOOL_EXECUTION_TIMEOUT_SECONDS
 MAX_COMMAND_OUTPUT_CHARS = 6_000
 
 
@@ -30,10 +34,14 @@ class RunCommandTool(Tool):
         sandbox: WorkspaceSandbox,
         auto_approve_writes: bool = True,
         execution_environment: ExecutionEnvironment | None = None,
+        timeout_seconds: int = COMMAND_TIMEOUT_SECONDS,
     ) -> None:
+        if timeout_seconds <= 0:
+            raise ValueError("timeout_seconds must be positive")
         self.sandbox = sandbox
         self.policy = PermissionPolicy(auto_approve_writes)
         self.execution_environment = execution_environment
+        self.timeout_seconds = timeout_seconds
 
     def schema(self) -> ToolSchema:
         return {
@@ -61,10 +69,7 @@ class RunCommandTool(Tool):
             for value in pytest_args
         ):
             pytest_args.insert(0, "--rootdir=.")
-        if not any(
-            value == "-c" or value.startswith("-c")
-            for value in pytest_args
-        ):
+        if not any(value == "-c" or value.startswith("-c") for value in pytest_args):
             pytest_args[1:1] = ["-c", self._pytest_config_path()]
         return ["python", "-m", "pytest", *pytest_args]
 
@@ -220,7 +225,7 @@ class RunCommandTool(Tool):
             if self.execution_environment is not None:
                 proc = self.execution_environment.execute_command(
                     parts,
-                    timeout=COMMAND_TIMEOUT_SECONDS,
+                    timeout=self.timeout_seconds,
                 )
             else:
                 parts = self._normalize_python(parts)
@@ -230,7 +235,7 @@ class RunCommandTool(Tool):
                     shell=False,
                     text=True,
                     capture_output=True,
-                    timeout=COMMAND_TIMEOUT_SECONDS,
+                    timeout=self.timeout_seconds,
                 )
             complete_output = (proc.stdout + proc.stderr).strip()
             output_truncated = len(complete_output) > MAX_COMMAND_OUTPUT_CHARS

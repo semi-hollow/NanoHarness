@@ -27,7 +27,19 @@ class FileEvidenceCatalog(EvidenceCatalogPort):
         orchestration = self._orchestration_source()
         complex_repair = self._complex_source()
         evaluation = self._benchmark_source()
-        preset_sources = (governed, orchestration, complex_repair, evaluation)
+        preset_sources: tuple[EvidenceSource, ...] = (
+            governed,
+            orchestration,
+            complex_repair,
+            evaluation,
+        )
+        canonical_summary = read_json_file(self.canonical_showcase_summary_path())
+        if canonical_summary.get("artifact_type") == "canonical_showcase":
+            historical = self._historical_benchmark_source(
+                source_key="evaluation-history"
+            )
+            if historical.available:
+                preset_sources = (*preset_sources, historical)
         latest = self._latest_runtime_source()
 
         if latest.available and not any(
@@ -156,10 +168,27 @@ class FileEvidenceCatalog(EvidenceCatalogPort):
         )
 
     def _benchmark_source(self) -> EvidenceSource:
+        canonical_path = self.canonical_showcase_summary_path()
+        canonical_summary = read_json_file(canonical_path)
+        if canonical_summary.get("artifact_type") == "canonical_showcase":
+            return self._canonical_showcase_source(
+                canonical_path,
+                canonical_summary,
+            )
+
+        return self._historical_benchmark_source(source_key="evaluation")
+
+    def _historical_benchmark_source(self, *, source_key: str) -> EvidenceSource:
+        """读取旧质量摘要或 Campaign，供兼容与显式历史下钻使用。"""
+
         quality_path = self.runtime_quality_summary_path()
         quality_summary = read_json_file(quality_path)
         if quality_summary:
-            return self._runtime_quality_source(quality_path, quality_summary)
+            return self._runtime_quality_source(
+                quality_path,
+                quality_summary,
+                source_key=source_key,
+            )
 
         campaign_dir = self.latest_campaign_dir()
         campaign_state = self.latest_campaign_state()
@@ -191,10 +220,16 @@ class FileEvidenceCatalog(EvidenceCatalogPort):
             if case_count and variant_count
             else "SWE-bench 样本评测"
         )
+        if source_key == "evaluation-history":
+            title = f"历史归档 · {title}"
         return EvidenceSource(
-            key="evaluation",
+            key=source_key,
             title=title,
-            description="固定样本、配对运行、官方结果、成本与失败分布",
+            description=(
+                "历史固定样本、配对运行、官方结果、成本与失败分布；不作为当前 headline"
+                if source_key == "evaluation-history"
+                else "固定样本、配对运行、官方结果、成本与失败分布"
+            ),
             source_type="benchmark",
             task=task,
             status=status,
@@ -204,10 +239,60 @@ class FileEvidenceCatalog(EvidenceCatalogPort):
             usage_path=self.latest_benchmark_usage_path(),
         )
 
+    def _canonical_showcase_source(
+        self,
+        summary_path: Path | None,
+        summary: dict[str, Any],
+    ) -> EvidenceSource:
+        """把当前展示协议作为默认评测入口，不把历史实验提升为 headline。"""
+
+        evaluation_value = summary.get("canonical_evaluation")
+        evaluation = evaluation_value if isinstance(evaluation_value, dict) else {}
+        profile_value = summary.get("current_profile")
+        profile = profile_value if isinstance(profile_value, dict) else {}
+        evidence_run_dir = str(evaluation.get("evidence_run_dir") or "").strip()
+        run_dir = self.project_dir / evidence_run_dir if evidence_run_dir else None
+        if run_dir is not None and (
+            not _is_under(run_dir, self.project_dir) or not run_dir.is_dir()
+        ):
+            run_dir = None
+        trace_entries: list[tuple[str, Path]] = []
+        usage_paths: list[Path] = []
+        if run_dir is not None:
+            for trace_path in sorted(run_dir.glob("cases/**/trace.json")):
+                trace_entries.append(
+                    (str(trace_path.parent.relative_to(run_dir)), trace_path)
+                )
+            usage_paths.extend(sorted(run_dir.glob("cases/**/usage.json")))
+
+        profile_id = str(
+            profile.get("profile_id") or summary.get("showcase_id") or "未命名"
+        )
+        return EvidenceSource(
+            key="evaluation",
+            title=str(summary.get("title") or "NanoHarness Canonical Showcase"),
+            description=(
+                "当前质量优先配置与 Canonical-50 确定性样本；"
+                "Golden-10 仅用于开发回归，Infrastructure Smoke-5 仅用于链路健康"
+            ),
+            source_type="benchmark",
+            task=str(
+                summary.get("question")
+                or f"用 {profile_id} 完成可复现的 Canonical-50 Pass@1 评测"
+            ),
+            status=str(summary.get("status") or evaluation.get("status") or "pending"),
+            primary_path=summary_path,
+            run_dir=run_dir,
+            trace_entries=tuple(trace_entries),
+            usage_path=usage_paths[0] if usage_paths else None,
+        )
+
     def _runtime_quality_source(
         self,
         quality_path: Path | None,
         quality_summary: dict[str, Any],
+        *,
+        source_key: str = "evaluation",
     ) -> EvidenceSource:
         """把发布的质量实验摘要和本机原始 Trace 组合成一个证据入口。
 
@@ -304,11 +389,10 @@ class FileEvidenceCatalog(EvidenceCatalogPort):
                 "confirmed_unresolved",
             )
         ):
-            decided = resolved + int(
-                metrics.get("official_unresolved")
-                if metrics.get("official_unresolved") is not None
-                else metrics.get("confirmed_unresolved") or 0
-            )
+            unresolved: Any = metrics.get("official_unresolved")
+            if unresolved is None:
+                unresolved = metrics.get("confirmed_unresolved")
+            decided = resolved + int(unresolved or 0)
         else:
             decided = max(
                 0,
@@ -330,15 +414,20 @@ class FileEvidenceCatalog(EvidenceCatalogPort):
                 f"completed · 正式 {reference_iteration} 解决 {resolved}/{case_count}"
                 f" · 裁决覆盖 {decided}/{case_count}"
             )
+        title = str(
+            phase2.get("title")
+            or quality_summary.get("title")
+            or "Runtime 质量优化实验"
+        )
+        if source_key == "evaluation-history":
+            title = f"历史归档 · {title}"
         return EvidenceSource(
-            key="evaluation",
-            title=str(
-                phase2.get("title")
-                or quality_summary.get("title")
-                or "Runtime 质量优化实验"
-            ),
+            key=source_key,
+            title=title,
             description=(
-                "Phase 2 个案机制、正确性 Guards 与 Golden-10 扩展证据"
+                "历史实验归档；不作为当前 headline"
+                if source_key == "evaluation-history"
+                else "Phase 2 个案机制、正确性 Guards 与 Golden-10 扩展证据"
                 if phase2_summary
                 else (
                     "固定样本、失败驱动迭代、正确性与效率证据"
@@ -363,6 +452,14 @@ class FileEvidenceCatalog(EvidenceCatalogPort):
         """返回公开、稳定的 Runtime 质量实验摘要。"""
 
         path = self.project_dir / "benchmarks" / "runtime-quality" / "golden-10-v1.json"
+        return path if path.is_file() else None
+
+    def canonical_showcase_summary_path(self) -> Path | None:
+        """返回当前 canonical 展示摘要；存在时覆盖历史实验的默认优先级。"""
+
+        path = (
+            self.project_dir / "benchmarks" / "showcase" / "canonical-showcase-v1.json"
+        )
         return path if path.is_file() else None
 
     @staticmethod

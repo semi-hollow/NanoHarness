@@ -43,6 +43,7 @@ def build_usage_report(trace: dict[str, Any]) -> dict[str, Any]:
                 "errors": [],
             }
         return steps[key]
+
     # endregion 1. 聚合容器结束
 
     # region 2. 事件投影：每种 TraceEvent 只更新对应读模型字段
@@ -78,13 +79,17 @@ def build_usage_report(trace: dict[str, Any]) -> dict[str, Any]:
 
         elif event_type == "llm_call":
             llm_call_index += 1
-            entry["llm_calls"].append(_llm_call_summary(event, llm_call_index, trace.get("run_id", "")))
+            entry["llm_calls"].append(
+                _llm_call_summary(event, llm_call_index, trace.get("run_id", ""))
+            )
 
         elif event_type == "action":
             entry["actions"].append(
                 {
                     "tool": event.get("tool_call", ""),
-                    "arguments_keys": sorted((event.get("tool_arguments") or {}).keys()),
+                    "arguments_keys": sorted(
+                        (event.get("tool_arguments") or {}).keys()
+                    ),
                     "success": None,
                     "execution_succeeded": None,
                     "observation_chars": 0,
@@ -128,7 +133,10 @@ def build_usage_report(trace: dict[str, Any]) -> dict[str, Any]:
                     "tool": event.get("tool_call", ""),
                     "decision": hook_result.get("decision", ""),
                     "reason": hook_result.get("reason", ""),
-                    "hooks": [item.get("hook_name", "") for item in hook_result.get("decisions", [])],
+                    "hooks": [
+                        item.get("hook_name", "")
+                        for item in hook_result.get("decisions", [])
+                    ],
                 }
             )
 
@@ -144,7 +152,9 @@ def build_usage_report(trace: dict[str, Any]) -> dict[str, Any]:
             )
 
         elif event_type == "execution_environment":
-            entry["runtime"]["execution_environment"] = event.get("execution_environment") or {}
+            entry["runtime"]["execution_environment"] = (
+                event.get("execution_environment") or {}
+            )
 
         elif event_type == "permission_check":
             decision = str(event.get("permission_decision") or "")
@@ -185,15 +195,23 @@ def build_usage_report(trace: dict[str, Any]) -> dict[str, Any]:
         "tool_efficiency": tool_efficiency,
         "evidence_refs": _dedupe_keep_order(evidence_refs),
         "runtime_control": _runtime_control(ordered_steps),
-        "optimization_notes": _optimization_notes(trace, summary, ordered_steps, context_breakdown, tool_efficiency),
+        "optimization_notes": _optimization_notes(
+            trace, summary, ordered_steps, context_breakdown, tool_efficiency
+        ),
     }
     # endregion 3. 派生指标结束
 
 
-def _llm_call_summary(event: dict[str, Any], call_index: int, run_id: str) -> dict[str, Any]:
+def _llm_call_summary(
+    event: dict[str, Any], call_index: int, run_id: str
+) -> dict[str, Any]:
     usage = event.get("model_usage") or {}
-    prompt_tokens = _int(usage.get("prompt_tokens")) or _int(usage.get("prompt_tokens_estimate"))
-    completion_tokens = _int(usage.get("completion_tokens")) or _int(usage.get("completion_tokens_estimate"))
+    prompt_tokens = _int(usage.get("prompt_tokens")) or _int(
+        usage.get("prompt_tokens_estimate")
+    )
+    completion_tokens = _int(usage.get("completion_tokens")) or _int(
+        usage.get("completion_tokens_estimate")
+    )
     total_tokens = _int(usage.get("total_tokens")) or prompt_tokens + completion_tokens
     return {
         "call_index": call_index,
@@ -201,6 +219,7 @@ def _llm_call_summary(event: dict[str, Any], call_index: int, run_id: str) -> di
         "provider_response_id": usage.get("response_id", ""),
         "provider": usage.get("provider", ""),
         "model": usage.get("model", ""),
+        "provider_reported_models": list(usage.get("observed_models") or []),
         "usage_source": usage.get("usage_source", "estimate"),
         "prompt_tokens": prompt_tokens,
         "completion_tokens": completion_tokens,
@@ -225,13 +244,17 @@ def _llm_call_summary(event: dict[str, Any], call_index: int, run_id: str) -> di
 
 
 def _context_summary(context: dict[str, Any]) -> dict[str, Any]:
-    breakdown = {str(k): _int(v) for k, v in (context.get("budget_breakdown") or {}).items()}
+    breakdown = {
+        str(k): _int(v) for k, v in (context.get("budget_breakdown") or {}).items()
+    }
     return {
         "total_chars": _int(context.get("total_chars")),
         "max_chars": _int(context.get("max_chars")),
         "truncated": bool(context.get("truncated", False)),
         "budget_breakdown_chars": breakdown,
-        "budget_breakdown_estimated_tokens": {key: _chars_to_tokens(value) for key, value in breakdown.items()},
+        "budget_breakdown_estimated_tokens": {
+            key: _chars_to_tokens(value) for key, value in breakdown.items()
+        },
         "selected_files_count": len(context.get("selected_files") or []),
         "retrieved_docs_count": _int(context.get("retrieved_docs_count")),
         "dropped_context_count": len(context.get("dropped_context") or []),
@@ -291,7 +314,9 @@ def _context_breakdown(steps: list[dict[str, Any]]) -> dict[str, Any]:
     merged.update(input_chars)
     return {
         "section_chars": dict(sorted(merged.items())),
-        "section_estimated_tokens": {key: _chars_to_tokens(value) for key, value in sorted(merged.items())},
+        "section_estimated_tokens": {
+            key: _chars_to_tokens(value) for key, value in sorted(merged.items())
+        },
         "truncated_steps": truncated_steps,
     }
 
@@ -305,7 +330,9 @@ def _summary(
     calls = [call for step in steps for call in step.get("llm_calls", [])]
     prompt_tokens = sum(call["prompt_tokens"] for call in calls)
     completion_tokens = sum(call["completion_tokens"] for call in calls)
-    total_tokens = sum(call["total_tokens"] for call in calls) or prompt_tokens + completion_tokens
+    total_tokens = (
+        sum(call["total_tokens"] for call in calls) or prompt_tokens + completion_tokens
+    )
     cache_hit = sum(call["cache_hit_tokens"] for call in calls)
     cache_miss = sum(call["cache_miss_tokens"] for call in calls)
     cache_total = cache_hit + cache_miss
@@ -315,8 +342,7 @@ def _summary(
         window for step in steps for window in step.get("context_windows", [])
     ]
     memory_recalled = sum(
-        _int((step.get("memory_recall") or {}).get("recalled_count"))
-        for step in steps
+        _int((step.get("memory_recall") or {}).get("recalled_count")) for step in steps
     )
     active_skills = sorted(
         {
@@ -336,7 +362,9 @@ def _summary(
         "cache_miss_tokens": cache_miss,
         "cache_hit_rate": cache_hit / cache_total if cache_total else 0.0,
         "reasoning_tokens": sum(call["reasoning_tokens"] for call in calls),
-        "estimated_cost_usd": round(sum(call["estimated_cost_usd"] for call in calls), 6),
+        "estimated_cost_usd": round(
+            sum(call["estimated_cost_usd"] for call in calls), 6
+        ),
         "llm_latency_ms": sum(call["latency_ms"] for call in calls),
         "steps": len(steps),
         "tool_calls": tool_efficiency["total_calls"],
@@ -354,8 +382,7 @@ def _summary(
             for recovery in step.get("context_overflow_recoveries", [])
         ),
         "hard_context_limit_exceeded_turns": sum(
-            bool(window.get("hard_limit_exceeded"))
-            for window in context_windows
+            bool(window.get("hard_limit_exceeded")) for window in context_windows
         ),
         "memory_recalled": memory_recalled,
         "active_skills": active_skills,
@@ -380,7 +407,6 @@ def _tool_call_repair_count(call: dict[str, Any]) -> int:
 
 
 def _runtime_control(steps: list[dict[str, Any]]) -> dict[str, Any]:
-
     hook_decisions: Counter[str] = Counter()
     task_statuses: Counter[str] = Counter()
     environment: dict[str, Any] = {}
@@ -409,22 +435,36 @@ def _optimization_notes(
 ) -> list[str]:
     notes = []
     if summary["llm_calls"] == 0:
-        notes.append("No LLM calls were made; this run is a deterministic workflow or early guardrail stop.")
+        notes.append(
+            "No LLM calls were made; this run is a deterministic workflow or early guardrail stop."
+        )
     if summary["cache_miss_tokens"] and summary["cache_hit_rate"] < 0.2:
-        notes.append("Cache hit rate is low; stable system/context prefixes may not be reused enough across steps.")
+        notes.append(
+            "Cache hit rate is low; stable system/context prefixes may not be reused enough across steps."
+        )
     if summary["truncated_context_steps"]:
-        notes.append(f"Context was truncated in {summary['truncated_context_steps']} step(s); inspect dropped_context and selected files.")
+        notes.append(
+            f"Context was truncated in {summary['truncated_context_steps']} step(s); inspect dropped_context and selected files."
+        )
     if tool_efficiency["failed_calls"]:
-        notes.append(f"{tool_efficiency['failed_calls']} tool observation(s) failed; connect these to recovery_decision events.")
+        notes.append(
+            f"{tool_efficiency['failed_calls']} tool observation(s) failed; connect these to recovery_decision events."
+        )
     if trace.get("stop_reason") in {"max_steps", "max_steps reached"}:
-        notes.append("Run stopped at max_steps; tune prompt, tool routing, or max_steps depending on whether progress was real.")
+        notes.append(
+            "Run stopped at max_steps; tune prompt, tool routing, or max_steps depending on whether progress was real."
+        )
 
     section_chars = context_breakdown.get("section_chars") or {}
     if section_chars:
         top_section, top_chars = max(section_chars.items(), key=lambda item: item[1])
-        notes.append(f"Largest context section is {top_section} ({top_chars} chars); this is the first place to optimize token cost.")
+        notes.append(
+            f"Largest context section is {top_section} ({top_chars} chars); this is the first place to optimize token cost."
+        )
     if not notes:
-        notes.append("No obvious usage hotspot detected; compare this run against another model or prompt variant.")
+        notes.append(
+            "No obvious usage hotspot detected; compare this run against another model or prompt variant."
+        )
     return notes
 
 
@@ -436,7 +476,6 @@ def _last_action_without_observation(step: dict[str, Any]) -> dict[str, Any] | N
 
 
 def _dedupe_keep_order(items: list[str]) -> list[str]:
-
     seen = set()
     result = []
     for item in items:
@@ -448,7 +487,6 @@ def _dedupe_keep_order(items: list[str]) -> list[str]:
 
 
 def _chars_to_tokens(chars: int) -> int:
-
     return max(0, int(round(_int(chars) / 4)))
 
 

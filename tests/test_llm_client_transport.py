@@ -76,15 +76,29 @@ class LLMClientTransportTest(unittest.TestCase):
             {"OPENCODE_GO_API_KEY": "test-go-key"},
             clear=True,
         ):
-            config = resolve_llm_config(
-                LLMConfigRequest(provider="opencode-go")
-            )
+            config = resolve_llm_config(LLMConfigRequest(provider="opencode-go"))
 
         self.assertEqual(config.base_url, OPENCODE_GO_BASE_URL)
         self.assertEqual(config.model, "glm-5.2")
         self.assertEqual(config.api_key, "test-go-key")
+        self.assertEqual(config.credential_source, "OPENCODE_GO_API_KEY")
         self.assertEqual(config.capabilities.context_window, GLM_52_CONTEXT_WINDOW)
         self.assertTrue(config.uses_openai_compatible_api)
+
+    def test_opencode_go_does_not_fall_back_to_separately_funded_keys(self):
+        with patch.dict(
+            "os.environ",
+            {
+                "DEEPSEEK_API_KEY": "deepseek-key",
+                "OPENAI_API_KEY": "openai-key",
+            },
+            clear=True,
+        ):
+            config = resolve_llm_config(LLMConfigRequest(provider="opencode-go"))
+
+        self.assertEqual(config.api_key, "")
+        self.assertEqual(config.credential_source, "")
+        self.assertFalse(config.is_configured())
 
     def test_opencode_go_rejects_models_requiring_an_unimplemented_transport(self):
         with self.assertRaisesRegex(ValueError, "Chat Completions adapter"):
@@ -112,7 +126,10 @@ class LLMClientTransportTest(unittest.TestCase):
                 return False
 
             def read(self):
-                return b'{"choices":[{"message":{"content":"ok"}}]}'
+                return (
+                    b'{"model":"provider/test-model-build-1",'
+                    b'"choices":[{"message":{"content":"ok"}}]}'
+                )
 
         def open_request(request, timeout):
             captured["payload"] = json.loads(request.data.decode("utf-8"))
@@ -128,6 +145,7 @@ class LLMClientTransportTest(unittest.TestCase):
         self.assertNotIn("thinking", captured["payload"])
         self.assertNotIn("reasoning_effort", captured["payload"])
         self.assertEqual(captured["user_agent"], "NanoHarness/1.0")
+        self.assertEqual(response.observed_model, "provider/test-model-build-1")
 
     def test_thinking_request_sends_mode_and_effort_without_temperature(self):
         config = resolve_llm_config(

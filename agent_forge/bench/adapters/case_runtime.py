@@ -103,6 +103,9 @@ class LocalCaseExecutor(CaseExecutorPort):
                     workspace=str(active_workspace),
                     auto=True,
                     execution_environment=environment,
+                    tool_execution_timeout_seconds=(
+                        request.tool_execution_timeout_seconds
+                    ),
                 )
             )
             llm, model_capabilities = self._build_model(request)
@@ -115,6 +118,7 @@ class LocalCaseExecutor(CaseExecutorPort):
                 reserved_output_tokens=request.reserved_output_tokens,
                 max_tool_calls_per_turn=request.max_tool_calls_per_turn,
                 timeout_seconds=request.timeout_seconds,
+                tool_execution_timeout_seconds=(request.tool_execution_timeout_seconds),
                 cost_budget_usd=request.cost_budget_usd,
                 task_state_root=str(case_dir / "task_state"),
                 tool_routing_mode=request.tool_routing_mode,
@@ -229,7 +233,7 @@ class LocalCaseExecutor(CaseExecutorPort):
                 base_url=request.base_url,
                 api_key=request.api_key,
                 model=request.model,
-                timeout=60,
+                timeout=request.model_request_timeout_seconds,
                 temperature=request.temperature,
                 thinking_mode=request.thinking_mode,
                 reasoning_effort=request.reasoning_effort,

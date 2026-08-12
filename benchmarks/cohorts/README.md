@@ -1,13 +1,13 @@
 # Frozen Benchmark Cohorts
 
-此目录保存大样本评测的**预注册分母**，不保存运行结果。
+当前展示评测的预注册分母已统一迁移到
+[Canonical Showcase](../showcase/canonical-50-v1.json)。该清单从固定的 SWE-bench
+Verified revision 中离线生成，选择阶段只读取 `instance_id` 与 `repo`，并在任何正式
+运行前冻结样本、仓库配额、顺序与 SHA-256。
 
-`swebench-verified-100-v1.json` 从 SWE-bench Verified `test` split 的 500 题中，按
-`SHA-256(seed + ":" + instance_id)` 排序后取前 100 题。选择过程不读取 gold patch、
-test patch 或历史成功结果，因此不会为了提高分数挑题。
+早期 100 题清单属于低预算实验历史，已从主动展示面移除；仍可从 Git 历史恢复，恢复点见
+[评测历史归档](../archive/README.md)。历史 Case 的仅 ID 集合已嵌入 Canonical 排除清单，
+因此全新 clone 仍能机械验证当前 50 题没有复用旧开发样本。
 
-- `a`：前 50 题，本轮执行。
-- `b`：后 50 题，后续扩容时执行。
-- 两个分片互斥，合并后恰好覆盖 100 题；CLI 会在付费调用前校验该契约。
-
-单次结果应写成“在固定 50 题样本上 resolved X/50”，不能写成官方排行榜分数。
+Canonical 单次结果只能写成“在预注册固定 50 题样本上 resolved `X/50`”，不得冒充
+SWE-bench 官方排行榜或总体解决率。

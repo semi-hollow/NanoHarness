@@ -13,7 +13,11 @@ import shlex
 import subprocess
 import sys
 
-from agent_forge.contracts import ToolArguments, ToolSchema
+from agent_forge.contracts import (
+    DEFAULT_TOOL_EXECUTION_TIMEOUT_SECONDS,
+    ToolArguments,
+    ToolSchema,
+)
 from agent_forge.runtime.domain.conversation import Observation
 from agent_forge.runtime.execution_environment import ExecutionEnvironment
 from agent_forge.safety.sandbox import WorkspaceSandbox
@@ -35,9 +39,13 @@ class PythonValidationTool(Tool):
         self,
         sandbox: WorkspaceSandbox,
         execution_environment: ExecutionEnvironment | None = None,
+        timeout_seconds: int = DEFAULT_TOOL_EXECUTION_TIMEOUT_SECONDS,
     ) -> None:
+        if timeout_seconds <= 0:
+            raise ValueError("timeout_seconds must be positive")
         self.sandbox = sandbox
         self.execution_environment = execution_environment
+        self.timeout_seconds = timeout_seconds
 
     def schema(self) -> ToolSchema:
         """告诉模型唯一可选的动作和目标字段。"""
@@ -87,7 +95,7 @@ class PythonValidationTool(Tool):
             )
             process = self.execution_environment.execute_command(
                 ["python", "-m", "compileall", "-q", relative_target],
-                timeout=30,
+                timeout=self.timeout_seconds,
             )
             output = (process.stdout + process.stderr).strip()[:3000]
             return Observation(
@@ -120,9 +128,7 @@ class PythonValidationTool(Tool):
             try:
                 py_compile.compile(str(path), doraise=True)
             except py_compile.PyCompileError as exc:
-                relative_path = path.relative_to(
-                    self.sandbox.workspace_root
-                ).as_posix()
+                relative_path = path.relative_to(self.sandbox.workspace_root).as_posix()
                 compile_errors.append(f"{relative_path}: {exc.msg}")
         if compile_errors:
             return Observation(
@@ -145,7 +151,6 @@ class PythonValidationTool(Tool):
             return command
         return self._run_validation_command(
             command,
-            timeout=30,
             check_type="unittest",
         )
 
@@ -157,7 +162,6 @@ class PythonValidationTool(Tool):
             return command
         return self._run_validation_command(
             command,
-            timeout=120,
             check_type="pytest",
         )
 
@@ -165,7 +169,6 @@ class PythonValidationTool(Tool):
         self,
         command: list[str],
         *,
-        timeout: int,
         check_type: str,
     ) -> Observation:
         """执行固定 argv，并区分测试失败与验证环境不可用。"""
@@ -173,7 +176,7 @@ class PythonValidationTool(Tool):
         if self.execution_environment is not None:
             process = self.execution_environment.execute_command(
                 command,
-                timeout=timeout,
+                timeout=self.timeout_seconds,
             )
         else:
             local_command = (
@@ -186,7 +189,7 @@ class PythonValidationTool(Tool):
                 cwd=str(self.sandbox.workspace_root),
                 text=True,
                 capture_output=True,
-                timeout=timeout,
+                timeout=self.timeout_seconds,
                 shell=False,
             )
         output = (process.stdout + process.stderr).strip()[:3000]
@@ -232,11 +235,7 @@ class PythonValidationTool(Tool):
         return Observation(
             tool_name=self.name,
             success=process.returncode == 0,
-            content=(
-                f"{command_evidence}\n"
-                f"exit_code={process.returncode}\n"
-                f"{output}"
-            ),
+            content=(f"{command_evidence}\nexit_code={process.returncode}\n{output}"),
             execution_succeeded=True,
         )
 
@@ -283,9 +282,10 @@ class PythonValidationTool(Tool):
         resolved_target = self.sandbox.ensure_safe_path(path_target)
         if not resolved_target.exists():
             target_parts = shlex.split(path_target)
-            if len(target_parts) > 1 and self.sandbox.ensure_safe_path(
-                target_parts[0]
-            ).exists():
+            if (
+                len(target_parts) > 1
+                and self.sandbox.ensure_safe_path(target_parts[0]).exists()
+            ):
                 return Observation(
                     tool_name=self.name,
                     success=False,

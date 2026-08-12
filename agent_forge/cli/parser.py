@@ -177,7 +177,10 @@ def _add_benchmark_command(subparsers: argparse._SubParsersAction) -> None:
     build_case_inspection_parser(case_parser)
     campaign_parser = bench_subparsers.add_parser(
         "campaign",
-        help="Run or resume a repeated matched Smoke-5 runtime-preset campaign.",
+        help=(
+            "Run or resume the Infrastructure Smoke-5 wiring campaign; "
+            "this is not a quality scorecard."
+        ),
     )
     build_campaign_parser(campaign_parser)
 

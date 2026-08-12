@@ -99,7 +99,9 @@ def render_case_inspection(
             ]
         )
     else:
-        lines.append("该 case 不在内置 smoke-5 中，请结合下方原始 issue 判断问题类型。")
+        lines.append(
+            "该 case 不在 Infrastructure Smoke-5 中，请结合下方原始 issue 判断问题类型。"
+        )
     lines.extend(
         [
             "",

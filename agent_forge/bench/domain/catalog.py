@@ -1,7 +1,7 @@
-"""内置 benchmark 集合的人工策展契约。
+"""内置基础设施检查集合的人工策展契约。
 
 本文件只有稳定常量和类型化 profile，不加载 Hugging Face 数据集。阅读时先看
-``SMOKE_5_PROFILE`` 的集合目标，再按 ``CASE_PROFILES`` 查看每题选择理由。
+``INFRASTRUCTURE_SMOKE_5_PROFILE`` 的集合目标，再按 ``CASE_PROFILES`` 查看每题选择理由。
 """
 
 from agent_forge.bench.domain.case_inspection import (
@@ -62,18 +62,20 @@ CASE_PROFILES = {
 }
 
 # 集合成员：执行顺序稳定，便于 matched regression 比较。
-SMOKE_5_CASE_IDS = tuple(CASE_PROFILES)
-REGRESSION_SETS = {"smoke-5": list(SMOKE_5_CASE_IDS)}
+INFRASTRUCTURE_SMOKE_5_CASE_IDS = tuple(CASE_PROFILES)
+REGRESSION_SETS = {
+    "infrastructure-smoke-5": list(INFRASTRUCTURE_SMOKE_5_CASE_IDS)
+}
 
 # 集合契约：回答“从 500 题中为什么只选这 5 题、结论能外推到哪里”。
-SMOKE_5_PROFILE = BenchmarkSetProfile(
-    name="smoke-5",
+INFRASTRUCTURE_SMOKE_5_PROFILE = BenchmarkSetProfile(
+    name="infrastructure-smoke-5",
     dataset_name=DEFAULT_DATASET,
     split="test",
     universe_case_count=500,
     objective=(
-        "以较低成本回归 Harness 的代码检索、工具循环、patch 生成、验证和证据链；"
-        "它不是模型排行榜，也不估计总体解决率。"
+        "以五个固定真实任务检查 dataset、checkout、工具循环、patch、official evaluator "
+        "与证据发布是否端到端健康；它不用于配置选择、模型排行或解决率估计。"
     ),
     selection_method=(
         "从 SWE-bench Verified test 的 500 个经人工确认 case 中分层选择：五个不同仓库、"
@@ -92,10 +94,13 @@ SMOKE_5_PROFILE = BenchmarkSetProfile(
         "继承语义与对象布局",
     ),
     claim_limits=(
-        "五个 case 只能支持机制回归和 case study，不能代表 SWE-bench Verified 总体表现。",
+        "五个 case 只支持基础设施健康检查和机制回归，不能代表 SWE-bench Verified 总体表现。",
+        "本集合不进入 Canonical scorecard，也不用于选择 showcase 模型或预算。",
         "candidate patch 只表示生成了 diff，正确性必须由官方 per-case 评测确认。",
         "单次运行不估计模型随机方差；质量结论需要固定配置后的重复 matched runs。",
     ),
 )
 
-REGRESSION_SET_PROFILES = {SMOKE_5_PROFILE.name: SMOKE_5_PROFILE}
+REGRESSION_SET_PROFILES = {
+    INFRASTRUCTURE_SMOKE_5_PROFILE.name: INFRASTRUCTURE_SMOKE_5_PROFILE
+}

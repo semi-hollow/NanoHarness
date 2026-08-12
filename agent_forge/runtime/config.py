@@ -12,6 +12,7 @@ from agent_forge.contracts import (
     DEFAULT_MAX_CONTEXT_CHARS,
     DEFAULT_MAX_PROMPT_TOKENS,
     DEFAULT_MAX_STEPS,
+    DEFAULT_TOOL_EXECUTION_TIMEOUT_SECONDS,
     DEFAULT_TIMEOUT_SECONDS,
 )
 from agent_forge.runtime.domain.model import ModelCapabilities
@@ -40,6 +41,7 @@ class RuntimeConfig:
     max_consecutive_identical_tool_calls: int = 2
     max_tool_calls_per_turn: int = 4
     timeout_seconds: float = DEFAULT_TIMEOUT_SECONDS
+    tool_execution_timeout_seconds: int = DEFAULT_TOOL_EXECUTION_TIMEOUT_SECONDS
     cost_budget_usd: float | None = None
     previous_task: str = ""
     session_summary: str = ""

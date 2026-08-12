@@ -48,6 +48,7 @@ class LLMConfig:
     provider: str = "deepseek"
     base_url: str = ""
     api_key: str = ""
+    credential_source: str = ""
     model: str = ""
     timeout: int = 30
     temperature: float = 0.0
@@ -122,12 +123,16 @@ def resolve_llm_config(request: LLMConfigRequest) -> LLMConfig:
     default_base_url = (
         "https://api.deepseek.com"
         if deepseek_defaults
-        else OPENCODE_GO_BASE_URL if opencode_go_defaults else ""
+        else OPENCODE_GO_BASE_URL
+        if opencode_go_defaults
+        else ""
     )
     default_model = (
         "deepseek-v4-flash"
         if deepseek_defaults
-        else OPENCODE_GO_DEFAULT_MODEL if opencode_go_defaults else ""
+        else OPENCODE_GO_DEFAULT_MODEL
+        if opencode_go_defaults
+        else ""
     )
     resolved_model = (
         request.model
@@ -170,15 +175,21 @@ def resolve_llm_config(request: LLMConfigRequest) -> LLMConfig:
         if resolved_reasoning_effort not in {"high", "max"}:
             raise ValueError("reasoning_effort must be high or max")
         if resolved_thinking_mode == "disabled":
-            raise ValueError(
-                "reasoning_effort requires thinking_mode enabled or auto"
-            )
-    if opencode_go_defaults and resolved_model not in OPENCODE_GO_CHAT_COMPLETIONS_MODELS:
+            raise ValueError("reasoning_effort requires thinking_mode enabled or auto")
+    if (
+        opencode_go_defaults
+        and resolved_model not in OPENCODE_GO_CHAT_COMPLETIONS_MODELS
+    ):
         raise ValueError(
             "opencode-go model is not supported by the current Chat Completions "
             f"adapter: {resolved_model!r}"
         )
 
+    resolved_api_key, credential_source = _resolve_api_key(
+        provider=resolved_provider,
+        explicit=request.api_key,
+        profile_value=profile_data.get("api_key"),
+    )
     return LLMConfig(
         provider=resolved_provider,
         base_url=(
@@ -191,15 +202,8 @@ def resolve_llm_config(request: LLMConfigRequest) -> LLMConfig:
             or default_base_url
             or ""
         ).rstrip("/"),
-        api_key=(
-            request.api_key
-            or profile_data.get("api_key")
-            or os.getenv("AGENT_FORGE_API_KEY")
-            or os.getenv("OPENCODE_GO_API_KEY")
-            or os.getenv("DEEPSEEK_API_KEY")
-            or os.getenv("OPENAI_API_KEY")
-            or ""
-        ),
+        api_key=resolved_api_key,
+        credential_source=credential_source,
         model=resolved_model,
         timeout=int(profile_data.get("timeout", request.timeout)),
         temperature=resolved_temperature,
@@ -212,6 +216,34 @@ def resolve_llm_config(request: LLMConfigRequest) -> LLMConfig:
             thinking_mode=resolved_thinking_mode,
         ),
     )
+
+
+def _resolve_api_key(
+    *,
+    provider: str,
+    explicit: str | None,
+    profile_value: object,
+) -> tuple[str, str]:
+    """按 provider 隔离凭据来源，避免订阅端点静默借用另一服务的 Key。"""
+
+    candidates: list[tuple[str, str | None]] = [
+        ("explicit_request", explicit),
+        ("profile", str(profile_value) if profile_value else None),
+        ("AGENT_FORGE_API_KEY", os.getenv("AGENT_FORGE_API_KEY")),
+    ]
+    provider_environment = {
+        "opencode-go": ("OPENCODE_GO_API_KEY",),
+        "deepseek": ("DEEPSEEK_API_KEY",),
+        "openai": ("OPENAI_API_KEY",),
+        "openai-compatible": ("OPENAI_API_KEY",),
+    }
+    candidates.extend(
+        (name, os.getenv(name)) for name in provider_environment.get(provider, ())
+    )
+    for source, value in candidates:
+        if value:
+            return value, source
+    return "", ""
 
 
 def default_model_capabilities(

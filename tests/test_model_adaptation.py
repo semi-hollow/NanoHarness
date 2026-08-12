@@ -54,6 +54,18 @@ class ModelAdaptationTest(unittest.TestCase):
             response.normalization["repairs"],
         )
 
+    def test_records_provider_response_model_identity(self) -> None:
+        response = self.client.parse_response(
+            {
+                "id": "response-1",
+                "model": "provider/model-build-1",
+                "choices": [{"message": {"content": "ok"}}],
+            }
+        )
+
+        self.assertIsNone(response.error)
+        self.assertEqual(response.observed_model, "provider/model-build-1")
+
     def test_promotes_exact_text_tool_call_only_for_visible_tool(self) -> None:
         response = self.client.parse_response(
             {
@@ -189,9 +201,7 @@ class ModelAdaptationTest(unittest.TestCase):
         self.assertFalse(gateway.last_usage.fallback_used)
 
     def test_gateway_records_actual_fallback_model_identity(self) -> None:
-        primary = SequenceModel(
-            [AgentResponse(None, [], {"code": "request_failed"})]
-        )
+        primary = SequenceModel([AgentResponse(None, [], {"code": "request_failed"})])
         fallback = SequenceModel([AgentResponse("recovered", [])])
         gateway = ModelGateway(
             primary,
@@ -234,6 +244,7 @@ class ModelAdaptationTest(unittest.TestCase):
                         "event_type": "llm_call",
                         "model_usage": {
                             "error_codes": ["invalid_tool_call"],
+                            "observed_models": ["provider/model-build-1"],
                         },
                         "response_normalization": {},
                     }
@@ -242,6 +253,10 @@ class ModelAdaptationTest(unittest.TestCase):
         )
 
         self.assertEqual(usage["summary"]["tool_call_repairs"], 1)
+        self.assertEqual(
+            usage["steps"][0]["llm_calls"][0]["provider_reported_models"],
+            ["provider/model-build-1"],
+        )
 
     def test_gateway_prices_opencode_go_glm_usage(self) -> None:
         client = SequenceModel(
@@ -255,6 +270,7 @@ class ModelAdaptationTest(unittest.TestCase):
                         "total_tokens": 1_100_000,
                         "prompt_tokens_details": {"cached_tokens": 250_000},
                     },
+                    observed_model="provider/glm-5.2-build-1",
                 )
             ]
         )
@@ -268,6 +284,31 @@ class ModelAdaptationTest(unittest.TestCase):
 
         # 250K cached * $0.26/M + 750K miss * $1.40/M + 100K output * $4.40/M
         self.assertEqual(gateway.last_usage.estimated_cost_usd, 1.555)
+        self.assertEqual(
+            gateway.last_usage.observed_models,
+            ["provider/glm-5.2-build-1"],
+        )
+
+    def test_gateway_preserves_response_identity_without_usage_payload(self) -> None:
+        client = SequenceModel(
+            [
+                AgentResponse(
+                    "done",
+                    [],
+                    response_id="response-without-usage",
+                    observed_model="provider/model-build-1",
+                )
+            ]
+        )
+        gateway = ModelGateway(client, provider="provider", model="requested-model")
+
+        gateway.chat([Message("user", "task")], TOOLS)
+
+        self.assertEqual(gateway.last_usage.response_id, "response-without-usage")
+        self.assertEqual(
+            gateway.last_usage.observed_models,
+            ["provider/model-build-1"],
+        )
 
 
 if __name__ == "__main__":

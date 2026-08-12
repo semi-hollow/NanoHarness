@@ -93,7 +93,7 @@ class BenchmarkCampaignRequest:
     benchmark: SwebenchRunRequest
     case_ids: tuple[str, ...]
     campaign_id: str
-    regression_set: str = "smoke-5"
+    regression_set: str = "infrastructure-smoke-5"
     repetitions: int = 3
     output_root: str = ".agent_forge/campaigns"
     publish_root: str = ""

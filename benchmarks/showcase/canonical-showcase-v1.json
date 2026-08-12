@@ -1,0 +1,66 @@
+{
+  "schema_version": 1,
+  "artifact_type": "canonical_showcase",
+  "showcase_id": "canonical-showcase-v1",
+  "title": "NanoHarness · Canonical Showcase",
+  "status": "quality_profile_selection_pending",
+  "question": "质量优先的当前配置，在预封存的确定性 50 题样本上能取得什么 Pass@1 结果？",
+  "current_profile": {
+    "profile_id": "showcase-quality-v1",
+    "status": "candidate_comparison_pending",
+    "frozen": false,
+    "selected_model": null,
+    "model_candidates": [
+      "opencode-go/deepseek-v4-pro",
+      "opencode-go/glm-5.2"
+    ],
+    "references": {
+      "selection_set": "Golden-10",
+      "selection_role": "development_and_regression_only",
+      "profile_manifest": null,
+      "selection_protocol": "benchmarks/showcase/quality-selection-protocol-v1.json"
+    }
+  },
+  "canonical_evaluation": {
+    "evaluation_id": "canonical-50-v1",
+    "status": "not_started",
+    "dataset": "princeton-nlp/SWE-bench_Verified",
+    "protocol": "Pass@1",
+    "sample_kind": "deterministic_repo_stratified_presealed",
+    "cohort_manifest": "benchmarks/showcase/canonical-50-v1.json",
+    "cohort_frozen": true,
+    "protocol_frozen": false,
+    "planned": 50,
+    "completed": null,
+    "terminal_accounted": null,
+    "official_evaluated": null,
+    "empty_patch": null,
+    "provider_infra": null,
+    "evaluator_infra": null,
+    "official_resolved": null,
+    "evidence_validated": false,
+    "evidence_run_dir": null,
+    "claim": "Result applies only to this deterministic 50-case sample, not the full SWE-bench Verified benchmark."
+  },
+  "supporting_checks": [
+    {
+      "id": "golden-10",
+      "label": "Golden-10",
+      "role": "development_and_regression_only",
+      "quality_headline": false,
+      "status": "ready_for_bounded_candidate_comparison"
+    },
+    {
+      "id": "infrastructure-smoke-5",
+      "label": "Infrastructure Smoke-5",
+      "role": "infrastructure_health_only",
+      "quality_headline": false,
+      "status": "available"
+    }
+  ],
+  "boundaries": [
+    "No Canonical-50 score is published until the frozen profile and protocol complete the full denominator with validated terminal evidence and zero infrastructure loss.",
+    "Golden-10 selects and regression-checks the current profile; it is not the public quality score.",
+    "Infrastructure Smoke-5 checks dataset, checkout, tool, patch, evaluator, and evidence wiring only."
+  ]
+}

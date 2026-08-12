@@ -44,41 +44,39 @@ NanoHarness 把这些问题放进 Runtime 控制面，而不是交给 Prompt 或
 | 找代码、依赖和状态 owner | [项目架构与代码导航](docs/项目架构与代码导航.md) |
 | 核对能力是否实现以及不能声称什么 | [能力实现状态与使用边界](docs/能力实现状态与使用边界.md) |
 | 动手跑断点和查 Evidence | [Debug Lab](examples/debug_lab/README.md) |
-| 查评测证据范围 | [回归测试与评测范围](docs/evaluation/回归测试与评测范围.md) |
-| 查功能冻结后的质量实验与结果 | [Runtime 质量实验](docs/evaluation/功能冻结后的Runtime质量实验.md) |
+| 查当前质量配置与 Canonical-50 进度 | [Canonical Showcase](benchmarks/showcase/canonical-showcase-v1.json) |
+| 查评测分层、运行方法和声明边界 | [回归测试与评测范围](docs/evaluation/回归测试与评测范围.md) |
 | 查真实失败、根因和回归证据 | [典型故障与系统调优记录](docs/evaluation/典型故障与系统调优记录.md) |
 
 历史背景按需查[功能演进与设计取舍](docs/功能演进与设计取舍.md)和
 [代码结构演进与可读性治理](docs/architecture/代码结构演进与可读性治理.md)。
 
-## 量化方法与边界
+## 当前质量展示面
 
-NanoHarness 把“机制是否存在”和“Runtime 质量如何”分开验证：前者由 Debug Lab
-和行为回归验收，后者使用预注册 SWE-bench Case、单因素配对实验和 official
-evaluator。
+NanoHarness 将“Runtime 机制是否正确”与“当前配置能解决多少仓库任务”分开验证。
+前者由 Debug Lab 和行为回归覆盖；后者由预注册的 `showcase-quality-v1` 与
+Canonical-50 回答。
 
-功能冻结后的证据分成两阶段。Phase 1 在固定 DeepSeek Golden-10 上建立 `4/10 planned`
-official resolved 的正式 R0；R1-R3 虽出现局部正向或机制命中，却触发语义/correctness gate，
-因此全部拒绝并回滚，旧 `8/10` 只是探索期 candidate Patch 覆盖，从未被采纳为解决率提升。
+当前流程只有三层：
 
-Phase 2 更换为 `opencode-go / glm-5.2` 后重新建立独立基线，不与 Phase 1 做严格 A/B。一个
-Operation Ledger 的 68 行通用候选，只在同 Run、完整 fingerprint 证明目标被逆操作恢复到
-precondition 时允许一次重放：历史 Pytest 8399 `0/2` official unresolved 转为 fresh Treatment
-`2/2` resolved，机制标记 `2/2`；三个冻结 Guard 保持 `3/3` resolved 且标记为 0。这个结果是
-post-hoc selected、Case-level 的正向复现，本地 validation 仍失败，不能外推为 SWE-bench 总体
-uplift。唯一 Golden-10 扩跑随后只有 `4 resolved / 5 unresolved / 1 empty`，低于 Phase-2 R0 的
-`5/10`，原五个 resolved 只保留 `3/5`；另有 1 次 Provider transport timeout 使 comparison
-protocol-invalid。即使忽略该 infra，净退化和两个锚点回归也分别触发拒绝。因此该通用 Treatment
-未被采纳，并已由可审计 revert commit `042846a` 回滚；当前 Goal/Gate 4 未完成。窄 Case 证据保留，
-但不能称为 Golden non-regression。
-完整协议、Golden-10 单次扩跑、负结果和声明边界见
-[Runtime 质量实验](docs/evaluation/功能冻结后的Runtime质量实验.md)，机器可读摘要见
-[Golden-10 证据](benchmarks/runtime-quality/golden-10-v1.json)。
+1. **Golden-10 开发/回归集：**在已见的 10 题上按冻结规则比较最多两个质量候选，只用于选出当前配置，不作为公开质量分数。
+2. **Infrastructure Smoke-5：**只检查数据、checkout、工具、Patch、official evaluator 和 Evidence 链路是否健康。
+3. **Canonical-50：**从冻结的 SWE-bench Verified 中确定性、按仓库分层并预封存 50 题；固定
+   Pass@1、完整计划分母、不因正确性重跑、不按结果换题。
+
+`showcase-quality-v1` 仍在候选比较阶段，Canonical-50 尚未开始，因此当前不发布新分数。
+完成后只使用“确定性 50 题样本上 `X/50`”的表述，不外推为完整 SWE-bench Verified
+解决率。实时状态见 [Canonical Showcase](benchmarks/showcase/canonical-showcase-v1.json)，选型规则见
+[Golden-10 协议](benchmarks/showcase/quality-selection-protocol-v1.json)，样本见
+[Canonical-50 manifest](benchmarks/showcase/canonical-50-v1.json)。
+
+早期低预算、被拒绝 Treatment 和旧 Campaign 仍可通过 Git 复核，但不再作为当前质量展示。
+历史定位与恢复点见[评测历史归档](benchmarks/archive/README.md)。
 
 ## 证据与可复现场景
 
-Workbench 只读真实 Runtime Event，把运行概览、执行过程、上下文与决策、结果与证据
-投影成可查阅页面；它不伪造隐藏思维链，也不用另一个模型重写事实。
+Workbench 只读真实 Runtime Event 与已保存的评测制品，把运行概览、执行过程、上下文与决策、
+结果与证据投影成可查阅页面；它不伪造隐藏思维链，也不用另一个模型重写事实。
 
 三个 Debug Lab 分别复现审批与恢复、多 Agent 隔离合并、真实模型复杂修复。运行方式、断点和
 Workbench 阅读顺序只在 [Debug Lab](examples/debug_lab/README.md) 说明；评测结论的证据边界只在

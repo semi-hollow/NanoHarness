@@ -4,7 +4,6 @@ from typing import Any
 
 @dataclass
 class ModelUsage:
-
     provider: str
     model: str
     attempts: int = 0
@@ -21,26 +20,32 @@ class ModelUsage:
     cache_miss_tokens: int = 0
     reasoning_tokens: int = 0
     response_id: str = ""
+    observed_models: list[str] = field(default_factory=list)
     usage_source: str = "estimate"
     estimated_cost_usd: float = 0.0
     error_codes: list[str] = field(default_factory=list)
     raw_usage: dict[str, Any] = field(default_factory=dict)
 
     def record_attempt(self, latency_ms: int, error_code: str = "") -> None:
-
         self.attempts += 1
         self.latency_ms += latency_ms
         if error_code:
             self.error_codes.append(error_code)
 
-    def record_provider_usage(self, usage: dict[str, Any] | None, response_id: str | None = None) -> None:
-
+    def record_provider_usage(
+        self,
+        usage: dict[str, Any] | None,
+        response_id: str | None = None,
+        observed_model: str | None = None,
+    ) -> None:
+        if observed_model and observed_model not in self.observed_models:
+            self.observed_models.append(observed_model)
+        if response_id:
+            self.response_id = response_id
         if not usage:
             return
         self.usage_source = "provider"
         self.raw_usage = dict(usage)
-        if response_id:
-            self.response_id = response_id
 
         prompt = int(usage.get("prompt_tokens") or 0)
         completion = int(usage.get("completion_tokens") or 0)
@@ -65,7 +70,6 @@ class ModelUsage:
         self.reasoning_tokens += int(completion_details.get("reasoning_tokens") or 0)
 
     def merge(self, other: "ModelUsage") -> None:
-
         self.attempts += other.attempts
         self.latency_ms += other.latency_ms
         self.prompt_tokens_estimate += other.prompt_tokens_estimate
@@ -80,11 +84,13 @@ class ModelUsage:
         self.error_codes.extend(other.error_codes)
         if other.response_id:
             self.response_id = other.response_id
+        for observed_model in other.observed_models:
+            if observed_model not in self.observed_models:
+                self.observed_models.append(observed_model)
         if other.usage_source == "provider":
             self.usage_source = "provider"
 
     def to_dict(self) -> dict:
-
         return {
             "provider": self.provider,
             "model": self.model,
@@ -102,6 +108,7 @@ class ModelUsage:
             "cache_miss_tokens": self.cache_miss_tokens,
             "reasoning_tokens": self.reasoning_tokens,
             "response_id": self.response_id,
+            "observed_models": list(self.observed_models),
             "usage_source": self.usage_source,
             "estimated_cost_usd": self.estimated_cost_usd,
             "error_codes": self.error_codes,

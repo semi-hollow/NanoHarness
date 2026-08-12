@@ -167,6 +167,8 @@ class BenchRunSummary:
     max_tool_calls_per_turn: int = 0
     cost_budget_usd: float | None = None
     timeout_seconds: float = 0.0
+    model_request_timeout_seconds: int = 0
+    tool_execution_timeout_seconds: int = 0
     memory_namespace: str = ""
     memory_recall_limit: int = 0
     memory_snapshot_sha256: str = ""
@@ -213,6 +215,8 @@ class BenchRunSummary:
             "max_tool_calls_per_turn": self.max_tool_calls_per_turn,
             "cost_budget_usd": self.cost_budget_usd,
             "timeout_seconds": self.timeout_seconds,
+            "model_request_timeout_seconds": self.model_request_timeout_seconds,
+            "tool_execution_timeout_seconds": self.tool_execution_timeout_seconds,
             "memory_namespace": self.memory_namespace,
             "memory_recall_limit": self.memory_recall_limit,
             "memory_snapshot_sha256": self.memory_snapshot_sha256,

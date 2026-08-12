@@ -202,6 +202,8 @@ def _new_summary(
         max_tool_calls_per_turn=request.max_tool_calls_per_turn,
         cost_budget_usd=request.cost_budget_usd,
         timeout_seconds=request.timeout_seconds,
+        model_request_timeout_seconds=request.model_request_timeout_seconds,
+        tool_execution_timeout_seconds=request.tool_execution_timeout_seconds,
         memory_namespace=request.memory_namespace or "swebench:<instance_id>",
         memory_recall_limit=request.memory_recall_limit,
         memory_snapshot_sha256=_directory_sha256(request.memory_root),

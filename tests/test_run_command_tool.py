@@ -13,6 +13,35 @@ from agent_forge.tools.run_command import (
 
 
 class RunCommandToolTest(unittest.TestCase):
+    def test_custom_timeout_is_used_for_validation_commands(self):
+        class Environment:
+            def __init__(self):
+                self.calls = []
+
+            def execute_command(self, argv, timeout):
+                self.calls.append((argv, timeout))
+                return subprocess.CompletedProcess(argv, 0, stdout="ok", stderr="")
+
+        with tempfile.TemporaryDirectory() as tmp:
+            environment = Environment()
+            tool = RunCommandTool(
+                WorkspaceSandbox(tmp),
+                execution_environment=environment,
+                timeout_seconds=600,
+            )
+
+            observation = tool.execute({"command": "python -m compileall ."})
+
+        self.assertTrue(observation.success)
+        self.assertEqual(environment.calls[0][1], 600)
+
+    def test_rejects_non_positive_timeout(self):
+        with (
+            tempfile.TemporaryDirectory() as tmp,
+            self.assertRaisesRegex(ValueError, "timeout_seconds must be positive"),
+        ):
+            RunCommandTool(WorkspaceSandbox(tmp), timeout_seconds=0)
+
     def test_delegates_allowed_command_to_execution_environment(self):
         class Environment:
             def __init__(self):
@@ -20,11 +49,15 @@ class RunCommandToolTest(unittest.TestCase):
 
             def execute_command(self, argv, timeout):
                 self.calls.append((argv, timeout))
-                return subprocess.CompletedProcess(argv, 0, stdout="container ok", stderr="")
+                return subprocess.CompletedProcess(
+                    argv, 0, stdout="container ok", stderr=""
+                )
 
         with tempfile.TemporaryDirectory() as tmp:
             environment = Environment()
-            tool = RunCommandTool(WorkspaceSandbox(tmp), execution_environment=environment)
+            tool = RunCommandTool(
+                WorkspaceSandbox(tmp), execution_environment=environment
+            )
 
             observation = tool.execute({"command": "python -m unittest discover tests"})
 
@@ -46,7 +79,9 @@ class RunCommandToolTest(unittest.TestCase):
 
             def execute_command(self, argv, timeout):
                 self.calls.append((argv, timeout))
-                return subprocess.CompletedProcess(argv, 0, stdout="1 passed", stderr="")
+                return subprocess.CompletedProcess(
+                    argv, 0, stdout="1 passed", stderr=""
+                )
 
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -112,7 +147,9 @@ class RunCommandToolTest(unittest.TestCase):
 
             def execute_command(self, argv, timeout):
                 self.calls.append((argv, timeout))
-                return subprocess.CompletedProcess(argv, 0, stdout="unexpected", stderr="")
+                return subprocess.CompletedProcess(
+                    argv, 0, stdout="unexpected", stderr=""
+                )
 
         with tempfile.TemporaryDirectory() as tmp:
             environment = Environment()
@@ -131,7 +168,9 @@ class RunCommandToolTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             (root / "tests").mkdir()
-            (root / "tests" / "test_empty.py").write_text("import unittest\n", encoding="utf-8")
+            (root / "tests" / "test_empty.py").write_text(
+                "import unittest\n", encoding="utf-8"
+            )
             tool = RunCommandTool(WorkspaceSandbox(root))
             observation = tool.execute({"command": "python -m unittest discover tests"})
             self.assertTrue(observation.success, observation.content)
@@ -144,19 +183,31 @@ class RunCommandToolTest(unittest.TestCase):
 
             def execute_command(self, argv, timeout):
                 self.calls.append((argv, timeout))
-                return subprocess.CompletedProcess(argv, 0, stdout="unexpected execution", stderr="")
+                return subprocess.CompletedProcess(
+                    argv, 0, stdout="unexpected execution", stderr=""
+                )
 
         with tempfile.TemporaryDirectory() as tmp:
             environment = Environment()
-            tool = RunCommandTool(WorkspaceSandbox(tmp), execution_environment=environment)
-            self.assertFalse(tool.execute({"command": "curl https://example.com"}).success)
-            observation = tool.execute({"command": "python -m unittest discover ../tests"})
+            tool = RunCommandTool(
+                WorkspaceSandbox(tmp), execution_environment=environment
+            )
+            self.assertFalse(
+                tool.execute({"command": "curl https://example.com"}).success
+            )
+            observation = tool.execute(
+                {"command": "python -m unittest discover ../tests"}
+            )
             self.assertFalse(observation.success)
             self.assertIn("command execution error", observation.content)
-            observation = tool.execute({"command": "python3 -m unittest discover ../tests"})
+            observation = tool.execute(
+                {"command": "python3 -m unittest discover ../tests"}
+            )
             self.assertFalse(observation.success)
             self.assertIn("command execution error", observation.content)
-            observation = tool.execute({"command": "python -m unittest discover -s ../tests"})
+            observation = tool.execute(
+                {"command": "python -m unittest discover -s ../tests"}
+            )
             self.assertFalse(observation.success)
             self.assertIn("command execution error", observation.content)
             observation = tool.execute({"command": "python -m compileall ../outside"})

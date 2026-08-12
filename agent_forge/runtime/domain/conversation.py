@@ -52,8 +52,9 @@ class AgentResponse:
     """模型端口返回的 final text、tool calls 或结构化错误。
 
     ``content`` 与 ``tool_calls`` 是互补结果；``error`` 表示 provider/解析失败；
-    ``reasoning_content`` 只作可选观测；usage、response_id 和 normalization 保存
-    供应商用量、追踪标识和 tool-call 修复证据。
+    ``reasoning_content`` 只作可选观测；usage、response_id、observed_model 和
+    normalization 保存供应商用量、追踪标识、响应模型标识和 tool-call
+    修复证据。
     """
 
     content: str | None
@@ -63,3 +64,4 @@ class AgentResponse:
     usage: dict[str, Any] | None = None
     response_id: str | None = None
     normalization: dict[str, Any] | None = None
+    observed_model: str | None = None

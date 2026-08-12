@@ -3,11 +3,23 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from agent_forge.evaluation.api import build_benchmark_scorecard, write_benchmark_scorecard
+from agent_forge.evaluation.api import (
+    build_benchmark_scorecard,
+    write_benchmark_scorecard,
+)
 
 
 class EvaluationScorecardTest(unittest.TestCase):
-    def _write_usage(self, root: Path, instance_id: str, *, tokens=100, cost=0.1, latency=1000, failed=0):
+    def _write_usage(
+        self,
+        root: Path,
+        instance_id: str,
+        *,
+        tokens=100,
+        cost=0.1,
+        latency=1000,
+        failed=0,
+    ):
         case_dir = root / "cases" / instance_id
         case_dir.mkdir(parents=True)
         usage_report = case_dir / "usage_report.md"
@@ -46,6 +58,8 @@ class EvaluationScorecardTest(unittest.TestCase):
                 "tool_routing_mode": "task-aware",
                 "max_steps": 16,
                 "max_context_chars": 12000,
+                "model_request_timeout_seconds": 300,
+                "tool_execution_timeout_seconds": 600,
                 "case_results": [
                     {
                         "instance_id": "case-1",
@@ -93,6 +107,8 @@ class EvaluationScorecardTest(unittest.TestCase):
         self.assertEqual(scorecard["metadata"]["observed_models"], ["deepseek-chat"])
         self.assertEqual(scorecard["metadata"]["max_steps"], 16)
         self.assertEqual(scorecard["metadata"]["max_context_chars"], 12000)
+        self.assertEqual(scorecard["metadata"]["model_request_timeout_seconds"], 300)
+        self.assertEqual(scorecard["metadata"]["tool_execution_timeout_seconds"], 600)
         self.assertEqual(scorecard["metadata"]["official_namespace"], "swebench")
 
     def test_scorecard_does_not_turn_missing_official_eval_into_zero_percent(self):
@@ -114,6 +130,61 @@ class EvaluationScorecardTest(unittest.TestCase):
         }
         scorecard = build_benchmark_scorecard(results, Path("."))
         self.assertIsNone(scorecard["metrics"]["official_resolved_rate"])
+
+    def test_scorecard_prefers_provider_reported_model_over_requested_identity(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            usage_report = self._write_usage(root, "case-1")
+            usage_path = usage_report.with_name("usage.json")
+            usage = json.loads(usage_path.read_text(encoding="utf-8"))
+            usage["steps"][0]["llm_calls"][0]["provider_reported_models"] = [
+                "provider-canonical-model-id"
+            ]
+            usage_path.write_text(json.dumps(usage), encoding="utf-8")
+            results = {
+                "run_id": "run-observed-model",
+                "dataset_name": "dataset",
+                "split": "test",
+                "provider": "provider",
+                "model": "requested-alias",
+                "case_results": [
+                    {
+                        "instance_id": "case-1",
+                        "patch_chars": 0,
+                        "usage_report_path": str(usage_report),
+                    }
+                ],
+            }
+
+            scorecard = build_benchmark_scorecard(results, root)
+
+        self.assertEqual(
+            scorecard["metadata"]["observed_models"],
+            ["provider-canonical-model-id"],
+        )
+
+    def test_scorecard_keeps_requested_model_fallback_for_legacy_usage(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            usage_report = self._write_usage(root, "case-1")
+            results = {
+                "run_id": "run-legacy-model",
+                "dataset_name": "dataset",
+                "split": "test",
+                "provider": "provider",
+                "model": "requested-alias",
+                "case_results": [
+                    {
+                        "instance_id": "case-1",
+                        "patch_chars": 0,
+                        "usage_report_path": str(usage_report),
+                    }
+                ],
+            }
+
+            scorecard = build_benchmark_scorecard(results, root)
+
+        self.assertEqual(scorecard["metadata"]["observed_models"], ["deepseek-chat"])
 
     def test_scorecard_records_observed_container_image_identity(self):
         with tempfile.TemporaryDirectory() as tmp:

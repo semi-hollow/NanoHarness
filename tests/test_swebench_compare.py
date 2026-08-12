@@ -29,12 +29,14 @@ class SwebenchCompareTest(unittest.TestCase):
         self.assertIn("check_type=unittest only for unittest suites", task)
         self.assertIn("allowlisted run_command fallback", task)
 
-    def test_smoke_5_regression_set_has_five_cross_repository_cases(self):
-        cases = REGRESSION_SETS["smoke-5"]
+    def test_infrastructure_smoke_5_has_five_cross_repository_cases(self):
+        cases = REGRESSION_SETS["infrastructure-smoke-5"]
         self.assertEqual(len(cases), 5)
         self.assertEqual(len({case.split("__", 1)[0] for case in cases}), 5)
 
     def test_benchmark_case_uses_isolated_active_workspace_and_cleans_it_up(self):
+        captured = {}
+
         class Config:
             def is_configured(self):
                 return True
@@ -42,6 +44,13 @@ class SwebenchCompareTest(unittest.TestCase):
         class FakeAgentLoop:
             def __init__(self, config, trace, registry, llm):
                 self.workspace = Path(config.workspace)
+                captured["runtime_timeout"] = config.tool_execution_timeout_seconds
+                captured["run_command_timeout"] = registry.get(
+                    "run_command"
+                ).timeout_seconds
+                captured["python_validation_timeout"] = registry.get(
+                    "python_validation"
+                ).timeout_seconds
 
             def run(self, task):
                 (self.workspace / "app.py").write_text("value = 2\n", encoding="utf-8")
@@ -90,8 +99,8 @@ class SwebenchCompareTest(unittest.TestCase):
                 ),
                 patch(
                     "agent_forge.bench.adapters.case_runtime.build_agent_loop",
-                    side_effect=lambda config, _trace, _registry, _llm: FakeAgentLoop(
-                        config, None, None, None
+                    side_effect=lambda config, _trace, registry, _llm: FakeAgentLoop(
+                        config, None, registry, None
                     ),
                 ),
             ):
@@ -104,6 +113,7 @@ class SwebenchCompareTest(unittest.TestCase):
                         model="model",
                         max_steps=2,
                         max_context_chars=1000,
+                        tool_execution_timeout_seconds=600,
                         execution_mode="worktree",
                         keep_worktree=False,
                     ),
@@ -119,6 +129,9 @@ class SwebenchCompareTest(unittest.TestCase):
                 ).exists()
             )
             self.assertFalse(result.workspace.exists())
+            self.assertEqual(captured["runtime_timeout"], 600)
+            self.assertEqual(captured["run_command_timeout"], 600)
+            self.assertEqual(captured["python_validation_timeout"], 600)
 
     def test_compare_mode_runs_isolated_single_and_multi_variants(self):
         calls = []

@@ -39,6 +39,7 @@ from agent_forge.runtime.config import (
     DEFAULT_MAX_CONTEXT_CHARS,
     DEFAULT_MAX_PROMPT_TOKENS,
     DEFAULT_MAX_STEPS,
+    DEFAULT_TOOL_EXECUTION_TIMEOUT_SECONDS,
     DEFAULT_TIMEOUT_SECONDS,
 )
 
@@ -49,7 +50,7 @@ def build_case_catalog_parser(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--regression-set",
         choices=sorted(REGRESSION_SETS),
-        default="smoke-5",
+        default="infrastructure-smoke-5",
     )
     parser.add_argument("--json", action="store_true")
     parser.add_argument("--output", help="同时把 Markdown 或 JSON 写入指定文件。")
@@ -140,6 +141,18 @@ def build_swebench_parser(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--cost-budget-usd", type=float)
     parser.add_argument(
         "--timeout-seconds", type=float, default=DEFAULT_TIMEOUT_SECONDS
+    )
+    parser.add_argument(
+        "--model-request-timeout-seconds",
+        type=int,
+        default=60,
+        help="Timeout for one provider request; separate from the whole Agent run timeout.",
+    )
+    parser.add_argument(
+        "--tool-execution-timeout-seconds",
+        type=int,
+        default=DEFAULT_TOOL_EXECUTION_TIMEOUT_SECONDS,
+        help="Timeout for one validation tool execution, including compile and tests.",
     )
     parser.add_argument("--repo-cache", default=".agent_forge/bench/repos")
     parser.add_argument("--output-root", default=".agent_forge/runs")
@@ -235,7 +248,7 @@ def build_campaign_parser(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--regression-set",
         choices=sorted(REGRESSION_SETS),
-        default="smoke-5",
+        default="infrastructure-smoke-5",
     )
     parser.add_argument(
         "--cohort-manifest",
@@ -285,6 +298,18 @@ def build_campaign_parser(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--cost-budget-usd", type=float)
     parser.add_argument(
         "--timeout-seconds", type=float, default=DEFAULT_TIMEOUT_SECONDS
+    )
+    parser.add_argument(
+        "--model-request-timeout-seconds",
+        type=int,
+        default=60,
+        help="Timeout for one provider request; separate from the whole Agent run timeout.",
+    )
+    parser.add_argument(
+        "--tool-execution-timeout-seconds",
+        type=int,
+        default=DEFAULT_TOOL_EXECUTION_TIMEOUT_SECONDS,
+        help="Timeout for one validation tool execution, including compile and tests.",
     )
     parser.add_argument("--repo-cache", default=".agent_forge/bench/repos")
     parser.add_argument("--output-root", default=".agent_forge/campaigns")
@@ -353,54 +378,69 @@ def run_swebench_from_args(args: argparse.Namespace) -> BenchRunSummary:
         if skill_value in {"auto", "none"}
         else tuple(item.strip() for item in skill_value.split(",") if item.strip())
     )
-    return run_swebench(SwebenchRunRequest(
-        dataset_name=args.dataset,
-        dataset_revision=args.dataset_revision,
-        split=args.split,
-        limit=limit,
-        instance_ids=tuple(instance_ids),
-        cases_file=args.cases_file,
-        provider=args.provider,
-        model=args.model,
-        base_url=args.base_url,
-        api_key=args.api_key,
-        temperature=args.temperature,
-        thinking_mode=args.thinking_mode,
-        reasoning_effort=args.reasoning_effort,
-        max_steps=args.max_steps,
-        max_context_chars=args.max_context_chars,
-        max_prompt_tokens=args.max_prompt_tokens,
-        reserved_output_tokens=args.reserved_output_tokens,
-        max_tool_calls_per_turn=args.max_tool_calls_per_turn,
-        cost_budget_usd=args.cost_budget_usd,
-        timeout_seconds=args.timeout_seconds,
-        repo_cache=args.repo_cache,
-        output_root=args.output_root,
-        evaluate=args.evaluate,
-        max_workers=args.max_workers,
-        official_namespace=args.official_namespace,
-        namespace_empty=args.namespace_empty,
-        official_cache_level=args.official_cache_level,
-        agent_mode=args.agent_mode,
-        profile=args.profile,
-        max_revision_rounds=args.max_revision_rounds,
-        tool_routing_mode=args.tool_routing,
-        skill_mode="none" if skill_value == "none" else "auto",
-        skill_names=skill_names,
-        skill_manifest_files=tuple(args.skill_manifest),
-        memory_root=args.memory_root,
-        memory_namespace=args.memory_namespace,
-        memory_recall_limit=args.memory_recall_limit,
-        execution_mode=args.execution_mode,
-        network_policy=args.network_policy,
-        keep_worktree=args.keep_worktree,
-        container_runtime=args.container_runtime,
-        container_image=args.container_image,
-        container_cpus=args.container_cpus,
-        container_memory=args.container_memory,
-        container_pids_limit=args.container_pids_limit,
-        container_read_only=args.container_read_only,
-    ))
+    dataset_name = _resolve_local_input(args.dataset)
+    assert dataset_name is not None
+    return run_swebench(
+        SwebenchRunRequest(
+            dataset_name=dataset_name,
+            dataset_revision=args.dataset_revision,
+            split=args.split,
+            limit=limit,
+            instance_ids=tuple(instance_ids),
+            cases_file=_resolve_local_input(args.cases_file),
+            provider=args.provider,
+            model=args.model,
+            base_url=args.base_url,
+            api_key=args.api_key,
+            temperature=args.temperature,
+            thinking_mode=args.thinking_mode,
+            reasoning_effort=args.reasoning_effort,
+            max_steps=args.max_steps,
+            max_context_chars=args.max_context_chars,
+            max_prompt_tokens=args.max_prompt_tokens,
+            reserved_output_tokens=args.reserved_output_tokens,
+            max_tool_calls_per_turn=args.max_tool_calls_per_turn,
+            cost_budget_usd=args.cost_budget_usd,
+            timeout_seconds=args.timeout_seconds,
+            model_request_timeout_seconds=args.model_request_timeout_seconds,
+            tool_execution_timeout_seconds=args.tool_execution_timeout_seconds,
+            repo_cache=args.repo_cache,
+            output_root=args.output_root,
+            evaluate=args.evaluate,
+            max_workers=args.max_workers,
+            official_namespace=args.official_namespace,
+            namespace_empty=args.namespace_empty,
+            official_cache_level=args.official_cache_level,
+            agent_mode=args.agent_mode,
+            profile=args.profile,
+            max_revision_rounds=args.max_revision_rounds,
+            tool_routing_mode=args.tool_routing,
+            skill_mode="none" if skill_value == "none" else "auto",
+            skill_names=skill_names,
+            skill_manifest_files=tuple(args.skill_manifest),
+            memory_root=args.memory_root,
+            memory_namespace=args.memory_namespace,
+            memory_recall_limit=args.memory_recall_limit,
+            execution_mode=args.execution_mode,
+            network_policy=args.network_policy,
+            keep_worktree=args.keep_worktree,
+            container_runtime=args.container_runtime,
+            container_image=args.container_image,
+            container_cpus=args.container_cpus,
+            container_memory=args.container_memory,
+            container_pids_limit=args.container_pids_limit,
+            container_read_only=args.container_read_only,
+        )
+    )
+
+
+def _resolve_local_input(value: str | None) -> str | None:
+    """在 official evaluator 切换工作目录前冻结本地数据文件的绝对路径。"""
+
+    if not value:
+        return value
+    path = Path(value)
+    return str(path.resolve()) if path.is_file() else value
 
 
 # 主要入口：把 CLI 参数固定为两个可解释 Runtime preset，并启动 campaign。
@@ -446,6 +486,8 @@ def run_campaign_from_args(args: argparse.Namespace) -> BenchmarkCampaignResult:
         max_tool_calls_per_turn=args.max_tool_calls_per_turn,
         cost_budget_usd=args.cost_budget_usd,
         timeout_seconds=args.timeout_seconds,
+        model_request_timeout_seconds=args.model_request_timeout_seconds,
+        tool_execution_timeout_seconds=args.tool_execution_timeout_seconds,
         repo_cache=args.repo_cache,
         evaluate=args.evaluate,
         max_workers=args.max_workers,
@@ -479,14 +521,17 @@ def render_case_catalog_from_args(args: argparse.Namespace) -> str:
     set_profile = get_regression_set_profile(args.regression_set)
     profiles = list_regression_case_profiles(args.regression_set)
     if args.json:
-        return json.dumps(
-            {
-                "set": set_profile.to_dict(),
-                "cases": [profile.to_dict() for profile in profiles],
-            },
-            ensure_ascii=False,
-            indent=2,
-        ) + "\n"
+        return (
+            json.dumps(
+                {
+                    "set": set_profile.to_dict(),
+                    "cases": [profile.to_dict() for profile in profiles],
+                },
+                ensure_ascii=False,
+                indent=2,
+            )
+            + "\n"
+        )
     return render_case_catalog(set_profile, profiles)
 
 
@@ -501,14 +546,17 @@ def render_case_inspection_from_args(args: argparse.Namespace) -> str:
         cases_file=args.cases_file,
     )
     if args.json:
-        return json.dumps(
-            inspection.to_dict(
-                include_test_patch=args.show_test_patch,
-                include_gold_patch=args.show_gold,
-            ),
-            ensure_ascii=False,
-            indent=2,
-        ) + "\n"
+        return (
+            json.dumps(
+                inspection.to_dict(
+                    include_test_patch=args.show_test_patch,
+                    include_gold_patch=args.show_gold,
+                ),
+                ensure_ascii=False,
+                indent=2,
+            )
+            + "\n"
+        )
     return render_case_inspection(
         inspection,
         show_test_patch=args.show_test_patch,

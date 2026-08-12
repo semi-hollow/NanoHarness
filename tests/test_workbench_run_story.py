@@ -14,6 +14,7 @@ from agent_forge.workbench.application.context_inspection import (
 from agent_forge.workbench.presentation.http import (
     INDEX_HTML,
     WORKBENCH_READ_ONLY_MESSAGE,
+    _canonical_score_is_publishable,
     _render_evidence_html,
     _render_workspace_view,
     _tone_for_status,
@@ -160,6 +161,68 @@ def _phase2_runtime_quality_summary() -> dict[str, object]:
     }
 
 
+def _canonical_showcase_summary() -> dict[str, object]:
+    return {
+        "schema_version": 1,
+        "artifact_type": "canonical_showcase",
+        "showcase_id": "canonical-showcase-v1",
+        "title": "NanoHarness · Canonical Showcase",
+        "status": "pre_registration_in_progress",
+        "current_profile": {
+            "profile_id": "showcase-quality-v1",
+            "status": "candidate_comparison_pending",
+            "frozen": False,
+            "selected_model": None,
+            "model_candidates": [
+                "opencode-go/deepseek-v4-pro",
+                "opencode-go/glm-5.2",
+            ],
+            "references": {
+                "selection_set": "Golden-10",
+                "selection_role": "development_and_regression_only",
+            },
+        },
+        "canonical_evaluation": {
+            "evaluation_id": "canonical-50-v1",
+            "status": "not_started",
+            "dataset": "princeton-nlp/SWE-bench_Verified",
+            "protocol": "Pass@1",
+            "cohort_frozen": False,
+            "protocol_frozen": False,
+            "planned": 50,
+            "completed": None,
+            "terminal_accounted": None,
+            "official_evaluated": None,
+            "empty_patch": None,
+            "provider_infra": None,
+            "evaluator_infra": None,
+            "official_resolved": None,
+            "evidence_validated": False,
+            "claim": (
+                "Result applies only to this deterministic 50-case sample, "
+                "not the full SWE-bench Verified benchmark."
+            ),
+        },
+        "supporting_checks": [
+            {
+                "id": "golden-10",
+                "label": "Golden-10",
+                "role": "development_and_regression_only",
+                "quality_headline": False,
+                "status": "candidate_comparison_pending",
+            },
+            {
+                "id": "infrastructure-smoke-5",
+                "label": "Infrastructure Smoke-5",
+                "role": "infrastructure_health_only",
+                "quality_headline": False,
+                "status": "available",
+            },
+        ],
+        "boundaries": ["No score before complete official adjudication."],
+    }
+
+
 class WorkbenchRunStoryTest(unittest.TestCase):
     def test_workbench_default_surface_is_read_only(self):
         self.assertIn('class="read-only status-collapsed', INDEX_HTML)
@@ -205,6 +268,173 @@ class WorkbenchRunStoryTest(unittest.TestCase):
             [source.key for source in sources],
             ["governed", "orchestration", "complex", "evaluation"],
         )
+
+    def test_canonical_showcase_is_default_and_history_requires_explicit_selection(
+        self,
+    ):
+        with tempfile.TemporaryDirectory() as tmp:
+            project_dir = Path(tmp)
+            canonical_path = (
+                project_dir / "benchmarks" / "showcase" / "canonical-showcase-v1.json"
+            )
+            canonical_path.parent.mkdir(parents=True)
+            canonical_path.write_text(
+                json.dumps(_canonical_showcase_summary(), ensure_ascii=False),
+                encoding="utf-8",
+            )
+            history_path = (
+                project_dir / "benchmarks" / "runtime-quality" / "golden-10-v1.json"
+            )
+            history_path.parent.mkdir(parents=True)
+            history_path.write_text(
+                json.dumps(
+                    {
+                        "schema_version": 2,
+                        "experiment_type": "runtime_quality",
+                        "title": "Historical Golden-10",
+                        "status": "completed",
+                        "reference_iteration": "R0",
+                        "reference_metrics": {
+                            "planned": 1,
+                            "official_resolved": 1,
+                            "official_decided": 1,
+                        },
+                        "iterations": [],
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            sources = FileEvidenceCatalog(project_dir).evidence_sources()
+            default_overview = _render_workspace_view(
+                project_dir,
+                source_key="",
+                view="overview",
+            )
+            canonical_results = _render_workspace_view(
+                project_dir,
+                source_key="evaluation",
+                view="results",
+            )
+            historical_results = _render_workspace_view(
+                project_dir,
+                source_key="evaluation-history",
+                view="results",
+            )
+            legacy_bookmark = _render_evidence_html(project_dir, "benchmark")
+
+        source_by_key = {source.key: source for source in sources}
+        self.assertEqual(source_by_key["evaluation"].primary_path, canonical_path)
+        self.assertEqual(source_by_key["evaluation-history"].primary_path, history_path)
+        self.assertIn("NanoHarness · Canonical Showcase", default_overview)
+        self.assertIn("showcase-quality-v1", default_overview)
+        self.assertIn("待完整裁决", default_overview)
+        self.assertNotIn("metric-value'>0/50", default_overview)
+        self.assertIn("Golden-10", canonical_results)
+        self.assertIn("开发与回归专用", canonical_results)
+        self.assertIn("Infrastructure Smoke-5", canonical_results)
+        self.assertIn("基础设施健康检查专用", canonical_results)
+        self.assertIn("不进入质量 headline", canonical_results)
+        self.assertIn("deterministic 50-case sample", canonical_results)
+        self.assertNotIn("metric-value'>0/50", canonical_results)
+        self.assertIn("历史归档 · Historical Golden-10", historical_results)
+        self.assertIn("Canonical Showcase", legacy_bookmark)
+
+    def test_canonical_score_requires_frozen_validated_terminal_evidence(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            project_dir = Path(tmp)
+            summary = _canonical_showcase_summary()
+            evaluation = summary["canonical_evaluation"]
+            assert isinstance(evaluation, dict)
+            evaluation.update(
+                {
+                    "status": "running",
+                    "completed": 10,
+                    "terminal_accounted": 10,
+                    "official_evaluated": 10,
+                    "empty_patch": 0,
+                    "provider_infra": 0,
+                    "evaluator_infra": 0,
+                    "official_resolved": 4,
+                    "evidence_validated": False,
+                }
+            )
+            summary_path = (
+                project_dir / "benchmarks" / "showcase" / "canonical-showcase-v1.json"
+            )
+            summary_path.parent.mkdir(parents=True)
+            summary_path.write_text(
+                json.dumps(summary, ensure_ascii=False),
+                encoding="utf-8",
+            )
+
+            partial = _render_workspace_view(
+                project_dir,
+                source_key="evaluation",
+                view="results",
+            )
+            evaluation.update(
+                {
+                    "status": "completed",
+                    "completed": 50,
+                    "terminal_accounted": 50,
+                    "official_evaluated": 47,
+                    "empty_patch": 3,
+                    "provider_infra": 0,
+                    "evaluator_infra": 0,
+                    "official_resolved": 23,
+                    "evidence_validated": True,
+                }
+            )
+            summary["status"] = "completed"
+            profile = summary["current_profile"]
+            assert isinstance(profile, dict)
+            profile["frozen"] = True
+            profile["selected_model"] = "opencode-go/glm-5.2"
+            evaluation["cohort_frozen"] = True
+            evaluation["protocol_frozen"] = True
+            summary_path.write_text(
+                json.dumps(summary, ensure_ascii=False),
+                encoding="utf-8",
+            )
+            complete = _render_workspace_view(
+                project_dir,
+                source_key="evaluation",
+                view="results",
+            )
+
+        self.assertIn("待完整裁决", partial)
+        self.assertNotIn("4/50", partial)
+        self.assertIn("23/50", complete)
+
+        self.assertTrue(_canonical_score_is_publishable(summary))
+        invalid_variants = [
+            (("status",), "running"),
+            (("current_profile", "frozen"), False),
+            (("current_profile", "frozen"), "true"),
+            (("current_profile", "selected_model"), None),
+            (("current_profile", "selected_model"), 1),
+            (("canonical_evaluation", "status"), "running"),
+            (("canonical_evaluation", "cohort_frozen"), False),
+            (("canonical_evaluation", "cohort_frozen"), "true"),
+            (("canonical_evaluation", "protocol_frozen"), False),
+            (("canonical_evaluation", "evidence_validated"), False),
+            (("canonical_evaluation", "completed"), 49),
+            (("canonical_evaluation", "terminal_accounted"), 49),
+            (("canonical_evaluation", "official_evaluated"), 46),
+            (("canonical_evaluation", "empty_patch"), 4),
+            (("canonical_evaluation", "provider_infra"), 1),
+            (("canonical_evaluation", "evaluator_infra"), 1),
+            (("canonical_evaluation", "official_resolved"), 48),
+        ]
+        for path, invalid_value in invalid_variants:
+            with self.subTest(path=path):
+                variant = json.loads(json.dumps(summary))
+                target = variant
+                for key in path[:-1]:
+                    target = target[key]
+                target[path[-1]] = invalid_value
+                self.assertFalse(_canonical_score_is_publishable(variant))
 
     def test_all_common_views_render_for_a_single_runtime_source(self):
         with tempfile.TemporaryDirectory() as tmp:
