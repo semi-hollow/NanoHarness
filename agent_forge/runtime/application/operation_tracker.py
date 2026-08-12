@@ -190,6 +190,22 @@ class OperationTracker:
                 existing_operation_record.post_fingerprint,
             )
         )
+        if target_state_drifted and self._is_replayable_restored_precondition(
+            existing_operation_record,
+            intent.pre_execution_fingerprint,
+            self.trace.run_id,
+        ):
+            # 同一 run 已用逆向操作精确恢复旧 pre 时，只开放一次真实重放；
+            # 不删除旧记录，后续 executing/executed 继续扩展原审计历史。
+            self._record_operation_state(
+                step=step,
+                agent_name=session.agent_name,
+                intent=intent,
+                operation_record=existing_operation_record,
+                operation_status="replay_authorized_restored_precondition",
+                current_fingerprint=intent.pre_execution_fingerprint,
+            )
+            return ExistingOperationResolution(handled_without_execution=False)
         if target_state_drifted:
             stale_record_observation = Observation(
                 tool_name=tool_call.name,
@@ -436,6 +452,58 @@ class OperationTracker:
         """仅当两侧都有完整快照且字段完全一致时，才认为目标没有漂移。"""
 
         return left is not None and right is not None and left == right
+
+    @classmethod
+    def _is_replayable_restored_precondition(
+        cls,
+        operation_record: OperationRecord,
+        current_fingerprint: dict[str, Any] | None,
+        current_run_id: str,
+    ) -> bool:
+        """只允许同一 run 对完整且精确恢复的前置状态做一次重放。"""
+
+        pre_fingerprint = operation_record.pre_fingerprint
+        post_fingerprint = operation_record.post_fingerprint
+        fingerprints = (current_fingerprint, pre_fingerprint, post_fingerprint)
+        return (
+            bool(current_run_id)
+            and operation_record.run_id == current_run_id
+            and operation_record.history.count("executed") == 1
+            and all(cls._is_complete_fingerprint(item) for item in fingerprints)
+            and cls.same_fingerprint(current_fingerprint, pre_fingerprint)
+            and not cls.same_fingerprint(current_fingerprint, post_fingerprint)
+        )
+
+    @staticmethod
+    def _is_complete_fingerprint(value: dict[str, Any] | None) -> bool:
+        """拒绝缺字段快照，避免把部分相等误当成已恢复的目标状态。"""
+
+        if not isinstance(value, dict):
+            return False
+        required_by_kind = {
+            "path": {
+                "kind",
+                "tool_name",
+                "action",
+                "path",
+                "resolved_path",
+                "inside_workspace",
+                "exists",
+                "sha256",
+                "size",
+            },
+            "command": {"kind", "tool_name", "action", "command"},
+            "operation": {
+                "kind",
+                "tool_name",
+                "action",
+                "arguments_sha256",
+            },
+        }
+        required = required_by_kind.get(str(value.get("kind") or ""))
+        if required is None or not required.issubset(value):
+            return False
+        return value.get("kind") != "path" or value.get("inside_workspace") is True
 
     @staticmethod
     def _permission_action(tool_name: str) -> str:
