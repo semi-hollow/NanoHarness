@@ -4798,6 +4798,17 @@ def _render_phase2_runtime_quality_dashboard(
     golden_treatment = _mapping(golden.get("treatment_metrics"))
     treatment = _mapping(phase2.get("treatment"))
     usage = _mapping(phase2.get("usage"))
+    target_and_guards_usage = _mapping(usage.get("target_and_guards_total"))
+    golden10_usage = _mapping(usage.get("golden10_expansion"))
+    phase2_total_usage = _mapping(
+        usage.get("phase2_case_study_and_expansion_total")
+    )
+    if not phase2_total_usage and any(
+        name in usage
+        for name in ("provider_tokens", "total_tokens", "llm_calls")
+    ):
+        # 兼容早期 schema v3 草案的扁平 usage；正式发布摘要优先使用显式总计。
+        phase2_total_usage = usage
 
     activation_observed = _optional_metric(
         target_treatment,
@@ -4916,14 +4927,45 @@ def _render_phase2_runtime_quality_dashboard(
         or "post-hoc Case-level 机制故事；不外推为 SWE-bench Verified 总体提升"
     )
 
-    provider_tokens = _optional_metric(usage, "provider_tokens", "total_tokens")
-    llm_calls = _optional_metric(usage, "llm_calls")
-    estimated_cost_value = usage.get("estimated_cost_usd")
+    provider_tokens = _optional_metric(
+        phase2_total_usage,
+        "provider_tokens",
+        "total_tokens",
+    )
+    llm_calls = _optional_metric(phase2_total_usage, "llm_calls")
+    estimated_cost_value = phase2_total_usage.get("estimated_cost_usd")
     estimated_cost = (
         "待运行"
         if estimated_cost_value is None
         else f"${float(estimated_cost_value):.6f}"
     )
+    usage_breakdown: list[str] = []
+    for usage_label, usage_bucket in (
+        ("Target+Guards", target_and_guards_usage),
+        ("Golden-10", golden10_usage),
+    ):
+        bucket_tokens = _optional_metric(
+            usage_bucket,
+            "provider_tokens",
+            "total_tokens",
+        )
+        bucket_cost_value = usage_bucket.get("estimated_cost_usd")
+        if bucket_tokens is None and bucket_cost_value is None:
+            continue
+        bucket_tokens_text = (
+            f"{bucket_tokens:,} Token" if bucket_tokens is not None else "Token 待运行"
+        )
+        bucket_cost_text = (
+            f"${float(bucket_cost_value):.6f}"
+            if bucket_cost_value is not None
+            else "成本待运行"
+        )
+        usage_breakdown.append(
+            f"{usage_label} {bucket_tokens_text} / {bucket_cost_text}"
+        )
+    usage_note = f"总成本 {estimated_cost}"
+    if usage_breakdown:
+        usage_note += "；" + "；".join(usage_breakdown)
     empty_gate_row = '<tr><td colspan="3">尚无 gate 记录。</td></tr>'
     empty_case_row = '<tr><td colspan="4">Golden-10 扩展待运行。</td></tr>'
     reference_metrics = _mapping(reference.get("metrics"))
@@ -4994,13 +5036,13 @@ def _render_phase2_runtime_quality_dashboard(
                     "neutral",
                 ),
                 (
-                    "Provider Token / LLM",
+                    "Phase 2 Token / LLM",
                     (
                         f"{provider_tokens:,} / {llm_calls}"
                         if provider_tokens is not None and llm_calls is not None
                         else "待运行"
                     ),
-                    f"汇总成本 {estimated_cost}",
+                    usage_note,
                     "neutral",
                 ),
             ]

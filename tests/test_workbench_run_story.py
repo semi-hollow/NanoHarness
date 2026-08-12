@@ -132,9 +132,21 @@ def _phase2_runtime_quality_summary() -> dict[str, object]:
                 },
             },
             "usage": {
-                "provider_tokens": 777258,
-                "llm_calls": 86,
-                "estimated_cost_usd": 0.905107,
+                "target_and_guards_total": {
+                    "total_tokens": 777258,
+                    "llm_calls": 86,
+                    "estimated_cost_usd": 0.905107,
+                },
+                "golden10_expansion": {
+                    "total_tokens": 2490765,
+                    "llm_calls": 205,
+                    "estimated_cost_usd": 3.224585,
+                },
+                "phase2_case_study_and_expansion_total": {
+                    "total_tokens": 3268023,
+                    "llm_calls": 291,
+                    "estimated_cost_usd": 4.129692,
+                },
             },
             "evidence_run_dirs": {
                 "target": [".agent_forge/phase2/target/run"],
@@ -1296,6 +1308,11 @@ class WorkbenchRunStoryTest(unittest.TestCase):
         self.assertIn("SWE-bench Verified 总体解决率提升", results)
         self.assertIn("class='badge ok'>已采纳", results)
         self.assertIn("5/10 → 6/10", results)
+        self.assertIn("Phase 2 Token / LLM", results)
+        self.assertIn("3,268,023 / 291", results)
+        self.assertIn("总成本 $4.129692", results)
+        self.assertIn("Target+Guards 777,258 Token / $0.905107", results)
+        self.assertIn("Golden-10 2,490,765 Token / $3.224585", results)
 
     def test_schema_v3_pending_golden_metric_is_not_rendered_as_zero(self):
         with tempfile.TemporaryDirectory() as tmp:

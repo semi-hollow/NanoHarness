@@ -35,7 +35,8 @@ Treatment 没有放宽所有重试，而是加入“restored-precondition one-sh
 这是一个 **post-hoc selected、Case-level** 的正向复现，不是随机样本上的总体 uplift。Target 的
 `0/2 -> 2/2` 与 Guard 的 `3/3` 支持“修复了一个可观察的恢复状态转移，且在预注册 Guard 范围内
 未观察到退化”；但 Gate 4 的 Golden 扩跑失败，所以本 Goal 尚未完成，Treatment 的通用/默认采纳
-被拒绝并要求回滚。它不能证明所有 SWE-bench、所有仓库或所有验证失败后的重放都会改善。
+被拒绝，并已由可审计 revert commit `042846a` 回滚。它不能证明所有 SWE-bench、所有仓库或所有
+验证失败后的重放都会改善。
 
 ### Phase 1：正式 R0-R3 全部拒绝并回滚
 
@@ -96,7 +97,7 @@ cross-run / unknown drift / malformed fingerprints / execution count > 1
 | 2 机制与因果 | 两次 Treatment Trace 都在同一路径看到 marker，随后发生第二次 executing/executed；Guard marker 为 0 | marker 证明动作机会被恢复，不单独证明 official resolved 的全部因果 |
 | 3 官方正向 | 历史 `0/2 unresolved` -> Treatment fresh `2/2 resolved` | local validation 仍失败；只按 official outcome 记正确性 |
 | 4 不过拟合 | 预检查 Guard `3/3 resolved`、marker `0/3`；唯一 Golden 扩跑却为 `4/10`，原 resolved 仅保留 `3/5`，并有 1 次 Provider infra | **失败**；Guard 小样本不能覆盖冻结 Golden 的回归，不能默认采纳 |
-| 5 复现闭环 | 机器摘要、Trace、Usage、official aggregate、Workbench 和文档可以统一核对 | 前四 Gate 未全过，因此 Goal/Gate 5 不能标 complete；记录拒绝并回滚 |
+| 5 复现闭环 | 机器摘要、Trace、Usage、official aggregate、Workbench 和文档可以统一核对 | 前四 Gate 未全过，因此 Goal/Gate 5 不能标 complete；拒绝已记录，候选已由 `042846a` 回滚 |
 
 ### 1.3 Target 与 Guard 结果
 
@@ -154,9 +155,10 @@ attempt 都发生 read timeout，以 `invalid_llm_response / provider_transport_
 observed 0，没有发现 Treatment 在 Golden cohort 误触发。Usage 为 240 runtime step、205 次 LLM、
 2,490,765 Token、`$3.224585`、210 次 ToolCall（23 failed）和 10 次 failed validation。
 
-冻结决策是 **reject / rollback required**，而不是 Golden non-regression：Provider infra 已使 comparison
-不完整；即使忽略 infra，`4 < 5` 与原 resolved 回归两题也分别足以拒绝。Target/Guard 的窄 Case-level
-证据继续保留，但不能把这个 Treatment 作为 Operation Ledger 的通用默认行为，也不能完成本 Goal。
+冻结决策是 **reject / reverted by `042846a`**，而不是 Golden non-regression：Provider infra 已使
+comparison 不完整；即使忽略 infra，`4 < 5` 与原 resolved 回归两题也分别足以拒绝。Target/Guard
+的窄 Case-level 证据继续保留，但不能把这个 Treatment 作为 Operation Ledger 的通用默认行为，
+也不能完成本 Goal。
 
 协议审计还保留了一次污染事件：一名审计 Agent 在 Target/Guard 完成后、扩跑协议生成前误打开冻结
 dataset，看到部分 gold/test 文本。该 Agent 随后被限制为机械身份、bucket 与 SHA 核验，未参与
@@ -500,7 +502,7 @@ Coverage repair 只允许在“执行完整性错误独立于结果、且遗漏 
 > 历史目标是 0/2 official unresolved，Treatment 两次 fresh 生成是 2/2 official resolved，Trace
 > 两次都命中 marker；三个冻结 Guard 也先通过 3/3。可是唯一 Golden-10 扩跑只有 4/10 resolved，
 > 比独立 R0 少 1，原五个 resolved 还回归两题；另有一题 Provider read timeout 让 comparison 不完整。
-> 所以我按同一预注册规则拒绝默认采纳并回滚，不让一个 post-hoc Target 的漂亮 2/2 覆盖更宽 cohort
+> 所以我按同一预注册规则拒绝默认采纳，并用可审计 revert `042846a` 回滚，不让一个 post-hoc Target 的漂亮 2/2 覆盖更宽 cohort
 > 的失败。本地 validation 也始终保留为 FAIL。最后能留下的只是“该 Case 上恢复了一个可复现动作机会”
 > 的机制/Case 证据，不是 Goal 完成、总体解决率提升或可默认上线的 Runtime 优化。
 
@@ -515,7 +517,7 @@ Coverage repair 只允许在“执行完整性错误独立于结果、且遗漏 
 - 三个冻结 Guard `3/3 resolved`、marker `0/3`，Guard 范围内未观察到退化；
 - Golden official artifact 为 `4 resolved / 5 unresolved / 1 empty`，原 resolved 只保留 `3/5`；
 - Golden 另有 1 次 Provider transport timeout，comparison protocol-invalid；即使忽略它也按两个独立
-  correctness veto 拒绝 Treatment，要求回滚，Goal/Gate 4 未完成；
+  correctness veto 拒绝 Treatment，并已由 `042846a` 回滚，Goal/Gate 4 未完成；
 - local validation 仍失败，官方正确性与本地过程证据被如实分栏。
 
 不能说：

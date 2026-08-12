@@ -619,7 +619,8 @@
       "mechanism_marker": "replay_authorized_restored_precondition",
       "product_diff_added_lines": 68,
       "decision": "rejected_after_golden10_regression",
-      "adoption_scope": "not_adopted; revert from default Runtime",
+      "adoption_scope": "not_adopted; reverted from default Runtime",
+      "revert_commit": "042846a",
       "state_contract": "Only same run, prior executed exactly once, complete path fingerprints and current == pre != post may replay once; post-state remains idempotent, and cross-run, malformed, unknown drift and third replay remain fail closed."
     },
     "case_study": {
@@ -735,6 +736,13 @@
       "golden10_command_manifest_sha256": "4e48bd09cbd66458a8aae50de1d4119084a93fca3b3229d398c6ebf7ee15264d",
       "golden10_image_manifest_sha256": "0c214b6f30be81d1fa8b5e329f20bd72d98f4cb2a4ec787059273a537faef6a8",
       "golden10_core_artifact_manifest_sha256": "1c20b5bfa0f4a7472b090b5fcb441bc8d18bbbf31e1823b8fbbd72785d3177e5"
+    },
+    "rollback": {
+      "status": "completed",
+      "commit": "042846a",
+      "reverted_treatment_commit": "485ba920df516f0e5c6e5eefd10d8d5d9325ed9a",
+      "evidence_preserved": true,
+      "default_runtime_restored_to_fail_closed": true
     },
     "evidence_run_dirs": {
       "target": [

@@ -69,7 +69,8 @@ post-hoc selected、Case-level 的正向复现，本地 validation 仍失败，�
 uplift。唯一 Golden-10 扩跑随后只有 `4 resolved / 5 unresolved / 1 empty`，低于 Phase-2 R0 的
 `5/10`，原五个 resolved 只保留 `3/5`；另有 1 次 Provider transport timeout 使 comparison
 protocol-invalid。即使忽略该 infra，净退化和两个锚点回归也分别触发拒绝。因此该通用 Treatment
-未被采纳、应回滚，当前 Goal/Gate 4 未完成；窄 Case 证据保留，但不能称为 Golden non-regression。
+未被采纳，并已由可审计 revert commit `042846a` 回滚；当前 Goal/Gate 4 未完成。窄 Case 证据保留，
+但不能称为 Golden non-regression。
 完整协议、Golden-10 单次扩跑、负结果和声明边界见
 [Runtime 质量实验](docs/evaluation/功能冻结后的Runtime质量实验.md)，机器可读摘要见
 [Golden-10 证据](benchmarks/runtime-quality/golden-10-v1.json)。
