@@ -12,7 +12,7 @@ import time
 import uuid
 from dataclasses import dataclass, replace
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from agent_forge.contracts import ToolSchema
 from agent_forge.harness import Harness, HarnessConfig, RunRequest
@@ -26,6 +26,7 @@ from agent_forge.runtime.api import (
     respond_to_human_input,
 )
 from agent_forge.runtime.domain.conversation import AgentResponse, Message, ToolCall
+from agent_forge.runtime.ports import ModelPort
 from agent_forge.runtime.wiring import build_registry
 
 HITL_QUESTION = "Which compatibility target should be used?"
@@ -36,6 +37,12 @@ HITL_TASK = (
 APPROVAL_TASK = (
     "Fix target.py so value equals 2, then run the focused pytest target "
     "test_target.py before finishing."
+)
+GOVERNED_CHOICES = ("Python 3.11 LTS", "Python 3.12 Current")
+GOVERNED_TASK = (
+    "Select a supported Python compatibility target with the operator, update "
+    "compatibility.py only after explicit approval, and run the focused pytest "
+    "test_compatibility.py before finishing."
 )
 
 
@@ -64,26 +71,124 @@ class GovernedRunDemoResult:
     completed_status: str
     report_path: Path
     inspect_target: Path
+    state_sequence: tuple[str, ...] = ()
+
+
+class GovernedShowcaseController:
+    """按钮式展示层使用的受治理场景状态机。
+
+    Controller 只编排公开的人类动作；每个 phase 仍通过 ``Harness`` 创建新的
+    continuation，并从 durable checkpoint、HumanInput/Approval Repository 恢复。
+    """
+
+    def __init__(
+        self,
+        *,
+        output_root: str | Path = ".agent_forge/showcases",
+    ) -> None:
+        self.output_root = Path(output_root)
+        self._phases: list[ControlPlaneShowcaseResult] = []
+
+    @property
+    def current(self) -> ControlPlaneShowcaseResult | None:
+        return self._phases[-1] if self._phases else None
+
+    @property
+    def state_sequence(self) -> tuple[str, ...]:
+        return tuple(phase.status for phase in self._phases)
+
+    def start(self) -> ControlPlaneShowcaseResult:
+        if self._phases:
+            raise RuntimeError("governed showcase has already started")
+        result = _start_control_plane_demo(
+            "governed",
+            output_root=self.output_root,
+        )
+        self._phases.append(result)
+        return result
+
+    def answer(self, answer: str) -> ControlPlaneShowcaseResult:
+        current = self._require_status("waiting_human")
+        if answer not in GOVERNED_CHOICES:
+            raise ValueError(
+                "governed showcase answer must be one of: "
+                + ", ".join(GOVERNED_CHOICES)
+            )
+        result = _continue_control_plane_demo(
+            "governed",
+            current.run_dir,
+            answer=answer,
+        )
+        self._phases.append(result)
+        return result
+
+    def decide(
+        self,
+        decision: Literal["approved", "rejected"],
+    ) -> ControlPlaneShowcaseResult:
+        current = self._require_status("waiting_approval")
+        result = _continue_control_plane_demo(
+            "governed",
+            current.run_dir,
+            decision=decision,
+        )
+        self._phases.append(result)
+        if not result.status.startswith("waiting_"):
+            self._publish_terminal_story(result)
+        return result
+
+    def _require_status(self, expected: str) -> ControlPlaneShowcaseResult:
+        current = self.current
+        if current is None or current.status != expected:
+            actual = current.status if current is not None else "not_started"
+            raise RuntimeError(
+                f"governed showcase requires {expected}, current status is {actual}"
+            )
+        return current
+
+    def _publish_terminal_story(self, result: ControlPlaneShowcaseResult) -> None:
+        report_path = result.run_dir / "demo.md"
+        report_path.write_text(
+            _render_governed_demo(self._phases),
+            encoding="utf-8",
+        )
+        _publish_default_demo_pointer(self.output_root, result.artifact_dir)
 
 
 # 主要入口：用一个命令展示真实 Runtime 的人工屏障和 continuation。
 def run_governed_demo(
-    scenario: str = "approval",
+    scenario: str = "governed",
     *,
     output_root: str | Path = ".agent_forge/showcases",
-    answer: str = "Python 3.11",
+    answer: str = "",
 ) -> GovernedRunDemoResult:
-    """串联两个正式 Runtime phase；确定性模型只固定工具意图。"""
+    """串联全部正式 Runtime phase；确定性模型只固定工具意图。"""
 
-    waiting = _start_control_plane_demo(scenario, output_root=output_root)
-    completed = _continue_control_plane_demo(
-        scenario,
-        waiting.run_dir,
-        answer=answer,
-    )
+    phases = [_start_control_plane_demo(scenario, output_root=output_root)]
+    if phases[-1].status == "waiting_human":
+        resolved_answer = answer or (
+            GOVERNED_CHOICES[0] if scenario == "governed" else "Python 3.11"
+        )
+        phases.append(
+            _continue_control_plane_demo(
+                scenario,
+                phases[-1].run_dir,
+                answer=resolved_answer,
+            )
+        )
+    if phases[-1].status == "waiting_approval":
+        phases.append(
+            _continue_control_plane_demo(
+                scenario,
+                phases[-1].run_dir,
+                decision="approved",
+            )
+        )
+    waiting = phases[0]
+    completed = phases[-1]
     report_path = waiting.run_dir / "demo.md"
     report_path.write_text(
-        _render_governed_demo(waiting, completed),
+        _render_governed_demo(phases),
         encoding="utf-8",
     )
     _publish_default_demo_pointer(output_root, completed.artifact_dir)
@@ -94,6 +199,7 @@ def run_governed_demo(
         completed_status=completed.status,
         report_path=report_path,
         inspect_target=completed.artifact_dir,
+        state_sequence=tuple(phase.status for phase in phases),
     )
 
 
@@ -189,6 +295,95 @@ class _ApprovalShowcaseModel:
         )
 
 
+class _GovernedShowcaseModel:
+    """固定“人工选择 → 审批写入 → focused pytest”的工具意图。
+
+    continuation 会创建新的 ModelPort，因此阶段判断只读取当前规范消息中的已回填
+    Tool Observation，不依赖进程内计数或隐藏状态。
+    """
+
+    last_usage = None
+
+    def chat(
+        self,
+        messages: list[Message],
+        tools: list[ToolSchema],
+    ) -> AgentResponse:
+        tool_messages = [message for message in messages if message.role == "tool"]
+        tool_names = {str(message.name or "") for message in tool_messages}
+        if "python_validation" in tool_names:
+            return AgentResponse(
+                "PASS\noperator choice approved; compatibility target updated; "
+                "focused pytest passed",
+                [],
+            )
+        if "replace_text" in tool_names:
+            replace_observation = next(
+                (
+                    str(message.content or "")
+                    for message in reversed(tool_messages)
+                    if message.name == "replace_text"
+                ),
+                "",
+            )
+            if "approval rejected" in replace_observation:
+                return AgentResponse(
+                    "STOPPED\noperator rejected the proposed compatibility change; "
+                    "workspace remained unchanged",
+                    [],
+                )
+            return AgentResponse(
+                None,
+                [
+                    ToolCall(
+                        "showcase-governed-pytest",
+                        "python_validation",
+                        {
+                            "check_type": "pytest",
+                            "validation_target": "test_compatibility.py",
+                        },
+                    )
+                ],
+            )
+        selected_target = _human_response(tool_messages)
+        if selected_target:
+            return AgentResponse(
+                None,
+                [
+                    ToolCall(
+                        "showcase-governed-patch",
+                        "replace_text",
+                        {
+                            "path": "compatibility.py",
+                            "old": 'TARGET_RUNTIME = "unselected"\n',
+                            "new": f'TARGET_RUNTIME = "{selected_target}"\n',
+                        },
+                    )
+                ],
+            )
+        return AgentResponse(
+            None,
+            [
+                ToolCall(
+                    "showcase-governed-choice",
+                    "ask_human",
+                    {
+                        "question": "Select the supported Python runtime target.",
+                        "choices": list(GOVERNED_CHOICES),
+                    },
+                )
+            ],
+        )
+
+
+def _human_response(messages: list[Message]) -> str:
+    for message in reversed(messages):
+        content = str(message.content or "")
+        if message.name == "ask_human" and content.startswith("human_response:"):
+            return content.partition(":")[2].strip()
+    return ""
+
+
 def _start_control_plane_demo(
     scenario: str,
     *,
@@ -207,6 +402,17 @@ def _start_control_plane_demo(
             "    assert value == 2\n",
             encoding="utf-8",
         )
+    elif scenario == "governed":
+        (workspace / "compatibility.py").write_text(
+            'TARGET_RUNTIME = "unselected"\n',
+            encoding="utf-8",
+        )
+        (workspace / "test_compatibility.py").write_text(
+            "from compatibility import TARGET_RUNTIME\n\n\n"
+            "def test_runtime_target_is_supported() -> None:\n"
+            f"    assert TARGET_RUNTIME in {GOVERNED_CHOICES!r}\n",
+            encoding="utf-8",
+        )
 
     result = _run_phase(
         scenario,
@@ -222,6 +428,7 @@ def _continue_control_plane_demo(
     run_dir: str | Path,
     *,
     answer: str = "",
+    decision: Literal["approved", "rejected"] = "approved",
 ) -> ControlPlaneShowcaseResult:
     """回答 HITL 或批准状态变更操作，然后重新进入正式 AgentLoop。"""
 
@@ -236,7 +443,7 @@ def _continue_control_plane_demo(
 
     checkpoint_path = Path(str(manifest["checkpoint_path"]))
     checkpoint = load_task_checkpoint(str(checkpoint_path))
-    if scenario == "hitl":
+    if scenario in {"hitl", "governed"} and checkpoint.status == "waiting_human":
         request_id = str(manifest.get("request_id") or "")
         respond_to_human_input(
             HumanInputResponseCommand(
@@ -245,13 +452,18 @@ def _continue_control_plane_demo(
                 answer=answer,
             )
         )
-    else:
+    elif checkpoint.status == "waiting_approval":
         operation_key = str(manifest.get("operation_key") or "")
         decide_approval(
             str(root / "approvals"),
             operation_key,
-            "approved",
-            note="approved during deterministic control-plane showcase",
+            decision,
+            note=f"{decision} during deterministic control-plane showcase",
+        )
+    else:
+        raise RuntimeError(
+            "control-plane continuation requires waiting_human or waiting_approval, "
+            f"got {checkpoint.status}"
         )
 
     metadata = checkpoint.metadata if isinstance(checkpoint.metadata, dict) else {}
@@ -264,8 +476,8 @@ def _continue_control_plane_demo(
     )
     result = replace(
         result,
-        request_id=str(manifest.get("request_id") or ""),
-        operation_key=str(manifest.get("operation_key") or ""),
+        request_id=str(result.request_id or manifest.get("request_id") or ""),
+        operation_key=str(result.operation_key or manifest.get("operation_key") or ""),
     )
     _write_showcase_artifacts(result)
     return result
@@ -281,8 +493,18 @@ def _run_phase(
 ) -> ControlPlaneShowcaseResult:
     """经唯一 ``Harness`` Public API 装配 deterministic control-plane phase。"""
 
-    model = _HitlShowcaseModel() if scenario == "hitl" else _ApprovalShowcaseModel()
-    task = HITL_TASK if scenario == "hitl" else APPROVAL_TASK
+    model: ModelPort
+    if scenario == "hitl":
+        model = _HitlShowcaseModel()
+    elif scenario == "approval":
+        model = _ApprovalShowcaseModel()
+    else:
+        model = _GovernedShowcaseModel()
+    task = {
+        "hitl": HITL_TASK,
+        "approval": APPROVAL_TASK,
+        "governed": GOVERNED_TASK,
+    }[scenario]
     tools = build_registry(
         ToolRegistryBuildRequest(
             workspace=str(workspace),
@@ -295,12 +517,12 @@ def _run_phase(
         config=HarnessConfig(
             workspace=str(workspace),
             output_root=str(run_dir / "phases"),
-            max_steps=3,
+            max_steps=5 if scenario == "governed" else 3,
             approval_root=str(run_dir / "approvals"),
             human_input_root=str(run_dir / "human_input"),
             operation_ledger_root=str(run_dir / "operation_ledger"),
             memory_root=str(run_dir / "memory"),
-            auto_approve_writes=scenario != "approval",
+            auto_approve_writes=scenario not in {"approval", "governed"},
             approval_mode="trusted",
             tool_routing_mode="task-aware",
         ),
@@ -348,7 +570,7 @@ def _new_run_dir(output_root: str | Path, scenario: str) -> Path:
 
 
 def _validate_scenario(scenario: str) -> None:
-    if scenario not in {"hitl", "approval"}:
+    if scenario not in {"hitl", "approval", "governed"}:
         raise ValueError(f"unsupported control-plane showcase: {scenario}")
 
 
@@ -388,7 +610,7 @@ def _render_showcase_report(result: ControlPlaneShowcaseResult) -> str:
         )
         safety = "ask_human 是同 turn barrier；等待期间不会执行该响应中的其他工具。"
         identity = f"human request: `{result.request_id}`"
-    else:
+    elif result.scenario == "approval":
         target = result.workspace / "target.py"
         current_value = target.read_text(encoding="utf-8").strip()
         event = (
@@ -401,6 +623,27 @@ def _render_showcase_report(result: ControlPlaneShowcaseResult) -> str:
         )
         safety = f"当前 `target.py` 内容：`{current_value}`。"
         identity = f"approval operation: `{result.operation_key}`"
+    else:
+        target = result.workspace / "compatibility.py"
+        current_target = target.read_text(encoding="utf-8").strip()
+        if result.status == "waiting_human":
+            event = "兼容目标问题已持久化；在操作员选择前不会产生补丁。"
+            safety = f"当前配置仍为 `{current_target}`。"
+            identity = f"human request: `{result.request_id}`"
+        elif result.status == "waiting_approval":
+            event = (
+                "人工选择已回填，Runtime 已生成绑定目标 fingerprint 的补丁审批；"
+                "真实写工具尚未执行。"
+            )
+            safety = f"审批前配置仍为 `{current_target}`。"
+            identity = f"approval operation: `{result.operation_key}`"
+        else:
+            event = (
+                "审批决定已持久化；获准时补丁由真实工具执行，并由 focused pytest "
+                "验证所选兼容目标。"
+            )
+            safety = f"终态配置为 `{current_target}`。"
+            identity = f"approval operation: `{result.operation_key}`"
 
     lines = [
         "# Runtime Control Plane Showcase",
@@ -436,9 +679,30 @@ def _render_showcase_report(result: ControlPlaneShowcaseResult) -> str:
 
 
 def _render_governed_demo(
-    waiting: ControlPlaneShowcaseResult,
-    completed: ControlPlaneShowcaseResult,
+    phases: list[ControlPlaneShowcaseResult],
 ) -> str:
+    if not phases:
+        raise ValueError("governed demo requires at least one phase")
+    waiting = phases[0]
+    completed = phases[-1]
+    state_sequence = " → ".join(phase.status for phase in phases)
+    if waiting.scenario == "governed":
+        decision_steps = [
+            "模型提出人工问题，Runtime 先保存 request 与 waiting_human checkpoint。",
+            "操作员选择兼容目标，continuation 再生成具体文件补丁。",
+            "Runtime 保存 operation fingerprint，并停在 waiting_approval。",
+            "操作员批准或拒绝；只有批准分支才执行写工具与 focused pytest。",
+        ]
+    elif waiting.scenario == "hitl":
+        decision_steps = [
+            "模型提出人工问题，Runtime 保存 request 与 waiting_human checkpoint。",
+            "操作员回答后，continuation 从持久状态恢复并完成任务。",
+        ]
+    else:
+        decision_steps = [
+            "模型提出写操作，Runtime 保存 operation fingerprint 并等待审批。",
+            "操作员批准后，continuation 执行写工具与 focused pytest。",
+        ]
     lines = [
         "# Governed Run Demo",
         "",
@@ -456,7 +720,11 @@ def _render_governed_demo(
         "",
         "## 状态序列",
         "",
-        f"`running → {waiting.status} → explicit human decision → {completed.status}`",
+        f"`running → {state_sequence}`",
+        "",
+        "## 人工决策链",
+        "",
+        *(f"{index}. {step}" for index, step in enumerate(decision_steps, start=1)),
         "",
         "## Claim Boundary",
         "",
@@ -476,6 +744,9 @@ def _load_manifest(run_dir: Path) -> dict[str, Any]:
 
 
 __all__ = [
+    "ControlPlaneShowcaseResult",
+    "GOVERNED_CHOICES",
     "GovernedRunDemoResult",
+    "GovernedShowcaseController",
     "run_governed_demo",
 ]

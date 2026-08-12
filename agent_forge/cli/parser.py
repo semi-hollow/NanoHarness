@@ -98,10 +98,10 @@ def _add_demo_command(subparsers: argparse._SubParsersAction) -> None:
     )
     parser.add_argument(
         "--scenario",
-        choices=["approval", "hitl"],
-        default="approval",
+        choices=["governed", "approval", "hitl"],
+        default="governed",
     )
-    parser.add_argument("--answer", default="Python 3.11")
+    parser.add_argument("--answer", default="")
     parser.add_argument("--output-root", default=".agent_forge/showcases")
 
 
@@ -228,6 +228,7 @@ def _add_evaluation_command(subparsers: argparse._SubParsersAction) -> None:
         action="store_true",
         help="Include candidate patch text; default export keeps size and SHA-256 only.",
     )
+
 
 def _add_inspection_commands(subparsers: argparse._SubParsersAction) -> None:
     skills = subparsers.add_parser(

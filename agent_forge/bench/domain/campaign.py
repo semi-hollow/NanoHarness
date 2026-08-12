@@ -99,11 +99,15 @@ class BenchmarkCampaignRequest:
     publish_root: str = ""
     resume: bool = True
     allow_dirty: bool = False
+    max_infrastructure_attempts: int = 2
     variants: tuple[CampaignVariant, ...] = DEFAULT_CAMPAIGN_VARIANTS
     cohort: CohortSelection | None = None
 
     def __post_init__(self) -> None:
-        if not _CAMPAIGN_ID.fullmatch(self.campaign_id) or self.campaign_id in {".", ".."}:
+        if not _CAMPAIGN_ID.fullmatch(self.campaign_id) or self.campaign_id in {
+            ".",
+            "..",
+        }:
             raise ValueError(
                 "campaign_id must be 1-80 safe filename characters and cannot be '.' or '..'"
             )
@@ -114,8 +118,10 @@ class BenchmarkCampaignRequest:
         if not 1 <= self.repetitions <= 20:
             raise ValueError("campaign repetitions must be between 1 and 20")
         names = [variant.name for variant in self.variants]
-        if len(names) < 2 or len(set(names)) != len(names):
-            raise ValueError("campaign requires at least two uniquely named variants")
+        if not names or len(set(names)) != len(names):
+            raise ValueError("campaign requires one or more uniquely named variants")
+        if not 1 <= self.max_infrastructure_attempts <= 2:
+            raise ValueError("max_infrastructure_attempts must be 1 or 2")
         if self.benchmark.cases_file:
             raise ValueError(
                 "campaign currently requires a versioned dataset/regression set; "
@@ -129,7 +135,9 @@ class BenchmarkCampaignRequest:
             if self.benchmark.dataset_name != self.cohort.dataset_name:
                 raise ValueError("campaign dataset must match the cohort manifest")
             if self.benchmark.dataset_revision != self.cohort.dataset_revision:
-                raise ValueError("campaign dataset revision must match the cohort manifest")
+                raise ValueError(
+                    "campaign dataset revision must match the cohort manifest"
+                )
             if self.benchmark.split != self.cohort.split:
                 raise ValueError("campaign split must match the cohort manifest")
 
@@ -161,7 +169,10 @@ class BenchmarkCampaignRequest:
             "regression_set": self.regression_set,
             "case_ids": list(self.case_ids),
             "repetitions": self.repetitions,
-            "comparison_factor": "runtime-preset",
+            "comparison_factor": (
+                "runtime-preset" if len(self.variants) > 1 else "none"
+            ),
+            "max_infrastructure_attempts": self.max_infrastructure_attempts,
             "benchmark": base,
             "variants": [variant.to_dict() for variant in self.variants],
         }
@@ -292,7 +303,9 @@ def campaign_config_digest(identity: dict[str, Any], source: dict[str, Any]) -> 
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()
 
 
-def build_campaign_records(request: BenchmarkCampaignRequest) -> list[CampaignRunRecord]:
+def build_campaign_records(
+    request: BenchmarkCampaignRequest,
+) -> list[CampaignRunRecord]:
     """交错 variant 顺序，降低 provider 时间漂移总是偏向同一 variant 的风险。"""
 
     records: list[CampaignRunRecord] = []
@@ -300,7 +313,9 @@ def build_campaign_records(request: BenchmarkCampaignRequest) -> list[CampaignRu
     variants = list(request.variants)
     for repetition in range(1, request.repetitions + 1):
         for case_index, case_id in enumerate(request.case_ids):
-            ordered = variants if (repetition + case_index) % 2 else list(reversed(variants))
+            ordered = (
+                variants if (repetition + case_index) % 2 else list(reversed(variants))
+            )
             for variant in ordered:
                 ordinal += 1
                 records.append(
@@ -322,12 +337,16 @@ def summarize_campaign(state: CampaignState) -> dict[str, Any]:
     """聚合重复运行，并把样本解决率与候选补丁接受率分开。"""
 
     variants = {
-        str(item.get("name")): _empty_variant_summary(str(item.get("label") or item.get("name")))
+        str(item.get("name")): _empty_variant_summary(
+            str(item.get("label") or item.get("name"))
+        )
         for item in state.config.get("variants") or []
         if isinstance(item, dict)
     }
     for record in state.records:
-        summary = variants.setdefault(record.variant, _empty_variant_summary(record.variant))
+        summary = variants.setdefault(
+            record.variant, _empty_variant_summary(record.variant)
+        )
         summary["planned"] += 1
         for prior_attempt in record.attempt_history:
             prior_evidence = prior_attempt.get("evidence")
@@ -385,6 +404,10 @@ def summarize_campaign(state: CampaignState) -> dict[str, Any]:
         summary["official_resolved_rate"] = (
             int(summary["official_resolved"]) / planned if planned else None
         )
+        summary["official_resolved_wilson_95_ci"] = _wilson_95_interval(
+            int(summary["official_resolved"]),
+            planned,
+        )
         summary["evaluated_patch_acceptance_rate"] = (
             int(summary["official_resolved"]) / official_count
             if official_count
@@ -397,9 +420,7 @@ def summarize_campaign(state: CampaignState) -> dict[str, Any]:
         summary["failed_tool_call_rate"] = (
             int(summary["failed_tool_calls"]) / tool_calls if tool_calls else None
         )
-        summary["estimated_cost_usd"] = round(
-            float(summary["estimated_cost_usd"]), 6
-        )
+        summary["estimated_cost_usd"] = round(float(summary["estimated_cost_usd"]), 6)
         summary["retry_estimated_cost_usd"] = round(
             float(summary["retry_estimated_cost_usd"]), 6
         )
@@ -418,6 +439,10 @@ def summarize_campaign(state: CampaignState) -> dict[str, Any]:
     status_counts: dict[str, int] = {}
     for record in state.records:
         status_counts[record.status] = status_counts.get(record.status, 0) + 1
+    single_runtime = len(variants) == 1
+    max_infrastructure_attempts = int(
+        state.config.get("max_infrastructure_attempts") or 2
+    )
     return {
         "schema_version": CAMPAIGN_SCHEMA_VERSION,
         "campaign_id": state.campaign_id,
@@ -437,14 +462,41 @@ def summarize_campaign(state: CampaignState) -> dict[str, Any]:
             6,
         ),
         "claim_boundary": {
-            "comparison_factor": "runtime-preset; multiple control features differ",
+            "comparison_factor": (
+                "none; single pre-registered runtime snapshot"
+                if single_runtime
+                else "runtime-preset; multiple control features differ"
+            ),
             "patch_rate_denominator": "all planned runs",
             "official_resolved_rate_denominator": "all pre-registered runs",
             "evaluated_patch_acceptance_denominator": "runs with explicit official resolved/unresolved outcome",
-            "infrastructure_policy": "one bounded retry; exhausted infrastructure slots stay visible and are excluded only from adjudicated paired comparison",
+            "infrastructure_policy": (
+                "no whole-case infrastructure retry; infrastructure slots stay visible"
+                if max_infrastructure_attempts == 1
+                else "one bounded whole-case infrastructure retry; exhausted infrastructure slots stay visible"
+            ),
             "statistical_limit": "pre-registered engineering sample, not an official leaderboard or population estimate",
         },
     }
+
+
+def _wilson_95_interval(resolved: int, planned: int) -> list[float] | None:
+    """计算二项比例的 Wilson 95% 区间，避免把小样本点估计写成精确真值。"""
+
+    if planned <= 0:
+        return None
+    z = 1.959963984540054
+    proportion = resolved / planned
+    z_squared = z * z
+    denominator = 1 + z_squared / planned
+    centre = proportion + z_squared / (2 * planned)
+    margin = z * (
+        (proportion * (1 - proportion) / planned + z_squared / (4 * planned**2)) ** 0.5
+    )
+    return [
+        round(max(0.0, (centre - margin) / denominator), 6),
+        round(min(1.0, (centre + margin) / denominator), 6),
+    ]
 
 
 def _empty_variant_summary(label: str) -> dict[str, Any]:
@@ -481,9 +533,9 @@ def _paired_official_summary(state: CampaignState) -> dict[str, Any]:
     control, treatment = variant_names
     grouped: dict[tuple[str, int], dict[str, CampaignRunRecord]] = {}
     for record in state.records:
-        grouped.setdefault((record.case_id, record.repetition), {})[
-            record.variant
-        ] = record
+        grouped.setdefault((record.case_id, record.repetition), {})[record.variant] = (
+            record
+        )
     control_wins = 0
     treatment_wins = 0
     ties = 0
@@ -491,7 +543,12 @@ def _paired_official_summary(state: CampaignState) -> dict[str, Any]:
     for pair in grouped.values():
         left = pair.get(control)
         right = pair.get(treatment)
-        if not left or not right or left.status != "completed" or right.status != "completed":
+        if (
+            not left
+            or not right
+            or left.status != "completed"
+            or right.status != "completed"
+        ):
             continue
         left_status = str(
             left.evidence.get("official_evaluation_status") or "not_evaluated"
@@ -537,9 +594,9 @@ def _paired_sample_summary(state: CampaignState) -> dict[str, Any]:
     control, treatment = variant_names
     grouped: dict[tuple[str, int], dict[str, CampaignRunRecord]] = {}
     for record in state.records:
-        grouped.setdefault((record.case_id, record.repetition), {})[
-            record.variant
-        ] = record
+        grouped.setdefault((record.case_id, record.repetition), {})[record.variant] = (
+            record
+        )
 
     wins = {control: 0, treatment: 0}
     ties = 0
@@ -548,7 +605,12 @@ def _paired_sample_summary(state: CampaignState) -> dict[str, Any]:
     for pair in grouped.values():
         left = pair.get(control)
         right = pair.get(treatment)
-        if not left or not right or left.status != "completed" or right.status != "completed":
+        if (
+            not left
+            or not right
+            or left.status != "completed"
+            or right.status != "completed"
+        ):
             excluded_infrastructure_pairs += 1
             continue
         failure_classes = {

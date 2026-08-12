@@ -1003,7 +1003,7 @@ class WorkbenchRunStoryTest(unittest.TestCase):
 
         self.assertIn("parallel evidence", rendered)
         self.assertIn("这次运行要回答的问题", rendered)
-        self.assertIn("两个互不依赖、写入范围不重叠", rendered)
+        self.assertIn("两个写入范围不重叠的策略修复", rendered)
         self.assertIn("本次可复现运行使用确定性 Worker 模型", rendered)
         self.assertIn("为什么允许并行", rendered)
         self.assertIn("a", rendered)
@@ -1052,6 +1052,26 @@ class WorkbenchRunStoryTest(unittest.TestCase):
                                 "allowed_tools": ["replace_text", "git_diff"],
                             },
                         ],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            (run_dir / "scenario_contract.json").write_text(
+                json.dumps(
+                    {
+                        "schema_version": 1,
+                        "artifact_type": "debug_lab_scenario_contract",
+                        "scenario": "coordinated",
+                        "cases": [
+                            {
+                                "case": "invalid discount",
+                                "expected": "fail closed with ValueError",
+                                "owner": "pricing",
+                            }
+                        ],
+                        "integration_gate": (
+                            "edge verifier waits for both policy workers"
+                        ),
                     }
                 ),
                 encoding="utf-8",
@@ -1114,6 +1134,9 @@ class WorkbenchRunStoryTest(unittest.TestCase):
         self.assertIn("隔离 Finalizer", rendered)
         self.assertIn("未调用外部大模型", rendered)
         self.assertIn("任务契约与真实结果", rendered)
+        self.assertIn("正常路径与异常分支", rendered)
+        self.assertIn("invalid discount", rendered)
+        self.assertIn("edge verifier waits for both policy workers", rendered)
         self.assertIn("无前置依赖：允许与同批次任务并行", rendered)
         self.assertIn("replace_text", rendered)
         self.assertIn("失败调用：0 次", rendered)
@@ -1198,6 +1221,36 @@ class WorkbenchRunStoryTest(unittest.TestCase):
                                     }
                                 ],
                             },
+                            {
+                                "event_type": "human_input_response_loaded",
+                                "step": 1,
+                                "request": {
+                                    "status": "responded",
+                                    "answer": "Python 3.11 LTS",
+                                },
+                            },
+                            {
+                                "event_type": "human_approval",
+                                "step": 2,
+                                "observation": "approved",
+                                "approval_request": {
+                                    "status": "approved",
+                                    "operation_key": "operation-key-1",
+                                    "tool_name": "replace_text",
+                                    "arguments": {"path": "compatibility.py"},
+                                },
+                            },
+                            {
+                                "event_type": "validation_evidence",
+                                "step": 3,
+                                "success": True,
+                                "validation": {
+                                    "kind": "pytest",
+                                    "status": "passed",
+                                    "tool": "python_validation",
+                                    "evidence": "test_compatibility.py\n1 passed",
+                                },
+                            },
                         ]
                     }
                 ),
@@ -1214,6 +1267,11 @@ class WorkbenchRunStoryTest(unittest.TestCase):
             )
 
             rendered = _render_evidence_html(project_dir, "controls")
+            workspace_results = _render_workspace_view(
+                project_dir,
+                source_key="governed",
+                view="results",
+            )
             overview = _render_evidence_html(project_dir, "overview")
             timeline = _render_evidence_html(project_dir, "timeline")
 
@@ -1225,6 +1283,18 @@ class WorkbenchRunStoryTest(unittest.TestCase):
         self.assertIn("metadata 发现 → SKILL.md 激活", rendered)
         self.assertIn("references/failure-triage.md", rendered)
         self.assertIn("披露 900 / 900 字符", rendered)
+        self.assertIn("本次人工决策链", rendered)
+        self.assertIn("Python 3.11 LTS", rendered)
+        self.assertIn("补丁审批 · compatibility.py", rendered)
+        self.assertIn("pytest · passed", rendered)
+        self.assertIn("operation-key-1", rendered)
+        self.assertIn("人工决策与验证时间线", rendered)
+        self.assertIn("载入人工回答", rendered)
+        self.assertIn("验证证据", rendered)
+        self.assertIn("本次人工决策链", workspace_results)
+        self.assertIn("Python 3.11 LTS", workspace_results)
+        self.assertIn("补丁审批 · compatibility.py", workspace_results)
+        self.assertIn("pytest · passed", workspace_results)
         self.assertIn(str(control_trace), rendered)
         self.assertIn("1 个 Checkpoint", overview)
         self.assertIn("受治理 AgentLoop", timeline)

@@ -19,6 +19,8 @@ def render_campaign_report(
     config = state.config
     source = state.source
     repetitions = int(config.get("repetitions") or 0)
+    variants = [item for item in config.get("variants") or [] if isinstance(item, dict)]
+    single_runtime = len(variants) == 1
     lines = [
         "# NanoHarness Benchmark Campaign",
         "",
@@ -56,18 +58,24 @@ def render_campaign_report(
     lines.extend(
         [
             "",
-            "Variant order alternates by case and repetition to reduce systematic provider-time bias.",
-            "Both variants use the same AgentLoop, model, task, sampling settings, budgets, safety policy and execution mode.",
+            (
+                "This run uses one pre-registered Runtime profile and makes no comparative uplift claim."
+                if single_runtime
+                else "Variant order alternates by case and repetition to reduce systematic provider-time bias."
+            ),
+            (
+                "Each selected case is executed once with the same model, budgets, safety policy and evaluator."
+                if single_runtime
+                else "Both variants use the same AgentLoop, model, task, sampling settings, budgets, safety policy and execution mode."
+            ),
             "",
-            "## Runtime Presets",
+            "## Runtime Profile" if single_runtime else "## Runtime Presets",
             "",
             "| Variant | Tool visibility | Skills | Scope |",
             "| --- | --- | --- | --- |",
         ]
     )
-    for variant in config.get("variants") or []:
-        if not isinstance(variant, dict):
-            continue
+    for variant in variants:
         lines.append(
             "| `{name}` | `{routing}` | `{skills}` | {description} |".format(
                 name=variant.get("name") or "",
@@ -79,12 +87,16 @@ def render_campaign_report(
     lines.extend(
         [
             "",
-            "> This is a multi-factor runtime-preset comparison, not a single-factor causal experiment.",
+            (
+                "> This is a fixed-sample Pass@1 capability snapshot, not a model or Harness uplift experiment."
+                if single_runtime
+                else "> This is a multi-factor runtime-preset comparison, not a single-factor causal experiment."
+            ),
             "",
             "## Aggregate Evidence",
             "",
-            "| Variant | Complete | Candidate patch | Local verified candidate | Official resolved / selected | Accepted / evaluated patch | Infra | Failed tools | Execution cost USD |",
-            "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
+            "| Variant | Complete | Candidate patch | Local verified candidate | Official resolved / selected | Wilson 95% CI | Accepted / evaluated patch | Infra | Failed tools | Execution cost USD |",
+            "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
         ]
     )
     for name, item in (summary.get("variants") or {}).items():
@@ -96,50 +108,59 @@ def render_campaign_report(
             item.get("official_resolved"),
             item.get("official_evaluated"),
         )
+        confidence_interval = _confidence_interval(
+            item.get("official_resolved_wilson_95_ci")
+        )
         lines.append(
-            "| `{name}` | {completed}/{planned} | {patch}/{planned} | {local}/{planned} | {selected_official} | {evaluated_acceptance} | {infra} | {failed}/{tools} | {cost:.6f} |".format(
+            "| `{name}` | {completed}/{planned} | {patch}/{planned} | {local}/{planned} | {selected_official} | {confidence_interval} | {evaluated_acceptance} | {infra} | {failed}/{tools} | {cost:.6f} |".format(
                 name=name,
                 completed=item.get("completed", 0),
                 planned=item.get("planned", 0),
                 patch=item.get("patch_generated", 0),
                 local=item.get("local_verified", 0),
                 selected_official=selected_official,
+                confidence_interval=confidence_interval,
                 evaluated_acceptance=evaluated_acceptance,
                 infra=item.get("infrastructure_failures", 0),
                 failed=item.get("failed_tool_calls", 0),
                 tools=item.get("tool_calls", 0),
-                cost=float(item.get("execution_estimated_cost_usd") or item.get("estimated_cost_usd") or 0.0),
+                cost=float(
+                    item.get("execution_estimated_cost_usd")
+                    or item.get("estimated_cost_usd")
+                    or 0.0
+                ),
             )
         )
-    paired = summary.get("paired_official") or {}
-    wins = paired.get("wins") or {}
-    lines.extend(
-        [
-            "",
-            "## Paired Official Outcomes",
-            "",
-            f"- pairs with official outcomes on both variants: `{paired.get('evaluated_pairs', 0)}`",
-            f"- wins: `{wins}`",
-            f"- ties: `{paired.get('ties', 0)}`",
-        ]
-    )
-    if not int(paired.get("evaluated_pairs") or 0):
-        lines.append(
-            "- No comparative correctness claim is available because no pair has official outcomes for both variants."
+    if not single_runtime:
+        paired = summary.get("paired_official") or {}
+        wins = paired.get("wins") or {}
+        lines.extend(
+            [
+                "",
+                "## Paired Official Outcomes",
+                "",
+                f"- pairs with official outcomes on both variants: `{paired.get('evaluated_pairs', 0)}`",
+                f"- wins: `{wins}`",
+                f"- ties: `{paired.get('ties', 0)}`",
+            ]
         )
-    paired_sample = summary.get("paired_sample") or {}
-    sample_wins = paired_sample.get("wins") or {}
-    lines.extend(
-        [
-            "",
-            "## Paired Selected-Sample Outcomes",
-            "",
-            f"- adjudicated pairs: `{paired_sample.get('adjudicated_pairs', 0)}`",
-            f"- pairs excluded for infrastructure failure: `{paired_sample.get('excluded_infrastructure_pairs', 0)}`",
-            f"- wins: `{sample_wins}`",
-            f"- ties: `{paired_sample.get('ties', 0)}`",
-        ]
-    )
+        if not int(paired.get("evaluated_pairs") or 0):
+            lines.append(
+                "- No comparative correctness claim is available because no pair has official outcomes for both variants."
+            )
+        paired_sample = summary.get("paired_sample") or {}
+        sample_wins = paired_sample.get("wins") or {}
+        lines.extend(
+            [
+                "",
+                "## Paired Selected-Sample Outcomes",
+                "",
+                f"- adjudicated pairs: `{paired_sample.get('adjudicated_pairs', 0)}`",
+                f"- pairs excluded for infrastructure failure: `{paired_sample.get('excluded_infrastructure_pairs', 0)}`",
+                f"- wins: `{sample_wins}`",
+                f"- ties: `{paired_sample.get('ties', 0)}`",
+            ]
+        )
     lines.extend(
         [
             "",
@@ -178,8 +199,12 @@ def render_campaign_report(
             "- Candidate patch rate uses all planned runs and measures edit reachability, not correctness.",
             "- Official resolved / selected uses every pre-registered case as the denominator; a stable no-patch run is unresolved.",
             "- Accepted / evaluated patch only measures official acceptance among patches that reached an explicit evaluator verdict.",
-            "- A provider or evaluator infrastructure failure is retried once, then disclosed and excluded from adjudicated pair claims.",
-            "- The two presets intentionally differ in both tool routing and Skill activation, so this campaign evaluates the preset as a whole.",
+            _infrastructure_boundary(config),
+            (
+                "- No comparison or causal uplift claim is made from this single Runtime profile."
+                if single_runtime
+                else "- The two presets intentionally differ in both tool routing and Skill activation, so this campaign evaluates the preset as a whole."
+            ),
             _selection_boundary(config),
             _repetition_boundary(repetitions, len(config.get("case_ids") or [])),
             "",
@@ -197,6 +222,29 @@ def _rate_with_denominator(numerator: Any, denominator: Any) -> str:
     top = int(numerator or 0)
     bottom = int(denominator or 0)
     return f"{top}/{bottom} ({top / bottom:.1%})" if bottom else "not available"
+
+
+def _confidence_interval(value: Any) -> str:
+    """把机器可读比例区间渲染成人类可读百分比。"""
+
+    if not isinstance(value, list) or len(value) != 2:
+        return "not available"
+    return f"{float(value[0]):.1%}–{float(value[1]):.1%}"
+
+
+def _infrastructure_boundary(config: dict[str, Any]) -> str:
+    """根据冻结配置说明整题基础设施重试边界。"""
+
+    attempts = int(config.get("max_infrastructure_attempts") or 2)
+    if attempts == 1:
+        return (
+            "- Whole-case infrastructure retries are disabled; provider/evaluator "
+            "failures remain visible in the fixed denominator."
+        )
+    return (
+        "- A provider or evaluator infrastructure failure is retried once, then "
+        "disclosed and excluded from adjudicated pair claims."
+    )
 
 
 def _repetition_boundary(repetitions: int, case_count: int) -> str:

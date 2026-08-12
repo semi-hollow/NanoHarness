@@ -2,12 +2,14 @@ import hashlib
 import json
 import tempfile
 import unittest
+from dataclasses import replace
 from pathlib import Path
 
 from agent_forge.bench.adapters.campaign_files import FileCampaignArtifacts
 from agent_forge.bench.application.campaign import RunBenchmarkCampaign
 from agent_forge.bench.domain.campaign import (
     BenchmarkCampaignRequest,
+    CampaignVariant,
     build_campaign_records,
 )
 from agent_forge.bench.domain.config import SwebenchRunRequest
@@ -52,7 +54,9 @@ class _FakeBenchmarkRunner:
         )
         structured_failure = remaining > 0
         if structured_failure:
-            self.structured_failures_remaining[request.tool_routing_mode] = remaining - 1
+            self.structured_failures_remaining[request.tool_routing_mode] = (
+                remaining - 1
+            )
         official = (
             "official_eval_skipped_empty_patch"
             if structured_failure
@@ -295,6 +299,46 @@ class BenchmarkCampaignTest(unittest.TestCase):
                 use_case.run_campaign(self._request(root, repetitions=1))
 
         self.assertEqual(runner.requests, [])
+
+    def test_single_runtime_snapshot_disables_whole_case_retry(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            runner = _FakeBenchmarkRunner()
+            runner.structured_failures_remaining["task-aware"] = 10
+            single_runtime = CampaignVariant(
+                name="canonical-runtime",
+                label="Canonical Runtime",
+                description="Fixed Pass@1 snapshot.",
+                tool_routing_mode="task-aware",
+                skill_mode="auto",
+                skill_names=("swebench_repair",),
+            )
+            request = replace(
+                self._request(root, repetitions=1),
+                variants=(single_runtime,),
+                max_infrastructure_attempts=1,
+            )
+            result = RunBenchmarkCampaign(
+                runner,
+                FileCampaignArtifacts(root),
+                _SourceIdentity(),
+            ).run_campaign(request)
+            summary = json.loads(result.summary_path.read_text(encoding="utf-8"))
+            report = result.report_path.read_text(encoding="utf-8")
+
+        self.assertEqual(len(result.state.records), 2)
+        self.assertEqual(len(runner.requests), 2)
+        self.assertTrue(all(record.attempts == 1 for record in result.state.records))
+        self.assertEqual(
+            summary["variants"]["canonical-runtime"]["infrastructure_failures"],
+            2,
+        )
+        self.assertEqual(
+            summary["claim_boundary"]["comparison_factor"],
+            "none; single pre-registered runtime snapshot",
+        )
+        self.assertIn("fixed-sample Pass@1 capability snapshot", report)
+        self.assertNotIn("## Paired Official Outcomes", report)
 
 
 if __name__ == "__main__":

@@ -1,10 +1,9 @@
 <component name="ProjectRunConfigurationManager">
-  <configuration default="false" name="NanoHarness Lab 1 - Governed Repair" type="PythonConfigurationType" factoryName="Python">
+  <configuration default="false" name="NanoHarness Benchmark - SWE-bench Verified Mini 50" type="PythonConfigurationType" factoryName="Python">
     <option name="ENV_FILES" value="" />
     <option name="INTERPRETER_OPTIONS" value="" />
     <option name="PARENT_ENVS" value="true" />
     <envs>
-      <env name="NANOHARNESS_DEBUG_LAB" value="governed" />
       <env name="PYTHONUNBUFFERED" value="1" />
     </envs>
     <option name="SDK_HOME" value="$PROJECT_DIR$/.venv/bin/python" />
@@ -13,9 +12,9 @@
     <option name="ADD_CONTENT_ROOTS" value="true" />
     <option name="ADD_SOURCE_ROOTS" value="true" />
     <option name="MODULE_MODE" value="false" />
-    <option name="SCRIPT_NAME" value="$PROJECT_DIR$/examples/debug_lab/run.py" />
-    <option name="PARAMETERS" value="governed --interactive --open-workbench" />
-    <option name="SHOW_COMMAND_LINE" value="false" />
+    <option name="SCRIPT_NAME" value="$PROJECT_DIR$/scripts/run_swebench_verified_mini_50.py" />
+    <option name="PARAMETERS" value="--execute" />
+    <option name="SHOW_COMMAND_LINE" value="true" />
     <option name="EMULATE_TERMINAL" value="true" />
     <option name="REDIRECT_INPUT" value="false" />
     <option name="INPUT_FILE" value="" />

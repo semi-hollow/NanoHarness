@@ -30,9 +30,6 @@ from agent_forge.bench.ports import (
 )
 
 
-MAX_INFRASTRUCTURE_ATTEMPTS = 2
-
-
 @dataclass(frozen=True, kw_only=True)
 class BenchmarkCampaignResult:
     """公开调用方真正需要的 campaign 状态和 artifact 位置。"""
@@ -123,6 +120,7 @@ class RunBenchmarkCampaign:
                     retry_same_slot = self._record_run_slot_completion(
                         campaign_run_slot,
                         benchmark_run,
+                        max_infrastructure_attempts=request.max_infrastructure_attempts,
                     )
                 except Exception as exc:
                     campaign_run_slot.status = "failed"
@@ -258,6 +256,8 @@ class RunBenchmarkCampaign:
         self,
         campaign_run_slot: CampaignRunRecord,
         benchmark_run: BenchRunSummary,
+        *,
+        max_infrastructure_attempts: int,
     ) -> bool:
         """提交一次尝试；瞬时基础设施失败最多原位重试一次。"""
 
@@ -274,7 +274,7 @@ class RunBenchmarkCampaign:
         failure_class = str(campaign_run_slot.evidence.get("failure_class") or "")
         if (
             failure_class in RETRYABLE_INFRASTRUCTURE_FAILURES
-            and campaign_run_slot.attempts < MAX_INFRASTRUCTURE_ATTEMPTS
+            and campaign_run_slot.attempts < max_infrastructure_attempts
         ):
             campaign_run_slot.attempt_history.append(
                 {

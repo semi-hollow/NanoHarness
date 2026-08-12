@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import subprocess
 import sys
@@ -29,6 +30,8 @@ from examples.debug_lab.support import (  # noqa: E402
     create_workspace,
     publish_latest,
 )
+from agent_forge.showcase import ControlPlaneShowcaseResult  # noqa: E402
+from agent_forge.tools.registry import ToolRegistry  # noqa: E402
 
 
 def _publish_latest(artifact_dir: Path, *, scenario: str = "") -> None:
@@ -81,24 +84,41 @@ def open_existing_evidence_workbench() -> None:
     _open_published_evidence_in_workbench("complex", stay_attached=True)
 
 
-def run_governed() -> None:
+def run_governed(
+    *,
+    interactive: bool = False,
+    open_workbench: bool = True,
+) -> None:
+    """运行 Lab 1；正式 IDE 入口使用按钮控制台，自动化保留 headless 路径。"""
+
     from agent_forge.showcase import run_governed_demo
 
+    def publish_and_open(result: ControlPlaneShowcaseResult) -> None:
+        _publish_latest(result.artifact_dir, scenario="control")
+        if open_workbench:
+            _open_published_evidence_in_workbench("governed")
+
+    if interactive:
+        from agent_forge.showcase.console import run_governed_showcase_console
+
+        run_governed_showcase_console(
+            output_root=RUNS_ROOT,
+            open_workbench=publish_and_open,
+        )
+        return
+
     print(
-        "LAB 1/3: approval -> checkpoint -> continuation -> write "
+        "LAB 1/3: human choice -> checkpoint -> patch approval -> continuation "
         "-> focused pytest -> evidence"
     )
-    governed_demo_result = run_governed_demo("approval", output_root=RUNS_ROOT)
+    governed_demo_result = run_governed_demo("governed", output_root=RUNS_ROOT)
     _publish_latest(governed_demo_result.inspect_target, scenario="control")
-    print(
-        f"STATUS: {governed_demo_result.waiting_status} "
-        f"-> {governed_demo_result.completed_status}"
-    )
+    print("STATUS: " + " -> ".join(governed_demo_result.state_sequence))
     print(f"ARTIFACT: {governed_demo_result.inspect_target}")
 
 
 def run_coordinated() -> None:
-    """运行两个隔离 worker、真实 diff 合并和只读 pytest finalizer。"""
+    """运行两个并行策略 Worker、依赖验证 Worker 和只读 Finalizer。"""
 
     from agent_forge.multi_agent.domain.live import FanoutPlan
     from agent_forge.multi_agent.wiring import (
@@ -119,26 +139,92 @@ def run_coordinated() -> None:
         f"debug-fanout-{time.strftime('%Y%m%d-%H%M%S')}-{uuid.uuid4().hex[:6]}"
     )
     run_dir.mkdir(parents=True, exist_ok=False)
+    (run_dir / "scenario_contract.json").write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "artifact_type": "debug_lab_scenario_contract",
+                "scenario": "coordinated",
+                "title": "Checkout policy integration and abnormal-input matrix",
+                "cases": [
+                    {
+                        "case": "normal checkout",
+                        "expected": "discount and standard domestic fee compose to 85",
+                        "owner": "pricing-policy + shipping-policy",
+                    },
+                    {
+                        "case": "invalid subtotal or discount",
+                        "expected": "fail closed with ValueError",
+                        "owner": "pricing-policy",
+                    },
+                    {
+                        "case": "free-shipping threshold",
+                        "expected": "standard domestic fee becomes zero at 100",
+                        "owner": "shipping-policy",
+                    },
+                    {
+                        "case": "expedited threshold order",
+                        "expected": "expedited fee remains 15 instead of becoming free",
+                        "owner": "shipping-policy",
+                    },
+                    {
+                        "case": "unknown shipping region",
+                        "expected": "reject rather than silently defaulting to zero",
+                        "owner": "shipping-policy",
+                    },
+                ],
+                "integration_gate": (
+                    "edge-case-verifier depends on both policy workers and cannot run "
+                    "until both scoped diffs are merged"
+                ),
+            },
+            ensure_ascii=False,
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
     trace = TraceRecorder(str(run_dir / "trace.json"))
     plan = FanoutPlan.from_mapping(
         {
-            "goal": "Repair independent pricing and shipping modules, then verify checkout.",
+            "goal": (
+                "Repair checkout pricing and shipping policies, reject invalid inputs, "
+                "preserve expedited-fee semantics, then verify all edge cases."
+            ),
             "tasks": [
                 {
-                    "id": "pricing",
-                    "task": "Fix discount calculation in pricing.py.",
+                    "id": "pricing-policy",
+                    "task": (
+                        "Fix discount calculation in pricing.py and fail closed for "
+                        "negative subtotal, negative discount, or discount above subtotal."
+                    ),
                     "write_scope": ["pricing.py"],
-                    "allowed_tools": ["replace_text", "git_diff"],
-                    "expected_artifact": "pricing_result",
-                    "max_steps": 3,
+                    "allowed_tools": ["read_file", "replace_text", "git_diff"],
+                    "expected_artifact": "pricing_policy_result",
+                    "max_steps": 5,
                 },
                 {
-                    "id": "shipping",
-                    "task": "Fix the flat shipping fee in shipping.py.",
+                    "id": "shipping-policy",
+                    "task": (
+                        "Fix shipping.py so standard, expedited, international, and "
+                        "unsupported-region branches have explicit behavior."
+                    ),
                     "write_scope": ["shipping.py"],
-                    "allowed_tools": ["replace_text", "git_diff"],
-                    "expected_artifact": "shipping_result",
-                    "max_steps": 3,
+                    "allowed_tools": ["read_file", "replace_text", "git_diff"],
+                    "expected_artifact": "shipping_policy_result",
+                    "max_steps": 5,
+                },
+                {
+                    "id": "edge-case-verifier",
+                    "task": (
+                        "After both policies are integrated, run test_checkout.py and "
+                        "verify invalid pricing, free-shipping threshold, expedited "
+                        "shipping, and unknown-region behavior."
+                    ),
+                    "depends_on": ["pricing-policy", "shipping-policy"],
+                    "write_scope": [],
+                    "allowed_tools": ["python_validation", "git_diff"],
+                    "expected_artifact": "edge_case_verification",
+                    "max_steps": 4,
                 },
             ],
         }
@@ -148,7 +234,7 @@ def run_coordinated() -> None:
     def registry_factory(
         worktree: Path,
         environment: ExecutionEnvironment,
-    ):
+    ) -> ToolRegistry:
         return build_registry(
             ToolRegistryBuildRequest(
                 workspace=str(worktree),
@@ -158,15 +244,15 @@ def run_coordinated() -> None:
         )
 
     print(
-        "LAB 2/3: parallel workers -> scoped diffs -> deterministic merge "
-        "-> read-only pytest finalizer"
+        "LAB 2/3: parallel policy workers -> dependency gate -> edge-case verifier "
+        "-> scoped merge -> read-only finalizer"
     )
     fanout_summary = build_live_fanout(
         LiveFanoutBuildRequest(
             plan=plan,
             base_config=RuntimeConfig(
                 workspace=str(workspace),
-                max_steps=4,
+                max_steps=6,
                 auto_approve_writes=True,
                 approval_mode="trusted",
                 tool_routing_mode="all",
@@ -214,6 +300,11 @@ def main() -> None:
             "三条正式 Lab 默认开启；自动化时可使用 --no-open-workbench。"
         ),
     )
+    parser.add_argument(
+        "--interactive",
+        action="store_true",
+        help="为 Lab 1 打开按钮式 HITL/审批控制台；其他场景忽略。",
+    )
     args = parser.parse_args()
     os.chdir(PROJECT_ROOT)
 
@@ -222,15 +313,21 @@ def main() -> None:
         open_existing_evidence_workbench()
         return
 
-    {
-        "governed": run_governed,
-        "coordinated": run_coordinated,
-    }[args.scenario]()
     should_open_workbench = (
         args.scenario in WORKBENCH_FLAGS
         if args.open_workbench is None
         else args.open_workbench
     )
+    if args.scenario == "governed":
+        run_governed(
+            interactive=args.interactive,
+            open_workbench=should_open_workbench,
+        )
+        if not args.interactive and should_open_workbench:
+            _open_published_evidence_in_workbench("governed")
+        return
+
+    run_coordinated()
     if should_open_workbench:
         _open_published_evidence_in_workbench(args.scenario)
 

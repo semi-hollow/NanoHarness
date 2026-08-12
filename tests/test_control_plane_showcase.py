@@ -1,14 +1,78 @@
+import asyncio
 import json
 import tempfile
 import unittest
+from pathlib import Path
+
 from agent_forge.showcase import run_governed_demo
+from agent_forge.showcase.console import GovernedShowcaseConsoleApp
 from agent_forge.showcase.control_plane import (
+    GOVERNED_CHOICES,
+    GovernedShowcaseController,
     _continue_control_plane_demo,
     _start_control_plane_demo,
 )
 
 
 class ControlPlaneShowcaseTest(unittest.TestCase):
+    def test_governed_controller_requires_two_explicit_human_decisions(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            controller = GovernedShowcaseController(output_root=tmp)
+
+            waiting_human = controller.start()
+            target = waiting_human.workspace / "compatibility.py"
+            self.assertEqual(waiting_human.status, "waiting_human")
+            self.assertEqual(
+                target.read_text(encoding="utf-8"),
+                'TARGET_RUNTIME = "unselected"\n',
+            )
+
+            waiting_approval = controller.answer(GOVERNED_CHOICES[0])
+            self.assertEqual(waiting_approval.status, "waiting_approval")
+            self.assertTrue(waiting_approval.operation_key)
+            self.assertEqual(
+                target.read_text(encoding="utf-8"),
+                'TARGET_RUNTIME = "unselected"\n',
+            )
+
+            completed = controller.decide("approved")
+            self.assertEqual(completed.status, "completed")
+            self.assertEqual(
+                target.read_text(encoding="utf-8"),
+                f'TARGET_RUNTIME = "{GOVERNED_CHOICES[0]}"\n',
+            )
+            self.assertEqual(
+                controller.state_sequence,
+                ("waiting_human", "waiting_approval", "completed"),
+            )
+            trace = json.loads(completed.trace_path.read_text(encoding="utf-8"))
+            event_types = [event["event_type"] for event in trace["events"]]
+            self.assertIn("human_input_response_loaded", event_types)
+            self.assertIn("human_approval", event_types)
+            self.assertIn("validation_evidence", event_types)
+            self.assertTrue((completed.run_dir / "demo.md").is_file())
+
+    def test_governed_rejection_keeps_workspace_unchanged(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            controller = GovernedShowcaseController(output_root=tmp)
+            controller.start()
+            waiting_approval = controller.answer(GOVERNED_CHOICES[1])
+            completed = controller.decide("rejected")
+
+            self.assertEqual(waiting_approval.status, "waiting_approval")
+            self.assertEqual(completed.status, "completed")
+            self.assertEqual(
+                (completed.workspace / "compatibility.py").read_text(encoding="utf-8"),
+                'TARGET_RUNTIME = "unselected"\n',
+            )
+            trace = json.loads(completed.trace_path.read_text(encoding="utf-8"))
+            self.assertFalse(
+                any(
+                    event["event_type"] == "validation_evidence"
+                    for event in trace["events"]
+                )
+            )
+
     def test_hitl_showcase_persists_answer_and_resumes_from_checkpoint(self):
         with tempfile.TemporaryDirectory() as tmp:
             started = _start_control_plane_demo("hitl", output_root=tmp)
@@ -87,6 +151,41 @@ class ControlPlaneShowcaseTest(unittest.TestCase):
             report = result.report_path.read_text(encoding="utf-8")
             self.assertIn("running → waiting_approval", report)
             self.assertIn("does not prove", report)
+
+
+class GovernedShowcaseConsoleTest(unittest.IsolatedAsyncioTestCase):
+    async def test_buttons_drive_the_two_runtime_barriers(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            app = GovernedShowcaseConsoleApp(output_root=Path(tmp))
+            async with app.run_test(size=(140, 45)) as pilot:
+                await pilot.click("#start")
+                await self._wait_for(
+                    lambda: app.query_one("#choices").display,
+                )
+                self.assertEqual(app._controller.current.status, "waiting_human")
+
+                await pilot.click("#choice-lts")
+                await self._wait_for(
+                    lambda: app.query_one("#approval-actions").display,
+                )
+                self.assertEqual(app._controller.current.status, "waiting_approval")
+
+                await pilot.click("#approve")
+                await self._wait_for(
+                    lambda: app.query_one("#terminal-actions").display,
+                )
+                self.assertEqual(app._controller.current.status, "completed")
+                self.assertEqual(
+                    app._controller.state_sequence,
+                    ("waiting_human", "waiting_approval", "completed"),
+                )
+
+    async def _wait_for(self, predicate, *, timeout_seconds: float = 10.0):
+        for _ in range(int(timeout_seconds * 20)):
+            if predicate():
+                return
+            await asyncio.sleep(0.05)
+        self.fail("Textual control state did not arrive before timeout")
 
 
 if __name__ == "__main__":

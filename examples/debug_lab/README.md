@@ -21,8 +21,8 @@ PyCharm 并额外执行一次 `.venv/bin/python scripts/install_pycharm_debug_la
 
 | 顺序 | PyCharm 配置 | 主要验证问题 | 模型 |
 | --- | --- | --- | --- |
-| 1 | `NanoHarness Lab 1 - Governed Repair` | 写操作如何经过审批、Checkpoint、恢复、幂等与验证 | 确定性适配器，免费 |
-| 2 | `NanoHarness Lab 2 - Coordinated Agents` | 无冲突任务如何并行，怎样隔离、校验范围、合并并最终收口 | 确定性适配器，免费 |
+| 1 | `NanoHarness Lab 1 - Governed Repair` | 人工选择与补丁审批如何经按钮控制、Checkpoint、恢复和验证形成一条证据链 | 确定性适配器，免费 |
+| 2 | `NanoHarness Lab 2 - Coordinated Agents` | 正常路径与异常分支如何拆给并行 Worker、依赖验证器和只读 Finalizer | 确定性适配器，免费 |
 | 3 | `NanoHarness Lab 3 - Complex Live Repair` | 真实模型怎样在多模块缺陷中检索、试错、修改、回归并收敛 | DeepSeek，产生费用 |
 | - | `NanoHarness Evidence Workbench - Read Only` | 不重跑 Lab，直接打开最近一次 Lab 3 Evidence；页面内可切换其他来源 | 不调用模型，免费 |
 
@@ -34,14 +34,27 @@ Lab。Project 面板优先选择 `00 NanoHarness Review Path`；Lab 2/3 再切�
 
 ```text
 run_governed
-→ Harness.run
+→ GovernedShowcaseConsoleApp
+→ HumanInput choice
+→ Harness.run / continuation
 → AgentLoop.run
 → ToolExecutionPipeline._execute_call
 → OperationTracker / ToolAuthorizationGate
+→ Approval decision
+→ PythonValidationTool
 → RunLifecycle.finalize_run
+→ Evidence Workbench
 ```
 
-只观察五个对象：
+运行配置会打开一屏按钮式控制台，不需要在命令行输入 request id 或 operation key：
+
+1. 点击“开始受治理任务”，Runtime 先保存人工问题并停在 `waiting_human`。
+2. 点击一个兼容目标，回答写入 HumanInput Repository；continuation 随后生成具体补丁。
+3. 控制台展示当前文件、待执行内容和 operation key；此时文件仍未改变。
+4. 点击“批准并继续”后才执行写工具与 focused pytest；点击拒绝则保持 workspace 不变。
+5. 终态自动打开同一份只读 Workbench，也可在控制台中再次点击打开。
+
+重点观察五个对象：
 
 1. `session`：一次 run 的消息、观察、工具历史和生命周期。
 2. `tool_call`：模型提出的意图，还不代表允许执行。
@@ -58,26 +71,38 @@ run_governed
 | 受限执行 | 工具是否仍受命令、路径和运行环境约束 | `CommandPolicy`、`WorkspaceSandbox`、`ExecutionEnvironment` |
 | 结果与恢复 | Observation、操作状态和 Checkpoint 怎样提交 | `_run_tool`、`RunLifecycle` |
 
-验证标准：审批发生前可预测 `waiting_approval`；批准与 operation key 的绑定关系、`executing`
-状态崩溃后的 fail-closed 行为均能由 Workbench 中的批准、恢复、实际写入和 pytest 证据验证。
+验证标准：能预测并看到
+`waiting_human → waiting_approval → completed`；两次人工动作都先持久化再 continuation；
+审批前 `compatibility.py` 保持 `unselected`；批准后才出现真实写入和 pytest 证据。拒绝分支必须保持
+文件不变。Workbench 中可继续核对 request、operation fingerprint、Checkpoint、实际写入和验证结果。
 
 ## Lab 2：多 Agent 协同
 
 ```text
 run_coordinated
 → LiveFanoutCoordinator.run
-→ dependency batch
+→ pricing-policy + shipping-policy（并行批次）
 → LocalAgentWorkerAdapter.run_worker
 → scope gate / merge
+→ edge-case-verifier（依赖批次）
 → LocalAgentWorkerAdapter.run_finalizer
 ```
 
-两个 Worker 在独立 Git worktree 修改 `pricing.py` 和 `shipping.py`。声明写入范围不够，Coordinator
-还会检查实际 touched files；只有 Worker 全部成功、无范围逃逸且候选 Diff 可合并，Finalizer 才在
-合并结果上运行 `test_checkout.py`。
+第一个批次的两个 Worker 在独立 Git worktree 修改 `pricing.py` 和 `shipping.py`。它们分别处理价格
+输入约束与运输策略，写入范围不重叠，因此允许并行。第二个只读 Worker 同时依赖两项实现，只有前序
+Diff 通过 scope gate 并合并后，才运行异常场景矩阵：
 
-验证标准：`DAG → batch → worker worktree → scope gate → merge → finalizer` 链路可完整复现；
-并行与串行条件、每个 Worker 的真实改动和最终验证均可在 Workbench 中定位。
+- 负数小计、负折扣和超额折扣必须 fail closed。
+- 普通国内订单达到阈值后免运费。
+- 加急订单不能被免运费规则误伤。
+- 未知运输区域必须明确拒绝，不能静默返回零费用。
+
+声明写入范围不等于实际安全；Coordinator 仍核对 touched files、candidate Diff 可应用性和动态冲突。
+三个任务全部完成后，独立只读 Finalizer 再检查合并 Diff 并重跑 `test_checkout.py`，且无权修改代码。
+
+验证标准：Workbench 能明确显示两个依赖批次、三个任务契约、正常/异常场景矩阵、每个 Worker 的允许
+范围与实际 touched files，以及 `3/3 completed → Finalizer PASS`。如果任一实现失败或越界，依赖验证器
+不得启动，Finalizer 也不能把部分结果包装成通过。
 
 ## Lab 3：复杂真实任务
 

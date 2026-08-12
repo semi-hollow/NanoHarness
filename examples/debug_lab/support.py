@@ -15,6 +15,9 @@ import time
 import uuid
 from pathlib import Path
 
+from agent_forge.contracts import ToolSchema
+from agent_forge.runtime.domain.conversation import AgentResponse, Message, ToolCall
+
 
 class DeterministicRepairModel:
     """固定 read/read/replace/pytest 意图；Runtime 和工具仍使用真实实现。"""
@@ -24,9 +27,11 @@ class DeterministicRepairModel:
     def __init__(self) -> None:
         self.calls = 0
 
-    def chat(self, messages: list[object], tools: list[object]) -> object:
-        from agent_forge.extensions import AgentResponse, ToolCall
-
+    def chat(
+        self,
+        messages: list[Message],
+        tools: list[ToolSchema],
+    ) -> AgentResponse:
         self.calls += 1
         scripted_calls = {
             1: ToolCall(
@@ -66,27 +71,40 @@ class DeterministicRepairModel:
 
 
 class DeterministicFanoutModel:
-    """固定两个独立 worker 的修改和 finalizer pytest；调度、隔离与合并均为真实实现。"""
+    """固定并行修复、依赖验证和 finalizer 意图；编排与执行均为真实实现。"""
 
     last_usage = None
 
     def __init__(self) -> None:
         self.calls = 0
 
-    def chat(self, messages: list[object], tools: list[object]) -> object:
-        from agent_forge.extensions import AgentResponse, ToolCall
-
+    def chat(
+        self,
+        messages: list[Message],
+        tools: list[ToolSchema],
+    ) -> AgentResponse:
         self.calls += 1
         prompt = "\n".join(
             str(getattr(message, "content", "") or "") for message in messages
         )
-        if "FanoutVerifier" in prompt:
+        if "FanoutFinalizer" in prompt:
             if self.calls == 1:
                 return AgentResponse(
                     None,
                     [
                         ToolCall(
-                            "lab-fanout-pytest",
+                            "lab-finalizer-diff",
+                            "git_diff",
+                            {},
+                        )
+                    ],
+                )
+            if self.calls == 2:
+                return AgentResponse(
+                    None,
+                    [
+                        ToolCall(
+                            "lab-finalizer-pytest",
                             "python_validation",
                             {
                                 "check_type": "pytest",
@@ -96,37 +114,103 @@ class DeterministicFanoutModel:
                     ],
                 )
             return AgentResponse(
-                "PASS\nindependent patches were merged and focused pytest passed",
+                "PASS\nintegrated pricing and shipping policies satisfy the edge-case suite",
                 [],
             )
 
-        task_id = "pricing" if "task_id=pricing" in prompt else "shipping"
-        if self.calls == 1 and task_id == "pricing":
+        task_id = (
+            "pricing-policy"
+            if "task_id=pricing-policy" in prompt
+            else "shipping-policy"
+            if "task_id=shipping-policy" in prompt
+            else "edge-case-verifier"
+        )
+        if task_id == "edge-case-verifier":
+            if self.calls == 1:
+                return AgentResponse(
+                    None,
+                    [
+                        ToolCall(
+                            "lab-edge-case-pytest",
+                            "python_validation",
+                            {
+                                "check_type": "pytest",
+                                "validation_target": "test_checkout.py",
+                            },
+                        )
+                    ],
+                )
+            return AgentResponse(
+                "completed edge-case-verifier: invalid pricing, expedited shipping, "
+                "and unknown-region cases passed",
+                [],
+            )
+        if self.calls == 1:
+            target = "pricing.py" if task_id == "pricing-policy" else "shipping.py"
             return AgentResponse(
                 None,
                 [
                     ToolCall(
-                        "lab-fanout-pricing",
+                        f"lab-read-{task_id}",
+                        "read_file",
+                        {"path": target},
+                    )
+                ],
+            )
+        if self.calls == 2 and task_id == "pricing-policy":
+            return AgentResponse(
+                None,
+                [
+                    ToolCall(
+                        "lab-patch-pricing-policy",
                         "replace_text",
                         {
                             "path": "pricing.py",
-                            "old": "return subtotal",
-                            "new": "return subtotal - discount",
+                            "old": (
+                                "def final_price(subtotal: int, discount: int) -> int:\n"
+                                '    """Return the payable subtotal after validating abnormal inputs."""\n\n'
+                                "    return subtotal\n"
+                            ),
+                            "new": (
+                                "def final_price(subtotal: int, discount: int) -> int:\n"
+                                '    """Return the payable subtotal after validating abnormal inputs."""\n\n'
+                                "    if subtotal < 0:\n"
+                                '        raise ValueError("subtotal must be non-negative")\n'
+                                "    if discount < 0 or discount > subtotal:\n"
+                                '        raise ValueError("discount must be within subtotal")\n'
+                                "    return subtotal - discount\n"
+                            ),
                         },
                     )
                 ],
             )
-        if self.calls == 1:
+        if self.calls == 2:
             return AgentResponse(
                 None,
                 [
                     ToolCall(
-                        "lab-fanout-shipping",
+                        "lab-patch-shipping-policy",
                         "replace_text",
                         {
                             "path": "shipping.py",
-                            "old": "return 0",
-                            "new": "return 5",
+                            "old": (
+                                "def shipping_fee(region: str, subtotal: int, *, expedited: bool = False) -> int:\n"
+                                '    """Return a route-aware fee without silently accepting unknown regions."""\n\n'
+                                "    return 0\n"
+                            ),
+                            "new": (
+                                "def shipping_fee(region: str, subtotal: int, *, expedited: bool = False) -> int:\n"
+                                '    """Return a route-aware fee without silently accepting unknown regions."""\n\n'
+                                "    if subtotal < 0:\n"
+                                '        raise ValueError("subtotal must be non-negative")\n'
+                                '    if region not in {"domestic", "international"}:\n'
+                                '        raise ValueError(f"unsupported region: {region}")\n'
+                                "    if expedited:\n"
+                                '        return 15 if region == "domestic" else 30\n'
+                                '    if region == "domestic":\n'
+                                "        return 0 if subtotal >= 100 else 5\n"
+                                "    return 20\n"
+                            ),
                         },
                     )
                 ],

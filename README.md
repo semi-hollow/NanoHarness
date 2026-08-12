@@ -64,7 +64,7 @@ Git 历史恢复，但不进入 README 阅读路径。
 Workbench 只读真实 Runtime Event 与已保存的评测制品，把运行概览、执行过程、上下文与决策、
 结果与证据投影成可查阅页面；它不伪造隐藏思维链，也不用另一个模型重写事实。
 
-三个 Debug Lab 分别复现审批与恢复、多 Agent 隔离合并、真实模型复杂修复。运行方式、断点和
+三个 Debug Lab 分别复现按钮式 HITL/审批与恢复、含异常分支的多 Agent 依赖协作、真实模型复杂修复。运行方式、断点和
 Workbench 阅读顺序只在 [Debug Lab](examples/debug_lab/README.md) 说明；结果、分母和声明边界由
 [Quality Showcase](benchmarks/showcase/canonical-showcase-v1.json)统一提供。
 

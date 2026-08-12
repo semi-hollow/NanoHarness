@@ -1,3 +1,4 @@
+import json
 import os
 import sys
 import tempfile
@@ -23,6 +24,42 @@ PROJECT_ROOT = Path(__file__).parents[1]
 
 
 class DebugLabSupportTest(unittest.TestCase):
+    def test_coordinated_lab_runs_parallel_repairs_then_edge_case_gate(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            runs = root / "runs"
+            state = root / "state"
+            with (
+                patch.object(debug_lab, "RUNS_ROOT", runs),
+                patch.object(debug_lab, "STATE_ROOT", state),
+                patch.object(debug_lab, "_publish_latest"),
+                patch("builtins.print"),
+            ):
+                debug_lab.run_coordinated()
+
+            run_dirs = list(runs.glob("debug-fanout-*"))
+            self.assertEqual(len(run_dirs), 1)
+            summary = json.loads(
+                (run_dirs[0] / "fanout/fanout_summary.json").read_text(encoding="utf-8")
+            )
+            contract = json.loads(
+                (run_dirs[0] / "scenario_contract.json").read_text(encoding="utf-8")
+            )
+
+        self.assertEqual(summary["status"], "passed")
+        self.assertEqual(
+            summary["batches"],
+            [["pricing-policy", "shipping-policy"], ["edge-case-verifier"]],
+        )
+        self.assertEqual(summary["metrics"]["completed_count"], 3)
+        self.assertEqual(summary["final_decision"], "PASS")
+        self.assertEqual(
+            [result["touched_files"] for result in summary["results"]],
+            [["pricing.py"], ["shipping.py"], []],
+        )
+        self.assertEqual(len(contract["cases"]), 5)
+        self.assertIn("cannot run", contract["integration_gate"])
+
     def test_reading_scopes_separate_main_path_and_tests(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             installed = install_reading_scopes(Path(tmp))
@@ -53,7 +90,7 @@ class DebugLabSupportTest(unittest.TestCase):
                 "NanoHarness Lab 1 - Governed Repair",
                 "governed",
                 "$PROJECT_DIR$/examples/debug_lab/run.py",
-                "governed --open-workbench",
+                "governed --interactive --open-workbench",
             ),
             (
                 "NanoHarness Lab 2 - Coordinated Agents",
@@ -93,6 +130,8 @@ class DebugLabSupportTest(unittest.TestCase):
             self.assertEqual(options["PARAMETERS"], parameters)
             self.assertEqual(options["SDK_HOME"], "$PROJECT_DIR$/.venv/bin/python")
             self.assertEqual(environment["NANOHARNESS_DEBUG_LAB"], scenario)
+            if scenario == "governed":
+                self.assertEqual(options["EMULATE_TERMINAL"], "true")
             actual.append((str(config.get("name")), scenario))
         self.assertEqual(
             actual,
@@ -101,6 +140,7 @@ class DebugLabSupportTest(unittest.TestCase):
 
     def test_shared_run_configuration_catalog_stays_small(self) -> None:
         expected = {
+            "NanoHarness Benchmark - SWE-bench Verified Mini 50.run.xml",
             "NanoHarness Lab 1 - Governed Repair.run.xml",
             "NanoHarness Lab 2 - Coordinated Agents.run.xml",
             "NanoHarness Lab 3 - Complex Live Repair.run.xml",
@@ -145,12 +185,7 @@ class DebugLabSupportTest(unittest.TestCase):
         self.assertEqual(len(resolved), 17)
         self.assertEqual(len(resolved), len(TARGETS))
         self.assertEqual(
-            len(
-                {
-                    (item["url"], item["line"], item["scenario"])
-                    for item in resolved
-                }
-            ),
+            len({(item["url"], item["line"], item["scenario"]) for item in resolved}),
             len(TARGETS),
         )
         self.assertEqual(
@@ -229,17 +264,21 @@ class DebugLabSupportTest(unittest.TestCase):
             (fanout_fixture / "pricing.py").read_text(encoding="utf-8"),
         )
         self.assertIn(
+            "unsupported region",
+            (fanout_fixture / "test_checkout.py").read_text(encoding="utf-8"),
+        )
+        self.assertIn(
+            "expedited=True",
+            (fanout_fixture / "test_checkout.py").read_text(encoding="utf-8"),
+        )
+        self.assertIn(
             "== 85",
             (fanout_fixture / "test_checkout.py").read_text(encoding="utf-8"),
         )
-        complex_fixture = (
-            PROJECT_ROOT / "examples" / "debug_lab" / "complex_repository"
-        )
+        complex_fixture = PROJECT_ROOT / "examples" / "debug_lab" / "complex_repository"
         self.assertIn(
             "mark_processed",
-            (complex_fixture / "settlement" / "service.py").read_text(
-                encoding="utf-8"
-            ),
+            (complex_fixture / "settlement" / "service.py").read_text(encoding="utf-8"),
         )
         self.assertIn(
             "39.995",
@@ -260,7 +299,9 @@ class DebugLabSupportTest(unittest.TestCase):
         self.assertIn('"${scenario}" --no-open-workbench', showcase_script)
         self.assertIn("workbench_source_sha256", showcase_script)
         self.assertIn("kill -0", showcase_script)
-        self.assertIn('workbench_url="http://127.0.0.1:${port}/?focus=1"', showcase_script)
+        self.assertIn(
+            'workbench_url="http://127.0.0.1:${port}/?focus=1"', showcase_script
+        )
         self.assertNotIn("build=${expected_workbench_source:0:12}", showcase_script)
         self.assertIn('open -a "Google Chrome"', showcase_script)
         self.assertNotIn("forge run", showcase_script)

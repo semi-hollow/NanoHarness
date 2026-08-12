@@ -756,6 +756,8 @@ def _safe_html_id(value: str) -> str:
 
 
 def _render_source_results(project_dir: Path, source: EvidenceSource) -> str:
+    if source.key == "governed":
+        return _render_runtime_controls(project_dir)
     if source.key == "orchestration":
         summary = _read_json_file(source.primary_path)
         return _render_fanout_run_evidence(summary, source.primary_path)
@@ -1516,6 +1518,41 @@ def _render_fanout_task_contract(
     )
 
 
+def _render_fanout_scenario_contract(summary_path: Path | None) -> str:
+    """展示 Debug Lab 可选业务矩阵；普通 Fanout 没有该文件时保持通用页面。"""
+
+    contract_path = (
+        summary_path.parent.parent / "scenario_contract.json"
+        if summary_path is not None
+        else None
+    )
+    contract = _read_json_file(contract_path)
+    if contract.get("artifact_type") != "debug_lab_scenario_contract":
+        return ""
+    rows = []
+    for item in contract.get("cases") or []:
+        if not isinstance(item, dict):
+            continue
+        rows.append(
+            "<tr>"
+            f"<td><b>{_escape(item.get('case') or '-')}</b></td>"
+            f"<td>{_escape(item.get('expected') or '-')}</td>"
+            f"<td>{_escape(item.get('owner') or '-')}</td>"
+            "</tr>"
+        )
+    if not rows:
+        return ""
+    return (
+        "<section class='evidence-section'><div class='section-title'>"
+        "<h3>正常路径与异常分支</h3><span>先分配责任，再执行依赖验证</span></div>"
+        "<table><thead><tr><th>业务场景</th><th>期望行为</th><th>责任任务</th>"
+        f"</tr></thead><tbody>{''.join(rows)}</tbody></table>"
+        f"<p class='boundary-note'><strong>依赖门：</strong>{_escape(contract.get('integration_gate') or '-')}</p>"
+        f"<details class='provenance'><summary>场景契约来源</summary><code>{_escape(str(contract_path))}</code></details>"
+        "</section>"
+    )
+
+
 def _render_fanout_result_summary(fanout: dict[str, Any], path: Path | None) -> str:
     metrics = fanout.get("metrics") or {}
     results = [
@@ -1563,8 +1600,8 @@ def _render_fanout_result_summary(fanout: dict[str, Any], path: Path | None) -> 
         f"{_badge(str(fanout.get('status') or 'unknown'), _tone_for_status(str(fanout.get('status') or '')))}</div></div>",
         _render_lab_brief(
             question=(
-                "两个互不依赖、写入范围不重叠的代码修复，能否并发执行，"
-                "并在合并后由独立 Finalizer 统一验证？"
+                "两个写入范围不重叠的策略修复能否并发执行，并让依赖它们的异常"
+                "分支验证在合并后运行，最后再由独立 Finalizer 收口？"
             ),
             input_label="本次总任务",
             input_items=[str(fanout.get("goal") or "未记录总体目标")],
@@ -1582,6 +1619,7 @@ def _render_fanout_result_summary(fanout: dict[str, Any], path: Path | None) -> 
                 "本地 Finalizer 通过也不等于官方 Benchmark 已解决。"
             ),
         ),
+        _render_fanout_scenario_contract(path),
         _metric_grid(
             [
                 (
@@ -3530,7 +3568,7 @@ def _render_fanout_run_evidence(
         "<div class='view-heading'><div><span class='view-kicker'>多 AGENT 单次运行</span>"
         "<h2>多 Agent 运行证据</h2></div>"
         f"{_badge(status, _tone_for_status(status))}</div>",
-        "<p class='help strong'>本页聚合 Coordinator、两个隔离 Worker、候选改动合并和 Finalizer 的分散证据。"
+        "<p class='help strong'>本页聚合 Coordinator、多个隔离 Worker、候选改动合并和 Finalizer 的分散证据。"
         "这里的“模型调用”经过真实 ModelPort，但使用确定性本地适配器，不会产生外部 API Token 或费用。</p>",
         _metric_grid(
             [
@@ -3543,7 +3581,7 @@ def _render_fanout_run_evidence(
                 (
                     "模型调用（确定性）",
                     str(model_calls),
-                    "2 个 Worker + Finalizer",
+                    f"{len(results)} 个 Worker + Finalizer",
                     "neutral",
                 ),
                 (
@@ -3573,6 +3611,7 @@ def _render_fanout_run_evidence(
             ]
         ),
         f"<p class='task-summary'><span>本次目标</span>{_escape(fanout.get('goal') or '')}</p>",
+        _render_fanout_scenario_contract(summary_path),
         _render_fanout_task_contract(fanout, summary_path),
         "<section class='evidence-section run-story'>"
         "<div class='section-title'><h3>运行全链路</h3>"
@@ -3912,6 +3951,36 @@ def _render_runtime_controls(project_dir: Path) -> str:
     human_events = sum(
         1 for event in events if "human" in str(event.get("event_type") or "")
     )
+    human_response_event = _last_event(trace, "human_input_response_loaded")
+    human_request_value = human_response_event.get("request")
+    human_request: dict[str, Any] = (
+        human_request_value if isinstance(human_request_value, dict) else {}
+    )
+    selected_answer = str(human_request.get("answer") or "未观测")
+    approval_event = _last_event(trace, "human_approval")
+    approval_request_value = approval_event.get("approval_request")
+    approval_request: dict[str, Any] = (
+        approval_request_value if isinstance(approval_request_value, dict) else {}
+    )
+    approval_arguments_value = approval_request.get("arguments")
+    approval_arguments: dict[str, Any] = (
+        approval_arguments_value if isinstance(approval_arguments_value, dict) else {}
+    )
+    approval_status = str(
+        approval_request.get("status") or approval_event.get("observation") or "未观测"
+    )
+    approval_target = str(approval_arguments.get("path") or "未观测")
+    approval_operation_key = str(approval_request.get("operation_key") or "")
+    validation_event = _last_event(trace, "validation_evidence")
+    validation_value = validation_event.get("validation")
+    validation: dict[str, Any] = (
+        validation_value if isinstance(validation_value, dict) else {}
+    )
+    validation_status = str(validation.get("status") or "未执行")
+    validation_kind = str(validation.get("kind") or "focused test")
+    governed_decision_observed = bool(
+        human_response_event or approval_event or validation_event
+    )
     recovery_events = sum(
         1 for event in events if "recovery" in str(event.get("event_type") or "")
     )
@@ -4039,33 +4108,95 @@ def _render_runtime_controls(project_dir: Path) -> str:
             continue
         if event_type not in {
             "permission_check",
+            "human_input_response_loaded",
             "human_approval",
             "recovery_decision",
+            "validation_evidence",
         }:
             continue
-        state = permission_decision or str(
-            event.get("observation") or event.get("failure_kind") or "observed"
-        )
-        evidence = str(
-            event.get("reason")
-            or event.get("recovery_hint")
-            or event.get("observation")
-            or ""
-        )
+        tool_call = str(event.get("tool_call") or "-")
+        if event_type == "human_input_response_loaded":
+            request_value = event.get("request")
+            request = request_value if isinstance(request_value, dict) else {}
+            state = str(request.get("status") or "responded")
+            tool_call = "ask_human"
+            evidence = f"人工选择：{request.get('answer') or '未记录'}"
+        elif event_type == "human_approval":
+            request_value = event.get("approval_request")
+            request = request_value if isinstance(request_value, dict) else {}
+            request_arguments_value = request.get("arguments")
+            request_arguments = (
+                request_arguments_value
+                if isinstance(request_arguments_value, dict)
+                else {}
+            )
+            state = str(request.get("status") or event.get("observation") or "observed")
+            tool_call = str(request.get("tool_name") or tool_call)
+            evidence = (
+                f"目标：{request_arguments.get('path') or '未记录'}；"
+                f"Operation Key：{str(request.get('operation_key') or '')[:12]}"
+            )
+        elif event_type == "validation_evidence":
+            validation_value = event.get("validation")
+            event_validation = (
+                validation_value if isinstance(validation_value, dict) else {}
+            )
+            state = str(event_validation.get("status") or "observed")
+            tool_call = str(event_validation.get("tool") or tool_call)
+            raw_evidence = str(event_validation.get("evidence") or "")
+            evidence = _compact_timeline_text(
+                " · ".join(
+                    line.strip() for line in raw_evidence.splitlines() if line.strip()
+                ),
+                max_chars=220,
+            )
+        else:
+            state = permission_decision or str(
+                event.get("observation") or event.get("failure_kind") or "observed"
+            )
+            evidence = str(
+                event.get("reason")
+                or event.get("recovery_hint")
+                or event.get("observation")
+                or ""
+            )
         intervention_rows.append(
             "<tr>"
             f"<td>{_escape(event.get('step', 0))}</td>"
             f"<td>{_escape(event.get('agent_name') or '-')}</td>"
             f"<td>{_escape(_TRACE_EVENT_LABELS.get(event_type, event_type))}</td>"
             f"<td>{_badge(state, _tone_for_status(state))}</td>"
-            f"<td>{_escape(event.get('tool_call') or '-')}</td>"
+            f"<td>{_escape(tool_call)}</td>"
             f"<td>{_escape(_translate_runtime_summary(evidence))}</td>"
             "</tr>"
         )
     intervention_html = (
         "".join(intervention_rows)
-        or "<tr><td colspan='6'>本次运行没有观测到审批或恢复介入。</td></tr>"
+        or "<tr><td colspan='6'>本次运行没有观测到人工决策、审批或验证介入。</td></tr>"
     )
+    governed_decision_html = ""
+    if governed_decision_observed:
+        validation_description = (
+            f"{validation_kind} · {validation_status}"
+            if validation_event
+            else "拒绝后安全结束，未执行测试"
+        )
+        governed_decision_html = (
+            "<section class='evidence-section'><div class='section-title'>"
+            "<h3>本次人工决策链</h3><span>从按钮动作到验证结果</span></div>"
+            "<div class='capability-strip'>"
+            f"<div><b>{_escape(_compact_timeline_text(selected_answer, max_chars=80))}</b>"
+            "<span>人工选择</span></div>"
+            f"<div><b>{_badge(approval_status, _tone_for_status(approval_status))}</b>"
+            f"<span>补丁审批 · {_escape(approval_target)}</span></div>"
+            f"<div><b>{_badge(validation_status, _tone_for_status(validation_status))}</b>"
+            f"<span>{_escape(validation_description)}</span></div>"
+            "</div>"
+            f"<p class='boundary-note'><strong>Operation Key：</strong> "
+            f"<code>{_escape(approval_operation_key or '未生成')}</code>。"
+            "该键将审批决定、目标文件指纹与后续真实写入绑定；"
+            "拒绝时写操作不会越过执行边界。</p></section>"
+        )
     body = [
         "<div class='view-heading'><div><span class='view-kicker'>受治理单 Agent</span><h2>Runtime 控制面</h2></div>"
         f"{_badge(mode, _tone_for_status(mode))}</div>",
@@ -4129,6 +4260,7 @@ def _render_runtime_controls(project_dir: Path) -> str:
                 ),
             ]
         ),
+        governed_decision_html,
         "<details class='drilldown'><summary>查看安全、工具可见性与写入边界</summary>"
         "<div class='drilldown-body'><div class='section-title'><h3>真实生效的边界</h3><span>只展示观测事实</span></div>",
         "<table><thead><tr><th>控制点</th><th>最新证据</th><th>负责模块</th></tr></thead><tbody>",
@@ -4185,7 +4317,7 @@ def _render_runtime_controls(project_dir: Path) -> str:
         "</div>"
         f"<p class='boundary-note'><strong>Checkpoint 口径：</strong> 本次 Trace 记录 {checkpoints} 次关键状态写入，当前由 {current_state_files} 个 JSON 文件保存每个任务的最新可恢复状态。它按创建、等待审批、恢复、工具结果和结束等状态转换写入，不是每个 Turn 固定写一次。</p>"
         "<p class='boundary-note'>数值为 0 表示本次运行没有触发该能力，不会伪造成“通过”。</p></section>",
-        "<section class='evidence-section'><div class='section-title'><h3>人工与恢复介入</h3><span>审批和恢复证据</span></div>"
+        "<section class='evidence-section'><div class='section-title'><h3>人工决策与验证时间线</h3><span>回答、审批、执行和恢复证据</span></div>"
         "<table><thead><tr><th>轮次</th><th>Agent</th><th>事件</th><th>状态</th><th>工具</th><th>证据</th></tr></thead>"
         f"<tbody>{intervention_html}</tbody></table></section>",
         f"<details class='provenance'><summary>控制面证据来源</summary><code>{_escape(str(trace_path))}</code></details>",
