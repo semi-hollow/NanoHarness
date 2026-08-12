@@ -76,6 +76,13 @@
     "classification_basis": "usage.json records rate_limited errors for both candidate models in the interleaved tail; no provider quota snapshot was stored",
     "fair_comparison_completed": false
   },
+  "post_incident_capacity_evidence": {
+    "private_record_sha256": "6c960cd5e7154f83efa32f6b881d694d67505b2721e0dedd8969ba95abdcd681",
+    "visibility": "ignored private operational evidence",
+    "role": "launch-capacity context only",
+    "quality_inference_allowed": false,
+    "boundary": "The private snapshot was captured after the incident and cannot reconstruct per-call quota state or support any inference about candidate quality."
+  },
   "decision": {
     "summarizer_exit_code": 2,
     "summarizer_status": "failed_closed",
@@ -85,7 +92,7 @@
     "official_evaluator_reruns_performed": 0,
     "whole_case_retries_performed": 0,
     "partial_prefix_selection_forbidden": true,
-    "reason": "The shared provider limit contaminated the paired schedule, so neither the 14-slot artifact prefix nor the 11 rate-limit-free cases are a pre-registered complete comparison.",
+    "reason": "The shared provider limit contaminated the paired schedule, so neither the 14 slots before the uniformly contaminated tail nor the 11 rate-limit-free cases are a pre-registered complete comparison.",
     "next_action": "Start a new fully pre-registered selection attempt after a passing provider-capacity probe; do not repair or score this attempt by correctness rerun."
   },
   "identity_summary": {
@@ -514,7 +521,7 @@
   },
   "claim_boundary": [
     "This artifact proves a fail-closed selection incident, not candidate quality.",
-    "The first 14 slots are an artifact-complete prefix, not a clean or pre-registered comparison denominator; three of those slots already contain rate-limit errors.",
+    "All 20 slots have finalized root artifacts. The first 14 slots only identify the range before the uniformly contaminated tail; three of those slots already contain rate-limit errors, and the range is not a clean or pre-registered comparison denominator.",
     "No winner may be selected from the first 14 slots, the 11 rate-limit-free slots, any per-shard subset, or the partial official aggregate counts.",
     "The final six slots are uniformly contaminated by the shared OpenCode Go rate limit.",
     "The attempt does not mutate the Canonical headline, current profile, or selected model."

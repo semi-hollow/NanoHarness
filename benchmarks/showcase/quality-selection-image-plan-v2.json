@@ -1,0 +1,51 @@
+{
+  "schema_version": 1,
+  "manifest_id": "showcase-quality-v2-selection-golden10-image-plan",
+  "status": "exact_tags_frozen_pull_inspect_identities_pending_prelaunch_seal",
+  "platform": "linux/amd64",
+  "images": [
+    {
+      "instance_id": "astropy__astropy-14182",
+      "tag": "swebench/sweb.eval.x86_64.astropy_1776_astropy-14182:latest"
+    },
+    {
+      "instance_id": "django__django-13658",
+      "tag": "swebench/sweb.eval.x86_64.django_1776_django-13658:latest"
+    },
+    {
+      "instance_id": "matplotlib__matplotlib-25287",
+      "tag": "swebench/sweb.eval.x86_64.matplotlib_1776_matplotlib-25287:latest"
+    },
+    {
+      "instance_id": "psf__requests-2931",
+      "tag": "swebench/sweb.eval.x86_64.psf_1776_requests-2931:latest"
+    },
+    {
+      "instance_id": "pydata__xarray-6938",
+      "tag": "swebench/sweb.eval.x86_64.pydata_1776_xarray-6938:latest"
+    },
+    {
+      "instance_id": "pylint-dev__pylint-6903",
+      "tag": "swebench/sweb.eval.x86_64.pylint-dev_1776_pylint-6903:latest"
+    },
+    {
+      "instance_id": "pytest-dev__pytest-5262",
+      "tag": "swebench/sweb.eval.x86_64.pytest-dev_1776_pytest-5262:latest"
+    },
+    {
+      "instance_id": "scikit-learn__scikit-learn-13328",
+      "tag": "swebench/sweb.eval.x86_64.scikit-learn_1776_scikit-learn-13328:latest"
+    },
+    {
+      "instance_id": "sphinx-doc__sphinx-9591",
+      "tag": "swebench/sweb.eval.x86_64.sphinx-doc_1776_sphinx-9591:latest"
+    },
+    {
+      "instance_id": "sympy__sympy-13372",
+      "tag": "swebench/sweb.eval.x86_64.sympy_1776_sympy-13372:latest"
+    }
+  ],
+  "prelaunch_seal_requirement": "Before the first provider call, an outcome-blind sequential pull/inspect pass must atomically bind each exact tag to its RepoDigest, local image ID, and linux/amd64 platform. A tag absent before this pass is removed only by exact tag after its identity is sealed; a preexisting or ownership-uncertain image is retained.",
+  "case_window_requirement": "For each Case pair, ExactImageLease must persist intent before pulling an absent tag, require the local RepoDigest/image ID/platform to equal the prelaunch expected identity, serve both adjacent candidate slots, and remove only a campaign-owned newly-pulled exact tag after both artifacts are sealed.",
+  "claim": "Image identity is evaluation infrastructure; it does not expose or pre-judge correctness."
+}

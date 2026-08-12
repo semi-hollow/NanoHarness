@@ -44,6 +44,15 @@ from agent_forge.runtime.config import (
 )
 
 
+def _positive_int(value: str) -> int:
+    """把 CLI 文本解析为正整数，并在参数边界给出明确错误。"""
+
+    parsed = int(value)
+    if parsed <= 0:
+        raise argparse.ArgumentTypeError("value must be a positive integer")
+    return parsed
+
+
 def build_case_catalog_parser(parser: argparse.ArgumentParser) -> None:
     """注册固定回归集合的可解释目录命令。"""
 
@@ -147,6 +156,12 @@ def build_swebench_parser(parser: argparse.ArgumentParser) -> None:
         type=int,
         default=60,
         help="Timeout for one provider request; separate from the whole Agent run timeout.",
+    )
+    parser.add_argument(
+        "--model-request-max-attempts",
+        type=_positive_int,
+        default=2,
+        help="Maximum transport attempts for one logical provider request.",
     )
     parser.add_argument(
         "--tool-execution-timeout-seconds",
@@ -306,6 +321,12 @@ def build_campaign_parser(parser: argparse.ArgumentParser) -> None:
         help="Timeout for one provider request; separate from the whole Agent run timeout.",
     )
     parser.add_argument(
+        "--model-request-max-attempts",
+        type=_positive_int,
+        default=2,
+        help="Maximum transport attempts for one logical provider request.",
+    )
+    parser.add_argument(
         "--tool-execution-timeout-seconds",
         type=int,
         default=DEFAULT_TOOL_EXECUTION_TIMEOUT_SECONDS,
@@ -403,6 +424,7 @@ def run_swebench_from_args(args: argparse.Namespace) -> BenchRunSummary:
             cost_budget_usd=args.cost_budget_usd,
             timeout_seconds=args.timeout_seconds,
             model_request_timeout_seconds=args.model_request_timeout_seconds,
+            model_request_max_attempts=args.model_request_max_attempts,
             tool_execution_timeout_seconds=args.tool_execution_timeout_seconds,
             repo_cache=args.repo_cache,
             output_root=args.output_root,
@@ -487,6 +509,7 @@ def run_campaign_from_args(args: argparse.Namespace) -> BenchmarkCampaignResult:
         cost_budget_usd=args.cost_budget_usd,
         timeout_seconds=args.timeout_seconds,
         model_request_timeout_seconds=args.model_request_timeout_seconds,
+        model_request_max_attempts=args.model_request_max_attempts,
         tool_execution_timeout_seconds=args.tool_execution_timeout_seconds,
         repo_cache=args.repo_cache,
         evaluate=args.evaluate,

@@ -1,5 +1,6 @@
 import hashlib
 import json
+import subprocess
 import tempfile
 import unittest
 from pathlib import Path
@@ -245,7 +246,7 @@ class CanonicalShowcaseAssetsTest(unittest.TestCase):
         self.assertIsNone(runtime["cost_budget_usd_per_case"])
         self.assertFalse(runtime["fallback_allowed"])
 
-    def test_quality_selection_commands_share_one_fixed_runtime(self):
+    def test_archived_quality_selection_commands_share_one_fixed_runtime(self):
         manifest = json.loads(
             (SHOWCASE_ROOT / "quality-selection-command-manifest-v1.json").read_text(
                 encoding="utf-8"
@@ -256,18 +257,35 @@ class CanonicalShowcaseAssetsTest(unittest.TestCase):
             hashlib.sha256(protocol_path.read_bytes()).hexdigest(),
             manifest["protocol_sha256"],
         )
+        # v1 已是 fail-closed 的历史实验，应认证当时 source tag 中的
+        # probe/summarizer blob，而不是冻结今天仍在维护的脚本。
+        source_tag = manifest["source_identity"]["expected_tag"]
+        tagged_probe = subprocess.run(
+            [
+                "git",
+                "show",
+                f"{source_tag}:scripts/probe_model_tool_contract.py",
+            ],
+            cwd=PROJECT_ROOT,
+            check=True,
+            capture_output=True,
+        ).stdout
+        tagged_summarizer = subprocess.run(
+            [
+                "git",
+                "show",
+                f"{source_tag}:scripts/summarize_quality_selection.py",
+            ],
+            cwd=PROJECT_ROOT,
+            check=True,
+            capture_output=True,
+        ).stdout
         self.assertEqual(
-            hashlib.sha256(
-                (PROJECT_ROOT / "scripts" / "probe_model_tool_contract.py").read_bytes()
-            ).hexdigest(),
+            hashlib.sha256(tagged_probe).hexdigest(),
             manifest["capability_probe_script_sha256"],
         )
         self.assertEqual(
-            hashlib.sha256(
-                (
-                    PROJECT_ROOT / "scripts" / "summarize_quality_selection.py"
-                ).read_bytes()
-            ).hexdigest(),
+            hashlib.sha256(tagged_summarizer).hexdigest(),
             manifest["selection_summarizer_script_sha256"],
         )
         self.assertEqual(

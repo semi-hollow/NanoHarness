@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import importlib.util
 import json
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -51,6 +52,7 @@ class QualitySelectionFixture:
         ]
         self.runtime = {
             "agent_mode": "single",
+            "profile": "",
             "temperature": 0.0,
             "thinking_mode": "enabled",
             "reasoning_effort": "high",
@@ -180,6 +182,10 @@ class QualitySelectionFixture:
         command_manifest = {
             "schema_version": 1,
             "status": "frozen_before_any_quality_selection_model_call",
+            "source_identity": {
+                "binding": "external_annotated_git_tag",
+                "expected_tag": "quality-selection-fixture-v1",
+            },
             "protocol_sha256": _sha256(self.protocol_path),
             "capability_probe_script_sha256": _sha256(fixture_probe),
             "selection_summarizer_script_sha256": _sha256(fixture_summarizer),
@@ -260,6 +266,40 @@ class QualitySelectionFixture:
                 self.case_ids[0]: "unresolved",
                 self.case_ids[1]: "unresolved",
             },
+        )
+        subprocess.run(["git", "init"], cwd=self.root, check=True, capture_output=True)
+        subprocess.run(
+            ["git", "config", "user.email", "fixture@example.test"],
+            cwd=self.root,
+            check=True,
+        )
+        subprocess.run(
+            ["git", "config", "user.name", "Fixture"],
+            cwd=self.root,
+            check=True,
+        )
+        subprocess.run(
+            ["git", "add", str(self.command_path.relative_to(self.root))],
+            cwd=self.root,
+            check=True,
+        )
+        subprocess.run(
+            ["git", "commit", "-m", "freeze manifest"],
+            cwd=self.root,
+            check=True,
+            capture_output=True,
+        )
+        subprocess.run(
+            [
+                "git",
+                "tag",
+                "-a",
+                "quality-selection-fixture-v1",
+                "-m",
+                "fixture",
+            ],
+            cwd=self.root,
+            check=True,
         )
 
     def _command(self, candidate: dict[str, str], shard: str) -> dict[str, Any]:
@@ -604,6 +644,7 @@ class QualitySelectionFixture:
             "thinking_mode": "enabled",
             "reasoning_effort": "high",
             "agent_mode": "single",
+            "profile": "",
             "max_revision_rounds": 0,
             "tool_routing_mode": "task-aware",
             "skill_mode": "auto",
@@ -623,6 +664,13 @@ class QualitySelectionFixture:
             "tool_execution_timeout_seconds": 600,
             "memory_namespace": "swebench:<instance_id>",
             "memory_recall_limit": 0,
+            "memory_snapshot_sha256": "disabled",
+            "container_runtime": "docker",
+            "container_image": "python:3.11-slim",
+            "container_cpus": 1.0,
+            "container_memory": "1g",
+            "container_pids_limit": 256,
+            "container_read_only": True,
             "official_namespace": "swebench",
             "output_dir": str(run_dir.resolve()),
             "predictions_path": str(predictions_path.resolve()),
@@ -648,6 +696,7 @@ class QualitySelectionFixture:
                 "thinking_mode": "enabled",
                 "reasoning_effort": "high",
                 "agent_mode": "single",
+                "profile": "",
                 "max_steps": 128,
                 "max_context_chars": 64000,
                 "max_prompt_tokens": 131072,
@@ -663,9 +712,17 @@ class QualitySelectionFixture:
                 "skill_names": ["swebench_repair"],
                 "skill_manifest_sha256": "builtins_only",
                 "memory_recall_limit": 0,
+                "memory_namespace": "swebench:<instance_id>",
+                "memory_snapshot_sha256": "disabled",
                 "execution_mode": "worktree",
                 "network_policy": "deny",
                 "keep_worktree": False,
+                "container_runtime": "docker",
+                "container_image": "python:3.11-slim",
+                "container_cpus": 1.0,
+                "container_memory": "1g",
+                "container_pids_limit": 256,
+                "container_read_only": True,
             },
             "metrics": {
                 "case_count": 2,

@@ -1,0 +1,177 @@
+{
+  "schema_version": 1,
+  "protocol_id": "showcase-quality-v2-selection",
+  "status": "preregistered_after_v1_provider_infrastructure_failure_before_any_v2_model_call",
+  "purpose": "Select one quality-first single-Agent profile for Canonical-50 after first qualifying shared OpenCode Go capacity outside the formal denominator.",
+  "predecessor_boundary": {
+    "protocol": "benchmarks/showcase/quality-selection-protocol-v1.json",
+    "disposition": "fail_closed_without_winner_due_to_shared_provider_rate_limit",
+    "old_artifacts": "preserved read-only and excluded from v2 Case selection",
+    "old_correctness_outcomes_used": false
+  },
+  "development_set": {
+    "manifest": "benchmarks/regression/golden-10-v2.json",
+    "role": "fresh_seen_development_and_model_selection_only",
+    "planned_cases_per_candidate": 10,
+    "planned_total_starts": 20
+  },
+  "candidates": [
+    {
+      "candidate_id": "v4-pro",
+      "provider": "opencode-go",
+      "model": "deepseek-v4-pro",
+      "rationale": "quality-oriented coding model available through the OpenCode Go subscription"
+    },
+    {
+      "candidate_id": "glm",
+      "provider": "opencode-go",
+      "model": "glm-5.2",
+      "rationale": "strong current Chat-Completions coding model available through the same OpenCode Go subscription"
+    }
+  ],
+  "fixed_runtime": {
+    "billing_boundary": "OpenCode Go subscription only; no separately funded DeepSeek or OpenAI endpoint",
+    "agent_mode": "single",
+    "temperature": 0.0,
+    "thinking_mode": "enabled",
+    "reasoning_effort": "high",
+    "max_steps": 128,
+    "max_steps_role": "high safety ceiling only; not a token or quality budget",
+    "max_context_chars": 64000,
+    "max_prompt_tokens": 131072,
+    "reserved_output_tokens": 16384,
+    "max_tool_calls_per_turn": 4,
+    "cost_budget_usd_per_case": null,
+    "cost_budget_policy": "disabled for quality selection",
+    "run_timeout_seconds_per_case": 3600,
+    "model_request_timeout_seconds": 600,
+    "tool_execution_timeout_seconds": 600,
+    "tool_execution_timeout_role": "quality-preserving safety ceiling for one validation command, not a cost budget",
+    "tool_routing_mode": "task-aware",
+    "skill": "swebench_repair@3.0.0",
+    "memory_recall_limit": 0,
+    "execution_mode": "worktree",
+    "network_policy": "deny",
+    "keep_worktree": false,
+    "official_namespace": "swebench",
+    "official_cache_level": "instance",
+    "official_max_workers_per_shard": 1,
+    "fallback_allowed": false
+  },
+  "provider_capacity_qualification": {
+    "enters_formal_denominator": false,
+    "exclusive_subscription_window_required": true,
+    "launch_capacity_gate": "A separately sealed readiness record must conservatively estimate that the remaining weekly subscription quota covers every qualification call plus all 20 formal starts; a rolling-window reset alone is insufficient.",
+    "use_balance_policy": "must remain off; the experiment may not spill into separately charged balance",
+    "initial_quiet_seconds": 1800,
+    "minimum_seconds_between_provider_commands": 300,
+    "qualification_to_formal_cooldown_seconds": 900,
+    "capacity_bursts_per_candidate": 2,
+    "native_tool_round_trips_per_burst": 4,
+    "capacity_schedule": [
+      "v4-pro/burst-01",
+      "glm/burst-01",
+      "glm/burst-02",
+      "v4-pro/burst-02"
+    ],
+    "pass_rule": [
+      "both candidates first pass the same two-call native-tool identity preflight",
+      "all four capacity bursts finish with the preflight-bound observed response.model identity",
+      "every qualification provider call succeeds on its first transport attempt",
+      "qualification error_codes are empty and fallback_used=false",
+      "the append-only qualification ledger proves the frozen quiet and pacing intervals"
+    ],
+    "failure_rule": "Stop before any formal start, preserve every artifact, publish no winner, and require a new preregistration after provider recovery. Qualification is not correctness evidence and is never rerun inside v2."
+  },
+  "execution": {
+    "pass_at": 1,
+    "candidate_order": ["v4-pro", "glm"],
+    "command_unit": "exactly one Case per forge command",
+    "logical_case_order": "exact Golden-10 v2 manifest order within each candidate",
+    "schedule": "serial Case-centric ABBA image windows from the frozen command manifest; one exact evaluator image is shared by both adjacent candidate starts",
+    "cross_shard_concurrency": 1,
+    "minimum_seconds_between_provider_commands": 300,
+    "reason_for_serialization": "remove concurrent shared-quota pressure, reuse one exact image for the adjacent candidate pair, and isolate every provider or evaluator failure to one planned start",
+    "image_window": {
+      "order": "persist pull intent/ownership, free-space gate, pull exact tag if absent, inspect RepoDigest/image ID/linux-amd64, run the Case candidate pair in the scheduled order, seal both official artifacts, then remove only a campaign-owned newly-pulled exact tag",
+      "preexisting_image_policy": "record as preexisting and never remove",
+      "cleanup_policy": "no broad prune and no deletion by glob, digest, repository, or ancestor",
+      "crash_recovery": "reconcile the persisted ownership and image seal; never rerun a candidate slot once its started event exists; complete pending safe cleanup only after both slots are sealed or the campaign is terminal",
+      "prelaunch_blocker": "an outcome-blind sequential pull/inspect pass must prove all ten exact tags pullable and seal their expected RepoDigest/local image ID/linux-amd64 identities; a frozen Colima /var/lib/docker free-space probe must satisfy the gate before each pull and before the first provider call"
+    },
+    "correctness_rerun": 0,
+    "whole_case_provider_retry": 0,
+    "model_request_max_attempts_per_llm_call": 1,
+    "official_evaluator_rerun": 0,
+    "result_driven_parameter_change": false
+  },
+  "provider_infrastructure_policy": {
+    "recovered_rate_limit_is_valid": false,
+    "formal_transport_error_codes_allowed": [],
+    "on_any_rate_limit_or_transport_error": "stop remaining formal starts, preserve the partial denominator, publish no winner, and require a new preregistration",
+    "replacement_case_allowed": false,
+    "correctness_rerun_allowed": false,
+    "partial_candidate_comparison_allowed": false
+  },
+  "identity_policy": {
+    "source": "annotated tag, peeled commit, clean tracked and untracked worktree, frozen tracked file hashes, frozen .venv/bin/forge wrapper hash, dataset hashes, remote expected evaluator-image identity seal before any provider call, and matching local identity inside each Case window",
+    "model": "requested provider/model plus the non-empty response.model identity bound by preflight and repeated on every qualification and successful formal LLM call",
+    "fallback": "forbidden"
+  },
+  "runner_dependency": {
+    "status": "shared_primitives_and_thin_v2_composition_ready_pending_launch_seal",
+    "required_shared_primitives": [
+      "FormalRunExpectation + validate_formal_run",
+      "NoRerunSlotLifecycle",
+      "ExactImageLease",
+      "FormalCampaignRunner + audit_completed_formal_campaign",
+      "quality-selection v2 campaign-input seal + evidence plan",
+      "FreeSpaceGuardedExactImageRuntime"
+    ],
+    "available_now": [
+      "agent_forge.bench.formal_artifacts.FormalRunExpectation",
+      "agent_forge.bench.formal_artifacts.validate_formal_run",
+      "agent_forge.bench.application.campaign_lifecycle.NoRerunSlotLifecycle",
+      "agent_forge.bench.application.campaign_lifecycle.ExactImageLease",
+      "agent_forge.bench.application.formal_campaign.FormalCampaignRunner",
+      "agent_forge.bench.application.formal_campaign.audit_completed_formal_campaign",
+      "agent_forge.bench.application.quality_selection_v2_seal.seal_quality_selection_v2_campaign_inputs",
+      "agent_forge.bench.application.quality_selection_v2_evidence.build_v2_evidence_plan",
+      "agent_forge.bench.application.campaign_lifecycle.FreeSpaceGuardedExactImageRuntime"
+    ],
+    "prelaunch_blockers": [
+      "weekly subscription readiness must cover all qualification calls and 20 formal starts",
+      "all frozen assets must be committed and sealed by the annotated prelaunch tag",
+      "the outcome-blind exact image seal and dynamic campaign-input seal must complete"
+    ],
+    "design_boundary": "Quality-selection v2 owns only its qualification, pacing, Case-paired ABBA schedule, denominator, and winner policy. It must not implement a parallel formal-artifact validator, no-rerun state machine, or Docker ownership framework."
+  },
+  "valid_candidate": [
+    "10/10 planned one-Case starts have finalized artifacts",
+    "all successful LLM calls report the exact provider/model and preflight-bound response.model identity",
+    "no provider call records a retry or transport error",
+    "no fallback model is used",
+    "candidate/prediction/official patch bytes align for every non-empty patch",
+    "official evaluator exits cleanly without structural warnings"
+  ],
+  "selection_rule": {
+    "primary": "highest official_resolved over the fixed planned denominator of 10",
+    "tie_break_order": [
+      "higher official_decided coverage",
+      "fewer empty patches",
+      "fewer provider or evaluator infrastructure failures",
+      "fewer failed tool calls",
+      "candidate_order"
+    ],
+    "validity_requirement": "both candidates must complete and remain protocol-valid",
+    "if_either_invalid": "do not select a winner; repair infrastructure under a new preregistration"
+  },
+  "freeze_rule": "Only the mechanically selected v2 winner may be written to showcase-quality-v1 and used for Canonical-50. Canonical-50 outcomes cannot reopen this choice.",
+  "claim_limits": [
+    "Golden-10 v2 is a development set and does not measure general SWE-bench Verified performance.",
+    "This comparison chooses a current model/profile; it does not isolate Harness uplift.",
+    "Capacity probes only qualify the provider window and never enter the quality denominator.",
+    "Thinking mode omits transport temperature, so temperature=0 is recorded configuration rather than deterministic output.",
+    "The 128-step ceiling is an emergency convergence guard, not a cost or token optimization."
+  ]
+}

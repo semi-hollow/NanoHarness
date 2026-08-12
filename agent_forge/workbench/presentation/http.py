@@ -4258,7 +4258,7 @@ def _quality_metric(metrics: dict[str, Any], *names: str) -> int:
 def _quality_selection_incident_overview_facts(
     artifact: dict[str, Any],
 ) -> tuple[list[tuple[str, str, str, str]], str]:
-    """Show completeness and contamination, never a partial candidate score."""
+    """只展示完整性与污染范围，不展示候选的局部正确率。"""
 
     incident = _mapping(artifact.get("incident"))
     decision = _mapping(artifact.get("decision"))
@@ -4309,7 +4309,7 @@ def _render_quality_selection_incident_dashboard(
     artifact: dict[str, Any],
     source_path: Path | None,
 ) -> str:
-    """Render a historical incident without surfacing partial correctness scores."""
+    """渲染历史事故，但不暴露任何局部正确率。"""
 
     incident = _mapping(artifact.get("incident"))
     decision = _mapping(artifact.get("decision"))

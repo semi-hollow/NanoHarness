@@ -16,15 +16,28 @@ written only after both candidates pass every validation gate.
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
 import os
 import sys
 from dataclasses import dataclass
-from decimal import Decimal, InvalidOperation
+from decimal import Decimal
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
+
+from agent_forge.bench.formal_artifacts import (
+    FormalArtifactRefused as SelectionRefused,
+    FormalRunExpectation,
+    _as_int,
+    _read_json,
+    _refuse,
+    RETRYABLE_TRANSPORT_ERROR_CODES,
+    _safe_official_aggregate,  # noqa: F401 - retained for test/API compatibility
+    _sha256_bytes,
+    _sha256_file,
+    parse_formal_cli,
+    validate_formal_run,
+)
 
 
 PROTOCOL_PATH = Path("benchmarks/showcase/quality-selection-protocol-v1.json")
@@ -38,74 +51,6 @@ PROBE_SCRIPT_PATH = Path("scripts/probe_model_tool_contract.py")
 SUMMARIZER_SCRIPT_PATH = Path("scripts/summarize_quality_selection.py")
 DEFAULT_ARTIFACT_ROOT = Path(".agent_forge/canonical-showcase/quality-selection")
 DEFAULT_OUTPUT_NAME = "selection-summary.json"
-
-COMMAND_VALUE_FLAGS = {
-    "--agent-mode",
-    "--base-url",
-    "--cases-file",
-    "--cost-budget-usd",
-    "--dataset",
-    "--execution-mode",
-    "--instance-id",
-    "--limit",
-    "--max-context-chars",
-    "--max-revision-rounds",
-    "--max-steps",
-    "--max-tool-calls-per-turn",
-    "--max-prompt-tokens",
-    "--max-workers",
-    "--memory-recall-limit",
-    "--model",
-    "--model-request-timeout-seconds",
-    "--network-policy",
-    "--official-cache-level",
-    "--official-namespace",
-    "--output-root",
-    "--provider",
-    "--reasoning-effort",
-    "--repo-cache",
-    "--reserved-output-tokens",
-    "--skills",
-    "--temperature",
-    "--thinking",
-    "--timeout-seconds",
-    "--tool-execution-timeout-seconds",
-    "--tool-routing",
-}
-COMMAND_SWITCH_FLAGS = {"--evaluate", "--keep-worktree", "--no-keep-worktree"}
-
-OFFICIAL_AGGREGATE_KEYS = {
-    "schema_version",
-    "submitted_ids",
-    "completed_ids",
-    "resolved_ids",
-    "unresolved_ids",
-    "error_ids",
-    "empty_patch_ids",
-    "incomplete_ids",
-    "total_instances",
-    "submitted_instances",
-    "completed_instances",
-    "resolved_instances",
-    "unresolved_instances",
-    "error_instances",
-    "empty_patch_instances",
-}
-OFFICIAL_STATUS_FOR_BUCKET = {
-    "resolved_ids": "official_resolved",
-    "unresolved_ids": "official_eval_failed",
-    "empty_patch_ids": "official_eval_skipped_empty_patch",
-}
-RETRYABLE_TRANSPORT_ERROR_CODES = {
-    "request_failed",
-    "request_timeout",
-    "rate_limited",
-    "server_error",
-}
-
-
-class SelectionRefused(RuntimeError):
-    """The frozen experiment is incomplete, invalid, or has drifted."""
 
 
 @dataclass(frozen=True)
@@ -124,6 +69,7 @@ class CommandPlan:
     instance_ids: tuple[str, ...]
     output_root: Path
     base_url: str
+    argv: tuple[str, ...]
 
 
 @dataclass
@@ -155,59 +101,11 @@ class CandidateMetrics:
         )
 
 
-def _refuse(condition: bool, message: str) -> None:
-    if not condition:
-        raise SelectionRefused(message)
-
-
-def _read_json(path: Path, label: str) -> dict[str, Any]:
-    try:
-        value = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
-        raise SelectionRefused(f"cannot read {label}: {exc}") from exc
-    _refuse(isinstance(value, dict), f"{label} must be a JSON object")
-    return value
-
-
-def _sha256_bytes(value: bytes) -> str:
-    return hashlib.sha256(value).hexdigest()
-
-
-def _sha256_file(path: Path, label: str) -> str:
-    try:
-        return _sha256_bytes(path.read_bytes())
-    except OSError as exc:
-        raise SelectionRefused(f"cannot hash {label}: {exc}") from exc
-
-
-def _as_int(value: Any, label: str) -> int:
-    _refuse(
-        isinstance(value, int) and not isinstance(value, bool),
-        f"{label} must be an integer",
-    )
-    return value
-
-
-def _as_decimal(value: Any, label: str) -> Decimal:
-    _refuse(not isinstance(value, bool), f"{label} must be numeric")
-    try:
-        parsed = Decimal(str(value))
-    except (InvalidOperation, ValueError) as exc:
-        raise SelectionRefused(f"{label} must be numeric") from exc
-    _refuse(parsed.is_finite(), f"{label} must be finite")
-    return parsed
-
-
 def _resolve_from_project(project_root: Path, raw_path: str, label: str) -> Path:
     _refuse(bool(raw_path), f"{label} path is empty")
     path = Path(raw_path)
     resolved = (path if path.is_absolute() else project_root / path).resolve()
     return resolved
-
-
-def _assert_path(actual: Any, expected: Path, label: str) -> None:
-    _refuse(isinstance(actual, str) and bool(actual), f"{label} path is missing")
-    _refuse(Path(actual).resolve() == expected.resolve(), f"{label} path drift")
 
 
 def _ordered_ids_sha256(case_ids: list[str]) -> str:
@@ -221,54 +119,6 @@ def _safe_endpoint_identity(base_url: str) -> tuple[str, str]:
         endpoint += f":{parsed.port}"
     endpoint += parsed.path.rstrip("/")
     return endpoint, _sha256_bytes(base_url.encode("utf-8"))
-
-
-def _parse_command(argv: Any, label: str) -> tuple[dict[str, str], list[str], set[str]]:
-    _refuse(isinstance(argv, list), f"{label} argv must be a list")
-    _refuse(
-        argv[:3] == [".venv/bin/forge", "bench", "swebench"],
-        f"{label} entrypoint drift",
-    )
-    values: dict[str, str] = {}
-    instance_ids: list[str] = []
-    switches: set[str] = set()
-    index = 3
-    while index < len(argv):
-        flag = argv[index]
-        _refuse(isinstance(flag, str), f"{label} contains a non-string token")
-        if flag in COMMAND_SWITCH_FLAGS:
-            _refuse(flag not in switches, f"{label} repeats {flag}")
-            switches.add(flag)
-            index += 1
-            continue
-        _refuse(flag in COMMAND_VALUE_FLAGS, f"{label} has unsupported flag {flag}")
-        _refuse(index + 1 < len(argv), f"{label} is missing the value for {flag}")
-        raw_value = argv[index + 1]
-        _refuse(isinstance(raw_value, str), f"{label} has a non-string flag value")
-        if flag == "--instance-id":
-            instance_ids.append(raw_value)
-        else:
-            _refuse(flag not in values, f"{label} repeats {flag}")
-            values[flag] = raw_value
-        index += 2
-    return values, instance_ids, switches
-
-
-def _require_string_flag(
-    values: dict[str, str], flag: str, expected: Any, label: str
-) -> None:
-    _refuse(values.get(flag) == str(expected), f"{label} {flag} drift")
-
-
-def _require_numeric_flag(
-    values: dict[str, str], flag: str, expected: Any, label: str
-) -> None:
-    _refuse(flag in values, f"{label} is missing {flag}")
-    _refuse(
-        _as_decimal(values[flag], f"{label} {flag}")
-        == _as_decimal(expected, f"protocol {flag}"),
-        f"{label} {flag} drift",
-    )
 
 
 def _normalized_command_hash(
@@ -523,76 +373,64 @@ def _validate_preregistration(
         raw_command_ids = command.get("instance_ids")
         _refuse(isinstance(raw_command_ids, list), f"{label} instance_ids are missing")
         command_ids = [str(item) for item in raw_command_ids]
-        values, argv_ids, switches = _parse_command(command.get("argv"), label)
-        _refuse(argv_ids == command_ids, f"{label} argv instance order drift")
-        _refuse(len(command_ids) > 0, f"{label} has no cases")
+        raw_argv = command.get("argv")
         _refuse(
-            switches == {"--evaluate", "--no-keep-worktree"},
-            f"{label} switch set drift",
+            isinstance(raw_argv, list)
+            and all(isinstance(item, str) for item in raw_argv),
+            f"{label} argv must contain only strings",
         )
+        argv = tuple(raw_argv)
+        parsed = parse_formal_cli(argv, label)
+        _refuse(
+            parsed["instance_id"] == command_ids,
+            f"{label} argv instance order drift",
+        )
+        _refuse(len(command_ids) > 0, f"{label} has no cases")
 
         identity = candidate_by_id[candidate_id]
-        _require_string_flag(values, "--provider", identity["provider"], label)
-        _require_string_flag(values, "--model", identity["model"], label)
-        _require_string_flag(values, "--agent-mode", runtime["agent_mode"], label)
-        _require_string_flag(values, "--thinking", runtime["thinking_mode"], label)
-        _require_string_flag(
-            values, "--reasoning-effort", runtime["reasoning_effort"], label
-        )
-        _require_string_flag(
-            values, "--tool-routing", runtime["tool_routing_mode"], label
-        )
-        _require_string_flag(values, "--skills", skill_name, label)
-        _require_string_flag(
-            values, "--execution-mode", runtime["execution_mode"], label
-        )
-        _require_string_flag(
-            values, "--network-policy", runtime["network_policy"], label
-        )
-        _require_string_flag(
-            values, "--official-namespace", runtime["official_namespace"], label
-        )
-        _require_string_flag(
-            values,
-            "--official-cache-level",
-            runtime["official_cache_level"],
-            label,
-        )
-        for flag, key in {
-            "--temperature": "temperature",
-            "--max-steps": "max_steps",
-            "--max-context-chars": "max_context_chars",
-            "--max-prompt-tokens": "max_prompt_tokens",
-            "--reserved-output-tokens": "reserved_output_tokens",
-            "--max-tool-calls-per-turn": "max_tool_calls_per_turn",
-            "--timeout-seconds": "run_timeout_seconds_per_case",
-            "--model-request-timeout-seconds": "model_request_timeout_seconds",
-            "--tool-execution-timeout-seconds": "tool_execution_timeout_seconds",
-            "--max-workers": "official_max_workers_per_shard",
-            "--memory-recall-limit": "memory_recall_limit",
-        }.items():
-            _require_numeric_flag(values, flag, runtime[key], label)
-        _require_numeric_flag(values, "--max-revision-rounds", 0, label)
-        _require_numeric_flag(values, "--limit", len(command_ids), label)
-        cost_budget = runtime.get("cost_budget_usd_per_case")
-        if cost_budget is None:
-            _refuse(
-                "--cost-budget-usd" not in values,
-                f"{label} unexpectedly enables a cost budget",
-            )
-        else:
-            _require_numeric_flag(values, "--cost-budget-usd", cost_budget, label)
+        expected_cli = {
+            "provider": identity["provider"],
+            "model": identity["model"],
+            "agent_mode": runtime["agent_mode"],
+            "thinking_mode": runtime["thinking_mode"],
+            "reasoning_effort": runtime["reasoning_effort"],
+            "tool_routing": runtime["tool_routing_mode"],
+            "skills": skill_name,
+            "execution_mode": runtime["execution_mode"],
+            "network_policy": runtime["network_policy"],
+            "official_namespace": runtime["official_namespace"],
+            "official_cache_level": runtime["official_cache_level"],
+            "temperature": runtime["temperature"],
+            "max_steps": runtime["max_steps"],
+            "max_context_chars": runtime["max_context_chars"],
+            "max_prompt_tokens": runtime["max_prompt_tokens"],
+            "reserved_output_tokens": runtime["reserved_output_tokens"],
+            "max_tool_calls_per_turn": runtime["max_tool_calls_per_turn"],
+            "timeout_seconds": runtime["run_timeout_seconds_per_case"],
+            "model_request_timeout_seconds": runtime["model_request_timeout_seconds"],
+            "tool_execution_timeout_seconds": runtime["tool_execution_timeout_seconds"],
+            "max_workers": runtime["official_max_workers_per_shard"],
+            "memory_recall_limit": runtime["memory_recall_limit"],
+            "cost_budget_usd": runtime.get("cost_budget_usd_per_case"),
+            "max_revision_rounds": 0,
+            "limit": len(command_ids),
+            "evaluate": True,
+            "keep_worktree": False,
+            "namespace_empty": False,
+        }
+        for key, expected in expected_cli.items():
+            _refuse(parsed.get(key) == expected, f"{label} effective {key} drift")
 
-        base_url = values.get("--base-url", "")
+        base_url = str(parsed.get("base_url") or "")
         _refuse(bool(base_url), f"{label} base URL is missing")
         common_base_url = common_base_url or base_url
         _refuse(base_url == common_base_url, f"{label} base URL drift")
 
         dataset_path = _resolve_from_project(
-            project_root, values.get("--dataset", ""), f"{label} dataset"
+            project_root, str(parsed.get("dataset") or ""), f"{label} dataset"
         )
         cases_path = _resolve_from_project(
-            project_root, values.get("--cases-file", ""), f"{label} cases file"
+            project_root, str(parsed.get("cases_file") or ""), f"{label} cases file"
         )
         expected_dataset = (artifact_root / "dataset" / "official-cases.json").resolve()
         expected_cases = (artifact_root / "dataset" / "agent-cases.json").resolve()
@@ -600,10 +438,12 @@ def _validate_preregistration(
             dataset_path == expected_dataset, f"{label} official dataset path drift"
         )
         _refuse(cases_path == expected_cases, f"{label} agent dataset path drift")
-        _refuse(bool(values.get("--repo-cache")), f"{label} repo cache is missing")
+        _refuse(bool(parsed.get("repo_cache")), f"{label} repo cache is missing")
 
         output_root = _resolve_from_project(
-            project_root, values.get("--output-root", ""), f"{label} output root"
+            project_root,
+            str(parsed.get("output_root") or ""),
+            f"{label} output root",
         )
         expected_output = (artifact_root / candidate_id / shard).resolve()
         _refuse(output_root == expected_output, f"{label} output root drift")
@@ -614,6 +454,7 @@ def _validate_preregistration(
                 instance_ids=tuple(command_ids),
                 output_root=output_root,
                 base_url=base_url,
+                argv=argv,
             )
         )
         concatenated[candidate_id].extend(command_ids)
@@ -809,673 +650,6 @@ def _validate_preflight(
     )
 
 
-def _assert_result_config(
-    results: dict[str, Any],
-    scorecard: dict[str, Any],
-    protocol: dict[str, Any],
-    identity: CandidateIdentity,
-    plan: CommandPlan,
-    project_root: Path,
-    artifact_root: Path,
-    run_dir: Path,
-) -> None:
-    runtime = protocol["fixed_runtime"]
-    golden = _read_json(
-        _resolve_from_project(
-            project_root,
-            protocol["development_set"]["manifest"],
-            "development-set manifest",
-        ),
-        "development-set manifest",
-    )
-    expected_dataset = (artifact_root / "dataset" / "official-cases.json").resolve()
-    result_strings = {
-        "provider": identity.provider,
-        "model": identity.model,
-        "split": str(golden.get("split") or ""),
-        "thinking_mode": runtime["thinking_mode"],
-        "reasoning_effort": runtime["reasoning_effort"],
-        "agent_mode": runtime["agent_mode"],
-        "tool_routing_mode": runtime["tool_routing_mode"],
-        "execution_mode": runtime["execution_mode"],
-        "network_policy": runtime["network_policy"],
-        "official_namespace": runtime["official_namespace"],
-    }
-    for key, expected in result_strings.items():
-        _refuse(
-            results.get(key) == expected,
-            f"{plan.candidate_id}/{plan.shard} {key} drift",
-        )
-    result_numbers = {
-        "temperature": runtime["temperature"],
-        "max_steps": runtime["max_steps"],
-        "max_context_chars": runtime["max_context_chars"],
-        "max_prompt_tokens": runtime["max_prompt_tokens"],
-        "reserved_output_tokens": runtime["reserved_output_tokens"],
-        "max_tool_calls_per_turn": runtime["max_tool_calls_per_turn"],
-        "timeout_seconds": runtime["run_timeout_seconds_per_case"],
-        "model_request_timeout_seconds": runtime["model_request_timeout_seconds"],
-        "tool_execution_timeout_seconds": runtime["tool_execution_timeout_seconds"],
-        "memory_recall_limit": runtime["memory_recall_limit"],
-        "max_revision_rounds": 0,
-    }
-    for key, expected in result_numbers.items():
-        _refuse(
-            _as_decimal(results.get(key), f"results {key}")
-            == _as_decimal(expected, f"protocol {key}"),
-            f"{plan.candidate_id}/{plan.shard} {key} drift",
-        )
-    _refuse(
-        results.get("cost_budget_usd") == runtime.get("cost_budget_usd_per_case"),
-        f"{plan.candidate_id}/{plan.shard} cost budget drift",
-    )
-    _refuse(
-        results.get("keep_worktree") is runtime["keep_worktree"],
-        f"{plan.candidate_id}/{plan.shard} worktree retention drift",
-    )
-    skill_name, _ = runtime["skill"].rsplit("@", 1)
-    _refuse(results.get("skill_mode") == "auto", "formal skill mode drift")
-    _refuse(results.get("skill_names") == [skill_name], "formal skill name drift")
-    _refuse(
-        results.get("skill_manifest_sha256") == "builtins_only",
-        "formal built-in skill source drift",
-    )
-    _refuse(
-        results.get("memory_namespace") == "swebench:<instance_id>",
-        "formal memory namespace drift",
-    )
-    _assert_path(results.get("dataset_name"), expected_dataset, "results dataset")
-    _assert_path(results.get("output_dir"), run_dir, "results output_dir")
-    _assert_path(
-        results.get("predictions_path"),
-        run_dir / "predictions.jsonl",
-        "results predictions",
-    )
-
-    metadata = scorecard.get("metadata")
-    _refuse(isinstance(metadata, dict), "scorecard metadata is missing")
-    metadata_expected = {
-        "provider": identity.provider,
-        "requested_model": identity.model,
-        "observed_models": [identity.observed_model],
-        "split": str(golden.get("split") or ""),
-        "thinking_mode": runtime["thinking_mode"],
-        "reasoning_effort": runtime["reasoning_effort"],
-        "agent_mode": runtime["agent_mode"],
-        "max_steps": runtime["max_steps"],
-        "max_context_chars": runtime["max_context_chars"],
-        "max_prompt_tokens": runtime["max_prompt_tokens"],
-        "reserved_output_tokens": runtime["reserved_output_tokens"],
-        "max_tool_calls_per_turn": runtime["max_tool_calls_per_turn"],
-        "cost_budget_usd": runtime.get("cost_budget_usd_per_case"),
-        "timeout_seconds": runtime["run_timeout_seconds_per_case"],
-        "model_request_timeout_seconds": runtime["model_request_timeout_seconds"],
-        "tool_execution_timeout_seconds": runtime["tool_execution_timeout_seconds"],
-        "max_revision_rounds": 0,
-        "tool_routing_mode": runtime["tool_routing_mode"],
-        "skill_mode": "auto",
-        "skill_names": [skill_name],
-        "skill_manifest_sha256": "builtins_only",
-        "memory_recall_limit": runtime["memory_recall_limit"],
-        "execution_mode": runtime["execution_mode"],
-        "network_policy": runtime["network_policy"],
-        "keep_worktree": runtime["keep_worktree"],
-        "official_namespace": runtime["official_namespace"],
-    }
-    for key, expected in metadata_expected.items():
-        _refuse(
-            metadata.get(key) == expected,
-            f"{plan.candidate_id}/{plan.shard} scorecard {key} drift",
-        )
-    _assert_path(metadata.get("dataset_name"), expected_dataset, "scorecard dataset")
-
-
-def _read_predictions(path: Path, label: str) -> list[dict[str, Any]]:
-    try:
-        lines = path.read_text(encoding="utf-8").splitlines()
-    except (OSError, UnicodeError) as exc:
-        raise SelectionRefused(f"cannot read {label}: {exc}") from exc
-    predictions: list[dict[str, Any]] = []
-    for index, line in enumerate(lines):
-        _refuse(bool(line.strip()), f"{label} contains an empty line")
-        try:
-            value = json.loads(line)
-        except json.JSONDecodeError as exc:
-            raise SelectionRefused(f"{label}[{index}] is invalid JSON") from exc
-        _refuse(isinstance(value, dict), f"{label}[{index}] must be an object")
-        predictions.append(value)
-    return predictions
-
-
-def _safe_official_aggregate(path: Path, label: str) -> dict[str, Any]:
-    aggregate = _read_json(path, label)
-    _refuse(
-        set(aggregate) == OFFICIAL_AGGREGATE_KEYS,
-        f"{label} is not the safe official run aggregate",
-    )
-    _refuse("tests_status" not in aggregate, f"{label} contains per-test data")
-    return aggregate
-
-
-def _list_of_ids(aggregate: dict[str, Any], key: str, label: str) -> list[str]:
-    value = aggregate.get(key)
-    _refuse(isinstance(value, list), f"{label} {key} must be a list")
-    result = [str(item) for item in value]
-    _refuse(len(result) == len(set(result)), f"{label} {key} contains duplicates")
-    return result
-
-
-def _validate_official_aggregate(
-    aggregate: dict[str, Any],
-    instance_ids: tuple[str, ...],
-    label: str,
-) -> dict[str, list[str]]:
-    expected = set(instance_ids)
-    buckets = {
-        key: _list_of_ids(aggregate, key, label)
-        for key in (
-            "resolved_ids",
-            "unresolved_ids",
-            "error_ids",
-            "empty_patch_ids",
-            "incomplete_ids",
-        )
-    }
-    seen: set[str] = set()
-    for key, values in buckets.items():
-        _refuse(set(values) <= expected, f"{label} {key} contains an unplanned id")
-        _refuse(seen.isdisjoint(values), f"{label} official outcome buckets overlap")
-        seen.update(values)
-    _refuse(seen == expected, f"{label} official outcome partition is incomplete")
-    _refuse(not buckets["error_ids"], f"{label} has evaluator infrastructure errors")
-    _refuse(not buckets["incomplete_ids"], f"{label} has incomplete evaluation")
-
-    submitted = _list_of_ids(aggregate, "submitted_ids", label)
-    completed = _list_of_ids(aggregate, "completed_ids", label)
-    decided = buckets["resolved_ids"] + buckets["unresolved_ids"]
-    _refuse(set(submitted) == expected, f"{label} submitted denominator drift")
-    _refuse(set(completed) == set(decided), f"{label} completed ids drift")
-    count_expectations = {
-        "total_instances": len(instance_ids),
-        "submitted_instances": len(instance_ids),
-        "completed_instances": len(decided),
-        "resolved_instances": len(buckets["resolved_ids"]),
-        "unresolved_instances": len(buckets["unresolved_ids"]),
-        "error_instances": 0,
-        "empty_patch_instances": len(buckets["empty_patch_ids"]),
-    }
-    for key, expected_count in count_expectations.items():
-        _refuse(aggregate.get(key) == expected_count, f"{label} {key} drift")
-    _refuse(aggregate.get("schema_version") == 2, f"{label} schema drift")
-    return buckets
-
-
-def _trace_metadata(
-    trace_path: Path,
-    usage_path: Path,
-    identity: CandidateIdentity,
-    skill_name: str,
-    skill_version: str,
-    skill_sha256: str,
-    label: str,
-) -> tuple[int, Decimal, int, int]:
-    trace = _read_json(trace_path, f"{label} trace")
-    events = trace.get("events")
-    _refuse(isinstance(events, list), f"{label} trace events are missing")
-    capabilities: list[dict[str, Any]] = []
-    skills: list[dict[str, Any]] = []
-    trace_calls: list[dict[str, Any]] = []
-    for event in events:
-        _refuse(isinstance(event, dict), f"{label} trace event must be an object")
-        event_type = event.get("event_type")
-        if event_type == "model_capabilities":
-            capabilities.append(event)
-        elif event_type == "skill_selection":
-            skills.append(event)
-        elif event_type == "llm_call":
-            model_usage = event.get("model_usage")
-            _refuse(isinstance(model_usage, dict), f"{label} model usage is missing")
-            _refuse(
-                model_usage.get("provider") == identity.provider,
-                f"{label} formal provider drift",
-            )
-            _refuse(
-                model_usage.get("model") == identity.model,
-                f"{label} requested model drift",
-            )
-            _refuse(
-                model_usage.get("observed_models") == [identity.observed_model],
-                f"{label} provider-reported model drift",
-            )
-            _refuse(
-                model_usage.get("fallback_used") is False,
-                f"{label} used a fallback model",
-            )
-            _refuse(
-                model_usage.get("fallback_provider") in {None, ""}
-                and model_usage.get("fallback_model") in {None, ""},
-                f"{label} records a fallback identity",
-            )
-            attempts = _as_int(model_usage.get("attempts"), f"{label} attempts")
-            _refuse(1 <= attempts <= 2, f"{label} provider attempts drift")
-            error_codes_value = model_usage.get("error_codes")
-            _refuse(
-                isinstance(error_codes_value, list)
-                and len(error_codes_value) <= attempts - 1
-                and all(
-                    str(item) in RETRYABLE_TRANSPORT_ERROR_CODES
-                    for item in error_codes_value
-                ),
-                f"{label} has non-retryable provider errors",
-            )
-            error_codes = [str(item) for item in error_codes_value]
-            usage_source = str(model_usage.get("usage_source") or "")
-            _refuse(
-                usage_source in {"provider", "estimate"},
-                f"{label} usage source drift",
-            )
-            tokens = _as_int(model_usage.get("total_tokens"), f"{label} tokens")
-            _refuse(tokens >= 0, f"{label} token usage is negative")
-            cost = _as_decimal(model_usage.get("estimated_cost_usd"), f"{label} cost")
-            _refuse(cost >= 0, f"{label} cost is negative")
-            tool_count = _as_int(event.get("tool_call_count"), f"{label} tool count")
-            normalization = event.get("response_normalization")
-            _refuse(
-                isinstance(normalization, dict), f"{label} normalization is missing"
-            )
-            tool_source = str(normalization.get("tool_call_source") or "")
-            if tool_count:
-                _refuse(tool_source == "native", f"{label} used non-native tool calls")
-            trace_calls.append(
-                {
-                    "provider": identity.provider,
-                    "model": identity.model,
-                    "provider_reported_models": [identity.observed_model],
-                    "fallback_used": False,
-                    "fallback_provider": str(
-                        model_usage.get("fallback_provider") or ""
-                    ),
-                    "fallback_model": str(model_usage.get("fallback_model") or ""),
-                    "error_codes": error_codes,
-                    "attempts": attempts,
-                    "usage_source": usage_source,
-                    "total_tokens": tokens,
-                    "estimated_cost_usd": cost,
-                    "tool_call_source": tool_source,
-                }
-            )
-    _refuse(len(capabilities) == 1, f"{label} capability metadata drift")
-    capability = capabilities[0].get("model_capabilities")
-    _refuse(isinstance(capability, dict), f"{label} capability payload is missing")
-    _refuse(
-        capability.get("native_tool_calling") is True, f"{label} native tools disabled"
-    )
-    capability_source = str(capability.get("source") or "")
-    _refuse(
-        identity.provider in capability_source and identity.model in capability_source,
-        f"{label} capability source drift",
-    )
-    _refuse(len(skills) == 1, f"{label} skill selection metadata drift")
-    skill_event = skills[0]
-    _refuse(skill_event.get("skill_mode") == "auto", f"{label} skill mode drift")
-    selected_skills = skill_event.get("skills")
-    _refuse(isinstance(selected_skills, list), f"{label} selected skills are missing")
-    _refuse(len(selected_skills) == 1, f"{label} selected skill count drift")
-    selected_skill = selected_skills[0]
-    _refuse(isinstance(selected_skill, dict), f"{label} selected skill is invalid")
-    _refuse(
-        {
-            "name": selected_skill.get("name"),
-            "version": selected_skill.get("version"),
-            "content_sha256": selected_skill.get("content_sha256"),
-        }
-        == {
-            "name": skill_name,
-            "version": skill_version,
-            "content_sha256": skill_sha256,
-        },
-        f"{label} Skill identity drift",
-    )
-    _refuse(trace_calls, f"{label} made no successful provider calls")
-
-    usage = _read_json(usage_path, f"{label} usage")
-    steps = usage.get("steps")
-    _refuse(isinstance(steps, list), f"{label} usage steps are missing")
-    usage_calls: list[dict[str, Any]] = []
-    for step in steps:
-        _refuse(isinstance(step, dict), f"{label} usage step is invalid")
-        calls = step.get("llm_calls")
-        _refuse(isinstance(calls, list), f"{label} usage calls are missing")
-        for call in calls:
-            _refuse(isinstance(call, dict), f"{label} usage call is invalid")
-            normalization = call.get("response_normalization") or {}
-            usage_calls.append(
-                {
-                    "provider": call.get("provider"),
-                    "model": call.get("model"),
-                    "provider_reported_models": call.get("provider_reported_models"),
-                    "fallback_used": call.get("fallback_used"),
-                    "fallback_provider": str(call.get("fallback_provider") or ""),
-                    "fallback_model": str(call.get("fallback_model") or ""),
-                    "error_codes": call.get("error_codes"),
-                    "attempts": call.get("attempts"),
-                    "usage_source": call.get("usage_source"),
-                    "total_tokens": call.get("total_tokens"),
-                    "estimated_cost_usd": _as_decimal(
-                        call.get("estimated_cost_usd"), f"{label} usage cost"
-                    ),
-                    "tool_call_source": normalization.get("tool_call_source"),
-                }
-            )
-    _refuse(usage_calls == trace_calls, f"{label} trace/usage call metadata drift")
-    summary = usage.get("summary")
-    _refuse(isinstance(summary, dict), f"{label} usage summary is missing")
-    total_tokens = sum(item["total_tokens"] for item in trace_calls)
-    total_cost = sum((item["estimated_cost_usd"] for item in trace_calls), Decimal("0"))
-    _refuse(summary.get("llm_calls") == len(trace_calls), f"{label} LLM count drift")
-    _refuse(summary.get("total_tokens") == total_tokens, f"{label} token total drift")
-    _refuse(
-        _as_decimal(summary.get("estimated_cost_usd"), f"{label} summary cost")
-        == total_cost,
-        f"{label} cost total drift",
-    )
-    _refuse(
-        summary.get("active_skills") == [skill_name],
-        f"{label} active Skill drift",
-    )
-    failed_tools = _as_int(summary.get("failed_tool_calls"), f"{label} failed tools")
-    _refuse(failed_tools >= 0, f"{label} failed tool count is negative")
-    return total_tokens, total_cost, failed_tools, len(trace_calls)
-
-
-def _validate_run(
-    project_root: Path,
-    artifact_root: Path,
-    protocol: dict[str, Any],
-    command_manifest: dict[str, Any],
-    plan: CommandPlan,
-    identity: CandidateIdentity,
-) -> dict[str, Any]:
-    _refuse(
-        plan.output_root.is_dir(), f"{plan.candidate_id}/{plan.shard} output is missing"
-    )
-    child_dirs = sorted(path for path in plan.output_root.iterdir() if path.is_dir())
-    _refuse(
-        len(child_dirs) == 1,
-        f"{plan.candidate_id}/{plan.shard} must contain exactly one formal run",
-    )
-    run_dir = child_dirs[0].resolve()
-    results_path = run_dir / "results.json"
-    scorecard_path = run_dir / "scorecard.json"
-    predictions_path = run_dir / "predictions.jsonl"
-    results = _read_json(results_path, f"{plan.candidate_id}/{plan.shard} results")
-    scorecard = _read_json(
-        scorecard_path, f"{plan.candidate_id}/{plan.shard} scorecard"
-    )
-    _assert_result_config(
-        results,
-        scorecard,
-        protocol,
-        identity,
-        plan,
-        project_root,
-        artifact_root,
-        run_dir,
-    )
-    run_id = str(results.get("run_id") or "")
-    _refuse(bool(run_id), f"{plan.candidate_id}/{plan.shard} run id is missing")
-    _refuse(run_dir.name == run_id, f"{plan.candidate_id}/{plan.shard} run id drift")
-    case_results = results.get("case_results")
-    _refuse(isinstance(case_results, list), "results case_results are missing")
-    _refuse(
-        [item.get("instance_id") for item in case_results if isinstance(item, dict)]
-        == list(plan.instance_ids),
-        f"{plan.candidate_id}/{plan.shard} finalized case order drift",
-    )
-    _refuse(
-        len(case_results) == len(plan.instance_ids),
-        f"{plan.candidate_id}/{plan.shard} planned denominator is incomplete",
-    )
-    predictions = _read_predictions(
-        predictions_path, f"{plan.candidate_id}/{plan.shard} predictions"
-    )
-    _refuse(
-        [item.get("instance_id") for item in predictions] == list(plan.instance_ids),
-        f"{plan.candidate_id}/{plan.shard} prediction order drift",
-    )
-    prediction_name = f"agent-forge-{identity.provider}-{identity.model}"
-    _refuse(
-        all(item.get("model_name_or_path") == prediction_name for item in predictions),
-        f"{plan.candidate_id}/{plan.shard} prediction model identity drift",
-    )
-
-    _refuse(results.get("official_eval_exit_code") == 0, "official evaluator failed")
-    _refuse(results.get("official_eval_warnings") == [], "official evaluator warned")
-    official_command = results.get("official_eval_command")
-    _refuse(isinstance(official_command, list), "official evaluator command is missing")
-    expected_official_tail = [
-        "-m",
-        "swebench.harness.run_evaluation",
-        "--dataset_name",
-        str((artifact_root / "dataset" / "official-cases.json").resolve()),
-        "--split",
-        str(
-            _read_json(
-                _resolve_from_project(
-                    project_root,
-                    protocol["development_set"]["manifest"],
-                    "development-set manifest",
-                ),
-                "development-set manifest",
-            ).get("split")
-            or ""
-        ),
-        "--predictions_path",
-        str(predictions_path.resolve()),
-        "--max_workers",
-        str(protocol["fixed_runtime"]["official_max_workers_per_shard"]),
-        "--cache_level",
-        str(protocol["fixed_runtime"]["official_cache_level"]),
-        "--run_id",
-        run_id,
-        "--instance_ids",
-        *plan.instance_ids,
-        "--namespace",
-        str(protocol["fixed_runtime"]["official_namespace"]),
-    ]
-    _refuse(
-        len(official_command) > 1 and official_command[1:] == expected_official_tail,
-        f"{plan.candidate_id}/{plan.shard} official command drift",
-    )
-
-    official_path_value = results.get("official_eval_report_path")
-    _refuse(isinstance(official_path_value, str), "official aggregate path is missing")
-    official_path = Path(official_path_value).resolve()
-    expected_official_path = run_dir / f"{prediction_name}.{run_id}.json"
-    _refuse(
-        official_path == expected_official_path.resolve(),
-        f"{plan.candidate_id}/{plan.shard} official aggregate path drift",
-    )
-    aggregate = _safe_official_aggregate(
-        official_path, f"{plan.candidate_id}/{plan.shard} official aggregate"
-    )
-    buckets = _validate_official_aggregate(
-        aggregate,
-        plan.instance_ids,
-        f"{plan.candidate_id}/{plan.shard}",
-    )
-
-    scorecard_cases = scorecard.get("cases")
-    _refuse(isinstance(scorecard_cases, list), "scorecard cases are missing")
-    _refuse(
-        [item.get("instance_id") for item in scorecard_cases if isinstance(item, dict)]
-        == list(plan.instance_ids),
-        f"{plan.candidate_id}/{plan.shard} scorecard case order drift",
-    )
-    scorecard_by_id = {str(item["instance_id"]): item for item in scorecard_cases}
-    case_result_by_id = {str(item["instance_id"]): item for item in case_results}
-    prediction_by_id = {str(item["instance_id"]): item for item in predictions}
-    skill_name, skill_version = protocol["fixed_runtime"]["skill"].rsplit("@", 1)
-    skill_sha256 = str(command_manifest["skill_file_sha256"])
-    total_tokens = 0
-    total_cost = Decimal("0")
-    failed_tools = 0
-    patch_count = 0
-    patch_binding_parts: list[bytes] = []
-
-    bucket_for_id = {
-        instance_id: key for key, values in buckets.items() for instance_id in values
-    }
-    for instance_id in plan.instance_ids:
-        label = f"{plan.candidate_id}/{plan.shard}/{instance_id}"
-        result = case_result_by_id[instance_id]
-        _refuse(isinstance(result, dict), f"{label} result is invalid")
-        _refuse(not result.get("error"), f"{label} has a runner/provider error")
-        case_dir = run_dir / "cases" / instance_id
-        candidate_path = case_dir / "candidate_changes.diff"
-        trace_path = case_dir / "trace.json"
-        usage_report_path = case_dir / "usage_report.md"
-        usage_path = case_dir / "usage.json"
-        _assert_path(
-            result.get("candidate_diff_path"), candidate_path, f"{label} candidate"
-        )
-        _assert_path(result.get("trace_path"), trace_path, f"{label} trace")
-        _assert_path(
-            result.get("usage_report_path"), usage_report_path, f"{label} usage"
-        )
-        _refuse(usage_report_path.is_file(), f"{label} usage report is missing")
-        try:
-            candidate_bytes = candidate_path.read_bytes()
-            candidate_text = candidate_bytes.decode("utf-8")
-        except (OSError, UnicodeError) as exc:
-            raise SelectionRefused(
-                f"cannot read {label} candidate patch: {exc}"
-            ) from exc
-        prediction_patch = prediction_by_id[instance_id].get("model_patch")
-        _refuse(
-            isinstance(prediction_patch, str), f"{label} prediction patch is invalid"
-        )
-        prediction_bytes = prediction_patch.encode("utf-8")
-        _refuse(
-            candidate_bytes == prediction_bytes, f"{label} candidate/prediction drift"
-        )
-        _refuse(
-            result.get("patch_chars") == len(candidate_text),
-            f"{label} patch size drift",
-        )
-        is_empty = not candidate_bytes
-        bucket = bucket_for_id[instance_id]
-        if is_empty:
-            _refuse(bucket == "empty_patch_ids", f"{label} empty-patch outcome drift")
-        else:
-            _refuse(
-                bucket in {"resolved_ids", "unresolved_ids"},
-                f"{label} non-empty patch lacks an official decision",
-            )
-            official_patch = (
-                run_dir
-                / "logs"
-                / "run_evaluation"
-                / run_id
-                / prediction_name
-                / instance_id
-                / "patch.diff"
-            )
-            try:
-                official_bytes = official_patch.read_bytes()
-            except OSError as exc:
-                raise SelectionRefused(
-                    f"cannot read {label} official patch: {exc}"
-                ) from exc
-            _refuse(
-                candidate_bytes == official_bytes, f"{label} official patch-byte drift"
-            )
-            patch_count += 1
-        expected_official_status = OFFICIAL_STATUS_FOR_BUCKET[bucket]
-        _refuse(
-            result.get("official_evaluation_status") == expected_official_status,
-            f"{label} result/official outcome drift",
-        )
-        case_score = scorecard_by_id[instance_id]
-        _refuse(isinstance(case_score, dict), f"{label} scorecard case is invalid")
-        tokens, cost, case_failed_tools, _ = _trace_metadata(
-            trace_path,
-            usage_path,
-            identity,
-            skill_name,
-            skill_version,
-            skill_sha256,
-            label,
-        )
-        score_expectations = {
-            "patch_chars": len(candidate_text),
-            "patch_generated": not is_empty,
-            "official_evaluation_status": expected_official_status,
-            "official_evaluated": bucket in {"resolved_ids", "unresolved_ids"},
-            "official_resolved": bucket == "resolved_ids",
-            "total_tokens": tokens,
-            "failed_tool_calls": case_failed_tools,
-        }
-        for key, expected in score_expectations.items():
-            _refuse(case_score.get(key) == expected, f"{label} scorecard {key} drift")
-        _refuse(
-            _as_decimal(case_score.get("estimated_cost_usd"), f"{label} score cost")
-            == cost,
-            f"{label} scorecard cost drift",
-        )
-        total_tokens += tokens
-        total_cost += cost
-        failed_tools += case_failed_tools
-        patch_binding_parts.extend(
-            [instance_id.encode("utf-8"), b"\0", candidate_bytes, b"\0"]
-        )
-
-    metrics = scorecard.get("metrics")
-    _refuse(isinstance(metrics, dict), "scorecard metrics are missing")
-    metric_expectations = {
-        "case_count": len(plan.instance_ids),
-        "patch_generated_count": patch_count,
-        "official_evaluated_count": len(buckets["resolved_ids"])
-        + len(buckets["unresolved_ids"]),
-        "official_resolved_count": len(buckets["resolved_ids"]),
-        "total_tokens": total_tokens,
-        "failed_tool_calls": failed_tools,
-    }
-    for key, expected in metric_expectations.items():
-        _refuse(metrics.get(key) == expected, f"scorecard metric {key} drift")
-    _refuse(
-        _as_decimal(metrics.get("estimated_cost_usd"), "scorecard total cost")
-        == total_cost,
-        "scorecard total cost drift",
-    )
-    return {
-        "run_id": run_id,
-        "planned": len(plan.instance_ids),
-        "finalized": len(case_results),
-        "resolved": len(buckets["resolved_ids"]),
-        "unresolved": len(buckets["unresolved_ids"]),
-        "decided": len(buckets["resolved_ids"]) + len(buckets["unresolved_ids"]),
-        "empty": len(buckets["empty_patch_ids"]),
-        "infrastructure": len(buckets["error_ids"]) + len(buckets["incomplete_ids"]),
-        "failed_tools": failed_tools,
-        "tokens": total_tokens,
-        "cost": total_cost,
-        "patch_binding_parts": patch_binding_parts,
-        "evidence": {
-            "shard": plan.shard,
-            "run_id": run_id,
-            "results_sha256": _sha256_file(results_path, f"{plan.shard} results"),
-            "scorecard_sha256": _sha256_file(scorecard_path, f"{plan.shard} scorecard"),
-            "predictions_sha256": _sha256_file(
-                predictions_path, f"{plan.shard} predictions"
-            ),
-            "official_aggregate_sha256": _sha256_file(
-                official_path, f"{plan.shard} official aggregate"
-            ),
-        },
-    }
-
-
 def _candidate_output(metrics: CandidateMetrics) -> dict[str, Any]:
     patch_binding = _sha256_bytes(b"".join(metrics.patch_binding_parts or []))
     return {
@@ -1569,28 +743,89 @@ def summarize(project_root: Path, artifact_root: Path) -> dict[str, Any]:
         for candidate in candidates
     }
     for plan in plans:
-        result = _validate_run(
-            project_root,
-            artifact_root,
-            protocol,
-            command_manifest,
-            plan,
-            identities[plan.candidate_id],
+        skill_name, skill_version = protocol["fixed_runtime"]["skill"].rsplit("@", 1)
+        bindings = (
+            (str(PROTOCOL_PATH), hashes["protocol_sha256"]),
+            (
+                str(COMMAND_MANIFEST_PATH),
+                hashes["command_manifest_sha256"],
+            ),
+            (
+                str(protocol["development_set"]["manifest"]),
+                hashes["development_set_manifest_sha256"],
+            ),
+            (
+                str(PROBE_SCRIPT_PATH),
+                str(command_manifest["capability_probe_script_sha256"]),
+            ),
+            (
+                str(SUMMARIZER_SCRIPT_PATH),
+                str(command_manifest["selection_summarizer_script_sha256"]),
+            ),
+            (
+                str(artifact_root / "dataset-binding.json"),
+                str(command_manifest["dataset_binding_sha256"]),
+            ),
+            (
+                str(artifact_root / "dataset" / "agent-cases.json"),
+                str(command_manifest["agent_dataset_sha256"]),
+            ),
+            (
+                str(artifact_root / "dataset" / "official-cases.json"),
+                str(command_manifest["official_dataset_sha256"]),
+            ),
+            (
+                str(IMAGE_MANIFEST_PATH),
+                str(command_manifest["image_manifest_sha256"]),
+            ),
+            (
+                str(
+                    Path("agent_forge")
+                    / "skills"
+                    / "packages"
+                    / skill_name
+                    / "SKILL.md"
+                ),
+                str(command_manifest["skill_file_sha256"]),
+            ),
         )
+        try:
+            validated = validate_formal_run(
+                FormalRunExpectation(
+                    label=f"{plan.candidate_id}/{plan.shard}",
+                    project_root=project_root,
+                    artifact_root=artifact_root,
+                    output_root=plan.output_root,
+                    instance_ids=plan.instance_ids,
+                    command_argv=plan.argv,
+                    expected_source_identity=dict(command_manifest["source_identity"]),
+                    expected_source_manifest_path=project_root / COMMAND_MANIFEST_PATH,
+                    frozen_inputs=bindings,
+                    observed_model=identities[plan.candidate_id].observed_model,
+                    skill_name=skill_name,
+                    skill_version=skill_version,
+                    skill_content_sha256=str(command_manifest["skill_file_sha256"]),
+                )
+            )
+        except SelectionRefused:
+            raise
         target = metrics[plan.candidate_id]
-        target.planned += result["planned"]
-        target.finalized += result["finalized"]
-        target.official_resolved += result["resolved"]
-        target.official_unresolved += result["unresolved"]
-        target.official_decided += result["decided"]
-        target.empty_patches += result["empty"]
-        target.infrastructure_failures += result["infrastructure"]
-        target.failed_tool_calls += result["failed_tools"]
-        target.provider_tokens += result["tokens"]
-        target.estimated_cost_usd += result["cost"]
-        target.run_ids.append(result["run_id"])
-        target.evidence.append(result["evidence"])
-        target.patch_binding_parts.extend(result["patch_binding_parts"])
+        target.planned += validated.planned
+        target.finalized += validated.finalized
+        target.official_resolved += validated.resolved
+        target.official_unresolved += validated.unresolved
+        target.official_decided += validated.decided
+        target.empty_patches += validated.empty
+        target.infrastructure_failures += validated.infrastructure
+        target.failed_tool_calls += validated.failed_tools
+        target.provider_tokens += validated.tokens
+        target.estimated_cost_usd += validated.cost
+        assert target.run_ids is not None
+        target.run_ids.append(validated.run_id)
+        assert target.evidence is not None
+        target.evidence.append(validated.evidence(plan.shard))
+        assert target.patch_binding_parts is not None
+        target.patch_binding_parts.extend(validated.patch_binding_parts)
 
     planned_per_candidate = protocol["development_set"]["planned_cases_per_candidate"]
     outputs: list[dict[str, Any]] = []

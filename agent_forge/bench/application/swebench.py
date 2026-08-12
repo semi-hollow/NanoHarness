@@ -203,6 +203,7 @@ def _new_summary(
         cost_budget_usd=request.cost_budget_usd,
         timeout_seconds=request.timeout_seconds,
         model_request_timeout_seconds=request.model_request_timeout_seconds,
+        model_request_max_attempts=request.model_request_max_attempts,
         tool_execution_timeout_seconds=request.tool_execution_timeout_seconds,
         memory_namespace=request.memory_namespace or "swebench:<instance_id>",
         memory_recall_limit=request.memory_recall_limit,

@@ -50,6 +50,7 @@ class SwebenchRunRequest:
     cost_budget_usd: float | None = None
     timeout_seconds: float = DEFAULT_TIMEOUT_SECONDS
     model_request_timeout_seconds: int = 60
+    model_request_max_attempts: int = 2
     tool_execution_timeout_seconds: int = DEFAULT_TOOL_EXECUTION_TIMEOUT_SECONDS
 
     # Repository cache、artifact 输出与 official evaluation 开关。
@@ -93,6 +94,8 @@ class SwebenchRunRequest:
             )
         if self.model_request_timeout_seconds <= 0:
             raise ValueError("model_request_timeout_seconds must be positive")
+        if self.model_request_max_attempts <= 0:
+            raise ValueError("model_request_max_attempts must be positive")
         if self.tool_execution_timeout_seconds <= 0:
             raise ValueError("tool_execution_timeout_seconds must be positive")
 

@@ -249,7 +249,13 @@ class LocalCaseExecutor(CaseExecutorPort):
             # 正式解析器始终提供能力事实；兼容自定义 Adapter 与测试替身时，
             # 使用 Runtime 的明确默认值，而不是因缺少可选属性阻断整个 Case。
             model_capabilities = ModelCapabilities()
-        return build_llm(llm_config), model_capabilities
+        return (
+            build_llm(
+                llm_config,
+                max_attempts=request.model_request_max_attempts,
+            ),
+            model_capabilities,
+        )
 
     @staticmethod
     def _execute_runtime(

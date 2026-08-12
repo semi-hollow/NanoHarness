@@ -1,0 +1,866 @@
+{
+  "schema_version": 1,
+  "manifest_id": "showcase-quality-v2-selection-commands",
+  "status": "content_preregistered_source_tag_pending_launch_verification",
+  "source_identity": {
+    "binding": "external_annotated_git_tag",
+    "expected_tag": "canonical-showcase-quality-selection-v2-preflight-20260812",
+    "target_rule": "the expected annotated tag must peel to launch HEAD containing this exact manifest",
+    "require_clean_worktree_including_untracked": true
+  },
+  "protocol_sha256": "eccd7fd59fa524a45a9db63a8c91bce879d1dfc15ae792e353f757fa140e036c",
+  "capability_probe_script_sha256": "4119b8f8f7edd0072ebd2b530f6d97c7d578f14417f67ae8298765abd803da03",
+  "capacity_probe_script_sha256": "ab820e66e1db0c1762e2e95fe8524fbc4ec4642fbf3856e434fd198c770eb873",
+  "manifest_builder_script_sha256": "e922dbfb0ccb1b3441cb3dff522d1a971f83609354ffe6620e5e50c8115734ad",
+  "dataset_exporter_script_sha256": "d403104948488ef240f37a5022e9f23ebdddb5cf12949efbf1e87523065df122",
+  "selection_summarizer_script_sha256": "aea7429dd4453aec5389f1885e4027a694aee2fd98ffecbb1165e4347ba9a303",
+  "campaign_runner_script_sha256": "22d7afbcafd04fdbf1d428d73a4181d63d951a15192255a27375b6d535d85db9",
+  "development_set_provenance_verifier_sha256": "84b271896d5c56aae26197a8e986d25950faddc5f334fb66fdd492679175f601",
+  "development_set_manifest_sha256": "3accb1c1da487a273313919f19bd275540e03d0e6d351af4392dd179044538bc",
+  "dataset_binding_sha256": "dd6b0ea23bde53938c3ccaba32ab68609373545cc4d99baa1a8e9d62781a67aa",
+  "agent_dataset_sha256": "e76eb59044d81c8570285305d06404af1c44dc91e241551b077a06fd6f4ec35c",
+  "official_dataset_sha256": "d6b35c955609d39dcc3e5958de0852c703aa6dd01f4d84eb6bbf8fa806806c83",
+  "image_manifest_sha256": "1615bd7447377bd141278f22ff2b14f7330207e8bfe6e56c73251dd579225693",
+  "skill_file_sha256": "fbc41e72ad08189be531f3928a16d0838d1c5583fc1119d58a4b2f71eac3f468",
+  "launcher_wrapper_sha256": "c721fabce6013192ba1a6cae3e40e36ea1428b12aa508a44703e69c89cf74319",
+  "shared_implementation_sha256": {
+    "agent_forge/bench/formal_artifacts.py": "af6e9ce7598bc243ca5867413c8e81c19a6e63c5d748c55576b90fbffc7cde31",
+    "agent_forge/bench/application/campaign_lifecycle.py": "c0cb3fbbf4c95cafa13e64d9afd5dfb062d74b1454a3febdbe39484ba70266e1",
+    "agent_forge/bench/application/formal_campaign.py": "b91d33d840e04383802fe397d44ab129f95be30b0909fda6f559f4e8fb0b60b2",
+    "agent_forge/bench/application/formal_selection.py": "221ebd394125d71cf1902334bee39e8df33d234e12b6a4278e80693ce5579e00",
+    "agent_forge/bench/application/image_sealer.py": "a039ab116ff8fc6f7365bbe23b39596854f52411878dd298be58e5134f24bba1",
+    "agent_forge/bench/application/quality_selection_v2.py": "5a0eec6c5e6244ee71350ee3e4bd49aca3c634376deec05d6de18a8628153c5d",
+    "agent_forge/bench/application/quality_selection_v2_evidence.py": "d10bd15864173f3252c730081f319701539856c66ec90b283bef391efb3358ea",
+    "agent_forge/bench/application/quality_selection_v2_seal.py": "f300ec25d114f7caa312d07f83e815b1a361975a7ee53884dbcec886bbf4a633",
+    "agent_forge/bench/adapters/campaign_files.py": "6af9ceee5d0d602ac8920cdc21486e46d1746b7e0081def6f17a03394d332496",
+    "agent_forge/bench/adapters/docker_images.py": "d9a057389118e8b5c4bad1eb56bbb3f9e3edcecf9b1d118fe8d2161e98858765",
+    "agent_forge/bench/adapters/case_runtime.py": "beab25a04576b43596a81ea1c3aa650927c0ae50c7ba611468349a797384b8d0",
+    "agent_forge/bench/application/swebench.py": "d17fedf1edbe02c0f916089a9856ac1b848e4da9777a45220cdb922b9899a31b",
+    "agent_forge/bench/domain/config.py": "dbb7e90d2488127227c79dffc62cb9514cfc10be3fab843d263e23d4c4663440",
+    "agent_forge/bench/domain/models.py": "e4d30721cee1d4752553c30f517c8b555f14bdc7bc8523a9cf86b465409625ff",
+    "agent_forge/bench/presentation/cli.py": "6871ad118888c0a1acc1e05be7c2703bb51a17fc15b598786293be97f49c5152",
+    "agent_forge/bench/ports/campaign.py": "68edbfe6d1b933ec9f251dcbb2abe360d761bc8697b037694da5c4f76ee3d0a8",
+    "agent_forge/evaluation/domain/scorecard.py": "21086437cc24ccbdd809e37a5968cfb93cee3c93782b381aaf394c8e125a4635",
+    "agent_forge/runtime/wiring.py": "eb90dbf100a7d650780ca0b3fbc9a3f0946ac30f362cc9ead7dc63577a192bf6"
+  },
+  "artifact_root": ".agent_forge/canonical-showcase/quality-selection-v2",
+  "output_roots_must_be_absent": true,
+  "planned_starts": 20,
+  "credential_preflight": {
+    "launcher_shell": "zsh -lic",
+    "required_present_nonempty": "OPENCODE_GO_API_KEY",
+    "required_absent": "AGENT_FORGE_API_KEY",
+    "forbidden_fallback_sources": [
+      "DEEPSEEK_API_KEY",
+      "OPENAI_API_KEY"
+    ],
+    "resolver_required_credential_source": "OPENCODE_GO_API_KEY",
+    "record_key_value": false
+  },
+  "prelaunch": {
+    "exclusive_subscription_window_operator_assertion_required": true,
+    "docker_data_free_space": {
+      "minimum_free_bytes": 26843545600,
+      "probe_argv": [
+        "colima",
+        "ssh",
+        "--",
+        "df",
+        "-Pk",
+        "/var/lib/docker"
+      ],
+      "parser": "POSIX df -Pk final data row available 1K blocks multiplied by 1024"
+    },
+    "registry_probe": "an outcome-blind sequential pull/inspect pass must seal each exact tag's RepoDigest, local image ID, and linux/amd64 platform, then remove only a newly pulled campaign-owned exact tag",
+    "all_exact_tags_must_be_pullable_before_provider_calls": true
+  },
+  "pacing": {
+    "initial_quiet_seconds": 1800,
+    "minimum_seconds_between_provider_commands": 300,
+    "qualification_to_formal_cooldown_seconds": 900
+  },
+  "capability_probes": [
+    {
+      "candidate_id": "v4-pro",
+      "output_must_be_absent": true,
+      "argv": [
+        ".venv/bin/python",
+        "scripts/probe_model_tool_contract.py",
+        "--provider",
+        "opencode-go",
+        "--model",
+        "deepseek-v4-pro",
+        "--base-url",
+        "https://opencode.ai/zen/go/v1",
+        "--thinking",
+        "enabled",
+        "--reasoning-effort",
+        "high",
+        "--timeout",
+        "600",
+        "--max-attempts",
+        "1",
+        "--output",
+        ".agent_forge/canonical-showcase/quality-selection-v2/preflight/v4-pro.json"
+      ]
+    },
+    {
+      "candidate_id": "glm",
+      "output_must_be_absent": true,
+      "argv": [
+        ".venv/bin/python",
+        "scripts/probe_model_tool_contract.py",
+        "--provider",
+        "opencode-go",
+        "--model",
+        "glm-5.2",
+        "--base-url",
+        "https://opencode.ai/zen/go/v1",
+        "--thinking",
+        "enabled",
+        "--reasoning-effort",
+        "high",
+        "--timeout",
+        "600",
+        "--max-attempts",
+        "1",
+        "--output",
+        ".agent_forge/canonical-showcase/quality-selection-v2/preflight/glm.json"
+      ]
+    }
+  ],
+  "qualification_commands": [
+    {
+      "qualification_id": "v4-pro/burst-01",
+      "candidate_id": "v4-pro",
+      "burst": "burst-01",
+      "output_must_be_absent": true,
+      "argv": [
+        ".venv/bin/python",
+        "scripts/probe_model_rate_limit_contract.py",
+        "--provider",
+        "opencode-go",
+        "--model",
+        "deepseek-v4-pro",
+        "--base-url",
+        "https://opencode.ai/zen/go/v1",
+        "--thinking",
+        "enabled",
+        "--reasoning-effort",
+        "high",
+        "--timeout",
+        "600",
+        "--max-attempts",
+        "1",
+        "--round-trips",
+        "4",
+        "--capability-preflight",
+        ".agent_forge/canonical-showcase/quality-selection-v2/preflight/v4-pro.json",
+        "--output",
+        ".agent_forge/canonical-showcase/quality-selection-v2/qualification/burst-01/v4-pro.json"
+      ]
+    },
+    {
+      "qualification_id": "glm/burst-01",
+      "candidate_id": "glm",
+      "burst": "burst-01",
+      "output_must_be_absent": true,
+      "argv": [
+        ".venv/bin/python",
+        "scripts/probe_model_rate_limit_contract.py",
+        "--provider",
+        "opencode-go",
+        "--model",
+        "glm-5.2",
+        "--base-url",
+        "https://opencode.ai/zen/go/v1",
+        "--thinking",
+        "enabled",
+        "--reasoning-effort",
+        "high",
+        "--timeout",
+        "600",
+        "--max-attempts",
+        "1",
+        "--round-trips",
+        "4",
+        "--capability-preflight",
+        ".agent_forge/canonical-showcase/quality-selection-v2/preflight/glm.json",
+        "--output",
+        ".agent_forge/canonical-showcase/quality-selection-v2/qualification/burst-01/glm.json"
+      ]
+    },
+    {
+      "qualification_id": "glm/burst-02",
+      "candidate_id": "glm",
+      "burst": "burst-02",
+      "output_must_be_absent": true,
+      "argv": [
+        ".venv/bin/python",
+        "scripts/probe_model_rate_limit_contract.py",
+        "--provider",
+        "opencode-go",
+        "--model",
+        "glm-5.2",
+        "--base-url",
+        "https://opencode.ai/zen/go/v1",
+        "--thinking",
+        "enabled",
+        "--reasoning-effort",
+        "high",
+        "--timeout",
+        "600",
+        "--max-attempts",
+        "1",
+        "--round-trips",
+        "4",
+        "--capability-preflight",
+        ".agent_forge/canonical-showcase/quality-selection-v2/preflight/glm.json",
+        "--output",
+        ".agent_forge/canonical-showcase/quality-selection-v2/qualification/burst-02/glm.json"
+      ]
+    },
+    {
+      "qualification_id": "v4-pro/burst-02",
+      "candidate_id": "v4-pro",
+      "burst": "burst-02",
+      "output_must_be_absent": true,
+      "argv": [
+        ".venv/bin/python",
+        "scripts/probe_model_rate_limit_contract.py",
+        "--provider",
+        "opencode-go",
+        "--model",
+        "deepseek-v4-pro",
+        "--base-url",
+        "https://opencode.ai/zen/go/v1",
+        "--thinking",
+        "enabled",
+        "--reasoning-effort",
+        "high",
+        "--timeout",
+        "600",
+        "--max-attempts",
+        "1",
+        "--round-trips",
+        "4",
+        "--capability-preflight",
+        ".agent_forge/canonical-showcase/quality-selection-v2/preflight/v4-pro.json",
+        "--output",
+        ".agent_forge/canonical-showcase/quality-selection-v2/qualification/burst-02/v4-pro.json"
+      ]
+    }
+  ],
+  "execution_schedule": {
+    "mode": "serial_manifest_order",
+    "max_concurrent_commands": 1,
+    "unit": "one Case candidate slot",
+    "candidate_pair_pattern": "ABBA repeating by Case",
+    "image_window": "one exact Case tag shared by its two adjacent candidate starts",
+    "command_order": [
+      "v4-pro/case-01",
+      "glm/case-01",
+      "glm/case-02",
+      "v4-pro/case-02",
+      "glm/case-03",
+      "v4-pro/case-03",
+      "v4-pro/case-04",
+      "glm/case-04",
+      "v4-pro/case-05",
+      "glm/case-05",
+      "glm/case-06",
+      "v4-pro/case-06",
+      "glm/case-07",
+      "v4-pro/case-07",
+      "v4-pro/case-08",
+      "glm/case-08",
+      "v4-pro/case-09",
+      "glm/case-09",
+      "glm/case-10",
+      "v4-pro/case-10"
+    ]
+  },
+  "fixed_argv": [
+    ".venv/bin/forge",
+    "bench",
+    "swebench",
+    "--dataset",
+    ".agent_forge/canonical-showcase/quality-selection-v2/dataset/official-cases.json",
+    "--cases-file",
+    ".agent_forge/canonical-showcase/quality-selection-v2/dataset/agent-cases.json",
+    "--provider",
+    "opencode-go",
+    "--base-url",
+    "https://opencode.ai/zen/go/v1",
+    "--temperature",
+    "0",
+    "--thinking",
+    "enabled",
+    "--reasoning-effort",
+    "high",
+    "--max-steps",
+    "128",
+    "--max-context-chars",
+    "64000",
+    "--max-prompt-tokens",
+    "131072",
+    "--reserved-output-tokens",
+    "16384",
+    "--max-tool-calls-per-turn",
+    "4",
+    "--timeout-seconds",
+    "3600",
+    "--model-request-timeout-seconds",
+    "600",
+    "--model-request-max-attempts",
+    "1",
+    "--tool-execution-timeout-seconds",
+    "600",
+    "--repo-cache",
+    ".agent_forge/bench/repos",
+    "--evaluate",
+    "--max-workers",
+    "1",
+    "--official-namespace",
+    "swebench",
+    "--official-cache-level",
+    "instance",
+    "--agent-mode",
+    "single",
+    "--max-revision-rounds",
+    "0",
+    "--tool-routing",
+    "task-aware",
+    "--skills",
+    "swebench_repair",
+    "--memory-recall-limit",
+    "0",
+    "--execution-mode",
+    "worktree",
+    "--network-policy",
+    "deny",
+    "--no-keep-worktree"
+  ],
+  "normalization": {
+    "remove_flag_value_pairs": [
+      "--instance-id",
+      "--limit",
+      "--model",
+      "--output-root"
+    ],
+    "serialization": "compact UTF-8 JSON array containing the frozen fixed argv repeated twenty times"
+  },
+  "normalized_fixed_argv_sha256": "7c4e15a815bdf2241e33384c044a25edf8f6347ae511735c6687d771451f986e",
+  "composed_commands_sha256": "1e2da38261966998a8e7ccbb2a559a3d89b1844d4d0d834e683de2e2629e15a7",
+  "campaign_id": "showcase-quality-selection-v2",
+  "readiness_path": ".agent_forge/canonical-showcase/quality-selection-v2/launch-readiness.json",
+  "image_seal_state_path": ".agent_forge/canonical-showcase/quality-selection-v2/prelaunch-image-seal.json",
+  "campaign_inputs_path": ".agent_forge/canonical-showcase/quality-selection-v2/campaign-inputs.json",
+  "campaign_state_root": ".agent_forge/canonical-showcase/quality-selection-v2/campaign-state",
+  "summary_output_path": ".agent_forge/canonical-showcase/quality-selection-v2/selection-summary.json",
+  "ledger_path": ".agent_forge/canonical-showcase/quality-selection-v2/pacing-ledger.jsonl",
+  "preflight_ledger_last_sequence": 20,
+  "completed_ledger_last_sequence": 80,
+  "commands": [
+    {
+      "ordinal": 1,
+      "case_ordinal": 1,
+      "pair_position": 1,
+      "candidate_id": "v4-pro",
+      "shard": "case-01",
+      "instance_ids": [
+        "astropy__astropy-14182"
+      ],
+      "image": {
+        "instance_id": "astropy__astropy-14182",
+        "tag": "swebench/sweb.eval.x86_64.astropy_1776_astropy-14182:latest"
+      },
+      "output_root": ".agent_forge/canonical-showcase/quality-selection-v2/formal/v4-pro/case-01",
+      "argv_suffix": [
+        "--model",
+        "deepseek-v4-pro",
+        "--limit",
+        "1",
+        "--instance-id",
+        "astropy__astropy-14182",
+        "--output-root",
+        ".agent_forge/canonical-showcase/quality-selection-v2/formal/v4-pro/case-01"
+      ]
+    },
+    {
+      "ordinal": 2,
+      "case_ordinal": 1,
+      "pair_position": 2,
+      "candidate_id": "glm",
+      "shard": "case-01",
+      "instance_ids": [
+        "astropy__astropy-14182"
+      ],
+      "image": {
+        "instance_id": "astropy__astropy-14182",
+        "tag": "swebench/sweb.eval.x86_64.astropy_1776_astropy-14182:latest"
+      },
+      "output_root": ".agent_forge/canonical-showcase/quality-selection-v2/formal/glm/case-01",
+      "argv_suffix": [
+        "--model",
+        "glm-5.2",
+        "--limit",
+        "1",
+        "--instance-id",
+        "astropy__astropy-14182",
+        "--output-root",
+        ".agent_forge/canonical-showcase/quality-selection-v2/formal/glm/case-01"
+      ]
+    },
+    {
+      "ordinal": 3,
+      "case_ordinal": 2,
+      "pair_position": 1,
+      "candidate_id": "glm",
+      "shard": "case-02",
+      "instance_ids": [
+        "django__django-13658"
+      ],
+      "image": {
+        "instance_id": "django__django-13658",
+        "tag": "swebench/sweb.eval.x86_64.django_1776_django-13658:latest"
+      },
+      "output_root": ".agent_forge/canonical-showcase/quality-selection-v2/formal/glm/case-02",
+      "argv_suffix": [
+        "--model",
+        "glm-5.2",
+        "--limit",
+        "1",
+        "--instance-id",
+        "django__django-13658",
+        "--output-root",
+        ".agent_forge/canonical-showcase/quality-selection-v2/formal/glm/case-02"
+      ]
+    },
+    {
+      "ordinal": 4,
+      "case_ordinal": 2,
+      "pair_position": 2,
+      "candidate_id": "v4-pro",
+      "shard": "case-02",
+      "instance_ids": [
+        "django__django-13658"
+      ],
+      "image": {
+        "instance_id": "django__django-13658",
+        "tag": "swebench/sweb.eval.x86_64.django_1776_django-13658:latest"
+      },
+      "output_root": ".agent_forge/canonical-showcase/quality-selection-v2/formal/v4-pro/case-02",
+      "argv_suffix": [
+        "--model",
+        "deepseek-v4-pro",
+        "--limit",
+        "1",
+        "--instance-id",
+        "django__django-13658",
+        "--output-root",
+        ".agent_forge/canonical-showcase/quality-selection-v2/formal/v4-pro/case-02"
+      ]
+    },
+    {
+      "ordinal": 5,
+      "case_ordinal": 3,
+      "pair_position": 1,
+      "candidate_id": "glm",
+      "shard": "case-03",
+      "instance_ids": [
+        "matplotlib__matplotlib-25287"
+      ],
+      "image": {
+        "instance_id": "matplotlib__matplotlib-25287",
+        "tag": "swebench/sweb.eval.x86_64.matplotlib_1776_matplotlib-25287:latest"
+      },
+      "output_root": ".agent_forge/canonical-showcase/quality-selection-v2/formal/glm/case-03",
+      "argv_suffix": [
+        "--model",
+        "glm-5.2",
+        "--limit",
+        "1",
+        "--instance-id",
+        "matplotlib__matplotlib-25287",
+        "--output-root",
+        ".agent_forge/canonical-showcase/quality-selection-v2/formal/glm/case-03"
+      ]
+    },
+    {
+      "ordinal": 6,
+      "case_ordinal": 3,
+      "pair_position": 2,
+      "candidate_id": "v4-pro",
+      "shard": "case-03",
+      "instance_ids": [
+        "matplotlib__matplotlib-25287"
+      ],
+      "image": {
+        "instance_id": "matplotlib__matplotlib-25287",
+        "tag": "swebench/sweb.eval.x86_64.matplotlib_1776_matplotlib-25287:latest"
+      },
+      "output_root": ".agent_forge/canonical-showcase/quality-selection-v2/formal/v4-pro/case-03",
+      "argv_suffix": [
+        "--model",
+        "deepseek-v4-pro",
+        "--limit",
+        "1",
+        "--instance-id",
+        "matplotlib__matplotlib-25287",
+        "--output-root",
+        ".agent_forge/canonical-showcase/quality-selection-v2/formal/v4-pro/case-03"
+      ]
+    },
+    {
+      "ordinal": 7,
+      "case_ordinal": 4,
+      "pair_position": 1,
+      "candidate_id": "v4-pro",
+      "shard": "case-04",
+      "instance_ids": [
+        "psf__requests-2931"
+      ],
+      "image": {
+        "instance_id": "psf__requests-2931",
+        "tag": "swebench/sweb.eval.x86_64.psf_1776_requests-2931:latest"
+      },
+      "output_root": ".agent_forge/canonical-showcase/quality-selection-v2/formal/v4-pro/case-04",
+      "argv_suffix": [
+        "--model",
+        "deepseek-v4-pro",
+        "--limit",
+        "1",
+        "--instance-id",
+        "psf__requests-2931",
+        "--output-root",
+        ".agent_forge/canonical-showcase/quality-selection-v2/formal/v4-pro/case-04"
+      ]
+    },
+    {
+      "ordinal": 8,
+      "case_ordinal": 4,
+      "pair_position": 2,
+      "candidate_id": "glm",
+      "shard": "case-04",
+      "instance_ids": [
+        "psf__requests-2931"
+      ],
+      "image": {
+        "instance_id": "psf__requests-2931",
+        "tag": "swebench/sweb.eval.x86_64.psf_1776_requests-2931:latest"
+      },
+      "output_root": ".agent_forge/canonical-showcase/quality-selection-v2/formal/glm/case-04",
+      "argv_suffix": [
+        "--model",
+        "glm-5.2",
+        "--limit",
+        "1",
+        "--instance-id",
+        "psf__requests-2931",
+        "--output-root",
+        ".agent_forge/canonical-showcase/quality-selection-v2/formal/glm/case-04"
+      ]
+    },
+    {
+      "ordinal": 9,
+      "case_ordinal": 5,
+      "pair_position": 1,
+      "candidate_id": "v4-pro",
+      "shard": "case-05",
+      "instance_ids": [
+        "pydata__xarray-6938"
+      ],
+      "image": {
+        "instance_id": "pydata__xarray-6938",
+        "tag": "swebench/sweb.eval.x86_64.pydata_1776_xarray-6938:latest"
+      },
+      "output_root": ".agent_forge/canonical-showcase/quality-selection-v2/formal/v4-pro/case-05",
+      "argv_suffix": [
+        "--model",
+        "deepseek-v4-pro",
+        "--limit",
+        "1",
+        "--instance-id",
+        "pydata__xarray-6938",
+        "--output-root",
+        ".agent_forge/canonical-showcase/quality-selection-v2/formal/v4-pro/case-05"
+      ]
+    },
+    {
+      "ordinal": 10,
+      "case_ordinal": 5,
+      "pair_position": 2,
+      "candidate_id": "glm",
+      "shard": "case-05",
+      "instance_ids": [
+        "pydata__xarray-6938"
+      ],
+      "image": {
+        "instance_id": "pydata__xarray-6938",
+        "tag": "swebench/sweb.eval.x86_64.pydata_1776_xarray-6938:latest"
+      },
+      "output_root": ".agent_forge/canonical-showcase/quality-selection-v2/formal/glm/case-05",
+      "argv_suffix": [
+        "--model",
+        "glm-5.2",
+        "--limit",
+        "1",
+        "--instance-id",
+        "pydata__xarray-6938",
+        "--output-root",
+        ".agent_forge/canonical-showcase/quality-selection-v2/formal/glm/case-05"
+      ]
+    },
+    {
+      "ordinal": 11,
+      "case_ordinal": 6,
+      "pair_position": 1,
+      "candidate_id": "glm",
+      "shard": "case-06",
+      "instance_ids": [
+        "pylint-dev__pylint-6903"
+      ],
+      "image": {
+        "instance_id": "pylint-dev__pylint-6903",
+        "tag": "swebench/sweb.eval.x86_64.pylint-dev_1776_pylint-6903:latest"
+      },
+      "output_root": ".agent_forge/canonical-showcase/quality-selection-v2/formal/glm/case-06",
+      "argv_suffix": [
+        "--model",
+        "glm-5.2",
+        "--limit",
+        "1",
+        "--instance-id",
+        "pylint-dev__pylint-6903",
+        "--output-root",
+        ".agent_forge/canonical-showcase/quality-selection-v2/formal/glm/case-06"
+      ]
+    },
+    {
+      "ordinal": 12,
+      "case_ordinal": 6,
+      "pair_position": 2,
+      "candidate_id": "v4-pro",
+      "shard": "case-06",
+      "instance_ids": [
+        "pylint-dev__pylint-6903"
+      ],
+      "image": {
+        "instance_id": "pylint-dev__pylint-6903",
+        "tag": "swebench/sweb.eval.x86_64.pylint-dev_1776_pylint-6903:latest"
+      },
+      "output_root": ".agent_forge/canonical-showcase/quality-selection-v2/formal/v4-pro/case-06",
+      "argv_suffix": [
+        "--model",
+        "deepseek-v4-pro",
+        "--limit",
+        "1",
+        "--instance-id",
+        "pylint-dev__pylint-6903",
+        "--output-root",
+        ".agent_forge/canonical-showcase/quality-selection-v2/formal/v4-pro/case-06"
+      ]
+    },
+    {
+      "ordinal": 13,
+      "case_ordinal": 7,
+      "pair_position": 1,
+      "candidate_id": "glm",
+      "shard": "case-07",
+      "instance_ids": [
+        "pytest-dev__pytest-5262"
+      ],
+      "image": {
+        "instance_id": "pytest-dev__pytest-5262",
+        "tag": "swebench/sweb.eval.x86_64.pytest-dev_1776_pytest-5262:latest"
+      },
+      "output_root": ".agent_forge/canonical-showcase/quality-selection-v2/formal/glm/case-07",
+      "argv_suffix": [
+        "--model",
+        "glm-5.2",
+        "--limit",
+        "1",
+        "--instance-id",
+        "pytest-dev__pytest-5262",
+        "--output-root",
+        ".agent_forge/canonical-showcase/quality-selection-v2/formal/glm/case-07"
+      ]
+    },
+    {
+      "ordinal": 14,
+      "case_ordinal": 7,
+      "pair_position": 2,
+      "candidate_id": "v4-pro",
+      "shard": "case-07",
+      "instance_ids": [
+        "pytest-dev__pytest-5262"
+      ],
+      "image": {
+        "instance_id": "pytest-dev__pytest-5262",
+        "tag": "swebench/sweb.eval.x86_64.pytest-dev_1776_pytest-5262:latest"
+      },
+      "output_root": ".agent_forge/canonical-showcase/quality-selection-v2/formal/v4-pro/case-07",
+      "argv_suffix": [
+        "--model",
+        "deepseek-v4-pro",
+        "--limit",
+        "1",
+        "--instance-id",
+        "pytest-dev__pytest-5262",
+        "--output-root",
+        ".agent_forge/canonical-showcase/quality-selection-v2/formal/v4-pro/case-07"
+      ]
+    },
+    {
+      "ordinal": 15,
+      "case_ordinal": 8,
+      "pair_position": 1,
+      "candidate_id": "v4-pro",
+      "shard": "case-08",
+      "instance_ids": [
+        "scikit-learn__scikit-learn-13328"
+      ],
+      "image": {
+        "instance_id": "scikit-learn__scikit-learn-13328",
+        "tag": "swebench/sweb.eval.x86_64.scikit-learn_1776_scikit-learn-13328:latest"
+      },
+      "output_root": ".agent_forge/canonical-showcase/quality-selection-v2/formal/v4-pro/case-08",
+      "argv_suffix": [
+        "--model",
+        "deepseek-v4-pro",
+        "--limit",
+        "1",
+        "--instance-id",
+        "scikit-learn__scikit-learn-13328",
+        "--output-root",
+        ".agent_forge/canonical-showcase/quality-selection-v2/formal/v4-pro/case-08"
+      ]
+    },
+    {
+      "ordinal": 16,
+      "case_ordinal": 8,
+      "pair_position": 2,
+      "candidate_id": "glm",
+      "shard": "case-08",
+      "instance_ids": [
+        "scikit-learn__scikit-learn-13328"
+      ],
+      "image": {
+        "instance_id": "scikit-learn__scikit-learn-13328",
+        "tag": "swebench/sweb.eval.x86_64.scikit-learn_1776_scikit-learn-13328:latest"
+      },
+      "output_root": ".agent_forge/canonical-showcase/quality-selection-v2/formal/glm/case-08",
+      "argv_suffix": [
+        "--model",
+        "glm-5.2",
+        "--limit",
+        "1",
+        "--instance-id",
+        "scikit-learn__scikit-learn-13328",
+        "--output-root",
+        ".agent_forge/canonical-showcase/quality-selection-v2/formal/glm/case-08"
+      ]
+    },
+    {
+      "ordinal": 17,
+      "case_ordinal": 9,
+      "pair_position": 1,
+      "candidate_id": "v4-pro",
+      "shard": "case-09",
+      "instance_ids": [
+        "sphinx-doc__sphinx-9591"
+      ],
+      "image": {
+        "instance_id": "sphinx-doc__sphinx-9591",
+        "tag": "swebench/sweb.eval.x86_64.sphinx-doc_1776_sphinx-9591:latest"
+      },
+      "output_root": ".agent_forge/canonical-showcase/quality-selection-v2/formal/v4-pro/case-09",
+      "argv_suffix": [
+        "--model",
+        "deepseek-v4-pro",
+        "--limit",
+        "1",
+        "--instance-id",
+        "sphinx-doc__sphinx-9591",
+        "--output-root",
+        ".agent_forge/canonical-showcase/quality-selection-v2/formal/v4-pro/case-09"
+      ]
+    },
+    {
+      "ordinal": 18,
+      "case_ordinal": 9,
+      "pair_position": 2,
+      "candidate_id": "glm",
+      "shard": "case-09",
+      "instance_ids": [
+        "sphinx-doc__sphinx-9591"
+      ],
+      "image": {
+        "instance_id": "sphinx-doc__sphinx-9591",
+        "tag": "swebench/sweb.eval.x86_64.sphinx-doc_1776_sphinx-9591:latest"
+      },
+      "output_root": ".agent_forge/canonical-showcase/quality-selection-v2/formal/glm/case-09",
+      "argv_suffix": [
+        "--model",
+        "glm-5.2",
+        "--limit",
+        "1",
+        "--instance-id",
+        "sphinx-doc__sphinx-9591",
+        "--output-root",
+        ".agent_forge/canonical-showcase/quality-selection-v2/formal/glm/case-09"
+      ]
+    },
+    {
+      "ordinal": 19,
+      "case_ordinal": 10,
+      "pair_position": 1,
+      "candidate_id": "glm",
+      "shard": "case-10",
+      "instance_ids": [
+        "sympy__sympy-13372"
+      ],
+      "image": {
+        "instance_id": "sympy__sympy-13372",
+        "tag": "swebench/sweb.eval.x86_64.sympy_1776_sympy-13372:latest"
+      },
+      "output_root": ".agent_forge/canonical-showcase/quality-selection-v2/formal/glm/case-10",
+      "argv_suffix": [
+        "--model",
+        "glm-5.2",
+        "--limit",
+        "1",
+        "--instance-id",
+        "sympy__sympy-13372",
+        "--output-root",
+        ".agent_forge/canonical-showcase/quality-selection-v2/formal/glm/case-10"
+      ]
+    },
+    {
+      "ordinal": 20,
+      "case_ordinal": 10,
+      "pair_position": 2,
+      "candidate_id": "v4-pro",
+      "shard": "case-10",
+      "instance_ids": [
+        "sympy__sympy-13372"
+      ],
+      "image": {
+        "instance_id": "sympy__sympy-13372",
+        "tag": "swebench/sweb.eval.x86_64.sympy_1776_sympy-13372:latest"
+      },
+      "output_root": ".agent_forge/canonical-showcase/quality-selection-v2/formal/v4-pro/case-10",
+      "argv_suffix": [
+        "--model",
+        "deepseek-v4-pro",
+        "--limit",
+        "1",
+        "--instance-id",
+        "sympy__sympy-13372",
+        "--output-root",
+        ".agent_forge/canonical-showcase/quality-selection-v2/formal/v4-pro/case-10"
+      ]
+    }
+  ]
+}

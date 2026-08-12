@@ -303,7 +303,7 @@ class FileEvidenceCatalog(EvidenceCatalogPort):
         *,
         source_key: str,
     ) -> EvidenceSource:
-        """Expose a fail-closed selection attempt without attaching raw case traces."""
+        """展示失败关闭的选型记录，但不挂载原始 Case Trace。"""
 
         incident_facts = incident.get("incident")
         if not isinstance(incident_facts, dict):

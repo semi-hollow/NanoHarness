@@ -6,6 +6,7 @@ from agent_forge._harness_support import TrackingTaskStateRepository
 from agent_forge.bench.adapters.artifact_files import FileBenchArtifacts
 from agent_forge.bench.adapters.campaign_files import (
     FileCampaignArtifacts,
+    FileCampaignJournal,
     GitSourceIdentity,
 )
 from agent_forge.bench.adapters.case_evidence import JsonCaseEvidenceReader
@@ -15,12 +16,13 @@ from agent_forge.bench.adapters.official_evaluator import SwebenchOfficialEvalua
 from agent_forge.bench.ports import (
     BenchArtifactPort,
     CampaignArtifactPort,
+    CampaignJournalPort,
     CaseEvidenceReader as BenchCaseEvidenceReader,
     CaseExecutorPort,
     CaseSourcePort,
     OfficialEvaluatorPort,
-    SourceIdentityPort,
 )
+from agent_forge.bench.ports.campaign import TaggedSourceIdentityPort
 from agent_forge.context.adapters.memory_json import JsonLongTermMemoryRepository
 from agent_forge.context.application.memory_service import LongTermMemoryService
 from agent_forge.context.ports import (
@@ -31,7 +33,9 @@ from agent_forge.control import RunController
 from agent_forge.evaluation.adapters.json_files import (
     JsonCaseEvidenceReader as EvaluationJsonCaseEvidenceReader,
 )
-from agent_forge.evaluation.ports import CaseEvidenceReader as EvaluationCaseEvidenceReader
+from agent_forge.evaluation.ports import (
+    CaseEvidenceReader as EvaluationCaseEvidenceReader,
+)
 from agent_forge.models.gateway import ModelGateway
 from agent_forge.multi_agent.adapters.artifact_files import FileArtifactRepository
 from agent_forge.multi_agent.adapters.fanout_files import FanoutFileRepository
@@ -116,7 +120,8 @@ FORMAL_IMPLEMENTATIONS = (
     (SwebenchOfficialEvaluator, OfficialEvaluatorPort),
     (JsonCaseEvidenceReader, BenchCaseEvidenceReader),
     (FileBenchArtifacts, BenchArtifactPort),
-    (GitSourceIdentity, SourceIdentityPort),
+    (GitSourceIdentity, TaggedSourceIdentityPort),
+    (FileCampaignJournal, CampaignJournalPort),
     (FileCampaignArtifacts, CampaignArtifactPort),
     (EvaluationJsonCaseEvidenceReader, EvaluationCaseEvidenceReader),
     (FileEvidenceCatalog, EvidenceCatalogPort),

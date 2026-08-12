@@ -179,15 +179,18 @@ def build_registry(request: ToolRegistryBuildRequest) -> ToolRegistry:
     return registry
 
 
-def build_llm(config: LLMConfig) -> ModelGateway:
-    """根据已解析配置构造统一模型网关。"""
+def build_llm(config: LLMConfig, *, max_attempts: int = 2) -> ModelGateway:
+    """根据已解析配置构造带有界请求尝试次数的统一模型网关。"""
+
+    if max_attempts <= 0:
+        raise ValueError("max_attempts must be positive")
 
     if config.uses_openai_compatible_api:
         return ModelGateway(
             OpenAICompatibleLLMClient.from_config(config),
             provider=config.provider,
             model=config.model or "unknown",
-            retry_policy=RetryPolicy(max_attempts=2),
+            retry_policy=RetryPolicy(max_attempts=max_attempts),
             capabilities=config.capabilities,
         )
     raise ValueError(f"Unsupported LLM provider: {config.provider}")

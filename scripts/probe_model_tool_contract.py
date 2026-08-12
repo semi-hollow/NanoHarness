@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""Verify an exact provider/model can complete one native tool round trip.
+"""验证指定 provider/model 能完成一次原生工具往返。
 
-The probe does not execute the requested tool and never writes credentials or
-model free text.  Its JSON output is safe to bind as preflight evidence.
+本探测不执行请求的工具，也不写入凭据或模型自由文本；JSON 输出可用作
+预检证据。
 """
 
 from __future__ import annotations
@@ -13,7 +13,7 @@ import json
 from pathlib import Path
 from urllib.parse import urlsplit
 
-from agent_forge.runtime.domain.conversation import AgentResponse, Message
+from agent_forge.runtime.domain.conversation import AgentResponse, Message, ToolCall
 from agent_forge.runtime.llm_config import LLMConfigRequest, resolve_llm_config
 from agent_forge.runtime.wiring import build_llm
 
@@ -25,7 +25,12 @@ PROBE_TOOL = {
 }
 
 
-def _probe_passed(*, response, tool_calls, fallback_used: bool) -> bool:
+def _probe_passed(
+    *,
+    response: AgentResponse,
+    tool_calls: list[ToolCall],
+    fallback_used: bool,
+) -> bool:
     """只核对运输契约和安全身份字段，不读取模型自由文本。"""
 
     normalization = response.normalization or {}
@@ -75,7 +80,18 @@ def _safe_endpoint_identity(base_url: str) -> tuple[str, str]:
     return endpoint, hashlib.sha256(base_url.encode("utf-8")).hexdigest()
 
 
-def main() -> None:
+def _positive_int(value: str) -> int:
+    """解析正整数参数，防止探测隐式退化为零次尝试。"""
+
+    parsed = int(value)
+    if parsed <= 0:
+        raise argparse.ArgumentTypeError("value must be a positive integer")
+    return parsed
+
+
+def _build_parser() -> argparse.ArgumentParser:
+    """构造可单测的探测参数边界。"""
+
     parser = argparse.ArgumentParser()
     parser.add_argument("--provider", required=True)
     parser.add_argument("--model", required=True)
@@ -83,8 +99,13 @@ def main() -> None:
     parser.add_argument("--thinking", default="enabled")
     parser.add_argument("--reasoning-effort", default="high")
     parser.add_argument("--timeout", type=int, default=300)
+    parser.add_argument("--max-attempts", type=_positive_int, default=2)
     parser.add_argument("--output", type=Path, required=True)
-    args = parser.parse_args()
+    return parser
+
+
+def main() -> None:
+    args = _build_parser().parse_args()
 
     config = resolve_llm_config(
         LLMConfigRequest(
@@ -99,7 +120,7 @@ def main() -> None:
     )
     if not config.is_configured():
         raise RuntimeError("provider configuration is incomplete")
-    gateway = build_llm(config)
+    gateway = build_llm(config, max_attempts=args.max_attempts)
     response = gateway.chat(
         [
             Message(
@@ -192,6 +213,7 @@ def main() -> None:
         "reasoning_tokens": config.capabilities.reasoning_tokens,
         "thinking_mode": config.thinking_mode,
         "reasoning_effort": config.reasoning_effort,
+        "max_attempts": args.max_attempts,
         "tool_call_source": normalization.get("tool_call_source"),
         "tool_call_count": len(calls),
         "tool_name": calls[0].name if calls else None,

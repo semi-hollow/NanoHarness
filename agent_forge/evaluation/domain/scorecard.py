@@ -200,6 +200,9 @@ def _metadata(
         "model_request_timeout_seconds": _int(
             results.get("model_request_timeout_seconds") or 60
         ),
+        "model_request_max_attempts": _int(
+            results.get("model_request_max_attempts") or 2
+        ),
         "tool_execution_timeout_seconds": _int(
             results.get("tool_execution_timeout_seconds") or 120
         ),
