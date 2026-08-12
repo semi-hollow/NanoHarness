@@ -9,6 +9,7 @@ import uuid
 from pathlib import Path
 from typing import Callable
 
+from agent_forge._harness_support import control_path, write_latest_run_pointer
 from agent_forge.configuration import (
     RunConfigDocument,
     resolve_run_arguments,
@@ -29,7 +30,12 @@ from agent_forge.multi_agent.api import (
     load_fanout_plan,
 )
 from agent_forge.multi_agent.profiles import get_profile
-from agent_forge.observability.api import TraceRecorder, write_usage_artifacts
+from agent_forge.observability.api import (
+    publish_runtime_evidence_view,
+    TraceRecorder,
+    write_run_manifest,
+    write_usage_artifacts,
+)
 from agent_forge.runtime.config import RuntimeConfig
 from agent_forge.runtime.domain.model import ModelCapabilities
 from agent_forge.runtime.execution_environment import (
@@ -171,6 +177,7 @@ def _run_advanced_repository_task(
     )
     trace_path = run_dir / "trace.json"
     trace = TraceRecorder(str(trace_path))
+    trace.set_run_context(task=args.task)
     environment, probe = prepare_execution_environment(args, run_id, run_dir)
     trace.add(
         0,
@@ -181,7 +188,14 @@ def _run_advanced_repository_task(
     try:
         active_workspace = str(environment.active_workspace)
         llm_config = _resolve_llm_config(args)
-        config = _build_runtime_config(args, active_workspace, trace_path, environment)
+        requested_workspace = Path(args.workspace).expanduser().resolve()
+        config = _build_runtime_config(
+            args,
+            active_workspace,
+            requested_workspace,
+            trace_path,
+            environment,
+        )
 
         def registry_factory(
             workspace: str | Path,
@@ -211,6 +225,7 @@ def _run_advanced_repository_task(
                 llm_config,
                 registry_factory,
             )
+            run_status = trace.stop_reason.removeprefix("fanout_") or "completed"
         else:
             registry = registry_factory(active_workspace, environment)
             llm = build_llm(llm_config)
@@ -232,6 +247,11 @@ def _run_advanced_repository_task(
                 )
             ).run()
             final_answer = summary.final_answer
+            run_status = summary.status
+            trace.set_run_context(
+                stop_reason=f"multi_agent_{summary.status}",
+                final_answer=final_answer,
+            )
 
         trace.write()
         write_usage_artifacts(trace_path)
@@ -240,11 +260,22 @@ def _run_advanced_repository_task(
             environment.diff(),
             encoding="utf-8",
         )
-        _write_latest_run_pointer(run_dir)
+        write_run_manifest(
+            run_dir,
+            run_id=trace.run_id,
+            task=args.task,
+            status=run_status,
+            stop_reason=trace.stop_reason,
+        )
+        # 证据导航必须在全部 run-local artifact 落盘后建立，否则分类视图会漏掉环境证据。
+        environment.write_manifest(run_dir)
+        _publish_advanced_run_navigation(args, requested_workspace, run_dir)
         return run_dir
     finally:
         try:
-            environment.write_manifest(run_dir)
+            # 异常路径仍尽量保存执行边界；成功路径已经在发布导航前完成落盘。
+            if not (run_dir / "execution_environment.json").is_file():
+                environment.write_manifest(run_dir)
         finally:
             environment.cleanup()
 
@@ -304,6 +335,7 @@ def prepare_execution_environment(
 def _build_runtime_config(
     args: argparse.Namespace,
     active_workspace: str,
+    requested_workspace: Path,
     trace_path: Path,
     environment: ExecutionEnvironment,
 ) -> RuntimeConfig:
@@ -320,25 +352,41 @@ def _build_runtime_config(
         task_state_root=str(trace_path.parent / "task_state"),
         resume_state=getattr(args, "resume_state", ""),
         auto_approve_writes=getattr(args, "auto_approve_writes", True),
-        approval_root=getattr(args, "approval_root", ".agent_forge/approvals"),
-        human_input_root=getattr(
-            args,
-            "human_input_root",
-            ".agent_forge/human_input",
+        approval_root=str(
+            control_path(
+                getattr(args, "approval_root", ""),
+                requested_workspace,
+                "approvals",
+            )
+        ),
+        human_input_root=str(
+            control_path(
+                getattr(args, "human_input_root", ""),
+                requested_workspace,
+                "human_input",
+            )
         ),
         human_thread_id=getattr(args, "human_thread_id", ""),
-        operation_ledger_root=getattr(
-            args,
-            "operation_ledger_root",
-            ".agent_forge/operation_ledger",
+        operation_ledger_root=str(
+            control_path(
+                getattr(args, "operation_ledger_root", ""),
+                requested_workspace,
+                "operation_ledger",
+            )
         ),
         approval_mode=args.approval_mode,
         skill_mode=parse_skill_mode(getattr(args, "skills", "auto")),
         skill_names=parse_skill_names(getattr(args, "skills", "auto")),
         skill_manifest_files=getattr(args, "skill_manifest", []),
         tool_routing_mode=getattr(args, "tool_routing", "task-aware"),
-        memory_root=getattr(args, "memory_root", ".agent_forge/memory"),
-        memory_namespace=str(Path(getattr(args, "workspace", ".")).resolve()),
+        memory_root=str(
+            control_path(
+                getattr(args, "memory_root", ""),
+                requested_workspace,
+                "memory",
+            )
+        ),
+        memory_namespace=str(requested_workspace),
         memory_recall_limit=getattr(args, "memory_recall_limit", 6),
         max_tool_calls_per_turn=getattr(args, "max_tool_calls_per_turn", 4),
         model_capabilities=_model_capabilities_from_args(args),
@@ -435,7 +483,42 @@ def parse_skill_names(value: str) -> list[str]:
     return [item.strip() for item in normalized.split(",") if item.strip()]
 
 
-def _write_latest_run_pointer(run_dir: Path) -> None:
-    latest = Path(".agent_forge/latest")
-    latest.mkdir(parents=True, exist_ok=True)
-    (latest / "run.txt").write_text(str(run_dir), encoding="utf-8")
+def _publish_advanced_run_navigation(
+    args: argparse.Namespace,
+    workspace: Path,
+    run_dir: Path,
+) -> None:
+    """让 Multi/Fanout 与 Single Agent 使用相同 latest 和分类证据约定。"""
+
+    try:
+        write_latest_run_pointer(workspace, run_dir)
+        publish_runtime_evidence_view(
+            workspace=workspace,
+            run_dir=run_dir,
+            approval_root=control_path(
+                getattr(args, "approval_root", ""),
+                workspace,
+                "approvals",
+            ),
+            human_input_root=control_path(
+                getattr(args, "human_input_root", ""),
+                workspace,
+                "human_input",
+            ),
+            operation_ledger_root=control_path(
+                getattr(args, "operation_ledger_root", ""),
+                workspace,
+                "operation_ledger",
+            ),
+        )
+    except Exception as exc:
+        latest = workspace / ".agent_forge" / "latest"
+        try:
+            latest.mkdir(parents=True, exist_ok=True)
+            (latest / "runtime_evidence_error.txt").write_text(
+                f"{type(exc).__name__}: {exc}\n",
+                encoding="utf-8",
+            )
+        except OSError:
+            # 分类导航是派生视图，不能覆盖 Multi/Fanout 的真实运行结论。
+            pass

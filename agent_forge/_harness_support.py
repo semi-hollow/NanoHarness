@@ -21,6 +21,7 @@ from agent_forge.harness_contracts import (
 )
 from agent_forge.observability.adapters.streaming import StreamingEventSink
 from agent_forge.observability.api import (
+    publish_runtime_evidence_view,
     TraceRecorder,
     write_run_manifest,
     write_usage_artifacts,
@@ -265,6 +266,51 @@ def write_latest_run_pointer(workspace: Path, run_dir: Path) -> None:
     latest = workspace / ".agent_forge" / "latest"
     latest.mkdir(parents=True, exist_ok=True)
     (latest / "run.txt").write_text(str(run_dir.resolve()), encoding="utf-8")
+
+
+def publish_run_navigation(
+    *,
+    workspace: Path,
+    run_dir: Path,
+    config: HarnessConfig,
+) -> Path:
+    """同时发布机器发现指针和面向人的分类证据入口。
+
+    ``latest/run.txt`` 继续服务 Workbench；``runtime_evidence`` 则让人按 run 直接找到
+    Checkpoint、Human Input、Approval、Operation Ledger 与 Trace。两者都只是导航，
+    不改变任何 Repository 的权威持久化位置。
+    """
+
+    try:
+        write_latest_run_pointer(workspace, run_dir)
+        return publish_runtime_evidence_view(
+            workspace=workspace,
+            run_dir=run_dir,
+            approval_root=control_path(config.approval_root, workspace, "approvals"),
+            human_input_root=control_path(
+                config.human_input_root,
+                workspace,
+                "human_input",
+            ),
+            operation_ledger_root=control_path(
+                config.operation_ledger_root,
+                workspace,
+                "operation_ledger",
+            ),
+        )
+    except Exception as exc:
+        # 派生导航失败不能反向篡改 Agent 的真实运行结果；错误仍显式落盘供修复。
+        latest = workspace / ".agent_forge" / "latest"
+        try:
+            latest.mkdir(parents=True, exist_ok=True)
+            (latest / "runtime_evidence_error.txt").write_text(
+                f"{type(exc).__name__}: {exc}\n",
+                encoding="utf-8",
+            )
+        except OSError:
+            # 连错误记录都不可写时仍保留原始 Agent 结果；导航从来不是权威状态。
+            pass
+        return latest
 
 
 def _new_run_directory_name() -> str:

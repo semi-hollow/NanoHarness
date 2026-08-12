@@ -15,7 +15,7 @@ from agent_forge._harness_support import (
     create_event_sink,
     create_run_paths,
     finalize_run_artifacts,
-    write_latest_run_pointer,
+    publish_run_navigation,
     write_request_artifact,
 )
 from agent_forge.harness_contracts import (
@@ -148,25 +148,29 @@ class Harness:
             failure_stop_reason = f"exception:{type(exc).__name__}"
             raise
         finally:
-            finalize_run_artifacts(
-                request=run_request,
-                paths=run_paths,
-                events=events,
-                uses_default_trace=uses_default_trace,
-                owned_environment=owned_environment,
-                owned_environment_is_prepared=owned_environment_is_prepared,
-                result=run_result,
-                failure_stop_reason=failure_stop_reason,
-            )
+            try:
+                finalize_run_artifacts(
+                    request=run_request,
+                    paths=run_paths,
+                    events=events,
+                    uses_default_trace=uses_default_trace,
+                    owned_environment=owned_environment,
+                    owned_environment_is_prepared=owned_environment_is_prepared,
+                    result=run_result,
+                    failure_stop_reason=failure_stop_reason,
+                )
+            finally:
+                # 成功、阻断、等待人工和异常中断都要进入同一证据导航；失败运行尤其需要排障。
+                publish_run_navigation(
+                    workspace=run_paths.requested_workspace,
+                    run_dir=run_paths.artifact_dir,
+                    config=self._config,
+                )
         # endregion 2. 执行环境与 Runtime结束
 
-        # region 3. Public API 收口：拒绝无结果运行，并发布 latest 指针
+        # region 3. Public API 收口：导航已发布，只拒绝没有类型化结果的异常状态
         if run_result is None:
             raise RuntimeError("Harness run ended without a typed result")
-        write_latest_run_pointer(
-            run_paths.requested_workspace,
-            run_paths.artifact_dir,
-        )
         return run_result
         # endregion 3. Public API 收口结束
 

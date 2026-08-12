@@ -14,6 +14,7 @@ CHINESE_FIRST_DOCS = (
     "FORGE.md",
     "SECURITY.md",
     "agent_forge/README.md",
+    "docs/系统概览与核心设计.md",
     "docs/核心能力与代码入口.md",
     "docs/核心运行机制与代码索引.md",
     "examples/debug_lab/README.md",
@@ -21,12 +22,14 @@ CHINESE_FIRST_DOCS = (
 
 PUBLIC_DOC_LINE_BUDGETS = {
     "README.md": 250,
+    "docs/系统概览与核心设计.md": 220,
     "docs/核心能力与代码入口.md": 120,
     "docs/核心运行机制与代码索引.md": 100,
     "examples/debug_lab/README.md": 210,
 }
 
 CANONICAL_README_LINKS = (
+    "docs/系统概览与核心设计.md",
     "docs/核心能力与代码入口.md",
     "docs/核心运行机制与代码索引.md",
     "examples/debug_lab/README.md",
@@ -35,6 +38,7 @@ CANONICAL_README_LINKS = (
 ALLOWED_DOC_SURFACES: tuple[str, ...] = ()
 
 ALLOWED_TOP_LEVEL_DOCS = {
+    "docs/系统概览与核心设计.md",
     "docs/核心能力与代码入口.md",
     "docs/核心运行机制与代码索引.md",
 }
@@ -306,9 +310,9 @@ class DocumentationLanguageTest(unittest.TestCase):
             for path in result.stdout.splitlines()
             if path and (PROJECT_ROOT / path).is_file()
         }
-        if len(tracked_docs) > 2:
+        if len(tracked_docs) > 3:
             violations.append(
-                f"docs tree has {len(tracked_docs)} Markdown files; public surface allows 2"
+                f"docs tree has {len(tracked_docs)} Markdown files; public surface allows 3"
             )
         for relative_path in sorted(tracked_docs):
             if relative_path in ALLOWED_TOP_LEVEL_DOCS:

@@ -89,6 +89,20 @@ class PublicHarnessTest(unittest.TestCase):
             self.assertIn("trace.json", artifact_paths)
             self.assertIn("candidate_changes.diff", artifact_paths)
 
+            # 每次真实 Harness.run 都要自动发布稳定的人读入口，而不是依赖事后整理。
+            evidence_root = root / ".agent_forge" / "runtime_evidence"
+            latest_evidence = evidence_root / "latest"
+            self.assertTrue(latest_evidence.is_symlink())
+            self.assertTrue((latest_evidence / "README.md").is_file())
+            self.assertTrue(
+                (latest_evidence / "01_checkpoint" / "checkpoint.json").is_symlink()
+            )
+            self.assertTrue((latest_evidence / "05_trace" / "trace.json").is_symlink())
+            self.assertIn(
+                result.run_id,
+                (evidence_root / "INDEX.md").read_text(encoding="utf-8"),
+            )
+
     def test_resume_creates_a_new_trace_and_preserves_checkpoint_context(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
