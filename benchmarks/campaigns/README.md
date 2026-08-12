@@ -4,14 +4,13 @@
 Runtime 配置、模型、资源预算和源码版本；样本结果不冒充 SWE-bench 官方排行榜。
 
 当前质量主线不从此目录中挑选旧 bundle，而是由
-[Canonical Showcase](../showcase/canonical-showcase-v1.json) 统一指向：
+[Quality Showcase](../showcase/canonical-showcase-v1.json) 统一指向：固定 10 题开发样本的 single-Agent
+Pass@1 official resolved 为 `4/10`，约 40%。该数字只代表当前固定样本，不冒充完整 SWE-bench Verified
+或尚未运行的 `40/100`。
 
-1. 先在已见 Golden-10 上按预注册规则选出 `showcase-quality-v1`。
-2. 再对预封存的确定性 Canonical-50 执行一次 Pass@1。
-3. 只有完整计划分母和 per-case official verdict 都齐全后，才发布“确定性 50 题样本上 `X/50`”。
-
-当前两阶段均尚未完成，因此这里不发布新分数。早期低预算、50×2 preset 和被拒绝 Treatment
-不再承担当前质量结论；它们的 Git 恢复点见[评测历史归档](../archive/README.md)。
+下一轮是预冻结、按仓库分层的 100-Case 确认实验；只有全部计划分母和终态证据齐全后才发布 `X/100`。
+早期低预算、50×2 preset、候选比较和被拒绝 Treatment 不再承担当前质量结论；它们的 Git 恢复点见
+[评测历史归档](../archive/README.md)。
 
 ## 公开 bundle 必须包含
 

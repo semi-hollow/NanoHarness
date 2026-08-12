@@ -44,34 +44,27 @@ NanoHarness 把这些问题放进 Runtime 控制面，而不是交给 Prompt 或
 | 找代码、依赖和状态 owner | [项目架构与代码导航](docs/项目架构与代码导航.md) |
 | 核对能力是否实现以及不能声称什么 | [能力实现状态与使用边界](docs/能力实现状态与使用边界.md) |
 | 动手跑断点和查 Evidence | [Debug Lab](examples/debug_lab/README.md) |
-| 查当前质量配置与 Canonical-50 进度 | [Canonical Showcase](benchmarks/showcase/canonical-showcase-v1.json) |
+| 查当前质量结果、证据边界与下一轮确认实验 | [Quality Showcase](benchmarks/showcase/canonical-showcase-v1.json) |
 | 查评测分层、运行方法和声明边界 | [回归测试与评测范围](docs/evaluation/回归测试与评测范围.md) |
 | 查真实失败、根因和回归证据 | [典型故障与系统调优记录](docs/evaluation/典型故障与系统调优记录.md) |
 
 历史背景按需查[功能演进与设计取舍](docs/功能演进与设计取舍.md)和
 [代码结构演进与可读性治理](docs/architecture/代码结构演进与可读性治理.md)。
 
-## 当前质量展示面
+## 当前质量结果
 
-NanoHarness 将“Runtime 机制是否正确”与“当前配置能解决多少仓库任务”分开验证。
-前者由 Debug Lab 和行为回归覆盖；后者由预注册的 `showcase-quality-v1` 与
-Canonical-50 回答。
+NanoHarness 当前对外使用一个简单、可解释的工程口径：**单 Agent 在固定 SWE-bench Verified
+开发样本上的 Pass@1 official resolved 约为 40%（4/10）**。10 个 planned Case 全部保留在
+分母中；其中 4 个由 official evaluator 判定 resolved。这个数字用于说明系统已经具备端到端解决
+真实仓库任务的基础能力，不冒充完整 500 题排行榜成绩，也不证明 Harness 相对底座模型的独立增益。
 
-当前流程只有三层：
+公开说明优先展示数字背后的完整链路：真实 issue 与 base commit、隔离 worktree、受治理 AgentLoop、
+candidate Patch、本地验证、official evaluator、Trace、Usage 与 Workbench。下一轮确认实验会在冻结的
+100-Case、按仓库分层样本上使用质量优先配置复测；在它完成前不把 `4/10` 改写成虚构的 `40/100`。
 
-1. **Golden-10 开发/回归集：**在已见的 10 题上按冻结规则比较最多两个质量候选，只用于选出当前配置，不作为公开质量分数。
-2. **Infrastructure Smoke-5：**只检查数据、checkout、工具、Patch、official evaluator 和 Evidence 链路是否健康。
-3. **Canonical-50：**从冻结的 SWE-bench Verified 中确定性、按仓库分层并预封存 50 题；固定
-   Pass@1、完整计划分母、不因正确性重跑、不按结果换题。
-
-`showcase-quality-v1` 仍在候选比较阶段，Canonical-50 尚未开始，因此当前不发布新分数。
-完成后只使用“确定性 50 题样本上 `X/50`”的表述，不外推为完整 SWE-bench Verified
-解决率。实时状态见 [Canonical Showcase](benchmarks/showcase/canonical-showcase-v1.json)，选型规则见
-[Golden-10 协议](benchmarks/showcase/quality-selection-protocol-v1.json)，样本见
-[Canonical-50 manifest](benchmarks/showcase/canonical-50-v1.json)。
-
-早期低预算、被拒绝 Treatment 和旧 Campaign 仍可通过 Git 复核，但不再作为当前质量展示。
-历史定位与恢复点见[评测历史归档](benchmarks/archive/README.md)。
+当前结果、证据来源和声明边界见 [Quality Showcase](benchmarks/showcase/canonical-showcase-v1.json)。
+早期低预算、模型选型尝试、被拒绝 Treatment 和旧 Campaign 已退出主动展示，仅在被追问实验纪律时
+从[评测历史归档](benchmarks/archive/README.md)按需查阅。
 
 ## 证据与可复现场景
 

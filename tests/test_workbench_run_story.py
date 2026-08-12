@@ -275,6 +275,24 @@ def _quality_selection_incident_summary() -> dict[str, object]:
 
 
 class WorkbenchRunStoryTest(unittest.TestCase):
+    def test_published_quality_showcase_renders_current_40_percent_observation(self):
+        project_dir = Path(__file__).parents[1]
+
+        results = _render_workspace_view(
+            project_dir,
+            source_key="evaluation",
+            view="results",
+        )
+
+        self.assertIn("QUALITY SHOWCASE", results)
+        self.assertIn("固定开发样本", results)
+        self.assertIn("4/10", results)
+        self.assertIn("40%", results)
+        self.assertNotIn("待完整裁决", results)
+        self.assertNotIn("尚未登记模型候选", results)
+        self.assertNotIn("planned_not_run", results)
+        self.assertNotIn("fixed_seen_development_sample", results)
+
     def test_workbench_default_surface_is_read_only(self):
         self.assertIn('class="read-only status-collapsed', INDEX_HTML)
         self.assertIn("一次选择运行，逐层读懂", INDEX_HTML)

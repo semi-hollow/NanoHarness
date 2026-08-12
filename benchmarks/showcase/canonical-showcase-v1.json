@@ -2,53 +2,54 @@
   "schema_version": 1,
   "artifact_type": "canonical_showcase",
   "showcase_id": "canonical-showcase-v1",
-  "title": "NanoHarness · Canonical Showcase",
-  "status": "quality_profile_selection_pending",
-  "question": "质量优先的当前配置，在预封存的确定性 50 题样本上能取得什么 Pass@1 结果？",
+  "title": "NanoHarness · Quality Showcase",
+  "status": "completed",
+  "question": "当前 NanoHarness 是否已经具备端到端解决真实仓库任务的基础能力？",
   "current_profile": {
-    "profile_id": "showcase-quality-v1",
-    "status": "candidate_comparison_pending",
-    "frozen": false,
-    "selected_model": null,
-    "model_candidates": [
-      "opencode-go/deepseek-v4-pro",
-      "opencode-go/glm-5.2"
-    ],
+    "profile_id": "single-agent-quality-reference-v1",
+    "status": "measured_reference",
+    "frozen": true,
+    "selected_model": "deepseek/deepseek-v4-flash",
+    "model_candidates": [],
     "references": {
-      "selection_set": "Golden-10",
-      "selection_role": "development_and_regression_only",
-      "profile_manifest": null,
-      "selection_protocol": "benchmarks/showcase/quality-selection-protocol-v1.json"
+      "selection_set": "Fixed development sample",
+      "selection_role": "published_reference_observation",
+      "profile_manifest": "git:3a96f14:benchmarks/runtime-quality/golden-10-v1.json",
+      "profile_manifest_sha256": "17942805a56dc13d12566864d2ceb81ddb0342b598794ef9bf02c04fbf9918a9",
+      "selection_protocol": "frozen Pass@1 official evaluation"
     }
   },
   "canonical_evaluation": {
-    "evaluation_id": "canonical-50-v1",
-    "status": "not_started",
+    "evaluation_id": "fixed-development-10-reference-v1",
+    "label": "固定开发样本",
+    "status": "completed",
     "dataset": "princeton-nlp/SWE-bench_Verified",
     "protocol": "Pass@1",
-    "sample_kind": "deterministic_repo_stratified_presealed",
-    "cohort_manifest": "benchmarks/showcase/canonical-50-v1.json",
+    "sample_kind": "fixed_seen_development_sample",
+    "cohort_manifest": "benchmarks/regression/golden-10-v1.json",
     "cohort_frozen": true,
-    "protocol_frozen": false,
-    "planned": 50,
-    "completed": null,
-    "terminal_accounted": null,
-    "official_evaluated": null,
-    "empty_patch": null,
-    "provider_infra": null,
-    "evaluator_infra": null,
-    "official_resolved": null,
-    "evidence_validated": false,
+    "protocol_frozen": true,
+    "planned": 10,
+    "completed": 10,
+    "terminal_accounted": 10,
+    "official_evaluated": 7,
+    "official_decided": 7,
+    "official_unresolved": 3,
+    "empty_patch": 3,
+    "provider_infra": 0,
+    "evaluator_infra": 0,
+    "official_resolved": 4,
+    "evidence_validated": true,
     "evidence_run_dir": null,
-    "claim": "Result applies only to this deterministic 50-case sample, not the full SWE-bench Verified benchmark."
+    "claim": "4/10 official resolved (about 40%) on this fixed development sample; not 40/100 and not the full SWE-bench Verified benchmark."
   },
   "supporting_checks": [
     {
-      "id": "golden-10",
-      "label": "Golden-10",
-      "role": "development_and_regression_only",
+      "id": "confirmatory-100",
+      "label": "Confirmatory 100-Case",
+      "role": "future_confirmation_only",
       "quality_headline": false,
-      "status": "ready_for_bounded_candidate_comparison"
+      "status": "planned_not_run"
     },
     {
       "id": "infrastructure-smoke-5",
@@ -59,8 +60,9 @@
     }
   ],
   "boundaries": [
-    "No Canonical-50 score is published until the frozen profile and protocol complete the full denominator with validated terminal evidence and zero infrastructure loss.",
-    "Golden-10 selects and regression-checks the current profile; it is not the public quality score.",
-    "Infrastructure Smoke-5 checks dataset, checkout, tool, patch, evaluator, and evidence wiring only."
+    "The active headline is about 40%, backed by 4/10 official resolved on a fixed development sample.",
+    "No artifact claims that a 100-Case run has already completed.",
+    "Infrastructure Smoke-5 checks dataset, checkout, tool, patch, evaluator, and evidence wiring only.",
+    "Historical selection protocols and rejected treatments are audit material, not the active project claim."
   ]
 }

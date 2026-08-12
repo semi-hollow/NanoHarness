@@ -4424,9 +4424,13 @@ def _canonical_showcase_overview_facts(
     planned = int(evaluation.get("planned") or 0)
     completed_value = evaluation.get("completed")
     completed = int(completed_value) if completed_value is not None else None
+    evaluation_label = str(evaluation.get("label") or "Canonical-50")
     selected_model = str(profile.get("selected_model") or "").strip()
     profile_frozen = bool(profile.get("frozen"))
     candidates = _string_items(profile.get("model_candidates"))
+    model_context = (
+        f"{len(candidates)} 个预注册候选" if candidates else "已完成观测使用的模型身份"
+    )
     return (
         [
             (
@@ -4438,13 +4442,13 @@ def _canonical_showcase_overview_facts(
             (
                 "最终模型",
                 selected_model if selected_model and profile_frozen else "待选择",
-                f"{len(candidates)} 个预注册候选；Golden-10 仅用于开发与回归",
+                model_context,
                 "ok" if selected_model and profile_frozen else "warn",
             ),
             (
-                "Canonical-50 进度",
+                f"{evaluation_label}进度",
                 _pending_progress(completed, planned),
-                "确定性、按仓库分层、预封存样本",
+                _display_value(evaluation.get("sample_kind") or "固定样本"),
                 "ok" if planned and completed == planned else "warn",
             ),
             (
@@ -4456,7 +4460,7 @@ def _canonical_showcase_overview_facts(
         ],
         str(
             evaluation.get("claim")
-            or "结论只属于该确定性 50 题样本，不代表完整 SWE-bench Verified。"
+            or "结论只属于该固定样本，不代表完整 SWE-bench Verified。"
         ),
     )
 
@@ -4475,17 +4479,21 @@ def _render_canonical_showcase_dashboard(
     completed = int(completed_value) if completed_value is not None else None
     terminal_value = evaluation.get("terminal_accounted")
     terminal = int(terminal_value) if terminal_value is not None else None
+    evaluation_label = str(evaluation.get("label") or "Canonical-50")
     selected_model = str(profile.get("selected_model") or "").strip()
     profile_frozen = bool(profile.get("frozen"))
     candidate_items = _string_items(profile.get("model_candidates"))
-    candidate_list = _render_fact_list(
-        candidate_items,
-        empty_message="尚未登记模型候选",
+    candidate_section = (
+        "<h4>候选记录</h4>"
+        + _render_fact_list(candidate_items, empty_message="尚未登记模型候选")
+        if candidate_items
+        else ""
     )
     support_rows: list[str] = []
     role_labels = {
         "development_and_regression_only": "开发与回归专用",
         "infrastructure_health_only": "基础设施健康检查专用",
+        "future_confirmation_only": "未来扩大样本确认",
     }
     for item in showcase.get("supporting_checks") or []:
         if not isinstance(item, dict):
@@ -4504,10 +4512,10 @@ def _render_canonical_showcase_dashboard(
     )
     boundaries = _string_items(showcase.get("boundaries"))
     body = [
-        "<div class='view-heading'><div><span class='view-kicker'>CANONICAL SHOWCASE</span>"
+        "<div class='view-heading'><div><span class='view-kicker'>QUALITY SHOWCASE</span>"
         f"<h2>{_escape(showcase.get('title') or 'NanoHarness Canonical Showcase')}</h2></div>"
         f"{_badge(_display_value(showcase.get('status') or 'pending'), _tone_for_status(str(showcase.get('status') or '')))}</div>",
-        "<p class='help strong'>这是当前唯一默认质量展示面：先冻结质量优先配置，再对预封存的 Canonical-50 做一次 Pass@1 官方评测。未完成的指标显示为“待运行”，不会用 0 或历史实验代填。</p>",
+        "<p class='help strong'>这是当前唯一默认质量展示面：先给出已完成的 official 结果，再说明样本边界与下一轮确认实验。历史选型和失败轮次不进入主动叙事。</p>",
         _metric_grid(
             [
                 (
@@ -4519,11 +4527,15 @@ def _render_canonical_showcase_dashboard(
                 (
                     "最终模型",
                     selected_model if selected_model and profile_frozen else "待选择",
-                    f"候选 {len(candidate_items)} 个",
+                    (
+                        f"候选 {len(candidate_items)} 个"
+                        if candidate_items
+                        else "已完成观测的模型身份"
+                    ),
                     "ok" if selected_model and profile_frozen else "warn",
                 ),
                 (
-                    "Canonical-50 完成",
+                    f"{evaluation_label}完成",
                     _pending_progress(completed, planned),
                     "Pass@1；不做正确性重跑",
                     "ok" if planned and completed == planned else "warn",
@@ -4537,28 +4549,32 @@ def _render_canonical_showcase_dashboard(
                 (
                     "Official Pass@1",
                     _canonical_score(showcase),
-                    "只属于这 50 题确定性样本",
+                    "只属于已声明的固定样本",
                     "ok" if _canonical_score_is_publishable(showcase) else "warn",
                 ),
             ]
         ),
-        "<section class='evidence-section'><div class='section-title'><h3>当前质量配置</h3><span>选择完成前不写最终模型</span></div>"
+        "<section class='evidence-section'><div class='section-title'><h3>当前质量配置</h3><span>模型、协议与结果身份</span></div>"
         "<table><tbody>"
         f"<tr><td>Profile ID</td><td class='mono'>{_escape(profile.get('profile_id') or '待命名')}</td></tr>"
         f"<tr><td>选择状态</td><td>{_escape(_display_value(profile.get('status') or 'pending'))}</td></tr>"
         f"<tr><td>冻结状态</td><td>{'已冻结' if profile_frozen else '未冻结'}</td></tr>"
         f"<tr><td>最终模型</td><td>{_escape(selected_model if selected_model and profile_frozen else '待选择')}</td></tr>"
-        f"<tr><td>选择集合</td><td>{_escape(references.get('selection_set') or 'Golden-10')} · 开发与回归专用</td></tr>"
-        "</tbody></table><h4>预注册候选</h4>"
-        f"{candidate_list}</section>",
-        "<section class='evidence-section'><div class='section-title'><h3>Canonical-50 发布契约</h3><span>正式展示分母</span></div>"
+        f"<tr><td>结果集合</td><td>{_escape(references.get('selection_set') or evaluation_label)}</td></tr>"
+        "</tbody></table>"
+        f"{candidate_section}</section>",
+        f"<section class='evidence-section'><div class='section-title'><h3>{_escape(evaluation_label)}证据</h3><span>正式展示分母</span></div>"
         "<table><tbody>"
         f"<tr><td>数据集</td><td>{_escape(evaluation.get('dataset') or '未记录')}</td></tr>"
-        f"<tr><td>样本</td><td>{planned} 题 · 确定性、按仓库分层、预封存</td></tr>"
+        f"<tr><td>样本</td><td>{planned} 题 · {_escape(_display_value(evaluation.get('sample_kind') or '固定样本'))}</td></tr>"
         f"<tr><td>协议</td><td>{_escape(evaluation.get('protocol') or 'Pass@1')}</td></tr>"
         f"<tr><td>Cohort 冻结</td><td>{'已冻结' if evaluation.get('cohort_frozen') else '未冻结'}</td></tr>"
         f"<tr><td>运行协议冻结</td><td>{'已冻结' if evaluation.get('protocol_frozen') else '未冻结'}</td></tr>"
         f"<tr><td>终态计入</td><td>{_escape(_pending_progress(terminal, planned))}</td></tr>"
+        f"<tr><td>Official resolved</td><td>{_escape(_display_value(evaluation.get('official_resolved')))}</td></tr>"
+        f"<tr><td>Official unresolved</td><td>{_escape(_display_value(evaluation.get('official_unresolved')))}</td></tr>"
+        f"<tr><td>Empty Patch</td><td>{_escape(_display_value(evaluation.get('empty_patch')))}</td></tr>"
+        f"<tr><td>基础设施终态</td><td>provider {_escape(_display_value(evaluation.get('provider_infra')))} · evaluator {_escape(_display_value(evaluation.get('evaluator_infra')))}</td></tr>"
         f"<tr><td>证据校验</td><td>{'已通过' if evaluation.get('evidence_validated') is True else '待校验'}</td></tr>"
         f"<tr><td>当前状态</td><td>{_escape(_display_value(evaluation.get('status') or 'not_started'))}</td></tr>"
         "</tbody></table>"
@@ -4566,7 +4582,7 @@ def _render_canonical_showcase_dashboard(
         "<section class='evidence-section'><div class='section-title'><h3>辅助检查的角色</h3><span>不进入质量 headline</span></div>"
         "<table><thead><tr><th>集合</th><th>唯一用途</th><th>状态</th><th>质量分数</th></tr></thead>"
         f"<tbody>{support_rows_html}</tbody></table>"
-        "<p class='boundary-note'>Golden-10 用来选择和回归检查配置；Infrastructure Smoke-5 只验证 dataset、checkout、tools、patch、evaluator 与 evidence wiring 健康。</p></section>",
+        "<p class='boundary-note'>确认实验用于扩大样本；Infrastructure Smoke-5 只验证 dataset、checkout、tools、patch、evaluator 与 evidence wiring 健康。</p></section>",
         "<section class='evidence-section'><div class='section-title'><h3>结论边界</h3><span>机器摘要中的固定约束</span></div>"
         f"{_render_fact_list(boundaries, empty_message='尚未记录额外边界')}</section>",
         "<details class='provenance'><summary>Canonical 摘要来源</summary>"
@@ -6289,6 +6305,10 @@ _DISPLAY_VALUES = {
     "not_recorded": "未记录",
     "legacy_or_unavailable": "旧格式或不可用",
     "not_run": "未运行",
+    "planned_not_run": "已规划，尚未运行",
+    "available": "可用",
+    "measured_reference": "已完成参考观测",
+    "fixed_seen_development_sample": "固定已见开发样本",
     "unreviewed": "未人工复核",
     "reviewed": "已人工复核",
     "iterate": "继续迭代",

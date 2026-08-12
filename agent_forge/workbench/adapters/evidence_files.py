@@ -281,13 +281,13 @@ class FileEvidenceCatalog(EvidenceCatalogPort):
             key="evaluation",
             title=str(summary.get("title") or "NanoHarness Canonical Showcase"),
             description=(
-                "当前质量优先配置与 Canonical-50 确定性样本；"
-                "Golden-10 仅用于开发回归，Infrastructure Smoke-5 仅用于链路健康"
+                "当前公开质量观测、证据边界与下一轮确认实验；"
+                "历史选型和失败实验不进入主动展示"
             ),
             source_type="benchmark",
             task=str(
                 summary.get("question")
-                or f"用 {profile_id} 完成可复现的 Canonical-50 Pass@1 评测"
+                or f"用 {profile_id} 完成可复核的 Pass@1 official 评测"
             ),
             status=str(summary.get("status") or evaluation.get("status") or "pending"),
             primary_path=summary_path,
