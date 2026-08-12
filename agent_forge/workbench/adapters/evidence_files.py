@@ -11,9 +11,7 @@ from agent_forge.workbench.ports import EvidenceCatalogPort
 
 
 class FileEvidenceCatalog(EvidenceCatalogPort):
-
     def __init__(self, project_dir: Path) -> None:
-
         self.project_dir = project_dir.absolute()
 
     # 主要入口：把不同目录布局的运行统一成 Workbench 可选择的证据来源。
@@ -75,9 +73,7 @@ class FileEvidenceCatalog(EvidenceCatalogPort):
                 else ()
             ),
             usage_path=(
-                usage_path
-                if usage_path is not None and usage_path.is_file()
-                else None
+                usage_path if usage_path is not None and usage_path.is_file() else None
             ),
         )
 
@@ -222,6 +218,9 @@ class FileEvidenceCatalog(EvidenceCatalogPort):
 
         schema_version = int(quality_summary.get("schema_version") or 1)
         formal_summary = schema_version >= 2
+        phase2_value = quality_summary.get("phase2")
+        phase2 = phase2_value if isinstance(phase2_value, dict) else {}
+        phase2_summary = schema_version >= 3 and bool(phase2)
         iterations = [
             item
             for item in quality_summary.get("iterations") or []
@@ -229,26 +228,50 @@ class FileEvidenceCatalog(EvidenceCatalogPort):
         ]
         reference_iteration = str(
             quality_summary.get("reference_iteration")
-            or (
-                iterations[0].get("id")
-                if formal_summary and iterations
-                else ""
-            )
+            or (iterations[0].get("id") if formal_summary and iterations else "")
         )
         trace_entries: list[tuple[str, Path]] = []
         usage_paths: list[Path] = []
         accepted_run_dirs: list[Path] = []
-        for iteration in iterations:
-            if str(iteration.get("id") or "") != reference_iteration:
-                continue
-            for run_dir_value in iteration.get("run_dirs") or []:
-                run_dir = self.project_dir / str(run_dir_value)
-                if not run_dir.is_dir():
+        if phase2_summary:
+            run_dir_groups_value = phase2.get("evidence_run_dirs")
+            if isinstance(run_dir_groups_value, dict):
+                run_dir_groups = [
+                    (str(group_name), values)
+                    for group_name, values in run_dir_groups_value.items()
+                ]
+            else:
+                run_dir_groups = [("evidence", run_dir_groups_value or [])]
+            for group_name, values in run_dir_groups:
+                run_dir_values = values if isinstance(values, list) else [values]
+                for run_dir_value in run_dir_values:
+                    run_dir_text = str(run_dir_value or "").strip()
+                    if not run_dir_text:
+                        continue
+                    run_dir = self.project_dir / run_dir_text
+                    if not _is_under(run_dir, self.project_dir) or not run_dir.is_dir():
+                        continue
+                    accepted_run_dirs.append(run_dir)
+                    for trace_path in sorted(run_dir.glob("cases/*/trace.json")):
+                        trace_entries.append(
+                            (
+                                f"Phase 2 · {group_name} · {trace_path.parent.name}",
+                                trace_path,
+                            )
+                        )
+                    usage_paths.extend(sorted(run_dir.glob("cases/*/usage.json")))
+        else:
+            for iteration in iterations:
+                if str(iteration.get("id") or "") != reference_iteration:
                     continue
-                accepted_run_dirs.append(run_dir)
-                for trace_path in sorted(run_dir.glob("cases/*/trace.json")):
-                    trace_entries.append((trace_path.parent.name, trace_path))
-                usage_paths.extend(sorted(run_dir.glob("cases/*/usage.json")))
+                for run_dir_value in iteration.get("run_dirs") or []:
+                    run_dir = self.project_dir / str(run_dir_value)
+                    if not run_dir.is_dir():
+                        continue
+                    accepted_run_dirs.append(run_dir)
+                    for trace_path in sorted(run_dir.glob("cases/*/trace.json")):
+                        trace_entries.append((trace_path.parent.name, trace_path))
+                    usage_paths.extend(sorted(run_dir.glob("cases/*/usage.json")))
 
         metrics = quality_summary.get("reference_metrics") if formal_summary else None
         if not isinstance(metrics, dict):
@@ -260,9 +283,7 @@ class FileEvidenceCatalog(EvidenceCatalogPort):
                     metrics = value if isinstance(value, dict) else {}
                     break
         resolved = int(
-            metrics.get("confirmed_solved")
-            or metrics.get("official_resolved")
-            or 0
+            metrics.get("confirmed_solved") or metrics.get("official_resolved") or 0
         )
         case_count = int(
             metrics.get("planned")
@@ -299,6 +320,11 @@ class FileEvidenceCatalog(EvidenceCatalogPort):
         status = str(quality_summary.get("status") or "not_run")
         if not formal_summary:
             status = "exploratory_only · 旧摘要不具备正式 official 基线"
+        elif phase2_summary:
+            phase2_status = str(
+                phase2.get("decision") or phase2.get("status") or "pending"
+            )
+            status = f"Phase 2 · {phase2_status}"
         elif status == "completed" and case_count:
             status = (
                 f"completed · 正式 {reference_iteration} 解决 {resolved}/{case_count}"
@@ -306,15 +332,24 @@ class FileEvidenceCatalog(EvidenceCatalogPort):
             )
         return EvidenceSource(
             key="evaluation",
-            title=str(quality_summary.get("title") or "Runtime 质量优化实验"),
+            title=str(
+                phase2.get("title")
+                or quality_summary.get("title")
+                or "Runtime 质量优化实验"
+            ),
             description=(
-                "固定样本、失败驱动迭代、正确性与效率证据"
-                if formal_summary
-                else "Pre-R0 探索性过程证据；旧 accepted 结论已撤回"
+                "Phase 2 个案机制、正确性 Guards 与 Golden-10 扩展证据"
+                if phase2_summary
+                else (
+                    "固定样本、失败驱动迭代、正确性与效率证据"
+                    if formal_summary
+                    else "Pre-R0 探索性过程证据；旧 accepted 结论已撤回"
+                )
             ),
             source_type="benchmark",
             task=str(
-                quality_summary.get("question")
+                phase2.get("question")
+                or quality_summary.get("question")
                 or "功能冻结后，Runtime 如何基于失败证据提高质量？"
             ),
             status=status,
@@ -327,12 +362,7 @@ class FileEvidenceCatalog(EvidenceCatalogPort):
     def runtime_quality_summary_path(self) -> Path | None:
         """返回公开、稳定的 Runtime 质量实验摘要。"""
 
-        path = (
-            self.project_dir
-            / "benchmarks"
-            / "runtime-quality"
-            / "golden-10-v1.json"
-        )
+        path = self.project_dir / "benchmarks" / "runtime-quality" / "golden-10-v1.json"
         return path if path.is_file() else None
 
     @staticmethod
@@ -584,7 +614,6 @@ class FileEvidenceCatalog(EvidenceCatalogPort):
         return _newest_existing(candidates)
 
     def trace_paths(self) -> list[tuple[str, Path]]:
-
         run_dir = self.latest_run_dir()
         if run_dir is None:
             return []

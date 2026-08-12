@@ -1,5 +1,5 @@
 {
-  "schema_version": 2,
+  "schema_version": 3,
   "experiment_type": "runtime_quality",
   "experiment_id": "runtime-quality-golden-10-formal-v1",
   "title": "Golden-10 · 功能冻结后的正式 Runtime 质量实验",
@@ -576,5 +576,198 @@
     "R3 从 SWE-bench task-aware 工具面移除 create_file，55/55 次 Context 机制检查通过；Sphinx 却从 resolved 退化为空 Patch，SymPy 也为空，证明机制命中不能替代任务结果，因此拒绝。",
     "三轮候选优化均未通过预注册门槛，全部回滚；保留测量完整性 fail-fast，不运行 R4，也不把任何实验数字写成解决率提升。"
   ],
-  "conclusion": "最强且诚实的结论是：NanoHarness 在冻结协议的 Golden-10 上建立了 4/10 planned official resolved、7/10 official decided 的正式 R0，并用 Failure Pareto、逐题 Sentinel 和三轮单变量实验发现并拒绝了三个负优化方向。R1 确有两个 empty→resolved 的正向转移，但同时让 SymPy 从 resolved 退化为 scratch-only unresolved；R2 无法修复该退化；R3 机制 55/55 通过却让 Sphinx 回归。没有候选 Runtime 被采纳，因此不能声称 official resolved 提升；可以证明的是可复现基线、因果假设、语义否决、协议失败排除和回滚纪律。"
+  "conclusion": "最强且诚实的结论是：Phase 1 在冻结 DeepSeek Golden-10 上建立 4/10 planned official resolved、7/10 official decided 的正式 R0，并拒绝、回滚三个未通过 correctness gate 的 Treatment。Phase 2 使用独立的 opencode-go/glm-5.2 基线，从一个事后选择且有两次历史失败的代表性 Case 中识别 Operation Ledger restored-precondition 缺口；通用 one-shot replay 在两次 fresh Target 中均激活并获得 2/2 official resolved，三个冻结 Guard 继续 3/3 resolved。一次性 Golden-10 扩跑为 4/10（R0 5/10），并有两个既有 resolved Case 回归及一个 provider transport failure，因此全局 Treatment 按预注册 gate 拒绝，不能默认采纳或声称总体提升；只保留 Case-level 正向机制证据。",
+  "phase2": {
+    "id": "phase2-operation-ledger-restored-precondition",
+    "title": "Phase 2 · Operation Ledger restored-precondition one-shot replay",
+    "status": "completed_rejected",
+    "decision": "rejected",
+    "question": "同一 Run 内已执行操作的目标状态精确恢复到 precondition 后，一次有界重放能否保留模型已形成的源码修复，并且不让固定回归集合退化？",
+    "success_criteria": "Target 必须由历史 0/2 转为 fresh 2/2 official resolved 且 2/2 直接激活；三个冻结 Guard 必须 3/3 resolved；随后一次性 Golden-10 至少不低于 P2-R0 5/10，并保留 P2-R0 五个 resolved Case。",
+    "claim_scope": "post-hoc selected Case-level positive mechanism evidence; global/default adoption rejected",
+    "reference": {
+      "id": "P2-R0",
+      "provider": "opencode-go",
+      "model": "glm-5.2",
+      "thinking_mode": "auto",
+      "metrics": {
+        "planned": 10,
+        "official_resolved": 5,
+        "official_unresolved": 0,
+        "official_empty_or_skipped": 5,
+        "official_infrastructure_error": 0,
+        "official_decided": 5
+      },
+      "resolved_case_ids": [
+        "django__django-11451",
+        "matplotlib__matplotlib-13989",
+        "matplotlib__matplotlib-22871",
+        "sphinx-doc__sphinx-10323",
+        "sympy__sympy-20590"
+      ],
+      "run_dirs": [
+        ".agent_forge/runtime-quality/phase2/r0/shard-a/swebench-20260812-030414-7a22e80",
+        ".agent_forge/runtime-quality/phase2/r0/shard-b/swebench-20260812-030421-dc21411",
+        ".agent_forge/runtime-quality/phase2/r0/shard-c/swebench-20260812-030418-ba73b02"
+      ]
+    },
+    "treatment": {
+      "name": "same-run restored-precondition one-shot replay",
+      "commit": "485ba920df516f0e5c6e5eefd10d8d5d9325ed9a",
+      "parent_commit": "22decf5d47e57bfd1a797f2d9f99c33b4f1797b3",
+      "marker": "replay_authorized_restored_precondition",
+      "mechanism_marker": "replay_authorized_restored_precondition",
+      "product_diff_added_lines": 68,
+      "decision": "rejected_after_golden10_regression",
+      "adoption_scope": "not_adopted; revert from default Runtime",
+      "state_contract": "Only same run, prior executed exactly once, complete path fingerprints and current == pre != post may replay once; post-state remains idempotent, and cross-run, malformed, unknown drift and third replay remain fail closed."
+    },
+    "case_study": {
+      "target_case": "pytest-dev__pytest-8399",
+      "selection_timing": "post_hoc",
+      "comparison_design": "two imported historical failures versus two fresh Treatment starts",
+      "baseline_metrics": {
+        "planned": 2,
+        "official_resolved": 0,
+        "official_unresolved": 2
+      },
+      "treatment_metrics": {
+        "planned": 2,
+        "official_resolved": 2,
+        "mechanism_activation_observed": 2,
+        "mechanism_activation_expected": 2,
+        "product_source_patch": 2,
+        "prediction_official_patch_aligned": 2,
+        "local_validation_passed": 0
+      },
+      "runs": [
+        ".agent_forge/runtime-quality/phase2/case-studies/operation-ledger-restored-precondition-pytest8399/treatment/target-1/swebench-20260812-090925-9d36431",
+        ".agent_forge/runtime-quality/phase2/case-studies/operation-ledger-restored-precondition-pytest8399/treatment/target-2/swebench-20260812-092320-f2b9f2a"
+      ]
+    },
+    "guards": {
+      "frozen_before_treatment": true,
+      "metrics": {
+        "planned": 3,
+        "official_resolved": 3,
+        "mechanism_activation_expected": 0,
+        "mechanism_activation_observed": 0,
+        "unsafe_replay_count": 0
+      },
+      "case_results": [
+        {"case_id": "django__django-11451", "official_status": "official_resolved", "patch_sha256": "6a8a65f27464542dae84eea9664757addb6550722425a09e25ff681b6e29c923"},
+        {"case_id": "sphinx-doc__sphinx-10323", "official_status": "official_resolved", "patch_sha256": "3ba611ad7cc285b2b47971f475ce58a1d90195262b11ecc26c73b46d254724d1"},
+        {"case_id": "matplotlib__matplotlib-13989", "official_status": "official_resolved", "patch_sha256": "3a6e435771e4b4380e7c85e3e8456dceee6940a0158a1e180a491aaee84ddbfb"}
+      ]
+    },
+    "golden10_expansion": {
+      "status": "completed_rejected",
+      "planned": 10,
+      "generation_attempts_per_case": 1,
+      "result_conditioned_retries": 0,
+      "baseline_metrics": {
+        "planned": 10,
+        "official_resolved": 5,
+        "official_unresolved": 0,
+        "official_empty_or_skipped": 5,
+        "official_infrastructure_error": 0,
+        "official_decided": 5
+      },
+      "treatment_metrics": {
+        "planned": 10,
+        "official_resolved": 4,
+        "official_unresolved": 5,
+        "official_empty_or_skipped": 1,
+        "official_infrastructure_error": 1,
+        "official_decided": 9,
+        "official_evaluator_error": 0,
+        "incomplete": 0
+      },
+      "net_official_resolved_delta": -1,
+      "baseline_resolved_regressions": [
+        "matplotlib__matplotlib-13989",
+        "sympy__sympy-20590"
+      ],
+      "baseline_resolved_retained": [
+        "django__django-11451",
+        "matplotlib__matplotlib-22871",
+        "sphinx-doc__sphinx-10323"
+      ],
+      "provider_infrastructure_case_ids": ["django__django-12209"],
+      "case_results": [
+        {"case_id": "django__django-11451", "baseline_status": "official_resolved", "treatment_status": "official_resolved", "transition": "resolved_to_resolved"},
+        {"case_id": "matplotlib__matplotlib-13989", "baseline_status": "official_resolved", "treatment_status": "official_unresolved", "transition": "resolved_to_unresolved"},
+        {"case_id": "scikit-learn__scikit-learn-14629", "baseline_status": "official_empty_or_skipped", "treatment_status": "official_unresolved", "transition": "empty_to_unresolved"},
+        {"case_id": "django__django-12209", "baseline_status": "official_empty_or_skipped", "treatment_status": "official_empty_or_skipped", "transition": "empty_to_empty; provider transport attempts exhausted"},
+        {"case_id": "sphinx-doc__sphinx-10323", "baseline_status": "official_resolved", "treatment_status": "official_resolved", "transition": "resolved_to_resolved"},
+        {"case_id": "sympy__sympy-20590", "baseline_status": "official_resolved", "treatment_status": "official_unresolved", "transition": "resolved_to_unresolved"},
+        {"case_id": "django__django-10097", "baseline_status": "official_empty_or_skipped", "treatment_status": "official_unresolved", "transition": "empty_to_unresolved"},
+        {"case_id": "psf__requests-2317", "baseline_status": "official_empty_or_skipped", "treatment_status": "official_unresolved", "transition": "empty_to_unresolved"},
+        {"case_id": "matplotlib__matplotlib-22871", "baseline_status": "official_resolved", "treatment_status": "official_resolved", "transition": "resolved_to_resolved"},
+        {"case_id": "django__django-13028", "baseline_status": "official_empty_or_skipped", "treatment_status": "official_resolved", "transition": "empty_to_resolved"}
+      ],
+      "run_dirs": [
+        ".agent_forge/runtime-quality/phase2/case-studies/operation-ledger-restored-precondition-pytest8399/treatment/golden-10/shard-a/swebench-20260812-102346-5654b92",
+        ".agent_forge/runtime-quality/phase2/case-studies/operation-ledger-restored-precondition-pytest8399/treatment/golden-10/shard-b/swebench-20260812-102403-1d0a777",
+        ".agent_forge/runtime-quality/phase2/case-studies/operation-ledger-restored-precondition-pytest8399/treatment/golden-10/shard-c/swebench-20260812-102417-d69450f"
+      ]
+    },
+    "gates": {
+      "gate_1_protocol": {"status": "failed", "evidence": "One planned start exhausted the frozen provider transport attempts; no manual rerun was allowed."},
+      "gate_2_mechanism": {"status": "passed", "evidence": "Generic synthetic contract passed; Target marker observed 2/2 with same-key executing to executed chain."},
+      "gate_3_official_transition": {"status": "passed", "evidence": "Post-hoc Target historical 0/2 unresolved to fresh Treatment 2/2 resolved."},
+      "gate_4_non_regression": {"status": "failed", "evidence": "Golden-10 5/10 to 4/10; matplotlib-13989 and sympy-20590 regressed from resolved."},
+      "gate_5_release_closure": {"status": "failed", "evidence": "Default Treatment rejected and reverted; the highest Goal remains active rather than being marked complete."}
+    },
+    "usage": {
+      "target": {"llm_calls": 45, "total_tokens": 418012, "estimated_cost_usd": 0.489176, "tool_calls": 51, "failed_tool_calls": 2},
+      "guards": {"llm_calls": 41, "total_tokens": 359246, "estimated_cost_usd": 0.415931, "tool_calls": 40, "failed_tool_calls": 4},
+      "target_and_guards_total": {"llm_calls": 86, "total_tokens": 777258, "estimated_cost_usd": 0.905107, "tool_calls": 91, "failed_tool_calls": 6},
+      "golden10_expansion": {"llm_calls": 205, "prompt_tokens": 2422809, "completion_tokens": 67956, "total_tokens": 2490765, "estimated_cost_usd": 3.224585, "runtime_step_entries": 240, "tool_calls": 210, "failed_tool_calls": 23, "failed_validations": 10},
+      "phase2_case_study_and_expansion_total": {"llm_calls": 291, "total_tokens": 3268023, "estimated_cost_usd": 4.129692, "tool_calls": 301, "failed_tool_calls": 29}
+    },
+    "evidence": {
+      "protocol_sha256": "7f83fee651037bb27417e7d66b3c7406876a6f486cabbdbc41e09eaecb16f0d1",
+      "treatment_binding_sha256": "e7a011525376505c1fd6f9d81f392491f5aff0a80ca641dacf1b6cf85ca42de7",
+      "activation_spec_sha256": "c2c5a2f9e9a8d77752955738e4886b341d97ade6465b910b90bced596ff103a3",
+      "verifier_sha256": "cc0a129b734e002f472951185fc5f78aaae2d36f48e55f3bf1fdf733dc8ee3c3",
+      "golden10_expansion_protocol_sha256": "d1ae4da1034ac67b9575549fba093b273a839a9d7a416d7dbcbb968d5b7530eb",
+      "golden10_command_manifest_sha256": "4e48bd09cbd66458a8aae50de1d4119084a93fca3b3229d398c6ebf7ee15264d",
+      "golden10_image_manifest_sha256": "0c214b6f30be81d1fa8b5e329f20bd72d98f4cb2a4ec787059273a537faef6a8",
+      "golden10_core_artifact_manifest_sha256": "1c20b5bfa0f4a7472b090b5fcb441bc8d18bbbf31e1823b8fbbd72785d3177e5"
+    },
+    "evidence_run_dirs": {
+      "target": [
+        ".agent_forge/runtime-quality/phase2/case-studies/operation-ledger-restored-precondition-pytest8399/treatment/target-1/swebench-20260812-090925-9d36431",
+        ".agent_forge/runtime-quality/phase2/case-studies/operation-ledger-restored-precondition-pytest8399/treatment/target-2/swebench-20260812-092320-f2b9f2a"
+      ],
+      "guards": [
+        ".agent_forge/runtime-quality/phase2/case-studies/operation-ledger-restored-precondition-pytest8399/treatment/guards/django-11451/swebench-20260812-093118-65f7093",
+        ".agent_forge/runtime-quality/phase2/case-studies/operation-ledger-restored-precondition-pytest8399/treatment/guards/sphinx-10323/swebench-20260812-093115-92af979",
+        ".agent_forge/runtime-quality/phase2/case-studies/operation-ledger-restored-precondition-pytest8399/treatment/guards/matplotlib-13989/swebench-20260812-093122-ebe9ccd"
+      ],
+      "golden10_expansion": [
+        ".agent_forge/runtime-quality/phase2/case-studies/operation-ledger-restored-precondition-pytest8399/treatment/golden-10/shard-a/swebench-20260812-102346-5654b92",
+        ".agent_forge/runtime-quality/phase2/case-studies/operation-ledger-restored-precondition-pytest8399/treatment/golden-10/shard-b/swebench-20260812-102403-1d0a777",
+        ".agent_forge/runtime-quality/phase2/case-studies/operation-ledger-restored-precondition-pytest8399/treatment/golden-10/shard-c/swebench-20260812-102417-d69450f"
+      ]
+    },
+    "supported_claims": [
+      "A post-hoc selected representative Case moved from two historical official-unresolved starts to two fresh official-resolved starts, and both fresh starts directly activated the generic restored-precondition replay contract.",
+      "Three frozen cross-repository Guards remained official resolved without activating the new branch.",
+      "The one-time fixed Golden-10 expansion rejected default adoption rather than being selectively rerun."
+    ],
+    "unsupported_claims": [
+      "The Treatment improves Golden-10 or SWE-bench Verified resolved rate.",
+      "The Target result estimates population-level uplift or statistical significance.",
+      "The activation marker alone proves the official result or that overfitting is impossible.",
+      "Local validation passed for the two Target runs."
+    ],
+    "boundaries": [
+      "Phase 1 and Phase 2 use different providers, models and budgets and are not a strict A/B comparison.",
+      "The Target was chosen after observing historical failures and only supports a Case-level mechanism story.",
+      "The Golden-10 expansion had one provider transport failure and two known resolved regressions, so default Runtime adoption is rejected and must be reverted.",
+      "An auditor accidentally exposed partial hidden test/gold text after Treatment and Guard completion; it was not sent to the model or used to alter code or commands, and that auditor was quarantined from semantic decisions."
+    ]
+  }
 }

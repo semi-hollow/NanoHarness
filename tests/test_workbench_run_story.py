@@ -16,7 +16,136 @@ from agent_forge.workbench.presentation.http import (
     WORKBENCH_READ_ONLY_MESSAGE,
     _render_evidence_html,
     _render_workspace_view,
+    _tone_for_status,
 )
+
+
+def _phase2_runtime_quality_summary() -> dict[str, object]:
+    """用于 Workbench 兼容测试的 schema v3 最小发布摘要。"""
+
+    phase1_metrics = {
+        "planned": 10,
+        "official_resolved": 5,
+        "official_unresolved": 0,
+        "official_empty_or_skipped": 5,
+        "official_infrastructure_error": 0,
+        "official_decided": 5,
+        "provider_tokens": 1000,
+        "estimated_cost_usd": 0.01,
+    }
+    return {
+        "schema_version": 3,
+        "experiment_type": "runtime_quality",
+        "title": "Runtime 质量实验",
+        "status": "completed",
+        "question": "Runtime 如何从可审计失败中改进？",
+        "case_ids": ["demo__phase1"],
+        "reference_iteration": "R0",
+        "accepted_iteration": None,
+        "reference_metrics": phase1_metrics,
+        "iterations": [
+            {
+                "id": "R0",
+                "cohort": "Phase-1 Golden-10",
+                "decision": "reference",
+                "metrics": phase1_metrics,
+                "run_dirs": [".agent_forge/phase1/run"],
+            }
+        ],
+        "case_results": [],
+        "boundaries": ["Phase 1 固定小样本，不外推。"],
+        "phase2": {
+            "id": "operation-ledger-restored-precondition",
+            "title": "Phase 2 · Operation Ledger 恢复前置条件重放",
+            "status": "completed",
+            "decision": "accepted",
+            "question": "恢复到前置状态后，受限重放能否保留正确 Patch？",
+            "claim_scope": (
+                "post-hoc Case-level 机制故事；不外推为 "
+                "SWE-bench Verified 总体解决率提升"
+            ),
+            "reference": {
+                "id": "P2-R0",
+                "model": "opencode-go/glm-5.2",
+                "metrics": {
+                    "planned": 10,
+                    "official_resolved": 5,
+                },
+            },
+            "treatment": {
+                "commit": "treatment-demo",
+                "mechanism_marker": "replay_authorized_restored_precondition",
+            },
+            "case_study": {
+                "baseline_metrics": {
+                    "planned": 2,
+                    "official_resolved": 0,
+                },
+                "treatment_metrics": {
+                    "planned": 2,
+                    "official_resolved": 2,
+                    "mechanism_activation_observed": 2,
+                    "mechanism_activation_expected": 2,
+                },
+            },
+            "guards": {
+                "metrics": {
+                    "planned": 3,
+                    "official_resolved": 3,
+                    "unsafe_replay_count": 0,
+                }
+            },
+            "golden10_expansion": {
+                "status": "completed",
+                "baseline_metrics": {
+                    "planned": 10,
+                    "official_resolved": 5,
+                },
+                "treatment_metrics": {
+                    "planned": 10,
+                    "official_resolved": 6,
+                },
+                "net_official_resolved_delta": 1,
+                "baseline_resolved_regressions": [],
+                "case_results": [
+                    {
+                        "case_id": "demo__golden",
+                        "baseline_status": "official_empty_or_skipped",
+                        "treatment_status": "official_resolved",
+                        "transition": "empty_to_resolved",
+                    }
+                ],
+                "run_dirs": [".agent_forge/phase2/golden/run"],
+            },
+            "gates": {
+                "target_outcome": {
+                    "status": "passed",
+                    "evidence": "0/2 → 2/2",
+                },
+                "correctness_guards": {
+                    "status": "passed",
+                    "evidence": "3/3 保持 resolved",
+                },
+                "golden10_non_regression": {
+                    "status": "passed",
+                    "evidence": "6/10，原 resolved 无回归",
+                },
+            },
+            "usage": {
+                "provider_tokens": 777258,
+                "llm_calls": 86,
+                "estimated_cost_usd": 0.905107,
+            },
+            "evidence_run_dirs": {
+                "target": [".agent_forge/phase2/target/run"],
+                "guards": [".agent_forge/phase2/guards/run"],
+                "golden10_expansion": [".agent_forge/phase2/golden/run"],
+            },
+            "supported_claims": ["Target 个案中受限重放与 Patch 保留同时出现。"],
+            "unsupported_claims": ["Operation Ledger 是唯一因果。"],
+            "boundaries": ["Target 为 post-hoc 选择的 Case-level 证据。"],
+        },
+    }
 
 
 class WorkbenchRunStoryTest(unittest.TestCase):
@@ -944,10 +1073,7 @@ class WorkbenchRunStoryTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             project_dir = Path(tmp)
             summary_path = (
-                project_dir
-                / "benchmarks"
-                / "runtime-quality"
-                / "golden-10-v1.json"
+                project_dir / "benchmarks" / "runtime-quality" / "golden-10-v1.json"
             )
             summary_path.parent.mkdir(parents=True)
             summary_path.write_text(
@@ -1133,14 +1259,173 @@ class WorkbenchRunStoryTest(unittest.TestCase):
         self.assertIn("没有完整 official 裁决", results)
         self.assertIn("固定小样本，不外推总体解决率", results)
 
+    def test_schema_v3_renders_phase2_first_and_retains_phase1(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            project_dir = Path(tmp)
+            summary_path = (
+                project_dir / "benchmarks" / "runtime-quality" / "golden-10-v1.json"
+            )
+            summary_path.parent.mkdir(parents=True)
+            summary_path.write_text(
+                json.dumps(_phase2_runtime_quality_summary(), ensure_ascii=False),
+                encoding="utf-8",
+            )
+
+            overview = _render_workspace_view(
+                project_dir,
+                source_key="evaluation",
+                view="overview",
+            )
+            results = _render_workspace_view(
+                project_dir,
+                source_key="evaluation",
+                view="results",
+            )
+
+        self.assertIn("Target 个案", overview)
+        self.assertIn("0/2 → 2/2", overview)
+        self.assertIn("正确性 Guards", overview)
+        self.assertIn("3/3", overview)
+        self.assertLess(
+            results.index("PHASE 2 · OPERATION LEDGER TREATMENT"),
+            results.index("PHASE 1 · 历史正式 R0-R3"),
+        )
+        self.assertIn("Phase 1 · 正式 R0-R3", results)
+        self.assertIn("不与 Phase 2 合并", results)
+        self.assertIn("post-hoc Case-level", results)
+        self.assertIn("SWE-bench Verified 总体解决率提升", results)
+        self.assertIn("class='badge ok'>已采纳", results)
+        self.assertIn("5/10 → 6/10", results)
+
+    def test_schema_v3_pending_golden_metric_is_not_rendered_as_zero(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            project_dir = Path(tmp)
+            summary = _phase2_runtime_quality_summary()
+            phase2 = summary["phase2"]
+            assert isinstance(phase2, dict)
+            golden = phase2["golden10_expansion"]
+            assert isinstance(golden, dict)
+            golden["status"] = "running"
+            golden["treatment_metrics"] = {"planned": 10}
+            golden["net_official_resolved_delta"] = None
+            golden["baseline_resolved_regressions"] = None
+            golden["case_results"] = []
+            summary_path = (
+                project_dir / "benchmarks" / "runtime-quality" / "golden-10-v1.json"
+            )
+            summary_path.parent.mkdir(parents=True)
+            summary_path.write_text(
+                json.dumps(summary, ensure_ascii=False),
+                encoding="utf-8",
+            )
+
+            overview = _render_workspace_view(
+                project_dir,
+                source_key="evaluation",
+                view="overview",
+            )
+            results = _render_workspace_view(
+                project_dir,
+                source_key="evaluation",
+                view="results",
+            )
+
+        self.assertIn("5/10 → 待运行", overview)
+        self.assertIn("5/10 → 待运行", results)
+        self.assertNotIn("5/10 → 0/10", overview)
+        self.assertNotIn("5/10 → 0/10", results)
+        self.assertIn("净变化 待运行 · 原 resolved 回归 待运行", results)
+
+    def test_schema_v3_uses_only_phase2_trace_and_usage_identity(self):
+        with (
+            tempfile.TemporaryDirectory() as tmp,
+            tempfile.TemporaryDirectory() as outside_tmp,
+        ):
+            project_dir = Path(tmp)
+            outside_case = Path(outside_tmp) / "cases/external-case"
+            outside_case.mkdir(parents=True)
+            (outside_case / "trace.json").write_text(
+                json.dumps({"task": "outside-trace", "events": []}),
+                encoding="utf-8",
+            )
+            summary_path = (
+                project_dir / "benchmarks" / "runtime-quality" / "golden-10-v1.json"
+            )
+            summary_path.parent.mkdir(parents=True)
+            summary = _phase2_runtime_quality_summary()
+            phase2 = summary["phase2"]
+            assert isinstance(phase2, dict)
+            phase2["evidence_run_dirs"] = {
+                "empty": [""],
+                "outside": [outside_tmp],
+                "target": [".agent_forge/phase2/target/run"],
+            }
+            summary_path.write_text(
+                json.dumps(summary, ensure_ascii=False),
+                encoding="utf-8",
+            )
+            phase1_case = project_dir / ".agent_forge/phase1/run/cases/old-case"
+            phase2_case = project_dir / ".agent_forge/phase2/target/run/cases/new-case"
+            phase1_case.mkdir(parents=True)
+            phase2_case.mkdir(parents=True)
+            (phase1_case / "trace.json").write_text(
+                json.dumps({"task": "phase1-old-trace", "events": []}),
+                encoding="utf-8",
+            )
+            (phase1_case / "usage.json").write_text(
+                json.dumps({"summary": {"llm_calls": 99}}),
+                encoding="utf-8",
+            )
+            phase2_trace = phase2_case / "trace.json"
+            phase2_usage = phase2_case / "usage.json"
+            phase2_trace.write_text(
+                json.dumps({"task": "phase2-current-trace", "events": []}),
+                encoding="utf-8",
+            )
+            phase2_usage.write_text(
+                json.dumps({"summary": {"llm_calls": 2}}),
+                encoding="utf-8",
+            )
+
+            source = next(
+                item
+                for item in FileEvidenceCatalog(project_dir).evidence_sources()
+                if item.key == "evaluation"
+            )
+            timeline = _render_workspace_view(
+                project_dir,
+                source_key="evaluation",
+                view="timeline",
+            )
+
+        self.assertEqual(
+            source.run_dir,
+            project_dir / ".agent_forge/phase2/target/run",
+        )
+        self.assertEqual(source.usage_path, phase2_usage)
+        self.assertEqual(source.trace_entries[0][1], phase2_trace)
+        self.assertIn("Phase 2 · target · new-case", source.trace_entries[0][0])
+        self.assertTrue(
+            all("phase1" not in str(path) for _, path in source.trace_entries)
+        )
+        self.assertIn("Phase 2 · target · new-case", timeline)
+        self.assertIn(str(phase2_trace), timeline)
+        self.assertNotIn(str(phase1_case / "trace.json"), timeline)
+        self.assertNotIn(str(outside_case / "trace.json"), timeline)
+
+    def test_phase2_accepted_tone_does_not_accept_suffix_collisions(self):
+        self.assertEqual(_tone_for_status("Phase 2 · accepted"), "ok")
+        self.assertEqual(_tone_for_status("accepted"), "ok")
+        self.assertEqual(_tone_for_status("adopted"), "ok")
+        self.assertNotEqual(_tone_for_status("not_accepted"), "ok")
+        self.assertNotEqual(_tone_for_status("unaccepted"), "ok")
+        self.assertEqual(_tone_for_status("failed · accepted"), "bad")
+
     def test_legacy_runtime_quality_summary_fails_closed_as_pre_r0(self):
         with tempfile.TemporaryDirectory() as tmp:
             project_dir = Path(tmp)
             summary_path = (
-                project_dir
-                / "benchmarks"
-                / "runtime-quality"
-                / "golden-10-v1.json"
+                project_dir / "benchmarks" / "runtime-quality" / "golden-10-v1.json"
             )
             summary_path.parent.mkdir(parents=True)
             summary_path.write_text(
@@ -1217,10 +1502,7 @@ class WorkbenchRunStoryTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             project_dir = Path(tmp)
             summary_path = (
-                project_dir
-                / "benchmarks"
-                / "runtime-quality"
-                / "golden-10-v1.json"
+                project_dir / "benchmarks" / "runtime-quality" / "golden-10-v1.json"
             )
             summary_path.parent.mkdir(parents=True)
             reference_metrics = {

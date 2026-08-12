@@ -57,13 +57,20 @@ NanoHarness 把“机制是否存在”和“Runtime 质量如何”分开验证
 和行为回归验收，后者使用预注册 SWE-bench Case、单因素配对实验和 official
 evaluator。
 
-功能冻结后，项目在固定 Golden-10、模型、工具集合和资源边界上完成了两轮候选优化。
-R1 虽将 Sentinel-4 Token 降低约 15%，却产生语义退化，因此被逐题哨兵拒绝；R2 保住
-已知 solved 锚点，将候选 Patch 覆盖从 `5/10` 提高到 `8/10`、无 Patch 退出从 `5`
-降到 `2`、失败 ToolCall 从 `29` 降到 `19`，同时 Token 下降 13.2%。
+功能冻结后的证据分成两阶段。Phase 1 在固定 DeepSeek Golden-10 上建立 `4/10 planned`
+official resolved 的正式 R0；R1-R3 虽出现局部正向或机制命中，却触发语义/correctness gate，
+因此全部拒绝并回滚，旧 `8/10` 只是探索期 candidate Patch 覆盖，从未被采纳为解决率提升。
 
-这些数字证明的是 Runtime 收敛和效率改善，不是 SWE-bench 总体解决率；R2 的 7 个新
-Patch 尚未官方裁决。完整实验协议、负结果和设计复盘见
+Phase 2 更换为 `opencode-go / glm-5.2` 后重新建立独立基线，不与 Phase 1 做严格 A/B。一个
+Operation Ledger 的 68 行通用候选，只在同 Run、完整 fingerprint 证明目标被逆操作恢复到
+precondition 时允许一次重放：历史 Pytest 8399 `0/2` official unresolved 转为 fresh Treatment
+`2/2` resolved，机制标记 `2/2`；三个冻结 Guard 保持 `3/3` resolved 且标记为 0。这个结果是
+post-hoc selected、Case-level 的正向复现，本地 validation 仍失败，不能外推为 SWE-bench 总体
+uplift。唯一 Golden-10 扩跑随后只有 `4 resolved / 5 unresolved / 1 empty`，低于 Phase-2 R0 的
+`5/10`，原五个 resolved 只保留 `3/5`；另有 1 次 Provider transport timeout 使 comparison
+protocol-invalid。即使忽略该 infra，净退化和两个锚点回归也分别触发拒绝。因此该通用 Treatment
+未被采纳、应回滚，当前 Goal/Gate 4 未完成；窄 Case 证据保留，但不能称为 Golden non-regression。
+完整协议、Golden-10 单次扩跑、负结果和声明边界见
 [Runtime 质量实验](docs/evaluation/功能冻结后的Runtime质量实验.md)，机器可读摘要见
 [Golden-10 证据](benchmarks/runtime-quality/golden-10-v1.json)。
 

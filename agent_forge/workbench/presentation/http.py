@@ -366,10 +366,25 @@ def _source_overview_facts(
         batches = len(fanout.get("batches") or [])
         return (
             [
-                ("任务完成", f"{completed_count}/{task_count}", "Worker 最终状态", "ok" if task_count and completed_count == task_count else "warn"),
+                (
+                    "任务完成",
+                    f"{completed_count}/{task_count}",
+                    "Worker 最终状态",
+                    "ok" if task_count and completed_count == task_count else "warn",
+                ),
                 ("并发批次", str(batches), "按依赖和写入范围分组", "neutral"),
-                ("范围冲突", str(conflicts), "合并前确定性门禁", "bad" if conflicts else "ok"),
-                ("Agent Trace", str(len(source.trace_entries)), "Worker 与 Finalizer", "neutral"),
+                (
+                    "范围冲突",
+                    str(conflicts),
+                    "合并前确定性门禁",
+                    "bad" if conflicts else "ok",
+                ),
+                (
+                    "Agent Trace",
+                    str(len(source.trace_entries)),
+                    "Worker 与 Finalizer",
+                    "neutral",
+                ),
             ],
             "这里只证明这次显式计划的依赖、隔离、合并和 Finalizer 结果；不外推通用多 Agent 收益。",
         )
@@ -417,12 +432,78 @@ def _source_overview_facts(
                     ],
                     "这是迁移保留的 Pre-R0 探索性摘要；Workbench 会 fail-closed，不把旧 accepted_iteration 提升为正式参考。",
                 )
+            phase2 = _phase2_summary(quality_summary)
+            if phase2:
+                case_study = _mapping(phase2.get("case_study"))
+                target_baseline = _mapping(case_study.get("baseline_metrics"))
+                target_treatment = _mapping(case_study.get("treatment_metrics"))
+                guards = _mapping(phase2.get("guards"))
+                guard_metrics = _mapping(guards.get("metrics"))
+                golden = _mapping(phase2.get("golden10_expansion"))
+                golden_baseline = _mapping(golden.get("baseline_metrics"))
+                golden_treatment = _mapping(golden.get("treatment_metrics"))
+                activation_observed = _optional_metric(
+                    target_treatment,
+                    "mechanism_activation_observed",
+                    "activation_observed",
+                )
+                if activation_observed is None:
+                    activation_observed = _optional_metric(
+                        case_study,
+                        "mechanism_activation_observed",
+                        "activation_observed",
+                    )
+                activation_expected = _optional_metric(
+                    target_treatment,
+                    "mechanism_activation_expected",
+                    "activation_expected",
+                )
+                if activation_expected is None:
+                    activation_expected = _optional_metric(
+                        case_study,
+                        "mechanism_activation_expected",
+                        "activation_expected",
+                    )
+                return (
+                    [
+                        (
+                            "Target 个案",
+                            _quality_transition(target_baseline, target_treatment),
+                            "历史基线 → 固定 Treatment；独立分母",
+                            _quality_result_tone(target_treatment),
+                        ),
+                        (
+                            "机制激活",
+                            _optional_ratio(activation_observed, activation_expected),
+                            "Operation Ledger 记号实际观测 / 预期",
+                            "ok"
+                            if activation_expected is not None
+                            and activation_expected > 0
+                            and activation_observed == activation_expected
+                            else "warn",
+                        ),
+                        (
+                            "正确性 Guards",
+                            _quality_result(guard_metrics),
+                            "原已解决样本；不与 Target 合并分母",
+                            _quality_result_tone(guard_metrics),
+                        ),
+                        (
+                            "Golden-10 扩展",
+                            _quality_transition(golden_baseline, golden_treatment),
+                            "仅完整扩展可支持总体样本内对比",
+                            _quality_result_tone(golden_treatment),
+                        ),
+                    ],
+                    "Phase 2 先报告 post-hoc Case-level 机制证据；Target、Guards 和 Golden-10 各自保留分母，不外推 SWE-bench Verified 总体提升。",
+                )
             reference_iteration = str(
-                quality_summary.get("reference_iteration")
-                or "R0"
+                quality_summary.get("reference_iteration") or "R0"
             )
             metrics = _quality_reference_metrics(quality_summary)
-            planned = _quality_metric(metrics, "planned", "case_count", "official_denominator")
+            planned = _quality_metric(
+                metrics, "planned", "case_count", "official_denominator"
+            )
             resolved = _quality_metric(metrics, "official_resolved", "confirmed_solved")
             decided = _quality_decided(metrics, planned)
             patch_count = int(metrics.get("patch_generated") or 0)
@@ -463,7 +544,9 @@ def _source_overview_facts(
                         "候选优化",
                         accepted or "0 轮采纳",
                         f"{rejected_count}/{len(candidate_iterations)} 轮按预注册 gate 拒绝",
-                        "ok" if accepted and accepted != reference_iteration else "warn",
+                        "ok"
+                        if accepted and accepted != reference_iteration
+                        else "warn",
                     ),
                 ],
                 "主指标始终是 resolved / planned。Sentinel 与 Golden-10 分母不同，不做百分比横比，也不外推为 SWE-bench Verified 总体解决率。",
@@ -473,14 +556,23 @@ def _source_overview_facts(
         state = _latest_campaign_state(project_dir)
         paired = summary.get("paired_sample") or summary.get("paired_official") or {}
         status_counts = summary.get("status_counts") or {}
-        records = [item for item in state.get("records") or [] if isinstance(item, dict)]
-        case_count = len({str(item.get("case_id")) for item in records if item.get("case_id")})
+        records = [
+            item for item in state.get("records") or [] if isinstance(item, dict)
+        ]
+        case_count = len(
+            {str(item.get("case_id")) for item in records if item.get("case_id")}
+        )
         variant_count = len(summary.get("variants") or {})
         planned = int(summary.get("planned_runs") or 0)
         completed = int(status_counts.get("completed") or 0)
         return (
             [
-                ("运行槽位", f"{completed}/{planned}", "Case × 配置 × 重复", "ok" if planned and completed == planned else "warn"),
+                (
+                    "运行槽位",
+                    f"{completed}/{planned}",
+                    "Case × 配置 × 重复",
+                    "ok" if planned and completed == planned else "warn",
+                ),
                 ("Case", str(case_count), "当前批次实际覆盖", "neutral"),
                 ("配置", str(variant_count), "受控变量对比", "neutral"),
                 (
@@ -506,14 +598,30 @@ def _source_overview_facts(
     trace_path = source.trace_entries[0][1] if source.trace_entries else None
     trace = _read_json_file(trace_path)
     events = _event_list(trace)
-    turns = {int(event.get("step") or 0) for event in events if int(event.get("step") or 0) > 0}
-    checkpoints = sum(event.get("event_type") == "task_state_checkpoint" for event in events)
+    turns = {
+        int(event.get("step") or 0)
+        for event in events
+        if int(event.get("step") or 0) > 0
+    }
+    checkpoints = sum(
+        event.get("event_type") == "task_state_checkpoint" for event in events
+    )
     failed_tools = int(summary.get("failed_tool_calls") or 0)
     return (
         [
             ("Agent Turn", str(len(turns)), "真实模型边界", "neutral"),
-            ("模型调用", str(int(summary.get("llm_calls") or 0)), "实际请求次数", "neutral"),
-            ("工具调用", str(int(summary.get("tool_calls") or 0)), f"失败 {failed_tools} 次", "bad" if failed_tools else "ok"),
+            (
+                "模型调用",
+                str(int(summary.get("llm_calls") or 0)),
+                "实际请求次数",
+                "neutral",
+            ),
+            (
+                "工具调用",
+                str(int(summary.get("tool_calls") or 0)),
+                f"失败 {failed_tools} 次",
+                "bad" if failed_tools else "ok",
+            ),
             ("Checkpoint", str(checkpoints), "可恢复状态边界", "neutral"),
         ],
         "本页描述单次 Runtime 事实；候选改动、本地验证和官方解决必须继续分层判断。",
@@ -687,7 +795,12 @@ def _render_single_source_results(source: EvidenceSource) -> str:
         f"{_badge(_display_value(source.status), _tone_for_status(source.status))}</div>"
         + _metric_grid(
             [
-                ("模型调用", str(summary.get("llm_calls", 0)), "实际请求次数", "neutral"),
+                (
+                    "模型调用",
+                    str(summary.get("llm_calls", 0)),
+                    "实际请求次数",
+                    "neutral",
+                ),
                 (
                     "工具调用",
                     str(summary.get("tool_calls", 0)),
@@ -964,11 +1077,7 @@ def _render_observability_overview(project_dir: Path) -> str:
         paired.get("adjudicated_pairs") or paired.get("evaluated_pairs") or 0
     )
     evidence_state = "official" if paired_count else "fact"
-    evidence_text = (
-        f"{paired_count} 组可裁决配对"
-        if paired_count
-        else "只有运行事实"
-    )
+    evidence_text = f"{paired_count} 组可裁决配对" if paired_count else "只有运行事实"
 
     hierarchy = (
         "<div class='scope-hierarchy'>"
@@ -1647,11 +1756,7 @@ def _render_complex_context_inspector(project_dir: Path) -> str:
 
     key_turns = [turn for turn in turns if turn.is_key_turn]
     unique_tools = sorted(
-        {
-            decision.tool_name
-            for turn in turns
-            for decision in turn.tool_decisions
-        }
+        {decision.tool_name for turn in turns for decision in turn.tool_decisions}
     )
     peak_tokens = max((turn.estimated_tokens for turn in turns), default=0)
     compacted_turns = sum(turn.compacted for turn in turns)
@@ -1699,7 +1804,12 @@ def _render_complex_context_inspector(project_dir: Path) -> str:
                     "发生压缩的 Turn 数",
                     "warn" if compacted_turns else "neutral",
                 ),
-                ("实际工具", str(len(unique_tools)), "本次真正调用过的工具种类", "neutral"),
+                (
+                    "实际工具",
+                    str(len(unique_tools)),
+                    "本次真正调用过的工具种类",
+                    "neutral",
+                ),
             ]
         )
         + "<section class='evidence-section'><div class='section-title'>"
@@ -1837,15 +1947,20 @@ def _render_context_feedback_list(decisions: tuple[ToolDecision, ...]) -> str:
 
 
 def _render_context_technical_details(turn: ContextTurnInspection) -> str:
-    system_rows = "".join(
-        f"<tr><td>{_escape(_display_context_section(component.key))}</td>"
-        f"<td>{component.chars:,}</td></tr>"
-        for component in turn.system_sections
-    ) or "<tr><td colspan='2'>没有区段数据</td></tr>"
+    system_rows = (
+        "".join(
+            f"<tr><td>{_escape(_display_context_section(component.key))}</td>"
+            f"<td>{component.chars:,}</td></tr>"
+            for component in turn.system_sections
+        )
+        or "<tr><td colspan='2'>没有区段数据</td></tr>"
+    )
     tools_state = "发生变化" if turn.tools_changed else "与上一轮相同"
     skills_state = "发生变化" if turn.skills_changed else "与上一轮相同"
     files_seen = "、".join(turn.files_seen) or "尚未通过 read_file 取得文件正文"
-    selected_files = "、".join(turn.selected_files) or "0（本次文件正文来自工具 Observation）"
+    selected_files = (
+        "、".join(turn.selected_files) or "0（本次文件正文来自工具 Observation）"
+    )
     visible_tools = "、".join(turn.visible_tools) or "无"
     active_skills = "、".join(turn.active_skills) or "无"
     dropped_tools = "、".join(turn.dropped_tools) or "无"
@@ -1942,9 +2057,7 @@ def _render_complex_lab_dashboard(project_dir: Path) -> str:
     practice_profile = _read_json_file(run_dir / "practice_profile.json")
     auto_approve_writes = practice_profile.get("auto_approve_writes") is True
     max_steps = int(practice_profile.get("max_steps") or 24)
-    write_approval_label = (
-        "隔离区内自动批准" if auto_approve_writes else "逐项人工审批"
-    )
+    write_approval_label = "隔离区内自动批准" if auto_approve_writes else "逐项人工审批"
     write_approval_boundary = (
         "普通写操作不中断；路径、命令与网络边界仍执行"
         if auto_approve_writes
@@ -1965,7 +2078,11 @@ def _render_complex_lab_dashboard(project_dir: Path) -> str:
     status = (
         story.status
         if story is not None
-        else str(usage_summary.get("latest_task_status") or trace.get("stop_reason") or "unknown")
+        else str(
+            usage_summary.get("latest_task_status")
+            or trace.get("stop_reason")
+            or "unknown"
+        )
     )
     checkpoint_count = sum(
         event.get("event_type") == "task_state_checkpoint" for event in events
@@ -1977,7 +2094,11 @@ def _render_complex_lab_dashboard(project_dir: Path) -> str:
     candidate_diff_bytes = 0
     if story is not None:
         candidate_diff = next(
-            (artifact for artifact in story.artifacts if artifact.kind == "candidate_diff"),
+            (
+                artifact
+                for artifact in story.artifacts
+                if artifact.kind == "candidate_diff"
+            ),
             None,
         )
         candidate_diff_bytes = candidate_diff.byte_size if candidate_diff else 0
@@ -1985,10 +2106,13 @@ def _render_complex_lab_dashboard(project_dir: Path) -> str:
     validation_events = [
         event for event in events if event.get("event_type") == "validation_evidence"
     ]
-    validation_rows = "".join(
-        _render_complex_validation_row(index, event)
-        for index, event in enumerate(validation_events, start=1)
-    ) or "<tr><td colspan='4'>本次运行尚未留下 focused/full pytest 证据。</td></tr>"
+    validation_rows = (
+        "".join(
+            _render_complex_validation_row(index, event)
+            for index, event in enumerate(validation_events, start=1)
+        )
+        or "<tr><td colspan='4'>本次运行尚未留下 focused/full pytest 证据。</td></tr>"
+    )
 
     body = [
         "<div class='view-heading'><div><span class='view-kicker'>真实 DEEPSEEK 运行</span>"
@@ -2033,7 +2157,11 @@ def _render_complex_lab_dashboard(project_dir: Path) -> str:
                 (
                     "运行状态",
                     _display_value(status),
-                    str(story.stop_reason if story is not None else trace.get("stop_reason") or "-"),
+                    str(
+                        story.stop_reason
+                        if story is not None
+                        else trace.get("stop_reason") or "-"
+                    ),
                     _tone_for_status(status),
                 ),
                 (
@@ -2061,7 +2189,9 @@ def _render_complex_lab_dashboard(project_dir: Path) -> str:
                     "上下文压缩",
                     str(int(usage_summary.get("compacted_context_turns") or 0)),
                     f"截断 {int(usage_summary.get('truncated_context_steps') or 0)} 轮 · 溢出恢复 {int(usage_summary.get('context_overflow_recoveries') or 0)} 次",
-                    "warn" if usage_summary.get("compacted_context_turns") else "neutral",
+                    "warn"
+                    if usage_summary.get("compacted_context_turns")
+                    else "neutral",
                 ),
                 (
                     "Checkpoint / 人工介入",
@@ -2118,7 +2248,9 @@ def _render_complex_validation_row(index: int, event: dict[str, Any]) -> str:
     if not isinstance(validation, dict):
         validation = {}
     kind = str(validation.get("kind") or "unknown")
-    status = str(validation.get("status") or ("passed" if event.get("success") else "failed"))
+    status = str(
+        validation.get("status") or ("passed" if event.get("success") else "failed")
+    )
     evidence = str(validation.get("evidence") or "")
     evidence_lines = [line.strip() for line in evidence.splitlines() if line.strip()]
     summary = " · ".join(evidence_lines[:3]) or "没有记录命令摘要"
@@ -2890,7 +3022,9 @@ def _event_subject(event: dict[str, Any]) -> str:
         guardrail = event.get("guardrail") or {}
         if isinstance(guardrail, dict):
             category = _display_value(guardrail.get("category") or "unknown")
-            outcome = "检查通过" if bool(guardrail.get("passed", True)) else "记录到问题"
+            outcome = (
+                "检查通过" if bool(guardrail.get("passed", True)) else "记录到问题"
+            )
             return f"{category} · {outcome}"
     if event_type == "validation_evidence":
         validation = event.get("validation") or {}
@@ -3763,17 +3897,12 @@ def _render_runtime_controls(project_dir: Path) -> str:
     )
     skill_event = _last_event(trace, "skill_selection")
     skill_records = [
-        item
-        for item in (skill_event.get("skills") or [])
-        if isinstance(item, dict)
+        item for item in (skill_event.get("skills") or []) if isinstance(item, dict)
     ]
     active_skills = (
         context_snapshot.get("active_skills")
         or skill_event.get("selected_skills")
-        or [
-            f"{item.get('name')}@{item.get('version')}"
-            for item in skill_records
-        ]
+        or [f"{item.get('name')}@{item.get('version')}" for item in skill_records]
         or []
     )
     skill_activation_lines = [
@@ -4103,14 +4232,67 @@ def _quality_metric(metrics: dict[str, Any], *names: str) -> int:
     return 0
 
 
+def _mapping(value: object) -> dict[str, Any]:
+    """收窄机器摘要的可选对象，避免 schema 演进时渲染器崩溃。"""
+
+    return value if isinstance(value, dict) else {}
+
+
+def _phase2_summary(experiment: dict[str, Any]) -> dict[str, Any]:
+    """schema v3 才启用 Phase 2；不影响 v1/v2 的发布故事。"""
+
+    if int(experiment.get("schema_version") or 1) < 3:
+        return {}
+    return _mapping(experiment.get("phase2"))
+
+
+def _optional_metric(metrics: dict[str, Any], *names: str) -> int | None:
+    """读取可选整数指标；缺失与真实零值必须区分。"""
+
+    for name in names:
+        value = metrics.get(name)
+        if value is not None:
+            return int(value)
+    return None
+
+
+def _quality_result(metrics: dict[str, Any]) -> str:
+    """格式化独立 cohort 的 resolved/planned；未收口时不伪造 0/N。"""
+
+    resolved = _optional_metric(metrics, "official_resolved", "confirmed_solved")
+    planned = _optional_metric(metrics, "planned", "case_count", "official_denominator")
+    if resolved is None or planned is None:
+        return "待运行"
+    return f"{resolved}/{planned}"
+
+
+def _quality_transition(
+    baseline_metrics: dict[str, Any],
+    treatment_metrics: dict[str, Any],
+) -> str:
+    return f"{_quality_result(baseline_metrics)} → {_quality_result(treatment_metrics)}"
+
+
+def _quality_result_tone(metrics: dict[str, Any]) -> str:
+    resolved = _optional_metric(metrics, "official_resolved", "confirmed_solved")
+    planned = _optional_metric(metrics, "planned", "case_count", "official_denominator")
+    if resolved is None or planned is None:
+        return "warn"
+    return "ok" if planned and resolved == planned else "neutral"
+
+
+def _optional_ratio(numerator: int | None, denominator: int | None) -> str:
+    if numerator is None or denominator is None:
+        return "待运行"
+    return f"{numerator}/{denominator}"
+
+
 def _quality_reference_metrics(experiment: dict[str, Any]) -> dict[str, Any]:
     """返回 schema v2 的正式参考基线；旧摘要只取首轮过程事实。"""
 
     schema_version = int(experiment.get("schema_version") or 1)
     iterations = [
-        item
-        for item in experiment.get("iterations") or []
-        if isinstance(item, dict)
+        item for item in experiment.get("iterations") or [] if isinstance(item, dict)
     ]
     if schema_version >= 2:
         value = experiment.get("reference_metrics")
@@ -4206,19 +4388,18 @@ def _render_legacy_runtime_quality_dashboard(
     return "<div class='evidence'>" + "".join(body) + "</div>"
 
 
-def _render_runtime_quality_dashboard(
+def _render_phase1_runtime_quality_dashboard(
     experiment: dict[str, Any],
     source_path: Path | None,
+    *,
+    retained_after_phase2: bool = False,
 ) -> str:
     """展示正式基线、候选决策和证据边界，不混用不同实验分母。"""
 
     if int(experiment.get("schema_version") or 1) < 2:
         return _render_legacy_runtime_quality_dashboard(experiment, source_path)
 
-    reference_iteration = str(
-        experiment.get("reference_iteration")
-        or "R0"
-    )
+    reference_iteration = str(experiment.get("reference_iteration") or "R0")
     accepted_iteration = str(experiment.get("accepted_iteration") or "")
     reference_metrics = _quality_reference_metrics(experiment)
     iterations = [
@@ -4324,8 +4505,12 @@ def _render_runtime_quality_dashboard(
     )
     historical_value = experiment.get("historical_exploration") or []
     if isinstance(historical_value, dict):
-        historical = historical_value.get("iterations") or historical_value.get("runs") or []
-        historical_shortcomings = historical_value.get("three_primary_shortcomings") or []
+        historical = (
+            historical_value.get("iterations") or historical_value.get("runs") or []
+        )
+        historical_shortcomings = (
+            historical_value.get("three_primary_shortcomings") or []
+        )
     else:
         historical = historical_value
         historical_shortcomings = []
@@ -4374,9 +4559,7 @@ def _render_runtime_quality_dashboard(
         if isinstance(check, dict)
     )
     cost_and_time_value = experiment.get("cost_and_time")
-    cost_and_time = (
-        cost_and_time_value if isinstance(cost_and_time_value, dict) else {}
-    )
+    cost_and_time = cost_and_time_value if isinstance(cost_and_time_value, dict) else {}
     observed_costs = cost_and_time.get("observed") or []
     cost_rows = "".join(
         "<tr>"
@@ -4446,9 +4629,7 @@ def _render_runtime_quality_dashboard(
         for item in candidate_iterations
     )
     pending_candidate_count = (
-        len(candidate_iterations)
-        - accepted_candidate_count
-        - rejected_candidate_count
+        len(candidate_iterations) - accepted_candidate_count - rejected_candidate_count
     )
     if accepted_iteration:
         candidate_decision_note = f"采纳 {accepted_iteration}"
@@ -4473,9 +4654,7 @@ def _render_runtime_quality_dashboard(
     empty_mechanism_row = '<tr><td colspan="7">没有独立机制检验。</td></tr>'
     empty_cost_row = '<tr><td colspan="6">没有成本与时间记录。</td></tr>'
     case_column_count = len(iteration_ids) + 2
-    empty_case_row = (
-        f'<tr><td colspan="{case_column_count}">尚无逐题结果。</td></tr>'
-    )
+    empty_case_row = f'<tr><td colspan="{case_column_count}">尚无逐题结果。</td></tr>'
     case_headers = "".join(
         f"<th>{_escape(iteration_id)}</th>" for iteration_id in iteration_ids
     )
@@ -4488,12 +4667,22 @@ def _render_runtime_quality_dashboard(
             f"{_escape(rollback.get('reason') or '')}</p>"
         )
 
+    phase1_kicker = (
+        "PHASE 1 · 历史正式 R0-R3（完整保留）"
+        if retained_after_phase2
+        else "功能冻结后的正式质量实验"
+    )
+    phase1_iteration_heading = (
+        "Phase 1 · 正式 R0-R3" if retained_after_phase2 else "正式 R0-R3"
+    )
     body = [
-        "<div class='view-heading'><div><span class='view-kicker'>功能冻结后的正式质量实验</span>"
+        f"<div class='view-heading'><div><span class='view-kicker'>{phase1_kicker}</span>"
         f"<h2>{_escape(experiment.get('title') or 'Runtime 质量实验')}</h2></div>"
         f"{_badge(status, _tone_for_status(status))}</div>",
         _render_lab_brief(
-            question=str(experiment.get("question") or "Runtime 质量是否可测量、可改进？"),
+            question=str(
+                experiment.get("question") or "Runtime 质量是否可测量、可改进？"
+            ),
             input_label="固定样本",
             input_items=[str(item) for item in experiment.get("case_ids") or []],
             mechanism="冻结 evaluator、模型、Case、工具、预算与环境 → 正式 R0 → Failure Pareto → 单假设 Sentinel → 预注册 gate → 采纳或回滚",
@@ -4533,7 +4722,9 @@ def _render_runtime_quality_dashboard(
                     "候选策略采纳",
                     f"{accepted_candidate_count}/{len(candidate_iterations)}",
                     candidate_decision_note,
-                    "warn" if candidate_iterations and not accepted_candidate_count else "ok",
+                    "warn"
+                    if candidate_iterations and not accepted_candidate_count
+                    else "ok",
                 ),
                 (
                     "R0 Provider Token",
@@ -4556,7 +4747,7 @@ def _render_runtime_quality_dashboard(
             ]
         ),
         "<p class='boundary-note scope-warning'><strong>分母边界：</strong>R0 是 Golden-10；R1-R3 是不同的 Sentinel 子集。表中只展示各轮 resolved / planned，禁止把百分比横向包装成 Golden-10 提升。</p>",
-        "<section class='evidence-section'><div class='section-title'><h3>正式 R0-R3</h3><span>每轮只验证一个主要假设；gate 优先于过程指标</span></div>"
+        f"<section class='evidence-section'><div class='section-title'><h3>{phase1_iteration_heading}</h3><span>每轮只验证一个主要假设；gate 优先于过程指标</span></div>"
         "<table><thead><tr><th>轮次</th><th>范围</th><th>假设与单一改动</th><th>官方结果</th><th>过程证据</th><th>Provider Token / 成本</th><th>决策</th></tr></thead>"
         f"<tbody>{''.join(iteration_rows) or empty_iteration_row}</tbody></table></section>",
         "<section class='evidence-section'><div class='section-title'><h3>机制生效不等于任务成功</h3><span>R3 Trace contract 与任务结果分栏</span></div>"
@@ -4588,6 +4779,282 @@ def _render_runtime_quality_dashboard(
         f"<details class='provenance'><summary>实验摘要来源</summary><code>{_escape(str(source_path or '未找到'))}</code></details>",
     ]
     return "<div class='evidence'>" + "".join(body) + "</div>"
+
+
+def _render_phase2_runtime_quality_dashboard(
+    phase2: dict[str, Any],
+    source_path: Path | None,
+) -> str:
+    """展示 Phase 2 的分层证据，不把 Target、Guard 和 Golden 拼成一个分母。"""
+
+    reference = _mapping(phase2.get("reference"))
+    case_study = _mapping(phase2.get("case_study"))
+    target_baseline = _mapping(case_study.get("baseline_metrics"))
+    target_treatment = _mapping(case_study.get("treatment_metrics"))
+    guards = _mapping(phase2.get("guards"))
+    guard_metrics = _mapping(guards.get("metrics"))
+    golden = _mapping(phase2.get("golden10_expansion"))
+    golden_baseline = _mapping(golden.get("baseline_metrics"))
+    golden_treatment = _mapping(golden.get("treatment_metrics"))
+    treatment = _mapping(phase2.get("treatment"))
+    usage = _mapping(phase2.get("usage"))
+
+    activation_observed = _optional_metric(
+        target_treatment,
+        "mechanism_activation_observed",
+        "activation_observed",
+    )
+    if activation_observed is None:
+        activation_observed = _optional_metric(
+            case_study,
+            "mechanism_activation_observed",
+            "activation_observed",
+        )
+    activation_expected = _optional_metric(
+        target_treatment,
+        "mechanism_activation_expected",
+        "activation_expected",
+    )
+    if activation_expected is None:
+        activation_expected = _optional_metric(
+            case_study,
+            "mechanism_activation_expected",
+            "activation_expected",
+        )
+    unsafe_replays = _optional_metric(
+        guard_metrics,
+        "unsafe_replay_count",
+        "unsafe_replays",
+    )
+    marker = str(
+        treatment.get("mechanism_marker")
+        or treatment.get("marker")
+        or "replay_authorized_restored_precondition"
+    )
+    decision = str(phase2.get("decision") or phase2.get("status") or "pending")
+
+    net_delta_value = golden.get("net_official_resolved_delta")
+    net_delta = "待运行" if net_delta_value is None else f"{int(net_delta_value):+d}"
+    regressions_value = golden.get("baseline_resolved_regressions")
+    if regressions_value is None:
+        regression_text = "待运行"
+    elif isinstance(regressions_value, list):
+        regression_text = str(len(regressions_value))
+    else:
+        regression_text = str(regressions_value)
+
+    gates = _mapping(phase2.get("gates"))
+    gate_rows: list[str] = []
+    for gate_name, gate_value in gates.items():
+        gate = _mapping(gate_value)
+        if gate:
+            gate_status = str(
+                gate.get("status")
+                or gate.get("decision")
+                or gate.get("result")
+                or "pending"
+            )
+            gate_evidence = str(
+                gate.get("evidence") or gate.get("detail") or gate.get("criteria") or ""
+            )
+        else:
+            gate_status = str(gate_value or "pending")
+            gate_evidence = ""
+        gate_rows.append(
+            "<tr>"
+            f"<td>{_escape(gate_name)}</td>"
+            f"<td>{_badge(gate_status, _tone_for_status(gate_status))}</td>"
+            f"<td>{_escape(gate_evidence)}</td>"
+            "</tr>"
+        )
+
+    golden_case_rows: list[str] = []
+    for case in golden.get("case_results") or []:
+        if not isinstance(case, dict):
+            continue
+        baseline_value = case.get("baseline")
+        treatment_value = case.get("treatment")
+        baseline = (
+            _quality_case_result_label(baseline_value)
+            if isinstance(baseline_value, dict)
+            else _display_value(
+                baseline_value or case.get("baseline_status") or "not_evaluated"
+            )
+        )
+        treatment_label = (
+            _quality_case_result_label(treatment_value)
+            if isinstance(treatment_value, dict)
+            else _display_value(
+                treatment_value or case.get("treatment_status") or "not_evaluated"
+            )
+        )
+        golden_case_rows.append(
+            "<tr>"
+            f"<td class='mono'>{_escape(case.get('case_id') or '')}</td>"
+            f"<td>{_escape(baseline)}</td>"
+            f"<td>{_escape(treatment_label)}</td>"
+            f"<td>{_escape(case.get('transition') or case.get('note') or '')}</td>"
+            "</tr>"
+        )
+
+    evidence_dirs_value = phase2.get("evidence_run_dirs")
+    evidence_dir_items: list[str] = []
+    if isinstance(evidence_dirs_value, dict):
+        for group_name, values in evidence_dirs_value.items():
+            grouped_values = values if isinstance(values, list) else [values]
+            evidence_dir_items.extend(
+                f"{group_name}: {value}" for value in grouped_values if value
+            )
+    elif isinstance(evidence_dirs_value, list):
+        evidence_dir_items.extend(str(value) for value in evidence_dirs_value if value)
+
+    supported_claims = _string_items(phase2.get("supported_claims"))
+    unsupported_claims = _string_items(phase2.get("unsupported_claims"))
+    boundaries = _string_items(phase2.get("boundaries"))
+    explicit_scope = str(
+        phase2.get("claim_scope")
+        or "post-hoc Case-level 机制故事；不外推为 SWE-bench Verified 总体提升"
+    )
+
+    provider_tokens = _optional_metric(usage, "provider_tokens", "total_tokens")
+    llm_calls = _optional_metric(usage, "llm_calls")
+    estimated_cost_value = usage.get("estimated_cost_usd")
+    estimated_cost = (
+        "待运行"
+        if estimated_cost_value is None
+        else f"${float(estimated_cost_value):.6f}"
+    )
+    empty_gate_row = '<tr><td colspan="3">尚无 gate 记录。</td></tr>'
+    empty_case_row = '<tr><td colspan="4">Golden-10 扩展待运行。</td></tr>'
+    reference_metrics = _mapping(reference.get("metrics"))
+    reference_label = str(reference.get("id") or "P2-R0")
+
+    body = [
+        "<div class='view-heading'><div><span class='view-kicker'>PHASE 2 · OPERATION LEDGER TREATMENT</span>"
+        f"<h2>{_escape(phase2.get('title') or 'Runtime 恢复前置条件重放实验')}</h2></div>"
+        f"{_badge(decision, _tone_for_status(decision))}</div>",
+        _render_lab_brief(
+            question=str(
+                phase2.get("question")
+                or "在恢复到已执行操作的前置状态后，一次受限重放能否保留正确候选修复？"
+            ),
+            input_label="分层 cohort",
+            input_items=[
+                f"Target: {_quality_transition(target_baseline, target_treatment)}",
+                f"Guards: {_quality_result(guard_metrics)}",
+                f"Golden-10: {_quality_transition(golden_baseline, golden_treatment)}",
+            ],
+            mechanism=(
+                f"恢复前置指纹精确匹配 → 仅授权一次同运行重放 → {marker} 可观测 → 其余漂移 fail closed"
+            ),
+            success_criteria=str(
+                phase2.get("success_criteria")
+                or "Target 转正、Guards 无回归；Golden-10 仅按预注册 gate 解读。"
+            ),
+            boundary=explicit_scope,
+        ),
+        _metric_grid(
+            [
+                (
+                    "Target 个案",
+                    _quality_transition(target_baseline, target_treatment),
+                    "历史独立起点 → 新鲜 Treatment",
+                    _quality_result_tone(target_treatment),
+                ),
+                (
+                    "机制激活",
+                    _optional_ratio(activation_observed, activation_expected),
+                    marker,
+                    "ok"
+                    if activation_expected is not None
+                    and activation_expected > 0
+                    and activation_observed == activation_expected
+                    else "warn",
+                ),
+                (
+                    "正确性 Guards",
+                    _quality_result(guard_metrics),
+                    f"unsafe replay {_display_value(unsafe_replays) if unsafe_replays is not None else '待运行'}",
+                    _quality_result_tone(guard_metrics),
+                ),
+                (
+                    "Golden-10 扩展",
+                    _quality_transition(golden_baseline, golden_treatment),
+                    f"净变化 {net_delta} · 原 resolved 回归 {regression_text}",
+                    _quality_result_tone(golden_treatment),
+                ),
+                (
+                    "Phase 2 参考",
+                    f"{reference_label} · {_quality_result(reference_metrics)}",
+                    str(
+                        reference.get("model")
+                        or reference.get("provider_model")
+                        or "固定基线"
+                    ),
+                    "neutral",
+                ),
+                (
+                    "Provider Token / LLM",
+                    (
+                        f"{provider_tokens:,} / {llm_calls}"
+                        if provider_tokens is not None and llm_calls is not None
+                        else "待运行"
+                    ),
+                    f"汇总成本 {estimated_cost}",
+                    "neutral",
+                ),
+            ]
+        ),
+        "<p class='boundary-note scope-warning'><strong>主张边界：</strong>"
+        f"{_escape(explicit_scope)}。Target 是 post-hoc Case-level 证据；Guards 只证明固定样本无回归；未完成 Golden-10 时不宣称 population uplift。</p>",
+        "<section class='evidence-section'><div class='section-title'><h3>Phase 2 · 五道验收 Gate</h3><span>先看机制和正确性，再看扩展</span></div>"
+        "<table><thead><tr><th>Gate</th><th>状态</th><th>证据</th></tr></thead>"
+        f"<tbody>{''.join(gate_rows) or empty_gate_row}</tbody></table></section>",
+        "<section class='evidence-section'><div class='section-title'><h3>Golden-10 逐题非回归</h3><span>与 Phase 1 分开显示，不混合 Target / Guard 分母</span></div>"
+        "<table><thead><tr><th>Case</th><th>P2-R0</th><th>Treatment</th><th>转移 / 说明</th></tr></thead>"
+        f"<tbody>{''.join(golden_case_rows) or empty_case_row}</tbody></table></section>",
+        "<details class='evidence-section' open><summary><b>支持与不支持的主张</b></summary>"
+        "<h4>支持</h4>"
+        + _render_fact_list(supported_claims, empty_message="尚未登记额外支持主张。")
+        + "<h4>不支持</h4>"
+        + _render_fact_list(
+            unsupported_claims,
+            empty_message="不支持 SWE-bench Verified 总体解决率提升或唯一因果归因。",
+        )
+        + "<h4>附加边界</h4>"
+        + _render_fact_list(boundaries, empty_message=explicit_scope)
+        + "</details>",
+        "<details class='provenance'><summary>Phase 2 当前 Trace / Usage 身份</summary>"
+        + _render_fact_list(
+            evidence_dir_items,
+            empty_message="本机未保留 Phase 2 原始运行目录；发布摘要仍可审计。",
+        )
+        + f"<code>{_escape(str(source_path or '未找到'))}</code></details>",
+    ]
+    return "<div class='evidence phase-two-evidence'>" + "".join(body) + "</div>"
+
+
+def _render_runtime_quality_dashboard(
+    experiment: dict[str, Any],
+    source_path: Path | None,
+) -> str:
+    """schema v3 优先展示 Phase 2，同时原样保留 Phase 1 证据。"""
+
+    phase2 = _phase2_summary(experiment)
+    if not phase2:
+        return _render_phase1_runtime_quality_dashboard(experiment, source_path)
+    return (
+        "<div class='runtime-quality-phases'>"
+        + _render_phase2_runtime_quality_dashboard(phase2, source_path)
+        + "<div class='boundary-note'><strong>实验分界：</strong>"
+        "以下为 Phase 1 历史正式 R0-R3；模型、处理、分母和结论均不与 Phase 2 合并。</div>"
+        + _render_phase1_runtime_quality_dashboard(
+            experiment,
+            source_path,
+            retained_after_phase2=True,
+        )
+        + "</div>"
+    )
 
 
 def _quality_case_result_label(result: object) -> str:
@@ -4920,9 +5387,7 @@ def _render_benchmark_dashboard(project_dir: Path) -> str:
                 "基础设施排除",
                 str(paired_sample.get("excluded_infrastructure_pairs") or 0),
                 "重试一次后仍失败，不归因到 Agent",
-                "warn"
-                if paired_sample.get("excluded_infrastructure_pairs")
-                else "ok",
+                "warn" if paired_sample.get("excluded_infrastructure_pairs") else "ok",
             ),
             (
                 "配置差异",
@@ -5683,27 +6148,38 @@ def _badge(text: str, tone: str) -> str:
 
 def _tone_for_status(value: str) -> str:
     normalized_status = str(value).lower()
-    if "patch_generated" in normalized_status or normalized_status in {
-        "allow",
-        "approved",
-        "executed",
-        "ok",
-        "pass",
-        "passed",
-        "succeeded",
-        "success",
-    }:
+    failure_markers = (
+        "blocked",
+        "failed",
+        "error",
+        "repeated",
+        "deny",
+        "pending_tool_call_at_stop",
+    )
+    terminal_status = normalized_status.rsplit(" · ", maxsplit=1)[-1]
+    accepted_decision = terminal_status in {"accepted", "adopted"} and not any(
+        marker in normalized_status for marker in failure_markers
+    )
+    if (
+        "patch_generated" in normalized_status
+        or accepted_decision
+        or normalized_status
+        in {
+            "allow",
+            "accepted",
+            "adopted",
+            "approved",
+            "executed",
+            "ok",
+            "pass",
+            "passed",
+            "succeeded",
+            "success",
+        }
+    ):
         return "ok"
     if any(
-        marker in normalized_status
-        for marker in (
-            "blocked",
-            "failed",
-            "error",
-            "repeated",
-            "deny",
-            "pending_tool_call_at_stop",
-        )
+        marker in normalized_status for marker in failure_markers
     ):
         return "bad"
     if normalized_status in {"ask", "executing", "planned", "waiting_approval"}:
