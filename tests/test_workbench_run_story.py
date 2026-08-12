@@ -223,6 +223,57 @@ def _canonical_showcase_summary() -> dict[str, object]:
     }
 
 
+def _quality_selection_incident_summary() -> dict[str, object]:
+    return {
+        "schema_version": 1,
+        "artifact_type": "quality_selection_incident",
+        "title": "Quality Selection v1 · Fail-Closed Incident",
+        "status": "invalid_no_winner",
+        "question": "Why did selection produce no winner?",
+        "headline_eligible": False,
+        "incident": {
+            "planned_case_starts": 20,
+            "slots_before_uniformly_contaminated_tail": 14,
+            "rate_limit_free_case_slots": 11,
+            "rate_limit_affected_case_slots": 9,
+            "uniformly_contaminated_tail_slots": 6,
+        },
+        "decision": {
+            "summarizer_exit_code": 2,
+            "winner": None,
+            "correctness_reruns_performed": 0,
+        },
+        "source_binding": {
+            "source_tag": "quality-selection-test-tag",
+            "source_commit_sha": "abc123",
+            "protocol_sha256": "protocol-sha",
+            "command_manifest_sha256": "manifest-sha",
+        },
+        "run_artifacts": [
+            {
+                "candidate_id": "v4-pro",
+                "shard": "shard-c",
+                "slot_range": [15, 17],
+                "identity": {
+                    "provider": "opencode-go",
+                    "requested_model": "deepseek-v4-pro",
+                    "provider_reported_models": [],
+                },
+                "usage": {"llm_calls": 3, "total_tokens": 100},
+                "stop_reasons": {"invalid_llm_response": 3},
+                "rate_limit": {"affected_cases": 3},
+                "official_aggregate_safe_counts": {
+                    "total_instances": 3,
+                    "completed_instances": 0,
+                    "empty_patch_instances": 3,
+                    "error_instances": 0,
+                },
+            }
+        ],
+        "claim_boundary": ["No winner may be selected from the partial prefix."],
+    }
+
+
 class WorkbenchRunStoryTest(unittest.TestCase):
     def test_workbench_default_surface_is_read_only(self):
         self.assertIn('class="read-only status-collapsed', INDEX_HTML)
@@ -339,6 +390,65 @@ class WorkbenchRunStoryTest(unittest.TestCase):
         self.assertNotIn("metric-value'>0/50", canonical_results)
         self.assertIn("历史归档 · Historical Golden-10", historical_results)
         self.assertIn("Canonical Showcase", legacy_bookmark)
+
+    def test_fail_closed_selection_incident_is_history_only(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            project_dir = Path(tmp)
+            canonical_path = (
+                project_dir / "benchmarks" / "showcase" / "canonical-showcase-v1.json"
+            )
+            canonical_path.parent.mkdir(parents=True)
+            canonical_path.write_text(
+                json.dumps(_canonical_showcase_summary(), ensure_ascii=False),
+                encoding="utf-8",
+            )
+            incident_path = (
+                project_dir
+                / "benchmarks"
+                / "archive"
+                / "quality-selection-v1-fail-closed.json"
+            )
+            incident_path.parent.mkdir(parents=True)
+            incident_path.write_text(
+                json.dumps(_quality_selection_incident_summary(), ensure_ascii=False),
+                encoding="utf-8",
+            )
+
+            sources = FileEvidenceCatalog(project_dir).evidence_sources()
+            default_results = _render_workspace_view(
+                project_dir,
+                source_key="evaluation",
+                view="results",
+            )
+            history_overview = _render_workspace_view(
+                project_dir,
+                source_key="evaluation-history",
+                view="overview",
+            )
+            history_results = _render_workspace_view(
+                project_dir,
+                source_key="evaluation-history",
+                view="results",
+            )
+
+        source_by_key = {source.key: source for source in sources}
+        self.assertEqual(source_by_key["evaluation"].primary_path, canonical_path)
+        self.assertEqual(
+            source_by_key["evaluation-history"].primary_path,
+            incident_path,
+        )
+        self.assertIsNone(source_by_key["evaluation-history"].run_dir)
+        self.assertEqual(source_by_key["evaluation-history"].trace_entries, ())
+        self.assertIn("Canonical Showcase", default_results)
+        self.assertNotIn("Fail-Closed Incident", default_results)
+        self.assertIn("全量污染尾段之前", history_overview)
+        self.assertIn("20/20 均有 finalized artifact", history_overview)
+        self.assertIn("11/20", history_overview)
+        self.assertIn("NO WINNER", history_results)
+        self.assertIn("summarizer", history_results.lower())
+        self.assertIn("正确性重跑 = 0", history_results)
+        self.assertIn("不得从局部样本倒推 winner", history_results)
+        self.assertNotIn("Official Pass@1", history_results)
 
     def test_canonical_score_requires_frozen_validated_terminal_evidence(self):
         with tempfile.TemporaryDirectory() as tmp:

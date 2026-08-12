@@ -190,6 +190,15 @@ class FileEvidenceCatalog(EvidenceCatalogPort):
                 source_key=source_key,
             )
 
+        incident_path = self.quality_selection_incident_path()
+        incident = read_json_file(incident_path)
+        if incident.get("artifact_type") == "quality_selection_incident":
+            return self._quality_selection_incident_source(
+                incident_path,
+                incident,
+                source_key=source_key,
+            )
+
         campaign_dir = self.latest_campaign_dir()
         campaign_state = self.latest_campaign_state()
         campaign_summary = self.latest_campaign_summary()
@@ -285,6 +294,45 @@ class FileEvidenceCatalog(EvidenceCatalogPort):
             run_dir=run_dir,
             trace_entries=tuple(trace_entries),
             usage_path=usage_paths[0] if usage_paths else None,
+        )
+
+    def _quality_selection_incident_source(
+        self,
+        incident_path: Path | None,
+        incident: dict[str, Any],
+        *,
+        source_key: str,
+    ) -> EvidenceSource:
+        """Expose a fail-closed selection attempt without attaching raw case traces."""
+
+        incident_facts = incident.get("incident")
+        if not isinstance(incident_facts, dict):
+            incident_facts = {}
+        decision = incident.get("decision")
+        if not isinstance(decision, dict):
+            decision = {}
+        planned = int(incident_facts.get("planned_case_starts") or 0)
+        contaminated = int(incident_facts.get("uniformly_contaminated_tail_slots") or 0)
+        title = str(incident.get("title") or "Quality Selection Fail-Closed")
+        if source_key == "evaluation-history":
+            title = f"历史归档 · {title}"
+        return EvidenceSource(
+            key=source_key,
+            title=title,
+            description="失败关闭事故；只证明实验纪律，不作为当前质量 headline",
+            source_type="benchmark",
+            task=str(
+                incident.get("question") or "为什么这次质量选型没有产生可发布 winner？"
+            ),
+            status=(
+                f"{incident.get('status') or 'invalid_no_winner'}"
+                f" · {planned} finalized · tail {contaminated} contaminated"
+                f" · summarizer exit {decision.get('summarizer_exit_code', 'unknown')}"
+            ),
+            primary_path=incident_path,
+            run_dir=None,
+            trace_entries=(),
+            usage_path=None,
         )
 
     def _runtime_quality_source(
@@ -452,6 +500,17 @@ class FileEvidenceCatalog(EvidenceCatalogPort):
         """返回公开、稳定的 Runtime 质量实验摘要。"""
 
         path = self.project_dir / "benchmarks" / "runtime-quality" / "golden-10-v1.json"
+        return path if path.is_file() else None
+
+    def quality_selection_incident_path(self) -> Path | None:
+        """返回只用于历史下钻、永不提升为 headline 的失败关闭记录。"""
+
+        path = (
+            self.project_dir
+            / "benchmarks"
+            / "archive"
+            / "quality-selection-v1-fail-closed.json"
+        )
         return path if path.is_file() else None
 
     def canonical_showcase_summary_path(self) -> Path | None:

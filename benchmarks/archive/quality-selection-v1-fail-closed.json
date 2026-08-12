@@ -1,0 +1,522 @@
+{
+  "schema_version": 1,
+  "artifact_type": "quality_selection_incident",
+  "incident_id": "quality-selection-v1-opencode-go-rate-limit-20260812",
+  "title": "Quality Selection v1 · Fail-Closed Incident",
+  "status": "invalid_no_winner",
+  "recorded_at": "2026-08-12T09:27:47Z",
+  "question": "Why did the first quality-selection attempt produce no selected model?",
+  "visibility": "workbench_history_only",
+  "headline_eligible": false,
+  "canonical_profile_mutation_allowed": false,
+  "source_binding": {
+    "source_tag": "canonical-showcase-quality-selection-preflight-20260812",
+    "source_tag_object_sha": "922451ac91d688a797eab3d73173658690fc3aeb",
+    "source_commit_sha": "d445d8e5bf961c66ef997d355a12b8e8e0bfd512",
+    "source_tag_verified_at_recording": true,
+    "protocol_path": "benchmarks/showcase/quality-selection-protocol-v1.json",
+    "protocol_sha256": "6688e36c828a85e05012521b3bb82185a8021c4940bac51f044f131433d8cf41",
+    "command_manifest_path": "benchmarks/showcase/quality-selection-command-manifest-v1.json",
+    "command_manifest_sha256": "ef6525f54d3c194d59d66ef8267c5f2c352a3ab0b16419cb43b297671148b485"
+  },
+  "frozen_execution_contract": {
+    "provider": "opencode-go",
+    "base_url": "https://opencode.ai/zen/go/v1",
+    "candidate_models": [
+      "deepseek-v4-pro",
+      "glm-5.2"
+    ],
+    "schedule": [
+      "v4-pro/shard-a",
+      "glm/shard-a",
+      "v4-pro/shard-b",
+      "glm/shard-b",
+      "v4-pro/shard-c",
+      "glm/shard-c"
+    ],
+    "planned_case_starts": 20,
+    "max_concurrent_commands": 1,
+    "max_steps": 128,
+    "max_context_chars": 64000,
+    "max_prompt_tokens": 131072,
+    "reserved_output_tokens": 16384,
+    "cost_budget_usd": null,
+    "timeout_seconds": 3600,
+    "model_request_timeout_seconds": 600,
+    "tool_execution_timeout_seconds": 600,
+    "credential_source_required": "OPENCODE_GO_API_KEY",
+    "fallback_credential_sources_forbidden": [
+      "DEEPSEEK_API_KEY",
+      "OPENAI_API_KEY"
+    ],
+    "correctness_reruns_allowed": 0,
+    "official_evaluator_reruns_allowed": 0,
+    "whole_case_retries_allowed": 0,
+    "transport_attempts_per_call_max": 2
+  },
+  "incident": {
+    "planned_case_starts": 20,
+    "finalized_artifact_slots": 20,
+    "slots_before_uniformly_contaminated_tail": 14,
+    "slots_before_uniformly_contaminated_tail_role": "all 20 slots have finalized root artifacts; this count only marks the point before the six-slot uniformly contaminated tail and is not a valid model-selection denominator",
+    "rate_limit_free_case_slots": 11,
+    "rate_limit_affected_case_slots": 9,
+    "rate_limit_onset_slots": [
+      12,
+      13,
+      14
+    ],
+    "uniformly_contaminated_tail_slots": 6,
+    "uniformly_contaminated_tail_range": [
+      15,
+      20
+    ],
+    "uniformly_contaminated_tail_pattern": "both candidates failed their first model call after two rate_limited attempts on every shard-c case",
+    "classification": "shared_opencode_go_rate_limit",
+    "classification_basis": "usage.json records rate_limited errors for both candidate models in the interleaved tail; no provider quota snapshot was stored",
+    "fair_comparison_completed": false
+  },
+  "decision": {
+    "summarizer_exit_code": 2,
+    "summarizer_status": "failed_closed",
+    "winner": null,
+    "selected_model": null,
+    "correctness_reruns_performed": 0,
+    "official_evaluator_reruns_performed": 0,
+    "whole_case_retries_performed": 0,
+    "partial_prefix_selection_forbidden": true,
+    "reason": "The shared provider limit contaminated the paired schedule, so neither the 14-slot artifact prefix nor the 11 rate-limit-free cases are a pre-registered complete comparison.",
+    "next_action": "Start a new fully pre-registered selection attempt after a passing provider-capacity probe; do not repair or score this attempt by correctness rerun."
+  },
+  "identity_summary": {
+    "provider_requested_on_all_calls": "opencode-go",
+    "requested_models": [
+      "deepseek-v4-pro",
+      "glm-5.2"
+    ],
+    "provider_reported_models_on_successful_responses": [
+      "deepseek-v4-pro",
+      "glm-5.2"
+    ],
+    "fallback_calls": 0,
+    "case_slots_without_provider_reported_identity": 8,
+    "missing_identity_reason": "No provider response was received before rate-limit exhaustion in two glm shard-b cases and all six shard-c cases."
+  },
+  "run_artifacts": [
+    {
+      "sequence": 1,
+      "candidate_id": "v4-pro",
+      "shard": "shard-a",
+      "slot_range": [
+        1,
+        4
+      ],
+      "run_id": "swebench-20260812-143607-6c3593c",
+      "run_dir": ".agent_forge/canonical-showcase/quality-selection/v4-pro/shard-a/swebench-20260812-143607-6c3593c",
+      "artifact_rows": {
+        "results": 4,
+        "scorecard": 4,
+        "predictions": 4
+      },
+      "artifact_sha256": {
+        "results.json": "562c31e8484eb7181f2766dba474ba805fd9b6eda474e46883f92a01edce76b7",
+        "scorecard.json": "0a5b14845062891177cd01d3b3a05bb1f9e0826f108a5f660a01c8cbfdf43ce7",
+        "predictions.jsonl": "79d00d294c1de91f96ffa526f70fd20c672920500bd31e59a30b27371dac9d1e",
+        "official_aggregate.json": "54e679a32d6164edc4d009b680a675e6451c40b59e96d7bf3e677120f8538a3c",
+        "usage_inventory": "f45b7759b3178dae6d44146e159f8c9ada85f090d0f03f27f2eb383e2b5955a0"
+      },
+      "identity": {
+        "provider": "opencode-go",
+        "requested_model": "deepseek-v4-pro",
+        "provider_reported_models": [
+          "deepseek-v4-pro"
+        ],
+        "fallback_calls": 0
+      },
+      "usage": {
+        "case_count": 4,
+        "llm_calls": 104,
+        "total_tokens": 3387570,
+        "estimated_cost_usd": 1.226175,
+        "llm_latency_ms": 1103198,
+        "steps": 119,
+        "tool_calls": 106,
+        "failed_tool_calls": 9,
+        "provider_usage_calls": 104,
+        "estimated_usage_calls": 0,
+        "transport_attempts_total": 105,
+        "transport_attempts_max": 2
+      },
+      "stop_reasons": {
+        "final_answer": 4
+      },
+      "rate_limit": {
+        "affected_cases": 0,
+        "error_records": 0
+      },
+      "official_aggregate_safe_counts": {
+        "schema_version": 2,
+        "total_instances": 4,
+        "submitted_instances": 4,
+        "completed_instances": 4,
+        "resolved_instances": 3,
+        "unresolved_instances": 1,
+        "error_instances": 0,
+        "empty_patch_instances": 0
+      },
+      "selection_eligible": false
+    },
+    {
+      "sequence": 2,
+      "candidate_id": "glm",
+      "shard": "shard-a",
+      "slot_range": [
+        5,
+        8
+      ],
+      "run_id": "swebench-20260812-152739-4f0b405",
+      "run_dir": ".agent_forge/canonical-showcase/quality-selection/glm/shard-a/swebench-20260812-152739-4f0b405",
+      "artifact_rows": {
+        "results": 4,
+        "scorecard": 4,
+        "predictions": 4
+      },
+      "artifact_sha256": {
+        "results.json": "292ef1014cdb7dbdae70ecfa25652e7119ffc0febaf476f9572ac4b895c9fcd3",
+        "scorecard.json": "675c7aa78e954eb6e5bbc92a22443f1155dfb01c70371d20749cdfcc0ebbe8fb",
+        "predictions.jsonl": "e0732a0a1bd02939c24da17724162aff40e063dc81543ed275264dc4c946e300",
+        "official_aggregate.json": "af0104d27a729ea4bcec9c0e725b2a757caa5f49f24d3d8305aed0f2c32d0b7f",
+        "usage_inventory": "1857ccbda78eb6f3ec1083d4a33d080fa3ad8b859445b8581bffc99d321757bc"
+      },
+      "identity": {
+        "provider": "opencode-go",
+        "requested_model": "glm-5.2",
+        "provider_reported_models": [
+          "glm-5.2"
+        ],
+        "fallback_calls": 0
+      },
+      "usage": {
+        "case_count": 4,
+        "llm_calls": 83,
+        "total_tokens": 1995080,
+        "estimated_cost_usd": 2.525226,
+        "llm_latency_ms": 1467639,
+        "steps": 95,
+        "tool_calls": 82,
+        "failed_tool_calls": 6,
+        "provider_usage_calls": 83,
+        "estimated_usage_calls": 0,
+        "transport_attempts_total": 83,
+        "transport_attempts_max": 1
+      },
+      "stop_reasons": {
+        "final_answer": 4
+      },
+      "rate_limit": {
+        "affected_cases": 0,
+        "error_records": 0
+      },
+      "official_aggregate_safe_counts": {
+        "schema_version": 2,
+        "total_instances": 4,
+        "submitted_instances": 4,
+        "completed_instances": 4,
+        "resolved_instances": 3,
+        "unresolved_instances": 1,
+        "error_instances": 0,
+        "empty_patch_instances": 0
+      },
+      "selection_eligible": false
+    },
+    {
+      "sequence": 3,
+      "candidate_id": "v4-pro",
+      "shard": "shard-b",
+      "slot_range": [
+        9,
+        11
+      ],
+      "run_id": "swebench-20260812-161759-b5bda49",
+      "run_dir": ".agent_forge/canonical-showcase/quality-selection/v4-pro/shard-b/swebench-20260812-161759-b5bda49",
+      "artifact_rows": {
+        "results": 3,
+        "scorecard": 3,
+        "predictions": 3
+      },
+      "artifact_sha256": {
+        "results.json": "0addee091ca25c27284f8c11782f5863be439966c10690313f12553e2d4d895f",
+        "scorecard.json": "2656511121faa9377818d59017bd2a56038f7b637e1b9af4f72b830752eaa490",
+        "predictions.jsonl": "29ae36b30113e48127d2bfaadda7e07031c9681ebc52eb9c19cad6cf0135bb09",
+        "official_aggregate.json": "0d4ef47a15f6ebb6c2f5d15c6ae8d885f553f19fc9bbfc689323d81a3712fe94",
+        "usage_inventory": "ba24944598768564aee8a8ddc1b6441107fde626b2e60ed824a683294baa1f5d"
+      },
+      "identity": {
+        "provider": "opencode-go",
+        "requested_model": "deepseek-v4-pro",
+        "provider_reported_models": [
+          "deepseek-v4-pro"
+        ],
+        "fallback_calls": 0
+      },
+      "usage": {
+        "case_count": 3,
+        "llm_calls": 70,
+        "total_tokens": 1823044,
+        "estimated_cost_usd": 0.62548,
+        "llm_latency_ms": 684202,
+        "steps": 77,
+        "tool_calls": 87,
+        "failed_tool_calls": 9,
+        "provider_usage_calls": 70,
+        "estimated_usage_calls": 0,
+        "transport_attempts_total": 70,
+        "transport_attempts_max": 1
+      },
+      "stop_reasons": {
+        "final_answer": 2,
+        "too_many_consecutive_failed_tools:_3_>=_limit_3": 1
+      },
+      "rate_limit": {
+        "affected_cases": 0,
+        "error_records": 0
+      },
+      "official_aggregate_safe_counts": {
+        "schema_version": 2,
+        "total_instances": 3,
+        "submitted_instances": 3,
+        "completed_instances": 3,
+        "resolved_instances": 2,
+        "unresolved_instances": 1,
+        "error_instances": 0,
+        "empty_patch_instances": 0
+      },
+      "selection_eligible": false
+    },
+    {
+      "sequence": 4,
+      "candidate_id": "glm",
+      "shard": "shard-b",
+      "slot_range": [
+        12,
+        14
+      ],
+      "run_id": "swebench-20260812-165733-44cbcdb",
+      "run_dir": ".agent_forge/canonical-showcase/quality-selection/glm/shard-b/swebench-20260812-165733-44cbcdb",
+      "artifact_rows": {
+        "results": 3,
+        "scorecard": 3,
+        "predictions": 3
+      },
+      "artifact_sha256": {
+        "results.json": "1ddf765bc9bdc16da3712af05e16e01bae5609d6894d7fb9a2f6393a97d7802f",
+        "scorecard.json": "bebb39dc13e5eaf6d6468f3451322bb3f370b7b005c65a2adfc5fb004fe32549",
+        "predictions.jsonl": "e798a199aec3f273cbb59837a5ed5289c36c287f2540c124e5ba222f63a77d13",
+        "official_aggregate.json": "fe3d619d468b67d72e2713015178c29774067aa4c8f4eb6512953c71b83f52bb",
+        "usage_inventory": "3c2a657affb4c1a9810dd483d60170300b3bec2aa25d3a739d7313f9db154dbb"
+      },
+      "identity": {
+        "provider": "opencode-go",
+        "requested_model": "glm-5.2",
+        "provider_reported_models": [
+          "glm-5.2"
+        ],
+        "fallback_calls": 0,
+        "case_slots_without_provider_reported_identity": 2
+      },
+      "usage": {
+        "case_count": 3,
+        "llm_calls": 34,
+        "total_tokens": 966259,
+        "estimated_cost_usd": 1.187941,
+        "llm_latency_ms": 435205,
+        "steps": 39,
+        "tool_calls": 36,
+        "failed_tool_calls": 6,
+        "provider_usage_calls": 31,
+        "estimated_usage_calls": 3,
+        "transport_attempts_total": 37,
+        "transport_attempts_max": 2
+      },
+      "stop_reasons": {
+        "invalid_llm_response": 3
+      },
+      "rate_limit": {
+        "affected_cases": 3,
+        "error_records": 6,
+        "pattern": "two cases failed on the first call; one case failed after 31 provider-accounted calls"
+      },
+      "official_aggregate_safe_counts": {
+        "schema_version": 2,
+        "total_instances": 3,
+        "submitted_instances": 3,
+        "completed_instances": 1,
+        "resolved_instances": 1,
+        "unresolved_instances": 0,
+        "error_instances": 0,
+        "empty_patch_instances": 2
+      },
+      "selection_eligible": false
+    },
+    {
+      "sequence": 5,
+      "candidate_id": "v4-pro",
+      "shard": "shard-c",
+      "slot_range": [
+        15,
+        17
+      ],
+      "run_id": "swebench-20260812-171135-ff09105",
+      "run_dir": ".agent_forge/canonical-showcase/quality-selection/v4-pro/shard-c/swebench-20260812-171135-ff09105",
+      "artifact_rows": {
+        "results": 3,
+        "scorecard": 3,
+        "predictions": 3
+      },
+      "artifact_sha256": {
+        "results.json": "225eaeee9e4a2da688bef3b4e9ff87a86b09d833c2602d7097aaf8458b5ea84d",
+        "scorecard.json": "f955e3ccd85c0ec187d4a11c8f73e66f81172773353af06739f47bc05ddaa0dd",
+        "predictions.jsonl": "2b4623af8ceb4d99d50c15708b5e645aa09397e1c40558ab80fe210ea74dc79f",
+        "official_aggregate.json": "f08fbacca98cc43ef200a69eed5e6e529e399f15c298afc0f203ff08c11f0010",
+        "usage_inventory": "91d7d1ca2e79a7d3267220323c3aae69b5211198eb1ef5f35829a074a12b274a"
+      },
+      "identity": {
+        "provider": "opencode-go",
+        "requested_model": "deepseek-v4-pro",
+        "provider_reported_models": [],
+        "fallback_calls": 0,
+        "case_slots_without_provider_reported_identity": 3
+      },
+      "usage": {
+        "case_count": 3,
+        "llm_calls": 3,
+        "total_tokens": 67668,
+        "estimated_cost_usd": 0.029438,
+        "llm_latency_ms": 10175,
+        "steps": 6,
+        "tool_calls": 0,
+        "failed_tool_calls": 0,
+        "provider_usage_calls": 0,
+        "estimated_usage_calls": 3,
+        "transport_attempts_total": 6,
+        "transport_attempts_max": 2
+      },
+      "stop_reasons": {
+        "invalid_llm_response": 3
+      },
+      "rate_limit": {
+        "affected_cases": 3,
+        "error_records": 6,
+        "pattern": "all cases failed on the first call after two attempts"
+      },
+      "official_aggregate_safe_counts": {
+        "schema_version": 2,
+        "total_instances": 3,
+        "submitted_instances": 3,
+        "completed_instances": 0,
+        "resolved_instances": 0,
+        "unresolved_instances": 0,
+        "error_instances": 0,
+        "empty_patch_instances": 3
+      },
+      "selection_eligible": false
+    },
+    {
+      "sequence": 6,
+      "candidate_id": "glm",
+      "shard": "shard-c",
+      "slot_range": [
+        18,
+        20
+      ],
+      "run_id": "swebench-20260812-171315-5dd9c52",
+      "run_dir": ".agent_forge/canonical-showcase/quality-selection/glm/shard-c/swebench-20260812-171315-5dd9c52",
+      "artifact_rows": {
+        "results": 3,
+        "scorecard": 3,
+        "predictions": 3
+      },
+      "artifact_sha256": {
+        "results.json": "b7996a6c3da3d86b8e7bf7259a09552f4ff6be9bacefa8da75799be6d77e9e9d",
+        "scorecard.json": "f7250f865c638069533626baf0247fa11ec86fa1c843c4d3d2d4b070898f009a",
+        "predictions.jsonl": "75089aa932e4f469e2dc6aa4c1980d9e19dc1bb4fee92db405b4335e87b7e904",
+        "official_aggregate.json": "f08fbacca98cc43ef200a69eed5e6e529e399f15c298afc0f203ff08c11f0010",
+        "usage_inventory": "0fe1f77af58dafb1ed884b12089b0c0992a99a152ea5c3d43f3be77979d32ce5"
+      },
+      "identity": {
+        "provider": "opencode-go",
+        "requested_model": "glm-5.2",
+        "provider_reported_models": [],
+        "fallback_calls": 0,
+        "case_slots_without_provider_reported_identity": 3
+      },
+      "usage": {
+        "case_count": 3,
+        "llm_calls": 3,
+        "total_tokens": 67662,
+        "estimated_cost_usd": 0.094745,
+        "llm_latency_ms": 10179,
+        "steps": 6,
+        "tool_calls": 0,
+        "failed_tool_calls": 0,
+        "provider_usage_calls": 0,
+        "estimated_usage_calls": 3,
+        "transport_attempts_total": 6,
+        "transport_attempts_max": 2
+      },
+      "stop_reasons": {
+        "invalid_llm_response": 3
+      },
+      "rate_limit": {
+        "affected_cases": 3,
+        "error_records": 6,
+        "pattern": "all cases failed on the first call after two attempts"
+      },
+      "official_aggregate_safe_counts": {
+        "schema_version": 2,
+        "total_instances": 3,
+        "submitted_instances": 3,
+        "completed_instances": 0,
+        "resolved_instances": 0,
+        "unresolved_instances": 0,
+        "error_instances": 0,
+        "empty_patch_instances": 3
+      },
+      "selection_eligible": false
+    }
+  ],
+  "artifact_hash_notes": {
+    "official_aggregate.json": "Hash of the single root-level agent-forge-opencode-go-*.json official aggregate in each run.",
+    "usage_inventory": "SHA-256 of the concatenated, lexicographically sorted sha256sum lines for cases/**/usage.json, with paths relative to the run's cases directory."
+  },
+  "selection_use_of_recorded_metrics": {
+    "official_aggregate_safe_counts": "terminal-accounting diagnostics only",
+    "usage": "provenance and incident diagnosis only",
+    "token_or_cost_tie_break": false,
+    "candidate_correctness_comparison": "forbidden"
+  },
+  "read_boundary": {
+    "read": [
+      "six root results.json files",
+      "six root scorecard.json files",
+      "six root predictions.jsonl files",
+      "twenty case usage.json files",
+      "safe fields from six root official aggregate files"
+    ],
+    "not_read": [
+      "per-test official report.json",
+      "per-test log files",
+      "test_output.txt",
+      "tests_status.json",
+      "sealed dataset contents",
+      "gold patches or gold labels"
+    ]
+  },
+  "claim_boundary": [
+    "This artifact proves a fail-closed selection incident, not candidate quality.",
+    "The first 14 slots are an artifact-complete prefix, not a clean or pre-registered comparison denominator; three of those slots already contain rate-limit errors.",
+    "No winner may be selected from the first 14 slots, the 11 rate-limit-free slots, any per-shard subset, or the partial official aggregate counts.",
+    "The final six slots are uniformly contaminated by the shared OpenCode Go rate limit.",
+    "The attempt does not mutate the Canonical headline, current profile, or selected model."
+  ]
+}

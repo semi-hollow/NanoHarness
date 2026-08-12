@@ -402,6 +402,8 @@ def _source_overview_facts(
         )
         if quality_summary.get("artifact_type") == "canonical_showcase":
             return _canonical_showcase_overview_facts(quality_summary)
+        if quality_summary.get("artifact_type") == "quality_selection_incident":
+            return _quality_selection_incident_overview_facts(quality_summary)
         if quality_summary.get("experiment_type") == "runtime_quality":
             schema_version = int(quality_summary.get("schema_version") or 1)
             if schema_version < 2:
@@ -765,6 +767,11 @@ def _render_source_results(project_dir: Path, source: EvidenceSource) -> str:
         )
         if quality_summary.get("artifact_type") == "canonical_showcase":
             return _render_canonical_showcase_dashboard(
+                quality_summary,
+                source.primary_path,
+            )
+        if quality_summary.get("artifact_type") == "quality_selection_incident":
+            return _render_quality_selection_incident_dashboard(
                 quality_summary,
                 source.primary_path,
             )
@@ -4246,6 +4253,165 @@ def _quality_metric(metrics: dict[str, Any], *names: str) -> int:
         if value is not None:
             return int(value)
     return 0
+
+
+def _quality_selection_incident_overview_facts(
+    artifact: dict[str, Any],
+) -> tuple[list[tuple[str, str, str, str]], str]:
+    """Show completeness and contamination, never a partial candidate score."""
+
+    incident = _mapping(artifact.get("incident"))
+    decision = _mapping(artifact.get("decision"))
+    planned = int(incident.get("planned_case_starts") or 0)
+    before_tail = int(incident.get("slots_before_uniformly_contaminated_tail") or 0)
+    affected = int(incident.get("rate_limit_affected_case_slots") or 0)
+    clean = int(incident.get("rate_limit_free_case_slots") or 0)
+    tail = int(incident.get("uniformly_contaminated_tail_slots") or 0)
+    exit_code = decision.get("summarizer_exit_code")
+    return (
+        [
+            (
+                "预注册启动",
+                str(planned),
+                "两候选、交错分片、串行执行",
+                "neutral",
+            ),
+            (
+                "全量污染尾段之前",
+                f"{before_tail}/{planned}",
+                "20/20 均有 finalized artifact；此前 14 槽中已有 3 槽限流",
+                "warn",
+            ),
+            (
+                "Rate-limit 影响",
+                f"{affected}/{planned}",
+                f"仅 {clean}/{planned} 无 rate-limit 记录",
+                "bad" if affected else "ok",
+            ),
+            (
+                "全量污染尾段",
+                f"{tail}/{tail}" if tail else "0",
+                "两个模型均在首调用后耗尽两次 transport attempt",
+                "bad" if tail else "ok",
+            ),
+            (
+                "选择结论",
+                "NO WINNER",
+                f"summarizer exit {exit_code}; correctness rerun = 0",
+                "warn",
+            ),
+        ],
+        "该记录只证明选型协议正确地失败关闭；全量污染尾段之前的 14 个槽、11 个无 rate-limit 槽和任何分片子集都不得用于倒推 winner。",
+    )
+
+
+def _render_quality_selection_incident_dashboard(
+    artifact: dict[str, Any],
+    source_path: Path | None,
+) -> str:
+    """Render a historical incident without surfacing partial correctness scores."""
+
+    incident = _mapping(artifact.get("incident"))
+    decision = _mapping(artifact.get("decision"))
+    source_binding = _mapping(artifact.get("source_binding"))
+    planned = int(incident.get("planned_case_starts") or 0)
+    before_tail = int(incident.get("slots_before_uniformly_contaminated_tail") or 0)
+    affected = int(incident.get("rate_limit_affected_case_slots") or 0)
+    clean = int(incident.get("rate_limit_free_case_slots") or 0)
+    tail = int(incident.get("uniformly_contaminated_tail_slots") or 0)
+    run_rows: list[str] = []
+    for item in artifact.get("run_artifacts") or []:
+        if not isinstance(item, dict):
+            continue
+        identity = _mapping(item.get("identity"))
+        usage = _mapping(item.get("usage"))
+        rate_limit = _mapping(item.get("rate_limit"))
+        official = _mapping(item.get("official_aggregate_safe_counts"))
+        slot_range = item.get("slot_range")
+        slots = slot_range if isinstance(slot_range, list) else []
+        slot_label = "–".join(str(value) for value in slots) or "未记录"
+        observed = ", ".join(_string_items(identity.get("provider_reported_models")))
+        stop_reasons = _mapping(item.get("stop_reasons"))
+        stop_label = ", ".join(
+            f"{name} × {count}" for name, count in stop_reasons.items()
+        )
+        total = int(official.get("total_instances") or 0)
+        terminal = (
+            int(official.get("completed_instances") or 0)
+            + int(official.get("empty_patch_instances") or 0)
+            + int(official.get("error_instances") or 0)
+        )
+        run_rows.append(
+            "<tr>"
+            f"<td>{_escape(slot_label)}</td>"
+            f"<td><b>{_escape(item.get('candidate_id') or '未记录')}</b> · "
+            f"{_escape(item.get('shard') or '未记录')}</td>"
+            f"<td>{_escape(identity.get('provider') or '未记录')} / "
+            f"{_escape(identity.get('requested_model') or '未记录')}<br>"
+            f"<span class='muted'>reported: {_escape(observed or '无响应')}</span></td>"
+            f"<td>{_escape(stop_label or '未记录')}<br>"
+            f"<span class='muted'>rate-limit cases: "
+            f"{int(rate_limit.get('affected_cases') or 0)}</span></td>"
+            f"<td>{int(usage.get('llm_calls') or 0)} calls · "
+            f"{int(usage.get('total_tokens') or 0):,} tokens<br>"
+            f"<span class='muted'>terminal accounting {terminal}/{total}</span></td>"
+            "</tr>"
+        )
+    run_rows_html = "".join(run_rows) or (
+        "<tr><td colspan='5'>没有登记安全层 run artifact。</td></tr>"
+    )
+    boundaries = _string_items(artifact.get("claim_boundary"))
+    body = [
+        "<div class='view-heading'><div><span class='view-kicker'>HISTORICAL INCIDENT</span>"
+        f"<h2>{_escape(artifact.get('title') or 'Quality Selection Fail-Closed')}</h2></div>"
+        f"{_badge('NO WINNER', 'warn')}</div>",
+        "<p class='help strong'>这次尝试没有产生模型选择结论。Workbench 只展示完整性、身份、usage 与停止原因，不展示或比较局部 correctness 分数。</p>",
+        _metric_grid(
+            [
+                ("预注册启动", str(planned), "20 planned case starts", "neutral"),
+                (
+                    "全量污染尾段之前",
+                    f"{before_tail}/{planned}",
+                    "20/20 均有 finalized artifact；第 12–14 槽已限流",
+                    "warn",
+                ),
+                (
+                    "Rate-limit 影响",
+                    f"{affected}/{planned}",
+                    f"无 rate-limit 记录 {clean}/{planned}",
+                    "bad",
+                ),
+                (
+                    "全量污染尾段",
+                    f"{tail}/{tail}" if tail else "0",
+                    "第 15–20 槽；两模型均首调用失败",
+                    "bad",
+                ),
+                (
+                    "Summarizer",
+                    f"exit {decision.get('summarizer_exit_code', 'unknown')}",
+                    "失败关闭；winner = null；正确性重跑 = 0",
+                    "warn",
+                ),
+            ]
+        ),
+        "<section class='evidence-section'><div class='section-title'><h3>安全层运行清单</h3><span>usage 仅作 provenance，不作 tie-break</span></div>"
+        "<table><thead><tr><th>槽位</th><th>候选 / 分片</th><th>身份</th><th>停止原因</th><th>Usage / 终态对账</th></tr></thead>"
+        f"<tbody>{run_rows_html}</tbody></table>"
+        "<p class='boundary-note'>终态对账只使用官方 aggregate 的 completed、empty-patch 与 error 安全计数字段；这里刻意不渲染 partial resolved 分数。</p></section>",
+        "<section class='evidence-section'><div class='section-title'><h3>冻结身份与哈希</h3><span>可审计，不补跑</span></div>"
+        "<table><tbody>"
+        f"<tr><td>Source tag</td><td class='mono'>{_escape(source_binding.get('source_tag') or '未记录')}</td></tr>"
+        f"<tr><td>Source commit</td><td class='mono'>{_escape(source_binding.get('source_commit_sha') or '未记录')}</td></tr>"
+        f"<tr><td>Protocol SHA-256</td><td class='mono'>{_escape(source_binding.get('protocol_sha256') or '未记录')}</td></tr>"
+        f"<tr><td>Command manifest SHA-256</td><td class='mono'>{_escape(source_binding.get('command_manifest_sha256') or '未记录')}</td></tr>"
+        "</tbody></table></section>",
+        "<section class='evidence-section'><div class='section-title'><h3>结论边界</h3><span>不得从局部样本倒推 winner</span></div>"
+        f"{_render_fact_list(boundaries, empty_message='尚未记录结论边界')}</section>",
+        "<details class='provenance'><summary>Fail-closed 事故记录来源</summary>"
+        f"<code>{_escape(str(source_path or '未找到'))}</code></details>",
+    ]
+    return "<div class='evidence'>" + "".join(body) + "</div>"
 
 
 def _canonical_showcase_overview_facts(
