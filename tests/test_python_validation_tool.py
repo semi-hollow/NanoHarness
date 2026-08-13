@@ -221,6 +221,29 @@ class PythonValidationToolTest(unittest.TestCase):
         self.assertTrue(observation.execution_succeeded)
         self.assertIn("exit_code=1", observation.content)
 
+    def test_long_validation_output_keeps_failure_tail(self):
+        class Environment:
+            def execute_command(self, argv, timeout):
+                return subprocess.CompletedProcess(
+                    argv,
+                    1,
+                    stdout="setup noise\n" + ("x" * 4_000),
+                    stderr="\nAssertionError: expected final value",
+                )
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "test_sample.py").write_text("", encoding="utf-8")
+            observation = PythonValidationTool(
+                WorkspaceSandbox(root), execution_environment=Environment()
+            ).execute({"check_type": "pytest", "validation_target": "test_sample.py"})
+
+        self.assertFalse(observation.success)
+        self.assertIn("output_truncated=true", observation.content)
+        self.assertIn("--- output head ---", observation.content)
+        self.assertIn("--- output tail ---", observation.content)
+        self.assertIn("AssertionError: expected final value", observation.content)
+
     def test_pytest_target_rejects_cli_flags_with_actionable_message(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

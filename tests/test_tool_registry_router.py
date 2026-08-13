@@ -26,6 +26,7 @@ class ToolRegistryRouterTest(unittest.TestCase):
 
             self.assertIsNone(registry.get("grep"))
             self.assertIsNotNone(registry.get("grep_search"))
+            self.assertIsNotNone(registry.get("find_files"))
             self.assertEqual(
                 [
                     schema["name"]
