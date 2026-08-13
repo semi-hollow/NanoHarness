@@ -15,6 +15,7 @@
 - Baseline Runtime source：`0ae0d9ae9444d723e319fc0c7eadec9b631d374c`
 - Baseline preregistration：`c5fb4b884019e7dabebe1b8b0afe1cec521e2f3b`
 - Treatment：`296000864d6a2c1476c28b790f030b0ffc4cca5b`
+- Reject rollback：`a79d71051e0b968df81e5cc0f0851d434e89f358`
 - 模型：`opencode-go/deepseek-v4-flash`
 - 样本：固定 Golden-20；前 10 题为 seen regression，后 10 题为 outcome-blind fresh extension。
 - 口径：Pass@1、同 Case 顺序、同模型/预算/Runtime/evaluator；唯一主要变量为 Tool / repository context bundle。

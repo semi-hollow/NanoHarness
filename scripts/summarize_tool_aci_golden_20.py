@@ -11,6 +11,7 @@ import argparse
 import hashlib
 import json
 import math
+import subprocess
 from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path
@@ -23,6 +24,9 @@ EDIT_TOOLS = {"replace_text", "create_file", "write_file"}
 READ_TOOLS = {"read_file"}
 SEARCH_TOOLS = {"grep_search", "find_files", "list_files"}
 VALIDATION_TOOLS = {"python_validation", "run_command"}
+BASELINE_PREREGISTRATION_COMMIT = "c5fb4b884019e7dabebe1b8b0afe1cec521e2f3b"
+TREATMENT_COMMIT = "296000864d6a2c1476c28b790f030b0ffc4cca5b"
+ROLLBACK_COMMIT = "a79d71051e0b968df81e5cc0f0851d434e89f358"
 OFFICIAL_BUCKETS = {
     "resolved_ids": "resolved",
     "unresolved_ids": "unresolved",
@@ -59,6 +63,23 @@ def _sha256(path: Path) -> str:
         for chunk in iter(lambda: stream.read(1024 * 1024), b""):
             digest.update(chunk)
     return digest.hexdigest()
+
+
+def _git_blob_sha256(project_root: Path, commit: str, path: str) -> str:
+    """从冻结 commit 读取 Treatment blob，不依赖当前分支是否已经回滚。"""
+
+    completed = subprocess.run(
+        ["git", "show", f"{commit}:{path}"],
+        cwd=project_root,
+        check=False,
+        capture_output=True,
+    )
+    if completed.returncode != 0:
+        detail = completed.stderr.decode("utf-8", errors="replace").strip()
+        raise ReportRefused(
+            f"cannot read frozen treatment blob {commit}:{path}: {detail}"
+        )
+    return hashlib.sha256(completed.stdout).hexdigest()
 
 
 def _ordered_ids_sha256(case_ids: Iterable[str]) -> str:
@@ -663,11 +684,13 @@ def build_report(
             "baseline_runtime_source_commit": manifest["experiment"][
                 "tool_r0_source_commit"
             ],
-            "baseline_preregistration_commit": "c5fb4b884019e7dabebe1b8b0afe1cec521e2f3b",
-            "treatment_commit": "296000864d6a2c1476c28b790f030b0ffc4cca5b",
+            "baseline_preregistration_commit": BASELINE_PREREGISTRATION_COMMIT,
+            "treatment_commit": TREATMENT_COMMIT,
+            "rollback_commit": ROLLBACK_COMMIT,
             "fixed_profile": manifest.get("fixed_profile"),
             "treatment_file_sha256": {
-                path: _sha256(project_root / path) for path in treatment_files
+                path: _git_blob_sha256(project_root, TREATMENT_COMMIT, path)
+                for path in treatment_files
             },
         },
         "r0": r0,
@@ -749,6 +772,7 @@ def render_markdown(report: dict[str, Any]) -> str:
         f"- Baseline Runtime source：`{report['identity']['baseline_runtime_source_commit']}`",
         f"- Baseline preregistration：`{report['identity']['baseline_preregistration_commit']}`",
         f"- Treatment：`{report['identity']['treatment_commit']}`",
+        f"- Reject rollback：`{report['identity']['rollback_commit']}`",
         f"- 模型：`{report['identity']['fixed_profile']['provider']}/{report['identity']['fixed_profile']['model']}`",
         "- 样本：固定 Golden-20；前 10 题为 seen regression，后 10 题为 outcome-blind fresh extension。",
         "- 口径：Pass@1、同 Case 顺序、同模型/预算/Runtime/evaluator；唯一主要变量为 Tool / repository context bundle。",

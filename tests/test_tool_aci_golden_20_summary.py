@@ -8,6 +8,7 @@ import pytest
 from scripts.summarize_tool_aci_golden_20 import (
     ReportRefused,
     _decision,
+    _git_blob_sha256,
     _mcnemar_exact,
     _portable_path,
     _safe_aggregate,
@@ -91,3 +92,15 @@ def test_safe_aggregate_rejects_infrastructure_outcome(tmp_path: Path) -> None:
 def test_portable_path_hides_local_workspace_prefix(tmp_path: Path) -> None:
     artifact = tmp_path / "evidence" / "result.json"
     assert _portable_path(tmp_path, artifact) == "evidence/result.json"
+
+
+def test_frozen_treatment_blob_survives_stable_branch_rollback() -> None:
+    project_root = Path(__file__).resolve().parents[1]
+    assert (
+        _git_blob_sha256(
+            project_root,
+            "296000864d6a2c1476c28b790f030b0ffc4cca5b",
+            "agent_forge/tools/find_files.py",
+        )
+        == "4ae65f3d3df79a551d8736cdcfcf663107b7014470a4e7298b7ad6fd2075179e"
+    )

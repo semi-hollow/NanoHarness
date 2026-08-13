@@ -54,6 +54,7 @@
     "manifest_path": "benchmarks/regression/tool-aci-golden-20-v1.json",
     "manifest_sha256": "fec7c409ce030837165b9431264822a8e0ebddb418fecf4540d8434865f20bbe",
     "ordered_case_ids_sha256": "d9df92733e6008513a397671142c2ce3c317797f8c63a47dd8fed18021ae97aa",
+    "rollback_commit": "a79d71051e0b968df81e5cc0f0851d434e89f358",
     "treatment_commit": "296000864d6a2c1476c28b790f030b0ffc4cca5b",
     "treatment_file_sha256": {
       "agent_forge/context/repo_outline.py": "efd6b06987430fa69ddfdf50236f905e138cf9c71504c3713e10e4cf4841ff0d",
