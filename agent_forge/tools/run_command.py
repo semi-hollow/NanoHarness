@@ -13,6 +13,7 @@ from agent_forge.runtime.domain.conversation import Observation
 from agent_forge.safety.permission import PermissionPolicy, PermissionDecision
 from agent_forge.safety.sandbox import WorkspaceSandbox
 from .base import Tool
+from .output_window import render_output_window
 
 
 COMMAND_TIMEOUT_SECONDS = DEFAULT_TOOL_EXECUTION_TIMEOUT_SECONDS
@@ -238,16 +239,14 @@ class RunCommandTool(Tool):
                     timeout=self.timeout_seconds,
                 )
             complete_output = (proc.stdout + proc.stderr).strip()
-            output_truncated = len(complete_output) > MAX_COMMAND_OUTPUT_CHARS
-            visible_output = complete_output[:MAX_COMMAND_OUTPUT_CHARS]
+            visible_output = render_output_window(
+                complete_output,
+                max_chars=MAX_COMMAND_OUTPUT_CHARS,
+            )
             return Observation(
                 tool_name=self.name,
                 success=proc.returncode == 0,
-                content=(
-                    f"exit_code={proc.returncode} "
-                    f"output_truncated={str(output_truncated).lower()}\n"
-                    f"{visible_output}"
-                ),
+                content=(f"exit_code={proc.returncode}\n{visible_output}"),
             )
         except Exception as e:
             return Observation(

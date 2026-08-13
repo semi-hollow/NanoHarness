@@ -26,6 +26,7 @@ class ToolRegistryRouterTest(unittest.TestCase):
 
             self.assertIsNone(registry.get("grep"))
             self.assertIsNotNone(registry.get("grep_search"))
+            self.assertIsNotNone(registry.get("find_files"))
             self.assertEqual(
                 [
                     schema["name"]
@@ -163,6 +164,11 @@ class ToolRegistryRouterTest(unittest.TestCase):
         self,
     ):
         schemas = [
+            {"name": "list_files", "arguments": {"path": "str"}},
+            {
+                "name": "find_files",
+                "arguments": {"pattern": "str", "path": "str"},
+            },
             {"name": "read_file", "arguments": {"path": "str"}},
             {"name": "grep_search", "arguments": {"pattern": "str"}},
             {
@@ -195,6 +201,8 @@ class ToolRegistryRouterTest(unittest.TestCase):
         self.assertNotIn("write_file", route.allowed_names)
         self.assertIn("run_command", route.allowed_names)
         self.assertIn("grep_search", route.allowed_names)
+        self.assertIn("find_files", route.allowed_names)
+        self.assertNotIn("list_files", route.allowed_names)
         self.assertIn(
             "swebench_validation=python_validation|allowlisted_run_command",
             route.reason,
@@ -203,6 +211,7 @@ class ToolRegistryRouterTest(unittest.TestCase):
     def test_swebench_work_phase_keeps_discovery_before_closeout(self):
         schemas = [
             {"name": "list_files"},
+            {"name": "find_files"},
             {"name": "read_file"},
             {"name": "grep_search"},
             {"name": "replace_text"},
@@ -223,7 +232,8 @@ class ToolRegistryRouterTest(unittest.TestCase):
             )
         )
 
-        self.assertIn("list_files", route.allowed_names)
+        self.assertNotIn("list_files", route.allowed_names)
+        self.assertIn("find_files", route.allowed_names)
         self.assertIn("grep_search", route.allowed_names)
         self.assertIn("ask_human", route.allowed_names)
         self.assertIn("read_file", route.allowed_names)
@@ -234,6 +244,7 @@ class ToolRegistryRouterTest(unittest.TestCase):
     def test_last_swebench_tool_turn_after_write_focuses_on_closure(self):
         schemas = [
             {"name": "list_files"},
+            {"name": "find_files"},
             {"name": "read_file"},
             {"name": "grep_search"},
             {"name": "replace_text"},
