@@ -43,6 +43,7 @@ NanoHarness 把这些问题放进 Runtime 控制面，而不是交给 Prompt 或
 | 按触发时机理解规则、失败和恢复行为 | [核心运行机制与代码索引](docs/核心运行机制与代码索引.md) |
 | 动手跑断点和查 Evidence | [Debug Lab](examples/debug_lab/README.md) |
 | 查当前质量结果、证据边界与下一轮确认实验 | [Quality Showcase](benchmarks/showcase/canonical-showcase-v1.json) |
+| 查历次实验、结果、回滚与证据恢复点 | [实验总览](benchmarks/experiments/README.md) |
 
 ## 当前质量结果
 

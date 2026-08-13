@@ -1,7 +1,8 @@
 # 历史评测归档
 
 低预算实验、被拒绝的 Runtime Treatment 和旧 50×2 preset campaign 只属于研究历史，
-不再承担当前产品质量结论。相关产物仍可从 Git 历史恢复：
+不再承担当前产品质量结论。统一的人类可读时间线、逐实验决策和恢复入口见
+[实验总览](../experiments/README.md)；大型原始 bundle 仍从以下 Git 历史恢复：
 
 - pre-Canonical repository state: `f44b102df0c9889dbc853bd2d01504fbb5cade29`
 - old public 50×2 campaign introduction: `3b9cb02b207eb0387125bca896621dee34be264a`

@@ -33,6 +33,7 @@ CANONICAL_README_LINKS = (
     "docs/核心能力与代码入口.md",
     "docs/核心运行机制与代码索引.md",
     "examples/debug_lab/README.md",
+    "benchmarks/experiments/README.md",
 )
 
 ALLOWED_DOC_SURFACES: tuple[str, ...] = ()
