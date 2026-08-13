@@ -6,7 +6,6 @@ from pathlib import Path
 from .contracts import ContextMemory
 from .file_ranker import rank_files
 from .rag import retrieve
-from .repo_outline import build_repo_outline
 from .token_budget import truncate_middle
 
 ATTENTION_SINK = [
@@ -41,7 +40,6 @@ class ContextStrategy:
 
     selected_files: list[str]
     file_previews: list[str]
-    repo_outline: str
     retrieved_docs: list[str]
     working_memory_items: list[str]
     working_memory_summary: str
@@ -63,13 +61,6 @@ def build_context_strategy(request: ContextStrategyRequest) -> ContextStrategy:
 
     preview_budget = max(1200, request.max_chars // 3)
     file_previews = _read_file_previews(root_path, selected_files[:4], preview_budget)
-    outline_budget = max(800, min(4_000, request.max_chars // 12))
-    repo_outline = build_repo_outline(
-        root_path,
-        selected_files,
-        max_files=6,
-        max_chars=outline_budget,
-    )
 
     previous_task = str(request.working_memory.get("previous_task", "") or "")
     topic_relation = infer_topic_relation(request.task, previous_task)
@@ -94,7 +85,6 @@ def build_context_strategy(request: ContextStrategyRequest) -> ContextStrategy:
     used = {
         "attention_sink": sum(len(item) for item in ATTENTION_SINK),
         "file_previews": sum(len(item) for item in file_previews),
-        "repo_outline": len(repo_outline),
         "retrieved_docs": sum(len(item) for item in retrieved_docs),
         "working_memory": len(working_memory_summary)
         + sum(len(item) for item in working_memory_items),
@@ -109,7 +99,6 @@ def build_context_strategy(request: ContextStrategyRequest) -> ContextStrategy:
     return ContextStrategy(
         selected_files=selected_files,
         file_previews=file_previews,
-        repo_outline=repo_outline,
         retrieved_docs=retrieved_docs,
         working_memory_items=working_memory_items,
         working_memory_summary=working_memory_summary,

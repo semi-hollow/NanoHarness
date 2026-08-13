@@ -62,7 +62,6 @@ class ContextBuildReport:
     long_term_memory: list[str]
     selected_files: list[str]
     selected_file_previews: list[str]
-    repo_outline: str
     available_tools: list[str]
     active_skill_cards: list[str]
     permission_summary: str
@@ -133,7 +132,6 @@ def build_context_report(
         long_term_memory=strategy.long_term_memory,
         selected_files=strategy.selected_files,
         selected_file_previews=strategy.file_previews,
-        repo_outline=strategy.repo_outline,
         available_tools=available_tools,
         active_skill_cards=request.active_skill_cards,
         permission_summary=request.policy.permission_summary,
@@ -197,9 +195,8 @@ def _fit_context_sections(
         (
             "selected_file_previews",
             "\n\n".join(report.selected_file_previews),
-            20,
+            22,
         ),
-        ("repo_outline", report.repo_outline, 8),
         ("retrieved_docs", "\n".join(report.retrieved_docs), 5),
         ("working_memory_summary", report.working_memory_summary, 4),
         (

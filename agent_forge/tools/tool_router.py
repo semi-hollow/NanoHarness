@@ -116,12 +116,6 @@ class ToolRouter:
             "latency": "low",
             "mode": "read",
         },
-        "find_files": {
-            "capability": "discover",
-            "risk": "low",
-            "latency": "low",
-            "mode": "read",
-        },
         "read_file": {
             "capability": "inspect",
             "risk": "low",
@@ -350,7 +344,8 @@ class ToolRouter:
         # 固定 Python 验证器是首选；受命令白名单约束的 run_command 作为异构仓库
         # 测试入口回退，不获得任意 shell 能力。
         is_swebench_task = (
-            "swe-bench" in normalized_task_text or "swebench" in normalized_task_text
+            "swe-bench" in normalized_task_text
+            or "swebench" in normalized_task_text
         )
         if is_swebench_task:
             visible_tool_names.discard("write_file")
@@ -368,7 +363,9 @@ class ToolRouter:
         external_tool_names = registered_tool_names - set(self.DEFAULT_METADATA)
         task_keywords = {
             term
-            for term in normalized_task_text.replace("_", " ").replace(".", " ").split()
+            for term in normalized_task_text.replace("_", " ")
+            .replace(".", " ")
+            .split()
             if len(term) >= 3
         }
         for tool_name in external_tool_names:
@@ -433,9 +430,7 @@ class ToolRouter:
             f"skill_tools={len(active_skill_tool_names or set())}"
         )
         if is_swebench_task and "python_validation" in visible_tool_names:
-            routing_reason += (
-                " swebench_validation=python_validation|allowlisted_run_command"
-            )
+            routing_reason += " swebench_validation=python_validation|allowlisted_run_command"
         if remaining_tool_turns is not None:
             routing_reason += (
                 f" closure_phase={closure_phase}"
@@ -443,7 +438,9 @@ class ToolRouter:
             )
         return ToolRoute(
             schemas=visible_tool_schemas,
-            allowed_names={schema.get("name", "") for schema in visible_tool_schemas},
+            allowed_names={
+                schema.get("name", "") for schema in visible_tool_schemas
+            },
             reason=routing_reason,
             dropped_names=hidden_tool_names,
             metadata={
