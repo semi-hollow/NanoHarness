@@ -80,6 +80,8 @@ class RuntimeEvidenceFilesTest(unittest.TestCase):
             readme = (view / "README.md").read_text(encoding="utf-8")
             self.assertIn("不是副本", readme)
             self.assertIn("每个 operation_key 一个 JSON", readme)
+            self.assertIn("生命周期状态", readme)
+            self.assertNotIn("恢复整次 run 的消息", readme)
             self.assertIn("Candidate Diff 只证明产生候选改动", readme)
 
     def _publish(self, workspace: Path, run_dir: Path) -> Path:

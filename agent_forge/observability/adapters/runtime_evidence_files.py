@@ -43,7 +43,10 @@ _GROUPS = (
         group_id="checkpoint",
         directory="01_checkpoint",
         title="Checkpoint",
-        meaning="恢复整次 run 的消息、Observation、当前 Step 和停止原因。",
+        meaning=(
+            "保存 run 的生命周期状态、当前 Step、最近工具与观察摘要，"
+            "以及恢复定位信息。"
+        ),
         cardinality="每个 run 一个 JSON；状态变化时覆盖同一文件。",
     ),
     _EvidenceGroup(

@@ -17,6 +17,7 @@ CHINESE_FIRST_DOCS = (
     "docs/系统概览与核心设计.md",
     "docs/核心能力与代码入口.md",
     "docs/核心运行机制与代码索引.md",
+    "docs/运行产物与持久化契约.md",
     "examples/debug_lab/README.md",
 )
 
@@ -24,7 +25,8 @@ PUBLIC_DOC_LINE_BUDGETS = {
     "README.md": 250,
     "docs/系统概览与核心设计.md": 220,
     "docs/核心能力与代码入口.md": 120,
-    "docs/核心运行机制与代码索引.md": 100,
+    "docs/核心运行机制与代码索引.md": 165,
+    "docs/运行产物与持久化契约.md": 260,
     "examples/debug_lab/README.md": 210,
 }
 
@@ -32,6 +34,7 @@ CANONICAL_README_LINKS = (
     "docs/系统概览与核心设计.md",
     "docs/核心能力与代码入口.md",
     "docs/核心运行机制与代码索引.md",
+    "docs/运行产物与持久化契约.md",
     "examples/debug_lab/README.md",
     "benchmarks/experiments/README.md",
 )
@@ -42,7 +45,10 @@ ALLOWED_TOP_LEVEL_DOCS = {
     "docs/系统概览与核心设计.md",
     "docs/核心能力与代码入口.md",
     "docs/核心运行机制与代码索引.md",
+    "docs/运行产物与持久化契约.md",
 }
+
+MAX_PUBLIC_DOCS = len(ALLOWED_TOP_LEVEL_DOCS)
 
 PUBLIC_POSITIONING_FORBIDDEN = (
     "面" + "试",
@@ -311,9 +317,10 @@ class DocumentationLanguageTest(unittest.TestCase):
             for path in result.stdout.splitlines()
             if path and (PROJECT_ROOT / path).is_file()
         }
-        if len(tracked_docs) > 3:
+        if len(tracked_docs) > MAX_PUBLIC_DOCS:
             violations.append(
-                f"docs tree has {len(tracked_docs)} Markdown files; public surface allows 3"
+                f"docs tree has {len(tracked_docs)} Markdown files; "
+                f"public surface allows {MAX_PUBLIC_DOCS}"
             )
         for relative_path in sorted(tracked_docs):
             if relative_path in ALLOWED_TOP_LEVEL_DOCS:
@@ -396,6 +403,25 @@ class DocumentationLanguageTest(unittest.TestCase):
 
         self.assertGreaterEqual(len(owner_symbols), 60, "Cheat Sheet Owner 提取结果异常")
         self.assertEqual(violations, [], "Cheat Sheet Owner 必须可定位且可直接理解")
+
+    def test_runtime_artifact_contract_documents_state_domains_and_field_sources(self) -> None:
+        """持久化契约必须保留恢复排障所需的状态值域和字段来源。"""
+
+        text = (PROJECT_ROOT / "docs/运行产物与持久化契约.md").read_text(
+            encoding="utf-8"
+        )
+        required_contracts = (
+            "`created`、`running`、`waiting_approval`、`waiting_human`",
+            "`pending`、`responded`、`cancelled`",
+            "`pending`、`approved`、`rejected`、`stale`",
+            "`planned`、`pending`、`approved`、`executing`、`executed`、`failed`",
+            "`decision_note` 只提供人工审计说明",
+            "Operator Console 未填写说明时它是空字符串",
+            "TraceEvent.data",
+            "序列化后会平铺到事件 envelope",
+        )
+        missing = [contract for contract in required_contracts if contract not in text]
+        self.assertEqual(missing, [], "运行产物契约缺少状态值域或字段来源")
 
 
 if __name__ == "__main__":
