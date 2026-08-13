@@ -135,9 +135,10 @@ class RunCommandToolTest(unittest.TestCase):
 
         self.assertTrue(observation.success)
         self.assertIn("output_truncated=true", observation.content)
-        self.assertIn("--- output head ---", observation.content)
-        self.assertIn("--- output tail ---", observation.content)
-        self.assertLessEqual(len(observation.content), MAX_COMMAND_OUTPUT_CHARS + 128)
+        self.assertEqual(
+            len(observation.content.split("\n", 1)[1]),
+            MAX_COMMAND_OUTPUT_CHARS,
+        )
 
     def test_rejects_shell_redirection_before_execution(self):
         class Environment:

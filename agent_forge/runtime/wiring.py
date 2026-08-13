@@ -62,7 +62,6 @@ from agent_forge.tools.python_validation import PythonValidationTool
 from agent_forge.tools.git_diff import GitDiffTool
 from agent_forge.tools.git_status import GitStatusTool
 from agent_forge.tools.grep import GrepSearchTool
-from agent_forge.tools.find_files import FindFilesTool
 from agent_forge.tools.list_files import ListFilesTool
 from agent_forge.tools.mcp_config import MCPConfigLoader
 from agent_forge.tools.read_file import ReadFileTool
@@ -140,7 +139,6 @@ def build_registry(request: ToolRegistryBuildRequest) -> ToolRegistry:
     registry = ToolRegistry()
     builtin_tools = [
         ListFilesTool(sandbox),
-        FindFilesTool(sandbox),
         ReadFileTool(sandbox),
         WriteFileTool(sandbox, request.auto),
         CreateFileTool(sandbox, request.auto),

@@ -23,10 +23,6 @@ from agent_forge.runtime.execution_environment import ExecutionEnvironment
 from agent_forge.safety.sandbox import WorkspaceSandbox
 
 from .base import Tool
-from .output_window import render_output_window
-
-
-MAX_VALIDATION_OUTPUT_CHARS = 3_000
 
 
 class PythonValidationTool(Tool):
@@ -101,22 +97,14 @@ class PythonValidationTool(Tool):
                 ["python", "-m", "compileall", "-q", relative_target],
                 timeout=self.timeout_seconds,
             )
-            complete_output = (process.stdout + process.stderr).strip()
-            output = (
-                render_output_window(
-                    complete_output,
-                    max_chars=MAX_VALIDATION_OUTPUT_CHARS,
-                )
-                if complete_output
-                else f"compile ok: {relative_target}"
-            )
+            output = (process.stdout + process.stderr).strip()[:3000]
             return Observation(
                 tool_name=self.name,
                 success=process.returncode == 0,
                 content=(
                     f"validation_command=python -m compileall -q {relative_target}\n"
                     f"exit_code={process.returncode}\n"
-                    f"{output}"
+                    f"{output or f'compile ok: {relative_target}'}"
                 ),
                 execution_succeeded=True,
             )
@@ -204,13 +192,9 @@ class PythonValidationTool(Tool):
                 timeout=self.timeout_seconds,
                 shell=False,
             )
-        complete_output = (process.stdout + process.stderr).strip()
-        output = render_output_window(
-            complete_output,
-            max_chars=MAX_VALIDATION_OUTPUT_CHARS,
-        )
+        output = (process.stdout + process.stderr).strip()[:3000]
         command_evidence = f"validation_command={shlex.join(command)}"
-        normalized_output = complete_output.lower()
+        normalized_output = output.lower()
         pytest_unavailable = check_type == "pytest" and (
             "no module named pytest" in normalized_output
             or "no module named 'pytest'" in normalized_output
@@ -226,7 +210,7 @@ class PythonValidationTool(Tool):
                     "candidate diff remains unverified by focused tests."
                 ),
             )
-        if check_type == "unittest" and "Ran 0 tests" in complete_output:
+        if check_type == "unittest" and "Ran 0 tests" in output:
             return Observation(
                 tool_name=self.name,
                 success=True,
