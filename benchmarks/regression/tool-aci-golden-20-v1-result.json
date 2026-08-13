@@ -1,0 +1,2922 @@
+{
+  "artifact_type": "tool_aci_golden_20_paired_ab",
+  "claim": "fixed development-set paired Tool / ACI bundle comparison",
+  "claim_limits": [
+    "This is a fixed development A/B set, not a holdout and not a SWE-bench Verified leaderboard score.",
+    "The Treatment is a Tool / ACI bundle; this experiment does not attribute uplift to any individual component.",
+    "The later V4 Pro Mini-50 experiment remains the separate absolute capability measurement."
+  ],
+  "deferred": [
+    "apply_patch",
+    "LSP",
+    "tree-sitter semantic index",
+    "Code Graph or GraphRAG",
+    "embeddings or vector database",
+    "Multi-Agent changes",
+    "Memory, Runtime, ToolRouter, or Prompt redesign"
+  ],
+  "experiment_id": "tool-aci-golden-20-v1",
+  "identity": {
+    "baseline_preregistration_commit": "c5fb4b884019e7dabebe1b8b0afe1cec521e2f3b",
+    "baseline_runtime_source_commit": "0ae0d9ae9444d723e319fc0c7eadec9b631d374c",
+    "fixed_profile": {
+      "agent_mode": "single",
+      "base_url": "https://opencode.ai/zen/go/v1",
+      "case_timeout_seconds": 3600,
+      "correctness_result_retries": 0,
+      "cost_budget_usd": null,
+      "execution_mode": "worktree",
+      "keep_worktree": false,
+      "max_context_chars": 64000,
+      "max_prompt_tokens": 131072,
+      "max_revision_rounds": 0,
+      "max_steps": 128,
+      "max_tool_calls_per_turn": 4,
+      "max_workers": 1,
+      "memory_recall_limit": 0,
+      "model": "deepseek-v4-flash",
+      "model_request_max_attempts": 2,
+      "model_request_timeout_seconds": 600,
+      "network_policy": "deny",
+      "official_cache_level": "instance",
+      "official_evaluator": true,
+      "official_namespace": "swebench",
+      "provider": "opencode-go",
+      "reasoning_effort": "high",
+      "repetitions_per_variant": 1,
+      "reserved_output_tokens": 16384,
+      "skill": "swebench_repair",
+      "temperature": 0,
+      "thinking": "enabled",
+      "tool_execution_timeout_seconds": 600,
+      "tool_routing": "task-aware"
+    },
+    "manifest_path": "benchmarks/regression/tool-aci-golden-20-v1.json",
+    "manifest_sha256": "fec7c409ce030837165b9431264822a8e0ebddb418fecf4540d8434865f20bbe",
+    "ordered_case_ids_sha256": "d9df92733e6008513a397671142c2ce3c317797f8c63a47dd8fed18021ae97aa",
+    "treatment_commit": "296000864d6a2c1476c28b790f030b0ffc4cca5b",
+    "treatment_file_sha256": {
+      "agent_forge/context/repo_outline.py": "efd6b06987430fa69ddfdf50236f905e138cf9c71504c3713e10e4cf4841ff0d",
+      "agent_forge/tools/find_files.py": "4ae65f3d3df79a551d8736cdcfcf663107b7014470a4e7298b7ad6fd2075179e",
+      "agent_forge/tools/grep.py": "9e8e5518b9e51b921b1f6a4df7b63f99d7f8b057a5da98683cd63ba100518b22",
+      "agent_forge/tools/output_window.py": "882b5507fdeb940a3394a98412e4cc47f54e9a05339e9cddeef71cbde98cd33a"
+    }
+  },
+  "paired": {
+    "decision": "reject",
+    "mcnemar_exact_two_sided_p": 1.0,
+    "net_resolved_delta": -1,
+    "percentage_point_delta": -5.0,
+    "subsets": {
+      "fresh_extension": {
+        "delta": -1,
+        "planned": 10,
+        "r0_resolved": 7,
+        "r1_resolved": 6
+      },
+      "seen_regression": {
+        "delta": 0,
+        "planned": 10,
+        "r0_resolved": 7,
+        "r1_resolved": 7
+      }
+    },
+    "transition_counts": {
+      "resolved_to_resolved": 12,
+      "resolved_to_unresolved": 2,
+      "unresolved_to_resolved": 1,
+      "unresolved_to_unresolved": 5
+    },
+    "transitions": [
+      {
+        "index": 1,
+        "instance_id": "django__django-11451",
+        "r0": "resolved",
+        "r0_patch_sha256": "6a8a65f27464542dae84eea9664757addb6550722425a09e25ff681b6e29c923",
+        "r1": "resolved",
+        "r1_patch_sha256": "6a8a65f27464542dae84eea9664757addb6550722425a09e25ff681b6e29c923",
+        "subset": "seen_regression",
+        "transition": "resolved_to_resolved"
+      },
+      {
+        "index": 2,
+        "instance_id": "matplotlib__matplotlib-13989",
+        "r0": "resolved",
+        "r0_patch_sha256": "3a6e435771e4b4380e7c85e3e8456dceee6940a0158a1e180a491aaee84ddbfb",
+        "r1": "resolved",
+        "r1_patch_sha256": "3a6e435771e4b4380e7c85e3e8456dceee6940a0158a1e180a491aaee84ddbfb",
+        "subset": "seen_regression",
+        "transition": "resolved_to_resolved"
+      },
+      {
+        "index": 3,
+        "instance_id": "scikit-learn__scikit-learn-14629",
+        "r0": "resolved",
+        "r0_patch_sha256": "9482aaf719c5cf1ef67632a9243ed515a063fe373d13d3ca900cf9fd33776d82",
+        "r1": "unresolved",
+        "r1_patch_sha256": "eefa4a8d7f9a20c764e124c2011c422f938c87f4d43d249abeb338d181d3043d",
+        "subset": "seen_regression",
+        "transition": "resolved_to_unresolved"
+      },
+      {
+        "index": 4,
+        "instance_id": "django__django-12209",
+        "r0": "resolved",
+        "r0_patch_sha256": "e5a2692ae23a11b9220811ace6c287acbcdfed2aae222b82b02515d90a059557",
+        "r1": "resolved",
+        "r1_patch_sha256": "a6d80a08896135af973fcc236ba5d824c599c0d7e9e6b40ebdf8856ef8c46de3",
+        "subset": "seen_regression",
+        "transition": "resolved_to_resolved"
+      },
+      {
+        "index": 5,
+        "instance_id": "sphinx-doc__sphinx-10323",
+        "r0": "resolved",
+        "r0_patch_sha256": "3ba611ad7cc285b2b47971f475ce58a1d90195262b11ecc26c73b46d254724d1",
+        "r1": "resolved",
+        "r1_patch_sha256": "acf261073789dd98f4b54fd531f01c9e67f9c514e7e3cd6a62e14ff65b966759",
+        "subset": "seen_regression",
+        "transition": "resolved_to_resolved"
+      },
+      {
+        "index": 6,
+        "instance_id": "sympy__sympy-20590",
+        "r0": "unresolved",
+        "r0_patch_sha256": "aee590877f88a10e00707b47256fe74d5294f4d425dc4077c7d1180b7b2d8b21",
+        "r1": "resolved",
+        "r1_patch_sha256": "4737b88d986ae7e1842f438dab515a620946936229aafec105533efed5f67042",
+        "subset": "seen_regression",
+        "transition": "unresolved_to_resolved"
+      },
+      {
+        "index": 7,
+        "instance_id": "django__django-10097",
+        "r0": "unresolved",
+        "r0_patch_sha256": "9fabaa74f5eb89d3d58179b83990e41b4b60f06c5596220fec3c237c044df52d",
+        "r1": "unresolved",
+        "r1_patch_sha256": "144a5a1aca325730793b9390ca278e1af2032da93ce8fc167966a00e2c2c675f",
+        "subset": "seen_regression",
+        "transition": "unresolved_to_unresolved"
+      },
+      {
+        "index": 8,
+        "instance_id": "psf__requests-2317",
+        "r0": "unresolved",
+        "r0_patch_sha256": "804292af4a5af4f5c3f1f672a7e9298588b72fd42dfdde3d45789e09b1b8d526",
+        "r1": "unresolved",
+        "r1_patch_sha256": "5dd6d17b0424c57c9d1d30e1ccdbdc36e76e8f130b75a674d34b203590d097cb",
+        "subset": "seen_regression",
+        "transition": "unresolved_to_unresolved"
+      },
+      {
+        "index": 9,
+        "instance_id": "matplotlib__matplotlib-22871",
+        "r0": "resolved",
+        "r0_patch_sha256": "37b0aab32167cb422fee18161fae35bca3c431fda1becc167c76670139366620",
+        "r1": "resolved",
+        "r1_patch_sha256": "29affc3744d7763e25c9db079997ba8a0fec94ae42cf8b56598eaa08c19d1f1c",
+        "subset": "seen_regression",
+        "transition": "resolved_to_resolved"
+      },
+      {
+        "index": 10,
+        "instance_id": "django__django-13028",
+        "r0": "resolved",
+        "r0_patch_sha256": "da3b573e6d7995b8967988d3cf3740a7274480dbe725e5ed9aca51bd5bf01f71",
+        "r1": "resolved",
+        "r1_patch_sha256": "cb9d9037cbc7e2089af7efe67287cc4b6d239b69fff107a719d48e3f086ec36d",
+        "subset": "seen_regression",
+        "transition": "resolved_to_resolved"
+      },
+      {
+        "index": 11,
+        "instance_id": "astropy__astropy-14182",
+        "r0": "resolved",
+        "r0_patch_sha256": "16fade7d42737bbfe8b7345eb6950aa738fe67b9f09ee9b51895369b55780d1a",
+        "r1": "unresolved",
+        "r1_patch_sha256": "63e4fe7c72e7f879c732ad453ebaf572fce6b10f262380c42e4705eb38beda48",
+        "subset": "fresh_extension",
+        "transition": "resolved_to_unresolved"
+      },
+      {
+        "index": 12,
+        "instance_id": "matplotlib__matplotlib-25287",
+        "r0": "resolved",
+        "r0_patch_sha256": "e1c4f07a7d0020ae6c8e8dbefefcaec561b9b9c92609abc6bd1a54757193aed8",
+        "r1": "resolved",
+        "r1_patch_sha256": "6b4fb5c376b674b6dcf0571712c9d22792faac66424438ad9c0b9f32ee49be52",
+        "subset": "fresh_extension",
+        "transition": "resolved_to_resolved"
+      },
+      {
+        "index": 13,
+        "instance_id": "psf__requests-2931",
+        "r0": "unresolved",
+        "r0_patch_sha256": "2ca5a37033bbda45a1c4bcb54b2a414266081c4cbd0467fb8566ea6e4c104906",
+        "r1": "unresolved",
+        "r1_patch_sha256": "d4c4b1198c1ede2244cf3ad92c1b0724918deb4f7bbb4173d00249c85cd6165d",
+        "subset": "fresh_extension",
+        "transition": "unresolved_to_unresolved"
+      },
+      {
+        "index": 14,
+        "instance_id": "pydata__xarray-6938",
+        "r0": "unresolved",
+        "r0_patch_sha256": "2f08d7309a1df25ccf9c9168adbc7082efd5df7eb5698e2c2f6151fe85c9bd42",
+        "r1": "unresolved",
+        "r1_patch_sha256": "0fe2d90832a6b04599b5ca2c5076ed5c00c5328e7cfdefb09691d403233baa82",
+        "subset": "fresh_extension",
+        "transition": "unresolved_to_unresolved"
+      },
+      {
+        "index": 15,
+        "instance_id": "pylint-dev__pylint-6903",
+        "r0": "resolved",
+        "r0_patch_sha256": "66154b18739759124dbadf623917fd1364337bfc185b546bbacdb332c6657b20",
+        "r1": "resolved",
+        "r1_patch_sha256": "e54d2f9ff19500821e20065aabe3650d01d91f7453c79bbfaab4c903abddacab",
+        "subset": "fresh_extension",
+        "transition": "resolved_to_resolved"
+      },
+      {
+        "index": 16,
+        "instance_id": "pytest-dev__pytest-5262",
+        "r0": "resolved",
+        "r0_patch_sha256": "3eb3897f2ededc4bc6ae5629c8b7dbd07db4a2d8898918083ef02b867957c7d2",
+        "r1": "resolved",
+        "r1_patch_sha256": "83312ea879d3749d5b3b5b1082476f2faa2ee3b1d8a3d5281bb7acd468d397d9",
+        "subset": "fresh_extension",
+        "transition": "resolved_to_resolved"
+      },
+      {
+        "index": 17,
+        "instance_id": "scikit-learn__scikit-learn-13328",
+        "r0": "resolved",
+        "r0_patch_sha256": "7cedc6fd807e2c2c8ab0a5548fceafde4d92a3ad0a27f980fcd74e26a4ad4c78",
+        "r1": "resolved",
+        "r1_patch_sha256": "7cedc6fd807e2c2c8ab0a5548fceafde4d92a3ad0a27f980fcd74e26a4ad4c78",
+        "subset": "fresh_extension",
+        "transition": "resolved_to_resolved"
+      },
+      {
+        "index": 18,
+        "instance_id": "sphinx-doc__sphinx-9591",
+        "r0": "resolved",
+        "r0_patch_sha256": "941db8354f0452b99607941fef122393ab68901b77663de6487131d6d2cb5512",
+        "r1": "resolved",
+        "r1_patch_sha256": "941db8354f0452b99607941fef122393ab68901b77663de6487131d6d2cb5512",
+        "subset": "fresh_extension",
+        "transition": "resolved_to_resolved"
+      },
+      {
+        "index": 19,
+        "instance_id": "sympy__sympy-13372",
+        "r0": "resolved",
+        "r0_patch_sha256": "125fd5745e6bb43659a27a4b1d24f000dd4067196de08425813a5082489a4450",
+        "r1": "resolved",
+        "r1_patch_sha256": "125fd5745e6bb43659a27a4b1d24f000dd4067196de08425813a5082489a4450",
+        "subset": "fresh_extension",
+        "transition": "resolved_to_resolved"
+      },
+      {
+        "index": 20,
+        "instance_id": "django__django-10999",
+        "r0": "unresolved",
+        "r0_patch_sha256": "ec9696668ec6524dc629dda67181e1733cfe04a759239ef16f219e28ea3c50a6",
+        "r1": "unresolved",
+        "r1_patch_sha256": "ec9696668ec6524dc629dda67181e1733cfe04a759239ef16f219e28ea3c50a6",
+        "subset": "fresh_extension",
+        "transition": "unresolved_to_unresolved"
+      }
+    ]
+  },
+  "r0": {
+    "cases": {
+      "astropy__astropy-14182": {
+        "artifacts": {
+          "candidate_sha256": "16fade7d42737bbfe8b7345eb6950aa738fe67b9f09ee9b51895369b55780d1a",
+          "official_patch_sha256": "16fade7d42737bbfe8b7345eb6950aa738fe67b9f09ee9b51895369b55780d1a",
+          "trace_sha256": "c6e05272dc8dfb25751cb5f939f626bed8e704e73550e6d207e81490f8b2dcec",
+          "usage_sha256": "1549641a7e434f5be4efe0770f610ad0372cacd372847988a3b52009e27e3dc6"
+        },
+        "instance_id": "astropy__astropy-14182",
+        "local_validation_status": "unavailable",
+        "metrics": {
+          "available_find_files_contexts": 0,
+          "completion_tokens": 32615,
+          "edit_calls": 1,
+          "estimated_cost_usd": 0.146952,
+          "failed_tool_calls": 3,
+          "failed_validations": 1,
+          "find_files_calls": 0,
+          "first_edit_call_index": 21,
+          "grep_search_calls": 11,
+          "head_tail_observations": 0,
+          "list_files_calls": 1,
+          "llm_calls": 27,
+          "llm_latency_ms": 389118,
+          "prompt_tokens": 1142724,
+          "read_calls_before_first_edit": 13,
+          "read_file_calls": 18,
+          "repo_outline_contexts": 0,
+          "search_calls": 12,
+          "search_calls_before_first_edit": 7,
+          "steps": 32,
+          "tool_calls": 37,
+          "tool_calls_before_first_edit": 20,
+          "total_tokens": 1175339,
+          "validation_calls": 5
+        },
+        "outcome": "resolved",
+        "patch_bytes": 808,
+        "patch_generated": true,
+        "patch_sha256": "16fade7d42737bbfe8b7345eb6950aa738fe67b9f09ee9b51895369b55780d1a",
+        "provider_identity": {
+          "error_codes": [
+            "request_failed"
+          ],
+          "fallback_calls": 0,
+          "llm_calls": 27,
+          "observed_models": [
+            "deepseek-v4-flash"
+          ],
+          "providers": [
+            "opencode-go"
+          ],
+          "requested_models": [
+            "deepseek-v4-flash"
+          ],
+          "retried_calls": 1
+        },
+        "resolved": true,
+        "stop_reason": "final_answer",
+        "task_status": "completed"
+      },
+      "django__django-10097": {
+        "artifacts": {
+          "candidate_sha256": "9fabaa74f5eb89d3d58179b83990e41b4b60f06c5596220fec3c237c044df52d",
+          "official_patch_sha256": "9fabaa74f5eb89d3d58179b83990e41b4b60f06c5596220fec3c237c044df52d",
+          "trace_sha256": "d638a8f077fe7dda0d8fd309d8b81856c177ed8920930f7a7c9f5284be442851",
+          "usage_sha256": "3c275e538d79e1dadb9e908d3725c65fc49c6015b6e507037dd846df1a8e216d"
+        },
+        "instance_id": "django__django-10097",
+        "local_validation_status": "failed",
+        "metrics": {
+          "available_find_files_contexts": 0,
+          "completion_tokens": 22248,
+          "edit_calls": 4,
+          "estimated_cost_usd": 0.111685,
+          "failed_tool_calls": 2,
+          "failed_validations": 1,
+          "find_files_calls": 0,
+          "first_edit_call_index": 11,
+          "grep_search_calls": 9,
+          "head_tail_observations": 0,
+          "list_files_calls": 2,
+          "llm_calls": 27,
+          "llm_latency_ms": 292666,
+          "prompt_tokens": 911064,
+          "read_calls_before_first_edit": 3,
+          "read_file_calls": 10,
+          "repo_outline_contexts": 0,
+          "search_calls": 11,
+          "search_calls_before_first_edit": 7,
+          "steps": 35,
+          "tool_calls": 35,
+          "tool_calls_before_first_edit": 10,
+          "total_tokens": 933312,
+          "validation_calls": 5
+        },
+        "outcome": "unresolved",
+        "patch_bytes": 723,
+        "patch_generated": true,
+        "patch_sha256": "9fabaa74f5eb89d3d58179b83990e41b4b60f06c5596220fec3c237c044df52d",
+        "provider_identity": {
+          "error_codes": [],
+          "fallback_calls": 0,
+          "llm_calls": 27,
+          "observed_models": [
+            "deepseek-v4-flash"
+          ],
+          "providers": [
+            "opencode-go"
+          ],
+          "requested_models": [
+            "deepseek-v4-flash"
+          ],
+          "retried_calls": 0
+        },
+        "resolved": false,
+        "stop_reason": "final_answer",
+        "task_status": "completed"
+      },
+      "django__django-10999": {
+        "artifacts": {
+          "candidate_sha256": "ec9696668ec6524dc629dda67181e1733cfe04a759239ef16f219e28ea3c50a6",
+          "official_patch_sha256": "ec9696668ec6524dc629dda67181e1733cfe04a759239ef16f219e28ea3c50a6",
+          "trace_sha256": "a6dd17a38bd8a19774dc7318e130d2177536a4b553d18991a54fcce00c331c25",
+          "usage_sha256": "a20800192e35ed1162cee92d05137148e1eac976d666a74167c0394e2c56d2f7"
+        },
+        "instance_id": "django__django-10999",
+        "local_validation_status": "unavailable",
+        "metrics": {
+          "available_find_files_contexts": 0,
+          "completion_tokens": 2652,
+          "edit_calls": 1,
+          "estimated_cost_usd": 0.011444,
+          "failed_tool_calls": 0,
+          "failed_validations": 1,
+          "find_files_calls": 0,
+          "first_edit_call_index": 3,
+          "grep_search_calls": 2,
+          "head_tail_observations": 0,
+          "list_files_calls": 0,
+          "llm_calls": 6,
+          "llm_latency_ms": 39811,
+          "prompt_tokens": 104166,
+          "read_calls_before_first_edit": 1,
+          "read_file_calls": 1,
+          "repo_outline_contexts": 0,
+          "search_calls": 2,
+          "search_calls_before_first_edit": 1,
+          "steps": 9,
+          "tool_calls": 7,
+          "tool_calls_before_first_edit": 2,
+          "total_tokens": 106818,
+          "validation_calls": 2
+        },
+        "outcome": "unresolved",
+        "patch_bytes": 497,
+        "patch_generated": true,
+        "patch_sha256": "ec9696668ec6524dc629dda67181e1733cfe04a759239ef16f219e28ea3c50a6",
+        "provider_identity": {
+          "error_codes": [],
+          "fallback_calls": 0,
+          "llm_calls": 6,
+          "observed_models": [
+            "deepseek-v4-flash"
+          ],
+          "providers": [
+            "opencode-go"
+          ],
+          "requested_models": [
+            "deepseek-v4-flash"
+          ],
+          "retried_calls": 0
+        },
+        "resolved": false,
+        "stop_reason": "final_answer",
+        "task_status": "completed"
+      },
+      "django__django-11451": {
+        "artifacts": {
+          "candidate_sha256": "6a8a65f27464542dae84eea9664757addb6550722425a09e25ff681b6e29c923",
+          "official_patch_sha256": "6a8a65f27464542dae84eea9664757addb6550722425a09e25ff681b6e29c923",
+          "trace_sha256": "137f837098b71ed9d7bb681d45f1b8e47e2ddd61275dfd6c57743ae39bba079e",
+          "usage_sha256": "6c677c8e430790cb7b8543aaf096bab34d6e0f288c5ab1cf374f8e2b835bd0c2"
+        },
+        "instance_id": "django__django-11451",
+        "local_validation_status": "unavailable",
+        "metrics": {
+          "available_find_files_contexts": 0,
+          "completion_tokens": 3203,
+          "edit_calls": 1,
+          "estimated_cost_usd": 0.031641,
+          "failed_tool_calls": 1,
+          "failed_validations": 1,
+          "find_files_calls": 0,
+          "first_edit_call_index": 3,
+          "grep_search_calls": 4,
+          "head_tail_observations": 0,
+          "list_files_calls": 1,
+          "llm_calls": 13,
+          "llm_latency_ms": 70237,
+          "prompt_tokens": 289333,
+          "read_calls_before_first_edit": 1,
+          "read_file_calls": 5,
+          "repo_outline_contexts": 0,
+          "search_calls": 5,
+          "search_calls_before_first_edit": 1,
+          "steps": 15,
+          "tool_calls": 15,
+          "tool_calls_before_first_edit": 2,
+          "total_tokens": 292536,
+          "validation_calls": 2
+        },
+        "outcome": "resolved",
+        "patch_bytes": 611,
+        "patch_generated": true,
+        "patch_sha256": "6a8a65f27464542dae84eea9664757addb6550722425a09e25ff681b6e29c923",
+        "provider_identity": {
+          "error_codes": [],
+          "fallback_calls": 0,
+          "llm_calls": 13,
+          "observed_models": [
+            "deepseek-v4-flash"
+          ],
+          "providers": [
+            "opencode-go"
+          ],
+          "requested_models": [
+            "deepseek-v4-flash"
+          ],
+          "retried_calls": 0
+        },
+        "resolved": true,
+        "stop_reason": "final_answer",
+        "task_status": "completed"
+      },
+      "django__django-12209": {
+        "artifacts": {
+          "candidate_sha256": "e5a2692ae23a11b9220811ace6c287acbcdfed2aae222b82b02515d90a059557",
+          "official_patch_sha256": "e5a2692ae23a11b9220811ace6c287acbcdfed2aae222b82b02515d90a059557",
+          "trace_sha256": "680c29a983db8b28d17520b40f6f36f30041ea8306667fa6064aa411b057ec24",
+          "usage_sha256": "7596ce290027afd07a3e0a6723f235cf4b0705c4414592b8283ea77d01371399"
+        },
+        "instance_id": "django__django-12209",
+        "local_validation_status": "unavailable",
+        "metrics": {
+          "available_find_files_contexts": 0,
+          "completion_tokens": 46116,
+          "edit_calls": 2,
+          "estimated_cost_usd": 0.315546,
+          "failed_tool_calls": 4,
+          "failed_validations": 1,
+          "find_files_calls": 0,
+          "first_edit_call_index": 37,
+          "grep_search_calls": 31,
+          "head_tail_observations": 0,
+          "list_files_calls": 6,
+          "llm_calls": 47,
+          "llm_latency_ms": 621234,
+          "prompt_tokens": 2450538,
+          "read_calls_before_first_edit": 15,
+          "read_file_calls": 21,
+          "repo_outline_contexts": 0,
+          "search_calls": 37,
+          "search_calls_before_first_edit": 20,
+          "steps": 50,
+          "tool_calls": 65,
+          "tool_calls_before_first_edit": 36,
+          "total_tokens": 2496654,
+          "validation_calls": 3
+        },
+        "outcome": "resolved",
+        "patch_bytes": 1350,
+        "patch_generated": true,
+        "patch_sha256": "e5a2692ae23a11b9220811ace6c287acbcdfed2aae222b82b02515d90a059557",
+        "provider_identity": {
+          "error_codes": [],
+          "fallback_calls": 0,
+          "llm_calls": 47,
+          "observed_models": [
+            "deepseek-v4-flash"
+          ],
+          "providers": [
+            "opencode-go"
+          ],
+          "requested_models": [
+            "deepseek-v4-flash"
+          ],
+          "retried_calls": 0
+        },
+        "resolved": true,
+        "stop_reason": "final_answer",
+        "task_status": "completed"
+      },
+      "django__django-13028": {
+        "artifacts": {
+          "candidate_sha256": "da3b573e6d7995b8967988d3cf3740a7274480dbe725e5ed9aca51bd5bf01f71",
+          "official_patch_sha256": "da3b573e6d7995b8967988d3cf3740a7274480dbe725e5ed9aca51bd5bf01f71",
+          "trace_sha256": "8d15eaa84cd495ee1805d15978842e792b948efbe5032842b4abc4399a4d88b4",
+          "usage_sha256": "15415424cc5bae5ac3bca35c0bde9b212e2489996ca4d142a19fa55bc24298e5"
+        },
+        "instance_id": "django__django-13028",
+        "local_validation_status": "failed",
+        "metrics": {
+          "available_find_files_contexts": 0,
+          "completion_tokens": 62562,
+          "edit_calls": 10,
+          "estimated_cost_usd": 0.30877,
+          "failed_tool_calls": 4,
+          "failed_validations": 5,
+          "find_files_calls": 0,
+          "first_edit_call_index": 32,
+          "grep_search_calls": 18,
+          "head_tail_observations": 0,
+          "list_files_calls": 2,
+          "llm_calls": 39,
+          "llm_latency_ms": 684458,
+          "prompt_tokens": 2317826,
+          "read_calls_before_first_edit": 10,
+          "read_file_calls": 13,
+          "repo_outline_contexts": 0,
+          "search_calls": 20,
+          "search_calls_before_first_edit": 16,
+          "steps": 47,
+          "tool_calls": 59,
+          "tool_calls_before_first_edit": 31,
+          "total_tokens": 2380388,
+          "validation_calls": 13
+        },
+        "outcome": "resolved",
+        "patch_bytes": 5176,
+        "patch_generated": true,
+        "patch_sha256": "da3b573e6d7995b8967988d3cf3740a7274480dbe725e5ed9aca51bd5bf01f71",
+        "provider_identity": {
+          "error_codes": [],
+          "fallback_calls": 0,
+          "llm_calls": 39,
+          "observed_models": [
+            "deepseek-v4-flash"
+          ],
+          "providers": [
+            "opencode-go"
+          ],
+          "requested_models": [
+            "deepseek-v4-flash"
+          ],
+          "retried_calls": 0
+        },
+        "resolved": true,
+        "stop_reason": "final_answer",
+        "task_status": "completed"
+      },
+      "matplotlib__matplotlib-13989": {
+        "artifacts": {
+          "candidate_sha256": "3a6e435771e4b4380e7c85e3e8456dceee6940a0158a1e180a491aaee84ddbfb",
+          "official_patch_sha256": "3a6e435771e4b4380e7c85e3e8456dceee6940a0158a1e180a491aaee84ddbfb",
+          "trace_sha256": "0e593cfd9fea0421598d2b4cc8c9c4ffd47961696538a54e251599354a3ded36",
+          "usage_sha256": "b164fd81eac2b7c3484615f3c5d61eeabb8163ea6884f456d1d45d2a0e8815c8"
+        },
+        "instance_id": "matplotlib__matplotlib-13989",
+        "local_validation_status": "unavailable",
+        "metrics": {
+          "available_find_files_contexts": 0,
+          "completion_tokens": 6296,
+          "edit_calls": 1,
+          "estimated_cost_usd": 0.036885,
+          "failed_tool_calls": 1,
+          "failed_validations": 1,
+          "find_files_calls": 0,
+          "first_edit_call_index": 7,
+          "grep_search_calls": 4,
+          "head_tail_observations": 0,
+          "list_files_calls": 0,
+          "llm_calls": 15,
+          "llm_latency_ms": 107317,
+          "prompt_tokens": 329899,
+          "read_calls_before_first_edit": 4,
+          "read_file_calls": 7,
+          "repo_outline_contexts": 0,
+          "search_calls": 4,
+          "search_calls_before_first_edit": 2,
+          "steps": 19,
+          "tool_calls": 17,
+          "tool_calls_before_first_edit": 6,
+          "total_tokens": 336195,
+          "validation_calls": 3
+        },
+        "outcome": "resolved",
+        "patch_bytes": 482,
+        "patch_generated": true,
+        "patch_sha256": "3a6e435771e4b4380e7c85e3e8456dceee6940a0158a1e180a491aaee84ddbfb",
+        "provider_identity": {
+          "error_codes": [],
+          "fallback_calls": 0,
+          "llm_calls": 15,
+          "observed_models": [
+            "deepseek-v4-flash"
+          ],
+          "providers": [
+            "opencode-go"
+          ],
+          "requested_models": [
+            "deepseek-v4-flash"
+          ],
+          "retried_calls": 0
+        },
+        "resolved": true,
+        "stop_reason": "final_answer",
+        "task_status": "completed"
+      },
+      "matplotlib__matplotlib-22871": {
+        "artifacts": {
+          "candidate_sha256": "37b0aab32167cb422fee18161fae35bca3c431fda1becc167c76670139366620",
+          "official_patch_sha256": "37b0aab32167cb422fee18161fae35bca3c431fda1becc167c76670139366620",
+          "trace_sha256": "0926c1d11ae46718a86431389bab223176b90a491c62f7c7d58ad5dc4c36f10b",
+          "usage_sha256": "e48acfcb41efc24fc5e5073b52ac2dcc387aa9535a31054924aba8ad8d894715"
+        },
+        "instance_id": "matplotlib__matplotlib-22871",
+        "local_validation_status": "failed",
+        "metrics": {
+          "available_find_files_contexts": 0,
+          "completion_tokens": 31876,
+          "edit_calls": 1,
+          "estimated_cost_usd": 0.059944,
+          "failed_tool_calls": 2,
+          "failed_validations": 1,
+          "find_files_calls": 0,
+          "first_edit_call_index": 10,
+          "grep_search_calls": 3,
+          "head_tail_observations": 0,
+          "list_files_calls": 2,
+          "llm_calls": 11,
+          "llm_latency_ms": 257332,
+          "prompt_tokens": 425514,
+          "read_calls_before_first_edit": 6,
+          "read_file_calls": 6,
+          "repo_outline_contexts": 0,
+          "search_calls": 5,
+          "search_calls_before_first_edit": 2,
+          "steps": 14,
+          "tool_calls": 17,
+          "tool_calls_before_first_edit": 9,
+          "total_tokens": 457390,
+          "validation_calls": 3
+        },
+        "outcome": "resolved",
+        "patch_bytes": 781,
+        "patch_generated": true,
+        "patch_sha256": "37b0aab32167cb422fee18161fae35bca3c431fda1becc167c76670139366620",
+        "provider_identity": {
+          "error_codes": [],
+          "fallback_calls": 0,
+          "llm_calls": 11,
+          "observed_models": [
+            "deepseek-v4-flash"
+          ],
+          "providers": [
+            "opencode-go"
+          ],
+          "requested_models": [
+            "deepseek-v4-flash"
+          ],
+          "retried_calls": 0
+        },
+        "resolved": true,
+        "stop_reason": "final_answer",
+        "task_status": "completed"
+      },
+      "matplotlib__matplotlib-25287": {
+        "artifacts": {
+          "candidate_sha256": "e1c4f07a7d0020ae6c8e8dbefefcaec561b9b9c92609abc6bd1a54757193aed8",
+          "official_patch_sha256": "e1c4f07a7d0020ae6c8e8dbefefcaec561b9b9c92609abc6bd1a54757193aed8",
+          "trace_sha256": "59eddd0e8a067bfef253ed604c82abdd5e3661dc230a424667928ab61f1cbe2c",
+          "usage_sha256": "3e01927a5983e8cedb3c27670440d1546df45d5f5ee02e8fd573870dbe033008"
+        },
+        "instance_id": "matplotlib__matplotlib-25287",
+        "local_validation_status": "failed",
+        "metrics": {
+          "available_find_files_contexts": 0,
+          "completion_tokens": 6829,
+          "edit_calls": 2,
+          "estimated_cost_usd": 0.06155,
+          "failed_tool_calls": 0,
+          "failed_validations": 2,
+          "find_files_calls": 0,
+          "first_edit_call_index": 13,
+          "grep_search_calls": 12,
+          "head_tail_observations": 0,
+          "list_files_calls": 2,
+          "llm_calls": 19,
+          "llm_latency_ms": 141562,
+          "prompt_tokens": 549046,
+          "read_calls_before_first_edit": 7,
+          "read_file_calls": 10,
+          "repo_outline_contexts": 0,
+          "search_calls": 14,
+          "search_calls_before_first_edit": 5,
+          "steps": 21,
+          "tool_calls": 31,
+          "tool_calls_before_first_edit": 12,
+          "total_tokens": 555875,
+          "validation_calls": 3
+        },
+        "outcome": "resolved",
+        "patch_bytes": 1181,
+        "patch_generated": true,
+        "patch_sha256": "e1c4f07a7d0020ae6c8e8dbefefcaec561b9b9c92609abc6bd1a54757193aed8",
+        "provider_identity": {
+          "error_codes": [],
+          "fallback_calls": 0,
+          "llm_calls": 19,
+          "observed_models": [
+            "deepseek-v4-flash"
+          ],
+          "providers": [
+            "opencode-go"
+          ],
+          "requested_models": [
+            "deepseek-v4-flash"
+          ],
+          "retried_calls": 0
+        },
+        "resolved": true,
+        "stop_reason": "final_answer",
+        "task_status": "completed"
+      },
+      "psf__requests-2317": {
+        "artifacts": {
+          "candidate_sha256": "804292af4a5af4f5c3f1f672a7e9298588b72fd42dfdde3d45789e09b1b8d526",
+          "official_patch_sha256": "804292af4a5af4f5c3f1f672a7e9298588b72fd42dfdde3d45789e09b1b8d526",
+          "trace_sha256": "c5d27ffd99da857b4e957fb6c9ede119696b3383abf5f0508a327f202f56b1b7",
+          "usage_sha256": "dd75618af8b36b9d3d56ba47bc2b742a10b4a51746e6ee92b063a7af174ac41d"
+        },
+        "instance_id": "psf__requests-2317",
+        "local_validation_status": "failed",
+        "metrics": {
+          "available_find_files_contexts": 0,
+          "completion_tokens": 21842,
+          "edit_calls": 7,
+          "estimated_cost_usd": 0.087574,
+          "failed_tool_calls": 0,
+          "failed_validations": 4,
+          "find_files_calls": 0,
+          "first_edit_call_index": 9,
+          "grep_search_calls": 18,
+          "head_tail_observations": 0,
+          "list_files_calls": 0,
+          "llm_calls": 30,
+          "llm_latency_ms": 293007,
+          "prompt_tokens": 750926,
+          "read_calls_before_first_edit": 3,
+          "read_file_calls": 13,
+          "repo_outline_contexts": 0,
+          "search_calls": 18,
+          "search_calls_before_first_edit": 5,
+          "steps": 36,
+          "tool_calls": 48,
+          "tool_calls_before_first_edit": 8,
+          "total_tokens": 772768,
+          "validation_calls": 7
+        },
+        "outcome": "unresolved",
+        "patch_bytes": 1389,
+        "patch_generated": true,
+        "patch_sha256": "804292af4a5af4f5c3f1f672a7e9298588b72fd42dfdde3d45789e09b1b8d526",
+        "provider_identity": {
+          "error_codes": [],
+          "fallback_calls": 0,
+          "llm_calls": 30,
+          "observed_models": [
+            "deepseek-v4-flash"
+          ],
+          "providers": [
+            "opencode-go"
+          ],
+          "requested_models": [
+            "deepseek-v4-flash"
+          ],
+          "retried_calls": 0
+        },
+        "resolved": false,
+        "stop_reason": "final_answer",
+        "task_status": "completed"
+      },
+      "psf__requests-2931": {
+        "artifacts": {
+          "candidate_sha256": "2ca5a37033bbda45a1c4bcb54b2a414266081c4cbd0467fb8566ea6e4c104906",
+          "official_patch_sha256": "2ca5a37033bbda45a1c4bcb54b2a414266081c4cbd0467fb8566ea6e4c104906",
+          "trace_sha256": "120d0018aa1aa62485337e2cb86b51bf43304e58eecec37d8b08789bd802fac7",
+          "usage_sha256": "851c6f3e62e52c23dae58d3fbb0164658c4439c555542ade69f1f795ed214017"
+        },
+        "instance_id": "psf__requests-2931",
+        "local_validation_status": "failed",
+        "metrics": {
+          "available_find_files_contexts": 0,
+          "completion_tokens": 5093,
+          "edit_calls": 1,
+          "estimated_cost_usd": 0.017587,
+          "failed_tool_calls": 1,
+          "failed_validations": 1,
+          "find_files_calls": 0,
+          "first_edit_call_index": 9,
+          "grep_search_calls": 7,
+          "head_tail_observations": 0,
+          "list_files_calls": 0,
+          "llm_calls": 13,
+          "llm_latency_ms": 87161,
+          "prompt_tokens": 182293,
+          "read_calls_before_first_edit": 5,
+          "read_file_calls": 5,
+          "repo_outline_contexts": 0,
+          "search_calls": 7,
+          "search_calls_before_first_edit": 3,
+          "steps": 15,
+          "tool_calls": 18,
+          "tool_calls_before_first_edit": 8,
+          "total_tokens": 187386,
+          "validation_calls": 3
+        },
+        "outcome": "unresolved",
+        "patch_bytes": 499,
+        "patch_generated": true,
+        "patch_sha256": "2ca5a37033bbda45a1c4bcb54b2a414266081c4cbd0467fb8566ea6e4c104906",
+        "provider_identity": {
+          "error_codes": [],
+          "fallback_calls": 0,
+          "llm_calls": 13,
+          "observed_models": [
+            "deepseek-v4-flash"
+          ],
+          "providers": [
+            "opencode-go"
+          ],
+          "requested_models": [
+            "deepseek-v4-flash"
+          ],
+          "retried_calls": 0
+        },
+        "resolved": false,
+        "stop_reason": "final_answer",
+        "task_status": "completed"
+      },
+      "pydata__xarray-6938": {
+        "artifacts": {
+          "candidate_sha256": "2f08d7309a1df25ccf9c9168adbc7082efd5df7eb5698e2c2f6151fe85c9bd42",
+          "official_patch_sha256": "2f08d7309a1df25ccf9c9168adbc7082efd5df7eb5698e2c2f6151fe85c9bd42",
+          "trace_sha256": "eda290ac799abcea7cb748e74aacb7f07305381231784f832295c2e7d278e9c5",
+          "usage_sha256": "185491b1b3bdc72aced3742c2e1cae006df0e87a404526e939f475e34db50b2b"
+        },
+        "instance_id": "pydata__xarray-6938",
+        "local_validation_status": "failed",
+        "metrics": {
+          "available_find_files_contexts": 0,
+          "completion_tokens": 22380,
+          "edit_calls": 5,
+          "estimated_cost_usd": 0.187077,
+          "failed_tool_calls": 1,
+          "failed_validations": 3,
+          "find_files_calls": 0,
+          "first_edit_call_index": 32,
+          "grep_search_calls": 19,
+          "head_tail_observations": 0,
+          "list_files_calls": 0,
+          "llm_calls": 41,
+          "llm_latency_ms": 359189,
+          "prompt_tokens": 1542884,
+          "read_calls_before_first_edit": 15,
+          "read_file_calls": 19,
+          "repo_outline_contexts": 0,
+          "search_calls": 19,
+          "search_calls_before_first_edit": 15,
+          "steps": 47,
+          "tool_calls": 55,
+          "tool_calls_before_first_edit": 31,
+          "total_tokens": 1565264,
+          "validation_calls": 7
+        },
+        "outcome": "unresolved",
+        "patch_bytes": 1037,
+        "patch_generated": true,
+        "patch_sha256": "2f08d7309a1df25ccf9c9168adbc7082efd5df7eb5698e2c2f6151fe85c9bd42",
+        "provider_identity": {
+          "error_codes": [],
+          "fallback_calls": 0,
+          "llm_calls": 41,
+          "observed_models": [
+            "deepseek-v4-flash"
+          ],
+          "providers": [
+            "opencode-go"
+          ],
+          "requested_models": [
+            "deepseek-v4-flash"
+          ],
+          "retried_calls": 0
+        },
+        "resolved": false,
+        "stop_reason": "final_answer",
+        "task_status": "completed"
+      },
+      "pylint-dev__pylint-6903": {
+        "artifacts": {
+          "candidate_sha256": "66154b18739759124dbadf623917fd1364337bfc185b546bbacdb332c6657b20",
+          "official_patch_sha256": "66154b18739759124dbadf623917fd1364337bfc185b546bbacdb332c6657b20",
+          "trace_sha256": "e4fbeab2dead78e7bc98b74654137ad65de74c322ae575af39bda888d009001c",
+          "usage_sha256": "cb9ea0c1d63c9d36c62b334e1d13b5dd3f37ea6e1dc4511bc8433455afb03423"
+        },
+        "instance_id": "pylint-dev__pylint-6903",
+        "local_validation_status": "unavailable",
+        "metrics": {
+          "available_find_files_contexts": 0,
+          "completion_tokens": 7562,
+          "edit_calls": 1,
+          "estimated_cost_usd": 0.030191,
+          "failed_tool_calls": 0,
+          "failed_validations": 1,
+          "find_files_calls": 0,
+          "first_edit_call_index": 12,
+          "grep_search_calls": 8,
+          "head_tail_observations": 0,
+          "list_files_calls": 1,
+          "llm_calls": 13,
+          "llm_latency_ms": 114185,
+          "prompt_tokens": 263122,
+          "read_calls_before_first_edit": 2,
+          "read_file_calls": 3,
+          "repo_outline_contexts": 0,
+          "search_calls": 9,
+          "search_calls_before_first_edit": 9,
+          "steps": 15,
+          "tool_calls": 17,
+          "tool_calls_before_first_edit": 11,
+          "total_tokens": 270684,
+          "validation_calls": 2
+        },
+        "outcome": "resolved",
+        "patch_bytes": 485,
+        "patch_generated": true,
+        "patch_sha256": "66154b18739759124dbadf623917fd1364337bfc185b546bbacdb332c6657b20",
+        "provider_identity": {
+          "error_codes": [],
+          "fallback_calls": 0,
+          "llm_calls": 13,
+          "observed_models": [
+            "deepseek-v4-flash"
+          ],
+          "providers": [
+            "opencode-go"
+          ],
+          "requested_models": [
+            "deepseek-v4-flash"
+          ],
+          "retried_calls": 0
+        },
+        "resolved": true,
+        "stop_reason": "final_answer",
+        "task_status": "completed"
+      },
+      "pytest-dev__pytest-5262": {
+        "artifacts": {
+          "candidate_sha256": "3eb3897f2ededc4bc6ae5629c8b7dbd07db4a2d8898918083ef02b867957c7d2",
+          "official_patch_sha256": "3eb3897f2ededc4bc6ae5629c8b7dbd07db4a2d8898918083ef02b867957c7d2",
+          "trace_sha256": "1442b98b899577654b29834c347d7648b3b121adbff297c546b37bbaeab5416e",
+          "usage_sha256": "47be5d6fc31bcfe3b481a25981838f2c70782bf11383f398c632b8c946cbc26c"
+        },
+        "instance_id": "pytest-dev__pytest-5262",
+        "local_validation_status": "failed",
+        "metrics": {
+          "available_find_files_contexts": 0,
+          "completion_tokens": 9060,
+          "edit_calls": 1,
+          "estimated_cost_usd": 0.041229,
+          "failed_tool_calls": 3,
+          "failed_validations": 1,
+          "find_files_calls": 0,
+          "first_edit_call_index": 7,
+          "grep_search_calls": 7,
+          "head_tail_observations": 0,
+          "list_files_calls": 0,
+          "llm_calls": 17,
+          "llm_latency_ms": 132874,
+          "prompt_tokens": 369322,
+          "read_calls_before_first_edit": 2,
+          "read_file_calls": 6,
+          "repo_outline_contexts": 0,
+          "search_calls": 7,
+          "search_calls_before_first_edit": 4,
+          "steps": 20,
+          "tool_calls": 21,
+          "tool_calls_before_first_edit": 6,
+          "total_tokens": 378382,
+          "validation_calls": 5
+        },
+        "outcome": "resolved",
+        "patch_bytes": 541,
+        "patch_generated": true,
+        "patch_sha256": "3eb3897f2ededc4bc6ae5629c8b7dbd07db4a2d8898918083ef02b867957c7d2",
+        "provider_identity": {
+          "error_codes": [],
+          "fallback_calls": 0,
+          "llm_calls": 17,
+          "observed_models": [
+            "deepseek-v4-flash"
+          ],
+          "providers": [
+            "opencode-go"
+          ],
+          "requested_models": [
+            "deepseek-v4-flash"
+          ],
+          "retried_calls": 0
+        },
+        "resolved": true,
+        "stop_reason": "final_answer",
+        "task_status": "completed"
+      },
+      "scikit-learn__scikit-learn-13328": {
+        "artifacts": {
+          "candidate_sha256": "7cedc6fd807e2c2c8ab0a5548fceafde4d92a3ad0a27f980fcd74e26a4ad4c78",
+          "official_patch_sha256": "7cedc6fd807e2c2c8ab0a5548fceafde4d92a3ad0a27f980fcd74e26a4ad4c78",
+          "trace_sha256": "b140a386bea2730ddea85d1b3304567badddc870c662438fed5bd40fb7055839",
+          "usage_sha256": "19c512113f8c3084d04449988781a698c5ebb1c52b38743f1e5bb58cb335dd5f"
+        },
+        "instance_id": "scikit-learn__scikit-learn-13328",
+        "local_validation_status": "unavailable",
+        "metrics": {
+          "available_find_files_contexts": 0,
+          "completion_tokens": 2134,
+          "edit_calls": 1,
+          "estimated_cost_usd": 0.0173,
+          "failed_tool_calls": 0,
+          "failed_validations": 1,
+          "find_files_calls": 0,
+          "first_edit_call_index": 6,
+          "grep_search_calls": 4,
+          "head_tail_observations": 0,
+          "list_files_calls": 0,
+          "llm_calls": 8,
+          "llm_latency_ms": 45259,
+          "prompt_tokens": 157689,
+          "read_calls_before_first_edit": 2,
+          "read_file_calls": 2,
+          "repo_outline_contexts": 0,
+          "search_calls": 4,
+          "search_calls_before_first_edit": 3,
+          "steps": 10,
+          "tool_calls": 10,
+          "tool_calls_before_first_edit": 5,
+          "total_tokens": 159823,
+          "validation_calls": 2
+        },
+        "outcome": "resolved",
+        "patch_bytes": 650,
+        "patch_generated": true,
+        "patch_sha256": "7cedc6fd807e2c2c8ab0a5548fceafde4d92a3ad0a27f980fcd74e26a4ad4c78",
+        "provider_identity": {
+          "error_codes": [],
+          "fallback_calls": 0,
+          "llm_calls": 8,
+          "observed_models": [
+            "deepseek-v4-flash"
+          ],
+          "providers": [
+            "opencode-go"
+          ],
+          "requested_models": [
+            "deepseek-v4-flash"
+          ],
+          "retried_calls": 0
+        },
+        "resolved": true,
+        "stop_reason": "final_answer",
+        "task_status": "completed"
+      },
+      "scikit-learn__scikit-learn-14629": {
+        "artifacts": {
+          "candidate_sha256": "9482aaf719c5cf1ef67632a9243ed515a063fe373d13d3ca900cf9fd33776d82",
+          "official_patch_sha256": "9482aaf719c5cf1ef67632a9243ed515a063fe373d13d3ca900cf9fd33776d82",
+          "trace_sha256": "da1ddc9d3d76def563a416bf02507402fbb1b5537695a6ae6e25905c3124456e",
+          "usage_sha256": "5639e2f1e9b07e9b1bcc042cd1d80b443c24536c30029ea9f0e780b9bd5cb280"
+        },
+        "instance_id": "scikit-learn__scikit-learn-14629",
+        "local_validation_status": "unavailable",
+        "metrics": {
+          "available_find_files_contexts": 0,
+          "completion_tokens": 22731,
+          "edit_calls": 1,
+          "estimated_cost_usd": 0.10782,
+          "failed_tool_calls": 1,
+          "failed_validations": 2,
+          "find_files_calls": 0,
+          "first_edit_call_index": 22,
+          "grep_search_calls": 12,
+          "head_tail_observations": 0,
+          "list_files_calls": 3,
+          "llm_calls": 23,
+          "llm_latency_ms": 283060,
+          "prompt_tokens": 846110,
+          "read_calls_before_first_edit": 11,
+          "read_file_calls": 13,
+          "repo_outline_contexts": 0,
+          "search_calls": 15,
+          "search_calls_before_first_edit": 10,
+          "steps": 26,
+          "tool_calls": 35,
+          "tool_calls_before_first_edit": 21,
+          "total_tokens": 868841,
+          "validation_calls": 4
+        },
+        "outcome": "resolved",
+        "patch_bytes": 1573,
+        "patch_generated": true,
+        "patch_sha256": "9482aaf719c5cf1ef67632a9243ed515a063fe373d13d3ca900cf9fd33776d82",
+        "provider_identity": {
+          "error_codes": [],
+          "fallback_calls": 0,
+          "llm_calls": 23,
+          "observed_models": [
+            "deepseek-v4-flash"
+          ],
+          "providers": [
+            "opencode-go"
+          ],
+          "requested_models": [
+            "deepseek-v4-flash"
+          ],
+          "retried_calls": 0
+        },
+        "resolved": true,
+        "stop_reason": "final_answer",
+        "task_status": "completed"
+      },
+      "sphinx-doc__sphinx-10323": {
+        "artifacts": {
+          "candidate_sha256": "3ba611ad7cc285b2b47971f475ce58a1d90195262b11ecc26c73b46d254724d1",
+          "official_patch_sha256": "3ba611ad7cc285b2b47971f475ce58a1d90195262b11ecc26c73b46d254724d1",
+          "trace_sha256": "03210149a857cbbe4b2714cfc1dcde2bc33d560507c0d2c35a7ac75098ceb50a",
+          "usage_sha256": "3967d4d5cca262b4696e13ad036b1d0691101963ec1e7cd534a914e703f0ac0e"
+        },
+        "instance_id": "sphinx-doc__sphinx-10323",
+        "local_validation_status": "unavailable",
+        "metrics": {
+          "available_find_files_contexts": 0,
+          "completion_tokens": 59635,
+          "edit_calls": 4,
+          "estimated_cost_usd": 0.322133,
+          "failed_tool_calls": 10,
+          "failed_validations": 2,
+          "find_files_calls": 0,
+          "first_edit_call_index": 23,
+          "grep_search_calls": 18,
+          "head_tail_observations": 0,
+          "list_files_calls": 3,
+          "llm_calls": 44,
+          "llm_latency_ms": 687809,
+          "prompt_tokens": 2462178,
+          "read_calls_before_first_edit": 8,
+          "read_file_calls": 19,
+          "repo_outline_contexts": 0,
+          "search_calls": 21,
+          "search_calls_before_first_edit": 9,
+          "steps": 50,
+          "tool_calls": 58,
+          "tool_calls_before_first_edit": 22,
+          "total_tokens": 2521813,
+          "validation_calls": 11
+        },
+        "outcome": "resolved",
+        "patch_bytes": 721,
+        "patch_generated": true,
+        "patch_sha256": "3ba611ad7cc285b2b47971f475ce58a1d90195262b11ecc26c73b46d254724d1",
+        "provider_identity": {
+          "error_codes": [],
+          "fallback_calls": 0,
+          "llm_calls": 44,
+          "observed_models": [
+            "deepseek-v4-flash"
+          ],
+          "providers": [
+            "opencode-go"
+          ],
+          "requested_models": [
+            "deepseek-v4-flash"
+          ],
+          "retried_calls": 0
+        },
+        "resolved": true,
+        "stop_reason": "final_answer",
+        "task_status": "completed"
+      },
+      "sphinx-doc__sphinx-9591": {
+        "artifacts": {
+          "candidate_sha256": "941db8354f0452b99607941fef122393ab68901b77663de6487131d6d2cb5512",
+          "official_patch_sha256": "941db8354f0452b99607941fef122393ab68901b77663de6487131d6d2cb5512",
+          "trace_sha256": "55beb5e49f73336f188be8b6db63ff6966d6c40d59720383107ffe2a184599c8",
+          "usage_sha256": "e8a8771ab22c83cdbb668e054802d61fad0efb5c32fda0be4b3bb47b319abf3d"
+        },
+        "instance_id": "sphinx-doc__sphinx-9591",
+        "local_validation_status": "unavailable",
+        "metrics": {
+          "available_find_files_contexts": 0,
+          "completion_tokens": 9701,
+          "edit_calls": 1,
+          "estimated_cost_usd": 0.073981,
+          "failed_tool_calls": 4,
+          "failed_validations": 1,
+          "find_files_calls": 0,
+          "first_edit_call_index": 20,
+          "grep_search_calls": 13,
+          "head_tail_observations": 0,
+          "list_files_calls": 2,
+          "llm_calls": 25,
+          "llm_latency_ms": 180354,
+          "prompt_tokens": 698820,
+          "read_calls_before_first_edit": 8,
+          "read_file_calls": 10,
+          "repo_outline_contexts": 0,
+          "search_calls": 15,
+          "search_calls_before_first_edit": 11,
+          "steps": 28,
+          "tool_calls": 33,
+          "tool_calls_before_first_edit": 19,
+          "total_tokens": 708521,
+          "validation_calls": 4
+        },
+        "outcome": "resolved",
+        "patch_bytes": 521,
+        "patch_generated": true,
+        "patch_sha256": "941db8354f0452b99607941fef122393ab68901b77663de6487131d6d2cb5512",
+        "provider_identity": {
+          "error_codes": [
+            "server_error"
+          ],
+          "fallback_calls": 0,
+          "llm_calls": 25,
+          "observed_models": [
+            "deepseek-v4-flash"
+          ],
+          "providers": [
+            "opencode-go"
+          ],
+          "requested_models": [
+            "deepseek-v4-flash"
+          ],
+          "retried_calls": 1
+        },
+        "resolved": true,
+        "stop_reason": "final_answer",
+        "task_status": "completed"
+      },
+      "sympy__sympy-13372": {
+        "artifacts": {
+          "candidate_sha256": "125fd5745e6bb43659a27a4b1d24f000dd4067196de08425813a5082489a4450",
+          "official_patch_sha256": "125fd5745e6bb43659a27a4b1d24f000dd4067196de08425813a5082489a4450",
+          "trace_sha256": "ec92c9bc19767b9394ce5e507973793df20cd618c04bdbc9d96f8d0edf1e32ff",
+          "usage_sha256": "e4fef67fc30a2bc7df55478873fb83dccacdd863f855c7e774cb7948a817d074"
+        },
+        "instance_id": "sympy__sympy-13372",
+        "local_validation_status": "failed",
+        "metrics": {
+          "available_find_files_contexts": 0,
+          "completion_tokens": 31047,
+          "edit_calls": 3,
+          "estimated_cost_usd": 0.1688,
+          "failed_tool_calls": 2,
+          "failed_validations": 4,
+          "find_files_calls": 0,
+          "first_edit_call_index": 31,
+          "grep_search_calls": 15,
+          "head_tail_observations": 0,
+          "list_files_calls": 2,
+          "llm_calls": 35,
+          "llm_latency_ms": 370555,
+          "prompt_tokens": 1368655,
+          "read_calls_before_first_edit": 14,
+          "read_file_calls": 17,
+          "repo_outline_contexts": 0,
+          "search_calls": 17,
+          "search_calls_before_first_edit": 14,
+          "steps": 40,
+          "tool_calls": 48,
+          "tool_calls_before_first_edit": 30,
+          "total_tokens": 1399702,
+          "validation_calls": 9
+        },
+        "outcome": "resolved",
+        "patch_bytes": 772,
+        "patch_generated": true,
+        "patch_sha256": "125fd5745e6bb43659a27a4b1d24f000dd4067196de08425813a5082489a4450",
+        "provider_identity": {
+          "error_codes": [],
+          "fallback_calls": 0,
+          "llm_calls": 35,
+          "observed_models": [
+            "deepseek-v4-flash"
+          ],
+          "providers": [
+            "opencode-go"
+          ],
+          "requested_models": [
+            "deepseek-v4-flash"
+          ],
+          "retried_calls": 0
+        },
+        "resolved": true,
+        "stop_reason": "final_answer",
+        "task_status": "completed"
+      },
+      "sympy__sympy-20590": {
+        "artifacts": {
+          "candidate_sha256": "aee590877f88a10e00707b47256fe74d5294f4d425dc4077c7d1180b7b2d8b21",
+          "official_patch_sha256": "aee590877f88a10e00707b47256fe74d5294f4d425dc4077c7d1180b7b2d8b21",
+          "trace_sha256": "f16b67e1395b192f21ee23488c48fcd3849467b798eaec2420967a7a3d243abe",
+          "usage_sha256": "e5844d7a1d036a94cef9bf4d5235d1a8737388e3b9d3251ec1524b9614f03570"
+        },
+        "instance_id": "sympy__sympy-20590",
+        "local_validation_status": "failed",
+        "metrics": {
+          "available_find_files_contexts": 0,
+          "completion_tokens": 26586,
+          "edit_calls": 1,
+          "estimated_cost_usd": 0.147861,
+          "failed_tool_calls": 6,
+          "failed_validations": 1,
+          "find_files_calls": 0,
+          "first_edit_call_index": 31,
+          "grep_search_calls": 17,
+          "head_tail_observations": 0,
+          "list_files_calls": 2,
+          "llm_calls": 33,
+          "llm_latency_ms": 387679,
+          "prompt_tokens": 1206196,
+          "read_calls_before_first_edit": 15,
+          "read_file_calls": 19,
+          "repo_outline_contexts": 0,
+          "search_calls": 19,
+          "search_calls_before_first_edit": 13,
+          "steps": 36,
+          "tool_calls": 47,
+          "tool_calls_before_first_edit": 30,
+          "total_tokens": 1232782,
+          "validation_calls": 7
+        },
+        "outcome": "unresolved",
+        "patch_bytes": 547,
+        "patch_generated": true,
+        "patch_sha256": "aee590877f88a10e00707b47256fe74d5294f4d425dc4077c7d1180b7b2d8b21",
+        "provider_identity": {
+          "error_codes": [
+            "request_failed"
+          ],
+          "fallback_calls": 0,
+          "llm_calls": 33,
+          "observed_models": [
+            "deepseek-v4-flash"
+          ],
+          "providers": [
+            "opencode-go"
+          ],
+          "requested_models": [
+            "deepseek-v4-flash"
+          ],
+          "retried_calls": 1
+        },
+        "resolved": false,
+        "stop_reason": "too_many_consecutive_failed_tools:_3_>=_limit_3",
+        "task_status": "blocked"
+      }
+    },
+    "local_validation_statuses": {
+      "failed": 10,
+      "unavailable": 10
+    },
+    "metrics": {
+      "available_find_files_contexts": 0,
+      "completion_tokens": 432168,
+      "edit_calls": 49,
+      "estimated_cost_usd": 2.28597,
+      "failed_tool_calls": 45,
+      "failed_validations": 35,
+      "find_files_calls": 0,
+      "first_edit_call_index_mean": 16.95,
+      "first_edit_call_index_observed_cases": 20,
+      "first_edit_call_index_sum": 339,
+      "grep_search_calls": 232,
+      "head_tail_observations": 0,
+      "list_files_calls": 29,
+      "llm_calls": 486,
+      "llm_latency_ms": 5544867,
+      "prompt_tokens": 18368305,
+      "read_calls_before_first_edit_mean": 7.25,
+      "read_calls_before_first_edit_observed_cases": 20,
+      "read_calls_before_first_edit_sum": 145,
+      "read_file_calls": 217,
+      "repo_outline_contexts": 0,
+      "search_calls": 261,
+      "search_calls_before_first_edit_mean": 7.85,
+      "search_calls_before_first_edit_observed_cases": 20,
+      "search_calls_before_first_edit_sum": 157,
+      "steps": 565,
+      "tool_calls": 673,
+      "tool_calls_before_first_edit_mean": 15.95,
+      "tool_calls_before_first_edit_observed_cases": 20,
+      "tool_calls_before_first_edit_sum": 319,
+      "total_tokens": 18800473,
+      "validation_calls": 100
+    },
+    "official": {
+      "resolved": 14,
+      "unresolved": 6
+    },
+    "official_resolved": 14,
+    "official_resolved_rate": 0.7,
+    "official_resolved_wilson_95": [
+      0.481027,
+      0.854523
+    ],
+    "patch_generated": 20,
+    "planned": 20,
+    "provider": {
+      "error_codes": [
+        "request_failed",
+        "server_error"
+      ],
+      "fallback_calls": 0,
+      "llm_calls": 486,
+      "retried_calls": 3
+    },
+    "runs": [
+      {
+        "artifacts": {
+          "official_aggregate_sha256": "3e9e531cf2ee91cb63b20356a7cfe530d67e8cd36ccfbdcbdcd66234faeb3b9a",
+          "predictions_sha256": "375e52262325d9f69e92ee590670bc15b0bec1a9f4e801b952529799789b6d95",
+          "results_sha256": "fde249396027aa6202425c36e53f0e3a9c31d2830d80d27608d04ec1fe14dea3",
+          "scorecard_sha256": "c8876d6a8a3fd8d1291041d4e4645bb8b8a89f77919acadf8fa1aac85b70972e"
+        },
+        "case_ids": [
+          "django__django-11451",
+          "matplotlib__matplotlib-13989",
+          "scikit-learn__scikit-learn-14629",
+          "django__django-12209",
+          "sphinx-doc__sphinx-10323"
+        ],
+        "run_dir": ".agent_forge/tool-aci-golden-20-v1/tool-r0/shard-a/swebench-20260813-132517-04ef632",
+        "run_id": "swebench-20260813-132517-04ef632",
+        "shard": "a"
+      },
+      {
+        "artifacts": {
+          "official_aggregate_sha256": "afac5aeb42fc63e52d4a83def0b976afd35d89c368354d7adcb335261b3317c6",
+          "predictions_sha256": "4e116312d0fc72dea20a5364474aa38e7bc71e833ea13cd2139d031137b55ebc",
+          "results_sha256": "2ba68895abfe16173fa9d0453083901a3ec5afd9b1b406bcf276dc8ed8c2b812",
+          "scorecard_sha256": "c7e95d9b019b84612d70894d503eb379591542577a8102000d89384c353cd948"
+        },
+        "case_ids": [
+          "sympy__sympy-20590",
+          "django__django-10097",
+          "psf__requests-2317",
+          "matplotlib__matplotlib-22871",
+          "django__django-13028"
+        ],
+        "run_dir": ".agent_forge/tool-aci-golden-20-v1/tool-r0/shard-b/swebench-20260813-134136-1dfc077",
+        "run_id": "swebench-20260813-134136-1dfc077",
+        "shard": "b"
+      },
+      {
+        "artifacts": {
+          "official_aggregate_sha256": "f89a137a5a0016416b0af11a6950e4c7eb3ca46e841f9f8c511ad4015a61f8a2",
+          "predictions_sha256": "cdf52729d2ae8fbc7df84407cac974326c4ed527ecc357a2ff08cd5724f70a45",
+          "results_sha256": "7bc99bc51fb543776ccc5ac3a6b51230a56ea8ff02d38bf82f422d1d70d33b4c",
+          "scorecard_sha256": "bcfe33f2305ff97f8ea10071101b15773dc5dfb03714928375784342ff9f36f3"
+        },
+        "case_ids": [
+          "astropy__astropy-14182",
+          "matplotlib__matplotlib-25287",
+          "psf__requests-2931",
+          "pydata__xarray-6938",
+          "pylint-dev__pylint-6903"
+        ],
+        "run_dir": ".agent_forge/tool-aci-golden-20-v1/tool-r0/shard-c/swebench-20260813-132836-f896d5c",
+        "run_id": "swebench-20260813-132836-f896d5c",
+        "shard": "c"
+      },
+      {
+        "artifacts": {
+          "official_aggregate_sha256": "51e0b4cafc11434bb7e444ec586bc55d39d80a2bcf565de8ed8571971ccce099",
+          "predictions_sha256": "ffc923f597ef865920a33f2e8ef890c6399291239d73c30319b4f748b7442457",
+          "results_sha256": "0d1d13294d454de4072b3613712eb665e1c0c47d4b37a1ee7636faaaaae7dd43",
+          "scorecard_sha256": "b8bace7a9991d15cdc0a62c677a8fafeca371a50a63f9ce9e0f9e02310ced429"
+        },
+        "case_ids": [
+          "pytest-dev__pytest-5262",
+          "scikit-learn__scikit-learn-13328",
+          "sphinx-doc__sphinx-9591",
+          "sympy__sympy-13372",
+          "django__django-10999"
+        ],
+        "run_dir": ".agent_forge/tool-aci-golden-20-v1/tool-r0/shard-d/swebench-20260813-142154-bc9b470",
+        "run_id": "swebench-20260813-142154-bc9b470",
+        "shard": "d"
+      }
+    ],
+    "task_statuses": {
+      "blocked": 1,
+      "completed": 19
+    },
+    "terminal": 20
+  },
+  "r1": {
+    "cases": {
+      "astropy__astropy-14182": {
+        "artifacts": {
+          "candidate_sha256": "63e4fe7c72e7f879c732ad453ebaf572fce6b10f262380c42e4705eb38beda48",
+          "official_patch_sha256": "63e4fe7c72e7f879c732ad453ebaf572fce6b10f262380c42e4705eb38beda48",
+          "trace_sha256": "fa5e1d1feaa5ded26d113350d13ee0f0ecaf41527557cca7564a66bc98cbba11",
+          "usage_sha256": "8e1d85a5736c5aa5b3965d35883a47b31ca9c2252286ce2748b0d92fcd962fa7"
+        },
+        "instance_id": "astropy__astropy-14182",
+        "local_validation_status": "failed",
+        "metrics": {
+          "available_find_files_contexts": 28,
+          "completion_tokens": 19599,
+          "edit_calls": 1,
+          "estimated_cost_usd": 0.126615,
+          "failed_tool_calls": 6,
+          "failed_validations": 1,
+          "find_files_calls": 1,
+          "first_edit_call_index": 18,
+          "grep_search_calls": 7,
+          "head_tail_observations": 0,
+          "list_files_calls": 1,
+          "llm_calls": 28,
+          "llm_latency_ms": 283220,
+          "prompt_tokens": 1066405,
+          "read_calls_before_first_edit": 14,
+          "read_file_calls": 18,
+          "repo_outline_contexts": 28,
+          "search_calls": 9,
+          "search_calls_before_first_edit": 3,
+          "steps": 35,
+          "tool_calls": 38,
+          "tool_calls_before_first_edit": 17,
+          "total_tokens": 1086004,
+          "validation_calls": 8
+        },
+        "outcome": "unresolved",
+        "patch_bytes": 1107,
+        "patch_generated": true,
+        "patch_sha256": "63e4fe7c72e7f879c732ad453ebaf572fce6b10f262380c42e4705eb38beda48",
+        "provider_identity": {
+          "error_codes": [],
+          "fallback_calls": 0,
+          "llm_calls": 28,
+          "observed_models": [
+            "deepseek-v4-flash"
+          ],
+          "providers": [
+            "opencode-go"
+          ],
+          "requested_models": [
+            "deepseek-v4-flash"
+          ],
+          "retried_calls": 0
+        },
+        "resolved": false,
+        "stop_reason": "too many consecutive failed tools: 3 >= limit 3",
+        "task_status": "blocked"
+      },
+      "django__django-10097": {
+        "artifacts": {
+          "candidate_sha256": "144a5a1aca325730793b9390ca278e1af2032da93ce8fc167966a00e2c2c675f",
+          "official_patch_sha256": "144a5a1aca325730793b9390ca278e1af2032da93ce8fc167966a00e2c2c675f",
+          "trace_sha256": "073082ba45d5ece26dc2f1040df107c654b874b76c93f2ee3bd7b6e186d4517f",
+          "usage_sha256": "c3b13a1f3b9eaf430c62001937c6aed195490b371627a27e3ae6123c6e744d6a"
+        },
+        "instance_id": "django__django-10097",
+        "local_validation_status": "failed",
+        "metrics": {
+          "available_find_files_contexts": 20,
+          "completion_tokens": 12274,
+          "edit_calls": 1,
+          "estimated_cost_usd": 0.060229,
+          "failed_tool_calls": 0,
+          "failed_validations": 2,
+          "find_files_calls": 1,
+          "first_edit_call_index": 14,
+          "grep_search_calls": 10,
+          "head_tail_observations": 2,
+          "list_files_calls": 2,
+          "llm_calls": 20,
+          "llm_latency_ms": 163897,
+          "prompt_tokens": 519560,
+          "read_calls_before_first_edit": 4,
+          "read_file_calls": 8,
+          "repo_outline_contexts": 20,
+          "search_calls": 13,
+          "search_calls_before_first_edit": 9,
+          "steps": 22,
+          "tool_calls": 28,
+          "tool_calls_before_first_edit": 13,
+          "total_tokens": 531834,
+          "validation_calls": 4
+        },
+        "outcome": "unresolved",
+        "patch_bytes": 598,
+        "patch_generated": true,
+        "patch_sha256": "144a5a1aca325730793b9390ca278e1af2032da93ce8fc167966a00e2c2c675f",
+        "provider_identity": {
+          "error_codes": [],
+          "fallback_calls": 0,
+          "llm_calls": 20,
+          "observed_models": [
+            "deepseek-v4-flash"
+          ],
+          "providers": [
+            "opencode-go"
+          ],
+          "requested_models": [
+            "deepseek-v4-flash"
+          ],
+          "retried_calls": 0
+        },
+        "resolved": false,
+        "stop_reason": "final_answer",
+        "task_status": "completed"
+      },
+      "django__django-10999": {
+        "artifacts": {
+          "candidate_sha256": "ec9696668ec6524dc629dda67181e1733cfe04a759239ef16f219e28ea3c50a6",
+          "official_patch_sha256": "ec9696668ec6524dc629dda67181e1733cfe04a759239ef16f219e28ea3c50a6",
+          "trace_sha256": "0257fb1f394efda59d6c4f0bad2d24d8b5330198a01259713f4f4e4dfbb65a9d",
+          "usage_sha256": "443de9f717171537d54dd3e143d095a1715da813eb222fbbba045a2d0d5989b3"
+        },
+        "instance_id": "django__django-10999",
+        "local_validation_status": "unavailable",
+        "metrics": {
+          "available_find_files_contexts": 8,
+          "completion_tokens": 3731,
+          "edit_calls": 1,
+          "estimated_cost_usd": 0.015792,
+          "failed_tool_calls": 0,
+          "failed_validations": 1,
+          "find_files_calls": 0,
+          "first_edit_call_index": 4,
+          "grep_search_calls": 3,
+          "head_tail_observations": 0,
+          "list_files_calls": 0,
+          "llm_calls": 8,
+          "llm_latency_ms": 56570,
+          "prompt_tokens": 146492,
+          "read_calls_before_first_edit": 1,
+          "read_file_calls": 1,
+          "repo_outline_contexts": 0,
+          "search_calls": 3,
+          "search_calls_before_first_edit": 2,
+          "steps": 10,
+          "tool_calls": 9,
+          "tool_calls_before_first_edit": 3,
+          "total_tokens": 150223,
+          "validation_calls": 2
+        },
+        "outcome": "unresolved",
+        "patch_bytes": 497,
+        "patch_generated": true,
+        "patch_sha256": "ec9696668ec6524dc629dda67181e1733cfe04a759239ef16f219e28ea3c50a6",
+        "provider_identity": {
+          "error_codes": [],
+          "fallback_calls": 0,
+          "llm_calls": 8,
+          "observed_models": [
+            "deepseek-v4-flash"
+          ],
+          "providers": [
+            "opencode-go"
+          ],
+          "requested_models": [
+            "deepseek-v4-flash"
+          ],
+          "retried_calls": 0
+        },
+        "resolved": false,
+        "stop_reason": "final_answer",
+        "task_status": "completed"
+      },
+      "django__django-11451": {
+        "artifacts": {
+          "candidate_sha256": "6a8a65f27464542dae84eea9664757addb6550722425a09e25ff681b6e29c923",
+          "official_patch_sha256": "6a8a65f27464542dae84eea9664757addb6550722425a09e25ff681b6e29c923",
+          "trace_sha256": "cd8780258ec34586deb4dd680085be1ba17e3fc00d7b1075415e10fb8c6ace77",
+          "usage_sha256": "6f8ef08e25952c707377448ef92156ea49f22c40b3254c95d93ca6db6d183945"
+        },
+        "instance_id": "django__django-11451",
+        "local_validation_status": "failed",
+        "metrics": {
+          "available_find_files_contexts": 16,
+          "completion_tokens": 5233,
+          "edit_calls": 1,
+          "estimated_cost_usd": 0.036107,
+          "failed_tool_calls": 3,
+          "failed_validations": 1,
+          "find_files_calls": 1,
+          "first_edit_call_index": 3,
+          "grep_search_calls": 7,
+          "head_tail_observations": 1,
+          "list_files_calls": 0,
+          "llm_calls": 16,
+          "llm_latency_ms": 101680,
+          "prompt_tokens": 336122,
+          "read_calls_before_first_edit": 1,
+          "read_file_calls": 6,
+          "repo_outline_contexts": 16,
+          "search_calls": 8,
+          "search_calls_before_first_edit": 1,
+          "steps": 19,
+          "tool_calls": 21,
+          "tool_calls_before_first_edit": 2,
+          "total_tokens": 341355,
+          "validation_calls": 4
+        },
+        "outcome": "resolved",
+        "patch_bytes": 611,
+        "patch_generated": true,
+        "patch_sha256": "6a8a65f27464542dae84eea9664757addb6550722425a09e25ff681b6e29c923",
+        "provider_identity": {
+          "error_codes": [],
+          "fallback_calls": 0,
+          "llm_calls": 16,
+          "observed_models": [
+            "deepseek-v4-flash"
+          ],
+          "providers": [
+            "opencode-go"
+          ],
+          "requested_models": [
+            "deepseek-v4-flash"
+          ],
+          "retried_calls": 0
+        },
+        "resolved": true,
+        "stop_reason": "final_answer",
+        "task_status": "completed"
+      },
+      "django__django-12209": {
+        "artifacts": {
+          "candidate_sha256": "a6d80a08896135af973fcc236ba5d824c599c0d7e9e6b40ebdf8856ef8c46de3",
+          "official_patch_sha256": "a6d80a08896135af973fcc236ba5d824c599c0d7e9e6b40ebdf8856ef8c46de3",
+          "trace_sha256": "902fb906602049408860c0fed6a1391eab5bd2e278d5825d689bc5509b0ba37a",
+          "usage_sha256": "f963dfcf2c00b4752d644380243e5c7d0beff0939d28ed827476ddba44e5beb1"
+        },
+        "instance_id": "django__django-12209",
+        "local_validation_status": "unavailable",
+        "metrics": {
+          "available_find_files_contexts": 33,
+          "completion_tokens": 48923,
+          "edit_calls": 1,
+          "estimated_cost_usd": 0.221844,
+          "failed_tool_calls": 7,
+          "failed_validations": 1,
+          "find_files_calls": 2,
+          "first_edit_call_index": 32,
+          "grep_search_calls": 14,
+          "head_tail_observations": 0,
+          "list_files_calls": 3,
+          "llm_calls": 33,
+          "llm_latency_ms": 492272,
+          "prompt_tokens": 1686082,
+          "read_calls_before_first_edit": 12,
+          "read_file_calls": 18,
+          "repo_outline_contexts": 33,
+          "search_calls": 19,
+          "search_calls_before_first_edit": 14,
+          "steps": 37,
+          "tool_calls": 49,
+          "tool_calls_before_first_edit": 31,
+          "total_tokens": 1735005,
+          "validation_calls": 9
+        },
+        "outcome": "resolved",
+        "patch_bytes": 1292,
+        "patch_generated": true,
+        "patch_sha256": "a6d80a08896135af973fcc236ba5d824c599c0d7e9e6b40ebdf8856ef8c46de3",
+        "provider_identity": {
+          "error_codes": [],
+          "fallback_calls": 0,
+          "llm_calls": 33,
+          "observed_models": [
+            "deepseek-v4-flash"
+          ],
+          "providers": [
+            "opencode-go"
+          ],
+          "requested_models": [
+            "deepseek-v4-flash"
+          ],
+          "retried_calls": 0
+        },
+        "resolved": true,
+        "stop_reason": "final_answer",
+        "task_status": "completed"
+      },
+      "django__django-13028": {
+        "artifacts": {
+          "candidate_sha256": "cb9d9037cbc7e2089af7efe67287cc4b6d239b69fff107a719d48e3f086ec36d",
+          "official_patch_sha256": "cb9d9037cbc7e2089af7efe67287cc4b6d239b69fff107a719d48e3f086ec36d",
+          "trace_sha256": "ddd0e755e31d0bedfaf6cde974e5a76cfe70e4e5d8d5ef278b6e2dadac98e375",
+          "usage_sha256": "a3edf39bd1b3dfb230851bcf83f54445e0483c503fc1a69ead70dc194f7e2eac"
+        },
+        "instance_id": "django__django-13028",
+        "local_validation_status": "unavailable",
+        "metrics": {
+          "available_find_files_contexts": 20,
+          "completion_tokens": 28838,
+          "edit_calls": 1,
+          "estimated_cost_usd": 0.100392,
+          "failed_tool_calls": 2,
+          "failed_validations": 2,
+          "find_files_calls": 3,
+          "first_edit_call_index": 21,
+          "grep_search_calls": 8,
+          "head_tail_observations": 0,
+          "list_files_calls": 0,
+          "llm_calls": 20,
+          "llm_latency_ms": 277027,
+          "prompt_tokens": 799383,
+          "read_calls_before_first_edit": 7,
+          "read_file_calls": 8,
+          "repo_outline_contexts": 20,
+          "search_calls": 11,
+          "search_calls_before_first_edit": 10,
+          "steps": 22,
+          "tool_calls": 28,
+          "tool_calls_before_first_edit": 20,
+          "total_tokens": 828221,
+          "validation_calls": 5
+        },
+        "outcome": "resolved",
+        "patch_bytes": 625,
+        "patch_generated": true,
+        "patch_sha256": "cb9d9037cbc7e2089af7efe67287cc4b6d239b69fff107a719d48e3f086ec36d",
+        "provider_identity": {
+          "error_codes": [],
+          "fallback_calls": 0,
+          "llm_calls": 20,
+          "observed_models": [
+            "deepseek-v4-flash"
+          ],
+          "providers": [
+            "opencode-go"
+          ],
+          "requested_models": [
+            "deepseek-v4-flash"
+          ],
+          "retried_calls": 0
+        },
+        "resolved": true,
+        "stop_reason": "final_answer",
+        "task_status": "completed"
+      },
+      "matplotlib__matplotlib-13989": {
+        "artifacts": {
+          "candidate_sha256": "3a6e435771e4b4380e7c85e3e8456dceee6940a0158a1e180a491aaee84ddbfb",
+          "official_patch_sha256": "3a6e435771e4b4380e7c85e3e8456dceee6940a0158a1e180a491aaee84ddbfb",
+          "trace_sha256": "8e0dd47e267a47f1a4f149aaf74fdbbd94efe4793d5a6973047b3fbf4d0dc49f",
+          "usage_sha256": "4228750f1c9bdf7301d9cdfac6549c7f6ca7f677e243b5bdb87f1d60c9d03f34"
+        },
+        "instance_id": "matplotlib__matplotlib-13989",
+        "local_validation_status": "unavailable",
+        "metrics": {
+          "available_find_files_contexts": 13,
+          "completion_tokens": 5027,
+          "edit_calls": 1,
+          "estimated_cost_usd": 0.033017,
+          "failed_tool_calls": 3,
+          "failed_validations": 1,
+          "find_files_calls": 1,
+          "first_edit_call_index": 9,
+          "grep_search_calls": 3,
+          "head_tail_observations": 0,
+          "list_files_calls": 0,
+          "llm_calls": 13,
+          "llm_latency_ms": 88065,
+          "prompt_tokens": 310082,
+          "read_calls_before_first_edit": 5,
+          "read_file_calls": 5,
+          "repo_outline_contexts": 13,
+          "search_calls": 4,
+          "search_calls_before_first_edit": 2,
+          "steps": 16,
+          "tool_calls": 15,
+          "tool_calls_before_first_edit": 8,
+          "total_tokens": 315109,
+          "validation_calls": 3
+        },
+        "outcome": "resolved",
+        "patch_bytes": 482,
+        "patch_generated": true,
+        "patch_sha256": "3a6e435771e4b4380e7c85e3e8456dceee6940a0158a1e180a491aaee84ddbfb",
+        "provider_identity": {
+          "error_codes": [],
+          "fallback_calls": 0,
+          "llm_calls": 13,
+          "observed_models": [
+            "deepseek-v4-flash"
+          ],
+          "providers": [
+            "opencode-go"
+          ],
+          "requested_models": [
+            "deepseek-v4-flash"
+          ],
+          "retried_calls": 0
+        },
+        "resolved": true,
+        "stop_reason": "too_many_consecutive_failed_tools:_3_>=_limit_3",
+        "task_status": "blocked"
+      },
+      "matplotlib__matplotlib-22871": {
+        "artifacts": {
+          "candidate_sha256": "29affc3744d7763e25c9db079997ba8a0fec94ae42cf8b56598eaa08c19d1f1c",
+          "official_patch_sha256": "29affc3744d7763e25c9db079997ba8a0fec94ae42cf8b56598eaa08c19d1f1c",
+          "trace_sha256": "aa850fb37a7976e3ccc19654981730b72980628dcd2b44b53b3713542b6b8c9f",
+          "usage_sha256": "7bd4229d7a3e0c94d60d9a6e87527ff3c7ca7db0eebfe8128810228e00dcec7a"
+        },
+        "instance_id": "matplotlib__matplotlib-22871",
+        "local_validation_status": "failed",
+        "metrics": {
+          "available_find_files_contexts": 28,
+          "completion_tokens": 45169,
+          "edit_calls": 1,
+          "estimated_cost_usd": 0.168886,
+          "failed_tool_calls": 5,
+          "failed_validations": 3,
+          "find_files_calls": 9,
+          "first_edit_call_index": 33,
+          "grep_search_calls": 6,
+          "head_tail_observations": 0,
+          "list_files_calls": 5,
+          "llm_calls": 28,
+          "llm_latency_ms": 417404,
+          "prompt_tokens": 1293382,
+          "read_calls_before_first_edit": 10,
+          "read_file_calls": 10,
+          "repo_outline_contexts": 28,
+          "search_calls": 20,
+          "search_calls_before_first_edit": 18,
+          "steps": 30,
+          "tool_calls": 39,
+          "tool_calls_before_first_edit": 32,
+          "total_tokens": 1338551,
+          "validation_calls": 6
+        },
+        "outcome": "resolved",
+        "patch_bytes": 743,
+        "patch_generated": true,
+        "patch_sha256": "29affc3744d7763e25c9db079997ba8a0fec94ae42cf8b56598eaa08c19d1f1c",
+        "provider_identity": {
+          "error_codes": [],
+          "fallback_calls": 0,
+          "llm_calls": 28,
+          "observed_models": [
+            "deepseek-v4-flash"
+          ],
+          "providers": [
+            "opencode-go"
+          ],
+          "requested_models": [
+            "deepseek-v4-flash"
+          ],
+          "retried_calls": 0
+        },
+        "resolved": true,
+        "stop_reason": "final_answer",
+        "task_status": "completed"
+      },
+      "matplotlib__matplotlib-25287": {
+        "artifacts": {
+          "candidate_sha256": "6b4fb5c376b674b6dcf0571712c9d22792faac66424438ad9c0b9f32ee49be52",
+          "official_patch_sha256": "6b4fb5c376b674b6dcf0571712c9d22792faac66424438ad9c0b9f32ee49be52",
+          "trace_sha256": "d9394f66b49a08f2c0daf329725806a83c86e4c21761be5bbc280ef9f7b36aa5",
+          "usage_sha256": "95a8b7974b0900928ba71af01c705fdd7bc3c64a3b3e06cbbf947832bcd46c70"
+        },
+        "instance_id": "matplotlib__matplotlib-25287",
+        "local_validation_status": "failed",
+        "metrics": {
+          "available_find_files_contexts": 16,
+          "completion_tokens": 7968,
+          "edit_calls": 2,
+          "estimated_cost_usd": 0.046849,
+          "failed_tool_calls": 0,
+          "failed_validations": 3,
+          "find_files_calls": 2,
+          "first_edit_call_index": 12,
+          "grep_search_calls": 7,
+          "head_tail_observations": 0,
+          "list_files_calls": 0,
+          "llm_calls": 16,
+          "llm_latency_ms": 119765,
+          "prompt_tokens": 420432,
+          "read_calls_before_first_edit": 6,
+          "read_file_calls": 8,
+          "repo_outline_contexts": 0,
+          "search_calls": 9,
+          "search_calls_before_first_edit": 5,
+          "steps": 18,
+          "tool_calls": 26,
+          "tool_calls_before_first_edit": 11,
+          "total_tokens": 428400,
+          "validation_calls": 4
+        },
+        "outcome": "resolved",
+        "patch_bytes": 1664,
+        "patch_generated": true,
+        "patch_sha256": "6b4fb5c376b674b6dcf0571712c9d22792faac66424438ad9c0b9f32ee49be52",
+        "provider_identity": {
+          "error_codes": [],
+          "fallback_calls": 0,
+          "llm_calls": 16,
+          "observed_models": [
+            "deepseek-v4-flash"
+          ],
+          "providers": [
+            "opencode-go"
+          ],
+          "requested_models": [
+            "deepseek-v4-flash"
+          ],
+          "retried_calls": 0
+        },
+        "resolved": true,
+        "stop_reason": "final_answer",
+        "task_status": "completed"
+      },
+      "psf__requests-2317": {
+        "artifacts": {
+          "candidate_sha256": "5dd6d17b0424c57c9d1d30e1ccdbdc36e76e8f130b75a674d34b203590d097cb",
+          "official_patch_sha256": "5dd6d17b0424c57c9d1d30e1ccdbdc36e76e8f130b75a674d34b203590d097cb",
+          "trace_sha256": "1411f88d7dae649eda7c78aa61a04f4498c255ee92f3a3c1d26e72b99f52b2f4",
+          "usage_sha256": "d5dc073aebf98e87b5c4148fcb767667327840d2e1c58b20c34e6dbfc1e5a02e"
+        },
+        "instance_id": "psf__requests-2317",
+        "local_validation_status": "failed",
+        "metrics": {
+          "available_find_files_contexts": 13,
+          "completion_tokens": 21999,
+          "edit_calls": 2,
+          "estimated_cost_usd": 0.041091,
+          "failed_tool_calls": 1,
+          "failed_validations": 1,
+          "find_files_calls": 0,
+          "first_edit_call_index": 17,
+          "grep_search_calls": 8,
+          "head_tail_observations": 1,
+          "list_files_calls": 1,
+          "llm_calls": 13,
+          "llm_latency_ms": 198047,
+          "prompt_tokens": 331553,
+          "read_calls_before_first_edit": 7,
+          "read_file_calls": 9,
+          "repo_outline_contexts": 13,
+          "search_calls": 9,
+          "search_calls_before_first_edit": 8,
+          "steps": 15,
+          "tool_calls": 25,
+          "tool_calls_before_first_edit": 16,
+          "total_tokens": 353552,
+          "validation_calls": 3
+        },
+        "outcome": "unresolved",
+        "patch_bytes": 930,
+        "patch_generated": true,
+        "patch_sha256": "5dd6d17b0424c57c9d1d30e1ccdbdc36e76e8f130b75a674d34b203590d097cb",
+        "provider_identity": {
+          "error_codes": [],
+          "fallback_calls": 0,
+          "llm_calls": 13,
+          "observed_models": [
+            "deepseek-v4-flash"
+          ],
+          "providers": [
+            "opencode-go"
+          ],
+          "requested_models": [
+            "deepseek-v4-flash"
+          ],
+          "retried_calls": 0
+        },
+        "resolved": false,
+        "stop_reason": "final_answer",
+        "task_status": "completed"
+      },
+      "psf__requests-2931": {
+        "artifacts": {
+          "candidate_sha256": "d4c4b1198c1ede2244cf3ad92c1b0724918deb4f7bbb4173d00249c85cd6165d",
+          "official_patch_sha256": "d4c4b1198c1ede2244cf3ad92c1b0724918deb4f7bbb4173d00249c85cd6165d",
+          "trace_sha256": "4fbb2ea3a7d801a6e93c026898eb53758b05db34e5cda43295c36a1ea8e1e798",
+          "usage_sha256": "bfbe1fd4c9175d58701d155cd740f8217294d9adfd10db69f6e206260d1f9505"
+        },
+        "instance_id": "psf__requests-2931",
+        "local_validation_status": "failed",
+        "metrics": {
+          "available_find_files_contexts": 16,
+          "completion_tokens": 20161,
+          "edit_calls": 2,
+          "estimated_cost_usd": 0.037918,
+          "failed_tool_calls": 0,
+          "failed_validations": 2,
+          "find_files_calls": 0,
+          "first_edit_call_index": 14,
+          "grep_search_calls": 4,
+          "head_tail_observations": 1,
+          "list_files_calls": 0,
+          "llm_calls": 16,
+          "llm_latency_ms": 196225,
+          "prompt_tokens": 334752,
+          "read_calls_before_first_edit": 9,
+          "read_file_calls": 9,
+          "repo_outline_contexts": 16,
+          "search_calls": 4,
+          "search_calls_before_first_edit": 4,
+          "steps": 19,
+          "tool_calls": 20,
+          "tool_calls_before_first_edit": 13,
+          "total_tokens": 354913,
+          "validation_calls": 3
+        },
+        "outcome": "unresolved",
+        "patch_bytes": 793,
+        "patch_generated": true,
+        "patch_sha256": "d4c4b1198c1ede2244cf3ad92c1b0724918deb4f7bbb4173d00249c85cd6165d",
+        "provider_identity": {
+          "error_codes": [],
+          "fallback_calls": 0,
+          "llm_calls": 16,
+          "observed_models": [
+            "deepseek-v4-flash"
+          ],
+          "providers": [
+            "opencode-go"
+          ],
+          "requested_models": [
+            "deepseek-v4-flash"
+          ],
+          "retried_calls": 0
+        },
+        "resolved": false,
+        "stop_reason": "final_answer",
+        "task_status": "completed"
+      },
+      "pydata__xarray-6938": {
+        "artifacts": {
+          "candidate_sha256": "0fe2d90832a6b04599b5ca2c5076ed5c00c5328e7cfdefb09691d403233baa82",
+          "official_patch_sha256": "0fe2d90832a6b04599b5ca2c5076ed5c00c5328e7cfdefb09691d403233baa82",
+          "trace_sha256": "bcfef3a3fbc7e48e4ee6720c02e00bd9a341d2942d0467c261fb36c5ee841869",
+          "usage_sha256": "4c987a88ab8ec3192d358f7e34e6834987c4be191fb62abc24ddc759b3c94d97"
+        },
+        "instance_id": "pydata__xarray-6938",
+        "local_validation_status": "failed",
+        "metrics": {
+          "available_find_files_contexts": 54,
+          "completion_tokens": 33156,
+          "edit_calls": 7,
+          "estimated_cost_usd": 0.315298,
+          "failed_tool_calls": 3,
+          "failed_validations": 3,
+          "find_files_calls": 0,
+          "first_edit_call_index": 50,
+          "grep_search_calls": 28,
+          "head_tail_observations": 3,
+          "list_files_calls": 0,
+          "llm_calls": 54,
+          "llm_latency_ms": 492804,
+          "prompt_tokens": 2559493,
+          "read_calls_before_first_edit": 25,
+          "read_file_calls": 28,
+          "repo_outline_contexts": 54,
+          "search_calls": 28,
+          "search_calls_before_first_edit": 23,
+          "steps": 61,
+          "tool_calls": 70,
+          "tool_calls_before_first_edit": 49,
+          "total_tokens": 2592649,
+          "validation_calls": 5
+        },
+        "outcome": "unresolved",
+        "patch_bytes": 1601,
+        "patch_generated": true,
+        "patch_sha256": "0fe2d90832a6b04599b5ca2c5076ed5c00c5328e7cfdefb09691d403233baa82",
+        "provider_identity": {
+          "error_codes": [],
+          "fallback_calls": 0,
+          "llm_calls": 54,
+          "observed_models": [
+            "deepseek-v4-flash"
+          ],
+          "providers": [
+            "opencode-go"
+          ],
+          "requested_models": [
+            "deepseek-v4-flash"
+          ],
+          "retried_calls": 0
+        },
+        "resolved": false,
+        "stop_reason": "stale_operation_record",
+        "task_status": "blocked"
+      },
+      "pylint-dev__pylint-6903": {
+        "artifacts": {
+          "candidate_sha256": "e54d2f9ff19500821e20065aabe3650d01d91f7453c79bbfaab4c903abddacab",
+          "official_patch_sha256": "e54d2f9ff19500821e20065aabe3650d01d91f7453c79bbfaab4c903abddacab",
+          "trace_sha256": "fdc3203da0c8b596a92d2c6c5bfcb404bc6b2956dc4e75318c53adce3c6b6795",
+          "usage_sha256": "ef83b16c4894267e19982d4a9d71e245926787d02cb043b19920849de3ac92a8"
+        },
+        "instance_id": "pylint-dev__pylint-6903",
+        "local_validation_status": "unavailable",
+        "metrics": {
+          "available_find_files_contexts": 8,
+          "completion_tokens": 8720,
+          "edit_calls": 1,
+          "estimated_cost_usd": 0.017728,
+          "failed_tool_calls": 0,
+          "failed_validations": 1,
+          "find_files_calls": 0,
+          "first_edit_call_index": 7,
+          "grep_search_calls": 4,
+          "head_tail_observations": 0,
+          "list_files_calls": 1,
+          "llm_calls": 8,
+          "llm_latency_ms": 88236,
+          "prompt_tokens": 171786,
+          "read_calls_before_first_edit": 1,
+          "read_file_calls": 2,
+          "repo_outline_contexts": 8,
+          "search_calls": 5,
+          "search_calls_before_first_edit": 5,
+          "steps": 10,
+          "tool_calls": 12,
+          "tool_calls_before_first_edit": 6,
+          "total_tokens": 180506,
+          "validation_calls": 2
+        },
+        "outcome": "resolved",
+        "patch_bytes": 488,
+        "patch_generated": true,
+        "patch_sha256": "e54d2f9ff19500821e20065aabe3650d01d91f7453c79bbfaab4c903abddacab",
+        "provider_identity": {
+          "error_codes": [
+            "server_error"
+          ],
+          "fallback_calls": 0,
+          "llm_calls": 8,
+          "observed_models": [
+            "deepseek-v4-flash"
+          ],
+          "providers": [
+            "opencode-go"
+          ],
+          "requested_models": [
+            "deepseek-v4-flash"
+          ],
+          "retried_calls": 1
+        },
+        "resolved": true,
+        "stop_reason": "final_answer",
+        "task_status": "completed"
+      },
+      "pytest-dev__pytest-5262": {
+        "artifacts": {
+          "candidate_sha256": "83312ea879d3749d5b3b5b1082476f2faa2ee3b1d8a3d5281bb7acd468d397d9",
+          "official_patch_sha256": "83312ea879d3749d5b3b5b1082476f2faa2ee3b1d8a3d5281bb7acd468d397d9",
+          "trace_sha256": "f6a0eeb37cab38f7770b9d99f383bdb5b9fd5050139f0f7b05363154dbf492dc",
+          "usage_sha256": "30770c6b9902e204a57c181cf64682fe80ae9d76643d6af9c50102eafd382534"
+        },
+        "instance_id": "pytest-dev__pytest-5262",
+        "local_validation_status": "failed",
+        "metrics": {
+          "available_find_files_contexts": 18,
+          "completion_tokens": 11662,
+          "edit_calls": 1,
+          "estimated_cost_usd": 0.052848,
+          "failed_tool_calls": 3,
+          "failed_validations": 1,
+          "find_files_calls": 0,
+          "first_edit_call_index": 5,
+          "grep_search_calls": 8,
+          "head_tail_observations": 0,
+          "list_files_calls": 1,
+          "llm_calls": 18,
+          "llm_latency_ms": 154746,
+          "prompt_tokens": 474706,
+          "read_calls_before_first_edit": 2,
+          "read_file_calls": 8,
+          "repo_outline_contexts": 18,
+          "search_calls": 9,
+          "search_calls_before_first_edit": 2,
+          "steps": 22,
+          "tool_calls": 27,
+          "tool_calls_before_first_edit": 4,
+          "total_tokens": 486368,
+          "validation_calls": 6
+        },
+        "outcome": "resolved",
+        "patch_bytes": 626,
+        "patch_generated": true,
+        "patch_sha256": "83312ea879d3749d5b3b5b1082476f2faa2ee3b1d8a3d5281bb7acd468d397d9",
+        "provider_identity": {
+          "error_codes": [],
+          "fallback_calls": 0,
+          "llm_calls": 18,
+          "observed_models": [
+            "deepseek-v4-flash"
+          ],
+          "providers": [
+            "opencode-go"
+          ],
+          "requested_models": [
+            "deepseek-v4-flash"
+          ],
+          "retried_calls": 0
+        },
+        "resolved": true,
+        "stop_reason": "final_answer",
+        "task_status": "completed"
+      },
+      "scikit-learn__scikit-learn-13328": {
+        "artifacts": {
+          "candidate_sha256": "7cedc6fd807e2c2c8ab0a5548fceafde4d92a3ad0a27f980fcd74e26a4ad4c78",
+          "official_patch_sha256": "7cedc6fd807e2c2c8ab0a5548fceafde4d92a3ad0a27f980fcd74e26a4ad4c78",
+          "trace_sha256": "102a13fb45167cef3225545374b956693adc018b8ccf1b0e981053af1317fbee",
+          "usage_sha256": "fd913c1a76a14acf23b426ca14010ebee235a89f309bfa514b4ddec4526315d8"
+        },
+        "instance_id": "scikit-learn__scikit-learn-13328",
+        "local_validation_status": "unavailable",
+        "metrics": {
+          "available_find_files_contexts": 10,
+          "completion_tokens": 2751,
+          "edit_calls": 1,
+          "estimated_cost_usd": 0.023512,
+          "failed_tool_calls": 0,
+          "failed_validations": 1,
+          "find_files_calls": 1,
+          "first_edit_call_index": 9,
+          "grep_search_calls": 3,
+          "head_tail_observations": 1,
+          "list_files_calls": 0,
+          "llm_calls": 10,
+          "llm_latency_ms": 52571,
+          "prompt_tokens": 224903,
+          "read_calls_before_first_edit": 5,
+          "read_file_calls": 5,
+          "repo_outline_contexts": 10,
+          "search_calls": 4,
+          "search_calls_before_first_edit": 3,
+          "steps": 12,
+          "tool_calls": 13,
+          "tool_calls_before_first_edit": 8,
+          "total_tokens": 227654,
+          "validation_calls": 2
+        },
+        "outcome": "resolved",
+        "patch_bytes": 650,
+        "patch_generated": true,
+        "patch_sha256": "7cedc6fd807e2c2c8ab0a5548fceafde4d92a3ad0a27f980fcd74e26a4ad4c78",
+        "provider_identity": {
+          "error_codes": [],
+          "fallback_calls": 0,
+          "llm_calls": 10,
+          "observed_models": [
+            "deepseek-v4-flash"
+          ],
+          "providers": [
+            "opencode-go"
+          ],
+          "requested_models": [
+            "deepseek-v4-flash"
+          ],
+          "retried_calls": 0
+        },
+        "resolved": true,
+        "stop_reason": "final_answer",
+        "task_status": "completed"
+      },
+      "scikit-learn__scikit-learn-14629": {
+        "artifacts": {
+          "candidate_sha256": "eefa4a8d7f9a20c764e124c2011c422f938c87f4d43d249abeb338d181d3043d",
+          "official_patch_sha256": "eefa4a8d7f9a20c764e124c2011c422f938c87f4d43d249abeb338d181d3043d",
+          "trace_sha256": "9ba8907ceca31992ca10d1ba2fc85ca78c053a21355b661c883dfec9b3a758b2",
+          "usage_sha256": "87279c5a94f2195d48fd659130c61b5f5dcf3de46342bbd7a19b1bbf1a5b3a70"
+        },
+        "instance_id": "scikit-learn__scikit-learn-14629",
+        "local_validation_status": "unavailable",
+        "metrics": {
+          "available_find_files_contexts": 14,
+          "completion_tokens": 8568,
+          "edit_calls": 1,
+          "estimated_cost_usd": 0.037138,
+          "failed_tool_calls": 1,
+          "failed_validations": 2,
+          "find_files_calls": 1,
+          "first_edit_call_index": 11,
+          "grep_search_calls": 4,
+          "head_tail_observations": 0,
+          "list_files_calls": 0,
+          "llm_calls": 14,
+          "llm_latency_ms": 116717,
+          "prompt_tokens": 334177,
+          "read_calls_before_first_edit": 6,
+          "read_file_calls": 7,
+          "repo_outline_contexts": 14,
+          "search_calls": 5,
+          "search_calls_before_first_edit": 4,
+          "steps": 18,
+          "tool_calls": 19,
+          "tool_calls_before_first_edit": 10,
+          "total_tokens": 342745,
+          "validation_calls": 4
+        },
+        "outcome": "unresolved",
+        "patch_bytes": 1022,
+        "patch_generated": true,
+        "patch_sha256": "eefa4a8d7f9a20c764e124c2011c422f938c87f4d43d249abeb338d181d3043d",
+        "provider_identity": {
+          "error_codes": [
+            "request_failed"
+          ],
+          "fallback_calls": 0,
+          "llm_calls": 14,
+          "observed_models": [
+            "deepseek-v4-flash"
+          ],
+          "providers": [
+            "opencode-go"
+          ],
+          "requested_models": [
+            "deepseek-v4-flash"
+          ],
+          "retried_calls": 1
+        },
+        "resolved": false,
+        "stop_reason": "final_answer",
+        "task_status": "completed"
+      },
+      "sphinx-doc__sphinx-10323": {
+        "artifacts": {
+          "candidate_sha256": "acf261073789dd98f4b54fd531f01c9e67f9c514e7e3cd6a62e14ff65b966759",
+          "official_patch_sha256": "acf261073789dd98f4b54fd531f01c9e67f9c514e7e3cd6a62e14ff65b966759",
+          "trace_sha256": "32ca913f403723e9de712ea43900fca1d3dcee66d10af01b310ab2659d3b4375",
+          "usage_sha256": "5d563b39c801dd162f3655b21b77455d31493d988e4c56fd5a18da7c344202c3"
+        },
+        "instance_id": "sphinx-doc__sphinx-10323",
+        "local_validation_status": "unavailable",
+        "metrics": {
+          "available_find_files_contexts": 69,
+          "completion_tokens": 152071,
+          "edit_calls": 10,
+          "estimated_cost_usd": 0.494186,
+          "failed_tool_calls": 8,
+          "failed_validations": 1,
+          "find_files_calls": 2,
+          "first_edit_call_index": 21,
+          "grep_search_calls": 28,
+          "head_tail_observations": 0,
+          "list_files_calls": 4,
+          "llm_calls": 69,
+          "llm_latency_ms": 1538537,
+          "prompt_tokens": 3715531,
+          "read_calls_before_first_edit": 8,
+          "read_file_calls": 34,
+          "repo_outline_contexts": 0,
+          "search_calls": 34,
+          "search_calls_before_first_edit": 12,
+          "steps": 85,
+          "tool_calls": 92,
+          "tool_calls_before_first_edit": 20,
+          "total_tokens": 3867602,
+          "validation_calls": 10
+        },
+        "outcome": "resolved",
+        "patch_bytes": 2708,
+        "patch_generated": true,
+        "patch_sha256": "acf261073789dd98f4b54fd531f01c9e67f9c514e7e3cd6a62e14ff65b966759",
+        "provider_identity": {
+          "error_codes": [
+            "server_error"
+          ],
+          "fallback_calls": 0,
+          "llm_calls": 69,
+          "observed_models": [
+            "deepseek-v4-flash"
+          ],
+          "providers": [
+            "opencode-go"
+          ],
+          "requested_models": [
+            "deepseek-v4-flash"
+          ],
+          "retried_calls": 1
+        },
+        "resolved": true,
+        "stop_reason": "final_answer",
+        "task_status": "completed"
+      },
+      "sphinx-doc__sphinx-9591": {
+        "artifacts": {
+          "candidate_sha256": "941db8354f0452b99607941fef122393ab68901b77663de6487131d6d2cb5512",
+          "official_patch_sha256": "941db8354f0452b99607941fef122393ab68901b77663de6487131d6d2cb5512",
+          "trace_sha256": "9e4bd6b0229f7283de12b6c776bb53a1ff161c1f65c2242336b9aa5a69ea341a",
+          "usage_sha256": "36cb17e4481d2e64c9b78a57e661803fbb16603ec2ec185599c9c93830765be2"
+        },
+        "instance_id": "sphinx-doc__sphinx-9591",
+        "local_validation_status": "unavailable",
+        "metrics": {
+          "available_find_files_contexts": 20,
+          "completion_tokens": 7273,
+          "edit_calls": 1,
+          "estimated_cost_usd": 0.062535,
+          "failed_tool_calls": 0,
+          "failed_validations": 1,
+          "find_files_calls": 2,
+          "first_edit_call_index": 18,
+          "grep_search_calls": 10,
+          "head_tail_observations": 0,
+          "list_files_calls": 0,
+          "llm_calls": 20,
+          "llm_latency_ms": 162148,
+          "prompt_tokens": 560819,
+          "read_calls_before_first_edit": 9,
+          "read_file_calls": 10,
+          "repo_outline_contexts": 0,
+          "search_calls": 12,
+          "search_calls_before_first_edit": 8,
+          "steps": 22,
+          "tool_calls": 26,
+          "tool_calls_before_first_edit": 17,
+          "total_tokens": 568092,
+          "validation_calls": 2
+        },
+        "outcome": "resolved",
+        "patch_bytes": 521,
+        "patch_generated": true,
+        "patch_sha256": "941db8354f0452b99607941fef122393ab68901b77663de6487131d6d2cb5512",
+        "provider_identity": {
+          "error_codes": [
+            "request_failed"
+          ],
+          "fallback_calls": 0,
+          "llm_calls": 20,
+          "observed_models": [
+            "deepseek-v4-flash"
+          ],
+          "providers": [
+            "opencode-go"
+          ],
+          "requested_models": [
+            "deepseek-v4-flash"
+          ],
+          "retried_calls": 1
+        },
+        "resolved": true,
+        "stop_reason": "final_answer",
+        "task_status": "completed"
+      },
+      "sympy__sympy-13372": {
+        "artifacts": {
+          "candidate_sha256": "125fd5745e6bb43659a27a4b1d24f000dd4067196de08425813a5082489a4450",
+          "official_patch_sha256": "125fd5745e6bb43659a27a4b1d24f000dd4067196de08425813a5082489a4450",
+          "trace_sha256": "9233dbd3ef13c0ad34b10cdceffc02e60a34c6bc30dd5ea8d3602538693456cb",
+          "usage_sha256": "5d680e4b2edf1db075f73df4c63703e9ae48300883d4f3e908d05f997b676f15"
+        },
+        "instance_id": "sympy__sympy-13372",
+        "local_validation_status": "failed",
+        "metrics": {
+          "available_find_files_contexts": 12,
+          "completion_tokens": 4644,
+          "edit_calls": 1,
+          "estimated_cost_usd": 0.027764,
+          "failed_tool_calls": 5,
+          "failed_validations": 1,
+          "find_files_calls": 1,
+          "first_edit_call_index": 3,
+          "grep_search_calls": 2,
+          "head_tail_observations": 4,
+          "list_files_calls": 0,
+          "llm_calls": 12,
+          "llm_latency_ms": 92733,
+          "prompt_tokens": 273571,
+          "read_calls_before_first_edit": 1,
+          "read_file_calls": 5,
+          "repo_outline_contexts": 12,
+          "search_calls": 3,
+          "search_calls_before_first_edit": 1,
+          "steps": 17,
+          "tool_calls": 15,
+          "tool_calls_before_first_edit": 2,
+          "total_tokens": 278215,
+          "validation_calls": 5
+        },
+        "outcome": "resolved",
+        "patch_bytes": 772,
+        "patch_generated": true,
+        "patch_sha256": "125fd5745e6bb43659a27a4b1d24f000dd4067196de08425813a5082489a4450",
+        "provider_identity": {
+          "error_codes": [
+            "request_failed"
+          ],
+          "fallback_calls": 0,
+          "llm_calls": 12,
+          "observed_models": [
+            "deepseek-v4-flash"
+          ],
+          "providers": [
+            "opencode-go"
+          ],
+          "requested_models": [
+            "deepseek-v4-flash"
+          ],
+          "retried_calls": 1
+        },
+        "resolved": true,
+        "stop_reason": "too many consecutive failed tools: 3 >= limit 3",
+        "task_status": "blocked"
+      },
+      "sympy__sympy-20590": {
+        "artifacts": {
+          "candidate_sha256": "4737b88d986ae7e1842f438dab515a620946936229aafec105533efed5f67042",
+          "official_patch_sha256": "4737b88d986ae7e1842f438dab515a620946936229aafec105533efed5f67042",
+          "trace_sha256": "760dc74cd31843beefa7365cb9f39ad8b8266bb4e761b4f5ade6bb3783cff1e1",
+          "usage_sha256": "07292a07f5a4514862d465aa6e284a693fa418cddbb8732dc6e4b82ff73f7dad"
+        },
+        "instance_id": "sympy__sympy-20590",
+        "local_validation_status": "failed",
+        "metrics": {
+          "available_find_files_contexts": 59,
+          "completion_tokens": 44774,
+          "edit_calls": 6,
+          "estimated_cost_usd": 0.350034,
+          "failed_tool_calls": 8,
+          "failed_validations": 1,
+          "find_files_calls": 3,
+          "first_edit_call_index": 31,
+          "grep_search_calls": 31,
+          "head_tail_observations": 1,
+          "list_files_calls": 0,
+          "llm_calls": 59,
+          "llm_latency_ms": 640966,
+          "prompt_tokens": 2863416,
+          "read_calls_before_first_edit": 10,
+          "read_file_calls": 19,
+          "repo_outline_contexts": 59,
+          "search_calls": 34,
+          "search_calls_before_first_edit": 18,
+          "steps": 74,
+          "tool_calls": 84,
+          "tool_calls_before_first_edit": 30,
+          "total_tokens": 2908190,
+          "validation_calls": 21
+        },
+        "outcome": "resolved",
+        "patch_bytes": 3048,
+        "patch_generated": true,
+        "patch_sha256": "4737b88d986ae7e1842f438dab515a620946936229aafec105533efed5f67042",
+        "provider_identity": {
+          "error_codes": [],
+          "fallback_calls": 0,
+          "llm_calls": 59,
+          "observed_models": [
+            "deepseek-v4-flash"
+          ],
+          "providers": [
+            "opencode-go"
+          ],
+          "requested_models": [
+            "deepseek-v4-flash"
+          ],
+          "retried_calls": 0
+        },
+        "resolved": true,
+        "stop_reason": "final_answer",
+        "task_status": "completed"
+      }
+    },
+    "local_validation_statuses": {
+      "failed": 11,
+      "unavailable": 9
+    },
+    "metrics": {
+      "available_find_files_contexts": 475,
+      "completion_tokens": 492541,
+      "edit_calls": 43,
+      "estimated_cost_usd": 2.269783,
+      "failed_tool_calls": 55,
+      "failed_validations": 30,
+      "find_files_calls": 30,
+      "first_edit_call_index_mean": 16.6,
+      "first_edit_call_index_observed_cases": 20,
+      "first_edit_call_index_sum": 332,
+      "grep_search_calls": 195,
+      "head_tail_observations": 14,
+      "list_files_calls": 18,
+      "llm_calls": 475,
+      "llm_latency_ms": 5733630,
+      "prompt_tokens": 18422647,
+      "read_calls_before_first_edit_mean": 7.15,
+      "read_calls_before_first_edit_observed_cases": 20,
+      "read_calls_before_first_edit_sum": 143,
+      "read_file_calls": 218,
+      "repo_outline_contexts": 362,
+      "search_calls": 243,
+      "search_calls_before_first_edit_mean": 7.6,
+      "search_calls_before_first_edit_observed_cases": 20,
+      "search_calls_before_first_edit_sum": 152,
+      "steps": 564,
+      "tool_calls": 656,
+      "tool_calls_before_first_edit_mean": 15.6,
+      "tool_calls_before_first_edit_observed_cases": 20,
+      "tool_calls_before_first_edit_sum": 312,
+      "total_tokens": 18915188,
+      "validation_calls": 108
+    },
+    "official": {
+      "resolved": 13,
+      "unresolved": 7
+    },
+    "official_resolved": 13,
+    "official_resolved_rate": 0.65,
+    "official_resolved_wilson_95": [
+      0.432854,
+      0.818808
+    ],
+    "patch_generated": 20,
+    "planned": 20,
+    "provider": {
+      "error_codes": [
+        "request_failed",
+        "server_error"
+      ],
+      "fallback_calls": 0,
+      "llm_calls": 475,
+      "retried_calls": 5
+    },
+    "runs": [
+      {
+        "artifacts": {
+          "official_aggregate_sha256": "58eb4af0eaaf267663bc64d309f786ed6a233502daf44d7f277a7de3e0ab94f9",
+          "predictions_sha256": "e9d48caffb662b88c1c3636f8755e3550e70ce788c979f39107eee67925bed18",
+          "results_sha256": "f8ef1bde01acb16e2d4b9fe2e9b09a2ef961e49929fa15fc5d66e4750bc0ec8c",
+          "scorecard_sha256": "504135c8fc9b9caf25030d1f37dea9f9480cd2927abd4f05debf917fe5154149"
+        },
+        "case_ids": [
+          "django__django-11451",
+          "matplotlib__matplotlib-13989",
+          "scikit-learn__scikit-learn-14629",
+          "django__django-12209",
+          "sphinx-doc__sphinx-10323"
+        ],
+        "run_dir": ".agent_forge/tool-aci-golden-20-v1/tool-r1/shard-a/swebench-20260813-154108-1c4c2d2",
+        "run_id": "swebench-20260813-154108-1c4c2d2",
+        "shard": "a"
+      },
+      {
+        "artifacts": {
+          "official_aggregate_sha256": "b91827347f955603e5b41fea27353cfa176b6420c67a18c223dfcd2f29a2e910",
+          "predictions_sha256": "045a694b1a038aba4068e9dff382f4e97652c9cb51ad45ede9555be16732a49e",
+          "results_sha256": "d43498a28839fb49051d38e4319eae4a4b1715e62556f21ae5488a307cb844f0",
+          "scorecard_sha256": "4b45c540eca329c258dcfea8ad4cd98eb9a125a9534e301135a7cff075c7ac3c"
+        },
+        "case_ids": [
+          "sympy__sympy-20590",
+          "django__django-10097",
+          "psf__requests-2317",
+          "matplotlib__matplotlib-22871",
+          "django__django-13028"
+        ],
+        "run_dir": ".agent_forge/tool-aci-golden-20-v1/tool-r1/shard-b/swebench-20260813-154121-8e0af01",
+        "run_id": "swebench-20260813-154121-8e0af01",
+        "shard": "b"
+      },
+      {
+        "artifacts": {
+          "official_aggregate_sha256": "1bf7f51b05d3d1d0dfaff8849ea4108980b91c649e3a0dcde37b6e1743dc9100",
+          "predictions_sha256": "737e80de0649c41bb24df8c6aa23afc3e78f26b3139eb2d3ce42aed045936b6e",
+          "results_sha256": "bc527f83aba2a3b386335700654121ff4d155af4b6b1b2ecbfd44c488c021b8e",
+          "scorecard_sha256": "e904814003dda959a524f4fa0825489a63196fc5d1b4dc2618875056b6b48d89"
+        },
+        "case_ids": [
+          "astropy__astropy-14182",
+          "matplotlib__matplotlib-25287",
+          "psf__requests-2931",
+          "pydata__xarray-6938",
+          "pylint-dev__pylint-6903"
+        ],
+        "run_dir": ".agent_forge/tool-aci-golden-20-v1/tool-r1/shard-c/swebench-20260813-154136-7e5f1e0",
+        "run_id": "swebench-20260813-154136-7e5f1e0",
+        "shard": "c"
+      },
+      {
+        "artifacts": {
+          "official_aggregate_sha256": "51e0b4cafc11434bb7e444ec586bc55d39d80a2bcf565de8ed8571971ccce099",
+          "predictions_sha256": "18fa2c4359229a4253eca990480d53551c61bad61806cf4c21b3e06275bbb88d",
+          "results_sha256": "31edce850b3b33bc1ce56060695d625682f452a6cb353b659fe5fda3a6768f56",
+          "scorecard_sha256": "4f80d77416344c7ade41bf4d0af321761935cff8b0461b9785697ed99fc3e1a5"
+        },
+        "case_ids": [
+          "pytest-dev__pytest-5262",
+          "scikit-learn__scikit-learn-13328",
+          "sphinx-doc__sphinx-9591",
+          "sympy__sympy-13372",
+          "django__django-10999"
+        ],
+        "run_dir": ".agent_forge/tool-aci-golden-20-v1/tool-r1/shard-d/swebench-20260813-154157-b7aae1b",
+        "run_id": "swebench-20260813-154157-b7aae1b",
+        "shard": "d"
+      }
+    ],
+    "task_statuses": {
+      "blocked": 4,
+      "completed": 16
+    },
+    "terminal": 20
+  },
+  "schema_version": 1,
+  "status": "completed",
+  "treatment_activation": {
+    "find_files_calls": 30,
+    "find_files_exposed_contexts": 475,
+    "grep_search_calls": 195,
+    "repo_outline_contexts": 362,
+    "validation_head_tail_observations": 14
+  }
+}
