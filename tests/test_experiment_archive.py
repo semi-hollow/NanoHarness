@@ -13,6 +13,7 @@ EXPECTED_EXPERIMENTS = (
     "04-operation-ledger-replay",
     "05-quality-selection-v1",
     "06-tool-aci-golden-20",
+    "07-tool-aci-r2-minimal-surface",
 )
 
 
@@ -43,6 +44,7 @@ def test_current_experiment_evidence_links_resolve() -> None:
     records = (
         EXPERIMENT_ROOT / "05-quality-selection-v1" / "README.md",
         EXPERIMENT_ROOT / "06-tool-aci-golden-20" / "README.md",
+        EXPERIMENT_ROOT / "07-tool-aci-r2-minimal-surface" / "README.md",
     )
     markdown_link = re.compile(r"\[[^]]+]\((?P<target>[^)#]+)(?:#[^)]*)?\)")
     for record in records:

@@ -17,6 +17,7 @@
 | 2026-08-12 | [Operation Ledger one-shot replay](04-operation-ledger-replay/README.md) | Target、Guard、Golden-10；OpenCode Go / GLM-5.2 | Target `0/2→2/2`、Guard `3/3`；Golden-10 `5/10→4/10` | Case 机制成立，全局方案拒绝并回滚 |
 | 2026-08-12 | [质量模型选型 v1](05-quality-selection-v1/README.md) | Golden-10 × V4 Pro / GLM-5.2；20 个计划槽位 | 9/20 槽位受 shared rate limit 影响 | 失败关闭，无 winner |
 | 2026-08-13 | [Tool / ACI Golden-20](06-tool-aci-golden-20/README.md) | 固定 Golden-20；OpenCode Go / V4 Flash | Tool-R0 `14/20`；Tool-R1 `13/20` | Treatment 拒绝并回滚 |
+| 2026-08-13—14 | [Tool / ACI R2 最小工具面](07-tool-aci-r2-minimal-surface/README.md) | 同一 Golden-20；OpenCode Go / V4 Flash | R0 `14/20`；R2 `14/20`；Token -33.6%、Tool -20.8% | 效率改善但 correctness 无净增，拒绝并回滚 |
 
 ## 这些实验共同说明什么
 
@@ -43,6 +44,8 @@
    设计最小修复和 activation gate，以及为什么 Case-level 成功仍不足以全局采纳。
 4. 最后用 [Tool / ACI Golden-20](06-tool-aci-golden-20/README.md) 说明当前的单变量意识、过程指标、
    paired transition 和回滚纪律。
+   [R2 收缩实验](07-tool-aci-r2-minimal-surface/README.md)继续展示如何根据 Trace 缩小变量、恢复 R1
+   丢失的一题，同时因为 `1 gain / 1 regression` 拒绝把效率收益包装成 correctness uplift。
 5. 如果需要讨论实验可靠性，再展开[质量模型选型 v1](05-quality-selection-v1/README.md) 的失败关闭
    事件，说明为什么不从受限流污染的局部结果中挑 winner。
 
@@ -57,6 +60,7 @@
 | `4/10` | 2026-08-11 正式 Golden-10 参考 R0 的 `official resolved / planned` | 具有窄区间的总体解决率 |
 | `5/10→4/10` | Ledger Treatment 在同一 Golden-10 reference/expansion 中的变化 | Target Case `0/2→2/2` 所代表的总体提升 |
 | `14/20→13/20` | Tool/ACI bundle 在固定开发集上的成对 A/B | SWE-bench Verified 总体能力下降 5 个百分点 |
+| `14/20→14/20` | Tool/ACI R2 在相同开发集上 correctness 持平，同时 Token/Tool 分别下降 33.6%/20.8% | 已证明解决率提升或该效率差异必然由单个组件造成 |
 | `invalid_no_winner` | 模型选型 v1 被 shared rate limit 污染后失败关闭 | 任一候选模型胜出 |
 
 ## 仅有计划、尚无结果的资产
