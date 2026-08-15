@@ -88,7 +88,6 @@ CORE_WORKFLOW_ENTRYPOINTS = {
     },
     "agent_forge/bench/application/swebench.py": {
         "RunSwebench.run_benchmark": 4,
-        "RunSwebench._execute_comparison": 3,
     },
     "agent_forge/bench/application/campaign.py": {
         "RunBenchmarkCampaign.run_campaign": 3,
@@ -545,9 +544,9 @@ class CodeNavigationContractTest(unittest.TestCase):
         """长 region 不能只有标题；内部还要解释关键调用和状态语义。"""
 
         for relative_path, owners in CORE_WORKFLOW_ENTRYPOINTS.items():
-            source_lines = (PROJECT_ROOT / relative_path).read_text(
-                encoding="utf-8"
-            ).splitlines()
+            source_lines = (
+                (PROJECT_ROOT / relative_path).read_text(encoding="utf-8").splitlines()
+            )
             tree = ast.parse("\n".join(source_lines))
             for owner_name in owners:
                 owner = _find_owner(tree, owner_name)

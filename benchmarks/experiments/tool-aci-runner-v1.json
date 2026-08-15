@@ -1,0 +1,129 @@
+{
+  "schema_version": 1,
+  "pipeline_id": "tool-aci-golden-20-pipeline-v1",
+  "description": "Minimal config -> forge bench swebench -> structured artifact index pipeline. Interpretation and narrative reports are intentionally outside this config.",
+  "evaluation_contract": {
+    "comparison": "matched_pass_at_1",
+    "primary_metric": "official_resolved / planned",
+    "shared_across_variants": [
+      "case_ids",
+      "case_order",
+      "benchmark_args",
+      "shard_size"
+    ],
+    "variant_specific": [
+      "source_commit"
+    ],
+    "correctness_reruns": 0,
+    "terminal_outcomes_stay_in_denominator": [
+      "resolved",
+      "unresolved",
+      "empty",
+      "error",
+      "incomplete"
+    ],
+    "analysis_in_pipeline": false
+  },
+  "experiments": {
+    "r1": {
+      "experiment_id": "06-tool-aci-golden-20-r0-r1",
+      "protocol_path": "benchmarks/experiments/tool-aci-r1/plan.json",
+      "default_variant": "tool-r1",
+      "shard_size": 5,
+      "benchmark_args": [
+        "--split", "test",
+        "--provider", "opencode-go",
+        "--model", "deepseek-v4-flash",
+        "--base-url", "https://opencode.ai/zen/go/v1",
+        "--temperature", "0",
+        "--thinking", "enabled",
+        "--reasoning-effort", "high",
+        "--max-steps", "128",
+        "--max-context-chars", "64000",
+        "--max-prompt-tokens", "131072",
+        "--reserved-output-tokens", "16384",
+        "--max-tool-calls-per-turn", "4",
+        "--timeout-seconds", "3600",
+        "--model-request-timeout-seconds", "600",
+        "--model-request-max-attempts", "2",
+        "--tool-execution-timeout-seconds", "600",
+        "--evaluate",
+        "--max-workers", "1",
+        "--official-namespace", "swebench",
+        "--official-cache-level", "instance",
+        "--agent-mode", "single",
+        "--max-revision-rounds", "0",
+        "--tool-routing", "task-aware",
+        "--skills", "swebench_repair",
+        "--memory-recall-limit", "0",
+        "--execution-mode", "worktree",
+        "--network-policy", "deny",
+        "--no-keep-worktree"
+      ],
+      "variants": {
+        "tool-r0": {
+          "source_commit": "0ae0d9ae9444d723e319fc0c7eadec9b631d374c",
+          "dataset_root": ".agent_forge/tool-aci-golden-20-v1/dataset",
+          "historical_runs_root": ".agent_forge/tool-aci-golden-20-v1/tool-r0",
+          "manifest_output": "benchmarks/experiments/tool-aci-r1/r0.execution.json"
+        },
+        "tool-r1": {
+          "source_commit": "296000864d6a2c1476c28b790f030b0ffc4cca5b",
+          "dataset_root": ".agent_forge/tool-aci-golden-20-v1/dataset",
+          "historical_runs_root": ".agent_forge/tool-aci-golden-20-v1/tool-r1",
+          "manifest_output": "benchmarks/experiments/tool-aci-r1/r1.execution.json"
+        }
+      }
+    },
+    "r2": {
+      "experiment_id": "07-tool-aci-golden-20-r2",
+      "protocol_path": "benchmarks/experiments/tool-aci-r2/plan.json",
+      "default_variant": "tool-r2",
+      "shard_size": 5,
+      "benchmark_args": [
+        "--split", "test",
+        "--provider", "opencode-go",
+        "--model", "deepseek-v4-flash",
+        "--base-url", "https://opencode.ai/zen/go/v1",
+        "--temperature", "0",
+        "--thinking", "enabled",
+        "--reasoning-effort", "high",
+        "--max-steps", "128",
+        "--max-context-chars", "64000",
+        "--max-prompt-tokens", "131072",
+        "--reserved-output-tokens", "16384",
+        "--max-tool-calls-per-turn", "4",
+        "--timeout-seconds", "3600",
+        "--model-request-timeout-seconds", "600",
+        "--model-request-max-attempts", "2",
+        "--tool-execution-timeout-seconds", "600",
+        "--evaluate",
+        "--max-workers", "1",
+        "--official-namespace", "swebench",
+        "--official-cache-level", "instance",
+        "--agent-mode", "single",
+        "--max-revision-rounds", "0",
+        "--tool-routing", "task-aware",
+        "--skills", "swebench_repair",
+        "--memory-recall-limit", "0",
+        "--execution-mode", "worktree",
+        "--network-policy", "deny",
+        "--no-keep-worktree"
+      ],
+      "variants": {
+        "tool-r0": {
+          "source_commit": "0ae0d9ae9444d723e319fc0c7eadec9b631d374c",
+          "dataset_root": ".agent_forge/tool-aci-golden-20-v1/dataset",
+          "historical_runs_root": ".agent_forge/tool-aci-golden-20-v1/tool-r0",
+          "manifest_output": "benchmarks/experiments/tool-aci-r1/r0.execution.json"
+        },
+        "tool-r2": {
+          "source_commit": "d7fc8110f9ec6bde7f7f794fb06f25986d279448",
+          "dataset_root": ".agent_forge/tool-aci-golden-20-r2/dataset",
+          "historical_runs_root": ".agent_forge/tool-aci-golden-20-r2/tool-r2",
+          "manifest_output": "benchmarks/experiments/tool-aci-r2/r2.execution.json"
+        }
+      }
+    }
+  }
+}

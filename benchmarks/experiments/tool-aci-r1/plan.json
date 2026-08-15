@@ -1,0 +1,190 @@
+{
+  "schema_version": 1,
+  "set_id": "tool-aci-golden-20-v1",
+  "title": "Tool / ACI Golden-20 · Paired Development A/B",
+  "status": "preregistered_before_tool_r0_baseline",
+  "dataset_name": "princeton-nlp/SWE-bench_Verified",
+  "dataset_revision": "c104f840cc67f8b6eec6f759ebc8b2693d585d4a",
+  "dataset_arrow_sha256": "0d119efe73413554335bd410a04d82fd4a586bfd312cee677ee40af5de2ac46e",
+  "split": "test",
+  "experiment": {
+    "question": "Does a lightweight Tool / ACI maturity bundle improve official resolved outcomes under a fixed model and Runtime?",
+    "baseline_id": "tool-r0",
+    "treatment_id": "tool-r1",
+    "tool_r0_source_commit": "0ae0d9ae9444d723e319fc0c7eadec9b631d374c",
+    "single_primary_variable": "repository Tool / ACI capability",
+    "required_treatment_scope": [
+      "rg-backed grep_search",
+      "find_files backed by rg --files",
+      "bounded Python AST repo_outline for already-ranked files",
+      "validation output with explicit head and tail"
+    ],
+    "deferred": [
+      "apply_patch",
+      "LSP",
+      "tree-sitter semantic index",
+      "Code Graph or GraphRAG",
+      "embeddings or vector database",
+      "Multi-Agent changes",
+      "Memory, Runtime, ToolRouter, or Prompt redesign"
+    ]
+  },
+  "selection": {
+    "method": "seen regression ten plus an outcome-blind fresh extension ten",
+    "allowed_selection_fields": [
+      "instance_id",
+      "repo"
+    ],
+    "forbidden_selection_fields": [
+      "problem_statement",
+      "hints_text",
+      "patch",
+      "test_patch",
+      "FAIL_TO_PASS",
+      "PASS_TO_PASS",
+      "prior outcomes",
+      "per-test logs"
+    ],
+    "seen_source": {
+      "path": "benchmarks/experiments/tool-aci-r1/seen-set.json",
+      "file_sha256": "838b1b3bdd05ff55304d70abdb4cd40b99535a582ae3fb03a55e121803b1538b",
+      "case_count": 10,
+      "ordered_case_ids_sha256": "04e32f27aabd7e191d4695629d875e7b9548df62a08ee149054f2ba50fdcf366"
+    },
+    "fresh_source": {
+      "path": "benchmarks/experiments/tool-aci-r1/fresh-set.json",
+      "file_sha256": "d2a4356f404f6327f7f1835f87e1d98c266f969ad7b861c00afb8b0e7dd04fd1",
+      "seed": "nanoharness-golden-dev-10-v2",
+      "rule": "retain the frozen rank-one Case for each repository unless it overlaps Mini-50; for an overlapping repository take the next SHA-256-ranked eligible Case",
+      "removed_overlap": {
+        "instance_id": "django__django-13658",
+        "rank_one_sha256": "02f3ce34246cbb45a2feca01587144b745d9845a781c871d6c3710c3b9488971"
+      },
+      "mechanical_replacement": {
+        "instance_id": "django__django-10999",
+        "repo": "django/django",
+        "rank_one_based": 2,
+        "rank_sha256": "033d41cc92fa53468761c4adb9ce7bc1f68156afe72a615970c624526cdb4e0e"
+      },
+      "case_count": 10,
+      "ordered_case_ids_sha256": "403016729411bc3cd68a5e499001a7a24700cec2717253600fb439032291d312"
+    },
+    "mini_50_exclusion": {
+      "path": "benchmarks/showcase/swebench-verified-mini-50-v1.json",
+      "file_sha256": "c09ff2c942f7f6b791b1aa4f178c7965edbbb68e7f93e46a5e92319982850ab3",
+      "overlap": []
+    },
+    "outcome_blind_fresh_extension": true
+  },
+  "case_ids": [
+    "django__django-11451",
+    "matplotlib__matplotlib-13989",
+    "scikit-learn__scikit-learn-14629",
+    "django__django-12209",
+    "sphinx-doc__sphinx-10323",
+    "sympy__sympy-20590",
+    "django__django-10097",
+    "psf__requests-2317",
+    "matplotlib__matplotlib-22871",
+    "django__django-13028",
+    "astropy__astropy-14182",
+    "matplotlib__matplotlib-25287",
+    "psf__requests-2931",
+    "pydata__xarray-6938",
+    "pylint-dev__pylint-6903",
+    "pytest-dev__pytest-5262",
+    "scikit-learn__scikit-learn-13328",
+    "sphinx-doc__sphinx-9591",
+    "sympy__sympy-13372",
+    "django__django-10999"
+  ],
+  "ordered_case_ids_sha256": "d9df92733e6008513a397671142c2ce3c317797f8c63a47dd8fed18021ae97aa",
+  "subsets": {
+    "seen_regression": {
+      "start": 0,
+      "count": 10
+    },
+    "fresh_extension": {
+      "start": 10,
+      "count": 10
+    }
+  },
+  "fixed_profile": {
+    "provider": "opencode-go",
+    "base_url": "https://opencode.ai/zen/go/v1",
+    "model": "deepseek-v4-flash",
+    "temperature": 0,
+    "thinking": "enabled",
+    "reasoning_effort": "high",
+    "max_steps": 128,
+    "max_context_chars": 64000,
+    "max_prompt_tokens": 131072,
+    "reserved_output_tokens": 16384,
+    "max_tool_calls_per_turn": 4,
+    "model_request_max_attempts": 2,
+    "model_request_timeout_seconds": 600,
+    "tool_execution_timeout_seconds": 600,
+    "case_timeout_seconds": 3600,
+    "cost_budget_usd": null,
+    "agent_mode": "single",
+    "max_revision_rounds": 0,
+    "tool_routing": "task-aware",
+    "skill": "swebench_repair",
+    "memory_recall_limit": 0,
+    "execution_mode": "worktree",
+    "network_policy": "deny",
+    "keep_worktree": false,
+    "official_evaluator": true,
+    "official_namespace": "swebench",
+    "official_cache_level": "instance",
+    "max_workers": 1,
+    "repetitions_per_variant": 1,
+    "correctness_result_retries": 0
+  },
+  "execution": {
+    "shards_per_variant": 4,
+    "cases_per_shard": 5,
+    "shard_order": [
+      "0:5",
+      "5:10",
+      "10:15",
+      "15:20"
+    ],
+    "baseline_must_finish_before_treatment_code_changes": true,
+    "treatment_uses_identical_case_order_and_profile": true
+  },
+  "metrics": {
+    "primary": [
+      "official_resolved / 20",
+      "unresolved_to_resolved",
+      "resolved_to_unresolved",
+      "resolved_to_resolved",
+      "unresolved_to_unresolved"
+    ],
+    "secondary": [
+      "patch_generated",
+      "local_validation_status",
+      "total_tool_calls",
+      "search_calls",
+      "read_file_calls",
+      "failed_tool_calls",
+      "validation_calls",
+      "tool_calls_before_first_edit when already observable",
+      "read_calls_before_first_edit when already observable",
+      "total_tokens",
+      "estimated_cost_usd"
+    ]
+  },
+  "decision_policy": {
+    "strong_positive": "net resolved gain >= 3, zero resolved-to-unresolved regressions, and Treatment tools observed in Trace",
+    "directional_only": "net resolved gain is 1 or 2, or a gain includes one resolved-to-unresolved regression",
+    "efficiency_only": "resolved count is unchanged with no regression and secondary efficiency improves",
+    "reject": "resolved count decreases or Tool changes cause a stable regression",
+    "infrastructure_invalid": "provider identity drift, broad rate limiting, or evaluator infrastructure failure prevents a complete paired denominator"
+  },
+  "claim_limits": [
+    "This is a fixed development A/B set, not a holdout and not a SWE-bench Verified leaderboard score.",
+    "The Treatment is a Tool / ACI bundle; this experiment does not attribute uplift to any individual component.",
+    "The later V4 Pro Mini-50 experiment remains the separate absolute capability measurement."
+  ]
+}

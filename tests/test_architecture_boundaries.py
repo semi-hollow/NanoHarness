@@ -48,9 +48,15 @@ class ArchitectureBoundaryTest(unittest.TestCase):
         violations: list[str] = []
         for path in sorted((RUNTIME_ROOT / "domain").glob("*.py")):
             for line, imported in _absolute_imports(path):
-                if imported.startswith("agent_forge") and not imported.startswith(allowed):
-                    violations.append(f"{path.relative_to(PROJECT_ROOT)}:{line} -> {imported}")
-        self.assertEqual(violations, [], "Runtime Domain must remain infrastructure-free")
+                if imported.startswith("agent_forge") and not imported.startswith(
+                    allowed
+                ):
+                    violations.append(
+                        f"{path.relative_to(PROJECT_ROOT)}:{line} -> {imported}"
+                    )
+        self.assertEqual(
+            violations, [], "Runtime Domain must remain infrastructure-free"
+        )
 
     def test_runtime_ports_depend_only_on_contracts_and_domain(self) -> None:
         allowed = (
@@ -63,11 +69,19 @@ class ArchitectureBoundaryTest(unittest.TestCase):
         violations: list[str] = []
         for path in sorted((RUNTIME_ROOT / "ports").glob("*.py")):
             for line, imported in _absolute_imports(path):
-                if imported.startswith("agent_forge") and not imported.startswith(allowed):
-                    violations.append(f"{path.relative_to(PROJECT_ROOT)}:{line} -> {imported}")
-        self.assertEqual(violations, [], "Runtime Ports must not know concrete implementations")
+                if imported.startswith("agent_forge") and not imported.startswith(
+                    allowed
+                ):
+                    violations.append(
+                        f"{path.relative_to(PROJECT_ROOT)}:{line} -> {imported}"
+                    )
+        self.assertEqual(
+            violations, [], "Runtime Ports must not know concrete implementations"
+        )
 
-    def test_runtime_application_does_not_import_adapters_or_concrete_stores(self) -> None:
+    def test_runtime_application_does_not_import_adapters_or_concrete_stores(
+        self,
+    ) -> None:
         forbidden = (
             "agent_forge.runtime.adapters",
             "agent_forge.runtime.approval",
@@ -86,8 +100,12 @@ class ArchitectureBoundaryTest(unittest.TestCase):
         for path in sorted((RUNTIME_ROOT / "application").glob("*.py")):
             for line, imported in _absolute_imports(path):
                 if imported.startswith(forbidden):
-                    violations.append(f"{path.relative_to(PROJECT_ROOT)}:{line} -> {imported}")
-        self.assertEqual(violations, [], "Runtime Application must depend on Ports, not adapters")
+                    violations.append(
+                        f"{path.relative_to(PROJECT_ROOT)}:{line} -> {imported}"
+                    )
+        self.assertEqual(
+            violations, [], "Runtime Application must depend on Ports, not adapters"
+        )
 
     def test_only_runtime_composition_imports_runtime_adapters(self) -> None:
         allowed = {
@@ -102,7 +120,9 @@ class ArchitectureBoundaryTest(unittest.TestCase):
             for line, imported in _absolute_imports(path):
                 if imported.startswith("agent_forge.runtime.adapters"):
                     violations.append(f"{relative}:{line} -> {imported}")
-        self.assertEqual(violations, [], "Concrete adapters must be assembled in runtime.wiring")
+        self.assertEqual(
+            violations, [], "Concrete adapters must be assembled in runtime.wiring"
+        )
 
     def test_removed_compatibility_facades_do_not_return(self) -> None:
         removed = [
@@ -148,7 +168,9 @@ class ArchitectureBoundaryTest(unittest.TestCase):
         violations: list[str] = []
         for path in sorted(root.glob("*.py")):
             for line, imported in _absolute_imports(path):
-                if imported.startswith("agent_forge") and not imported.startswith(allowed):
+                if imported.startswith("agent_forge") and not imported.startswith(
+                    allowed
+                ):
                     violations.append(
                         f"{path.relative_to(PROJECT_ROOT)}:{line} -> {imported}"
                     )
@@ -200,13 +222,17 @@ class ArchitectureBoundaryTest(unittest.TestCase):
         violations: list[str] = []
         for path in sorted((EVALUATION_ROOT / "domain").glob("*.py")):
             for line, imported in _absolute_imports(path):
-                if imported.startswith("agent_forge") and not imported.startswith(allowed):
+                if imported.startswith("agent_forge") and not imported.startswith(
+                    allowed
+                ):
                     violations.append(
                         f"{path.relative_to(PROJECT_ROOT)}:{line} -> {imported}"
                     )
         self.assertEqual(violations, [], "Evaluation Domain must remain pure")
 
-    def test_evaluation_application_does_not_import_adapters_or_presentation(self) -> None:
+    def test_evaluation_application_does_not_import_adapters_or_presentation(
+        self,
+    ) -> None:
         forbidden = (
             "agent_forge.evaluation.adapters",
             "agent_forge.evaluation.presentation",
@@ -229,7 +255,6 @@ class ArchitectureBoundaryTest(unittest.TestCase):
         expected = [
             EVALUATION_ROOT / "api.py",
             EVALUATION_ROOT / "application" / "scorecard.py",
-            EVALUATION_ROOT / "domain" / "comparison.py",
             EVALUATION_ROOT / "domain" / "scorecard.py",
             EVALUATION_ROOT / "ports" / "evidence.py",
             EVALUATION_ROOT / "adapters" / "json_files.py",
@@ -246,7 +271,9 @@ class ArchitectureBoundaryTest(unittest.TestCase):
         violations: list[str] = []
         for path in sorted((BENCH_ROOT / "domain").glob("*.py")):
             for line, imported in _absolute_imports(path):
-                if imported.startswith("agent_forge") and not imported.startswith(allowed):
+                if imported.startswith("agent_forge") and not imported.startswith(
+                    allowed
+                ):
                     violations.append(
                         f"{path.relative_to(PROJECT_ROOT)}:{line} -> {imported}"
                     )
@@ -293,7 +320,9 @@ class ArchitectureBoundaryTest(unittest.TestCase):
         violations: list[str] = []
         for path in sorted((OBSERVABILITY_ROOT / "domain").glob("*.py")):
             for line, imported in _absolute_imports(path):
-                if imported.startswith("agent_forge") and not imported.startswith(allowed):
+                if imported.startswith("agent_forge") and not imported.startswith(
+                    allowed
+                ):
                     violations.append(
                         f"{path.relative_to(PROJECT_ROOT)}:{line} -> {imported}"
                     )
@@ -305,8 +334,7 @@ class ArchitectureBoundaryTest(unittest.TestCase):
             tree = ast.parse(path.read_text(encoding="utf-8"))
             for node in ast.walk(tree):
                 if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and (
-                    node.name.startswith("render_")
-                    or node.name.startswith("write_")
+                    node.name.startswith("render_") or node.name.startswith("write_")
                 ):
                     violations.append(
                         f"{path.relative_to(PROJECT_ROOT)}:{node.lineno} -> {node.name}"
@@ -317,7 +345,9 @@ class ArchitectureBoundaryTest(unittest.TestCase):
             "Evidence Domain projects facts; Presentation owns report rendering",
         )
 
-    def test_observability_application_does_not_import_adapters_or_presentation(self) -> None:
+    def test_observability_application_does_not_import_adapters_or_presentation(
+        self,
+    ) -> None:
         forbidden = (
             "agent_forge.observability.adapters",
             "agent_forge.observability.presentation",
@@ -359,7 +389,9 @@ class ArchitectureBoundaryTest(unittest.TestCase):
                     )
         self.assertEqual(violations, [], "Workbench Domain must remain pure")
 
-    def test_workbench_application_and_presentation_do_not_import_adapters(self) -> None:
+    def test_workbench_application_and_presentation_do_not_import_adapters(
+        self,
+    ) -> None:
         violations: list[str] = []
         for layer in ("application", "presentation"):
             for path in sorted((WORKBENCH_ROOT / layer).glob("*.py")):
@@ -400,9 +432,7 @@ class ArchitectureBoundaryTest(unittest.TestCase):
         repository_path = CLI_ROOT / "repository.py"
         tree = ast.parse(repository_path.read_text(encoding="utf-8"))
         functions = {
-            node.name: node
-            for node in tree.body
-            if isinstance(node, ast.FunctionDef)
+            node.name: node for node in tree.body if isinstance(node, ast.FunctionDef)
         }
         dispatcher = functions["run_repository_task"]
         single_run = functions["execute_single_repository_task"]

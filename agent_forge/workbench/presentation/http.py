@@ -4714,7 +4714,7 @@ def _render_canonical_showcase_dashboard(
         "<section class='evidence-section'><div class='section-title'><h3>辅助检查的角色</h3><span>不进入质量 headline</span></div>"
         "<table><thead><tr><th>集合</th><th>唯一用途</th><th>状态</th><th>质量分数</th></tr></thead>"
         f"<tbody>{support_rows_html}</tbody></table>"
-        "<p class='boundary-note'>确认实验用于扩大样本；Infrastructure Smoke-5 只验证 dataset、checkout、tools、patch、evaluator 与 evidence wiring 健康。</p></section>",
+        "<p class='boundary-note'>辅助检查不进入当前质量 headline；扩大样本后的结果必须单独满足完整分母与证据门。</p></section>",
         "<section class='evidence-section'><div class='section-title'><h3>结论边界</h3><span>机器摘要中的固定约束</span></div>"
         f"{_render_fact_list(boundaries, empty_message='尚未记录额外边界')}</section>",
         "<details class='provenance'><summary>Canonical 摘要来源</summary>"

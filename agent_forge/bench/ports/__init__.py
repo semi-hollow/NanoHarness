@@ -8,9 +8,7 @@ from .benchmark import (
 from .campaign import (
     BenchmarkRunnerPort,
     CampaignArtifactPort,
-    CampaignJournalPort,
     SourceIdentityPort,
-    TaggedSourceIdentityPort,
 )
 
 __all__ = [
@@ -21,7 +19,5 @@ __all__ = [
     "OfficialEvaluatorPort",
     "BenchmarkRunnerPort",
     "CampaignArtifactPort",
-    "CampaignJournalPort",
     "SourceIdentityPort",
-    "TaggedSourceIdentityPort",
 ]

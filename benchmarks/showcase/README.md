@@ -1,49 +1,33 @@
 # NanoHarness Quality Showcase
 
-This directory has one active public entry: `canonical-showcase-v1.json`.
+当前目录只有两个有效资产：
 
-The current project-facing measurement is a fixed 10-Case SWE-bench Verified
-development observation: single Agent, Pass@1, `4/10` official resolved, or about
-40%. It demonstrates an end-to-end repository repair capability; it does not claim
-40% on the complete 500-Case benchmark and does not isolate Harness uplift from the
-underlying model.
+- [`canonical-showcase-v1.json`](canonical-showcase-v1.json)：当前已完成质量口径；
+- [`swebench-verified-mini-50-v1.json`](swebench-verified-mini-50-v1.json)：下一次正式测量的固定 50 题清单。
 
-The next confirmation run uses HAL's published 50-Case SWE-bench Verified Mini list.
-Until that run finishes, no document may rewrite the current `4/10` development
-observation as a Mini-50 result.
+当前公开结果是单 Agent 在固定 SWE-bench Verified 开发样本上的 Pass@1 official resolved
+`4/10`（约 40%）。它证明 NanoHarness 已跑通真实仓库修复与 official evaluator 闭环，不代表
+完整 500 题成绩，也不隔离底座模型贡献。
 
-## Reusable Mini-50 runner
+## Mini-50 运行入口
 
-The exact denominator is frozen in
-[`swebench-verified-mini-50-v1.json`](swebench-verified-mini-50-v1.json). The default
-quality profile is a single NanoHarness AgentLoop with task-aware tools, the pinned
-SWE-bench repair Skill, `opencode-go/deepseek-v4-pro`, maximum reasoning effort,
-128 steps, no token/cost quality cap and the official evaluator.
-
-Validate the complete plan without sending a provider request:
+Mini-50 使用质量优先的 `opencode-go/deepseek-v4-pro`、128 steps、无 token/cost 质量上限，
+每题独立 checkpoint。默认命令只校验计划：
 
 ```bash
 .venv/bin/python scripts/run_swebench_verified_mini_50.py
 ```
 
-Run it from an environment that exposes `OPENCODE_GO_API_KEY`:
+显式执行：
 
 ```bash
 NANOHARNESS_ROOT=/absolute/path/to/NanoHarness \
   zsh -lic 'cd "$NANOHARNESS_ROOT" && .venv/bin/python scripts/run_swebench_verified_mini_50.py --execute'
 ```
 
-The shared IDE configuration is named
-`NanoHarness Benchmark - SWE-bench Verified Mini 50`. Each Case has an independent
-checkpoint and evidence directory under
-`.agent_forge/evaluations/swebench-verified-mini-50/`; running the same source and
-configuration again resumes the same campaign and skips completed Cases. A changed
-model or quality configuration receives a different default campaign identity.
+运行产物位于 `.agent_forge/evaluations/swebench-verified-mini-50/`。最终
+`campaign_summary.json` 与 `campaign.md` 会报告 official resolved / 50、Wilson 95% 区间、
+empty Patch、基础设施失败、Token、成本、Tool failure 与逐题索引。
 
-The final `campaign_summary.json` and `campaign.md` report official resolved / 50,
-Wilson 95% confidence interval, empty patches, infrastructure failures, tokens,
-cost, tool failures and the per-Case evidence index. This is a fixed Mini-50 Pass@1
-snapshot, not the complete 500-Case SWE-bench Verified leaderboard score.
-
-The other JSON files in this directory are historical preregistration and sampling
-assets. They remain auditable but are not part of the active public narrative.
+旧 Canonical-50、quality-selection 和 Smoke-5 资产已移入 [历史归档](../archive/README.md)，
+不参与当前展示。

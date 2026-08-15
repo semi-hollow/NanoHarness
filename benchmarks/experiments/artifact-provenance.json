@@ -1,0 +1,94 @@
+{
+  "schema_version": 1,
+  "artifact_type": "nanoharness_experiment_artifact_provenance",
+  "definitions": {
+    "pipeline_direct": "Created by NanoHarness or the official evaluator during a Case run.",
+    "pipeline_index": "Created from saved machine artifacts without changing outcomes.",
+    "deterministic_postprocessor": "Created by a checked-in script from machine artifacts.",
+    "codex_assisted_implementation": "AI-assisted implementation retained as reviewed project source.",
+    "codex_assisted_human_reviewed": "AI-assisted interpretation reviewed as a human-readable record."
+  },
+  "framework_files": [
+    {
+      "locator": "agent_forge/bench/domain/evaluation_contract.py",
+      "role": "evaluation_contract",
+      "producer": "codex_assisted_implementation"
+    },
+    {
+      "locator": "scripts/run_tool_aci_golden_20.py",
+      "role": "config_driven_runner_and_artifact_indexer",
+      "producer": "codex_assisted_implementation"
+    },
+    {
+      "locator": "benchmarks/experiments/tool-aci-runner-v1.json",
+      "role": "versioned_pipeline_config",
+      "producer": "codex_assisted_implementation"
+    }
+  ],
+  "experiments": [
+    {
+      "experiment_id": "tool-aci-r1",
+      "directory": "benchmarks/experiments/tool-aci-r1",
+      "execution_origin": "frozen_forge_bench_commands_before_the_reusable_runner",
+      "treatment_commit": "296000864d6a2c1476c28b790f030b0ffc4cca5b",
+      "rollback_commit": "a79d71051e0b968df81e5cc0f0851d434e89f358",
+      "artifacts": [
+        {
+          "locator": ".agent_forge/tool-aci-golden-20-v1/{tool-r0,tool-r1}/**",
+          "role": "private_raw_run_artifacts",
+          "producer": "pipeline_direct"
+        },
+        {
+          "locator": "benchmarks/experiments/tool-aci-r1/{r0.execution.json,r1.execution.json}",
+          "role": "historical_run_indexes",
+          "producer": "pipeline_index"
+        },
+        {
+          "locator": "benchmarks/experiments/tool-aci-r1/result.json",
+          "role": "machine_comparison_result",
+          "producer": "deterministic_postprocessor"
+        },
+        {
+          "locator": "benchmarks/experiments/tool-aci-r1/{README.md,report.md}",
+          "role": "reviewed_interpretation",
+          "producer": "codex_assisted_human_reviewed"
+        }
+      ]
+    },
+    {
+      "experiment_id": "tool-aci-r2",
+      "directory": "benchmarks/experiments/tool-aci-r2",
+      "execution_origin": "frozen_forge_bench_commands_before_the_reusable_runner",
+      "treatment_commit": "563a99fe72b078fa91bfb682d60d6d19f398a864",
+      "run_source_commit": "d7fc8110f9ec6bde7f7f794fb06f25986d279448",
+      "rollback_commit": "92f4de56a1391b58e8e249471ebd4ec04102f60b",
+      "artifacts": [
+        {
+          "locator": ".agent_forge/tool-aci-golden-20-r2/tool-r2/**",
+          "role": "private_raw_run_artifacts",
+          "producer": "pipeline_direct"
+        },
+        {
+          "locator": "benchmarks/experiments/tool-aci-r2/r2.execution.json",
+          "role": "historical_run_index",
+          "producer": "pipeline_index"
+        },
+        {
+          "locator": "benchmarks/experiments/tool-aci-r2/result.json",
+          "role": "machine_comparison_result",
+          "producer": "deterministic_postprocessor"
+        },
+        {
+          "locator": "benchmarks/experiments/tool-aci-r2/{README.md,report.md}",
+          "role": "reviewed_interpretation",
+          "producer": "codex_assisted_human_reviewed"
+        }
+      ]
+    }
+  ],
+  "archive": {
+    "path": "benchmarks/archive/legacy-benchmarks",
+    "role": "historical experiments and abandoned preregistration assets",
+    "active_public_entry": false
+  }
+}

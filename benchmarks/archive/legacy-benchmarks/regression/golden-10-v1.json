@@ -1,0 +1,33 @@
+{
+  "schema_version": 1,
+  "set_id": "golden-10-v1",
+  "title": "Golden-10 · Seen Development and Regression Set",
+  "status": "frozen_seen_development_set",
+  "dataset_name": "princeton-nlp/SWE-bench_Verified",
+  "dataset_revision": "c104f840cc67f8b6eec6f759ebc8b2693d585d4a",
+  "split": "test",
+  "purpose": [
+    "bounded model/configuration selection before Canonical-50",
+    "fast regression checks after Runtime changes",
+    "failure diagnosis on already-seen development tasks"
+  ],
+  "case_ids": [
+    "django__django-11451",
+    "matplotlib__matplotlib-13989",
+    "scikit-learn__scikit-learn-14629",
+    "django__django-12209",
+    "sphinx-doc__sphinx-10323",
+    "sympy__sympy-20590",
+    "django__django-10097",
+    "psf__requests-2317",
+    "matplotlib__matplotlib-22871",
+    "django__django-13028"
+  ],
+  "ordered_case_ids_sha256": "04e32f27aabd7e191d4695629d875e7b9548df62a08ee149054f2ba50fdcf366",
+  "claim_limits": [
+    "This is a seen development set, not a holdout and not a public quality score.",
+    "Its result must not be called the SWE-bench Verified solution rate.",
+    "It does not enter the Canonical-50 denominator.",
+    "Historical outcomes are archived separately and do not pre-fill a current run."
+  ]
+}

@@ -1,0 +1,148 @@
+{
+  "schema_version": 1,
+  "set_id": "golden-10-v2",
+  "title": "Golden-10 v2 · Fresh Seen Development and Model-Selection Set",
+  "status": "preregistered_fresh_development_set_before_v2_model_calls",
+  "dataset_name": "princeton-nlp/SWE-bench_Verified",
+  "dataset_revision": "c104f840cc67f8b6eec6f759ebc8b2693d585d4a",
+  "split": "test",
+  "selection_provenance": {
+    "source": "mechanical rank-one selection from the frozen post-Canonical-50 remaining pool",
+    "seed": "nanoharness-golden-dev-10-v2",
+    "method": "one seeded SHA-256 rank-one Case from every repository with at least one remaining row",
+    "rank_expression": "sha256(seed + ':' + instance_id), then instance_id",
+    "selected_order": "repo ASCII",
+    "allowed_fields": [
+      "instance_id",
+      "repo"
+    ],
+    "dataset": {
+      "row_count": 500,
+      "arrow_sha256": "0d119efe73413554335bd410a04d82fd4a586bfd312cee677ee40af5de2ac46e"
+    },
+    "remaining_pool": {
+      "definition": "frozen Arrow rows minus the union of the 117 Canonical historical exclusions and the 50 frozen Canonical-50 Case IDs",
+      "exclusion_sources": [
+        {
+          "path": "benchmarks/archive/legacy-benchmarks/showcase/canonical-50-exclusions-v1.json",
+          "file_sha256": "135592553f3d1a0aa7087370272e357ae4cc3735f7f39d38b1e6251d158bc7ba",
+          "case_count": 117,
+          "ordered_case_ids_sha256": "5c0132583b11fd68970c21db7877fa46d3f1639e6d9cca31cc68efc0e8ac206c"
+        },
+        {
+          "path": "benchmarks/archive/legacy-benchmarks/showcase/canonical-50-v1.json",
+          "file_sha256": "b56207f6d6b32688b2534de69b28424e8354a4046deb8b16d2c61556a067d64d",
+          "case_count": 50,
+          "ordered_case_ids_sha256": "d6c90605f9dfe5a78d7a19c285b2cf3c19645b0c5b1c4ebd4e3f31e979d53c4b"
+        }
+      ],
+      "combined_exclusion_count": 167,
+      "combined_exclusion_order": "instance_id ASCII",
+      "combined_exclusion_ordered_case_ids_sha256": "dc6024863af47941c8e1b0ca66b1f915670b337a9f54101b187c130a2c2099cc",
+      "eligible_row_count": 333,
+      "eligible_repository_count": 10,
+      "eligible_repository_rule": "every repository with at least one remaining row; no repository was manually included or excluded",
+      "eligible_order": "instance_id ASCII, then repo ASCII",
+      "eligible_ordered_case_ids_sha256": "6e11e85f832fbe160122acb18ab518bbd57c732408b0da9a4de43f44d0b6685e",
+      "eligible_ordered_rows_sha256": "d37dbe4758f5cd6eb631c4599b1a30eeffb0faacf6c98baf1bb8bc7c56a6ccc2",
+      "row_hash_serialization": "UTF-8 lines of instance_id + TAB + repo, without a trailing newline"
+    },
+    "outcome_blind": true,
+    "old_quality_selection_artifacts_used": false,
+    "gold_or_per_test_logs_read": false
+  },
+  "purpose": [
+    "fresh bounded model/configuration selection after the v1 provider-capacity failure",
+    "separate provider-capacity qualification from the formal quality denominator",
+    "failure diagnosis on a development set only after the v2 selection is sealed"
+  ],
+  "case_ids": [
+    "astropy__astropy-14182",
+    "django__django-13658",
+    "matplotlib__matplotlib-25287",
+    "psf__requests-2931",
+    "pydata__xarray-6938",
+    "pylint-dev__pylint-6903",
+    "pytest-dev__pytest-5262",
+    "scikit-learn__scikit-learn-13328",
+    "sphinx-doc__sphinx-9591",
+    "sympy__sympy-13372"
+  ],
+  "selected_cases": [
+    {
+      "instance_id": "astropy__astropy-14182",
+      "repo": "astropy/astropy",
+      "eligible_repo_case_count": 13,
+      "rank_sha256": "124fd2d751b054b3a69b53e5c3a2a4bd3075bd627fb4aae27d16ba8ee4bbddd3"
+    },
+    {
+      "instance_id": "django__django-13658",
+      "repo": "django/django",
+      "eligible_repo_case_count": 163,
+      "rank_sha256": "02f3ce34246cbb45a2feca01587144b745d9845a781c871d6c3710c3b9488971"
+    },
+    {
+      "instance_id": "matplotlib__matplotlib-25287",
+      "repo": "matplotlib/matplotlib",
+      "eligible_repo_case_count": 19,
+      "rank_sha256": "0c9fd574c20ebb3a77109b35cfd6ddf0544d563faef454c794fa5046af1c2de2"
+    },
+    {
+      "instance_id": "psf__requests-2931",
+      "repo": "psf/requests",
+      "eligible_repo_case_count": 5,
+      "rank_sha256": "4a593162f9b5ac1f2948e0e429348996bd50c62eb3193f3f4102ae8ee4f17190"
+    },
+    {
+      "instance_id": "pydata__xarray-6938",
+      "repo": "pydata/xarray",
+      "eligible_repo_case_count": 14,
+      "rank_sha256": "0369ed395e6188a791df42e77f2bbcfaea83c2851ce992cb893ce9a7e63a64f8"
+    },
+    {
+      "instance_id": "pylint-dev__pylint-6903",
+      "repo": "pylint-dev/pylint",
+      "eligible_repo_case_count": 6,
+      "rank_sha256": "1b3f190ccaadec4504bcfadbd0d4594bc4c6190790ee14f43812d62a08fa1cf9"
+    },
+    {
+      "instance_id": "pytest-dev__pytest-5262",
+      "repo": "pytest-dev/pytest",
+      "eligible_repo_case_count": 9,
+      "rank_sha256": "54368e40d4ccce91815f86af06aba2c0e708df4646226718f9e5f4f29aaf90d2"
+    },
+    {
+      "instance_id": "scikit-learn__scikit-learn-13328",
+      "repo": "scikit-learn/scikit-learn",
+      "eligible_repo_case_count": 23,
+      "rank_sha256": "0229d7ae32f642f24d66159931c55804bb3b73ed4263c7998c93b898ac78a338"
+    },
+    {
+      "instance_id": "sphinx-doc__sphinx-9591",
+      "repo": "sphinx-doc/sphinx",
+      "eligible_repo_case_count": 28,
+      "rank_sha256": "055068840c29e084e2edde871cad4f258ddc5718bc985ec669a2a61769e2ba35"
+    },
+    {
+      "instance_id": "sympy__sympy-13372",
+      "repo": "sympy/sympy",
+      "eligible_repo_case_count": 53,
+      "rank_sha256": "02fafeb2e90ca71740ee188d4c4395bc0c2b192a6713394589d8ea863b66e117"
+    }
+  ],
+  "ordered_case_ids_sha256": "211688db3cf7aaf1e9b60195954684547dd3919518e318a6c6950e2c12c971ad",
+  "freshness_constraints": {
+    "unique_case_ids": 10,
+    "unique_repositories": 10,
+    "overlap_with": {
+      "benchmarks/experiments/tool-aci-r1/seen-set.json": [],
+      "benchmarks/archive/legacy-benchmarks/showcase/canonical-50-v1.json": []
+    }
+  },
+  "claim_limits": [
+    "This is a fresh development set, not a holdout and not a public quality score.",
+    "Its result must not be called the SWE-bench Verified solution rate.",
+    "It does not enter the Canonical-50 denominator.",
+    "No v1 correctness outcome may be used to replace, reorder, or rerun a v2 Case."
+  ]
+}

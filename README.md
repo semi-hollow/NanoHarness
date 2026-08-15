@@ -55,8 +55,8 @@ NanoHarness 当前对外使用一个简单、可解释的工程口径：**单 Ag
 真实仓库任务的基础能力，不冒充完整 500 题排行榜成绩，也不证明 Harness 相对底座模型的独立增益。
 
 公开说明优先展示数字背后的完整链路：真实 issue 与 base commit、隔离 worktree、受治理 AgentLoop、
-candidate Patch、本地验证、official evaluator、Trace、Usage 与 Workbench。下一轮确认实验会在冻结的
-100-Case、按仓库分层样本上使用质量优先配置复测；在它完成前不把 `4/10` 改写成虚构的 `40/100`。
+candidate Patch、本地验证、official evaluator、Trace、Usage 与 Workbench。下一轮确认实验使用
+已冻结的 SWE-bench Verified Mini-50 与质量优先配置；在它完成前不把 `4/10` 改写成 Mini-50 成绩。
 
 当前结果、证据来源和声明边界见 [Quality Showcase](benchmarks/showcase/canonical-showcase-v1.json)。
 早期低预算、模型选型尝试、被拒绝 Treatment 和旧 Campaign 已退出当前项目说明；原始演进仍可从

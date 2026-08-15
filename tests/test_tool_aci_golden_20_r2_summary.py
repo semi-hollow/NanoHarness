@@ -6,10 +6,13 @@ from pathlib import Path
 import pytest
 
 from scripts.summarize_tool_aci_golden_20_r2 import (
+    RUN_SOURCE_COMMIT,
+    RUN_SOURCE_TAG,
     ReportRefused,
     _changed_files,
     _decision,
     _git_blob_sha256,
+    _git_revision,
     _mcnemar_exact,
     _safe_aggregate,
     _wilson,
@@ -85,3 +88,8 @@ def test_treatment_blob_is_frozen() -> None:
         )
         == 64
     )
+
+
+def test_run_source_tag_is_frozen_without_requiring_current_head() -> None:
+    project_root = Path(__file__).resolve().parents[1]
+    assert _git_revision(project_root, RUN_SOURCE_TAG) == RUN_SOURCE_COMMIT

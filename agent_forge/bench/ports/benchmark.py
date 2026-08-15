@@ -5,7 +5,6 @@ from typing import Any, Protocol
 
 from agent_forge.bench.domain.config import BenchRunLayout, SwebenchRunRequest
 from agent_forge.bench.domain.models import BenchCase, BenchCaseResult, BenchRunSummary
-from agent_forge.evaluation.api import EvaluationComparison
 
 
 class CaseSourcePort(Protocol):
@@ -24,7 +23,9 @@ class CaseExecutorPort(Protocol):
 
 
 class OfficialEvaluatorPort(Protocol):
-    def evaluate(self, summary: BenchRunSummary, request: SwebenchRunRequest) -> None: ...
+    def evaluate(
+        self, summary: BenchRunSummary, request: SwebenchRunRequest
+    ) -> None: ...
 
 
 class CaseEvidenceReader(Protocol):
@@ -46,8 +47,6 @@ class BenchArtifactPort(Protocol):
         run_id: str,
     ) -> BenchRunLayout: ...
 
-    def read_json(self, path: Path) -> dict[str, Any]: ...
-
     def prediction_for(
         self,
         result: BenchCaseResult,
@@ -55,14 +54,6 @@ class BenchArtifactPort(Protocol):
         provider: str,
         model: str | None,
     ) -> dict[str, Any]: ...
-
-    def write_comparison(
-        self,
-        comparison: EvaluationComparison,
-        output_dir: Path,
-    ) -> None: ...
-
-    def copy_candidate_diff(self, source: Path, destination: Path) -> None: ...
 
     def finalize_case(self, result: BenchCaseResult) -> None: ...
 

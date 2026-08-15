@@ -509,6 +509,8 @@ class FileEvidenceCatalog(EvidenceCatalogPort):
             self.project_dir
             / "benchmarks"
             / "archive"
+            / "legacy-benchmarks"
+            / "archive"
             / "quality-selection-v1-fail-closed.json"
         )
         return path if path.is_file() else None

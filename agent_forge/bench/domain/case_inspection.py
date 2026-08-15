@@ -120,6 +120,7 @@ class BenchmarkCaseInspection:
     字段说明：
 
     - ``instance_id``、``repo``、``base_commit``、``version``：可复现代码起点。
+    - ``environment_setup_commit``、``created_at``、``difficulty``：数据集原始元数据。
     - ``problem_statement``、``hints_text``：数据集给 Agent 的任务输入。
     - ``fail_to_pass``：修复前失败、修复后必须通过的目标测试。
     - ``pass_to_pass``：修复前已通过、修复后仍必须通过的回归测试。
@@ -132,6 +133,9 @@ class BenchmarkCaseInspection:
     repo: str
     base_commit: str
     version: str
+    environment_setup_commit: str
+    created_at: str
+    difficulty: str
     problem_statement: str
     hints_text: str
     fail_to_pass: tuple[str, ...]
@@ -154,6 +158,9 @@ class BenchmarkCaseInspection:
             "repo": self.repo,
             "base_commit": self.base_commit,
             "version": self.version,
+            "environment_setup_commit": self.environment_setup_commit,
+            "created_at": self.created_at,
+            "difficulty": self.difficulty,
             "problem_statement": self.problem_statement,
             "hints_text": self.hints_text,
             "fail_to_pass": list(self.fail_to_pass),

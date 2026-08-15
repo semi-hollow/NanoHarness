@@ -19,7 +19,7 @@ from typing import Any, Iterable, Sequence
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
-DEFAULT_MANIFEST = Path("benchmarks/regression/tool-aci-golden-20-v1.json")
+DEFAULT_MANIFEST = Path("benchmarks/experiments/tool-aci-r1/plan.json")
 EDIT_TOOLS = {"replace_text", "create_file", "write_file"}
 READ_TOOLS = {"read_file"}
 SEARCH_TOOLS = {"grep_search", "find_files", "list_files"}

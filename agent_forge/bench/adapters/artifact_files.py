@@ -11,11 +11,6 @@ from agent_forge.bench.domain.models import BenchCaseResult, BenchRunSummary
 from agent_forge.bench.ports.benchmark import BenchArtifactPort
 from agent_forge.bench.presentation.case_study import write_case_study
 from agent_forge.bench.presentation.report import write_bench_artifacts
-from agent_forge.evaluation.api import (
-    EvaluationComparison,
-    load_json_if_exists,
-    write_evaluation_artifacts,
-)
 
 
 class FileBenchArtifacts(BenchArtifactPort):
@@ -35,9 +30,6 @@ class FileBenchArtifacts(BenchArtifactPort):
             output_dir=output_dir,
             predictions_path=output_dir / "predictions.jsonl",
         )
-
-    def read_json(self, path: Path) -> dict[str, Any]:
-        return load_json_if_exists(path)
 
     @staticmethod
     def prediction_for(
@@ -61,23 +53,6 @@ class FileBenchArtifacts(BenchArtifactPort):
                 else ""
             ),
         }
-
-    def write_comparison(
-        self,
-        comparison: EvaluationComparison,
-        output_dir: Path,
-    ) -> None:
-        write_evaluation_artifacts(comparison, output_dir)
-
-    @staticmethod
-    def copy_candidate_diff(source: Path, destination: Path) -> None:
-        """复制候选 unified diff 到另一个 variant 的证据目录。"""
-
-        destination.parent.mkdir(parents=True, exist_ok=True)
-        destination.write_text(
-            source.read_text(encoding="utf-8") if source.exists() else "",
-            encoding="utf-8",
-        )
 
     def finalize_case(self, result: BenchCaseResult) -> None:
         """最终评测结束后归因，并基于同一最终结果写 Case Study。"""

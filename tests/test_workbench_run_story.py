@@ -205,18 +205,11 @@ def _canonical_showcase_summary() -> dict[str, object]:
         },
         "supporting_checks": [
             {
-                "id": "golden-10",
-                "label": "Golden-10",
-                "role": "development_and_regression_only",
+                "id": "swebench-verified-mini-50-v1",
+                "label": "SWE-bench Verified Mini-50",
+                "role": "future_confirmation_only",
                 "quality_headline": False,
-                "status": "candidate_comparison_pending",
-            },
-            {
-                "id": "infrastructure-smoke-5",
-                "label": "Infrastructure Smoke-5",
-                "role": "infrastructure_health_only",
-                "quality_headline": False,
-                "status": "available",
+                "status": "runner_ready_not_run",
             },
         ],
         "boundaries": ["No score before complete official adjudication."],
@@ -399,10 +392,8 @@ class WorkbenchRunStoryTest(unittest.TestCase):
         self.assertIn("showcase-quality-v1", default_overview)
         self.assertIn("待完整裁决", default_overview)
         self.assertNotIn("metric-value'>0/50", default_overview)
-        self.assertIn("Golden-10", canonical_results)
-        self.assertIn("开发与回归专用", canonical_results)
-        self.assertIn("Infrastructure Smoke-5", canonical_results)
-        self.assertIn("基础设施健康检查专用", canonical_results)
+        self.assertIn("SWE-bench Verified Mini-50", canonical_results)
+        self.assertIn("未来扩大样本确认", canonical_results)
         self.assertIn("不进入质量 headline", canonical_results)
         self.assertIn("deterministic 50-case sample", canonical_results)
         self.assertNotIn("metric-value'>0/50", canonical_results)
@@ -423,6 +414,8 @@ class WorkbenchRunStoryTest(unittest.TestCase):
             incident_path = (
                 project_dir
                 / "benchmarks"
+                / "archive"
+                / "legacy-benchmarks"
                 / "archive"
                 / "quality-selection-v1-fail-closed.json"
             )

@@ -190,7 +190,7 @@ def build_swebench_parser(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--agent-mode",
         default="single",
-        choices=["single", "multi", "compare"],
+        choices=["single", "multi"],
     )
     parser.add_argument("--profile", default="coding_fix", choices=["coding_fix"])
     parser.add_argument("--max-revision-rounds", type=int, default=2)
@@ -565,6 +565,7 @@ def render_case_inspection_from_args(args: argparse.Namespace) -> str:
     inspection = inspect_swebench_case(
         args.instance_id,
         dataset_name=args.dataset,
+        dataset_revision=args.dataset_revision,
         split=args.split,
         cases_file=args.cases_file,
     )

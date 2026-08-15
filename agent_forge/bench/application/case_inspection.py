@@ -35,6 +35,11 @@ class InspectBenchCase:
             repo=case.repo,
             base_commit=case.base_commit,
             version=str(case.raw.get("version") or ""),
+            environment_setup_commit=str(
+                case.raw.get("environment_setup_commit") or ""
+            ),
+            created_at=str(case.raw.get("created_at") or ""),
+            difficulty=str(case.raw.get("difficulty") or ""),
             problem_statement=case.problem_statement,
             hints_text=case.hints_text,
             fail_to_pass=_string_tuple(case.raw.get("FAIL_TO_PASS")),

@@ -158,21 +158,17 @@ def render_bench_report(summary: BenchRunSummary) -> str:
             "",
             "## Cases",
             "",
-            "| instance | repo | status | local validation | official evaluation | patch chars | trace | usage | comparison |",
-            "| --- | --- | --- | --- | --- | ---: | --- | --- | --- |",
+            "| instance | repo | status | local validation | official evaluation | patch chars | trace | usage |",
+            "| --- | --- | --- | --- | --- | ---: | --- | --- |",
         ]
     )
     for result in summary.case_results:
         usage = result.usage_report_path or ""
-        comparison_report = result.candidate_diff_path.parent / "evaluation_report.md"
-        comparison_link = (
-            f"[comparison]({comparison_report})" if comparison_report.exists() else "-"
-        )
         lines.append(
             "| "
             f"`{result.instance_id}` | `{result.repo}` | `{result.status}` | "
             f"`{result.local_validation_status}` | `{result.official_evaluation_status}` | {result.patch_chars} | "
-            f"[trace]({result.trace_path}) | [usage]({usage}) | {comparison_link} |"
+            f"[trace]({result.trace_path}) | [usage]({usage}) |"
         )
 
     lines.extend(

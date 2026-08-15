@@ -19,7 +19,7 @@ from typing import Any, Iterable, Sequence
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
-DEFAULT_MANIFEST = Path("benchmarks/regression/tool-aci-golden-20-r2-protocol.json")
+DEFAULT_MANIFEST = Path("benchmarks/experiments/tool-aci-r2/plan.json")
 EDIT_TOOLS = {"replace_text", "create_file", "write_file"}
 READ_TOOLS = {"read_file"}
 SEARCH_TOOLS = {"grep_search", "find_files", "list_files"}
@@ -27,6 +27,7 @@ VALIDATION_TOOLS = {"python_validation", "run_command"}
 BASELINE_PREREGISTRATION_COMMIT = "c5fb4b884019e7dabebe1b8b0afe1cec521e2f3b"
 TREATMENT_COMMIT = "563a99fe72b078fa91bfb682d60d6d19f398a864"
 RUN_SOURCE_TAG = "tool-aci-golden-20-r2-prerun-20260813"
+RUN_SOURCE_COMMIT = "d7fc8110f9ec6bde7f7f794fb06f25986d279448"
 OFFICIAL_BUCKETS = {
     "resolved_ids": "resolved",
     "unresolved_ids": "unresolved",
@@ -657,9 +658,9 @@ def build_report(
     project_root: Path, manifest_path: Path, r0_dirs: list[Path], r2_dirs: list[Path]
 ) -> dict[str, Any]:
     manifest = _read_json(manifest_path, "experiment manifest")
-    run_source_commit = _git_revision(project_root)
-    if _git_revision(project_root, RUN_SOURCE_TAG) != run_source_commit:
-        raise ReportRefused("run source tag does not point to current source commit")
+    run_source_commit = _git_revision(project_root, RUN_SOURCE_TAG)
+    if run_source_commit != RUN_SOURCE_COMMIT:
+        raise ReportRefused("run source tag does not point to the frozen source commit")
     case_ids = manifest.get("case_ids")
     if (
         not isinstance(case_ids, list)

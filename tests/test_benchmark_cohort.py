@@ -14,7 +14,7 @@ from agent_forge.cli.parser import build_parser
 
 
 PROJECT_ROOT = Path(__file__).parents[1]
-COHORT_PATH = PROJECT_ROOT / "benchmarks/showcase/canonical-50-v1.json"
+COHORT_PATH = PROJECT_ROOT / "benchmarks/showcase/swebench-verified-mini-50-v1.json"
 
 
 class BenchmarkCohortTest(unittest.TestCase):
@@ -86,19 +86,20 @@ class BenchmarkCohortTest(unittest.TestCase):
             ):
                 SwebenchCaseSource().load(request)
 
-    def test_checked_in_canonical_cohort_has_five_disjoint_ten_case_waves(self):
+    def test_checked_in_mini_50_has_one_exact_all_shard(self):
         cohort = load_benchmark_cohort(COHORT_PATH)
 
         waves = [cohort.select_shard(name) for name in cohort.shard_order]
 
         self.assertEqual(len(cohort.case_ids), 50)
-        self.assertEqual([len(wave.case_ids) for wave in waves], [10] * 5)
+        self.assertEqual(cohort.shard_order, ("all",))
+        self.assertEqual([len(wave.case_ids) for wave in waves], [50])
         flattened = [case_id for wave in waves for case_id in wave.case_ids]
         self.assertEqual(flattened, list(cohort.case_ids))
         self.assertEqual(len(set(flattened)), 50)
 
     def test_campaign_identity_binds_selected_cohort(self):
-        cohort = load_benchmark_cohort(COHORT_PATH).select_shard("wave-1")
+        cohort = load_benchmark_cohort(COHORT_PATH).select_shard("all")
         request = BenchmarkCampaignRequest(
             benchmark=SwebenchRunRequest(
                 dataset_name=cohort.dataset_name,
@@ -115,13 +116,13 @@ class BenchmarkCohortTest(unittest.TestCase):
         identity = request.identity()
 
         self.assertEqual(identity["cohort"]["cohort_id"], cohort.cohort_id)
-        self.assertEqual(identity["cohort"]["shard"], "wave-1")
-        self.assertEqual(identity["cohort"]["case_count"], 10)
+        self.assertEqual(identity["cohort"]["shard"], "all")
+        self.assertEqual(identity["cohort"]["case_count"], 50)
         self.assertEqual(identity["case_ids"], list(cohort.case_ids))
 
-    def test_manifest_rejects_overlapping_or_reordered_shards(self):
+    def test_manifest_rejects_incomplete_all_shard(self):
         payload = json.loads(COHORT_PATH.read_text(encoding="utf-8"))
-        payload["shards"]["wave-2"][0] = payload["shards"]["wave-1"][0]
+        payload["shards"]["all"].pop()
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "invalid.json"
             path.write_text(json.dumps(payload), encoding="utf-8")

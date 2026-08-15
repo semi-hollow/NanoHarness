@@ -140,6 +140,7 @@ class DebugLabSupportTest(unittest.TestCase):
 
     def test_shared_run_configuration_catalog_stays_small(self) -> None:
         expected = {
+            "NanoHarness Benchmark - Inspect SWE-bench Case.run.xml",
             "NanoHarness Benchmark - SWE-bench Verified Mini 50.run.xml",
             "NanoHarness Lab 1 - Governed Repair.run.xml",
             "NanoHarness Lab 2 - Coordinated Agents.run.xml",

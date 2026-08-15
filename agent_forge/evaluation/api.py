@@ -11,15 +11,8 @@ from agent_forge.evaluation.adapters.feedback_dataset_files import (
     write_improvement_record,
 )
 from agent_forge.evaluation.adapters.json_files import (
-    load_json_if_exists,
     read_json_object,
     write_json_object,
-)
-from agent_forge.evaluation.domain.comparison import compare_runs
-from agent_forge.evaluation.domain.models import EvaluationComparison
-from agent_forge.evaluation.domain.run_metrics import extract_run_metrics
-from agent_forge.evaluation.presentation.comparison_report import (
-    render_evaluation_report,
 )
 from agent_forge.evaluation.presentation.scorecard_report import (
     render_benchmark_scorecard,
@@ -62,33 +55,14 @@ def load_benchmark_scorecard(run_dir: str | Path) -> dict[str, Any]:
     return build_benchmark_scorecard(read_json_object(results_path), root)
 
 
-def write_evaluation_artifacts(
-    comparison: EvaluationComparison,
-    output_dir: str | Path,
-) -> tuple[Path, Path]:
-    output = Path(output_dir)
-    output.mkdir(parents=True, exist_ok=True)
-    json_path = output / "comparison.json"
-    report_path = output / "evaluation_report.md"
-    write_json_object(json_path, comparison.to_dict())
-    report_path.write_text(render_evaluation_report(comparison), encoding="utf-8")
-    return json_path, report_path
-
-
 __all__ = [
-    "EvaluationComparison",
     "FeedbackRequest",
     "ImprovementRecordRequest",
     "build_benchmark_scorecard",
-    "compare_runs",
     "export_feedback_dataset",
-    "extract_run_metrics",
     "load_benchmark_scorecard",
-    "load_json_if_exists",
     "record_feedback",
     "render_benchmark_scorecard",
-    "render_evaluation_report",
     "write_benchmark_scorecard",
-    "write_evaluation_artifacts",
     "write_improvement_record",
 ]

@@ -14,8 +14,8 @@
     "references": {
       "selection_set": "Fixed development sample",
       "selection_role": "published_reference_observation",
-      "profile_manifest": "git:3a96f14:benchmarks/runtime-quality/golden-10-v1.json",
-      "profile_manifest_sha256": "17942805a56dc13d12566864d2ceb81ddb0342b598794ef9bf02c04fbf9918a9",
+      "profile_manifest": "benchmarks/experiments/tool-aci-r1/seen-set.json",
+      "profile_manifest_sha256": "838b1b3bdd05ff55304d70abdb4cd40b99535a582ae3fb03a55e121803b1538b",
       "selection_protocol": "frozen Pass@1 official evaluation"
     }
   },
@@ -26,7 +26,7 @@
     "dataset": "princeton-nlp/SWE-bench_Verified",
     "protocol": "Pass@1",
     "sample_kind": "fixed_seen_development_sample",
-    "cohort_manifest": "benchmarks/regression/golden-10-v1.json",
+    "cohort_manifest": "benchmarks/experiments/tool-aci-r1/seen-set.json",
     "cohort_frozen": true,
     "protocol_frozen": true,
     "planned": 10,
@@ -45,24 +45,17 @@
   },
   "supporting_checks": [
     {
-      "id": "confirmatory-100",
-      "label": "Confirmatory 100-Case",
+      "id": "swebench-verified-mini-50-v1",
+      "label": "SWE-bench Verified Mini-50",
       "role": "future_confirmation_only",
       "quality_headline": false,
-      "status": "planned_not_run"
-    },
-    {
-      "id": "infrastructure-smoke-5",
-      "label": "Infrastructure Smoke-5",
-      "role": "infrastructure_health_only",
-      "quality_headline": false,
-      "status": "available"
+      "status": "runner_ready_not_run",
+      "manifest": "benchmarks/showcase/swebench-verified-mini-50-v1.json"
     }
   ],
   "boundaries": [
     "The active headline is about 40%, backed by 4/10 official resolved on a fixed development sample.",
-    "No artifact claims that a 100-Case run has already completed.",
-    "Infrastructure Smoke-5 checks dataset, checkout, tool, patch, evaluator, and evidence wiring only.",
+    "No artifact claims that the Mini-50 run has already completed.",
     "Historical selection protocols and rejected treatments are audit material, not the active project claim."
   ]
 }

@@ -74,6 +74,7 @@ def inspect_swebench_case(
     instance_id: str,
     *,
     dataset_name: str = DEFAULT_DATASET,
+    dataset_revision: str = "",
     split: str = "test",
     cases_file: str | None = None,
 ) -> BenchmarkCaseInspection:
@@ -82,6 +83,7 @@ def inspect_swebench_case(
     cases = SwebenchCaseSource().load(
         SwebenchRunRequest(
             dataset_name=dataset_name,
+            dataset_revision=dataset_revision,
             split=split,
             limit=1,
             instance_ids=(instance_id,),

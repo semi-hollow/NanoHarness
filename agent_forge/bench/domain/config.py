@@ -62,7 +62,7 @@ class SwebenchRunRequest:
     namespace_empty: bool = False
     official_cache_level: str = "env"
 
-    # single、sequential multi、compare 的 workflow 配置。
+    # single 或 sequential multi 的 workflow 配置。
     agent_mode: str = "single"
     profile: str = "coding_fix"
     max_revision_rounds: int = 2
@@ -88,6 +88,8 @@ class SwebenchRunRequest:
     container_read_only: bool = True
 
     def __post_init__(self) -> None:
+        if self.agent_mode not in {"single", "multi"}:
+            raise ValueError("agent_mode must be one of: single, multi")
         if self.official_cache_level not in {"none", "base", "env", "instance"}:
             raise ValueError(
                 "official_cache_level must be one of: none, base, env, instance"

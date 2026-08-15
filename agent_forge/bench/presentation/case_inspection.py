@@ -8,6 +8,8 @@
 
 from __future__ import annotations
 
+import json
+
 from agent_forge.bench.domain.case_inspection import (
     BenchmarkCaseInspection,
     BenchmarkCaseProfile,
@@ -80,7 +82,17 @@ def render_case_inspection(
     """渲染一个 case；默认只显示输入和测试名称，不显示评测补丁或参考答案。"""
 
     profile = inspection.profile
-    title = profile.title if profile else inspection.instance_id
+    problem_statement = _normalize_text(inspection.problem_statement)
+    hints_text = _normalize_text(inspection.hints_text)
+    issue_title = next(
+        (
+            line.lstrip("# ").strip()
+            for line in problem_statement.splitlines()
+            if line.strip()
+        ),
+        inspection.instance_id,
+    )
+    title = profile.title if profile else issue_title[:160]
     lines = [
         f"# SWE-bench Case：{inspection.instance_id}",
         "",
@@ -99,15 +111,26 @@ def render_case_inspection(
             ]
         )
     else:
-        lines.append(
-            "该 case 不在 Infrastructure Smoke-5 中，请结合下方原始 issue 判断问题类型。"
-        )
+        lines.append("该 Case 没有额外人工问题标签；以下原始 issue 是主要语义来源。")
     lines.extend(
         [
             "",
             "## 2. Agent 收到的任务",
             "",
-            inspection.problem_statement.strip(),
+            problem_statement,
+        ]
+    )
+    if hints_text:
+        lines.extend(
+            [
+                "",
+                "### 数据集提供的提示",
+                "",
+                hints_text,
+            ]
+        )
+    lines.extend(
+        [
             "",
             "## 3. 固定代码起点",
             "",
@@ -142,7 +165,9 @@ def render_case_inspection(
             ]
         )
     else:
-        lines.append("- Official test patch：隐藏；使用 `--show-test-patch` 在复盘时查看。")
+        lines.append(
+            "- Official test patch：隐藏；使用 `--show-test-patch` 在复盘时查看。"
+        )
     if show_gold_patch:
         summary = inspection.gold_patch_summary
         lines.extend(
@@ -162,6 +187,65 @@ def render_case_inspection(
     else:
         lines.append("- Gold patch：隐藏；使用 `--show-gold` 仅做运行后的根因复盘。")
     return "\n".join(lines).rstrip() + "\n"
+
+
+# Run Configuration 入口：只排版 SWE-bench 自身字段，不补充项目侧语义。
+def render_source_case_inspection(
+    inspection: BenchmarkCaseInspection,
+    *,
+    dataset_name: str,
+    dataset_revision: str,
+    split: str,
+) -> str:
+    """按数据集字段名展示一个 case，保留 issue 正文，不生成摘要或标签。"""
+
+    fail_to_pass = json.dumps(
+        list(inspection.fail_to_pass),
+        ensure_ascii=False,
+        indent=2,
+    )
+    pass_to_pass = json.dumps(
+        list(inspection.pass_to_pass),
+        ensure_ascii=False,
+        indent=2,
+    )
+    parts = [
+        "# SWE-bench source case\n\n",
+        f"dataset: {dataset_name}\n",
+        f"revision: {dataset_revision or '<dataset default>'}\n",
+        f"split: {split}\n\n",
+        "omitted_fields: test_patch, patch\n\n",
+        "## instance_id\n\n",
+        inspection.instance_id,
+        "\n\n## repo\n\n",
+        inspection.repo,
+        "\n\n## base_commit\n\n",
+        inspection.base_commit,
+        "\n\n## version\n\n",
+        inspection.version,
+        "\n\n## environment_setup_commit\n\n",
+        inspection.environment_setup_commit,
+        "\n\n## created_at\n\n",
+        inspection.created_at,
+        "\n\n## difficulty\n\n",
+        inspection.difficulty,
+        "\n\n## problem_statement\n\n",
+        inspection.problem_statement,
+        "\n\n## hints_text\n\n",
+        inspection.hints_text,
+        "\n\n## FAIL_TO_PASS\n\n```json\n",
+        fail_to_pass,
+        "\n```\n\n## PASS_TO_PASS\n\n```json\n",
+        pass_to_pass,
+        "\n```\n",
+    ]
+    return "".join(parts)
+
+
+def _normalize_text(value: str) -> str:
+    """统一外部数据集换行，避免 Markdown/终端混入 CR 字符。"""
+
+    return value.replace("\r\n", "\n").replace("\r", "\n").strip()
 
 
 def _render_tests(
