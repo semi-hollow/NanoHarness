@@ -4,6 +4,7 @@ import importlib.util
 import json
 import subprocess
 import sys
+import threading
 from typing import Any
 
 from agent_forge.bench.adapters.official_results import (
@@ -15,8 +16,23 @@ from agent_forge.bench.domain.models import BenchRunSummary
 from agent_forge.bench.ports import OfficialEvaluatorPort
 
 
+# SWE-bench 生成报告时会枚举本机全部 Docker 镜像。如果另一路评测恰好在
+# 枚举期间删除自有镜像，docker-py 会读到过期条目并抛出 ImageNotFound，
+# 即使该 Case 的测试本身已经结束。模型生成仍可并发，但 official 镜像的
+# “准备、评测、报告、释放”生命周期必须在当前进程内串行执行。
+_OFFICIAL_IMAGE_LIFECYCLE_LOCK = threading.Lock()
+
+
 class SwebenchOfficialEvaluator(OfficialEvaluatorPort):
     def evaluate(
+        self,
+        summary: BenchRunSummary,
+        request: SwebenchRunRequest,
+    ) -> None:
+        with _OFFICIAL_IMAGE_LIFECYCLE_LOCK:
+            self._evaluate_serial(summary, request)
+
+    def _evaluate_serial(
         self,
         summary: BenchRunSummary,
         request: SwebenchRunRequest,

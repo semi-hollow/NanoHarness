@@ -1,6 +1,9 @@
 import json
 import tempfile
+import threading
+import time
 import unittest
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from subprocess import CompletedProcess
 from unittest.mock import patch
@@ -22,6 +25,51 @@ from agent_forge.cli.parser import build_parser
 
 
 class OfficialResultsTest(unittest.TestCase):
+    def test_concurrent_evaluators_serialize_the_official_image_lifecycle(self):
+        active = 0
+        maximum_active = 0
+        counter_lock = threading.Lock()
+
+        def fake_evaluate_serial(_self, _summary, _request):
+            nonlocal active, maximum_active
+            with counter_lock:
+                active += 1
+                maximum_active = max(maximum_active, active)
+            time.sleep(0.05)
+            with counter_lock:
+                active -= 1
+
+        evaluator = SwebenchOfficialEvaluator()
+        request = SwebenchRunRequest()
+        summaries = [
+            BenchRunSummary(
+                run_id=f"run-{index}",
+                dataset_name="dataset",
+                split="test",
+                provider="provider",
+                model="model",
+                output_dir=Path("."),
+                predictions_path=Path("predictions.jsonl"),
+            )
+            for index in range(2)
+        ]
+        with (
+            patch.object(
+                SwebenchOfficialEvaluator,
+                "_evaluate_serial",
+                autospec=True,
+                side_effect=fake_evaluate_serial,
+            ),
+            ThreadPoolExecutor(max_workers=2) as pool,
+        ):
+            futures = [
+                pool.submit(evaluator.evaluate, item, request) for item in summaries
+            ]
+            for future in futures:
+                future.result()
+
+        self.assertEqual(maximum_active, 1)
+
     def test_invalid_official_cache_level_is_rejected_before_evaluation(self):
         with self.assertRaisesRegex(ValueError, "official_cache_level"):
             SwebenchRunRequest(official_cache_level="everything")
