@@ -17,6 +17,7 @@ from pathlib import Path
 
 from agent_forge.contracts import ToolSchema
 from agent_forge.runtime.domain.conversation import AgentResponse, Message, ToolCall
+from agent_forge.storage_layout import INDEX_ROOT
 
 
 class DeterministicRepairModel:
@@ -285,7 +286,7 @@ def publish_latest(
 ) -> None:
     """发布 Workbench latest 指针，并按场景保存可恢复 Evidence。"""
 
-    latest_dir = project_root / ".agent_forge" / "latest"
+    latest_dir = project_root / INDEX_ROOT
     latest_dir.mkdir(parents=True, exist_ok=True)
     (latest_dir / "run.txt").write_text(
         str(artifact_dir.resolve()),

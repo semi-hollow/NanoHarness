@@ -15,7 +15,7 @@ from agent_forge._harness_support import (
     create_event_sink,
     create_run_paths,
     finalize_run_artifacts,
-    publish_run_navigation,
+    write_latest_run_pointer,
     write_request_artifact,
 )
 from agent_forge.harness_contracts import (
@@ -160,11 +160,10 @@ class Harness:
                     failure_stop_reason=failure_stop_reason,
                 )
             finally:
-                # 成功、阻断、等待人工和异常中断都要进入同一证据导航；失败运行尤其需要排障。
-                publish_run_navigation(
-                    workspace=run_paths.requested_workspace,
-                    run_dir=run_paths.artifact_dir,
-                    config=self._config,
+                # 只发布原生 run 的发现指针，不再复制或重组运行证据。
+                write_latest_run_pointer(
+                    run_paths.storage_workspace,
+                    run_paths.artifact_dir,
                 )
         # endregion 2. 执行环境与 Runtime结束
 
@@ -213,6 +212,7 @@ class Harness:
             self._config,
             request,
             workspace=runtime_workspace,
+            control_workspace=run_paths.storage_workspace,
             run_dir=run_paths.artifact_dir,
             trace_path=run_paths.trace_file,
             environment=environment,

@@ -13,8 +13,8 @@ from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 TEMPLATE_ROOT = PROJECT_ROOT / "examples" / "debug_lab" / "complex_repository"
-STATE_ROOT = PROJECT_ROOT / ".agent_forge" / "debug-lab"
-RUNS_ROOT = PROJECT_ROOT / ".agent_forge" / "runs"
+STATE_ROOT = PROJECT_ROOT / ".agent_forge" / "internal" / "debug-lab"
+RUNS_ROOT = PROJECT_ROOT / ".agent_forge" / "runs" / "showcases"
 KEYCHAIN_SERVICE = "NanoHarness DeepSeek API"
 DEFAULT_TASK = (
     "Repair the settlement reconciliation service in this repository. Provider retries "
@@ -36,6 +36,7 @@ from examples.debug_lab.support import (  # noqa: E402
     load_or_store_deepseek_key,
     publish_latest,
 )
+from agent_forge.storage_layout import INDEX_ROOT  # noqa: E402
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -171,7 +172,7 @@ def main() -> None:
         "--skills",
         "auto",
         "--memory-root",
-        str(PROJECT_ROOT / ".agent_forge" / "memory"),
+        str(PROJECT_ROOT / ".agent_forge" / "internal" / "state" / "memory"),
         "--memory-recall-limit",
         "12",
     ]
@@ -201,7 +202,7 @@ def main() -> None:
         ):
             runtime_arguments.extend(["--tool", tool_name])
     forge_main(runtime_arguments)
-    workspace_pointer = workspace / ".agent_forge" / "latest" / "run.txt"
+    workspace_pointer = workspace / INDEX_ROOT / "run.txt"
     if workspace_pointer.is_file():
         artifact_dir = artifact_from_pointer(workspace_pointer)
         (artifact_dir / "practice_profile.json").write_text(

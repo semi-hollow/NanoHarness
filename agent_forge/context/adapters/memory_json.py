@@ -14,7 +14,10 @@ from agent_forge.context.ports import LongTermMemoryRepository
 class JsonLongTermMemoryRepository(LongTermMemoryRepository):
     """以 namespace 分目录持久化，避免不同项目共享同一文件。"""
 
-    def __init__(self, root: str | Path = ".agent_forge/memory") -> None:
+    def __init__(
+        self,
+        root: str | Path = ".agent_forge/internal/state/memory",
+    ) -> None:
         self.root = Path(root)
         self.root.mkdir(parents=True, exist_ok=True)
 

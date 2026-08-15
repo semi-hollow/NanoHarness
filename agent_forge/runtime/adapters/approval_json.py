@@ -10,7 +10,10 @@ from agent_forge.runtime.ports.repositories import ApprovalRepository
 
 
 class JsonApprovalRepository(ApprovalRepository):
-    def __init__(self, root: str | Path = ".agent_forge/approvals") -> None:
+    def __init__(
+        self,
+        root: str | Path = ".agent_forge/internal/state/approvals",
+    ) -> None:
         self.root = Path(root)
         self.root.mkdir(parents=True, exist_ok=True)
 

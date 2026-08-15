@@ -89,19 +89,27 @@ class PublicHarnessTest(unittest.TestCase):
             self.assertIn("trace.json", artifact_paths)
             self.assertIn("candidate_changes.diff", artifact_paths)
 
-            # 每次真实 Harness.run 都要自动发布稳定的人读入口，而不是依赖事后整理。
-            evidence_root = root / ".agent_forge" / "runtime_evidence"
-            latest_evidence = evidence_root / "latest"
-            self.assertTrue(latest_evidence.is_symlink())
-            self.assertTrue((latest_evidence / "README.md").is_file())
-            self.assertTrue(
-                (latest_evidence / "01_checkpoint" / "checkpoint.json").is_symlink()
+            # 发现入口只指向原生 run；系统不再维护第二套派生证据树。
+            latest_run = root / ".agent_forge" / "internal" / "index" / "run.txt"
+            self.assertEqual(
+                Path(latest_run.read_text(encoding="utf-8")).resolve(),
+                result.artifact_dir.resolve(),
             )
-            self.assertTrue((latest_evidence / "05_trace" / "trace.json").is_symlink())
-            self.assertIn(
-                result.run_id,
-                (evidence_root / "INDEX.md").read_text(encoding="utf-8"),
+            self.assertFalse((root / ".agent_forge" / "runtime_evidence").exists())
+            self.assertEqual(
+                {path.name for path in (root / ".agent_forge").iterdir()},
+                {"archive", "internal", "runs"},
             )
+            state_root = root / ".agent_forge" / "internal" / "state"
+            for name in (
+                "approvals",
+                "human_input",
+                "memory",
+                "operation_ledger",
+                "sessions",
+                "task_state",
+            ):
+                self.assertTrue((state_root / name).is_dir())
 
     def test_resume_creates_a_new_trace_and_preserves_checkpoint_context(self):
         with tempfile.TemporaryDirectory() as tmp:

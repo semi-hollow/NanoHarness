@@ -25,6 +25,7 @@ from agent_forge.workbench.application.context_inspection import (
 )
 from agent_forge.workbench.application.services import WorkbenchServices
 from agent_forge.workbench.domain import EvidenceSource
+from agent_forge.storage_layout import DEBUG_LAB_STATE_ROOT, EVALUATION_DATA_ROOT
 from agent_forge.workbench.wiring import (
     build_evidence_catalog,
     build_workbench_services,
@@ -283,7 +284,7 @@ def _selected_evidence_source(
 ) -> str:
     """解析稳定首页默认选择；运行脚本只更新指针，不再生成不同 URL。"""
 
-    pointer = project_dir / ".agent_forge/debug-lab/state/workbench_source.txt"
+    pointer = project_dir / DEBUG_LAB_STATE_ROOT / "workbench_source.txt"
     if pointer.is_file():
         selected_key = pointer.read_text(encoding="utf-8").strip()
         selected = _find_evidence_source(sources, selected_key)
@@ -6101,7 +6102,7 @@ def _render_feedback_dashboard(project_dir: Path) -> str:
     feedback = _read_json_file(feedback_path)
     improvement_path = _latest_improvement_record_path(project_dir)
     improvement = _read_json_file(improvement_path)
-    dataset_path = project_dir / ".agent_forge/evaluation/evidence_dataset.jsonl"
+    dataset_path = project_dir / EVALUATION_DATA_ROOT / "evidence_dataset.jsonl"
     outcome = str(feedback.get("outcome") or "unreviewed")
     decision = improvement.get("decision") or {}
     diagnosis = improvement.get("diagnosis") or {}

@@ -22,7 +22,7 @@ from agent_forge.bench.domain.config import SwebenchRunRequest, safe_id
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 COHORT_PATH = PROJECT_ROOT / "benchmarks/showcase/swebench-verified-mini-50-v1.json"
-DEFAULT_OUTPUT_ROOT = ".agent_forge/evaluations/swebench-verified-mini-50"
+DEFAULT_OUTPUT_ROOT = ".agent_forge/runs/benchmarks/swebench-verified-mini-50"
 DEFAULT_PUBLISH_ROOT = "benchmarks/results/swebench-verified-mini-50"
 OPEN_CODE_GO_BASE_URL = "https://opencode.ai/zen/go/v1"
 MINI_50_RUNTIME = CampaignVariant(
@@ -89,7 +89,10 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--campaign-id", default="")
     parser.add_argument("--output-root", default=DEFAULT_OUTPUT_ROOT)
-    parser.add_argument("--repo-cache", default=".agent_forge/bench/repos")
+    parser.add_argument(
+        "--repo-cache",
+        default=".agent_forge/internal/cache/bench/repos",
+    )
     parser.add_argument(
         "--resume",
         action=argparse.BooleanOptionalAction,

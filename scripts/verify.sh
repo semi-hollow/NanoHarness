@@ -34,7 +34,7 @@ echo "Working directory: $(pwd)"
 echo "Using Python: $(${PYTHON_BIN} --version 2>&1) at $(command -v "${PYTHON_BIN}" 2>/dev/null || printf '%s' "${PYTHON_BIN}")"
 echo
 
-VERIFY_DIR="${VERIFY_DIR:-.agent_forge/verify}"
+VERIFY_DIR="${VERIFY_DIR:-.agent_forge/internal/generated/verify}"
 mkdir -p "${VERIFY_DIR}"
 
 # 在启动 Agent 之前先通过编译发现语法、导入和打包问题。

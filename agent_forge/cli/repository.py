@@ -31,7 +31,6 @@ from agent_forge.multi_agent.api import (
 )
 from agent_forge.multi_agent.profiles import get_profile
 from agent_forge.observability.api import (
-    publish_runtime_evidence_view,
     TraceRecorder,
     write_run_manifest,
     write_usage_artifacts,
@@ -54,6 +53,7 @@ from agent_forge.runtime.wiring import (
     build_llm,
     build_registry,
 )
+from agent_forge.storage_layout import ensure_storage_layout
 from agent_forge.tools.registry import ToolRegistry
 
 
@@ -164,6 +164,8 @@ def _run_advanced_repository_task(
 ) -> Path:
     """保留 Multi/Fanout 高级编排；它们不属于 Single-Agent 黄金主链。"""
 
+    requested_workspace = Path(args.workspace).expanduser().resolve()
+    ensure_storage_layout(requested_workspace)
     run_id = f"run-{time.strftime('%Y%m%d-%H%M%S')}-{uuid.uuid4().hex[:7]}"
     run_dir = Path(args.output_root) / run_id
     run_dir.mkdir(parents=True, exist_ok=True)
@@ -188,7 +190,6 @@ def _run_advanced_repository_task(
     try:
         active_workspace = str(environment.active_workspace)
         llm_config = _resolve_llm_config(args)
-        requested_workspace = Path(args.workspace).expanduser().resolve()
         config = _build_runtime_config(
             args,
             active_workspace,
@@ -269,7 +270,7 @@ def _run_advanced_repository_task(
         )
         # 证据导航必须在全部 run-local artifact 落盘后建立，否则分类视图会漏掉环境证据。
         environment.write_manifest(run_dir)
-        _publish_advanced_run_navigation(args, requested_workspace, run_dir)
+        _publish_advanced_run_pointer(requested_workspace, run_dir)
         return run_dir
     finally:
         try:
@@ -483,42 +484,7 @@ def parse_skill_names(value: str) -> list[str]:
     return [item.strip() for item in normalized.split(",") if item.strip()]
 
 
-def _publish_advanced_run_navigation(
-    args: argparse.Namespace,
-    workspace: Path,
-    run_dir: Path,
-) -> None:
-    """让 Multi/Fanout 与 Single Agent 使用相同 latest 和分类证据约定。"""
+def _publish_advanced_run_pointer(workspace: Path, run_dir: Path) -> None:
+    """让 Multi/Fanout 与 Single Agent 使用同一原生 run 发现指针。"""
 
-    try:
-        write_latest_run_pointer(workspace, run_dir)
-        publish_runtime_evidence_view(
-            workspace=workspace,
-            run_dir=run_dir,
-            approval_root=control_path(
-                getattr(args, "approval_root", ""),
-                workspace,
-                "approvals",
-            ),
-            human_input_root=control_path(
-                getattr(args, "human_input_root", ""),
-                workspace,
-                "human_input",
-            ),
-            operation_ledger_root=control_path(
-                getattr(args, "operation_ledger_root", ""),
-                workspace,
-                "operation_ledger",
-            ),
-        )
-    except Exception as exc:
-        latest = workspace / ".agent_forge" / "latest"
-        try:
-            latest.mkdir(parents=True, exist_ok=True)
-            (latest / "runtime_evidence_error.txt").write_text(
-                f"{type(exc).__name__}: {exc}\n",
-                encoding="utf-8",
-            )
-        except OSError:
-            # 分类导航是派生视图，不能覆盖 Multi/Fanout 的真实运行结论。
-            pass
+    write_latest_run_pointer(workspace, run_dir)

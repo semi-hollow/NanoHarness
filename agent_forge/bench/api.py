@@ -33,11 +33,13 @@ from agent_forge.bench.wiring import (
     build_benchmark_campaign_runner,
     build_swebench_runner,
 )
+from agent_forge.storage_layout import ensure_storage_layout
 
 
 # 主要入口：构造并执行一次完整的 SWE-bench 证据运行。
 def run_swebench(request: SwebenchRunRequest) -> BenchRunSummary:
     """执行类型化评测请求，并返回可追溯的运行摘要。"""
+    ensure_storage_layout(Path.cwd())
     run_id = f"swebench-{time.strftime('%Y%m%d-%H%M%S')}-{uuid.uuid4().hex[:7]}"
     artifacts = FileBenchArtifacts()
     layout = artifacts.create_layout(
@@ -60,6 +62,7 @@ def run_benchmark_campaign(
     """每个槽位调用正式 ``run_swebench``，并在槽位边界持久化 checkpoint。"""
 
     root = Path(project_dir).resolve()
+    ensure_storage_layout(root)
     return build_benchmark_campaign_runner(root, run_swebench).run_campaign(request)
 
 

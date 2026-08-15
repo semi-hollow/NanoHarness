@@ -76,7 +76,10 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--source-root", default=str(PROJECT_ROOT))
     parser.add_argument("--output-root", default="")
     parser.add_argument("--manifest-output", default="")
-    parser.add_argument("--repo-cache", default=".agent_forge/bench/repos")
+    parser.add_argument(
+        "--repo-cache",
+        default=".agent_forge/internal/cache/bench/repos",
+    )
     return parser
 
 
@@ -414,7 +417,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         Path(args.output_root).resolve()
         if args.output_root
         else PROJECT_ROOT
-        / ".agent_forge/evaluations/tool-aci"
+        / ".agent_forge/runs/experiments/tool-aci"
         / plan.experiment
         / plan.variant
     )

@@ -214,7 +214,7 @@ class OperatorConsoleTest(unittest.TestCase):
                 enabled_tools=("ask_human",),
             )
             waiting = session.start()
-            pointer = root / ".agent_forge" / "latest" / "run.txt"
+            pointer = root / ".agent_forge" / "internal" / "index" / "run.txt"
             self.assertTrue(pointer.is_file())
 
             attached, _ = self._session(
@@ -237,7 +237,7 @@ class OperatorConsoleTest(unittest.TestCase):
                 enabled_tools=(),
             )
             library = TaskSessionLibrary(
-                JsonTaskSessionCatalog(root / ".agent_forge" / "sessions")
+                JsonTaskSessionCatalog(root / ".agent_forge" / "internal" / "state" / "sessions")
             )
             task_session = library.create(
                 task=session.request.task,
@@ -551,7 +551,7 @@ class OperatorConsoleTest(unittest.TestCase):
 
         async def exercise(root: Path) -> None:
             library = TaskSessionLibrary(
-                JsonTaskSessionCatalog(root / ".agent_forge" / "sessions")
+                JsonTaskSessionCatalog(root / ".agent_forge" / "internal" / "state" / "sessions")
             )
             task_session = library.create(
                 task="Repair settlement service",

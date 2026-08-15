@@ -17,7 +17,9 @@ from agent_forge.bench.presentation.case_inspection import render_source_case_in
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 DATASET_NAME = "princeton-nlp/SWE-bench_Verified"
 DATASET_REVISION = "c104f840cc67f8b6eec6f759ebc8b2693d585d4a"
-DEFAULT_OUTPUT_ROOT = PROJECT_ROOT / ".agent_forge" / "case-inspections"
+DEFAULT_OUTPUT_ROOT = (
+    PROJECT_ROOT / ".agent_forge" / "internal" / "generated" / "case-inspections"
+)
 LOCAL_POST_RUN_CASE_FILES = (
     PROJECT_ROOT
     / ".agent_forge"
@@ -64,7 +66,10 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--output",
-        help="Output path; defaults to .agent_forge/case-inspections/<instance_id>.md.",
+        help=(
+            "Output path; defaults to "
+            ".agent_forge/internal/generated/case-inspections/<instance_id>.md."
+        ),
     )
     return parser
 

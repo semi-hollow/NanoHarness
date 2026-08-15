@@ -1715,7 +1715,7 @@
           "django__django-12209",
           "sphinx-doc__sphinx-10323"
         ],
-        "run_dir": ".agent_forge/tool-aci-golden-20-v1/tool-r0/shard-a/swebench-20260813-132517-04ef632",
+        "run_dir": ".agent_forge/archive/experiments/tool-aci-golden-20-v1/tool-r0/shard-a/swebench-20260813-132517-04ef632",
         "run_id": "swebench-20260813-132517-04ef632",
         "shard": "a"
       },
@@ -1733,7 +1733,7 @@
           "matplotlib__matplotlib-22871",
           "django__django-13028"
         ],
-        "run_dir": ".agent_forge/tool-aci-golden-20-v1/tool-r0/shard-b/swebench-20260813-134136-1dfc077",
+        "run_dir": ".agent_forge/archive/experiments/tool-aci-golden-20-v1/tool-r0/shard-b/swebench-20260813-134136-1dfc077",
         "run_id": "swebench-20260813-134136-1dfc077",
         "shard": "b"
       },
@@ -1751,7 +1751,7 @@
           "pydata__xarray-6938",
           "pylint-dev__pylint-6903"
         ],
-        "run_dir": ".agent_forge/tool-aci-golden-20-v1/tool-r0/shard-c/swebench-20260813-132836-f896d5c",
+        "run_dir": ".agent_forge/archive/experiments/tool-aci-golden-20-v1/tool-r0/shard-c/swebench-20260813-132836-f896d5c",
         "run_id": "swebench-20260813-132836-f896d5c",
         "shard": "c"
       },
@@ -1769,7 +1769,7 @@
           "sympy__sympy-13372",
           "django__django-10999"
         ],
-        "run_dir": ".agent_forge/tool-aci-golden-20-v1/tool-r0/shard-d/swebench-20260813-142154-bc9b470",
+        "run_dir": ".agent_forge/archive/experiments/tool-aci-golden-20-v1/tool-r0/shard-d/swebench-20260813-142154-bc9b470",
         "run_id": "swebench-20260813-142154-bc9b470",
         "shard": "d"
       }
@@ -3191,7 +3191,7 @@
           "django__django-12209",
           "sphinx-doc__sphinx-10323"
         ],
-        "run_dir": ".agent_forge/tool-aci-golden-20-r2/tool-r2/shard-a/swebench-20260813-221206-3cac852",
+        "run_dir": ".agent_forge/archive/experiments/tool-aci-golden-20-r2/tool-r2/shard-a/swebench-20260813-221206-3cac852",
         "run_id": "swebench-20260813-221206-3cac852",
         "shard": "a"
       },
@@ -3209,7 +3209,7 @@
           "matplotlib__matplotlib-22871",
           "django__django-13028"
         ],
-        "run_dir": ".agent_forge/tool-aci-golden-20-r2/tool-r2/shard-b/swebench-20260813-231236-25007c8",
+        "run_dir": ".agent_forge/archive/experiments/tool-aci-golden-20-r2/tool-r2/shard-b/swebench-20260813-231236-25007c8",
         "run_id": "swebench-20260813-231236-25007c8",
         "shard": "b"
       },
@@ -3227,7 +3227,7 @@
           "pydata__xarray-6938",
           "pylint-dev__pylint-6903"
         ],
-        "run_dir": ".agent_forge/tool-aci-golden-20-r2/tool-r2/shard-c/swebench-20260814-000313-7cda939",
+        "run_dir": ".agent_forge/archive/experiments/tool-aci-golden-20-r2/tool-r2/shard-c/swebench-20260814-000313-7cda939",
         "run_id": "swebench-20260814-000313-7cda939",
         "shard": "c"
       },
@@ -3245,7 +3245,7 @@
           "sympy__sympy-13372",
           "django__django-10999"
         ],
-        "run_dir": ".agent_forge/tool-aci-golden-20-r2/tool-r2/shard-d/swebench-20260814-003723-609b8df",
+        "run_dir": ".agent_forge/archive/experiments/tool-aci-golden-20-r2/tool-r2/shard-d/swebench-20260814-003723-609b8df",
         "run_id": "swebench-20260814-003723-609b8df",
         "shard": "d"
       }

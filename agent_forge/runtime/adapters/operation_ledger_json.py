@@ -21,7 +21,10 @@ class JsonOperationLedgerRepository(OperationLedgerRepository):
     由上层 Runtime 决定。每项操作独立落盘，不提供跨操作事务。
     """
 
-    def __init__(self, root: str | Path = ".agent_forge/operation_ledger") -> None:
+    def __init__(
+        self,
+        root: str | Path = ".agent_forge/internal/state/operation_ledger",
+    ) -> None:
         self.root = Path(root)
         self.root.mkdir(parents=True, exist_ok=True)
 

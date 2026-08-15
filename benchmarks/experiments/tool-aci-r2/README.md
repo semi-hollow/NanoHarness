@@ -61,7 +61,7 @@ Treatment 共修改 13 个文件，`423 insertions / 65 deletions`。正式运�
 `SWE_BENCH_CASE_ID` 改成目标 `instance_id`。默认示例是 R2 regression
 `astropy__astropy-14182`；它会直接展示 SWE-bench 数据集中的 `problem_statement`、仓库、
 base commit、`FAIL_TO_PASS` 与 `PASS_TO_PASS`，不生成摘要、问题标签或实验结论。输出同时保存到
-`.agent_forge/case-inspections/<instance_id>.md`。
+`.agent_forge/internal/generated/case-inspections/<instance_id>.md`。
 
 等价命令：
 
@@ -118,7 +118,7 @@ McNemar exact two-sided `p=1.0`。
 - [统一运行配置](../tool-aci-runner-v1.json)
 - [运行入口](../../../scripts/run_tool_aci_golden_20.py)
 - [确定性汇总器](../../../scripts/summarize_tool_aci_golden_20_r2.py)
-- 本机原始证据：`.agent_forge/tool-aci-golden-20-r2/`
+- 本机原始证据：`.agent_forge/archive/experiments/tool-aci-golden-20-r2/`
 
 `r2.execution.json` 绑定每个 shard 的 `results.json`、`scorecard.json`、
 `predictions.jsonl` 和 official aggregate SHA-256；`result.json` 由汇总器确定性生成；

@@ -28,6 +28,7 @@ from agent_forge.runtime.api import (
 from agent_forge.runtime.domain.conversation import AgentResponse, Message, ToolCall
 from agent_forge.runtime.ports import ModelPort
 from agent_forge.runtime.wiring import build_registry
+from agent_forge.storage_layout import INDEX_ROOT, SHOWCASE_RUN_ROOT
 
 HITL_QUESTION = "Which compatibility target should be used?"
 HITL_TASK = (
@@ -84,7 +85,7 @@ class GovernedShowcaseController:
     def __init__(
         self,
         *,
-        output_root: str | Path = ".agent_forge/showcases",
+        output_root: str | Path = SHOWCASE_RUN_ROOT,
     ) -> None:
         self.output_root = Path(output_root)
         self._phases: list[ControlPlaneShowcaseResult] = []
@@ -159,7 +160,7 @@ class GovernedShowcaseController:
 def run_governed_demo(
     scenario: str = "governed",
     *,
-    output_root: str | Path = ".agent_forge/showcases",
+    output_root: str | Path = SHOWCASE_RUN_ROOT,
     answer: str = "",
 ) -> GovernedRunDemoResult:
     """串联全部正式 Runtime phase；确定性模型只固定工具意图。"""
@@ -206,9 +207,9 @@ def run_governed_demo(
 def _publish_default_demo_pointer(output_root: str | Path, artifact_dir: Path) -> None:
     """让默认 CLI demo 可立即用 ``forge inspect latest`` 查看。"""
 
-    if Path(output_root) != Path(".agent_forge/showcases"):
+    if Path(output_root) != SHOWCASE_RUN_ROOT:
         return
-    latest = Path(".agent_forge/latest")
+    latest = INDEX_ROOT
     latest.mkdir(parents=True, exist_ok=True)
     (latest / "run.txt").write_text(str(artifact_dir.resolve()), encoding="utf-8")
 
@@ -387,7 +388,7 @@ def _human_response(messages: list[Message]) -> str:
 def _start_control_plane_demo(
     scenario: str,
     *,
-    output_root: str | Path = ".agent_forge/showcases",
+    output_root: str | Path = SHOWCASE_RUN_ROOT,
 ) -> ControlPlaneShowcaseResult:
     """启动展示并在人工控制点返回，不自动回答或批准。"""
 

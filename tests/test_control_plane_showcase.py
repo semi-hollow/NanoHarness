@@ -15,6 +15,26 @@ from agent_forge.showcase.control_plane import (
 
 
 class ControlPlaneShowcaseTest(unittest.TestCase):
+    def test_project_owned_showcase_does_not_nest_agent_forge_in_workspace(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            controller = GovernedShowcaseController(
+                output_root=root / ".agent_forge" / "runs" / "showcases"
+            )
+
+            waiting_human = controller.start()
+
+            self.assertFalse((waiting_human.workspace / ".agent_forge").exists())
+            self.assertTrue(
+                (root / ".agent_forge" / "internal" / "state" / "approvals").is_dir()
+            )
+            self.assertTrue((waiting_human.run_dir / "human_input").is_dir())
+            pointer = root / ".agent_forge" / "internal" / "index" / "run.txt"
+            self.assertEqual(
+                Path(pointer.read_text(encoding="utf-8")).resolve(),
+                waiting_human.artifact_dir.resolve(),
+            )
+
     def test_governed_controller_requires_two_explicit_human_decisions(self):
         with tempfile.TemporaryDirectory() as tmp:
             controller = GovernedShowcaseController(output_root=tmp)

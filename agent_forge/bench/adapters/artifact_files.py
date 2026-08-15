@@ -11,6 +11,7 @@ from agent_forge.bench.domain.models import BenchCaseResult, BenchRunSummary
 from agent_forge.bench.ports.benchmark import BenchArtifactPort
 from agent_forge.bench.presentation.case_study import write_case_study
 from agent_forge.bench.presentation.report import write_bench_artifacts
+from agent_forge.storage_layout import INDEX_ROOT
 
 
 class FileBenchArtifacts(BenchArtifactPort):
@@ -67,7 +68,7 @@ class FileBenchArtifacts(BenchArtifactPort):
     ) -> None:
         self.write_predictions(summary, predictions)
         write_bench_artifacts(summary)
-        latest = Path(".agent_forge/latest")
+        latest = INDEX_ROOT
         latest.mkdir(parents=True, exist_ok=True)
         (latest / "bench.txt").write_text(
             str(summary.output_dir),

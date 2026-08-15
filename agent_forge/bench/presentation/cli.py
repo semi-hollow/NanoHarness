@@ -42,6 +42,7 @@ from agent_forge.runtime.config import (
     DEFAULT_TOOL_EXECUTION_TIMEOUT_SECONDS,
     DEFAULT_TIMEOUT_SECONDS,
 )
+from agent_forge.storage_layout import BENCH_REPO_CACHE_ROOT, CAMPAIGN_RUN_ROOT
 
 
 def _positive_int(value: str) -> int:
@@ -169,7 +170,7 @@ def build_swebench_parser(parser: argparse.ArgumentParser) -> None:
         default=DEFAULT_TOOL_EXECUTION_TIMEOUT_SECONDS,
         help="Timeout for one validation tool execution, including compile and tests.",
     )
-    parser.add_argument("--repo-cache", default=".agent_forge/bench/repos")
+    parser.add_argument("--repo-cache", default=str(BENCH_REPO_CACHE_ROOT))
     parser.add_argument("--output-root", default=".agent_forge/runs")
     parser.add_argument("--evaluate", action="store_true")
     parser.add_argument("--max-workers", type=int, default=1)
@@ -332,8 +333,8 @@ def build_campaign_parser(parser: argparse.ArgumentParser) -> None:
         default=DEFAULT_TOOL_EXECUTION_TIMEOUT_SECONDS,
         help="Timeout for one validation tool execution, including compile and tests.",
     )
-    parser.add_argument("--repo-cache", default=".agent_forge/bench/repos")
-    parser.add_argument("--output-root", default=".agent_forge/campaigns")
+    parser.add_argument("--repo-cache", default=str(BENCH_REPO_CACHE_ROOT))
+    parser.add_argument("--output-root", default=str(CAMPAIGN_RUN_ROOT))
     parser.add_argument("--evaluate", action="store_true")
     parser.add_argument("--max-workers", type=int, default=1)
     parser.add_argument(

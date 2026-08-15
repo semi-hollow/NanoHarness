@@ -22,7 +22,7 @@ def test_config_drives_cases_variant_and_runtime_flags() -> None:
         render_plan(
             plan,
             source_root=PROJECT_ROOT,
-            output_root=PROJECT_ROOT / ".agent_forge/evaluations/test",
+            output_root=PROJECT_ROOT / ".agent_forge/runs/experiments/test",
         )
     )
 
@@ -42,8 +42,8 @@ def test_shard_command_adds_only_pipeline_owned_coordinates() -> None:
     command = build_shard_command(
         plan,
         0,
-        output_root=PROJECT_ROOT / ".agent_forge/evaluations/test",
-        repo_cache=PROJECT_ROOT / ".agent_forge/bench/repos",
+        output_root=PROJECT_ROOT / ".agent_forge/runs/experiments/test",
+        repo_cache=PROJECT_ROOT / ".agent_forge/internal/cache/bench/repos",
     )
 
     assert command[:5] == [

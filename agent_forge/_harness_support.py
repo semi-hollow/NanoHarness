@@ -21,7 +21,6 @@ from agent_forge.harness_contracts import (
 )
 from agent_forge.observability.adapters.streaming import StreamingEventSink
 from agent_forge.observability.api import (
-    publish_runtime_evidence_view,
     TraceRecorder,
     write_run_manifest,
     write_usage_artifacts,
@@ -34,6 +33,13 @@ from agent_forge.runtime.domain.task import (
     TaskStartRequest,
 )
 from agent_forge.runtime.ports import EnvironmentPort, EventSink, TaskStateRepository
+from agent_forge.storage_layout import (
+    AGENT_FORGE_ROOT,
+    INDEX_ROOT,
+    LEGACY_CONTROL_ROOTS,
+    control_state_root,
+    ensure_storage_layout,
+)
 
 
 @dataclass(frozen=True)
@@ -41,6 +47,7 @@ class HarnessRunPaths:
     """本次运行会用到的全部路径；只构造名称，不执行 Runtime。"""
 
     requested_workspace: Path
+    storage_workspace: Path
     artifact_dir: Path
     trace_file: Path
     final_answer_file: Path
@@ -86,9 +93,14 @@ def create_run_paths(
 
     requested_workspace = Path(request.workspace or config.workspace).resolve()
     output_root = Path(request.output_root or config.output_root)
+    managed_storage = _managed_storage_workspace(requested_workspace, output_root)
+    storage_workspace = managed_storage or requested_workspace
+    if managed_storage is not None:
+        ensure_storage_layout(managed_storage)
     artifact_dir = output_root / _new_run_directory_name()
     return HarnessRunPaths(
         requested_workspace=requested_workspace,
+        storage_workspace=storage_workspace,
         artifact_dir=artifact_dir,
         trace_file=artifact_dir / "trace.json",
         final_answer_file=artifact_dir / "final_answer.txt",
@@ -127,6 +139,7 @@ def build_runtime_config(
     request: RunRequest,
     *,
     workspace: Path,
+    control_workspace: Path,
     run_dir: Path,
     trace_path: Path,
     environment: EnvironmentPort,
@@ -153,16 +166,16 @@ def build_runtime_config(
         task_state_root=str(run_dir / "task_state"),
         resume_state=request.resume_state,
         approval_root=str(
-            control_path(config.approval_root, requested_workspace, "approvals")
+            control_path(config.approval_root, control_workspace, "approvals")
         ),
         human_input_root=str(
-            control_path(config.human_input_root, requested_workspace, "human_input")
+            control_path(config.human_input_root, control_workspace, "human_input")
         ),
         human_thread_id=request.human_thread_id,
         operation_ledger_root=str(
             control_path(
                 config.operation_ledger_root,
-                requested_workspace,
+                control_workspace,
                 "operation_ledger",
             )
         ),
@@ -172,7 +185,7 @@ def build_runtime_config(
         skill_manifest_files=list(config.skill_manifest_files),
         tool_routing_mode=config.tool_routing_mode,
         memory_root=str(
-            control_path(config.memory_root, requested_workspace, "memory")
+            control_path(config.memory_root, control_workspace, "memory")
         ),
         memory_namespace=str(requested_workspace),
         memory_recall_limit=config.memory_recall_limit,
@@ -252,68 +265,54 @@ def write_request_artifact(
 
 
 def control_path(value: str, workspace: Path, default_name: str) -> Path:
-    """把控制面目录稳定落在请求 workspace，而不是临时 worktree。"""
+    """把控制面目录收进 ``internal/state``，并兼容旧默认路径。"""
 
-    if not value:
-        return workspace / ".agent_forge" / default_name
-    path = Path(value)
-    return path if path.is_absolute() else workspace / path
+    path = Path(value) if value else control_state_root(default_name)
+    if not path.is_absolute():
+        path = LEGACY_CONTROL_ROOTS.get(path, path)
+        return workspace / path
+    for legacy, current in LEGACY_CONTROL_ROOTS.items():
+        if path == workspace / legacy:
+            return workspace / current
+    return path
 
 
 def write_latest_run_pointer(workspace: Path, run_dir: Path) -> None:
     """发布最近一次成功创建的 run，供 inspection/Workbench 发现。"""
 
-    latest = workspace / ".agent_forge" / "latest"
+    latest = workspace / INDEX_ROOT
     latest.mkdir(parents=True, exist_ok=True)
     (latest / "run.txt").write_text(str(run_dir.resolve()), encoding="utf-8")
-
-
-def publish_run_navigation(
-    *,
-    workspace: Path,
-    run_dir: Path,
-    config: HarnessConfig,
-) -> Path:
-    """同时发布机器发现指针和面向人的分类证据入口。
-
-    ``latest/run.txt`` 继续服务 Workbench；``runtime_evidence`` 则让人按 run 直接找到
-    Checkpoint、Human Input、Approval、Operation Ledger 与 Trace。两者都只是导航，
-    不改变任何 Repository 的权威持久化位置。
-    """
-
-    try:
-        write_latest_run_pointer(workspace, run_dir)
-        return publish_runtime_evidence_view(
-            workspace=workspace,
-            run_dir=run_dir,
-            approval_root=control_path(config.approval_root, workspace, "approvals"),
-            human_input_root=control_path(
-                config.human_input_root,
-                workspace,
-                "human_input",
-            ),
-            operation_ledger_root=control_path(
-                config.operation_ledger_root,
-                workspace,
-                "operation_ledger",
-            ),
-        )
-    except Exception as exc:
-        # 派生导航失败不能反向篡改 Agent 的真实运行结果；错误仍显式落盘供修复。
-        latest = workspace / ".agent_forge" / "latest"
-        try:
-            latest.mkdir(parents=True, exist_ok=True)
-            (latest / "runtime_evidence_error.txt").write_text(
-                f"{type(exc).__name__}: {exc}\n",
-                encoding="utf-8",
-            )
-        except OSError:
-            # 连错误记录都不可写时仍保留原始 Agent 结果；导航从来不是权威状态。
-            pass
-        return latest
 
 
 def _new_run_directory_name() -> str:
     """生成便于人工排序且避免并发冲突的 run 目录名。"""
 
     return f"run-{time.strftime('%Y%m%d-%H%M%S')}-{uuid.uuid4().hex[:7]}"
+
+
+def _managed_storage_workspace(
+    requested_workspace: Path,
+    output_root: Path,
+) -> Path | None:
+    """根据 artifact 根识别唯一 ``.agent_forge`` owner。
+
+    Showcase 等场景会在 Run 内再创建隔离代码 workspace；证据与控制状态
+    仍应归外层项目，不应在被修复目录中嵌套第二个布局。
+    """
+
+    resolved_output = (
+        output_root.resolve()
+        if output_root.is_absolute()
+        else (Path.cwd() / output_root).resolve()
+    )
+    for candidate in (resolved_output, *resolved_output.parents):
+        if candidate.name == AGENT_FORGE_ROOT.name:
+            return candidate.parent
+    try:
+        resolved_output.relative_to(requested_workspace)
+    except ValueError:
+        # 临时嵌套 workspace 与外部 output 无共同 ``.agent_forge`` owner；
+        # 保留旧的 pointer/control 相对语义，但不预建整套目录。
+        return None
+    return requested_workspace

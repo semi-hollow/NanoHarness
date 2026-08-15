@@ -11,9 +11,6 @@ from agent_forge.observability.adapters.run_manifest_files import (
     refresh_run_manifest,
     write_run_manifest,
 )
-from agent_forge.observability.adapters.runtime_evidence_files import (
-    publish_runtime_evidence_view,
-)
 from agent_forge.observability.adapters.usage_files import (
     read_trace,
     usage_artifact_paths,
@@ -92,7 +89,6 @@ __all__ = [
     "build_usage_report",
     "load_run_story",
     "project_run_story",
-    "publish_runtime_evidence_view",
     "read_run_manifest",
     "refresh_run_manifest",
     "render_run_story",

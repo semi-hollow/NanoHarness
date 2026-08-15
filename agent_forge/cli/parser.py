@@ -18,6 +18,14 @@ from agent_forge.runtime.config import (
     DEFAULT_MAX_PROMPT_TOKENS,
     DEFAULT_MAX_STEPS,
 )
+from agent_forge.storage_layout import (
+    APPROVAL_ROOT,
+    EVALUATION_DATA_ROOT,
+    HUMAN_INPUT_ROOT,
+    MEMORY_ROOT,
+    OPERATION_LEDGER_ROOT,
+    SHOWCASE_RUN_ROOT,
+)
 from agent_forge.workbench.api import build_ui_parser
 
 
@@ -102,7 +110,7 @@ def _add_demo_command(subparsers: argparse._SubParsersAction) -> None:
         default="governed",
     )
     parser.add_argument("--answer", default="")
-    parser.add_argument("--output-root", default=".agent_forge/showcases")
+    parser.add_argument("--output-root", default=str(SHOWCASE_RUN_ROOT))
 
 
 def _add_run_command(subparsers: argparse._SubParsersAction) -> None:
@@ -220,7 +228,7 @@ def _add_evaluation_command(subparsers: argparse._SubParsersAction) -> None:
     )
     export.add_argument(
         "--output",
-        default=".agent_forge/evaluation/evidence_dataset.jsonl",
+        default=str(EVALUATION_DATA_ROOT / "evidence_dataset.jsonl"),
     )
     export.add_argument("--require-feedback", action="store_true")
     export.add_argument(
@@ -270,7 +278,7 @@ def _add_memory_command(subparsers: argparse._SubParsersAction) -> None:
         help="Create or update an explicitly authorized durable memory.",
     )
     remember.add_argument("--workspace", default=".")
-    remember.add_argument("--memory-root", default=".agent_forge/memory")
+    remember.add_argument("--memory-root", default=str(MEMORY_ROOT))
     remember.add_argument("--key", required=True)
     remember.add_argument("--content", required=True)
     remember.add_argument(
@@ -284,11 +292,11 @@ def _add_memory_command(subparsers: argparse._SubParsersAction) -> None:
         help="Delete one durable memory by its stable ID.",
     )
     forget.add_argument("memory_id")
-    forget.add_argument("--memory-root", default=".agent_forge/memory")
+    forget.add_argument("--memory-root", default=str(MEMORY_ROOT))
 
     list_parser = commands.add_parser("list")
     list_parser.add_argument("--workspace", default=".")
-    list_parser.add_argument("--memory-root", default=".agent_forge/memory")
+    list_parser.add_argument("--memory-root", default=str(MEMORY_ROOT))
     list_parser.add_argument("--scope", choices=["user", "project"])
     list_parser.add_argument("--json", action="store_true")
 
@@ -437,19 +445,19 @@ def _add_runtime_policy_args(
     )
     parser.add_argument(
         "--approval-root",
-        default=".agent_forge/approvals" if defaults else None,
+        default=str(APPROVAL_ROOT) if defaults else None,
     )
     parser.add_argument(
         "--human-input-root",
-        default=".agent_forge/human_input" if defaults else None,
+        default=str(HUMAN_INPUT_ROOT) if defaults else None,
     )
     parser.add_argument(
         "--operation-ledger-root",
-        default=".agent_forge/operation_ledger" if defaults else None,
+        default=str(OPERATION_LEDGER_ROOT) if defaults else None,
     )
     parser.add_argument(
         "--memory-root",
-        default=".agent_forge/memory" if defaults else None,
+        default=str(MEMORY_ROOT) if defaults else None,
     )
     parser.add_argument(
         "--memory-recall-limit",

@@ -17,7 +17,10 @@ REQUEST_ID_PATTERN = re.compile(r"^[0-9a-f]{24}$")
 
 
 class JsonHumanInputRepository(HumanInputRepository):
-    def __init__(self, root: str | Path = ".agent_forge/human_input") -> None:
+    def __init__(
+        self,
+        root: str | Path = ".agent_forge/internal/state/human_input",
+    ) -> None:
         self.root = Path(root)
         self.root.mkdir(parents=True, exist_ok=True)
 

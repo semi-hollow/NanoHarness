@@ -34,7 +34,7 @@ class ExecutionEnvironmentConfig:
     mode: str = "local"
     workspace: str = "."
     run_id: str = ""
-    worktree_root: str = ".agent_forge/worktrees"
+    worktree_root: str = ".agent_forge/internal/cache/worktrees"
     network_policy: str = "deny"
     keep_worktree: bool = True
     container_runtime: str = "docker"
@@ -43,7 +43,7 @@ class ExecutionEnvironmentConfig:
     container_memory: str = "1g"
     container_pids_limit: int = 256
     container_read_only: bool = True
-    snapshot_root: str = ".agent_forge/snapshots"
+    snapshot_root: str = ".agent_forge/internal/cache/snapshots"
 
 
 @dataclass(frozen=True, kw_only=True)

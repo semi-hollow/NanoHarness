@@ -24,6 +24,7 @@ from agent_forge.runtime.api import (
     build_approval_repository,
     build_human_input_repository,
 )
+from agent_forge.storage_layout import MEMORY_ROOT, SESSIONS_ROOT
 
 
 def resolve_operator_memory_root(
@@ -39,7 +40,7 @@ def resolve_operator_memory_root(
         config_document = load_run_config(base_args.config)
         configured_root = config_document.values.get("memory_root")
     return control_path(
-        str(configured_root or ".agent_forge/memory"),
+        str(configured_root or MEMORY_ROOT),
         Path(workspace).expanduser().resolve(),
         "memory",
     )
@@ -58,10 +59,8 @@ class OperatorSessionBundle:
 def build_task_session_library(base_args: argparse.Namespace) -> TaskSessionLibrary:
     """按 output root 构造项目级会话目录；Run artifact 仍放在原目录。"""
 
-    output_root = Path(
-        getattr(base_args, "output_root", "") or ".agent_forge/runs"
-    ).expanduser()
-    catalog_root = output_root.resolve().parent / "sessions"
+    workspace = Path(getattr(base_args, "workspace", ".") or ".").expanduser()
+    catalog_root = workspace.resolve() / SESSIONS_ROOT
     return TaskSessionLibrary(JsonTaskSessionCatalog(catalog_root))
 
 

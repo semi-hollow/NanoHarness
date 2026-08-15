@@ -148,7 +148,7 @@ class BenchmarkCampaignTest(unittest.TestCase):
             case_ids=("case-1", "case-2"),
             campaign_id="campaign-test",
             repetitions=repetitions,
-            output_root=str(root / ".agent_forge/campaigns"),
+            output_root=str(root / ".agent_forge/runs/campaigns"),
             publish_root=str(root / "benchmarks/campaigns"),
         )
 

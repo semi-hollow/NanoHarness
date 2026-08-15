@@ -95,7 +95,8 @@ class BenchmarkCampaignRequest:
     campaign_id: str
     regression_set: str = "infrastructure-smoke-5"
     repetitions: int = 3
-    output_root: str = ".agent_forge/campaigns"
+    # Domain 只保存稳定的相对路径契约，不依赖外层 filesystem layout 模块。
+    output_root: str = ".agent_forge/runs/campaigns"
     publish_root: str = ""
     resume: bool = True
     allow_dirty: bool = False

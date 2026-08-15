@@ -14,7 +14,7 @@ scenario="governed"
 produce_evidence=true
 stay_attached=false
 workbench_source="governed"
-pointer_path=".agent_forge/latest/run.txt"
+pointer_path=".agent_forge/internal/index/run.txt"
 status_evidence_field="latest_run"
 case "${1:-}" in
   "") ;;
@@ -31,7 +31,7 @@ case "${1:-}" in
     scenario="show-complex"
     produce_evidence=false
     workbench_source="complex"
-    pointer_path=".agent_forge/debug-lab/state/complex_artifact.txt"
+    pointer_path=".agent_forge/internal/debug-lab/state/complex_artifact.txt"
     status_evidence_field="latest_complex"
     ;;
   --serve-complex)
@@ -39,7 +39,7 @@ case "${1:-}" in
     produce_evidence=false
     stay_attached=true
     workbench_source="complex"
-    pointer_path=".agent_forge/debug-lab/state/complex_artifact.txt"
+    pointer_path=".agent_forge/internal/debug-lab/state/complex_artifact.txt"
     status_evidence_field="latest_complex"
     ;;
   *)
@@ -56,7 +56,7 @@ else
   printf '\n=== NanoHarness: open the latest published Evidence ===\n'
 fi
 
-state_dir=".agent_forge/debug-lab/state"
+state_dir=".agent_forge/internal/debug-lab/state"
 mkdir -p "${state_dir}"
 # Workbench 使用同一个稳定 URL；这个小指针只决定首页默认选中哪次运行。
 printf '%s\n' "${workbench_source}" >"${state_dir}/workbench_source.txt"

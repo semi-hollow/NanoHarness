@@ -8,6 +8,12 @@ from agent_forge.bench.domain.campaign import CampaignState, summarize_campaign
 from agent_forge.observability.api import RunStory, load_run_story
 from agent_forge.workbench.domain import EvidenceSource
 from agent_forge.workbench.ports import EvidenceCatalogPort
+from agent_forge.storage_layout import (
+    CAMPAIGN_RUN_ROOT,
+    DEBUG_LAB_STATE_ROOT,
+    INDEX_ROOT,
+    RUNS_ROOT,
+)
 
 
 class FileEvidenceCatalog(EvidenceCatalogPort):
@@ -59,7 +65,7 @@ class FileEvidenceCatalog(EvidenceCatalogPort):
     def _latest_runtime_source(self) -> EvidenceSource:
         """把 ``run.txt`` 指向的任意运行接入公共视图，而非只支持预置场景。"""
 
-        pointer = self.project_dir / ".agent_forge/latest/run.txt"
+        pointer = self.project_dir / INDEX_ROOT / "run.txt"
         run_dir = self._run_dir_from_pointer(pointer)
         story = self._load_story_if_present(run_dir)
         trace_path = run_dir / "trace.json" if run_dir is not None else None
@@ -533,8 +539,8 @@ class FileEvidenceCatalog(EvidenceCatalogPort):
             return None
 
     def latest_run_dir(self) -> Path | None:
-        latest = self.project_dir / ".agent_forge/latest"
-        runs_dir = self.project_dir / ".agent_forge/runs"
+        latest = self.project_dir / INDEX_ROOT
+        runs_dir = self.project_dir / RUNS_ROOT
         candidates: list[Path] = []
         bench_run = self._run_dir_from_pointer(latest / "bench.txt")
         if bench_run and _is_under(bench_run, runs_dir):
@@ -569,9 +575,9 @@ class FileEvidenceCatalog(EvidenceCatalogPort):
     def latest_governed_run_dir(self) -> Path | None:
         """返回受治理恢复场景，不被随后执行的多 Agent 场景覆盖。"""
 
-        pointer = self.project_dir / ".agent_forge/debug-lab/state/control_artifact.txt"
+        pointer = self.project_dir / DEBUG_LAB_STATE_ROOT / "control_artifact.txt"
         run_dir = self._run_dir_from_pointer(pointer)
-        runs_dir = self.project_dir / ".agent_forge/runs"
+        runs_dir = self.project_dir / RUNS_ROOT
         if run_dir is not None and _is_under(run_dir, runs_dir):
             return run_dir
         return None
@@ -605,9 +611,9 @@ class FileEvidenceCatalog(EvidenceCatalogPort):
     def latest_complex_run_dir(self) -> Path | None:
         """返回复杂真实修复场景，绝不回退到其他运行或 Benchmark。"""
 
-        pointer = self.project_dir / ".agent_forge/debug-lab/state/complex_artifact.txt"
+        pointer = self.project_dir / DEBUG_LAB_STATE_ROOT / "complex_artifact.txt"
         run_dir = self._run_dir_from_pointer(pointer)
-        runs_dir = self.project_dir / ".agent_forge/runs"
+        runs_dir = self.project_dir / RUNS_ROOT
         if run_dir is not None and _is_under(run_dir, runs_dir):
             return run_dir
         return None
@@ -707,7 +713,7 @@ class FileEvidenceCatalog(EvidenceCatalogPort):
     def latest_orchestration_summary_path(self) -> Path | None:
         """返回最近一次多 Agent 证据，不受当前 Single-Run 指针影响。"""
 
-        runs_dir = self.project_dir / ".agent_forge/runs"
+        runs_dir = self.project_dir / RUNS_ROOT
         candidates: list[Path] = []
         current = self.latest_multi_agent_summary_path()
         if current is not None:
@@ -719,7 +725,7 @@ class FileEvidenceCatalog(EvidenceCatalogPort):
     def latest_orchestration_fanout_path(self) -> Path | None:
         """返回最近一次并行 Fanout 证据，不受其他 Lab 的运行顺序影响。"""
 
-        runs_dir = self.project_dir / ".agent_forge/runs"
+        runs_dir = self.project_dir / RUNS_ROOT
         candidates: list[Path] = []
         current = self.latest_fanout_summary_path()
         if current is not None:
@@ -731,8 +737,8 @@ class FileEvidenceCatalog(EvidenceCatalogPort):
     def latest_benchmark_run_dir(self) -> Path | None:
         """返回最近一次 SWE-bench 运行，和交互式 Single-Run 分开选取。"""
 
-        latest = self.project_dir / ".agent_forge/latest/bench.txt"
-        runs_dir = self.project_dir / ".agent_forge/runs"
+        latest = self.project_dir / INDEX_ROOT / "bench.txt"
+        runs_dir = self.project_dir / RUNS_ROOT
         pointed = self._run_dir_from_pointer(latest)
         if pointed is not None and (pointed / "results.json").is_file():
             return pointed
@@ -830,8 +836,8 @@ class FileEvidenceCatalog(EvidenceCatalogPort):
     def latest_campaign_dir(self) -> Path | None:
         """优先返回显式发布的 Campaign，避免工作台悄悄切换实验批次。"""
 
-        latest = self.project_dir / ".agent_forge/latest/campaign.txt"
-        campaigns = self.project_dir / ".agent_forge/campaigns"
+        latest = self.project_dir / INDEX_ROOT / "campaign.txt"
+        campaigns = self.project_dir / CAMPAIGN_RUN_ROOT
         pointed = self._run_dir_from_pointer(latest)
         if pointed is not None:
             return pointed

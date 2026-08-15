@@ -20,6 +20,7 @@ from agent_forge.observability.api import (
     replay_trace_file,
 )
 from agent_forge.skills import SkillRegistry, build_default_skill_registry
+from agent_forge.storage_layout import INDEX_ROOT
 
 
 def render_doctor() -> str:
@@ -159,9 +160,9 @@ def print_skills(args: argparse.Namespace) -> None:
 
 
 def _latest_pointer_target() -> Path:
-    pointer = Path(".agent_forge/latest/bench.txt")
+    pointer = INDEX_ROOT / "bench.txt"
     if not pointer.exists():
-        pointer = Path(".agent_forge/latest/run.txt")
+        pointer = INDEX_ROOT / "run.txt"
     if not pointer.exists():
         raise SystemExit("No latest run pointer found.")
     return Path(pointer.read_text(encoding="utf-8").strip())
@@ -171,8 +172,8 @@ def _latest_inspection_target() -> Path:
     """优先选择 canonical single run；缺失时兼容 benchmark pointer。"""
 
     for pointer in (
-        Path(".agent_forge/latest/run.txt"),
-        Path(".agent_forge/latest/bench.txt"),
+        INDEX_ROOT / "run.txt",
+        INDEX_ROOT / "bench.txt",
     ):
         if pointer.exists():
             return Path(pointer.read_text(encoding="utf-8").strip())

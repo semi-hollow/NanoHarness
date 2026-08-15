@@ -22,6 +22,7 @@ from agent_forge.runtime.api import (
 )
 from agent_forge.runtime.application.operator_control import checkpoint_resume_workspace
 from agent_forge.runtime.domain.task import TaskCheckpoint
+from agent_forge.storage_layout import APPROVAL_ROOT, HUMAN_INPUT_ROOT
 
 _Pending = TypeVar("_Pending")
 _CONTINUATION_OWNED_CONFIG = {
@@ -39,11 +40,11 @@ def resume_repository_task(args: argparse.Namespace) -> Path:
     checkpoint = load_task_checkpoint(latest_checkpoint_path(args.run_dir))
     _inherit_resolved_config(args)
     human_input_root = _control_root(
-        args.human_input_root or ".agent_forge/human_input",
+        args.human_input_root or str(HUMAN_INPUT_ROOT),
         checkpoint,
     )
     approval_root = _control_root(
-        args.approval_root or ".agent_forge/approvals",
+        args.approval_root or str(APPROVAL_ROOT),
         checkpoint,
     )
     _persist_operator_decision(

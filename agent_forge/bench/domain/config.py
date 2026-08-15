@@ -54,7 +54,8 @@ class SwebenchRunRequest:
     tool_execution_timeout_seconds: int = DEFAULT_TOOL_EXECUTION_TIMEOUT_SECONDS
 
     # Repository cache、artifact 输出与 official evaluation 开关。
-    repo_cache: str = ".agent_forge/bench/repos"
+    # Domain 只保存稳定的相对路径契约，不依赖外层 filesystem layout 模块。
+    repo_cache: str = ".agent_forge/internal/cache/bench/repos"
     output_root: str = ".agent_forge/runs"
     evaluate: bool = False
     max_workers: int = 1

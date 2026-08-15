@@ -20,7 +20,7 @@ class OperatorConsoleLauncherTest(unittest.TestCase):
     ):
         with tempfile.TemporaryDirectory() as tmp:
             workspace = Path(tmp) / "workspace"
-            pointer = workspace / ".agent_forge" / "latest" / "run.txt"
+            pointer = workspace / ".agent_forge" / "internal" / "index" / "run.txt"
             pointer.parent.mkdir(parents=True)
             pointer.write_text("/tmp/run-artifact", encoding="utf-8")
             artifact = Path(tmp) / "run-artifact"

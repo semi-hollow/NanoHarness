@@ -218,7 +218,7 @@ class PublicCliSmokeTest(unittest.TestCase):
             run_dir = root / ".agent_forge" / "runs" / "run-fanout"
             fanout_dir = run_dir / "fanout"
             fanout_dir.mkdir(parents=True)
-            latest = root / ".agent_forge" / "latest"
+            latest = root / ".agent_forge" / "internal" / "index"
             latest.mkdir(parents=True)
             (latest / "run.txt").write_text(str(run_dir), encoding="utf-8")
             (fanout_dir / "fanout_report.md").write_text(
@@ -277,7 +277,7 @@ class PublicCliSmokeTest(unittest.TestCase):
             root = Path(tmp)
             run_dir = root / ".agent_forge" / "runs" / "run-overview"
             run_dir.mkdir(parents=True)
-            latest = root / ".agent_forge" / "latest"
+            latest = root / ".agent_forge" / "internal" / "index"
             latest.mkdir(parents=True)
             (latest / "run.txt").write_text(str(run_dir), encoding="utf-8")
             (run_dir / "usage.json").write_text("{}", encoding="utf-8")
@@ -291,7 +291,7 @@ class PublicCliSmokeTest(unittest.TestCase):
             root = Path(tmp)
             run_dir = root / ".agent_forge" / "runs" / "run-adaptive"
             run_dir.mkdir(parents=True)
-            latest = root / ".agent_forge" / "latest"
+            latest = root / ".agent_forge" / "internal" / "index"
             latest.mkdir(parents=True)
             (latest / "run.txt").write_text(str(run_dir), encoding="utf-8")
             (run_dir / "usage.json").write_text(
@@ -348,7 +348,7 @@ class PublicCliSmokeTest(unittest.TestCase):
                 encoding="utf-8",
             )
             (run_dir / "trace.json").write_text('{"events": []}', encoding="utf-8")
-            latest = root / ".agent_forge" / "latest"
+            latest = root / ".agent_forge" / "internal" / "index"
             latest.mkdir(parents=True)
             (latest / "run.txt").write_text(str(run_dir), encoding="utf-8")
 
@@ -388,7 +388,7 @@ class PublicCliSmokeTest(unittest.TestCase):
             task_state_dir = run_dir / "task_state"
             task_state_dir.mkdir()
             (task_state_dir / "task-1.json").write_text("{}", encoding="utf-8")
-            latest = root / ".agent_forge" / "latest"
+            latest = root / ".agent_forge" / "internal" / "index"
             latest.mkdir(parents=True)
             (latest / "run.txt").write_text(str(run_dir), encoding="utf-8")
 
@@ -440,8 +440,8 @@ class PublicCliSmokeTest(unittest.TestCase):
                 / "single"
             )
             single_run.mkdir(parents=True)
-            (root / ".agent_forge" / "latest").mkdir(parents=True)
-            (root / ".agent_forge" / "latest" / "bench.txt").write_text(
+            (root / ".agent_forge" / "internal" / "index").mkdir(parents=True)
+            (root / ".agent_forge" / "internal" / "index" / "bench.txt").write_text(
                 ".agent_forge/runs/swebench-demo\n",
                 encoding="utf-8",
             )
@@ -546,9 +546,9 @@ class PublicCliSmokeTest(unittest.TestCase):
     def test_benchmark_view_renders_campaign_denominators_and_run_matrix(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            campaign = root / ".agent_forge/campaigns/campaign-1"
+            campaign = root / ".agent_forge/runs/campaigns/campaign-1"
             campaign.mkdir(parents=True)
-            latest = root / ".agent_forge/latest"
+            latest = root / ".agent_forge/internal/index"
             latest.mkdir(parents=True)
             (latest / "campaign.txt").write_text(str(campaign), encoding="utf-8")
             (campaign / "campaign.json").write_text(
@@ -613,7 +613,7 @@ class PublicCliSmokeTest(unittest.TestCase):
     def test_latest_run_prefers_existing_swebench_over_verify_pointer(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            latest = root / ".agent_forge" / "latest"
+            latest = root / ".agent_forge" / "internal" / "index"
             latest.mkdir(parents=True)
             runs = root / ".agent_forge" / "runs"
             swebench = runs / "swebench-20260707-011718-4944f2e"
@@ -634,7 +634,7 @@ class PublicCliSmokeTest(unittest.TestCase):
     def test_latest_run_uses_newer_future_run_over_old_valid_bench_pointer(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            latest = root / ".agent_forge" / "latest"
+            latest = root / ".agent_forge" / "internal" / "index"
             latest.mkdir(parents=True)
             runs = root / ".agent_forge" / "runs"
             old_bench = runs / "swebench-old"

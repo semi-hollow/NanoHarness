@@ -63,14 +63,14 @@
       "variants": {
         "tool-r0": {
           "source_commit": "0ae0d9ae9444d723e319fc0c7eadec9b631d374c",
-          "dataset_root": ".agent_forge/tool-aci-golden-20-v1/dataset",
-          "historical_runs_root": ".agent_forge/tool-aci-golden-20-v1/tool-r0",
+          "dataset_root": ".agent_forge/archive/experiments/tool-aci-golden-20-v1/dataset",
+          "historical_runs_root": ".agent_forge/archive/experiments/tool-aci-golden-20-v1/tool-r0",
           "manifest_output": "benchmarks/experiments/tool-aci-r1/r0.execution.json"
         },
         "tool-r1": {
           "source_commit": "296000864d6a2c1476c28b790f030b0ffc4cca5b",
-          "dataset_root": ".agent_forge/tool-aci-golden-20-v1/dataset",
-          "historical_runs_root": ".agent_forge/tool-aci-golden-20-v1/tool-r1",
+          "dataset_root": ".agent_forge/archive/experiments/tool-aci-golden-20-v1/dataset",
+          "historical_runs_root": ".agent_forge/archive/experiments/tool-aci-golden-20-v1/tool-r1",
           "manifest_output": "benchmarks/experiments/tool-aci-r1/r1.execution.json"
         }
       }
@@ -113,14 +113,14 @@
       "variants": {
         "tool-r0": {
           "source_commit": "0ae0d9ae9444d723e319fc0c7eadec9b631d374c",
-          "dataset_root": ".agent_forge/tool-aci-golden-20-v1/dataset",
-          "historical_runs_root": ".agent_forge/tool-aci-golden-20-v1/tool-r0",
+          "dataset_root": ".agent_forge/archive/experiments/tool-aci-golden-20-v1/dataset",
+          "historical_runs_root": ".agent_forge/archive/experiments/tool-aci-golden-20-v1/tool-r0",
           "manifest_output": "benchmarks/experiments/tool-aci-r1/r0.execution.json"
         },
         "tool-r2": {
           "source_commit": "d7fc8110f9ec6bde7f7f794fb06f25986d279448",
-          "dataset_root": ".agent_forge/tool-aci-golden-20-r2/dataset",
-          "historical_runs_root": ".agent_forge/tool-aci-golden-20-r2/tool-r2",
+          "dataset_root": ".agent_forge/archive/experiments/tool-aci-golden-20-r2/dataset",
+          "historical_runs_root": ".agent_forge/archive/experiments/tool-aci-golden-20-r2/tool-r2",
           "manifest_output": "benchmarks/experiments/tool-aci-r2/r2.execution.json"
         }
       }

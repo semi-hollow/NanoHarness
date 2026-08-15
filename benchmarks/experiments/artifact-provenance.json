@@ -34,7 +34,7 @@
       "rollback_commit": "a79d71051e0b968df81e5cc0f0851d434e89f358",
       "artifacts": [
         {
-          "locator": ".agent_forge/tool-aci-golden-20-v1/{tool-r0,tool-r1}/**",
+          "locator": ".agent_forge/archive/experiments/tool-aci-golden-20-v1/{tool-r0,tool-r1}/**",
           "role": "private_raw_run_artifacts",
           "producer": "pipeline_direct"
         },
@@ -64,7 +64,7 @@
       "rollback_commit": "92f4de56a1391b58e8e249471ebd4ec04102f60b",
       "artifacts": [
         {
-          "locator": ".agent_forge/tool-aci-golden-20-r2/tool-r2/**",
+          "locator": ".agent_forge/archive/experiments/tool-aci-golden-20-r2/tool-r2/**",
           "role": "private_raw_run_artifacts",
           "producer": "pipeline_direct"
         },

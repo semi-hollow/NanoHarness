@@ -25,7 +25,7 @@ NANOHARNESS_ROOT=/absolute/path/to/NanoHarness \
   zsh -lic 'cd "$NANOHARNESS_ROOT" && .venv/bin/python scripts/run_swebench_verified_mini_50.py --execute'
 ```
 
-运行产物位于 `.agent_forge/evaluations/swebench-verified-mini-50/`。最终
+运行产物位于 `.agent_forge/runs/benchmarks/swebench-verified-mini-50/`。最终
 `campaign_summary.json` 与 `campaign.md` 会报告 official resolved / 50、Wilson 95% 区间、
 empty Patch、基础设施失败、Token、成本、Tool failure 与逐题索引。
 

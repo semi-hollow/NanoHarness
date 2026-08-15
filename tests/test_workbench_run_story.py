@@ -309,8 +309,8 @@ class WorkbenchRunStoryTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             project_dir = Path(tmp)
             run_dir = project_dir / ".agent_forge/runs/governed-run"
-            state_dir = project_dir / ".agent_forge/debug-lab/state"
-            latest_dir = project_dir / ".agent_forge/latest"
+            state_dir = project_dir / ".agent_forge/internal/debug-lab/state"
+            latest_dir = project_dir / ".agent_forge/internal/index"
             run_dir.mkdir(parents=True)
             state_dir.mkdir(parents=True)
             latest_dir.mkdir(parents=True)
@@ -561,7 +561,7 @@ class WorkbenchRunStoryTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             project_dir = Path(tmp)
             run_dir = project_dir / ".agent_forge/runs/runtime-run"
-            latest_dir = project_dir / ".agent_forge/latest"
+            latest_dir = project_dir / ".agent_forge/internal/index"
             run_dir.mkdir(parents=True)
             latest_dir.mkdir(parents=True)
             (run_dir / "trace.json").write_text(
@@ -680,7 +680,7 @@ class WorkbenchRunStoryTest(unittest.TestCase):
                 ),
                 encoding="utf-8",
             )
-            state = project_dir / ".agent_forge/debug-lab/state"
+            state = project_dir / ".agent_forge/internal/debug-lab/state"
             state.mkdir(parents=True)
             (state / "complex_artifact.txt").write_text(
                 str(complex_run),
@@ -924,7 +924,7 @@ class WorkbenchRunStoryTest(unittest.TestCase):
             stale.mkdir(parents=True)
             current.mkdir(parents=True)
             os.utime(stale, (4_000_000_000, 4_000_000_000))
-            latest = project_dir / ".agent_forge" / "latest"
+            latest = project_dir / ".agent_forge" / "internal" / "index"
             latest.mkdir(parents=True)
             (latest / "run.txt").write_text(str(current), encoding="utf-8")
 
@@ -987,7 +987,7 @@ class WorkbenchRunStoryTest(unittest.TestCase):
                 ),
                 encoding="utf-8",
             )
-            latest = project_dir / ".agent_forge/latest"
+            latest = project_dir / ".agent_forge/internal/index"
             latest.mkdir(parents=True)
             (latest / "run.txt").write_text(str(single_run), encoding="utf-8")
 
@@ -1112,7 +1112,7 @@ class WorkbenchRunStoryTest(unittest.TestCase):
                 ),
                 encoding="utf-8",
             )
-            latest = project_dir / ".agent_forge/latest"
+            latest = project_dir / ".agent_forge/internal/index"
             latest.mkdir(parents=True)
             (latest / "run.txt").write_text(str(run_dir), encoding="utf-8")
 
@@ -1249,10 +1249,10 @@ class WorkbenchRunStoryTest(unittest.TestCase):
                 ),
                 encoding="utf-8",
             )
-            latest = project_dir / ".agent_forge/latest"
+            latest = project_dir / ".agent_forge/internal/index"
             latest.mkdir(parents=True)
             (latest / "run.txt").write_text(str(fanout_run), encoding="utf-8")
-            state = project_dir / ".agent_forge/debug-lab/state"
+            state = project_dir / ".agent_forge/internal/debug-lab/state"
             state.mkdir(parents=True)
             (state / "control_artifact.txt").write_text(
                 str(control_run),
@@ -1374,7 +1374,7 @@ class WorkbenchRunStoryTest(unittest.TestCase):
                 ),
                 encoding="utf-8",
             )
-            state_dir = project_dir / ".agent_forge/debug-lab/state"
+            state_dir = project_dir / ".agent_forge/internal/debug-lab/state"
             state_dir.mkdir(parents=True)
             (state_dir / "control_artifact.txt").write_text(
                 str(run_dir),
@@ -1425,7 +1425,7 @@ class WorkbenchRunStoryTest(unittest.TestCase):
                 ),
                 encoding="utf-8",
             )
-            state_dir = project_dir / ".agent_forge/debug-lab/state"
+            state_dir = project_dir / ".agent_forge/internal/debug-lab/state"
             state_dir.mkdir(parents=True)
             (state_dir / "control_artifact.txt").write_text(
                 str(run_dir),
@@ -1481,7 +1481,7 @@ class WorkbenchRunStoryTest(unittest.TestCase):
                 ),
                 encoding="utf-8",
             )
-            latest_dir = project_dir / ".agent_forge/latest"
+            latest_dir = project_dir / ".agent_forge/internal/index"
             latest_dir.mkdir(parents=True)
             (latest_dir / "bench.txt").write_text(
                 str(benchmark_run),
@@ -2025,7 +2025,7 @@ class WorkbenchRunStoryTest(unittest.TestCase):
                 ),
                 encoding="utf-8",
             )
-            latest = project_dir / ".agent_forge" / "latest"
+            latest = project_dir / ".agent_forge" / "internal" / "index"
             latest.mkdir(parents=True)
             (latest / "campaign.txt").write_text(str(campaign), encoding="utf-8")
 
@@ -2154,7 +2154,7 @@ class WorkbenchRunStoryTest(unittest.TestCase):
                 ),
                 encoding="utf-8",
             )
-            latest = project_dir / ".agent_forge" / "latest"
+            latest = project_dir / ".agent_forge" / "internal" / "index"
             latest.mkdir(parents=True)
             (latest / "campaign.txt").write_text(str(campaign), encoding="utf-8")
 

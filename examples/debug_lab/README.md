@@ -168,10 +168,11 @@ Workbench 始终使用同一个地址。先在“选择运行证据”中切换�
 Debugger 看动态因果；Workbench 看最终留下的可验证 Evidence。Benchmark 视图默认显示当前
 Canonical Showcase 状态；Golden-10 和 Infrastructure Smoke-5 只作为开发/健康证据，历史 Campaign 只在归档中复核。
 
-每次 Runtime 运行还会自动发布 `.agent_forge/runtime_evidence/runs/<run>/` 分类视图；直接打开
-`.agent_forge/runtime_evidence/latest/README.md` 可依次查看 Checkpoint、Human Input、Approval、
-Operation Ledger、Trace 和候选产物。历史运行不会被下一次覆盖，完整列表见
-`.agent_forge/runtime_evidence/INDEX.md`；分类文件是权威源的软链接，不是第二份状态副本。
+三个 Lab 的原生运行只保存在 `.agent_forge/runs/showcases/<run>/`；Workbench 通过
+`.agent_forge/internal/index/run.txt` 找到最新一次，不生成第二份分类视图。Lab 1 的原生状态全在
+同一个 `governed-*` 目录：`human_input/`、`approvals/`、`operation_ledger/` 以及
+`phases/<phase-run>/task_state/`。普通 Harness 和 Operator 的跨 Run 控制状态则位于
+`.agent_forge/internal/state/`。这些都是 Runtime 直接写入的权威 JSON，不是展示副本。
 
 ## 场景验证标准
 

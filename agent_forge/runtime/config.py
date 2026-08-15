@@ -49,12 +49,12 @@ class RuntimeConfig:
     model_capabilities: ModelCapabilities | None = None
 
     # Checkpoint、人工控制和状态变更操作幂等状态的持久化位置。
-    task_state_root: str = ".agent_forge/task_state"
+    task_state_root: str = ".agent_forge/internal/state/task_state"
     resume_state: str = ""
-    approval_root: str = ".agent_forge/approvals"
-    human_input_root: str = ".agent_forge/human_input"
+    approval_root: str = ".agent_forge/internal/state/approvals"
+    human_input_root: str = ".agent_forge/internal/state/human_input"
     human_thread_id: str = ""
-    operation_ledger_root: str = ".agent_forge/operation_ledger"
+    operation_ledger_root: str = ".agent_forge/internal/state/operation_ledger"
     approval_mode: str = "trusted"
 
     # 模型可见 Skill 与工具集合策略。

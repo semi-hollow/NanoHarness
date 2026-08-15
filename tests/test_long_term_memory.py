@@ -16,7 +16,7 @@ class LongTermMemoryTest(unittest.TestCase):
         self.root = Path(self.temporary.name)
         # 真实运行把状态放在隐藏目录；不能让 Context 检索把记忆 JSON 当源码读取。
         self.repository = JsonLongTermMemoryRepository(
-            self.root / ".agent_forge/memory"
+            self.root / ".agent_forge/internal/state/memory"
         )
         self.service = LongTermMemoryService(self.repository)
 

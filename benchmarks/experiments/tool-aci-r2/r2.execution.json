@@ -27,7 +27,7 @@
   "pipeline_config": {
     "path": "benchmarks/experiments/tool-aci-runner-v1.json",
     "role": "pipeline_config",
-    "sha256": "ca72f55b2e12044faecaa126f25154192e611912e91517654f7ec378243ddd6e"
+    "sha256": "129b445dfea662dfe626decc0635bc97f8d716a59df9698170970ee4d3cdd13d"
   },
   "protocol": {
     "path": "benchmarks/experiments/tool-aci-r2/plan.json",
@@ -38,7 +38,7 @@
     "analysis_included": false,
     "historical_run_predates_this_launcher": true,
     "launcher": "scripts/run_tool_aci_golden_20.py",
-    "launcher_sha256": "3066872f95f0e014e94928a8c85fb24f867ab61a7da3a69567ffa7601a324fdd",
+    "launcher_sha256": "a53348a54417792f18408779793a2b4a81a1d4f3869737fc157a86583912bae1",
     "origin": "imported_historical_run",
     "run_artifacts_producer": "forge bench swebench"
   },
@@ -47,22 +47,22 @@
     {
       "artifacts": [
         {
-          "path": ".agent_forge/tool-aci-golden-20-r2/tool-r2/shard-a/swebench-20260813-221206-3cac852/results.json",
+          "path": ".agent_forge/archive/experiments/tool-aci-golden-20-r2/tool-r2/shard-a/swebench-20260813-221206-3cac852/results.json",
           "role": "results",
           "sha256": "67b686f8b0ba3052f7dc207f4af06cabf6ecf5f8638e51144d6e33411e3216ec"
         },
         {
-          "path": ".agent_forge/tool-aci-golden-20-r2/tool-r2/shard-a/swebench-20260813-221206-3cac852/scorecard.json",
+          "path": ".agent_forge/archive/experiments/tool-aci-golden-20-r2/tool-r2/shard-a/swebench-20260813-221206-3cac852/scorecard.json",
           "role": "scorecard",
           "sha256": "610b17fb0213cf92f9135e516531f67fae7a1f708af5000aeea781cbc1a42802"
         },
         {
-          "path": ".agent_forge/tool-aci-golden-20-r2/tool-r2/shard-a/swebench-20260813-221206-3cac852/predictions.jsonl",
+          "path": ".agent_forge/archive/experiments/tool-aci-golden-20-r2/tool-r2/shard-a/swebench-20260813-221206-3cac852/predictions.jsonl",
           "role": "predictions",
           "sha256": "36eeff57895ca84358b3c9ddc46a7ea6a2a436790c44b97d3ea93dbdab4d5f77"
         },
         {
-          "path": ".agent_forge/tool-aci-golden-20-r2/tool-r2/shard-a/swebench-20260813-221206-3cac852/agent-forge-opencode-go-deepseek-v4-flash.swebench-20260813-221206-3cac852.json",
+          "path": ".agent_forge/archive/experiments/tool-aci-golden-20-r2/tool-r2/shard-a/swebench-20260813-221206-3cac852/agent-forge-opencode-go-deepseek-v4-flash.swebench-20260813-221206-3cac852.json",
           "role": "official_aggregate",
           "sha256": "3e9e531cf2ee91cb63b20356a7cfe530d67e8cd36ccfbdcbdcd66234faeb3b9a"
         }
@@ -74,29 +74,29 @@
         "django__django-12209",
         "sphinx-doc__sphinx-10323"
       ],
-      "run_dir": ".agent_forge/tool-aci-golden-20-r2/tool-r2/shard-a/swebench-20260813-221206-3cac852",
+      "run_dir": ".agent_forge/archive/experiments/tool-aci-golden-20-r2/tool-r2/shard-a/swebench-20260813-221206-3cac852",
       "run_id": "swebench-20260813-221206-3cac852",
       "shard": "shard-a"
     },
     {
       "artifacts": [
         {
-          "path": ".agent_forge/tool-aci-golden-20-r2/tool-r2/shard-b/swebench-20260813-231236-25007c8/results.json",
+          "path": ".agent_forge/archive/experiments/tool-aci-golden-20-r2/tool-r2/shard-b/swebench-20260813-231236-25007c8/results.json",
           "role": "results",
           "sha256": "976bec11d7a63ed455874fb8a14f443f239ac1b714c5687c0481f85c10d7ce00"
         },
         {
-          "path": ".agent_forge/tool-aci-golden-20-r2/tool-r2/shard-b/swebench-20260813-231236-25007c8/scorecard.json",
+          "path": ".agent_forge/archive/experiments/tool-aci-golden-20-r2/tool-r2/shard-b/swebench-20260813-231236-25007c8/scorecard.json",
           "role": "scorecard",
           "sha256": "0cc2b3f563d5f1bf1ed60df9f1ac64b3f7a9c13adbf3415ed04f8276aa3ff02b"
         },
         {
-          "path": ".agent_forge/tool-aci-golden-20-r2/tool-r2/shard-b/swebench-20260813-231236-25007c8/predictions.jsonl",
+          "path": ".agent_forge/archive/experiments/tool-aci-golden-20-r2/tool-r2/shard-b/swebench-20260813-231236-25007c8/predictions.jsonl",
           "role": "predictions",
           "sha256": "91e7895578235be271518c05476b12609ee908c71fbcc9c6793f50260cea5013"
         },
         {
-          "path": ".agent_forge/tool-aci-golden-20-r2/tool-r2/shard-b/swebench-20260813-231236-25007c8/agent-forge-opencode-go-deepseek-v4-flash.swebench-20260813-231236-25007c8.json",
+          "path": ".agent_forge/archive/experiments/tool-aci-golden-20-r2/tool-r2/shard-b/swebench-20260813-231236-25007c8/agent-forge-opencode-go-deepseek-v4-flash.swebench-20260813-231236-25007c8.json",
           "role": "official_aggregate",
           "sha256": "b91827347f955603e5b41fea27353cfa176b6420c67a18c223dfcd2f29a2e910"
         }
@@ -108,29 +108,29 @@
         "matplotlib__matplotlib-22871",
         "django__django-13028"
       ],
-      "run_dir": ".agent_forge/tool-aci-golden-20-r2/tool-r2/shard-b/swebench-20260813-231236-25007c8",
+      "run_dir": ".agent_forge/archive/experiments/tool-aci-golden-20-r2/tool-r2/shard-b/swebench-20260813-231236-25007c8",
       "run_id": "swebench-20260813-231236-25007c8",
       "shard": "shard-b"
     },
     {
       "artifacts": [
         {
-          "path": ".agent_forge/tool-aci-golden-20-r2/tool-r2/shard-c/swebench-20260814-000313-7cda939/results.json",
+          "path": ".agent_forge/archive/experiments/tool-aci-golden-20-r2/tool-r2/shard-c/swebench-20260814-000313-7cda939/results.json",
           "role": "results",
           "sha256": "53f9786057d88c0467058ecadccd0ae208570a6118023eb5d82783dac172aea2"
         },
         {
-          "path": ".agent_forge/tool-aci-golden-20-r2/tool-r2/shard-c/swebench-20260814-000313-7cda939/scorecard.json",
+          "path": ".agent_forge/archive/experiments/tool-aci-golden-20-r2/tool-r2/shard-c/swebench-20260814-000313-7cda939/scorecard.json",
           "role": "scorecard",
           "sha256": "230a59ccbf30fad46b34bafe458c730b9d0ec8b94d1b2966f403c5a6be5b7a76"
         },
         {
-          "path": ".agent_forge/tool-aci-golden-20-r2/tool-r2/shard-c/swebench-20260814-000313-7cda939/predictions.jsonl",
+          "path": ".agent_forge/archive/experiments/tool-aci-golden-20-r2/tool-r2/shard-c/swebench-20260814-000313-7cda939/predictions.jsonl",
           "role": "predictions",
           "sha256": "37ca5c5a490f391c529a48649903c324a3990eb88d5abbca13a0571e64c9c736"
         },
         {
-          "path": ".agent_forge/tool-aci-golden-20-r2/tool-r2/shard-c/swebench-20260814-000313-7cda939/agent-forge-opencode-go-deepseek-v4-flash.swebench-20260814-000313-7cda939.json",
+          "path": ".agent_forge/archive/experiments/tool-aci-golden-20-r2/tool-r2/shard-c/swebench-20260814-000313-7cda939/agent-forge-opencode-go-deepseek-v4-flash.swebench-20260814-000313-7cda939.json",
           "role": "official_aggregate",
           "sha256": "1bf7f51b05d3d1d0dfaff8849ea4108980b91c649e3a0dcde37b6e1743dc9100"
         }
@@ -142,29 +142,29 @@
         "pydata__xarray-6938",
         "pylint-dev__pylint-6903"
       ],
-      "run_dir": ".agent_forge/tool-aci-golden-20-r2/tool-r2/shard-c/swebench-20260814-000313-7cda939",
+      "run_dir": ".agent_forge/archive/experiments/tool-aci-golden-20-r2/tool-r2/shard-c/swebench-20260814-000313-7cda939",
       "run_id": "swebench-20260814-000313-7cda939",
       "shard": "shard-c"
     },
     {
       "artifacts": [
         {
-          "path": ".agent_forge/tool-aci-golden-20-r2/tool-r2/shard-d/swebench-20260814-003723-609b8df/results.json",
+          "path": ".agent_forge/archive/experiments/tool-aci-golden-20-r2/tool-r2/shard-d/swebench-20260814-003723-609b8df/results.json",
           "role": "results",
           "sha256": "101c9696d5e3236729ebec755924c0686672ba92f14ea403bb13aa912c7b763e"
         },
         {
-          "path": ".agent_forge/tool-aci-golden-20-r2/tool-r2/shard-d/swebench-20260814-003723-609b8df/scorecard.json",
+          "path": ".agent_forge/archive/experiments/tool-aci-golden-20-r2/tool-r2/shard-d/swebench-20260814-003723-609b8df/scorecard.json",
           "role": "scorecard",
           "sha256": "05fe574e392bf1129098afe74a613b52dbb39ef027ab0c89a9444a8de82eca57"
         },
         {
-          "path": ".agent_forge/tool-aci-golden-20-r2/tool-r2/shard-d/swebench-20260814-003723-609b8df/predictions.jsonl",
+          "path": ".agent_forge/archive/experiments/tool-aci-golden-20-r2/tool-r2/shard-d/swebench-20260814-003723-609b8df/predictions.jsonl",
           "role": "predictions",
           "sha256": "9add05c06da4697c11e78b2940633c0a3de9d78c5830da1730e069a7ff86088d"
         },
         {
-          "path": ".agent_forge/tool-aci-golden-20-r2/tool-r2/shard-d/swebench-20260814-003723-609b8df/agent-forge-opencode-go-deepseek-v4-flash.swebench-20260814-003723-609b8df.json",
+          "path": ".agent_forge/archive/experiments/tool-aci-golden-20-r2/tool-r2/shard-d/swebench-20260814-003723-609b8df/agent-forge-opencode-go-deepseek-v4-flash.swebench-20260814-003723-609b8df.json",
           "role": "official_aggregate",
           "sha256": "51e0b4cafc11434bb7e444ec586bc55d39d80a2bcf565de8ed8571971ccce099"
         }
@@ -176,7 +176,7 @@
         "sympy__sympy-13372",
         "django__django-10999"
       ],
-      "run_dir": ".agent_forge/tool-aci-golden-20-r2/tool-r2/shard-d/swebench-20260814-003723-609b8df",
+      "run_dir": ".agent_forge/archive/experiments/tool-aci-golden-20-r2/tool-r2/shard-d/swebench-20260814-003723-609b8df",
       "run_id": "swebench-20260814-003723-609b8df",
       "shard": "shard-d"
     }

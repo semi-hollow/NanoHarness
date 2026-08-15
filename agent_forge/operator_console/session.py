@@ -25,6 +25,7 @@ from agent_forge.runtime.domain.human_input import HumanInputRequest
 from agent_forge.runtime.domain.task import TaskCheckpoint, TaskRunStatus
 from agent_forge.runtime.ports import ApprovalRepository, HumanInputRepository
 from agent_forge.runtime.api import latest_checkpoint_path, load_task_checkpoint
+from agent_forge.storage_layout import INDEX_ROOT
 
 
 @dataclass(frozen=True)
@@ -188,7 +189,7 @@ class OperatorSession:
     def attach_latest(self, workspace: str | Path) -> TaskCheckpoint:
         """读取 workspace 的 latest 指针并接管最近一次 run。"""
 
-        pointer = Path(workspace).expanduser().resolve() / ".agent_forge/latest/run.txt"
+        pointer = Path(workspace).expanduser().resolve() / INDEX_ROOT / "run.txt"
         if not pointer.is_file():
             raise FileNotFoundError(f"没有可恢复的 latest run: {pointer}")
         raw_target = Path(pointer.read_text(encoding="utf-8").strip())

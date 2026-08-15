@@ -26,7 +26,7 @@ experiments/
 ```
 
 原始 Trace、Usage、candidate Patch 和 official evaluator 产物保存在本机
-`.agent_forge/tool-aci-golden-20-*/`。旧 Runtime、Ledger、模型选型与历史采样资产统一放在
+`.agent_forge/archive/experiments/tool-aci-golden-20-*/`。旧 Runtime、Ledger、模型选型与历史采样资产统一放在
 [`benchmarks/archive/`](../archive/README.md)，不进入当前阅读链。
 
 讲逐题 gain/regression 前，先运行 `NanoHarness Benchmark - Inspect SWE-bench Case`，把

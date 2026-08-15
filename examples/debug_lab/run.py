@@ -15,8 +15,8 @@ from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 MULTI_AGENT_TEMPLATE_ROOT = Path(__file__).resolve().parent / "multi_agent_repository"
-STATE_ROOT = PROJECT_ROOT / ".agent_forge" / "debug-lab"
-RUNS_ROOT = PROJECT_ROOT / ".agent_forge" / "runs"
+STATE_ROOT = PROJECT_ROOT / ".agent_forge" / "internal" / "debug-lab"
+RUNS_ROOT = PROJECT_ROOT / ".agent_forge" / "runs" / "showcases"
 WORKBENCH_LAUNCHER = PROJECT_ROOT / "scripts" / "showcase_demo.sh"
 WORKBENCH_FLAGS = {
     "governed": "--show-governed",
@@ -31,6 +31,7 @@ from examples.debug_lab.support import (  # noqa: E402
     publish_latest,
 )
 from agent_forge.showcase import ControlPlaneShowcaseResult  # noqa: E402
+from agent_forge.storage_layout import ensure_storage_layout  # noqa: E402
 from agent_forge.tools.registry import ToolRegistry  # noqa: E402
 
 
@@ -307,6 +308,7 @@ def main() -> None:
     )
     args = parser.parse_args()
     os.chdir(PROJECT_ROOT)
+    ensure_storage_layout(PROJECT_ROOT)
 
     # 只读入口与三个产证 Lab 分开：复盘历史运行不应再次消耗模型 token。
     if args.scenario == "workbench":
