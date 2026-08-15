@@ -1,7 +1,8 @@
 """可恢复的 repeated matched benchmark campaign 用例。
 
 阅读入口只有 ``RunBenchmarkCampaign.run_campaign``。它在每个运行槽位前后保存
-``campaign.json``，因此进程中断后可以跳过已完成槽位并重试 running/failed 槽位。
+``campaign.json``。普通 A/B campaign 可重试 running/failed 槽位；严格 Pass@1
+campaign 则只继续未开始槽位，已经启动的轨迹会 fail closed。
 """
 
 from __future__ import annotations
@@ -62,7 +63,7 @@ class RunBenchmarkCampaign:
         self,
         request: BenchmarkCampaignRequest,
     ) -> BenchmarkCampaignResult:
-        """已完成槽位幂等跳过；失败槽位在下一次相同配置恢复时重试。"""
+        """已完成槽位幂等跳过，并按请求中冻结的 started-slot 策略恢复。"""
 
         # region 准备区（实现细节）：目录、源码、实验身份与可恢复状态
         # configuration_digest 同时绑定实验配置和源码身份；恢复只接受同一 digest，
@@ -100,6 +101,13 @@ class RunBenchmarkCampaign:
             key=lambda campaign_run_slot: campaign_run_slot.ordinal,
         ):
             if campaign_run_slot.status == "completed":
+                continue
+            if not request.rerun_incomplete_slots and campaign_run_slot.attempts > 0:
+                self._fail_closed_started_slot(
+                    campaign_run_slot,
+                    campaign_state,
+                    campaign_dir,
+                )
                 continue
             retry_same_slot = True
             while retry_same_slot:
@@ -213,6 +221,24 @@ class RunBenchmarkCampaign:
         campaign_run_slot.status = "running"
         campaign_run_slot.attempts += 1
         campaign_run_slot.error = ""
+        campaign_state.status = "running"
+        campaign_state.updated_at = self._now()
+        self._artifacts.save_state(campaign_dir, campaign_state)
+
+    def _fail_closed_started_slot(
+        self,
+        campaign_run_slot: CampaignRunRecord,
+        campaign_state: CampaignState,
+        campaign_dir: Path,
+    ) -> None:
+        """恢复时绝不为已启动的 Pass@1 槽位创建第二条 Agent 轨迹。"""
+
+        previous_status = campaign_run_slot.status
+        campaign_run_slot.status = "failed"
+        campaign_run_slot.error = (
+            "strict_pass_at_one_no_rerun: "
+            f"previous_status={previous_status}; attempts={campaign_run_slot.attempts}"
+        )
         campaign_state.status = "running"
         campaign_state.updated_at = self._now()
         self._artifacts.save_state(campaign_dir, campaign_state)

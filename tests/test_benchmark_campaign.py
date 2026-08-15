@@ -38,9 +38,13 @@ class _FakeBenchmarkRunner:
         self.fail_once_for = ""
         self.failed = False
         self.structured_failures_remaining: dict[str, int] = {}
+        self.interrupt_once = False
 
     def __call__(self, request):
         self.requests.append(request)
+        if self.interrupt_once:
+            self.interrupt_once = False
+            raise KeyboardInterrupt("simulated process interruption")
         if request.tool_routing_mode == self.fail_once_for and not self.failed:
             self.failed = True
             raise RuntimeError("temporary provider failure /Users/private/key")
@@ -339,6 +343,38 @@ class BenchmarkCampaignTest(unittest.TestCase):
         )
         self.assertIn("fixed-sample Pass@1 capability snapshot", report)
         self.assertNotIn("## Paired Official Outcomes", report)
+
+    def test_strict_pass_at_one_resume_continues_pending_without_rerunning_started(
+        self,
+    ):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            runner = _FakeBenchmarkRunner()
+            runner.interrupt_once = True
+            request = replace(
+                self._request(root, repetitions=1),
+                rerun_incomplete_slots=False,
+                max_infrastructure_attempts=1,
+            )
+            use_case = RunBenchmarkCampaign(
+                runner,
+                FileCampaignArtifacts(root),
+                _SourceIdentity(),
+            )
+
+            with self.assertRaises(KeyboardInterrupt):
+                use_case.run_campaign(request)
+            resumed = use_case.run_campaign(request)
+
+        self.assertEqual(len(runner.requests), 4)
+        interrupted = resumed.state.records[0]
+        self.assertEqual(interrupted.status, "failed")
+        self.assertEqual(interrupted.attempts, 1)
+        self.assertIn("strict_pass_at_one_no_rerun", interrupted.error)
+        self.assertTrue(
+            all(record.status == "completed" for record in resumed.state.records[1:])
+        )
+        self.assertEqual(resumed.state.status, "completed_with_failures")
 
 
 if __name__ == "__main__":

@@ -99,6 +99,7 @@ class BenchmarkCampaignRequest:
     output_root: str = ".agent_forge/runs/campaigns"
     publish_root: str = ""
     resume: bool = True
+    rerun_incomplete_slots: bool = True
     allow_dirty: bool = False
     max_infrastructure_attempts: int = 2
     variants: tuple[CampaignVariant, ...] = DEFAULT_CAMPAIGN_VARIANTS
@@ -123,6 +124,10 @@ class BenchmarkCampaignRequest:
             raise ValueError("campaign requires one or more uniquely named variants")
         if not 1 <= self.max_infrastructure_attempts <= 2:
             raise ValueError("max_infrastructure_attempts must be 1 or 2")
+        if not self.rerun_incomplete_slots and self.max_infrastructure_attempts != 1:
+            raise ValueError(
+                "strict started-slot no-rerun requires max_infrastructure_attempts=1"
+            )
         if self.benchmark.cases_file:
             raise ValueError(
                 "campaign currently requires a versioned dataset/regression set; "
@@ -177,6 +182,10 @@ class BenchmarkCampaignRequest:
             "benchmark": base,
             "variants": [variant.to_dict() for variant in self.variants],
         }
+        # 省略兼容默认值，保持既有 campaign 的 configuration digest 可恢复；
+        # 严格 Pass@1 才把 no-rerun 策略写入冻结身份。
+        if not self.rerun_incomplete_slots:
+            identity["rerun_incomplete_slots"] = False
         if self.cohort is not None:
             identity["cohort"] = self.cohort.to_dict()
         return identity

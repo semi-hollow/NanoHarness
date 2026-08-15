@@ -8,13 +8,24 @@ import hashlib
 import json
 import os
 import subprocess
+import sys
+import tempfile
 from pathlib import Path
 from typing import Any, Sequence
 
+from agent_forge.atomic_json import atomic_write_json
+from agent_forge.bench.adapters.campaign_files import (
+    FileCampaignArtifacts,
+    GitSourceIdentity,
+)
 from agent_forge.bench.api import run_benchmark_campaign
 from agent_forge.bench.domain.campaign import (
     BenchmarkCampaignRequest,
+    CampaignState,
     CampaignVariant,
+    OFFICIAL_DECIDED,
+    RETRYABLE_INFRASTRUCTURE_FAILURES,
+    campaign_config_digest,
 )
 from agent_forge.bench.domain.cohort import load_benchmark_cohort
 from agent_forge.bench.domain.config import SwebenchRunRequest, safe_id
@@ -25,6 +36,15 @@ COHORT_PATH = PROJECT_ROOT / "benchmarks/showcase/swebench-verified-mini-50-v1.j
 DEFAULT_OUTPUT_ROOT = ".agent_forge/runs/benchmarks/swebench-verified-mini-50"
 DEFAULT_PUBLISH_ROOT = "benchmarks/results/swebench-verified-mini-50"
 OPEN_CODE_GO_BASE_URL = "https://opencode.ai/zen/go/v1"
+DEFAULT_MODEL = "deepseek-v4-flash"
+DEFAULT_MAX_CONTEXT_CHARS = 64_000
+DEFAULT_MAX_PROMPT_TOKENS = 131_072
+DEFAULT_RESERVED_OUTPUT_TOKENS = 16_384
+DEFAULT_SWEBENCH_HARNESS_ROOT = ".agent_forge/internal/debug-lab/tools/SWE-bench"
+SMOKE_GATE_CASE_IDS = (
+    "django__django-11451",
+    "sphinx-doc__sphinx-10323",
+)
 MINI_50_RUNTIME = CampaignVariant(
     name="canonical-runtime",
     label="NanoHarness Canonical Runtime",
@@ -51,16 +71,28 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Start the 50 paid model runs after local validation.",
     )
-    parser.add_argument("--model", default="deepseek-v4-pro")
+    parser.add_argument("--model", default=DEFAULT_MODEL)
     parser.add_argument(
         "--reasoning-effort",
         choices=["high", "max"],
         default="max",
     )
     parser.add_argument("--max-steps", type=_positive_int, default=128)
-    parser.add_argument("--max-context-chars", type=_positive_int, default=12_000)
-    parser.add_argument("--max-prompt-tokens", type=_positive_int, default=49_152)
-    parser.add_argument("--reserved-output-tokens", type=_positive_int, default=4_096)
+    parser.add_argument(
+        "--max-context-chars",
+        type=_positive_int,
+        default=DEFAULT_MAX_CONTEXT_CHARS,
+    )
+    parser.add_argument(
+        "--max-prompt-tokens",
+        type=_positive_int,
+        default=DEFAULT_MAX_PROMPT_TOKENS,
+    )
+    parser.add_argument(
+        "--reserved-output-tokens",
+        type=_positive_int,
+        default=DEFAULT_RESERVED_OUTPUT_TOKENS,
+    )
     parser.add_argument("--max-tool-calls-per-turn", type=_positive_int, default=4)
     parser.add_argument("--case-timeout-seconds", type=_positive_int, default=3_600)
     parser.add_argument(
@@ -94,10 +126,18 @@ def build_parser() -> argparse.ArgumentParser:
         default=".agent_forge/internal/cache/bench/repos",
     )
     parser.add_argument(
+        "--swebench-harness-root",
+        default=DEFAULT_SWEBENCH_HARNESS_ROOT,
+        help="Local SWE-bench source root used by the official evaluator.",
+    )
+    parser.add_argument(
         "--resume",
         action=argparse.BooleanOptionalAction,
         default=True,
-        help="Resume the same campaign ID and skip completed cases.",
+        help=(
+            "Resume pending cases under the same campaign ID. A case that already "
+            "started is never launched again under strict Pass@1."
+        ),
     )
     parser.add_argument(
         "--allow-dirty",
@@ -171,8 +211,10 @@ def build_campaign_request(
         regression_set=cohort.cohort_id,
         repetitions=1,
         output_root=args.output_root,
-        publish_root=args.publish_root if args.publish else "",
+        # Public publication happens only after the Mini-50-specific final gate.
+        publish_root="",
         resume=args.resume,
+        rerun_incomplete_slots=False,
         allow_dirty=args.allow_dirty,
         max_infrastructure_attempts=args.max_infrastructure_attempts,
         variants=(MINI_50_RUNTIME,),
@@ -180,10 +222,94 @@ def build_campaign_request(
     )
 
 
-def render_plan(request: BenchmarkCampaignRequest, *, execute: bool) -> str:
+def build_frozen_plan(
+    request: BenchmarkCampaignRequest,
+    *,
+    project_root: Path = PROJECT_ROOT,
+    swebench_harness_root: str | Path = DEFAULT_SWEBENCH_HARNESS_ROOT,
+) -> dict[str, Any]:
+    """构造 outcome 前冻结、执行前后均可机械重算的安全身份。"""
+
+    source_identity = GitSourceIdentity(project_root).read()
+    harness_root = _resolve_harness_root(swebench_harness_root, project_root)
+    harness_entrypoint = harness_root / "swebench/harness/run_evaluation.py"
+    if not harness_entrypoint.is_file():
+        raise RuntimeError(
+            f"SWE-bench official harness is missing: {harness_entrypoint}"
+        )
+    campaign_identity = request.identity()
+    benchmark = request.benchmark
+    return {
+        "schema_version": 1,
+        "artifact_type": "swebench_verified_mini_50_frozen_plan",
+        "campaign_id": request.campaign_id,
+        "frozen_before_mini_50_outcomes": True,
+        "source_identity": source_identity,
+        "campaign_identity": campaign_identity,
+        "campaign_identity_sha256": _json_sha256(campaign_identity),
+        "cohort": {
+            "manifest": str(COHORT_PATH.relative_to(PROJECT_ROOT)),
+            "manifest_sha256": _sha256_file(COHORT_PATH),
+            "ordered_case_ids_sha256": hashlib.sha256(
+                "\n".join(request.case_ids).encode("utf-8")
+            ).hexdigest(),
+            "planned": len(request.case_ids),
+            "dataset_name": benchmark.dataset_name,
+            "dataset_revision": benchmark.dataset_revision,
+            "split": benchmark.split,
+        },
+        "model_identity": {
+            "provider": benchmark.provider,
+            "requested_model": benchmark.model,
+            "base_url": benchmark.base_url,
+            "thinking_mode": benchmark.thinking_mode,
+            "reasoning_effort": benchmark.reasoning_effort,
+            "max_steps": benchmark.max_steps,
+            "max_context_chars": benchmark.max_context_chars,
+            "max_prompt_tokens": benchmark.max_prompt_tokens,
+            "reserved_output_tokens": benchmark.reserved_output_tokens,
+            "max_tool_calls_per_turn": benchmark.max_tool_calls_per_turn,
+            "cost_budget_usd": benchmark.cost_budget_usd,
+        },
+        "official_evaluator": {
+            "harness_root": str(swebench_harness_root),
+            "entrypoint_sha256": _sha256_file(harness_entrypoint),
+            "namespace": benchmark.official_namespace,
+            "cache_level": benchmark.official_cache_level,
+        },
+        "smoke_gate": {
+            "case_ids": list(SMOKE_GATE_CASE_IDS),
+            "correctness_is_not_a_gate": True,
+        },
+        "pass_at_one": {
+            "started_slot_policy": "never_restart; fail_closed_if_not_terminal",
+            "whole_case_attempts": request.max_infrastructure_attempts,
+            "provider_request_attempts": benchmark.model_request_max_attempts,
+            "empty_patch_counts_in_planned_denominator": True,
+        },
+        "final_publish_gate": {
+            "planned": 50,
+            "terminal_accounted": 50,
+            "provider_infra": 0,
+            "runtime_infra": 0,
+            "evaluator_infra": 0,
+            "identity_drift": 0,
+        },
+        "claim": "fixed HAL SWE-bench Verified Mini-50 Pass@1 snapshot",
+        "not_claimed": "full 500-case SWE-bench Verified leaderboard score",
+    }
+
+
+def render_plan(
+    request: BenchmarkCampaignRequest,
+    *,
+    execute: bool,
+    frozen_plan: dict[str, Any] | None = None,
+) -> str:
     """只输出无密钥的运行计划，供启动前核对或自动归档。"""
 
     benchmark = request.benchmark
+    plan = frozen_plan or build_frozen_plan(request)
     payload: dict[str, Any] = {
         "mode": "execute" if execute else "validate_only",
         "paid_model_calls_started": False,
@@ -197,13 +323,29 @@ def render_plan(request: BenchmarkCampaignRequest, *, execute: bool) -> str:
         "thinking_mode": benchmark.thinking_mode,
         "reasoning_effort": benchmark.reasoning_effort,
         "max_steps": benchmark.max_steps,
+        "max_context_chars": benchmark.max_context_chars,
+        "max_prompt_tokens": benchmark.max_prompt_tokens,
+        "reserved_output_tokens": benchmark.reserved_output_tokens,
+        "max_tool_calls_per_turn": benchmark.max_tool_calls_per_turn,
         "cost_budget_usd": benchmark.cost_budget_usd,
+        "case_timeout_seconds": int(benchmark.timeout_seconds),
+        "model_request_timeout_seconds": benchmark.model_request_timeout_seconds,
+        "tool_execution_timeout_seconds": benchmark.tool_execution_timeout_seconds,
         "model_request_max_attempts": benchmark.model_request_max_attempts,
         "whole_case_attempts": request.max_infrastructure_attempts,
         "official_evaluator": benchmark.evaluate,
         "output_root": request.output_root,
         "resume": request.resume,
         "source_clean_required": not request.allow_dirty,
+        "started_slot_policy": plan["pass_at_one"]["started_slot_policy"],
+        "frozen_plan_sha256": _json_sha256(plan),
+        "source_revision": plan["source_identity"]["revision"],
+        "cohort_manifest_sha256": plan["cohort"]["manifest_sha256"],
+        "ordered_case_ids_sha256": plan["cohort"]["ordered_case_ids_sha256"],
+        "dataset_revision": plan["cohort"]["dataset_revision"],
+        "official_harness_entrypoint_sha256": plan["official_evaluator"][
+            "entrypoint_sha256"
+        ],
         "claim": "fixed HAL SWE-bench Verified Mini-50 Pass@1 snapshot",
         "not_claimed": "full 500-case SWE-bench Verified leaderboard score",
     }
@@ -215,21 +357,59 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     args = build_parser().parse_args(argv)
     request = build_campaign_request(args)
-    print(render_plan(request, execute=args.execute))
-    if not args.execute:
-        print("VALIDATED_ONLY: no provider request was sent.")
-        return 0
-    if not os.getenv("OPENCODE_GO_API_KEY", "").strip():
+    if args.execute and not os.getenv("OPENCODE_GO_API_KEY", "").strip():
         raise RuntimeError(
             "OPENCODE_GO_API_KEY is missing; refusing to fall back to another account"
         )
+    frozen_plan = build_frozen_plan(
+        request,
+        swebench_harness_root=args.swebench_harness_root,
+    )
+    frozen_plan_path = _freeze_or_validate_plan(request, frozen_plan)
+    print(render_plan(request, execute=args.execute, frozen_plan=frozen_plan))
+    print(f"frozen_plan={frozen_plan_path}")
+    if not args.execute:
+        print("VALIDATED_ONLY: frozen plan persisted; no provider request was sent.")
+        return 0
+    _configure_swebench_harness(Path(args.swebench_harness_root))
+    if (
+        build_frozen_plan(
+            request,
+            swebench_harness_root=args.swebench_harness_root,
+        )
+        != frozen_plan
+    ):
+        raise RuntimeError("source/config/cohort/model drift before first model call")
     result = run_benchmark_campaign(request, project_dir=PROJECT_ROOT)
+    final_plan = build_frozen_plan(
+        request,
+        swebench_harness_root=args.swebench_harness_root,
+    )
+    gate = build_final_publish_gate(
+        result.state,
+        request=request,
+        frozen_plan=frozen_plan,
+        final_plan=final_plan,
+    )
+    gate_path = result.campaign_dir / "final_publish_gate.json"
+    atomic_write_json(gate_path, gate)
     print(f"campaign_dir={result.campaign_dir}")
     print(f"summary={result.summary_path}")
     print(f"report={result.report_path}")
-    if result.published_bundle_dir is not None:
-        print(f"published_bundle={result.published_bundle_dir}")
-    return 0 if result.state.status == "completed" else 2
+    print(f"final_publish_gate={gate_path}")
+    print(f"publishable={str(gate['publishable']).lower()}")
+    if args.publish and gate["publishable"]:
+        summary = json.loads(result.summary_path.read_text(encoding="utf-8"))
+        published = FileCampaignArtifacts(PROJECT_ROOT).publish_public_bundle(
+            args.publish_root,
+            result.campaign_dir,
+            result.state,
+            summary,
+        )
+        print(f"published_bundle={published}")
+    elif args.publish:
+        print("PUBLICATION_REFUSED: final Mini-50 gate did not pass.")
+    return 0 if gate["publishable"] else 2
 
 
 def _default_campaign_id(args: argparse.Namespace, project_root: Path) -> str:
@@ -267,6 +447,188 @@ def _git_revision(project_root: Path) -> str:
     if process.returncode != 0 or not process.stdout.strip():
         raise RuntimeError("cannot resolve the NanoHarness source revision")
     return process.stdout.strip()
+
+
+def _configure_swebench_harness(root: Path) -> None:
+    """在首个付费调用前绑定本地 official evaluator 源码。"""
+
+    resolved = _resolve_harness_root(root, PROJECT_ROOT)
+    entrypoint = resolved / "swebench/harness/run_evaluation.py"
+    if not entrypoint.is_file():
+        raise RuntimeError(f"SWE-bench official harness is missing: {entrypoint}")
+    text = str(resolved)
+    if text not in sys.path:
+        sys.path.insert(0, text)
+    existing = os.environ.get("PYTHONPATH", "")
+    items = [item for item in existing.split(os.pathsep) if item]
+    if text not in items:
+        os.environ["PYTHONPATH"] = os.pathsep.join([text, *items])
+
+
+def _resolve_harness_root(root: str | Path, project_root: Path) -> Path:
+    path = Path(root).expanduser()
+    if not path.is_absolute():
+        path = project_root / path
+    return path.resolve()
+
+
+def _freeze_or_validate_plan(
+    request: BenchmarkCampaignRequest,
+    payload: dict[str, Any],
+    *,
+    project_root: Path = PROJECT_ROOT,
+) -> Path:
+    """完整文件一次性落盘；同 campaign 只接受 byte-exact 重算。"""
+
+    output_root = Path(request.output_root)
+    if not output_root.is_absolute():
+        output_root = project_root / output_root
+    destination = output_root / request.campaign_id / "frozen_plan.json"
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    raw = _json_bytes(payload)
+    if destination.exists() or destination.is_symlink():
+        if destination.is_symlink() or destination.read_bytes() != raw:
+            raise RuntimeError(
+                "frozen Mini-50 plan drift; use a new campaign ID before outcomes"
+            )
+        return destination
+
+    descriptor, temporary_name = tempfile.mkstemp(
+        prefix=".frozen_plan.", suffix=".tmp", dir=destination.parent
+    )
+    temporary = Path(temporary_name)
+    try:
+        with os.fdopen(descriptor, "wb") as handle:
+            handle.write(raw)
+            handle.flush()
+            os.fsync(handle.fileno())
+        try:
+            os.link(temporary, destination)
+        except FileExistsError:
+            if destination.is_symlink() or destination.read_bytes() != raw:
+                raise RuntimeError("concurrent frozen Mini-50 plan drift") from None
+        _fsync_directory(destination.parent)
+    finally:
+        temporary.unlink(missing_ok=True)
+    return destination
+
+
+def build_final_publish_gate(
+    state: CampaignState,
+    *,
+    request: BenchmarkCampaignRequest,
+    frozen_plan: dict[str, Any],
+    final_plan: dict[str, Any],
+) -> dict[str, Any]:
+    """只在完整分母、零基础设施故障和零身份漂移时放行 X/50。"""
+
+    terminal_statuses = {"completed", "failed"}
+    terminal_accounted = sum(
+        record.status in terminal_statuses for record in state.records
+    )
+    empty_patch = sum(
+        record.status == "completed"
+        and not bool(record.evidence.get("patch_generated"))
+        for record in state.records
+    )
+    official_evaluated = sum(
+        record.status == "completed"
+        and str(record.evidence.get("official_evaluation_status") or "")
+        in OFFICIAL_DECIDED
+        for record in state.records
+    )
+    official_resolved = sum(
+        record.status == "completed"
+        and record.evidence.get("official_evaluation_status") == "official_resolved"
+        for record in state.records
+    )
+    provider_infra = sum(
+        record.evidence.get("failure_class") == "provider_transport_error"
+        for record in state.records
+    )
+    runtime_infra = sum(
+        record.status == "failed"
+        or record.evidence.get("failure_class") == "runner_or_environment_error"
+        for record in state.records
+    )
+    evaluator_infra = sum(
+        record.evidence.get("failure_class") == "official_eval_error"
+        or (
+            record.status == "completed"
+            and bool(record.evidence.get("patch_generated"))
+            and str(record.evidence.get("official_evaluation_status") or "")
+            not in OFFICIAL_DECIDED
+        )
+        for record in state.records
+    )
+    identity_checks = {
+        "final_plan_matches_frozen": final_plan == frozen_plan,
+        "state_config_matches_frozen": state.config == request.identity(),
+        "state_source_matches_frozen": state.source == frozen_plan["source_identity"],
+        "state_config_digest_matches": state.config_digest
+        == campaign_config_digest(request.identity(), state.source),
+        "source_is_clean": not bool(final_plan["source_identity"].get("dirty")),
+    }
+    planned = len(state.records)
+    publishable = (
+        planned == 50
+        and terminal_accounted == 50
+        and official_evaluated + empty_patch == 50
+        and provider_infra == 0
+        and runtime_infra == 0
+        and evaluator_infra == 0
+        and all(identity_checks.values())
+        and state.status == "completed"
+    )
+    return {
+        "schema_version": 1,
+        "artifact_type": "swebench_verified_mini_50_final_publish_gate",
+        "campaign_id": state.campaign_id,
+        "publishable": publishable,
+        "headline": f"{official_resolved}/50" if publishable else None,
+        "planned": planned,
+        "terminal_accounted": terminal_accounted,
+        "official_evaluated": official_evaluated,
+        "empty_patch": empty_patch,
+        "official_resolved": official_resolved,
+        "provider_infra": provider_infra,
+        "runtime_infra": runtime_infra,
+        "evaluator_infra": evaluator_infra,
+        "identity_checks": identity_checks,
+        "frozen_plan_sha256": _json_sha256(frozen_plan),
+        "failure_classes_considered_infrastructure": sorted(
+            RETRYABLE_INFRASTRUCTURE_FAILURES
+        ),
+    }
+
+
+def _json_sha256(payload: Any) -> str:
+    return hashlib.sha256(
+        json.dumps(
+            payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")
+        ).encode("utf-8")
+    ).hexdigest()
+
+
+def _json_bytes(payload: Any) -> bytes:
+    return (
+        json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True) + "\n"
+    ).encode("utf-8")
+
+
+def _sha256_file(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def _fsync_directory(directory: Path) -> None:
+    descriptor = os.open(
+        directory,
+        os.O_RDONLY | getattr(os, "O_DIRECTORY", 0),
+    )
+    try:
+        os.fsync(descriptor)
+    finally:
+        os.close(descriptor)
 
 
 def _positive_int(value: str) -> int:
