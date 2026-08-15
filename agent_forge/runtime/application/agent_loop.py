@@ -6,6 +6,9 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+from enum import Enum
+
 from agent_forge.runtime.application.dependencies import RuntimeDependencies
 from agent_forge.runtime.application.final_answer import FinalAnswerBuilder
 from agent_forge.runtime.application.run_lifecycle import StopRequest
@@ -21,6 +24,22 @@ from agent_forge.runtime.config import RuntimeConfig
 from agent_forge.runtime.domain.conversation import AgentResponse
 from agent_forge.runtime.domain.governance import HookDecisionType, ModelHookContext
 from agent_forge.runtime.domain.task import TaskRunStatus
+
+
+class TurnOutcomeKind(str, Enum):
+    """一个 turn 结束后，主循环唯一允许的三个动作。"""
+
+    CONTINUE = "continue"
+    REPLAN = "replan"
+    STOP = "stop"
+
+
+@dataclass(frozen=True)
+class TurnOutcome:
+    """显式区分正常下一轮、steer 重规划和停止。"""
+
+    kind: TurnOutcomeKind
+    stop_request: StopRequest | None = None
 
 
 class AgentLoop:
@@ -117,9 +136,16 @@ class AgentLoop:
                     run_session,
                     operator_control.stop,
                 )
-            turn_stop = self._run_turn(run_session, step)
-            if turn_stop is not None:
-                return self._finalize_run(run_session, turn_stop)
+            turn_outcome = self._run_turn(run_session, step)
+            if turn_outcome.kind == TurnOutcomeKind.STOP:
+                if turn_outcome.stop_request is None:  # pragma: no cover - invariant
+                    raise AssertionError("STOP turn outcome requires StopRequest")
+                return self._finalize_run(
+                    run_session,
+                    turn_outcome.stop_request,
+                )
+            # CONTINUE 表示工具事务完成；REPLAN 表示 steer 使旧响应失效。
+            # 两者都进入下一 turn，但语义不再由 ``None`` 隐式承载。
         # endregion 2. 有界 Turn Loop结束
 
         # region 3. 预算耗尽收口：所有退出仍汇合到 RunLifecycle
@@ -128,7 +154,7 @@ class AgentLoop:
             StopRequest(
                 status=TaskRunStatus.BLOCKED,
                 reason="max_steps",
-                final_answer="blocked: max_steps reached",
+                stop_output="blocked: max_steps reached",
             ),
         )
         # endregion 3. 预算耗尽收口结束
@@ -138,7 +164,7 @@ class AgentLoop:
         self,
         session: AgentRunSession,
         step: int,
-    ) -> StopRequest | None:
+    ) -> TurnOutcome:
         """执行一个 turn：准备输入 -> 调用模型 -> final 或工具分支。"""
 
         # region 1. 准备模型输入并执行一次受 Hook 治理的模型调用
@@ -152,7 +178,7 @@ class AgentLoop:
             prepared_turn,
         )
         if hook_stop_request is not None:
-            return hook_stop_request
+            return TurnOutcome(TurnOutcomeKind.STOP, hook_stop_request)
         if model_response is None:  # pragma: no cover - protected by _call_model
             raise AssertionError("model invocation returned no response")
         # endregion 1. 准备模型输入并执行一次受 Hook 治理的模型调用结束
@@ -164,14 +190,14 @@ class AgentLoop:
             step,
         )
         if operator_control.stop is not None:
-            return operator_control.stop
+            return TurnOutcome(TurnOutcomeKind.STOP, operator_control.stop)
         if operator_control.steered:
             self._record_steer_replan(session, step)
-            return None
+            return TurnOutcome(TurnOutcomeKind.REPLAN)
 
         budget_stop_request = self._budget_stop_request(session, step)
         if budget_stop_request is not None:
-            return budget_stop_request
+            return TurnOutcome(TurnOutcomeKind.STOP, budget_stop_request)
         # endregion 2. 模型返回边界结束
 
         # region 3. 上下文溢出恢复：仅在确实缩小窗口后重试一次
@@ -203,32 +229,41 @@ class AgentLoop:
                     prepared_turn,
                 )
                 if hook_stop_request is not None:
-                    return hook_stop_request
+                    return TurnOutcome(TurnOutcomeKind.STOP, hook_stop_request)
                 if model_response is None:  # pragma: no cover - protected above
                     raise AssertionError("model recovery returned no response")
                 budget_stop_request = self._budget_stop_request(session, step)
                 if budget_stop_request is not None:
-                    return budget_stop_request
+                    return TurnOutcome(TurnOutcomeKind.STOP, budget_stop_request)
         # endregion 3. 上下文溢出恢复结束
 
         # region 4. 响应分流：失败、最终回答或工具治理三选一
         if model_response.error:
-            return self._handle_model_failure(session, model_response, step)
+            return TurnOutcome(
+                TurnOutcomeKind.STOP,
+                self._handle_model_failure(session, model_response, step),
+            )
 
         # FINALIZE 阶段对 structured ToolCall 和文本 ToolCall 使用同一拒绝路径，
         # 防止 provider 编码差异改变停止原因或让最终轮意外执行工具。
         if prepared_turn.phase == "finalize" or not model_response.tool_calls:
-            return self.final_answer_builder.build_stop_request(
-                session,
-                model_response,
-                step,
+            return TurnOutcome(
+                TurnOutcomeKind.STOP,
+                self.final_answer_builder.build_stop_request(
+                    session,
+                    model_response,
+                    step,
+                ),
             )
-        return self.tool_execution_pipeline.execute_calls(
+        tool_stop = self.tool_execution_pipeline.execute_calls(
             session,
             model_response,
             step=step,
             allowed_tool_names=prepared_turn.allowed_tool_names,
         )
+        if tool_stop is not None:
+            return TurnOutcome(TurnOutcomeKind.STOP, tool_stop)
+        return TurnOutcome(TurnOutcomeKind.CONTINUE)
         # endregion 4. 响应分流结束
 
     def _call_model(
@@ -261,7 +296,7 @@ class AgentLoop:
             return None, StopRequest(
                 status=TaskRunStatus.BLOCKED,
                 reason="model_hook_blocked",
-                final_answer=f"blocked: {before_model_decision.reason}",
+                stop_output=f"blocked: {before_model_decision.reason}",
                 current_step=prepared_turn.step,
                 resume_hint="Adjust the lifecycle hook or task before resuming.",
             )
@@ -294,7 +329,7 @@ class AgentLoop:
         return StopRequest(
             status=TaskRunStatus.BLOCKED,
             reason=budget_stop_signal.reason.replace(" ", "_"),
-            final_answer=f"blocked: {budget_stop_signal.reason}",
+            stop_output=f"blocked: {budget_stop_signal.reason}",
             current_step=step,
             resume_hint=budget_stop_signal.recovery_hint,
         )
@@ -328,7 +363,7 @@ class AgentLoop:
         return StopRequest(
             status=TaskRunStatus.FAILED,
             reason="invalid_llm_response",
-            final_answer=f"blocked: invalid llm response: {model_error}",
+            stop_output=f"blocked: invalid llm response: {model_error}",
             current_step=step,
             resume_hint=failure_signal.recovery_hint,
         )
@@ -501,7 +536,7 @@ class AgentLoop:
         else:
             session.status = "stopped"
         session.stop_reason = stop_request.reason
-        session.final_answer = stop_request.final_answer
+        session.stop_output = stop_request.stop_output
         return session.lifecycle.finalize_run(stop_request)
 
     # endregion 第二层内部步骤结束

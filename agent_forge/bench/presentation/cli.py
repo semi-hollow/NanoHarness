@@ -221,10 +221,10 @@ def build_swebench_parser(parser: argparse.ArgumentParser) -> None:
         help="Stable namespace, or swebench:<instance_id> when omitted.",
     )
     parser.add_argument(
-        "--memory-recall-limit",
+        "--memory-max-chars",
         type=int,
         default=0,
-        help="Enable memory recall explicitly for a matched comparison; default 0 prevents leakage.",
+        help="Enable a frozen memory character budget explicitly; default 0 prevents leakage.",
     )
     parser.add_argument(
         "--execution-mode",
@@ -443,7 +443,7 @@ def run_swebench_from_args(args: argparse.Namespace) -> BenchRunSummary:
             skill_manifest_files=tuple(args.skill_manifest),
             memory_root=args.memory_root,
             memory_namespace=args.memory_namespace,
-            memory_recall_limit=args.memory_recall_limit,
+            memory_max_chars=args.memory_max_chars,
             execution_mode=args.execution_mode,
             network_policy=args.network_policy,
             keep_worktree=args.keep_worktree,

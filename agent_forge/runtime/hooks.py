@@ -307,7 +307,7 @@ class HookManager(HookPort):
         return current_observation
 
     def on_stop(
-        self, run_id: str, reason: str, final_answer: str
+        self, run_id: str, reason: str, stop_output: str
     ) -> list[HookDecision]:
         return [
             self._safe_decision(
@@ -315,7 +315,7 @@ class HookManager(HookPort):
                 "on_stop",
                 0,
                 "Runtime",
-                partial(hook.on_stop, run_id, reason, final_answer),
+                partial(hook.on_stop, run_id, reason, stop_output),
             )
             for hook in self.hooks
         ]

@@ -6,7 +6,7 @@ import json
 import time
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import TypedDict
+from typing import Any, ClassVar, TypedDict
 
 from agent_forge.contracts import JsonObject
 
@@ -14,6 +14,7 @@ from agent_forge.contracts import JsonObject
 class TaskCheckpointData(TypedDict):
     """Trace、CLI 和恢复流程共享的序列化契约。"""
 
+    schema_version: int
     run_id: str
     task: str
     workspace: str
@@ -23,11 +24,12 @@ class TaskCheckpointData(TypedDict):
     last_tool: str
     last_observation: str
     stop_reason: str
-    final_answer: str
+    stop_output: str | None
+    final_answer: str | None
     resume_hint: str
     messages_count: int
     observations_count: int
-    context_digest: JsonObject
+    session_digest: JsonObject
     updated_at: float
     created_at: float
     metadata: JsonObject
@@ -73,11 +75,12 @@ class TaskCheckpointUpdate:
     last_tool: str | None = None
     last_observation: str | None = None
     stop_reason: str | None = None
+    stop_output: str | None = None
     final_answer: str | None = None
     resume_hint: str | None = None
     messages_count: int | None = None
     observations_count: int | None = None
-    context_digest: JsonObject | None = None
+    session_digest: JsonObject | None = None
     metadata: JsonObject | None = None
     updated_at: float | None = None
 
@@ -96,10 +99,12 @@ class TaskCheckpoint:
 
     ``run_id/task/workspace/agent_name`` 标识运行；``status/current_step`` 是状态机
     位置；``last_*``、``stop_reason`` 和 ``resume_hint`` 指导恢复；计数字段与
-    ``context_digest`` 保存有界上下文；``metadata`` 承载人工请求和执行环境等
+    ``session_digest`` 保存旧 Conversation History 的有界投影；``metadata`` 承载人工请求和执行环境等
     扩展事实。Repository 只负责保存和加载。完整消息和工具输出属于 Trace，
     不进入本对象。
     """
+
+    SCHEMA_VERSION: ClassVar[int] = 2
 
     run_id: str
     task: str
@@ -110,11 +115,12 @@ class TaskCheckpoint:
     last_tool: str = ""
     last_observation: str = ""
     stop_reason: str = ""
-    final_answer: str = ""
+    stop_output: str | None = None
+    final_answer: str | None = None
     resume_hint: str = ""
     messages_count: int = 0
     observations_count: int = 0
-    context_digest: JsonObject = field(default_factory=dict)
+    session_digest: JsonObject = field(default_factory=dict)
     updated_at: float = field(default_factory=time.time)
     created_at: float = field(default_factory=time.time)
     metadata: JsonObject = field(default_factory=dict)
@@ -133,6 +139,8 @@ class TaskCheckpoint:
             self.last_observation = update.last_observation
         if update.stop_reason is not None:
             self.stop_reason = update.stop_reason
+        if update.stop_output is not None:
+            self.stop_output = update.stop_output
         if update.final_answer is not None:
             self.final_answer = update.final_answer
         if update.resume_hint is not None:
@@ -141,8 +149,8 @@ class TaskCheckpoint:
             self.messages_count = update.messages_count
         if update.observations_count is not None:
             self.observations_count = update.observations_count
-        if update.context_digest is not None:
-            self.context_digest = update.context_digest
+        if update.session_digest is not None:
+            self.session_digest = update.session_digest
         if update.metadata is not None:
             self.metadata = update.metadata
         self.updated_at = (
@@ -153,6 +161,7 @@ class TaskCheckpoint:
         """返回稳定、可写入 JSON 的 checkpoint 结构。"""
 
         return {
+            "schema_version": self.SCHEMA_VERSION,
             "run_id": self.run_id,
             "task": self.task,
             "workspace": self.workspace,
@@ -162,15 +171,30 @@ class TaskCheckpoint:
             "last_tool": self.last_tool,
             "last_observation": self.last_observation,
             "stop_reason": self.stop_reason,
+            "stop_output": self.stop_output,
             "final_answer": self.final_answer,
             "resume_hint": self.resume_hint,
             "messages_count": self.messages_count,
             "observations_count": self.observations_count,
-            "context_digest": self.context_digest,
+            "session_digest": self.session_digest,
             "updated_at": self.updated_at,
             "created_at": self.created_at,
             "metadata": self.metadata,
         }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> "TaskCheckpoint":
+        """只加载当前 canonical checkpoint；历史格式由一次性迁移脚本处理。"""
+
+        schema_version = int(data.get("schema_version") or 0)
+        if schema_version != cls.SCHEMA_VERSION:
+            raise ValueError(
+                "unsupported task checkpoint schema_version: "
+                f"{schema_version}; migrate artifact to version {cls.SCHEMA_VERSION}"
+            )
+        payload: dict[str, Any] = dict(data)
+        payload.pop("schema_version", None)
+        return cls(**payload)
 
 
 def summarize_checkpoint(checkpoint: TaskCheckpoint, max_chars: int = 1400) -> str:
@@ -184,7 +208,8 @@ def summarize_checkpoint(checkpoint: TaskCheckpoint, max_chars: int = 1400) -> s
         f"last_observation={checkpoint.last_observation}\n"
         f"stop_reason={checkpoint.stop_reason}\n"
         f"resume_hint={checkpoint.resume_hint}\n"
-        f"context_digest={json.dumps(checkpoint.context_digest, ensure_ascii=False)}\n"
+        f"session_digest={json.dumps(checkpoint.session_digest, ensure_ascii=False)}\n"
+        f"stop_output={checkpoint.stop_output}\n"
         f"final_answer={checkpoint.final_answer}"
     )
     if len(checkpoint_summary) <= max_chars:

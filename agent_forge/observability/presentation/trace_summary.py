@@ -12,6 +12,7 @@ def render_trace_summary(trace: dict[str, Any]) -> str:
         f"- run_id: {trace.get('run_id')}",
         f"- task: {trace.get('task', '')}",
         f"- stop_reason: {trace.get('stop_reason', '')}",
+        f"- stop_output: {str(trace.get('stop_output', ''))[:200]}",
         f"- final_answer: {str(trace.get('final_answer', ''))[:200]}",
         "",
         "## Metrics",

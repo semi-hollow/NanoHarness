@@ -325,7 +325,10 @@ class AgentLoopPolicyTest(unittest.TestCase):
             agent_names = {event["agent_name"] for event in trace.events}
             self.assertIn("Reviewer", agent_names)
             self.assertTrue(
-                any(event["event_type"] == "final_answer" for event in trace.events)
+                any(
+                    event["event_type"] == "candidate_final_answer"
+                    for event in trace.events
+                )
             )
 
     def test_raw_tool_markup_final_answer_is_blocked_as_pending_tool_call(self):

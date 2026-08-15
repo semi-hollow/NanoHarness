@@ -286,6 +286,20 @@ class RuntimeProductizationTest(unittest.TestCase):
             ).run("claim completion")
             self.assertEqual(gated.status, TaskRunStatus.BLOCKED)
             self.assertEqual(gated.stop_reason, "stop_hook_blocked")
+            self.assertIsNone(gated.final_answer)
+            self.assertEqual(
+                (gated.artifact_dir / "stop_output.txt").read_text(encoding="utf-8"),
+                gated.stop_output,
+            )
+            self.assertFalse((gated.artifact_dir / "final_answer.txt").exists())
+            gated_trace = json.loads(gated.trace_path.read_text(encoding="utf-8"))
+            self.assertIsNone(gated_trace["final_answer"])
+            self.assertTrue(
+                any(
+                    event["event_type"] == "candidate_final_answer"
+                    for event in gated_trace["events"]
+                )
+            )
 
     def test_model_capabilities_bound_context_and_parallel_tool_execution(self):
         with tempfile.TemporaryDirectory() as tmp:

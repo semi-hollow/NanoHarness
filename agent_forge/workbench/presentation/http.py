@@ -2617,7 +2617,7 @@ def _checkpoint_transition(
     ):
         label = "保存工具结果"
         reason = "标记工具结果和 Observation 已提交，恢复时不重复执行已完成操作"
-    elif "context_digest" in changed_fields:
+    elif "session_digest" in changed_fields:
         label = "保存上下文摘要"
         reason = "保留压缩边界，使 continuation 能重建有界上下文"
     elif "current_step" in changed_fields:

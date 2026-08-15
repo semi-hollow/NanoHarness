@@ -75,7 +75,7 @@ class SwebenchRunRequest:
     skill_manifest_files: tuple[str, ...] = ()
     memory_root: str = ""
     memory_namespace: str = ""
-    memory_recall_limit: int = 0
+    memory_max_chars: int = 0
 
     # 代码实际执行位置和 OCI 资源隔离策略。
     execution_mode: str = "local"

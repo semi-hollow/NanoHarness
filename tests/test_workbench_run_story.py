@@ -607,7 +607,7 @@ class WorkbenchRunStoryTest(unittest.TestCase):
             (complex_run / "run_manifest.json").write_text(
                 json.dumps(
                     {
-                        "schema_version": 1,
+                        "schema_version": 2,
                         "run_id": "complex-run",
                         "task": "repair settlement atomicity",
                         "status": "completed",
@@ -823,7 +823,7 @@ class WorkbenchRunStoryTest(unittest.TestCase):
             (run_dir / "run_manifest.json").write_text(
                 json.dumps(
                     {
-                        "schema_version": 1,
+                        "schema_version": 2,
                         "run_id": "run-canonical",
                         "task": "canonical task",
                         "status": "completed",

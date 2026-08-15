@@ -47,14 +47,14 @@ class ContextBuildRequest:
 class ContextBuildReport:
     """一次上下文组装的完整读模型，可渲染给模型并写入 trace。
 
-    system/project/task/repo 是基础输入；retrieval、working memory、long-term memory、
+    system/project/repo 是 Runtime Context 基础输入；task 只用于内部候选选择，不渲染；
+    retrieval、working memory、long-term memory、
     selected files、tools 和 Skill 是候选区段；permission/attention/topic/dropped 是治理
     事实；budget/total/max/truncated/rendered 描述最终模型可见结果。
     """
 
     system_prompt: str
     project_instructions: str
-    user_task: str
     repo_map: str
     retrieved_docs: list[str]
     working_memory_items: list[str]
@@ -124,7 +124,6 @@ def build_context_report(
     report = ContextBuildReport(
         system_prompt=system_prompt,
         project_instructions=project_instructions,
-        user_task=request.task,
         repo_map=shortened,
         retrieved_docs=strategy.retrieved_docs,
         working_memory_items=strategy.working_memory_items,

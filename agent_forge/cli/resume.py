@@ -90,7 +90,7 @@ def resume_repository_task(args: argparse.Namespace) -> Path:
         human_thread_id=plan.human_thread_id,
         operation_ledger_root=args.operation_ledger_root,
         memory_root=args.memory_root,
-        memory_recall_limit=args.memory_recall_limit,
+        memory_max_chars=args.memory_max_chars,
         max_tool_calls_per_turn=args.max_tool_calls_per_turn,
         cost_budget_usd=args.cost_budget_usd,
         timeout_seconds=args.timeout_seconds,

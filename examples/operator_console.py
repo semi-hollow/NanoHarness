@@ -173,7 +173,7 @@ def main() -> None:
         "auto",
         "--memory-root",
         str(PROJECT_ROOT / ".agent_forge" / "internal" / "state" / "memory"),
-        "--memory-recall-limit",
+        "--memory-max-chars",
         "12",
     ]
     if not profile.allow_human_question:

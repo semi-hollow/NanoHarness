@@ -214,7 +214,12 @@ class MultiAgentCoordinator:
         self.trace.set_run_context(
             task=self.task,
             stop_reason=multi_agent_summary.status,
-            final_answer=multi_agent_summary.final_answer,
+            stop_output=multi_agent_summary.final_answer,
+            final_answer=(
+                multi_agent_summary.final_answer
+                if multi_agent_summary.status == "passed"
+                else None
+            ),
         )
         self._trace(
             "multi_agent_done",

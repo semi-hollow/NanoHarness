@@ -133,7 +133,7 @@ def _new_summary(
         model_request_max_attempts=request.model_request_max_attempts,
         tool_execution_timeout_seconds=request.tool_execution_timeout_seconds,
         memory_namespace=request.memory_namespace or "swebench:<instance_id>",
-        memory_recall_limit=request.memory_recall_limit,
+        memory_max_chars=request.memory_max_chars,
         memory_snapshot_sha256=_directory_sha256(request.memory_root),
         official_namespace=(
             "" if request.namespace_empty else request.official_namespace
@@ -191,10 +191,10 @@ def _files_sha256(paths: tuple[str, ...]) -> str:
 def _validate_frozen_inputs(request: SwebenchRunRequest) -> None:
     """启用 Memory 召回时拒绝缺失快照，避免跑出无效 treatment。"""
 
-    if request.memory_recall_limit <= 0:
+    if request.memory_max_chars <= 0:
         return
     if not request.memory_root:
-        raise ValueError("memory_root is required when memory_recall_limit is positive")
+        raise ValueError("memory_root is required when memory_max_chars is positive")
     if not Path(request.memory_root).expanduser().is_dir():
         raise ValueError("memory_root must point to an existing frozen directory")
 

@@ -249,7 +249,7 @@ class RunBenchmarkCampaign:
             skill_manifest_files=(),
             memory_root="",
             memory_namespace="",
-            memory_recall_limit=0,
+            memory_max_chars=0,
         )
 
     def _record_run_slot_completion(

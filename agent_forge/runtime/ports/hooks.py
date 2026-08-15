@@ -59,7 +59,7 @@ class HookPort(Protocol):
         self,
         run_id: str,
         reason: str,
-        final_answer: str,
+        stop_output: str,
     ) -> list[HookDecision]:
         """记录任务停止时的治理决策。"""
 

@@ -970,7 +970,7 @@ class OperatorConsoleApp(App[None]):
         sections = [
             f"Run Result: {result.status.value.upper()}",
             "",
-            result.final_answer or "(empty final answer)",
+            result.stop_output,
         ]
         candidate_diff_preview = self._read_preview(
             result.candidate_diff_path,

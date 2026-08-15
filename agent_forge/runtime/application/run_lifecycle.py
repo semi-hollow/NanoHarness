@@ -31,7 +31,8 @@ class StopRequest:
 
     status: TaskRunStatus
     reason: str
-    final_answer: str
+    stop_output: str
+    candidate_final_answer: str | None = None
     current_step: int | None = None
     last_tool: str | None = None
     last_observation: str | None = None
@@ -92,7 +93,7 @@ class RunLifecycle:
         self.hooks.on_checkpoint(self.checkpoint)
         return self.checkpoint
 
-    # 运行时端口：统一落盘终态、停止原因和最终文本。
+    # 运行时端口：统一落盘终态、停止原因和调用方停止输出。
     def finalize_run(self, requested_stop: StopRequest) -> str:
         """把黄金主链的所有退出分支归一化为唯一 terminal transition。
 
@@ -105,14 +106,22 @@ class RunLifecycle:
         """
 
         # region 1. 停止质量门：模型只能提出完成，Hook 可以在落盘前否决
+        # on_stop 读取候选回答；_apply_completion_quality_gate 把 Hook 结论收敛为
+        # 最终 StopRequest，只有仍为 COMPLETED 的候选才成为 accepted final answer。
+        hook_input = requested_stop.candidate_final_answer or requested_stop.stop_output
         hook_decisions = self.hooks.on_stop(
             self.trace.run_id,
             requested_stop.reason,
-            requested_stop.final_answer,
+            hook_input,
         )
         final_stop_request = self._apply_completion_quality_gate(
             requested_stop=requested_stop,
             hook_decisions=hook_decisions,
+        )
+        accepted_final_answer = (
+            final_stop_request.candidate_final_answer
+            if final_stop_request.status == TaskRunStatus.COMPLETED
+            else None
         )
         # endregion 1. 停止质量门结束
 
@@ -121,13 +130,15 @@ class RunLifecycle:
         # 必须共同使用 final_stop_request，不能分别记录模型请求和治理后状态。
         self.trace.set_run_context(
             stop_reason=final_stop_request.reason,
-            final_answer=final_stop_request.final_answer,
+            stop_output=final_stop_request.stop_output,
+            final_answer=accepted_final_answer,
         )
         self.update_checkpoint(
             TaskCheckpointUpdate(
                 status=final_stop_request.status,
                 stop_reason=final_stop_request.reason,
-                final_answer=final_stop_request.final_answer,
+                stop_output=final_stop_request.stop_output,
+                final_answer=accepted_final_answer,
                 current_step=final_stop_request.current_step,
                 last_tool=final_stop_request.last_tool,
                 last_observation=final_stop_request.last_observation,
@@ -143,8 +154,9 @@ class RunLifecycle:
         self._record_terminal_evidence(
             final_stop_request=final_stop_request,
             hook_decisions=hook_decisions,
+            final_answer_accepted=accepted_final_answer is not None,
         )
-        return final_stop_request.final_answer
+        return final_stop_request.stop_output
         # endregion 3. 终态证据结束
 
     # 运行时端口：先持久化人工问题和 checkpoint，再返回 waiting_human。
@@ -197,7 +209,7 @@ class RunLifecycle:
                 stop=StopRequest(
                     status=TaskRunStatus.BLOCKED,
                     reason="human_input_cancelled",
-                    final_answer=(
+                    stop_output=(
                         "blocked: human_input_cancelled "
                         f"request_id={human_input_request.request_id}"
                     ),
@@ -228,7 +240,7 @@ class RunLifecycle:
             stop=StopRequest(
                 status=TaskRunStatus.WAITING_HUMAN,
                 reason="waiting_human",
-                final_answer=(
+                stop_output=(
                     f"waiting_human: {human_input_request.question} "
                     f"request_id={human_input_request.request_id} "
                     f"request={human_input_request.path}"
@@ -270,7 +282,7 @@ class RunLifecycle:
             requested_stop,
             status=TaskRunStatus.BLOCKED,
             reason="stop_hook_blocked",
-            final_answer=(
+            stop_output=(
                 f"blocked by {blocking_hook_decision.hook_name}: "
                 f"{blocking_hook_decision.reason}"
             ),
@@ -301,6 +313,7 @@ class RunLifecycle:
         *,
         final_stop_request: StopRequest,
         hook_decisions: list[HookDecision],
+        final_answer_accepted: bool,
     ) -> None:
         """记录“质量门决定”和“最终状态”两个不同层次的终止事实。"""
 
@@ -318,6 +331,7 @@ class RunLifecycle:
             "run_completed",
             run_status=final_stop_request.status.value,
             stop_reason=final_stop_request.reason,
+            final_answer_accepted=final_answer_accepted,
         )
 
     def _record_human_input_event(

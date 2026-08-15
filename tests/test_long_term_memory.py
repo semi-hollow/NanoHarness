@@ -1,23 +1,27 @@
+import json
 import tempfile
 import unittest
 from pathlib import Path
 
+from agent_forge import Harness, HarnessConfig, RunRequest, TaskRunStatus
 from agent_forge.context.adapters import JsonLongTermMemoryRepository
 from agent_forge.context.application import LongTermMemoryService
 from agent_forge.context.domain import MemoryScope
 from agent_forge.runtime.adapters import RepositoryContextAssembler
 from agent_forge.runtime.application.working_memory import WorkingMemory
+from agent_forge.runtime.domain.conversation import AgentResponse, ToolCall
 from agent_forge.runtime.ports.context import ContextAssemblyRequest
+from tests.support import SequenceModel, StaticResponseModel
 
 
 class LongTermMemoryTest(unittest.TestCase):
     def setUp(self) -> None:
         self.temporary = tempfile.TemporaryDirectory()
-        self.root = Path(self.temporary.name)
+        self.base = Path(self.temporary.name)
+        self.root = self.base / "workspace"
+        self.root.mkdir()
         # 真实运行把状态放在隐藏目录；不能让 Context 检索把记忆 JSON 当源码读取。
-        self.repository = JsonLongTermMemoryRepository(
-            self.root / ".agent_forge/internal/state/memory"
-        )
+        self.repository = JsonLongTermMemoryRepository(self.base / "memory")
         self.service = LongTermMemoryService(self.repository)
 
     def tearDown(self) -> None:
@@ -76,6 +80,32 @@ class LongTermMemoryTest(unittest.TestCase):
         self.assertEqual([item.memory_id for item in repo_a_memories], [project_value.memory_id])
         self.assertEqual([item.memory_id for item in repo_b_memories], [user_default.memory_id])
 
+    def test_recall_uses_character_budget_and_never_truncates_a_record(self) -> None:
+        oversized = self.service.remember(
+            project_namespace="repo-a",
+            key="large",
+            content="x" * 400,
+            scope=MemoryScope.PROJECT.value,
+        )
+        compact = self.service.remember(
+            project_namespace="repo-a",
+            key="small",
+            content="use pytest",
+            scope=MemoryScope.PROJECT.value,
+        )
+        oversized.updated_at = 20
+        compact.updated_at = 10
+        self.repository.save(oversized)
+        self.repository.save(compact)
+
+        recalled = self.service.recall(
+            namespace="repo-a",
+            max_chars=len(compact.render_prompt_line()),
+        )
+
+        self.assertEqual([record.memory_id for record in recalled], [compact.memory_id])
+        self.assertEqual(recalled[0].content, "use pytest")
+
     def test_forget_physically_removes_record(self) -> None:
         record = self.service.remember(
             project_namespace="repo-a",
@@ -89,6 +119,21 @@ class LongTermMemoryTest(unittest.TestCase):
         self.assertEqual(deleted.memory_id, record.memory_id)
         self.assertIsNone(self.repository.get(record.memory_id))
         self.assertEqual(self.service.recall(namespace="repo-a"), [])
+
+    def test_active_memory_root_rejects_legacy_schema(self) -> None:
+        self.service.remember(
+            project_namespace="repo-a",
+            key="strict schema",
+            content="Do not load a v1 record from the active root.",
+            scope=MemoryScope.PROJECT.value,
+        )
+        path = next((self.base / "memory").rglob("*.json"))
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        payload["schema_version"] = 1
+        path.write_text(json.dumps(payload), encoding="utf-8")
+
+        with self.assertRaisesRegex(ValueError, "unsupported memory schema_version"):
+            self.service.recall(namespace="repo-a")
 
     def test_recalled_memory_is_rendered_as_separate_context_section(self) -> None:
         record = self.service.remember(
@@ -119,6 +164,128 @@ class LongTermMemoryTest(unittest.TestCase):
         self.assertIn("parser convention", rendered)
         self.assertIn("revision=1", rendered)
         self.assertNotIn(record.memory_id, rendered)
+
+    def test_model_memory_write_requires_user_quote_and_uses_operation_ledger(self) -> None:
+        memory_root = self.base / "tool-memory"
+        task = "记住，这个项目以后统一使用 python -m pytest。"
+        model = SequenceModel(
+            [
+                AgentResponse(
+                    None,
+                    [
+                        ToolCall(
+                            "remember-1",
+                            "remember_memory",
+                            {
+                                "key": "test_command",
+                                "content": "Use python -m pytest.",
+                                "source_quote": task,
+                            },
+                        )
+                    ],
+                ),
+                AgentResponse("memory saved", []),
+            ]
+        )
+        result = Harness(
+            model=model,
+            config=HarnessConfig(
+                workspace=str(self.root),
+                output_root=str(self.root / "runs"),
+                memory_root=str(memory_root),
+                max_steps=3,
+                auto_approve_writes=False,
+            ),
+        ).run(RunRequest(task))
+
+        self.assertEqual(result.status, TaskRunStatus.COMPLETED)
+        records = LongTermMemoryService(
+            JsonLongTermMemoryRepository(memory_root)
+        ).recall(namespace=str(self.root.resolve()))
+        self.assertEqual([(record.key, record.revision) for record in records], [("test_command", 1)])
+        self.assertNotIn(
+            "[project; revision=1] test_command:",
+            "\n".join(
+                message.content
+                for message in model.messages[1]
+                if message.role == "system"
+            ),
+        )
+
+        ledger_path = next(
+            (self.root / ".agent_forge/internal/state/operation_ledger").glob("*.json")
+        )
+        ledger = json.loads(ledger_path.read_text(encoding="utf-8"))
+        self.assertEqual(ledger["action"], "memory_write")
+        self.assertEqual(ledger["arguments"]["source_quote"], task)
+        trace = json.loads(result.trace_path.read_text(encoding="utf-8"))
+        provenance = next(
+            event["provenance"]
+            for event in trace["events"]
+            if event["event_type"] == "memory_authorization" and event["success"]
+        )
+        self.assertEqual(provenance["message_index"], 0)
+        self.assertEqual(provenance["source_quote"], task)
+
+        next_model = StaticResponseModel("done")
+        Harness(
+            model=next_model,
+            config=HarnessConfig(
+                workspace=str(self.root),
+                output_root=str(self.root / "next-runs"),
+                memory_root=str(memory_root),
+                max_steps=2,
+            ),
+        ).run("Summarize the test convention.")
+        self.assertIn(
+            "test_command",
+            "\n".join(
+                message.content
+                for message in next_model.messages
+                if message.role == "system"
+            ),
+        )
+
+    def test_model_memory_write_fails_closed_without_matching_user_quote(self) -> None:
+        memory_root = self.base / "rejected-memory"
+        model = SequenceModel(
+            [
+                AgentResponse(
+                    None,
+                    [
+                        ToolCall(
+                            "remember-2",
+                            "remember_memory",
+                            {
+                                "key": "invented",
+                                "content": "Do not persist this.",
+                                "source_quote": "the user never said this",
+                            },
+                        )
+                    ],
+                ),
+                AgentResponse("write rejected", []),
+            ]
+        )
+        result = Harness(
+            model=model,
+            config=HarnessConfig(
+                workspace=str(self.root),
+                output_root=str(self.root / "rejected-runs"),
+                memory_root=str(memory_root),
+                max_steps=3,
+            ),
+        ).run("Explain the repository; do not save preferences.")
+
+        self.assertEqual(result.status, TaskRunStatus.COMPLETED)
+        self.assertEqual(list(memory_root.rglob("*.json")), [])
+        trace = json.loads(result.trace_path.read_text(encoding="utf-8"))
+        rejection = next(
+            event
+            for event in trace["events"]
+            if event["event_type"] == "memory_authorization"
+        )
+        self.assertFalse(rejection["success"])
 
 
 if __name__ == "__main__":

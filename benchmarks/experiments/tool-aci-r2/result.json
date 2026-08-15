@@ -33,7 +33,7 @@
       "max_steps": 128,
       "max_tool_calls_per_turn": 4,
       "max_workers": 1,
-      "memory_recall_limit": 0,
+      "memory_max_chars": 0,
       "model": "deepseek-v4-flash",
       "model_request_max_attempts": 2,
       "model_request_timeout_seconds": 600,

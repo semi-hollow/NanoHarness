@@ -65,9 +65,11 @@ from agent_forge.tools.grep import GrepSearchTool
 from agent_forge.tools.list_files import ListFilesTool
 from agent_forge.tools.mcp_config import MCPConfigLoader
 from agent_forge.tools.read_file import ReadFileTool
+from agent_forge.tools.remember_memory import RememberMemoryTool
 from agent_forge.tools.registry import ToolRegistry
 from agent_forge.tools.run_command import RunCommandTool
 from agent_forge.tools.write_file import WriteFileTool
+from agent_forge.storage_layout import MEMORY_ROOT
 
 
 # 核心数据：装配受治理工具注册表所需的完整输入。
@@ -82,6 +84,8 @@ class ToolRegistryBuildRequest:
     enabled_tools: tuple[str, ...] | None = None
     execution_environment: ExecutionEnvironment | None = None
     tool_execution_timeout_seconds: int = DEFAULT_TOOL_EXECUTION_TIMEOUT_SECONDS
+    memory_root: str = str(MEMORY_ROOT)
+    memory_namespace: str = ""
 
     def __post_init__(self) -> None:
         if self.tool_execution_timeout_seconds <= 0:
@@ -158,6 +162,12 @@ def build_registry(request: ToolRegistryBuildRequest) -> ToolRegistry:
             timeout_seconds=request.tool_execution_timeout_seconds,
         ),
         AskHumanTool(),
+        RememberMemoryTool(
+            memory_root=request.memory_root,
+            project_namespace=(
+                request.memory_namespace or str(Path(request.workspace).resolve())
+            ),
+        ),
     ]
     known_names = {tool.name for tool in builtin_tools}
     requested_names = (
@@ -278,7 +288,7 @@ def _build_runtime_dependencies(
         or LongTermMemoryService(
             JsonLongTermMemoryRepository(
                 runtime_config.memory_root
-                or str(Path(runtime_config.workspace) / ".agent_forge" / "memory")
+                or str(MEMORY_ROOT)
             )
         ),
     )

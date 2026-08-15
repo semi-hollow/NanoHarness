@@ -5,6 +5,7 @@ import json
 from pathlib import Path
 from typing import Any
 
+from agent_forge.atomic_json import atomic_write_json
 from agent_forge.runtime.domain.operation import (
     OperationPlan,
     OperationRecord,
@@ -204,10 +205,7 @@ class JsonOperationLedgerRepository(OperationLedgerRepository):
         """将一个 operation 的最新状态及完整 history 写入独立 JSON 文件。"""
 
         record.path = str(self.path_for(record.operation_key))
-        self.path_for(record.operation_key).write_text(
-            json.dumps(record.to_dict(), ensure_ascii=False, indent=2, default=str),
-            encoding="utf-8",
-        )
+        atomic_write_json(self.path_for(record.operation_key), record.to_dict())
 
 
 def _target_path_value(arguments: dict[str, Any]) -> Any:

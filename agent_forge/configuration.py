@@ -17,6 +17,7 @@ from agent_forge.runtime.config import (
     DEFAULT_MAX_PROMPT_TOKENS,
     DEFAULT_MAX_STEPS,
 )
+from agent_forge.storage_layout import MEMORY_ROOT
 
 
 CONFIG_SCHEMA_VERSION = 1
@@ -115,7 +116,7 @@ _SECTIONS: dict[str, dict[str, _FieldSpec]] = {
         "human_input_root": _FieldSpec("human_input_root", "str"),
         "operation_ledger_root": _FieldSpec("operation_ledger_root", "str"),
         "memory_root": _FieldSpec("memory_root", "str"),
-        "memory_recall_limit": _FieldSpec("memory_recall_limit", "int"),
+        "memory_max_chars": _FieldSpec("memory_max_chars", "int"),
     },
     "tools": {
         "routing": _FieldSpec(
@@ -173,8 +174,8 @@ _RUN_DEFAULTS: dict[str, object] = {
     "approval_root": ".agent_forge/internal/state/approvals",
     "human_input_root": ".agent_forge/internal/state/human_input",
     "operation_ledger_root": ".agent_forge/internal/state/operation_ledger",
-    "memory_root": ".agent_forge/internal/state/memory",
-    "memory_recall_limit": 6,
+    "memory_root": str(MEMORY_ROOT),
+    "memory_max_chars": 2_000,
     "max_tool_calls_per_turn": 4,
     "cost_budget_usd": None,
     "timeout_seconds": 900.0,
@@ -395,7 +396,7 @@ def _validate_run_arguments(args: argparse.Namespace) -> None:
             raise ValueError(f"{field_name} must be positive")
     non_negative_fields = (
         "reserved_output_tokens",
-        "memory_recall_limit",
+        "memory_max_chars",
         "max_revision_rounds",
     )
     for field_name in non_negative_fields:

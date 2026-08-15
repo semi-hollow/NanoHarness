@@ -30,7 +30,11 @@ from agent_forge.tools.tool_router import ToolRoute, ToolRouter, ToolRoutingRequ
 
 @dataclass(frozen=True, kw_only=True)
 class PreparedTurn:
-    """一次 LLM 调用所需的完整、可度量输入。"""
+    """一次 LLM 调用所需的完整、可度量输入。
+
+    ``messages_for_llm`` 是 Runtime Context 与 Conversation History；``schemas``
+    是同一次调用的第三部分 Tool Schemas，不混进消息列表。
+    """
 
     step: int
     context_message: Message
@@ -138,6 +142,7 @@ class TurnPreparation:
         allowed_tool_names = set(tool_route.allowed_names)
         model_permission_summary = (
             "read/list/search allowed; replace_text/write_file asks approval; "
+            "remember_memory requires an exact explicit user quote; "
             "dangerous commands denied; "
             f"{self.execution_environment.render_boundary_summary()}"
         )
@@ -213,7 +218,7 @@ class TurnPreparation:
         if prepared_window.digest is not None:
             # 只把摘要引用写入 checkpoint；原始消息仍保留在 session/trace 中，不被压缩删除。
             session.lifecycle.update_checkpoint(
-                TaskCheckpointUpdate(context_digest=prepared_window.digest.to_dict())
+                TaskCheckpointUpdate(session_digest=prepared_window.digest.to_dict())
             )
         return PreparedTurn(
             step=step,

@@ -12,6 +12,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Mapping
 
+from agent_forge.atomic_json import atomic_write_json
 from agent_forge.observability.domain.run_story import RunArtifact, RunManifest
 
 
@@ -66,13 +67,24 @@ _KNOWN_ARTIFACTS: dict[str, _ArtifactSpec] = {
         ("任务已完成", "候选改动正确", "官方评测通过"),
     ),
     "trace.json": _ArtifactSpec(
-        "trace",
+        "trace_projection",
         "TraceRecorder.publish",
         "evidence",
         ("RunStory", "usage projection", "replay", "evaluation"),
+        "derived",
+        ("投影了 trace.jsonl 中的 Runtime 事件和终止上下文",),
+        ("它是原始事件事实源", "candidate diff 正确", "official resolved"),
+        derived_from=("trace.jsonl",),
+        source_event_refs=("all",),
+    ),
+    "trace.jsonl": _ArtifactSpec(
+        "trace_journal",
+        "JsonTraceRecorder.record",
+        "evidence",
+        ("trace projection", "crash inspection", "replay"),
         "fact",
-        ("记录了实际 Runtime 事件和状态转换",),
-        ("candidate diff 正确", "official resolved"),
+        ("记录了 Run 中逐条 flush 的 append-only Runtime 事实",),
+        ("每条 event 都经过 fsync", "candidate diff 正确", "official resolved"),
         source_event_refs=("all",),
     ),
     "usage.json": _ArtifactSpec(
@@ -95,14 +107,23 @@ _KNOWN_ARTIFACTS: dict[str, _ArtifactSpec] = {
         ("Markdown 是独立事实源", "official resolved"),
         derived_from=("usage_projection",),
     ),
+    "stop_output.txt": _ArtifactSpec(
+        "stop_output",
+        "Harness.run",
+        "artifacts",
+        ("caller", "RunStory", "operator console"),
+        "fact",
+        ("记录了本次 Run 停止时返回给调用方的文本",),
+        ("Run 已成功完成", "文本中的完成声明真实"),
+    ),
     "final_answer.txt": _ArtifactSpec(
         "final_answer",
         "Harness.run",
         "artifacts",
         ("caller", "RunStory", "benchmark case runner"),
         "candidate",
-        ("模型产生了最终文本",),
-        ("文本中的完成声明真实", "测试通过"),
+        ("completion gate 接受了模型最终回答",),
+        ("文本中的完成声明真实", "外部测试通过"),
     ),
     "candidate_changes.diff": _ArtifactSpec(
         "candidate_diff",
@@ -201,10 +222,7 @@ def write_run_manifest(
         artifacts=tuple(sorted(artifacts, key=lambda item: item.relative_path)),
     )
     path = root / "run_manifest.json"
-    path.write_text(
-        json.dumps(manifest.to_dict(), ensure_ascii=False, indent=2),
-        encoding="utf-8",
-    )
+    atomic_write_json(path, manifest.to_dict())
     return path
 
 

@@ -4,11 +4,12 @@ from __future__ import annotations
 
 import hashlib
 import json
-import os
 from pathlib import Path
 
+from agent_forge.atomic_json import atomic_write_json
 from agent_forge.context.domain import LongTermMemoryRecord
 from agent_forge.context.ports import LongTermMemoryRepository
+from agent_forge.storage_layout import MEMORY_ROOT
 
 
 class JsonLongTermMemoryRepository(LongTermMemoryRepository):
@@ -16,10 +17,9 @@ class JsonLongTermMemoryRepository(LongTermMemoryRepository):
 
     def __init__(
         self,
-        root: str | Path = ".agent_forge/internal/state/memory",
+        root: str | Path = MEMORY_ROOT,
     ) -> None:
         self.root = Path(root)
-        self.root.mkdir(parents=True, exist_ok=True)
 
     # 运行时端口：校验并原子保存领域记录，不改变其权威状态。
     def save(self, record: LongTermMemoryRecord) -> None:
@@ -28,12 +28,7 @@ class JsonLongTermMemoryRepository(LongTermMemoryRepository):
         record.validate()
         path = self._path_for(record.namespace, record.memory_id)
         path.parent.mkdir(parents=True, exist_ok=True)
-        temporary = path.with_suffix(".tmp")
-        temporary.write_text(
-            json.dumps(record.to_dict(), ensure_ascii=False, indent=2),
-            encoding="utf-8",
-        )
-        os.replace(temporary, path)
+        atomic_write_json(path, record.to_dict())
 
     # 运行时端口：按稳定 ID 读取记录，供更新或删除用例使用。
     def get(self, memory_id: str) -> LongTermMemoryRecord | None:
@@ -44,17 +39,12 @@ class JsonLongTermMemoryRepository(LongTermMemoryRepository):
             return self._load(path)
         return None
 
-    # 运行时端口：列出记录；可见性过滤仍由 LongTermMemoryService 负责。
+    # 运行时端口：严格读取当前 schema；可见性过滤由 LongTermMemoryService 负责。
     def list_records(self, namespace: str | None = None) -> list[LongTermMemoryRecord]:
-        """跳过损坏文件，并按更新时间倒序返回。"""
+        """按更新时间倒序返回；活动目录中的损坏或旧 schema 直接失败。"""
 
         pattern = f"{self._namespace_key(namespace)}/*.json" if namespace else "*/*.json"
-        records: list[LongTermMemoryRecord] = []
-        for path in self.root.glob(pattern):
-            try:
-                records.append(self._load(path))
-            except (OSError, ValueError, TypeError, json.JSONDecodeError):
-                continue
+        records = [self._load(path) for path in self.root.glob(pattern)]
         return sorted(records, key=lambda item: item.updated_at, reverse=True)
 
     # 运行时端口：用户显式 forget 时删除对应 JSON 文件。

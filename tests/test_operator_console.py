@@ -700,7 +700,7 @@ class OperatorConsoleTest(unittest.TestCase):
                 enabled_tools=enabled_tools,
                 tool_routing_mode="all",
                 skill_mode="none",
-                memory_recall_limit=0,
+                memory_max_chars=0,
                 approval_mode=approval_mode,
                 auto_approve_writes=auto_approve_writes,
             ),

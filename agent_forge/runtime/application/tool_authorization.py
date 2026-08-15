@@ -235,7 +235,7 @@ class ToolAuthorizationGate:
                 stop=StopRequest(
                     status=TaskRunStatus.WAITING_APPROVAL,
                     reason="approval_stale",
-                    final_answer=(
+                    stop_output=(
                         f"approval_stale: {tool_call.name} approval target changed before execution. "
                         f"operation_key={approval.operation_key} request={approval.path}"
                     ),
@@ -285,7 +285,7 @@ class ToolAuthorizationGate:
                 stop=StopRequest(
                     status=TaskRunStatus.WAITING_APPROVAL,
                     reason="waiting_approval",
-                    final_answer=(
+                    stop_output=(
                         f"waiting_approval: {tool_call.name} requires approval before execution. "
                         f"operation_key={approval.operation_key} request={approval.path}"
                     ),

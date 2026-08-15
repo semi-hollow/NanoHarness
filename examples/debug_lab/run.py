@@ -241,6 +241,8 @@ def run_coordinated() -> None:
                 workspace=str(worktree),
                 auto=True,
                 execution_environment=environment,
+                memory_root=str(run_dir / "disabled_memory"),
+                memory_namespace=str(worktree.resolve()),
             )
         )
 
@@ -258,7 +260,7 @@ def run_coordinated() -> None:
                 approval_mode="trusted",
                 tool_routing_mode="all",
                 skill_mode="none",
-                memory_recall_limit=0,
+                memory_max_chars=0,
             ),
             trace=trace,
             run_dir=run_dir,
@@ -269,7 +271,12 @@ def run_coordinated() -> None:
     ).run()
     trace.set_run_context(
         stop_reason=f"fanout_{fanout_summary.status}",
-        final_answer=fanout_summary.final_answer,
+        stop_output=fanout_summary.final_answer,
+        final_answer=(
+            fanout_summary.final_answer
+            if fanout_summary.status == "passed"
+            else None
+        ),
     )
     trace.write()
     _publish_latest(run_dir, scenario="coordinated")

@@ -184,7 +184,7 @@ class PublicCliSmokeTest(unittest.TestCase):
         self.assertIn("--execution-mode", result.stdout)
         self.assertIn("--container-image", result.stdout)
         self.assertIn("--skills", result.stdout)
-        self.assertIn("--memory-recall-limit", result.stdout)
+        self.assertIn("--memory-max-chars", result.stdout)
         self.assertIn("--max-prompt-tokens", result.stdout)
         self.assertIn("--max-tool-calls-per-turn", result.stdout)
         self.assertIn("--temperature", result.stdout)

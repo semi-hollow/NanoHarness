@@ -71,7 +71,12 @@ class ContextWindowManagerTest(unittest.TestCase):
         self.assertIsNotNone(result.digest)
         assert result.digest is not None
         self.assertTrue(result.digest.source_hash)
-        self.assertTrue(any("result-2" in item for item in result.digest.open_failures))
+        self.assertTrue(
+            any(
+                "result-2" in item
+                for item in result.digest.failed_tool_evidence
+            )
+        )
         roles = [message.role for message in result.messages[2:]]
         for index, role in enumerate(roles):
             if role == "tool":
@@ -130,6 +135,41 @@ class ContextWindowManagerTest(unittest.TestCase):
         self.assertLess(
             forced.estimated_tokens_after,
             forced.estimated_tokens_before,
+        )
+
+    def test_digest_keeps_initial_task_and_later_task_updates_separate(self) -> None:
+        history = [
+            Message("user", "initial task"),
+            Message("assistant", "a" * 3_000),
+            Message("user", "steer: preserve public API"),
+            Message("assistant", "b" * 3_000),
+            Message("user", "constraint: run focused tests"),
+            Message("assistant", "c" * 3_000),
+        ]
+
+        result = ContextWindowManager(
+            PromptBudget(
+                max_prompt_tokens=1_200,
+                reserved_output_tokens=100,
+                soft_limit_ratio=0.5,
+            )
+        ).prepare(
+            ContextWindowRequest(
+                system_message=Message("system", "policy"),
+                history=history,
+                observations=[],
+                tools=[],
+                task="initial task",
+                force_compaction=True,
+            )
+        )
+
+        self.assertIsNotNone(result.digest)
+        assert result.digest is not None
+        self.assertEqual(result.digest.task, "initial task")
+        self.assertEqual(
+            result.digest.task_updates,
+            ["steer: preserve public API"],
         )
 
 

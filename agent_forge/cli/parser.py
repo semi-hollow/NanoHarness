@@ -460,10 +460,10 @@ def _add_runtime_policy_args(
         default=str(MEMORY_ROOT) if defaults else None,
     )
     parser.add_argument(
-        "--memory-recall-limit",
+        "--memory-max-chars",
         type=int,
-        default=6 if defaults else None,
-        help="Maximum active long-term memories injected into one run.",
+        default=2_000 if defaults else None,
+        help="Context character budget for complete long-term memory records.",
     )
     parser.add_argument(
         "--max-tool-calls-per-turn",

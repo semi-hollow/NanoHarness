@@ -13,7 +13,7 @@ from __future__ import annotations
 import time
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any
+from typing import Any, ClassVar
 
 from agent_forge.contracts import JsonObject
 
@@ -55,6 +55,8 @@ class LongTermMemoryRecord:
     - ``revision``：每次显式 remember 同 key 时递增，供 Run 快照审计。
     - ``source`` 固定为 ``user_explicit``，表示模型无权自动污染跨 Run 记忆。
     """
+
+    SCHEMA_VERSION: ClassVar[int] = 2
 
     memory_id: str
     namespace: str
@@ -103,6 +105,7 @@ class LongTermMemoryRecord:
         """返回可原子写入 JSON 的稳定结构。"""
 
         return {
+            "schema_version": self.SCHEMA_VERSION,
             "memory_id": self.memory_id,
             "namespace": self.namespace,
             "key": self.key,
@@ -117,7 +120,14 @@ class LongTermMemoryRecord:
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "LongTermMemoryRecord":
-        """在文件适配器边界恢复领域对象。"""
+        """只恢复当前 canonical memory schema。"""
+
+        schema_version = int(data.get("schema_version") or 0)
+        if schema_version != cls.SCHEMA_VERSION:
+            raise ValueError(
+                "unsupported memory schema_version: "
+                f"{schema_version}; migrate artifact to version {cls.SCHEMA_VERSION}"
+            )
 
         record = cls(
             memory_id=str(data.get("memory_id") or ""),
@@ -160,43 +170,39 @@ class ToolTransactionDigest:
 # 核心数据：旧会话被移出模型窗口后留下的结构化、可溯源摘要。
 @dataclass(frozen=True)
 class SessionDigest:
-    """替代旧对话进入模型窗口的结构化摘要，不替代原始 trace。
+    """旧 Conversation History 的确定性压缩投影，不替代原始 trace。
 
     字段说明：
 
-    - ``task``：当前任务；``covered_message_count``：本摘要覆盖的原始消息数。
+    - ``task``：初始任务；``covered_message_count``：本摘要覆盖的原始消息数。
     - ``source_hash``：被摘要原文的内容指纹，用于追溯而不是还原原文。
-    - ``user_updates``、``assistant_updates``：保留的用户和 Agent 关键进展。
+    - ``task_updates``：初始任务之后的用户 steer 或任务约束变化。
     - ``tool_transactions``：不被拆开的工具意图与结果摘要。
-    - ``open_failures``：压缩时仍未解决的失败，防止恢复后重复踩坑。
+    - ``failed_tool_evidence``：历史 Tool failure 证据，不声称目前仍未解决。
     - ``estimated_tokens_before``、``estimated_tokens_after``：压缩前后预算证据。
-    - ``created_at``、``schema_version``：摘要时间和持久化格式版本。
+    - ``created_at``：摘要时间；持久化版本由外层 canonical checkpoint 管理。
     """
 
     task: str
     covered_message_count: int
     source_hash: str
-    user_updates: list[str]
+    task_updates: list[str]
     tool_transactions: list[ToolTransactionDigest]
-    assistant_updates: list[str]
-    open_failures: list[str]
+    failed_tool_evidence: list[str]
     estimated_tokens_before: int
     estimated_tokens_after: int
     created_at: float = field(default_factory=time.time)
-    schema_version: int = 1
 
     def to_dict(self) -> JsonObject:
         """返回 checkpoint 和 trace 共用的压缩契约。"""
 
         return {
-            "schema_version": self.schema_version,
             "task": self.task,
             "covered_message_count": self.covered_message_count,
             "source_hash": self.source_hash,
-            "user_updates": list(self.user_updates),
+            "task_updates": list(self.task_updates),
             "tool_transactions": [item.to_dict() for item in self.tool_transactions],
-            "assistant_updates": list(self.assistant_updates),
-            "open_failures": list(self.open_failures),
+            "failed_tool_evidence": list(self.failed_tool_evidence),
             "estimated_tokens_before": self.estimated_tokens_before,
             "estimated_tokens_after": self.estimated_tokens_after,
             "created_at": self.created_at,
@@ -217,9 +223,8 @@ class SessionDigest:
                 "session_digest (summary only; raw trace remains authoritative):",
                 f"task: {self.task}",
                 f"covered_messages: {self.covered_message_count}",
-                f"user_updates: {self.user_updates}",
-                f"assistant_updates: {self.assistant_updates}",
-                f"open_failures: {self.open_failures}",
+                f"task_updates: {self.task_updates}",
+                f"failed_tool_evidence: {self.failed_tool_evidence}",
                 "tool_transactions:",
                 transactions or "- none",
                 f"source_hash: {self.source_hash}",

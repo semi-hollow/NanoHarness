@@ -2,11 +2,10 @@ from __future__ import annotations
 
 import hashlib
 import json
-import os
 import re
-import uuid
 from pathlib import Path
 
+from agent_forge.atomic_json import atomic_write_json
 from agent_forge.runtime.domain.human_input import (
     HumanInputRequest,
     HumanInputRequestDraft,
@@ -138,12 +137,4 @@ class JsonHumanInputRepository(HumanInputRepository):
     def _write(self, request: HumanInputRequest) -> None:
         path = self.path_for(request.request_id)
         request.path = str(path)
-        temporary = path.with_name(f".{path.name}.{uuid.uuid4().hex}.tmp")
-        try:
-            with temporary.open("w", encoding="utf-8") as handle:
-                json.dump(request.to_dict(), handle, ensure_ascii=False, indent=2)
-                handle.flush()
-                os.fsync(handle.fileno())
-            temporary.replace(path)
-        finally:
-            temporary.unlink(missing_ok=True)
+        atomic_write_json(path, request.to_dict())

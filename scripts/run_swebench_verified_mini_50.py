@@ -159,7 +159,7 @@ def build_campaign_request(
         skill_names=("swebench_repair",),
         memory_root="",
         memory_namespace="",
-        memory_recall_limit=0,
+        memory_max_chars=0,
         execution_mode="local",
         network_policy="deny",
         keep_worktree=False,

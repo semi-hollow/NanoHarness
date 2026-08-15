@@ -22,6 +22,8 @@ class PermissionPolicy:
             return PermissionDecision.ALLOW, "read/list/search allowed"
         if action == "validate":
             return PermissionDecision.ALLOW, "bounded validation allowed"
+        if action == "memory_write":
+            return PermissionDecision.ALLOW, "explicit user memory provenance required"
         if action == "write":
             return PermissionDecision.ASK, "write needs approval"
         if action == "run_command":

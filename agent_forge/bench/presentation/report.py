@@ -70,7 +70,7 @@ def render_bench_report(summary: BenchRunSummary) -> str:
         ),
         (
             "- long-term memory: "
-            f"namespace=`{summary.memory_namespace}` limit=`{summary.memory_recall_limit}` "
+            f"namespace=`{summary.memory_namespace}` limit=`{summary.memory_max_chars}` "
             f"snapshot_sha256=`{summary.memory_snapshot_sha256}`"
         ),
         f"- execution/network: `{summary.execution_mode}` / `{summary.network_policy}`",

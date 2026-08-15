@@ -1,0 +1,88 @@
+{
+  "manifest_version": 1,
+  "migration_id": "runtime-context-memory-v2-2026-08-15",
+  "completed_on": "2026-08-15",
+  "policy": {
+    "scope": "current Runtime, CLI, Workbench, current fixtures, and new experiment entrypoints",
+    "historical_data": "archive unchanged when it is not used by the current Runtime or new-experiment path",
+    "production_legacy_fallback": false,
+    "schema_version_rule": "version only independently persisted canonical artifacts read directly by a loader"
+  },
+  "canonical_artifacts": [
+    {
+      "artifact": "TaskCheckpoint",
+      "schema_version": 2,
+      "loader": "agent_forge.runtime.domain.task.TaskCheckpoint.from_dict",
+      "changes": [
+        "context_digest renamed to session_digest",
+        "stop_output is present for every stopped Run",
+        "final_answer is nullable and exists only for accepted COMPLETED output"
+      ]
+    },
+    {
+      "artifact": "Trace projection",
+      "schema_version": 2,
+      "loader": "agent_forge.observability.adapters.json_trace.read_trace_jsonl",
+      "changes": [
+        "trace.jsonl is the process-crash-durable source journal",
+        "trace.json, usage, and reports are projections",
+        "candidate_final_answer is distinct from accepted final_answer"
+      ]
+    },
+    {
+      "artifact": "RunManifest",
+      "schema_version": 2,
+      "loader": "agent_forge.observability.adapters.run_manifest_files.RunManifest.from_dict",
+      "changes": [
+        "trace.jsonl is the source trace artifact",
+        "stop_output.txt is always emitted after stop",
+        "final_answer.txt is emitted only for accepted COMPLETED output"
+      ]
+    },
+    {
+      "artifact": "LongTermMemoryRecord",
+      "schema_version": 2,
+      "loader": "agent_forge.context.domain.memory.LongTermMemoryRecord.from_dict",
+      "changes": [
+        "machine-local root is ~/.agent_forge/memory",
+        "project namespace is explicit",
+        "current Run uses a frozen recall snapshot"
+      ]
+    }
+  ],
+  "active_inputs_updated": [
+    "tests/test_task_resume.py",
+    "tests/test_workbench_run_story.py",
+    "tests/test_long_term_memory.py",
+    "benchmarks/experiments/tool-aci-r1/plan.json",
+    "benchmarks/experiments/tool-aci-r1/result.json",
+    "benchmarks/experiments/tool-aci-r2/plan.json",
+    "benchmarks/experiments/tool-aci-r2/result.json",
+    "benchmarks/experiments/tool-aci-runner-v1.json",
+    "scripts/run_swebench_verified_mini_50.py",
+    "scripts/summarize_tool_aci_golden_20.py",
+    "scripts/summarize_tool_aci_golden_20_r2.py"
+  ],
+  "archived_legacy": [
+    {
+      "artifact": "TaskCheckpoint v1",
+      "source": ".agent_forge/internal/state/task_state",
+      "destination": ".agent_forge/archive/runtime-state/task-state-v1",
+      "file_count": 6149,
+      "approximate_size": "24 MiB",
+      "converted": false,
+      "reason": "no current loader index or active Runtime/new-experiment dependency"
+    }
+  ],
+  "untouched": [
+    "benchmark, scorecard, showcase, fanout, and request artifacts whose own canonical contract remains v1",
+    "pre-existing content under .agent_forge/archive"
+  ],
+  "audited_active_roots": [
+    ".agent_forge/runs",
+    "benchmarks/experiments",
+    "tests",
+    "examples",
+    "scripts"
+  ]
+}

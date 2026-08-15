@@ -207,7 +207,7 @@ def _metadata(
             results.get("tool_execution_timeout_seconds") or 120
         ),
         "memory_namespace": str(results.get("memory_namespace") or ""),
-        "memory_recall_limit": _int(results.get("memory_recall_limit")),
+        "memory_max_chars": _int(results.get("memory_max_chars")),
         "memory_snapshot_sha256": str(
             results.get("memory_snapshot_sha256") or "disabled"
         ),

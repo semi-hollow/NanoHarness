@@ -7,7 +7,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Mapping
+from typing import Any, ClassVar, Mapping
 
 
 @dataclass(frozen=True)
@@ -79,11 +79,11 @@ class RunManifest:
     status: str
     stop_reason: str
     artifacts: tuple[RunArtifact, ...]
-    schema_version: int = 1
+    SCHEMA_VERSION: ClassVar[int] = 2
 
     def to_dict(self) -> dict[str, object]:
         return {
-            "schema_version": self.schema_version,
+            "schema_version": self.SCHEMA_VERSION,
             "run_id": self.run_id,
             "task": self.task,
             "status": self.status,
@@ -93,6 +93,12 @@ class RunManifest:
 
     @classmethod
     def from_dict(cls, value: Mapping[str, Any]) -> "RunManifest":
+        schema_version = int(value.get("schema_version") or 0)
+        if schema_version != cls.SCHEMA_VERSION:
+            raise ValueError(
+                "unsupported run manifest schema_version: "
+                f"{schema_version}; migrate artifact to version {cls.SCHEMA_VERSION}"
+            )
         raw_artifacts = value.get("artifacts")
         artifacts = (
             tuple(
@@ -104,7 +110,6 @@ class RunManifest:
             else ()
         )
         return cls(
-            schema_version=int(value.get("schema_version") or 1),
             run_id=str(value.get("run_id") or ""),
             task=str(value.get("task") or ""),
             status=str(value.get("status") or "unknown"),
@@ -197,8 +202,8 @@ _STAGE_SPECS = (
         "结果与 Artifact",
         "Harness.run",
         "AgentLoop.run",
-        "candidate diff、最终文本与运行事实必须分开发布。",
-        ("final_answer", "artifact_created"),
+        "stop output、accepted final answer、candidate diff 与运行事实必须分开发布。",
+        ("candidate_final_answer", "artifact_created", "run_completed"),
     ),
     (
         "evidence",

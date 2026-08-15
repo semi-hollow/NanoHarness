@@ -13,6 +13,7 @@
 
 from __future__ import annotations
 
+import hashlib
 from dataclasses import dataclass
 from enum import Enum
 
@@ -230,7 +231,26 @@ class ToolExecutionPipeline:
         # 在查询旧记录、申请权限或真正执行前，必须先得到三者共用的状态变更风险分类、
         # operation key 和执行前目标指纹。无需操作状态表治理的调用也会归一化，
         # 但不会创建 operation record。
+        memory_provenance: JsonObject | None = None
+        if tool_call.name == "remember_memory":
+            memory_provenance = self._find_user_memory_provenance(
+                session,
+                tool_call,
+            )
+            if memory_provenance is None:
+                return self._reject_memory_without_provenance(
+                    session,
+                    tool_call,
+                    step,
+                )
         operation_intent = self.operation_tracker.build_operation_intent(tool_call)
+        if memory_provenance is not None:
+            self._record_memory_authorization(
+                session=session,
+                step=step,
+                operation_key=operation_intent.operation_key,
+                provenance=memory_provenance,
+            )
         if operation_intent.side_effect:
             existing_operation = self.operation_tracker.resolve_existing_operation(
                 session,
@@ -286,6 +306,72 @@ class ToolExecutionPipeline:
         # endregion 5. 权限门与真实执行结束
 
     # region 分支与证据叶子
+    @staticmethod
+    def _find_user_memory_provenance(
+        session: AgentRunSession,
+        tool_call: ToolCall,
+    ) -> JsonObject | None:
+        """精确匹配当前 session 的 user 原文，不推断自然语言授权语义。"""
+
+        source_quote = tool_call.arguments.get("source_quote")
+        if not isinstance(source_quote, str) or not source_quote.strip():
+            return None
+        normalized_quote = source_quote.strip()
+        for message_index in range(len(session.messages) - 1, -1, -1):
+            message = session.messages[message_index]
+            if message.role != "user" or normalized_quote not in message.content:
+                continue
+            return {
+                "message_index": message_index,
+                "message_sha256": hashlib.sha256(
+                    message.content.encode("utf-8")
+                ).hexdigest(),
+                "source_quote": normalized_quote,
+            }
+        return None
+
+    def _reject_memory_without_provenance(
+        self,
+        session: AgentRunSession,
+        tool_call: ToolCall,
+        step: int,
+    ) -> ToolCallOutcome:
+        """找不到当前 user Message 原文时拒绝写入，不创建 operation record。"""
+
+        observation = Observation(
+            tool_name=tool_call.name,
+            success=False,
+            content=(
+                "memory_write_rejected: source_quote must exactly match text in a "
+                "current-session role=user message"
+            ),
+        )
+        self.tool_feedback.append_tool_observation(
+            session,
+            tool_call,
+            observation,
+            step,
+        )
+        self._record_memory_authorization_rejection(
+            session=session,
+            tool_call=tool_call,
+            step=step,
+        )
+        session.lifecycle.update_checkpoint(
+            TaskCheckpointUpdate(
+                status=TaskRunStatus.RUNNING,
+                current_step=step,
+                last_tool=tool_call.name,
+                last_observation=observation.content,
+                messages_count=len(session.messages),
+                observations_count=len(session.observations),
+            )
+        )
+        return ToolCallOutcome(
+            status=ToolCallStatus.FAILED,
+            reason="memory_user_provenance_not_found",
+        )
+
     # 批次整形：限制本 turn 调用数；ask_human 出现时建立同 turn 屏障。
     def _select_calls_for_turn(
         self,
@@ -429,7 +515,7 @@ class ToolExecutionPipeline:
         repeated_side_effect_stop = StopRequest(
             status=TaskRunStatus.BLOCKED,
             reason="repeated_tool_call",
-            final_answer="blocked: repeated tool call",
+            stop_output="blocked: repeated tool call",
             current_step=step,
             last_tool=tool_call.name,
             resume_hint=repeat_limit_signal.recovery_hint,
@@ -694,7 +780,7 @@ class ToolExecutionPipeline:
             budget_stop_request = StopRequest(
                 status=TaskRunStatus.BLOCKED,
                 reason=budget_stop_signal.reason,
-                final_answer=f"blocked: {budget_stop_signal.reason}",
+                stop_output=f"blocked: {budget_stop_signal.reason}",
                 current_step=step,
                 last_tool=tool_call.name,
                 last_observation=tool_observation.content[:600],
@@ -725,6 +811,42 @@ class ToolExecutionPipeline:
         # endregion 4. Turn 收口结束
 
     # region 证据记录器
+    def _record_memory_authorization(
+        self,
+        *,
+        session: AgentRunSession,
+        step: int,
+        operation_key: str,
+        provenance: JsonObject,
+    ) -> None:
+        """记录通过原文匹配的 user-message provenance 与 operation key。"""
+
+        self.trace.add(
+            step,
+            session.agent_name,
+            "memory_authorization",
+            operation_key=operation_key,
+            provenance=provenance,
+        )
+
+    def _record_memory_authorization_rejection(
+        self,
+        *,
+        session: AgentRunSession,
+        tool_call: ToolCall,
+        step: int,
+    ) -> None:
+        """记录 fail-closed 的记忆授权拒绝，不把它写成 operation。"""
+
+        self.trace.add(
+            step,
+            session.agent_name,
+            "memory_authorization",
+            success=False,
+            rejection="user_message_provenance_not_found",
+            source_quote=str(tool_call.arguments.get("source_quote") or ""),
+        )
+
     def _record_tool_call_budget(
         self,
         *,

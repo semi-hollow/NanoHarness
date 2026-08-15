@@ -106,6 +106,12 @@ class LocalCaseExecutor(CaseExecutorPort):
                     tool_execution_timeout_seconds=(
                         request.tool_execution_timeout_seconds
                     ),
+                    memory_root=(
+                        request.memory_root or str(case_dir / "disabled_memory")
+                    ),
+                    memory_namespace=(
+                        request.memory_namespace or f"swebench:{case.instance_id}"
+                    ),
                 )
             )
             llm, model_capabilities = self._build_model(request)
@@ -129,7 +135,7 @@ class LocalCaseExecutor(CaseExecutorPort):
                 memory_namespace=(
                     request.memory_namespace or f"swebench:{case.instance_id}"
                 ),
-                memory_recall_limit=request.memory_recall_limit,
+                memory_max_chars=request.memory_max_chars,
                 model_capabilities=model_capabilities,
                 execution_environment=environment,
             )

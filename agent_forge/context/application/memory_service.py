@@ -151,12 +151,12 @@ class LongTermMemoryService(LongTermMemoryRecallPort):
         self,
         *,
         namespace: str,
-        limit: int = 6,
+        max_chars: int = 2_000,
     ) -> list[LongTermMemoryRecord]:
-        """项目级同 key 覆盖用户级默认值，不做模型或词项打分。"""
+        """按字符预算选择完整记录；项目同 key 覆盖用户默认值。"""
 
         # region 1. 在 Run 开始时加载当前可见记录
-        if limit <= 0:
+        if max_chars <= 0:
             return []
         visible_records = self.list_for_project(project_namespace=namespace)
         # endregion 1. 在 Run 开始时加载当前可见记录结束
@@ -173,11 +173,26 @@ class LongTermMemoryService(LongTermMemoryRecallPort):
                 selected_by_key[normalized_key] = memory_record
         # endregion 2. 同 key 冲突时让项目记忆覆盖用户默认值结束
 
-        # region 3. 稳定排序并冻结本次 Run 的记忆上限
-        return sorted(
+        # region 3. 项目优先、更新时间倒序；整条记录装得下才进入快照
+        ranked_records = sorted(
             selected_by_key.values(),
-            key=lambda memory_record: memory_record.key.casefold(),
-        )[:limit]
+            key=lambda memory_record: (
+                0 if memory_record.scope == MemoryScope.PROJECT.value else 1,
+                -memory_record.updated_at,
+                memory_record.key.casefold(),
+                memory_record.memory_id,
+            ),
+        )
+        selected_records: list[LongTermMemoryRecord] = []
+        used_chars = 0
+        for memory_record in ranked_records:
+            separator_chars = 1 if selected_records else 0
+            record_chars = len(memory_record.render_prompt_line())
+            if used_chars + separator_chars + record_chars > max_chars:
+                continue
+            selected_records.append(memory_record)
+            used_chars += separator_chars + record_chars
+        return selected_records
         # endregion 3. 稳定排序并冻结本次 Run 的记忆上限结束
 
     def _find_by_key(

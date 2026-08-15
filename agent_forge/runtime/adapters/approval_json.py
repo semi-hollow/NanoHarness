@@ -5,6 +5,7 @@ import json
 from pathlib import Path
 from typing import Any
 
+from agent_forge.atomic_json import atomic_write_json
 from agent_forge.runtime.domain.approval import ApprovalRequest, ApprovalRequestDraft
 from agent_forge.runtime.ports.repositories import ApprovalRepository
 
@@ -117,7 +118,4 @@ class JsonApprovalRepository(ApprovalRepository):
 
     def _write(self, request: ApprovalRequest) -> None:
         request.path = str(self.path_for(request.operation_key))
-        self.path_for(request.operation_key).write_text(
-            json.dumps(request.to_dict(), ensure_ascii=False, indent=2, default=str),
-            encoding="utf-8",
-        )
+        atomic_write_json(self.path_for(request.operation_key), request.to_dict())

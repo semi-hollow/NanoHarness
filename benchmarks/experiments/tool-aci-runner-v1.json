@@ -55,7 +55,7 @@
         "--max-revision-rounds", "0",
         "--tool-routing", "task-aware",
         "--skills", "swebench_repair",
-        "--memory-recall-limit", "0",
+        "--memory-max-chars", "0",
         "--execution-mode", "worktree",
         "--network-policy", "deny",
         "--no-keep-worktree"
@@ -105,7 +105,7 @@
         "--max-revision-rounds", "0",
         "--tool-routing", "task-aware",
         "--skills", "swebench_repair",
-        "--memory-recall-limit", "0",
+        "--memory-max-chars", "0",
         "--execution-mode", "worktree",
         "--network-policy", "deny",
         "--no-keep-worktree"

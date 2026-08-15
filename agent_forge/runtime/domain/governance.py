@@ -25,7 +25,7 @@ class ApprovalMode(Enum):
     DRY_RUN = "dry-run"
 
 
-SIDE_EFFECT_ACTIONS = {"write", "run_command"}
+SIDE_EFFECT_ACTIONS = {"write", "run_command", "memory_write"}
 
 
 @dataclass(frozen=True, kw_only=True)

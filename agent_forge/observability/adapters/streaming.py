@@ -80,9 +80,10 @@ class StreamingEventSink(EventSink):
         self,
         task: str = "",
         stop_reason: str = "",
-        final_answer: str = "",
+        stop_output: str = "",
+        final_answer: str | None = None,
     ) -> None:
-        self.delegate.set_run_context(task, stop_reason, final_answer)
+        self.delegate.set_run_context(task, stop_reason, stop_output, final_answer)
         if task and not self._started:
             self._started = True
             payload: dict[str, object] = {

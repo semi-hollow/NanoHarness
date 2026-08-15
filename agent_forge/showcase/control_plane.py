@@ -510,6 +510,8 @@ def _run_phase(
         ToolRegistryBuildRequest(
             workspace=str(workspace),
             auto=True,
+            memory_root=str(run_dir / "memory"),
+            memory_namespace=str(workspace.resolve()),
         )
     )
     result = Harness(

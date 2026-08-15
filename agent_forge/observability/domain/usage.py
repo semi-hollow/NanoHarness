@@ -174,7 +174,7 @@ def build_usage_report(trace: dict[str, Any]) -> dict[str, Any]:
             if evidence:
                 evidence_refs.append(evidence)
 
-        elif event_type == "final_answer":
+        elif event_type == "candidate_final_answer":
             for evidence in event.get("evidence_refs") or []:
                 evidence_refs.append(str(evidence))
     # endregion 2. 事件投影结束
@@ -188,7 +188,8 @@ def build_usage_report(trace: dict[str, Any]) -> dict[str, Any]:
         "run_id": trace.get("run_id", ""),
         "task": trace.get("task", ""),
         "stop_reason": trace.get("stop_reason", ""),
-        "final_answer": trace.get("final_answer", ""),
+        "stop_output": trace.get("stop_output", ""),
+        "final_answer": trace.get("final_answer"),
         "summary": summary,
         "steps": ordered_steps,
         "context_breakdown": context_breakdown,

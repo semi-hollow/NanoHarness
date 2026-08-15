@@ -137,7 +137,7 @@ class RunPreparation:
         return StopRequest(
             status=TaskRunStatus.BLOCKED,
             reason="input_guardrail_block",
-            final_answer=f"blocked: {guardrail_decision.reason}",
+            stop_output=f"blocked: {guardrail_decision.reason}",
         )
 
     def _resolve_clarification(
@@ -150,7 +150,7 @@ class RunPreparation:
             return StopRequest(
                 status=TaskRunStatus.BLOCKED,
                 reason="unsupported_task",
-                final_answer=f"blocked: {clarification_decision.reason}",
+                stop_output=f"blocked: {clarification_decision.reason}",
             )
         if not clarification_decision.needs_user_input():
             return None
@@ -215,7 +215,7 @@ class RunPreparation:
         memory_namespace = self.config.memory_namespace or str(self.config.workspace)
         recalled_memories = self.memory_recall.recall(
             namespace=memory_namespace,
-            limit=max(0, int(self.config.memory_recall_limit)),
+            max_chars=max(0, int(self.config.memory_max_chars)),
         )
         session.working_memory.seed_long_term(recalled_memories)
         session.working_memory.set("task", session.task)

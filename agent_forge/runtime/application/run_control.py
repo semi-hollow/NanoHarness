@@ -61,7 +61,7 @@ class RunControlHandler:
                 stop=StopRequest(
                     status=terminal_stop_status,
                     reason=terminal_control_signal.kind.value,
-                    final_answer=(
+                    stop_output=(
                         f"{terminal_control_signal.kind.value}: "
                         f"{terminal_control_signal.reason}"
                     ),

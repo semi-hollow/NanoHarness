@@ -159,7 +159,7 @@ class BenchmarkCampaignRequest:
             "skill_mode",
             "skill_names",
             "skill_manifest_files",
-            "memory_recall_limit",
+            "memory_max_chars",
         ):
             base.pop(key, None)
         base["base_url"] = _safe_base_url(str(base.get("base_url") or ""))

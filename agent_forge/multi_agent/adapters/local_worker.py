@@ -361,7 +361,8 @@ class LocalAgentWorkerAdapter(FanoutWorkerPort):
             final_trace.set_run_context(
                 task=finalizer_task_prompt(goal, results),
                 stop_reason=f"finalizer_{decision.lower()}",
-                final_answer=answer,
+                stop_output=answer,
+                final_answer=answer if decision == "PASS" else None,
             )
             final_trace.write()
             try:

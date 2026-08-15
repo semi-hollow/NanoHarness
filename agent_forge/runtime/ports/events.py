@@ -17,7 +17,8 @@ class EventSink(Protocol):
         self,
         task: str = "",
         stop_reason: str = "",
-        final_answer: str = "",
+        stop_output: str = "",
+        final_answer: str | None = None,
     ) -> None:
         """更新一次运行的顶层事实。"""
 

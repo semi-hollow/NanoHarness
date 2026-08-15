@@ -169,7 +169,7 @@ class OperationTracker:
                 stop_request=StopRequest(
                     status=TaskRunStatus.BLOCKED,
                     reason="operation_outcome_unknown",
-                    final_answer="blocked: operation outcome is unknown",
+                    stop_output="blocked: operation outcome is unknown",
                     current_step=step,
                     last_tool=tool_call.name,
                     last_observation=unknown_outcome_observation.content,
@@ -220,7 +220,7 @@ class OperationTracker:
                     status=TaskRunStatus.BLOCKED,
                     current_step=step,
                     reason="stale_operation_record",
-                    final_answer="blocked: executed operation target has changed",
+                    stop_output="blocked: executed operation target has changed",
                     last_tool=tool_call.name,
                     last_observation=stale_record_observation.content,
                     resume_hint=(
@@ -443,6 +443,8 @@ class OperationTracker:
 
         if tool_name == "run_command":
             return "run_command"
+        if tool_name == "remember_memory":
+            return "memory_write"
         if tool_name in WORKSPACE_WRITE_TOOL_NAMES:
             return "write"
         if tool_name == "python_validation":
@@ -453,4 +455,4 @@ class OperationTracker:
     def _is_side_effect_action(action: str) -> bool:
         """只让需审批和防重复保护的持久状态变更操作进入操作状态表。"""
 
-        return action in {"write", "run_command"}
+        return action in {"write", "run_command", "memory_write"}

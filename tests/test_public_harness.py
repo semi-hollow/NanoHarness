@@ -104,10 +104,8 @@ class PublicHarnessTest(unittest.TestCase):
             for name in (
                 "approvals",
                 "human_input",
-                "memory",
                 "operation_ledger",
                 "sessions",
-                "task_state",
             ):
                 self.assertTrue((state_root / name).is_dir())
 

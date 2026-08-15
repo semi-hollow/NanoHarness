@@ -53,7 +53,7 @@ from agent_forge.runtime.wiring import (
     build_llm,
     build_registry,
 )
-from agent_forge.storage_layout import ensure_storage_layout
+from agent_forge.storage_layout import MEMORY_ROOT, ensure_storage_layout
 from agent_forge.tools.registry import ToolRegistry
 
 
@@ -117,7 +117,7 @@ def build_single_harness(
             human_input_root=args.human_input_root,
             operation_ledger_root=args.operation_ledger_root,
             memory_root=args.memory_root,
-            memory_recall_limit=args.memory_recall_limit,
+            memory_max_chars=args.memory_max_chars,
             skill_mode=parse_skill_mode(args.skills),
             skill_names=tuple(parse_skill_names(args.skills)),
             skill_manifest_files=tuple(args.skill_manifest),
@@ -213,12 +213,14 @@ def _run_advanced_repository_task(
                         tuple(enabled_tools) if enabled_tools is not None else None
                     ),
                     execution_environment=worker_environment,
+                    memory_root=config.memory_root,
+                    memory_namespace=config.memory_namespace,
                 )
             )
 
         agent_mode = getattr(args, "agent_mode", "single")
         if agent_mode == "fanout":
-            final_answer = _run_fanout(
+            stop_output = _run_fanout(
                 args,
                 config,
                 trace,
@@ -247,16 +249,22 @@ def _run_advanced_repository_task(
                     ),
                 )
             ).run()
-            final_answer = summary.final_answer
+            stop_output = summary.final_answer
             run_status = summary.status
             trace.set_run_context(
                 stop_reason=f"multi_agent_{summary.status}",
-                final_answer=final_answer,
+                stop_output=stop_output,
+                final_answer=stop_output if summary.status == "passed" else None,
             )
 
         trace.write()
         write_usage_artifacts(trace_path)
-        (run_dir / "final_answer.txt").write_text(final_answer, encoding="utf-8")
+        (run_dir / "stop_output.txt").write_text(stop_output, encoding="utf-8")
+        if run_status == "passed":
+            (run_dir / "final_answer.txt").write_text(
+                stop_output,
+                encoding="utf-8",
+            )
         (run_dir / "candidate_changes.diff").write_text(
             environment.diff(),
             encoding="utf-8",
@@ -381,14 +389,10 @@ def _build_runtime_config(
         skill_manifest_files=getattr(args, "skill_manifest", []),
         tool_routing_mode=getattr(args, "tool_routing", "task-aware"),
         memory_root=str(
-            control_path(
-                getattr(args, "memory_root", ""),
-                requested_workspace,
-                "memory",
-            )
+            Path(getattr(args, "memory_root", "") or MEMORY_ROOT).expanduser()
         ),
         memory_namespace=str(requested_workspace),
-        memory_recall_limit=getattr(args, "memory_recall_limit", 6),
+        memory_max_chars=getattr(args, "memory_max_chars", 2_000),
         max_tool_calls_per_turn=getattr(args, "max_tool_calls_per_turn", 4),
         model_capabilities=_model_capabilities_from_args(args),
         instruction_target=getattr(args, "instruction_target", ""),
@@ -453,7 +457,7 @@ def _run_fanout(
             resume_from=getattr(args, "fanout_resume", "") or None,
         )
     ).run()
-    final_answer = "\n".join(
+    stop_output = "\n".join(
         part
         for part in [
             summary.final_answer.strip(),
@@ -468,9 +472,10 @@ def _run_fanout(
     )
     trace.set_run_context(
         stop_reason=f"fanout_{summary.status}",
-        final_answer=final_answer,
+        stop_output=stop_output,
+        final_answer=stop_output if summary.status == "passed" else None,
     )
-    return final_answer
+    return stop_output
 
 
 def parse_skill_mode(value: str) -> str:

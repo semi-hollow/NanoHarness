@@ -37,6 +37,7 @@ from agent_forge.storage_layout import (
     AGENT_FORGE_ROOT,
     INDEX_ROOT,
     LEGACY_CONTROL_ROOTS,
+    MEMORY_ROOT,
     control_state_root,
     ensure_storage_layout,
 )
@@ -50,6 +51,7 @@ class HarnessRunPaths:
     storage_workspace: Path
     artifact_dir: Path
     trace_file: Path
+    stop_output_file: Path
     final_answer_file: Path
     candidate_diff_file: Path
     task_state_dir: Path
@@ -103,6 +105,7 @@ def create_run_paths(
         storage_workspace=storage_workspace,
         artifact_dir=artifact_dir,
         trace_file=artifact_dir / "trace.json",
+        stop_output_file=artifact_dir / "stop_output.txt",
         final_answer_file=artifact_dir / "final_answer.txt",
         candidate_diff_file=artifact_dir / "candidate_changes.diff",
         task_state_dir=artifact_dir / "task_state",
@@ -184,11 +187,9 @@ def build_runtime_config(
         skill_names=list(config.skill_names),
         skill_manifest_files=list(config.skill_manifest_files),
         tool_routing_mode=config.tool_routing_mode,
-        memory_root=str(
-            control_path(config.memory_root, control_workspace, "memory")
-        ),
+        memory_root=str(_resolve_memory_root(config.memory_root, control_workspace)),
         memory_namespace=str(requested_workspace),
-        memory_recall_limit=config.memory_recall_limit,
+        memory_max_chars=config.memory_max_chars,
         model_capabilities=config.model_capabilities,
         instruction_target=config.instruction_target,
         global_instruction_files=list(config.global_instruction_files),
@@ -275,6 +276,13 @@ def control_path(value: str, workspace: Path, default_name: str) -> Path:
         if path == workspace / legacy:
             return workspace / current
     return path
+
+
+def _resolve_memory_root(value: str, workspace: Path) -> Path:
+    """空值使用 machine-local canonical root；显式相对路径仍以项目为基准。"""
+
+    path = Path(value).expanduser() if value else MEMORY_ROOT
+    return path if path.is_absolute() else workspace / path
 
 
 def write_latest_run_pointer(workspace: Path, run_dir: Path) -> None:

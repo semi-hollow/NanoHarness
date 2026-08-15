@@ -151,7 +151,7 @@
     "max_revision_rounds": 0,
     "tool_routing": "task-aware",
     "skill": "swebench_repair",
-    "memory_recall_limit": 0,
+    "memory_max_chars": 0,
     "execution_mode": "worktree",
     "network_policy": "deny",
     "keep_worktree": false,

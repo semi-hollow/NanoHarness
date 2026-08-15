@@ -81,7 +81,7 @@ class RuntimeHook:
         return None
 
     # 生命周期时机：运行停止前，判断是否满足停止条件。
-    def on_stop(self, run_id: str, reason: str, final_answer: str) -> HookDecision:
+    def on_stop(self, run_id: str, reason: str, stop_output: str) -> HookDecision:
         """停止或完成前的条件判断时机；默认不表达意见。"""
 
         return HookDecision(

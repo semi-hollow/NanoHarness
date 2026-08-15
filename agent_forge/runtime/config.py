@@ -26,7 +26,7 @@ class RuntimeConfig:
     ``workspace`` 指任务代码根目录；``max_*``、``timeout_seconds`` 和
     ``cost_budget_usd`` 控制循环资源；``*_root`` 指 durable 控制面目录；
     ``approval_mode``、Skill 和 tool routing 字段控制治理策略；最后三个 memory
-    字段控制证据记忆的存储、隔离 namespace 和召回上限。
+    字段控制证据记忆的存储、隔离 namespace 和完整记录字符预算。
     """
 
     # 工作区与 AgentLoop 资源预算。
@@ -49,7 +49,7 @@ class RuntimeConfig:
     model_capabilities: ModelCapabilities | None = None
 
     # Checkpoint、人工控制和状态变更操作幂等状态的持久化位置。
-    task_state_root: str = ".agent_forge/internal/state/task_state"
+    task_state_root: str = ".agent_forge/runs/embedded/task_state"
     resume_state: str = ""
     approval_root: str = ".agent_forge/internal/state/approvals"
     human_input_root: str = ".agent_forge/internal/state/human_input"
@@ -72,4 +72,4 @@ class RuntimeConfig:
     # 证据长期记忆；working memory 和 SessionDigest 不由这三个字段持久化。
     memory_root: str = ""
     memory_namespace: str = ""
-    memory_recall_limit: int = 6
+    memory_max_chars: int = 2_000

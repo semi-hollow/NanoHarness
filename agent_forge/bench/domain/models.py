@@ -171,7 +171,7 @@ class BenchRunSummary:
     model_request_max_attempts: int = 2
     tool_execution_timeout_seconds: int = 0
     memory_namespace: str = ""
-    memory_recall_limit: int = 0
+    memory_max_chars: int = 0
     memory_snapshot_sha256: str = ""
     # 对照实验、official evaluator 和 per-case 最终结果。
     official_namespace: str = "swebench"
@@ -220,7 +220,7 @@ class BenchRunSummary:
             "model_request_max_attempts": self.model_request_max_attempts,
             "tool_execution_timeout_seconds": self.tool_execution_timeout_seconds,
             "memory_namespace": self.memory_namespace,
-            "memory_recall_limit": self.memory_recall_limit,
+            "memory_max_chars": self.memory_max_chars,
             "memory_snapshot_sha256": self.memory_snapshot_sha256,
             "official_namespace": self.official_namespace,
             "output_dir": str(self.output_dir),

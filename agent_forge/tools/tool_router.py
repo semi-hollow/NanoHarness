@@ -152,6 +152,12 @@ class ToolRouter:
             "latency": "human",
             "mode": "human",
         },
+        "remember_memory": {
+            "capability": "remember",
+            "risk": "medium",
+            "latency": "low",
+            "mode": "memory_write",
+        },
         "replace_text": {
             "capability": "edit",
             "risk": "medium",
@@ -263,14 +269,18 @@ class ToolRouter:
         # 用户明确给出的禁止写入约束。
         is_read_only_task = task_requests_read_only(normalized_task_text)
 
-        # 所有任务先获得仓库发现、读取和搜索能力；ask_human 是独立澄清通道。
+        # 所有任务先获得仓库发现、读取和搜索能力；人工与记忆工具各自由执行管线
+        # 验证 durable barrier / user-message provenance，不靠 Router 猜授权语义。
         visible_tool_names = {
             name
             for name in registered_tool_names
             if self.DEFAULT_METADATA.get(name, {}).get("capability")
             in {"discover", "inspect", "search"}
         }
-        visible_tool_names |= registered_tool_names & {"ask_human"}
+        visible_tool_names |= registered_tool_names & {
+            "ask_human",
+            "remember_memory",
+        }
 
         # 修复任务需要“检查 -> 编辑 -> 验证 -> 查看改动”的完整闭环。这里允许模型看见
         # 写工具，真实写入仍然由执行阶段的权限链审批。

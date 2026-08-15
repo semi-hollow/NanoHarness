@@ -4,8 +4,9 @@ import json
 import time
 import uuid
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Mapping
+from typing import TYPE_CHECKING, Any, Mapping, TextIO
 
+from agent_forge.atomic_json import atomic_write_json
 from agent_forge.observability.domain.event import TraceEvent, TraceEventType, TraceRecord
 from agent_forge.observability.domain.metrics import summarize
 from agent_forge.observability.presentation.trace_summary import render_trace_summary
@@ -15,15 +16,20 @@ if TYPE_CHECKING:
     from agent_forge.runtime.domain.task import TaskCheckpoint
 
 
+TRACE_SCHEMA_VERSION = 2
+
+
 class JsonTraceRecorder(EventSink):
-    """把 Runtime 事件追加为统一信封，并在终态发布 ``trace.json``。
+    """实时追加 ``trace.jsonl``，终止时生成可读 ``trace.json`` 投影。"""
 
-    可类比 Java 中的结构化审计日志 Adapter：业务流程决定“发生了什么”，本类只负责补齐
-    run_id、时间间隔等公共字段并持久化，不参与权限、恢复或评测决策。
-    """
-
-    def __init__(self, path: str, verbose: bool = False, write_summary_file: bool = False) -> None:
+    def __init__(
+        self,
+        path: str,
+        verbose: bool = False,
+        write_summary_file: bool = False,
+    ) -> None:
         self.path = path
+        self.journal_path = str(Path(path).with_suffix(".jsonl"))
         self.verbose = verbose
         self.write_summary_file = write_summary_file
         self.run_id = str(uuid.uuid4())
@@ -32,16 +38,44 @@ class JsonTraceRecorder(EventSink):
         self._last_event_at = self.started_at
         self.task = ""
         self.stop_reason = ""
-        self.final_answer = ""
+        self.stop_output = ""
+        self.final_answer: str | None = None
+        journal = Path(self.journal_path)
+        journal.parent.mkdir(parents=True, exist_ok=True)
+        self._journal: TextIO | None = journal.open("w", encoding="utf-8")
+        self._append_record(
+            {
+                "record_type": "trace_header",
+                "schema_version": TRACE_SCHEMA_VERSION,
+                "run_id": self.run_id,
+                "start_time": self.started_at,
+            }
+        )
 
-    def set_run_context(self, task: str = "", stop_reason: str = "", final_answer: str = "") -> None:
-        """补充整次运行的任务和终态信息；这些字段位于事件流之外。"""
+    def set_run_context(
+        self,
+        task: str = "",
+        stop_reason: str = "",
+        stop_output: str = "",
+        final_answer: str | None = None,
+    ) -> None:
+        """追加顶层上下文变化；accepted final answer 可为 ``null``。"""
+
+        update: dict[str, Any] = {"record_type": "run_context"}
         if task:
             self.task = task
+            update["task"] = task
         if stop_reason:
             self.stop_reason = stop_reason
-        if final_answer:
+            update["stop_reason"] = stop_reason
+        if stop_output:
+            self.stop_output = stop_output
+            update["stop_output"] = stop_output
+        if final_answer is not None:
             self.final_answer = final_answer
+            update["final_answer"] = final_answer
+        if len(update) > 1:
+            self._append_record(update)
 
     def add(
         self,
@@ -52,12 +86,16 @@ class JsonTraceRecorder(EventSink):
         error: str = "",
         **data: Any,
     ) -> None:
-        """把调用方提供的事件字段封装成统一 Trace 记录并追加到内存事件流。
+        """把一个完整事件同步追加为一行，并立即 flush。"""
 
-        本入口用于兼容通用事件；关键状态优先使用类型化 ``record_*`` 方法。
-        它只记录事实，不决定权限、恢复状态或评测结论。
-        """
-        self._append(step, agent_name, event_type, success=success, error=error, data=data)
+        self._append(
+            step,
+            agent_name,
+            event_type,
+            success=success,
+            error=error,
+            data=data,
+        )
 
     def record_task_state_checkpoint(
         self,
@@ -66,7 +104,6 @@ class JsonTraceRecorder(EventSink):
         agent_name: str,
         checkpoint: "TaskCheckpoint",
     ) -> None:
-        """记录一份可恢复状态快照，供 Workbench 对比相邻状态转换。"""
         self._append(
             step,
             agent_name,
@@ -84,7 +121,6 @@ class JsonTraceRecorder(EventSink):
         error: str = "",
         data: Mapping[str, Any] | None = None,
     ) -> None:
-        """实现 EventSink 的类型化事件入口，保留调用方已经定义好的业务字段。"""
         self._append(
             step,
             agent_name,
@@ -104,7 +140,6 @@ class JsonTraceRecorder(EventSink):
         error: str = "",
         data: Mapping[str, Any] | None = None,
     ) -> None:
-        """统一补齐事件信封、计算距上次事件的耗时并追加到内存事实流。"""
         now = time.time()
         event = TraceEvent(
             run_id=self.run_id,
@@ -118,30 +153,122 @@ class JsonTraceRecorder(EventSink):
         ).to_dict()
         self._last_event_at = now
         self.events.append(event)
+        self._append_record({"record_type": "event", **event})
         if self.verbose:
-            print(f"[trace] step={step} agent={agent_name} event={event_type} success={success}")
+            print(
+                f"[trace] step={step} agent={agent_name} "
+                f"event={event_type} success={success}"
+            )
+
+    def _append_record(self, record: Mapping[str, Any]) -> None:
+        if self._journal is None:
+            raise RuntimeError("trace journal is already closed")
+        self._journal.write(json.dumps(record, ensure_ascii=False, default=str))
+        self._journal.write("\n")
+        self._journal.flush()
 
     def write(self) -> None:
-        """将当前事实流和 run context 发布为 ``trace.json``。"""
+        """从 durable journal 读取事实并生成最终 projection。"""
+
+        if self._journal is not None:
+            self._journal.flush()
+        context, events, truncated_tail = read_trace_jsonl(self.journal_path)
         trace = {
-            "run_id": self.run_id,
-            "task": self.task,
-            "start_time": self.started_at,
+            "schema_version": TRACE_SCHEMA_VERSION,
+            "run_id": context["run_id"],
+            "task": context.get("task", ""),
+            "start_time": context["start_time"],
             "end_time": time.time(),
-            "stop_reason": self.stop_reason,
-            "final_answer": self.final_answer,
-            "events": self.events,
-            "metrics": summarize(self.events),
+            "stop_reason": context.get("stop_reason", ""),
+            "stop_output": context.get("stop_output", ""),
+            "final_answer": context.get("final_answer"),
+            "journal_tail_truncated": truncated_tail,
+            "events": events,
+            "metrics": summarize(events),
         }
-        with open(self.path, "w", encoding="utf-8") as f:
-            json.dump(trace, f, ensure_ascii=False, indent=2)
+        atomic_write_json(self.path, trace)
         if self.write_summary_file:
             summary_path = Path(self.path).with_name("summary.md")
             summary_path.write_text(render_trace_summary(trace), encoding="utf-8")
 
     def publish(self) -> None:
-        """实现 EventSink 的终态发布端口；``write`` 保留给现有调用方。"""
-
         self.write()
+        self.close()
+
+    def close(self) -> None:
+        if self._journal is not None:
+            self._journal.close()
+            self._journal = None
+
+    def __del__(self) -> None:  # pragma: no cover - interpreter cleanup fallback
+        self.close()
+
+
+def read_trace_jsonl(
+    path: str | Path,
+) -> tuple[dict[str, Any], list[TraceRecord], bool]:
+    """严格读取 journal；只容忍未换行的最后一条 crash-truncated record。"""
+
+    raw_lines = Path(path).read_bytes().splitlines(keepends=True)
+    if not raw_lines:
+        raise ValueError("trace journal is empty")
+
+    records: list[dict[str, Any]] = []
+    truncated_tail = False
+    for index, raw_line in enumerate(raw_lines):
+        try:
+            record = json.loads(raw_line.decode("utf-8"))
+        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+            is_unterminated_tail = index == len(raw_lines) - 1 and not raw_line.endswith(
+                b"\n"
+            )
+            if is_unterminated_tail:
+                truncated_tail = True
+                break
+            raise ValueError(f"corrupt trace journal line {index + 1}") from exc
+        if not isinstance(record, dict):
+            raise ValueError(f"trace journal line {index + 1} must be an object")
+        records.append(record)
+
+    header = records[0] if records else {}
+    if header.get("record_type") != "trace_header":
+        raise ValueError("trace journal is missing header")
+    schema_version = int(header.get("schema_version") or 0)
+    if schema_version != TRACE_SCHEMA_VERSION:
+        raise ValueError(
+            f"unsupported trace schema_version: {schema_version}; "
+            f"expected {TRACE_SCHEMA_VERSION}"
+        )
+
+    context: dict[str, Any] = {
+        "run_id": header.get("run_id", ""),
+        "start_time": header.get("start_time", 0.0),
+    }
+    events: list[TraceRecord] = []
+    for index, record in enumerate(records[1:], start=2):
+        record_type = record.get("record_type")
+        if record_type == "run_context":
+            context.update(
+                {
+                    key: value
+                    for key, value in record.items()
+                    if key != "record_type"
+                }
+            )
+            continue
+        if record_type != "event":
+            raise ValueError(f"unknown trace journal record at line {index}")
+        event = dict(record)
+        event.pop("record_type", None)
+        events.append(event)
+    return context, events, truncated_tail
+
 
 TraceRecorder = JsonTraceRecorder
+
+__all__ = [
+    "JsonTraceRecorder",
+    "read_trace_jsonl",
+    "TRACE_SCHEMA_VERSION",
+    "TraceRecorder",
+]

@@ -41,17 +41,17 @@ class FinalAnswerBuilder:
             else self._raw_tool_name(response.content or "")
         )
         if rejected_tool_name is not None:
-            final_answer = "blocked: pending_tool_call_at_stop"
+            stop_output = "blocked: pending_tool_call_at_stop"
             self._record_rejected_tool_request(
                 session=session,
                 step=step,
-                final_answer=final_answer,
+                stop_output=stop_output,
                 rejected_tool_name=rejected_tool_name,
             )
             return StopRequest(
                 status=TaskRunStatus.BLOCKED,
                 reason="pending_tool_call_at_stop",
-                final_answer=final_answer,
+                stop_output=stop_output,
                 current_step=step,
                 messages_count=len(session.messages),
                 observations_count=len(session.observations),
@@ -85,7 +85,8 @@ class FinalAnswerBuilder:
         return StopRequest(
             status=TaskRunStatus.COMPLETED,
             reason="final_answer",
-            final_answer=final_answer,
+            stop_output=final_answer,
+            candidate_final_answer=final_answer,
             current_step=step,
             messages_count=len(session.messages),
             observations_count=len(session.observations),
@@ -97,7 +98,7 @@ class FinalAnswerBuilder:
         *,
         session: AgentRunSession,
         step: int,
-        final_answer: str,
+        stop_output: str,
         rejected_tool_name: str,
     ) -> None:
         """记录最终轮仍出现 ToolCall，且该调用没有进入执行链。"""
@@ -107,7 +108,7 @@ class FinalAnswerBuilder:
             session.agent_name,
             "pending_tool_call_rejected",
             success=False,
-            observation=final_answer,
+            observation=stop_output,
             tool_call=rejected_tool_name,
             pending_tool_call=True,
             rejection_reason="final_turn_tools_closed",
@@ -138,7 +139,7 @@ class FinalAnswerBuilder:
         self.trace.add(
             step,
             session.agent_name,
-            "final_answer",
+            "candidate_final_answer",
             observation=final_answer,
             evidence_refs=citations,
         )

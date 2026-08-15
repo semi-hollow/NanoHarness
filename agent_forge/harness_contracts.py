@@ -63,7 +63,7 @@ class HarnessConfig:
     enabled_tools: tuple[str, ...] | None = None
     mcp_config_file: str | None = None
     mcp_allowed_tools: tuple[str, ...] = ()
-    memory_recall_limit: int = 6
+    memory_max_chars: int = 2_000
     model_capabilities: ModelCapabilities | None = None
     instruction_target: str = ""
     global_instruction_files: tuple[str, ...] = ()
@@ -116,8 +116,8 @@ class HarnessConfig:
             raise ValueError("timeout_seconds must be positive")
         if self.cost_budget_usd is not None and self.cost_budget_usd < 0:
             raise ValueError("cost_budget_usd must not be negative")
-        if self.memory_recall_limit < 0:
-            raise ValueError("memory_recall_limit must not be negative")
+        if self.memory_max_chars < 0:
+            raise ValueError("memory_max_chars must not be negative")
         if self.instruction_max_bytes < 1:
             raise ValueError("instruction_max_bytes must be positive")
         if self.execution_mode not in {"local", "worktree", "container"}:
@@ -154,7 +154,8 @@ class RunResult:
     run_id: str
     status: TaskRunStatus
     stop_reason: str
-    final_answer: str
+    stop_output: str
+    final_answer: str | None
     artifact_dir: Path
     checkpoint: TaskCheckpoint
     trace_path: Path | None = None

@@ -345,24 +345,25 @@ def _build_digest(
         ensure_ascii=False,
         sort_keys=True,
     )
-    user_updates = _bounded(
+    initial_user_message_seen = False
+    task_updates: list[str] = []
+    for message in covered_messages:
+        if message.role != "user":
+            continue
+        if not initial_user_message_seen:
+            initial_user_message_seen = True
+            continue
+        task_updates.append(_excerpt(message.content, 320))
+    task_updates = _bounded(
         [
-            _excerpt(message.content, 320)
-            for message in covered_messages
-            if message.role == "user" and message.content.strip() != task.strip()
-        ],
-        6,
-    )
-    assistant_updates = _bounded(
-        [
-            _excerpt(message.content, 320)
-            for message in covered_messages
-            if message.role == "assistant" and message.content.strip()
+            update
+            for update in task_updates
+            if update
         ],
         6,
     )
     tool_transactions: list[ToolTransactionDigest] = []
-    open_failures: list[str] = []
+    failed_tool_evidence: list[str] = []
     for history_segment in history_segments:
         tool_messages = {
             message.tool_call_id: (message, observation)
@@ -412,17 +413,16 @@ def _build_digest(
                 )
                 tool_transactions.append(tool_transaction)
                 if tool_succeeded is False:
-                    open_failures.append(
+                    failed_tool_evidence.append(
                         f"{tool_name}: {_excerpt(tool_observation_content, 240)}"
                     )
     return SessionDigest(
         task=task,
         covered_message_count=len(covered_messages),
         source_hash=hashlib.sha256(digest_source_payload.encode("utf-8")).hexdigest(),
-        user_updates=user_updates,
+        task_updates=task_updates,
         tool_transactions=_bounded(tool_transactions, 16),
-        assistant_updates=assistant_updates,
-        open_failures=_bounded(open_failures, 8),
+        failed_tool_evidence=_bounded(failed_tool_evidence, 8),
         estimated_tokens_before=estimated_tokens_before,
         estimated_tokens_after=0,
     )

@@ -31,12 +31,12 @@ class AgentRunSession:
     max_iterations: int
     lifecycle: RunLifecycle
     controller: StepController
-    # 可恢复输入和逐 turn 累积状态。
+    # Conversation History：首条 user task 与后续 user/assistant/tool 消息。
     resume_summary: str = ""
     iteration: int = 0
     messages: list[Message] = field(default_factory=list)
     observations: list[Observation] = field(default_factory=list)
-    # 三类上下文视图：working memory、可引用 evidence、激活 Skill。
+    # Runtime Context 的重建输入；Tool schemas 由 TurnPreparation 单独路由。
     working_memory: WorkingMemory = field(default_factory=WorkingMemory)
     evidence: EvidenceLedger = field(default_factory=EvidenceLedger)
     active_skills: list[SkillView] = field(default_factory=list)
@@ -45,7 +45,7 @@ class AgentRunSession:
     ran_tests: bool = False
     blocked: bool = False
     estimated_cost_usd: float = 0.0
-    # 返回调用方和写入 checkpoint 的最终运行状态。
+    # 返回调用方的本次停止输出；accepted final answer 由 RunLifecycle 质量门决定。
     status: str = "running"
-    final_answer: str = ""
+    stop_output: str = ""
     stop_reason: str = ""

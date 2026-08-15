@@ -20,7 +20,8 @@ class CoordinatorEventSink(EventSink, Protocol):
         self,
         task: str = "",
         stop_reason: str = "",
-        final_answer: str = "",
+        stop_output: str = "",
+        final_answer: str | None = None,
     ) -> None:
         """更新 coordinator 顶层运行事实。"""
 

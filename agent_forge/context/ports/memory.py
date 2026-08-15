@@ -30,6 +30,6 @@ class LongTermMemoryRecallPort(Protocol):
         self,
         *,
         namespace: str,
-        limit: int = 6,
+        max_chars: int = 2_000,
     ) -> list[LongTermMemoryRecord]:
-        """返回 Run 开始时固定的用户/项目记忆快照。"""
+        """按 Context 字符预算返回 Run 开始时固定的完整记录快照。"""

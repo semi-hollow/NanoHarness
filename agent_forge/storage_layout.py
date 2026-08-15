@@ -14,8 +14,8 @@ STATE_ROOT = INTERNAL_ROOT / "state"
 APPROVAL_ROOT = STATE_ROOT / "approvals"
 HUMAN_INPUT_ROOT = STATE_ROOT / "human_input"
 OPERATION_LEDGER_ROOT = STATE_ROOT / "operation_ledger"
-MEMORY_ROOT = STATE_ROOT / "memory"
-TASK_STATE_ROOT = STATE_ROOT / "task_state"
+# Long-Term Memory 跨 Run、跨 Project；物理根属于当前机器，不属于项目控制状态。
+MEMORY_ROOT = Path.home() / ".agent_forge" / "memory"
 SESSIONS_ROOT = STATE_ROOT / "sessions"
 
 DEBUG_LAB_ROOT = INTERNAL_ROOT / "debug-lab"
@@ -41,16 +41,12 @@ CONTROL_STATE_ROOTS = {
     "approvals": APPROVAL_ROOT,
     "human_input": HUMAN_INPUT_ROOT,
     "operation_ledger": OPERATION_LEDGER_ROOT,
-    "memory": MEMORY_ROOT,
-    "task_state": TASK_STATE_ROOT,
 }
 
 LEGACY_CONTROL_ROOTS = {
     AGENT_FORGE_ROOT / "approvals": APPROVAL_ROOT,
     AGENT_FORGE_ROOT / "human_input": HUMAN_INPUT_ROOT,
     AGENT_FORGE_ROOT / "operation_ledger": OPERATION_LEDGER_ROOT,
-    AGENT_FORGE_ROOT / "memory": MEMORY_ROOT,
-    AGENT_FORGE_ROOT / "task_state": TASK_STATE_ROOT,
 }
 
 
@@ -79,8 +75,6 @@ def ensure_storage_layout(workspace: Path) -> None:
         APPROVAL_ROOT,
         HUMAN_INPUT_ROOT,
         OPERATION_LEDGER_ROOT,
-        MEMORY_ROOT,
-        TASK_STATE_ROOT,
         SESSIONS_ROOT,
         DEBUG_LAB_ROOT,
         DEBUG_LAB_STATE_ROOT,
@@ -115,7 +109,6 @@ __all__ = [
     "SHOWCASE_RUN_ROOT",
     "SNAPSHOT_ROOT",
     "STATE_ROOT",
-    "TASK_STATE_ROOT",
     "WORKTREE_ROOT",
     "control_state_root",
     "ensure_storage_layout",

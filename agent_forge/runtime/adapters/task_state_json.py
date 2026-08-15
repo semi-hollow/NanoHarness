@@ -1,6 +1,7 @@
 import json
 from pathlib import Path
 
+from agent_forge.atomic_json import atomic_write_json
 from agent_forge.runtime.domain.task import (
     TaskCheckpoint,
     TaskCheckpointUpdate,
@@ -14,7 +15,7 @@ from agent_forge.runtime.ports.repositories import TaskStateRepository
 class JsonTaskStateRepository(TaskStateRepository):
     def __init__(
         self,
-        root: str | Path = ".agent_forge/internal/state/task_state",
+        root: str | Path = ".agent_forge/runs/embedded/task_state",
     ) -> None:
         self.root = Path(root)
         self.root.mkdir(parents=True, exist_ok=True)
@@ -56,22 +57,19 @@ class JsonTaskStateRepository(TaskStateRepository):
         """用完整快照覆盖同一 run 的 ``<run_id>.json``。
 
         状态合法性由 ``TaskCheckpoint.apply_transition`` 校验；本方法只序列化单个文件，
-        不计算状态迁移，也不提供数据库事务或崩溃时的原子替换保证。
+        不计算状态迁移。``atomic_write_json`` 保证单文件替换与目录项落盘。
         """
 
-        self.path_for(checkpoint.run_id).write_text(
-            json.dumps(checkpoint.to_dict(), ensure_ascii=False, indent=2),
-            encoding="utf-8",
-        )
+        atomic_write_json(self.path_for(checkpoint.run_id), checkpoint.to_dict())
 
     def load(self, run_id: str) -> TaskCheckpoint:
         data = json.loads(self.path_for(run_id).read_text(encoding="utf-8"))
-        return TaskCheckpoint(**data)
+        return TaskCheckpoint.from_dict(data)
 
     @staticmethod
     def load_path(path: str | Path) -> TaskCheckpoint:
         data = json.loads(Path(path).read_text(encoding="utf-8"))
-        return TaskCheckpoint(**data)
+        return TaskCheckpoint.from_dict(data)
 
     @staticmethod
     def latest_path(run_dir: str | Path) -> Path:
@@ -96,7 +94,9 @@ class JsonTaskStateRepository(TaskStateRepository):
         for path in self.root.glob("*.json"):
             try:
                 checkpoints.append(
-                    TaskCheckpoint(**json.loads(path.read_text(encoding="utf-8")))
+                    TaskCheckpoint.from_dict(
+                        json.loads(path.read_text(encoding="utf-8"))
+                    )
                 )
             except (OSError, json.JSONDecodeError, TypeError):
                 continue

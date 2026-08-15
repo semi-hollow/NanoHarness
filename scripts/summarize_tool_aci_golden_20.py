@@ -376,7 +376,7 @@ def _load_run(
         "agent_mode": "single",
         "max_revision_rounds": 0,
         "tool_routing_mode": "task-aware",
-        "memory_recall_limit": 0,
+        "memory_max_chars": 0,
         "execution_mode": "worktree",
         "network_policy": "deny",
         "keep_worktree": False,

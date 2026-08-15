@@ -192,6 +192,15 @@ class Harness:
             if isinstance(active_workspace_from_probe, str)
             else run_paths.requested_workspace
         )
+        runtime_config = build_runtime_config(
+            self._config,
+            request,
+            workspace=runtime_workspace,
+            control_workspace=run_paths.storage_workspace,
+            run_dir=run_paths.artifact_dir,
+            trace_path=run_paths.trace_file,
+            environment=environment,
+        )
         tool_gateway = self._tools or build_registry(
             ToolRegistryBuildRequest(
                 workspace=str(runtime_workspace),
@@ -202,20 +211,13 @@ class Harness:
                 mcp_config_file=self._config.mcp_config_file,
                 mcp_allowed_tools=self._config.mcp_allowed_tools,
                 execution_environment=owned_environment,
+                memory_root=runtime_config.memory_root,
+                memory_namespace=runtime_config.memory_namespace,
             )
         )
         tracked_task_states = TrackingTaskStateRepository(
             self._extensions.checkpoint_repository
             or build_task_state_repository(run_paths.task_state_dir)
-        )
-        runtime_config = build_runtime_config(
-            self._config,
-            request,
-            workspace=runtime_workspace,
-            control_workspace=run_paths.storage_workspace,
-            run_dir=run_paths.artifact_dir,
-            trace_path=run_paths.trace_file,
-            environment=environment,
         )
         dependency_overrides = RuntimeDependencyOverrides(
             context=self._extensions.context_assembler,
@@ -243,7 +245,7 @@ class Harness:
         )
         write_request_artifact(run_paths.artifact_dir, request, self._config)
 
-        final_answer = build_agent_loop_from_request(
+        stop_output = build_agent_loop_from_request(
             AgentLoopBuildRequest(
                 config=runtime_config,
                 trace=events,
@@ -252,7 +254,6 @@ class Harness:
                 overrides=dependency_overrides,
             )
         ).run(request.task, agent_name=request.agent_name)
-        run_paths.final_answer_file.write_text(final_answer, encoding="utf-8")
         if owned_environment is not None:
             run_paths.candidate_diff_file.write_text(
                 owned_environment.diff(),
@@ -266,13 +267,22 @@ class Harness:
         final_checkpoint = tracked_task_states.latest
         if final_checkpoint is None:
             raise RuntimeError("AgentLoop completed without creating a checkpoint")
+        if final_checkpoint.stop_output != stop_output:
+            raise RuntimeError("AgentLoop stop output does not match durable checkpoint")
+        run_paths.stop_output_file.write_text(stop_output, encoding="utf-8")
+        if final_checkpoint.final_answer is not None:
+            run_paths.final_answer_file.write_text(
+                final_checkpoint.final_answer,
+                encoding="utf-8",
+            )
         final_status = TaskRunStatus(final_checkpoint.status)
         uses_default_trace = self._extensions.event_sink_factory is None
         return RunResult(
             run_id=events.run_id,
             status=final_status,
             stop_reason=final_checkpoint.stop_reason,
-            final_answer=final_answer,
+            stop_output=stop_output,
+            final_answer=final_checkpoint.final_answer,
             artifact_dir=run_paths.artifact_dir,
             checkpoint=final_checkpoint,
             trace_path=run_paths.trace_file if uses_default_trace else None,
