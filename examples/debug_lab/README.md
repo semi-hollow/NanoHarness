@@ -139,6 +139,10 @@ ToolExecutionPipeline._execute_call 一个工具意图怎样被治理和执行
 PythonValidationTool.execute       focused/full pytest 怎样成为证据
 ```
 
+在 `ContextWindowManager.prepare` 不要只看一串 messages：信息来源层是 Runtime Context、Conversation History、
+Tool Schemas；角色协议层才是 system/user/assistant/tool。如果触发压缩，确认 SessionDigest 仍保留
+initial task 与 task updates，在 wire 上以额外 system message 发送，且 Assistant ToolCall/Tool Observation 没有被拆开。
+
 每种模式运行结束后，使用本次 Trace 核对以下问题：
 
 1. 模型第一条错误判断是什么？哪条 Observation 迫使它换方向？
@@ -147,6 +151,7 @@ PythonValidationTool.execute       focused/full pytest 怎样成为证据
 4. focused tests 和 full suite 分别证明了什么？为什么不能互相替代？
 5. 如果最终没有完成，是模型能力、步数、上下文、工具、审批还是 Runtime 策略导致？
 6. 下一轮若只改变一个变量，应选择什么变量，预期哪个 Trace 指标发生变化？
+7. 本轮 `TurnOutcome` 是 CONTINUE、REPLAN 还是 STOP？STOP 时 `status/reason/stop_output` 如何对应？
 
 以上结论必须由本次 Trace 支撑，不能仅根据功能名称推断上下文压缩、HITL 或恢复已经生效。
 
@@ -160,6 +165,9 @@ Workbench 始终使用同一个地址。先在“选择运行证据”中切换�
    遇到 ToolCall 时再按“入口控制 → 执行决策 → 受限执行 → 结果与恢复”下钻。
 3. **上下文与决策：**观察上一轮 Evidence 怎样改变本轮输入、工具决定与反馈；所有带 Trace 的运行都支持。
 4. **结果与证据：**看 candidate、验证、恢复、编排或评测结论，只有结论不清楚时才展开底层事件。
+
+落盘时再核对：进入 Runtime 统一停止链的每个 stop 都有 `stop_output.txt`；只有质量门接受的
+`COMPLETED` 才有 `final_answer.txt`。两者都不能把 candidate 或本地 PASS 提升为 official resolved。
 
 “上下文与决策”是 Workbench 对 AgentLoop Trace 的通用投影，不是固定样例，也不会重新调用模型。
 它展示实际记录的 Context 组成、可见工具、Skill、文件、模型响应摘要和 Observation；完整 Prompt 与隐藏
