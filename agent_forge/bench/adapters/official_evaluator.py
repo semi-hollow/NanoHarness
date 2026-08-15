@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import importlib.util
+import json
 import subprocess
 import sys
+from typing import Any
 
 from agent_forge.bench.adapters.official_results import (
     apply_official_results,
@@ -14,7 +16,6 @@ from agent_forge.bench.ports import OfficialEvaluatorPort
 
 
 class SwebenchOfficialEvaluator(OfficialEvaluatorPort):
-
     def evaluate(
         self,
         summary: BenchRunSummary,
@@ -24,30 +25,179 @@ class SwebenchOfficialEvaluator(OfficialEvaluatorPort):
             self._mark_unavailable(summary)
             return
 
+        leases: list[dict[str, Any]] = []
+        cleanup_warnings: list[str] = []
+        try:
+            leases = self._prepare_official_images(summary, request)
+        except RuntimeError as exc:
+            self._mark_image_unavailable(summary, str(exc))
+            return
+
         command = self._command(summary, request)
         summary.official_eval_command = command
+        try:
+            process = subprocess.run(
+                command,
+                text=True,
+                capture_output=True,
+                cwd=str(summary.output_dir),
+            )
+            summary.official_eval_exit_code = process.returncode
+            output = f"STDOUT:\n{process.stdout}\nSTDERR:\n{process.stderr}"
+            summary.official_eval_output = output[-20000:]
+            instance_ids = [result.instance_id for result in summary.case_results]
+            parsed = parse_official_results(
+                summary.output_dir,
+                summary.run_id,
+                instance_ids,
+            )
+            summary.official_eval_report_path = str(parsed.report_path or "")
+            apply_official_results(
+                summary.case_results,
+                parsed,
+                process_exit_code=process.returncode,
+            )
+            summary.official_eval_warnings = list(parsed.warnings)
+        finally:
+            cleanup_warnings = self._release_owned_images(leases)
+            summary.official_eval_warnings.extend(cleanup_warnings)
+            if cleanup_warnings:
+                summary.official_eval_exit_code = 125
+                summary.official_eval_output = (
+                    summary.official_eval_output
+                    + "\nOFFICIAL_IMAGE_CLEANUP:\n"
+                    + "\n".join(cleanup_warnings)
+                )[-20000:]
+                for result in summary.case_results:
+                    result.official_evaluation_status = "official_eval_error"
+                    result.official_evaluation_detail = summary.official_eval_output
+                    result.evaluation_status = "official_eval_error"
+
+    @classmethod
+    def _prepare_official_images(
+        cls,
+        summary: BenchRunSummary,
+        request: SwebenchRunRequest,
+    ) -> list[dict[str, Any]]:
+        """按显式平台拉取 official tag；只把本次新增的 tag 视为 owned。"""
+
+        namespace = "" if request.namespace_empty else request.official_namespace
+        if not request.official_platform or not namespace:
+            return []
+        leases: list[dict[str, Any]] = []
+        try:
+            for result in summary.case_results:
+                tag = cls._official_image_tag(
+                    namespace,
+                    request.official_platform,
+                    result.instance_id,
+                )
+                identity = cls._inspect_image(tag)
+                owned = False
+                if identity is None:
+                    pull = subprocess.run(
+                        [
+                            "docker",
+                            "pull",
+                            "--platform",
+                            request.official_platform,
+                            tag,
+                        ],
+                        text=True,
+                        capture_output=True,
+                    )
+                    if pull.returncode != 0:
+                        detail = (pull.stderr or pull.stdout).strip()
+                        raise RuntimeError(
+                            f"official image pull failed for {tag}: {detail}"
+                        )
+                    owned = True
+                    # Pull 成功后立即登记 ownership；后续 inspect/平台核验失败也能精确清理。
+                    leases.append({"tag": tag, "owned": True})
+                    identity = cls._inspect_image(tag)
+                if identity is None:
+                    raise RuntimeError(
+                        f"official image inspect failed after pull: {tag}"
+                    )
+                observed_platform = (
+                    f"{identity.get('Os', '')}/{identity.get('Architecture', '')}"
+                )
+                if observed_platform != request.official_platform:
+                    raise RuntimeError(
+                        "official image platform drift: "
+                        f"tag={tag} expected={request.official_platform} "
+                        f"observed={observed_platform}"
+                    )
+                lease = {
+                    "tag": tag,
+                    "platform": observed_platform,
+                    "image_id": str(identity.get("Id") or ""),
+                    "repo_digests": sorted(
+                        str(item) for item in (identity.get("RepoDigests") or [])
+                    ),
+                    "owned": owned,
+                }
+                if owned:
+                    leases[-1] = lease
+                else:
+                    leases.append(lease)
+                summary.official_eval_images.append(dict(lease))
+        except Exception:
+            cls._release_owned_images(leases)
+            raise
+        return leases
+
+    @staticmethod
+    def _official_image_tag(
+        namespace: str,
+        platform: str,
+        instance_id: str,
+    ) -> str:
+        architecture = {
+            "linux/amd64": "x86_64",
+            "linux/arm64": "arm64",
+        }[platform]
+        key = f"sweb.eval.{architecture}.{instance_id.lower()}:latest"
+        return f"{namespace}/{key}".replace("__", "_1776_")
+
+    @staticmethod
+    def _inspect_image(tag: str) -> dict[str, Any] | None:
         process = subprocess.run(
-            command,
+            ["docker", "image", "inspect", tag],
             text=True,
             capture_output=True,
-            cwd=str(summary.output_dir),
         )
-        summary.official_eval_exit_code = process.returncode
-        output = f"STDOUT:\n{process.stdout}\nSTDERR:\n{process.stderr}"
-        summary.official_eval_output = output[-20000:]
-        instance_ids = [result.instance_id for result in summary.case_results]
-        parsed = parse_official_results(
-            summary.output_dir,
-            summary.run_id,
-            instance_ids,
-        )
-        summary.official_eval_report_path = str(parsed.report_path or "")
-        summary.official_eval_warnings = parsed.warnings
-        apply_official_results(
-            summary.case_results,
-            parsed,
-            process_exit_code=process.returncode,
-        )
+        if process.returncode != 0:
+            return None
+        try:
+            payload = json.loads(process.stdout)
+        except json.JSONDecodeError as exc:
+            raise RuntimeError(f"invalid docker inspect JSON for {tag}") from exc
+        if not isinstance(payload, list) or len(payload) != 1:
+            raise RuntimeError(f"unexpected docker inspect payload for {tag}")
+        identity = payload[0]
+        if not isinstance(identity, dict):
+            raise RuntimeError(f"unexpected docker inspect identity for {tag}")
+        return identity
+
+    @staticmethod
+    def _release_owned_images(leases: list[dict[str, Any]]) -> list[str]:
+        warnings: list[str] = []
+        for lease in reversed(leases):
+            if not lease.get("owned"):
+                continue
+            tag = str(lease.get("tag") or "")
+            process = subprocess.run(
+                ["docker", "image", "rm", tag],
+                text=True,
+                capture_output=True,
+            )
+            if process.returncode != 0:
+                warnings.append(
+                    "owned official image cleanup failed: "
+                    f"{tag}: {(process.stderr or process.stdout).strip()}"
+                )
+        return warnings
 
     @staticmethod
     def _mark_unavailable(summary: BenchRunSummary) -> None:
@@ -60,6 +210,16 @@ class SwebenchOfficialEvaluator(OfficialEvaluatorPort):
             result.official_evaluation_status = "official_eval_unavailable"
             result.official_evaluation_detail = summary.official_eval_output
             result.evaluation_status = "official_eval_unavailable"
+
+    @staticmethod
+    def _mark_image_unavailable(summary: BenchRunSummary, detail: str) -> None:
+        summary.official_eval_exit_code = 125
+        summary.official_eval_output = detail[-20000:]
+        summary.official_eval_warnings = ["official image preflight failed"]
+        for result in summary.case_results:
+            result.official_evaluation_status = "official_eval_error"
+            result.official_evaluation_detail = summary.official_eval_output
+            result.evaluation_status = "official_eval_error"
 
     @staticmethod
     def _command(

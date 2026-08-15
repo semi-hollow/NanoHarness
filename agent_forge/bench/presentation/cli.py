@@ -184,6 +184,12 @@ def build_swebench_parser(parser: argparse.ArgumentParser) -> None:
     )
     parser.add_argument("--namespace-empty", action="store_true")
     parser.add_argument(
+        "--official-platform",
+        choices=["", "linux/amd64", "linux/arm64"],
+        default="",
+        help="Pre-pull published evaluator images for an explicit OCI platform.",
+    )
+    parser.add_argument(
         "--official-cache-level",
         choices=["none", "base", "env", "instance"],
         default="env",
@@ -347,6 +353,12 @@ def build_campaign_parser(parser: argparse.ArgumentParser) -> None:
     )
     parser.add_argument("--namespace-empty", action="store_true")
     parser.add_argument(
+        "--official-platform",
+        choices=["", "linux/amd64", "linux/arm64"],
+        default="",
+        help="Pre-pull published evaluator images for an explicit OCI platform.",
+    )
+    parser.add_argument(
         "--official-cache-level",
         choices=["none", "base", "env", "instance"],
         default="env",
@@ -434,6 +446,7 @@ def run_swebench_from_args(args: argparse.Namespace) -> BenchRunSummary:
             official_namespace=args.official_namespace,
             namespace_empty=args.namespace_empty,
             official_cache_level=args.official_cache_level,
+            official_platform=args.official_platform,
             agent_mode=args.agent_mode,
             profile=args.profile,
             max_revision_rounds=args.max_revision_rounds,
@@ -518,6 +531,7 @@ def run_campaign_from_args(args: argparse.Namespace) -> BenchmarkCampaignResult:
         official_namespace=args.official_namespace,
         namespace_empty=args.namespace_empty,
         official_cache_level=args.official_cache_level,
+        official_platform=args.official_platform,
         execution_mode=args.execution_mode,
         network_policy=args.network_policy,
         keep_worktree=args.keep_worktree,

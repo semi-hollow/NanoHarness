@@ -1,6 +1,8 @@
 import hashlib
 import json
 import tempfile
+import threading
+import time
 import unittest
 from dataclasses import replace
 from pathlib import Path
@@ -137,6 +139,25 @@ class _FakeBenchmarkRunner:
             predictions_path=run_dir / "predictions.jsonl",
             case_results=[result],
         )
+
+
+class _ConcurrentBenchmarkRunner(_FakeBenchmarkRunner):
+    def __init__(self) -> None:
+        super().__init__()
+        self._active_lock = threading.Lock()
+        self.active = 0
+        self.max_active = 0
+
+    def __call__(self, request):
+        with self._active_lock:
+            self.active += 1
+            self.max_active = max(self.max_active, self.active)
+        try:
+            time.sleep(0.05)
+            return super().__call__(request)
+        finally:
+            with self._active_lock:
+                self.active -= 1
 
 
 class BenchmarkCampaignTest(unittest.TestCase):
@@ -375,6 +396,44 @@ class BenchmarkCampaignTest(unittest.TestCase):
             all(record.status == "completed" for record in resumed.state.records[1:])
         )
         self.assertEqual(resumed.state.status, "completed_with_failures")
+
+    def test_parallel_slots_preserve_complete_atomic_campaign_state(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            runner = _ConcurrentBenchmarkRunner()
+            single_runtime = CampaignVariant(
+                name="canonical-runtime",
+                label="Canonical Runtime",
+                description="Fixed Pass@1 snapshot.",
+                tool_routing_mode="task-aware",
+                skill_mode="auto",
+                skill_names=("swebench_repair",),
+            )
+            request = replace(
+                self._request(root, repetitions=1),
+                variants=(single_runtime,),
+                max_infrastructure_attempts=1,
+                rerun_incomplete_slots=False,
+                max_parallel_slots=2,
+            )
+            result = RunBenchmarkCampaign(
+                runner,
+                FileCampaignArtifacts(root),
+                _SourceIdentity(),
+            ).run_campaign(request)
+            persisted = json.loads(
+                (result.campaign_dir / "campaign.json").read_text(encoding="utf-8")
+            )
+
+        self.assertEqual(runner.max_active, 2)
+        self.assertEqual(result.state.status, "completed")
+        self.assertTrue(
+            all(record.status == "completed" for record in result.state.records)
+        )
+        self.assertEqual(
+            [record["status"] for record in persisted["records"]],
+            ["completed", "completed"],
+        )
 
 
 if __name__ == "__main__":

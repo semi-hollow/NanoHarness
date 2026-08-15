@@ -62,6 +62,7 @@ class SwebenchRunRequest:
     official_namespace: str = "swebench"
     namespace_empty: bool = False
     official_cache_level: str = "env"
+    official_platform: str = ""
 
     # single 或 sequential multi 的 workflow 配置。
     agent_mode: str = "single"
@@ -94,6 +95,10 @@ class SwebenchRunRequest:
         if self.official_cache_level not in {"none", "base", "env", "instance"}:
             raise ValueError(
                 "official_cache_level must be one of: none, base, env, instance"
+            )
+        if self.official_platform not in {"", "linux/amd64", "linux/arm64"}:
+            raise ValueError(
+                "official_platform must be empty, linux/amd64, or linux/arm64"
             )
         if self.model_request_timeout_seconds <= 0:
             raise ValueError("model_request_timeout_seconds must be positive")

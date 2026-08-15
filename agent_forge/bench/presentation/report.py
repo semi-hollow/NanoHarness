@@ -75,6 +75,7 @@ def render_bench_report(summary: BenchRunSummary) -> str:
         ),
         f"- execution/network: `{summary.execution_mode}` / `{summary.network_policy}`",
         f"- official image namespace: `{summary.official_namespace or 'local-build'}`",
+        f"- official image platform: `{summary.official_platform or 'host-default'}`",
         f"- cases: `{total}`",
         f"- predictions: `{summary.predictions_path}`",
     ]

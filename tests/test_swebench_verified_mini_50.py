@@ -65,6 +65,7 @@ class SwebenchVerifiedMini50Test(unittest.TestCase):
         self.assertEqual(request.max_infrastructure_attempts, 1)
         self.assertTrue(request.resume)
         self.assertFalse(request.rerun_incomplete_slots)
+        self.assertEqual(request.max_parallel_slots, 2)
         self.assertEqual(benchmark.provider, "opencode-go")
         self.assertEqual(benchmark.model, DEFAULT_MODEL)
         self.assertEqual(benchmark.base_url, OPEN_CODE_GO_BASE_URL)
@@ -81,6 +82,7 @@ class SwebenchVerifiedMini50Test(unittest.TestCase):
         self.assertEqual(benchmark.agent_mode, "single")
         self.assertEqual(benchmark.skill_names, ("swebench_repair",))
         self.assertEqual(benchmark.official_cache_level, "env")
+        self.assertEqual(benchmark.official_platform, "linux/amd64")
         self.assertFalse(benchmark.keep_worktree)
         self.assertEqual(benchmark.network_policy, "deny")
 

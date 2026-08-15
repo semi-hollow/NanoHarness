@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import fcntl
 import subprocess
+from contextlib import contextmanager
 from pathlib import Path
+from typing import Iterator
 
 from agent_forge.bench.domain.config import safe_id
 from agent_forge.bench.domain.models import BenchCase
@@ -9,40 +12,21 @@ from agent_forge.runtime.git_workspace import collect_workspace_diff
 
 
 class SwebenchWorkspaceManager:
-
     def __init__(self, repo_cache: Path, output_dir: Path) -> None:
         self.repo_cache = repo_cache.resolve()
         self.output_dir = output_dir.resolve()
 
     def prepare(self, case: BenchCase, variant: str = "") -> Path:
-        source = self._ensure_repo(case.repo)
-        suffix = f"__{safe_id(variant)}" if variant else ""
-        workspace = (
-            self.output_dir
-            / "workspaces"
-            / f"{safe_id(case.instance_id)}{suffix}"
-        )
-        workspace.parent.mkdir(parents=True, exist_ok=True)
-        self._run(["git", "-C", str(source), "worktree", "prune"], check=False)
-        result = self._run(
-            [
-                "git",
-                "-C",
-                str(source),
-                "worktree",
-                "add",
-                "--detach",
-                str(workspace),
-                case.base_commit,
-            ],
-            check=False,
-        )
-        if result.returncode != 0:
-            self._run(
-                ["git", "-C", str(source), "fetch", "origin", case.base_commit],
-                check=False,
+        _, cache_key = repo_url_and_cache_key(case.repo)
+        with self._repo_lock(cache_key):
+            source = self._ensure_repo(case.repo)
+            suffix = f"__{safe_id(variant)}" if variant else ""
+            workspace = (
+                self.output_dir / "workspaces" / f"{safe_id(case.instance_id)}{suffix}"
             )
-            self._run(
+            workspace.parent.mkdir(parents=True, exist_ok=True)
+            self._run(["git", "-C", str(source), "worktree", "prune"], check=False)
+            result = self._run(
                 [
                     "git",
                     "-C",
@@ -53,9 +37,41 @@ class SwebenchWorkspaceManager:
                     str(workspace),
                     case.base_commit,
                 ],
-                check=True,
+                check=False,
             )
+            if result.returncode != 0:
+                self._run(
+                    ["git", "-C", str(source), "fetch", "origin", case.base_commit],
+                    check=False,
+                )
+                self._run(
+                    [
+                        "git",
+                        "-C",
+                        str(source),
+                        "worktree",
+                        "add",
+                        "--detach",
+                        str(workspace),
+                        case.base_commit,
+                    ],
+                    check=True,
+                )
         return workspace
+
+    @contextmanager
+    def _repo_lock(self, cache_key: str) -> Iterator[None]:
+        """只串行化同一 repo 的 clone/fetch/worktree metadata 操作。"""
+
+        lock_root = self.repo_cache / ".locks"
+        lock_root.mkdir(parents=True, exist_ok=True)
+        lock_path = lock_root / f"{safe_id(cache_key)}.lock"
+        with lock_path.open("a+") as handle:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+            try:
+                yield
+            finally:
+                fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
 
     def _ensure_repo(self, repo: str) -> Path:
         self.repo_cache.mkdir(parents=True, exist_ok=True)
@@ -86,7 +102,6 @@ class SwebenchWorkspaceManager:
 
 
 def ensure_clean_git(workspace: Path) -> None:
-
     subprocess.run(
         ["git", "-C", str(workspace), "reset", "--hard"],
         check=True,

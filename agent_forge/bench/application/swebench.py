@@ -138,6 +138,7 @@ def _new_summary(
         official_namespace=(
             "" if request.namespace_empty else request.official_namespace
         ),
+        official_platform=request.official_platform,
         notes=[
             "Generated patches are not resolved-rate claims until the official SWE-bench harness evaluates them.",
             "Repo workspaces are under .agent_forge/runs so the main checkout stays clean.",

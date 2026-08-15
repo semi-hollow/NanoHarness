@@ -177,6 +177,12 @@ def _metadata(
             if "official_namespace" in results
             else "unrecorded"
         ),
+        "official_platform": str(results.get("official_platform") or ""),
+        "official_eval_images": [
+            dict(item)
+            for item in (results.get("official_eval_images") or [])
+            if isinstance(item, dict)
+        ],
         "agent_mode": str(results.get("agent_mode") or ""),
         "profile": str(results.get("profile") or ""),
         "max_steps": _int(results.get("max_steps")),

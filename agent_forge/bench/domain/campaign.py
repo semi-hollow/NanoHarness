@@ -102,6 +102,7 @@ class BenchmarkCampaignRequest:
     rerun_incomplete_slots: bool = True
     allow_dirty: bool = False
     max_infrastructure_attempts: int = 2
+    max_parallel_slots: int = 1
     variants: tuple[CampaignVariant, ...] = DEFAULT_CAMPAIGN_VARIANTS
     cohort: CohortSelection | None = None
 
@@ -124,6 +125,8 @@ class BenchmarkCampaignRequest:
             raise ValueError("campaign requires one or more uniquely named variants")
         if not 1 <= self.max_infrastructure_attempts <= 2:
             raise ValueError("max_infrastructure_attempts must be 1 or 2")
+        if not 1 <= self.max_parallel_slots <= 4:
+            raise ValueError("max_parallel_slots must be between 1 and 4")
         if not self.rerun_incomplete_slots and self.max_infrastructure_attempts != 1:
             raise ValueError(
                 "strict started-slot no-rerun requires max_infrastructure_attempts=1"
@@ -186,6 +189,8 @@ class BenchmarkCampaignRequest:
         # 严格 Pass@1 才把 no-rerun 策略写入冻结身份。
         if not self.rerun_incomplete_slots:
             identity["rerun_incomplete_slots"] = False
+        if self.max_parallel_slots != 1:
+            identity["max_parallel_slots"] = self.max_parallel_slots
         if self.cohort is not None:
             identity["cohort"] = self.cohort.to_dict()
         return identity

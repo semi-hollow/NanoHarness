@@ -41,6 +41,8 @@ DEFAULT_MAX_CONTEXT_CHARS = 64_000
 DEFAULT_MAX_PROMPT_TOKENS = 131_072
 DEFAULT_RESERVED_OUTPUT_TOKENS = 16_384
 DEFAULT_SWEBENCH_HARNESS_ROOT = ".agent_forge/internal/debug-lab/tools/SWE-bench"
+DEFAULT_OFFICIAL_PLATFORM = "linux/amd64"
+DEFAULT_CASE_WORKERS = 2
 SMOKE_GATE_CASE_IDS = (
     "django__django-11451",
     "sphinx-doc__sphinx-10323",
@@ -94,6 +96,13 @@ def build_parser() -> argparse.ArgumentParser:
         default=DEFAULT_RESERVED_OUTPUT_TOKENS,
     )
     parser.add_argument("--max-tool-calls-per-turn", type=_positive_int, default=4)
+    parser.add_argument(
+        "--case-workers",
+        type=int,
+        choices=[1, 2, 3],
+        default=DEFAULT_CASE_WORKERS,
+        help="Concurrent independent Pass@1 case slots; 2 is the quality-safe default.",
+    )
     parser.add_argument("--case-timeout-seconds", type=_positive_int, default=3_600)
     parser.add_argument(
         "--model-request-timeout-seconds",
@@ -191,6 +200,7 @@ def build_campaign_request(
         official_namespace="swebench",
         namespace_empty=False,
         official_cache_level="env",
+        official_platform=DEFAULT_OFFICIAL_PLATFORM,
         agent_mode="single",
         profile="coding_fix",
         max_revision_rounds=0,
@@ -217,6 +227,7 @@ def build_campaign_request(
         rerun_incomplete_slots=False,
         allow_dirty=args.allow_dirty,
         max_infrastructure_attempts=args.max_infrastructure_attempts,
+        max_parallel_slots=args.case_workers,
         variants=(MINI_50_RUNTIME,),
         cohort=cohort,
     )
@@ -276,6 +287,7 @@ def build_frozen_plan(
             "entrypoint_sha256": _sha256_file(harness_entrypoint),
             "namespace": benchmark.official_namespace,
             "cache_level": benchmark.official_cache_level,
+            "platform": benchmark.official_platform,
         },
         "smoke_gate": {
             "case_ids": list(SMOKE_GATE_CASE_IDS),
@@ -333,6 +345,7 @@ def render_plan(
         "tool_execution_timeout_seconds": benchmark.tool_execution_timeout_seconds,
         "model_request_max_attempts": benchmark.model_request_max_attempts,
         "whole_case_attempts": request.max_infrastructure_attempts,
+        "case_workers": request.max_parallel_slots,
         "official_evaluator": benchmark.evaluate,
         "output_root": request.output_root,
         "resume": request.resume,
@@ -429,6 +442,7 @@ def _default_campaign_id(args: argparse.Namespace, project_root: Path) -> str:
         "model_request_max_attempts": args.model_request_max_attempts,
         "tool_execution_timeout_seconds": args.tool_execution_timeout_seconds,
         "max_infrastructure_attempts": args.max_infrastructure_attempts,
+        "case_workers": args.case_workers,
     }
     encoded = json.dumps(profile, sort_keys=True, separators=(",", ":")).encode()
     profile_digest = hashlib.sha256(encoded).hexdigest()[:10]

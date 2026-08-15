@@ -7,7 +7,10 @@ from unittest.mock import patch
 
 from agent_forge.bench.adapters.local_validation import read_local_validation
 from agent_forge.bench.adapters.official_evaluator import SwebenchOfficialEvaluator
-from agent_forge.bench.adapters.official_results import apply_official_results, parse_official_results
+from agent_forge.bench.adapters.official_results import (
+    apply_official_results,
+    parse_official_results,
+)
 from agent_forge.bench.application.swebench import _new_summary
 from agent_forge.bench.domain.config import BenchRunLayout, SwebenchRunRequest
 from agent_forge.bench.domain.models import BenchCaseResult, BenchRunSummary
@@ -47,8 +50,12 @@ class OfficialResultsTest(unittest.TestCase):
         self.assertEqual(parsed.outcomes["resolved"].status, "official_resolved")
         self.assertEqual(parsed.outcomes["unresolved"].status, "official_eval_failed")
         self.assertEqual(parsed.outcomes["error"].status, "official_eval_error")
-        self.assertEqual(parsed.outcomes["empty"].status, "official_eval_skipped_empty_patch")
-        self.assertEqual(parsed.outcomes["incomplete"].status, "official_eval_incomplete")
+        self.assertEqual(
+            parsed.outcomes["empty"].status, "official_eval_skipped_empty_patch"
+        )
+        self.assertEqual(
+            parsed.outcomes["incomplete"].status, "official_eval_incomplete"
+        )
         self.assertEqual(parsed.outcomes["missing"].status, "official_eval_incomplete")
 
     def test_per_case_report_is_authoritative_when_run_report_is_missing(self):
@@ -64,7 +71,9 @@ class OfficialResultsTest(unittest.TestCase):
                 / "report.json"
             )
             report_path.parent.mkdir(parents=True)
-            report_path.write_text(json.dumps({"case-1": {"resolved": True}}), encoding="utf-8")
+            report_path.write_text(
+                json.dumps({"case-1": {"resolved": True}}), encoding="utf-8"
+            )
 
             parsed = parse_official_results(root, "run-2", ["case-1"])
 
@@ -90,7 +99,9 @@ class OfficialResultsTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             report_path = root / "model.run-4.json"
-            report_path.write_text(json.dumps({"resolved_ids": ["case-1"]}), encoding="utf-8")
+            report_path.write_text(
+                json.dumps({"resolved_ids": ["case-1"]}), encoding="utf-8"
+            )
             trace_path = root / "trace.json"
             trace_path.write_text("{}", encoding="utf-8")
             candidate_diff_path = root / "candidate_changes.diff"
@@ -158,8 +169,14 @@ class OfficialResultsTest(unittest.TestCase):
                 )
                 return CompletedProcess(command, 0, stdout="complete", stderr="")
 
-            with patch("agent_forge.bench.adapters.official_evaluator.importlib.util.find_spec", return_value=object()):
-                with patch("agent_forge.bench.adapters.official_evaluator.subprocess.run", side_effect=fake_run):
+            with patch(
+                "agent_forge.bench.adapters.official_evaluator.importlib.util.find_spec",
+                return_value=object(),
+            ):
+                with patch(
+                    "agent_forge.bench.adapters.official_evaluator.subprocess.run",
+                    side_effect=fake_run,
+                ):
                     SwebenchOfficialEvaluator().evaluate(
                         summary,
                         SwebenchRunRequest(max_workers=1, namespace_empty=False),
@@ -167,7 +184,9 @@ class OfficialResultsTest(unittest.TestCase):
 
         self.assertEqual(observed_cwd, [root])
         self.assertIn("--split", observed_commands[0])
-        self.assertEqual(observed_commands[0][observed_commands[0].index("--split") + 1], "test")
+        self.assertEqual(
+            observed_commands[0][observed_commands[0].index("--split") + 1], "test"
+        )
         self.assertEqual(
             observed_commands[0][observed_commands[0].index("--cache_level") + 1],
             "env",
@@ -177,7 +196,9 @@ class OfficialResultsTest(unittest.TestCase):
             "swebench",
         )
         self.assertEqual(case.official_evaluation_status, "official_resolved")
-        self.assertTrue(summary.official_eval_report_path.endswith("agent-forge.run-5.json"))
+        self.assertTrue(
+            summary.official_eval_report_path.endswith("agent-forge.run-5.json")
+        )
 
     def test_explicit_empty_namespace_overrides_published_images(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -201,6 +222,101 @@ class OfficialResultsTest(unittest.TestCase):
             )
 
         self.assertEqual(command[command.index("--namespace") + 1], "")
+
+    def test_explicit_amd64_platform_pulls_and_releases_only_owned_image(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            trace = root / "trace.json"
+            patch_path = root / "candidate_changes.diff"
+            predictions = root / "predictions.jsonl"
+            trace.write_text("{}", encoding="utf-8")
+            patch_path.write_text("diff --git a/a b/a", encoding="utf-8")
+            predictions.write_text("{}\n", encoding="utf-8")
+            case = BenchCaseResult(
+                instance_id="django__django-11206",
+                repo="django/django",
+                workspace=root,
+                trace_path=trace,
+                usage_report_path=None,
+                candidate_diff_path=patch_path,
+                status="patch_generated",
+                final_answer="done",
+                patch_chars=20,
+            )
+            summary = BenchRunSummary(
+                run_id="run-amd64",
+                dataset_name="dataset",
+                split="test",
+                provider="provider",
+                model="model",
+                output_dir=root,
+                predictions_path=predictions,
+                case_results=[case],
+            )
+            commands = []
+            inspect_count = 0
+
+            def fake_run(command, **kwargs):
+                nonlocal inspect_count
+                commands.append(command)
+                if command[:3] == ["docker", "image", "inspect"]:
+                    inspect_count += 1
+                    if inspect_count == 1:
+                        return CompletedProcess(command, 1, stdout="", stderr="missing")
+                    return CompletedProcess(
+                        command,
+                        0,
+                        stdout=json.dumps(
+                            [
+                                {
+                                    "Id": "sha256:" + "a" * 64,
+                                    "Os": "linux",
+                                    "Architecture": "amd64",
+                                    "RepoDigests": [
+                                        "swebench/example@sha256:" + "b" * 64
+                                    ],
+                                }
+                            ]
+                        ),
+                        stderr="",
+                    )
+                if command[:2] == ["docker", "pull"]:
+                    return CompletedProcess(command, 0, stdout="pulled", stderr="")
+                if command[:3] == ["docker", "image", "rm"]:
+                    return CompletedProcess(command, 0, stdout="removed", stderr="")
+                (root / "agent-forge.run-amd64.json").write_text(
+                    json.dumps({"resolved_ids": ["django__django-11206"]}),
+                    encoding="utf-8",
+                )
+                return CompletedProcess(command, 0, stdout="complete", stderr="")
+
+            with (
+                patch(
+                    "agent_forge.bench.adapters.official_evaluator.importlib.util.find_spec",
+                    return_value=object(),
+                ),
+                patch(
+                    "agent_forge.bench.adapters.official_evaluator.subprocess.run",
+                    side_effect=fake_run,
+                ),
+            ):
+                SwebenchOfficialEvaluator().evaluate(
+                    summary,
+                    SwebenchRunRequest(
+                        official_platform="linux/amd64",
+                        max_workers=1,
+                    ),
+                )
+
+        tag = "swebench/sweb.eval.x86_64.django_1776_django-11206:latest"
+        self.assertIn(
+            ["docker", "pull", "--platform", "linux/amd64", tag],
+            commands,
+        )
+        self.assertIn(["docker", "image", "rm", tag], commands)
+        self.assertEqual(summary.official_eval_images[0]["platform"], "linux/amd64")
+        self.assertTrue(summary.official_eval_images[0]["owned"])
+        self.assertEqual(case.official_evaluation_status, "official_resolved")
 
     def test_cli_and_summary_forward_effective_official_namespace(self):
         parser = build_parser()
@@ -271,8 +387,22 @@ class OfficialResultsTest(unittest.TestCase):
                 json.dumps(
                     {
                         "events": [
-                            {"event_type": "validation_evidence", "validation": {"kind": "unittest", "status": "passed", "evidence": "suite A"}},
-                            {"event_type": "validation_evidence", "validation": {"kind": "pytest", "status": "failed", "evidence": "suite B"}},
+                            {
+                                "event_type": "validation_evidence",
+                                "validation": {
+                                    "kind": "unittest",
+                                    "status": "passed",
+                                    "evidence": "suite A",
+                                },
+                            },
+                            {
+                                "event_type": "validation_evidence",
+                                "validation": {
+                                    "kind": "pytest",
+                                    "status": "failed",
+                                    "evidence": "suite B",
+                                },
+                            },
                         ]
                     }
                 ),

@@ -7,9 +7,11 @@ campaign 则只继续未开始槽位，已经启动的轨迹会 fail closed。
 
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 from pathlib import Path
+from threading import Lock
 from typing import Any, Callable
 
 from agent_forge.bench.domain.campaign import (
@@ -96,6 +98,7 @@ class RunBenchmarkCampaign:
         # region 2. 交错实验：每个 run slot 都是可 checkpoint、可恢复的最小单元
         # record 已按预注册 ordinal 固定顺序；完成槽位幂等跳过，失败槽位保留原 ordinal，
         # 每次状态变化都立即 save_state，因此中断不会要求整批重跑。
+        runnable_slots: list[CampaignRunRecord] = []
         for campaign_run_slot in sorted(
             campaign_state.records,
             key=lambda campaign_run_slot: campaign_run_slot.ordinal,
@@ -109,34 +112,40 @@ class RunBenchmarkCampaign:
                     campaign_dir,
                 )
                 continue
-            retry_same_slot = True
-            while retry_same_slot:
-                # retry_same_slot 只由明确的基础设施重试分类返回，任务失败不会在同槽位刷到成功。
-                self._mark_run_slot_started(
-                    campaign_run_slot,
-                    campaign_state,
-                    campaign_dir,
+            runnable_slots.append(campaign_run_slot)
+
+        state_lock = Lock()
+        if request.max_parallel_slots == 1:
+            for campaign_run_slot in runnable_slots:
+                self._run_slot(
+                    request,
+                    campaign_state=campaign_state,
+                    campaign_dir=campaign_dir,
+                    campaign_run_slot=campaign_run_slot,
+                    variant=variants_by_name[campaign_run_slot.variant],
+                    state_lock=state_lock,
                 )
-                try:
-                    benchmark_request = self._build_run_slot_request(
+        else:
+            # 每个模型轨迹和 official evaluator 都拥有独立 run_dir；共享 campaign.json
+            # 的所有变更由 state_lock 串行落盘，因此并发只缩短墙钟时间，不改变分母。
+            with ThreadPoolExecutor(
+                max_workers=request.max_parallel_slots,
+                thread_name_prefix="benchmark-slot",
+            ) as executor:
+                futures = [
+                    executor.submit(
+                        self._run_slot,
                         request,
+                        campaign_state=campaign_state,
                         campaign_dir=campaign_dir,
                         campaign_run_slot=campaign_run_slot,
                         variant=variants_by_name[campaign_run_slot.variant],
+                        state_lock=state_lock,
                     )
-                    benchmark_run = self._runner(benchmark_request)
-                    retry_same_slot = self._record_run_slot_completion(
-                        campaign_run_slot,
-                        benchmark_run,
-                        max_infrastructure_attempts=request.max_infrastructure_attempts,
-                    )
-                except Exception as exc:
-                    campaign_run_slot.status = "failed"
-                    campaign_run_slot.error = f"{type(exc).__name__}: {exc}"
-                    retry_same_slot = False
-                finally:
-                    campaign_state.updated_at = self._now()
-                    self._artifacts.save_state(campaign_dir, campaign_state)
+                    for campaign_run_slot in runnable_slots
+                ]
+                for future in futures:
+                    future.result()
         # endregion 2. 交错实验结束
 
         # region 3. 聚合发布：只消费已持久化槽位，不重新推断 Case 正确性
@@ -177,6 +186,50 @@ class RunBenchmarkCampaign:
         # endregion 3. 聚合发布结束
 
     # region 单槽位与恢复细节
+    def _run_slot(
+        self,
+        request: BenchmarkCampaignRequest,
+        *,
+        campaign_state: CampaignState,
+        campaign_dir: Path,
+        campaign_run_slot: CampaignRunRecord,
+        variant: CampaignVariant,
+        state_lock: Any,
+    ) -> None:
+        """运行一个独立槽位；共享状态的每次读写都持有同一把锁。"""
+
+        retry_same_slot = True
+        while retry_same_slot:
+            with state_lock:
+                self._mark_run_slot_started(
+                    campaign_run_slot,
+                    campaign_state,
+                    campaign_dir,
+                )
+            try:
+                benchmark_request = self._build_run_slot_request(
+                    request,
+                    campaign_dir=campaign_dir,
+                    campaign_run_slot=campaign_run_slot,
+                    variant=variant,
+                )
+                benchmark_run = self._runner(benchmark_request)
+                with state_lock:
+                    retry_same_slot = self._record_run_slot_completion(
+                        campaign_run_slot,
+                        benchmark_run,
+                        max_infrastructure_attempts=request.max_infrastructure_attempts,
+                    )
+                    campaign_state.updated_at = self._now()
+                    self._artifacts.save_state(campaign_dir, campaign_state)
+            except Exception as exc:
+                with state_lock:
+                    campaign_run_slot.status = "failed"
+                    campaign_run_slot.error = f"{type(exc).__name__}: {exc}"
+                    campaign_state.updated_at = self._now()
+                    self._artifacts.save_state(campaign_dir, campaign_state)
+                retry_same_slot = False
+
     def _load_or_create_state(
         self,
         request: BenchmarkCampaignRequest,
