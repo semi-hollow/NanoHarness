@@ -15,34 +15,28 @@ CHINESE_FIRST_DOCS = (
     "SECURITY.md",
     "agent_forge/README.md",
     "docs/架构导览.md",
-    "docs/系统概览与核心设计.md",
     "docs/上下文工程.md",
     "docs/工具治理与执行.md",
     "docs/核心能力与代码入口.md",
-    "docs/核心运行机制与代码索引.md",
     "docs/运行产物与持久化契约.md",
     "examples/debug_lab/README.md",
 )
 
 PUBLIC_DOC_LINE_BUDGETS = {
     "README.md": 250,
-    "docs/架构导览.md": 440,
-    "docs/系统概览与核心设计.md": 220,
+    "docs/架构导览.md": 550,
     "docs/上下文工程.md": 560,
     "docs/工具治理与执行.md": 680,
     "docs/核心能力与代码入口.md": 120,
-    "docs/核心运行机制与代码索引.md": 165,
     "docs/运行产物与持久化契约.md": 260,
     "examples/debug_lab/README.md": 210,
 }
 
 CANONICAL_README_LINKS = (
     "docs/架构导览.md",
-    "docs/系统概览与核心设计.md",
     "docs/上下文工程.md",
     "docs/工具治理与执行.md",
     "docs/核心能力与代码入口.md",
-    "docs/核心运行机制与代码索引.md",
     "docs/运行产物与持久化契约.md",
     "examples/debug_lab/README.md",
     "benchmarks/experiments/README.md",
@@ -52,11 +46,9 @@ ALLOWED_DOC_SURFACES: tuple[str, ...] = ()
 
 ALLOWED_TOP_LEVEL_DOCS = {
     "docs/架构导览.md",
-    "docs/系统概览与核心设计.md",
     "docs/上下文工程.md",
     "docs/工具治理与执行.md",
     "docs/核心能力与代码入口.md",
-    "docs/核心运行机制与代码索引.md",
     "docs/运行产物与持久化契约.md",
 }
 
@@ -249,6 +241,35 @@ class DocumentationLanguageTest(unittest.TestCase):
                     f"README does not link canonical document: {relative_path}"
                 )
 
+        architecture = (PROJECT_ROOT / "docs/架构导览.md").read_text(
+            encoding="utf-8"
+        )
+        main_headings = [
+            line for line in architecture.splitlines() if line.startswith("## ")
+        ]
+        expected_headings = [
+            "## 1. 系统概览 / System Overview",
+            "## 2. 上下文工程 / Context Engineering",
+            "## 3. 受治理工具执行 / Governed Tool Execution",
+            "## 4. 持久化与控制 / Durability & Control",
+            "## 5. 评测 / Evaluation",
+        ]
+        if main_headings != expected_headings:
+            violations.append("架构导览必须保持五段唯一主链")
+        for contract in (
+            "source=governed",
+            "source=orchestration",
+            "source=evaluation",
+            "DESIGN CONTRACT",
+            "OBSERVED ARTIFACT",
+            "3ec537113a26491b7b7a51e323a3d3af40f4754f",
+        ):
+            if contract not in architecture:
+                violations.append(f"架构导览缺少审阅契约: {contract}")
+        for retired in ("docs/系统概览与核心设计.md", "docs/核心运行机制与代码索引.md"):
+            if (PROJECT_ROOT / retired).exists():
+                violations.append(f"重复公开文档重新出现: {retired}")
+
         parsed_symbols: dict[Path, dict[str, int]] = {}
 
         def symbols_for(source_path: Path) -> dict[str, int]:
@@ -298,41 +319,6 @@ class DocumentationLanguageTest(unittest.TestCase):
             if symbol not in symbols_for(source_path):
                 violations.append(f"Owner 符号不存在: {target}::{symbol}")
 
-        # 机制索引仍保留代码证据链接；路径、符号和行号必须与源码一致。
-        owner_index_paths = (PROJECT_ROOT / "docs/核心运行机制与代码索引.md",)
-        for owner_index_path in owner_index_paths:
-            owner_index = owner_index_path.read_text(encoding="utf-8")
-            owner_links = list(
-                re.finditer(
-                    r"\[\s*`(?P<symbol>[^`]+)`\s*\]\("
-                    r"(?P<target>\.\./agent_forge/[^)#]+\.py)\)"
-                    r"\s*·\s*`L(?P<line>[1-9][0-9]*)`",
-                    owner_index,
-                )
-            )
-            if not owner_links:
-                violations.append(f"{owner_index_path.name} 没有可校验的 Owner 链接")
-            for owner_link in owner_links:
-                symbol = owner_link.group("symbol")
-                target = owner_link.group("target")
-                linked_line = owner_link.group("line")
-                source_path = (owner_index_path.parent / target).resolve()
-                try:
-                    source_path.relative_to(PROJECT_ROOT / "agent_forge")
-                except ValueError:
-                    violations.append(f"Owner 链接逃逸 agent_forge: {target}")
-                    continue
-                if not source_path.is_file():
-                    violations.append(f"Owner 链接不存在: {target}")
-                    continue
-                available_symbols = symbols_for(source_path)
-                if symbol not in available_symbols:
-                    violations.append(f"Owner 符号不存在: {target}::{symbol}")
-                elif int(linked_line) != available_symbols[symbol]:
-                    violations.append(
-                        f"Owner 行号已漂移: {target}::{symbol} "
-                        f"#L{linked_line} != #L{available_symbols[symbol]}"
-                    )
         lab_path = PROJECT_ROOT / "examples/debug_lab/README.md"
         lab = lab_path.read_text(encoding="utf-8")
         required_lab_contracts = (
@@ -450,16 +436,6 @@ class DocumentationLanguageTest(unittest.TestCase):
                 if column < len(cells):
                     owner_symbols.update(owner_symbol_pattern.findall(cells[column]))
 
-        mechanism_text = (PROJECT_ROOT / "docs/核心运行机制与代码索引.md").read_text(
-            encoding="utf-8"
-        )
-        owner_symbols.update(
-            re.findall(
-                r"\[\s*`([^`]+)`\s*\]\(\.\./agent_forge/[^)#]+\.py\)",
-                mechanism_text,
-            )
-        )
-
         source_index: dict[
             str,
             list[tuple[Path, ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef]],
@@ -497,9 +473,7 @@ class DocumentationLanguageTest(unittest.TestCase):
                     f"({relative_path}:{node.lineno})"
                 )
 
-        self.assertGreaterEqual(
-            len(owner_symbols), 60, "Cheat Sheet Owner 提取结果异常"
-        )
+        self.assertGreaterEqual(len(owner_symbols), 50, "Cheat Sheet Owner 提取结果异常")
         self.assertEqual(violations, [], "Cheat Sheet Owner 必须可定位且可直接理解")
 
     def test_runtime_artifact_contract_documents_state_domains_and_field_sources(

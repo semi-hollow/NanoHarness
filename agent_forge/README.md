@@ -1,7 +1,8 @@
 # `agent_forge` 包内导航
 
 本文件只帮助从 package 目录定位代码。项目定位和公开命令见根目录 `README.md`，
-首个代码 Owner 见 `docs/核心能力与代码入口.md`，机制语义见 `docs/核心运行机制与代码索引.md`。
+系统主链见 `docs/架构导览.md`，首个代码 Owner 见 `docs/核心能力与代码入口.md`；
+机制语义由上下文、工具治理和持久化三份 owner 文档分别维护。
 
 ## 唯一 Single-Run 入口
 
@@ -40,7 +41,7 @@ CLI parser、Adapter 序列化、Memory、MCP、Skills、Multi/Fanout、Campaign
 | 结果与恢复 | 发生了什么，中断后怎样继续 | `tool_execution.py::_run_tool` | `run_lifecycle.py`、`domain/operation.py`、`observability/domain/event.py` |
 
 本表只给代码路径；四层、Hook 和操作状态表的语义由
-`docs/核心运行机制与代码索引.md` 统一说明。
+`docs/工具治理与执行.md` 与 `docs/运行产物与持久化契约.md` 说明。
 
 ## Capability 地图
 

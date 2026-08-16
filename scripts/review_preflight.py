@@ -1,0 +1,332 @@
+#!/usr/bin/env python3
+"""只读检查本机 Evidence Review 是否具备完整、可追溯的演示输入。"""
+
+from __future__ import annotations
+
+import hashlib
+import inspect
+import sys
+from dataclasses import dataclass
+from pathlib import Path
+
+
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
+from agent_forge.workbench.adapters.evidence_files import FileEvidenceCatalog
+from agent_forge.workbench.application.review_projection import (
+    REVIEW_MANIFEST,
+    build_lab1_review,
+    build_lab2_review,
+    build_mini50_review,
+    load_review_manifest,
+)
+from agent_forge.workbench.presentation.http import (
+    INDEX_HTML,
+    ForgeUiHandler,
+    _render_workspace_view,
+)
+
+
+@dataclass(frozen=True)
+class Check:
+    section: str
+    name: str
+    passed: bool
+    detail: str
+
+
+def main() -> int:
+    before = _raw_evidence_fingerprints()
+    checks = [
+        *_check_docs(),
+        *_check_workbench(),
+        *_check_lab1(),
+        *_check_lab2(),
+        *_check_mini50(),
+        *_check_boundary(),
+    ]
+    after = _raw_evidence_fingerprints()
+    checks.append(
+        Check(
+            "Boundary",
+            "Preflight is read-only",
+            before == after,
+            "selected raw artifact hashes unchanged",
+        )
+    )
+    current_section = ""
+    for check in checks:
+        if check.section != current_section:
+            current_section = check.section
+            print(f"\n[{current_section}]")
+        mark = "PASS" if check.passed else "FAIL"
+        print(f"{mark:4}  {check.name}: {check.detail}")
+    failed = [check for check in checks if not check.passed]
+    print("\nREADY" if not failed else f"\nNOT READY · {len(failed)} blocking issue(s)")
+    return 0 if not failed else 1
+
+
+def _check_docs() -> list[Check]:
+    architecture = PROJECT_ROOT / "docs/架构导览.md"
+    readme = PROJECT_ROOT / "README.md"
+    architecture_text = _text(architecture)
+    readme_text = _text(readme)
+    headings = [
+        line for line in architecture_text.splitlines() if line.startswith("## ")
+    ]
+    return [
+        Check("Docs", "Architecture Guide", architecture.is_file(), str(architecture)),
+        Check(
+            "Docs",
+            "Five-section main chain",
+            len(headings) == 5,
+            " | ".join(headings),
+        ),
+        Check(
+            "Docs",
+            "Canonical Workbench links",
+            all(
+                token in architecture_text + readme_text
+                for token in (
+                    "source=governed",
+                    "source=orchestration",
+                    "source=evaluation",
+                )
+            ),
+            "Lab 1 / Lab 2 / Mini-50 deep links",
+        ),
+    ]
+
+
+def _check_workbench() -> list[Check]:
+    sources = FileEvidenceCatalog(PROJECT_ROOT).evidence_sources()
+    rendered = {
+        key: _render_workspace_view(
+            PROJECT_ROOT,
+            source_key=key,
+            view="overview",
+            sources=sources,
+        )
+        for key in ("governed", "orchestration", "evaluation")
+    }
+    return [
+        Check(
+            "Workbench",
+            "Review projection render smoke",
+            all("QUESTION" in value and "OBSERVED ARTIFACT" in value for value in rendered.values()),
+            "three canonical overview pages rendered",
+        ),
+        Check(
+            "Workbench",
+            "Deep-link state",
+            all(
+                token in INDEX_HTML
+                for token in (
+                    "window.history[operation]",
+                    "window.addEventListener('popstate'",
+                    "copyReviewLink",
+                    "pageParams.get('source')",
+                )
+            ),
+            "source/view/focus restore + Back/Forward + Copy Link",
+        ),
+    ]
+
+
+def _check_lab1() -> list[Check]:
+    manifest = load_review_manifest(PROJECT_ROOT)
+    configured = _source_config(manifest, "governed")
+    source = _source("governed")
+    review = build_lab1_review(PROJECT_ROOT, source)
+    artifact = source.primary_path
+    expected_hash = str(configured.get("canonical_sha256") or "")
+    return [
+        Check(
+            "Lab 1",
+            "Canonical full Run",
+            source.run_key == configured.get("canonical_run")
+            and review.status == "completed"
+            and review.state_sequence
+            == ("waiting_human", "waiting_approval", "completed"),
+            " → ".join(review.state_sequence),
+        ),
+        Check(
+            "Lab 1",
+            "Canonical artifact hash",
+            bool(artifact and artifact.is_file()) and _sha256(artifact) == expected_hash,
+            expected_hash[:12],
+        ),
+        Check(
+            "Lab 1",
+            "HumanInput / Approval / Ledger / Checkpoint / Trace",
+            len(review.authorities) == 5
+            and all(item.status not in {"not_observed", ""} for item in review.authorities),
+            ", ".join(f"{item.owner}={item.status}" for item in review.authorities),
+        ),
+        Check(
+            "Lab 1",
+            "Three control invariants",
+            len(review.invariants) == 3 and all(item.observed for item in review.invariants),
+            f"{sum(item.observed for item in review.invariants)}/3 observed",
+        ),
+    ]
+
+
+def _check_lab2() -> list[Check]:
+    manifest = load_review_manifest(PROJECT_ROOT)
+    configured = _source_config(manifest, "orchestration")
+    source = _source("orchestration")
+    review = build_lab2_review(PROJECT_ROOT, source)
+    expected_hash = str(configured.get("canonical_sha256") or "")
+    task_ids = {task.task_id for task in review.tasks}
+    return [
+        Check(
+            "Lab 2",
+            "Canonical plan and summary",
+            source.run_key == configured.get("canonical_run")
+            and source.primary_path is not None
+            and _sha256(source.primary_path) == expected_hash,
+            f"{source.run_key} · {expected_hash[:12]}",
+        ),
+        Check(
+            "Lab 2",
+            "Batches and workers",
+            task_ids == {"pricing-policy", "shipping-policy", "edge-case-verifier"}
+            and review.batches
+            == (("pricing-policy", "shipping-policy"), ("edge-case-verifier",)),
+            "Batch 0 parallel · Batch 1 verifier",
+        ),
+        Check(
+            "Lab 2",
+            "Conflict gates and Finalizer",
+            not review.conflicts
+            and review.final_decision == "PASS"
+            and review.finalizer_trace is not None,
+            f"conflicts={len(review.conflicts)} · Finalizer={review.final_decision}",
+        ),
+    ]
+
+
+def _check_mini50() -> list[Check]:
+    sources = FileEvidenceCatalog(PROJECT_ROOT).evidence_sources()
+    source = next(item for item in sources if item.key == "evaluation")
+    review = build_mini50_review(PROJECT_ROOT, source, sources)
+    cases = [
+        item
+        for item in sources
+        if item.category_key == "evaluation" and item.item_key != "overview"
+    ]
+    revision_exists = _git_object_exists(review.evaluated_revision)
+    return [
+        Check(
+            "Mini-50",
+            "Canonical exactly 50",
+            len(cases) == 50 and len({item.item_key for item in cases}) == 50,
+            f"{len(cases)} unique terminal trajectories",
+        ),
+        Check(
+            "Mini-50",
+            "Canonical distribution",
+            (review.resolved, review.unresolved, review.empty_patch) == (28, 16, 6),
+            f"{review.resolved}/{review.unresolved}/{review.empty_patch}",
+        ),
+        Check(
+            "Mini-50",
+            "Representative cases",
+            len(review.representatives) >= 3
+            and all(item.source_key for item in review.representatives),
+            ", ".join(item.case_id for item in review.representatives),
+        ),
+        Check(
+            "Mini-50",
+            "Evaluated revision exists",
+            revision_exists,
+            review.evaluated_revision,
+        ),
+        Check(
+            "Mini-50",
+            "Publish funnel",
+            review.total_launches == 61 and not review.correctness_rerun,
+            f"61 launches · correctness rerun={review.correctness_rerun}",
+        ),
+    ]
+
+
+def _check_boundary() -> list[Check]:
+    post_source = inspect.getsource(ForgeUiHandler.do_POST)
+    evaluation_html = _render_workspace_view(
+        PROJECT_ROOT,
+        source_key="evaluation",
+        view="overview",
+    )
+    return [
+        Check(
+            "Boundary",
+            "Workbench mutation rejected",
+            "METHOD_NOT_ALLOWED" in post_source and "_send_json" in post_source,
+            "POST → 405",
+        ),
+        Check(
+            "Boundary",
+            "Revision provenance displayed",
+            "EVALUATED REVISION" in evaluation_html
+            and "CURRENT REPOSITORY HEAD" in evaluation_html
+            and "correctness rerun not performed" in evaluation_html,
+            "evaluated revision and current HEAD remain distinct",
+        ),
+    ]
+
+
+def _source(key: str):
+    return next(
+        item
+        for item in FileEvidenceCatalog(PROJECT_ROOT).evidence_sources()
+        if item.key == key
+    )
+
+
+def _source_config(manifest: dict[str, object], key: str) -> dict[str, object]:
+    sources = manifest.get("sources")
+    sources = sources if isinstance(sources, dict) else {}
+    value = sources.get(key)
+    return value if isinstance(value, dict) else {}
+
+
+def _raw_evidence_fingerprints() -> tuple[tuple[str, str], ...]:
+    manifest = load_review_manifest(PROJECT_ROOT)
+    values: list[tuple[str, str]] = []
+    for key in ("governed", "orchestration"):
+        configured = _source_config(manifest, key)
+        run_name = str(configured.get("canonical_run") or "")
+        relative = str(configured.get("canonical_artifact") or "")
+        path = PROJECT_ROOT / ".agent_forge/runs/showcases" / run_name / relative
+        values.append((str(path), _sha256(path)))
+    return tuple(values)
+
+
+def _git_object_exists(revision: str) -> bool:
+    if not revision:
+        return False
+    import subprocess
+
+    result = subprocess.run(
+        ["git", "cat-file", "-e", f"{revision}^{{commit}}"],
+        cwd=PROJECT_ROOT,
+        check=False,
+        capture_output=True,
+    )
+    return result.returncode == 0
+
+
+def _sha256(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest() if path.is_file() else ""
+
+
+def _text(path: Path) -> str:
+    return path.read_text(encoding="utf-8") if path.is_file() else ""
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

@@ -26,6 +26,7 @@ from agent_forge.workbench.application.context_inspection import (
 from agent_forge.workbench.application.services import WorkbenchServices
 from agent_forge.workbench.domain import EvidenceSource
 from agent_forge.workbench.presentation.experiments import render_experiment_bundle
+from agent_forge.workbench.presentation.review import render_review_overview
 from agent_forge.storage_layout import DEBUG_LAB_STATE_ROOT, EVALUATION_DATA_ROOT
 from agent_forge.workbench.wiring import (
     build_evidence_catalog,
@@ -287,14 +288,20 @@ def _render_workspace_view(
 
     normalized_view = view if view in _WORKSPACE_VIEWS else "overview"
     if normalized_view == "overview":
-        content = _render_source_overview(project_dir, source)
+        content = _render_source_overview(project_dir, source, available_sources)
     elif normalized_view == "timeline":
         content = _render_source_timeline(source)
     elif normalized_view == "context":
         content = _render_source_context(source)
     else:
         content = _render_source_results(project_dir, source)
-    return _render_source_shell(source, content)
+    compact_identity = (
+        normalized_view == "overview"
+        and source.item_key == "overview"
+        and source.category_key in {"governed", "orchestration", "evaluation"}
+        and (project_dir / "benchmarks/showcase/evidence-review-v1.json").is_file()
+    )
+    return _render_source_shell(source, content, compact=compact_identity)
 
 
 def _find_evidence_source(
@@ -333,7 +340,12 @@ def _selected_evidence_source(
     return newest.key
 
 
-def _render_source_shell(source: EvidenceSource, content: str) -> str:
+def _render_source_shell(
+    source: EvidenceSource,
+    content: str,
+    *,
+    compact: bool = False,
+) -> str:
     """每个视图都保留同一份运行身份，避免切页后忘记自己在看哪次证据。"""
 
     source_label = {
@@ -344,6 +356,25 @@ def _render_source_shell(source: EvidenceSource, content: str) -> str:
         "benchmark-case": "真实 Case",
     }.get(source.source_type, "运行证据")
     evidence_id = source.primary_path.name if source.primary_path else "未产生"
+    if compact:
+        return (
+            "<div class='workspace-source'>"
+            "<section class='source-identity source-identity--compact'>"
+            f"<div><span>{_escape(source_label)} · CURRENT OBJECT</span>"
+            f"<h2>{_escape(source.run_title or source.title)}</h2>"
+            f"<p>{_escape(source.item_title or '整体运行')} · {_escape(source.description)}</p></div>"
+            f"{_badge(_display_value(source.status), _tone_for_status(source.status))}"
+            "<dl>"
+            f"<div><dt>证据类型</dt><dd>{_escape(source.category_title or source.title)}</dd></div>"
+            f"<div><dt>不可变 Run</dt><dd>{_escape(source.run_title or source.title)}</dd></div>"
+            f"<div><dt>当前对象</dt><dd>{_escape(source.item_title or '整体运行')}</dd></div>"
+            f"<div><dt>证据 ID</dt><dd class='mono'>{_escape(evidence_id)}</dd></div>"
+            "</dl>"
+            "<details class='source-provenance'><summary>查看原始产物位置</summary>"
+            f"<code>{_escape(str(source.primary_path or '未产生'))}</code></details>"
+            "</section>"
+            f"{content}</div>"
+        )
     return (
         "<div class='workspace-source'>"
         "<section class='source-identity'>"
@@ -364,8 +395,16 @@ def _render_source_shell(source: EvidenceSource, content: str) -> str:
     )
 
 
-def _render_source_overview(project_dir: Path, source: EvidenceSource) -> str:
+def _render_source_overview(
+    project_dir: Path,
+    source: EvidenceSource,
+    sources: tuple[EvidenceSource, ...],
+) -> str:
     """用同一套摘要回答“这次运行是什么、发生了什么、能证明什么”。"""
+
+    review = render_review_overview(project_dir, source, sources)
+    if review is not None:
+        return review
 
     metrics, boundary = _source_overview_facts(project_dir, source)
     return (
@@ -7703,11 +7742,133 @@ INDEX_HTML = r"""<!doctype html>
     .source-provenance { grid-column: 1 / -1; margin-top: 2px; color: var(--muted); font-size: 10px; }
     .source-provenance summary { cursor: pointer; }
     .source-provenance code { display: block; margin-top: 7px; overflow-wrap: anywhere; white-space: normal; }
+    .source-identity--compact { gap: 4px 16px; padding: 9px 16px; }
+    .source-identity--compact h2 { margin: 3px 0 2px; font-size: 16px; }
+    .source-identity--compact p { display: none; }
+    .source-identity--compact dl { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+    .source-identity--compact dl > div { padding-top: 5px; }
+    .source-identity--compact .source-provenance { margin-top: 0; }
     .overview-reading-path { grid-template-columns: repeat(4, minmax(0, 1fr)); }
     .trace-context-unit { margin: 10px 0; border: 1px solid var(--line); background: #fff; }
     .trace-context-unit > summary { display: flex; justify-content: space-between; gap: 14px; padding: 14px 16px; cursor: pointer; }
     .trace-context-unit > summary span { color: var(--muted); font-size: 10px; }
     .trace-context-body { padding: 0 14px 14px; border-top: 1px solid var(--line); }
+    .review-path {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 0;
+      border: 1px solid var(--line);
+      border-top: 0;
+      background: #f8fafc;
+    }
+    .review-path a {
+      min-width: 0;
+      display: grid;
+      grid-template-columns: auto minmax(0, 1fr);
+      gap: 3px 10px;
+      padding: 11px 16px;
+      border-right: 1px solid var(--line);
+      color: var(--text);
+      text-decoration: none;
+    }
+    .review-path a:last-child { border-right: 0; }
+    .review-path b { grid-row: 1 / span 2; color: var(--accent); font-size: 17px; }
+    .review-path strong { font-size: 11px; }
+    .review-path span { color: var(--muted); font-size: 9px; }
+    .review-card-grid {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 9px;
+      margin: 12px 0 16px;
+    }
+    .review-card {
+      min-width: 0;
+      min-height: 132px;
+      padding: 14px;
+      border: 1px solid var(--line);
+      border-top: 3px solid var(--accent);
+      background: #fff;
+    }
+    .review-card > span, .review-card > small { display: block; }
+    .review-card > span { color: #344054; font-size: 10px; font-weight: 900; }
+    .review-card > small { margin-top: 5px; color: var(--accent); font-size: 8px; font-weight: 800; }
+    .review-card p { margin: 11px 0 0; font-size: 11px; line-height: 1.55; }
+    .review-flow { display: flex; align-items: stretch; gap: 7px; margin: 10px 0; }
+    .review-flow-step, .review-boundary {
+      min-width: 0; flex: 1; padding: 12px; border: 1px solid var(--line); background: #fff;
+    }
+    .review-flow-step small, .review-flow-step strong, .review-flow-step span { display: block; }
+    .review-flow-step small { color: var(--muted); font-size: 8px; }
+    .review-flow-step strong { margin-top: 7px; font-size: 12px; }
+    .review-flow-step span { margin-top: 5px; color: var(--accent); font-size: 8px; }
+    .review-boundary { flex: .7; display: grid; place-items: center; text-align: center; color: #7a4d00; font-size: 9px; line-height: 1.5; background: #fffaf0; }
+    .review-table-scroll { max-width: 100%; overflow-x: auto; }
+    .review-table-scroll code { white-space: normal; overflow-wrap: anywhere; }
+    .invariant-grid, .gate-grid, .representative-grid, .finalizer-contract {
+      display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 9px;
+    }
+    .invariant-card, .gate-grid article, .finalizer-contract > div {
+      min-width: 0; padding: 13px; border: 1px solid var(--line); background: #fff;
+    }
+    .invariant-card strong, .invariant-card p { display: block; }
+    .invariant-card strong { margin-top: 9px; font-size: 11px; }
+    .invariant-card p, .gate-grid p { margin: 6px 0 0; color: var(--muted); font-size: 10px; line-height: 1.5; }
+    .algorithm-map { display: grid; grid-template-columns: 1fr auto 1fr auto 1fr auto 1fr; gap: 7px; align-items: center; }
+    .algorithm-map > div { min-width: 0; min-height: 80px; padding: 12px; border: 1px solid var(--line); background: #fff; }
+    .algorithm-map b, .algorithm-map span { display: block; }
+    .algorithm-map span { margin-top: 6px; color: var(--muted); font-size: 9px; line-height: 1.4; }
+    .algorithm-map i { color: var(--muted); font-style: normal; }
+    .batch-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 9px; }
+    .batch-card { padding: 13px; border: 1px solid var(--line); background: #fff; }
+    .batch-card small, .batch-card strong, .batch-card span { display: block; }
+    .batch-card small { color: var(--accent); font-size: 8px; }
+    .batch-card strong { margin-top: 7px; font-size: 11px; }
+    .batch-card span { margin-top: 5px; color: var(--muted); font-size: 9px; }
+    .batch-card.final { border-color: rgba(52, 199, 89, .34); background: #f7fcf8; }
+    .gate-grid article small { color: var(--accent); font-size: 8px; font-weight: 800; }
+    .gate-grid article b { display: block; margin-top: 7px; font-size: 11px; }
+    .finalizer-contract b, .finalizer-contract span { display: block; }
+    .finalizer-contract b { font-size: 10px; }
+    .finalizer-contract span { margin-top: 5px; color: var(--muted); font-size: 9px; line-height: 1.4; }
+    .canonical-metrics { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); border: 1px solid var(--line); background: #fff; }
+    .canonical-metrics > div { min-width: 0; padding: 13px; border-right: 1px solid var(--line); }
+    .canonical-metrics > div:last-child { border-right: 0; }
+    .canonical-metrics small, .canonical-metrics b, .canonical-metrics span { display: block; }
+    .canonical-metrics small { color: var(--muted); font-size: 8px; }
+    .canonical-metrics b { margin-top: 5px; font-size: 22px; }
+    .canonical-metrics span { margin-top: 4px; color: var(--muted); font-size: 9px; }
+    .canonical-metrics .ok b { color: #248a3d; }
+    .canonical-metrics .warn b { color: #a35f00; }
+    .canonical-metrics .bad b { color: var(--red); }
+    .funnel-grid { display: grid; grid-template-columns: 1fr auto 1fr; gap: 12px; align-items: center; }
+    .funnel-grid > div { min-width: 0; padding: 14px; border: 1px solid var(--line); background: #fff; }
+    .funnel-grid small, .funnel-grid b, .funnel-grid span { display: block; }
+    .funnel-grid small { color: var(--accent); font-size: 8px; }
+    .funnel-grid b { margin-top: 7px; font-size: 11px; }
+    .funnel-grid span { margin-top: 6px; color: var(--muted); font-size: 9px; }
+    .funnel-grid i { color: #7a4d00; text-align: center; font-size: 9px; font-style: normal; line-height: 1.5; }
+    .representative-card { min-width: 0; padding: 13px; border: 1px solid var(--line); background: #fff; color: var(--text); text-decoration: none; }
+    .representative-card small, .representative-card strong, .representative-card span { display: block; }
+    .representative-card small { color: var(--accent); font-size: 8px; }
+    .representative-card strong { margin-top: 7px; overflow-wrap: anywhere; font-size: 11px; }
+    .representative-card span { margin-top: 6px; color: var(--muted); font-size: 9px; }
+    .revision-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 9px; }
+    .revision-grid > div { min-width: 0; padding: 13px; border: 1px solid var(--line); background: #fff; }
+    .revision-grid small, .revision-grid code, .revision-grid span { display: block; }
+    .revision-grid small { color: var(--muted); font-size: 8px; }
+    .revision-grid code { margin-top: 7px; overflow-wrap: anywhere; font-size: 10px; }
+    .revision-grid span { margin-top: 5px; color: var(--muted); font-size: 9px; }
+    .case-anatomy { border: 1px solid var(--line); background: #fff; }
+    .case-anatomy > div { display: grid; grid-template-columns: 42px minmax(0, 1fr); border-bottom: 1px solid var(--line); }
+    .case-anatomy > div:last-child { border-bottom: 0; }
+    .case-anatomy > div > b { display: grid; place-items: center; color: var(--muted); font-size: 10px; }
+    .case-anatomy section { width: auto; max-width: none; margin: 0; padding: 11px 13px; border-left: 1px solid var(--line); }
+    .case-anatomy small, .case-anatomy strong, .case-anatomy span { display: block; }
+    .case-anatomy small { color: var(--accent); font-size: 8px; }
+    .case-anatomy strong { margin-top: 4px; font-size: 11px; }
+    .case-anatomy span { margin-top: 4px; color: var(--muted); font-size: 10px; overflow-wrap: anywhere; }
+    .review-footer { display: flex; justify-content: space-between; gap: 12px; align-items: center; margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--line); color: var(--muted); font-size: 9px; }
+    .review-link { color: var(--accent-strong); text-decoration: none; font-weight: 700; }
     @media (max-width: 1100px) {
       .metric-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
       .pipeline { grid-template-columns: repeat(3, minmax(0, 1fr)); }
@@ -7719,6 +7880,7 @@ INDEX_HTML = r"""<!doctype html>
       .context-flow-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
       .context-flow-grid > section:nth-child(2) { border-right: 0; }
       .context-flow-grid > section:nth-child(-n+2) { border-bottom: 1px solid var(--line); }
+      .review-card-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
     }
     @media (max-width: 900px) {
       header { position: sticky; padding: 10px 12px; flex-direction: row; align-items: center; gap: 8px; }
@@ -7772,6 +7934,17 @@ INDEX_HTML = r"""<!doctype html>
       .source-picker { border-right: 0; border-bottom: 1px solid var(--line); }
       .source-identity dl > div { padding-right: 0; }
       .trace-context-unit > summary { display: grid; }
+      .review-path, .review-card-grid, .invariant-grid, .gate-grid,
+      .representative-grid, .finalizer-contract, .batch-grid, .canonical-metrics,
+      .revision-grid, .funnel-grid, .algorithm-map { grid-template-columns: 1fr; }
+      .review-path a { border-right: 0; border-bottom: 1px solid var(--line); }
+      .review-path a:last-child { border-bottom: 0; }
+      .review-flow { display: grid; grid-template-columns: 1fr; }
+      .review-boundary { min-height: 44px; }
+      .algorithm-map i { text-align: center; transform: rotate(90deg); }
+      .canonical-metrics > div { border-right: 0; border-bottom: 1px solid var(--line); }
+      .canonical-metrics > div:last-child { border-bottom: 0; }
+      .review-footer { align-items: flex-start; flex-direction: column; }
     }
   </style>
 </head>
@@ -7787,6 +7960,7 @@ INDEX_HTML = r"""<!doctype html>
     <div class="header-actions">
       <button id="statusToggle" onclick="toggleStatusBar()" title="显示或隐藏运行状态">状态</button>
       <button id="focusToggle" onclick="toggleFocusMode()" title="专注查看证据">专注</button>
+      <button id="copyLink" onclick="copyReviewLink()" title="复制当前证据深链接">复制链接</button>
       <div class="project-chip" id="projectDir"></div>
     </div>
   </header>
@@ -7802,6 +7976,11 @@ INDEX_HTML = r"""<!doctype html>
         <button data-mode="runtime" onclick="switchWorkspaceMode('runtime')">运行证据</button>
         <button data-mode="experiments" onclick="switchWorkspaceMode('experiments')">实验对比</button>
       </div>
+      <nav class="review-path" id="reviewPath" aria-label="Evidence review path">
+        <a href="?source=governed&amp;view=overview"><b>01</b><strong>Runtime Control</strong><span>Durable Control Plane</span></a>
+        <a href="?source=orchestration&amp;view=overview"><b>02</b><strong>Agent Coordination</strong><span>Coordinated Agents</span></a>
+        <a href="?source=evaluation&amp;view=overview"><b>03</b><strong>Real Repository Capability</strong><span>SWE-bench Verified Mini-50</span></a>
+      </nav>
       <div class="workspace-toolbar" id="runtimeSelectorPanel">
         <div class="source-picker">
           <label for="categorySelect">选择运行证据 · 1 证据类型</label>
@@ -7860,6 +8039,7 @@ INDEX_HTML = r"""<!doctype html>
     let activeExperiment = '';
     let activeMode = 'runtime';
     let evidenceRequestSequence = 0;
+    let restoringHistory = false;
 
     function displayStatus(value) {
       const labels = {
@@ -8045,7 +8225,32 @@ INDEX_HTML = r"""<!doctype html>
       await loadExperiment();
     }
 
-    async function loadEvidence(view) {
+    function updateLocation(method = 'push') {
+      if (restoringHistory || method === 'none') {
+        return;
+      }
+      const params = new URLSearchParams();
+      if (activeMode === 'experiments') {
+        params.set('mode', 'experiments');
+        if (activeExperiment) params.set('source', activeExperiment);
+      } else {
+        if (activeSource) params.set('source', activeSource);
+        params.set('view', activeView);
+      }
+      if (document.body.classList.contains('focus-mode')) {
+        params.set('focus', '1');
+      }
+      const query = params.toString();
+      const nextUrl = `${window.location.pathname}${query ? `?${query}` : ''}`;
+      const currentUrl = `${window.location.pathname}${window.location.search}`;
+      if (nextUrl === currentUrl) {
+        return;
+      }
+      const operation = method === 'replace' ? 'replaceState' : 'pushState';
+      window.history[operation]({}, '', nextUrl);
+    }
+
+    async function loadEvidence(view, historyMode = 'push') {
       activeView = Object.prototype.hasOwnProperty.call(evidenceTitles, view)
         ? view
         : 'overview';
@@ -8064,9 +8269,10 @@ INDEX_HTML = r"""<!doctype html>
       }
       document.getElementById('output').innerHTML = data.html;
       setActiveEvidence(requestedView);
+      updateLocation(historyMode);
     }
 
-    async function loadExperiment() {
+    async function loadExperiment(historyMode = 'push') {
       const requestedSource = activeExperiment;
       const requestSequence = ++evidenceRequestSequence;
       const query = new URLSearchParams({source: requestedSource});
@@ -8081,6 +8287,7 @@ INDEX_HTML = r"""<!doctype html>
       }
       document.getElementById('output').innerHTML = data.html;
       renderExperimentSelector();
+      updateLocation(historyMode);
     }
 
     function setActiveEvidence(view) {
@@ -8094,36 +8301,29 @@ INDEX_HTML = r"""<!doctype html>
     async function refreshWorkspace() {
       await fetchStatus(activeMode === 'runtime');
       if (activeMode === 'experiments') {
-        await loadExperiment();
+        await loadExperiment('replace');
       } else {
-        await loadEvidence(activeView);
+        await loadEvidence(activeView, 'replace');
       }
     }
 
-    async function switchWorkspaceMode(mode) {
+    async function switchWorkspaceMode(mode, historyMode = 'push') {
       activeMode = mode === 'experiments' ? 'experiments' : 'runtime';
       const experimentMode = activeMode === 'experiments';
       document.getElementById('runtimeSelectorPanel').hidden = experimentMode;
       document.getElementById('runtimeViewTabs').hidden = experimentMode;
+      document.getElementById('reviewPath').hidden = experimentMode;
       document.getElementById('experimentSelectorPanel').hidden = !experimentMode;
       document.getElementById('experimentViewTabs').hidden = !experimentMode;
       for (const button of document.querySelectorAll('[data-mode]')) {
         button.classList.toggle('active', button.dataset.mode === activeMode);
       }
-      const params = new URLSearchParams(window.location.search);
-      if (experimentMode) {
-        params.set('mode', 'experiments');
-      } else {
-        params.delete('mode');
-      }
-      const query = params.toString();
-      window.history.replaceState({}, '', `${window.location.pathname}${query ? `?${query}` : ''}`);
       if (experimentMode) {
         renderExperimentSelector();
-        await loadExperiment();
+        await loadExperiment(historyMode);
       } else {
         renderSourceSelector();
-        await loadEvidence(activeView);
+        await loadEvidence(activeView, historyMode);
       }
     }
 
@@ -8133,6 +8333,7 @@ INDEX_HTML = r"""<!doctype html>
         document.body.classList.add('status-collapsed');
       }
       updateLayoutControls();
+      updateLocation('replace');
       return enabled;
     }
 
@@ -8154,20 +8355,58 @@ INDEX_HTML = r"""<!doctype html>
         focusToggle.textContent = focused ? '退出专注' : '专注';
       }
     }
-    const pageParams = new URLSearchParams(window.location.search);
-    if (pageParams.has('focus')) {
-      document.body.classList.add('focus-mode', 'status-collapsed');
+
+    async function copyReviewLink() {
+      const button = document.getElementById('copyLink');
+      try {
+        await navigator.clipboard.writeText(window.location.href);
+        button.textContent = '已复制';
+      } catch (_error) {
+        button.textContent = '复制失败';
+      }
+      window.setTimeout(() => { button.textContent = '复制链接'; }, 1200);
     }
+
+    async function restoreLocation(historyMode = 'none') {
+      const pageParams = new URLSearchParams(window.location.search);
+      activeView = Object.prototype.hasOwnProperty.call(
+        evidenceTitles, pageParams.get('view')
+      ) ? pageParams.get('view') : 'overview';
+      activeMode = pageParams.get('mode') === 'experiments' ? 'experiments' : 'runtime';
+      const requestedSource = pageParams.get('source');
+      if (activeMode === 'experiments') {
+        if (requestedSource && experimentSources.some(item => item.key === requestedSource)) {
+          activeExperiment = requestedSource;
+        }
+      } else if (requestedSource && evidenceSources.some(item => item.key === requestedSource)) {
+        activeSource = requestedSource;
+      }
+      document.body.classList.toggle('focus-mode', pageParams.has('focus'));
+      if (pageParams.has('focus')) {
+        document.body.classList.add('status-collapsed');
+      }
+      updateLayoutControls();
+      await switchWorkspaceMode(activeMode, historyMode);
+    }
+
     async function initializeWorkbench() {
+      const pageParams = new URLSearchParams(window.location.search);
       const requestedView = pageParams.get('view');
       activeView = Object.prototype.hasOwnProperty.call(evidenceTitles, requestedView)
         ? requestedView
         : 'overview';
       activeMode = pageParams.get('mode') === 'experiments' ? 'experiments' : 'runtime';
-      updateLayoutControls();
       await fetchStatus(true);
-      await switchWorkspaceMode(activeMode);
+      await restoreLocation('replace');
     }
+    window.addEventListener('popstate', async () => {
+      restoringHistory = true;
+      try {
+        await restoreLocation('none');
+      } finally {
+        restoringHistory = false;
+      }
+    });
     initializeWorkbench();
   </script>
 </body>

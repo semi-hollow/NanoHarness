@@ -48,7 +48,29 @@ class FileEvidenceCatalog(EvidenceCatalogPort):
                 and read_json_file(path / "showcase.json").get("scenario") == "governed"
             ]
         run_roots.sort(key=lambda path: path.stat().st_mtime, reverse=True)
+        canonical_name = _review_canonical_run(self.project_dir, "governed")
+        run_roots = _canonical_first(run_roots, canonical_name)
         if not run_roots:
+            if canonical_name:
+                missing = root / canonical_name / "showcase.json"
+                return (
+                    EvidenceSource(
+                        key="governed",
+                        title="Lab 1 · Canonical evidence unavailable",
+                        description="Manifest 固定的本机 immutable Run 尚不可读取",
+                        source_type="scenario",
+                        task="Durable control-plane review",
+                        status="not_observed",
+                        primary_path=missing,
+                        run_dir=missing.parent,
+                        category_key="governed",
+                        category_title="Lab 1 · Durable Control Plane",
+                        run_key=canonical_name,
+                        run_title="Canonical Run · missing",
+                        item_key="overview",
+                        item_title="全部控制步骤",
+                    ),
+                )
             source = self._governed_source()
             return (
                 _with_navigation(
@@ -59,13 +81,35 @@ class FileEvidenceCatalog(EvidenceCatalogPort):
                     run_title="尚未运行",
                 ),
             )
-        return tuple(
+        sources = tuple(
             self._governed_source_from_root(
                 path,
                 key="governed" if index == 0 else f"governed:{path.name}",
             )
             for index, path in enumerate(run_roots)
         )
+        if canonical_name and run_roots[0].name != canonical_name:
+            missing = root / canonical_name / "showcase.json"
+            return (
+                EvidenceSource(
+                    key="governed",
+                    title="Lab 1 · Canonical evidence unavailable",
+                    description="Manifest 固定的本机 immutable Run 尚不可读取",
+                    source_type="scenario",
+                    task="Durable control-plane review",
+                    status="not_observed",
+                    primary_path=missing,
+                    run_dir=missing.parent,
+                    category_key="governed",
+                    category_title="Lab 1 · Durable Control Plane",
+                    run_key=canonical_name,
+                    run_title="Canonical Run · missing",
+                    item_key="overview",
+                    item_title="全部控制步骤",
+                ),
+                *tuple(replace(source, key=f"governed:{source.run_key}") for source in sources),
+            )
+        return sources
 
     def _governed_source_from_root(self, root: Path, *, key: str) -> EvidenceSource:
         manifest = read_json_file(root / "showcase.json")
@@ -104,7 +148,7 @@ class FileEvidenceCatalog(EvidenceCatalogPort):
                 else None
             ),
             category_key="governed",
-            category_title="Lab 1 · 持久化控制面",
+            category_title="Lab 1 · Durable Control Plane",
             run_key=root.name,
             run_title=run_title,
             item_key="overview",
@@ -118,7 +162,39 @@ class FileEvidenceCatalog(EvidenceCatalogPort):
             key=lambda path: path.stat().st_mtime,
             reverse=True,
         )
+        canonical_name = _review_canonical_run(self.project_dir, "orchestration")
+        if canonical_name:
+            summaries = sorted(
+                summaries,
+                key=lambda path: (path.parent.parent.name != canonical_name,),
+            )
+        canonical_available = bool(
+            canonical_name
+            and summaries
+            and summaries[0].parent.parent.name == canonical_name
+        )
+        missing_source = None
+        if canonical_name and not canonical_available:
+            missing = root / canonical_name / "fanout/fanout_summary.json"
+            missing_source = EvidenceSource(
+                key="orchestration",
+                title="Lab 2 · Canonical evidence unavailable",
+                description="Manifest 固定的本机 immutable Run 尚不可读取",
+                source_type="scenario",
+                task="Coordinated Agent review",
+                status="not_observed",
+                primary_path=missing,
+                run_dir=missing.parent.parent,
+                category_key="orchestration",
+                category_title="Lab 2 · Coordinated Agents",
+                run_key=canonical_name,
+                run_title="Canonical Run · missing",
+                item_key="overview",
+                item_title="整体编排",
+            )
         if not summaries:
+            if missing_source is not None:
+                return (missing_source,)
             source = self._orchestration_source()
             return (
                 _with_navigation(
@@ -136,7 +212,9 @@ class FileEvidenceCatalog(EvidenceCatalogPort):
             run_title = _run_display_title(run_root.name)
             traces = _fanout_trace_entries(summary)
             base_key = (
-                "orchestration" if run_index == 0 else f"orchestration:{run_root.name}"
+                "orchestration"
+                if run_index == 0 and canonical_available
+                else f"orchestration:{run_root.name}"
             )
             sources.append(
                 EvidenceSource(
@@ -179,7 +257,11 @@ class FileEvidenceCatalog(EvidenceCatalogPort):
                         item_title=label,
                     )
                 )
-        return tuple(sources)
+        return (
+            (missing_source, *sources)
+            if missing_source is not None
+            else tuple(sources)
+        )
 
     def _mini50_sources(self) -> tuple[EvidenceSource, ...]:
         canonical = self._benchmark_source()
@@ -191,13 +273,7 @@ class FileEvidenceCatalog(EvidenceCatalogPort):
             str(evaluation.get("evidence_run_dir") or ""),
             require_directory=True,
         )
-        run_roots = _mini50_run_roots(self.project_dir)
-        if canonical_root is not None:
-            run_roots = [
-                canonical_root,
-                *[root for root in run_roots if root != canonical_root],
-            ]
-        if not run_roots:
+        if canonical_root is None:
             return (
                 _with_navigation(
                     canonical,
@@ -207,92 +283,81 @@ class FileEvidenceCatalog(EvidenceCatalogPort):
                     run_title="Canonical Mini-50",
                 ),
             )
-        sources: list[EvidenceSource] = []
-        for run_index, run_root in enumerate(run_roots):
-            records, run_status = _mini50_records(run_root)
-            if len(records) != 50:
+        run_root = canonical_root
+        records, run_status = _mini50_records(run_root)
+        if len(records) != 50:
+            return (
+                _with_navigation(
+                    canonical,
+                    category_key="evaluation",
+                    category_title="Mini-50 · SWE-bench Verified",
+                    run_key=run_root.name,
+                    run_title="Canonical Mini-50 · invalid local evidence",
+                ),
+            )
+        run_title = _run_display_title(run_root.name)
+        trace_entries = tuple(
+            entry
+            for record in records
+            if (entry := _mini50_trace_entry(self.project_dir, record)) is not None
+        )
+        sources: list[EvidenceSource] = [
+            EvidenceSource(
+                key="evaluation",
+                title=f"Mini-50 · {run_title}",
+                description="固定 50 Case 的 Pass@1、Official 与完整分母",
+                source_type="benchmark",
+                task="SWE-bench Verified Mini-50",
+                status=run_status,
+                primary_path=canonical.primary_path,
+                run_dir=run_root,
+                trace_entries=trace_entries,
+                category_key="evaluation",
+                category_title="Mini-50 · SWE-bench Verified",
+                run_key=run_root.name,
+                run_title=run_title,
+                item_key="overview",
+                item_title="50 Case 总览",
+            )
+        ]
+        for ordinal, record in enumerate(records, start=1):
+            case_id = str(
+                record.get("case_id")
+                or record.get("instance_id")
+                or f"case-{ordinal}"
+            )
+            run_dir = _safe_local_path(
+                self.project_dir,
+                str(record.get("run_dir") or ""),
+                require_directory=True,
+            )
+            entry = _mini50_trace_entry(self.project_dir, record)
+            if run_dir is None or entry is None:
                 continue
-            run_title = _run_display_title(run_root.name)
-            base_key = "evaluation" if run_index == 0 else f"evaluation:{run_root.name}"
-            overall_primary = (
-                canonical.primary_path
-                if run_root == canonical_root
-                else _first_existing(
-                    run_root / "campaign_summary.json",
-                    run_root / "combined_result.json",
-                    run_root / "campaign.json",
-                )
-            )
-            trace_entries = tuple(
-                entry
-                for record in records
-                if (entry := _mini50_trace_entry(self.project_dir, record)) is not None
-            )
+            label, trace_path = entry
+            usage_path = trace_path.parent / "usage.json"
+            case_status = _mini50_case_status(record)
             sources.append(
                 EvidenceSource(
-                    key=base_key,
-                    title=f"Mini-50 · {run_title}",
-                    description="固定 50 Case 的 Pass@1、Official 与完整分母",
-                    source_type="benchmark",
-                    task="SWE-bench Verified Mini-50",
-                    status=run_status,
-                    primary_path=overall_primary,
-                    run_dir=run_root,
-                    trace_entries=trace_entries,
+                    key=f"evaluation:case:{ordinal}",
+                    title=case_id,
+                    description="单个真实 Case 的 Trace、Tool、Patch 与 Official 状态",
+                    source_type="benchmark-case",
+                    task=case_id,
+                    status=case_status,
+                    primary_path=_first_existing(run_dir / "results.json", run_dir),
+                    run_dir=run_dir,
+                    trace_entries=((label, trace_path),),
+                    usage_path=usage_path if usage_path.is_file() else None,
                     category_key="evaluation",
-                    category_title="Mini-50 · 真实仓库能力评测",
+                    category_title="Mini-50 · SWE-bench Verified",
                     run_key=run_root.name,
                     run_title=run_title,
-                    item_key="overview",
-                    item_title="50 Case 总览",
+                    item_key=case_id,
+                    item_title=f"{ordinal:02d} · {case_id} · {_display_case_status(case_status)}",
                 )
             )
-            for ordinal, record in enumerate(records, start=1):
-                case_id = str(
-                    record.get("case_id")
-                    or record.get("instance_id")
-                    or f"case-{ordinal}"
-                )
-                run_dir = _safe_local_path(
-                    self.project_dir,
-                    str(record.get("run_dir") or ""),
-                    require_directory=True,
-                )
-                entry = _mini50_trace_entry(self.project_dir, record)
-                if run_dir is None or entry is None:
-                    continue
-                label, trace_path = entry
-                usage_path = trace_path.parent / "usage.json"
-                case_status = _mini50_case_status(record)
-                sources.append(
-                    EvidenceSource(
-                        key=f"{base_key}:case:{ordinal}",
-                        title=case_id,
-                        description="单个真实 Case 的 Trace、Tool、Patch 与 Official 状态",
-                        source_type="benchmark-case",
-                        task=case_id,
-                        status=case_status,
-                        primary_path=_first_existing(run_dir / "results.json", run_dir),
-                        run_dir=run_dir,
-                        trace_entries=((label, trace_path),),
-                        usage_path=usage_path if usage_path.is_file() else None,
-                        category_key="evaluation",
-                        category_title="Mini-50 · 真实仓库能力评测",
-                        run_key=run_root.name,
-                        run_title=run_title,
-                        item_key=case_id,
-                        item_title=f"{ordinal:02d} · {case_id} · {_display_case_status(case_status)}",
-                    )
-                )
-        return tuple(sources) or (
-            _with_navigation(
-                canonical,
-                category_key="evaluation",
-                category_title="Mini-50 · 真实仓库能力评测",
-                run_key="canonical",
-                run_title="Canonical Mini-50",
-            ),
-        )
+        return tuple(sources)
 
     @staticmethod
     def _same_run(left: EvidenceSource, right: EvidenceSource) -> bool:
@@ -1189,6 +1254,25 @@ def _run_display_title(name: str) -> str:
     return label
 
 
+def _review_canonical_run(project_dir: Path, category: str) -> str:
+    """读取版本化 Review manifest 中固定的本机 raw Run identity。"""
+
+    manifest = read_json_file(
+        project_dir / "benchmarks/showcase/evidence-review-v1.json"
+    )
+    sources = manifest.get("sources")
+    sources = sources if isinstance(sources, dict) else {}
+    source = sources.get(category)
+    source = source if isinstance(source, dict) else {}
+    return str(source.get("canonical_run") or "")
+
+
+def _canonical_first(paths: list[Path], canonical_name: str) -> list[Path]:
+    if not canonical_name:
+        return paths
+    return sorted(paths, key=lambda path: path.name != canonical_name)
+
+
 def _fanout_trace_entries(summary: dict[str, Any]) -> tuple[tuple[str, Path], ...]:
     entries: list[tuple[str, Path]] = []
     for item in summary.get("results") or summary.get("role_results") or []:
@@ -1206,6 +1290,10 @@ def _fanout_trace_entries(summary: dict[str, Any]) -> tuple[tuple[str, Path], ..
         raw_path = str(finalizer.get("trace_path") or "").strip()
         finalizer_path = Path(raw_path) if raw_path else None
         if finalizer_path is not None and finalizer_path.is_file():
+            entries.append(("Finalizer", finalizer_path))
+    elif str(summary.get("finalizer_trace_path") or ""):
+        finalizer_path = Path(str(summary["finalizer_trace_path"]))
+        if finalizer_path.is_file():
             entries.append(("Finalizer", finalizer_path))
     return tuple(entries)
 

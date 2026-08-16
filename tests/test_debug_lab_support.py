@@ -137,6 +137,7 @@ class DebugLabSupportTest(unittest.TestCase):
             "NanoHarness Lab 1 - Governed Repair.run.xml",
             "NanoHarness Lab 2 - Coordinated Agents.run.xml",
             "NanoHarness Evidence Workbench - Read Only.run.xml",
+            "NanoHarness Review Preflight.run.xml",
         }
         actual = {path.name for path in (PROJECT_ROOT / ".run").glob("*.run.xml")}
 

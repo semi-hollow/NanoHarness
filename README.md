@@ -2,98 +2,96 @@
 
 [![NanoHarness CI](https://github.com/semi-hollow/NanoHarness/actions/workflows/agent-forge-ci.yml/badge.svg)](https://github.com/semi-hollow/NanoHarness/actions/workflows/agent-forge-ci.yml)
 [![Python 3.11](https://img.shields.io/badge/python-3.11-blue.svg)](https://www.python.org/downloads/)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![License: MIT](https://img.shields.io/badge/license-MIT-yellow.svg)](LICENSE)
 
 **一个可治理、可恢复，并以运行证据为核心的 Coding Agent Runtime。**
 
-NanoHarness 参考成熟 Coding Agent 的工程形态，独立实现 Runtime 级的 Context、
-Tool Governance、Durability 与 Evaluation 能力。
-
-NanoHarness 在隔离的真实代码仓库中驱动模型检索、编辑和验证代码。它不只返回本次停止输出；
-只有被接受的完成才发布 final answer，同时把上下文、工具、权限、人工控制、恢复状态、成本和评测结论收敛为
-可检查的 Run Evidence。
+NanoHarness 在隔离的真实代码仓库中驱动模型检索、编辑和验证代码。模型负责提出行动，
+Runtime 负责上下文、工具授权、持久化控制和停止条件；运行过程最终收敛为可检查的
+Trace、Checkpoint、Operation Ledger、Usage 与 Evaluation Evidence。
 
 ```text
 repository task
-  -> isolated workspace
-  -> governed AgentLoop
-  -> candidate diff + validation
-  -> trace + checkpoint + usage
-  -> evaluation + failure diagnosis
+  → isolated workspace
+  → governed AgentLoop
+  → candidate diff + validation
+  → trace + checkpoint + usage
+  → evaluation + failure diagnosis
 ```
 
-## 项目解决什么
+## 为什么需要它
 
-模型会写代码，不等于它能稳定完成长周期工程任务。真实运行中还需要回答：
+模型会写代码，不等于它能稳定完成长周期工程任务。真实运行还需要回答：
 
-- 模型这一轮应该看到哪些 Context 和 Tool？
+- 每一 Turn 应该看到哪些 Context 和 Tool？
 - 写操作、命令和越界路径如何被确定性约束？
-- 审批、进程中断或目标文件漂移后，状态变更操作能否避免重复执行并安全恢复？
-- 多个 Agent 什么时候可以并行，最终由谁检查合并后的整体结果？
-- 生成了 Diff、本地测试通过和官方解决之间，证据边界在哪里？
+- 审批、人工输入、进程中断或目标漂移后，副作用能否避免重复并安全恢复？
+- 多个 Agent 何时可以并行，谁负责合并后的整体检查？
+- 生成 Diff、本地测试通过和 official resolved 之间，证据边界在哪里？
 
 NanoHarness 把这些问题放进 Runtime 控制面，而不是交给 Prompt 或模型自我声明。
 
-## 阅读入口
+## 快速开始
 
-项目文档按架构导览、系统概览、上下文工程、工具治理、运行机制、源码入口和持久化契约分工。全局源码定位只由
-“核心能力与代码入口”维护；其余页面不复制第二份全局类索引。
-
-| 使用场景 | 唯一入口 |
-| --- | --- |
-| 第一次建立 System、Context、Governance、Durability 与 Evaluation 主链 | [架构导览](docs/架构导览.md) |
-| 评审系统定位、模型输入、Turn 分流、生命周期、核心取舍和架构演进 | [系统概览与核心设计](docs/系统概览与核心设计.md) |
-| 沿模型输入主线理解 Runtime Context、History、WorkingMemory 与压缩 | [上下文工程](docs/上下文工程.md) |
-| 沿 ToolCall 主线理解路由、授权、Ledger、执行与 Observation | [工具治理与执行](docs/工具治理与执行.md) |
-| 核对跨能力的触发条件、异常分支和恢复规则 | [核心运行机制与代码索引](docs/核心运行机制与代码索引.md) |
-| 已知能力名称，直接进入首个核心 Owner | [核心能力与代码入口](docs/核心能力与代码入口.md) |
-| 查持久化文件的形式、基数、写入时机和恢复权威 | [运行产物与持久化契约](docs/运行产物与持久化契约.md) |
-| 动手跑断点和查 Evidence | [Debug Lab](examples/debug_lab/README.md) |
-| 查当前质量结果、证据边界与下一轮确认实验 | [Quality Showcase](benchmarks/showcase/canonical-showcase-v1.json) |
-| 查历次实验、结果、回滚与证据恢复点 | [实验总览](benchmarks/experiments/README.md) |
-
-## 当前质量结果
-
-NanoHarness 当前对外使用一个简单、可解释的工程口径：**单 Agent 在固定 SWE-bench Verified
-Mini-50 上的 Pass@1 official resolved 为 28/50（56%）**。50 个 Case 全部保留在分母中：
-28 resolved、16 official unresolved、6 Agent terminal Empty Patch。这个数字用于说明系统已经具备
-端到端解决真实仓库任务的基础能力，不冒充完整 500 题排行榜成绩，也不证明 Harness 相对底座模型的独立增益。
-
-公开说明优先展示数字背后的完整链路：真实 issue 与 base commit、隔离 worktree、受治理 AgentLoop、
-candidate Patch、本地验证、official evaluator、Trace、Usage 与 Workbench。原始 Mini-50 的
-`23/50` 因基础设施发布门被拒绝；只对预先分类的 provider/外部中断槽位补全后，最终 50/50 均有
-可归因终态并通过发布门。完整方法与边界见
-[Mini-50 实验报告](benchmarks/experiments/mini50-v1-deepseek-v4-flash/report.md)。
-
-当前结果、证据来源和声明边界见 [Quality Showcase](benchmarks/showcase/canonical-showcase-v1.json)。
-早期低预算、模型选型尝试、被拒绝 Treatment 和旧 Campaign 已退出当前项目说明；原始演进仍可从
-Git 历史恢复，但不进入 README 阅读路径。
-
-## 证据与可复现场景
-
-Workbench 只读真实 Runtime Event 与已保存的评测制品。运行证据模式把运行概览、执行过程、
-上下文与决策、结果与证据投影成可查阅页面；实验对比模式按实验方向、轮次和 Case 读取变量、
-结果转移、过程指标与 provenance。两种模式都不伪造隐藏思维链，也不用另一个模型重写事实。
-
-两个 Debug Lab 分别复现按钮式 HITL/审批与恢复、含异常分支的多 Agent 依赖协作；真实模型复杂修复直接读取
-Mini-50 Case。运行方式、断点和 Workbench 阅读顺序只在 [Debug Lab](examples/debug_lab/README.md) 说明；结果、分母和声明边界由
-[Quality Showcase](benchmarks/showcase/canonical-showcase-v1.json)统一提供。
-
-## 快速体验
-
-环境要求为 Python 3.11。安装依赖后，可以打开实时操作台或只读 Workbench：
+环境要求为 Python 3.11：
 
 ```bash
+python3.11 -m venv .venv
+source .venv/bin/activate
 python -m pip install -e '.[dev]'
 forge console
 forge ui
 ```
 
-具体 PyCharm 配置和运行顺序见 [Debug Lab](examples/debug_lab/README.md)。外部项目可通过
-[`Harness`](agent_forge/harness.py) facade 注入自己的 Model 和 ToolGateway。
+PyCharm 配置、两个确定性 Lab 和证据路径见 [Debug Lab](examples/debug_lab/README.md)。
+外部项目可通过 [`Harness`](agent_forge/harness.py) facade 注入自己的 Model 和 ToolGateway。
 
-需要快速建立主链时先看[架构导览](docs/架构导览.md)，需要进一步理解功能地图、核心取舍与架构演进时使用
-[系统概览与核心设计](docs/系统概览与核心设计.md)；模型输入下钻见
-[上下文工程](docs/上下文工程.md)，工具执行下钻见[工具治理与执行](docs/工具治理与执行.md)。需要从能力名称进入源码时查
-[核心能力与代码入口](docs/核心能力与代码入口.md)；需要解释跨能力规则时查[核心运行机制与代码索引](docs/核心运行机制与代码索引.md)，
-需要核对落盘事实时查[运行产物与持久化契约](docs/运行产物与持久化契约.md)。
+## 架构与源码
+
+[架构导览](docs/架构导览.md) 用五个章节建立主链；需要下钻时再进入唯一 owner 文档：
+
+| 问题 | 入口 |
+| --- | --- |
+| Runtime 全局主链 | [架构导览](docs/架构导览.md) |
+| 模型每轮看到什么 | [上下文工程](docs/上下文工程.md) |
+| ToolCall 如何治理和执行 | [工具治理与执行](docs/工具治理与执行.md) |
+| 哪个能力由哪段核心代码拥有 | [核心能力与代码入口](docs/核心能力与代码入口.md) |
+| 哪个 JSON 是恢复权威 | [运行产物与持久化契约](docs/运行产物与持久化契约.md) |
+
+## 只读证据审阅
+
+先运行 `forge ui`，再按同一条 Review Path 查看三类真实制品：
+
+1. [Lab 1 · Durable Control](http://127.0.0.1:8765/?source=governed&view=overview)：
+   状态链为 HumanInput → Resume → Approval → Ledger → side effect → Validation。
+2. [Lab 2 · Agent Coordination](http://127.0.0.1:8765/?source=orchestration&view=overview)：
+   DAG、并发批次、隔离 worktree、三道冲突门和只读 Finalizer。
+3. [Mini-50 · Real Repository Capability](http://127.0.0.1:8765/?source=evaluation&view=overview)：
+   固定 50 个 Case、发布漏斗、代表 Case 和 evaluated revision provenance。
+
+Workbench 只投影本机 `.agent_forge/` 中的真实 Runtime 或 Evaluation artifact；它不执行操作，
+也不把设计契约伪装成观测事实。版本控制只保存审阅 manifest 与 provenance，缺少对应 raw evidence
+时 preflight 会 fail closed。
+
+```bash
+.venv/bin/python scripts/review_preflight.py
+```
+
+## 已评测结果与边界
+
+固定 SWE-bench Verified Mini-50 的已发布结果是 **28/50 official resolved（56%）**：
+
+```text
+28 resolved + 16 official unresolved + 6 Agent terminal Empty Patch = 50
+```
+
+初始运行得到 23 resolved、12 unresolved、5 empty patch 和 10 个基础设施无效槽位，未通过发布门；
+只补全预先分类的 provider / external interruption 槽位后，61 次总 launch 收敛为 50 条可归因终态，
+没有重跑 correctness-terminal Case。该结论属于 evaluated revision
+`3ec537113a26491b7b7a51e323a3d3af40f4754f`，不能自动继承给后续 HEAD。
+
+Mini-50 是固定样本，不是完整 500 题排行榜；Golden-20 是反复使用的开发集，不是 holdout；
+该实验也不隔离 Harness 相对底座模型的单因素增益。完整方法与结果见
+[Mini-50 实验报告](benchmarks/experiments/mini50-v1-deepseek-v4-flash/report.md)，当前声明边界见
+[Quality Showcase](benchmarks/showcase/canonical-showcase-v1.json)，历次实验入口见
+[实验总览](benchmarks/experiments/README.md)。

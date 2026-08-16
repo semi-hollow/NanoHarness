@@ -4,9 +4,10 @@
 Coordinated Agents；真实 repository repair 则直接使用已经发布的 SWE-bench Verified Mini-50
 证据，不再维护一套功能重叠的第三个样例。
 
-机制与源码入口见[核心运行机制与代码索引](../../docs/核心运行机制与代码索引.md)。Debugger
-用于观察动态因果，Workbench 用于复核 Runtime 已经写下的权威 Evidence；二者不生成第二份
-展示数据。
+系统主链见[架构导览](../../docs/架构导览.md)，工具机制见
+[工具治理与执行](../../docs/工具治理与执行.md#overview)，源码入口见
+[核心能力与代码入口](../../docs/核心能力与代码入口.md)。Debugger 用于观察动态因果，
+Workbench 用于复核 Runtime 已经写下的权威 Evidence；二者不生成第二份展示数据。
 
 ## 快速开始
 
@@ -23,6 +24,7 @@ python -m pip install -e '.[dev]'
 | `NanoHarness Lab 1 - Governed Repair` | Human Input、Approval、Pause、Resume、Cancel 如何形成可恢复状态链 | 确定性适配器，免费 |
 | `NanoHarness Lab 2 - Coordinated Agents` | 依赖任务如何并行、隔离、合并，并由只读 Finalizer 验证 | 确定性适配器，免费 |
 | `NanoHarness Evidence Workbench - Read Only` | 如何读取运行证据，并复核版本化实验的变量、结果、Case 转移与证据边界 | 不调用模型，免费 |
+| `NanoHarness Review Preflight` | canonical raw evidence、深链、revision provenance 和只读边界是否齐全 | 只读检查，免费 |
 | `NanoHarness Benchmark - SWE-bench Verified Mini 50` | 当前质量配置在 50 个真实 Case 上的 Pass@1 | 正式模型与 Official evaluator |
 
 如需重装 PyCharm 阅读 Scope 与按 symbol 定位的断点，关闭 PyCharm 后执行：
