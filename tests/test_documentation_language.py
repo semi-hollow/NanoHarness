@@ -14,6 +14,7 @@ CHINESE_FIRST_DOCS = (
     "FORGE.md",
     "SECURITY.md",
     "agent_forge/README.md",
+    "docs/架构导览.md",
     "docs/系统概览与核心设计.md",
     "docs/上下文工程.md",
     "docs/工具治理与执行.md",
@@ -25,6 +26,7 @@ CHINESE_FIRST_DOCS = (
 
 PUBLIC_DOC_LINE_BUDGETS = {
     "README.md": 250,
+    "docs/架构导览.md": 440,
     "docs/系统概览与核心设计.md": 220,
     "docs/上下文工程.md": 560,
     "docs/工具治理与执行.md": 680,
@@ -35,6 +37,7 @@ PUBLIC_DOC_LINE_BUDGETS = {
 }
 
 CANONICAL_README_LINKS = (
+    "docs/架构导览.md",
     "docs/系统概览与核心设计.md",
     "docs/上下文工程.md",
     "docs/工具治理与执行.md",
@@ -48,6 +51,7 @@ CANONICAL_README_LINKS = (
 ALLOWED_DOC_SURFACES: tuple[str, ...] = ()
 
 ALLOWED_TOP_LEVEL_DOCS = {
+    "docs/架构导览.md",
     "docs/系统概览与核心设计.md",
     "docs/上下文工程.md",
     "docs/工具治理与执行.md",
