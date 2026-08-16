@@ -268,7 +268,9 @@ class Harness:
         if final_checkpoint is None:
             raise RuntimeError("AgentLoop completed without creating a checkpoint")
         if final_checkpoint.stop_output != stop_output:
-            raise RuntimeError("AgentLoop stop output does not match durable checkpoint")
+            raise RuntimeError(
+                "AgentLoop stop output does not match durable checkpoint"
+            )
         run_paths.stop_output_file.write_text(stop_output, encoding="utf-8")
         if final_checkpoint.final_answer is not None:
             run_paths.final_answer_file.write_text(
@@ -346,6 +348,7 @@ class Harness:
                 human_thread_id=str(
                     restored_checkpoint.metadata.get("human_thread_id") or ""
                 ),
+                run_label=f"continuation-{restored_checkpoint.agent_name}",
             )
         )
 

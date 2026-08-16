@@ -120,7 +120,7 @@ def test_provenance_catalog_covers_every_completed_experiment_folder() -> None:
     directories = {item["directory"] for item in catalog["experiments"]}
     expected = {
         path.relative_to(PROJECT_ROOT).as_posix()
-        for path in (PROJECT_ROOT / "benchmarks/experiments").glob("tool-aci-r*")
+        for path in (PROJECT_ROOT / "benchmarks/experiments").iterdir()
         if path.is_dir()
     }
 

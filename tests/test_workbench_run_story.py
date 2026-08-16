@@ -183,7 +183,7 @@ def _canonical_showcase_summary() -> dict[str, object]:
             },
         },
         "canonical_evaluation": {
-            "evaluation_id": "canonical-50-v1",
+            "evaluation_id": "swebench-verified-mini-50-v1",
             "status": "not_started",
             "dataset": "princeton-nlp/SWE-bench_Verified",
             "protocol": "Pass@1",
@@ -193,9 +193,13 @@ def _canonical_showcase_summary() -> dict[str, object]:
             "completed": None,
             "terminal_accounted": None,
             "official_evaluated": None,
+            "official_decided": None,
+            "official_unresolved": None,
             "empty_patch": None,
             "provider_infra": None,
+            "runtime_infra": None,
             "evaluator_infra": None,
+            "external_interruption": None,
             "official_resolved": None,
             "evidence_validated": False,
             "claim": (
@@ -268,7 +272,7 @@ def _quality_selection_incident_summary() -> dict[str, object]:
 
 
 class WorkbenchRunStoryTest(unittest.TestCase):
-    def test_published_quality_showcase_renders_current_40_percent_observation(self):
+    def test_published_quality_showcase_renders_current_mini50_observation(self):
         project_dir = Path(__file__).parents[1]
 
         results = _render_workspace_view(
@@ -278,9 +282,9 @@ class WorkbenchRunStoryTest(unittest.TestCase):
         )
 
         self.assertIn("QUALITY SHOWCASE", results)
-        self.assertIn("固定开发样本", results)
-        self.assertIn("4/10", results)
-        self.assertIn("40%", results)
+        self.assertIn("SWE-bench Verified Mini-50", results)
+        self.assertIn("28/50", results)
+        self.assertIn("56.0%", results)
         self.assertNotIn("待完整裁决", results)
         self.assertNotIn("尚未登记模型候选", results)
         self.assertNotIn("planned_not_run", results)
@@ -288,17 +292,22 @@ class WorkbenchRunStoryTest(unittest.TestCase):
 
     def test_workbench_default_surface_is_read_only(self):
         self.assertIn('class="read-only status-collapsed', INDEX_HTML)
-        self.assertIn("一次选择运行，逐层读懂", INDEX_HTML)
-        self.assertIn('id="sourceSelect"', INDEX_HTML)
-        self.assertIn("选择运行证据", INDEX_HTML)
+        self.assertIn("在运行证据与实验对比之间切换", INDEX_HTML)
+        self.assertIn('id="categorySelect"', INDEX_HTML)
+        self.assertIn('id="runSelect"', INDEX_HTML)
+        self.assertIn('id="itemSelect"', INDEX_HTML)
+        self.assertIn("证据类型", INDEX_HTML)
+        self.assertIn("不可变 Run", INDEX_HTML)
+        self.assertIn("Case / Worker", INDEX_HTML)
         self.assertIn("loadEvidence('overview')", INDEX_HTML)
         self.assertIn("loadEvidence('timeline')", INDEX_HTML)
         self.assertIn("loadEvidence('context')", INDEX_HTML)
         self.assertIn("loadEvidence('results')", INDEX_HTML)
         self.assertIn(
-            "new URLSearchParams({source: activeSource, view: activeView})",
+            "new URLSearchParams({source: requestedSource, view: requestedView})",
             INDEX_HTML,
         )
+        self.assertIn("requestSequence !== evidenceRequestSequence", INDEX_HTML)
         self.assertNotIn('data-lab="lab1"', INDEX_HTML)
         self.assertNotIn('class="evidence-menu"', INDEX_HTML)
         self.assertIn("pageParams.get('view')", INDEX_HTML)
@@ -328,10 +337,10 @@ class WorkbenchRunStoryTest(unittest.TestCase):
 
         self.assertEqual(
             [source.key for source in sources],
-            ["governed", "orchestration", "complex", "evaluation"],
+            ["governed", "orchestration", "evaluation"],
         )
 
-    def test_canonical_showcase_is_default_and_history_requires_explicit_selection(
+    def test_canonical_showcase_is_default_and_history_stays_out_of_active_picker(
         self,
     ):
         with tempfile.TemporaryDirectory() as tmp:
@@ -378,16 +387,11 @@ class WorkbenchRunStoryTest(unittest.TestCase):
                 source_key="evaluation",
                 view="results",
             )
-            historical_results = _render_workspace_view(
-                project_dir,
-                source_key="evaluation-history",
-                view="results",
-            )
             legacy_bookmark = _render_evidence_html(project_dir, "benchmark")
 
         source_by_key = {source.key: source for source in sources}
         self.assertEqual(source_by_key["evaluation"].primary_path, canonical_path)
-        self.assertEqual(source_by_key["evaluation-history"].primary_path, history_path)
+        self.assertNotIn("evaluation-history", source_by_key)
         self.assertIn("NanoHarness · Canonical Showcase", default_overview)
         self.assertIn("showcase-quality-v1", default_overview)
         self.assertIn("待完整裁决", default_overview)
@@ -397,10 +401,9 @@ class WorkbenchRunStoryTest(unittest.TestCase):
         self.assertIn("不进入质量 headline", canonical_results)
         self.assertIn("deterministic 50-case sample", canonical_results)
         self.assertNotIn("metric-value'>0/50", canonical_results)
-        self.assertIn("历史归档 · Historical Golden-10", historical_results)
         self.assertIn("Canonical Showcase", legacy_bookmark)
 
-    def test_fail_closed_selection_incident_is_history_only(self):
+    def test_fail_closed_selection_incident_stays_out_of_active_picker(self):
         with tempfile.TemporaryDirectory() as tmp:
             project_dir = Path(tmp)
             canonical_path = (
@@ -431,35 +434,11 @@ class WorkbenchRunStoryTest(unittest.TestCase):
                 source_key="evaluation",
                 view="results",
             )
-            history_overview = _render_workspace_view(
-                project_dir,
-                source_key="evaluation-history",
-                view="overview",
-            )
-            history_results = _render_workspace_view(
-                project_dir,
-                source_key="evaluation-history",
-                view="results",
-            )
-
         source_by_key = {source.key: source for source in sources}
         self.assertEqual(source_by_key["evaluation"].primary_path, canonical_path)
-        self.assertEqual(
-            source_by_key["evaluation-history"].primary_path,
-            incident_path,
-        )
-        self.assertIsNone(source_by_key["evaluation-history"].run_dir)
-        self.assertEqual(source_by_key["evaluation-history"].trace_entries, ())
+        self.assertNotIn("evaluation-history", source_by_key)
         self.assertIn("Canonical Showcase", default_results)
         self.assertNotIn("Fail-Closed Incident", default_results)
-        self.assertIn("全量污染尾段之前", history_overview)
-        self.assertIn("20/20 均有 finalized artifact", history_overview)
-        self.assertIn("11/20", history_overview)
-        self.assertIn("NO WINNER", history_results)
-        self.assertIn("summarizer", history_results.lower())
-        self.assertIn("正确性重跑 = 0", history_results)
-        self.assertIn("不得从局部样本倒推 winner", history_results)
-        self.assertNotIn("Official Pass@1", history_results)
 
     def test_canonical_score_requires_frozen_validated_terminal_evidence(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -473,9 +452,13 @@ class WorkbenchRunStoryTest(unittest.TestCase):
                     "completed": 10,
                     "terminal_accounted": 10,
                     "official_evaluated": 10,
+                    "official_decided": 10,
+                    "official_unresolved": 6,
                     "empty_patch": 0,
                     "provider_infra": 0,
+                    "runtime_infra": 0,
                     "evaluator_infra": 0,
+                    "external_interruption": 0,
                     "official_resolved": 4,
                     "evidence_validated": False,
                 }
@@ -499,11 +482,15 @@ class WorkbenchRunStoryTest(unittest.TestCase):
                     "status": "completed",
                     "completed": 50,
                     "terminal_accounted": 50,
-                    "official_evaluated": 47,
-                    "empty_patch": 3,
+                    "official_evaluated": 44,
+                    "official_decided": 44,
+                    "official_unresolved": 16,
+                    "empty_patch": 6,
                     "provider_infra": 0,
+                    "runtime_infra": 0,
                     "evaluator_infra": 0,
-                    "official_resolved": 23,
+                    "external_interruption": 0,
+                    "official_resolved": 28,
                     "evidence_validated": True,
                 }
             )
@@ -526,16 +513,21 @@ class WorkbenchRunStoryTest(unittest.TestCase):
 
         self.assertIn("待完整裁决", partial)
         self.assertNotIn("4/50", partial)
-        self.assertIn("23/50", complete)
+        self.assertIn("28/50", complete)
 
         self.assertTrue(_canonical_score_is_publishable(summary))
         invalid_variants = [
+            (("artifact_type",), "other"),
+            (("showcase_id",), "other"),
             (("status",), "running"),
             (("current_profile", "frozen"), False),
             (("current_profile", "frozen"), "true"),
             (("current_profile", "selected_model"), None),
             (("current_profile", "selected_model"), 1),
             (("canonical_evaluation", "status"), "running"),
+            (("canonical_evaluation", "evaluation_id"), "other"),
+            (("canonical_evaluation", "protocol"), "Pass@2"),
+            (("canonical_evaluation", "planned"), 49),
             (("canonical_evaluation", "cohort_frozen"), False),
             (("canonical_evaluation", "cohort_frozen"), "true"),
             (("canonical_evaluation", "protocol_frozen"), False),
@@ -543,9 +535,13 @@ class WorkbenchRunStoryTest(unittest.TestCase):
             (("canonical_evaluation", "completed"), 49),
             (("canonical_evaluation", "terminal_accounted"), 49),
             (("canonical_evaluation", "official_evaluated"), 46),
+            (("canonical_evaluation", "official_decided"), 43),
+            (("canonical_evaluation", "official_unresolved"), 15),
             (("canonical_evaluation", "empty_patch"), 4),
             (("canonical_evaluation", "provider_infra"), 1),
+            (("canonical_evaluation", "runtime_infra"), 1),
             (("canonical_evaluation", "evaluator_infra"), 1),
+            (("canonical_evaluation", "external_interruption"), 1),
             (("canonical_evaluation", "official_resolved"), 48),
         ]
         for path, invalid_value in invalid_variants:
@@ -560,10 +556,13 @@ class WorkbenchRunStoryTest(unittest.TestCase):
     def test_all_common_views_render_for_a_single_runtime_source(self):
         with tempfile.TemporaryDirectory() as tmp:
             project_dir = Path(tmp)
-            run_dir = project_dir / ".agent_forge/runs/runtime-run"
-            latest_dir = project_dir / ".agent_forge/internal/index"
+            showcase = (
+                project_dir
+                / ".agent_forge/runs/showcases"
+                / "lab1-parser__2026-08-16_10-00-00__abc1234"
+            )
+            run_dir = showcase / "phases" / "phase-1"
             run_dir.mkdir(parents=True)
-            latest_dir.mkdir(parents=True)
             (run_dir / "trace.json").write_text(
                 json.dumps(
                     {
@@ -581,12 +580,24 @@ class WorkbenchRunStoryTest(unittest.TestCase):
                 json.dumps({"summary": {"llm_calls": 1, "tool_calls": 0}}),
                 encoding="utf-8",
             )
-            (latest_dir / "run.txt").write_text(str(run_dir), encoding="utf-8")
+            (showcase / "showcase.json").write_text(
+                json.dumps(
+                    {
+                        "scenario": "governed",
+                        "status": "completed",
+                        "artifact_dir": str(run_dir),
+                        "workspace": str(showcase / "workspace"),
+                        "checkpoint_path": str(run_dir / "task_state.json"),
+                        "trace_path": str(run_dir / "trace.json"),
+                    }
+                ),
+                encoding="utf-8",
+            )
 
             rendered = {
                 view: _render_workspace_view(
                     project_dir,
-                    source_key="latest",
+                    source_key="governed",
                     view=view,
                 )
                 for view in ("overview", "timeline", "context", "results")
@@ -595,117 +606,98 @@ class WorkbenchRunStoryTest(unittest.TestCase):
         self.assertIn("运行摘要", rendered["overview"])
         self.assertIn("执行时间线", rendered["timeline"])
         self.assertIn("上下文与决策", rendered["context"])
-        self.assertIn("结果与证据", rendered["results"])
+        self.assertIn("Runtime 控制面", rendered["results"])
 
-    def test_complex_lab_uses_its_own_pointer_and_explains_real_run(self):
+    def test_context_view_shows_full_arguments_and_repeated_tool_calls(self):
         with tempfile.TemporaryDirectory() as tmp:
             project_dir = Path(tmp)
-            unrelated = project_dir / ".agent_forge/runs/unrelated"
-            unrelated.mkdir(parents=True)
-            complex_run = project_dir / ".agent_forge/runs/complex-run"
-            complex_run.mkdir()
-            (complex_run / "run_manifest.json").write_text(
+            showcase = (
+                project_dir
+                / ".agent_forge/runs/showcases"
+                / "lab1-repetition__2026-08-16_10-05-00__def5678"
+            )
+            run_dir = showcase / "phases" / "phase-1"
+            run_dir.mkdir(parents=True)
+            events = []
+            for step in (1, 2):
+                events.extend(
+                    [
+                        {
+                            "step": step,
+                            "event_type": "context_assembly",
+                            "context": {
+                                "available_tools": ["grep_search"],
+                                "max_chars": 8000,
+                            },
+                        },
+                        {
+                            "step": step,
+                            "event_type": "context_window",
+                            "context_window": {
+                                "estimated_tokens_after": 300,
+                                "hard_input_limit": 4000,
+                            },
+                        },
+                        {
+                            "step": step,
+                            "event_type": "model_started",
+                            "model_request": {"messages_count": step * 2},
+                        },
+                        {
+                            "step": step,
+                            "event_type": "llm_call",
+                            "llm_response_summary": "search for the same symbol",
+                        },
+                        {
+                            "step": step,
+                            "event_type": "action",
+                            "tool_call": "grep_search",
+                            "tool_arguments": {
+                                "pattern": "needle",
+                                "path": "src",
+                            },
+                        },
+                        {
+                            "step": step,
+                            "event_type": "tool_observation",
+                            "success": False,
+                            "observation": "no matches",
+                        },
+                    ]
+                )
+            (run_dir / "trace.json").write_text(
+                json.dumps({"task": "diagnose repetition", "events": events}),
+                encoding="utf-8",
+            )
+            (run_dir / "usage.json").write_text(
+                json.dumps({"summary": {"llm_calls": 2, "tool_calls": 2}}),
+                encoding="utf-8",
+            )
+            (showcase / "showcase.json").write_text(
                 json.dumps(
                     {
-                        "schema_version": 2,
-                        "run_id": "complex-run",
-                        "task": "repair settlement atomicity",
+                        "scenario": "governed",
                         "status": "completed",
-                        "stop_reason": "final_answer",
-                        "artifacts": [],
+                        "artifact_dir": str(run_dir),
+                        "workspace": str(showcase / "workspace"),
+                        "checkpoint_path": str(run_dir / "task_state.json"),
+                        "trace_path": str(run_dir / "trace.json"),
                     }
                 ),
-                encoding="utf-8",
-            )
-            (complex_run / "trace.json").write_text(
-                json.dumps(
-                    {
-                        "run_id": "complex-run",
-                        "stop_reason": "final_answer",
-                        "events": [
-                            {"step": 1, "event_type": "llm_call"},
-                            {
-                                "step": 1,
-                                "event_type": "validation_evidence",
-                                "success": False,
-                                "validation": {
-                                    "kind": "focused pytest",
-                                    "status": "failed",
-                                    "evidence": "pytest tests/test_reconciliation.py",
-                                },
-                            },
-                            {"step": 2, "event_type": "llm_call"},
-                            {
-                                "step": 2,
-                                "event_type": "validation_evidence",
-                                "success": True,
-                                "validation": {
-                                    "kind": "full pytest",
-                                    "status": "passed",
-                                    "evidence": "pytest -q: 8 passed",
-                                },
-                            },
-                            {"step": 2, "event_type": "task_state_checkpoint"},
-                        ],
-                    }
-                ),
-                encoding="utf-8",
-            )
-            (complex_run / "usage.json").write_text(
-                json.dumps(
-                    {
-                        "summary": {
-                            "latest_task_status": "completed",
-                            "llm_calls": 2,
-                            "tool_calls": 7,
-                            "failed_tool_calls": 1,
-                            "total_tokens": 1234,
-                            "estimated_cost_usd": 0.01,
-                            "compacted_context_turns": 1,
-                        }
-                    }
-                ),
-                encoding="utf-8",
-            )
-            (complex_run / "practice_profile.json").write_text(
-                json.dumps(
-                    {
-                        "key": "context-pressure",
-                        "title": "上下文压力",
-                        "purpose": "观察压缩与信息丢失",
-                        "auto_approve_writes": False,
-                        "operator_drill": [],
-                    },
-                    ensure_ascii=False,
-                ),
-                encoding="utf-8",
-            )
-            state = project_dir / ".agent_forge/internal/debug-lab/state"
-            state.mkdir(parents=True)
-            (state / "complex_artifact.txt").write_text(
-                str(complex_run),
                 encoding="utf-8",
             )
 
-            catalog = FileEvidenceCatalog(project_dir)
-            selected_run = catalog.latest_complex_run_dir()
-            rendered = _render_evidence_html(project_dir, "complex")
-            context_view = _render_evidence_html(project_dir, "complex_context")
-            timeline = _render_evidence_html(project_dir, "complex_timeline")
+            rendered = _render_workspace_view(
+                project_dir,
+                source_key="governed",
+                view="context",
+            )
 
-        self.assertEqual(selected_run, complex_run)
-        self.assertIn("repair settlement atomicity", rendered)
-        self.assertIn("上下文压力", rendered)
-        self.assertIn("逐项人工审批", rendered)
-        self.assertIn("2", rendered)
-        self.assertIn("focused pytest", rendered)
-        self.assertIn("full pytest", rendered)
-        self.assertIn("pytest -q: 8 passed", rendered)
-        self.assertIn("上下文与决策观察器", context_view)
-        self.assertIn("不是隐藏思维链", context_view)
-        self.assertIn("Turn 1", context_view)
-        self.assertIn("复杂结算修复 AgentLoop", timeline)
-        self.assertNotIn(str(unrelated), rendered)
+        self.assertIn("连续重复 ToolCall", rendered)
+        self.assertIn("连续相同 Tool + 参数", rendered)
+        self.assertIn("查看完整 Tool 参数", rendered)
+        self.assertIn("&quot;pattern&quot;: &quot;needle&quot;", rendered)
+        self.assertIn("<td>2</td><td>2</td>", rendered)
 
     def test_context_inspector_links_previous_feedback_to_next_turn(self):
         trace = {

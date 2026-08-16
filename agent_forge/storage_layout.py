@@ -2,6 +2,10 @@
 
 from __future__ import annotations
 
+import re
+import time
+import unicodedata
+import uuid
 from pathlib import Path
 
 
@@ -82,6 +86,33 @@ def ensure_storage_layout(workspace: Path) -> None:
         (workspace / relative).mkdir(parents=True, exist_ok=True)
 
 
+def human_readable_run_name(
+    label: str,
+    *,
+    timestamp: str = "",
+    unique_id: str = "",
+) -> str:
+    """生成“业务标签 + 易读时间 + 短唯一值”的目录名。
+
+    目录仍依靠短唯一值防止并发碰撞，但不再要求使用者只靠时间猜测内容。
+    ``label`` 支持 Unicode 字母和数字；路径分隔符及标点统一压缩为 ``-``。
+    """
+
+    normalized = unicodedata.normalize("NFKC", str(label or "").strip())
+    slug = re.sub(r"[^\w-]+", "-", normalized, flags=re.UNICODE)
+    slug = re.sub(r"[-_]{2,}", "-", slug).strip("-_").lower()
+    if not slug:
+        slug = "run"
+    slug = slug[:64].rstrip("-_") or "run"
+    readable_time = timestamp or time.strftime("%Y-%m-%d_%H-%M-%S")
+    if not re.fullmatch(r"\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2}", readable_time):
+        raise ValueError("run timestamp must use YYYY-MM-DD_HH-MM-SS")
+    suffix = (unique_id or uuid.uuid4().hex[:7]).strip().lower()
+    if not re.fullmatch(r"[a-z0-9]{4,16}", suffix):
+        raise ValueError("run unique_id must contain 4-16 lowercase letters or digits")
+    return f"{slug}__{readable_time}__{suffix}"
+
+
 __all__ = [
     "AGENT_FORGE_ROOT",
     "APPROVAL_ROOT",
@@ -112,4 +143,5 @@ __all__ = [
     "WORKTREE_ROOT",
     "control_state_root",
     "ensure_storage_layout",
+    "human_readable_run_name",
 ]

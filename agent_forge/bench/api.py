@@ -7,8 +7,6 @@
 
 from __future__ import annotations
 
-import time
-import uuid
 from pathlib import Path
 
 from agent_forge.bench.adapters.artifact_files import FileBenchArtifacts
@@ -33,14 +31,22 @@ from agent_forge.bench.wiring import (
     build_benchmark_campaign_runner,
     build_swebench_runner,
 )
-from agent_forge.storage_layout import ensure_storage_layout
+from agent_forge.storage_layout import ensure_storage_layout, human_readable_run_name
 
 
 # 主要入口：构造并执行一次完整的 SWE-bench 证据运行。
 def run_swebench(request: SwebenchRunRequest) -> BenchRunSummary:
     """执行类型化评测请求，并返回可追溯的运行摘要。"""
     ensure_storage_layout(Path.cwd())
-    run_id = f"swebench-{time.strftime('%Y%m%d-%H%M%S')}-{uuid.uuid4().hex[:7]}"
+    if len(request.instance_ids) == 1:
+        run_label = f"swebench-{request.instance_ids[0]}"
+    elif request.instance_ids:
+        run_label = f"swebench-{len(request.instance_ids)}-cases"
+    elif request.cases_file:
+        run_label = f"swebench-{Path(request.cases_file).stem}"
+    else:
+        run_label = f"swebench-{request.limit}-cases"
+    run_id = human_readable_run_name(run_label)
     artifacts = FileBenchArtifacts()
     layout = artifacts.create_layout(
         request.output_root,
@@ -69,7 +75,7 @@ def run_benchmark_campaign(
 def create_campaign_id(prefix: str = "infrastructure-smoke-5") -> str:
     """生成可读且不会碰撞的 campaign id。"""
 
-    return f"{prefix}-{time.strftime('%Y%m%d-%H%M%S')}-{uuid.uuid4().hex[:7]}"
+    return human_readable_run_name(prefix)
 
 
 # 主要入口：读取一个 benchmark case，但不执行 Agent 或评测。

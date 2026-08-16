@@ -13,6 +13,7 @@ fi
 scenario="governed"
 produce_evidence=true
 stay_attached=false
+require_evidence=true
 workbench_source="governed"
 pointer_path=".agent_forge/internal/index/run.txt"
 status_evidence_field="latest_run"
@@ -27,23 +28,15 @@ case "${1:-}" in
     produce_evidence=false
     workbench_source="orchestration"
     ;;
-  --show-complex)
-    scenario="show-complex"
-    produce_evidence=false
-    workbench_source="complex"
-    pointer_path=".agent_forge/internal/debug-lab/state/complex_artifact.txt"
-    status_evidence_field="latest_complex"
-    ;;
-  --serve-complex)
-    scenario="serve-complex"
+  --serve)
+    scenario="serve"
     produce_evidence=false
     stay_attached=true
-    workbench_source="complex"
-    pointer_path=".agent_forge/internal/debug-lab/state/complex_artifact.txt"
-    status_evidence_field="latest_complex"
+    require_evidence=false
+    workbench_source=""
     ;;
   *)
-    printf 'Usage: scripts/showcase_demo.sh [--show-governed|--show-coordinated|--show-complex|--serve-complex]\n' >&2
+    printf 'Usage: scripts/showcase_demo.sh [--show-governed|--show-coordinated|--serve]\n' >&2
     exit 2
     ;;
 esac
@@ -59,18 +52,23 @@ fi
 state_dir=".agent_forge/internal/debug-lab/state"
 mkdir -p "${state_dir}"
 # Workbench 使用同一个稳定 URL；这个小指针只决定首页默认选中哪次运行。
-printf '%s\n' "${workbench_source}" >"${state_dir}/workbench_source.txt"
+if [[ -n "${workbench_source}" ]]; then
+  printf '%s\n' "${workbench_source}" >"${state_dir}/workbench_source.txt"
+fi
 printf '\n=== NanoHarness: open the same Evidence in read-only Workbench ===\n'
 expected_project="$(pwd -P)"
 expected_workbench_source="$(
   .venv/bin/python -c \
     'import hashlib,pathlib; print(hashlib.sha256(pathlib.Path("agent_forge/workbench/presentation/http.py").read_bytes()).hexdigest())'
 )"
-if [[ ! -f "${pointer_path}" ]]; then
-  printf 'No published Evidence found at %s. Run the matching Lab once first.\n' "${pointer_path}" >&2
-  exit 2
+expected_evidence=""
+if [[ "${require_evidence}" == true ]]; then
+  if [[ ! -f "${pointer_path}" ]]; then
+    printf 'No published Evidence found at %s. Run the matching Lab once first.\n' "${pointer_path}" >&2
+    exit 2
+  fi
+  expected_evidence="$(.venv/bin/python -c 'import os,pathlib,sys; print(os.path.realpath(pathlib.Path(sys.argv[1]).read_text().strip()))' "${pointer_path}")"
 fi
-expected_evidence="$(.venv/bin/python -c 'import os,pathlib,sys; print(os.path.realpath(pathlib.Path(sys.argv[1]).read_text().strip()))' "${pointer_path}")"
 port=8765
 status_json=""
 if [[ -f "${state_dir}/workbench.port" ]]; then
@@ -145,7 +143,8 @@ for _ in {1..40}; do
     status_pair="$(printf '%s' "${status_json}" | .venv/bin/python -c 'import json,os,sys; d=json.load(sys.stdin); print(os.path.realpath(d.get("project_dir", ""))); print(os.path.realpath(d.get(sys.argv[1], "")))' "${status_evidence_field}" 2>/dev/null || true)"
     status_project="$(printf '%s\n' "${status_pair}" | sed -n '1p')"
     status_evidence="$(printf '%s\n' "${status_pair}" | sed -n '2p')"
-    if [[ "${status_project}" == "${expected_project}" ]] && [[ "${status_evidence}" == "${expected_evidence}" ]]; then
+    if [[ "${status_project}" == "${expected_project}" ]] && \
+       { [[ "${require_evidence}" != true ]] || [[ "${status_evidence}" == "${expected_evidence}" ]]; }; then
       ready=true
       break
     fi
@@ -167,7 +166,7 @@ else
 fi
 
 printf '%s\n' \
-  'Learning path: Governed Run -> Coordinated Agents -> Complex Live Repair -> optional Evaluation Archive' \
+  'Learning path: Governed Control Plane -> Coordinated Agents -> Mini-50 Repository Repair' \
   'Boundary: Workbench reads Evidence; Harness/CLI owns execution.'
 
 if [[ "${stay_attached}" == true ]] && [[ -n "${workbench_pid:-}" ]]; then

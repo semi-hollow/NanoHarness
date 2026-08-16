@@ -8,8 +8,6 @@ from __future__ import annotations
 
 import hashlib
 import json
-import time
-import uuid
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
@@ -40,6 +38,7 @@ from agent_forge.storage_layout import (
     MEMORY_ROOT,
     control_state_root,
     ensure_storage_layout,
+    human_readable_run_name,
 )
 
 
@@ -99,7 +98,9 @@ def create_run_paths(
     storage_workspace = managed_storage or requested_workspace
     if managed_storage is not None:
         ensure_storage_layout(managed_storage)
-    artifact_dir = output_root / _new_run_directory_name()
+    artifact_dir = output_root / _new_run_directory_name(
+        request.run_label or request.task
+    )
     return HarnessRunPaths(
         requested_workspace=requested_workspace,
         storage_workspace=storage_workspace,
@@ -293,10 +294,10 @@ def write_latest_run_pointer(workspace: Path, run_dir: Path) -> None:
     (latest / "run.txt").write_text(str(run_dir.resolve()), encoding="utf-8")
 
 
-def _new_run_directory_name() -> str:
+def _new_run_directory_name(label: str = "run") -> str:
     """生成便于人工排序且避免并发冲突的 run 目录名。"""
 
-    return f"run-{time.strftime('%Y%m%d-%H%M%S')}-{uuid.uuid4().hex[:7]}"
+    return human_readable_run_name(label)
 
 
 def _managed_storage_workspace(

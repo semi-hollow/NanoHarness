@@ -8,8 +8,6 @@ import json
 import os
 import subprocess
 import sys
-import time
-import uuid
 from pathlib import Path
 
 
@@ -21,7 +19,6 @@ WORKBENCH_LAUNCHER = PROJECT_ROOT / "scripts" / "showcase_demo.sh"
 WORKBENCH_FLAGS = {
     "governed": "--show-governed",
     "coordinated": "--show-coordinated",
-    "complex": "--show-complex",
 }
 sys.path.insert(0, str(PROJECT_ROOT))
 
@@ -31,7 +28,10 @@ from examples.debug_lab.support import (  # noqa: E402
     publish_latest,
 )
 from agent_forge.showcase import ControlPlaneShowcaseResult  # noqa: E402
-from agent_forge.storage_layout import ensure_storage_layout  # noqa: E402
+from agent_forge.storage_layout import (  # noqa: E402
+    ensure_storage_layout,
+    human_readable_run_name,
+)
 from agent_forge.tools.registry import ToolRegistry  # noqa: E402
 
 
@@ -52,17 +52,16 @@ def _open_published_evidence_in_workbench(
     """复用统一启动器，打开当前 Lab 对应的只读 Evidence 场景。
 
     ``stay_attached`` 只给独立 Workbench 配置使用：PyCharm 持有服务进程，
-    点击停止即可关闭；三个 Lab 完成后仍只负责弹出已有的后台服务。
+    点击停止即可关闭；两个 Lab 完成后仍只负责弹出已有的后台服务。
     """
 
-    try:
-        show_flag = WORKBENCH_FLAGS[scenario]
-    except KeyError as exc:
-        raise ValueError(f"场景不支持自动打开 Workbench: {scenario}") from exc
     if stay_attached:
-        if scenario != "complex":
-            raise ValueError("当前只有复杂任务 Evidence 支持独立前台 Workbench")
-        show_flag = "--serve-complex"
+        show_flag = "--serve"
+    else:
+        try:
+            show_flag = WORKBENCH_FLAGS[scenario]
+        except KeyError as exc:
+            raise ValueError(f"场景不支持自动打开 Workbench: {scenario}") from exc
     try:
         subprocess.run(
             [str(WORKBENCH_LAUNCHER), show_flag],
@@ -76,13 +75,13 @@ def _open_published_evidence_in_workbench(
 
 
 def open_existing_evidence_workbench() -> None:
-    """只读打开最近一次 Lab 3 Evidence，不重新执行 Agent。"""
+    """只读打开统一 Workbench，不依赖某个 Lab 的最新指针。"""
 
     print(
         "WORKBENCH ONLY: 不运行 Agent、不调用模型；"
-        "默认打开最近一次 Lab 3，页面内可切换其他已发布证据。"
+        "页面内可按能力类型、不可变 Run 和 Case/Worker 选择证据。"
     )
-    _open_published_evidence_in_workbench("complex", stay_attached=True)
+    _open_published_evidence_in_workbench("", stay_attached=True)
 
 
 def run_governed(
@@ -109,7 +108,7 @@ def run_governed(
         return
 
     print(
-        "LAB 1/3: human choice -> checkpoint -> patch approval -> continuation "
+        "LAB 1/2: human choice -> checkpoint -> patch approval -> continuation "
         "-> focused pytest -> evidence"
     )
     governed_demo_result = run_governed_demo("governed", output_root=RUNS_ROOT)
@@ -136,9 +135,7 @@ def run_coordinated() -> None:
         template_root=MULTI_AGENT_TEMPLATE_ROOT,
         state_root=STATE_ROOT,
     )
-    run_dir = RUNS_ROOT / (
-        f"debug-fanout-{time.strftime('%Y%m%d-%H%M%S')}-{uuid.uuid4().hex[:6]}"
-    )
+    run_dir = RUNS_ROOT / human_readable_run_name("lab2-checkout-policy-agents")
     run_dir.mkdir(parents=True, exist_ok=False)
     (run_dir / "scenario_contract.json").write_text(
         json.dumps(
@@ -247,7 +244,7 @@ def run_coordinated() -> None:
         )
 
     print(
-        "LAB 2/3: parallel policy workers -> dependency gate -> edge-case verifier "
+        "LAB 2/2: parallel policy workers -> dependency gate -> edge-case verifier "
         "-> scoped merge -> read-only finalizer"
     )
     fanout_summary = build_live_fanout(
@@ -273,9 +270,7 @@ def run_coordinated() -> None:
         stop_reason=f"fanout_{fanout_summary.status}",
         stop_output=fanout_summary.final_answer,
         final_answer=(
-            fanout_summary.final_answer
-            if fanout_summary.status == "passed"
-            else None
+            fanout_summary.final_answer if fanout_summary.status == "passed" else None
         ),
     )
     trace.write()
@@ -305,7 +300,7 @@ def main() -> None:
         default=None,
         help=(
             "Lab 完成后启动 Workbench，并打开对应的 Evidence 场景。"
-            "三条正式 Lab 默认开启；自动化时可使用 --no-open-workbench。"
+            "两条正式 Lab 默认开启；自动化时可使用 --no-open-workbench。"
         ),
     )
     parser.add_argument(
@@ -317,7 +312,7 @@ def main() -> None:
     os.chdir(PROJECT_ROOT)
     ensure_storage_layout(PROJECT_ROOT)
 
-    # 只读入口与三个产证 Lab 分开：复盘历史运行不应再次消耗模型 token。
+    # 只读入口与两个产证 Lab 分开：复盘历史运行不应再次消耗模型 token。
     if args.scenario == "workbench":
         open_existing_evidence_workbench()
         return

@@ -9,7 +9,11 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 BENCHMARK_ROOT = PROJECT_ROOT / "benchmarks"
 EXPERIMENT_ROOT = BENCHMARK_ROOT / "experiments"
 ARCHIVE_ROOT = BENCHMARK_ROOT / "archive" / "legacy-benchmarks"
-ACTIVE_EXPERIMENTS = ("tool-aci-r1", "tool-aci-r2")
+ACTIVE_EXPERIMENTS = (
+    "mini50-v1-deepseek-v4-flash",
+    "tool-aci-r1",
+    "tool-aci-r2",
+)
 ARCHIVED_EXPERIMENTS = (
     "01-runtime-preset-50x2",
     "02-context-budget-exploration",
@@ -29,7 +33,7 @@ def _local_markdown_targets(record: Path) -> tuple[Path, ...]:
     return tuple(targets)
 
 
-def test_active_experiment_surface_contains_only_r1_and_r2() -> None:
+def test_active_experiment_surface_contains_declared_experiments() -> None:
     directories = tuple(
         path.name for path in sorted(EXPERIMENT_ROOT.iterdir()) if path.is_dir()
     )

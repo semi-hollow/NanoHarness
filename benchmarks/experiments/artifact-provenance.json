@@ -84,6 +84,34 @@
           "producer": "codex_assisted_human_reviewed"
         }
       ]
+    },
+    {
+      "experiment_id": "mini50-v1-deepseek-v4-flash",
+      "directory": "benchmarks/experiments/mini50-v1-deepseek-v4-flash",
+      "execution_origin": "checked_in_mini50_runner_with_frozen_plan_and_final_publish_gate",
+      "run_source_commit": "3ec537113a26491b7b7a51e323a3d3af40f4754f",
+      "artifacts": [
+        {
+          "locator": ".agent_forge/runs/benchmarks/swebench-verified-mini-50/mini50-v1-deepseek-v4-flash-3ec537113a-9f81b94c99/**",
+          "role": "private_original_raw_run_artifacts",
+          "producer": "pipeline_direct"
+        },
+        {
+          "locator": ".agent_forge/runs/benchmarks/swebench-verified-mini-50-infrastructure-completion/{mini50-v1.1-infra-completion-deepseek-v4-flash-3ec537113a,mini50-v1.2-infra-completion-deepseek-v4-flash-3ec537113a}/**",
+          "role": "private_infrastructure_completion_raw_artifacts",
+          "producer": "pipeline_direct"
+        },
+        {
+          "locator": "benchmarks/experiments/mini50-v1-deepseek-v4-flash/{plan.json,mini50.execution.json,completion.execution.json,result.json}",
+          "role": "frozen_plan_completion_and_machine_result_indexes",
+          "producer": "pipeline_index"
+        },
+        {
+          "locator": "benchmarks/experiments/mini50-v1-deepseek-v4-flash/{README.md,report.md}",
+          "role": "reviewed_interpretation",
+          "producer": "codex_assisted_human_reviewed"
+        }
+      ]
     }
   ],
   "archive": {

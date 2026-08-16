@@ -1,0 +1,23 @@
+{
+  "schema_version": 1,
+  "artifact_type": "mini50_execution_index",
+  "campaign_id": "mini50-v1-deepseek-v4-flash-3ec537113a-9f81b94c99",
+  "raw_evidence_root": ".agent_forge/runs/benchmarks/swebench-verified-mini-50/mini50-v1-deepseek-v4-flash-3ec537113a-9f81b94c99",
+  "source_revision": "3ec537113a26491b7b7a51e323a3d3af40f4754f",
+  "source_clean_at_final_gate": true,
+  "artifacts": {
+    "frozen_plan.json": "fc37d6e771de0b5acea8132b17d4bc3cabea8bb74e2cf6737c807176b218365b",
+    "image_manifest.json": "8320e26a5d72ee22486ae3a0c1312f0e5b51921037a929c1f7b8ab2eded257ae",
+    "campaign.json": "11e5c85f074836a8bf147c0e316f8f31cc55fbab5bf7dba7dda5d271e0a1fed5",
+    "campaign_summary.json": "643e211a46289ab275f9ec8312737c193c1ea87349bf50e090a0e3880108496e",
+    "final_publish_gate.json": "b2d84de23a3f6ac27b5419c568abd999345cae67cbe0291c932b443e179b2db8",
+    "campaign.md": "7b8c2e4b0e2747751761f3c435883f14a54bb004d73e3b7432af6eebf14286f0"
+  },
+  "integrity": {
+    "scorecard_profile_exact": "48/48",
+    "candidate_prediction_official_patch_bytes_exact": "35/35",
+    "patch_byte_mismatches": 0,
+    "missing_patch_artifacts": 0,
+    "identity_checks_all_true": true
+  }
+}

@@ -107,9 +107,7 @@ class HarnessConfig:
         if self.max_consecutive_failures < 1:
             raise ValueError("max_consecutive_failures must be positive")
         if self.max_consecutive_identical_tool_calls < 1:
-            raise ValueError(
-                "max_consecutive_identical_tool_calls must be positive"
-            )
+            raise ValueError("max_consecutive_identical_tool_calls must be positive")
         if self.max_tool_calls_per_turn < 1:
             raise ValueError("max_tool_calls_per_turn must be positive")
         if self.timeout_seconds <= 0:
@@ -137,6 +135,8 @@ class RunRequest:
     resume_state: str = ""
     human_thread_id: str = ""
     resolved_config: JsonObject | None = None
+    # 只影响 artifact 目录的人类可读标签；为空时从任务文本生成短标签。
+    run_label: str = ""
 
     def validate(self) -> None:
         """验证调用方必须明确提供的字段。"""

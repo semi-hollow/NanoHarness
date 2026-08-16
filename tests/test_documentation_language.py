@@ -101,7 +101,9 @@ class DocumentationLanguageTest(unittest.TestCase):
             for path in (PROJECT_ROOT / "docs").rglob("*.md")
             if not HAN_CHARACTER.search(path.name)
         ]
-        self.assertEqual(violations, [], "Explanatory Markdown filenames must be Chinese-first")
+        self.assertEqual(
+            violations, [], "Explanatory Markdown filenames must be Chinese-first"
+        )
 
     def test_public_documents_are_chinese_first(self) -> None:
         self.maxDiff = None
@@ -110,7 +112,9 @@ class DocumentationLanguageTest(unittest.TestCase):
             path = PROJECT_ROOT / relative_path
             self.assertTrue(path.exists(), f"missing public document: {relative_path}")
             in_fence = False
-            for line_number, raw_line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+            for line_number, raw_line in enumerate(
+                path.read_text(encoding="utf-8").splitlines(), 1
+            ):
                 line = raw_line.strip()
                 if line.startswith("```"):
                     in_fence = not in_fence
@@ -122,12 +126,20 @@ class DocumentationLanguageTest(unittest.TestCase):
                 visible = re.sub(r"`[^`]*`", "", line)
                 visible = re.sub(r"\[[^]]*]\([^)]*\)", "", visible)
                 is_project_name = relative_path == "README.md" and line_number == 1
-                if line.startswith("#") and not is_project_name and not HAN_CHARACTER.search(visible):
-                    violations.append(f"{relative_path}:{line_number}: heading has no Chinese: {line}")
+                if (
+                    line.startswith("#")
+                    and not is_project_name
+                    and not HAN_CHARACTER.search(visible)
+                ):
+                    violations.append(
+                        f"{relative_path}:{line_number}: heading has no Chinese: {line}"
+                    )
                     continue
                 latin_count = len(LATIN_CHARACTER.findall(visible))
                 if latin_count >= 40 and not HAN_CHARACTER.search(visible):
-                    violations.append(f"{relative_path}:{line_number}: English prose remains: {line}")
+                    violations.append(
+                        f"{relative_path}:{line_number}: English prose remains: {line}"
+                    )
         self.assertEqual(violations, [], "Public documentation must be Chinese-first")
 
     def test_public_repository_uses_project_facing_language(self) -> None:
@@ -171,7 +183,9 @@ class DocumentationLanguageTest(unittest.TestCase):
         violations: list[str] = []
         for relative_path, line_budget in PUBLIC_DOC_LINE_BUDGETS.items():
             path = PROJECT_ROOT / relative_path
-            self.assertTrue(path.exists(), f"missing canonical document: {relative_path}")
+            self.assertTrue(
+                path.exists(), f"missing canonical document: {relative_path}"
+            )
             line_count = len(path.read_text(encoding="utf-8").splitlines())
             if line_count > line_budget:
                 violations.append(
@@ -181,21 +195,21 @@ class DocumentationLanguageTest(unittest.TestCase):
         readme = (PROJECT_ROOT / "README.md").read_text(encoding="utf-8")
         for relative_path in CANONICAL_README_LINKS:
             if relative_path not in readme:
-                violations.append(f"README does not link canonical document: {relative_path}")
+                violations.append(
+                    f"README does not link canonical document: {relative_path}"
+                )
 
         # 能力索引只保留可搜索 Owner，避免把 Markdown 文件链接误写成精确定义跳转。
-        capability_index = (
-            PROJECT_ROOT / "docs/核心能力与代码入口.md"
-        ).read_text(encoding="utf-8")
+        capability_index = (PROJECT_ROOT / "docs/核心能力与代码入口.md").read_text(
+            encoding="utf-8"
+        )
         if re.search(r"\]\(\.\./agent_forge/", capability_index):
             violations.append("核心能力索引不应包含本地源码链接")
         if re.search(r"`L[1-9][0-9]*`", capability_index):
             violations.append("核心能力索引不应维护易漂移行号")
 
         # 机制索引仍保留代码证据链接；路径、符号和行号必须与源码一致。
-        owner_index_paths = (
-            PROJECT_ROOT / "docs/核心运行机制与代码索引.md",
-        )
+        owner_index_paths = (PROJECT_ROOT / "docs/核心运行机制与代码索引.md",)
         parsed_symbols: dict[Path, dict[str, int]] = {}
         for owner_index_path in owner_index_paths:
             owner_index = owner_index_path.read_text(encoding="utf-8")
@@ -226,12 +240,18 @@ class DocumentationLanguageTest(unittest.TestCase):
                     tree = ast.parse(source_path.read_text(encoding="utf-8"))
                     available: dict[str, int] = {}
                     for node in tree.body:
-                        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+                        if isinstance(
+                            node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)
+                        ):
                             available[node.name] = node.lineno
                         if isinstance(node, ast.ClassDef):
                             for child in node.body:
-                                if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef)):
-                                    available[f"{node.name}.{child.name}"] = child.lineno
+                                if isinstance(
+                                    child, (ast.FunctionDef, ast.AsyncFunctionDef)
+                                ):
+                                    available[f"{node.name}.{child.name}"] = (
+                                        child.lineno
+                                    )
                     parsed_symbols[source_path] = available
                 if symbol not in parsed_symbols[source_path]:
                     violations.append(f"Owner 符号不存在: {target}::{symbol}")
@@ -245,14 +265,13 @@ class DocumentationLanguageTest(unittest.TestCase):
         required_lab_contracts = (
             "NanoHarness Lab 1 - Governed Repair",
             "NanoHarness Lab 2 - Coordinated Agents",
-            "NanoHarness Lab 3 - Complex Live Repair",
             "NanoHarness Evidence Workbench - Read Only",
             "scripts/install_pycharm_debug_lab.py",
             "Debugger 看动态因果；Workbench 看最终留下的可验证 Evidence",
-            "自然修复",
-            "上下文压力",
-            "人工控制与恢复",
-            "以上结论必须由本次 Trace 支撑",
+            "Pause",
+            "Cancel",
+            "不可变 Run",
+            "SWE-bench Verified Mini-50",
         )
         for contract in required_lab_contracts:
             if contract not in lab:
@@ -265,20 +284,18 @@ class DocumentationLanguageTest(unittest.TestCase):
             "examples/debug_lab/multi_agent_repository/pricing.py",
             "examples/debug_lab/multi_agent_repository/shipping.py",
             "examples/debug_lab/multi_agent_repository/test_checkout.py",
-            "examples/debug_lab/complex_repository/settlement/service.py",
-            "examples/debug_lab/complex_repository/tests/test_reconciliation.py",
-            "examples/debug_lab/complex_repository/tests/test_atomicity.py",
-            "examples/operator_console.py",
             "scripts/install_pycharm_debug_lab.py",
             "scripts/showcase_demo.sh",
             ".run/NanoHarness Lab 1 - Governed Repair.run.xml",
             ".run/NanoHarness Lab 2 - Coordinated Agents.run.xml",
-            ".run/NanoHarness Lab 3 - Complex Live Repair.run.xml",
             ".run/NanoHarness Evidence Workbench - Read Only.run.xml",
         ):
             if not (PROJECT_ROOT / relative_path).is_file():
                 violations.append(f"Debug Lab support is missing: {relative_path}")
         for obsolete in (
+            "examples/operator_console.py",
+            "examples/debug_lab/complex_repository",
+            ".run/NanoHarness Lab 3 - Complex Live Repair.run.xml",
             "scripts/learning_session.sh",
             "scripts/learning_debug.py",
             "scripts/setup_macos_local.sh",
@@ -326,9 +343,13 @@ class DocumentationLanguageTest(unittest.TestCase):
             if relative_path in ALLOWED_TOP_LEVEL_DOCS:
                 continue
             if not relative_path.startswith(ALLOWED_DOC_SURFACES):
-                violations.append(f"public document has no approved owner surface: {relative_path}")
+                violations.append(
+                    f"public document has no approved owner surface: {relative_path}"
+                )
 
-        self.assertEqual(violations, [], "Public documentation control plane has drifted")
+        self.assertEqual(
+            violations, [], "Public documentation control plane has drifted"
+        )
 
     def test_cheatsheet_owners_have_explanatory_docstrings(self) -> None:
         """两个代码索引中的每个 Owner 都必须能定位，且入口自身能够解释职责。"""
@@ -356,9 +377,9 @@ class DocumentationLanguageTest(unittest.TestCase):
                 if column < len(cells):
                     owner_symbols.update(owner_symbol_pattern.findall(cells[column]))
 
-        mechanism_text = (
-            PROJECT_ROOT / "docs/核心运行机制与代码索引.md"
-        ).read_text(encoding="utf-8")
+        mechanism_text = (PROJECT_ROOT / "docs/核心运行机制与代码索引.md").read_text(
+            encoding="utf-8"
+        )
         owner_symbols.update(
             re.findall(
                 r"\[\s*`([^`]+)`\s*\]\(\.\./agent_forge/[^)#]+\.py\)",
@@ -373,7 +394,9 @@ class DocumentationLanguageTest(unittest.TestCase):
         for source_path in (PROJECT_ROOT / "agent_forge").rglob("*.py"):
             tree = ast.parse(source_path.read_text(encoding="utf-8"))
             for node in tree.body:
-                if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+                if isinstance(
+                    node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)
+                ):
                     source_index.setdefault(node.name, []).append((source_path, node))
                 if isinstance(node, ast.ClassDef):
                     for child in node.body:
@@ -401,10 +424,14 @@ class DocumentationLanguageTest(unittest.TestCase):
                     f"({relative_path}:{node.lineno})"
                 )
 
-        self.assertGreaterEqual(len(owner_symbols), 60, "Cheat Sheet Owner 提取结果异常")
+        self.assertGreaterEqual(
+            len(owner_symbols), 60, "Cheat Sheet Owner 提取结果异常"
+        )
         self.assertEqual(violations, [], "Cheat Sheet Owner 必须可定位且可直接理解")
 
-    def test_runtime_artifact_contract_documents_state_domains_and_field_sources(self) -> None:
+    def test_runtime_artifact_contract_documents_state_domains_and_field_sources(
+        self,
+    ) -> None:
         """持久化契约必须保留恢复排障所需的状态值域和字段来源。"""
 
         text = (PROJECT_ROOT / "docs/运行产物与持久化契约.md").read_text(

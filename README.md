@@ -50,13 +50,15 @@ NanoHarness 把这些问题放进 Runtime 控制面，而不是交给 Prompt 或
 ## 当前质量结果
 
 NanoHarness 当前对外使用一个简单、可解释的工程口径：**单 Agent 在固定 SWE-bench Verified
-开发样本上的 Pass@1 official resolved 约为 40%（4/10）**。10 个 planned Case 全部保留在
-分母中；其中 4 个由 official evaluator 判定 resolved。这个数字用于说明系统已经具备端到端解决
-真实仓库任务的基础能力，不冒充完整 500 题排行榜成绩，也不证明 Harness 相对底座模型的独立增益。
+Mini-50 上的 Pass@1 official resolved 为 28/50（56%）**。50 个 Case 全部保留在分母中：
+28 resolved、16 official unresolved、6 Agent terminal Empty Patch。这个数字用于说明系统已经具备
+端到端解决真实仓库任务的基础能力，不冒充完整 500 题排行榜成绩，也不证明 Harness 相对底座模型的独立增益。
 
 公开说明优先展示数字背后的完整链路：真实 issue 与 base commit、隔离 worktree、受治理 AgentLoop、
-candidate Patch、本地验证、official evaluator、Trace、Usage 与 Workbench。下一轮确认实验使用
-已冻结的 SWE-bench Verified Mini-50 与质量优先配置；在它完成前不把 `4/10` 改写成 Mini-50 成绩。
+candidate Patch、本地验证、official evaluator、Trace、Usage 与 Workbench。原始 Mini-50 的
+`23/50` 因基础设施发布门被拒绝；只对预先分类的 provider/外部中断槽位补全后，最终 50/50 均有
+可归因终态并通过发布门。完整方法与边界见
+[Mini-50 实验报告](benchmarks/experiments/mini50-v1-deepseek-v4-flash/report.md)。
 
 当前结果、证据来源和声明边界见 [Quality Showcase](benchmarks/showcase/canonical-showcase-v1.json)。
 早期低预算、模型选型尝试、被拒绝 Treatment 和旧 Campaign 已退出当前项目说明；原始演进仍可从
@@ -64,11 +66,12 @@ Git 历史恢复，但不进入 README 阅读路径。
 
 ## 证据与可复现场景
 
-Workbench 只读真实 Runtime Event 与已保存的评测制品，把运行概览、执行过程、上下文与决策、
-结果与证据投影成可查阅页面；它不伪造隐藏思维链，也不用另一个模型重写事实。
+Workbench 只读真实 Runtime Event 与已保存的评测制品。运行证据模式把运行概览、执行过程、
+上下文与决策、结果与证据投影成可查阅页面；实验对比模式按实验方向、轮次和 Case 读取变量、
+结果转移、过程指标与 provenance。两种模式都不伪造隐藏思维链，也不用另一个模型重写事实。
 
-三个 Debug Lab 分别复现按钮式 HITL/审批与恢复、含异常分支的多 Agent 依赖协作、真实模型复杂修复。运行方式、断点和
-Workbench 阅读顺序只在 [Debug Lab](examples/debug_lab/README.md) 说明；结果、分母和声明边界由
+两个 Debug Lab 分别复现按钮式 HITL/审批与恢复、含异常分支的多 Agent 依赖协作；真实模型复杂修复直接读取
+Mini-50 Case。运行方式、断点和 Workbench 阅读顺序只在 [Debug Lab](examples/debug_lab/README.md) 说明；结果、分母和声明边界由
 [Quality Showcase](benchmarks/showcase/canonical-showcase-v1.json)统一提供。
 
 ## 快速体验

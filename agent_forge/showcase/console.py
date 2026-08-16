@@ -42,12 +42,15 @@ class GovernedShowcaseConsoleApp(App[None]):
     .panel-title { height: 2; text-style: bold; color: #b6e3c4; }
     #timeline { height: 1fr; background: #101417; }
     #state { height: 9; padding: 1; border: solid #4c5a62; background: #171d21; }
+    #persistence { height: 12; margin-top: 1; padding: 1; border: solid #416b55; }
     #decision { height: 1fr; margin-top: 1; padding: 1; border: solid #4c5a62; }
-    #actions { height: 7; margin-top: 1; }
-    #choices, #approval-actions, #terminal-actions { height: 3; }
+    #actions { height: 10; margin-top: 1; }
+    #choices, #approval-actions, #resume-actions, #terminal-actions { height: 3; }
     Button { margin-right: 1; }
     #approve { background: #247a4a; }
     #reject { background: #8b3a3a; }
+    #cancel { background: #8b3a3a; }
+    #resume { background: #247a4a; }
     #workbench { background: #285f88; }
     """
     BINDINGS = [("ctrl+q", "quit", "退出")]
@@ -84,6 +87,7 @@ class GovernedShowcaseConsoleApp(App[None]):
             with Vertical(id="control-panel"):
                 yield Static("Runtime Control", classes="panel-title")
                 yield Static(id="state")
+                yield Static(id="persistence")
                 yield Static(id="decision")
                 with Vertical(id="actions"):
                     yield Button("开始受治理任务", id="start", variant="primary")
@@ -91,8 +95,12 @@ class GovernedShowcaseConsoleApp(App[None]):
                         yield Button(GOVERNED_CHOICES[0], id="choice-lts")
                         yield Button(GOVERNED_CHOICES[1], id="choice-current")
                     with Horizontal(id="approval-actions"):
-                        yield Button("批准并继续", id="approve")
-                        yield Button("拒绝并安全结束", id="reject")
+                        yield Button("仅保存批准", id="approve")
+                        yield Button("仅保存拒绝", id="reject")
+                    with Horizontal(id="resume-actions"):
+                        yield Button("显式 Resume", id="resume")
+                        yield Button("Pause 到安全边界", id="pause")
+                        yield Button("Cancel 任务", id="cancel")
                     with Horizontal(id="terminal-actions"):
                         yield Button("打开 Evidence Workbench", id="workbench")
                         yield Button("重新开始", id="restart")
@@ -109,6 +117,10 @@ class GovernedShowcaseConsoleApp(App[None]):
         self.query_one("#decision", Static).update(
             "本场景不会自动代替操作者作决定。\n\n"
             "按钮触发的是 HumanInput / Approval 公共控制端口，不是 UI 内直接改文件。"
+        )
+        self.query_one("#persistence", Static).update(
+            "本步持久化：尚未创建 Run。\n"
+            "开始后这里会列出项目内真实 JSON 路径，不生成展示副本。"
         )
         self._timeline("READY · 尚未运行模型或工具")
 
@@ -131,7 +143,7 @@ class GovernedShowcaseConsoleApp(App[None]):
         if self._busy:
             return
         self._selected_target = target
-        self._set_busy(True, f"正在持久化选择：{target}，并生成待审批补丁……")
+        self._set_busy(True, f"正在持久化选择：{target}；本步不会自动 Resume……")
         self._execute_answer(target)
 
     @on(Button.Pressed, "#approve")
@@ -145,11 +157,32 @@ class GovernedShowcaseConsoleApp(App[None]):
     def _decide(self, decision: Literal["approved", "rejected"]) -> None:
         if self._busy:
             return
-        message = "正在执行已批准补丁并运行验证……"
+        message = "正在保存批准决定；本步不会执行补丁……"
         if decision == "rejected":
-            message = "正在保存拒绝决定并确认 workspace 未被修改……"
+            message = "正在保存拒绝决定；本步不会自动结束任务……"
         self._set_busy(True, message)
         self._execute_decision(decision)
+
+    @on(Button.Pressed, "#resume")
+    def resume(self) -> None:
+        if self._busy:
+            return
+        self._set_busy(True, "正在从真实 Checkpoint 创建 continuation……")
+        self._execute_resume()
+
+    @on(Button.Pressed, "#pause")
+    def pause(self) -> None:
+        if self._busy:
+            return
+        self._set_busy(True, "正在请求下一安全边界暂停并保存 Checkpoint……")
+        self._execute_pause()
+
+    @on(Button.Pressed, "#cancel")
+    def cancel(self) -> None:
+        if self._busy:
+            return
+        self._set_busy(True, "正在请求下一安全边界取消；已有事实不会回滚……")
+        self._execute_cancel()
 
     @on(Button.Pressed, "#workbench")
     def open_workbench(self) -> None:
@@ -174,14 +207,26 @@ class GovernedShowcaseConsoleApp(App[None]):
 
     @work(thread=True, group="governed-showcase", exclusive=True)
     def _execute_answer(self, target: str) -> None:
-        self._run_action("answer", lambda: self._controller.answer(target))
+        self._run_action("answer", lambda: self._controller.record_answer(target))
 
     @work(thread=True, group="governed-showcase", exclusive=True)
     def _execute_decision(
         self,
         decision: Literal["approved", "rejected"],
     ) -> None:
-        self._run_action("decision", lambda: self._controller.decide(decision))
+        self._run_action("decision", lambda: self._controller.record_decision(decision))
+
+    @work(thread=True, group="governed-showcase", exclusive=True)
+    def _execute_resume(self) -> None:
+        self._run_action("resume", self._controller.resume)
+
+    @work(thread=True, group="governed-showcase", exclusive=True)
+    def _execute_pause(self) -> None:
+        self._run_action("pause", self._controller.pause_at_safe_boundary)
+
+    @work(thread=True, group="governed-showcase", exclusive=True)
+    def _execute_cancel(self) -> None:
+        self._run_action("cancel", self._controller.cancel)
 
     @work(thread=True, group="workbench-open", exclusive=True)
     def _execute_open_workbench(
@@ -206,18 +251,7 @@ class GovernedShowcaseConsoleApp(App[None]):
         except Exception as exc:
             self.call_from_thread(self._show_error, exc)
             return
-        workbench_error: Exception | None = None
-        if label == "decision" and self._open_workbench is not None:
-            try:
-                self._open_workbench(result)
-            except Exception as exc:
-                workbench_error = exc
         self.call_from_thread(self._render_result, result)
-        if label == "decision" and self._open_workbench is not None:
-            if workbench_error is None:
-                self.call_from_thread(self._workbench_opened)
-            else:
-                self.call_from_thread(self._show_workbench_error, workbench_error)
 
     def _render_result(self, result: ControlPlaneShowcaseResult) -> None:
         self._set_busy(False)
@@ -227,6 +261,7 @@ class GovernedShowcaseConsoleApp(App[None]):
                 "\n".join(
                     [
                         f"状态：{status.upper()}",
+                        f"Run：{result.run_dir.name}",
                         f"Checkpoint：{result.checkpoint_path.name}",
                         f"Human Request：{result.request_id or '-'}",
                         f"Operation Key：{result.operation_key or '-'}",
@@ -235,12 +270,39 @@ class GovernedShowcaseConsoleApp(App[None]):
                 )
             )
         )
+        changed = ", ".join(result.changed_fields) or "本步新建/刷新 Runtime 状态"
+        durable_paths = "\n".join(f"• {path}" for path in result.durable_paths)
+        self.query_one("#persistence", Static).update(
+            Text(
+                f"本步动作：{result.action}\n"
+                f"变化字段：{changed}\n"
+                f"权威文件（可直接在项目树打开）：\n{durable_paths or '• 尚无'}"
+            )
+        )
+        if result.action == "human_input_recorded":
+            self._show_actions("resume")
+            self.query_one("#decision", Static).update(
+                f"已保存选择：{self._selected_target}\n\n"
+                "HumanInput JSON 已从 pending 变为 responded。"
+                "AgentLoop 尚未恢复，workspace 尚未改变；请先检查 JSON，再点 Resume。"
+            )
+            self._timeline("HUMAN_INPUT_RECORDED · 回答已落盘，等待显式 Resume")
+            return
+        if result.action == "approval_recorded":
+            self._show_actions("resume")
+            self.query_one("#decision", Static).update(
+                "Approval JSON 已保存人工决定。\n\n"
+                "Operation Ledger 和 workspace 尚未进入执行阶段；"
+                "请先检查 JSON，再点 Resume、Pause 或 Cancel。"
+            )
+            self._timeline("APPROVAL_RECORDED · 决定已落盘，真实写工具尚未执行")
+            return
         if status == "waiting_human":
             self._show_actions("human")
             self.query_one("#decision", Static).update(
                 "Agent 需要一个产品兼容性决定。\n\n"
-                "请选择目标运行时；选择会先写入 HumanInput Repository，"
-                "然后通过 checkpoint continuation 继续。"
+                "请选择目标运行时；本步只写 HumanInput Repository。"
+                "检查真实 JSON 后，再显式 Resume。"
             )
             self._timeline("WAITING_HUMAN · 问题已持久化，代码尚未改变")
         elif status == "waiting_approval":
@@ -258,12 +320,19 @@ class GovernedShowcaseConsoleApp(App[None]):
                         f"当前文件：{current}",
                         f'待执行补丁：TARGET_RUNTIME = "{self._selected_target}"',
                         "",
-                        "批准绑定当前 operation fingerprint；拒绝不会执行真实写工具。",
+                        "批准或拒绝只写入 Approval JSON；之后由显式 Resume 消费决定。",
                     ]
                 )
             )
-            self._timeline("HUMAN_RESPONSE · 选择已持久化并由 continuation 加载")
+            self._timeline("RESUME · continuation 已加载 HumanInput 回答")
             self._timeline("WAITING_APPROVAL · 补丁已登记，真实写工具尚未执行")
+        elif status == "paused":
+            self._show_actions("resume")
+            self.query_one("#decision", Static).update(
+                "RunControl 已在 Runtime 安全边界保存 paused Checkpoint。\n\n"
+                "检查 task_state JSON 的 status/stop_reason 后，可再次 Resume 或 Cancel。"
+            )
+            self._timeline("PAUSED · 安全边界已持久化，可从同一 Checkpoint 恢复")
         else:
             self._show_actions("terminal")
             current = (
@@ -271,11 +340,12 @@ class GovernedShowcaseConsoleApp(App[None]):
                 .read_text(encoding="utf-8")
                 .strip()
             )
-            outcome = (
-                "补丁已执行，focused pytest 已形成验证证据。"
-                if "unselected" not in current
-                else "操作员拒绝补丁；workspace 保持原状。"
-            )
+            if status == "cancelled":
+                outcome = "操作员取消任务；已有 Evidence 保留，workspace 保持原状。"
+            elif "unselected" in current:
+                outcome = "操作员拒绝补丁；workspace 保持原状。"
+            else:
+                outcome = "补丁已执行，focused pytest 已形成验证证据。"
             self.query_one("#decision", Static).update(
                 f"{outcome}\n\n最终文件：{current}\n\n"
                 f"Trace：{result.trace_path}\nStory：{result.run_dir / 'demo.md'}"
@@ -287,6 +357,10 @@ class GovernedShowcaseConsoleApp(App[None]):
         self.query_one("#start", Button).display = mode == "ready"
         self.query_one("#choices", Horizontal).display = mode == "human"
         self.query_one("#approval-actions", Horizontal).display = mode == "approval"
+        self.query_one("#resume-actions", Horizontal).display = mode in {
+            "resume",
+            "paused",
+        }
         self.query_one("#terminal-actions", Horizontal).display = mode == "terminal"
 
     def _set_busy(self, busy: bool, message: str = "") -> None:

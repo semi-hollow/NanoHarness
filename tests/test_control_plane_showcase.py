@@ -1,5 +1,6 @@
 import asyncio
 import json
+import re
 import tempfile
 import unittest
 from pathlib import Path
@@ -24,6 +25,14 @@ class ControlPlaneShowcaseTest(unittest.TestCase):
 
             waiting_human = controller.start()
 
+            self.assertRegex(
+                waiting_human.run_dir.name,
+                re.compile(
+                    r"^lab1-python-compatibility-control__\d{4}-\d{2}-\d{2}_"
+                    r"\d{2}-\d{2}-\d{2}__[a-z0-9]{7}$"
+                ),
+            )
+
             self.assertFalse((waiting_human.workspace / ".agent_forge").exists())
             self.assertTrue(
                 (root / ".agent_forge" / "internal" / "state" / "approvals").is_dir()
@@ -47,7 +56,14 @@ class ControlPlaneShowcaseTest(unittest.TestCase):
                 'TARGET_RUNTIME = "unselected"\n',
             )
 
-            waiting_approval = controller.answer(GOVERNED_CHOICES[0])
+            recorded_answer = controller.record_answer(GOVERNED_CHOICES[0])
+            self.assertEqual(recorded_answer.action, "human_input_recorded")
+            self.assertEqual(recorded_answer.status, "waiting_human")
+            self.assertTrue(
+                all(path.exists() for path in recorded_answer.durable_paths)
+            )
+
+            waiting_approval = controller.resume()
             self.assertEqual(waiting_approval.status, "waiting_approval")
             self.assertTrue(waiting_approval.operation_key)
             self.assertEqual(
@@ -55,7 +71,14 @@ class ControlPlaneShowcaseTest(unittest.TestCase):
                 'TARGET_RUNTIME = "unselected"\n',
             )
 
-            completed = controller.decide("approved")
+            recorded_approval = controller.record_decision("approved")
+            self.assertEqual(recorded_approval.action, "approval_recorded")
+            self.assertEqual(recorded_approval.status, "waiting_approval")
+            self.assertTrue(
+                all(path.exists() for path in recorded_approval.durable_paths)
+            )
+
+            completed = controller.resume()
             self.assertEqual(completed.status, "completed")
             self.assertEqual(
                 target.read_text(encoding="utf-8"),
@@ -71,6 +94,31 @@ class ControlPlaneShowcaseTest(unittest.TestCase):
             self.assertIn("human_approval", event_types)
             self.assertIn("validation_evidence", event_types)
             self.assertTrue((completed.run_dir / "demo.md").is_file())
+
+    def test_pause_and_cancel_are_persisted_at_runtime_safe_boundaries(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            controller = GovernedShowcaseController(output_root=tmp)
+            started = controller.start()
+            controller.record_answer(GOVERNED_CHOICES[0])
+
+            paused = controller.pause_at_safe_boundary()
+            self.assertEqual(paused.status, "paused")
+            paused_checkpoint = json.loads(
+                paused.checkpoint_path.read_text(encoding="utf-8")
+            )
+            self.assertEqual(paused_checkpoint["status"], "paused")
+            self.assertIn("pause", str(paused_checkpoint.get("stop_reason") or ""))
+
+            cancelled = controller.cancel()
+            self.assertEqual(cancelled.status, "cancelled")
+            cancelled_checkpoint = json.loads(
+                cancelled.checkpoint_path.read_text(encoding="utf-8")
+            )
+            self.assertEqual(cancelled_checkpoint["status"], "cancelled")
+            self.assertEqual(
+                (started.workspace / "compatibility.py").read_text(encoding="utf-8"),
+                'TARGET_RUNTIME = "unselected"\n',
+            )
 
     def test_governed_rejection_keeps_workspace_unchanged(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -186,11 +234,31 @@ class GovernedShowcaseConsoleTest(unittest.IsolatedAsyncioTestCase):
 
                 await pilot.click("#choice-lts")
                 await self._wait_for(
+                    lambda: app.query_one("#resume-actions").display,
+                )
+                self.assertEqual(app._controller.current.status, "waiting_human")
+                self.assertEqual(
+                    app._controller.current.action,
+                    "human_input_recorded",
+                )
+
+                await pilot.click("#resume")
+                await self._wait_for(
                     lambda: app.query_one("#approval-actions").display,
                 )
                 self.assertEqual(app._controller.current.status, "waiting_approval")
 
                 await pilot.click("#approve")
+                await self._wait_for(
+                    lambda: app.query_one("#resume-actions").display,
+                )
+                self.assertEqual(app._controller.current.status, "waiting_approval")
+                self.assertEqual(
+                    app._controller.current.action,
+                    "approval_recorded",
+                )
+
+                await pilot.click("#resume")
                 await self._wait_for(
                     lambda: app.query_one("#terminal-actions").display,
                 )

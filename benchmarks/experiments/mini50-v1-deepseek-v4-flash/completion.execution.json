@@ -1,0 +1,52 @@
+{
+  "schema_version": 1,
+  "artifact_type": "mini50_infrastructure_completion_execution_index",
+  "source_revision": "3ec537113a26491b7b7a51e323a3d3af40f4754f",
+  "provider": "opencode-go",
+  "model": "deepseek-v4-flash",
+  "policy": {
+    "eligible": [
+      "provider_transport_error",
+      "external_manual_interruption"
+    ],
+    "ineligible": [
+      "official_resolved",
+      "official_unresolved",
+      "agent_terminal_empty_patch"
+    ],
+    "correctness_rerun": false
+  },
+  "rounds": [
+    {
+      "campaign_id": "mini50-v1.1-infra-completion-deepseek-v4-flash-3ec537113a",
+      "raw_directory": ".agent_forge/runs/benchmarks/swebench-verified-mini-50-infrastructure-completion/mini50-v1.1-infra-completion-deepseek-v4-flash-3ec537113a",
+      "selected_case_count": 10,
+      "plan_sha256": "4e1cef9be53fbbd60ad2d3f3998d8869b762e923604fa6f959d9d0643da7b325",
+      "campaign_sha256": "b32a68e00f6849f23876fbfdb5deed4f40fd283207665239dfd20d3be4cb2519",
+      "combined_result_sha256": "a83cb1e53b865e64b02ce39a10c2d3b6cf541f96279467258de040e1b83bc860"
+    },
+    {
+      "campaign_id": "mini50-v1.2-infra-completion-deepseek-v4-flash-3ec537113a",
+      "raw_directory": ".agent_forge/runs/benchmarks/swebench-verified-mini-50-infrastructure-completion/mini50-v1.2-infra-completion-deepseek-v4-flash-3ec537113a",
+      "selected_case_count": 1,
+      "plan_sha256": "1b7c8acba012490cbf77a55f3a4f4789801d9c322c5e02a873de490ca49b64ff",
+      "campaign_sha256": "b01c2434dba9da3f32cfb1c80ccdcfcca80e86a4489de32c18e0c1c32cb1b643",
+      "combined_result_sha256": "1eb7e7ad45d414b8ebfd85fab2aabc008e828959cd335b7d75a7b6a7767da0c2"
+    }
+  ],
+  "orchestrators": [
+    {
+      "path": "scripts/run_mini50_infrastructure_completion.py",
+      "sha256": "d6e0c71be5d528f3cace879988e68ced82cc1573ba9b900c8c5b0ec802cfb0ee"
+    },
+    {
+      "path": "scripts/run_mini50_infrastructure_completion_round2.py",
+      "sha256": "c8d70fdc6c7f8ce154c6e46019bd99f78a31d174a34d79e3bade54d70242d9e3"
+    }
+  ],
+  "final_result": {
+    "headline": "28/50",
+    "publishable": true,
+    "raw_combined_result_sha256": "1eb7e7ad45d414b8ebfd85fab2aabc008e828959cd335b7d75a7b6a7767da0c2"
+  }
+}

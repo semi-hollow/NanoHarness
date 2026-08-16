@@ -4,58 +4,64 @@
   "showcase_id": "canonical-showcase-v1",
   "title": "NanoHarness · Quality Showcase",
   "status": "completed",
-  "question": "当前 NanoHarness 是否已经具备端到端解决真实仓库任务的基础能力？",
+  "question": "当前 NanoHarness 在固定扩大样本上的端到端 repository repair 能力是多少？",
   "current_profile": {
-    "profile_id": "single-agent-quality-reference-v1",
-    "status": "measured_reference",
+    "profile_id": "mini50-v1-deepseek-v4-flash",
+    "status": "measured_canonical",
     "frozen": true,
-    "selected_model": "deepseek/deepseek-v4-flash",
+    "selected_model": "opencode-go/deepseek-v4-flash",
     "model_candidates": [],
     "references": {
-      "selection_set": "Fixed development sample",
-      "selection_role": "published_reference_observation",
-      "profile_manifest": "benchmarks/experiments/tool-aci-r1/seen-set.json",
-      "profile_manifest_sha256": "838b1b3bdd05ff55304d70abdb4cd40b99535a582ae3fb03a55e121803b1538b",
-      "selection_protocol": "frozen Pass@1 official evaluation"
+      "selection_set": "SWE-bench Verified Mini-50",
+      "selection_role": "canonical_absolute_evaluation",
+      "profile_manifest": "benchmarks/experiments/mini50-v1-deepseek-v4-flash/plan.json",
+      "profile_manifest_sha256": "cf87728a9e6bc7a4a54936350cf765908065180f9e3cc42708d84e5e645a6ae5",
+      "completion_index": "benchmarks/experiments/mini50-v1-deepseek-v4-flash/completion.execution.json",
+      "selection_protocol": "frozen Pass@1 with infrastructure-only completion"
     }
   },
   "canonical_evaluation": {
-    "evaluation_id": "fixed-development-10-reference-v1",
-    "label": "固定开发样本",
+    "evaluation_id": "swebench-verified-mini-50-v1",
+    "label": "SWE-bench Verified Mini-50",
     "status": "completed",
     "dataset": "princeton-nlp/SWE-bench_Verified",
     "protocol": "Pass@1",
-    "sample_kind": "fixed_seen_development_sample",
-    "cohort_manifest": "benchmarks/experiments/tool-aci-r1/seen-set.json",
+    "sample_kind": "fixed_50_case_sample",
+    "cohort_manifest": "benchmarks/showcase/swebench-verified-mini-50-v1.json",
     "cohort_frozen": true,
     "protocol_frozen": true,
-    "planned": 10,
-    "completed": 10,
-    "terminal_accounted": 10,
-    "official_evaluated": 7,
-    "official_decided": 7,
-    "official_unresolved": 3,
-    "empty_patch": 3,
+    "planned": 50,
+    "completed": 50,
+    "terminal_accounted": 50,
+    "official_evaluated": 44,
+    "official_decided": 44,
+    "official_unresolved": 16,
+    "empty_patch": 6,
     "provider_infra": 0,
+    "runtime_infra": 0,
     "evaluator_infra": 0,
-    "official_resolved": 4,
+    "external_interruption": 0,
+    "official_resolved": 28,
     "evidence_validated": true,
-    "evidence_run_dir": null,
-    "claim": "4/10 official resolved (about 40%) on this fixed development sample; not 40/100 and not the full SWE-bench Verified benchmark."
+    "evidence_run_dir": ".agent_forge/runs/benchmarks/swebench-verified-mini-50-infrastructure-completion/mini50-v1.2-infra-completion-deepseek-v4-flash-3ec537113a",
+    "claim": "28/50 official resolved (56.0%) on this fixed Mini-50 sample; not the full 500-case SWE-bench Verified benchmark."
   },
   "supporting_checks": [
     {
-      "id": "swebench-verified-mini-50-v1",
-      "label": "SWE-bench Verified Mini-50",
-      "role": "future_confirmation_only",
+      "id": "fixed-development-10-reference-v1",
+      "label": "固定开发样本 10",
+      "role": "development_and_regression_only",
       "quality_headline": false,
-      "status": "runner_ready_not_run",
-      "manifest": "benchmarks/showcase/swebench-verified-mini-50-v1.json"
+      "status": "historical_completed",
+      "manifest": "benchmarks/experiments/tool-aci-r1/seen-set.json",
+      "observed_official_resolved": 4,
+      "planned": 10
     }
   ],
   "boundaries": [
-    "The active headline is about 40%, backed by 4/10 official resolved on a fixed development sample.",
-    "No artifact claims that the Mini-50 run has already completed.",
-    "Historical selection protocols and rejected treatments are audit material, not the active project claim."
+    "The active headline is 28/50 on the fixed SWE-bench Verified Mini-50 sample, not the full 500-case benchmark.",
+    "The original 23/50 observation failed the infrastructure publication gate; only provider or external interruption slots were completed, while all correctness outcomes and Agent terminal Empty Patch outcomes remained frozen.",
+    "The result measures the fixed NanoHarness plus DeepSeek V4 Flash system and does not isolate model contribution from harness contribution.",
+    "Historical development sets and rejected treatments remain audit material, not the active quality headline."
   ]
 }

@@ -84,6 +84,10 @@ def _add_console_command(subparsers: argparse._SubParsersAction) -> None:
     )
     parser.add_argument("--config")
     parser.add_argument("--workspace")
+    parser.add_argument(
+        "--run-label",
+        help="Human-readable artifact label; timestamp and unique suffix are appended.",
+    )
     parser.add_argument("--output-root")
     _add_execution_environment_args(parser, defaults=False)
     _add_model_args(parser, defaults=False)
@@ -128,6 +132,10 @@ def _add_run_command(subparsers: argparse._SubParsersAction) -> None:
         help="Versioned YAML/JSON run configuration; explicit CLI options win.",
     )
     parser.add_argument("--workspace")
+    parser.add_argument(
+        "--run-label",
+        help="Human-readable artifact label; timestamp and unique suffix are appended.",
+    )
     _add_execution_environment_args(parser, defaults=False)
     _add_model_args(parser, defaults=False)
     _add_runtime_policy_args(parser, defaults=False)

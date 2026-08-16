@@ -30,6 +30,13 @@ class EvidenceSource:
     run_dir: Path | None
     trace_entries: tuple[tuple[str, Path], ...] = ()
     usage_path: Path | None = None
+    # 浏览器按“能力类型 → 不可变 Run → Case/Worker”分层导航；key 仍唯一定位叶子。
+    category_key: str = ""
+    category_title: str = ""
+    run_key: str = ""
+    run_title: str = ""
+    item_key: str = ""
+    item_title: str = ""
 
     @property
     def available(self) -> bool:
@@ -50,4 +57,10 @@ class EvidenceSource:
             "available": self.available,
             "trace_count": len(self.trace_entries),
             "primary_path": str(self.primary_path or ""),
+            "category_key": self.category_key or self.key,
+            "category_title": self.category_title or self.title,
+            "run_key": self.run_key or self.key,
+            "run_title": self.run_title or self.title,
+            "item_key": self.item_key or "overview",
+            "item_title": self.item_title or "整体运行",
         }

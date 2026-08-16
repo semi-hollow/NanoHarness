@@ -8,14 +8,18 @@ checkpoint、恢复和文件修改全部经过正式 Runtime。这样现场演�
 from __future__ import annotations
 
 import json
-import time
-import uuid
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, Literal
 
+from agent_forge.control import RunController
 from agent_forge.contracts import ToolSchema
-from agent_forge.harness import Harness, HarnessConfig, RunRequest
+from agent_forge.harness import (
+    Harness,
+    HarnessConfig,
+    HarnessExtensions,
+    RunRequest,
+)
 from agent_forge.runtime.api import (
     HumanInputResponseCommand,
     ToolRegistryBuildRequest,
@@ -28,7 +32,11 @@ from agent_forge.runtime.api import (
 from agent_forge.runtime.domain.conversation import AgentResponse, Message, ToolCall
 from agent_forge.runtime.ports import ModelPort
 from agent_forge.runtime.wiring import build_registry
-from agent_forge.storage_layout import INDEX_ROOT, SHOWCASE_RUN_ROOT
+from agent_forge.storage_layout import (
+    INDEX_ROOT,
+    SHOWCASE_RUN_ROOT,
+    human_readable_run_name,
+)
 
 HITL_QUESTION = "Which compatibility target should be used?"
 HITL_TASK = (
@@ -60,6 +68,9 @@ class ControlPlaneShowcaseResult:
     trace_path: Path
     request_id: str = ""
     operation_key: str = ""
+    action: str = "runtime_checkpoint"
+    durable_paths: tuple[Path, ...] = ()
+    changed_fields: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -89,10 +100,12 @@ class GovernedShowcaseController:
     ) -> None:
         self.output_root = Path(output_root)
         self._phases: list[ControlPlaneShowcaseResult] = []
+        self._current: ControlPlaneShowcaseResult | None = None
+        self._pending_resume = ""
 
     @property
     def current(self) -> ControlPlaneShowcaseResult | None:
-        return self._phases[-1] if self._phases else None
+        return self._current
 
     @property
     def state_sequence(self) -> tuple[str, ...]:
@@ -106,37 +119,108 @@ class GovernedShowcaseController:
             output_root=self.output_root,
         )
         self._phases.append(result)
+        self._current = result
         return result
 
-    def answer(self, answer: str) -> ControlPlaneShowcaseResult:
+    def record_answer(self, answer: str) -> ControlPlaneShowcaseResult:
+        """只持久化 HumanInput 回答；明确等待下一次 ``resume``。"""
+
         current = self._require_status("waiting_human")
+        if self._pending_resume:
+            raise RuntimeError(
+                "governed showcase already has a persisted operator action"
+            )
         if answer not in GOVERNED_CHOICES:
             raise ValueError(
                 "governed showcase answer must be one of: "
                 + ", ".join(GOVERNED_CHOICES)
             )
-        result = _continue_control_plane_demo(
+        result = _record_human_answer(current, answer)
+        self._pending_resume = "human_input"
+        self._current = result
+        return result
+
+    def answer(self, answer: str) -> ControlPlaneShowcaseResult:
+        """兼容一键调用方；TUI 使用 ``record_answer`` 与 ``resume`` 两步。"""
+
+        self.record_answer(answer)
+        return self.resume()
+
+    def record_decision(
+        self,
+        decision: Literal["approved", "rejected"],
+    ) -> ControlPlaneShowcaseResult:
+        """只持久化 Approval 决定；不执行真实写工具。"""
+
+        current = self._require_status("waiting_approval")
+        if self._pending_resume:
+            raise RuntimeError(
+                "governed showcase already has a persisted operator action"
+            )
+        result = _record_approval_decision(current, decision)
+        self._pending_resume = "approval"
+        self._current = result
+        return result
+
+    def resume(self) -> ControlPlaneShowcaseResult:
+        """显式从当前 durable checkpoint 创建 continuation。"""
+
+        current = self.current
+        if current is None:
+            raise RuntimeError("governed showcase has not started")
+        if current.status == "paused" and not self._pending_resume:
+            self._pending_resume = "paused"
+        if not self._pending_resume:
+            raise RuntimeError("governed showcase has no persisted action to resume")
+        result = _resume_control_plane_demo(
             "governed",
             current.run_dir,
-            answer=answer,
         )
         self._phases.append(result)
+        self._current = result
+        self._pending_resume = ""
+        if not result.status.startswith("waiting_") and result.status != "paused":
+            self._publish_terminal_story(result)
+        return result
+
+    def pause_at_safe_boundary(self) -> ControlPlaneShowcaseResult:
+        """让下一次 continuation 经正式 RunControlPort 落为 paused checkpoint。"""
+
+        current = self.current
+        if current is None or not self._pending_resume:
+            raise RuntimeError("pause requires a persisted action waiting to resume")
+        result = _resume_control_plane_demo(
+            "governed",
+            current.run_dir,
+            control_action="pause",
+        )
+        self._phases.append(result)
+        self._current = result
+        return result
+
+    def cancel(self) -> ControlPlaneShowcaseResult:
+        """让 continuation 在下一安全边界取消，并保留此前全部持久化事实。"""
+
+        current = self.current
+        if current is None:
+            raise RuntimeError("governed showcase has not started")
+        result = _resume_control_plane_demo(
+            "governed",
+            current.run_dir,
+            control_action="cancel",
+        )
+        self._phases.append(result)
+        self._current = result
+        self._pending_resume = ""
+        self._publish_terminal_story(result)
         return result
 
     def decide(
         self,
         decision: Literal["approved", "rejected"],
     ) -> ControlPlaneShowcaseResult:
-        current = self._require_status("waiting_approval")
-        result = _continue_control_plane_demo(
-            "governed",
-            current.run_dir,
-            decision=decision,
-        )
-        self._phases.append(result)
-        if not result.status.startswith("waiting_"):
-            self._publish_terminal_story(result)
-        return result
+        self.record_decision(decision)
+        return self.resume()
 
     def _require_status(self, expected: str) -> ControlPlaneShowcaseResult:
         current = self.current
@@ -431,7 +515,7 @@ def _continue_control_plane_demo(
     answer: str = "",
     decision: Literal["approved", "rejected"] = "approved",
 ) -> ControlPlaneShowcaseResult:
-    """回答 HITL 或批准状态变更操作，然后重新进入正式 AgentLoop。"""
+    """兼容 headless 演示：保存决定后立即进入 continuation。"""
 
     _validate_scenario(scenario)
     root = Path(run_dir).resolve()
@@ -442,30 +526,92 @@ def _continue_control_plane_demo(
             f"showcase scenario mismatch: expected {expected!r}, got {scenario!r}"
         )
 
-    checkpoint_path = Path(str(manifest["checkpoint_path"]))
-    checkpoint = load_task_checkpoint(str(checkpoint_path))
+    current = _result_from_manifest(root, manifest)
+    checkpoint = load_task_checkpoint(str(current.checkpoint_path))
     if scenario in {"hitl", "governed"} and checkpoint.status == "waiting_human":
-        request_id = str(manifest.get("request_id") or "")
-        respond_to_human_input(
-            HumanInputResponseCommand(
-                human_input_root=str(root / "human_input"),
-                request_id=request_id,
-                answer=answer,
-            )
-        )
+        _record_human_answer(current, answer)
     elif checkpoint.status == "waiting_approval":
-        operation_key = str(manifest.get("operation_key") or "")
-        decide_approval(
-            str(root / "approvals"),
-            operation_key,
-            decision,
-            note=f"{decision} during deterministic control-plane showcase",
-        )
+        _record_approval_decision(current, decision)
     else:
         raise RuntimeError(
             "control-plane continuation requires waiting_human or waiting_approval, "
             f"got {checkpoint.status}"
         )
+    return _resume_control_plane_demo(scenario, root)
+
+
+def _record_human_answer(
+    current: ControlPlaneShowcaseResult,
+    answer: str,
+) -> ControlPlaneShowcaseResult:
+    """经正式 HumanInput API 原子保存回答，但不自动恢复 AgentLoop。"""
+
+    respond_to_human_input(
+        HumanInputResponseCommand(
+            human_input_root=str(current.run_dir / "human_input"),
+            request_id=current.request_id,
+            answer=answer,
+        )
+    )
+    result = replace(
+        current,
+        action="human_input_recorded",
+        durable_paths=(
+            current.run_dir / "human_input" / f"{current.request_id}.json",
+            current.checkpoint_path,
+            current.run_dir / "showcase.json",
+        ),
+        changed_fields=("status", "answer", "updated_at"),
+    )
+    _write_showcase_artifacts(result)
+    return result
+
+
+def _record_approval_decision(
+    current: ControlPlaneShowcaseResult,
+    decision: Literal["approved", "rejected"],
+) -> ControlPlaneShowcaseResult:
+    """经正式 Approval API 保存决定，但不执行对应状态变更操作。"""
+
+    decide_approval(
+        str(current.run_dir / "approvals"),
+        current.operation_key,
+        decision,
+        note=f"{decision} during deterministic control-plane showcase",
+    )
+    result = replace(
+        current,
+        action="approval_recorded",
+        durable_paths=(
+            current.run_dir / "approvals" / f"{current.operation_key}.json",
+            current.run_dir / "operation_ledger" / f"{current.operation_key}.json",
+            current.checkpoint_path,
+            current.run_dir / "showcase.json",
+        ),
+        changed_fields=("status", "decision_note", "updated_at"),
+    )
+    _write_showcase_artifacts(result)
+    return result
+
+
+def _resume_control_plane_demo(
+    scenario: str,
+    run_dir: str | Path,
+    *,
+    control_action: Literal["", "pause", "cancel"] = "",
+) -> ControlPlaneShowcaseResult:
+    """只负责 checkpoint continuation；HumanInput/Approval 必须已单独持久化。"""
+
+    _validate_scenario(scenario)
+    root = Path(run_dir).resolve()
+    manifest = _load_manifest(root)
+    if manifest.get("scenario") != scenario:
+        raise ValueError(
+            "showcase scenario mismatch: "
+            f"expected {manifest.get('scenario')!r}, got {scenario!r}"
+        )
+    checkpoint_path = Path(str(manifest["checkpoint_path"]))
+    checkpoint = load_task_checkpoint(str(checkpoint_path))
 
     metadata = checkpoint.metadata if isinstance(checkpoint.metadata, dict) else {}
     result = _run_phase(
@@ -474,6 +620,7 @@ def _continue_control_plane_demo(
         workspace=Path(str(manifest["workspace"])),
         resume_state=checkpoint_path,
         human_thread_id=str(metadata.get("human_thread_id") or checkpoint.run_id),
+        control_action=control_action,
     )
     result = replace(
         result,
@@ -484,6 +631,32 @@ def _continue_control_plane_demo(
     return result
 
 
+def _result_from_manifest(
+    run_dir: Path,
+    manifest: dict[str, Any],
+) -> ControlPlaneShowcaseResult:
+    """把 run-level 导航清单还原为控制器当前结果，不复制权威状态。"""
+
+    return ControlPlaneShowcaseResult(
+        scenario=str(manifest.get("scenario") or ""),
+        status=str(manifest.get("status") or ""),
+        run_dir=run_dir,
+        artifact_dir=Path(str(manifest["artifact_dir"])),
+        workspace=Path(str(manifest["workspace"])),
+        checkpoint_path=Path(str(manifest["checkpoint_path"])),
+        trace_path=Path(str(manifest["trace_path"])),
+        request_id=str(manifest.get("request_id") or ""),
+        operation_key=str(manifest.get("operation_key") or ""),
+        action=str(manifest.get("action") or "runtime_checkpoint"),
+        durable_paths=tuple(
+            Path(str(path)) for path in manifest.get("durable_paths") or []
+        ),
+        changed_fields=tuple(
+            str(field) for field in manifest.get("changed_fields") or []
+        ),
+    )
+
+
 def _run_phase(
     scenario: str,
     *,
@@ -491,6 +664,7 @@ def _run_phase(
     workspace: Path,
     resume_state: Path | None = None,
     human_thread_id: str = "",
+    control_action: Literal["", "pause", "cancel"] = "",
 ) -> ControlPlaneShowcaseResult:
     """经唯一 ``Harness`` Public API 装配 deterministic control-plane phase。"""
 
@@ -514,7 +688,15 @@ def _run_phase(
             memory_namespace=str(workspace.resolve()),
         )
     )
-    result = Harness(
+    run_controller = RunController()
+    if control_action == "pause":
+        run_controller.pause("Lab 1 operator requested pause before continuation")
+    elif control_action == "cancel":
+        run_controller.cancel("Lab 1 operator requested cancel before continuation")
+    phase_label = (
+        "lab1-python-compatibility" if scenario == "governed" else f"lab1-{scenario}"
+    )
+    run_result = Harness(
         model=model,
         tools=tools,
         config=HarnessConfig(
@@ -529,6 +711,7 @@ def _run_phase(
             approval_mode="trusted",
             tool_routing_mode="task-aware",
         ),
+        extensions=HarnessExtensions(run_control=run_controller),
     ).run(
         RunRequest(
             task=task,
@@ -536,13 +719,16 @@ def _run_phase(
             resume_state=str(resume_state or ""),
             human_thread_id=human_thread_id,
             agent_name="ShowcaseAgent",
+            run_label=f"{phase_label}-{'continuation' if resume_state else 'start'}",
         )
     )
-    if result.trace_path is None:
+    if run_result.trace_path is None:
         raise RuntimeError("governed demo requires the default trace adapter")
 
-    checkpoint_path = result.artifact_dir / "task_state" / f"{result.run_id}.json"
-    checkpoint = result.checkpoint
+    checkpoint_path = (
+        run_result.artifact_dir / "task_state" / f"{run_result.run_id}.json"
+    )
+    checkpoint = run_result.checkpoint
     request_id = ""
     operation_key = ""
     if checkpoint.status == "waiting_human":
@@ -552,21 +738,34 @@ def _run_phase(
         pending_approvals = list_pending_approvals(str(run_dir / "approvals"))
         operation_key = pending_approvals[0].operation_key
 
-    return ControlPlaneShowcaseResult(
+    result = ControlPlaneShowcaseResult(
         scenario=scenario,
         status=checkpoint.status,
         run_dir=run_dir,
-        artifact_dir=result.artifact_dir,
+        artifact_dir=run_result.artifact_dir,
         workspace=workspace,
         checkpoint_path=checkpoint_path,
-        trace_path=result.trace_path,
+        trace_path=run_result.trace_path,
         request_id=request_id,
         operation_key=operation_key,
+        action=(
+            "run_paused"
+            if checkpoint.status == "paused"
+            else "run_cancelled"
+            if checkpoint.status == "cancelled"
+            else "runtime_checkpoint"
+        ),
     )
+    return replace(result, durable_paths=_durable_paths(result))
 
 
 def _new_run_dir(output_root: str | Path, scenario: str) -> Path:
-    run_id = f"{scenario}-{time.strftime('%Y%m%d-%H%M%S')}-{uuid.uuid4().hex[:7]}"
+    labels = {
+        "governed": "lab1-python-compatibility-control",
+        "hitl": "lab1-human-input",
+        "approval": "lab1-write-operation-approval",
+    }
+    run_id = human_readable_run_name(labels.get(scenario, scenario))
     run_dir = Path(output_root).resolve() / run_id
     run_dir.mkdir(parents=True, exist_ok=False)
     return run_dir
@@ -590,6 +789,9 @@ def _write_showcase_artifacts(result: ControlPlaneShowcaseResult) -> None:
         "trace_path": str(result.trace_path),
         "request_id": result.request_id,
         "operation_key": result.operation_key,
+        "action": result.action,
+        "durable_paths": [str(path) for path in result.durable_paths],
+        "changed_fields": list(result.changed_fields),
     }
     (result.run_dir / "showcase.json").write_text(
         json.dumps(payload, ensure_ascii=False, indent=2),
@@ -599,6 +801,23 @@ def _write_showcase_artifacts(result: ControlPlaneShowcaseResult) -> None:
         _render_showcase_report(result),
         encoding="utf-8",
     )
+
+
+def _durable_paths(result: ControlPlaneShowcaseResult) -> tuple[Path, ...]:
+    """列出本步真正写入的权威文件；仅用于导航，不创建展示副本。"""
+
+    paths = [result.checkpoint_path]
+    if result.request_id:
+        paths.append(result.run_dir / "human_input" / f"{result.request_id}.json")
+    if result.operation_key:
+        paths.extend(
+            [
+                result.run_dir / "approvals" / f"{result.operation_key}.json",
+                result.run_dir / "operation_ledger" / f"{result.operation_key}.json",
+            ]
+        )
+    paths.extend([result.trace_path, result.run_dir / "showcase.json"])
+    return tuple(dict.fromkeys(paths))
 
 
 def _render_showcase_report(result: ControlPlaneShowcaseResult) -> str:

@@ -155,6 +155,7 @@ def build_single_run_request(
         resume_state=getattr(args, "resume_state", "") or "",
         human_thread_id=getattr(args, "human_thread_id", "") or "",
         resolved_config=resolved_run_config(args, config_document),
+        run_label=getattr(args, "run_label", "") or "",
     )
 
 
@@ -406,9 +407,7 @@ def _model_capabilities_from_args(args: argparse.Namespace) -> ModelCapabilities
     """将 CLI/config 的模型声明转换为 Runtime 唯一能力对象。"""
 
     provider = str(args.provider or "")
-    model = str(
-        args.model or ("deepseek-v4-flash" if provider == "deepseek" else "")
-    )
+    model = str(args.model or ("deepseek-v4-flash" if provider == "deepseek" else ""))
     inferred = default_model_capabilities(
         provider=provider,
         model=model,
@@ -423,7 +422,9 @@ def _model_capabilities_from_args(args: argparse.Namespace) -> ModelCapabilities
         prompt_cache=bool(args.prompt_cache),
         context_window=configured_context_window or inferred.context_window,
         supports_images=bool(args.supports_images),
-        source=("resolved_run_config" if configured_context_window else inferred.source),
+        source=(
+            "resolved_run_config" if configured_context_window else inferred.source
+        ),
     )
 
 

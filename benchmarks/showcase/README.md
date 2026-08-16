@@ -3,11 +3,16 @@
 当前目录只有两个有效资产：
 
 - [`canonical-showcase-v1.json`](canonical-showcase-v1.json)：当前已完成质量口径；
-- [`swebench-verified-mini-50-v1.json`](swebench-verified-mini-50-v1.json)：下一次正式测量的固定 50 题清单。
+- [`swebench-verified-mini-50-v1.json`](swebench-verified-mini-50-v1.json)：已执行扩大样本测量的固定 50 题清单。
 
-当前公开结果是单 Agent 在固定 SWE-bench Verified 开发样本上的 Pass@1 official resolved
-`4/10`（约 40%）。它证明 NanoHarness 已跑通真实仓库修复与 official evaluator 闭环，不代表
-完整 500 题成绩，也不隔离底座模型贡献。
+当前公开结果是单 Agent 在固定 SWE-bench Verified Mini-50 上的 Pass@1 official resolved
+`28/50`（56%）。50 个 Case 全部形成可归因终态：28 resolved、16 official unresolved、
+6 Agent terminal Empty Patch；最终基础设施无效槽位为 0。它证明 NanoHarness 已跑通真实仓库修复与
+official evaluator 闭环，不代表完整 500 题成绩，也不隔离底座模型贡献。
+
+原始 Run 的 `23/50` 因 provider/外部中断未通过 Final Publish Gate；补全流程只替换这些
+infra-invalid 槽位，不重跑 resolved、unresolved 或 Agent Empty Patch。完整分母和补全规则见
+[Mini-50 报告](../experiments/mini50-v1-deepseek-v4-flash/report.md)。
 
 ## Mini-50 运行入口
 
@@ -33,7 +38,7 @@ NANOHARNESS_ROOT=/absolute/path/to/NanoHarness \
   zsh -lic 'cd "$NANOHARNESS_ROOT" && .venv/bin/python scripts/run_swebench_verified_mini_50.py --execute'
 ```
 
-运行产物位于 `.agent_forge/runs/benchmarks/swebench-verified-mini-50/`。最终
+运行产物位于 `.agent_forge/runs/benchmarks/swebench-verified-mini-50*/`。最终
 `campaign_summary.json` 与 `campaign.md` 会报告 official resolved / 50、Wilson 95% 区间、
 empty Patch、基础设施失败、Token、成本、Tool failure 与逐题索引。
 

@@ -35,8 +35,8 @@ READING_SCOPES = (
         "||file:agent_forge/multi_agent/application/live_fanout.py"
         "||file:agent_forge/multi_agent/adapters/local_worker.py"
         "||file:agent_forge/context/application/compaction.py"
-        "||file:examples/operator_console.py"
-        "||file:examples/debug_lab/complex_repository//*",
+        "||file:agent_forge/operator_console//*"
+        "||file:agent_forge/bench//*",
     ),
     (
         "10_NanoHarness_Production_Code.xml",
@@ -148,41 +148,6 @@ TARGETS = (
         relative_path="agent_forge/multi_agent/adapters/local_worker.py",
         class_name="LocalAgentWorkerAdapter",
         function_name="run_finalizer",
-    ),
-    BreakpointTarget(
-        scenario="complex",
-        label="Lab 3 - Practice entry",
-        relative_path="examples/operator_console.py",
-        class_name="",
-        function_name="main",
-    ),
-    BreakpointTarget(
-        scenario="complex",
-        label="Lab 3 - One agent turn",
-        relative_path="agent_forge/runtime/application/agent_loop.py",
-        class_name="AgentLoop",
-        function_name="_run_turn",
-    ),
-    BreakpointTarget(
-        scenario="complex",
-        label="Lab 3 - Context budget",
-        relative_path="agent_forge/context/application/compaction.py",
-        class_name="ContextWindowManager",
-        function_name="prepare",
-    ),
-    BreakpointTarget(
-        scenario="complex",
-        label="Lab 3 - One tool call",
-        relative_path="agent_forge/runtime/application/tool_execution.py",
-        class_name="ToolExecutionPipeline",
-        function_name="_execute_call",
-    ),
-    BreakpointTarget(
-        scenario="complex",
-        label="Lab 3 - Focused or full validation",
-        relative_path="agent_forge/tools/python_validation.py",
-        class_name="PythonValidationTool",
-        function_name="execute",
     ),
 )
 

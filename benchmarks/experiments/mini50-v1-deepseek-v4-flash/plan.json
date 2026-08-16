@@ -1,0 +1,42 @@
+{
+  "schema_version": 1,
+  "artifact_type": "mini50_frozen_plan_index",
+  "campaign_id": "mini50-v1-deepseek-v4-flash-3ec537113a-9f81b94c99",
+  "frozen_before_outcomes": true,
+  "source_revision": "3ec537113a26491b7b7a51e323a3d3af40f4754f",
+  "dataset": {
+    "name": "princeton-nlp/SWE-bench_Verified",
+    "revision": "c104f840cc67f8b6eec6f759ebc8b2693d585d4a",
+    "split": "test",
+    "cohort_manifest": "benchmarks/showcase/swebench-verified-mini-50-v1.json",
+    "cohort_manifest_sha256": "c09ff2c942f7f6b791b1aa4f178c7965edbbb68e7f93e46a5e92319982850ab3",
+    "ordered_case_ids_sha256": "7874edd7eab06ed1be2e5033c1a0b5dc951272864d7dfa789d9cff39675386fc",
+    "planned": 50
+  },
+  "model_profile": {
+    "provider": "opencode-go",
+    "base_url": "https://opencode.ai/zen/go/v1",
+    "requested_model": "deepseek-v4-flash",
+    "thinking_mode": "enabled",
+    "reasoning_effort": "max",
+    "max_context_chars": 64000,
+    "max_prompt_tokens": 131072,
+    "reserved_output_tokens": 16384,
+    "max_steps": 128,
+    "max_tool_calls_per_turn": 4,
+    "cost_budget_usd": null,
+    "model_request_max_attempts": 2
+  },
+  "protocol": {
+    "repetitions": 1,
+    "max_parallel_slots": 2,
+    "whole_case_attempts": 1,
+    "started_slot_policy": "never_restart; fail_closed_if_not_terminal",
+    "empty_patch_counts_in_planned_denominator": true,
+    "official_platform": "linux/amd64",
+    "official_namespace": "swebench",
+    "official_cache_level": "env"
+  },
+  "raw_frozen_plan_sha256": "fc37d6e771de0b5acea8132b17d4bc3cabea8bb74e2cf6737c807176b218365b",
+  "image_manifest_sha256": "8320e26a5d72ee22486ae3a0c1312f0e5b51921037a929c1f7b8ab2eded257ae"
+}

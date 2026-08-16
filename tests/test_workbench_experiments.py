@@ -9,6 +9,7 @@ from pathlib import Path
 
 from agent_forge.workbench.adapters.experiment_files import FileExperimentCatalog
 from agent_forge.workbench.presentation.experiments import render_experiment_bundle
+from agent_forge.workbench.presentation.http import INDEX_HTML
 
 
 PROJECT_DIR = Path(__file__).resolve().parents[1]
@@ -141,6 +142,16 @@ class WorkbenchExperimentCatalogTest(unittest.TestCase):
             )
 
             self.assertEqual(FileExperimentCatalog(root).experiment_sources(), ())
+
+    def test_index_exposes_one_workbench_with_runtime_and_experiment_modes(
+        self,
+    ) -> None:
+        self.assertIn('data-mode="runtime"', INDEX_HTML)
+        self.assertIn('data-mode="experiments"', INDEX_HTML)
+        self.assertIn('id="experimentFamilySelect"', INDEX_HTML)
+        self.assertIn('id="experimentComparisonSelect"', INDEX_HTML)
+        self.assertIn('id="experimentItemSelect"', INDEX_HTML)
+        self.assertIn("/api/experiment", INDEX_HTML)
 
 
 if __name__ == "__main__":
