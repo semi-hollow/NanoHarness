@@ -225,13 +225,17 @@ class GovernedShowcaseConsoleTest(unittest.IsolatedAsyncioTestCase):
     async def test_buttons_drive_the_two_runtime_barriers(self):
         with tempfile.TemporaryDirectory() as tmp:
             app = GovernedShowcaseConsoleApp(output_root=Path(tmp))
-            async with app.run_test(size=(140, 45)) as pilot:
+            # PyCharm 的普通 Run 窗口常只有约 38 行；每个当前动作都必须留在
+            # 可视区域内，不能只在 Textual 的虚拟布局中处于 display=True。
+            async with app.run_test(size=(140, 38)) as pilot:
+                self._assert_on_screen(app, "#start")
                 await pilot.click("#start")
                 await self._wait_for(
                     lambda: app.query_one("#choices").display,
                 )
                 self.assertEqual(app._controller.current.status, "waiting_human")
 
+                self._assert_on_screen(app, "#choice-lts")
                 await pilot.click("#choice-lts")
                 await self._wait_for(
                     lambda: app.query_one("#resume-actions").display,
@@ -242,12 +246,14 @@ class GovernedShowcaseConsoleTest(unittest.IsolatedAsyncioTestCase):
                     "human_input_recorded",
                 )
 
+                self._assert_on_screen(app, "#resume")
                 await pilot.click("#resume")
                 await self._wait_for(
                     lambda: app.query_one("#approval-actions").display,
                 )
                 self.assertEqual(app._controller.current.status, "waiting_approval")
 
+                self._assert_on_screen(app, "#approve")
                 await pilot.click("#approve")
                 await self._wait_for(
                     lambda: app.query_one("#resume-actions").display,
@@ -258,6 +264,7 @@ class GovernedShowcaseConsoleTest(unittest.IsolatedAsyncioTestCase):
                     "approval_recorded",
                 )
 
+                self._assert_on_screen(app, "#resume")
                 await pilot.click("#resume")
                 await self._wait_for(
                     lambda: app.query_one("#terminal-actions").display,
@@ -267,6 +274,11 @@ class GovernedShowcaseConsoleTest(unittest.IsolatedAsyncioTestCase):
                     app._controller.state_sequence,
                     ("waiting_human", "waiting_approval", "completed"),
                 )
+
+    def _assert_on_screen(self, app, selector: str) -> None:
+        widget = app.query_one(selector)
+        self.assertGreaterEqual(widget.region.y, app.screen.region.y)
+        self.assertLessEqual(widget.region.bottom, app.screen.region.bottom)
 
     async def _wait_for(self, predicate, *, timeout_seconds: float = 10.0):
         for _ in range(int(timeout_seconds * 20)):

@@ -33,7 +33,7 @@ class GovernedShowcaseConsoleApp(App[None]):
     CSS = """
     Screen { background: #101417; color: #e8edf0; }
     Header, Footer { background: #182025; }
-    #hero { height: 8; padding: 1 2; border-bottom: solid #3d4a52; }
+    #hero { height: 5; padding: 1 2; border-bottom: solid #3d4a52; }
     #hero-title { text-style: bold; color: #b6e3c4; }
     #hero-copy { color: #bcc7cc; }
     #body { height: 1fr; }
@@ -41,10 +41,10 @@ class GovernedShowcaseConsoleApp(App[None]):
     #control-panel { width: 2fr; min-width: 48; padding: 1 2; }
     .panel-title { height: 2; text-style: bold; color: #b6e3c4; }
     #timeline { height: 1fr; background: #101417; }
-    #state { height: 9; padding: 1; border: solid #4c5a62; background: #171d21; }
-    #persistence { height: 12; margin-top: 1; padding: 1; border: solid #416b55; }
+    #state { height: 6; padding: 1; border: solid #4c5a62; background: #171d21; }
+    #persistence { height: 9; margin-top: 1; padding: 1; border: solid #416b55; }
     #decision { height: 1fr; margin-top: 1; padding: 1; border: solid #4c5a62; }
-    #actions { height: 10; margin-top: 1; }
+    #actions { dock: bottom; height: 4; margin-top: 1; background: #101417; }
     #choices, #approval-actions, #resume-actions, #terminal-actions { height: 3; }
     Button { margin-right: 1; }
     #approve { background: #247a4a; }
