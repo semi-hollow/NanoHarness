@@ -7,7 +7,11 @@ from typing import TYPE_CHECKING, Any, Protocol
 
 if TYPE_CHECKING:
     from agent_forge.observability.domain.run_story import RunStory
-    from agent_forge.workbench.domain import EvidenceSource
+    from agent_forge.workbench.domain import (
+        EvidenceSource,
+        ExperimentBundle,
+        ExperimentSource,
+    )
 
 
 class EvidenceCatalogPort(Protocol):
@@ -44,3 +48,10 @@ class EvidenceCatalogPort(Protocol):
     def latest_campaign_state(self) -> dict[str, Any]: ...
     def latest_campaign_summary(self) -> dict[str, Any]: ...
     def latest_improvement_record_path(self) -> Path | None: ...
+
+
+class ExperimentCatalogPort(Protocol):
+    """发现并读取 checked-in 实验资产，不解释隐藏运行日志。"""
+
+    def experiment_sources(self) -> tuple[ExperimentSource, ...]: ...
+    def experiment_bundle(self, source_key: str) -> ExperimentBundle | None: ...

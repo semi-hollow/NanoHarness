@@ -88,7 +88,8 @@ from agent_forge.runtime.ports import (
 from agent_forge.skills.registry import SkillRegistry
 from agent_forge.tools.registry import ToolRegistry
 from agent_forge.workbench.adapters.evidence_files import FileEvidenceCatalog
-from agent_forge.workbench.ports import EvidenceCatalogPort
+from agent_forge.workbench.adapters.experiment_files import FileExperimentCatalog
+from agent_forge.workbench.ports import EvidenceCatalogPort, ExperimentCatalogPort
 
 
 FORMAL_IMPLEMENTATIONS = (
@@ -122,6 +123,7 @@ FORMAL_IMPLEMENTATIONS = (
     (FileCampaignArtifacts, CampaignArtifactPort),
     (EvaluationJsonCaseEvidenceReader, EvaluationCaseEvidenceReader),
     (FileEvidenceCatalog, EvidenceCatalogPort),
+    (FileExperimentCatalog, ExperimentCatalogPort),
     (GitFanoutWorkspace, FanoutWorkspacePort),
     (FanoutFileRepository, FanoutArtifactPort),
     (LocalAgentWorkerAdapter, FanoutWorkerPort),

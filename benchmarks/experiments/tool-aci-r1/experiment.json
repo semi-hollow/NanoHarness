@@ -1,0 +1,80 @@
+{
+  "schema_version": 1,
+  "artifact_type": "nanoharness_experiment_view",
+  "active": true,
+  "order": 10,
+  "experiment_id": "tool-aci-r1",
+  "experiment_kind": "paired_ab",
+  "family": {
+    "id": "tool-aci",
+    "title": "Tool / ACI 优化"
+  },
+  "comparison": {
+    "id": "r0-vs-r1",
+    "title": "R0 → R1 · Tool 成熟化 Bundle",
+    "baseline_id": "r0",
+    "baseline_label": "R0 Stable",
+    "candidate_id": "r1",
+    "candidate_label": "R1 Treatment"
+  },
+  "title": "R1 · 首轮 Tool / ACI Bundle",
+  "question": "在模型、Case、Runtime 与预算固定时，增强 repository Tool / ACI 是否提高 official resolved？",
+  "hypothesis": "更快的内容搜索、独立文件发现、有限 AST 结构提示和 validation head/tail 可减少无效探索，并保留或提高正确率。",
+  "primary_variable": "repository Tool / ACI capability bundle",
+  "changes": [
+    {
+      "name": "内容搜索",
+      "baseline": "Python Path.rglob 后逐文件读取匹配",
+      "candidate": "grep_search 保持模型可见 schema，后端改为有界 rg 搜索",
+      "implementation": "agent_forge/tools/grep.py",
+      "assessment": "效率变量"
+    },
+    {
+      "name": "文件发现",
+      "baseline": "目录树式 list_files",
+      "candidate": "新增 rg --files 支撑的 find_files；R1 仍同时暴露 list_files",
+      "implementation": "agent_forge/tools/find_files.py",
+      "assessment": "能力增加，但与 list_files 有职责重叠"
+    },
+    {
+      "name": "Repository outline",
+      "baseline": "无自动 AST outline",
+      "candidate": "对已排序文件生成有界 Python AST repo_outline",
+      "implementation": "agent_forge/context/repo_outline.py",
+      "assessment": "额外上下文变量"
+    },
+    {
+      "name": "Validation 输出",
+      "baseline": "长输出只保留前缀",
+      "candidate": "截断时保留明确 head 与 tail",
+      "implementation": "agent_forge/tools/output_window.py",
+      "assessment": "错误可见性变量"
+    }
+  ],
+  "fixed_controls": [
+    "Golden-20 固定开发集，R0/R1 各 20 个一次性 Case",
+    "opencode-go/deepseek-v4-flash，thinking enabled，reasoning high",
+    "single agent，128 steps，task-aware routing，official evaluator",
+    "apply_patch、LSP、Code Graph、Memory、Multi-Agent 与 Prompt 改造均不进入变量"
+  ],
+  "boundaries": [
+    "Golden-20 是固定开发集，不是 holdout，也不是完整 SWE-bench Verified 排行榜。",
+    "R1 是 Tool / ACI bundle；结果不能单独归因于 rg、find_files、repo_outline 或 validation window 中的某一项。",
+    "绝对能力另由实际完成的 DeepSeek V4 Flash Mini-50 测量，不与本开发集 A/B 混用分母。"
+  ],
+  "decision": {
+    "status": "reject",
+    "gate": "resolved count 下降或 Tool 改动造成稳定 regression 即拒绝",
+    "summary": "R1 从 14/20 降至 13/20，出现两项 regression；Treatment 已回滚。"
+  },
+  "paths": {
+    "plan": "benchmarks/experiments/tool-aci-r1/plan.json",
+    "result": "benchmarks/experiments/tool-aci-r1/result.json",
+    "readme": "benchmarks/experiments/tool-aci-r1/README.md",
+    "report": "benchmarks/experiments/tool-aci-r1/report.md",
+    "executions": [
+      "benchmarks/experiments/tool-aci-r1/r0.execution.json",
+      "benchmarks/experiments/tool-aci-r1/r1.execution.json"
+    ]
+  }
+}

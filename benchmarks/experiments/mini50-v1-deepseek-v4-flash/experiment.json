@@ -1,0 +1,74 @@
+{
+  "schema_version": 1,
+  "artifact_type": "nanoharness_experiment_view",
+  "active": true,
+  "order": 30,
+  "experiment_id": "mini50-v1-deepseek-v4-flash",
+  "experiment_kind": "measurement",
+  "family": {
+    "id": "absolute-capability",
+    "title": "绝对能力测量"
+  },
+  "comparison": {
+    "id": "mini50-v1",
+    "title": "Mini-50 · DeepSeek V4 Flash",
+    "baseline_id": "",
+    "baseline_label": "",
+    "candidate_id": "mini50",
+    "candidate_label": "NanoHarness + V4 Flash"
+  },
+  "title": "SWE-bench Verified Mini-50",
+  "question": "NanoHarness 当前固定质量配置在可负担的扩大样本上能解决多少 repository repair Case？",
+  "hypothesis": "固定模型、Runtime、Tool surface 与 50 个 Case 后，一次 Pass@1 测量可形成比 Golden-10 更可信的个人项目能力口径。",
+  "primary_variable": "无 Treatment；这是固定系统配置的绝对能力测量",
+  "changes": [
+    {
+      "name": "样本",
+      "baseline": "Golden-10/20 仅用于开发与回归",
+      "candidate": "固定 SWE-bench Verified Mini-50，50 个 Case 全部进入 planned 分母",
+      "implementation": "benchmarks/showcase/swebench-verified-mini-50-v1.json",
+      "assessment": "扩大样本，不声称等同完整 500 题"
+    },
+    {
+      "name": "质量配置",
+      "baseline": "历史实验配置不作为本次结果",
+      "candidate": "DeepSeek V4 Flash，thinking enabled，reasoning max，128 steps，64K repository context",
+      "implementation": "plan.json:model_profile",
+      "assessment": "在 outcome 前冻结"
+    },
+    {
+      "name": "发布门",
+      "baseline": "部分结果不可作为正式分数",
+      "candidate": "planned=terminal=50、infra=0、身份不漂移才发布 X/50；Empty Patch 计入分母",
+      "implementation": "Mini-50 runner + result.json",
+      "assessment": "区分能力失败与基础设施失败"
+    }
+  ],
+  "fixed_controls": [
+    "Pass@1；Agent correctness 结果不重跑，基础设施无效槽按预先规则补全",
+    "opencode-go/deepseek-v4-flash，thinking enabled，reasoning max",
+    "single agent，128 steps，64K Context，131072 prompt tokens，16384 reserved output tokens",
+    "50 个 Case、source revision、provider/model identity 与 official evaluator 全部冻结"
+  ],
+  "boundaries": [
+    "28/50 只适用于这份固定 Mini-50 样本和固定 NanoHarness/V4 Flash profile，不是完整 500 题排行榜分数。",
+    "该结果测量整个系统组合，不拆分底座模型与 Harness 各自的独立贡献。",
+    "6 个 Agent terminal Empty Patch 是真实能力终态，保留在 planned 分母中。"
+  ],
+  "decision": {
+    "status": "published",
+    "gate": "planned=50、terminal_accounted=50、provider/runtime/evaluator/external infra=0 且证据链一致",
+    "summary": "Final Publish Gate 通过：28/50 official resolved，16 official unresolved，6 Agent terminal Empty Patch。"
+  },
+  "paths": {
+    "plan": "benchmarks/experiments/mini50-v1-deepseek-v4-flash/plan.json",
+    "result": "benchmarks/experiments/mini50-v1-deepseek-v4-flash/result.json",
+    "readme": "benchmarks/experiments/mini50-v1-deepseek-v4-flash/README.md",
+    "report": "benchmarks/experiments/mini50-v1-deepseek-v4-flash/report.md",
+    "case_order": "benchmarks/showcase/swebench-verified-mini-50-v1.json",
+    "executions": [
+      "benchmarks/experiments/mini50-v1-deepseek-v4-flash/mini50.execution.json",
+      "benchmarks/experiments/mini50-v1-deepseek-v4-flash/completion.execution.json"
+    ]
+  }
+}

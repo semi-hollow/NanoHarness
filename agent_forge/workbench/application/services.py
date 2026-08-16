@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
-from agent_forge.workbench.ports import EvidenceCatalogPort
+from agent_forge.workbench.ports import EvidenceCatalogPort, ExperimentCatalogPort
 
 
 @dataclass(frozen=True)
@@ -14,3 +14,4 @@ class WorkbenchServices:
 
     project_dir: Path
     evidence: EvidenceCatalogPort
+    experiments: ExperimentCatalogPort

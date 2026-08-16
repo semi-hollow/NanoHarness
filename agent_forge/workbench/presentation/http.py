@@ -25,6 +25,7 @@ from agent_forge.workbench.application.context_inspection import (
 )
 from agent_forge.workbench.application.services import WorkbenchServices
 from agent_forge.workbench.domain import EvidenceSource
+from agent_forge.workbench.presentation.experiments import render_experiment_bundle
 from agent_forge.storage_layout import DEBUG_LAB_STATE_ROOT, EVALUATION_DATA_ROOT
 from agent_forge.workbench.wiring import (
     build_evidence_catalog,
@@ -78,6 +79,20 @@ class ForgeUiHandler(BaseHTTPRequestHandler):
                 {"html": _render_evidence_html(self.state.project_dir, kind)}
             )
             return
+        if path == "/api/experiment":
+            source_key = (query.get("source") or [""])[0]
+            experiment_sources = self.state.experiments.experiment_sources()
+            if not source_key and experiment_sources:
+                source_key = experiment_sources[0].key
+            bundle = self.state.experiments.experiment_bundle(source_key)
+            if bundle is None:
+                self._send_json(
+                    {"html": _empty_evidence("没有找到可读取的实验资产。")},
+                    HTTPStatus.NOT_FOUND,
+                )
+                return
+            self._send_json({"html": render_experiment_bundle(bundle)})
+            return
         self._send_json({"error": "not found"}, HTTPStatus.NOT_FOUND)
 
     def do_POST(self) -> None:
@@ -111,6 +126,18 @@ class ForgeUiHandler(BaseHTTPRequestHandler):
             ),
             "evidence_sources": [
                 source.to_public_dict() for source in evidence_sources
+            ],
+            "selected_experiment": next(
+                (
+                    source.key
+                    for source in self.state.experiments.experiment_sources()
+                    if source.item_key == "overview"
+                ),
+                "",
+            ),
+            "experiment_sources": [
+                source.to_public_dict()
+                for source in self.state.experiments.experiment_sources()
             ],
         }
 
@@ -7866,6 +7893,24 @@ INDEX_HTML = r"""<!doctype html>
       border-bottom: 1px solid var(--line);
       background: #fff;
     }
+    [hidden] { display: none !important; }
+    .workspace-mode-tabs {
+      display: flex; gap: 0; margin: 0 -24px; padding: 0 24px;
+      background: #15181d; border-top: 1px solid #313740;
+    }
+    .workspace-mode-tabs button {
+      width: auto; min-height: 38px; margin: 0; padding: 0 15px;
+      color: #9fa8b4; background: transparent; border: 0;
+      border-bottom: 2px solid transparent; border-radius: 0; font-weight: 700;
+    }
+    .workspace-mode-tabs button.active {
+      color: #fff; border-bottom-color: #70a7ff; background: #20242a;
+    }
+    .experiment-workspace { max-width: 1320px; margin: 0 auto; }
+    .experiment-premise, .evidence-layer-strip { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    .experiment-transitions { grid-template-columns: repeat(2, minmax(0, 1fr)); margin-top: 12px; }
+    .experiment-variable-table code { color: #46546a; font-size: 10px; white-space: normal; }
+    .experiment-identity .badge { margin-top: 2px; }
     .source-picker, .source-picker-meta { min-width: 0; padding: 12px 18px; }
     .source-picker { border-right: 1px solid var(--line); }
     .source-picker label { display: block; margin: 0 0 6px; color: var(--muted); font-size: 10px; font-weight: 800; }
@@ -7879,6 +7924,7 @@ INDEX_HTML = r"""<!doctype html>
       margin: 0 0 14px; padding: 18px 20px; border: 1px solid var(--line); background: #fff;
     }
     .source-identity > div > span { color: var(--accent); font-size: 10px; font-weight: 800; text-transform: uppercase; }
+    .source-identity > .badge { align-self: start; justify-self: end; }
     .source-identity h2 { margin: 5px 0 4px; font-size: 20px; }
     .source-identity p { margin: 0; color: var(--muted); font-size: 11px; }
     .source-identity dl { grid-column: 1 / -1; display: grid; grid-template-columns: 1fr 1fr; margin: 0; border-top: 1px solid var(--line); }
@@ -7952,6 +7998,8 @@ INDEX_HTML = r"""<!doctype html>
       .artifact-card p { min-height: 0; }
       .view-heading { align-items: center; }
       .workspace-toolbar, .source-identity, .source-identity dl { grid-template-columns: 1fr; }
+      .workspace-mode-tabs { margin: 0 -12px; padding: 0 12px; }
+      .experiment-premise, .evidence-layer-strip, .experiment-transitions { grid-template-columns: 1fr; }
       .source-picker { border-right: 0; border-bottom: 1px solid var(--line); }
       .source-identity dl > div { padding-right: 0; }
       .trace-context-unit > summary { display: grid; }

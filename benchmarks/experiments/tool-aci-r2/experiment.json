@@ -1,0 +1,80 @@
+{
+  "schema_version": 1,
+  "artifact_type": "nanoharness_experiment_view",
+  "active": true,
+  "order": 20,
+  "experiment_id": "tool-aci-r2",
+  "experiment_kind": "paired_ab",
+  "family": {
+    "id": "tool-aci",
+    "title": "Tool / ACI 优化"
+  },
+  "comparison": {
+    "id": "r0-vs-r2",
+    "title": "R0 → R2 · 最小正交 Tool Surface",
+    "baseline_id": "r0",
+    "baseline_label": "R0 Stable",
+    "candidate_id": "r2",
+    "candidate_label": "R2 Treatment"
+  },
+  "title": "R2 · 最小正交 Tool Surface",
+  "question": "收缩为更小、更正交的 Tool surface 后，能否在不回归 official correctness 的前提下降低探索成本？",
+  "hypothesis": "移除 repo_outline，并让 find_files 在 SWE-bench 路由中替代 list_files，可减少重叠入口和上下文噪声；rg 与 validation window 保留确定性效率收益。",
+  "primary_variable": "minimal orthogonal repository Tool / ACI bundle",
+  "changes": [
+    {
+      "name": "内容搜索",
+      "baseline": "Path.rglob + Python 逐文件匹配",
+      "candidate": "grep_search schema 不变；使用有界 rg --fixed-strings 后端",
+      "implementation": "agent_forge/tools/grep.py · agent_forge/tools/rg_support.py",
+      "assessment": "减少搜索实现开销，不增加模型动作"
+    },
+    {
+      "name": "文件发现与路由",
+      "baseline": "SWE task-aware 路由暴露 list_files",
+      "candidate": "新增 find_files(pattern, path, max_results)；SWE-bench 隐藏 list_files，其他任务保持旧行为",
+      "implementation": "agent_forge/tools/find_files.py · agent_forge/tools/tool_router.py",
+      "assessment": "把重叠入口收敛为单一职责"
+    },
+    {
+      "name": "长输出证据窗口",
+      "baseline": "只保留长输出前缀",
+      "candidate": "共用 render_output_window；截断时约 2/3 head + 1/3 tail",
+      "implementation": "agent_forge/tools/output_window.py · python_validation.py · run_command.py",
+      "assessment": "保留尾部错误，同时控制上下文"
+    },
+    {
+      "name": "自动 Context",
+      "baseline": "无 repo_outline",
+      "candidate": "仍无 repo_outline；selected-file preview 权重不变",
+      "implementation": "R2 Treatment 不包含 repo_outline",
+      "assessment": "主动移除 R1 的复合变量"
+    }
+  ],
+  "fixed_controls": [
+    "复用 Golden-20 开发集与冻结 R0；它不是 holdout 或排行榜样本",
+    "opencode-go/deepseek-v4-flash，thinking enabled，reasoning high",
+    "single agent，128 steps，固定 Context/Prompt/Tool-call 上限与 official evaluator",
+    "apply_patch、LSP、Code Graph、Memory、Multi-Agent 与 Prompt 改造均 defer"
+  ],
+  "boundaries": [
+    "Golden-20 已被 R1/R2 反复用作开发与回归集，不是 fresh holdout。",
+    "R2 是三部分 Tool / ACI bundle；可以说总体结果与过程指标变化，不能说某一组件单独造成因果提升。",
+    "Correctness 持平且存在 regression，所以效率改善不等于能力提升，Treatment 不进入 stable Runtime。"
+  ],
+  "decision": {
+    "status": "reject",
+    "gate": "R2 必须提高 resolved 且 resolved-to-unresolved 为 0；否则不合入 stable Runtime",
+    "summary": "Official correctness 14/20 持平，Token -33.6%、Tool calls -20.8%；但一 gain、一 regression，未通过 non-regression gate。"
+  },
+  "paths": {
+    "plan": "benchmarks/experiments/tool-aci-r2/plan.json",
+    "result": "benchmarks/experiments/tool-aci-r2/result.json",
+    "readme": "benchmarks/experiments/tool-aci-r2/README.md",
+    "report": "benchmarks/experiments/tool-aci-r2/report.md",
+    "executions": [
+      "benchmarks/experiments/tool-aci-r1/r0.execution.json",
+      "benchmarks/experiments/tool-aci-r2/r2.execution.json"
+    ]
+  }
+}

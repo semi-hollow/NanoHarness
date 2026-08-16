@@ -7,18 +7,24 @@ from agent_forge.workbench.adapters.evidence_files import (
     FileEvidenceCatalog,
     read_json_file,
 )
+from agent_forge.workbench.adapters.experiment_files import FileExperimentCatalog
 from agent_forge.workbench.application.services import WorkbenchServices
-from agent_forge.workbench.ports import EvidenceCatalogPort
+from agent_forge.workbench.ports import EvidenceCatalogPort, ExperimentCatalogPort
 
 
 def build_evidence_catalog(project_dir: Path) -> EvidenceCatalogPort:
     return FileEvidenceCatalog(project_dir)
 
 
+def build_experiment_catalog(project_dir: Path) -> ExperimentCatalogPort:
+    return FileExperimentCatalog(project_dir)
+
+
 def build_workbench_services(project_dir: Path) -> WorkbenchServices:
     return WorkbenchServices(
         project_dir=project_dir,
         evidence=FileEvidenceCatalog(project_dir),
+        experiments=FileExperimentCatalog(project_dir),
     )
 
 

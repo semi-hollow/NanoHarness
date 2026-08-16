@@ -1,3 +1,3 @@
-from .services import EvidenceCatalogPort
+from .services import EvidenceCatalogPort, ExperimentCatalogPort
 
-__all__ = ["EvidenceCatalogPort"]
+__all__ = ["EvidenceCatalogPort", "ExperimentCatalogPort"]
