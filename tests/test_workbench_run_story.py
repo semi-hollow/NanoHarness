@@ -1211,7 +1211,7 @@ class WorkbenchRunStoryTest(unittest.TestCase):
                                 "step": 1,
                                 "request": {
                                     "status": "responded",
-                                    "answer": "Python 3.11 LTS",
+                                    "answer": "将人工要求写入运行产物",
                                 },
                             },
                             {
@@ -1222,7 +1222,7 @@ class WorkbenchRunStoryTest(unittest.TestCase):
                                     "status": "approved",
                                     "operation_key": "operation-key-1",
                                     "tool_name": "replace_text",
-                                    "arguments": {"path": "compatibility.py"},
+                                    "arguments": {"path": "operator_request.txt"},
                                 },
                             },
                             {
@@ -1233,7 +1233,7 @@ class WorkbenchRunStoryTest(unittest.TestCase):
                                     "kind": "pytest",
                                     "status": "passed",
                                     "tool": "python_validation",
-                                    "evidence": "test_compatibility.py\n1 passed",
+                                    "evidence": "test_operator_request.py\n1 passed",
                                 },
                             },
                         ]
@@ -1269,16 +1269,16 @@ class WorkbenchRunStoryTest(unittest.TestCase):
         self.assertIn("references/failure-triage.md", rendered)
         self.assertIn("披露 900 / 900 字符", rendered)
         self.assertIn("本次人工决策链", rendered)
-        self.assertIn("Python 3.11 LTS", rendered)
-        self.assertIn("补丁审批 · compatibility.py", rendered)
+        self.assertIn("将人工要求写入运行产物", rendered)
+        self.assertIn("补丁审批 · operator_request.txt", rendered)
         self.assertIn("pytest · passed", rendered)
         self.assertIn("operation-key-1", rendered)
         self.assertIn("人工决策与验证时间线", rendered)
         self.assertIn("载入人工回答", rendered)
         self.assertIn("验证证据", rendered)
         self.assertIn("本次人工决策链", workspace_results)
-        self.assertIn("Python 3.11 LTS", workspace_results)
-        self.assertIn("补丁审批 · compatibility.py", workspace_results)
+        self.assertIn("将人工要求写入运行产物", workspace_results)
+        self.assertIn("补丁审批 · operator_request.txt", workspace_results)
         self.assertIn("pytest · passed", workspace_results)
         self.assertIn(str(control_trace), rendered)
         self.assertIn("1 个 Checkpoint", overview)

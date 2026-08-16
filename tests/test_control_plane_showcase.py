@@ -5,14 +5,21 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from textual.widgets import Input
+
 from agent_forge.showcase import run_governed_demo
-from agent_forge.showcase.console import GovernedShowcaseConsoleApp
+from agent_forge.showcase.console import (
+    GovernedShowcaseConsoleApp,
+    _readable_durable_paths,
+)
 from agent_forge.showcase.control_plane import (
-    GOVERNED_CHOICES,
+    GOVERNED_PLACEHOLDER,
     GovernedShowcaseController,
     _continue_control_plane_demo,
     _start_control_plane_demo,
 )
+
+OPERATOR_REQUEST = "将审批后的人工要求写入运行产物"
 
 
 class ControlPlaneShowcaseTest(unittest.TestCase):
@@ -28,7 +35,7 @@ class ControlPlaneShowcaseTest(unittest.TestCase):
             self.assertRegex(
                 waiting_human.run_dir.name,
                 re.compile(
-                    r"^lab1-python-compatibility-control__\d{4}-\d{2}-\d{2}_"
+                    r"^lab1-governed-change-control__\d{4}-\d{2}-\d{2}_"
                     r"\d{2}-\d{2}-\d{2}__[a-z0-9]{7}$"
                 ),
             )
@@ -49,14 +56,11 @@ class ControlPlaneShowcaseTest(unittest.TestCase):
             controller = GovernedShowcaseController(output_root=tmp)
 
             waiting_human = controller.start()
-            target = waiting_human.workspace / "compatibility.py"
+            target = waiting_human.workspace / "operator_request.txt"
             self.assertEqual(waiting_human.status, "waiting_human")
-            self.assertEqual(
-                target.read_text(encoding="utf-8"),
-                'TARGET_RUNTIME = "unselected"\n',
-            )
+            self.assertEqual(target.read_text(encoding="utf-8"), f"{GOVERNED_PLACEHOLDER}\n")
 
-            recorded_answer = controller.record_answer(GOVERNED_CHOICES[0])
+            recorded_answer = controller.record_answer(OPERATOR_REQUEST)
             self.assertEqual(recorded_answer.action, "human_input_recorded")
             self.assertEqual(recorded_answer.status, "waiting_human")
             self.assertTrue(
@@ -66,10 +70,7 @@ class ControlPlaneShowcaseTest(unittest.TestCase):
             waiting_approval = controller.resume()
             self.assertEqual(waiting_approval.status, "waiting_approval")
             self.assertTrue(waiting_approval.operation_key)
-            self.assertEqual(
-                target.read_text(encoding="utf-8"),
-                'TARGET_RUNTIME = "unselected"\n',
-            )
+            self.assertEqual(target.read_text(encoding="utf-8"), f"{GOVERNED_PLACEHOLDER}\n")
 
             recorded_approval = controller.record_decision("approved")
             self.assertEqual(recorded_approval.action, "approval_recorded")
@@ -80,10 +81,7 @@ class ControlPlaneShowcaseTest(unittest.TestCase):
 
             completed = controller.resume()
             self.assertEqual(completed.status, "completed")
-            self.assertEqual(
-                target.read_text(encoding="utf-8"),
-                f'TARGET_RUNTIME = "{GOVERNED_CHOICES[0]}"\n',
-            )
+            self.assertEqual(target.read_text(encoding="utf-8"), f"{OPERATOR_REQUEST}\n")
             self.assertEqual(
                 controller.state_sequence,
                 ("waiting_human", "waiting_approval", "completed"),
@@ -94,12 +92,17 @@ class ControlPlaneShowcaseTest(unittest.TestCase):
             self.assertIn("human_approval", event_types)
             self.assertIn("validation_evidence", event_types)
             self.assertTrue((completed.run_dir / "demo.md").is_file())
+            approval_paths = _readable_durable_paths(recorded_approval)
+            readable_paths = _readable_durable_paths(completed)
+            self.assertIn("operation_ledger/<key>.json", approval_paths)
+            self.assertNotIn(str(completed.run_dir), readable_paths)
+            self.assertIn("current_phase/trace.json", readable_paths)
 
     def test_pause_and_cancel_are_persisted_at_runtime_safe_boundaries(self):
         with tempfile.TemporaryDirectory() as tmp:
             controller = GovernedShowcaseController(output_root=tmp)
             started = controller.start()
-            controller.record_answer(GOVERNED_CHOICES[0])
+            controller.record_answer(OPERATOR_REQUEST)
 
             paused = controller.pause_at_safe_boundary()
             self.assertEqual(paused.status, "paused")
@@ -116,22 +119,24 @@ class ControlPlaneShowcaseTest(unittest.TestCase):
             )
             self.assertEqual(cancelled_checkpoint["status"], "cancelled")
             self.assertEqual(
-                (started.workspace / "compatibility.py").read_text(encoding="utf-8"),
-                'TARGET_RUNTIME = "unselected"\n',
+                (started.workspace / "operator_request.txt").read_text(encoding="utf-8"),
+                f"{GOVERNED_PLACEHOLDER}\n",
             )
 
     def test_governed_rejection_keeps_workspace_unchanged(self):
         with tempfile.TemporaryDirectory() as tmp:
             controller = GovernedShowcaseController(output_root=tmp)
             controller.start()
-            waiting_approval = controller.answer(GOVERNED_CHOICES[1])
+            waiting_approval = controller.answer(OPERATOR_REQUEST)
             completed = controller.decide("rejected")
 
             self.assertEqual(waiting_approval.status, "waiting_approval")
             self.assertEqual(completed.status, "completed")
             self.assertEqual(
-                (completed.workspace / "compatibility.py").read_text(encoding="utf-8"),
-                'TARGET_RUNTIME = "unselected"\n',
+                (completed.workspace / "operator_request.txt").read_text(
+                    encoding="utf-8"
+                ),
+                f"{GOVERNED_PLACEHOLDER}\n",
             )
             trace = json.loads(completed.trace_path.read_text(encoding="utf-8"))
             self.assertFalse(
@@ -155,7 +160,7 @@ class ControlPlaneShowcaseTest(unittest.TestCase):
             completed = _continue_control_plane_demo(
                 "hitl",
                 started.run_dir,
-                answer="Python 3.11",
+                answer="Use the operator-provided request",
             )
 
             self.assertEqual(completed.status, "completed")
@@ -229,14 +234,18 @@ class GovernedShowcaseConsoleTest(unittest.IsolatedAsyncioTestCase):
             # 可视区域内，不能只在 Textual 的虚拟布局中处于 display=True。
             async with app.run_test(size=(140, 38)) as pilot:
                 self._assert_on_screen(app, "#start")
+                self._assert_panels_fit(app)
                 await pilot.click("#start")
                 await self._wait_for(
-                    lambda: app.query_one("#choices").display,
+                    lambda: app.query_one("#human-input-actions").display,
                 )
                 self.assertEqual(app._controller.current.status, "waiting_human")
+                self._assert_panels_fit(app)
 
-                self._assert_on_screen(app, "#choice-lts")
-                await pilot.click("#choice-lts")
+                self._assert_on_screen(app, "#human-answer")
+                self._assert_on_screen(app, "#save-human-answer")
+                app.query_one("#human-answer", Input).value = OPERATOR_REQUEST
+                await pilot.click("#save-human-answer")
                 await self._wait_for(
                     lambda: app.query_one("#resume-actions").display,
                 )
@@ -245,6 +254,7 @@ class GovernedShowcaseConsoleTest(unittest.IsolatedAsyncioTestCase):
                     app._controller.current.action,
                     "human_input_recorded",
                 )
+                self._assert_panels_fit(app)
 
                 self._assert_on_screen(app, "#resume")
                 await pilot.click("#resume")
@@ -252,6 +262,7 @@ class GovernedShowcaseConsoleTest(unittest.IsolatedAsyncioTestCase):
                     lambda: app.query_one("#approval-actions").display,
                 )
                 self.assertEqual(app._controller.current.status, "waiting_approval")
+                self._assert_panels_fit(app)
 
                 self._assert_on_screen(app, "#approve")
                 await pilot.click("#approve")
@@ -263,6 +274,7 @@ class GovernedShowcaseConsoleTest(unittest.IsolatedAsyncioTestCase):
                     app._controller.current.action,
                     "approval_recorded",
                 )
+                self._assert_panels_fit(app)
 
                 self._assert_on_screen(app, "#resume")
                 await pilot.click("#resume")
@@ -274,11 +286,27 @@ class GovernedShowcaseConsoleTest(unittest.IsolatedAsyncioTestCase):
                     app._controller.state_sequence,
                     ("waiting_human", "waiting_approval", "completed"),
                 )
+                self._assert_panels_fit(app)
 
     def _assert_on_screen(self, app, selector: str) -> None:
         widget = app.query_one(selector)
         self.assertGreaterEqual(widget.region.y, app.screen.region.y)
         self.assertLessEqual(widget.region.bottom, app.screen.region.bottom)
+
+    def _assert_panels_fit(self, app) -> None:
+        for selector in ("#state", "#persistence", "#decision"):
+            widget = app.query_one(selector)
+            strips = widget.render().render_strips(
+                widget,
+                widget.content_size.width,
+                None,
+                widget.visual_style,
+            )
+            self.assertLessEqual(
+                len(strips),
+                widget.content_size.height,
+                f"{selector} content is clipped in a 140x38 Run window",
+            )
 
     async def _wait_for(self, predicate, *, timeout_seconds: float = 10.0):
         for _ in range(int(timeout_seconds * 20)):

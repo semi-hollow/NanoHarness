@@ -2,7 +2,7 @@
 
 from agent_forge.showcase.control_plane import (
     ControlPlaneShowcaseResult,
-    GOVERNED_CHOICES,
+    DEFAULT_GOVERNED_REQUEST,
     GovernedRunDemoResult,
     GovernedShowcaseController,
     run_governed_demo,
@@ -10,7 +10,7 @@ from agent_forge.showcase.control_plane import (
 
 __all__ = [
     "ControlPlaneShowcaseResult",
-    "GOVERNED_CHOICES",
+    "DEFAULT_GOVERNED_REQUEST",
     "GovernedRunDemoResult",
     "GovernedShowcaseController",
     "run_governed_demo",

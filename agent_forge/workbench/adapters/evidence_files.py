@@ -85,7 +85,7 @@ class FileEvidenceCatalog(EvidenceCatalogPort):
         task = str(
             (story.task if story else "")
             or read_json_file(latest_trace).get("task")
-            or "受治理兼容性修复"
+            or "受治理人工变更"
         )
         run_title = _run_display_title(root.name)
         return EvidenceSource(

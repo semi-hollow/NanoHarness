@@ -38,20 +38,21 @@ from agent_forge.storage_layout import (
     human_readable_run_name,
 )
 
-HITL_QUESTION = "Which compatibility target should be used?"
+HITL_QUESTION = "What operator input should the continuation use?"
 HITL_TASK = (
-    "Implement the compatibility update in result.txt after asking the operator "
-    "which API version should be targeted."
+    "Ask the operator for the missing input, persist it, and finish only after the "
+    "continuation loads the response."
 )
 APPROVAL_TASK = (
     "Fix target.py so value equals 2, then run the focused pytest target "
     "test_target.py before finishing."
 )
-GOVERNED_CHOICES = ("Python 3.11 LTS", "Python 3.12 Current")
+DEFAULT_GOVERNED_REQUEST = "Record this operator-approved change request."
+GOVERNED_PLACEHOLDER = "NO_OPERATOR_REQUEST"
 GOVERNED_TASK = (
-    "Select a supported Python compatibility target with the operator, update "
-    "compatibility.py only after explicit approval, and run the focused pytest "
-    "test_compatibility.py before finishing."
+    "Ask the operator for a concrete change request, write it to operator_request.txt "
+    "only after explicit approval, and run the focused pytest target "
+    "test_operator_request.py before finishing."
 )
 
 
@@ -130,12 +131,10 @@ class GovernedShowcaseController:
             raise RuntimeError(
                 "governed showcase already has a persisted operator action"
             )
-        if answer not in GOVERNED_CHOICES:
-            raise ValueError(
-                "governed showcase answer must be one of: "
-                + ", ".join(GOVERNED_CHOICES)
-            )
-        result = _record_human_answer(current, answer)
+        normalized_answer = str(answer or "").strip()
+        if not normalized_answer:
+            raise ValueError("governed showcase answer must not be empty")
+        result = _record_human_answer(current, normalized_answer)
         self._pending_resume = "human_input"
         self._current = result
         return result
@@ -251,9 +250,7 @@ def run_governed_demo(
 
     phases = [_start_control_plane_demo(scenario, output_root=output_root)]
     if phases[-1].status == "waiting_human":
-        resolved_answer = answer or (
-            GOVERNED_CHOICES[0] if scenario == "governed" else "Python 3.11"
-        )
+        resolved_answer = answer or DEFAULT_GOVERNED_REQUEST
         phases.append(
             _continue_control_plane_demo(
                 scenario,
@@ -321,7 +318,7 @@ class _HitlShowcaseModel:
                         "ask_human",
                         {
                             "question": HITL_QUESTION,
-                            "choices": ["Python 3.10", "Python 3.11"],
+                            "choices": [],
                         },
                     )
                 ],
@@ -381,7 +378,7 @@ class _ApprovalShowcaseModel:
 
 
 class _GovernedShowcaseModel:
-    """固定“人工选择 → 审批写入 → focused pytest”的工具意图。
+    """固定“人工输入 → 审批写入 → focused pytest”的工具意图。
 
     continuation 会创建新的 ModelPort，因此阶段判断只读取当前规范消息中的已回填
     Tool Observation，不依赖进程内计数或隐藏状态。
@@ -398,7 +395,7 @@ class _GovernedShowcaseModel:
         tool_names = {str(message.name or "") for message in tool_messages}
         if "python_validation" in tool_names:
             return AgentResponse(
-                "PASS\noperator choice approved; compatibility target updated; "
+                "PASS\noperator request approved; request artifact updated; "
                 "focused pytest passed",
                 [],
             )
@@ -413,7 +410,7 @@ class _GovernedShowcaseModel:
             )
             if "approval rejected" in replace_observation:
                 return AgentResponse(
-                    "STOPPED\noperator rejected the proposed compatibility change; "
+                    "STOPPED\noperator rejected the proposed request update; "
                     "workspace remained unchanged",
                     [],
                 )
@@ -425,23 +422,23 @@ class _GovernedShowcaseModel:
                         "python_validation",
                         {
                             "check_type": "pytest",
-                            "validation_target": "test_compatibility.py",
+                            "validation_target": "test_operator_request.py",
                         },
                     )
                 ],
             )
-        selected_target = _human_response(tool_messages)
-        if selected_target:
+        operator_request = _human_response(tool_messages)
+        if operator_request:
             return AgentResponse(
                 None,
                 [
                     ToolCall(
-                        "showcase-governed-patch",
+                        "showcase-governed-request-update",
                         "replace_text",
                         {
-                            "path": "compatibility.py",
-                            "old": 'TARGET_RUNTIME = "unselected"\n',
-                            "new": f'TARGET_RUNTIME = "{selected_target}"\n',
+                            "path": "operator_request.txt",
+                            "old": f"{GOVERNED_PLACEHOLDER}\n",
+                            "new": f"{operator_request}\n",
                         },
                     )
                 ],
@@ -450,11 +447,11 @@ class _GovernedShowcaseModel:
             None,
             [
                 ToolCall(
-                    "showcase-governed-choice",
+                    "showcase-governed-input",
                     "ask_human",
                     {
-                        "question": "Select the supported Python runtime target.",
-                        "choices": list(GOVERNED_CHOICES),
+                        "question": "Describe the change request to persist and approve.",
+                        "choices": [],
                     },
                 )
             ],
@@ -488,14 +485,17 @@ def _start_control_plane_demo(
             encoding="utf-8",
         )
     elif scenario == "governed":
-        (workspace / "compatibility.py").write_text(
-            'TARGET_RUNTIME = "unselected"\n',
+        (workspace / "operator_request.txt").write_text(
+            f"{GOVERNED_PLACEHOLDER}\n",
             encoding="utf-8",
         )
-        (workspace / "test_compatibility.py").write_text(
-            "from compatibility import TARGET_RUNTIME\n\n\n"
-            "def test_runtime_target_is_supported() -> None:\n"
-            f"    assert TARGET_RUNTIME in {GOVERNED_CHOICES!r}\n",
+        (workspace / "test_operator_request.py").write_text(
+            "from pathlib import Path\n\n\n"
+            "def test_operator_request_is_recorded() -> None:\n"
+            "    request = Path(__file__).with_name('operator_request.txt')\n"
+            "    value = request.read_text(encoding='utf-8').strip()\n"
+            "    assert value\n"
+            f"    assert value != {GOVERNED_PLACEHOLDER!r}\n",
             encoding="utf-8",
         )
 
@@ -693,9 +693,7 @@ def _run_phase(
         run_controller.pause("Lab 1 operator requested pause before continuation")
     elif control_action == "cancel":
         run_controller.cancel("Lab 1 operator requested cancel before continuation")
-    phase_label = (
-        "lab1-python-compatibility" if scenario == "governed" else f"lab1-{scenario}"
-    )
+    phase_label = "lab1-governed-change" if scenario == "governed" else f"lab1-{scenario}"
     run_result = Harness(
         model=model,
         tools=tools,
@@ -761,7 +759,7 @@ def _run_phase(
 
 def _new_run_dir(output_root: str | Path, scenario: str) -> Path:
     labels = {
-        "governed": "lab1-python-compatibility-control",
+        "governed": "lab1-governed-change-control",
         "hitl": "lab1-human-input",
         "approval": "lab1-write-operation-approval",
     }
@@ -846,25 +844,25 @@ def _render_showcase_report(result: ControlPlaneShowcaseResult) -> str:
         safety = f"当前 `target.py` 内容：`{current_value}`。"
         identity = f"approval operation: `{result.operation_key}`"
     else:
-        target = result.workspace / "compatibility.py"
-        current_target = target.read_text(encoding="utf-8").strip()
+        target = result.workspace / "operator_request.txt"
+        current_request = target.read_text(encoding="utf-8").strip()
         if result.status == "waiting_human":
-            event = "兼容目标问题已持久化；在操作员选择前不会产生补丁。"
-            safety = f"当前配置仍为 `{current_target}`。"
+            event = "人工输入问题已持久化；在操作员回答前不会产生补丁。"
+            safety = f"当前请求文件仍为 `{current_request}`。"
             identity = f"human request: `{result.request_id}`"
         elif result.status == "waiting_approval":
             event = (
-                "人工选择已回填，Runtime 已生成绑定目标 fingerprint 的补丁审批；"
+                "人工输入已回填，Runtime 已生成绑定目标 fingerprint 的补丁审批；"
                 "真实写工具尚未执行。"
             )
-            safety = f"审批前配置仍为 `{current_target}`。"
+            safety = f"审批前请求文件仍为 `{current_request}`。"
             identity = f"approval operation: `{result.operation_key}`"
         else:
             event = (
                 "审批决定已持久化；获准时补丁由真实工具执行，并由 focused pytest "
-                "验证所选兼容目标。"
+                "验证人工请求已写入。"
             )
-            safety = f"终态配置为 `{current_target}`。"
+            safety = f"终态请求文件为 `{current_request}`。"
             identity = f"approval operation: `{result.operation_key}`"
 
     lines = [
@@ -911,7 +909,7 @@ def _render_governed_demo(
     if waiting.scenario == "governed":
         decision_steps = [
             "模型提出人工问题，Runtime 先保存 request 与 waiting_human checkpoint。",
-            "操作员选择兼容目标，continuation 再生成具体文件补丁。",
+            "操作员输入变更要求，continuation 再生成具体文件补丁。",
             "Runtime 保存 operation fingerprint，并停在 waiting_approval。",
             "操作员批准或拒绝；只有批准分支才执行写工具与 focused pytest。",
         ]
@@ -967,7 +965,7 @@ def _load_manifest(run_dir: Path) -> dict[str, Any]:
 
 __all__ = [
     "ControlPlaneShowcaseResult",
-    "GOVERNED_CHOICES",
+    "DEFAULT_GOVERNED_REQUEST",
     "GovernedRunDemoResult",
     "GovernedShowcaseController",
     "run_governed_demo",

@@ -46,7 +46,7 @@ Lab 不会停进另一项。Project 面板优先使用 `00 NanoHarness Review Pa
 例如：
 
 ```text
-lab1-python-compatibility-control__2026-08-16_14-30-25__a1b2c3d
+lab1-governed-change-control__2026-08-16_14-30-25__a1b2c3d
 lab2-checkout-policy-agents__2026-08-16_14-42-10__d4e5f6a
 swebench-django__django-11451__2026-08-16_15-05-30__91ac240
 ```
@@ -85,10 +85,10 @@ PyCharm 会打开按钮式 TUI。每个动作都刻意与 continuation 分开，
 JSON，而不是点击一次就直接跳到终态：
 
 1. 点击“开始受治理任务”。Runtime 创建问题并停在 `waiting_human`。
-2. TUI 的“权威文件”面板列出 HumanInput 与 Checkpoint 的绝对路径；直接在 Project 树打开。
-3. 选择兼容目标。此动作**只保存回答**，不会自动 Resume，也不会修改 workspace。
+2. TUI 的“权威文件”面板列出 HumanInput 与 Checkpoint 的短路径；需要精确绝对路径时打开 `showcase.json`。
+3. 输入一条具体变更要求并点击“仅保存输入”。此动作**只保存回答**，不会自动 Resume，也不会修改 workspace。
 4. 对比 HumanInput JSON 的 `status`、`answer`、`updated_at`，再点“显式 Resume”。
-5. Runtime 生成补丁意图并停在 `waiting_approval`；此时目标文件仍为 `unselected`。
+5. Runtime 生成补丁意图并停在 `waiting_approval`；此时目标文件仍为 `NO_OPERATOR_REQUEST`。
 6. 点击“仅保存批准”或“仅保存拒绝”，检查 Approval JSON；真实工具仍未执行。
 7. 可选择“Pause 到安全边界”观察 paused Checkpoint，或“Cancel 任务”观察 cancelled 终态；
    也可点“显式 Resume”继续消费原决定。
@@ -107,10 +107,10 @@ JSON，而不是点击一次就直接跳到终态：
 │   ├── task_state/<run-id>.json  # waiting / paused / cancelled / completed
 │   ├── trace.json
 │   └── usage.json
-└── workspace/compatibility.py
+└── workspace/operator_request.txt
 ```
 
-重点不是记住随机 ID，而是从 TUI 直接复制当前绝对路径。`showcase.json` 只提供导航；
+重点不是记住随机 ID，而是先用 TUI 的短路径识别对象，需要精确定位时再查 `showcase.json`。
 HumanInput、Approval、Operation Ledger、TaskState 和 Trace 才是各自 owner 写入的权威状态。
 
 验证标准：能够观察 `waiting_human → waiting_approval → completed`，也能单独复现
