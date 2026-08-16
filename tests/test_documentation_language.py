@@ -15,6 +15,8 @@ CHINESE_FIRST_DOCS = (
     "SECURITY.md",
     "agent_forge/README.md",
     "docs/系统概览与核心设计.md",
+    "docs/上下文工程.md",
+    "docs/工具治理与执行.md",
     "docs/核心能力与代码入口.md",
     "docs/核心运行机制与代码索引.md",
     "docs/运行产物与持久化契约.md",
@@ -24,6 +26,8 @@ CHINESE_FIRST_DOCS = (
 PUBLIC_DOC_LINE_BUDGETS = {
     "README.md": 250,
     "docs/系统概览与核心设计.md": 220,
+    "docs/上下文工程.md": 560,
+    "docs/工具治理与执行.md": 680,
     "docs/核心能力与代码入口.md": 120,
     "docs/核心运行机制与代码索引.md": 165,
     "docs/运行产物与持久化契约.md": 260,
@@ -32,6 +36,8 @@ PUBLIC_DOC_LINE_BUDGETS = {
 
 CANONICAL_README_LINKS = (
     "docs/系统概览与核心设计.md",
+    "docs/上下文工程.md",
+    "docs/工具治理与执行.md",
     "docs/核心能力与代码入口.md",
     "docs/核心运行机制与代码索引.md",
     "docs/运行产物与持久化契约.md",
@@ -43,12 +49,19 @@ ALLOWED_DOC_SURFACES: tuple[str, ...] = ()
 
 ALLOWED_TOP_LEVEL_DOCS = {
     "docs/系统概览与核心设计.md",
+    "docs/上下文工程.md",
+    "docs/工具治理与执行.md",
     "docs/核心能力与代码入口.md",
     "docs/核心运行机制与代码索引.md",
     "docs/运行产物与持久化契约.md",
 }
 
 MAX_PUBLIC_DOCS = len(ALLOWED_TOP_LEVEL_DOCS)
+
+OVERVIEW_FIRST_DOCS = {
+    "docs/上下文工程.md": 70,
+    "docs/工具治理与执行.md": 70,
+}
 
 PUBLIC_POSITIONING_FORBIDDEN = (
     "面" + "试",
@@ -141,6 +154,39 @@ class DocumentationLanguageTest(unittest.TestCase):
                         f"{relative_path}:{line_number}: English prose remains: {line}"
                     )
         self.assertEqual(violations, [], "Public documentation must be Chinese-first")
+
+    def test_overview_first_documents_keep_details_below_the_main_chain(self) -> None:
+        """两条技术主线必须先讲完整骨架，再允许按 anchor 下钻。"""
+
+        for relative_path, overview_line_limit in OVERVIEW_FIRST_DOCS.items():
+            text = (PROJECT_ROOT / relative_path).read_text(encoding="utf-8")
+            lines = text.splitlines()
+            detailed_index = lines.index("# 详细设计 / Detailed Design")
+            self.assertLessEqual(
+                detailed_index + 1,
+                overview_line_limit,
+                f"{relative_path} Overview 已膨胀为细节正文",
+            )
+            overview = "\n".join(lines[:detailed_index])
+            self.assertIn('<a id="overview"></a>', overview)
+            self.assertIn("### 按需下钻", overview)
+
+            detailed_lines = lines[detailed_index + 1 :]
+            detailed_sections = sum(
+                1 for line in detailed_lines if line.startswith("## ")
+            )
+            self.assertEqual(
+                text.count("[↑ 返回 Overview](#overview)"),
+                detailed_sections,
+                f"{relative_path} Detailed section 缺少返回 Overview 的链接",
+            )
+            anchors = set(re.findall(r'<a id="([^"]+)"></a>', text))
+            anchor_links = set(re.findall(r"\]\(#([^)]+)\)", text))
+            self.assertEqual(
+                anchor_links - anchors,
+                set(),
+                f"{relative_path} 存在失效页内 anchor",
+            )
 
     def test_public_repository_uses_project_facing_language(self) -> None:
         """公开源码只描述项目范围、工程事实、操作方法和验证标准。"""
@@ -352,7 +398,7 @@ class DocumentationLanguageTest(unittest.TestCase):
         )
 
     def test_cheatsheet_owners_have_explanatory_docstrings(self) -> None:
-        """两个代码索引中的每个 Owner 都必须能定位，且入口自身能够解释职责。"""
+        """代码导航文档中的每个 Owner 都必须能定位，且入口自身能够解释职责。"""
 
         capability_path = PROJECT_ROOT / "docs/核心能力与代码入口.md"
         capability_text = capability_path.read_text(encoding="utf-8")

@@ -15,7 +15,7 @@
       "selection_set": "SWE-bench Verified Mini-50",
       "selection_role": "canonical_absolute_evaluation",
       "profile_manifest": "benchmarks/experiments/mini50-v1-deepseek-v4-flash/plan.json",
-      "profile_manifest_sha256": "cf87728a9e6bc7a4a54936350cf765908065180f9e3cc42708d84e5e645a6ae5",
+      "profile_manifest_sha256": "1ba0851255c0bd7c108078d16ace057e5ddfd9597ff26190af07bf74ba362bd9",
       "completion_index": "benchmarks/experiments/mini50-v1-deepseek-v4-flash/completion.execution.json",
       "selection_protocol": "frozen Pass@1 with infrastructure-only completion"
     }
