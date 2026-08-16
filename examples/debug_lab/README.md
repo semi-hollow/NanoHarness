@@ -100,6 +100,7 @@ JSON，而不是点击一次就直接跳到终态：
 .agent_forge/runs/showcases/<lab1-run>/
 ├── showcase.json                 # 本次步骤导航清单
 ├── showcase.md                   # 同一事实的可读摘要
+├── demo.md                       # 终态 Run Story
 ├── human_input/<request-id>.json # pending → responded
 ├── approvals/<operation-key>.json
 ├── operation_ledger/<operation-key>.json

@@ -249,18 +249,57 @@ class DocumentationLanguageTest(unittest.TestCase):
                     f"README does not link canonical document: {relative_path}"
                 )
 
-        # 能力索引只保留可搜索 Owner，避免把 Markdown 文件链接误写成精确定义跳转。
-        capability_index = (PROJECT_ROOT / "docs/核心能力与代码入口.md").read_text(
-            encoding="utf-8"
+        parsed_symbols: dict[Path, dict[str, int]] = {}
+
+        def symbols_for(source_path: Path) -> dict[str, int]:
+            if source_path not in parsed_symbols:
+                tree = ast.parse(source_path.read_text(encoding="utf-8"))
+                available: dict[str, int] = {}
+                for node in tree.body:
+                    if isinstance(
+                        node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)
+                    ):
+                        available[node.name] = node.lineno
+                    if isinstance(node, ast.ClassDef):
+                        for child in node.body:
+                            if isinstance(
+                                child, (ast.FunctionDef, ast.AsyncFunctionDef)
+                            ):
+                                available[f"{node.name}.{child.name}"] = child.lineno
+                parsed_symbols[source_path] = available
+            return parsed_symbols[source_path]
+
+        # 能力索引的核心 Owner 必须能从 GitHub 直接点击，但不维护易漂移行号。
+        capability_path = PROJECT_ROOT / "docs/核心能力与代码入口.md"
+        capability_index = capability_path.read_text(encoding="utf-8")
+        capability_links = list(
+            re.finditer(
+                r"\[\s*`(?P<symbol>[^`]+)`\s*\]\("
+                r"(?P<target>\.\./agent_forge/[^)#]+\.py)\)",
+                capability_index,
+            )
         )
-        if re.search(r"\]\(\.\./agent_forge/", capability_index):
-            violations.append("核心能力索引不应包含本地源码链接")
+        if len(capability_links) < 30:
+            violations.append("核心能力索引的可点击 Owner 不足 30 个")
         if re.search(r"`L[1-9][0-9]*`", capability_index):
             violations.append("核心能力索引不应维护易漂移行号")
+        for owner_link in capability_links:
+            symbol = owner_link.group("symbol")
+            target = owner_link.group("target")
+            source_path = (capability_path.parent / target).resolve()
+            try:
+                source_path.relative_to(PROJECT_ROOT / "agent_forge")
+            except ValueError:
+                violations.append(f"Owner 链接逃逸 agent_forge: {target}")
+                continue
+            if not source_path.is_file():
+                violations.append(f"Owner 链接不存在: {target}")
+                continue
+            if symbol not in symbols_for(source_path):
+                violations.append(f"Owner 符号不存在: {target}::{symbol}")
 
         # 机制索引仍保留代码证据链接；路径、符号和行号必须与源码一致。
         owner_index_paths = (PROJECT_ROOT / "docs/核心运行机制与代码索引.md",)
-        parsed_symbols: dict[Path, dict[str, int]] = {}
         for owner_index_path in owner_index_paths:
             owner_index = owner_index_path.read_text(encoding="utf-8")
             owner_links = list(
@@ -286,29 +325,13 @@ class DocumentationLanguageTest(unittest.TestCase):
                 if not source_path.is_file():
                     violations.append(f"Owner 链接不存在: {target}")
                     continue
-                if source_path not in parsed_symbols:
-                    tree = ast.parse(source_path.read_text(encoding="utf-8"))
-                    available: dict[str, int] = {}
-                    for node in tree.body:
-                        if isinstance(
-                            node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)
-                        ):
-                            available[node.name] = node.lineno
-                        if isinstance(node, ast.ClassDef):
-                            for child in node.body:
-                                if isinstance(
-                                    child, (ast.FunctionDef, ast.AsyncFunctionDef)
-                                ):
-                                    available[f"{node.name}.{child.name}"] = (
-                                        child.lineno
-                                    )
-                    parsed_symbols[source_path] = available
-                if symbol not in parsed_symbols[source_path]:
+                available_symbols = symbols_for(source_path)
+                if symbol not in available_symbols:
                     violations.append(f"Owner 符号不存在: {target}::{symbol}")
-                elif int(linked_line) != parsed_symbols[source_path][symbol]:
+                elif int(linked_line) != available_symbols[symbol]:
                     violations.append(
                         f"Owner 行号已漂移: {target}::{symbol} "
-                        f"#L{linked_line} != #L{parsed_symbols[source_path][symbol]}"
+                        f"#L{linked_line} != #L{available_symbols[symbol]}"
                     )
         lab_path = PROJECT_ROOT / "examples/debug_lab/README.md"
         lab = lab_path.read_text(encoding="utf-8")

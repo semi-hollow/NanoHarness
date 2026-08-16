@@ -6,6 +6,9 @@
 
 **一个可治理、可恢复，并以运行证据为核心的 Coding Agent Runtime。**
 
+NanoHarness 参考成熟 Coding Agent 的工程形态，独立实现 Runtime 级的 Context、
+Tool Governance、Durability 与 Evaluation 能力。
+
 NanoHarness 在隔离的真实代码仓库中驱动模型检索、编辑和验证代码。它不只返回本次停止输出；
 只有被接受的完成才发布 final answer，同时把上下文、工具、权限、人工控制、恢复状态、成本和评测结论收敛为
 可检查的 Run Evidence。
