@@ -55,6 +55,7 @@ PyCharm 配置、两个确定性 Lab 和证据路径见 [Debug Lab](examples/deb
 | Runtime 全局主链 | [架构导览](docs/架构导览.md) |
 | 模型每轮看到什么 | [上下文工程](docs/上下文工程.md) |
 | ToolCall 如何治理和执行 | [工具治理与执行](docs/工具治理与执行.md) |
+| 多个 Agent 如何隔离、并发和稳定集成 | [多 Agent 编排](docs/多Agent编排.md) |
 | 哪个能力由哪段核心代码拥有 | [核心能力与代码入口](docs/核心能力与代码入口.md) |
 | 哪个 JSON 是恢复权威 | [运行产物与持久化契约](docs/运行产物与持久化契约.md) |
 
