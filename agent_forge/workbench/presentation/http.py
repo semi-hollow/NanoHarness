@@ -2100,7 +2100,7 @@ def _render_context_fact_list(values: tuple[str, ...]) -> str:
 
 
 def _signed_number(value: int) -> str:
-    return f"+{value}" if value > 0 else str(value)
+    return f"{value:+,}" if value else "0"
 
 
 def _render_trace_timeline_entries(
@@ -2151,9 +2151,13 @@ def _render_trace_lane(label: str, trace_path: Path) -> str:
         step = int(event.get("step") or 0)
         if step > 0:
             turns.setdefault(step, []).append(event)
+    inspections = {
+        inspection.step: inspection
+        for inspection in build_context_turn_inspections(trace)
+    }
 
     turn_blocks = "".join(
-        _render_timeline_turn(turn, turn_events)
+        _render_timeline_turn(turn, turn_events, inspections.get(turn))
         for turn, turn_events in sorted(turns.items())
     )
     return (
@@ -2167,25 +2171,6 @@ def _render_trace_lane(label: str, trace_path: Path) -> str:
         "</section>"
     )
 
-
-_TIMELINE_STAGES = (
-    ("input", "01", "准备模型输入", "上下文、记忆、Skill 与工具范围", "purple"),
-    ("decision", "02", "模型提出意图", "模型调用、回答或 ToolCall", "blue"),
-    (
-        "governed_execution",
-        "03",
-        "Runtime 处理意图",
-        "入口控制、执行决策与受限执行",
-        "warn",
-    ),
-    (
-        "persistence",
-        "04",
-        "结果回填",
-        "Observation、证据、恢复状态与停止原因",
-        "neutral",
-    ),
-)
 
 _TRACE_STAGE_BY_EVENT = {
     "turn_started": "input",
@@ -2494,59 +2479,148 @@ def _checkpoint_change_summary(
     return " · ".join(parts)
 
 
-def _render_timeline_turn(turn: int, events: list[dict[str, Any]]) -> str:
+def _render_timeline_turn(
+    turn: int,
+    events: list[dict[str, Any]],
+    inspection: ContextTurnInspection | None,
+) -> str:
     grouped: dict[str, list[dict[str, Any]]] = {
-        stage[0]: [] for stage in _TIMELINE_STAGES
+        "input": [],
+        "decision": [],
+        "governed_execution": [],
+        "persistence": [],
     }
     for event in events:
         event_type = str(event.get("event_type") or "")
         grouped[_TRACE_STAGE_BY_EVENT.get(event_type, "persistence")].append(event)
-    stages = "".join(
-        _render_timeline_stage(key, number, title, note, tone, grouped[key])
-        for key, number, title, note, tone in _TIMELINE_STAGES
-    )
-    stage_evidence = "".join(
-        _render_raw_event_details(
-            grouped[key],
-            summary=f"{number} {title}：查看本段底层证据",
+    rows: list[str] = []
+    if grouped["input"]:
+        rows.append(
+            _render_timeline_fact_row(
+                "Input",
+                _timeline_input_summary(inspection, grouped["input"]),
+                "Context / Tool schemas / Skill",
+            )
         )
-        for key, number, title, _note, _tone in _TIMELINE_STAGES
-        if grouped[key]
-    )
+    if grouped["decision"]:
+        rows.append(
+            _render_timeline_fact_row(
+                "Decision",
+                _summarize_timeline_stage("decision", grouped["decision"]),
+                "Model action boundary",
+            )
+        )
+    if grouped["governed_execution"]:
+        rows.append(
+            _render_timeline_fact_row(
+                "Runtime",
+                _summarize_timeline_stage(
+                    "governed_execution", grouped["governed_execution"]
+                ),
+                "Observed gates / execution",
+            )
+        )
+    elif not any(event.get("event_type") == "action" for event in events):
+        rows.append(
+            _render_timeline_fact_row(
+                "Runtime",
+                "No ToolCall",
+                "本轮没有进入工具治理与执行链",
+            )
+        )
+    if grouped["persistence"]:
+        rows.append(
+            _render_timeline_fact_row(
+                "Feedback / Persistence",
+                _summarize_timeline_stage("persistence", grouped["persistence"]),
+                "Observation / Checkpoint / terminal",
+            )
+        )
     outcome, outcome_tone = _timeline_turn_outcome(events)
     turn_summary = _timeline_turn_summary(events)
+    key_reason = _timeline_key_reason(events, inspection)
+    open_attribute = " open" if key_reason else ""
+    key_class = " key-turn" if key_reason else ""
     return (
-        "<div class='timeline-turn'>"
-        "<div class='timeline-head'>"
-        f"<div><strong>第 {turn} 轮 · {_escape(turn_summary)}</strong>"
-        "<small>一次模型决策及其后续动作</small></div>"
-        f"{_badge(outcome, outcome_tone)}</div>"
-        f"<div class='timeline-phase-grid'>{stages}</div>"
-        f"<div class='timeline-stage-drilldowns'>{stage_evidence}</div>"
-        "</div>"
+        f"<details class='timeline-turn{key_class}'{open_attribute}>"
+        "<summary>"
+        f"<span><b>第 {turn} 轮 · {_escape(turn_summary)}</b>"
+        f"<small>{_escape(key_reason or '普通轮次，展开查看')}</small></span>"
+        f"{_badge(outcome, outcome_tone)}</summary>"
+        f"<div class='timeline-turn-body'>{''.join(rows)}"
+        f"{_render_raw_event_details(events, summary='查看本轮原始 Trace 事件')}"
+        "</div></details>"
     )
 
 
-def _render_timeline_stage(
-    key: str,
-    number: str,
-    title: str,
+def _render_timeline_fact_row(
+    label: str,
+    value: str,
     note: str,
-    tone: str,
-    events: list[dict[str, Any]],
 ) -> str:
-    if events:
-        summary = _summarize_timeline_stage(key, events)
-    else:
-        summary = "本轮无需执行" if key == "governed_execution" else "未观测"
-    state = " empty" if not events else ""
     return (
-        f"<div class='timeline-phase {tone}{state}'>"
-        f"<div class='timeline-phase-head'><b>{number}</b><span>{_escape(title)}</span></div>"
-        f"<strong>{_escape(summary)}</strong>"
+        "<div class='timeline-fact-row'>"
+        f"<b>{_escape(label)}</b><span>{_escape(value)}</span>"
         f"<small>{_escape(note)}</small>"
         "</div>"
     )
+
+
+def _timeline_input_summary(
+    inspection: ContextTurnInspection | None,
+    events: list[dict[str, Any]],
+) -> str:
+    if inspection is None:
+        return _summarize_timeline_stage("input", events)
+    parts: list[str] = []
+    if inspection.estimated_tokens:
+        parts.append(f"{inspection.estimated_tokens:,} tokens")
+        parts.append(f"Δ {_signed_number(inspection.token_delta)}")
+    if inspection.hard_input_limit:
+        occupancy = inspection.estimated_tokens / inspection.hard_input_limit * 100
+        parts.append(f"{occupancy:.1f}% input budget")
+    if inspection.visible_tools:
+        parts.append(f"{len(inspection.visible_tools)} tools")
+    if inspection.active_skills:
+        parts.append(f"{len(inspection.active_skills)} skills")
+    if inspection.compacted:
+        parts.append("compacted")
+    if inspection.tools_changed:
+        parts.append("tool surface changed")
+    if inspection.skills_changed:
+        parts.append("skill set changed")
+    return " · ".join(parts) or _summarize_timeline_stage("input", events)
+
+
+def _timeline_key_reason(
+    events: list[dict[str, Any]],
+    inspection: ContextTurnInspection | None,
+) -> str:
+    if _pending_tool_rejection(events) is not None:
+        return "收口时仍请求工具，Runtime 明确拒绝未执行动作"
+    event_types = {str(event.get("event_type") or "") for event in events}
+    if event_types & {
+        "human_approval",
+        "human_input_requested",
+        "human_input_response_loaded",
+        "run_control",
+    }:
+        return "人工或运行控制边界"
+    if "recovery_decision" in event_types or "resume_state_loaded" in event_types:
+        return "恢复路径改变了后续控制流"
+    if any(
+        event.get("permission_decision") == "deny"
+        or not bool(event.get("success", True))
+        and event.get("event_type") in {"permission_check", "tool_observation"}
+        for event in events
+    ):
+        return "治理阻断或工具失败"
+    completed = _last_trace_event(events, "run_completed")
+    if completed is not None:
+        return "Run 进入确定性终态"
+    if inspection is not None and inspection.key_reason:
+        return inspection.key_reason
+    return ""
 
 
 def _summarize_timeline_stage(key: str, events: list[dict[str, Any]]) -> str:
@@ -7315,69 +7389,69 @@ INDEX_HTML = r"""<!doctype html>
       border-bottom: 1px solid var(--line);
     }
     .timeline-turn {
-      padding: 16px 0 14px;
+      margin: 0;
+      padding: 0;
       border-bottom: 1px solid var(--line);
-    }
-    .timeline-phase-grid {
-      display: grid;
-      grid-template-columns: repeat(4, minmax(0, 1fr));
-      border: 1px solid var(--line);
       background: #fff;
     }
-    .timeline-phase {
-      min-width: 0;
-      min-height: 108px;
-      padding: 12px;
-      border-right: 1px solid var(--line);
-      border-top: 3px solid transparent;
-    }
-    .timeline-phase:last-child { border-right: 0; }
-    .timeline-phase.purple { border-top-color: rgba(94, 92, 230, .72); }
-    .timeline-phase.blue { border-top-color: rgba(0, 87, 184, .72); }
-    .timeline-phase.warn { border-top-color: rgba(163, 95, 0, .72); }
-    .timeline-phase.ok { border-top-color: rgba(36, 138, 61, .72); }
-    .timeline-phase.neutral { border-top-color: rgba(102, 112, 125, .46); }
-    .timeline-phase.empty { background: #f7f8fa; border-top-color: #d8dde4; }
-    .timeline-phase-head {
+    .timeline-turn > summary {
       display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 13px 10px;
+      cursor: pointer;
+      list-style: none;
+    }
+    .timeline-turn > summary::-webkit-details-marker { display: none; }
+    .timeline-turn > summary::before {
+      content: '›';
+      color: var(--muted);
+      font-size: 18px;
+      transform: rotate(0deg);
+      transition: transform .12s ease;
+    }
+    .timeline-turn[open] > summary::before { transform: rotate(90deg); }
+    .timeline-turn > summary > span:first-of-type {
+      min-width: 0;
+      flex: 1;
+    }
+    .timeline-turn > summary b,
+    .timeline-turn > summary small { display: block; }
+    .timeline-turn > summary b { font-size: 12px; line-height: 1.4; }
+    .timeline-turn > summary small {
+      margin-top: 3px;
+      color: var(--muted);
+      font-size: 9px;
+    }
+    .timeline-turn.key-turn > summary {
+      background: #f7fbff;
+      box-shadow: inset 3px 0 0 var(--accent);
+    }
+    .timeline-turn-body {
+      padding: 0 10px 12px 38px;
+    }
+    .timeline-fact-row {
+      display: grid;
+      grid-template-columns: 128px minmax(0, 1fr) minmax(150px, .45fr);
+      gap: 10px;
+      padding: 8px 0;
+      border-top: 1px solid var(--line);
       align-items: baseline;
-      gap: 7px;
-      margin-bottom: 10px;
     }
-    .timeline-phase-head b {
-      color: #9aa3af;
-      font: 700 10px/1 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-    }
-    .timeline-phase-head span { color: #384454; font-size: 11px; font-weight: 800; }
-    .timeline-phase > strong {
-      display: block;
-      min-height: 34px;
-      color: #202938;
-      font-size: 12px;
-      line-height: 1.45;
-      overflow-wrap: anywhere;
-    }
-    .timeline-phase.empty > strong { color: #9aa3af; font-weight: 600; }
-    .timeline-phase > small {
-      display: block;
-      margin-top: 8px;
+    .timeline-fact-row b { color: var(--accent-strong); font-size: 10px; }
+    .timeline-fact-row span { color: #202938; font-size: 11px; line-height: 1.45; }
+    .timeline-fact-row small {
       color: var(--muted);
       font-size: 9px;
       line-height: 1.4;
+      text-align: right;
     }
     .timeline-raw {
       margin-top: 9px;
       padding: 0;
       border: 0;
       background: transparent;
-    }
-    .timeline-stage-drilldowns {
-      display: grid;
-      gap: 5px;
-      padding: 9px 10px 2px;
-      border: 1px solid var(--line);
-      border-top: 0;
-      background: #fbfcfd;
     }
     .timeline-raw summary {
       color: #66707d;
@@ -7874,9 +7948,6 @@ INDEX_HTML = r"""<!doctype html>
       .pipeline { grid-template-columns: repeat(3, minmax(0, 1fr)); }
       .pipeline > div:nth-child(3) { border-right: 0; }
       .pipeline > div:nth-child(-n+3) { border-bottom: 1px solid var(--line); }
-      .timeline-phase-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-      .timeline-phase:nth-child(2) { border-right: 0; }
-      .timeline-phase:nth-child(-n+2) { border-bottom: 1px solid var(--line); }
       .context-flow-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
       .context-flow-grid > section:nth-child(2) { border-right: 0; }
       .context-flow-grid > section:nth-child(-n+2) { border-bottom: 1px solid var(--line); }
@@ -7908,14 +7979,9 @@ INDEX_HTML = r"""<!doctype html>
       .task-summary { grid-template-columns: 1fr; }
       .pipeline, .claim-ladder, .artifact-grid, .capability-strip { grid-template-columns: 1fr; }
       .pipeline > div, .capability-strip div { border-right: 0; border-bottom: 1px solid var(--line); }
-      .timeline-phase-grid { grid-template-columns: 1fr; }
-      .timeline-phase {
-        min-height: 0;
-        border-right: 0;
-        border-bottom: 1px solid var(--line);
-      }
-      .timeline-phase:last-child { border-bottom: 0; }
-      .timeline-phase > strong { min-height: 0; }
+      .timeline-turn-body { padding-left: 22px; }
+      .timeline-fact-row { grid-template-columns: 1fr; gap: 4px; }
+      .timeline-fact-row small { text-align: left; }
       .context-turn > summary { grid-template-columns: 90px 1fr; }
       .context-turn-metrics, .context-key { grid-column: 2; white-space: normal; }
       .context-flow-grid, .context-technical-grid { grid-template-columns: 1fr; }

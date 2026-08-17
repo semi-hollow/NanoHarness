@@ -191,6 +191,49 @@ class ReviewReadyTest(unittest.TestCase):
             },
         )
 
+    def test_representative_case_rationale_is_complete_and_sanitized(self) -> None:
+        manifest = json.loads(
+            (PROJECT_ROOT / "benchmarks/showcase/evidence-review-v1.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        representatives = manifest["sources"]["evaluation"]["representative_cases"]
+        self.assertEqual(len(representatives), 3)
+        self.assertEqual(
+            {item["role"] for item in representatives},
+            {"resolved", "unresolved", "empty_patch"},
+        )
+        required = {
+            "selection_reason",
+            "outcome",
+            "patch_status",
+            "key_turning_point",
+            "success_reason",
+            "root_cause",
+            "what_to_inspect",
+            "evidence_boundary",
+            "provenance",
+        }
+        for item in representatives:
+            self.assertTrue(required <= item.keys())
+            self.assertEqual(len(item["provenance"]["trace_sha256"]), 64)
+        serialized = json.dumps(representatives, ensure_ascii=False)
+        for forbidden in ("/Users/", "api_key", "provider_secret", "raw_prompt"):
+            self.assertNotIn(forbidden, serialized)
+
+        rendered = _render_workspace_view(
+            PROJECT_ROOT,
+            source_key="evaluation",
+            view="overview",
+            sources=self.sources,
+        )
+        self.assertIn("Why selected", rendered)
+        self.assertIn("What to inspect", rendered)
+        self.assertIn("incomplete_api_propagation", json.dumps(representatives))
+        self.assertIn(
+            "command_capability_recovery_dead_end", json.dumps(representatives)
+        )
+
     def test_evidence_tree_detects_nested_artifact_mutation(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

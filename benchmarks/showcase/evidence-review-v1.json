@@ -69,17 +69,61 @@
         {
           "role": "resolved",
           "case_id": "django__django-12262",
-          "label": "Official Resolved"
+          "label": "Official Resolved",
+          "selection_reason": "最小且可读的端到端成功：一次聚焦源码修改形成非空 Patch，并由 official evaluator 接受。",
+          "outcome": "official_resolved",
+          "patch_status": "non_empty",
+          "key_turning_point": "Step 7 将 django/template/library.py 中的关键字参数判断从 unhandled_kwargs 修正为 kwonly。",
+          "success_reason": "修改直接命中 kw-only 参数校验缺口；Step 9 compile validation 成功，最终 official evaluator resolved。",
+          "root_cause": "",
+          "what_to_inspect": "对照 Step 7 的单行 replace_text、candidate diff 与 official evaluator；同时看到本机 focused pytest 因依赖缺失而不可用。",
+          "evidence_boundary": "本机 focused pytest 未运行成功；正确性结论来自固定 revision 上的 official evaluator，不把 compile success 升格为 official pass。",
+          "provenance": {
+            "campaign": "mini50-v1-deepseek-v4-flash-3ec537113a-9f81b94c99",
+            "run_id": "swebench-20260816-010255-bdfa8cd",
+            "trace_sha256": "1e2a2b1c8e4f620af813c99dcff2a2eb725ad1489c3d78d73403811bb2d0a477",
+            "candidate_diff_sha256": "5d88778dfe971e8c88543474dd42e6ee648088f0144f667161a1dcce6dfd49e6",
+            "evaluator_report_sha256": "4b3a086037a8d41b29bbb6e2f1db51f88fd99c35ddbf5b4094c2abdbe645feea"
+          }
         },
         {
           "role": "unresolved",
           "case_id": "django__django-14725",
-          "label": "Official Unresolved"
+          "label": "Official Unresolved",
+          "selection_reason": "最适合说明“非空 Patch 与部分测试通过仍不等于正确”：改动覆盖主要 API，却漏掉 inline factory 的传播入口。",
+          "outcome": "official_unresolved",
+          "patch_status": "non_empty",
+          "key_turning_point": "Patch 为 BaseModelFormSet 和 modelformset_factory 增加 edit_only，但没有把参数传播到 inlineformset_factory。",
+          "success_reason": "",
+          "root_cause": "incomplete_api_propagation",
+          "what_to_inspect": "检查 candidate diff 的 API 覆盖面，再对照 official evaluator 中 2 个 FAIL_TO_PASS 成功和 1 个 inlineformset_factory 失败。",
+          "evidence_boundary": "所有 PASS_TO_PASS 通过且部分目标测试通过，只能证明局部兼容；遗漏一个公开构造入口足以保持 official unresolved。",
+          "provenance": {
+            "campaign": "mini50-v1-deepseek-v4-flash-3ec537113a-9f81b94c99",
+            "run_id": "swebench-20260816-033114-c67649d",
+            "trace_sha256": "bb68b361d51b698e9bfb8170406ad23bd72f59dd26f876c2076f5126e905fbc8",
+            "candidate_diff_sha256": "65bed142760e6e616c82beedb62683b4d7d74d5e9067079d212134ea43aa6067",
+            "evaluator_report_sha256": "502d8559bf38f34750904dc47ad742fa3b82c6c407585193af0c2e60666a3d55"
+          }
         },
         {
           "role": "empty_patch",
           "case_id": "django__django-11206",
-          "label": "Agent Empty Patch"
+          "label": "Agent Empty Patch",
+          "selection_reason": "清楚展示受治理恢复的死路：完成聚焦读取后，连续 Git 历史命令被策略拒绝，在首次写入前触发 failure fuse。",
+          "outcome": "agent_terminal_empty_patch",
+          "patch_status": "empty",
+          "key_turning_point": "Step 4 起两个带 pipe 的 git log 命令被拒绝；去掉 pipe 后命令族仍不在正向 allowlist。",
+          "success_reason": "",
+          "root_cause": "command_capability_recovery_dead_end",
+          "what_to_inspect": "查看四次成功 read/search 后的四次 policy-blocked run_command、没有 first write、连续失败计数与 terminal reason。",
+          "evidence_boundary": "设计杠杆是窄化的 Git history capability，不是开放任意 shell；该案例没有 candidate Patch，也没有 validation。",
+          "provenance": {
+            "campaign": "mini50-v1-deepseek-v4-flash-3ec537113a-9f81b94c99",
+            "run_id": "swebench-20260816-010255-21122a0",
+            "trace_sha256": "cd76910ff73b255cbec3c691072f1c4d8b106d8415dd5613ab119b9f68d74893",
+            "derived_review": "benchmarks/experiments/mini50-v1-deepseek-v4-flash/empty-patch-failure-review-v1.json"
+          }
         }
       ]
     }

@@ -42,7 +42,9 @@ def render_experiment_bundle(bundle: ExperimentBundle) -> str:
     """按 manifest 指定的通用 item 渲染，不给单个实验写专属 HTML。"""
 
     source = bundle.source
-    if source.item_kind == "variables":
+    if source.experiment_kind == "historical":
+        content = _render_historical(bundle)
+    elif source.item_kind == "variables":
         content = _render_variables(bundle)
     elif source.item_kind == "results":
         content = _render_results(bundle)
@@ -69,6 +71,58 @@ def render_experiment_bundle(bundle: ExperimentBundle) -> str:
         f"<div><dt>机器状态</dt><dd>{_escape(source.status)}</dd></div>"
         "</dl></section>"
         f"{content}</div>"
+    )
+
+
+def _render_historical(bundle: ExperimentBundle) -> str:
+    manifest = bundle.manifest
+    decision = _mapping(manifest.get("decision"))
+    cards = [
+        (
+            str(item.get("label") or "Observed result"),
+            str(item.get("value") or "-"),
+            str(item.get("detail") or "archived observation"),
+        )
+        for item in _list_of_mappings(bundle.result.get("observed_results"))
+    ]
+    labels = "".join(
+        _badge(label, "neutral") for label in _string_list(manifest.get("labels"))
+    )
+    return (
+        "<div class='evidence'><div class='view-heading'><div>"
+        "<span class='view-kicker'>ENGINEERING HISTORY · ARCHIVED</span>"
+        "<h2>历史工程实验</h2></div>"
+        f"<div>{labels}</div></div>"
+        "<p class='help strong'>这是一份版本化只读投影；归档 README 是事实源，"
+        "当前 Runtime 与当前 Tool/ACI 证据不由此页反推。</p>"
+        "<section class='evidence-section'><div class='section-title'>"
+        "<h3>Question</h3><span>当时要回答的问题</span></div>"
+        f"<p class='help strong'>{_escape(manifest.get('question') or '-')}</p></section>"
+        "<section class='evidence-section'><div class='section-title'>"
+        "<h3>Treatment</h3><span>当时实际比较的变化</span></div>"
+        f"{_list_html(_string_list(manifest.get('treatment')), 'next-actions')}"
+        "</section>"
+        "<section class='evidence-section'><div class='section-title'>"
+        "<h3>Observed Result</h3><span>不跨分母补算</span></div>"
+        f"{_metric_cards(cards)}</section>"
+        "<section class='evidence-section'><div class='section-title'>"
+        "<h3>Decision</h3><span>当时的 gate 结论</span></div>"
+        "<div class='answer-strip'>"
+        f"<div><b>{_escape(decision.get('status') or '-')}</b>"
+        f"<span>{_escape(decision.get('summary') or '-')}</span></div>"
+        "</div></section>"
+        "<section class='evidence-section'><div class='section-title'>"
+        "<h3>Engineering Lesson</h3><span>保留下来的工程判断</span></div>"
+        f"<p class='help strong'>{_escape(manifest.get('engineering_lesson') or '-')}</p>"
+        "</section>"
+        "<section class='evidence-section'><div class='section-title'>"
+        "<h3>Canonical Source</h3><span>归档路径与内容哈希</span></div>"
+        "<div class='answer-strip'>"
+        f"<div><b>Archived README</b><span class='mono'>{_escape(manifest.get('source_path') or '-')}</span></div>"
+        f"<div><b>SHA-256</b><span class='mono'>{_escape(manifest.get('source_sha256') or '-')}</span></div>"
+        "</div></section>"
+        + _claim_boundary(bundle)
+        + "</div>"
     )
 
 
@@ -170,6 +224,7 @@ def _render_results(bundle: ExperimentBundle) -> str:
 def _render_paired_results(bundle: ExperimentBundle) -> str:
     result = bundle.result
     comparison = _mapping(bundle.manifest.get("comparison"))
+    decision = _mapping(bundle.manifest.get("decision"))
     baseline_id = str(comparison.get("baseline_id") or "r0")
     candidate_id = str(comparison.get("candidate_id") or "")
     baseline = _mapping(result.get(baseline_id))
@@ -202,6 +257,12 @@ def _render_paired_results(bundle: ExperimentBundle) -> str:
             f"<td>{_escape(_TRANSITIONS[key])}</td>"
             f"<td>{_escape(transition_counts.get(key, 0))}</td></tr>"
         )
+    treatment = [
+        f"{change.get('name')}: {change.get('candidate')}"
+        for change in _list_of_mappings(bundle.manifest.get("changes"))
+    ]
+    gain = transition_counts.get("unresolved_to_resolved", 0)
+    regression = transition_counts.get("resolved_to_unresolved", 0)
     return (
         "<div class='evidence'><div class='view-heading'><div>"
         "<span class='view-kicker'>PAIRED RESULT</span><h2>结果对比</h2>"
@@ -220,23 +281,42 @@ def _render_paired_results(bundle: ExperimentBundle) -> str:
                     str(comparison.get("candidate_label") or candidate_id),
                 ),
                 (
-                    "Net delta",
-                    _signed(paired.get("net_resolved_delta")),
-                    "official resolved",
+                    "Total tokens",
+                    _percent_change(
+                        base_metrics.get("total_tokens"),
+                        candidate_metrics.get("total_tokens"),
+                    ),
+                    "Candidate vs Baseline",
                 ),
                 (
-                    "Percentage point",
-                    _signed(paired.get("percentage_point_delta"), suffix=" pp"),
-                    "同一 20 Case",
+                    "Tool calls",
+                    _percent_change(
+                        base_metrics.get("tool_calls"),
+                        candidate_metrics.get("tool_calls"),
+                    ),
+                    "Candidate vs Baseline",
                 ),
                 (
-                    "McNemar p",
-                    _number(paired.get("mcnemar_exact_two_sided_p")),
-                    "exact two-sided",
+                    "Gain / Regression",
+                    f"{gain} / {regression}",
+                    "paired Case transitions",
                 ),
                 ("Decision", str(paired.get("decision") or "-"), "按预注册 gate"),
             ]
         )
+        + "<section class='evidence-section'><div class='section-title'>"
+        "<h3>配对结论</h3><span>同一固定 Case 集的直接比较</span></div>"
+        "<div class='answer-strip experiment-premise'>"
+        f"<div><b>{_escape(comparison.get('baseline_label') or baseline_id)}</b>"
+        f"<span>{_escape(baseline.get('official_resolved', 0))}/{_escape(baseline.get('planned', 0))} official resolved</span></div>"
+        f"<div><b>→ {_escape(comparison.get('candidate_label') or candidate_id)}</b>"
+        f"<span>{_escape(candidate.get('official_resolved', 0))}/{_escape(candidate.get('planned', 0))} official resolved</span></div>"
+        f"<div><b>Gate: {_escape(decision.get('status') or paired.get('decision') or '-')}</b>"
+        f"<span>{_escape(decision.get('summary') or '-')}</span></div>"
+        "</div></section>"
+        "<section class='evidence-section'><div class='section-title'>"
+        "<h3>Treatment design</h3><span>本轮实际变化，不混入 defer 项</span></div>"
+        f"{_list_html(treatment, 'next-actions')}</section>"
         + "<section class='evidence-section'><div class='section-title'>"
         "<h3>过程指标</h3><span>机器结果直接投影</span></div>"
         "<table><thead><tr><th>指标</th>"
@@ -248,6 +328,13 @@ def _render_paired_results(bundle: ExperimentBundle) -> str:
         f"<table class='compact-table'><thead><tr><th>转移</th><th>数量</th></tr></thead>"
         f"<tbody>{''.join(transition_rows)}</tbody></table>"
         f"{_transition_case_list(paired)}</section>"
+        "<section class='evidence-section'><div class='section-title'>"
+        "<h3>统计补充</h3><span>不替代逐 Case non-regression gate</span></div>"
+        "<div class='answer-strip'>"
+        f"<div><b>Net resolved delta</b><span>{_escape(_signed(paired.get('net_resolved_delta')))}</span></div>"
+        f"<div><b>Percentage point</b><span>{_escape(_signed(paired.get('percentage_point_delta'), suffix=' pp'))}</span></div>"
+        f"<div><b>McNemar exact p</b><span>{_escape(_number(paired.get('mcnemar_exact_two_sided_p')))}</span></div>"
+        "</div></section>"
         + _claim_boundary(bundle)
         + "</div>"
     )
@@ -784,6 +871,16 @@ def _format_delta(baseline: object, candidate: object, key: str) -> str:
         if isinstance(delta, float)
         else f"{delta:+,}{percent}"
     )
+
+
+def _percent_change(baseline: object, candidate: object) -> str:
+    if not isinstance(baseline, (int, float)) or isinstance(baseline, bool):
+        return "-"
+    if not isinstance(candidate, (int, float)) or isinstance(candidate, bool):
+        return "-"
+    if baseline == 0:
+        return "-"
+    return f"{(candidate - baseline) / baseline * 100:+.1f}%"
 
 
 def _format_integer(value: object) -> str:

@@ -39,7 +39,7 @@ def render_review_overview(
         return None
     if source.item_key != "overview":
         if source.category_key == "evaluation":
-            return _render_case_anatomy(source)
+            return _render_case_anatomy(project_dir, source)
         return None
     revision = current_git_revision(project_dir) or "HEAD"
     if source.category_key == "governed":
@@ -207,7 +207,10 @@ def _render_mini50(review: Mini50Review, revision: str) -> str:
         "<a class='representative-card' "
         f"href='?source={quote(item.source_key)}&amp;view=overview'>"
         f"<small>{_escape(item.classification.replace('_', ' ').upper())}</small>"
-        f"<strong>{_escape(item.case_id)}</strong><span>Case {item.ordinal:02d} · open evidence →</span></a>"
+        f"<strong>{_escape(item.case_id)}</strong>"
+        f"<span><b>Why selected</b> · {_escape(item.selection_reason)}</span>"
+        f"<span><b>What to inspect</b> · {_escape(item.what_to_inspect)}</span>"
+        f"<span>Case {item.ordinal:02d} · open evidence →</span></a>"
         for item in review.representatives
     )
     attempts = "".join(f"<li>{_escape(item)}</li>" for item in review.attempts)
@@ -261,7 +264,7 @@ def _render_mini50(review: Mini50Review, revision: str) -> str:
     )
 
 
-def _render_case_anatomy(source: EvidenceSource) -> str:
+def _render_case_anatomy(project_dir: Path, source: EvidenceSource) -> str:
     trace_path = source.trace_entries[0][1] if source.trace_entries else None
     trace = _read_json(trace_path)
     raw_events = trace.get("events")
@@ -293,11 +296,14 @@ def _render_case_anatomy(source: EvidenceSource) -> str:
     validation_count = sum(
         item.get("event_type") == "validation_evidence" for item in events
     )
+    representative = _representative_case(project_dir, source.item_key)
+    rationale = _render_case_rationale(representative)
     return (
         "<div class='evidence review-overview'>"
         "<div class='view-heading'><div><span class='view-kicker'>CASE ANATOMY</span>"
         f"<h2>{_escape(source.item_key)}</h2></div>{_status(source.status)}</div>"
-        "<div class='case-anatomy'>"
+        + rationale
+        + "<div class='case-anatomy'>"
         f"{_anatomy_step('01', 'Problem Statement', task, 'OBSERVED ARTIFACT')}"
         f"{_anatomy_step('02', 'Repository / Base Revision', observed_repository or '未观测', 'OBSERVED ARTIFACT')}"
         f"{_anatomy_step('03', 'Agent Trajectory', f'{len(events)} Trace events', 'OBSERVED ARTIFACT')}"
@@ -310,6 +316,60 @@ def _render_case_anatomy(source: EvidenceSource) -> str:
         "<p class='boundary-note'>Problem、Patch、Local 与 Official 分属不同证据层；某一层存在不自动证明下一层通过。</p>"
         f"<details class='provenance'><summary>Case raw evidence</summary><code>{_escape(str(case_root or '未产生'))}</code></details>"
         "</div>"
+    )
+
+
+def _representative_case(project_dir: Path, case_id: str) -> dict[str, object]:
+    manifest = _read_json(project_dir / REVIEW_MANIFEST)
+    sources = manifest.get("sources")
+    evaluation = sources.get("evaluation") if isinstance(sources, dict) else None
+    cases = (
+        evaluation.get("representative_cases")
+        if isinstance(evaluation, dict)
+        else None
+    )
+    if not isinstance(cases, list):
+        return {}
+    return next(
+        (
+            item
+            for item in cases
+            if isinstance(item, dict) and item.get("case_id") == case_id
+        ),
+        {},
+    )
+
+
+def _render_case_rationale(case: dict[str, object]) -> str:
+    if not case:
+        return ""
+    reason_label = "Success reason" if case.get("success_reason") else "Root cause"
+    reason = case.get("success_reason") or case.get("root_cause") or "-"
+    provenance = case.get("provenance")
+    provenance_rows = (
+        "".join(
+            "<tr>"
+            f"<td>{_escape(key)}</td><td><code>{_escape(value)}</code></td></tr>"
+            for key, value in provenance.items()
+        )
+        if isinstance(provenance, dict)
+        else ""
+    )
+    return (
+        "<section class='evidence-section'><div class='section-title'>"
+        "<h3>Representative Case Rationale</h3>"
+        "<span>Evidence → Classification → Design Lever</span></div>"
+        "<div class='answer-strip'>"
+        f"<div><b>Why selected</b><span>{_escape(case.get('selection_reason') or '-')}</span></div>"
+        f"<div><b>Outcome / Patch</b><span>{_escape(case.get('outcome') or '-')} · {_escape(case.get('patch_status') or '-')}</span></div>"
+        f"<div><b>Key turning point</b><span>{_escape(case.get('key_turning_point') or '-')}</span></div>"
+        f"<div><b>{_escape(reason_label)}</b><span>{_escape(reason)}</span></div>"
+        f"<div><b>What to inspect</b><span>{_escape(case.get('what_to_inspect') or '-')}</span></div>"
+        f"<div><b>Evidence boundary</b><span>{_escape(case.get('evidence_boundary') or '-')}</span></div>"
+        "</div>"
+        "<details class='provenance'><summary>Representative provenance</summary>"
+        "<table><thead><tr><th>Field</th><th>Value</th></tr></thead>"
+        f"<tbody>{provenance_rows}</tbody></table></details></section>"
     )
 
 

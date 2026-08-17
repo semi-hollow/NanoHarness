@@ -7,11 +7,11 @@
   "experiment_kind": "paired_ab",
   "family": {
     "id": "tool-aci",
-    "title": "Tool / ACI 优化"
+    "title": "CURRENT EVIDENCE · Tool / ACI 优化"
   },
   "comparison": {
     "id": "r0-vs-r1",
-    "title": "R0 → R1 · Tool 成熟化 Bundle",
+    "title": "R0→R1 · Tool 成熟化 Bundle",
     "baseline_id": "r0",
     "baseline_label": "R0 Stable",
     "candidate_id": "r1",

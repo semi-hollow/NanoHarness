@@ -1,0 +1,121 @@
+{
+  "schema_version": 1,
+  "artifact_type": "nanoharness_engineering_history_projection",
+  "description": "Sanitized, deterministic Workbench projection of four archived engineering experiment READMEs.",
+  "evidence_policy": "Archived README is the canonical source; this file only normalizes presentation fields and pins each source SHA-256.",
+  "entries": [
+    {
+      "id": "runtime-preset-50x2",
+      "order": 10,
+      "title": "Runtime Preset 50×2 · Minimal Control vs Governed Runtime",
+      "question": "在 AgentLoop、模型、任务、预算和安全边界固定时，启用 task-aware Tool Routing 与 Skill 的 Governed preset 是否优于 Minimal Control？",
+      "treatment": [
+        "Minimal Control：完整工具集，Skill 关闭",
+        "Governed Runtime：task-aware Tool Routing 与内置 Skill 同时启用"
+      ],
+      "observed_results": [
+        {"label": "Official resolved", "value": "20/50 → 14/50", "detail": "Minimal Control → Governed Runtime"},
+        {"label": "Failed Tool rate", "value": "3.63% → 1.44%", "detail": "过程失败率下降"},
+        {"label": "Total tokens", "value": "8,308,931 → 8,078,883", "detail": "略有下降"},
+        {"label": "Estimated cost", "value": "$1.242115 → $1.124990", "detail": "略有下降"}
+      ],
+      "decision": {
+        "status": "reject",
+        "summary": "正确性和 candidate reachability 同时下降；拒绝当时的 Governed Runtime preset。"
+      },
+      "engineering_lesson": "过程效率不能覆盖正确性回归；Tool Routing 与 Skill 同时变化，只能评价整个 bundle，不能归因到单一组件。",
+      "claim_boundaries": [
+        "固定 50 Case、16 steps、单题 $0.05 cap 的一次历史观测，不是完整 500 题排行榜。",
+        "每题只运行一次，且这是 preset 级多因素比较。"
+      ],
+      "labels": ["HISTORICAL", "ARCHIVED", "REJECTED"],
+      "source_path": "benchmarks/archive/legacy-benchmarks/experiments/01-runtime-preset-50x2/README.md",
+      "source_sha256": "e9c7c99583aac3ee810f4ca1c5d77c708632830a928fc95eb93abda13ac96265"
+    },
+    {
+      "id": "context-budget-exploration",
+      "order": 20,
+      "title": "Context Budget · P0 / P1 / P2 Historical Exploration",
+      "question": "调整 prompt token budget 是否能以更低成本维持或改善 Patch 形成能力？",
+      "treatment": [
+        "P0：65,536 prompt tokens，Golden-10",
+        "P1：32,768 prompt tokens，Sentinel-4",
+        "P2：49,152 prompt tokens，Golden-10"
+      ],
+      "observed_results": [
+        {"label": "P0", "value": "5 patches · 3,041,338 tokens", "detail": "原始执行与成本观察"},
+        {"label": "P1", "value": "3 patches · 1,066,854 tokens", "detail": "SymPy 退化，拒绝"},
+        {"label": "P2", "value": "8 patches · 2,641,315 tokens", "detail": "裁决不完整，撤回旧 accepted 标签"}
+      ],
+      "decision": {
+        "status": "exploratory",
+        "summary": "整体降级为探索性证据，不保留任何 accepted Treatment。"
+      },
+      "engineering_lesson": "Patch 数和 Token 只能作为辅助证据；后续主指标必须是 official resolved / planned，并对齐 Case、Patch、Trace 与 evaluator 身份。",
+      "claim_boundaries": [
+        "P0/P1/P2 混用了 Golden-10 与 Sentinel-4，分母不可直接比较。",
+        "当时 official 裁决不完整，Patch 数不等于解决数。"
+      ],
+      "labels": ["HISTORICAL", "ARCHIVED", "EXPLORATORY"],
+      "source_path": "benchmarks/archive/legacy-benchmarks/experiments/02-context-budget-exploration/README.md",
+      "source_sha256": "95339d038e955f78f776eb598956a4b59dcfa2dcc4dc8e01224cd142d8ff96f7"
+    },
+    {
+      "id": "runtime-quality-golden-10",
+      "order": 30,
+      "title": "Runtime Quality Golden-10 · R0 / R1 / R2 / R3 Historical Evolution",
+      "question": "在协议冻结后，哪些最小 Runtime 调优能提高 official resolved / planned，同时不引入逐题语义或 correctness 回归？",
+      "treatment": [
+        "R1：70% cost-aware convergence 临时控制消息",
+        "R2：Skill v3.1 source-first / scratch exclusion",
+        "R3：task-aware 工具面移除 create_file"
+      ],
+      "observed_results": [
+        {"label": "R0 · Golden-10", "value": "4 resolved / 3 unresolved / 3 empty", "detail": "Reference"},
+        {"label": "R1 · Sentinel-5", "value": "4 resolved / 1 unresolved", "detail": "SymPy 语义回归，拒绝"},
+        {"label": "R2 · Sentinel-4", "value": "3 resolved / 1 unresolved", "detail": "SymPy 仍为 scratch-only，拒绝"},
+        {"label": "R3 · Sentinel-4", "value": "2 resolved / 2 empty", "detail": "55/55 机制命中仍有回归，拒绝"}
+      ],
+      "decision": {
+        "status": "reject",
+        "summary": "R1、R2、R3 全部拒绝并回滚；不同 planned 分母不可按百分比横向排名。"
+      },
+      "engineering_lesson": "机制激活不能替代 official correctness；发布门必须同时满足 activation、目标正向变化和 resolved anchor non-regression。",
+      "claim_boundaries": [
+        "R0 4/10 是固定开发样本参考，不是完整 SWE-bench Verified 解决率。",
+        "Sentinel 用于快速否决，不替代 Golden-10 总体口径。",
+        "本条历史演进不得简称为 R0→R1 或 R0→R2；这两个短标题只指当前 Tool/ACI 两轮。"
+      ],
+      "labels": ["HISTORICAL", "ARCHIVED", "REJECTED"],
+      "source_path": "benchmarks/archive/legacy-benchmarks/experiments/03-runtime-quality-golden-10/README.md",
+      "source_sha256": "5cea9b071efb5e6df72eb92037943841b14dc18636f4f1d024ed18d6d0258ed5"
+    },
+    {
+      "id": "operation-ledger-replay",
+      "order": 40,
+      "title": "Operation Ledger · Restored-Precondition Replay",
+      "question": "同一 Run 内目标状态被精确还原到 precondition 后，允许一次有界重放能否保留源码修复且不破坏既有正确 Case？",
+      "treatment": [
+        "仅 same-run、prior executed 一次、fingerprint 完整且 current == pre != post 时允许一次 replay",
+        "post-state、cross-run、未知漂移、缺指纹和第三次 replay 继续 fail closed"
+      ],
+      "observed_results": [
+        {"label": "Target", "value": "0/2 → 2/2 resolved", "detail": "pytest-dev__pytest-8399，post-hoc representative Case"},
+        {"label": "Frozen guards", "value": "3/3 resolved", "detail": "marker 0，unsafe replay 0"},
+        {"label": "Golden-10 expansion", "value": "5/10 → 4/10 resolved", "detail": "两个已知 regression"}
+      ],
+      "decision": {
+        "status": "reject",
+        "summary": "保留 Case-level 机制证据；拒绝并回滚全局/default Treatment。"
+      },
+      "engineering_lesson": "窄状态机修复可以形成强 Case-level 因果证据，但仍不能越过集合级 non-regression gate。",
+      "claim_boundaries": [
+        "Target 是事后选取的 representative Case，不是盲选 population sample。",
+        "Phase 1 与 Phase 2 的 provider、模型和预算不同，不能直接比较总体提升。"
+      ],
+      "labels": ["HISTORICAL", "ARCHIVED", "CASE MECHANISM RETAINED", "DEFAULT REJECTED"],
+      "source_path": "benchmarks/archive/legacy-benchmarks/experiments/04-operation-ledger-replay/README.md",
+      "source_sha256": "14b86015d1bbf93729619c911ace6066c8c8a5b29af6b541a2fcfdac2c4b9fcb"
+    }
+  ]
+}

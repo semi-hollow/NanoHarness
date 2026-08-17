@@ -89,6 +89,17 @@ class Mini50Case:
     classification: str
     ordinal: int
     source_key: str
+    role: str
+    label: str
+    selection_reason: str
+    outcome: str
+    patch_status: str
+    key_turning_point: str
+    success_reason: str
+    root_cause: str
+    what_to_inspect: str
+    evidence_boundary: str
+    provenance: tuple[tuple[str, str], ...]
 
 
 @dataclass(frozen=True)
@@ -319,12 +330,29 @@ def build_mini50_review(
         case_id = str(item.get("case_id") or "")
         source_key = source_by_case.get(case_id, "")
         ordinal = _case_ordinal(sources, case_id)
+        raw_provenance = item.get("provenance")
+        provenance = (
+            tuple((str(key), str(value)) for key, value in raw_provenance.items())
+            if isinstance(raw_provenance, dict)
+            else ()
+        )
         representatives.append(
             Mini50Case(
                 case_id=case_id,
                 classification=classification_by_case.get(case_id, "unknown"),
                 ordinal=ordinal,
                 source_key=source_key,
+                role=str(item.get("role") or ""),
+                label=str(item.get("label") or ""),
+                selection_reason=str(item.get("selection_reason") or ""),
+                outcome=str(item.get("outcome") or ""),
+                patch_status=str(item.get("patch_status") or ""),
+                key_turning_point=str(item.get("key_turning_point") or ""),
+                success_reason=str(item.get("success_reason") or ""),
+                root_cause=str(item.get("root_cause") or ""),
+                what_to_inspect=str(item.get("what_to_inspect") or ""),
+                evidence_boundary=str(item.get("evidence_boundary") or ""),
+                provenance=provenance,
             )
         )
     rounds = tuple(

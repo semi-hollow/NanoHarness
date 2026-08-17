@@ -453,7 +453,12 @@ class PublicCliSmokeTest(unittest.TestCase):
   "events": [
     {"step": 0, "event_type": "model_capabilities", "success": true},
     {"step": 0, "event_type": "skill_selection", "success": true},
-    {"step": 1, "event_type": "context_assembly", "success": true},
+    {"step": 1, "event_type": "context_assembly", "success": true,
+     "context": {"available_tools": ["git_diff", "read_file"],
+                 "active_skills": ["repo_orientation@1.0.0"]}},
+    {"step": 1, "event_type": "context_window", "success": true,
+     "context_window": {"estimated_tokens_after": 12000,
+                        "hard_input_limit": 32768, "compacted": false}},
     {"step": 1, "event_type": "hook_check", "success": true,
      "hook_stage": "before_model",
      "hook_result": {"decision": "allow", "reason": "all hooks deferred; default allow",
@@ -468,7 +473,18 @@ class PublicCliSmokeTest(unittest.TestCase):
     {"step": 1, "event_type": "operation_ledger", "success": true,
      "tool_call": "git_diff", "operation_status": "executed"},
     {"step": 1, "event_type": "tool_observation", "success": false, "tool_call": "git_diff"},
-    {"step": 1, "event_type": "task_state_checkpoint", "success": true}
+    {"step": 1, "event_type": "task_state_checkpoint", "success": true},
+    {"step": 2, "event_type": "context_assembly", "success": true,
+     "context": {"available_tools": ["git_diff", "read_file"],
+                 "active_skills": ["repo_orientation@1.0.0"]}},
+    {"step": 2, "event_type": "context_window", "success": true,
+     "context_window": {"estimated_tokens_after": 14000,
+                        "hard_input_limit": 32768, "compacted": false}},
+    {"step": 2, "event_type": "llm_call", "success": true},
+    {"step": 2, "event_type": "action", "success": true,
+     "tool_call": "read_file", "tool_arguments": {"path": "target.py"}},
+    {"step": 2, "event_type": "tool_observation", "success": true,
+     "tool_call": "read_file"}
   ]
 }
 """,
@@ -502,12 +518,16 @@ class PublicCliSmokeTest(unittest.TestCase):
         self.assertIn("1 个 Agent 轮次", html)
         self.assertIn("2 个运行级事件", html)
         self.assertIn("AgentLoop 主链与 ToolCall 四层明细", html)
-        self.assertIn("01</b><span>准备模型输入", html)
-        self.assertIn("02</b><span>模型提出意图", html)
-        self.assertIn("03</b><span>Runtime 处理意图", html)
-        self.assertIn("04</b><span>结果回填", html)
+        self.assertIn("1 准备模型输入", html)
+        self.assertIn("2 模型提出意图", html)
+        self.assertIn("3 Runtime 处理意图", html)
+        self.assertIn("4 结果回填", html)
         self.assertIn("入口控制 → 执行决策 → 受限执行 → 结果与恢复", html)
-        self.assertIn("03 Runtime 处理意图：查看本段底层证据", html)
+        self.assertIn("查看本轮原始 Trace 事件", html)
+        self.assertIn("12,000 tokens · Δ +12,000 · 36.6% input budget", html)
+        self.assertIn("class='timeline-turn key-turn' open", html)
+        self.assertIn("class='timeline-turn'", html)
+        self.assertNotIn("timeline-phase-grid", html)
         self.assertIn("git_diff · 1 次失败", html)
         self.assertIn("模型调用前处理器", html)
         self.assertIn("工具执行前规则", html)
@@ -523,6 +543,7 @@ class PublicCliSmokeTest(unittest.TestCase):
         self.assertIn("<td>12ms</td>", html)
         self.assertNotIn("固定六阶段", html)
         self.assertNotIn("排障：展开本轮原始事件", html)
+        self.assertNotIn(">未观测<", html)
         self.assertNotIn("time: 12 ms", html)
         self.assertNotIn("<strong>Step 0</strong>", html)
 

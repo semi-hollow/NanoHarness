@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 from pathlib import Path
 from typing import Any
@@ -36,6 +37,12 @@ class FileExperimentCatalog(ExperimentCatalogPort):
     def __init__(self, project_dir: Path) -> None:
         self._project_dir = project_dir.resolve()
         self._root = self._project_dir / "benchmarks" / "experiments"
+        self._history_path = (
+            self._project_dir
+            / "benchmarks"
+            / "showcase"
+            / "engineering-history-v1.json"
+        )
 
     def experiment_sources(self) -> tuple[ExperimentSource, ...]:
         sources: list[tuple[int, ExperimentSource]] = []
@@ -53,6 +60,7 @@ class FileExperimentCatalog(ExperimentCatalogPort):
                     manifest_path, manifest, result
                 )
             )
+        sources.extend(self._history_sources())
         return tuple(
             source
             for _, source in sorted(
@@ -72,6 +80,8 @@ class FileExperimentCatalog(ExperimentCatalogPort):
         )
         if source is None:
             return None
+        if source.experiment_kind == "historical":
+            return self._history_bundle(source)
         manifest = _read_json_object(source.manifest_path)
         plan = self._read_manifest_artifact(manifest, "plan")
         result = self._read_manifest_artifact(manifest, "result")
@@ -106,6 +116,98 @@ class FileExperimentCatalog(ExperimentCatalogPort):
             provenance=provenance,
             artifacts=tuple(artifacts),
         )
+
+    def _history_sources(self) -> list[tuple[int, ExperimentSource]]:
+        history = _read_json_object(self._history_path)
+        if not _valid_history(history):
+            return []
+        sources: list[tuple[int, ExperimentSource]] = []
+        for entry in history["entries"]:
+            if not isinstance(entry, dict) or not isinstance(entry.get("id"), str):
+                continue
+            if self._validated_history_source(entry) is None:
+                continue
+            experiment_id = str(entry["id"])
+            decision = _mapping(entry.get("decision"))
+            sources.append(
+                (
+                    _integer(entry.get("order"), default=999) + 1000,
+                    ExperimentSource(
+                        key=f"engineering-history:{experiment_id}:overview",
+                        family_key="engineering-history",
+                        family_title="ENGINEERING HISTORY · 历史工程实验",
+                        comparison_key=experiment_id,
+                        comparison_title=str(entry.get("title") or experiment_id),
+                        item_key="overview",
+                        item_title="历史实验概览",
+                        item_kind="overview",
+                        experiment_id=experiment_id,
+                        experiment_kind="historical",
+                        title=str(entry.get("title") or experiment_id),
+                        description=str(entry.get("question") or ""),
+                        status=str(decision.get("status") or "historical"),
+                        decision=str(decision.get("status") or "historical"),
+                        manifest_path=self._history_path,
+                    ),
+                )
+            )
+        return sources
+
+    def _history_bundle(self, source: ExperimentSource) -> ExperimentBundle | None:
+        history = _read_json_object(self._history_path)
+        entry = next(
+            (
+                item
+                for item in history.get("entries", [])
+                if isinstance(item, dict) and item.get("id") == source.experiment_id
+            ),
+            None,
+        )
+        if not isinstance(entry, dict):
+            return None
+        source_path = self._validated_history_source(entry)
+        if source_path is None:
+            return None
+        manifest = {
+            "question": entry.get("question"),
+            "decision": entry.get("decision"),
+            "boundaries": entry.get("claim_boundaries"),
+            "labels": entry.get("labels"),
+            "source_path": entry.get("source_path"),
+            "source_sha256": entry.get("source_sha256"),
+            "treatment": entry.get("treatment"),
+            "engineering_lesson": entry.get("engineering_lesson"),
+        }
+        return ExperimentBundle(
+            source=source,
+            manifest=manifest,
+            plan={},
+            result={"observed_results": entry.get("observed_results", [])},
+            provenance={
+                "schema_version": history.get("schema_version"),
+                "evidence_policy": history.get("evidence_policy"),
+            },
+            artifacts=(
+                ("archived_readme", source_path),
+                ("derived_history", self._history_path),
+            ),
+        )
+
+    def _validated_history_source(self, entry: dict[str, Any]) -> Path | None:
+        source_path = self._resolve_path(entry.get("source_path"))
+        expected_hash = entry.get("source_sha256")
+        if (
+            source_path is None
+            or not source_path.is_file()
+            or source_path.is_symlink()
+            or not isinstance(expected_hash, str)
+        ):
+            return None
+        try:
+            actual_hash = hashlib.sha256(source_path.read_bytes()).hexdigest()
+        except OSError:
+            return None
+        return source_path if actual_hash == expected_hash else None
 
     def _sources_for_manifest(
         self,
@@ -246,6 +348,15 @@ def _valid_manifest(value: dict[str, Any]) -> bool:
         and isinstance(value.get("family"), dict)
         and isinstance(value.get("comparison"), dict)
         and isinstance(value.get("paths"), dict)
+    )
+
+
+def _valid_history(value: dict[str, Any]) -> bool:
+    return (
+        value.get("schema_version") == 1
+        and value.get("artifact_type")
+        == "nanoharness_engineering_history_projection"
+        and isinstance(value.get("entries"), list)
     )
 
 
