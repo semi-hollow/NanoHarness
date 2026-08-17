@@ -113,6 +113,24 @@ class ReviewReadyTest(unittest.TestCase):
         self.assertEqual(review.final_decision, "PASS")
         self.assertIsNotNone(review.finalizer_trace)
 
+        rendered = _render_workspace_view(
+            PROJECT_ROOT,
+            source_key="orchestration",
+            view="overview",
+            sources=self.sources,
+        )
+        for value in (
+            "Fanout Algorithm Map · CURRENT",
+            "Worker AgentLoop",
+            "Candidate Diff",
+            "Four Conflict Gates",
+            "Scope Violation Gate",
+            "Planner Agent",
+            "Conflict Resolver Agent",
+            "FUTURE / NOT IMPLEMENTED",
+        ):
+            self.assertIn(value, rendered)
+
     @unittest.skipUnless(
         LOCAL_MINI50_EVIDENCE,
         "canonical Mini-50 trajectories are intentionally local-only",

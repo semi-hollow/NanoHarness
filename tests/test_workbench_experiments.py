@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import shutil
 import tempfile
 import unittest
 from pathlib import Path
@@ -95,13 +96,87 @@ class WorkbenchExperimentCatalogTest(unittest.TestCase):
         self.assertIn("28/50", results_html)
         self.assertIn("16", results_html)
         self.assertIn("Agent Empty Patch", results_html)
+        self.assertIn("Empty Patch Failure Review", results_html)
+        self.assertIn("provider_model_request_latency_overran_run_budget", results_html)
         self.assertIn("provider=0", results_html)
         self.assertIn("terminal=50", results_html)
 
         case_html = render_experiment_bundle(empty_case)  # type: ignore[arg-type]
         self.assertIn("django__django-11206", case_html)
         self.assertIn("Agent terminal Empty Patch", case_html)
+        self.assertIn("command_capability_recovery_dead_end", case_html)
+        self.assertIn("First write", case_html)
+        self.assertIn("Next design lever", case_html)
         self.assertIn("运行证据 → Mini-50 → 当前 Case", case_html)
+
+    def test_empty_patch_review_is_sanitized_complete_and_fresh_clone_readable(
+        self,
+    ) -> None:
+        review_path = (
+            PROJECT_DIR
+            / "benchmarks/experiments/mini50-v1-deepseek-v4-flash"
+            / "empty-patch-failure-review-v1.json"
+        )
+        review = json.loads(review_path.read_text(encoding="utf-8"))
+        result = json.loads(
+            (
+                PROJECT_DIR
+                / "benchmarks/experiments/mini50-v1-deepseek-v4-flash/result.json"
+            ).read_text(encoding="utf-8")
+        )
+        cases = review["cases"]
+        self.assertEqual(review["schema_version"], 1)
+        self.assertEqual(review["case_count"], 6)
+        self.assertEqual(len(cases), 6)
+        self.assertEqual(
+            {item["case_id"] for item in cases},
+            set(result["case_ids"]["agent_terminal_empty_patch"]),
+        )
+        for item in cases:
+            self.assertEqual(len(item["provenance"]["trace_sha256"]), 64)
+            self.assertTrue(item["provenance"]["run_id"])
+            self.assertGreater(item["provenance"]["trace_event_count"], 0)
+            self.assertIsNone(item["first_successful_write"])
+            self.assertFalse(item["repeated_identical_call_detected"])
+        serialized = json.dumps(review, ensure_ascii=False)
+        for forbidden in ("/Users/", "api_key", "provider_secret", "raw_prompt"):
+            self.assertNotIn(forbidden, serialized)
+
+        with tempfile.TemporaryDirectory() as temporary:
+            fresh_root = Path(temporary)
+            experiment_target = (
+                fresh_root
+                / "benchmarks/experiments/mini50-v1-deepseek-v4-flash"
+            )
+            experiment_target.parent.mkdir(parents=True)
+            shutil.copytree(review_path.parent, experiment_target)
+            shutil.copy2(
+                PROJECT_DIR / "benchmarks/experiments/artifact-provenance.json",
+                fresh_root / "benchmarks/experiments/artifact-provenance.json",
+            )
+            showcase = fresh_root / "benchmarks/showcase"
+            showcase.mkdir(parents=True)
+            shutil.copy2(
+                PROJECT_DIR / "benchmarks/showcase/swebench-verified-mini-50-v1.json",
+                showcase / "swebench-verified-mini-50-v1.json",
+            )
+            catalog = FileExperimentCatalog(fresh_root)
+            fresh_results = catalog.experiment_bundle(
+                "mini50-v1-deepseek-v4-flash:results"
+            )
+            fresh_case = catalog.experiment_bundle(
+                "mini50-v1-deepseek-v4-flash:case:pydata__xarray-3151"
+            )
+            self.assertIsNotNone(fresh_results)
+            self.assertIsNotNone(fresh_case)
+            self.assertIn(
+                "Empty Patch Failure Review",
+                render_experiment_bundle(fresh_results),  # type: ignore[arg-type]
+            )
+            self.assertIn(
+                "10041778 ms",
+                render_experiment_bundle(fresh_case),  # type: ignore[arg-type]
+            )
 
     def test_evidence_page_separates_raw_derived_and_reviewed_layers(self) -> None:
         bundle = self.catalog.experiment_bundle("tool-aci-r1:evidence")

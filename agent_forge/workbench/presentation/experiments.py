@@ -304,7 +304,10 @@ def _render_measurement_results(bundle: ExperimentBundle) -> str:
         f"<div><b>完整性</b><span>planned={_escape(result.get('planned'))} · completed={_escape(result.get('completed'))} · terminal={_escape(result.get('terminal_accounted'))}</span></div>"
         f"<div><b>基础设施</b><span>provider={_escape(infra.get('provider', 0))} · runtime={_escape(infra.get('runtime', 0))} · evaluator={_escape(infra.get('evaluator', 0))} · external={_escape(infra.get('external_interruption', 0))}</span></div>"
         f"<div><b>Patch 字节链</b><span>{_escape(_mapping(result.get('integrity')).get('nonempty_patch_byte_chains_verified', 0))} verified · {_escape(_mapping(result.get('integrity')).get('nonempty_patch_byte_chain_mismatches', 0))} mismatch</span></div>"
-        "</div></section>" + _claim_boundary(bundle) + "</div>"
+        "</div></section>"
+        + _render_empty_patch_summary(bundle)
+        + _claim_boundary(bundle)
+        + "</div>"
     )
 
 
@@ -423,9 +426,101 @@ def _render_measurement_case(bundle: ExperimentBundle) -> str:
         "<div><b>分母口径</b><span>该 Case 恰好贡献 Mini-50 planned 分母中的 1 个终态。</span></div>"
         "<div><b>行为诊断</b><span>切换到“运行证据 → Mini-50 → 当前 Case”读取 Tool 参数、Observation、停止原因与原始 Trace。</span></div>"
         "</div></section>"
+        f"{_render_empty_patch_case(bundle, case_id)}"
         f"{_case_run_rows(bundle, case_id)}"
         "<p class='boundary-note'><strong>证据边界：</strong>实验视图负责结果分类和完整分母；"
         "Runtime 视图负责逐步行为诊断，两者不复制同一份 Trace。</p></div>"
+    )
+
+
+def _render_empty_patch_summary(bundle: ExperimentBundle) -> str:
+    review = _failure_review(bundle)
+    cases = _list_of_mappings(review.get("cases"))
+    if not cases:
+        return ""
+    summary = _mapping(review.get("summary"))
+    rows = "".join(
+        "<tr>"
+        f"<td><strong>{_escape(item.get('case_id') or '-')}</strong></td>"
+        f"<td>{_escape(item.get('terminal_reason') or '-')}</td>"
+        f"<td>{_escape(_mapping(item.get('root_cause_classification')).get('primary') or '-')}</td>"
+        f"<td>{_escape('none' if item.get('first_successful_write') is None else item.get('first_successful_write'))}</td>"
+        "</tr>"
+        for item in cases
+    )
+    return (
+        "<section class='evidence-section'><div class='section-title'>"
+        "<h3>Empty Patch Failure Review</h3>"
+        "<span>sanitized derived evidence · exactly 6 cases</span></div>"
+        "<div class='answer-strip'>"
+        f"<div><b>Failure fuse</b><span>{_escape(summary.get('consecutive_tool_failure_fuse', 0))} cases</span></div>"
+        f"<div><b>Run timeout</b><span>{_escape(summary.get('run_timeout', 0))} case</span></div>"
+        f"<div><b>First write</b><span>{_escape(summary.get('successful_write', 0))} successful</span></div>"
+        f"<div><b>Identical loop</b><span>{_escape(summary.get('repeated_identical_call_sequence', 0))} detected</span></div>"
+        "</div><div class='review-table-scroll'><table><thead><tr>"
+        "<th>Case</th><th>Terminal</th><th>Evidence-backed RCA</th><th>First write</th>"
+        f"</tr></thead><tbody>{rows}</tbody></table></div>"
+        "<p class='boundary-note'><strong>xarray-3151：</strong>5 次已执行的聚焦 read/search 后，"
+        "第 4 次模型请求在两次 attempt 中持续约 2 小时 47 分；它不是 Context 或搜索失控。</p>"
+        "</section>"
+    )
+
+
+def _render_empty_patch_case(bundle: ExperimentBundle, case_id: str) -> str:
+    review = _failure_review(bundle)
+    case = next(
+        (
+            item
+            for item in _list_of_mappings(review.get("cases"))
+            if item.get("case_id") == case_id
+        ),
+        None,
+    )
+    if case is None:
+        return ""
+    trigger = _mapping(case.get("first_failure_trigger"))
+    root_cause = _mapping(case.get("root_cause_classification"))
+    progress = _mapping(case.get("last_effective_progress"))
+    recovery = "".join(
+        "<li>"
+        f"<b>Step {_escape(item.get('step') or '-')}</b> · "
+        f"{_escape(item.get('action') or '-')} → {_escape(item.get('outcome') or '-')}"
+        "</li>"
+        for item in _list_of_mappings(case.get("recovery_actions"))
+    ) or "<li>No executed recovery action before timeout.</li>"
+    collisions = " · ".join(_string_list(case.get("policy_or_environment_collisions")))
+    first_write = (
+        "none"
+        if case.get("first_successful_write") is None
+        else _escape(case.get("first_successful_write"))
+    )
+    return (
+        "<section class='evidence-section'><div class='section-title'>"
+        "<h3>Empty Patch Failure Review</h3><span>frozen sanitized projection</span></div>"
+        "<div class='answer-strip'>"
+        f"<div><b>Initial trigger</b><span>Step {_escape(trigger.get('step') or '-')} · {_escape(trigger.get('kind') or '-')}<br>{_escape(trigger.get('evidence') or '-')}</span></div>"
+        f"<div><b>Terminal</b><span>{_escape(case.get('terminal_reason') or '-')}</span></div>"
+        f"<div><b>First write</b><span>{first_write}</span></div>"
+        f"<div><b>Root cause</b><span>{_escape(root_cause.get('primary') or '-')}</span></div>"
+        "</div>"
+        "<h4>Recovery path</h4>"
+        f"<ul class='next-actions'>{recovery}</ul>"
+        "<div class='answer-strip'>"
+        f"<div><b>Policy / environment collision</b><span>{_escape(collisions or 'none observed')}</span></div>"
+        f"<div><b>Last effective progress</b><span>Step {_escape(progress.get('step') or '-')} · {_escape(progress.get('evidence') or '-')}</span></div>"
+        f"<div><b>Next design lever</b><span>{_escape(case.get('potential_runtime_improvement') or '-')}</span></div>"
+        "</div></section>"
+    )
+
+
+def _failure_review(bundle: ExperimentBundle) -> dict[str, Any]:
+    return next(
+        (
+            _read_json(path)
+            for role, path in bundle.artifacts
+            if role == "failure_review"
+        ),
+        {},
     )
 
 

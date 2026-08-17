@@ -65,6 +65,7 @@
     "result": "benchmarks/experiments/mini50-v1-deepseek-v4-flash/result.json",
     "readme": "benchmarks/experiments/mini50-v1-deepseek-v4-flash/README.md",
     "report": "benchmarks/experiments/mini50-v1-deepseek-v4-flash/report.md",
+    "failure_review": "benchmarks/experiments/mini50-v1-deepseek-v4-flash/empty-patch-failure-review-v1.json",
     "case_order": "benchmarks/showcase/swebench-verified-mini-50-v1.json",
     "executions": [
       "benchmarks/experiments/mini50-v1-deepseek-v4-flash/mini50.execution.json",

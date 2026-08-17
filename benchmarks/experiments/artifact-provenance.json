@@ -107,6 +107,11 @@
           "producer": "pipeline_index"
         },
         {
+          "locator": "benchmarks/experiments/mini50-v1-deepseek-v4-flash/empty-patch-failure-review-v1.json",
+          "role": "sanitized_empty_patch_failure_review",
+          "producer": "codex_assisted_human_reviewed"
+        },
+        {
           "locator": "benchmarks/experiments/mini50-v1-deepseek-v4-flash/{README.md,report.md}",
           "role": "reviewed_interpretation",
           "producer": "codex_assisted_human_reviewed"

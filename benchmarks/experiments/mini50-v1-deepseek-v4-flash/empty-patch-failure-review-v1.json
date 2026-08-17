@@ -1,0 +1,412 @@
+{
+  "schema_version": 1,
+  "artifact_type": "nanoharness_empty_patch_failure_review",
+  "experiment_id": "mini50-v1-deepseek-v4-flash",
+  "evaluated_revision": "3ec537113a26491b7b7a51e323a3d3af40f4754f",
+  "status": "frozen",
+  "case_count": 6,
+  "published_outcome_unchanged": {
+    "official_resolved": 28,
+    "official_unresolved": 16,
+    "agent_terminal_empty_patch": 6
+  },
+  "methodology": [
+    "Each classification was reconstructed from the canonical case trace selected by the frozen Mini-50 completion result.",
+    "Proposed actions, calls that entered Tool execution, and policy-blocked actions are counted separately.",
+    "Raw traces remain local-only; run id, trace SHA-256, event count, and compact excerpts provide provenance without publishing prompts or machine paths.",
+    "A missing successful write means no replace_text, write_file, or create_file action completed before the terminal state."
+  ],
+  "summary": {
+    "consecutive_tool_failure_fuse": 5,
+    "run_timeout": 1,
+    "successful_write": 0,
+    "repeated_identical_call_sequence": 0,
+    "finding": "The five failure-fuse cases followed different environment, command-policy, path-policy, and recovery chains. The timeout case was an in-flight model request overrun, not a search or context-growth loop."
+  },
+  "future_not_implemented": {
+    "in_flight_model_deadline": "Run deadline -> propagate remaining budget into ModelPort/provider request -> bounded transport timeout -> cancellation and timeout attribution -> deterministic terminal state"
+  },
+  "cases": [
+    {
+      "case_id": "django__django-11206",
+      "provenance": {
+        "campaign": "mini50-v1-deepseek-v4-flash-3ec537113a-9f81b94c99",
+        "run_id": "swebench-20260816-010255-21122a0",
+        "trace_sha256": "cd76910ff73b255cbec3c691072f1c4d8b106d8415dd5613ab119b9f68d74893",
+        "trace_event_count": 118
+      },
+      "terminal_reason": "too_many_consecutive_failed_tools: 4 >= limit 3",
+      "turns": 6,
+      "proposed_actions": 8,
+      "executed_tool_calls": 4,
+      "first_failure_trigger": {
+        "step": 4,
+        "kind": "command_policy",
+        "evidence": "Two git log commands used shell pipes and were rejected before execution."
+      },
+      "recovery_actions": [
+        {
+          "step": 5,
+          "action": "Retry git log without the pipe.",
+          "outcome": "Both command forms remained outside the positive allowlist."
+        }
+      ],
+      "policy_or_environment_collisions": [
+        "shell operators blocked",
+        "git log command family not allowlisted"
+      ],
+      "last_effective_progress": {
+        "step": 3,
+        "evidence": "Read the complete number-formatting test file; every later proposed action was policy-blocked."
+      },
+      "first_successful_write": null,
+      "repeated_identical_call_detected": false,
+      "max_consecutive_identical_calls": 1,
+      "consecutive_failure_count_path": [1, 2, 3, 4],
+      "root_cause_classification": {
+        "primary": "command_capability_recovery_dead_end",
+        "contributors": [
+          "The model switched from focused source inspection to Git-history recovery before forming a patch.",
+          "The available command surface could not express either proposed Git-history query."
+        ]
+      },
+      "supporting_evidence": [
+        "Four successful read/search calls were followed by four blocked run_command actions.",
+        "No write or validation action occurred."
+      ],
+      "potential_runtime_improvement": "Classify recurring safe Git-history needs and add a specialized git_show/history tool or a narrowly scoped allowlisted family; do not enable arbitrary shell."
+    },
+    {
+      "case_id": "django__django-13128",
+      "provenance": {
+        "campaign": "mini50-v1-deepseek-v4-flash-3ec537113a-9f81b94c99",
+        "run_id": "swebench-20260816-013205-83f4312",
+        "trace_sha256": "a16dcc7a4f19beaca9df785fc75527ba50dc88791a7986aead08c9e4c0311c81",
+        "trace_event_count": 620
+      },
+      "terminal_reason": "too_many_consecutive_failed_tools: 3 >= limit 3",
+      "turns": 30,
+      "proposed_actions": 43,
+      "executed_tool_calls": 39,
+      "first_failure_trigger": {
+        "step": 25,
+        "kind": "command_policy",
+        "evidence": "The repository-native Django test command was not in the run_command allowlist."
+      },
+      "recovery_actions": [
+        {
+          "step": 26,
+          "action": "Use python_validation on one test node.",
+          "outcome": "The validator executed, but collection failed because asgiref was missing."
+        },
+        {
+          "step": 27,
+          "action": "Inspect repository files and asgiref references.",
+          "outcome": "Read/search succeeded and confirmed the dependency was referenced."
+        },
+        {
+          "step": 28,
+          "action": "List parent directories to find another environment.",
+          "outcome": "Blocked as a workspace path escape."
+        },
+        {
+          "step": 29,
+          "action": "Inspect Git history and unreachable objects.",
+          "outcome": "One command was not allowlisted and one used blocked shell operators."
+        }
+      ],
+      "policy_or_environment_collisions": [
+        "repository-native test command not allowlisted",
+        "asgiref missing from validation environment",
+        "workspace path escape blocked",
+        "Git command family not allowlisted",
+        "shell operators blocked"
+      ],
+      "last_effective_progress": {
+        "step": 27,
+        "evidence": "The focused dependency search established that source imports require asgiref; subsequent recovery actions were blocked."
+      },
+      "first_successful_write": null,
+      "repeated_identical_call_detected": false,
+      "max_consecutive_identical_calls": 1,
+      "consecutive_failure_count_path": [1, 2, 3],
+      "root_cause_classification": {
+        "primary": "validation_environment_and_policy_recovery_collision",
+        "contributors": [
+          "The validation environment lacked a required project dependency.",
+          "Recovery moved toward path and command forms outside the governed capability surface.",
+          "The trajectory diagnosed broadly for 25 turns without committing a candidate edit."
+        ]
+      },
+      "supporting_evidence": [
+        "python_validation reached pytest but failed during import with ModuleNotFoundError: asgiref.",
+        "The final three failures were path escape, non-allowlisted command, and shell-operator rejection."
+      ],
+      "potential_runtime_improvement": "Expose dependency-aware validation diagnostics and narrowly scoped environment inspection so a missing dependency does not push recovery toward path escape or arbitrary command discovery."
+    },
+    {
+      "case_id": "pydata__xarray-3151",
+      "provenance": {
+        "campaign": "mini50-v1-deepseek-v4-flash-3ec537113a-9f81b94c99",
+        "run_id": "swebench-20260816-034923-284c415",
+        "trace_sha256": "66ee6ccef492a68865864a95acd131e4375e1d5da0059375b795d741efbec15e",
+        "trace_event_count": 85
+      },
+      "terminal_reason": "timeout_exceeded",
+      "turns": 4,
+      "proposed_actions": 5,
+      "executed_tool_calls": 5,
+      "first_failure_trigger": {
+        "step": 4,
+        "kind": "in_flight_model_request_overrun",
+        "evidence": "The fourth model call took 10041778 ms across two attempts and returned only after the Run deadline had expired."
+      },
+      "recovery_actions": [],
+      "policy_or_environment_collisions": [
+        "provider request_failed was retried inside the in-flight model call",
+        "Run timeout could only close the Run after ModelPort returned"
+      ],
+      "last_effective_progress": {
+        "step": 3,
+        "evidence": "A focused read located the final monotonic-index guard in xarray/core/combine.py."
+      },
+      "first_successful_write": null,
+      "repeated_identical_call_detected": false,
+      "max_consecutive_identical_calls": 1,
+      "consecutive_failure_count_path": [],
+      "root_cause_classification": {
+        "primary": "provider_model_request_latency_overran_run_budget",
+        "contributors": [
+          "The Run deadline was not propagated as an interrupting transport deadline to the in-flight model request.",
+          "The first three turns located relevant code but had not transitioned to a successful write or test."
+        ],
+        "not_supported": [
+          "long read-only exploration",
+          "no-progress exploration loop",
+          "context inflation"
+        ]
+      },
+      "supporting_evidence": [
+        "Executed calls were exactly two grep_search and three read_file actions, all against xarray/core/combine.py.",
+        "Queries were distinct and focused; no identical-call sequence occurred.",
+        "Context estimates grew from 10198 to 14326 tokens against a 114688 hard limit; no compaction occurred.",
+        "The late model response proposed two further ToolCalls, but neither entered Runtime Tool execution after the expired deadline."
+      ],
+      "xarray_timeout_analysis": {
+        "executed_read_search_calls": 5,
+        "tool_distribution": {
+          "grep_search": 2,
+          "read_file": 3
+        },
+        "unique_files": 1,
+        "repeated_files": 1,
+        "query_pattern": "focused and non-identical",
+        "last_new_evidence_turn": 3,
+        "executed_no_progress_tail_turns": 0,
+        "context_token_estimates": [10198, 10667, 13428, 14326],
+        "context_hard_limit": 114688,
+        "compaction_occurred": false,
+        "tool_router_surface_was_sufficient_for_observed_strategy": true,
+        "final_model_strategy": "Inspect the relevant test file before editing.",
+        "final_model_call_duration_ms": 10041778,
+        "final_model_call_attempts": 2,
+        "final_model_call_error_codes": ["request_failed"]
+      },
+      "potential_runtime_improvement": "NOT IMPLEMENTED: propagate the remaining Run deadline into ModelPort/provider transport timeouts, define cancellation and retry attribution, and converge on one deterministic timeout terminal state."
+    },
+    {
+      "case_id": "django__django-15128",
+      "provenance": {
+        "campaign": "mini50-v1-deepseek-v4-flash-3ec537113a-9f81b94c99",
+        "run_id": "swebench-20260816-072112-4913807",
+        "trace_sha256": "b9b09c40b51cbd2e736816ad4f62e76a96ca4b7abcadc2705c3577e20336bd8c",
+        "trace_event_count": 907
+      },
+      "terminal_reason": "too_many_consecutive_failed_tools: 4 >= limit 3",
+      "turns": 43,
+      "proposed_actions": 63,
+      "executed_tool_calls": 60,
+      "first_failure_trigger": {
+        "step": 33,
+        "kind": "missing_path",
+        "evidence": "A list_files probe targeted tests/settings, which did not exist."
+      },
+      "recovery_actions": [
+        {
+          "step": 40,
+          "action": "Validate the focused query test.",
+          "outcome": "pytest collection failed because asgiref was missing."
+        },
+        {
+          "step": 41,
+          "action": "Confirm pytest and inspect the enclosing run directory.",
+          "outcome": "pytest version succeeded; the absolute parent path was blocked as an escape."
+        },
+        {
+          "step": 42,
+          "action": "Inspect installed packages.",
+          "outcome": "python -m pip list was not allowlisted."
+        },
+        {
+          "step": 43,
+          "action": "Search .venv and venv paths.",
+          "outcome": ".venv was protected and venv did not exist."
+        }
+      ],
+      "policy_or_environment_collisions": [
+        "asgiref missing from validation environment",
+        "absolute parent path escape blocked",
+        "package-list command not allowlisted",
+        "protected .venv path",
+        "venv path not found"
+      ],
+      "last_effective_progress": {
+        "step": 40,
+        "evidence": "Focused validation established the missing-asgiref environment failure; later probes did not recover a runnable test environment."
+      },
+      "first_successful_write": null,
+      "repeated_identical_call_detected": false,
+      "max_consecutive_identical_calls": 1,
+      "consecutive_failure_count_path": [1, 2, 3, 4],
+      "root_cause_classification": {
+        "primary": "validation_dependency_recovery_dead_end",
+        "contributors": [
+          "A long source-analysis trajectory never committed a candidate edit.",
+          "After validation exposed the missing dependency, environment discovery collided with path and command policy."
+        ]
+      },
+      "supporting_evidence": [
+        "The validator executed and failed on ModuleNotFoundError: asgiref.",
+        "A successful pytest --version probe reset progress, but four later failures exhausted the fuse."
+      ],
+      "potential_runtime_improvement": "Provide a governed environment/dependency diagnostic and project-native validation guidance; keep virtual-environment and parent-path protections fail closed."
+    },
+    {
+      "case_id": "django__django-15930",
+      "provenance": {
+        "campaign": "mini50-v1-deepseek-v4-flash-3ec537113a-9f81b94c99",
+        "run_id": "swebench-20260816-083327-a30bbe5",
+        "trace_sha256": "c6e9f4564b589c03449b496f989c234d0f5b3cf1c5fb6ce10c13a1588e86dd7f",
+        "trace_event_count": 531
+      },
+      "terminal_reason": "too_many_consecutive_failed_tools: 3 >= limit 3",
+      "turns": 24,
+      "proposed_actions": 38,
+      "executed_tool_calls": 33,
+      "first_failure_trigger": {
+        "step": 5,
+        "kind": "command_policy",
+        "evidence": "A Git-history query was outside the positive run_command allowlist."
+      },
+      "recovery_actions": [
+        {
+          "step": 21,
+          "action": "Run two focused annotation tests.",
+          "outcome": "Both validators reached pytest but failed to import asgiref."
+        },
+        {
+          "step": 22,
+          "action": "Inspect Python executables with a compound shell command.",
+          "outcome": "Blocked because shell operators were present."
+        },
+        {
+          "step": 23,
+          "action": "Inspect parent paths and query python3 version.",
+          "outcome": "Path escape and non-allowlisted command completed the failure fuse."
+        }
+      ],
+      "policy_or_environment_collisions": [
+        "Git-history command not allowlisted",
+        "asgiref missing from validation environment",
+        "shell operators blocked",
+        "parent path escape blocked",
+        "python3 command family not allowlisted"
+      ],
+      "last_effective_progress": {
+        "step": 21,
+        "evidence": "Two focused validations consistently identified the missing-asgiref environment failure."
+      },
+      "first_successful_write": null,
+      "repeated_identical_call_detected": false,
+      "max_consecutive_identical_calls": 1,
+      "consecutive_failure_count_path": [1, 2, 3],
+      "root_cause_classification": {
+        "primary": "validation_environment_and_command_recovery_collision",
+        "contributors": [
+          "The candidate diagnosis never transitioned to a write.",
+          "Two parallel validation failures and later environment probes consumed the recovery budget."
+        ]
+      },
+      "supporting_evidence": [
+        "Both focused pytest nodes failed on ModuleNotFoundError: asgiref.",
+        "After a successful root listing, the terminal chain was shell rejection, path escape, and non-allowlisted python3."
+      ],
+      "potential_runtime_improvement": "Report shared dependency failures as one recovery fact and expose a narrow interpreter/dependency diagnostic instead of encouraging compound shell probes."
+    },
+    {
+      "case_id": "sphinx-doc__sphinx-9461",
+      "provenance": {
+        "campaign": "mini50-v1.1-infra-completion-deepseek-v4-flash-3ec537113a",
+        "run_id": "swebench-20260816-115758-989b2c5",
+        "trace_sha256": "402b11b54b9851d19611c7e26c6521cede8ee329a667b60a18a6f109bbbadea9",
+        "trace_event_count": 458
+      },
+      "terminal_reason": "too_many_consecutive_failed_tools: 3 >= limit 3",
+      "turns": 19,
+      "proposed_actions": 33,
+      "executed_tool_calls": 30,
+      "first_failure_trigger": {
+        "step": 11,
+        "kind": "validation_dependency",
+        "evidence": "Focused pytest collection failed because docutils was missing."
+      },
+      "recovery_actions": [
+        {
+          "step": 12,
+          "action": "Confirm pytest availability.",
+          "outcome": "pytest --version succeeded."
+        },
+        {
+          "step": 13,
+          "action": "Continue focused source inspection.",
+          "outcome": "Read/search located getdoc, isclassmethod, and autodoc call sites."
+        },
+        {
+          "step": 17,
+          "action": "Inspect installed packages.",
+          "outcome": "python -m pip list was not allowlisted."
+        },
+        {
+          "step": 18,
+          "action": "Inspect Git log and branches.",
+          "outcome": "Both Git command forms were outside the allowlist."
+        }
+      ],
+      "policy_or_environment_collisions": [
+        "docutils missing from validation environment",
+        "package-list command not allowlisted",
+        "Git log and branch command families not allowlisted"
+      ],
+      "last_effective_progress": {
+        "step": 16,
+        "evidence": "Focused reads established the relevant inspect.py and autodoc code paths; every later action was policy-blocked."
+      },
+      "first_successful_write": null,
+      "repeated_identical_call_detected": false,
+      "max_consecutive_identical_calls": 1,
+      "consecutive_failure_count_path": [1, 2, 3],
+      "root_cause_classification": {
+        "primary": "missing_validation_dependency_then_command_recovery_dead_end",
+        "contributors": [
+          "The missing docutils dependency prevented a real validation signal.",
+          "The model kept inspecting code but never committed a candidate edit before switching to blocked environment/Git commands."
+        ]
+      },
+      "supporting_evidence": [
+        "Focused pytest failed during conftest import with ModuleNotFoundError: docutils.",
+        "The terminal chain contained three distinct blocked command calls, not an identical-call loop."
+      ],
+      "potential_runtime_improvement": "Add a governed dependency diagnostic and classify common project test prerequisites; expand command capability only through evidence-backed specialized tools or narrow families."
+    }
+  ]
+}

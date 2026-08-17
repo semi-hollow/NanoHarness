@@ -50,6 +50,7 @@ Final Publish Gate 通过。
 - [`mini50.execution.json`](mini50.execution.json)：原始运行机器制品索引
 - [`completion.execution.json`](completion.execution.json)：两轮基础设施补全的选择、制品与 SHA-256
 - [`result.json`](result.json)：最终机器结果投影与逐类 Case ID
+- [`empty-patch-failure-review-v1.json`](empty-patch-failure-review-v1.json)：6 条 Empty Patch 的 sanitized、带 Trace SHA-256 provenance 的冻结 RCA
 - [`report.md`](report.md)：逐 Case 结果、Empty Patch 诊断与准确表述
 - 原始 Trace、Usage、candidate Patch、prediction 与 official evaluator：
   `.agent_forge/runs/benchmarks/swebench-verified-mini-50*/`

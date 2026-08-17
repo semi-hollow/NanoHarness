@@ -90,16 +90,24 @@ Agent 终态都在第一次有效轨迹后冻结。只有 provider/外部中断�
 
 | Case | Stop reason | 可观测失败链 |
 | --- | --- | --- |
-| `django__django-11206` | 连续工具失败熔断 | shell operator 被策略拒绝，随后命令不在 allowlist |
-| `django__django-13128` | 连续工具失败熔断 | 本地验证缺少 `asgiref`，随后出现越界路径、非 allowlist 与 shell operator 拒绝 |
-| `pydata__xarray-3151` | `timeout_exceeded` | 长时间只读检索，没有写入，也没有形成 candidate Patch |
-| `django__django-15128` | 连续工具失败熔断 | 本地验证缺少 `asgiref`，随后越界路径、非 allowlist、受保护 `.venv` 与缺失路径连续失败 |
-| `django__django-15930` | 连续工具失败熔断 | 本地验证缺少 `asgiref`，随后 shell operator、越界路径与非 allowlist 连续失败 |
-| `sphinx-doc__sphinx-9461` | 连续工具失败熔断 | 本地验证缺少 `docutils`，随后三次命令不在 allowlist |
+| `django__django-11206` | 连续工具失败熔断 | focused read/search 后转向 Git history；pipe 与非 allowlist command family 连续被拒 |
+| `django__django-13128` | 连续工具失败熔断 | native validation 受限；pytest 缺 `asgiref`，随后 path / command recovery 连撞治理边界 |
+| `pydata__xarray-3151` | `timeout_exceeded` | 前 3 Turn 用 5 个聚焦 read/search 定位代码；第 4 次 Model request 两次 attempt 共 10,041,778 ms，返回时 Run deadline 已过 |
+| `django__django-15128` | 连续工具失败熔断 | pytest 缺 `asgiref`，随后 parent path、pip list、受保护 `.venv` 与缺失 `venv` recovery 失败 |
+| `django__django-15930` | 连续工具失败熔断 | 两个 focused validation 均缺 `asgiref`，随后 compound shell、parent path 与 python3 command recovery 失败 |
+| `sphinx-doc__sphinx-9461` | 连续工具失败熔断 | pytest 缺 `docutils`；继续 focused source read 后，package / Git command recovery 连续被拒 |
 
 这 6 条 Trace 中没有检测到“连续完全相同 Tool 名 + 完全相同参数”的序列；这里的主要问题是失败后的
 策略迁移仍连续碰到环境/权限边界，而不是字节级相同调用死循环。Workbench 已支持同时查看完整 Tool
 参数、Observation、上一轮反馈和停止原因；若未来出现完全同参重复，会在“连续重复 ToolCall”中单独列出。
+
+`pydata__xarray-3151` 的 canonical Trace 不支持“长时间只读检索”“no-progress exploration loop”或
+“Context 膨胀”：4 个 context estimate 为 10,198、10,667、13,428、14,326 tokens，hard limit 为
+114,688 且未发生 compaction。Primary cause 是 in-flight provider/model request latency 穿透 Run time
+budget；Runtime 只能在 `ModelPort` 返回后的 control boundary 检测 timeout。模型迟到返回的两个 ToolCall
+没有进入 Tool execution，不能计入 exploration。完整 sanitized 字段、每条 run id 与 Trace SHA-256 见
+[`empty-patch-failure-review-v1.json`](empty-patch-failure-review-v1.json)。in-flight deadline propagation
+涉及 transport timeout、retry、cancellation 与 attribution，本轮明确 **NOT IMPLEMENTED**。
 
 ## 证据完整性
 

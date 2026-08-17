@@ -81,7 +81,14 @@ class FileExperimentCatalog(ExperimentCatalogPort):
         artifacts: list[tuple[str, Path]] = []
         paths = manifest.get("paths")
         if isinstance(paths, dict):
-            for role in ("plan", "result", "readme", "report", "case_order"):
+            for role in (
+                "plan",
+                "result",
+                "readme",
+                "report",
+                "case_order",
+                "failure_review",
+            ):
                 path = self._resolve_path(paths.get(role))
                 if path is not None and path.is_file():
                     artifacts.append((role, path))
