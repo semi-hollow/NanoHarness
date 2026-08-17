@@ -359,7 +359,7 @@ def build_mini50_review(
             or (result.get("integrity") or {}).get("source_revision")
             or ""
         ),
-        current_revision=_git_head(project_dir),
+        current_revision=current_git_revision(project_dir),
         representatives=tuple(representatives),
         attempts=attempts,
     )
@@ -448,7 +448,9 @@ def _case_ordinal(sources: tuple[EvidenceSource, ...], case_id: str) -> int:
     return 0
 
 
-def _git_head(project_dir: Path) -> str:
+def current_git_revision(project_dir: Path) -> str:
+    """返回 Workbench 当前 checkout；GitHub 深链不绑定默认分支名。"""
+
     result = subprocess.run(
         ["git", "rev-parse", "HEAD"],
         cwd=project_dir,

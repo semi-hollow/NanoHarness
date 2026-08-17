@@ -15,8 +15,20 @@
       "canonical_run": "lab1-governed-change-control__2026-08-17_00-59-30__4d0d7db",
       "canonical_artifact": "showcase.json",
       "canonical_sha256": "d134c19f16d891236f8b1a4c24c8c2c552d39178bf0f44998a846b0a669404b6",
+      "evidence_tree": {
+        "algorithm": "sha256-relative-path-and-content-v1",
+        "include": [
+          "showcase.json",
+          "human_input/**/*",
+          "approvals/**/*",
+          "operation_ledger/**/*",
+          "phases/**/*"
+        ],
+        "file_count": 35,
+        "sha256": "5a073ba8443ad9c9216da0284489e733a8b4b4500d7ca19e33dc1271d8a01d0e"
+      },
       "expected_status": "completed",
-      "architecture_anchor": "#4-持久化与控制--durability--control",
+      "architecture_anchor": "#durability",
       "question": "Runtime 能否在人工输入与高风险写操作前持久化停稳，并通过显式 Resume 安全完成？",
       "mechanism": "HumanInput、Approval、Operation Ledger 与 Checkpoint 各自拥有独立权威状态；continuation 只消费已经持久化的决定。",
       "boundary": "确定性模型只固定工具意图；本场景证明 Runtime 控制语义，不评价真实模型的代码修复能力。"
@@ -26,8 +38,19 @@
       "canonical_run": "lab2-checkout-policy-agents__2026-08-17_00-03-39__4028377",
       "canonical_artifact": "fanout/fanout_summary.json",
       "canonical_sha256": "15f484c6c0a77ead302d823c677d5cdcfff140a5f14b878b5e48178b47506be3",
+      "evidence_tree": {
+        "algorithm": "sha256-relative-path-and-content-v1",
+        "include": [
+          "scenario_contract.json",
+          "trace.json",
+          "trace.jsonl",
+          "fanout/**/*"
+        ],
+        "file_count": 41,
+        "sha256": "17e5bf1659f034dd352dc67d3b0663f3085965693c8582c6b32d7e1d74ba5343"
+      },
       "expected_status": "passed",
-      "architecture_anchor": "#1-系统概览--system-overview",
+      "architecture_anchor": "#system",
       "question": "显式依赖任务能否安全并行、隔离执行、确定性合并，并由只读 Finalizer 验证整体结果？",
       "mechanism": "DAG 与声明写域形成静态批次，Worker 在隔离 worktree 执行，实际 touched files 与 diff applicability 再经过两层门禁。",
       "boundary": "本场景证明当前显式 FanoutPlan 的协调契约，不证明多 Agent 对任意任务都优于单 Agent。"
@@ -38,7 +61,7 @@
       "result_artifact": "benchmarks/experiments/mini50-v1-deepseek-v4-flash/result.json",
       "completion_artifact": "benchmarks/experiments/mini50-v1-deepseek-v4-flash/completion.execution.json",
       "evaluated_revision": "3ec537113a26491b7b7a51e323a3d3af40f4754f",
-      "architecture_anchor": "#5-评测--evaluation",
+      "architecture_anchor": "#evaluation",
       "question": "完整 Runtime 在固定 50 个真实仓库任务上的端到端能力和失败边界是什么？",
       "mechanism": "固定样本与 Pass@1 协议先冻结；只有基础设施无效槽位允许补全，正确性终态与 Empty Patch 不重跑。",
       "boundary": "28/50 只属于该固定 Mini-50 与固定 NanoHarness/模型配置，不是完整 500 题成绩，也不隔离底座模型贡献。",

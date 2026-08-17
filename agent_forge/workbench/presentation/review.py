@@ -17,12 +17,13 @@ from agent_forge.workbench.application.review_projection import (
     build_lab1_review,
     build_lab2_review,
     build_mini50_review,
+    current_git_revision,
 )
 from agent_forge.workbench.domain import EvidenceSource
 
 
 ARCHITECTURE_URL = (
-    "https://github.com/semi-hollow/NanoHarness/blob/master/docs/"
+    "https://github.com/semi-hollow/NanoHarness/blob/{revision}/docs/"
     "%E6%9E%B6%E6%9E%84%E5%AF%BC%E8%A7%88.md"
 )
 
@@ -40,12 +41,16 @@ def render_review_overview(
         if source.category_key == "evaluation":
             return _render_case_anatomy(source)
         return None
+    revision = current_git_revision(project_dir) or "HEAD"
     if source.category_key == "governed":
-        return _render_lab1(build_lab1_review(project_dir, source))
+        return _render_lab1(build_lab1_review(project_dir, source), revision)
     if source.category_key == "orchestration":
-        return _render_lab2(build_lab2_review(project_dir, source))
+        return _render_lab2(build_lab2_review(project_dir, source), revision)
     if source.category_key == "evaluation":
-        return _render_mini50(build_mini50_review(project_dir, source, sources))
+        return _render_mini50(
+            build_mini50_review(project_dir, source, sources),
+            revision,
+        )
     return None
 
 
@@ -64,15 +69,16 @@ def _render_contract_cards(contract: ReviewContract, observed: str) -> str:
     ) + "</div>"
 
 
-def _architecture_link(contract: ReviewContract) -> str:
+def _architecture_link(contract: ReviewContract, revision: str) -> str:
     anchor = quote(contract.architecture_anchor, safe="#-")
+    url = ARCHITECTURE_URL.format(revision=quote(revision, safe=""))
     return (
         "<a class='review-link' target='_blank' rel='noreferrer' "
-        f"href='{ARCHITECTURE_URL}{anchor}'>打开对应架构章节 ↗</a>"
+        f"href='{url}{anchor}'>打开对应架构章节 ↗</a>"
     )
 
 
-def _render_lab1(review: Lab1Review) -> str:
+def _render_lab1(review: Lab1Review, revision: str) -> str:
     state_cards: list[str] = []
     for index, state in enumerate(review.state_sequence, start=1):
         state_cards.append(
@@ -98,7 +104,9 @@ def _render_lab1(review: Lab1Review) -> str:
         "</article>"
         for item in review.invariants
     )
-    revision = review.evidence_revision[:12] if review.evidence_revision else "未记录"
+    evidence_revision = (
+        review.evidence_revision[:12] if review.evidence_revision else "未记录"
+    )
     return (
         "<div class='evidence review-overview'>"
         "<div class='view-heading'><div><span class='view-kicker'>RUNTIME CONTROL</span>"
@@ -116,13 +124,13 @@ def _render_lab1(review: Lab1Review) -> str:
         "<h3>Control Invariants</h3><span>没有真实事件顺序就不显示 PASS</span></div>"
         f"<div class='invariant-grid'>{invariant_cards}</div></section>"
         "<div class='review-footer'>"
-        f"<span>Evidence revision <code>{_escape(revision)}</code></span>"
-        + _architecture_link(review.contract)
+        f"<span>Evidence revision <code>{_escape(evidence_revision)}</code></span>"
+        + _architecture_link(review.contract, revision)
         + "</div></div>"
     )
 
 
-def _render_lab2(review: Lab2Review) -> str:
+def _render_lab2(review: Lab2Review, revision: str) -> str:
     task_rows = "".join(
         "<tr>"
         f"<td><b>{_escape(task.task_id)}</b></td>"
@@ -181,12 +189,12 @@ def _render_lab2(review: Lab2Review) -> str:
         "</div></section>"
         "<div class='review-footer'>"
         "<span>Shared _git_lock: worktree prepare / cleanup only</span>"
-        + _architecture_link(review.contract)
+        + _architecture_link(review.contract, revision)
         + "</div></div>"
     )
 
 
-def _render_mini50(review: Mini50Review) -> str:
+def _render_mini50(review: Mini50Review, revision: str) -> str:
     representative_cards = "".join(
         "<a class='representative-card' "
         f"href='?source={quote(item.source_key)}&amp;view=overview'>"
@@ -240,7 +248,7 @@ def _render_mini50(review: Mini50Review) -> str:
         "</div></details>"
         "<div class='review-footer'>"
         "<span>Published result: fixed Mini-50, not full SWE-bench Verified</span>"
-        + _architecture_link(review.contract)
+        + _architecture_link(review.contract, revision)
         + "</div></div>"
     )
 

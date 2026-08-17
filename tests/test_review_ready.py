@@ -9,8 +9,15 @@ from agent_forge.workbench.application.review_projection import (
     build_lab1_review,
     build_lab2_review,
     build_mini50_review,
+    current_git_revision,
 )
 from agent_forge.workbench.presentation.http import INDEX_HTML, _render_workspace_view
+from scripts.review_preflight import (
+    EVIDENCE_TREE_ALGORITHM,
+    _evidence_tree,
+    _evidence_tree_integrity,
+    _evidence_tree_patterns,
+)
 
 
 PROJECT_ROOT = Path(__file__).parents[1]
@@ -60,6 +67,19 @@ class ReviewReadyTest(unittest.TestCase):
                 hashlib.sha256(source.primary_path.read_bytes()).hexdigest(),
                 configured["canonical_sha256"],
             )
+            run_root = (
+                source.primary_path.parent
+                if key == "governed"
+                else source.primary_path.parent.parent
+            )
+            count, digest = _evidence_tree(
+                run_root,
+                _evidence_tree_patterns(configured),
+            )
+            evidence_tree = configured["evidence_tree"]
+            self.assertEqual(evidence_tree["algorithm"], EVIDENCE_TREE_ALGORITHM)
+            self.assertEqual(count, evidence_tree["file_count"])
+            self.assertEqual(digest, evidence_tree["sha256"])
 
     @unittest.skipUnless(
         LOCAL_CONTROL_EVIDENCE,
@@ -116,6 +136,7 @@ class ReviewReadyTest(unittest.TestCase):
         self.assertTrue(all(item.source_key for item in review.representatives))
 
     def test_review_overviews_separate_contract_from_observed_artifact(self) -> None:
+        revision = current_git_revision(PROJECT_ROOT)
         keys = (
             ("governed", "orchestration", "evaluation")
             if LOCAL_CONTROL_EVIDENCE
@@ -132,6 +153,51 @@ class ReviewReadyTest(unittest.TestCase):
             self.assertIn("OBSERVED ARTIFACT", rendered)
             self.assertIn("打开对应架构章节", rendered)
             self.assertIn("source-identity--compact", rendered)
+            self.assertIn(f"/blob/{revision}/docs/", rendered)
+
+    def test_manifest_uses_stable_explicit_architecture_anchors(self) -> None:
+        manifest = json.loads(
+            (PROJECT_ROOT / "benchmarks/showcase/evidence-review-v1.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        self.assertEqual(
+            {
+                key: value["architecture_anchor"]
+                for key, value in manifest["sources"].items()
+            },
+            {
+                "governed": "#durability",
+                "orchestration": "#system",
+                "evaluation": "#evaluation",
+            },
+        )
+
+    def test_evidence_tree_detects_nested_artifact_mutation(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / "showcase.json").write_text("{}", encoding="utf-8")
+            trace = root / "phases/run/trace.json"
+            trace.parent.mkdir(parents=True)
+            trace.write_text('{"status":"completed"}', encoding="utf-8")
+            configured: dict[str, object] = {
+                "evidence_tree": {
+                    "algorithm": EVIDENCE_TREE_ALGORITHM,
+                    "include": ["showcase.json", "phases/**/*"],
+                }
+            }
+            count, digest = _evidence_tree(
+                root,
+                _evidence_tree_patterns(configured),
+            )
+            evidence_tree = configured["evidence_tree"]
+            assert isinstance(evidence_tree, dict)
+            evidence_tree["file_count"] = count
+            evidence_tree["sha256"] = digest
+
+            self.assertTrue(_evidence_tree_integrity(root, configured)[0])
+            trace.write_text('{"status":"failed"}', encoding="utf-8")
+            self.assertFalse(_evidence_tree_integrity(root, configured)[0])
 
     def test_url_state_supports_refresh_history_and_copy_link(self) -> None:
         required = (

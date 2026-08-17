@@ -29,6 +29,9 @@ from agent_forge.workbench.presentation.http import (
 )
 
 
+EVIDENCE_TREE_ALGORITHM = "sha256-relative-path-and-content-v1"
+
+
 @dataclass(frozen=True)
 class Check:
     section: str
@@ -53,7 +56,7 @@ def main() -> int:
             "Boundary",
             "Preflight is read-only",
             before == after,
-            "selected raw artifact hashes unchanged",
+            "critical raw evidence-tree hashes unchanged",
         )
     )
     current_section = ""
@@ -142,6 +145,10 @@ def _check_lab1() -> list[Check]:
     review = build_lab1_review(PROJECT_ROOT, source)
     artifact = source.primary_path
     expected_hash = str(configured.get("canonical_sha256") or "")
+    tree_ok, tree_detail = _evidence_tree_integrity(
+        artifact.parent if artifact is not None else Path(),
+        configured,
+    )
     return [
         Check(
             "Lab 1",
@@ -157,6 +164,12 @@ def _check_lab1() -> list[Check]:
             "Canonical artifact hash",
             bool(artifact and artifact.is_file()) and _sha256(artifact) == expected_hash,
             expected_hash[:12],
+        ),
+        Check(
+            "Lab 1",
+            "Critical evidence tree",
+            tree_ok,
+            tree_detail,
         ),
         Check(
             "Lab 1",
@@ -180,6 +193,12 @@ def _check_lab2() -> list[Check]:
     source = _source("orchestration")
     review = build_lab2_review(PROJECT_ROOT, source)
     expected_hash = str(configured.get("canonical_sha256") or "")
+    run_root = (
+        source.primary_path.parent.parent
+        if source.primary_path is not None
+        else Path()
+    )
+    tree_ok, tree_detail = _evidence_tree_integrity(run_root, configured)
     task_ids = {task.task_id for task in review.tasks}
     return [
         Check(
@@ -189,6 +208,12 @@ def _check_lab2() -> list[Check]:
             and source.primary_path is not None
             and _sha256(source.primary_path) == expected_hash,
             f"{source.run_key} · {expected_hash[:12]}",
+        ),
+        Check(
+            "Lab 2",
+            "Critical evidence tree",
+            tree_ok,
+            tree_detail,
         ),
         Check(
             "Lab 2",
@@ -300,10 +325,67 @@ def _raw_evidence_fingerprints() -> tuple[tuple[str, str], ...]:
     for key in ("governed", "orchestration"):
         configured = _source_config(manifest, key)
         run_name = str(configured.get("canonical_run") or "")
-        relative = str(configured.get("canonical_artifact") or "")
-        path = PROJECT_ROOT / ".agent_forge/runs/showcases" / run_name / relative
-        values.append((str(path), _sha256(path)))
+        root = PROJECT_ROOT / ".agent_forge/runs/showcases" / run_name
+        count, digest = _evidence_tree(root, _evidence_tree_patterns(configured))
+        values.append((str(root), f"{count}:{digest}"))
     return tuple(values)
+
+
+def _evidence_tree_integrity(
+    root: Path,
+    configured: dict[str, object],
+) -> tuple[bool, str]:
+    tree = configured.get("evidence_tree")
+    if not isinstance(tree, dict):
+        return False, "manifest evidence_tree is missing"
+    raw_patterns = tree.get("include")
+    patterns = _evidence_tree_patterns(configured)
+    if (
+        not isinstance(raw_patterns, list)
+        or not raw_patterns
+        or len(patterns) != len(raw_patterns)
+    ):
+        return False, "manifest evidence_tree.include is invalid"
+    count, digest = _evidence_tree(root, patterns)
+    expected_count = tree.get("file_count")
+    expected_digest = str(tree.get("sha256") or "")
+    passed = (
+        tree.get("algorithm") == EVIDENCE_TREE_ALGORITHM
+        and isinstance(expected_count, int)
+        and count == expected_count
+        and digest == expected_digest
+    )
+    expected = expected_count if isinstance(expected_count, int) else "missing"
+    return (
+        passed,
+        f"{count}/{expected} files · sha256 {digest[:12]}"
+        + ("" if digest == expected_digest else f" (expected {expected_digest[:12]})"),
+    )
+
+
+def _evidence_tree_patterns(configured: dict[str, object]) -> tuple[str, ...]:
+    tree = configured.get("evidence_tree")
+    tree = tree if isinstance(tree, dict) else {}
+    include = tree.get("include")
+    include = include if isinstance(include, list) else []
+    return tuple(item for item in include if isinstance(item, str) and item)
+
+
+def _evidence_tree(root: Path, patterns: tuple[str, ...]) -> tuple[int, str]:
+    files = {
+        path
+        for pattern in patterns
+        for path in root.glob(pattern)
+        if path.is_file()
+    }
+    digest = hashlib.sha256()
+    for path in sorted(files, key=lambda item: item.relative_to(root).as_posix()):
+        relative = path.relative_to(root).as_posix()
+        digest.update(relative.encode("utf-8"))
+        digest.update(b"\0")
+        digest.update(_sha256(path).encode("ascii"))
+        digest.update(b"\n")
+    return len(files), digest.hexdigest()
 
 
 def _git_object_exists(revision: str) -> bool:

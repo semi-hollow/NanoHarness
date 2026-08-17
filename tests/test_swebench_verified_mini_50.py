@@ -38,6 +38,14 @@ class SwebenchVerifiedMini50Test(unittest.TestCase):
     def _args(self, *extra: str):
         return build_parser().parse_args(["--campaign-id", "mini50-test", *extra])
 
+    @staticmethod
+    def _create_harness_fixture(root: Path) -> Path:
+        harness_root = root / "swebench-harness"
+        entrypoint = harness_root / "swebench/harness/run_evaluation.py"
+        entrypoint.parent.mkdir(parents=True)
+        entrypoint.write_text("# hermetic test fixture\n", encoding="utf-8")
+        return harness_root
+
     def test_manifest_matches_published_fifty_case_contract(self):
         cohort = load_benchmark_cohort(COHORT_PATH)
         selected = cohort.select_shard("all")
@@ -88,6 +96,7 @@ class SwebenchVerifiedMini50Test(unittest.TestCase):
 
     def test_validate_only_never_enters_benchmark_runner(self):
         with tempfile.TemporaryDirectory() as temporary:
+            harness_root = self._create_harness_fixture(Path(temporary))
             with mock.patch(
                 "scripts.run_swebench_verified_mini_50.run_benchmark_campaign"
             ) as runner:
@@ -97,6 +106,8 @@ class SwebenchVerifiedMini50Test(unittest.TestCase):
                         "mini50-validate",
                         "--output-root",
                         temporary,
+                        "--swebench-harness-root",
+                        str(harness_root),
                     ]
                 )
             plan_path = Path(temporary) / "mini50-validate/frozen_plan.json"
@@ -155,8 +166,13 @@ class SwebenchVerifiedMini50Test(unittest.TestCase):
                 )
 
     def test_rendered_plan_contains_no_credential_or_full_benchmark_claim(self):
-        request = build_campaign_request(self._args(), project_root=PROJECT_ROOT)
-        rendered = render_plan(request, execute=False)
+        with tempfile.TemporaryDirectory() as temporary:
+            request = build_campaign_request(self._args(), project_root=PROJECT_ROOT)
+            frozen_plan = build_frozen_plan(
+                request,
+                swebench_harness_root=self._create_harness_fixture(Path(temporary)),
+            )
+            rendered = render_plan(request, execute=False, frozen_plan=frozen_plan)
 
         self.assertIn('"case_count": 50', rendered)
         self.assertIn('"paid_model_calls_started": false', rendered)
@@ -168,11 +184,15 @@ class SwebenchVerifiedMini50Test(unittest.TestCase):
 
     def test_frozen_plan_is_create_once_and_rejects_identity_drift(self):
         with tempfile.TemporaryDirectory() as temporary:
+            harness_root = self._create_harness_fixture(Path(temporary))
             request = build_campaign_request(
                 self._args("--output-root", temporary),
                 project_root=PROJECT_ROOT,
             )
-            plan = build_frozen_plan(request)
+            plan = build_frozen_plan(
+                request,
+                swebench_harness_root=harness_root,
+            )
             first = _freeze_or_validate_plan(request, plan)
             second = _freeze_or_validate_plan(request, plan)
             drifted = json.loads(json.dumps(plan))
@@ -183,47 +203,51 @@ class SwebenchVerifiedMini50Test(unittest.TestCase):
                 _freeze_or_validate_plan(request, drifted)
 
     def test_final_publish_gate_accepts_empty_as_terminal_unresolved(self):
-        request = build_campaign_request(self._args(), project_root=PROJECT_ROOT)
-        plan = build_frozen_plan(request)
-        plan["source_identity"] = {
-            **plan["source_identity"],
-            "dirty": False,
-            "working_tree_sha256": "",
-        }
-        records = build_campaign_records(request)
-        for record in records:
-            record.status = "completed"
-            record.attempts = 1
-            record.evidence = {
-                "patch_generated": False,
-                "official_evaluation_status": "official_eval_skipped_empty_patch",
-                "failure_class": "no_candidate_patch",
+        with tempfile.TemporaryDirectory() as temporary:
+            request = build_campaign_request(self._args(), project_root=PROJECT_ROOT)
+            plan = build_frozen_plan(
+                request,
+                swebench_harness_root=self._create_harness_fixture(Path(temporary)),
+            )
+            plan["source_identity"] = {
+                **plan["source_identity"],
+                "dirty": False,
+                "working_tree_sha256": "",
             }
-        source = dict(plan["source_identity"])
-        state = CampaignState(
-            campaign_id=request.campaign_id,
-            config_digest=campaign_config_digest(request.identity(), source),
-            config=request.identity(),
-            source=source,
-            created_at="2026-08-15T00:00:00+00:00",
-            updated_at="2026-08-15T00:00:00+00:00",
-            records=records,
-            status="completed",
-        )
+            records = build_campaign_records(request)
+            for record in records:
+                record.status = "completed"
+                record.attempts = 1
+                record.evidence = {
+                    "patch_generated": False,
+                    "official_evaluation_status": "official_eval_skipped_empty_patch",
+                    "failure_class": "no_candidate_patch",
+                }
+            source = dict(plan["source_identity"])
+            state = CampaignState(
+                campaign_id=request.campaign_id,
+                config_digest=campaign_config_digest(request.identity(), source),
+                config=request.identity(),
+                source=source,
+                created_at="2026-08-15T00:00:00+00:00",
+                updated_at="2026-08-15T00:00:00+00:00",
+                records=records,
+                status="completed",
+            )
 
-        gate = build_final_publish_gate(
-            state,
-            request=request,
-            frozen_plan=plan,
-            final_plan=plan,
-        )
-        records[0].evidence["failure_class"] = "provider_transport_error"
-        refused = build_final_publish_gate(
-            state,
-            request=request,
-            frozen_plan=plan,
-            final_plan=plan,
-        )
+            gate = build_final_publish_gate(
+                state,
+                request=request,
+                frozen_plan=plan,
+                final_plan=plan,
+            )
+            records[0].evidence["failure_class"] = "provider_transport_error"
+            refused = build_final_publish_gate(
+                state,
+                request=request,
+                frozen_plan=plan,
+                final_plan=plan,
+            )
 
         self.assertTrue(gate["publishable"])
         self.assertEqual(gate["headline"], "0/50")
