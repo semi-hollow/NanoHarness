@@ -1,482 +1,708 @@
 # 多 Agent 编排
 
-> 本文回答一个问题：NanoHarness 当前的 Live Fanout 怎样把已经结构化的子任务，变成可隔离、可并发、可验证、可稳定集成的多个 Agent 执行。
+> 本文描述 NanoHarness Multi-Agent 的**当前稳定基线（V0）**、正在开发的 **V1 MVP**，以及明确不在当前版本实现的后续能力。
+> Roadmap 以 [`MULTI_AGENT_ROADMAP.md`](./MULTI_AGENT_ROADMAP.md) 为准。
 
 ---
 
-## 1. 当前能力边界
+# 1. 版本与分支
 
-NanoHarness 当前的 Live Fanout 不是：
+当前使用两条明确分支：
 
 ```text
-一个 Main Agent
-↓
-自动拆自然语言任务
-↓
-多个共享 Memory 的 Subagent
+stable/v0-20260818
+    ↓
+当前稳定版本，未来两周继续用于展示
+
+feature/multi-agent-v1
+    ↓
+新的 Multi-Agent 能力开发分支
 ```
 
-当前实现是：
+同时使用：
+
+```text
+v0-stable-20260818
+```
+
+作为 V0 精确 commit 的不可变 snapshot tag。
+
+原则：
+
+- V0 稳定分支不接收 V1 开发改动；
+- V1 全部能力吃透、验证完成后，再决定是否将其提升为新的稳定版本；
+- 未实现能力不得在文档中写成 CURRENT。
+
+---
+
+# 2. V0：当前稳定能力
+
+当前 V0 的真实主链：
 
 ```text
 Typed FanoutPlan
-↓
+        ↓
 LiveFanoutCoordinator
-↓
+        ↓
 Dependency / Ready Level
-↓
-Conflict-free Batch
-↓
+        ↓
+Conflict-Free Batch
+        ↓
 ThreadPoolExecutor
-↓
+        ↓
 Independent Worker AgentLoops
-↓
-Isolated Worktrees
-↓
+        ↓
+Isolated Git Worktrees
+        ↓
 LiveSubagentResult + Candidate Diff
-↓
-Four Conflict Gates
-↓
+        ↓
+Conflict Gates
+        ↓
 Stable Integration
-↓
+        ↓
 Read-only Finalizer
 ```
 
-其中：
+当前 Coordinator：
 
 ```text
 Coordinator
 = deterministic orchestrator
-≠ LLM
-≠ Main Agent
+≠ LLM Main Agent
 ≠ shared WorkingMemory
 ```
 
-当前已经实现的是 Planning 之后的 Orchestration / Execution half。
+当前能力本质上是：
+
+> **Planning 之后的 Orchestration / Execution half。**
 
 ---
 
-## 2. FanoutPlan：并发执行前的结构化契约
+# 3. V0 的 FanoutPlan 是谁生成的？
 
-当前 Coordinator 不把一段自然语言 Task 自动拆成多个 Worker。它接收已经结构化的：
+当前：
 
 ```text
+Manual / External JSON or Python Mapping
+        ↓
+FanoutPlan.from_mapping(...)
+        ↓
+Runtime Validation
+        ↓
+Coordinator Execution
+```
+
+当前 `FanoutPlan` 已包含：
+
+```text
+goal
+tasks[]
+├── id
+├── task
+├── depends_on
+├── write_scope
+├── allowed_tools
+├── expected_artifact
+└── max_steps
+```
+
+V0 不会把自然语言任务自动拆成多个 Worker。
+
+因此 V0 的最大结构性缺口是：
+
+```text
+Natural Language Task
+        ↓
+       ???
+        ↓
 FanoutPlan
-├ goal
-└ tasks[]
-   ├ id
-   ├ task
-   ├ depends_on
-   ├ write_scope
-   ├ allowed_tools
-   └ max_steps
 ```
 
-### 依赖字段 `depends_on`
-
-`depends_on` 表示显式任务依赖。例如：
-
-```text
-A depends_on=[]
-B depends_on=[]
-C depends_on=[A,B]
-```
-
-则：
-
-```text
-Ready Level 0 = A, B
-Ready Level 1 = C
-```
-
-依赖来自 Plan，不由 Coordinator 做语义推断。
-
-### 写入范围 `write_scope`
-
-`write_scope` 是 Worker 执行前声明的 filesystem ownership contract，不是 mutex：
-
-```text
-write_scope
-= pre-run scheduling contract
-```
-
-Worker 真正修改了哪些文件，仍由执行后的 `touched_files` 验证。
+V1 首要目标就是补齐这一段。
 
 ---
 
-## 3. Ready Level 到 Batch
+# 4. V0 Worker 的 Context 隔离
 
-Coordinator 先按 dependency 得到 ready tasks，再用 `write_scope` 做同层并发分组：
+每个 Worker 都拥有独立：
+
+- `AgentRunSession`
+- WorkingMemory
+- Conversation
+- RuntimeConfig
+- Tool Surface
+- Git worktree
+- durable state path
+
+多个 Worker **不共享完整 Conversation 或 WorkingMemory**。
+
+因此 V1 不会改成：
 
 ```text
-depends_on DAG
-↓
-Ready Level
-↓
-write_scope overlap check
-↓
-Conflict-free Batches
+Main Agent huge context
+        ↓
+copy everything to every Worker
 ```
 
-例如：
+而会继续保持：
 
 ```text
-A → src/pricing.py
-B → src/shipping.py
-```
-
-可以进入同一 Batch。如果：
-
-```text
-A → src/
-B → src/order.py
-```
-
-路径存在父子 overlap，则不能同批并发。当前会拆成不同 Batch，而不是让整个 Fanout 直接失败。
-
----
-
-## 4. Worker 是独立 AgentLoop Job，不是永久绑定线程
-
-```text
-SubagentTask
-→ 一个逻辑 Worker Job
-
-ThreadPoolExecutor
-→ 给 Worker Job 分配执行线程
-```
-
-例如 `tasks = A, B, C`、`max_workers = 2`，可能出现：
-
-```text
-Thread-1 → A
-Thread-2 → B
-
-B 完成
-↓
-Thread-2 → C
-```
-
-所以：
-
-```text
-Thread identity
-≠ Agent identity
+Private context
+→ isolated
 ```
 
 ---
 
-## 5. Worker Runtime 如何组装
+# 5. V0 Worker 如何交接代码状态？
 
-每个 Worker 都创建自己的执行上下文：
+Worker A/B 成功 merge 后：
 
 ```text
-Task
-↓
-Ephemeral Worktree
-↓
-Worker RuntimeConfig
-↓
-Filtered ToolRegistry
-↓
-RuntimeDependencies
-↓
-Independent AgentLoop
+Integration Workspace
+= original baseline + merged successful candidate changes
 ```
 
-Worker 共享 Runtime 实现，但不共享：
+下一批 Worker C 启动时：
 
-- `AgentRunSession`；
-- `WorkingMemory`；
-- Conversation；
-- mutable Workspace；
-- durable run-state path。
+```text
+fresh worktree
+        ↓
+seed current cumulative integrated diff
+        ↓
+commit as Worker baseline
+        ↓
+run Worker C
+```
 
-每个 Worker 会派生自己的 workspace、state / approval / ledger roots、run identity、allowed tools 和 max steps。
-隔离先落在 Workspace、RuntimeConfig 和 Tool Surface 上，不依赖 Prompt 约定。
+因此 C 能看到 A/B 已经成功进入集成空间的代码修改。
+
+V0 的 **code-state handoff 是存在的**。
+
+当前不足的是：
+
+> 缺少一个明确、紧凑、可追溯的 **semantic handoff contract**。
 
 ---
 
-## 6. Worktree 生命周期
+# 6. V0 的冲突处理
 
-```text
-Worker starts
-↓
-create ephemeral detached worktree
-↓
-seed current integration baseline
-↓
-AgentLoop reads / edits / validates
-↓
-collect candidate diff
-↓
-collect touched_files / trace / usage
-↓
-return LiveSubagentResult
-↓
-cleanup worktree
-```
+当前系统主要做 **Conflict Detection / Blocking**，不做自动语义修复。
 
-需要区分：
+主要门禁：
 
-```text
-Worker Worktree
-= 源码目录
+| Gate | 时机 | 依据 | 当前作用 |
+|---|---|---|---|
+| Static Plan Gate | Worker 前 | declared `write_scope` | 拆分冲突 batch |
+| Scope Violation Gate | Worker 后 | actual touched files vs scope | fail closed |
+| Dynamic Result Gate | 同批 Worker 后 | actual `touched_files` | 阻止冲突 merge |
+| Merge Applicability Gate | Integration | candidate patch 是否仍可 apply | 标记 merge conflict |
 
-Worker Artifact Dir
-= trace / usage / diff / manifest 等运行证据目录
-```
-
-Worker 修改业务代码时主要依赖 separate worktrees，而不是让多个 Worker 在一个 Working Tree 上抢全局锁。
-
----
-
-## 7. Worker 返回什么
-
-Coordinator 不接收 Worker 的内部 Agent Memory，而接收结构化 result envelope：
-
-```text
-LiveSubagentResult
-├ task_id
-├ status
-├ final_answer
-├ touched_files
-├ candidate_diff_path
-├ candidate_diff_sha256
-├ trace_path
-├ usage_path
-├ batch_index
-├ error
-└ duration
-```
-
-其中：
-
-```text
-Candidate Diff
-= integration payload
-
-LiveSubagentResult
-= orchestration contract
-```
-
-`touched_files` 用于冲突检查，`status` 用于依赖解锁，Trace / Usage 用于 Evidence，Diff hash 用于恢复和完整性验证。
-
----
-
-## 8. 四层 Conflict Gate
-
-当前系统做 Conflict Detection / Blocking，不做自动语义修复。
-
-| Gate | 时机 | 判断依据 | 例子 | 当前处理 |
-| --- | --- | --- | --- | --- |
-| Static Plan Gate | Worker 前 | declared `write_scope` | 两个 ready task 都声明 `src/` | 拆成不同 Batch |
-| Scope Violation Gate | Worker 后 | `touched_files ⊆ write_scope` | 只允许改 A，实际改了 B | Block，不 merge |
-| Dynamic Result Gate | 同 Batch Worker 后 | actual `touched_files` | 两个 Worker 都改 `utils.py` | Block |
-| Merge Applicability Gate | Integration | candidate patch 是否仍可 apply | 前序集成使 patch 不再适用 | `merge_conflict` |
+V0：
 
 ```text
 Conflict Detection         ✅
 Automatic Conflict Repair  ❌
+Bounded Serialized Retry   ❌
+Semantic Replan            ❌
 ```
-
-当前不会在发现冲突后自动调用 LLM 修 Patch。
 
 ---
 
-## 9. 一个 Batch 的真实生命周期
+# 7. V0 Finalizer 是否只是汇总？
+
+不是。
+
+V0 Finalizer 已经是一个真实的 **read-only verification gate**：
+
+- 能读取当前 integrated candidate；
+- 能查看 Git diff/status；
+- 能运行允许的 validation；
+- 最终输出 `PASS / NEEDS_REVISION / BLOCKED`；
+- 不允许修改 workspace。
+
+但 V0 的 completion semantics 仍偏软：
 
 ```text
-Batch N
+Goal
++ Worker results
++ Integrated state
 ↓
-Workers concurrent
-↓
-collect LiveSubagentResult
-↓
-scope / dynamic conflict checks
-↓
-stable sequential merge
-↓
-checkpoint
-↓
-next Batch
+Prompt-driven judgment
 ```
 
-系统不是等所有 Batch 都完成后再一次性 merge。
+V1 会加入显式 Acceptance Criteria，使完成判断更可解释。
 
 ---
 
-## 10. 稳定合并顺序 / Stable Merge Order
+# 8. V1：目标主链
 
-同 Batch Worker 的完成顺序可能是：
+V1 不重写 V0 execution half。
 
-```text
-D → C → B → A
-```
-
-但 Integration 不使用 Future completion order，而是按 FanoutPlan 的稳定 Task 顺序：
+V1 只补当前能力闭环最关键的缺口：
 
 ```text
-A → B → C → D
+Natural Language Task
+        ↓
+Planner
+        ↓
+Single / Fanout Strategy Gate
+        ↓
+Validated Typed FanoutPlan
+        ↓
+Existing DAG Scheduler
+        ↓
+Isolated Workers
+        ↓
+Structured WorkerHandoff
+        ↓
+Existing Deterministic Integration
+        ↓
+Bounded Recovery / Replan
+        ↓
+Criteria-aware Read-only Finalizer
+        ↓
+PASS / NEEDS_REVISION / BLOCKED
 ```
-
-这样相同 Plan 不会因为线程或模型时延不同而得到不同的 integration order。
 
 ---
 
-## 11. cumulative diff 是什么
+# 9. V1.1 Planner + Single/Multi Strategy Gate
 
-假设 Batch 0 中 Worker A、B 分别产生 candidate diff A、B，成功集成后：
+V1 Planner 只负责：
+
+- task decomposition；
+- dependency proposal；
+- coarse `write_scope` proposal；
+- acceptance criteria；
+- Single/Fanout strategy。
+
+Planner 不拥有最终执行权。
+
+原则：
 
 ```text
-Integration Workspace
-= original baseline + A + B
+LLM proposes.
+Runtime validates.
 ```
 
-下一 Batch 使用的 cumulative diff 不是 `string(diff A) + string(diff B)`，而是：
+目标 contract：
 
 ```text
-Git compare:
-original baseline
+PlanningDecision
+├── mode: single | fanout
+├── reason
+├── global_acceptance_criteria
+└── tasks[]
+```
+
+Fanout task 只保留必要字段：
+
+```text
+id
+task
+depends_on
+write_scope
+allowed_tools
+acceptance_criteria
+max_steps
+```
+
+Planner 输出仍必须进入 deterministic validation。
+
+如果任务足够局部或高度耦合：
+
+```text
+mode = single
+```
+
+避免为了 Multi-Agent 而强行 Multi-Agent。
+
+---
+
+# 10. V1.2 Acceptance Criteria + Structured Handoff
+
+## 10.1 Acceptance Criteria
+
+Acceptance Criteria 从 Planner 贯穿到 Finalizer：
+
+```text
+Planner
+↓
+Task Contract
+↓
+Worker
+↓
+Evidence
+↓
+Finalizer
+```
+
+它不是单纯 Prompt decoration。
+
+---
+
+## 10.2 WorkerHandoff
+
+V1 继续保持 Context isolation。
+
+Agent 之间的通信拆成三类：
+
+```text
+Code State
+→ Integrated Workspace
+
+Semantic State
+→ Compact WorkerHandoff
+
+Private Context
+→ Isolated
+```
+
+目标 Handoff：
+
+```text
+WorkerHandoff
+├── task_id
+├── status
+├── summary
+├── touched_files
+├── validation_evidence
+├── unresolved_issues
+└── artifact_path
+```
+
+Handoff 优先从已有 `LiveSubagentResult` / Artifact 做 deterministic projection。
+
+不要为了 Handoff 再调用一个 LLM。
+
+如果 C `depends_on=[A,B]`：
+
+C 只收到：
+
+- 自己的 task；
+- 自己的 acceptance criteria；
+- A/B compact handoff；
+- 当前 integrated workspace。
+
+不收到 A/B 完整 Conversation。
+
+---
+
+# 11. V1.3 Bounded Recovery / Replan
+
+硬边界：
+
+```text
+max_worker_retry <= 1
+max_plan_replan_rounds <= 1
+```
+
+---
+
+## 11.1 Merge Applicability Conflict → Serialized Rerun
+
+目标场景：
+
+```text
+A || B
+↓
+A merge success
+↓
+B old candidate becomes stale / non-applicable
+```
+
+V1 recovery：
+
+```text
+discard B old patch
+        ↓
+latest integrated workspace
+        ↓
+fresh B Worker
+        ↓
+re-read / re-edit / re-validate
+        ↓
+B-v2 candidate
+```
+
+核心设计：
+
+> optimistic parallel execution + serialized conflict recovery
+
+不做 LLM textual patch merge。
+
+---
+
+## 11.2 Retryable Worker Failure
+
+只对可合理判断为 transient/retryable 的失败最多 retry 一次。
+
+不盲目 retry：
+
+- scope violation；
+- deterministic permission violation；
+- invalid plan。
+
+---
+
+## 11.3 One-Round Remaining-Plan Replan
+
+已经成功完成并 merge 的任务冻结：
+
+```text
+Completed Prefix
+= immutable history
+```
+
+只允许替换剩余任务图：
+
+```text
+Remaining Graph
+= replaceable once
+```
+
+Replanner 输入：
+
+- original goal；
+- current plan；
+- completed task IDs；
+- completed handoffs；
+- current integrated-state summary；
+- failure/conflict evidence；
+- remaining work。
+
+Replanner 输出仍必须通过 deterministic validation。
+
+最多一次。
+
+---
+
+## 11.4 Fail-Closed Boundaries
+
+V1 明确不做：
+
+- scope violation 自动重试；
+- LLM semantic merge；
+- 无限 replan；
+- completed-task rollback；
+- Agent ping-pong。
+
+---
+
+# 12. V1.4 Criteria-Aware Finalizer
+
+V1 不重写 Finalizer。
+
+继续使用 read-only Finalizer AgentLoop。
+
+输入升级为：
+
+```text
+Original Goal
++
+Global Acceptance Criteria
++
+Per-task Acceptance Criteria
++
+WorkerHandoffs
++
+Integrated Workspace / Diff
++
+Validation Evidence
+```
+
+目标判断：
+
+```text
+criterion 1 → PASS / FAIL / UNKNOWN
+criterion 2 → PASS / FAIL / UNKNOWN
+...
+↓
+Final Decision
+```
+
+最终仍是：
+
+```text
+PASS
+NEEDS_REVISION
+BLOCKED
+```
+
+Runtime hard facts 优先于模型文字。
+
+---
+
+# 13. V1.5 五个机制 Case
+
+V1 不跑大规模 Multi-Agent Benchmark。
+
+只要求五个 deterministic mechanism cases：
+
+1. **Single Gate**
+   - 局部任务应选择 `single`。
+
+2. **Independent Parallel Fanout**
+   - 独立任务可并发、隔离执行、稳定 merge。
+
+3. **Dependency + Handoff**
+   - 下游 Worker 得到 dependency handoff + integrated code state。
+
+4. **Merge Conflict Serialized Recovery**
+   - stale candidate 丢弃，在最新集成状态重新执行一次。
+
+5. **Worker Failure / Bad Remaining Plan**
+   - 最多一次 retry/replan，然后成功或 controlled abort。
+
+这些 Case 的目标是证明：
+
+> orchestration mechanism correctness
+
+不是证明：
+
+> Multi-Agent Pass@1 一定高于 Single-Agent。
+
+---
+
+# 14. V2：Multi-Agent Quantitative Evaluation
+
+V2 当前不实现。
+
+未来固定 Golden-10 比较：
+
+```text
+Single Agent
 vs
-current Integration Workspace
-↓
-cumulative diff
+Static Fanout
+vs
+Adaptive Fanout
 ```
 
-因此 cumulative diff 只包含已经成功进入 Integration Workspace 的真实状态。被 Conflict Gate 阻断的 candidate 不会被自动修复后加入。
+关注：
+
+- success rate；
+- wall time；
+- token；
+- LLM calls；
+- conflict rate；
+- recovery rate。
+
+在 V2 完成以前，不声称 Multi-Agent 已量化提高 Pass@1。
+
+NanoHarness 已有 Single-Agent benchmark/eval 能力，因此 V1 当前优先把 Multi-Agent mechanism 做完整。
 
 ---
 
-## 12. 下一 Batch 为什么能看到上一 Batch 修改
+# 15. V3：Evaluation-Driven Multi-Agent Optimization
 
-假设 Batch 0 为 `A || B`，Batch 1 为 C。Batch 0 集成后：
+V3 当前不实现。
+
+它仍放在 Multi-Agent Roadmap 中，因为第一阶段只优化：
+
+- Planner；
+- Handoff；
+- Recovery/Replan；
+- Finalizer；
+- Multi-Agent orchestration policy。
+
+链路：
 
 ```text
-Integration Workspace
-= baseline + A + B
+Multi-Agent Runs
+↓
+FailureReport
+↓
+ImprovementProposal
+↓
+ExperimentSpec
 ```
 
-启动 C 时：
+边界：
 
 ```text
-fresh Worker worktree
-↓
-apply current cumulative integration diff
-↓
-commit worker baseline
-↓
-run AgentLoop C
+Agent proposes
+Engineer changes source
+Eval judges
 ```
 
-C 开始时看到 `baseline + A + B`，最后产生自己相对这个新 baseline 的增量 diff。
+不做 Agent 自动修改 NanoHarness。
+
+如果未来优化范围扩展到整个 Harness，则拆出独立 Harness Improvement Roadmap。
 
 ---
 
-## 13. Git metadata lock 的边界
+# 16. 当前明确不做
 
-Worker 写业务代码时依靠 separate worktrees，不需要共享 code-file mutex。但多个线程同时执行
-`git worktree add`、`git worktree remove / prune` 会触碰同一 repository 的共享 Worktree metadata。
+当前不引入：
 
-当前 Live Fanout 是单 Python Process 内多线程，因此这段生命周期操作使用 process-local
-`threading.Lock`。如果未来跨 Process，`threading.Lock` 不足，需要 filesystem / OS lock。
-
-```text
-Code editing
-→ isolation
-
-Shared Git metadata
-→ lock scoped to concurrency domain
-
-Integration
-→ deterministic sequential apply
-```
-
----
-
-## 14. 最终验收 / Finalizer
-
-Finalizer 是最后 correctness gate，只能执行：
-
-```text
-read
-git status / diff
-validation
-```
-
-它不能 repair candidate。如果 Finalizer 自己修改 Workspace，则应被 Block。它验证已经集成的结果，
-不会成为隐藏的最后修代码 Agent。
+- Auto Research 第二主线；
+- Agent 群聊；
+- unrestricted A2A；
+- voting / consensus；
+- recursive supervisors；
+- unlimited agent spawning；
+- semantic merge Agent；
+- Redis / MQ / Kubernetes worker platform；
+- cloud multi-tenancy；
+- organization memory；
+- knowledge graph；
+- Skill marketplace；
+- automatic Harness self-modification。
 
 ---
 
-## 15. 当前能力与未来方向 / Current vs Future
+# 17. 核心源码 Owner
 
-### 当前已实现 / CURRENT
-
-```text
-Explicit typed FanoutPlan
-↓
-Plan validation
-↓
-Deterministic Coordinator
-↓
-Independent Worker AgentLoops
-↓
-Worktree isolation
-↓
-Conflict detection
-↓
-Stable integration
-↓
-Read-only Finalizer
-```
-
-### 未来方向 / FUTURE / NOT IMPLEMENTED
+## V0 已有
 
 ```text
-User natural-language task
-↓
-Planner Agent
-↓
-typed FanoutPlan
+FanoutPlan
+→ agent_forge/multi_agent/domain/live.py
+
+Dependency / conflict-free batching
+→ agent_forge/multi_agent/domain/fanout.py
+
+Live orchestration / integration
+→ agent_forge/multi_agent/application/live_fanout.py
+
+Worker runtime / worktree / finalizer
+→ agent_forge/multi_agent/adapters/local_worker.py
+
+Composition root
+→ agent_forge/multi_agent/wiring.py
 ```
 
-Planner 未来可以提出 task decomposition、dependency、coarse write_scope、allowed tools 和 budget，
-但 Runtime 仍必须做 deterministic validation。
+## V1 新增/增强 Owner
 
-另一个 Future extension 是 Conflict Resolver Agent，当前同样没有实现。
+最终实现后，应保持 Owner 数量尽量少：
+
+```text
+Planner / PlanningDecision
+→ one clear planning owner
+
+Acceptance Criteria
+→ existing plan/task contract where possible
+
+WorkerHandoff
+→ one compact contract / projection owner
+
+Recovery / Replan
+→ LiveFanoutCoordinator or one thin helper
+
+Criteria-aware Finalizer
+→ existing LocalAgentWorkerAdapter finalizer path
+```
+
+不要为了 V1 引入复杂多层抽象。
 
 ---
 
-## 16. 核心源码 Owner
+# 18. 30 秒架构摘要
 
-```text
-LiveFanoutCoordinator.run
-↓
-build_conflict_free_batches
-↓
-LiveFanoutCoordinator._run_batch
-↓
-LocalAgentWorkerAdapter.run_worker
-↓
-LiveFanoutCoordinator._mark_dynamic_conflicts
-↓
-LiveFanoutCoordinator._merge_batch
-↓
-LocalAgentWorkerAdapter.run_finalizer
-```
+V0：
 
-| 环节 | Owner |
-| --- | --- |
-| typed plan 与 task contract | [`FanoutPlan`](../agent_forge/multi_agent/domain/live.py) |
-| dependency 与 conflict-free batching | [`build_conflict_free_batches`](../agent_forge/multi_agent/domain/fanout.py) |
-| batch 执行、冲突检查、稳定集成 | [`LiveFanoutCoordinator`](../agent_forge/multi_agent/application/live_fanout.py) |
-| Worker Runtime 与只读 Finalizer | [`LocalAgentWorkerAdapter`](../agent_forge/multi_agent/adapters/local_worker.py) |
+> NanoHarness 当前 Multi-Agent 已经不是多个 Agent 共用一个 Working Tree 的玩具实现。它由 typed FanoutPlan 驱动，Coordinator 按 dependency 和 write scope 做 deterministic scheduling，每个 Worker 使用独立 AgentLoop 和 Git worktree，执行后通过 actual touched files 和 patch applicability 做冲突检查，再稳定顺序集成，最后由只读 Finalizer 验收。但 V0 的 Plan 仍由外部提供，semantic handoff、bounded replan 和显式 completion criteria 还不完整。
 
-阅读每个方法时只需要问四件事：Input 是什么、做了什么 Runtime 判断、失败分支是什么、Output 给谁。
+V1 目标：
 
----
-
-## 17. 30 秒摘要
-
-> NanoHarness 当前的 Multi-Agent 不是 Main Agent 带多个共享 Memory 的 Subagent，而是显式 FanoutPlan 驱动的并发执行器。Coordinator 本身不调用 LLM；它先按 dependency 形成 ready level，再按 declared write_scope 做 conflict-free batching。同批 Worker 用 ThreadPool 并发，每个 Worker 都有独立 AgentLoop、Git worktree、RuntimeConfig 和 Tool Surface。Worker 只返回结构化结果和 candidate diff；Coordinator 按 actual touched files 做动态冲突检查，再按稳定 Task 顺序串行 apply 到 Integration Workspace。后续 Batch 基于已经集成的 cumulative Git diff 构建新 Worker baseline。Planner 和 automatic conflict resolver 都是明确未实现的 future extension。
+> V1 在不重写现有 execution half 的前提下补 Planner、Single/Multi strategy、structured handoff、acceptance criteria、bounded conflict recovery 和 criteria-aware Finalizer，使系统从人工 DAG executor 升级为一个小而完整的 adaptive Multi-Agent coding harness。
