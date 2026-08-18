@@ -29,7 +29,7 @@ class TaskCheckpointData(TypedDict):
     resume_hint: str
     messages_count: int
     observations_count: int
-    session_digest: JsonObject
+    conversation_history_digest: JsonObject
     updated_at: float
     created_at: float
     metadata: JsonObject
@@ -80,7 +80,7 @@ class TaskCheckpointUpdate:
     resume_hint: str | None = None
     messages_count: int | None = None
     observations_count: int | None = None
-    session_digest: JsonObject | None = None
+    conversation_history_digest: JsonObject | None = None
     metadata: JsonObject | None = None
     updated_at: float | None = None
 
@@ -99,12 +99,12 @@ class TaskCheckpoint:
 
     ``run_id/task/workspace/agent_name`` 标识运行；``status/current_step`` 是状态机
     位置；``last_*``、``stop_reason`` 和 ``resume_hint`` 指导恢复；计数字段与
-    ``session_digest`` 保存旧 Conversation History 的有界投影；``metadata`` 承载人工请求和执行环境等
-    扩展事实。Repository 只负责保存和加载。完整消息和工具输出属于 Trace，
-    不进入本对象。
+    ``conversation_history_digest`` 保存旧 Conversation History 的有界投影；
+    ``metadata`` 承载人工请求和执行环境等扩展事实。Repository 只负责保存和加载。
+    完整消息和工具输出属于 Trace，不进入本对象。
     """
 
-    SCHEMA_VERSION: ClassVar[int] = 2
+    SCHEMA_VERSION: ClassVar[int] = 3
 
     run_id: str
     task: str
@@ -120,7 +120,7 @@ class TaskCheckpoint:
     resume_hint: str = ""
     messages_count: int = 0
     observations_count: int = 0
-    session_digest: JsonObject = field(default_factory=dict)
+    conversation_history_digest: JsonObject = field(default_factory=dict)
     updated_at: float = field(default_factory=time.time)
     created_at: float = field(default_factory=time.time)
     metadata: JsonObject = field(default_factory=dict)
@@ -149,8 +149,8 @@ class TaskCheckpoint:
             self.messages_count = update.messages_count
         if update.observations_count is not None:
             self.observations_count = update.observations_count
-        if update.session_digest is not None:
-            self.session_digest = update.session_digest
+        if update.conversation_history_digest is not None:
+            self.conversation_history_digest = update.conversation_history_digest
         if update.metadata is not None:
             self.metadata = update.metadata
         self.updated_at = (
@@ -176,7 +176,7 @@ class TaskCheckpoint:
             "resume_hint": self.resume_hint,
             "messages_count": self.messages_count,
             "observations_count": self.observations_count,
-            "session_digest": self.session_digest,
+            "conversation_history_digest": self.conversation_history_digest,
             "updated_at": self.updated_at,
             "created_at": self.created_at,
             "metadata": self.metadata,
@@ -208,7 +208,8 @@ def summarize_checkpoint(checkpoint: TaskCheckpoint, max_chars: int = 1400) -> s
         f"last_observation={checkpoint.last_observation}\n"
         f"stop_reason={checkpoint.stop_reason}\n"
         f"resume_hint={checkpoint.resume_hint}\n"
-        f"session_digest={json.dumps(checkpoint.session_digest, ensure_ascii=False)}\n"
+        "conversation_history_digest="
+        f"{json.dumps(checkpoint.conversation_history_digest, ensure_ascii=False)}\n"
         f"stop_output={checkpoint.stop_output}\n"
         f"final_answer={checkpoint.final_answer}"
     )

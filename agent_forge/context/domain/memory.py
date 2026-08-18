@@ -3,7 +3,7 @@
 阅读本文件时先看两个核心数据：
 
 - ``LongTermMemoryRecord``：用户显式授权、跨 run 持久化的长期记忆。
-- ``SessionDigest``：会话窗口压缩后交给模型的摘要视图，不是长期真相。
+- ``ConversationHistoryDigest``：会话窗口压缩后交给模型的摘要视图，不是长期真相。
 
 本文件只定义数据、校验和状态语义，不负责召回、文件读写或模型调用。
 """
@@ -77,7 +77,9 @@ class LongTermMemoryRecord:
         if self.scope not in {item.value for item in MemoryScope}:
             raise ValueError(f"unsupported memory scope: {self.scope}")
         if self.source != MemorySource.USER_EXPLICIT.value:
-            raise ValueError("long-term memory must be explicitly authorized by the user")
+            raise ValueError(
+                "long-term memory must be explicitly authorized by the user"
+            )
         if self.status != MemoryStatus.ACTIVE.value:
             raise ValueError(f"unsupported memory status: {self.status}")
         if self.revision < 1:
@@ -169,7 +171,7 @@ class ToolTransactionDigest:
 
 # 核心数据：旧会话被移出模型窗口后留下的结构化、可溯源摘要。
 @dataclass(frozen=True)
-class SessionDigest:
+class ConversationHistoryDigest:
     """旧 Conversation History 的确定性压缩投影，不替代原始 trace。
 
     字段说明：
@@ -220,7 +222,8 @@ class SessionDigest:
         )
         return "\n".join(
             [
-                "session_digest (summary only; raw trace remains authoritative):",
+                "conversation_history_digest "
+                "(summary only; raw trace remains authoritative):",
                 f"task: {self.task}",
                 f"covered_messages: {self.covered_message_count}",
                 f"task_updates: {self.task_updates}",

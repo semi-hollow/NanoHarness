@@ -220,7 +220,9 @@ class Harness:
             or build_task_state_repository(run_paths.task_state_dir)
         )
         dependency_overrides = RuntimeDependencyOverrides(
-            context=self._extensions.context_assembler,
+            turn_system_context_assembler=(
+                self._extensions.turn_system_context_assembler
+            ),
             skills=self._extensions.skill_selector,
             environment=environment,
             hooks=self._extensions.hook_policy,

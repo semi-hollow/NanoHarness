@@ -3,20 +3,23 @@
 from __future__ import annotations
 
 from agent_forge.context.context_builder import (
-    ContextBuildPolicy,
-    ContextBuildReport,
-    ContextBuildRequest,
-    build_context_report,
+    TurnSystemContextBuildPolicy,
+    TurnSystemContextBuildReport,
+    TurnSystemContextBuildRequest,
+    build_turn_system_context,
 )
 from agent_forge.context.repo_map import build_repo_map
-from agent_forge.runtime.ports.context import ContextAssemblerPort, ContextAssemblyRequest
+from agent_forge.runtime.ports.context import (
+    TurnSystemContextAssemblerPort,
+    TurnSystemContextRequest,
+)
 
 
-class RepositoryContextAssembler(ContextAssemblerPort):
+class RepositoryTurnSystemContextAssembler(TurnSystemContextAssemblerPort):
     """扫描 workspace，并构造 Runtime 消费的上下文报告。"""
 
     # 运行时端口：读取 repository 事实并返回有预算的类型化 ContextReport。
-    def build(self, request: ContextAssemblyRequest) -> ContextBuildReport:
+    def build(self, request: TurnSystemContextRequest) -> TurnSystemContextBuildReport:
         """先生成仓库结构图，再组装受字符预算约束的类型化 Context 报告。
 
         报告合并任务、指令、工作记忆、Skill 和 Tool 信息；本 Adapter 只读取并组装证据，
@@ -24,15 +27,15 @@ class RepositoryContextAssembler(ContextAssemblerPort):
         """
 
         repo_map = build_repo_map(request.workspace)
-        return build_context_report(
-            ContextBuildRequest(
+        return build_turn_system_context(
+            TurnSystemContextBuildRequest(
                 task=request.task,
                 repo_map=repo_map,
                 working_memory=request.working_memory,
                 root=request.workspace,
-                tools=request.tools,
+                tool_schemas=request.tool_schemas,
                 active_skill_cards=request.active_skill_cards,
-                policy=ContextBuildPolicy(
+                policy=TurnSystemContextBuildPolicy(
                     max_chars=request.max_chars,
                     permission_summary=request.permission_summary,
                 ),

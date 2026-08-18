@@ -15,7 +15,7 @@ from .context_strategy import ContextStrategyRequest, build_context_strategy
 
 # 核心数据：Context Builder 的字符预算与权限策略。
 @dataclass(frozen=True)
-class ContextBuildPolicy:
+class TurnSystemContextBuildPolicy:
     """不随候选内容变化的上下文治理参数。"""
 
     max_chars: int = 8000
@@ -26,16 +26,16 @@ class ContextBuildPolicy:
 
 # 核心数据：Context Builder 汇总一次模型输入所需的全部候选。
 @dataclass(frozen=True)
-class ContextBuildRequest:
+class TurnSystemContextBuildRequest:
     """任务、仓库、记忆、工具、Skill 与治理策略。"""
 
     task: str
     repo_map: str
     working_memory: ContextMemory
     root: str | Path
-    tools: list[ToolSchema]
+    tool_schemas: list[ToolSchema]
     active_skill_cards: list[str]
-    policy: ContextBuildPolicy
+    policy: TurnSystemContextBuildPolicy
     instruction_target: str = ""
     global_instruction_files: tuple[str, ...] = ()
     runtime_instructions: str = ""
@@ -44,7 +44,7 @@ class ContextBuildRequest:
 
 # 核心数据：模型输入、选择事实、预算结果和截断原因的完整读模型。
 @dataclass
-class ContextBuildReport:
+class TurnSystemContextBuildReport:
     """一次上下文组装的完整读模型，可渲染给模型并写入 trace。
 
     system/project/repo 是 Runtime Context 基础输入；task 只用于内部候选选择，不渲染；
@@ -83,16 +83,19 @@ class ContextBuildReport:
 
 
 # 主要入口：汇总仓库、Skill 和分层记忆，按区段预算返回 ContextReport。
-def build_context_report(
-    request: ContextBuildRequest,
-) -> ContextBuildReport:
+def build_turn_system_context(
+    request: TurnSystemContextBuildRequest,
+) -> TurnSystemContextBuildReport:
     """汇总项目指令、仓库结构、检索结果、记忆、Skill 和工具契约。"""
 
     files = [line for line in request.repo_map.splitlines() if line.strip()]
     raw_repo = "\n".join(files)
 
     shortened = truncate(raw_repo, max(1000, request.policy.max_chars // 4))
-    available_tools = [tool.get("name", str(tool)) for tool in request.tools]
+    available_tools = [
+        tool_schema.get("name", str(tool_schema))
+        for tool_schema in request.tool_schemas
+    ]
 
     strategy = build_context_strategy(
         ContextStrategyRequest(
@@ -121,7 +124,7 @@ def build_context_report(
     system_prompt = (
         f"[prompt:{prompt.header()} purpose:{prompt.purpose}]\n{prompt.content}"
     )
-    report = ContextBuildReport(
+    report = TurnSystemContextBuildReport(
         system_prompt=system_prompt,
         project_instructions=project_instructions,
         repo_map=shortened,
@@ -166,7 +169,7 @@ def load_project_instructions(root: str | Path, max_chars: int = 2600) -> str:
 
 
 def _fit_context_sections(
-    report: ContextBuildReport,
+    report: TurnSystemContextBuildReport,
 ) -> tuple[str, dict[str, int], list[str]]:
     """按稳定权重压缩区段，保证静态 system message 不超过显式预算。"""
 

@@ -1,17 +1,17 @@
 """Context 能力的用例入口。"""
 
 from .compaction import (
-    ContextWindowManager,
-    ContextWindowRequest,
-    ContextWindowResult,
+    PromptWindowManager,
+    PromptWindowRequest,
+    PromptWindowResult,
     PromptBudget,
 )
 from .memory_service import LongTermMemoryService
 
 __all__ = [
-    "ContextWindowManager",
-    "ContextWindowRequest",
-    "ContextWindowResult",
+    "PromptWindowManager",
+    "PromptWindowRequest",
+    "PromptWindowResult",
     "LongTermMemoryService",
     "PromptBudget",
 ]

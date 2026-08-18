@@ -5,7 +5,7 @@ from .memory import (
     MemoryScope,
     MemorySource,
     MemoryStatus,
-    SessionDigest,
+    ConversationHistoryDigest,
     ToolTransactionDigest,
     USER_MEMORY_NAMESPACE,
 )
@@ -15,7 +15,7 @@ __all__ = [
     "MemoryScope",
     "MemorySource",
     "MemoryStatus",
-    "SessionDigest",
+    "ConversationHistoryDigest",
     "ToolTransactionDigest",
     "USER_MEMORY_NAMESPACE",
 ]

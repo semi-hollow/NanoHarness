@@ -61,7 +61,9 @@ from agent_forge.operator_console.adapters.session_catalog_json import (
 from agent_forge.operator_console.events import RuntimeEventBuffer
 from agent_forge.operator_console.ports.session_catalog import TaskSessionCatalogPort
 from agent_forge.runtime.adapters.approval_json import JsonApprovalRepository
-from agent_forge.runtime.adapters.context_assembler import RepositoryContextAssembler
+from agent_forge.runtime.adapters.context_assembler import (
+    RepositoryTurnSystemContextAssembler,
+)
 from agent_forge.runtime.adapters.human_input_json import JsonHumanInputRepository
 from agent_forge.runtime.adapters.operation_ledger_json import (
     JsonOperationLedgerRepository,
@@ -73,7 +75,7 @@ from agent_forge.runtime.hooks import HookManager
 from agent_forge.runtime.llm_client import LLMClient
 from agent_forge.runtime.ports import (
     ApprovalRepository,
-    ContextAssemblerPort,
+    TurnSystemContextAssemblerPort,
     EnvironmentPort,
     EventSink,
     HookPort,
@@ -107,7 +109,7 @@ FORMAL_IMPLEMENTATIONS = (
     (JsonHumanInputRepository, HumanInputRepository),
     (JsonApprovalRepository, ApprovalRepository),
     (JsonOperationLedgerRepository, OperationLedgerRepository),
-    (RepositoryContextAssembler, ContextAssemblerPort),
+    (RepositoryTurnSystemContextAssembler, TurnSystemContextAssemblerPort),
     (RunController, RunControlPort),
     (NoopRunControl, RunControlPort),
     (HookManager, HookPort),

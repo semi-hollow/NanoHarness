@@ -69,7 +69,7 @@ class RuntimeConfig:
     runtime_instructions: str = ""
     instruction_max_bytes: int = 2_600
 
-    # 证据长期记忆；working memory 和 SessionDigest 不由这三个字段持久化。
+    # 证据长期记忆；working memory 和 ConversationHistoryDigest 不由这三个字段持久化。
     memory_root: str = ""
     memory_namespace: str = ""
     memory_max_chars: int = 2_000

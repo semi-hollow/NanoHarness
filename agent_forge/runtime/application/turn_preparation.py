@@ -5,12 +5,12 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from agent_forge.context.application import (
-    ContextWindowManager,
-    ContextWindowRequest,
-    ContextWindowResult,
+    PromptWindowManager,
+    PromptWindowRequest,
+    PromptWindowResult,
     PromptBudget,
 )
-from agent_forge.context.domain import SessionDigest
+from agent_forge.context.domain import ConversationHistoryDigest
 from agent_forge.contracts import ToolSchema
 from agent_forge.runtime.application.session import AgentRunSession
 from agent_forge.runtime.config import RuntimeConfig
@@ -18,9 +18,9 @@ from agent_forge.runtime.domain.conversation import Message
 from agent_forge.runtime.domain.model import ModelCapabilities
 from agent_forge.runtime.domain.task import TaskCheckpointUpdate, TaskRunStatus
 from agent_forge.runtime.ports import (
-    ContextAssemblerPort,
-    ContextAssemblyRequest,
-    ContextReportView,
+    TurnSystemContextAssemblerPort,
+    TurnSystemContextRequest,
+    TurnSystemContextView,
     EnvironmentPort,
     EventSink,
     ToolGateway,
@@ -32,20 +32,20 @@ from agent_forge.tools.tool_router import ToolRoute, ToolRouter, ToolRoutingRequ
 class PreparedTurn:
     """一次 LLM 调用所需的完整、可度量输入。
 
-    ``messages_for_llm`` 是 Runtime Context 与 Conversation History；``schemas``
-    是同一次调用的第三部分 Tool Schemas，不混进消息列表。
+    ``llm_messages`` 是当前 Turn System Context 与 Conversation Window；
+    ``tool_schemas`` 是同一次调用的独立工具契约，不混进消息列表。
     """
 
     step: int
-    context_message: Message
-    messages_for_llm: list[Message]
-    schemas: list[ToolSchema]
+    turn_system_message: Message
+    llm_messages: list[Message]
+    tool_schemas: list[ToolSchema]
     allowed_tool_names: set[str]
     history_chars: int
     tool_schema_chars: int
     estimated_prompt_tokens: int
     compacted: bool
-    session_digest: SessionDigest | None
+    conversation_history_digest: ConversationHistoryDigest | None
     phase: str
 
 
@@ -56,14 +56,14 @@ class TurnPreparation:
         self,
         config: RuntimeConfig,
         trace: EventSink,
-        context: ContextAssemblerPort,
+        turn_system_context_assembler: TurnSystemContextAssemblerPort,
         tools: ToolGateway,
         environment: EnvironmentPort,
         model_capabilities: ModelCapabilities,
     ) -> None:
         self.config = config
         self.trace = trace
-        self.context_assembler = context
+        self.turn_system_context_assembler = turn_system_context_assembler
         self.tool_gateway = tools
         self.execution_environment = environment
         self.model_capabilities = model_capabilities
@@ -75,7 +75,7 @@ class TurnPreparation:
                 model_capabilities.context_window,
             ),
         )
-        self.context_window = ContextWindowManager(
+        self.prompt_window = PromptWindowManager(
             PromptBudget(
                 max_prompt_tokens=effective_context_window,
                 reserved_output_tokens=min(
@@ -160,13 +160,13 @@ class TurnPreparation:
 
         # region 3. 静态上下文组装：仓库、Memory、Skill 与权限边界汇合
         # ContextAssembler 只拼装本轮稳定事实，不携带会话历史；历史压缩由下一阶段
-        # ContextWindowManager 独立负责，避免仓库上下文和对话裁剪互相污染。
-        assembled_context = self.context_assembler.build(
-            ContextAssemblyRequest(
+        # PromptWindowManager 独立负责，避免仓库上下文和对话裁剪互相污染。
+        turn_system_context = self.turn_system_context_assembler.build(
+            TurnSystemContextRequest(
                 task=session.task,
                 workspace=self.config.workspace,
                 working_memory=session.working_memory,
-                tools=visible_tool_schemas,
+                tool_schemas=visible_tool_schemas,
                 active_skill_cards=[
                     skill.prompt_card() for skill in session.active_skills
                 ],
@@ -186,45 +186,49 @@ class TurnPreparation:
         # region 4. 会话窗口治理：压缩历史并返回模型可直接消费的 PreparedTurn
         # 先记录静态 context，再把 system context、历史和临时预算提示交给窗口管理器；
         # PreparedTurn 是 ModelPort 的唯一输入快照，后续不得再单独修改工具或消息。
-        self._record_context_assembly(
+        self._record_turn_system_context(
             session=session,
             step=step,
-            assembled_context=assembled_context,
+            turn_system_context=turn_system_context,
             tool_route=tool_route,
             allowed_tool_names=allowed_tool_names,
         )
-        system_context_message = Message(
+        turn_system_message = Message(
             role="system",
-            content=assembled_context.render(),
+            content=turn_system_context.render(),
         )
-        model_history = list(session.messages)
+        conversation_history = list(session.messages)
         runtime_control_message = self._turn_budget_control_message(
             step=step,
             max_steps=session.max_iterations,
         )
         if runtime_control_message is not None:
-            model_history.append(runtime_control_message)
-        prepared_window = self.context_window.prepare(
-            ContextWindowRequest(
-                system_message=system_context_message,
-                history=model_history,
+            conversation_history.append(runtime_control_message)
+        prompt_window = self.prompt_window.prepare(
+            PromptWindowRequest(
+                turn_system_message=turn_system_message,
+                conversation_history=conversation_history,
                 observations=session.observations,
-                tools=visible_tool_schemas,
+                tool_schemas=visible_tool_schemas,
                 task=session.task,
                 force_compaction=force_compaction,
             )
         )
-        self._record_context_window(session, step, prepared_window)
-        if prepared_window.digest is not None:
+        self._record_prompt_window(session, step, prompt_window)
+        if prompt_window.conversation_history_digest is not None:
             # 只把摘要引用写入 checkpoint；原始消息仍保留在 session/trace 中，不被压缩删除。
             session.lifecycle.update_checkpoint(
-                TaskCheckpointUpdate(session_digest=prepared_window.digest.to_dict())
+                TaskCheckpointUpdate(
+                    conversation_history_digest=(
+                        prompt_window.conversation_history_digest.to_dict()
+                    )
+                )
             )
         return PreparedTurn(
             step=step,
-            context_message=system_context_message,
-            messages_for_llm=prepared_window.messages,
-            schemas=visible_tool_schemas,
+            turn_system_message=turn_system_message,
+            llm_messages=prompt_window.llm_messages,
+            tool_schemas=visible_tool_schemas,
             allowed_tool_names=allowed_tool_names,
             history_chars=sum(
                 len(message.content or "")
@@ -233,9 +237,9 @@ class TurnPreparation:
                 for message in session.messages
             ),
             tool_schema_chars=sum(len(str(schema)) for schema in visible_tool_schemas),
-            estimated_prompt_tokens=prepared_window.estimated_tokens_after,
-            compacted=prepared_window.compacted,
-            session_digest=prepared_window.digest,
+            estimated_prompt_tokens=prompt_window.estimated_tokens_after,
+            compacted=prompt_window.compacted,
+            conversation_history_digest=(prompt_window.conversation_history_digest),
             phase=tool_route.phase,
         )
         # endregion 4. 会话窗口治理结束
@@ -304,12 +308,12 @@ class TurnPreparation:
         return None
 
     # region 证据记录器
-    def _record_context_assembly(
+    def _record_turn_system_context(
         self,
         *,
         session: AgentRunSession,
         step: int,
-        assembled_context: ContextReportView,
+        turn_system_context: TurnSystemContextView,
         tool_route: ToolRoute,
         allowed_tool_names: set[str],
     ) -> None:
@@ -320,22 +324,22 @@ class TurnPreparation:
             session.agent_name,
             "context_assembly",
             context={
-                "selected_files": assembled_context.selected_files,
-                "retrieved_docs_count": len(assembled_context.retrieved_docs),
-                "working_memory_summary": assembled_context.working_memory_summary,
-                "total_chars": assembled_context.total_chars,
-                "max_chars": assembled_context.max_chars,
-                "truncated": assembled_context.truncated,
-                "topic_relation": assembled_context.topic_relation,
-                "inherit_session": assembled_context.inherit_session,
-                "dropped_context": assembled_context.dropped_context,
-                "budget_breakdown": assembled_context.budget_breakdown,
-                "available_tools": assembled_context.available_tools,
+                "selected_files": turn_system_context.selected_files,
+                "retrieved_docs_count": len(turn_system_context.retrieved_docs),
+                "working_memory_summary": (turn_system_context.working_memory_summary),
+                "total_chars": turn_system_context.total_chars,
+                "max_chars": turn_system_context.max_chars,
+                "truncated": turn_system_context.truncated,
+                "topic_relation": turn_system_context.topic_relation,
+                "inherit_session": turn_system_context.inherit_session,
+                "dropped_context": turn_system_context.dropped_context,
+                "budget_breakdown": turn_system_context.budget_breakdown,
+                "available_tools": turn_system_context.available_tools,
                 "active_skills": [
                     f"{skill.name}@{skill.version}" for skill in session.active_skills
                 ],
-                "permission_summary": assembled_context.permission_summary,
-                "instructions": assembled_context.instruction_evidence,
+                "permission_summary": turn_system_context.permission_summary,
+                "instructions": turn_system_context.instruction_evidence,
                 "tool_routing": {
                     "reason": tool_route.reason,
                     "phase": tool_route.phase,
@@ -347,11 +351,11 @@ class TurnPreparation:
             },
         )
 
-    def _record_context_window(
+    def _record_prompt_window(
         self,
         session: AgentRunSession,
         step: int,
-        prepared_window: ContextWindowResult,
+        prompt_window: PromptWindowResult,
     ) -> None:
         """记录压缩前后规模和硬上限，不复制完整消息数组。"""
 
@@ -360,19 +364,19 @@ class TurnPreparation:
             session.agent_name,
             "context_window",
             context_window={
-                "compacted": prepared_window.compacted,
-                "reason": prepared_window.reason,
-                "covered_message_count": prepared_window.covered_message_count,
-                "estimated_tokens_before": prepared_window.estimated_tokens_before,
-                "estimated_tokens_after": prepared_window.estimated_tokens_after,
-                "hard_input_limit": prepared_window.hard_input_limit,
+                "compacted": prompt_window.compacted,
+                "reason": prompt_window.reason,
+                "covered_message_count": prompt_window.covered_message_count,
+                "estimated_tokens_before": prompt_window.estimated_tokens_before,
+                "estimated_tokens_after": prompt_window.estimated_tokens_after,
+                "hard_input_limit": prompt_window.hard_input_limit,
                 "hard_limit_exceeded": (
-                    prepared_window.estimated_tokens_after
-                    > prepared_window.hard_input_limit
+                    prompt_window.estimated_tokens_after
+                    > prompt_window.hard_input_limit
                 ),
                 "source_hash": (
-                    prepared_window.digest.source_hash
-                    if prepared_window.digest is not None
+                    prompt_window.conversation_history_digest.source_hash
+                    if prompt_window.conversation_history_digest is not None
                     else ""
                 ),
             },

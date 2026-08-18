@@ -41,7 +41,7 @@ from agent_forge.runtime.domain.model import ModelCapabilities
 from agent_forge.runtime.domain.run_control import RunControlKind, RunControlSignal
 from agent_forge.runtime.ports import (
     ApprovalRepository,
-    ContextAssemblerPort,
+    TurnSystemContextAssemblerPort,
     EnvironmentPort,
     EventSink,
     HookPort,
@@ -60,7 +60,7 @@ from agent_forge.skills import SkillCatalogEntry, SkillSpec
 __all__ = [
     "AgentResponse",
     "ApprovalRepository",
-    "ContextAssemblerPort",
+    "TurnSystemContextAssemblerPort",
     "EnvironmentPort",
     "EventSink",
     "EventSinkFactory",
