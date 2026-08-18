@@ -18,6 +18,7 @@ from scripts.review_preflight import (
     _evidence_tree_integrity,
     _evidence_tree_patterns,
 )
+from scripts.migrate_context_semantic_naming_v3 import verify_applied_migration
 
 
 PROJECT_ROOT = Path(__file__).parents[1]
@@ -191,6 +192,69 @@ class ReviewReadyTest(unittest.TestCase):
             },
         )
 
+    def test_context_semantic_migration_manifest_is_auditable(self) -> None:
+        migration_path = (
+            PROJECT_ROOT / "migrations/context-semantic-naming-v3-manifest.json"
+        )
+        migration = json.loads(migration_path.read_text(encoding="utf-8"))
+        entries = migration["files"]
+
+        self.assertEqual(migration["checkpoint_contract"]["old_schema_version"], 2)
+        self.assertEqual(migration["checkpoint_contract"]["new_schema_version"], 3)
+        self.assertEqual(
+            migration["checkpoint_contract"]["old_field"], "session_digest"
+        )
+        self.assertEqual(
+            migration["checkpoint_contract"]["new_field"],
+            "conversation_history_digest",
+        )
+        self.assertEqual(migration["closure"]["inspected_file_count"], 209)
+        self.assertEqual(migration["closure"]["touched_file_count"], 76)
+        self.assertEqual(len(entries), 76)
+        self.assertEqual(sum(item["checkpoint_count"] for item in entries), 3_078)
+        self.assertEqual(
+            sum("/runs/benchmarks/" in item["path"] for item in entries),
+            50,
+        )
+        self.assertEqual(
+            sum("/showcases/lab1-" in item["path"] for item in entries),
+            12,
+        )
+        self.assertEqual(
+            sum("/showcases/lab2-" in item["path"] for item in entries),
+            12,
+        )
+        for item in entries:
+            self.assertEqual(len(item["old_sha256"]), 64)
+            self.assertEqual(len(item["new_sha256"]), 64)
+            self.assertEqual(len(item["normalized_semantic_sha256"]), 64)
+            self.assertNotEqual(item["old_sha256"], item["new_sha256"])
+            self.assertNotIn("/archive/", item["path"])
+            self.assertTrue(item["transform"])
+            path = PROJECT_ROOT / item["path"]
+            if item["path"].startswith(".agent_forge/"):
+                continue
+            self.assertEqual(
+                hashlib.sha256(path.read_bytes()).hexdigest(),
+                item["new_sha256"],
+            )
+
+    @unittest.skipUnless(
+        LOCAL_CONTROL_EVIDENCE and LOCAL_MINI50_EVIDENCE,
+        "canonical raw evidence is intentionally local-only",
+    )
+    def test_applied_context_semantic_migration_verifies_full_local_closure(
+        self,
+    ) -> None:
+        self.assertEqual(
+            verify_applied_migration(PROJECT_ROOT),
+            {
+                "closure_files": 209,
+                "migrated_files": 76,
+                "checkpoint_objects": 3_078,
+            },
+        )
+
     def test_representative_case_rationale_is_complete_and_sanitized(self) -> None:
         manifest = json.loads(
             (PROJECT_ROOT / "benchmarks/showcase/evidence-review-v1.json").read_text(
@@ -295,9 +359,7 @@ class ReviewReadyTest(unittest.TestCase):
                 json.dumps({"scenario": "governed", "status": "completed"}),
                 encoding="utf-8",
             )
-            stale_fanout = (
-                root / ".agent_forge/runs/showcases/stale-lab2/fanout"
-            )
+            stale_fanout = root / ".agent_forge/runs/showcases/stale-lab2/fanout"
             stale_fanout.mkdir(parents=True)
             (stale_fanout / "fanout_summary.json").write_text(
                 json.dumps({"status": "passed", "results": []}),
@@ -327,7 +389,9 @@ class ReviewReadyTest(unittest.TestCase):
             sources=self.sources,
         )
         self.assertIn("CASE ANATOMY", rendered)
-        self.assertIn("django/django @ 69331bb851c34f05bc77e9fc24020fe6908b9cd5", rendered)
+        self.assertIn(
+            "django/django @ 69331bb851c34f05bc77e9fc24020fe6908b9cd5", rendered
+        )
 
 
 if __name__ == "__main__":
