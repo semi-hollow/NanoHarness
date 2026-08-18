@@ -1,6 +1,6 @@
 # 多 Agent 编排
 
-> 本文描述 NanoHarness Multi-Agent 的**当前稳定基线（V0）**、正在开发的 **V1 MVP**，以及明确不在当前版本实现的后续能力。
+> 本文描述 NanoHarness Multi-Agent 的**当前稳定基线（V0）**、feature branch 已实现的 **V1 MVP**，以及明确不在 V1 实现的后续能力。
 > Roadmap 以 [`MULTI_AGENT_ROADMAP.md`](./MULTI_AGENT_ROADMAP.md) 为准。
 
 ---
@@ -12,25 +12,27 @@
 ```text
 stable/v0-20260818
     ↓
-当前稳定版本，未来两周继续用于展示
+当前冻结稳定版本
 
 feature/multi-agent-v1
     ↓
-新的 Multi-Agent 能力开发分支
+已完成 V1 capability closure 的开发分支
 ```
 
-同时使用：
+同时保留两个不可变 snapshot tag：
 
 ```text
 v0-stable-20260818
-```
+→ 原始 V0 baseline
 
-作为 V0 精确 commit 的不可变 snapshot tag。
+v0-stable-20260819
+→ Semantic Naming Refactor 后的 V0 frozen head
+```
 
 原则：
 
 - V0 稳定分支不接收 V1 开发改动；
-- V1 全部能力吃透、验证完成后，再决定是否将其提升为新的稳定版本；
+- V1 已完成本分支定义的能力闭环，但是否提升为新的稳定版本仍需独立决定；
 - 未实现能力不得在文档中写成 CURRENT。
 
 ---
@@ -118,7 +120,7 @@ Natural Language Task
 FanoutPlan
 ```
 
-V1 首要目标就是补齐这一段。
+V1 已补齐这一段，同时保留 V0 的手工 `FanoutPlan` 入口。
 
 ---
 
@@ -230,11 +232,11 @@ Goal
 Prompt-driven judgment
 ```
 
-V1 会加入显式 Acceptance Criteria，使完成判断更可解释。
+V1 已加入显式 Acceptance Criteria，使完成判断更可解释。
 
 ---
 
-# 8. V1：目标主链
+# 8. V1：当前已实现主链
 
 V1 不重写 V0 execution half。
 
@@ -285,7 +287,7 @@ LLM proposes.
 Runtime validates.
 ```
 
-目标 contract：
+当前 contract：
 
 ```text
 PlanningDecision
@@ -358,7 +360,7 @@ Private Context
 → Isolated
 ```
 
-目标 Handoff：
+当前 Handoff：
 
 ```text
 WorkerHandoff
@@ -674,23 +676,25 @@ Composition root
 
 ## V1 新增/增强 Owner
 
-最终实现后，应保持 Owner 数量尽量少：
+当前实现保持少量明确 Owner：
 
 ```text
 Planner / PlanningDecision
-→ one clear planning owner
+→ agent_forge/multi_agent/application/planning.py
+→ agent_forge/multi_agent/domain/planning.py
 
 Acceptance Criteria
-→ existing plan/task contract where possible
+→ agent_forge/multi_agent/domain/live.py
+→ agent_forge/multi_agent/domain/fanout.py
 
 WorkerHandoff
-→ one compact contract / projection owner
+→ agent_forge/multi_agent/domain/live.py
 
 Recovery / Replan
-→ LiveFanoutCoordinator or one thin helper
+→ agent_forge/multi_agent/application/live_fanout.py
 
 Criteria-aware Finalizer
-→ existing LocalAgentWorkerAdapter finalizer path
+→ agent_forge/multi_agent/adapters/local_worker.py
 ```
 
 不要为了 V1 引入复杂多层抽象。
@@ -703,6 +707,6 @@ V0：
 
 > NanoHarness 当前 Multi-Agent 已经不是多个 Agent 共用一个 Working Tree 的玩具实现。它由 typed FanoutPlan 驱动，Coordinator 按 dependency 和 write scope 做 deterministic scheduling，每个 Worker 使用独立 AgentLoop 和 Git worktree，执行后通过 actual touched files 和 patch applicability 做冲突检查，再稳定顺序集成，最后由只读 Finalizer 验收。但 V0 的 Plan 仍由外部提供，semantic handoff、bounded replan 和显式 completion criteria 还不完整。
 
-V1 目标：
+V1 CURRENT：
 
-> V1 在不重写现有 execution half 的前提下补 Planner、Single/Multi strategy、structured handoff、acceptance criteria、bounded conflict recovery 和 criteria-aware Finalizer，使系统从人工 DAG executor 升级为一个小而完整的 adaptive Multi-Agent coding harness。
+> V1 在不重写现有 execution half 的前提下实现了 Planner、Single/Multi strategy、structured handoff、acceptance criteria、bounded conflict recovery 和 criteria-aware Finalizer，使系统从人工 DAG executor 升级为一个小而完整的 adaptive Multi-Agent coding harness。

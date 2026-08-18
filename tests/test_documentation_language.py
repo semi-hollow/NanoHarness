@@ -14,8 +14,11 @@ CHINESE_FIRST_DOCS = (
     "FORGE.md",
     "SECURITY.md",
     "agent_forge/README.md",
+    "docs/架构讲解索引.md",
     "docs/架构导览.md",
+    "docs/Agent运行数据结构与模型输入.md",
     "docs/上下文工程.md",
+    "docs/上下文压缩与长任务设计.md",
     "docs/工具治理与执行.md",
     "docs/多Agent编排.md",
     "docs/核心能力与代码入口.md",
@@ -25,18 +28,25 @@ CHINESE_FIRST_DOCS = (
 
 PUBLIC_DOC_LINE_BUDGETS = {
     "README.md": 250,
-    "docs/架构导览.md": 550,
-    "docs/上下文工程.md": 560,
-    "docs/工具治理与执行.md": 680,
+    "docs/MULTI_AGENT_ROADMAP.md": 700,
+    "docs/架构讲解索引.md": 170,
+    "docs/架构导览.md": 400,
+    "docs/Agent运行数据结构与模型输入.md": 430,
+    "docs/上下文工程.md": 300,
+    "docs/上下文压缩与长任务设计.md": 320,
+    "docs/工具治理与执行.md": 380,
     "docs/多Agent编排.md": 720,
-    "docs/核心能力与代码入口.md": 120,
-    "docs/运行产物与持久化契约.md": 260,
+    "docs/核心能力与代码入口.md": 280,
+    "docs/运行产物与持久化契约.md": 340,
     "examples/debug_lab/README.md": 210,
 }
 
 CANONICAL_README_LINKS = (
+    "docs/架构讲解索引.md",
     "docs/架构导览.md",
+    "docs/Agent运行数据结构与模型输入.md",
     "docs/上下文工程.md",
+    "docs/上下文压缩与长任务设计.md",
     "docs/工具治理与执行.md",
     "docs/多Agent编排.md",
     "docs/核心能力与代码入口.md",
@@ -47,14 +57,17 @@ CANONICAL_README_LINKS = (
 
 ALLOWED_DOC_SURFACES: tuple[str, ...] = ()
 
-# 这是所有者明确提供的技术 Roadmap；英文文件名是稳定的公开契约，不代表放宽其他
-# 面向读者文档的中文优先命名规则。
+# 所有者提供的 Multi-Agent 技术 Roadmap 使用稳定英文文件名；该例外不放宽
+# 其他面向读者文档的中文优先规则。
 APPROVED_TECHNICAL_DOC_NAMES = {"docs/MULTI_AGENT_ROADMAP.md"}
 
 ALLOWED_TOP_LEVEL_DOCS = {
     "docs/MULTI_AGENT_ROADMAP.md",
+    "docs/架构讲解索引.md",
     "docs/架构导览.md",
+    "docs/Agent运行数据结构与模型输入.md",
     "docs/上下文工程.md",
+    "docs/上下文压缩与长任务设计.md",
     "docs/工具治理与执行.md",
     "docs/多Agent编排.md",
     "docs/核心能力与代码入口.md",
@@ -63,9 +76,9 @@ ALLOWED_TOP_LEVEL_DOCS = {
 
 MAX_PUBLIC_DOCS = len(ALLOWED_TOP_LEVEL_DOCS)
 
-OVERVIEW_FIRST_DOCS = {
-    "docs/上下文工程.md": 70,
-    "docs/工具治理与执行.md": 70,
+REVIEW_FIRST_DOCS = {
+    "docs/上下文工程.md": ("# 3. 当前 Turn 的真实构造链", 70),
+    "docs/工具治理与执行.md": ("# 1. 一张主链图", 70),
 }
 
 PUBLIC_POSITIONING_FORBIDDEN = (
@@ -162,37 +175,18 @@ class DocumentationLanguageTest(unittest.TestCase):
                     )
         self.assertEqual(violations, [], "Public documentation must be Chinese-first")
 
-    def test_overview_first_documents_keep_details_below_the_main_chain(self) -> None:
-        """两条技术主线必须先讲完整骨架，再允许按 anchor 下钻。"""
+    def test_review_documents_put_the_runtime_chain_before_details(self) -> None:
+        """核心文档必须先给出真实主链，不能从字段或 package 清单开始。"""
 
-        for relative_path, overview_line_limit in OVERVIEW_FIRST_DOCS.items():
-            text = (PROJECT_ROOT / relative_path).read_text(encoding="utf-8")
-            lines = text.splitlines()
-            detailed_index = lines.index("# 详细设计 / Detailed Design")
+        for relative_path, (chain_heading, line_limit) in REVIEW_FIRST_DOCS.items():
+            lines = (
+                (PROJECT_ROOT / relative_path).read_text(encoding="utf-8").splitlines()
+            )
+            self.assertIn(chain_heading, lines)
             self.assertLessEqual(
-                detailed_index + 1,
-                overview_line_limit,
-                f"{relative_path} Overview 已膨胀为细节正文",
-            )
-            overview = "\n".join(lines[:detailed_index])
-            self.assertIn('<a id="overview"></a>', overview)
-            self.assertIn("### 按需下钻", overview)
-
-            detailed_lines = lines[detailed_index + 1 :]
-            detailed_sections = sum(
-                1 for line in detailed_lines if line.startswith("## ")
-            )
-            self.assertEqual(
-                text.count("[↑ 返回 Overview](#overview)"),
-                detailed_sections,
-                f"{relative_path} Detailed section 缺少返回 Overview 的链接",
-            )
-            anchors = set(re.findall(r'<a id="([^"]+)"></a>', text))
-            anchor_links = set(re.findall(r"\]\(#([^)]+)\)", text))
-            self.assertEqual(
-                anchor_links - anchors,
-                set(),
-                f"{relative_path} 存在失效页内 anchor",
+                lines.index(chain_heading) + 1,
+                line_limit,
+                f"{relative_path} 在主链前堆积了过多背景",
             )
 
     def test_public_repository_uses_project_facing_language(self) -> None:
@@ -254,24 +248,32 @@ class DocumentationLanguageTest(unittest.TestCase):
 
         architecture = (PROJECT_ROOT / "docs/架构导览.md").read_text(encoding="utf-8")
         main_headings = [
-            line for line in architecture.splitlines() if line.startswith("## ")
+            line
+            for line in architecture.splitlines()
+            if line.startswith("# ") and line != "# 架构导览"
         ]
         expected_headings = [
-            "## 1. 系统概览 / System Overview",
-            "## 2. 上下文工程 / Context Engineering",
-            "## 3. 受治理工具执行 / Governed Tool Execution",
-            "## 4. 持久化与控制 / Durability & Control",
-            "## 5. 评测 / Evaluation",
+            "# 1. 系统为什么不是一个简单 AgentLoop",
+            "# 2. 一张主链图",
+            "# 3. 四个核心平面",
+            "# 4. Context 不应该按变量堆叠理解",
+            "# 5. Workspace、Worktree、Run Artifacts 必须分开",
+            "# 6. 当前 Multi-Agent 能力边界",
+            "# 7. 长任务是 Runtime 问题，不只是 Context 问题",
+            "# 8. 核心源码主链",
+            "# 9. 60 秒摘要",
         ]
         if main_headings != expected_headings:
-            violations.append("架构导览必须保持五段唯一主链")
+            violations.append("架构导览必须保持九段唯一主链")
         for contract in (
-            "source=governed",
-            "source=orchestration",
-            "source=evaluation",
-            "DESIGN CONTRACT",
-            "OBSERVED ARTIFACT",
-            "3ec537113a26491b7b7a51e323a3d3af40f4754f",
+            '<a id="system"></a>',
+            '<a id="context"></a>',
+            '<a id="governance"></a>',
+            '<a id="durability"></a>',
+            '<a id="evaluation"></a>',
+            "Official resolved  28 / 50",
+            "feature/multi-agent-v1` 当前已经补齐",
+            "V2 定量评测和自动语义冲突解决仍是 FUTURE / NOT IMPLEMENTED",
         ):
             if contract not in architecture:
                 violations.append(f"架构导览缺少审阅契约: {contract}")
@@ -279,54 +281,23 @@ class DocumentationLanguageTest(unittest.TestCase):
             if (PROJECT_ROOT / retired).exists():
                 violations.append(f"重复公开文档重新出现: {retired}")
 
-        parsed_symbols: dict[Path, dict[str, int]] = {}
-
-        def symbols_for(source_path: Path) -> dict[str, int]:
-            if source_path not in parsed_symbols:
-                tree = ast.parse(source_path.read_text(encoding="utf-8"))
-                available: dict[str, int] = {}
-                for node in tree.body:
-                    if isinstance(
-                        node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)
-                    ):
-                        available[node.name] = node.lineno
-                    if isinstance(node, ast.ClassDef):
-                        for child in node.body:
-                            if isinstance(
-                                child, (ast.FunctionDef, ast.AsyncFunctionDef)
-                            ):
-                                available[f"{node.name}.{child.name}"] = child.lineno
-                parsed_symbols[source_path] = available
-            return parsed_symbols[source_path]
-
-        # 能力索引的核心 Owner 必须能从 GitHub 直接点击，但不维护易漂移行号。
+        # 能力索引保持精简，但必须明确列出主链和数据 owner，不维护易漂移行号。
         capability_path = PROJECT_ROOT / "docs/核心能力与代码入口.md"
         capability_index = capability_path.read_text(encoding="utf-8")
-        capability_links = list(
-            re.finditer(
-                r"\[\s*`(?P<symbol>[^`]+)`\s*\]\("
-                r"(?P<target>\.\./agent_forge/[^)#]+\.py)\)",
-                capability_index,
-            )
-        )
-        if len(capability_links) < 30:
-            violations.append("核心能力索引的可点击 Owner 不足 30 个")
         if re.search(r"`L[1-9][0-9]*`", capability_index):
             violations.append("核心能力索引不应维护易漂移行号")
-        for owner_link in capability_links:
-            symbol = owner_link.group("symbol")
-            target = owner_link.group("target")
-            source_path = (capability_path.parent / target).resolve()
-            try:
-                source_path.relative_to(PROJECT_ROOT / "agent_forge")
-            except ValueError:
-                violations.append(f"Owner 链接逃逸 agent_forge: {target}")
-                continue
-            if not source_path.is_file():
-                violations.append(f"Owner 链接不存在: {target}")
-                continue
-            if symbol not in symbols_for(source_path):
-                violations.append(f"Owner 符号不存在: {target}::{symbol}")
+        for owner_symbol in (
+            "Harness.run",
+            "AgentLoop.run",
+            "RunPreparation.prepare_run",
+            "TurnPreparation.prepare_turn",
+            "ModelGateway.chat",
+            "ToolExecutionPipeline._execute_call",
+            "FinalAnswerBuilder.build_stop_request",
+            "RunLifecycle.finalize_run",
+        ):
+            if owner_symbol not in capability_index:
+                violations.append(f"核心能力索引缺少主链 Owner: {owner_symbol}")
 
         lab_path = PROJECT_ROOT / "examples/debug_lab/README.md"
         lab = lab_path.read_text(encoding="utf-8")
@@ -425,9 +396,8 @@ class DocumentationLanguageTest(unittest.TestCase):
         capability_path = PROJECT_ROOT / "docs/核心能力与代码入口.md"
         capability_text = capability_path.read_text(encoding="utf-8")
         owner_columns = {
-            "最小主链": (1,),
-            "核心能力代码索引": (1, 2),
-            "按需能力代码索引": (1, 2),
+            "1. Single-Agent 主链只记 8 个 Owner": (0,),
+            "2. 最重要的数据结构": (1,),
         }
         owner_symbol_pattern = re.compile(
             r"`([A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)?)`"
@@ -435,8 +405,8 @@ class DocumentationLanguageTest(unittest.TestCase):
         owner_symbols: set[str] = set()
         active_section = ""
         for line in capability_text.splitlines():
-            if line.startswith("## "):
-                active_section = line.removeprefix("## ").strip()
+            if line.startswith("# "):
+                active_section = line.removeprefix("# ").strip()
                 continue
             if active_section not in owner_columns or not line.startswith("|"):
                 continue
@@ -482,31 +452,31 @@ class DocumentationLanguageTest(unittest.TestCase):
                     f"({relative_path}:{node.lineno})"
                 )
 
-        self.assertGreaterEqual(
-            len(owner_symbols), 50, "Cheat Sheet Owner 提取结果异常"
-        )
+        self.assertGreaterEqual(len(owner_symbols), 16, "核心 Owner 提取结果异常")
         self.assertEqual(violations, [], "Cheat Sheet Owner 必须可定位且可直接理解")
 
-    def test_runtime_artifact_contract_documents_state_domains_and_field_sources(
+    def test_runtime_artifact_contract_separates_authoritative_state_and_evidence(
         self,
     ) -> None:
-        """持久化契约必须保留恢复排障所需的状态值域和字段来源。"""
+        """持久化文档必须区分恢复真相、事件证据和 schema migration。"""
 
         text = (PROJECT_ROOT / "docs/运行产物与持久化契约.md").read_text(
             encoding="utf-8"
         )
         required_contracts = (
-            "`created`、`running`、`waiting_approval`、`waiting_human`",
-            "`pending`、`responded`、`cancelled`",
-            "`pending`、`approved`、`rejected`、`stale`",
-            "`planned`、`pending`、`approved`、`executing`、`executed`、`failed`",
-            "`decision_note` 只提供人工审计说明",
-            "Operator Console 未填写说明时它是空字符串",
-            "TraceEvent.data",
-            "序列化后会平铺到事件 envelope",
+            "TaskCheckpoint 只是一份 latest-state snapshot",
+            "Historical Projection\n└ conversation_history_digest",
+            "Resume\n= new continuation run",
+            "回答：实际发生过什么？",
+            "回答：这个副作用执行到哪？",
+            "Append-only Evidence\n└── trace.jsonl",
+            "new canonical schema",
+            "old hash → new hash mapping",
+            "archive 保持原始历史",
+            "Design Contract\nvs\nObserved Artifact",
         )
         missing = [contract for contract in required_contracts if contract not in text]
-        self.assertEqual(missing, [], "运行产物契约缺少状态值域或字段来源")
+        self.assertEqual(missing, [], "运行产物契约缺少权威边界或迁移原则")
 
 
 if __name__ == "__main__":

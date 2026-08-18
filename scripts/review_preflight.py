@@ -76,16 +76,22 @@ def _check_docs() -> list[Check]:
     readme = PROJECT_ROOT / "README.md"
     architecture_text = _text(architecture)
     readme_text = _text(readme)
-    headings = [
+    plane_headings = [
         line for line in architecture_text.splitlines() if line.startswith("## ")
+    ]
+    expected_plane_headings = [
+        "## 3.1 模型输入平面 / Model Input Plane",
+        "## 3.2 执行与治理平面 / Execution & Governance Plane",
+        "## 3.3 持久化控制平面 / Durable Control Plane",
+        "## 3.4 评测平面 / Evaluation Plane",
     ]
     return [
         Check("Docs", "Architecture Guide", architecture.is_file(), str(architecture)),
         Check(
             "Docs",
-            "Five-section main chain",
-            len(headings) == 5,
-            " | ".join(headings),
+            "Four architecture planes",
+            plane_headings == expected_plane_headings,
+            " | ".join(plane_headings),
         ),
         Check(
             "Docs",
@@ -118,7 +124,10 @@ def _check_workbench() -> list[Check]:
         Check(
             "Workbench",
             "Review projection render smoke",
-            all("QUESTION" in value and "OBSERVED ARTIFACT" in value for value in rendered.values()),
+            all(
+                "QUESTION" in value and "OBSERVED ARTIFACT" in value
+                for value in rendered.values()
+            ),
             "three canonical overview pages rendered",
         ),
         Check(
@@ -162,7 +171,8 @@ def _check_lab1() -> list[Check]:
         Check(
             "Lab 1",
             "Canonical artifact hash",
-            bool(artifact and artifact.is_file()) and _sha256(artifact) == expected_hash,
+            bool(artifact and artifact.is_file())
+            and _sha256(artifact) == expected_hash,
             expected_hash[:12],
         ),
         Check(
@@ -175,13 +185,16 @@ def _check_lab1() -> list[Check]:
             "Lab 1",
             "HumanInput / Approval / Ledger / Checkpoint / Trace",
             len(review.authorities) == 5
-            and all(item.status not in {"not_observed", ""} for item in review.authorities),
+            and all(
+                item.status not in {"not_observed", ""} for item in review.authorities
+            ),
             ", ".join(f"{item.owner}={item.status}" for item in review.authorities),
         ),
         Check(
             "Lab 1",
             "Three control invariants",
-            len(review.invariants) == 3 and all(item.observed for item in review.invariants),
+            len(review.invariants) == 3
+            and all(item.observed for item in review.invariants),
             f"{sum(item.observed for item in review.invariants)}/3 observed",
         ),
     ]
@@ -194,9 +207,7 @@ def _check_lab2() -> list[Check]:
     review = build_lab2_review(PROJECT_ROOT, source)
     expected_hash = str(configured.get("canonical_sha256") or "")
     run_root = (
-        source.primary_path.parent.parent
-        if source.primary_path is not None
-        else Path()
+        source.primary_path.parent.parent if source.primary_path is not None else Path()
     )
     tree_ok, tree_detail = _evidence_tree_integrity(run_root, configured)
     task_ids = {task.task_id for task in review.tasks}
@@ -373,10 +384,7 @@ def _evidence_tree_patterns(configured: dict[str, object]) -> tuple[str, ...]:
 
 def _evidence_tree(root: Path, patterns: tuple[str, ...]) -> tuple[int, str]:
     files = {
-        path
-        for pattern in patterns
-        for path in root.glob(pattern)
-        if path.is_file()
+        path for pattern in patterns for path in root.glob(pattern) if path.is_file()
     }
     digest = hashlib.sha256()
     for path in sorted(files, key=lambda item: item.relative_to(root).as_posix()):

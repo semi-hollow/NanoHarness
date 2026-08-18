@@ -1,6 +1,6 @@
 # NanoHarness Multi-Agent Roadmap
 
-> Status date: 2026-08-18
+> Status date: 2026-08-19
 > Purpose: keep the Multi-Agent scope stable for capability completion and prevent feature creep.
 
 ## 0. Scope and version policy
@@ -14,14 +14,13 @@ If that optimization loop later expands to the entire NanoHarness runtime (Tool 
 ### Branch policy
 
 - **Current stable branch:** `stable/v0-20260818`
-  - Frozen from the current proven NanoHarness baseline.
-  - Used for stable demonstrations while V1 is developed.
-  - Do not merge V1 development into this branch until V1 is fully understood and explicitly promoted.
-- **Immutable snapshot tag:** `v0-stable-20260818`
-  - Points to the exact same commit as the current stable branch.
-  - This is the real immutable reference for the frozen baseline.
+  - Frozen after the semantic naming refactor and value-preserving evidence migration.
+  - Does not receive V1 capability work.
+- **Immutable snapshot tags:**
+  - `v0-stable-20260818` preserves the original V0 baseline.
+  - `v0-stable-20260819` preserves the post-refactor V0 frozen head.
 - **V1 development branch:** `feature/multi-agent-v1`
-  - All new Multi-Agent work goes here.
+  - Contains the completed V1 capability closure; promotion remains a separate decision.
 
 ---
 
@@ -96,7 +95,7 @@ Missing capability-completion gaps:
 
 ---
 
-# V1 — Multi-Agent Capability Completion `[IN PROGRESS]`
+# V1 — Multi-Agent Capability Completion `[DONE]`
 
 ## Goal
 
@@ -133,7 +132,7 @@ V1 is an **V1 MVP**, not an industrial Multi-Agent platform.
 
 ---
 
-## V1.1 — Planner + Single/Multi Strategy Gate `[PLANNED]`
+## V1.1 — Planner + Single/Multi Strategy Gate `[DONE]`
 
 ### Required
 
@@ -186,7 +185,7 @@ Rules:
 
 ---
 
-## V1.2 — Acceptance Criteria + Structured Worker Handoff `[PLANNED]`
+## V1.2 — Acceptance Criteria + Structured Worker Handoff `[DONE]`
 
 ### Acceptance Criteria
 
@@ -262,7 +261,7 @@ A dependent Worker receives:
 
 ---
 
-## V1.3 — Bounded Recovery and Replan `[PLANNED]`
+## V1.3 — Bounded Recovery and Replan `[DONE]`
 
 Global hard boundaries:
 
@@ -273,7 +272,7 @@ max_plan_replan_rounds <= 1
 
 No infinite agent ping-pong.
 
-### V1.3.1 — Merge-Applicability Conflict → Serialized Rerun `[PLANNED]`
+### V1.3.1 — Merge-Applicability Conflict → Serialized Rerun `[DONE]`
 
 Scenario:
 
@@ -311,7 +310,7 @@ Retry at most once.
 
 ---
 
-### V1.3.2 — Retryable Worker Failure → One Retry `[PLANNED]`
+### V1.3.2 — Retryable Worker Failure → One Retry `[DONE]`
 
 Retry only failures that can reasonably be treated as transient/retryable.
 
@@ -327,7 +326,7 @@ Do not create a second giant failure taxonomy.
 
 ---
 
-### V1.3.3 — One-Round Remaining-Plan Replan `[PLANNED]`
+### V1.3.3 — One-Round Remaining-Plan Replan `[DONE]`
 
 Replan is bounded and only replaces unfinished work.
 
@@ -364,7 +363,7 @@ No second semantic replan.
 
 ---
 
-### V1.3.4 — Fail-Closed Conflict Boundaries `[PLANNED]`
+### V1.3.4 — Fail-Closed Conflict Boundaries `[DONE]`
 
 Keep these conservative rules:
 
@@ -378,7 +377,7 @@ This sub-phase exists to make the recovery boundaries explicit and reviewable.
 
 ---
 
-## V1.4 — Criteria-Aware Read-Only Finalizer `[PLANNED]`
+## V1.4 — Criteria-Aware Read-Only Finalizer `[DONE]`
 
 Reuse the existing read-only Finalizer AgentLoop.
 
@@ -421,7 +420,7 @@ Examples:
 
 ---
 
-## V1.5 — Deterministic Mechanism Validation `[PLANNED]`
+## V1.5 — Deterministic Mechanism Validation `[DONE]`
 
 V1 does **not** run a large Multi-Agent benchmark.
 
@@ -495,19 +494,19 @@ No infinite loop.
 
 V1 is complete only when all items below are true:
 
-- [ ] Natural-language task can choose Single or Fanout.
-- [ ] Fanout mode can generate and validate a typed `FanoutPlan`.
-- [ ] Manual/external FanoutPlan workflow remains backward compatible.
-- [ ] Worker contexts remain isolated.
-- [ ] Dependency workers receive compact structured handoffs.
-- [ ] Acceptance criteria flow from planning to final verification.
-- [ ] Merge-applicability conflict supports one serialized rerun on latest integrated state.
-- [ ] Retry/replan has explicit hard boundaries.
-- [ ] Completed/merged tasks remain frozen during replan.
-- [ ] Finalizer judges completion using criteria + evidence and remains read-only.
-- [ ] Five deterministic mechanism cases pass.
-- [ ] Existing relevant tests do not regress.
-- [ ] Trace/artifacts show enough evidence to prove planning, handoff, recovery, and verification occurred.
+- [x] Natural-language task can choose Single or Fanout.
+- [x] Fanout mode can generate and validate a typed `FanoutPlan`.
+- [x] Manual/external FanoutPlan workflow remains backward compatible.
+- [x] Worker contexts remain isolated.
+- [x] Dependency workers receive compact structured handoffs.
+- [x] Acceptance criteria flow from planning to final verification.
+- [x] Merge-applicability conflict supports one serialized rerun on latest integrated state.
+- [x] Retry/replan has explicit hard boundaries.
+- [x] Completed/merged tasks remain frozen during replan.
+- [x] Finalizer judges completion using criteria + evidence and remains read-only.
+- [x] Five deterministic mechanism cases pass.
+- [x] Existing relevant tests do not regress.
+- [x] Trace/artifacts show enough evidence to prove planning, handoff, recovery, and verification occurred.
 
 ---
 
@@ -645,7 +644,7 @@ Possible examples:
 - remote execution/sandbox backend;
 - refined Multi-Agent failure taxonomy.
 
-No V4 work should start during the current V1 implementation.
+No V4 work is included in the completed V1 capability closure.
 
 ---
 

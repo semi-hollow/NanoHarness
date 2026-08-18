@@ -13,7 +13,7 @@ from agent_forge.safety.guardrails import GuardrailResult, output_guardrail
 
 
 class FinalAnswerBuilder:
-    """把无工具调用的模型响应转换为可停止的最终答案。"""
+    """把无工具调用的模型响应转换为受证据与输出声明约束的停止请求。"""
 
     def __init__(self, trace: EventSink) -> None:
         self.trace = trace
