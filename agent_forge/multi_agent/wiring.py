@@ -12,19 +12,12 @@ from agent_forge.runtime.ports.model import ModelPort
 from agent_forge.tools.registry import ToolRegistry
 
 from .adapters.fanout_files import FanoutFileRepository
-from .adapters.artifact_files import FileArtifactRepository
 from .adapters.git_workspace import GitFanoutWorkspace
 from .adapters.local_worker import LocalAgentWorkerAdapter
-from .adapters.role_runtime import AgentLoopRoleRunner, GitCandidateDiff
-from .application.coordinator import MultiAgentCoordinator
-from .application.dependencies import (
-    LiveFanoutDependencies,
-    SequentialCoordinatorDependencies,
-)
+from .application.dependencies import LiveFanoutDependencies
 from .application.live_fanout import LiveFanoutCoordinator
 from .domain.live import FanoutPlan
-from .domain.models import AgentProfile
-from .ports import CoordinatorEventSink, LiveFanoutEvents
+from .ports import FanoutReplannerPort, LiveFanoutEvents
 
 RegistryFactory = Callable[[Path, ExecutionEnvironment], ToolRegistry]
 LLMFactory = Callable[[], ModelPort]
@@ -43,21 +36,8 @@ class LiveFanoutBuildRequest:
     registry_factory: RegistryFactory
     max_workers: int = 4
     resume_from: str | Path | None = None
-
-
-# 核心数据：装配顺序多角色 coordinator 所需的运行对象。
-@dataclass(frozen=True)
-class SequentialCoordinatorBuildRequest:
-    """任务、profile、共享 Runtime 与 artifact 位置。"""
-
-    task: str
-    profile: AgentProfile
-    runtime_config: RuntimeConfig
-    trace: CoordinatorEventSink
-    registry: ToolRegistry
-    llm: ModelPort
-    run_dir: str | Path
-    max_revision_rounds: int | None = None
+    replanner: FanoutReplannerPort | None = None
+    allow_replan: bool = True
 
 
 # 主要入口：装配 DAG、隔离 workspace、真实 AgentLoop worker 和 finalizer。
@@ -83,33 +63,9 @@ def build_live_fanout(request: LiveFanoutBuildRequest) -> LiveFanoutCoordinator:
             workspace=workspace,
             artifacts=artifacts,
             workers=workers,
+            replanner=request.replanner,
         ),
         max_workers=request.max_workers,
         resume_from=str(request.resume_from) if request.resume_from else None,
-    )
-
-
-# 主要入口：装配顺序角色 profile、artifact store 与共享 Runtime factory。
-def build_multi_agent_coordinator(
-    request: SequentialCoordinatorBuildRequest,
-) -> MultiAgentCoordinator:
-    """装配角色 Runtime、Artifact repository 和 candidate diff 查询。"""
-
-    workspace = GitFanoutWorkspace(request.runtime_config.workspace)
-    return MultiAgentCoordinator(
-        request.task,
-        request.profile,
-        request.runtime_config,
-        SequentialCoordinatorDependencies(
-            events=request.trace,
-            artifacts=FileArtifactRepository(Path(request.run_dir)),
-            role_runner=AgentLoopRoleRunner(
-                request.trace,
-                request.registry,
-                request.llm,
-            ),
-            candidate_diff=GitCandidateDiff(workspace),
-        ),
-        run_dir=request.run_dir,
-        max_revision_rounds=request.max_revision_rounds,
+        allow_replan=request.allow_replan,
     )

@@ -105,10 +105,8 @@ def _new_summary(
         output_dir=layout.output_dir,
         predictions_path=layout.predictions_path,
         agent_mode=request.agent_mode,
-        profile=request.profile if request.agent_mode == "multi" else "",
-        max_revision_rounds=(
-            request.max_revision_rounds if request.agent_mode == "multi" else 0
-        ),
+        profile="",
+        max_revision_rounds=0,
         tool_routing_mode=request.tool_routing_mode,
         skill_mode=request.skill_mode,
         skill_names=list(request.skill_names),

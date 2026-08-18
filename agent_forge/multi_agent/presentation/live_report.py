@@ -8,6 +8,7 @@ def render_live_fanout_report(summary: LiveFanoutSummary) -> str:
 
     current_metric_keys = (
         "task_count",
+        "attempt_count",
         "completed_count",
         "max_workers",
         "wall_time_ms",
@@ -40,6 +41,8 @@ def render_live_fanout_report(summary: LiveFanoutSummary) -> str:
         f"- goal: {summary.goal}",
         f"- base_head: `{summary.base_head}`",
         f"- plan_digest: `{summary.plan_digest}`",
+        f"- effective_plan_digest: `{summary.effective_plan_digest or summary.plan_digest}`",
+        f"- replan_round: `{summary.replan_round}`",
         f"- batches: `{summary.batches}`",
         f"- merged_task_ids: `{summary.merged_task_ids}`",
         f"- final_decision: `{summary.final_decision or 'not_run'}`",
@@ -50,8 +53,7 @@ def render_live_fanout_report(summary: LiveFanoutSummary) -> str:
         "| --- | ---: |",
     ]
     lines.extend(
-        f"| {key} | {summary.metrics.get(key, 0)} |"
-        for key in current_metric_keys
+        f"| {key} | {summary.metrics.get(key, 0)} |" for key in current_metric_keys
     )
     lines.extend(
         [
@@ -65,26 +67,49 @@ def render_live_fanout_report(summary: LiveFanoutSummary) -> str:
         ]
     )
     lines.extend(
-        f"| {key} | {summary.metrics.get(key, 0)} |"
-        for key in recovery_metric_keys
+        f"| {key} | {summary.metrics.get(key, 0)} |" for key in recovery_metric_keys
     )
     lines.extend(
         [
             "",
             "## Tasks",
             "",
-            "| task | status | batch | resumed | touched files | candidate diff | trace |",
-            "| --- | --- | ---: | --- | --- | --- | --- |",
+            "| task | attempt | status | batch | resumed | touched files | candidate diff | trace |",
+            "| --- | ---: | --- | ---: | --- | --- | --- | --- |",
         ]
     )
     for result in summary.results:
         lines.append(
-            f"| `{result.task_id}` | `{result.status}` | {result.batch_index} | "
+            f"| `{result.task_id}` | {result.attempt} | `{result.status}` | "
+            f"{result.batch_index} | "
             f"`{result.resumed}` | `{result.touched_files}` | "
             f"[candidate diff]({result.candidate_diff_path}) | "
             f"[trace]({result.trace_path}) |"
         )
-    lines.extend(["", "## Conflict Gate", ""])
+    lines.extend(["", "## Handoffs", ""])
+    for result in summary.results:
+        if result.handoff is None:
+            continue
+        lines.append(
+            f"- `{result.task_id}`: status=`{result.handoff.status}`, "
+            f"validation=`{result.handoff.validation_evidence}`, "
+            f"unresolved=`{result.handoff.unresolved_issues}`"
+        )
+    if not any(result.handoff is not None for result in summary.results):
+        lines.append("- No WorkerHandoff was produced.")
+    lines.extend(
+        [
+            "",
+            "## Recovery",
+            "",
+            f"- replan_round: `{summary.replan_round}`",
+            f"- attempt_count: `{len(summary.attempt_results)}`",
+            f"- effective_plan_digest: `{summary.effective_plan_digest or summary.plan_digest}`",
+            "",
+            "## Conflict Gate",
+            "",
+        ]
+    )
     if summary.conflicts:
         lines.extend(
             f"- `{conflict.task_ids}`: {conflict.reason}"
@@ -102,6 +127,20 @@ def render_live_fanout_report(summary: LiveFanoutSummary) -> str:
             f"- trace: `{summary.finalizer_trace_path or 'not_run'}`",
             f"- usage: `{summary.finalizer_usage_path or 'not_run'}`",
             f"- llm_calls: `{summary.finalizer_usage_summary.get('llm_calls', 0)}`",
+            "",
+            "### Criterion Results",
+            "",
+        ]
+    )
+    if summary.criterion_results:
+        lines.extend(
+            f"- `{result.status}` {result.criterion}: {result.evidence}"
+            for result in summary.criterion_results
+        )
+    else:
+        lines.append("- No explicit acceptance criteria were evaluated.")
+    lines.extend(
+        [
             "",
             "## Claim Boundary",
             "",

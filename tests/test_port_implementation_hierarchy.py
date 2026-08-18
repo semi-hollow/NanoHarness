@@ -35,21 +35,13 @@ from agent_forge.evaluation.ports import (
     CaseEvidenceReader as EvaluationCaseEvidenceReader,
 )
 from agent_forge.models.gateway import ModelGateway
-from agent_forge.multi_agent.adapters.artifact_files import FileArtifactRepository
 from agent_forge.multi_agent.adapters.fanout_files import FanoutFileRepository
 from agent_forge.multi_agent.adapters.git_workspace import GitFanoutWorkspace
 from agent_forge.multi_agent.adapters.local_worker import LocalAgentWorkerAdapter
-from agent_forge.multi_agent.adapters.role_runtime import (
-    AgentLoopRoleRunner,
-    GitCandidateDiff,
-)
 from agent_forge.multi_agent.ports import (
-    CandidateDiffPort,
     FanoutArtifactPort,
     FanoutWorkerPort,
     FanoutWorkspacePort,
-    RoleArtifactPort,
-    RoleRunnerPort,
 )
 from agent_forge.observability.adapters.json_trace import JsonTraceRecorder
 from agent_forge.observability.adapters.otel import OpenTelemetryEventListener
@@ -127,9 +119,6 @@ FORMAL_IMPLEMENTATIONS = (
     (GitFanoutWorkspace, FanoutWorkspacePort),
     (FanoutFileRepository, FanoutArtifactPort),
     (LocalAgentWorkerAdapter, FanoutWorkerPort),
-    (FileArtifactRepository, RoleArtifactPort),
-    (AgentLoopRoleRunner, RoleRunnerPort),
-    (GitCandidateDiff, CandidateDiffPort),
 )
 
 

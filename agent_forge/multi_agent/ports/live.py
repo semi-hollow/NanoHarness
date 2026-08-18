@@ -13,7 +13,9 @@ from ..domain.live import (
     FinalizerResult,
     LiveFanoutSummary,
     LiveSubagentResult,
+    WorkerHandoff,
 )
+from ..domain.planning import PlanningDecision
 
 
 class FanoutWorkspacePort(Protocol):
@@ -67,18 +69,34 @@ class FanoutWorkerPort(Protocol):
         task: SubagentTask,
         batch_index: int,
         base_diff_text: str,
+        dependency_handoffs: list[WorkerHandoff],
+        attempt: int,
     ) -> LiveSubagentResult:
         """在隔离 workspace 中执行一个真实 AgentLoop。"""
 
     def run_finalizer(
         self,
-        goal: str,
+        plan: FanoutPlan,
         results: list[LiveSubagentResult],
     ) -> FinalizerResult:
         """运行只读整合验证器。"""
 
     def validate_recovery_diffs(self, diffs: list[tuple[str, str]]) -> str:
         """在临时 workspace 中重放恢复所需的 unified diff。"""
+
+
+class FanoutReplannerPort(Protocol):
+    """一次剩余任务重规划所需的最小模型边界。"""
+
+    def replan(
+        self,
+        *,
+        goal: str,
+        current_plan: FanoutPlan,
+        completed_handoffs: list[WorkerHandoff],
+        failed_results: list[LiveSubagentResult],
+    ) -> PlanningDecision:
+        """返回未完成工作的替换提议；Coordinator 再做确定性校验。"""
 
 
 class LiveFanoutEvents(EventSink, Protocol):

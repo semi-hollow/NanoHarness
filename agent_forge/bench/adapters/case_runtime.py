@@ -27,11 +27,6 @@ from agent_forge.bench.domain.config import SwebenchRunRequest, safe_id
 from agent_forge.bench.domain.models import BenchCase, BenchCaseResult
 from agent_forge.bench.ports import CaseExecutorPort
 from agent_forge.models.gateway import ModelGateway
-from agent_forge.multi_agent.profiles import get_profile
-from agent_forge.multi_agent.wiring import (
-    SequentialCoordinatorBuildRequest,
-    build_multi_agent_coordinator,
-)
 from agent_forge.observability.adapters.json_trace import TraceRecorder
 from agent_forge.observability.api import write_usage_artifacts
 from agent_forge.runtime.api import build_agent_loop
@@ -71,7 +66,7 @@ class LocalCaseExecutor(CaseExecutorPort):
         # 异常仍会留下可分类的 trace/diff，而不会被上层误判成 no-patch。
         workspace = self._workspace_manager.prepare(
             case,
-            agent_mode if agent_mode in {"single", "multi"} else "",
+            agent_mode if agent_mode == "single" else "",
         )
         active_workspace = workspace
         case_dir.mkdir(parents=True, exist_ok=True)
@@ -146,13 +141,10 @@ class LocalCaseExecutor(CaseExecutorPort):
             # status 必须同时依据候选改动和停止文本，而不能仅相信模型自报完成。
             final_answer = self._execute_runtime(
                 task,
-                agent_mode,
-                request,
                 runtime_config,
                 trace,
                 registry,
                 llm,
-                case_dir,
             )
             trace.write()
             _, usage_report_path = write_usage_artifacts(trace_path)
@@ -266,31 +258,11 @@ class LocalCaseExecutor(CaseExecutorPort):
     @staticmethod
     def _execute_runtime(
         task: str,
-        agent_mode: str,
-        request: SwebenchRunRequest,
         runtime_config: RuntimeConfig,
         trace: TraceRecorder,
         registry: Any,
         llm: ModelGateway,
-        case_dir: Path,
     ) -> str:
-        if agent_mode == "multi":
-            return (
-                build_multi_agent_coordinator(
-                    SequentialCoordinatorBuildRequest(
-                        task=task,
-                        profile=get_profile(request.profile),
-                        runtime_config=runtime_config,
-                        trace=trace,
-                        registry=registry,
-                        llm=llm,
-                        run_dir=case_dir,
-                        max_revision_rounds=request.max_revision_rounds,
-                    )
-                )
-                .run()
-                .final_answer
-            )
         return build_agent_loop(runtime_config, trace, registry, llm).run(task)
 
     @staticmethod

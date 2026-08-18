@@ -33,6 +33,7 @@ _CONTINUATION_OWNED_CONFIG = {
     "workspace",
 }
 
+
 # 主要入口：把 durable checkpoint 与人工决定装配成一个新的 continuation run。
 def resume_repository_task(args: argparse.Namespace) -> Path:
     """加载 checkpoint/HITL 状态并启动新的 continuation run。"""
@@ -101,8 +102,6 @@ def resume_repository_task(args: argparse.Namespace) -> Path:
         resume_state=checkpoint_path,
         output_root=args.output_root,
         agent_mode=args.agent_mode,
-        profile=args.profile,
-        max_revision_rounds=args.max_revision_rounds,
         skills=args.skills,
         skill_manifest=args.skill_manifest,
         mcp_config=args.mcp_config,
@@ -308,6 +307,7 @@ def write_resume_link(
     if (run_path / "run_manifest.json").exists():
         refresh_run_manifest(run_path)
     return link_path, chain_path
+
 
 __all__ = [
     "resume_repository_task",

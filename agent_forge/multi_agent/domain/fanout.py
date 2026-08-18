@@ -19,6 +19,7 @@ class SubagentTask:
     depends_on: list[str] = field(default_factory=list)
     write_scope: list[str] = field(default_factory=list)
     allowed_tools: list[str] = field(default_factory=list)
+    acceptance_criteria: list[str] = field(default_factory=list)
     expected_artifact: str = "task_output"
     max_steps: int = 12
 
@@ -51,7 +52,9 @@ def build_execution_batches(tasks: list[SubagentTask]) -> list[list[SubagentTask
     by_id = {task.id: task for task in tasks}
     if len(by_id) != len(tasks):
         raise ValueError("subagent task ids must be unique")
-    unknown_dependencies = sorted({dep for task in tasks for dep in task.depends_on if dep not in by_id})
+    unknown_dependencies = sorted(
+        {dep for task in tasks for dep in task.depends_on if dep not in by_id}
+    )
     if unknown_dependencies:
         raise ValueError(f"unknown dependencies: {', '.join(unknown_dependencies)}")
 

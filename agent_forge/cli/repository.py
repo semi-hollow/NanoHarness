@@ -23,13 +23,17 @@ from agent_forge.harness import (
     RunResult,
 )
 from agent_forge.multi_agent.api import (
+    AdaptivePlanner,
+    FanoutPlan,
     LiveFanoutBuildRequest,
-    SequentialCoordinatorBuildRequest,
+    PlanningOutcome,
     build_live_fanout,
-    build_multi_agent_coordinator,
+    fanout_available_tools,
     load_fanout_plan,
+    load_resume_initial_plan,
+    resumed_planning_outcome,
+    write_planning_artifact,
 )
-from agent_forge.multi_agent.profiles import get_profile
 from agent_forge.observability.api import (
     TraceRecorder,
     write_run_manifest,
@@ -57,14 +61,19 @@ from agent_forge.storage_layout import MEMORY_ROOT, ensure_storage_layout
 from agent_forge.tools.registry import ToolRegistry
 
 
-# 主要入口：从 CLI 参数装配并运行 single、sequential multi 或 live fanout 任务。
+# 主要入口：从 CLI 参数装配 single、adaptive 或 manual fanout。
 def run_repository_task(args: argparse.Namespace) -> Path:
     """把 CLI 输入转换为类型化请求；Single Agent 委托唯一 ``Harness`` API。"""
 
     config_document = resolve_repository_arguments(args)
-    if getattr(args, "agent_mode", "single") == "single":
+    agent_mode = getattr(args, "agent_mode", "single") or "single"
+    if agent_mode == "single":
         return execute_single_repository_task(args, config_document).artifact_dir
-    return _run_advanced_repository_task(args, config_document)
+    if agent_mode == "adaptive":
+        return _run_adaptive_repository_task(args, config_document)
+    if agent_mode == "fanout":
+        return _run_advanced_repository_task(args, config_document)
+    raise SystemExit(f"unsupported agent mode: {agent_mode}")
 
 
 def resolve_repository_arguments(
@@ -162,8 +171,13 @@ def build_single_run_request(
 def _run_advanced_repository_task(
     args: argparse.Namespace,
     config_document: RunConfigDocument | None,
+    *,
+    plan_override: FanoutPlan | None = None,
+    planning_outcome: PlanningOutcome | None = None,
+    replanner: AdaptivePlanner | None = None,
+    allow_replan: bool = True,
 ) -> Path:
-    """保留 Multi/Fanout 高级编排；它们不属于 Single-Agent 黄金主链。"""
+    """运行 manual/adaptive fanout；Single 仍只走 ``Harness.run``。"""
 
     requested_workspace = Path(args.workspace).expanduser().resolve()
     ensure_storage_layout(requested_workspace)
@@ -198,6 +212,23 @@ def _run_advanced_repository_task(
             trace_path,
             environment,
         )
+        if planning_outcome is not None:
+            write_planning_artifact(
+                run_dir / "planning_decision.json",
+                planning_outcome,
+            )
+            event_type = (
+                "planning_fallback"
+                if planning_outcome.fallback_to_single
+                else "planning_decision"
+            )
+            trace.add(
+                0,
+                "AdaptivePlanner",
+                event_type,
+                success=planning_outcome.decision is not None,
+                planning=planning_outcome.to_dict(),
+            )
 
         def registry_factory(
             workspace: str | Path,
@@ -219,45 +250,18 @@ def _run_advanced_repository_task(
                 )
             )
 
-        agent_mode = getattr(args, "agent_mode", "single")
-        if agent_mode == "fanout":
-            stop_output = _run_fanout(
-                args,
-                config,
-                trace,
-                run_dir,
-                llm_config,
-                registry_factory,
-            )
-            run_status = trace.stop_reason.removeprefix("fanout_") or "completed"
-        else:
-            registry = registry_factory(active_workspace, environment)
-            llm = build_llm(llm_config)
-            profile = get_profile(getattr(args, "profile", "coding_fix"))
-            summary = build_multi_agent_coordinator(
-                SequentialCoordinatorBuildRequest(
-                    task=args.task,
-                    profile=profile,
-                    runtime_config=config,
-                    trace=trace,
-                    registry=registry,
-                    llm=llm,
-                    run_dir=run_dir,
-                    max_revision_rounds=getattr(
-                        args,
-                        "max_revision_rounds",
-                        profile.default_max_revision_rounds,
-                    ),
-                )
-            ).run()
-            stop_output = summary.final_answer
-            run_status = summary.status
-            trace.set_run_context(
-                stop_reason=f"multi_agent_{summary.status}",
-                stop_output=stop_output,
-                final_answer=stop_output if summary.status == "passed" else None,
-            )
-
+        stop_output = _run_fanout(
+            args,
+            config,
+            trace,
+            run_dir,
+            llm_config,
+            registry_factory,
+            plan_override=plan_override,
+            replanner=replanner,
+            allow_replan=allow_replan,
+        )
+        run_status = trace.stop_reason.removeprefix("fanout_") or "completed"
         trace.write()
         write_usage_artifacts(trace_path)
         (run_dir / "stop_output.txt").write_text(stop_output, encoding="utf-8")
@@ -435,16 +439,22 @@ def _run_fanout(
     run_dir: Path,
     llm_config: LLMConfig,
     registry_factory: Callable[[Path, ExecutionEnvironment], ToolRegistry],
+    *,
+    plan_override: FanoutPlan | None = None,
+    replanner: AdaptivePlanner | None = None,
+    allow_replan: bool = True,
 ) -> str:
-    plan_path = getattr(args, "fanout_plan", "")
-    if not plan_path:
-        raise SystemExit(
-            "--fanout-plan is required when --agent-mode fanout is selected."
-        )
-    try:
-        plan = load_fanout_plan(plan_path)
-    except (OSError, ValueError, json.JSONDecodeError) as exc:
-        raise SystemExit(f"invalid fanout plan: {exc}") from exc
+    plan = plan_override
+    if plan is None:
+        plan_path = getattr(args, "fanout_plan", "")
+        if not plan_path:
+            raise SystemExit(
+                "--fanout-plan is required when --agent-mode fanout is selected."
+            )
+        try:
+            plan = load_fanout_plan(plan_path)
+        except (OSError, ValueError, json.JSONDecodeError) as exc:
+            raise SystemExit(f"invalid fanout plan: {exc}") from exc
     trace.set_run_context(task=args.task)
     summary = build_live_fanout(
         LiveFanoutBuildRequest(
@@ -456,6 +466,8 @@ def _run_fanout(
             registry_factory=registry_factory,
             max_workers=getattr(args, "max_workers", 4),
             resume_from=getattr(args, "fanout_resume", "") or None,
+            replanner=replanner,
+            allow_replan=allow_replan,
         )
     ).run()
     stop_output = "\n".join(
@@ -477,6 +489,69 @@ def _run_fanout(
         final_answer=stop_output if summary.status == "passed" else None,
     )
     return stop_output
+
+
+def _run_adaptive_repository_task(
+    args: argparse.Namespace,
+    config_document: RunConfigDocument | None,
+) -> Path:
+    """Planner 选择 route；Single route 仍调用现有 Harness。"""
+
+    if getattr(args, "fanout_plan", None):
+        raise SystemExit("--fanout-plan belongs to --agent-mode fanout, not adaptive.")
+    llm_config = _resolve_llm_config(args)
+    resume_from = getattr(args, "fanout_resume", "") or ""
+    if resume_from:
+        try:
+            plan = load_resume_initial_plan(resume_from)
+        except (OSError, ValueError, json.JSONDecodeError) as exc:
+            raise SystemExit(f"invalid adaptive resume: {exc}") from exc
+        outcome = resumed_planning_outcome(plan)
+        return _run_advanced_repository_task(
+            args,
+            config_document,
+            plan_override=plan,
+            planning_outcome=outcome,
+            replanner=None,
+            allow_replan=False,
+        )
+
+    planner = AdaptivePlanner(
+        model_factory=lambda: build_llm(llm_config),
+        available_tools=_available_planner_tools(args),
+        max_fanout_tasks=16,
+        max_steps=args.max_steps,
+    )
+    outcome = planner.decide(args.task, args.workspace)
+    if outcome.decision is None or outcome.fallback_to_single:
+        result = execute_single_repository_task(args, config_document)
+        write_planning_artifact(
+            result.artifact_dir / "planning_decision.json",
+            outcome,
+        )
+        return result.artifact_dir
+    if outcome.decision.mode == "single":
+        result = execute_single_repository_task(args, config_document)
+        write_planning_artifact(
+            result.artifact_dir / "planning_decision.json",
+            outcome,
+        )
+        return result.artifact_dir
+    plan = outcome.decision.to_fanout_plan(args.task)
+    return _run_advanced_repository_task(
+        args,
+        config_document,
+        plan_override=plan,
+        planning_outcome=outcome,
+        replanner=planner,
+    )
+
+
+def _available_planner_tools(args: argparse.Namespace) -> list[str]:
+    configured = getattr(args, "enabled_tools", None)
+    if configured is not None:
+        return sorted(set(configured) | set(getattr(args, "mcp_tool", [])))
+    return sorted(set(fanout_available_tools()) | set(getattr(args, "mcp_tool", [])))
 
 
 def parse_skill_mode(value: str) -> str:

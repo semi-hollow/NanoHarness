@@ -48,7 +48,7 @@ _SECTIONS: dict[str, dict[str, _FieldSpec]] = {
         "agent_mode": _FieldSpec(
             "agent_mode",
             "str",
-            frozenset({"single", "multi", "fanout"}),
+            frozenset({"single", "adaptive", "fanout"}),
         ),
     },
     "model": {
@@ -139,8 +139,6 @@ _SECTIONS: dict[str, dict[str, _FieldSpec]] = {
         "max_bytes": _FieldSpec("instruction_max_bytes", "int"),
     },
     "multi_agent": {
-        "profile": _FieldSpec("profile", "str"),
-        "max_revision_rounds": _FieldSpec("max_revision_rounds", "int"),
         "fanout_plan": _FieldSpec("fanout_plan", "str"),
         "fanout_resume": _FieldSpec("fanout_resume", "str"),
         "max_workers": _FieldSpec("max_workers", "int"),
@@ -182,8 +180,6 @@ _RUN_DEFAULTS: dict[str, object] = {
     "resume_state": "",
     "output_root": ".agent_forge/runs",
     "agent_mode": "single",
-    "profile": "coding_fix",
-    "max_revision_rounds": 2,
     "fanout_plan": "",
     "fanout_resume": "",
     "max_workers": 4,
@@ -274,12 +270,16 @@ def resolve_run_arguments(args: argparse.Namespace) -> RunConfigDocument | None:
                 setattr(args, target, value)
     for target, default in _RUN_DEFAULTS.items():
         if getattr(args, target, None) is None:
-            setattr(args, target, list(default) if isinstance(default, list) else default)
+            setattr(
+                args, target, list(default) if isinstance(default, list) else default
+            )
 
     _validate_run_arguments(args)
     task = getattr(args, "task", None)
     if not isinstance(task, str) or not task.strip():
-        raise ValueError("task is required as a positional argument or run.task in config")
+        raise ValueError(
+            "task is required as a positional argument or run.task in config"
+        )
     return document
 
 
@@ -397,7 +397,6 @@ def _validate_run_arguments(args: argparse.Namespace) -> None:
     non_negative_fields = (
         "reserved_output_tokens",
         "memory_max_chars",
-        "max_revision_rounds",
     )
     for field_name in non_negative_fields:
         if getattr(args, field_name) < 0:
@@ -413,9 +412,7 @@ def _validate_run_arguments(args: argparse.Namespace) -> None:
     if args.reasoning_effort not in {None, "high", "max"}:
         raise ValueError("reasoning_effort must be high or max")
     if args.thinking_mode == "disabled" and args.reasoning_effort is not None:
-        raise ValueError(
-            "reasoning_effort requires thinking_mode enabled or auto"
-        )
+        raise ValueError("reasoning_effort requires thinking_mode enabled or auto")
     if args.thinking_mode == "enabled":
         args.reasoning_tokens = True
     if not 1 <= args.max_workers <= 8:
@@ -442,7 +439,9 @@ def _normalize_value(value: object, spec: _FieldSpec, *, location: str) -> objec
             raise ValueError(f"{location} must be a boolean")
         normalized = value
     elif spec.kind == "str_list":
-        if not isinstance(value, list) or not all(isinstance(item, str) for item in value):
+        if not isinstance(value, list) or not all(
+            isinstance(item, str) for item in value
+        ):
             raise ValueError(f"{location} must be a list of strings")
         normalized = list(value)
     elif spec.kind == "selection":

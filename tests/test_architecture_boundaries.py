@@ -203,10 +203,11 @@ class ArchitectureBoundaryTest(unittest.TestCase):
         root = PACKAGE_ROOT / "multi_agent"
         expected = [
             root / "api.py",
-            root / "application" / "coordinator.py",
+            root / "application" / "planning.py",
             root / "application" / "live_fanout.py",
             root / "domain" / "fanout.py",
             root / "domain" / "live.py",
+            root / "domain" / "planning.py",
             root / "ports" / "live.py",
             root / "adapters" / "local_worker.py",
             root / "presentation" / "live_report.py",

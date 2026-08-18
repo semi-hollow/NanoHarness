@@ -4,13 +4,13 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 import threading
 import time
 from dataclasses import replace
 from pathlib import Path
 from typing import Callable
 
-from agent_forge.contracts import WORKSPACE_WRITE_TOOL_NAMES
 from agent_forge.observability.adapters.json_trace import TraceRecorder
 from agent_forge.observability.api import write_usage_artifacts
 from agent_forge.runtime.api import build_agent_loop
@@ -28,25 +28,17 @@ from agent_forge.safety.guardrails import sanitize_quoted_evidence
 from agent_forge.tools.registry import ToolRegistry
 
 from ..domain.fanout import SubagentTask
+from ..domain.tool_policy import FINALIZER_READ_TOOLS, READ_TOOLS, WRITE_TOOLS
 from ..domain.live import (
     FanoutPlan,
+    CriterionResult,
     FinalizerResult,
     LiveSubagentResult,
+    WorkerHandoff,
+    project_worker_handoff,
 )
 from ..ports import FanoutWorkerPort
 from .git_workspace import apply_unified_diff_to_workspace, commit_worker_baseline
-
-READ_TOOLS = {
-    "list_files",
-    "read_file",
-    "grep_search",
-    "git_status",
-    "git_diff",
-    "python_validation",
-    "ask_human",
-}
-FINALIZER_READ_TOOLS = {"git_status", "git_diff", "python_validation"}
-WRITE_TOOLS = {*READ_TOOLS, *WORKSPACE_WRITE_TOOL_NAMES, "run_command"}
 
 RegistryFactory = Callable[[Path, ExecutionEnvironment], ToolRegistry]
 LLMFactory = Callable[[], ModelPort]
@@ -82,6 +74,8 @@ class LocalAgentWorkerAdapter(FanoutWorkerPort):
         task: SubagentTask,
         batch_index: int,
         base_diff_text: str,
+        dependency_handoffs: list[WorkerHandoff],
+        attempt: int,
     ) -> LiveSubagentResult:
         """在临时 worktree 中运行一个受 scope 限制的 AgentLoop。"""
 
@@ -89,7 +83,7 @@ class LocalAgentWorkerAdapter(FanoutWorkerPort):
         # 先创建所有稳定路径和默认失败值，保证后续任意阶段抛异常时仍能返回结构完整的
         # LiveSubagentResult，而不是让 Coordinator 依赖临时 worktree 内部状态。
         started = time.monotonic()
-        worker_dir = self.root / "workers" / task.id
+        worker_dir = self.root / "workers" / task.id / f"attempt-{attempt}"
         worker_dir.mkdir(parents=True, exist_ok=True)
         trace_path = worker_dir / "trace.json"
         candidate_diff_path = worker_dir / "candidate_changes.diff"
@@ -98,7 +92,7 @@ class LocalAgentWorkerAdapter(FanoutWorkerPort):
             ExecutionEnvironmentConfig(
                 mode="worktree",
                 workspace=str(self.workspace),
-                run_id=f"{self.run_id[:8]}-{task.id}",
+                run_id=f"{self.run_id[:8]}-{task.id}-a{attempt}",
                 network_policy="deny",
                 keep_worktree=False,
             )
@@ -111,6 +105,12 @@ class LocalAgentWorkerAdapter(FanoutWorkerPort):
         touched_files: list[str] = []
         usage_summary: dict[str, object] = {}
         candidate_diff_sha256 = ""
+        stop_reason = ""
+        failure_kind = ""
+        retryable = False
+        validation_evidence: list[dict[str, object]] = []
+        unresolved_issues: list[str] = []
+        handoff: WorkerHandoff | None = None
         # endregion 1. 输出契约准备结束
         try:
             # region 2. 隔离工作区（实现细节）：创建 worktree，并带入前置任务的已合并改动
@@ -153,7 +153,8 @@ class LocalAgentWorkerAdapter(FanoutWorkerPort):
                 task_state_root=str(worker_dir / "task_state"),
                 approval_root=str(worker_dir / "approvals"),
                 human_thread_id=(
-                    f"fanout:{self.plan.digest[:16]}:{self.base_head[:12]}:{task.id}"
+                    f"fanout:{self.plan.digest[:16]}:{self.base_head[:12]}:"
+                    f"{task.id}:attempt-{attempt}"
                 ),
                 operation_ledger_root=str(worker_dir / "operation_ledger"),
             )
@@ -168,7 +169,11 @@ class LocalAgentWorkerAdapter(FanoutWorkerPort):
                 registry,
                 self.llm_factory(),
             ).run(
-                worker_task_prompt(self.plan.goal, task),
+                worker_task_prompt(
+                    self.plan.goal,
+                    task,
+                    dependency_handoffs,
+                ),
                 agent_name=f"Subagent:{task.id}",
             )
             worker_trace.write()
@@ -187,6 +192,22 @@ class LocalAgentWorkerAdapter(FanoutWorkerPort):
             ).hexdigest()
             touched_files = collect_changed_files(active_workspace)
             status, error = _worker_status(task, final_answer, touched_files)
+            stop_reason, failure_kind, retryable, validation_evidence = _trace_outcome(
+                trace_path
+            )
+            unresolved_issues = _unresolved_issues(status, error)
+            handoff = project_worker_handoff(
+                LiveSubagentResult(
+                    task_id=task.id,
+                    status=status,
+                    final_answer=final_answer,
+                    touched_files=touched_files,
+                    artifact_path=str(artifact_path),
+                    error=error,
+                    validation_evidence=validation_evidence,
+                    unresolved_issues=unresolved_issues,
+                )
+            )
             artifact_path.write_text(
                 _render_worker_artifact(
                     task,
@@ -194,6 +215,7 @@ class LocalAgentWorkerAdapter(FanoutWorkerPort):
                     final_answer,
                     touched_files,
                     error,
+                    validation_evidence,
                 ),
                 encoding="utf-8",
             )
@@ -201,6 +223,23 @@ class LocalAgentWorkerAdapter(FanoutWorkerPort):
         except Exception as exc:
             # 失败也必须发布结构稳定的 artifact；Coordinator 不需要靠异常猜 Worker 状态。
             error = str(exc)
+            stop_reason = "worker_adapter_exception"
+            failure_kind = "worker_adapter_exception"
+            retryable = False
+            validation_evidence = []
+            unresolved_issues = [error]
+            handoff = project_worker_handoff(
+                LiveSubagentResult(
+                    task_id=task.id,
+                    status="failed",
+                    final_answer=final_answer,
+                    touched_files=touched_files,
+                    artifact_path=str(artifact_path),
+                    error=error,
+                    validation_evidence=validation_evidence,
+                    unresolved_issues=unresolved_issues,
+                )
+            )
             candidate_diff_path.write_text("", encoding="utf-8")
             artifact_path.write_text(
                 _render_worker_artifact(
@@ -209,6 +248,7 @@ class LocalAgentWorkerAdapter(FanoutWorkerPort):
                     final_answer,
                     touched_files,
                     error,
+                    validation_evidence,
                 ),
                 encoding="utf-8",
             )
@@ -242,12 +282,19 @@ class LocalAgentWorkerAdapter(FanoutWorkerPort):
             error=error,
             duration_ms=int((time.monotonic() - started) * 1000),
             usage_summary=usage_summary,
+            attempt=attempt,
+            stop_reason=stop_reason,
+            failure_kind=failure_kind,
+            retryable=retryable,
+            validation_evidence=validation_evidence,
+            unresolved_issues=unresolved_issues,
+            handoff=handoff,
         )
 
     # 主要入口：在独立只读环境复核合并结果，且禁止 Finalizer 产生新改动。
     def run_finalizer(
         self,
-        goal: str,
+        plan: FanoutPlan,
         results: list[LiveSubagentResult],
     ) -> FinalizerResult:
         """把已集成 diff 复制到独立 worktree，并用只读 Runtime 做最终验收。
@@ -277,6 +324,7 @@ class LocalAgentWorkerAdapter(FanoutWorkerPort):
         decision = "BLOCKED"
         usage_summary: dict[str, object] = {}
         candidate_snapshot = ""
+        criterion_results: list[CriterionResult] = []
         # endregion 1. 验证输出准备结束
         try:
             # region 2. 隔离候选结果（实现细节）：把 Coordinator 已合并 Diff 复制到新 worktree
@@ -331,10 +379,17 @@ class LocalAgentWorkerAdapter(FanoutWorkerPort):
                 registry,
                 self.llm_factory(),
             ).run(
-                finalizer_task_prompt(goal, results),
+                finalizer_task_prompt(plan.goal, results, plan=plan),
                 agent_name="FanoutFinalizer",
             )
             decision = _decision(answer)
+            criterion_results = _criterion_results(answer, _all_criteria(plan))
+            if decision == "PASS" and any(
+                result.status != "PASS" for result in criterion_results
+            ):
+                decision = "NEEDS_REVISION"
+            if decision == "PASS" and _has_failed_runtime_evidence(plan, results):
+                decision = "NEEDS_REVISION"
             if collect_workspace_diff(workspace) != candidate_snapshot:
                 decision = "BLOCKED"
                 answer = "\n".join(
@@ -359,7 +414,7 @@ class LocalAgentWorkerAdapter(FanoutWorkerPort):
         finally:
             # 即使异常也写 Trace/Usage/环境清单，随后回收验证 worktree。
             final_trace.set_run_context(
-                task=finalizer_task_prompt(goal, results),
+                task=finalizer_task_prompt(plan.goal, results, plan=plan),
                 stop_reason=f"finalizer_{decision.lower()}",
                 stop_output=answer,
                 final_answer=answer if decision == "PASS" else None,
@@ -387,6 +442,7 @@ class LocalAgentWorkerAdapter(FanoutWorkerPort):
             trace_path=str(trace_path),
             usage_path=str(usage_path),
             usage_summary=usage_summary,
+            criterion_results=criterion_results,
         )
 
     def validate_recovery_diffs(self, diffs: list[tuple[str, str]]) -> str:
@@ -451,9 +507,14 @@ def _filtered_registry(
     return registry
 
 
-def worker_task_prompt(goal: str, task: SubagentTask) -> str:
+def worker_task_prompt(
+    goal: str,
+    task: SubagentTask,
+    dependency_handoffs: list[WorkerHandoff] | None = None,
+) -> str:
     """构造隔离 worker 的最小任务上下文。"""
 
+    handoffs = dependency_handoffs or []
     return "\n".join(
         [
             "You are an isolated worker in a coordinator-driven fanout run.",
@@ -462,6 +523,15 @@ def worker_task_prompt(goal: str, task: SubagentTask) -> str:
             f"Worker task: {task.task}",
             f"Declared write scope: {task.write_scope or 'read-only'}",
             f"Expected artifact: {task.expected_artifact}",
+            f"Acceptance criteria: {task.acceptance_criteria or 'none specified'}",
+            "Direct dependency handoffs (no private conversations or full traces):",
+            json.dumps(
+                [handoff.to_dict() for handoff in handoffs],
+                ensure_ascii=False,
+                sort_keys=True,
+            )[:6000]
+            if handoffs
+            else "[]",
             "Implement only this task. Do not touch paths outside the declared scope.",
             "Return a concise evidence-grounded result after using the available tools.",
         ]
@@ -471,6 +541,8 @@ def worker_task_prompt(goal: str, task: SubagentTask) -> str:
 def finalizer_task_prompt(
     goal: str,
     results: list[LiveSubagentResult],
+    *,
+    plan: FanoutPlan | None = None,
 ) -> str:
     """构造只读 finalizer 的证据输入。"""
 
@@ -478,9 +550,13 @@ def finalizer_task_prompt(
         (
             f"- {result.task_id}: {result.status}; touched={result.touched_files}; "
             f"artifact={sanitize_quoted_evidence(result.artifact_path)}; "
-            f"output={sanitize_quoted_evidence(result.final_answer[:1200])}"
+            f"handoff={sanitize_quoted_evidence(json.dumps(result.handoff.to_dict(), ensure_ascii=False)[:1600] if result.handoff else result.final_answer[:1200])}"
         )
         for result in results
+    ]
+    criteria = _all_criteria(plan) if plan is not None else []
+    criterion_rows = [
+        f"{index}. {criterion}" for index, criterion in enumerate(criteria, start=1)
     ]
     return "\n".join(
         [
@@ -489,7 +565,11 @@ def finalizer_task_prompt(
             "Use worker outputs as primary evidence. Inspect git_status/git_diff once when needed.",
             "Run python_validation only when integrated code changes need a focused check.",
             "Do not explore unrelated files. Use at most two tool-call rounds.",
-            "Then start the answer with PASS, NEEDS_REVISION, or BLOCKED. Do not modify files.",
+            "For every criterion, output CRITERION <number>: PASS|FAIL|UNKNOWN | evidence.",
+            "Then output FINAL: PASS, FINAL: NEEDS_REVISION, or FINAL: BLOCKED.",
+            "Do not modify files.",
+            "Required acceptance criteria:",
+            *(criterion_rows or ["(none specified)"]),
             "Worker results:",
             *rows,
         ]
@@ -521,6 +601,7 @@ def _render_worker_artifact(
     answer: str,
     touched_files: list[str],
     error: str,
+    validation_evidence: list[dict[str, object]],
 ) -> str:
     return "\n".join(
         [
@@ -530,6 +611,8 @@ def _render_worker_artifact(
             f"- write_scope: `{task.write_scope}`",
             f"- touched_files: `{touched_files}`",
             f"- error: `{error}`",
+            f"- acceptance_criteria: `{task.acceptance_criteria}`",
+            f"- validation_evidence: `{validation_evidence}`",
             "",
             "## Output",
             "",
@@ -555,6 +638,94 @@ def _within_scopes(paths: list[str], scopes: list[str]) -> bool:
     return True
 
 
+def _trace_outcome(
+    trace_path: Path,
+) -> tuple[str, str, bool, list[dict[str, object]]]:
+    """只从 canonical worker trace 读取 retryability 和 validation 事实。"""
+
+    payload = json.loads(trace_path.read_text(encoding="utf-8"))
+    stop_reason = str(payload.get("stop_reason") or "")
+    failure_kind = ""
+    retryable = False
+    validation_evidence: list[dict[str, object]] = []
+    for event in payload.get("events") or []:
+        if not isinstance(event, dict):
+            continue
+        if event.get("event_type") == "recovery_decision":
+            failure_kind = str(event.get("failure_kind") or "")
+            retryable = event.get("retryable") is True
+        if event.get("event_type") == "validation_evidence" and isinstance(
+            event.get("validation"), dict
+        ):
+            validation_evidence.append(dict(event["validation"]))
+    return stop_reason, failure_kind, retryable, validation_evidence
+
+
+def _unresolved_issues(status: str, error: str) -> list[str]:
+    if status == "completed":
+        return []
+    return [error or f"worker ended with status {status}"]
+
+
+def _all_criteria(plan: FanoutPlan | None) -> list[str]:
+    if plan is None:
+        return []
+    criteria = list(plan.global_acceptance_criteria)
+    for task in plan.tasks:
+        criteria.extend(task.acceptance_criteria)
+    return list(dict.fromkeys(criteria))
+
+
+def _criterion_results(answer: str, criteria: list[str]) -> list[CriterionResult]:
+    observed: dict[int, tuple[str, str]] = {}
+    pattern = re.compile(
+        r"^CRITERION\s+(\d+)\s*:\s*(PASS|FAIL|UNKNOWN)(?:\s*\|\s*(.*))?$",
+        re.IGNORECASE,
+    )
+    for line in (answer or "").splitlines()[:160]:
+        match = pattern.match(line.strip().strip("*`"))
+        if not match:
+            continue
+        observed[int(match.group(1))] = (
+            match.group(2).upper(),
+            (match.group(3) or "").strip()[:1000],
+        )
+    return [
+        CriterionResult(
+            criterion=criterion,
+            status=observed.get(index, ("UNKNOWN", "missing criterion result"))[0],
+            evidence=observed.get(index, ("UNKNOWN", "missing criterion result"))[1],
+        )
+        for index, criterion in enumerate(criteria, start=1)
+    ]
+
+
+def _has_failed_runtime_evidence(
+    plan: FanoutPlan,
+    results: list[LiveSubagentResult],
+) -> bool:
+    task_by_id = {task.id: task for task in plan.tasks}
+    for result in results:
+        if result.status != "completed":
+            return True
+        task = task_by_id.get(result.task_id)
+        if task is None:
+            return True
+        if task.write_scope:
+            candidate = Path(result.candidate_diff_path)
+            if (
+                not candidate.is_file()
+                or not candidate.read_text(encoding="utf-8").strip()
+            ):
+                return True
+        if any(
+            str(item.get("status") or "").lower() not in {"", "passed"}
+            for item in result.validation_evidence
+        ):
+            return True
+    return False
+
+
 def _decision(answer: str) -> str:
     decisions: set[str] = set()
     for line in (answer or "").splitlines()[:80]:
@@ -565,6 +736,7 @@ def _decision(answer: str) -> str:
                 f"VERDICT: {marker}",
                 f"STATUS: {marker}",
                 f"DECISION: {marker}",
+                f"FINAL: {marker}",
             }:
                 decisions.add(marker)
     if len(decisions) == 1:

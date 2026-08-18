@@ -113,6 +113,15 @@ class PublicCliSmokeTest(unittest.TestCase):
         )
         self.assertEqual(args.agent_mode, "fanout")
 
+        adaptive = build_parser().parse_args(
+            ["run", "choose the smallest safe strategy", "--agent-mode", "adaptive"]
+        )
+        self.assertEqual(adaptive.agent_mode, "adaptive")
+        with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
+            build_parser().parse_args(
+                ["run", "legacy sequential route", "--agent-mode", "multi"]
+            )
+
     def test_resume_help_exposes_resume_specific_flags(self):
         result = subprocess.run(
             [sys.executable, "-m", "agent_forge", "resume", "--help"],

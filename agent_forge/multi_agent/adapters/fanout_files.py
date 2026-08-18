@@ -3,11 +3,11 @@
 from __future__ import annotations
 
 import json
-import os
-import threading
 import time
 from pathlib import Path
 from typing import Any
+
+from agent_forge.atomic_json import atomic_write_json
 
 from ..domain.live import FanoutCheckpoint, FanoutPlan, LiveFanoutSummary
 from ..ports import FanoutArtifactPort
@@ -23,20 +23,31 @@ class FanoutFileRepository(FanoutArtifactPort):
 
     def write_plan(self, plan: FanoutPlan) -> str:
         path = self.root / "fanout_plan.json"
-        _write_json_atomic(path, plan.to_dict())
+        atomic_write_json(path, plan.to_dict())
         return str(path)
 
     def write_checkpoint(self, checkpoint: FanoutCheckpoint) -> str:
         path = self.root / "fanout_checkpoint.json"
-        _write_json_atomic(
+        atomic_write_json(
             path,
             {
-                "schema_version": 1,
+                "schema_version": 2,
                 "status": checkpoint.status,
                 "plan_digest": checkpoint.plan_digest,
+                "initial_plan_identity": checkpoint.initial_plan_identity,
+                "effective_plan": (
+                    checkpoint.effective_plan.to_dict()
+                    if checkpoint.effective_plan is not None
+                    else None
+                ),
+                "effective_plan_digest": checkpoint.effective_plan_digest,
+                "replan_round": checkpoint.replan_round,
                 "base_head": checkpoint.base_head,
                 "merged_task_ids": list(checkpoint.merged_task_ids),
                 "results": [result.to_dict() for result in checkpoint.results],
+                "attempt_results": [
+                    result.to_dict() for result in checkpoint.attempt_results
+                ],
                 "updated_at": time.time(),
             },
         )
@@ -54,10 +65,7 @@ class FanoutFileRepository(FanoutArtifactPort):
         report_path = self.root / "fanout_report.md"
         summary.summary_path = str(summary_path)
         summary.report_path = str(report_path)
-        summary_path.write_text(
-            json.dumps(summary.to_dict(), ensure_ascii=False, indent=2),
-            encoding="utf-8",
-        )
+        atomic_write_json(summary_path, summary.to_dict())
         report_path.write_text(
             render_live_fanout_report(summary),
             encoding="utf-8",
@@ -84,16 +92,3 @@ def _resolve_resume_artifact(path: Path) -> Path:
             if candidate.exists():
                 return candidate
     raise FileNotFoundError(f"no fanout summary or checkpoint found under {path}")
-
-
-def _write_json_atomic(path: Path, payload: dict[str, Any]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = path.with_name(f".{path.name}.{threading.get_ident()}.tmp")
-    try:
-        with temporary.open("w", encoding="utf-8") as handle:
-            json.dump(payload, handle, ensure_ascii=False, indent=2)
-            handle.flush()
-            os.fsync(handle.fileno())
-        temporary.replace(path)
-    finally:
-        temporary.unlink(missing_ok=True)

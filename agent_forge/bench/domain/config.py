@@ -64,10 +64,8 @@ class SwebenchRunRequest:
     official_cache_level: str = "env"
     official_platform: str = ""
 
-    # single 或 sequential multi 的 workflow 配置。
+    # Benchmark 保持 Single-Agent；Multi-Agent V1 只运行独立机制 Case。
     agent_mode: str = "single"
-    profile: str = "coding_fix"
-    max_revision_rounds: int = 2
     tool_routing_mode: str = "task-aware"
 
     # Skill 和 evidence-backed long-term memory 的冻结实验输入。
@@ -90,8 +88,8 @@ class SwebenchRunRequest:
     container_read_only: bool = True
 
     def __post_init__(self) -> None:
-        if self.agent_mode not in {"single", "multi"}:
-            raise ValueError("agent_mode must be one of: single, multi")
+        if self.agent_mode != "single":
+            raise ValueError("benchmark agent_mode must be single")
         if self.official_cache_level not in {"none", "base", "env", "instance"}:
             raise ValueError(
                 "official_cache_level must be one of: none, base, env, instance"

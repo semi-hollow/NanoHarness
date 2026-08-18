@@ -39,14 +39,19 @@ TraceEventType: TypeAlias = Literal[
     "multi_agent_start",
     "observation",
     "operation_ledger",
+    "planning_decision",
+    "planning_fallback",
     "pending_tool_call_rejected",
     "permission_check",
     "recovery_decision",
+    "replan_result",
+    "replan_started",
     "resume_state_loaded",
     "review_decision",
     "revision_round",
     "run_completed",
     "run_control",
+    "serialized_conflict_retry",
     "skill_selection",
     "stop_hooks",
     "task_state_checkpoint",
@@ -58,6 +63,7 @@ TraceEventType: TypeAlias = Literal[
     "tool_observation",
     "validation_evidence",
     "verifier_result",
+    "worker_retry",
 ]
 
 RESERVED_EVENT_FIELDS = {

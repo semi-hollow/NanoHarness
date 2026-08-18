@@ -26,6 +26,7 @@ class FanoutPlan:
 
     goal: str
     tasks: list[SubagentTask]
+    global_acceptance_criteria: list[str] = field(default_factory=list)
 
     @classmethod
     def from_mapping(cls, data: dict[str, Any]) -> "FanoutPlan":
@@ -77,12 +78,23 @@ class FanoutPlan:
                         for value in _string_list(row, "write_scope")
                     ],
                     allowed_tools=_string_list(row, "allowed_tools"),
+                    acceptance_criteria=_criteria_list(
+                        row,
+                        "acceptance_criteria",
+                    ),
                     expected_artifact=expected_artifact,
                     max_steps=max_steps,
                 )
             )
         build_execution_batches(tasks)
-        return cls(goal=goal, tasks=tasks)
+        return cls(
+            goal=goal,
+            tasks=tasks,
+            global_acceptance_criteria=_criteria_list(
+                data,
+                "global_acceptance_criteria",
+            ),
+        )
 
     @property
     def digest(self) -> str:
@@ -92,21 +104,44 @@ class FanoutPlan:
         return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
     def to_dict(self) -> dict[str, Any]:
-        return {
+        payload: dict[str, Any] = {
             "goal": self.goal,
-            "tasks": [
-                {
-                    "id": task.id,
-                    "task": task.task,
-                    "depends_on": task.depends_on,
-                    "write_scope": task.write_scope,
-                    "allowed_tools": task.allowed_tools,
-                    "expected_artifact": task.expected_artifact,
-                    "max_steps": task.max_steps,
-                }
-                for task in self.tasks
-            ],
+            "tasks": [_task_to_dict(task) for task in self.tasks],
         }
+        # Empty V1 fields stay absent so V0 plan digests and checkpoints remain valid.
+        if self.global_acceptance_criteria:
+            payload["global_acceptance_criteria"] = list(
+                self.global_acceptance_criteria
+            )
+        return payload
+
+
+@dataclass(frozen=True)
+class WorkerHandoff:
+    """上游结果向直接依赖任务传递的紧凑、确定性语义状态。"""
+
+    task_id: str
+    status: str
+    summary: str
+    touched_files: list[str] = field(default_factory=list)
+    validation_evidence: list[dict[str, Any]] = field(default_factory=list)
+    unresolved_issues: list[str] = field(default_factory=list)
+    artifact_path: str = ""
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass(frozen=True)
+class CriterionResult:
+    """Finalizer 对一条验收标准的显式判断。"""
+
+    criterion: str
+    status: str
+    evidence: str = ""
+
+    def to_dict(self) -> dict[str, str]:
+        return asdict(self)
 
 
 # 核心数据：真实 AgentLoop worker 的结果、候选 diff 与 evidence 位置。
@@ -135,9 +170,34 @@ class LiveSubagentResult:
     duration_ms: int = 0
     usage_summary: dict[str, Any] = field(default_factory=dict)
     resumed: bool = False
+    attempt: int = 1
+    stop_reason: str = ""
+    failure_kind: str = ""
+    retryable: bool = False
+    validation_evidence: list[dict[str, Any]] = field(default_factory=list)
+    unresolved_issues: list[str] = field(default_factory=list)
+    handoff: WorkerHandoff | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
+
+
+def project_worker_handoff(result: LiveSubagentResult) -> WorkerHandoff:
+    """从结果事实投影稳定 Handoff；不读取或复制 Worker 私有会话。"""
+
+    summary = " ".join((result.final_answer or "").split())[:1200]
+    issues = list(result.unresolved_issues)
+    if result.status != "completed" and not issues:
+        issues.append(result.error or f"worker ended with status {result.status}")
+    return WorkerHandoff(
+        task_id=result.task_id,
+        status=result.status,
+        summary=summary,
+        touched_files=list(result.touched_files),
+        validation_evidence=[dict(item) for item in result.validation_evidence],
+        unresolved_issues=list(dict.fromkeys(issue for issue in issues if issue)),
+        artifact_path=result.artifact_path,
+    )
 
 
 # 核心数据：fanout 中途恢复点的计划身份、结果和合并进度。
@@ -150,6 +210,11 @@ class FanoutCheckpoint:
     results: list[LiveSubagentResult]
     merged_task_ids: list[str]
     status: str
+    initial_plan_identity: dict[str, str] = field(default_factory=dict)
+    effective_plan: FanoutPlan | None = None
+    effective_plan_digest: str = ""
+    replan_round: int = 0
+    attempt_results: list[LiveSubagentResult] = field(default_factory=list)
 
 
 # 核心数据：live fanout 调度、合并、冲突、finalizer 和 artifact 的最终汇总。
@@ -182,6 +247,12 @@ class LiveFanoutSummary:
     summary_path: str = ""
     report_path: str = ""
     integrated_diff_path: str = ""
+    initial_plan_identity: dict[str, str] = field(default_factory=dict)
+    effective_plan: dict[str, Any] = field(default_factory=dict)
+    effective_plan_digest: str = ""
+    replan_round: int = 0
+    attempt_results: list[LiveSubagentResult] = field(default_factory=list)
+    criterion_results: list[CriterionResult] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -204,6 +275,14 @@ class LiveFanoutSummary:
             "summary_path": self.summary_path,
             "report_path": self.report_path,
             "integrated_diff_path": self.integrated_diff_path,
+            "initial_plan_identity": self.initial_plan_identity,
+            "effective_plan": self.effective_plan,
+            "effective_plan_digest": self.effective_plan_digest,
+            "replan_round": self.replan_round,
+            "attempt_results": [result.to_dict() for result in self.attempt_results],
+            "criterion_results": [
+                result.to_dict() for result in self.criterion_results
+            ],
         }
 
 
@@ -216,6 +295,7 @@ class FinalizerResult:
     trace_path: str
     usage_path: str
     usage_summary: dict[str, Any]
+    criterion_results: list[CriterionResult] = field(default_factory=list)
 
 
 def aggregate_live_metrics(
@@ -242,7 +322,8 @@ def aggregate_live_metrics(
         result.duration_ms for result in results if result.resumed
     )
     metrics: dict[str, Any] = {
-        "task_count": len(results),
+        "task_count": len({result.task_id for result in results}),
+        "attempt_count": len(results),
         "completed_count": sum(result.status == "completed" for result in results),
         "resumed_count": sum(result.resumed for result in results),
         "max_workers": max_workers,
@@ -305,3 +386,27 @@ def _string_list(data: dict[str, Any], key: str) -> list[str]:
     if any(not value for value in normalized):
         raise ValueError(f"fanout task {key} entries must not be empty")
     return list(dict.fromkeys(normalized))
+
+
+def _criteria_list(data: dict[str, Any], key: str) -> list[str]:
+    criteria = _string_list(data, key)
+    if len(criteria) > 16:
+        raise ValueError(f"{key} supports at most 16 entries")
+    if any(len(criterion) > 500 for criterion in criteria):
+        raise ValueError(f"{key} entries support at most 500 characters")
+    return criteria
+
+
+def _task_to_dict(task: SubagentTask) -> dict[str, Any]:
+    payload: dict[str, Any] = {
+        "id": task.id,
+        "task": task.task,
+        "depends_on": list(task.depends_on),
+        "write_scope": list(task.write_scope),
+        "allowed_tools": list(task.allowed_tools),
+        "expected_artifact": task.expected_artifact,
+        "max_steps": task.max_steps,
+    }
+    if task.acceptance_criteria:
+        payload["acceptance_criteria"] = list(task.acceptance_criteria)
+    return payload

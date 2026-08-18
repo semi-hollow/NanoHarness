@@ -197,10 +197,8 @@ def build_swebench_parser(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--agent-mode",
         default="single",
-        choices=["single", "multi"],
+        choices=["single"],
     )
-    parser.add_argument("--profile", default="coding_fix", choices=["coding_fix"])
-    parser.add_argument("--max-revision-rounds", type=int, default=2)
     parser.add_argument(
         "--tool-routing",
         choices=["task-aware", "all"],
@@ -448,8 +446,6 @@ def run_swebench_from_args(args: argparse.Namespace) -> BenchRunSummary:
             official_cache_level=args.official_cache_level,
             official_platform=args.official_platform,
             agent_mode=args.agent_mode,
-            profile=args.profile,
-            max_revision_rounds=args.max_revision_rounds,
             tool_routing_mode=args.tool_routing,
             skill_mode="none" if skill_value == "none" else "auto",
             skill_names=skill_names,

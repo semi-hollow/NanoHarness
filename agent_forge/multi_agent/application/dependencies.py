@@ -3,14 +3,11 @@
 from dataclasses import dataclass
 
 from ..ports import (
-    CandidateDiffPort,
-    CoordinatorEventSink,
     FanoutArtifactPort,
+    FanoutReplannerPort,
     FanoutWorkerPort,
     FanoutWorkspacePort,
     LiveFanoutEvents,
-    RoleArtifactPort,
-    RoleRunnerPort,
 )
 
 
@@ -22,13 +19,4 @@ class LiveFanoutDependencies:
     workspace: FanoutWorkspacePort
     artifacts: FanoutArtifactPort
     workers: FanoutWorkerPort
-
-
-@dataclass(frozen=True)
-class SequentialCoordinatorDependencies:
-    """顺序角色编排所需的 outbound ports。"""
-
-    events: CoordinatorEventSink
-    artifacts: RoleArtifactPort
-    role_runner: RoleRunnerPort
-    candidate_diff: CandidateDiffPort
+    replanner: FanoutReplannerPort | None = None

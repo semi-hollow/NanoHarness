@@ -12,7 +12,6 @@ from agent_forge.bench.presentation.cli import (
     build_case_inspection_parser,
     build_swebench_parser,
 )
-from agent_forge.multi_agent.profiles import list_profiles
 from agent_forge.runtime.config import (
     DEFAULT_MAX_CONTEXT_CHARS,
     DEFAULT_MAX_PROMPT_TOKENS,
@@ -148,9 +147,8 @@ def _add_run_command(subparsers: argparse._SubParsersAction) -> None:
     parser.add_argument(
         "--agent-mode",
         default=None,
-        choices=["single", "multi", "fanout"],
+        choices=["single", "adaptive", "fanout"],
     )
-    _add_multi_agent_args(parser, defaults=False)
     parser.add_argument(
         "--fanout-plan",
         default=None,
@@ -344,9 +342,8 @@ def _add_resume_command(subparsers: argparse._SubParsersAction) -> None:
     parser.add_argument(
         "--agent-mode",
         default=None,
-        choices=["single", "multi"],
+        choices=["single"],
     )
-    _add_multi_agent_args(parser, defaults=False)
     _add_extension_args(parser, defaults=False)
 
 
@@ -501,23 +498,6 @@ def _add_runtime_policy_args(
         "--instruction-max-bytes",
         type=int,
         default=2600 if defaults else None,
-    )
-
-
-def _add_multi_agent_args(
-    parser: argparse.ArgumentParser,
-    *,
-    defaults: bool = True,
-) -> None:
-    parser.add_argument(
-        "--profile",
-        default="coding_fix" if defaults else None,
-        choices=list_profiles(),
-    )
-    parser.add_argument(
-        "--max-revision-rounds",
-        type=int,
-        default=2 if defaults else None,
     )
 
 

@@ -202,8 +202,6 @@ def build_campaign_request(
         official_cache_level="env",
         official_platform=DEFAULT_OFFICIAL_PLATFORM,
         agent_mode="single",
-        profile="coding_fix",
-        max_revision_rounds=0,
         tool_routing_mode="task-aware",
         skill_mode="auto",
         skill_names=("swebench_repair",),

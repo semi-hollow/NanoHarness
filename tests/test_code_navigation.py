@@ -75,10 +75,6 @@ CORE_WORKFLOW_ENTRYPOINTS = {
     "agent_forge/tools/tool_router.py": {
         "ToolRouter.route": 4,
     },
-    "agent_forge/multi_agent/application/coordinator.py": {
-        "MultiAgentCoordinator.run": 3,
-        "MultiAgentCoordinator._run_role": 3,
-    },
     "agent_forge/multi_agent/application/live_fanout.py": {
         "LiveFanoutCoordinator.run": 3,
     },
@@ -252,20 +248,6 @@ MODULE_SCOPED_VAGUE_LOCAL_NAMES = {
         "item",
         "raw_cases",
         "root",
-    },
-    "agent_forge/multi_agent/application/coordinator.py": {
-        "artifact",
-        "blocked_by",
-        "content",
-        "decision",
-        "head",
-        "lines",
-        "normalized",
-        "primary",
-        "result",
-        "revision_requested_by",
-        "status",
-        "summary",
     },
     "agent_forge/multi_agent/application/live_fanout.py": {
         "apply_detail",

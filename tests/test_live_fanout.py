@@ -50,17 +50,24 @@ class FinalizerDecisionTest(unittest.TestCase):
 class EditingLLM:
     last_usage = None
 
-    def __init__(self, fail_task="", escape_scope=False, create_new=False):
+    def __init__(
+        self,
+        fail_task="",
+        escape_scope=False,
+        create_new=False,
+        finalizer_answer="PASS\nintegrated artifacts are present",
+    ):
         self.calls = 0
         self.fail_task = fail_task
         self.escape_scope = escape_scope
         self.create_new = create_new
+        self.finalizer_answer = finalizer_answer
 
     def chat(self, messages, tools):
         self.calls += 1
         prompt = "\n".join(message.content or "" for message in messages)
         if "FanoutFinalizer" in prompt:
-            return AgentResponse("PASS\nintegrated artifacts are present", [])
+            return AgentResponse(self.finalizer_answer, [])
         task_id = (
             "alpha"
             if "task_id=alpha" in prompt
@@ -251,6 +258,71 @@ def _plan() -> FanoutPlan:
 
 
 class LiveFanoutTest(unittest.TestCase):
+    def test_criteria_aware_finalizer_requires_every_explicit_result(self):
+        decisions = {
+            "all-pass": (
+                "CRITERION 1: PASS | focused check\n"
+                "CRITERION 2: PASS | candidate diff\nFINAL: PASS",
+                "passed",
+                ["PASS", "PASS"],
+            ),
+            "failed": (
+                "CRITERION 1: PASS | focused check\n"
+                "CRITERION 2: FAIL | behavior missing\nFINAL: PASS",
+                "needs_revision",
+                ["PASS", "FAIL"],
+            ),
+            "unknown": (
+                "CRITERION 1: PASS | focused check\nFINAL: PASS",
+                "needs_revision",
+                ["PASS", "UNKNOWN"],
+            ),
+        }
+        for name, (
+            finalizer_answer,
+            expected_status,
+            criterion_statuses,
+        ) in decisions.items():
+            with self.subTest(name=name), tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                repo = root / "repo"
+                repo.mkdir()
+                _init_repo(repo)
+                plan = FanoutPlan.from_mapping(
+                    {
+                        "goal": "update alpha",
+                        "global_acceptance_criteria": ["focused check passes"],
+                        "tasks": [
+                            {
+                                "id": "alpha",
+                                "task": "update a.py",
+                                "write_scope": ["a.py"],
+                                "allowed_tools": ["replace_text", "git_diff"],
+                                "acceptance_criteria": ["candidate changes a.py"],
+                            }
+                        ],
+                    }
+                )
+                summary = build_live_fanout(
+                    LiveFanoutBuildRequest(
+                        plan=plan,
+                        base_config=RuntimeConfig(workspace=str(repo), max_steps=3),
+                        trace=TraceRecorder(str(root / "run" / "trace.json")),
+                        run_dir=root / "run",
+                        llm_factory=lambda: EditingLLM(
+                            finalizer_answer=finalizer_answer
+                        ),
+                        registry_factory=_build_registry,
+                        max_workers=1,
+                    )
+                ).run()
+
+                self.assertEqual(summary.status, expected_status)
+                self.assertEqual(
+                    [result.status for result in summary.criterion_results],
+                    criterion_statuses,
+                )
+
     def test_finalizer_can_inspect_integrated_candidate_diff(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -944,10 +1016,12 @@ class LiveFanoutTest(unittest.TestCase):
             self.assertEqual(summary["status"], "passed")
             self.assertEqual(set(summary["merged_task_ids"]), {"alpha", "beta"})
             self.assertIn(
-                "diff --git", (run_dir / "candidate_changes.diff").read_text(encoding="utf-8")
+                "diff --git",
+                (run_dir / "candidate_changes.diff").read_text(encoding="utf-8"),
             )
             self.assertNotIn(
-                ".agent_forge", (run_dir / "candidate_changes.diff").read_text(encoding="utf-8")
+                ".agent_forge",
+                (run_dir / "candidate_changes.diff").read_text(encoding="utf-8"),
             )
             self.assertIn(
                 "candidate artifact",
