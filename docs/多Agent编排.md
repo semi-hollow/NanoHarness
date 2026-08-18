@@ -266,7 +266,7 @@ PASS / NEEDS_REVISION / BLOCKED
 
 ---
 
-# 9. V1.1 Planner + Single/Multi Strategy Gate
+# 9. V1.1 规划器与单/多 Agent 策略门 / Planner + Single/Multi Strategy Gate
 
 V1 Planner 只负责：
 
@@ -319,9 +319,9 @@ mode = single
 
 ---
 
-# 10. V1.2 Acceptance Criteria + Structured Handoff
+# 10. V1.2 验收标准与结构化交接 / Acceptance Criteria + Structured Handoff
 
-## 10.1 Acceptance Criteria
+## 10.1 验收标准 / Acceptance Criteria
 
 Acceptance Criteria 从 Planner 贯穿到 Finalizer：
 
@@ -341,7 +341,7 @@ Finalizer
 
 ---
 
-## 10.2 WorkerHandoff
+## 10.2 Worker 交接 / WorkerHandoff
 
 V1 继续保持 Context isolation。
 
@@ -388,7 +388,7 @@ C 只收到：
 
 ---
 
-# 11. V1.3 Bounded Recovery / Replan
+# 11. V1.3 有界恢复与重规划 / Bounded Recovery and Replan
 
 硬边界：
 
@@ -399,7 +399,7 @@ max_plan_replan_rounds <= 1
 
 ---
 
-## 11.1 Merge Applicability Conflict → Serialized Rerun
+## 11.1 合并适用性冲突到串行重跑 / Merge Applicability Conflict to Serialized Rerun
 
 目标场景：
 
@@ -427,13 +427,13 @@ B-v2 candidate
 
 核心设计：
 
-> optimistic parallel execution + serialized conflict recovery
+> 乐观并行执行，加上串行冲突恢复。
 
 不做 LLM textual patch merge。
 
 ---
 
-## 11.2 Retryable Worker Failure
+## 11.2 可重试的 Worker 失败 / Retryable Worker Failure
 
 只对可合理判断为 transient/retryable 的失败最多 retry 一次。
 
@@ -445,7 +445,7 @@ B-v2 candidate
 
 ---
 
-## 11.3 One-Round Remaining-Plan Replan
+## 11.3 一轮剩余计划重规划 / One-Round Remaining-Plan Replan
 
 已经成功完成并 merge 的任务冻结：
 
@@ -477,7 +477,7 @@ Replanner 输出仍必须通过 deterministic validation。
 
 ---
 
-## 11.4 Fail-Closed Boundaries
+## 11.4 失败关闭边界 / Fail-Closed Boundaries
 
 V1 明确不做：
 
@@ -489,7 +489,7 @@ V1 明确不做：
 
 ---
 
-# 12. V1.4 Criteria-Aware Finalizer
+# 12. V1.4 感知验收标准的 Finalizer / Criteria-Aware Finalizer
 
 V1 不重写 Finalizer。
 
@@ -564,7 +564,7 @@ V1 不跑大规模 Multi-Agent Benchmark。
 
 ---
 
-# 14. V2：Multi-Agent Quantitative Evaluation
+# 14. V2：多 Agent 定量评测 / Multi-Agent Quantitative Evaluation
 
 V2 当前不实现。
 
@@ -593,7 +593,7 @@ NanoHarness 已有 Single-Agent benchmark/eval 能力，因此 V1 当前优先�
 
 ---
 
-# 15. V3：Evaluation-Driven Multi-Agent Optimization
+# 15. V3：评测驱动的多 Agent 优化 / Evaluation-Driven Multi-Agent Optimization
 
 V3 当前不实现。
 

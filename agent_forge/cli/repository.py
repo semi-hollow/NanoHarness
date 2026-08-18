@@ -217,18 +217,22 @@ def _run_advanced_repository_task(
                 run_dir / "planning_decision.json",
                 planning_outcome,
             )
-            event_type = (
-                "planning_fallback"
-                if planning_outcome.fallback_to_single
-                else "planning_decision"
-            )
-            trace.add(
-                0,
-                "AdaptivePlanner",
-                event_type,
-                success=planning_outcome.decision is not None,
-                planning=planning_outcome.to_dict(),
-            )
+            if planning_outcome.fallback_to_single:
+                trace.add(
+                    0,
+                    "AdaptivePlanner",
+                    "planning_fallback",
+                    success=planning_outcome.decision is not None,
+                    planning=planning_outcome.to_dict(),
+                )
+            else:
+                trace.add(
+                    0,
+                    "AdaptivePlanner",
+                    "planning_decision",
+                    success=planning_outcome.decision is not None,
+                    planning=planning_outcome.to_dict(),
+                )
 
         def registry_factory(
             workspace: str | Path,

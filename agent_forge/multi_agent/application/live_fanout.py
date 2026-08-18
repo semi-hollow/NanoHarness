@@ -144,7 +144,7 @@ class LiveFanoutCoordinator:
                     attempt_results.append(batch_worker_result)
                     current_results[batch_worker_result.task_id] = batch_worker_result
 
-                # Runtime retryability only comes from worker Trace evidence.
+                # Runtime 是否允许重试，只能由 Worker Trace 中的事实证据决定。
                 for index, task in enumerate(runnable):
                     initial_worker_result = batch_results[index]
                     if not self._worker_retry_allowed(initial_worker_result):
@@ -246,7 +246,7 @@ class LiveFanoutCoordinator:
                 replan_round,
                 "running",
             )
-            if not pass_executed_task:  # defensive progress bound
+            if not pass_executed_task:  # 防止异常计划导致调度循环无法推进。
                 break
         # endregion 2. DAG 与有界恢复结束
 
@@ -348,6 +348,8 @@ class LiveFanoutCoordinator:
         dependency_handoffs: dict[str, list[WorkerHandoff]],
         attempt_counts: dict[str, int],
     ) -> list[LiveSubagentResult]:
+        """并发执行同一就绪批次，并按计划顺序返回相互隔离的 Worker 结果。"""
+
         worker_results_by_id: dict[str, LiveSubagentResult] = {}
         worker_count = max(1, min(self.max_workers, len(tasks)))
         attempts = {
@@ -466,6 +468,8 @@ class LiveFanoutCoordinator:
         merged_task_ids: list[str],
         detected_conflicts: list[FanoutConflict],
     ) -> None:
+        """按稳定顺序合并候选结果；补丁失效时仅允许一次最新状态串行重跑。"""
+
         worker_result_by_id = {
             worker_result.task_id: worker_result for worker_result in batch_results
         }
@@ -490,8 +494,7 @@ class LiveFanoutCoordinator:
                     discarded_attempt=worker_result.attempt,
                     failure=detail,
                 )
-                # Old candidate is evidence only. The new worker receives the latest
-                # integrated state and writes a separate attempt directory.
+                # 旧候选只作为证据保留；新 Worker 从最新集成状态启动，并写入独立尝试目录。
                 fresh = self._run_worker_attempt(
                     task,
                     batch_index,
@@ -662,7 +665,7 @@ class LiveFanoutCoordinator:
             raise ValueError(
                 "replan attempted to redefine completed tasks: " + ", ".join(overlap)
             )
-        # Root acceptance criteria are frozen; a replan may change only remaining work.
+        # 根验收标准保持冻结；重规划只能替换尚未完成的任务。
         bounded = PlanningDecision(
             mode="fanout",
             reason=proposed.reason,
@@ -682,6 +685,8 @@ class LiveFanoutCoordinator:
         self,
         base_revision: str,
     ) -> tuple[FanoutPlan, list[LiveSubagentResult], list[LiveSubagentResult], int]:
+        """校验并恢复有效计划与已合并前缀，不重新调用 Planner 或改写历史结果。"""
+
         if not self.resume_from:
             return self.plan, [], [], 0
         payload = self.artifacts.load_resume(self.resume_from)
@@ -792,6 +797,8 @@ class LiveFanoutCoordinator:
         replan_round: int,
         status: str,
     ) -> None:
+        """原子持久化当前有效计划、全部尝试和已合并前缀，供确定性恢复使用。"""
+
         self.artifacts.write_checkpoint(
             FanoutCheckpoint(
                 plan_digest=self.plan.digest,

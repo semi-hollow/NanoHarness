@@ -108,7 +108,7 @@ class FanoutPlan:
             "goal": self.goal,
             "tasks": [_task_to_dict(task) for task in self.tasks],
         }
-        # Empty V1 fields stay absent so V0 plan digests and checkpoints remain valid.
+        # 空 V1 字段不落盘，确保 V0 计划摘要和检查点继续有效。
         if self.global_acceptance_criteria:
             payload["global_acceptance_criteria"] = list(
                 self.global_acceptance_criteria

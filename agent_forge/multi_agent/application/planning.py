@@ -91,8 +91,7 @@ class PlanningOutcome:
             "failure": self.failure,
             "attempts": self.attempts,
             "decision": self.decision.to_dict() if self.decision else None,
-            # Raw output is deliberately omitted from the durable artifact. The parsed
-            # contract and failure are sufficient evidence without copying model prose.
+            # 持久化产物不复制模型原文；已解析契约和失败原因足以构成审计证据。
         }
 
 

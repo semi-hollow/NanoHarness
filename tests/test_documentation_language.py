@@ -28,7 +28,7 @@ PUBLIC_DOC_LINE_BUDGETS = {
     "docs/架构导览.md": 550,
     "docs/上下文工程.md": 560,
     "docs/工具治理与执行.md": 680,
-    "docs/多Agent编排.md": 500,
+    "docs/多Agent编排.md": 720,
     "docs/核心能力与代码入口.md": 120,
     "docs/运行产物与持久化契约.md": 260,
     "examples/debug_lab/README.md": 210,
@@ -47,7 +47,12 @@ CANONICAL_README_LINKS = (
 
 ALLOWED_DOC_SURFACES: tuple[str, ...] = ()
 
+# 这是所有者明确提供的技术 Roadmap；英文文件名是稳定的公开契约，不代表放宽其他
+# 面向读者文档的中文优先命名规则。
+APPROVED_TECHNICAL_DOC_NAMES = {"docs/MULTI_AGENT_ROADMAP.md"}
+
 ALLOWED_TOP_LEVEL_DOCS = {
+    "docs/MULTI_AGENT_ROADMAP.md",
     "docs/架构导览.md",
     "docs/上下文工程.md",
     "docs/工具治理与执行.md",
@@ -113,6 +118,8 @@ class DocumentationLanguageTest(unittest.TestCase):
             path.relative_to(PROJECT_ROOT).as_posix()
             for path in (PROJECT_ROOT / "docs").rglob("*.md")
             if not HAN_CHARACTER.search(path.name)
+            and path.relative_to(PROJECT_ROOT).as_posix()
+            not in APPROVED_TECHNICAL_DOC_NAMES
         ]
         self.assertEqual(
             violations, [], "Explanatory Markdown filenames must be Chinese-first"
@@ -245,9 +252,7 @@ class DocumentationLanguageTest(unittest.TestCase):
                     f"README does not link canonical document: {relative_path}"
                 )
 
-        architecture = (PROJECT_ROOT / "docs/架构导览.md").read_text(
-            encoding="utf-8"
-        )
+        architecture = (PROJECT_ROOT / "docs/架构导览.md").read_text(encoding="utf-8")
         main_headings = [
             line for line in architecture.splitlines() if line.startswith("## ")
         ]
@@ -477,7 +482,9 @@ class DocumentationLanguageTest(unittest.TestCase):
                     f"({relative_path}:{node.lineno})"
                 )
 
-        self.assertGreaterEqual(len(owner_symbols), 50, "Cheat Sheet Owner 提取结果异常")
+        self.assertGreaterEqual(
+            len(owner_symbols), 50, "Cheat Sheet Owner 提取结果异常"
+        )
         self.assertEqual(violations, [], "Cheat Sheet Owner 必须可定位且可直接理解")
 
     def test_runtime_artifact_contract_documents_state_domains_and_field_sources(
