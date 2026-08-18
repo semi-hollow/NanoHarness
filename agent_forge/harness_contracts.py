@@ -25,7 +25,7 @@ from agent_forge.runtime.domain.model import ModelCapabilities
 from agent_forge.runtime.domain.task import TaskCheckpoint, TaskRunStatus
 from agent_forge.runtime.ports import (
     ApprovalRepository,
-    ContextAssemblerPort,
+    TurnSystemContextAssemblerPort,
     EnvironmentPort,
     EventSink,
     HookPort,
@@ -185,7 +185,7 @@ class EventSinkFactory(Protocol):
 class HarnessExtensions:
     """高级调用方可以替换的稳定 Port 集合；未提供项使用内置 Adapter。"""
 
-    context_assembler: ContextAssemblerPort | None = None
+    turn_system_context_assembler: TurnSystemContextAssemblerPort | None = None
     checkpoint_repository: TaskStateRepository | None = None
     event_sink_factory: EventSinkFactory | None = None
     event_listeners: tuple[RuntimeEventListener, ...] = ()

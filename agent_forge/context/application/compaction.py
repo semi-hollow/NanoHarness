@@ -7,7 +7,7 @@ import json
 from dataclasses import dataclass, replace
 from typing import TypeVar
 
-from agent_forge.context.domain import SessionDigest, ToolTransactionDigest
+from agent_forge.context.domain import ConversationHistoryDigest, ToolTransactionDigest
 from agent_forge.context.token_budget import truncate_middle
 from agent_forge.contracts import ToolSchema
 from agent_forge.runtime.domain.conversation import Message, Observation
@@ -58,16 +58,16 @@ class PromptBudget:
 
 # 核心数据：上下文治理后真正发送给模型的消息与压缩证据。
 @dataclass(frozen=True, kw_only=True)
-class ContextWindowResult:
+class PromptWindowResult:
     """一次预算决策产生的最终消息和可审计度量。
 
-    ``messages`` 是最终模型输入；``digest`` 是可选压缩摘要；``compacted`` 和
-    ``reason`` 解释是否压缩；其余计数字段记录覆盖消息数、压缩前后估算与
-    硬上限。
+    ``llm_messages`` 是最终模型输入；``conversation_history_digest`` 是可选的
+    旧对话投影；``compacted`` 和 ``reason`` 解释是否压缩；其余计数字段记录
+    覆盖消息数、压缩前后估算与硬上限。
     """
 
-    messages: list[Message]
-    digest: SessionDigest | None
+    llm_messages: list[Message]
+    conversation_history_digest: ConversationHistoryDigest | None
     compacted: bool
     covered_message_count: int
     estimated_tokens_before: int
@@ -78,13 +78,13 @@ class ContextWindowResult:
 
 # 核心数据：完整模型请求进入窗口治理前的输入快照。
 @dataclass(frozen=True, kw_only=True)
-class ContextWindowRequest:
+class PromptWindowRequest:
     """System、历史、Observation、工具和强制压缩信号。"""
 
-    system_message: Message
-    history: list[Message]
+    turn_system_message: Message
+    conversation_history: list[Message]
     observations: list[Observation]
-    tools: list[ToolSchema]
+    tool_schemas: list[ToolSchema]
     task: str
     force_compaction: bool = False
 
@@ -97,14 +97,14 @@ class _HistorySegment:
     observations: list[Observation | None]
 
 
-class ContextWindowManager:
+class PromptWindowManager:
     """在 LLM 边界前控制完整请求，而不删除原始 session/trace。"""
 
     def __init__(self, budget: PromptBudget) -> None:
         self.budget = budget
 
     # 主要入口：预算足够时直通，接近窗口时压缩旧历史。
-    def prepare(self, request: ContextWindowRequest) -> ContextWindowResult:
+    def prepare(self, request: PromptWindowRequest) -> PromptWindowResult:
         """在模型调用前生成满足硬窗口限制的、可解释的消息视图。
 
         规范上游是 ``TurnPreparation``；下一 owner 是 ``ModelPort``。返回值同时
@@ -116,19 +116,22 @@ class ContextWindowManager:
         # region 1. 预算判定：先估算完整请求，未超软限制时保持原文
         # 估算覆盖 system、完整历史和 Tool schema；软限制以内直接透传，
         # force_compaction 仅用于 Provider 已明确拒绝当前窗口后的恢复重试。
-        full_messages = [request.system_message, *request.history]
+        full_llm_messages = [
+            request.turn_system_message,
+            *request.conversation_history,
+        ]
         estimated_tokens_before = estimate_prompt_tokens(
-            full_messages,
-            request.tools,
+            full_llm_messages,
+            request.tool_schemas,
             self.budget,
         )
         if (
             estimated_tokens_before <= self.budget.soft_input_limit
             and not request.force_compaction
         ):
-            return ContextWindowResult(
-                messages=full_messages,
-                digest=None,
+            return PromptWindowResult(
+                llm_messages=full_llm_messages,
+                conversation_history_digest=None,
                 compacted=False,
                 covered_message_count=0,
                 estimated_tokens_before=estimated_tokens_before,
@@ -142,13 +145,13 @@ class ContextWindowManager:
         # 历史先按协议事务分组，再选择摘要边界；少于两个 segment 时没有“旧历史”
         # 可以安全替换，所以宁可报告无法压缩，也不拆坏 ToolCall 对应关系。
         history_segments = _group_history_segments(
-            request.history,
+            request.conversation_history,
             request.observations,
         )
         if len(history_segments) < 2:
-            return ContextWindowResult(
-                messages=full_messages,
-                digest=None,
+            return PromptWindowResult(
+                llm_messages=full_llm_messages,
+                conversation_history_digest=None,
                 compacted=False,
                 covered_message_count=0,
                 estimated_tokens_before=estimated_tokens_before,
@@ -166,7 +169,7 @@ class ContextWindowManager:
             if request.force_compaction
             else self.budget.soft_input_limit
         )
-        best_compaction_result: ContextWindowResult | None = None
+        best_compaction_result: PromptWindowResult | None = None
         for cut_index in range(1, len(history_segments)):
             omitted_segments = history_segments[:cut_index]
             recent_messages = _flatten(history_segments[cut_index:])
@@ -174,42 +177,47 @@ class ContextWindowManager:
                 recent_messages,
                 max_chars=800 if request.force_compaction else 2_000,
             )
-            session_digest = _build_digest(
+            conversation_history_digest = _build_digest(
                 request.task,
                 omitted_segments,
                 estimated_tokens_before=estimated_tokens_before,
             )
-            candidate_messages = [
-                request.system_message,
-                Message(role="system", content=session_digest.render()),
+            candidate_llm_messages = [
+                request.turn_system_message,
+                Message(
+                    role="system",
+                    content=conversation_history_digest.render(),
+                ),
                 *recent_messages,
             ]
             estimated_tokens_after = estimate_prompt_tokens(
-                candidate_messages,
-                request.tools,
+                candidate_llm_messages,
+                request.tool_schemas,
                 self.budget,
             )
-            session_digest = replace(
-                session_digest,
+            conversation_history_digest = replace(
+                conversation_history_digest,
                 estimated_tokens_after=estimated_tokens_after,
             )
-            candidate_messages[1] = Message(
+            candidate_llm_messages[1] = Message(
                 role="system",
-                content=session_digest.render(),
+                content=conversation_history_digest.render(),
             )
             estimated_tokens_after = estimate_prompt_tokens(
-                candidate_messages,
-                request.tools,
+                candidate_llm_messages,
+                request.tool_schemas,
                 self.budget,
             )
-            candidate_window_result = ContextWindowResult(
-                messages=candidate_messages,
-                digest=replace(
-                    session_digest,
+            candidate_window_result = PromptWindowResult(
+                llm_messages=candidate_llm_messages,
+                conversation_history_digest=replace(
+                    conversation_history_digest,
                     estimated_tokens_after=estimated_tokens_after,
                 ),
                 compacted=True,
-                covered_message_count=session_digest.covered_message_count,
+                covered_message_count=(
+                    conversation_history_digest.covered_message_count
+                ),
                 estimated_tokens_before=estimated_tokens_before,
                 estimated_tokens_after=estimated_tokens_after,
                 hard_input_limit=self.budget.hard_input_limit,
@@ -239,9 +247,9 @@ class ContextWindowManager:
             and best_compaction_result.estimated_tokens_after < estimated_tokens_before
         ):
             return best_compaction_result
-        return ContextWindowResult(
-            messages=full_messages,
-            digest=None,
+        return PromptWindowResult(
+            llm_messages=full_llm_messages,
+            conversation_history_digest=None,
             compacted=False,
             covered_message_count=0,
             estimated_tokens_before=estimated_tokens_before,
@@ -253,20 +261,23 @@ class ContextWindowManager:
 
 
 def estimate_prompt_tokens(
-    messages: list[Message],
-    tools: list[ToolSchema],
+    llm_messages: list[Message],
+    tool_schemas: list[ToolSchema],
     budget: PromptBudget,
 ) -> int:
     """用统一近似估算完整请求；provider usage 仍是事后权威值。"""
 
     chars = 0
-    for message in messages:
+    for message in llm_messages:
         chars += len(message.role) + len(message.content or "")
         chars += len(message.name or "") + len(message.tool_call_id or "")
         chars += len(message.reasoning_content or "")
         chars += len(json.dumps(message.tool_calls or [], ensure_ascii=False))
         chars += 16
-    chars += sum(len(json.dumps(tool, ensure_ascii=False)) + 24 for tool in tools)
+    chars += sum(
+        len(json.dumps(tool_schema, ensure_ascii=False)) + 24
+        for tool_schema in tool_schemas
+    )
     return max(1, int(chars / max(1.0, budget.chars_per_token)))
 
 
@@ -325,7 +336,7 @@ def _build_digest(
     history_segments: list[_HistorySegment],
     *,
     estimated_tokens_before: int,
-) -> SessionDigest:
+) -> ConversationHistoryDigest:
     covered_messages = [
         message
         for history_segment in history_segments
@@ -355,11 +366,7 @@ def _build_digest(
             continue
         task_updates.append(_excerpt(message.content, 320))
     task_updates = _bounded(
-        [
-            update
-            for update in task_updates
-            if update
-        ],
+        [update for update in task_updates if update],
         6,
     )
     tool_transactions: list[ToolTransactionDigest] = []
@@ -416,7 +423,7 @@ def _build_digest(
                     failed_tool_evidence.append(
                         f"{tool_name}: {_excerpt(tool_observation_content, 240)}"
                     )
-    return SessionDigest(
+    return ConversationHistoryDigest(
         task=task,
         covered_message_count=len(covered_messages),
         source_hash=hashlib.sha256(digest_source_payload.encode("utf-8")).hexdigest(),

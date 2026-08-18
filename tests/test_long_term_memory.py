@@ -7,10 +7,10 @@ from agent_forge import Harness, HarnessConfig, RunRequest, TaskRunStatus
 from agent_forge.context.adapters import JsonLongTermMemoryRepository
 from agent_forge.context.application import LongTermMemoryService
 from agent_forge.context.domain import MemoryScope
-from agent_forge.runtime.adapters import RepositoryContextAssembler
+from agent_forge.runtime.adapters import RepositoryTurnSystemContextAssembler
 from agent_forge.runtime.application.working_memory import WorkingMemory
 from agent_forge.runtime.domain.conversation import AgentResponse, ToolCall
-from agent_forge.runtime.ports.context import ContextAssemblyRequest
+from agent_forge.runtime.ports.context import TurnSystemContextRequest
 from tests.support import SequenceModel, StaticResponseModel
 
 
@@ -77,8 +77,12 @@ class LongTermMemoryTest(unittest.TestCase):
         repo_a_memories = self.service.recall(namespace="repo-a")
         repo_b_memories = self.service.recall(namespace="repo-b")
 
-        self.assertEqual([item.memory_id for item in repo_a_memories], [project_value.memory_id])
-        self.assertEqual([item.memory_id for item in repo_b_memories], [user_default.memory_id])
+        self.assertEqual(
+            [item.memory_id for item in repo_a_memories], [project_value.memory_id]
+        )
+        self.assertEqual(
+            [item.memory_id for item in repo_b_memories], [user_default.memory_id]
+        )
 
     def test_recall_uses_character_budget_and_never_truncates_a_record(self) -> None:
         oversized = self.service.remember(
@@ -146,12 +150,12 @@ class LongTermMemoryTest(unittest.TestCase):
         memory.seed_long_term(self.service.recall(namespace="repo-a"))
         (self.root / "target.py").write_text("VALUE = 1\n", encoding="utf-8")
 
-        report = RepositoryContextAssembler().build(
-            ContextAssemblyRequest(
+        report = RepositoryTurnSystemContextAssembler().build(
+            TurnSystemContextRequest(
                 task="inspect parser JSON behavior",
                 workspace=str(self.root),
                 working_memory=memory,
-                tools=[],
+                tool_schemas=[],
                 active_skill_cards=[],
                 max_chars=4_000,
                 permission_summary="read allowed",
@@ -165,7 +169,9 @@ class LongTermMemoryTest(unittest.TestCase):
         self.assertIn("revision=1", rendered)
         self.assertNotIn(record.memory_id, rendered)
 
-    def test_model_memory_write_requires_user_quote_and_uses_operation_ledger(self) -> None:
+    def test_model_memory_write_requires_user_quote_and_uses_operation_ledger(
+        self,
+    ) -> None:
         memory_root = self.base / "tool-memory"
         task = "记住，这个项目以后统一使用 python -m pytest。"
         model = SequenceModel(
@@ -202,7 +208,9 @@ class LongTermMemoryTest(unittest.TestCase):
         records = LongTermMemoryService(
             JsonLongTermMemoryRepository(memory_root)
         ).recall(namespace=str(self.root.resolve()))
-        self.assertEqual([(record.key, record.revision) for record in records], [("test_command", 1)])
+        self.assertEqual(
+            [(record.key, record.revision) for record in records], [("test_command", 1)]
+        )
         self.assertNotIn(
             "[project; revision=1] test_command:",
             "\n".join(

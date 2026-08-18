@@ -20,7 +20,7 @@ from agent_forge.runtime.adapters import (
     JsonOperationLedgerRepository,
     JsonTaskStateRepository,
     NoopRunControl,
-    RepositoryContextAssembler,
+    RepositoryTurnSystemContextAssembler,
 )
 from agent_forge.runtime.application.agent_loop import AgentLoop
 from agent_forge.runtime.application.dependencies import RuntimeDependencies
@@ -41,7 +41,7 @@ from agent_forge.runtime.llm_client import OpenAICompatibleLLMClient
 from agent_forge.runtime.llm_config import LLMConfig
 from agent_forge.runtime.ports import (
     ApprovalRepository,
-    ContextAssemblerPort,
+    TurnSystemContextAssemblerPort,
     EnvironmentPort,
     EventSink,
     HookPort,
@@ -112,7 +112,7 @@ class RuntimeDependencyOverrides:
     继续共享同一个 composition root。
     """
 
-    context: ContextAssemblerPort | None = None
+    turn_system_context_assembler: TurnSystemContextAssemblerPort | None = None
     skills: SkillSelectorPort | None = None
     environment: EnvironmentPort | None = None
     hooks: HookPort | None = None
@@ -263,7 +263,10 @@ def _build_runtime_dependencies(
         )
     return RuntimeDependencies(
         events=build_request.trace,
-        context=dependency_overrides.context or RepositoryContextAssembler(),
+        turn_system_context_assembler=(
+            dependency_overrides.turn_system_context_assembler
+            or RepositoryTurnSystemContextAssembler()
+        ),
         skills=dependency_overrides.skills
         or build_default_skill_registry(runtime_config.skill_manifest_files),
         tools=build_request.registry,
@@ -286,10 +289,7 @@ def _build_runtime_dependencies(
         control=dependency_overrides.control or NoopRunControl(),
         long_term_memory_recall=dependency_overrides.long_term_memory_recall
         or LongTermMemoryService(
-            JsonLongTermMemoryRepository(
-                runtime_config.memory_root
-                or str(MEMORY_ROOT)
-            )
+            JsonLongTermMemoryRepository(runtime_config.memory_root or str(MEMORY_ROOT))
         ),
     )
 

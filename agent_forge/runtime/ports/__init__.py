@@ -1,6 +1,10 @@
 """Runtime 对外部能力的最小契约。"""
 
-from .context import ContextAssemblerPort, ContextAssemblyRequest, ContextReportView
+from .context import (
+    TurnSystemContextAssemblerPort,
+    TurnSystemContextRequest,
+    TurnSystemContextView,
+)
 from .environment import EnvironmentPort
 from .events import EventSink
 from .hooks import HookPort
@@ -17,9 +21,9 @@ from .tools import ToolGateway
 
 __all__ = [
     "ApprovalRepository",
-    "ContextAssemblerPort",
-    "ContextAssemblyRequest",
-    "ContextReportView",
+    "TurnSystemContextAssemblerPort",
+    "TurnSystemContextRequest",
+    "TurnSystemContextView",
     "EnvironmentPort",
     "EventSink",
     "HookPort",

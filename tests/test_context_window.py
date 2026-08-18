@@ -1,14 +1,14 @@
 import unittest
 
 from agent_forge.context.application.compaction import (
-    ContextWindowRequest,
-    ContextWindowManager,
+    PromptWindowRequest,
+    PromptWindowManager,
     PromptBudget,
 )
 from agent_forge.runtime.domain.conversation import Message, Observation
 
 
-class ContextWindowManagerTest(unittest.TestCase):
+class PromptWindowManagerTest(unittest.TestCase):
     def test_rejects_output_reserve_larger_than_model_window(self) -> None:
         with self.assertRaisesRegex(ValueError, "reserved_output_tokens"):
             PromptBudget(
@@ -47,18 +47,18 @@ class ContextWindowManagerTest(unittest.TestCase):
             )
             observations.append(Observation("read_file", index != 2, f"result-{index}"))
 
-        result = ContextWindowManager(
+        result = PromptWindowManager(
             PromptBudget(
                 max_prompt_tokens=1_200,
                 reserved_output_tokens=100,
                 soft_limit_ratio=0.7,
             )
         ).prepare(
-            ContextWindowRequest(
-                system_message=Message("system", "runtime policy"),
-                history=history,
+            PromptWindowRequest(
+                turn_system_message=Message("system", "runtime policy"),
+                conversation_history=history,
                 observations=observations,
-                tools=[{"name": "read_file", "arguments": {"path": "str"}}],
+                tool_schemas=[{"name": "read_file", "arguments": {"path": "str"}}],
                 task="fix the parser and run tests",
             )
         )
@@ -68,16 +68,16 @@ class ContextWindowManagerTest(unittest.TestCase):
             result.estimated_tokens_after,
             result.estimated_tokens_before,
         )
-        self.assertIsNotNone(result.digest)
-        assert result.digest is not None
-        self.assertTrue(result.digest.source_hash)
+        self.assertIsNotNone(result.conversation_history_digest)
+        assert result.conversation_history_digest is not None
+        self.assertTrue(result.conversation_history_digest.source_hash)
         self.assertTrue(
             any(
                 "result-2" in item
-                for item in result.digest.failed_tool_evidence
+                for item in result.conversation_history_digest.failed_tool_evidence
             )
         )
-        roles = [message.role for message in result.messages[2:]]
+        roles = [message.role for message in result.llm_messages[2:]]
         for index, role in enumerate(roles):
             if role == "tool":
                 self.assertGreater(index, 0)
@@ -85,19 +85,19 @@ class ContextWindowManagerTest(unittest.TestCase):
 
     def test_small_request_keeps_raw_history(self) -> None:
         history = [Message("user", "inspect target.py")]
-        result = ContextWindowManager(PromptBudget()).prepare(
-            ContextWindowRequest(
-                system_message=Message("system", "policy"),
-                history=history,
+        result = PromptWindowManager(PromptBudget()).prepare(
+            PromptWindowRequest(
+                turn_system_message=Message("system", "policy"),
+                conversation_history=history,
                 observations=[],
-                tools=[],
+                tool_schemas=[],
                 task="inspect target.py",
             )
         )
 
         self.assertFalse(result.compacted)
-        self.assertEqual(result.messages[1:], history)
-        self.assertIsNone(result.digest)
+        self.assertEqual(result.llm_messages[1:], history)
+        self.assertIsNone(result.conversation_history_digest)
 
     def test_forced_recovery_compacts_below_soft_limit(self) -> None:
         history = [
@@ -106,25 +106,25 @@ class ContextWindowManagerTest(unittest.TestCase):
             Message("user", "more evidence"),
             Message("assistant", "second analysis " + ("b" * 4_000)),
         ]
-        manager = ContextWindowManager(
+        manager = PromptWindowManager(
             PromptBudget(max_prompt_tokens=4_000, reserved_output_tokens=200)
         )
 
         normal = manager.prepare(
-            ContextWindowRequest(
-                system_message=Message("system", "policy"),
-                history=history,
+            PromptWindowRequest(
+                turn_system_message=Message("system", "policy"),
+                conversation_history=history,
                 observations=[],
-                tools=[],
+                tool_schemas=[],
                 task="continue",
             )
         )
         forced = manager.prepare(
-            ContextWindowRequest(
-                system_message=Message("system", "policy"),
-                history=history,
+            PromptWindowRequest(
+                turn_system_message=Message("system", "policy"),
+                conversation_history=history,
                 observations=[],
-                tools=[],
+                tool_schemas=[],
                 task="continue",
                 force_compaction=True,
             )
@@ -147,29 +147,79 @@ class ContextWindowManagerTest(unittest.TestCase):
             Message("assistant", "c" * 3_000),
         ]
 
-        result = ContextWindowManager(
+        result = PromptWindowManager(
             PromptBudget(
                 max_prompt_tokens=1_200,
                 reserved_output_tokens=100,
                 soft_limit_ratio=0.5,
             )
         ).prepare(
-            ContextWindowRequest(
-                system_message=Message("system", "policy"),
-                history=history,
+            PromptWindowRequest(
+                turn_system_message=Message("system", "policy"),
+                conversation_history=history,
                 observations=[],
-                tools=[],
+                tool_schemas=[],
                 task="initial task",
                 force_compaction=True,
             )
         )
 
-        self.assertIsNotNone(result.digest)
-        assert result.digest is not None
-        self.assertEqual(result.digest.task, "initial task")
+        self.assertIsNotNone(result.conversation_history_digest)
+        assert result.conversation_history_digest is not None
+        self.assertEqual(result.conversation_history_digest.task, "initial task")
         self.assertEqual(
-            result.digest.task_updates,
+            result.conversation_history_digest.task_updates,
             ["steer: preserve public API"],
+        )
+
+    def test_same_history_produces_the_same_digest_and_prompt_window(self) -> None:
+        history = [
+            Message("user", "initial task"),
+            Message(
+                "assistant",
+                "inspect",
+                tool_calls=[
+                    {
+                        "id": "read-1",
+                        "name": "read_file",
+                        "arguments": {"path": "target.py"},
+                    }
+                ],
+            ),
+            Message("tool", "content", tool_call_id="read-1"),
+            Message("user", "preserve the public API"),
+            Message("assistant", "continue " + ("x" * 4_000)),
+        ]
+        request = PromptWindowRequest(
+            turn_system_message=Message("system", "policy"),
+            conversation_history=history,
+            observations=[Observation("read_file", True, "content")],
+            tool_schemas=[{"name": "read_file"}],
+            task="initial task",
+            force_compaction=True,
+        )
+        manager = PromptWindowManager(
+            PromptBudget(max_prompt_tokens=1_200, reserved_output_tokens=100)
+        )
+
+        first = manager.prepare(request)
+        second = manager.prepare(request)
+
+        self.assertIsNotNone(first.conversation_history_digest)
+        self.assertIsNotNone(second.conversation_history_digest)
+        assert first.conversation_history_digest is not None
+        assert second.conversation_history_digest is not None
+        first_digest = first.conversation_history_digest.to_dict()
+        second_digest = second.conversation_history_digest.to_dict()
+        first_digest.pop("created_at")
+        second_digest.pop("created_at")
+        self.assertEqual(
+            first_digest,
+            second_digest,
+        )
+        self.assertEqual(
+            [(message.role, message.content) for message in first.llm_messages],
+            [(message.role, message.content) for message in second.llm_messages],
         )
 
 

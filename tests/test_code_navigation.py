@@ -64,7 +64,7 @@ CORE_WORKFLOW_ENTRYPOINTS = {
         "RunControlHandler.consume_pending_signals": 3,
     },
     "agent_forge/context/application/compaction.py": {
-        "ContextWindowManager.prepare": 4,
+        "PromptWindowManager.prepare": 4,
     },
     "agent_forge/context/application/memory_service.py": {
         "LongTermMemoryService.remember": 3,
@@ -172,8 +172,8 @@ KEYWORD_ONLY_RECORDS = {
     "agent_forge/bench/domain/failure_taxonomy.py": {"FailureDiagnosis"},
     "agent_forge/bench/application/campaign.py": {"BenchmarkCampaignResult"},
     "agent_forge/context/application/compaction.py": {
-        "ContextWindowRequest",
-        "ContextWindowResult",
+        "PromptWindowRequest",
+        "PromptWindowResult",
         "PromptBudget",
     },
     "agent_forge/models/gateway.py": {"RetryPolicy"},
@@ -214,7 +214,7 @@ KEYWORD_ONLY_RECORDS = {
         "EnvironmentProbe",
         "ExecutionEnvironmentConfig",
     },
-    "agent_forge/runtime/ports/context.py": {"ContextAssemblyRequest"},
+    "agent_forge/runtime/ports/context.py": {"TurnSystemContextRequest"},
     "agent_forge/runtime/wiring.py": {
         "AgentLoopBuildRequest",
         "HumanInputResponseCommand",

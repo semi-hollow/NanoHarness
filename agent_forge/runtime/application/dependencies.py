@@ -8,7 +8,7 @@ from agent_forge.context.ports import LongTermMemoryRecallPort
 from agent_forge.runtime.domain.model import ModelCapabilities
 from agent_forge.runtime.ports import (
     ApprovalRepository,
-    ContextAssemblerPort,
+    TurnSystemContextAssemblerPort,
     EnvironmentPort,
     EventSink,
     HookPort,
@@ -27,13 +27,13 @@ from agent_forge.runtime.ports import (
 class RuntimeDependencies:
     """Application 运行所需端口，由 ``runtime.wiring`` 一次性装配。
 
-    ``events`` 写事实，``context/skills/tools/model`` 提供每 turn 输入输出，
+    ``events`` 写事实，Context/Skill/Tool/Model 端口提供每 turn 输入输出，
     ``environment/hooks`` 治理执行，四个 Repository 保存 checkpoint、审批、
     人工输入和操作状态表，``long_term_memory_recall`` 只暴露 Run 开始时的只读快照能力。
     """
 
     events: EventSink
-    context: ContextAssemblerPort
+    turn_system_context_assembler: TurnSystemContextAssemblerPort
     skills: SkillSelectorPort
     tools: ToolGateway
     model: ModelPort

@@ -60,7 +60,7 @@ class TaskResumeTest(unittest.TestCase):
                     last_observation="old text not found",
                     stop_reason="patch_mismatch",
                     resume_hint="Re-read the file and repair the patch anchor.",
-                    session_digest={
+                    conversation_history_digest={
                         "source_hash": "digest-old",
                         "failed_tool_evidence": ["patch anchor mismatch"],
                     },
@@ -123,8 +123,11 @@ class TaskResumeTest(unittest.TestCase):
             checkpoint = JsonTaskStateRepository(state_root).list()[0]
 
         self.assertIn("continued after compaction", final)
-        self.assertTrue(checkpoint.session_digest)
-        self.assertGreater(checkpoint.session_digest["covered_message_count"], 0)
+        self.assertTrue(checkpoint.conversation_history_digest)
+        self.assertGreater(
+            checkpoint.conversation_history_digest["covered_message_count"],
+            0,
+        )
         self.assertTrue(
             any(
                 event["event_type"] == "context_window"

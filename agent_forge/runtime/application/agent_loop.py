@@ -74,7 +74,7 @@ class AgentLoop:
         self.turn_preparation = TurnPreparation(
             config,
             dependencies.events,
-            dependencies.context,
+            dependencies.turn_system_context_assembler,
             dependencies.tools,
             dependencies.environment,
             dependencies.model_capabilities,
@@ -278,8 +278,8 @@ class AgentLoop:
             step=prepared_turn.step,
             agent_name=session.agent_name,
             task=session.task,
-            messages_count=len(prepared_turn.messages_for_llm),
-            tool_count=len(prepared_turn.schemas),
+            messages_count=len(prepared_turn.llm_messages),
+            tool_count=len(prepared_turn.tool_schemas),
             estimated_prompt_tokens=prepared_turn.estimated_prompt_tokens,
             compacted=prepared_turn.compacted,
         )
@@ -304,8 +304,8 @@ class AgentLoop:
         model_response = self.hooks.after_model(
             model_hook_context,
             self.llm.chat(
-                prepared_turn.messages_for_llm,
-                prepared_turn.schemas,
+                prepared_turn.llm_messages,
+                prepared_turn.tool_schemas,
             ),
         )
         self._accumulate_model_cost(session)
@@ -382,9 +382,9 @@ class AgentLoop:
             session.agent_name,
             "llm_call",
             llm_request_summary=(
-                f"messages={len(prepared_turn.messages_for_llm)} "
-                f"tools={len(prepared_turn.schemas)} "
-                f"context_chars={len(prepared_turn.context_message.content)} "
+                f"messages={len(prepared_turn.llm_messages)} "
+                f"tools={len(prepared_turn.tool_schemas)} "
+                f"context_chars={len(prepared_turn.turn_system_message.content)} "
                 f"prompt_tokens_estimate={prepared_turn.estimated_prompt_tokens} "
                 f"compacted={prepared_turn.compacted}"
             ),
@@ -398,7 +398,7 @@ class AgentLoop:
             # “一次模型决策”和“多次顺序工具执行”的边界。
             tool_call_count=len(model_response.tool_calls),
             llm_input_breakdown_chars={
-                "system_context": len(prepared_turn.context_message.content),
+                "system_context": len(prepared_turn.turn_system_message.content),
                 "conversation_history": prepared_turn.history_chars,
                 "tool_schemas": prepared_turn.tool_schema_chars,
             },
@@ -484,8 +484,8 @@ class AgentLoop:
             session.agent_name,
             "model_started",
             model_request={
-                "messages_count": len(prepared_turn.messages_for_llm),
-                "tool_count": len(prepared_turn.schemas),
+                "messages_count": len(prepared_turn.llm_messages),
+                "tool_count": len(prepared_turn.tool_schemas),
                 "estimated_prompt_tokens": prepared_turn.estimated_prompt_tokens,
                 "compacted": prepared_turn.compacted,
             },

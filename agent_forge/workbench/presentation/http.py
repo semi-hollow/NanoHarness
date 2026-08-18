@@ -1456,7 +1456,7 @@ def _render_usage_dashboard(project_dir: Path) -> str:
             "<tr><td>结构化上下文压缩</td>"
             f"<td>{int(summary.get('compacted_context_turns') or 0)} 个 Turn</td>"
             f"<td>{int(summary.get('context_overflow_recoveries') or 0)} 次上下文溢出恢复</td>"
-            "<td>SessionDigest + 原始 Trace 来源</td></tr>",
+            "<td>ConversationHistoryDigest + 原始 Trace 来源</td></tr>",
             "<tr><td>有证据的长期记忆召回</td>"
             f"<td>{int(summary.get('memory_recalled') or 0)} 条记录</td>"
             "<td>排除候选记录，只召回已生效记录</td>"
@@ -2415,7 +2415,7 @@ def _checkpoint_transition(
     ):
         label = "保存工具结果"
         reason = "标记工具结果和 Observation 已提交，恢复时不重复执行已完成操作"
-    elif "session_digest" in changed_fields:
+    elif "conversation_history_digest" in changed_fields:
         label = "保存上下文摘要"
         reason = "保留压缩边界，使 continuation 能重建有界上下文"
     elif "current_step" in changed_fields:

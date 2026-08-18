@@ -4,12 +4,16 @@ from pathlib import Path
 
 from agent_forge.context.repo_map import build_repo_map
 from agent_forge.runtime.application.working_memory import WorkingMemory
-from agent_forge.runtime.adapters.context_assembler import RepositoryContextAssembler
-from agent_forge.runtime.ports.context import ContextAssemblyRequest
+from agent_forge.runtime.adapters.context_assembler import (
+    RepositoryTurnSystemContextAssembler,
+)
+from agent_forge.runtime.ports.context import TurnSystemContextRequest
 
 
-class RepositoryContextAssemblerTest(unittest.TestCase):
-    def test_repo_map_does_not_ignore_workspace_because_of_parent_directory(self) -> None:
+class RepositoryTurnSystemContextAssemblerTest(unittest.TestCase):
+    def test_repo_map_does_not_ignore_workspace_because_of_parent_directory(
+        self,
+    ) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             workspace = Path(tmp) / ".agent_forge" / "runs" / "case" / "workspace"
             source = workspace / "src" / "module.py"
@@ -29,12 +33,12 @@ class RepositoryContextAssemblerTest(unittest.TestCase):
                 encoding="utf-8",
             )
 
-            report = RepositoryContextAssembler().build(
-                ContextAssemblyRequest(
+            report = RepositoryTurnSystemContextAssembler().build(
+                TurnSystemContextRequest(
                     task="inspect target.py without editing",
                     workspace=tmp,
                     working_memory=WorkingMemory(),
-                    tools=[
+                    tool_schemas=[
                         {
                             "name": "read_file",
                             "description": "Read one file",
@@ -69,12 +73,12 @@ class RepositoryContextAssemblerTest(unittest.TestCase):
             for index in range(10):
                 memory.add("working-memory-" + str(index) + ("m" * 500))
 
-            report = RepositoryContextAssembler().build(
-                ContextAssemblyRequest(
+            report = RepositoryTurnSystemContextAssembler().build(
+                TurnSystemContextRequest(
                     task="inspect every target module",
                     workspace=tmp,
                     working_memory=memory,
-                    tools=[
+                    tool_schemas=[
                         {
                             "name": "read_file",
                             "description": "Read one file",
