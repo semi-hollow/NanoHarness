@@ -32,7 +32,7 @@
       "provenance": {
         "campaign": "mini50-v1-deepseek-v4-flash-3ec537113a-9f81b94c99",
         "run_id": "swebench-20260816-010255-21122a0",
-        "trace_sha256": "cd76910ff73b255cbec3c691072f1c4d8b106d8415dd5613ab119b9f68d74893",
+        "trace_sha256": "a85c73ee64acf2e3282453daca20441eb4c65cd88dcb67524b42ee0f1fcdb56b",
         "trace_event_count": 118
       },
       "terminal_reason": "too_many_consecutive_failed_tools: 4 >= limit 3",
@@ -81,7 +81,7 @@
       "provenance": {
         "campaign": "mini50-v1-deepseek-v4-flash-3ec537113a-9f81b94c99",
         "run_id": "swebench-20260816-013205-83f4312",
-        "trace_sha256": "a16dcc7a4f19beaca9df785fc75527ba50dc88791a7986aead08c9e4c0311c81",
+        "trace_sha256": "3518469c53eb1a62f0c3fbd382da966dbeb8d7de3f4cec2a6eecf5bfbc8de134",
         "trace_event_count": 620
       },
       "terminal_reason": "too_many_consecutive_failed_tools: 3 >= limit 3",
@@ -149,7 +149,7 @@
       "provenance": {
         "campaign": "mini50-v1-deepseek-v4-flash-3ec537113a-9f81b94c99",
         "run_id": "swebench-20260816-034923-284c415",
-        "trace_sha256": "66ee6ccef492a68865864a95acd131e4375e1d5da0059375b795d741efbec15e",
+        "trace_sha256": "af6eee7cdc13bac198a7e02d18f92d55e70e234f2538fd5f54063f3680c66397",
         "trace_event_count": 85
       },
       "terminal_reason": "timeout_exceeded",
@@ -219,7 +219,7 @@
       "provenance": {
         "campaign": "mini50-v1-deepseek-v4-flash-3ec537113a-9f81b94c99",
         "run_id": "swebench-20260816-072112-4913807",
-        "trace_sha256": "b9b09c40b51cbd2e736816ad4f62e76a96ca4b7abcadc2705c3577e20336bd8c",
+        "trace_sha256": "39a17217865a08e14bbd4a5eef9c66570ef0969c1573b76261bd0248cade06b6",
         "trace_event_count": 907
       },
       "terminal_reason": "too_many_consecutive_failed_tools: 4 >= limit 3",
@@ -286,7 +286,7 @@
       "provenance": {
         "campaign": "mini50-v1-deepseek-v4-flash-3ec537113a-9f81b94c99",
         "run_id": "swebench-20260816-083327-a30bbe5",
-        "trace_sha256": "c6e9f4564b589c03449b496f989c234d0f5b3cf1c5fb6ce10c13a1588e86dd7f",
+        "trace_sha256": "fca6d8d431c80b754156edcdcd12b9814531feeed5401b370257ca33f89ee61b",
         "trace_event_count": 531
       },
       "terminal_reason": "too_many_consecutive_failed_tools: 3 >= limit 3",
@@ -348,7 +348,7 @@
       "provenance": {
         "campaign": "mini50-v1.1-infra-completion-deepseek-v4-flash-3ec537113a",
         "run_id": "swebench-20260816-115758-989b2c5",
-        "trace_sha256": "402b11b54b9851d19611c7e26c6521cede8ee329a667b60a18a6f109bbbadea9",
+        "trace_sha256": "31fdced72b4ba47a59ebd52a1faa9c6198ad0861095bf6b3cc5f333d7151f076",
         "trace_event_count": 458
       },
       "terminal_reason": "too_many_consecutive_failed_tools: 3 >= limit 3",

@@ -1,0 +1,1481 @@
+{
+  "schema_version": 1,
+  "migration_id": "context-semantic-naming-v3-2026-08-19",
+  "completed_on": "2026-08-19",
+  "policy": {
+    "scope": "current Workbench canonical evidence closure only",
+    "closure_derivation": [
+      "benchmarks/showcase/evidence-review-v1.json",
+      "FileEvidenceCatalog canonical sources",
+      "Workbench review projection declared artifacts"
+    ],
+      "experiment_rerun": false,
+      "production_legacy_fallback": false,
+      "archive_modified": false,
+      "source_file_mtime_preserved": true
+  },
+  "checkpoint_contract": {
+    "old_schema_version": 2,
+    "new_schema_version": 3,
+    "old_field": "session_digest",
+    "new_field": "conversation_history_digest"
+  },
+  "closure": {
+    "inspected_file_count": 209,
+    "touched_file_count": 76,
+    "write_set_is_subset_of_closure": true
+  },
+  "derived_integrity_updates": [
+    {
+      "source": "governed",
+      "file_count": 35,
+      "old_evidence_tree_sha256": "5a073ba8443ad9c9216da0284489e733a8b4b4500d7ca19e33dc1271d8a01d0e",
+      "new_evidence_tree_sha256": "f2ce5b83c12b838ab36c14b24214646127e437a281cecc3a0f3e777d6af10ca7",
+      "old_canonical_sha256": "d134c19f16d891236f8b1a4c24c8c2c552d39178bf0f44998a846b0a669404b6",
+      "new_canonical_sha256": "d134c19f16d891236f8b1a4c24c8c2c552d39178bf0f44998a846b0a669404b6"
+    },
+    {
+      "source": "orchestration",
+      "file_count": 41,
+      "old_evidence_tree_sha256": "17e5bf1659f034dd352dc67d3b0663f3085965693c8582c6b32d7e1d74ba5343",
+      "new_evidence_tree_sha256": "3e01b34e77d5239e29ad980f543fb3ce665d35416434f7bb0cc77e7f61e94691",
+      "old_canonical_sha256": "15f484c6c0a77ead302d823c677d5cdcfff140a5f14b878b5e48178b47506be3",
+      "new_canonical_sha256": "15f484c6c0a77ead302d823c677d5cdcfff140a5f14b878b5e48178b47506be3"
+    }
+  ],
+  "files": [
+    {
+      "path": ".agent_forge/runs/benchmarks/swebench-verified-mini-50-infrastructure-completion/mini50-v1.1-infra-completion-deepseek-v4-flash-3ec537113a/runs/canonical-runtime/r01-django__django-13346/swebench-20260816-111207-08555c2/cases/django__django-13346/trace.json",
+      "old_sha256": "9814bc2986c00cebb315d7950cfd1c8df69127fbe5b7a0f30fa8b0190a6ba18b",
+      "new_sha256": "35ec890090330d14ba863e99e5f4994d1d8a09a958da5e67eb8806d6fe58491d",
+      "old_byte_size": 783895,
+      "new_byte_size": 784584,
+      "old_schema_version": 2,
+      "new_schema_version": 2,
+      "checkpoint_schema_version": {
+        "old": 2,
+        "new": 3
+      },
+      "checkpoint_count": 53,
+      "transform": [
+        "checkpoint.session_digest -> checkpoint.conversation_history_digest",
+        "nested TaskCheckpoint schema_version 2 -> 3"
+      ],
+      "normalized_semantic_sha256": "41ed3c70e0a816acaddf53f0f5bb2197871530962569ff8e55760d0c0faa3ec5"
+    },
+    {
+      "path": ".agent_forge/runs/benchmarks/swebench-verified-mini-50-infrastructure-completion/mini50-v1.1-infra-completion-deepseek-v4-flash-3ec537113a/runs/canonical-runtime/r01-django__django-13809/swebench-20260816-111207-503421a/cases/django__django-13809/trace.json",
+      "old_sha256": "dfe38f421bfa886fd78ab8a6d3d170224f49baf2efc2732d62c345dc2f1e3c48",
+      "new_sha256": "7e3115457dbd3d0adda61ceadd58bef4468fa38a4657be2bbe1e558e86f4f1b1",
+      "old_byte_size": 845156,
+      "new_byte_size": 845975,
+      "old_schema_version": 2,
+      "new_schema_version": 2,
+      "checkpoint_schema_version": {
+        "old": 2,
+        "new": 3
+      },
+      "checkpoint_count": 63,
+      "transform": [
+        "checkpoint.session_digest -> checkpoint.conversation_history_digest",
+        "nested TaskCheckpoint schema_version 2 -> 3"
+      ],
+      "normalized_semantic_sha256": "da4e4b943acf97e0678ec190e432dad1c157ca08ee6b319a9bf5ff5cff4f06cf"
+    },
+    {
+      "path": ".agent_forge/runs/benchmarks/swebench-verified-mini-50-infrastructure-completion/mini50-v1.1-infra-completion-deepseek-v4-flash-3ec537113a/runs/canonical-runtime/r01-django__django-16950/swebench-20260816-112416-2a90c45/cases/django__django-16950/trace.json",
+      "old_sha256": "e9e15fab75191e9e5928b9da1999ec4571e3bab06c9bbbbd01435503c9b94387",
+      "new_sha256": "23585e339fc0e1ca4a317dd7bced81bd559fbba29a6c59760e144586fa60420a",
+      "old_byte_size": 1739467,
+      "new_byte_size": 1740923,
+      "old_schema_version": 2,
+      "new_schema_version": 2,
+      "checkpoint_schema_version": {
+        "old": 2,
+        "new": 3
+      },
+      "checkpoint_count": 112,
+      "transform": [
+        "checkpoint.session_digest -> checkpoint.conversation_history_digest",
+        "nested TaskCheckpoint schema_version 2 -> 3"
+      ],
+      "normalized_semantic_sha256": "240ad0eb528fc5fde750eb7d981a86f242a49203875ea5fff75e0593447cca6e"
+    },
+    {
+      "path": ".agent_forge/runs/benchmarks/swebench-verified-mini-50-infrastructure-completion/mini50-v1.1-infra-completion-deepseek-v4-flash-3ec537113a/runs/canonical-runtime/r01-scikit-learn__scikit-learn-25747/swebench-20260816-121000-4b1dd5e/cases/scikit-learn__scikit-learn-25747/trace.json",
+      "old_sha256": "3faa89caf975e02b04a0e39926fd16b7ae01d65ff4bd70095508dc7149d433b1",
+      "new_sha256": "5d12ac78d07ba9839c8011fd70ebda86cc0137f50df8f65bbd31799726cb218b",
+      "old_byte_size": 801411,
+      "new_byte_size": 801866,
+      "old_schema_version": 2,
+      "new_schema_version": 2,
+      "checkpoint_schema_version": {
+        "old": 2,
+        "new": 3
+      },
+      "checkpoint_count": 35,
+      "transform": [
+        "checkpoint.session_digest -> checkpoint.conversation_history_digest",
+        "nested TaskCheckpoint schema_version 2 -> 3"
+      ],
+      "normalized_semantic_sha256": "a25fd9a77e8d451a5135bf03b5f989c8e9a5357e01e801a901be001b68038600"
+    },
+    {
+      "path": ".agent_forge/runs/benchmarks/swebench-verified-mini-50-infrastructure-completion/mini50-v1.1-infra-completion-deepseek-v4-flash-3ec537113a/runs/canonical-runtime/r01-scikit-learn__scikit-learn-25973/swebench-20260816-121949-2769f4e/cases/scikit-learn__scikit-learn-25973/trace.json",
+      "old_sha256": "e77b2a920eca715d160246502cb3a1ea8114d16c322c4bd374b0dccaec4f6d83",
+      "new_sha256": "0cd1fc6988cc7a0c1b603e22ad9c4478ccf53969299de1877d3147394a0cee75",
+      "old_byte_size": 1096987,
+      "new_byte_size": 1097845,
+      "old_schema_version": 2,
+      "new_schema_version": 2,
+      "checkpoint_schema_version": {
+        "old": 2,
+        "new": 3
+      },
+      "checkpoint_count": 66,
+      "transform": [
+        "checkpoint.session_digest -> checkpoint.conversation_history_digest",
+        "nested TaskCheckpoint schema_version 2 -> 3"
+      ],
+      "normalized_semantic_sha256": "26ca29f77d7f7c8f795d1a592ef752537a5e84d0cde20822e6d5351777d40d09"
+    },
+    {
+      "path": ".agent_forge/runs/benchmarks/swebench-verified-mini-50-infrastructure-completion/mini50-v1.1-infra-completion-deepseek-v4-flash-3ec537113a/runs/canonical-runtime/r01-sphinx-doc__sphinx-9461/swebench-20260816-115758-989b2c5/cases/sphinx-doc__sphinx-9461/trace.json",
+      "old_sha256": "402b11b54b9851d19611c7e26c6521cede8ee329a667b60a18a6f109bbbadea9",
+      "new_sha256": "31fdced72b4ba47a59ebd52a1faa9c6198ad0861095bf6b3cc5f333d7151f076",
+      "old_byte_size": 918877,
+      "new_byte_size": 919579,
+      "old_schema_version": 2,
+      "new_schema_version": 2,
+      "checkpoint_schema_version": {
+        "old": 2,
+        "new": 3
+      },
+      "checkpoint_count": 54,
+      "transform": [
+        "checkpoint.session_digest -> checkpoint.conversation_history_digest",
+        "nested TaskCheckpoint schema_version 2 -> 3"
+      ],
+      "normalized_semantic_sha256": "7c0cead2e86457830f28f0fc12c692db2ebf5bcfd6de36db4e48de437eefc2d7"
+    },
+    {
+      "path": ".agent_forge/runs/benchmarks/swebench-verified-mini-50-infrastructure-completion/mini50-v1.1-infra-completion-deepseek-v4-flash-3ec537113a/runs/canonical-runtime/r01-sympy__sympy-15349/swebench-20260816-112534-2b05922/cases/sympy__sympy-15349/trace.json",
+      "old_sha256": "0b78f6a21d8a2a97041392eefdf75b2de064df34bbb94f3d3e568819e658d553",
+      "new_sha256": "016b8dac4c9e3b3e74b11db9e6c1ec02f84c3450340d94752730e5d44d140171",
+      "old_byte_size": 457871,
+      "new_byte_size": 458274,
+      "old_schema_version": 2,
+      "new_schema_version": 2,
+      "checkpoint_schema_version": {
+        "old": 2,
+        "new": 3
+      },
+      "checkpoint_count": 31,
+      "transform": [
+        "checkpoint.session_digest -> checkpoint.conversation_history_digest",
+        "nested TaskCheckpoint schema_version 2 -> 3"
+      ],
+      "normalized_semantic_sha256": "32c905da9900842bea179ee13a5b76ed5a3a2661e894cf0668d830c44b8c9aa7"
+    },
+    {
+      "path": ".agent_forge/runs/benchmarks/swebench-verified-mini-50-infrastructure-completion/mini50-v1.1-infra-completion-deepseek-v4-flash-3ec537113a/runs/canonical-runtime/r01-sympy__sympy-15875/swebench-20260816-113143-4177536/cases/sympy__sympy-15875/trace.json",
+      "old_sha256": "4dabd1c877c94fe6e114324322db10d11b459048f0b7f6a080ebca801a8bcb28",
+      "new_sha256": "7dc487371f6e1e48293d6e0f35106b8f73c68250eed5fc727edc479c7abdfdda",
+      "old_byte_size": 2241914,
+      "new_byte_size": 2243916,
+      "old_schema_version": 2,
+      "new_schema_version": 2,
+      "checkpoint_schema_version": {
+        "old": 2,
+        "new": 3
+      },
+      "checkpoint_count": 154,
+      "transform": [
+        "checkpoint.session_digest -> checkpoint.conversation_history_digest",
+        "nested TaskCheckpoint schema_version 2 -> 3"
+      ],
+      "normalized_semantic_sha256": "9c5fd23c8df973d65fd1004b5e71eafc279b649a5bb70c6fb5dc6ad109fb47f1"
+    },
+    {
+      "path": ".agent_forge/runs/benchmarks/swebench-verified-mini-50-infrastructure-completion/mini50-v1.1-infra-completion-deepseek-v4-flash-3ec537113a/runs/canonical-runtime/r01-sympy__sympy-20428/swebench-20260816-115902-b791504/cases/sympy__sympy-20428/trace.json",
+      "old_sha256": "17527e6cb3388c770e0518765820d22b8cf1d8071510eb38db967cbfbf3aed13",
+      "new_sha256": "a95732eb6887e6fc72a9ea4cee7d48d0c64867bd498b553deffd44a1473c03f8",
+      "old_byte_size": 1400820,
+      "new_byte_size": 1401834,
+      "old_schema_version": 2,
+      "new_schema_version": 2,
+      "checkpoint_schema_version": {
+        "old": 2,
+        "new": 3
+      },
+      "checkpoint_count": 78,
+      "transform": [
+        "checkpoint.session_digest -> checkpoint.conversation_history_digest",
+        "nested TaskCheckpoint schema_version 2 -> 3"
+      ],
+      "normalized_semantic_sha256": "2768a94349e8ebab4b823118a7137c7fbab7c90aa6294f6c3b838b7d0e36ef46"
+    },
+    {
+      "path": ".agent_forge/runs/benchmarks/swebench-verified-mini-50-infrastructure-completion/mini50-v1.2-infra-completion-deepseek-v4-flash-3ec537113a/runs/canonical-runtime/r01-sympy__sympy-12481/swebench-20260816-123348-815106f/cases/sympy__sympy-12481/trace.json",
+      "old_sha256": "29b0728896dafaf09e02aea62ffaa68180c78f024bd7477f21150ef61f32245d",
+      "new_sha256": "e4ffa0bb38b9e7a7a2c43c496d597705b98603dfdf1b241147010e9f0f3fc731",
+      "old_byte_size": 721588,
+      "new_byte_size": 722238,
+      "old_schema_version": 2,
+      "new_schema_version": 2,
+      "checkpoint_schema_version": {
+        "old": 2,
+        "new": 3
+      },
+      "checkpoint_count": 50,
+      "transform": [
+        "checkpoint.session_digest -> checkpoint.conversation_history_digest",
+        "nested TaskCheckpoint schema_version 2 -> 3"
+      ],
+      "normalized_semantic_sha256": "a7099b4b339646e9ca27b6f00adfebe41902c79ff9c09f39c393cbf234af1cef"
+    },
+    {
+      "path": ".agent_forge/runs/benchmarks/swebench-verified-mini-50/mini50-v1-deepseek-v4-flash-3ec537113a-9f81b94c99/runs/canonical-runtime/r01-astropy__astropy-7336/swebench-20260816-080934-d29ebdd/cases/astropy__astropy-7336/trace.json",
+      "old_sha256": "b7e6ca6105f895f01b7584a5ddf68365b583abaff1bdc141b3e7e6289e3aedd4",
+      "new_sha256": "f74818e83547223e57bd0485a03383ecde614b43153a4b1d9efa2826b98bc3a8",
+      "old_byte_size": 1278864,
+      "new_byte_size": 1279917,
+      "old_schema_version": 2,
+      "new_schema_version": 2,
+      "checkpoint_schema_version": {
+        "old": 2,
+        "new": 3
+      },
+      "checkpoint_count": 81,
+      "transform": [
+        "checkpoint.session_digest -> checkpoint.conversation_history_digest",
+        "nested TaskCheckpoint schema_version 2 -> 3"
+      ],
+      "normalized_semantic_sha256": "fe54b952d45aaefdf0d2b9c832e2019e62a134ee6055a93b3c3f538d57238d41"
+    },
+    {
+      "path": ".agent_forge/runs/benchmarks/swebench-verified-mini-50/mini50-v1-deepseek-v4-flash-3ec537113a-9f81b94c99/runs/canonical-runtime/r01-django__django-11099/swebench-20260816-075749-c2871c1/cases/django__django-11099/trace.json",
+      "old_sha256": "f4e3f1ccbb4b0875b18dafee40655476a5558d3f77f224a06238035fb1594679",
+      "new_sha256": "fe8116ae8f0ca573192a3cf02f12feb1d6347a37ea913f1349969b23d9b9da03",
+      "old_byte_size": 328898,
+      "new_byte_size": 329210,
+      "old_schema_version": 2,
+      "new_schema_version": 2,
+      "checkpoint_schema_version": {
+        "old": 2,
+        "new": 3
+      },
+      "checkpoint_count": 24,
+      "transform": [
+        "checkpoint.session_digest -> checkpoint.conversation_history_digest",
+        "nested TaskCheckpoint schema_version 2 -> 3"
+      ],
+      "normalized_semantic_sha256": "e9b167a3a274d666e93eb3970c66de342d0e7e236e56ddfaee81b058fdd2a77a"
+    },
+    {
+      "path": ".agent_forge/runs/benchmarks/swebench-verified-mini-50/mini50-v1-deepseek-v4-flash-3ec537113a-9f81b94c99/runs/canonical-runtime/r01-django__django-11206/swebench-20260816-010255-21122a0/cases/django__django-11206/trace.json",
+      "old_sha256": "cd76910ff73b255cbec3c691072f1c4d8b106d8415dd5613ab119b9f68d74893",
+      "new_sha256": "a85c73ee64acf2e3282453daca20441eb4c65cd88dcb67524b42ee0f1fcdb56b",
+      "old_byte_size": 208385,
+      "new_byte_size": 208593,
+      "old_schema_version": 2,
+      "new_schema_version": 2,
+      "checkpoint_schema_version": {
+        "old": 2,
+        "new": 3
+      },
+      "checkpoint_count": 16,
+      "transform": [
+        "checkpoint.session_digest -> checkpoint.conversation_history_digest",
+        "nested TaskCheckpoint schema_version 2 -> 3"
+      ],
+      "normalized_semantic_sha256": "4842eca9088d56ed79fe56cff08e789d9c371ca6e7ea082001bb659abf5af459"
+    },
+    {
+      "path": ".agent_forge/runs/benchmarks/swebench-verified-mini-50/mini50-v1-deepseek-v4-flash-3ec537113a-9f81b94c99/runs/canonical-runtime/r01-django__django-11333/swebench-20260816-072342-e1424a2/cases/django__django-11333/trace.json",
+      "old_sha256": "d289676a04a652b027f3a1063223e08579c9cd8af2e28b345e5c8768f58c4e23",
+      "new_sha256": "ee2302450fc9c5635ae088509d1ac23b46819c9d0655c6044a671d220e4f0215",
+      "old_byte_size": 918706,
+      "new_byte_size": 919512,
+      "old_schema_version": 2,
+      "new_schema_version": 2,
+      "checkpoint_schema_version": {
+        "old": 2,
+        "new": 3
+      },
+      "checkpoint_count": 62,
+      "transform": [
+        "checkpoint.session_digest -> checkpoint.conversation_history_digest",
+        "nested TaskCheckpoint schema_version 2 -> 3"
+      ],
+      "normalized_semantic_sha256": "586343734991aa734707d18b94fecbfe021cd5c5fa5970f206059a2c90ae9e9a"
+    },
+    {
+      "path": ".agent_forge/runs/benchmarks/swebench-verified-mini-50/mini50-v1-deepseek-v4-flash-3ec537113a-9f81b94c99/runs/canonical-runtime/r01-django__django-12262/swebench-20260816-010255-bdfa8cd/cases/django__django-12262/trace.json",
+      "old_sha256": "1e2a2b1c8e4f620af813c99dcff2a2eb725ad1489c3d78d73403811bb2d0a477",
+      "new_sha256": "5be87ae882c94080e698d6697c58e9f92de18a5ede7f0166d9d1b08b289858a6",
+      "old_byte_size": 436962,
+      "new_byte_size": 437339,
+      "old_schema_version": 2,
+      "new_schema_version": 2,
+      "checkpoint_schema_version": {
+        "old": 2,
+        "new": 3
+      },
+      "checkpoint_count": 29,
+      "transform": [
+        "checkpoint.session_digest -> checkpoint.conversation_history_digest",
+        "nested TaskCheckpoint schema_version 2 -> 3"
+      ],
+      "normalized_semantic_sha256": "5bd8d64d63ec47c4d68e8a35d0db21a138f1b75ad08ff2fd0afa84f6cad20361"
+    },
+    {
+      "path": ".agent_forge/runs/benchmarks/swebench-verified-mini-50/mini50-v1-deepseek-v4-flash-3ec537113a-9f81b94c99/runs/canonical-runtime/r01-django__django-12304/swebench-20260816-081152-b3ac16a/cases/django__django-12304/trace.json",
+      "old_sha256": "96e280191acf0cf60955cdd02dd1e3dff370518bf3dda7e1d7e1c57f471969de",
+      "new_sha256": "268cfa2a88b5484c2b16e7e3d0a41464d4423e3f48b2d6c06b0ba7d12ec477c8",
+      "old_byte_size": 503684,
+      "new_byte_size": 504165,
+      "old_schema_version": 2,
+      "new_schema_version": 2,
+      "checkpoint_schema_version": {
+        "old": 2,
+        "new": 3
+      },
+      "checkpoint_count": 37,
+      "transform": [
+        "checkpoint.session_digest -> checkpoint.conversation_history_digest",
+        "nested TaskCheckpoint schema_version 2 -> 3"
+      ],
+      "normalized_semantic_sha256": "a7075225a9876de2bb3dd6b2ccfce9ba305ae9f3ab80fff6ceff89790fc85418"
+    },
+    {
+      "path": ".agent_forge/runs/benchmarks/swebench-verified-mini-50/mini50-v1-deepseek-v4-flash-3ec537113a-9f81b94c99/runs/canonical-runtime/r01-django__django-12419/swebench-20260816-011628-144ad35/cases/django__django-12419/trace.json",
+      "old_sha256": "820a5ba29ca28f787f92c598519374da26ed28cfdb04fb8da96bac3bd78c9389",
+      "new_sha256": "1af7cad95ca5f17d21264e77b11e0c478a32e530b3369fe1cfe9663cd0fc3a77",
+      "old_byte_size": 1049590,
+      "new_byte_size": 1050630,
+      "old_schema_version": 2,
+      "new_schema_version": 2,
+      "checkpoint_schema_version": {
+        "old": 2,
+        "new": 3
+      },
+      "checkpoint_count": 80,
+      "transform": [
+        "checkpoint.session_digest -> checkpoint.conversation_history_digest",
+        "nested TaskCheckpoint schema_version 2 -> 3"
+      ],
+      "normalized_semantic_sha256": "7e8556748617e7fb268fe8dc923c3c472a2aaec62346c76235a453742524ba65"
+    },
+    {
+      "path": ".agent_forge/runs/benchmarks/swebench-verified-mini-50/mini50-v1-deepseek-v4-flash-3ec537113a-9f81b94c99/runs/canonical-runtime/r01-django__django-13128/swebench-20260816-013205-83f4312/cases/django__django-13128/trace.json",
+      "old_sha256": "a16dcc7a4f19beaca9df785fc75527ba50dc88791a7986aead08c9e4c0311c81",
+      "new_sha256": "3518469c53eb1a62f0c3fbd382da966dbeb8d7de3f4cec2a6eecf5bfbc8de134",
+      "old_byte_size": 1050628,
+      "new_byte_size": 1051603,
+      "old_schema_version": 2,
+      "new_schema_version": 2,
+      "checkpoint_schema_version": {
+        "old": 2,
+        "new": 3
+      },
+      "checkpoint_count": 75,
+      "transform": [
+        "checkpoint.session_digest -> checkpoint.conversation_history_digest",
+        "nested TaskCheckpoint schema_version 2 -> 3"
+      ],
+      "normalized_semantic_sha256": "774dfd9015b31a31d760f807deafdb8f6613c0481d83ccfa6cc3e08e7e57ee55"
+    },
+    {
+      "path": ".agent_forge/runs/benchmarks/swebench-verified-mini-50/mini50-v1-deepseek-v4-flash-3ec537113a-9f81b94c99/runs/canonical-runtime/r01-django__django-13658/swebench-20260816-080228-b59b5e2/cases/django__django-13658/trace.json",
+      "old_sha256": "66a1b36d3a9894bea7fbd49c36851727b6dc777f276585fb8cd2f2dea1a96fbb",
+      "new_sha256": "edb271f666a42b8b68f4c4e8adcdf2d8d98f62e6ccc7ea06192e2426c1bbb533",
+      "old_byte_size": 389286,
+      "new_byte_size": 389624,
+      "old_schema_version": 2,
+      "new_schema_version": 2,
+      "checkpoint_schema_version": {
+        "old": 2,
+        "new": 3
+      },
+      "checkpoint_count": 26,
+      "transform": [
+        "checkpoint.session_digest -> checkpoint.conversation_history_digest",
+        "nested TaskCheckpoint schema_version 2 -> 3"
+      ],
+      "normalized_semantic_sha256": "a5421e14364ebed41477a51411c23b11fa704fd3e89c6dd6550aa2de5f7a94ab"
+    },
+    {
+      "path": ".agent_forge/runs/benchmarks/swebench-verified-mini-50/mini50-v1-deepseek-v4-flash-3ec537113a-9f81b94c99/runs/canonical-runtime/r01-django__django-14011/swebench-20260816-082143-4238f25/cases/django__django-14011/trace.json",
+      "old_sha256": "e44be05888c26ffe05dddb58058c452cf53d70eeb3b86a6c1c9a3ebcd2e49aad",
+      "new_sha256": "89c26493e39c3bf98e6e75abe5e195b9a5403e497a335efff430077d8263ce3a",
+      "old_byte_size": 3734422,
+      "new_byte_size": 3737412,
+      "old_schema_version": 2,
+      "new_schema_version": 2,
+      "checkpoint_schema_version": {
+        "old": 2,
+        "new": 3
+      },
+      "checkpoint_count": 230,
+      "transform": [
+        "checkpoint.session_digest -> checkpoint.conversation_history_digest",
+        "nested TaskCheckpoint schema_version 2 -> 3"
+      ],
+      "normalized_semantic_sha256": "09479ec52f661875e20b64742fbc50f66e52b1d217a0f3c3bbf3f909d8798049"
+    },
+    {
+      "path": ".agent_forge/runs/benchmarks/swebench-verified-mini-50/mini50-v1-deepseek-v4-flash-3ec537113a-9f81b94c99/runs/canonical-runtime/r01-django__django-14053/swebench-20260816-074127-bcf8088/cases/django__django-14053/trace.json",
+      "old_sha256": "e35122891a4b0162c9596111ec0a4d67bc16f71e564f3426286eebb2f55ff2ee",
+      "new_sha256": "352f568fe36e7145bcfc112f94124e2fb9e54674d5bd85ce12cbd4ba149d2180",
+      "old_byte_size": 1189682,
+      "new_byte_size": 1190527,
+      "old_schema_version": 2,
+      "new_schema_version": 2,
+      "checkpoint_schema_version": {
+        "old": 2,
+        "new": 3
+      },
+      "checkpoint_count": 65,
+      "transform": [
+        "checkpoint.session_digest -> checkpoint.conversation_history_digest",
+        "nested TaskCheckpoint schema_version 2 -> 3"
+      ],
+      "normalized_semantic_sha256": "ce3c01fab231a94277435dea39baf674bc144b58873806432f92269795a7bcc7"
+    },
+    {
+      "path": ".agent_forge/runs/benchmarks/swebench-verified-mini-50/mini50-v1-deepseek-v4-flash-3ec537113a-9f81b94c99/runs/canonical-runtime/r01-django__django-14725/swebench-20260816-033114-c67649d/cases/django__django-14725/trace.json",
+      "old_sha256": "bb68b361d51b698e9bfb8170406ad23bd72f59dd26f876c2076f5126e905fbc8",
+      "new_sha256": "90ce9a59fb5070847e2c2514212ba9f82aea8a82003af4e20d8f2148ffbcb588",
+      "old_byte_size": 833679,
+      "new_byte_size": 834550,
+      "old_schema_version": 2,
+      "new_schema_version": 2,
+      "checkpoint_schema_version": {
+        "old": 2,
+        "new": 3
+      },
+      "checkpoint_count": 67,
+      "transform": [
+        "checkpoint.session_digest -> checkpoint.conversation_history_digest",
+        "nested TaskCheckpoint schema_version 2 -> 3"
+      ],
+      "normalized_semantic_sha256": "55a92b0bd4b82ebb29cbec8c84e5c5a18de8c0088c8b4d0d8df683afa9972be0"
+    },
+    {
+      "path": ".agent_forge/runs/benchmarks/swebench-verified-mini-50/mini50-v1-deepseek-v4-flash-3ec537113a-9f81b94c99/runs/canonical-runtime/r01-django__django-14855/swebench-20260816-071544-4f4cdb0/cases/django__django-14855/trace.json",
+      "old_sha256": "5553cd72b3fa89287cb9e0d59a460e399b27d119d52f90915e00cbbe379fb1b8",
+      "new_sha256": "48a2135383f3cf5fa4eed6153de3c6f845ef8f355911a5508f1f3addcb4c6bb9",
+      "old_byte_size": 355831,
+      "new_byte_size": 356143,
+      "old_schema_version": 2,
+      "new_schema_version": 2,
+      "checkpoint_schema_version": {
+        "old": 2,
+        "new": 3
+      },
+      "checkpoint_count": 24,
+      "transform": [
+        "checkpoint.session_digest -> checkpoint.conversation_history_digest",
+        "nested TaskCheckpoint schema_version 2 -> 3"
+      ],
+      "normalized_semantic_sha256": "37c5b8391ff749cd5d8ee75a3ece9523549f95ad21fa6514e52fae75177890d3"
+    },
+    {
+      "path": ".agent_forge/runs/benchmarks/swebench-verified-mini-50/mini50-v1-deepseek-v4-flash-3ec537113a-9f81b94c99/runs/canonical-runtime/r01-django__django-15128/swebench-20260816-072112-4913807/cases/django__django-15128/trace.json",
+      "old_sha256": "b9b09c40b51cbd2e736816ad4f62e76a96ca4b7abcadc2705c3577e20336bd8c",
+      "new_sha256": "39a17217865a08e14bbd4a5eef9c66570ef0969c1573b76261bd0248cade06b6",
+      "old_byte_size": 1857696,
+      "new_byte_size": 1859100,
+      "old_schema_version": 2,
+      "new_schema_version": 2,
+      "checkpoint_schema_version": {
+        "old": 2,
+        "new": 3
+      },
+      "checkpoint_count": 108,
+      "transform": [
+        "checkpoint.session_digest -> checkpoint.conversation_history_digest",
+        "nested TaskCheckpoint schema_version 2 -> 3"
+      ],
+      "normalized_semantic_sha256": "9d135d0993e945c5b2983933147fb404da81f554af7a4e3b967eb9ce8db6dfcd"
+    },
+    {
+      "path": ".agent_forge/runs/benchmarks/swebench-verified-mini-50/mini50-v1-deepseek-v4-flash-3ec537113a-9f81b94c99/runs/canonical-runtime/r01-django__django-15569/swebench-20260816-033114-1d8a4b9/cases/django__django-15569/trace.json",
+      "old_sha256": "2f127141c8fac358329280ef98bdec2ead80773f37580d662b8ce337dec43117",
+      "new_sha256": "2bb4bc298a80830c10730a45ebb6e64da3c2f0bcd7f27b896b9fc8647355631a",
+      "old_byte_size": 773631,
+      "new_byte_size": 774372,
+      "old_schema_version": 2,
+      "new_schema_version": 2,
+      "checkpoint_schema_version": {
+        "old": 2,
+        "new": 3
+      },
+      "checkpoint_count": 57,
+      "transform": [
+        "checkpoint.session_digest -> checkpoint.conversation_history_digest",
+        "nested TaskCheckpoint schema_version 2 -> 3"
+      ],
+      "normalized_semantic_sha256": "651799750ddbb9a8f3f2954c0bd545392dc54cf70b1a105c7e82ba24e43c288a"
+    },
+    {
+      "path": ".agent_forge/runs/benchmarks/swebench-verified-mini-50/mini50-v1-deepseek-v4-flash-3ec537113a-9f81b94c99/runs/canonical-runtime/r01-django__django-15629/swebench-20260816-091202-c7a902a/cases/django__django-15629/trace.json",
+      "old_sha256": "7c6fe54ba7b8a094d8cc6ae172463b3d4cdeecdc2b5fd74a5f2123f7aaf54be5",
+      "new_sha256": "ed17eab6782873d1ba6a844f3a4dbcd186338100c6bf4ae7837ec37e6ac747d0",
+      "old_byte_size": 1487594,
+      "new_byte_size": 1488686,
+      "old_schema_version": 2,
+      "new_schema_version": 2,
+      "checkpoint_schema_version": {
+        "old": 2,
+        "new": 3
+      },
+      "checkpoint_count": 84,
+      "transform": [
+        "checkpoint.session_digest -> checkpoint.conversation_history_digest",
+        "nested TaskCheckpoint schema_version 2 -> 3"
+      ],
+      "normalized_semantic_sha256": "836aeed050a901a755816b9fa3221e8a5d634cf2c32f32f78f4ae9d767cd36e8"
+    },
+    {
+      "path": ".agent_forge/runs/benchmarks/swebench-verified-mini-50/mini50-v1-deepseek-v4-flash-3ec537113a-9f81b94c99/runs/canonical-runtime/r01-django__django-15930/swebench-20260816-083327-a30bbe5/cases/django__django-15930/trace.json",
+      "old_sha256": "c6e9f4564b589c03449b496f989c234d0f5b3cf1c5fb6ce10c13a1588e86dd7f",
+      "new_sha256": "fca6d8d431c80b754156edcdcd12b9814531feeed5401b370257ca33f89ee61b",
+      "old_byte_size": 896030,
+      "new_byte_size": 896862,
+      "old_schema_version": 2,
+      "new_schema_version": 2,
+      "checkpoint_schema_version": {
+        "old": 2,
+        "new": 3
+      },
+      "checkpoint_count": 64,
+      "transform": [
+        "checkpoint.session_digest -> checkpoint.conversation_history_digest",
+        "nested TaskCheckpoint schema_version 2 -> 3"
+      ],
+      "normalized_semantic_sha256": "f8df687998135b925b03936e261b365119e89066ec40a813d3a35d03ad091c19"
+    },
+    {
+      "path": ".agent_forge/runs/benchmarks/swebench-verified-mini-50/mini50-v1-deepseek-v4-flash-3ec537113a-9f81b94c99/runs/canonical-runtime/r01-django__django-16493/swebench-20260816-034336-452f904/cases/django__django-16493/trace.json",
+      "old_sha256": "8abc55ad0e98d0a330083f1277a6e7e12a79a26c80dd5ff6f517fde132c67815",
+      "new_sha256": "e67271c72886c6c5287f5f59eb7013624e10c44b5b071c5094c555a3bd58d1a0",
+      "old_byte_size": 385922,
+      "new_byte_size": 386260,
+      "old_schema_version": 2,
+      "new_schema_version": 2,
+      "checkpoint_schema_version": {
+        "old": 2,
+        "new": 3
+      },
+      "checkpoint_count": 26,
+      "transform": [
+        "checkpoint.session_digest -> checkpoint.conversation_history_digest",
+        "nested TaskCheckpoint schema_version 2 -> 3"
+      ],
+      "normalized_semantic_sha256": "c7ff858f040e996c00018d8f23cedadb607d0b72aeb665e29f33af70aea061ee"
+    },
+    {
+      "path": ".agent_forge/runs/benchmarks/swebench-verified-mini-50/mini50-v1-deepseek-v4-flash-3ec537113a-9f81b94c99/runs/canonical-runtime/r01-django__django-16901/swebench-20260816-082245-a46c7d0/cases/django__django-16901/trace.json",
+      "old_sha256": "ae5f0b032763aaa67c738fcd0639c6c879a55d0b092bc0b493cea1a08189f255",
+      "new_sha256": "61418683283d953f6b0997383d0df60667d1839a985f5ef39780f90a4bede36a",
+      "old_byte_size": 728368,
+      "new_byte_size": 729031,
+      "old_schema_version": 2,
+      "new_schema_version": 2,
+      "checkpoint_schema_version": {
+        "old": 2,
+        "new": 3
+      },
+      "checkpoint_count": 51,
+      "transform": [
+        "checkpoint.session_digest -> checkpoint.conversation_history_digest",
+        "nested TaskCheckpoint schema_version 2 -> 3"
+      ],
+      "normalized_semantic_sha256": "9b6a3413d409a225d7ccfa6e18792984c52dd008d706a245dfd64a7fb6154447"
+    },
+    {
+      "path": ".agent_forge/runs/benchmarks/swebench-verified-mini-50/mini50-v1-deepseek-v4-flash-3ec537113a-9f81b94c99/runs/canonical-runtime/r01-django__django-7530/swebench-20260816-034611-d704b6b/cases/django__django-7530/trace.json",
+      "old_sha256": "f4b92a3c7ba4cde5d311f5647f46559fd9b01f0102d74b74f715d9b7b78eea72",
+      "new_sha256": "22912e8fb6a0e4935e86d3f8744cd261e6b41cd63d5b7e821178fc9bd1f8906d",
+      "old_byte_size": 343830,
+      "new_byte_size": 344168,
+      "old_schema_version": 2,
+      "new_schema_version": 2,
+      "checkpoint_schema_version": {
+        "old": 2,
+        "new": 3
+      },
+      "checkpoint_count": 26,
+      "transform": [
+        "checkpoint.session_digest -> checkpoint.conversation_history_digest",
+        "nested TaskCheckpoint schema_version 2 -> 3"
+      ],
+      "normalized_semantic_sha256": "310ac8c6b4572ce91809744c03ed8e019b3d6c4e52fd3661c239d76dcf0f5f44"
+    },
+    {
+      "path": ".agent_forge/runs/benchmarks/swebench-verified-mini-50/mini50-v1-deepseek-v4-flash-3ec537113a-9f81b94c99/runs/canonical-runtime/r01-matplotlib__matplotlib-23476/swebench-20260816-093218-8df67e9/cases/matplotlib__matplotlib-23476/trace.json",
+      "old_sha256": "7a42d99f12265cd210d57a577888426b5131638aa8c6ded21148c3283024498a",
+      "new_sha256": "26e520705f365a9db8330982ff43c18ddf7abb6c499d138ee249c8a88bfb8b15",
+      "old_byte_size": 1370472,
+      "new_byte_size": 1371460,
+      "old_schema_version": 2,
+      "new_schema_version": 2,
+      "checkpoint_schema_version": {
+        "old": 2,
+        "new": 3
+      },
+      "checkpoint_count": 76,
+      "transform": [
+        "checkpoint.session_digest -> checkpoint.conversation_history_digest",
+        "nested TaskCheckpoint schema_version 2 -> 3"
+      ],
+      "normalized_semantic_sha256": "96493fed3512214aa643e534cfbaa46e792e0c23f881ebedb6d6f986f4f9fde6"
+    },
+    {
+      "path": ".agent_forge/runs/benchmarks/swebench-verified-mini-50/mini50-v1-deepseek-v4-flash-3ec537113a-9f81b94c99/runs/canonical-runtime/r01-matplotlib__matplotlib-24970/swebench-20260816-084953-6f3eb67/cases/matplotlib__matplotlib-24970/trace.json",
+      "old_sha256": "b7851592681201736989040a527b404207d8ca5903ef8ea2ff8bdca9ef000c0c",
+      "new_sha256": "70bd95c7a754820ce022dd6ca1f0ee77e9dfbad21a0b5c3e756fd1566e9c4756",
+      "old_byte_size": 1152277,
+      "new_byte_size": 1153174,
+      "old_schema_version": 2,
+      "new_schema_version": 2,
+      "checkpoint_schema_version": {
+        "old": 2,
+        "new": 3
+      },
+      "checkpoint_count": 69,
+      "transform": [
+        "checkpoint.session_digest -> checkpoint.conversation_history_digest",
+        "nested TaskCheckpoint schema_version 2 -> 3"
+      ],
+      "normalized_semantic_sha256": "20f2469130d0a0857202997baa1db456050d9172ec55feed8927a3fb67838d9e"
+    },
+    {
+      "path": ".agent_forge/runs/benchmarks/swebench-verified-mini-50/mini50-v1-deepseek-v4-flash-3ec537113a-9f81b94c99/runs/canonical-runtime/r01-pallets__flask-5014/swebench-20260816-092909-37f4028/cases/pallets__flask-5014/trace.json",
+      "old_sha256": "38ef664a1131e0e15c718de29cf7d91a37a2208bd1b5382010849244d2851839",
+      "new_sha256": "fde9c80bba2df0bd71856c9f9017789e4088577f295a1a2da5b8d695da9f054b",
+      "old_byte_size": 432904,
+      "new_byte_size": 433333,
+      "old_schema_version": 2,
+      "new_schema_version": 2,
+      "checkpoint_schema_version": {
+        "old": 2,
+        "new": 3
+      },
+      "checkpoint_count": 33,
+      "transform": [
+        "checkpoint.session_digest -> checkpoint.conversation_history_digest",
+        "nested TaskCheckpoint schema_version 2 -> 3"
+      ],
+      "normalized_semantic_sha256": "d5623cc7622c9d853ad91ff52d6a9a8fc51e1e76e04785e326523db61a264447"
+    },
+    {
+      "path": ".agent_forge/runs/benchmarks/swebench-verified-mini-50/mini50-v1-deepseek-v4-flash-3ec537113a-9f81b94c99/runs/canonical-runtime/r01-psf__requests-1766/swebench-20260816-092612-15a34b8/cases/psf__requests-1766/trace.json",
+      "old_sha256": "f7b4db7ed966047a02c9a1d2f0ecf8b151206d8cf9b5a5a08a6d605f195fbb61",
+      "new_sha256": "35de4b16275c3f6cba28c1bc36d3e49b80884e50f16646007a2a88cbe18c9beb",
+      "old_byte_size": 233505,
+      "new_byte_size": 233726,
+      "old_schema_version": 2,
+      "new_schema_version": 2,
+      "checkpoint_schema_version": {
+        "old": 2,
+        "new": 3
+      },
+      "checkpoint_count": 17,
+      "transform": [
+        "checkpoint.session_digest -> checkpoint.conversation_history_digest",
+        "nested TaskCheckpoint schema_version 2 -> 3"
+      ],
+      "normalized_semantic_sha256": "0a3cf388048a14af785810a5cd1b91374900182a4281315d409c709e14a5df2b"
+    },
+    {
+      "path": ".agent_forge/runs/benchmarks/swebench-verified-mini-50/mini50-v1-deepseek-v4-flash-3ec537113a-9f81b94c99/runs/canonical-runtime/r01-pydata__xarray-3151/swebench-20260816-034923-284c415/cases/pydata__xarray-3151/trace.json",
+      "old_sha256": "66ee6ccef492a68865864a95acd131e4375e1d5da0059375b795d741efbec15e",
+      "new_sha256": "af6eee7cdc13bac198a7e02d18f92d55e70e234f2538fd5f54063f3680c66397",
+      "old_byte_size": 181801,
+      "new_byte_size": 181944,
+      "old_schema_version": 2,
+      "new_schema_version": 2,
+      "checkpoint_schema_version": {
+        "old": 2,
+        "new": 3
+      },
+      "checkpoint_count": 11,
+      "transform": [
+        "checkpoint.session_digest -> checkpoint.conversation_history_digest",
+        "nested TaskCheckpoint schema_version 2 -> 3"
+      ],
+      "normalized_semantic_sha256": "9141023a0388049c65b98ab601e0eff99f6479f386e0313cad8ddfc33cb8c086"
+    },
+    {
+      "path": ".agent_forge/runs/benchmarks/swebench-verified-mini-50/mini50-v1-deepseek-v4-flash-3ec537113a-9f81b94c99/runs/canonical-runtime/r01-pylint-dev__pylint-4551/swebench-20260816-063808-264669c/cases/pylint-dev__pylint-4551/trace.json",
+      "old_sha256": "4d806c2dede32ea1e22623871542c724096be58e8b1219d52c835e42e5f660d2",
+      "new_sha256": "dd86d3ebadb0ba026c9f386762ab056504a1c7fe82b47df159351be18c6f2095",
+      "old_byte_size": 3979214,
+      "new_byte_size": 3982750,
+      "old_schema_version": 2,
+      "new_schema_version": 2,
+      "checkpoint_schema_version": {
+        "old": 2,
+        "new": 3
+      },
+      "checkpoint_count": 272,
+      "transform": [
+        "checkpoint.session_digest -> checkpoint.conversation_history_digest",
+        "nested TaskCheckpoint schema_version 2 -> 3"
+      ],
+      "normalized_semantic_sha256": "67ab2c7098dc96a7758a2c29a8abd29ca8434d192250a5f4db6298f8e7d66cb1"
+    },
+    {
+      "path": ".agent_forge/runs/benchmarks/swebench-verified-mini-50/mini50-v1-deepseek-v4-flash-3ec537113a-9f81b94c99/runs/canonical-runtime/r01-pytest-dev__pytest-5631/swebench-20260816-063825-bafd572/cases/pytest-dev__pytest-5631/trace.json",
+      "old_sha256": "8ce96dd16e05af2531f22c75edef0efb5e4f10c3c18de870405f18e8db5c40b6",
+      "new_sha256": "5f20a3764adc232b50f6e73b87e3409c19179ce4d020a55478d9838db5c5b6a9",
+      "old_byte_size": 1434800,
+      "new_byte_size": 1435944,
+      "old_schema_version": 2,
+      "new_schema_version": 2,
+      "checkpoint_schema_version": {
+        "old": 2,
+        "new": 3
+      },
+      "checkpoint_count": 88,
+      "transform": [
+        "checkpoint.session_digest -> checkpoint.conversation_history_digest",
+        "nested TaskCheckpoint schema_version 2 -> 3"
+      ],
+      "normalized_semantic_sha256": "3b3b94f33e25c215c0a2feb7a8d1c5d9049626b1c2b9efc6e0a4469c60958e15"
+    },
+    {
+      "path": ".agent_forge/runs/benchmarks/swebench-verified-mini-50/mini50-v1-deepseek-v4-flash-3ec537113a-9f81b94c99/runs/canonical-runtime/r01-scikit-learn__scikit-learn-10908/swebench-20260816-100156-16f3eb8/cases/scikit-learn__scikit-learn-10908/trace.json",
+      "old_sha256": "43cf4f530c2a57e0e3bb468cdabfdbfc5a1075425927ca135aa1213c75a73abc",
+      "new_sha256": "a5aca6bc5c7801c8185e91c6c894f53e1491f5a0821eb87c57b3ff6233c53459",
+      "old_byte_size": 432226,
+      "new_byte_size": 432564,
+      "old_schema_version": 2,
+      "new_schema_version": 2,
+      "checkpoint_schema_version": {
+        "old": 2,
+        "new": 3
+      },
+      "checkpoint_count": 26,
+      "transform": [
+        "checkpoint.session_digest -> checkpoint.conversation_history_digest",
+        "nested TaskCheckpoint schema_version 2 -> 3"
+      ],
+      "normalized_semantic_sha256": "11d079ddf59a01c34c601cf38dbe354eabbf8398a17e56a1a030e03ff4fed450"
+    },
+    {
+      "path": ".agent_forge/runs/benchmarks/swebench-verified-mini-50/mini50-v1-deepseek-v4-flash-3ec537113a-9f81b94c99/runs/canonical-runtime/r01-scikit-learn__scikit-learn-11310/swebench-20260816-092107-6893b8e/cases/scikit-learn__scikit-learn-11310/trace.json",
+      "old_sha256": "a7d135a6c3b2cacf0f8ba81d4d6759d1372dbd56fbcc7c0c0f90551598a4ce50",
+      "new_sha256": "8f9a74e79b8f2f3ab1bfc590374f7d1e55d5f75a1286cf5bc0f6d3197399e115",
+      "old_byte_size": 702846,
+      "new_byte_size": 703457,
+      "old_schema_version": 2,
+      "new_schema_version": 2,
+      "checkpoint_schema_version": {
+        "old": 2,
+        "new": 3
+      },
+      "checkpoint_count": 47,
+      "transform": [
+        "checkpoint.session_digest -> checkpoint.conversation_history_digest",
+        "nested TaskCheckpoint schema_version 2 -> 3"
+      ],
+      "normalized_semantic_sha256": "0d8296e097cff6f4cf02b05e732b43044516584300288bf81062222a21c7d331"
+    },
+    {
+      "path": ".agent_forge/runs/benchmarks/swebench-verified-mini-50/mini50-v1-deepseek-v4-flash-3ec537113a-9f81b94c99/runs/canonical-runtime/r01-sphinx-doc__sphinx-9281/swebench-20260816-100139-0a5b067/cases/sphinx-doc__sphinx-9281/trace.json",
+      "old_sha256": "1cf939ceb9020621a7de30be6fade57b65aeddc3f65a2dd5ec445a288090577f",
+      "new_sha256": "d9cbf2bc7cb091196c67fcba7e826cf9cb901ae5be359f5dc20f5833f359ef71",
+      "old_byte_size": 421009,
+      "new_byte_size": 421386,
+      "old_schema_version": 2,
+      "new_schema_version": 2,
+      "checkpoint_schema_version": {
+        "old": 2,
+        "new": 3
+      },
+      "checkpoint_count": 29,
+      "transform": [
+        "checkpoint.session_digest -> checkpoint.conversation_history_digest",
+        "nested TaskCheckpoint schema_version 2 -> 3"
+      ],
+      "normalized_semantic_sha256": "3ee35579bc4c5cb02e9f5604ba6fc77c420516ed3d6c6f13029e69bcfcc02f88"
+    },
+    {
+      "path": ".agent_forge/runs/benchmarks/swebench-verified-mini-50/mini50-v1-deepseek-v4-flash-3ec537113a-9f81b94c99/runs/canonical-runtime/r01-sphinx-doc__sphinx-9367/swebench-20260816-064902-500277d/cases/sphinx-doc__sphinx-9367/trace.json",
+      "old_sha256": "e4b0a152b74c3f61f8e431a15edd3952e2affbfdbc418f696a1a13d74d75f291",
+      "new_sha256": "f250537f428e95dd4f4b9cd1f5ed00f59e81708707997bdddb16e28663a7877c",
+      "old_byte_size": 428030,
+      "new_byte_size": 428407,
+      "old_schema_version": 2,
+      "new_schema_version": 2,
+      "checkpoint_schema_version": {
+        "old": 2,
+        "new": 3
+      },
+      "checkpoint_count": 29,
+      "transform": [
+        "checkpoint.session_digest -> checkpoint.conversation_history_digest",
+        "nested TaskCheckpoint schema_version 2 -> 3"
+      ],
+      "normalized_semantic_sha256": "31f7d47c538fa640ebe29b4f68055cbb252f66e4ae69b520bdd7eb71f576bd0f"
+    },
+    {
+      "path": ".agent_forge/runs/benchmarks/swebench-verified-mini-50/mini50-v1-deepseek-v4-flash-3ec537113a-9f81b94c99/runs/canonical-runtime/r01-sympy__sympy-13480/swebench-20260816-094829-f42b011/cases/sympy__sympy-13480/trace.json",
+      "old_sha256": "873d1c620703bb078ddd3a228b64f8e00fdbf6c772cce7f72f8140510b7cb17e",
+      "new_sha256": "87696ac1ee69c8cfd87bf50171dad45856a2fd6de78fcb18c03fea1eed7c9126",
+      "old_byte_size": 497732,
+      "new_byte_size": 498200,
+      "old_schema_version": 2,
+      "new_schema_version": 2,
+      "checkpoint_schema_version": {
+        "old": 2,
+        "new": 3
+      },
+      "checkpoint_count": 36,
+      "transform": [
+        "checkpoint.session_digest -> checkpoint.conversation_history_digest",
+        "nested TaskCheckpoint schema_version 2 -> 3"
+      ],
+      "normalized_semantic_sha256": "88a4b356a8bd849a24ff582464fb21f44bc386777b558983c008f575d50d3d0b"
+    },
+    {
+      "path": ".agent_forge/runs/benchmarks/swebench-verified-mini-50/mini50-v1-deepseek-v4-flash-3ec537113a-9f81b94c99/runs/canonical-runtime/r01-sympy__sympy-13551/swebench-20260816-093828-01a0d74/cases/sympy__sympy-13551/trace.json",
+      "old_sha256": "731bf9f9c9d5348e9312f21772b72bb222db2524074ff39986baacd5aeb881fc",
+      "new_sha256": "c7f61a0a63d2f2b100ca27ac995b42975d23ad4b33dcb8d5b8a6ba5e46ea72b3",
+      "old_byte_size": 643630,
+      "new_byte_size": 644202,
+      "old_schema_version": 2,
+      "new_schema_version": 2,
+      "checkpoint_schema_version": {
+        "old": 2,
+        "new": 3
+      },
+      "checkpoint_count": 44,
+      "transform": [
+        "checkpoint.session_digest -> checkpoint.conversation_history_digest",
+        "nested TaskCheckpoint schema_version 2 -> 3"
+      ],
+      "normalized_semantic_sha256": "afb0ef4edee91f3d491547eb1298d35be8800952dab1a5e9b89a9a6801f5cc14"
+    },
+    {
+      "path": ".agent_forge/runs/benchmarks/swebench-verified-mini-50/mini50-v1-deepseek-v4-flash-3ec537113a-9f81b94c99/runs/canonical-runtime/r01-sympy__sympy-15017/swebench-20260816-065249-42d18ba/cases/sympy__sympy-15017/trace.json",
+      "old_sha256": "88eae718b683c3be82f1dd33d9d9356d995ed4eedf838bc6c738c5a575e8195e",
+      "new_sha256": "982a3a6499c11f85272fdda83947be2998310bcfc53ac00801acdb9fa2bad4e6",
+      "old_byte_size": 783988,
+      "new_byte_size": 784729,
+      "old_schema_version": 2,
+      "new_schema_version": 2,
+      "checkpoint_schema_version": {
+        "old": 2,
+        "new": 3
+      },
+      "checkpoint_count": 57,
+      "transform": [
+        "checkpoint.session_digest -> checkpoint.conversation_history_digest",
+        "nested TaskCheckpoint schema_version 2 -> 3"
+      ],
+      "normalized_semantic_sha256": "1f5d7dd3a1d6eced4d488496937ae12c3197f6f24f2346e158a6b7a0829a9fbe"
+    },
+    {
+      "path": ".agent_forge/runs/benchmarks/swebench-verified-mini-50/mini50-v1-deepseek-v4-flash-3ec537113a-9f81b94c99/runs/canonical-runtime/r01-sympy__sympy-15599/swebench-20260816-065856-0e6449a/cases/sympy__sympy-15599/trace.json",
+      "old_sha256": "f15ac05cc302cbc70da8dde7a7d8a6d8892ebb749fd28e160813a0e7802b90a8",
+      "new_sha256": "e359cccfe1862522cfaf91bb72d34383469ff71b6374db631fc105d2e42ccf24",
+      "old_byte_size": 398886,
+      "new_byte_size": 399211,
+      "old_schema_version": 2,
+      "new_schema_version": 2,
+      "checkpoint_schema_version": {
+        "old": 2,
+        "new": 3
+      },
+      "checkpoint_count": 25,
+      "transform": [
+        "checkpoint.session_digest -> checkpoint.conversation_history_digest",
+        "nested TaskCheckpoint schema_version 2 -> 3"
+      ],
+      "normalized_semantic_sha256": "35a0ebc1f22d5fd19b377edbeee13c7b211e6133e19b59dbaeb83d0f3b09dbfd"
+    },
+    {
+      "path": ".agent_forge/runs/benchmarks/swebench-verified-mini-50/mini50-v1-deepseek-v4-flash-3ec537113a-9f81b94c99/runs/canonical-runtime/r01-sympy__sympy-16450/swebench-20260816-101215-c53ed9f/cases/sympy__sympy-16450/trace.json",
+      "old_sha256": "b466074652707af02fea4f39becd97b51113d74b0e4393de5effc592970b191c",
+      "new_sha256": "2b5463d793f7d43887e7140817de09d835aa80de96a30cfa7530ee585b3fcbd7",
+      "old_byte_size": 585348,
+      "new_byte_size": 585855,
+      "old_schema_version": 2,
+      "new_schema_version": 2,
+      "checkpoint_schema_version": {
+        "old": 2,
+        "new": 3
+      },
+      "checkpoint_count": 39,
+      "transform": [
+        "checkpoint.session_digest -> checkpoint.conversation_history_digest",
+        "nested TaskCheckpoint schema_version 2 -> 3"
+      ],
+      "normalized_semantic_sha256": "4a1402a9b698fb933d405e9f3803926a540369bf99dba927ef9d66f0dea5f779"
+    },
+    {
+      "path": ".agent_forge/runs/benchmarks/swebench-verified-mini-50/mini50-v1-deepseek-v4-flash-3ec537113a-9f81b94c99/runs/canonical-runtime/r01-sympy__sympy-17318/swebench-20260816-070237-601915a/cases/sympy__sympy-17318/trace.json",
+      "old_sha256": "350883ae2c84d3eaf2ece804dc73618d0104ff6a2ff4b4bae7ab7f136eedc254",
+      "new_sha256": "52d6affe027f03fed3419d9a7137b73a020b2dfb4f99a9da7195edfb8da8b46e",
+      "old_byte_size": 850883,
+      "new_byte_size": 851546,
+      "old_schema_version": 2,
+      "new_schema_version": 2,
+      "checkpoint_schema_version": {
+        "old": 2,
+        "new": 3
+      },
+      "checkpoint_count": 51,
+      "transform": [
+        "checkpoint.session_digest -> checkpoint.conversation_history_digest",
+        "nested TaskCheckpoint schema_version 2 -> 3"
+      ],
+      "normalized_semantic_sha256": "0f823b3ed9ef10e1211fd34f0cb0004689c883c6615dd9e0e064dad62fb93bf8"
+    },
+    {
+      "path": ".agent_forge/runs/benchmarks/swebench-verified-mini-50/mini50-v1-deepseek-v4-flash-3ec537113a-9f81b94c99/runs/canonical-runtime/r01-sympy__sympy-18763/swebench-20260816-070331-a559e08/cases/sympy__sympy-18763/trace.json",
+      "old_sha256": "058dad493432b71ca20d7e0e715cd59659499f6b992b7b51227ded31405d5ae2",
+      "new_sha256": "209858264b6d27992badd2be55db599c9c7837da739fafcdd615ef2f3495c47c",
+      "old_byte_size": 421035,
+      "new_byte_size": 421451,
+      "old_schema_version": 2,
+      "new_schema_version": 2,
+      "checkpoint_schema_version": {
+        "old": 2,
+        "new": 3
+      },
+      "checkpoint_count": 32,
+      "transform": [
+        "checkpoint.session_digest -> checkpoint.conversation_history_digest",
+        "nested TaskCheckpoint schema_version 2 -> 3"
+      ],
+      "normalized_semantic_sha256": "c08715f7da909eff5e235abc94e3e10fad2f07fb32b488afe3764b532509319a"
+    },
+    {
+      "path": ".agent_forge/runs/benchmarks/swebench-verified-mini-50/mini50-v1-deepseek-v4-flash-3ec537113a-9f81b94c99/runs/canonical-runtime/r01-sympy__sympy-22914/swebench-20260816-070811-26a80d6/cases/sympy__sympy-22914/trace.json",
+      "old_sha256": "189b0cf1224939c51e3bc8865477cf610d0c1f392e3cdc14a3d38a598039c272",
+      "new_sha256": "c24e2f6e7a65b6838e6daf296943b5d805dfb325625e6d51b8cb9b2e572e2da8",
+      "old_byte_size": 541806,
+      "new_byte_size": 542287,
+      "old_schema_version": 2,
+      "new_schema_version": 2,
+      "checkpoint_schema_version": {
+        "old": 2,
+        "new": 3
+      },
+      "checkpoint_count": 37,
+      "transform": [
+        "checkpoint.session_digest -> checkpoint.conversation_history_digest",
+        "nested TaskCheckpoint schema_version 2 -> 3"
+      ],
+      "normalized_semantic_sha256": "91c2ad7f5bc3de422cdd371890acada4ba18ac4c40c1b177a1a74f9e1a49bea2"
+    },
+    {
+      "path": ".agent_forge/runs/benchmarks/swebench-verified-mini-50/mini50-v1-deepseek-v4-flash-3ec537113a-9f81b94c99/runs/canonical-runtime/r01-sympy__sympy-23824/swebench-20260816-071457-0c65cb4/cases/sympy__sympy-23824/trace.json",
+      "old_sha256": "a583bdb069ad3d282f6e3cd59a471ce9376db8d05fded85e2ed02000a361fc9a",
+      "new_sha256": "fbf1fa25bdc6d09b148af8075be36517ed589d018c4a25900ad61f90e4f1f005",
+      "old_byte_size": 401063,
+      "new_byte_size": 401388,
+      "old_schema_version": 2,
+      "new_schema_version": 2,
+      "checkpoint_schema_version": {
+        "old": 2,
+        "new": 3
+      },
+      "checkpoint_count": 25,
+      "transform": [
+        "checkpoint.session_digest -> checkpoint.conversation_history_digest",
+        "nested TaskCheckpoint schema_version 2 -> 3"
+      ],
+      "normalized_semantic_sha256": "e227c57868d46f465b601342a3fdd649370bf4d66570db881d9ad11d88446333"
+    },
+    {
+      "path": ".agent_forge/runs/showcases/lab1-governed-change-control__2026-08-17_00-59-30__4d0d7db/phases/lab1-governed-change-continuation__2026-08-17_00-59-30__80dd1b3/run_manifest.json",
+      "old_sha256": "7b01bea61b99d2e44b34f61b5dd057053155ef8aa2e61c2da2d30fbba50a5946",
+      "new_sha256": "cce017edf01c0c13d552663240bbc703fe42570843b2fcfb2a37eecd3a46d997",
+      "old_byte_size": 8182,
+      "new_byte_size": 8182,
+      "old_schema_version": 2,
+      "new_schema_version": 2,
+      "checkpoint_schema_version": null,
+      "checkpoint_count": 0,
+      "transform": [
+        "referenced artifact sha256 and byte_size refreshed"
+      ],
+      "normalized_semantic_sha256": "1affcd0d36e02ec7d3ff2cde0d4c7bfedff077263149becb38e335aaecb878d0"
+    },
+    {
+      "path": ".agent_forge/runs/showcases/lab1-governed-change-control__2026-08-17_00-59-30__4d0d7db/phases/lab1-governed-change-continuation__2026-08-17_00-59-30__80dd1b3/task_state/11a15861-4f8e-4b53-ab3f-f3c6f5dd7641.json",
+      "old_sha256": "4f707b0464ecfce38af61ff60b8e4bb9dbe615fb299c95799a0ab4a4480fd107",
+      "new_sha256": "037b3100ebb1c30deb528962f421bfbedc81bdecfc146dc21d831f35cdfa4bd0",
+      "old_byte_size": 2577,
+      "new_byte_size": 2590,
+      "old_schema_version": 2,
+      "new_schema_version": 3,
+      "checkpoint_schema_version": {
+        "old": 2,
+        "new": 3
+      },
+      "checkpoint_count": 1,
+      "transform": [
+        "checkpoint.session_digest -> checkpoint.conversation_history_digest",
+        "nested TaskCheckpoint schema_version 2 -> 3"
+      ],
+      "normalized_semantic_sha256": "8da34de69bc35f095325dd0f0056208c73f327fc92062b88bb88ef269956f8d3"
+    },
+    {
+      "path": ".agent_forge/runs/showcases/lab1-governed-change-control__2026-08-17_00-59-30__4d0d7db/phases/lab1-governed-change-continuation__2026-08-17_00-59-30__80dd1b3/trace.json",
+      "old_sha256": "c55b17dcd5cee5228e0ae09d5a79ff0424a9dc192d37750ed8629468304403cf",
+      "new_sha256": "81a47a7fee13a6d391587711099ad2324562293c1c22f1af87f46ceb6ad96a08",
+      "old_byte_size": 49422,
+      "new_byte_size": 49500,
+      "old_schema_version": 2,
+      "new_schema_version": 2,
+      "checkpoint_schema_version": {
+        "old": 2,
+        "new": 3
+      },
+      "checkpoint_count": 6,
+      "transform": [
+        "checkpoint.session_digest -> checkpoint.conversation_history_digest",
+        "nested TaskCheckpoint schema_version 2 -> 3"
+      ],
+      "normalized_semantic_sha256": "36b71f32b9ca855dd1ef3c21a4fb36a8bd00768f97a881a15e890c7d229c0b2b"
+    },
+    {
+      "path": ".agent_forge/runs/showcases/lab1-governed-change-control__2026-08-17_00-59-30__4d0d7db/phases/lab1-governed-change-continuation__2026-08-17_00-59-30__80dd1b3/trace.jsonl",
+      "old_sha256": "46e9781e22dcae9b6c4941084b91bf577716695159f180ef7f4769248703f6c2",
+      "new_sha256": "3985caa2210042ae4d8c382bfc094bb408044cb4a02d0329e958eb7e6bd71feb",
+      "old_byte_size": 38462,
+      "new_byte_size": 38540,
+      "old_schema_version": 2,
+      "new_schema_version": 2,
+      "checkpoint_schema_version": {
+        "old": 2,
+        "new": 3
+      },
+      "checkpoint_count": 6,
+      "transform": [
+        "checkpoint.session_digest -> checkpoint.conversation_history_digest",
+        "nested TaskCheckpoint schema_version 2 -> 3"
+      ],
+      "normalized_semantic_sha256": "cd6e73242689b937dd0a98ff17f9bcea1239f40452f936c4020c52b274f7152d"
+    },
+    {
+      "path": ".agent_forge/runs/showcases/lab1-governed-change-control__2026-08-17_00-59-30__4d0d7db/phases/lab1-governed-change-continuation__2026-08-17_00-59-31__d25b77a/run_manifest.json",
+      "old_sha256": "6a63a7154c4d6fa7003a60d5eeb017395e3e71a2576f21639e9ed8160ca7ce0c",
+      "new_sha256": "3d9737e6a6f4e7688724162eda15cdd67b50dfd2408b2612e36c782280e96f5b",
+      "old_byte_size": 8987,
+      "new_byte_size": 8987,
+      "old_schema_version": 2,
+      "new_schema_version": 2,
+      "checkpoint_schema_version": null,
+      "checkpoint_count": 0,
+      "transform": [
+        "referenced artifact sha256 and byte_size refreshed"
+      ],
+      "normalized_semantic_sha256": "5fe3665d33ec41d66981a4d75464fe24397ae00aa1a372e9cf2fe3484811de1e"
+    },
+    {
+      "path": ".agent_forge/runs/showcases/lab1-governed-change-control__2026-08-17_00-59-30__4d0d7db/phases/lab1-governed-change-continuation__2026-08-17_00-59-31__d25b77a/task_state/e64c48b6-6264-48ff-92c4-8bacfcfac4a2.json",
+      "old_sha256": "83286406dd05d5a0715bae4b72b57b6c07523971c9a20efe272cc6d31e0efc09",
+      "new_sha256": "d05caa27455a014cd2e8e11089c0036870e503bb29781d0d5ebadad619f9b137",
+      "old_byte_size": 3695,
+      "new_byte_size": 3708,
+      "old_schema_version": 2,
+      "new_schema_version": 3,
+      "checkpoint_schema_version": {
+        "old": 2,
+        "new": 3
+      },
+      "checkpoint_count": 1,
+      "transform": [
+        "checkpoint.session_digest -> checkpoint.conversation_history_digest",
+        "nested TaskCheckpoint schema_version 2 -> 3"
+      ],
+      "normalized_semantic_sha256": "1d06fa94d90fbb2e212061a2007ef678f820da75f699a1431b2d4aeff7b40808"
+    },
+    {
+      "path": ".agent_forge/runs/showcases/lab1-governed-change-control__2026-08-17_00-59-30__4d0d7db/phases/lab1-governed-change-continuation__2026-08-17_00-59-31__d25b77a/trace.json",
+      "old_sha256": "1797ab8651d3fe5fcb5227aa56c6eb3fd3338d6d468125a6e1fb9acd44dc671e",
+      "new_sha256": "5d74a155e40004ab6745936db52d8aba62040819128e375f82715fb7c83f6747",
+      "old_byte_size": 98337,
+      "new_byte_size": 98480,
+      "old_schema_version": 2,
+      "new_schema_version": 2,
+      "checkpoint_schema_version": {
+        "old": 2,
+        "new": 3
+      },
+      "checkpoint_count": 11,
+      "transform": [
+        "checkpoint.session_digest -> checkpoint.conversation_history_digest",
+        "nested TaskCheckpoint schema_version 2 -> 3"
+      ],
+      "normalized_semantic_sha256": "4b27d92533b436cede715d8ba37b436e5449c09cf7031d544c5e20b7668684c9"
+    },
+    {
+      "path": ".agent_forge/runs/showcases/lab1-governed-change-control__2026-08-17_00-59-30__4d0d7db/phases/lab1-governed-change-continuation__2026-08-17_00-59-31__d25b77a/trace.jsonl",
+      "old_sha256": "8d49faa147cbfe68eebee03814abcceadefbef9638f91600e79bd40376950f8e",
+      "new_sha256": "3c860d64a8e18c381f8644356ab5a75f98faef428fb1af149d8c758791ea508f",
+      "old_byte_size": 77686,
+      "new_byte_size": 77829,
+      "old_schema_version": 2,
+      "new_schema_version": 2,
+      "checkpoint_schema_version": {
+        "old": 2,
+        "new": 3
+      },
+      "checkpoint_count": 11,
+      "transform": [
+        "checkpoint.session_digest -> checkpoint.conversation_history_digest",
+        "nested TaskCheckpoint schema_version 2 -> 3"
+      ],
+      "normalized_semantic_sha256": "c417fcd43e955e7722c2b54db3a1e7c5f28435927f41fdac6bc3a980d2a51b60"
+    },
+    {
+      "path": ".agent_forge/runs/showcases/lab1-governed-change-control__2026-08-17_00-59-30__4d0d7db/phases/lab1-governed-change-start__2026-08-17_00-59-30__9b9775a/run_manifest.json",
+      "old_sha256": "4f1268dd96180835b1df1db63c84d3ddea46694afe5df39b2a7a8f82bede8a97",
+      "new_sha256": "1d72eb1aa25a8c158e7398d45660f87f23725e3eb3026653dde71bc49a3db3b7",
+      "old_byte_size": 8176,
+      "new_byte_size": 8176,
+      "old_schema_version": 2,
+      "new_schema_version": 2,
+      "checkpoint_schema_version": null,
+      "checkpoint_count": 0,
+      "transform": [
+        "referenced artifact sha256 and byte_size refreshed"
+      ],
+      "normalized_semantic_sha256": "6f4596f18ccc7755f1b9f3e2b018053d9715199a7bc7e63f13307365384b8a6a"
+    },
+    {
+      "path": ".agent_forge/runs/showcases/lab1-governed-change-control__2026-08-17_00-59-30__4d0d7db/phases/lab1-governed-change-start__2026-08-17_00-59-30__9b9775a/task_state/a3743b52-e27e-4864-896e-3b65b0f70026.json",
+      "old_sha256": "07084006d23b69be5dc59c67be24e012e8e5f6187b4cc187920ba8ef89b3afd9",
+      "new_sha256": "07d75a2c70752223c7f3ac149543e06a9d20610e1a1c11f23748272167c3b4f4",
+      "old_byte_size": 2618,
+      "new_byte_size": 2631,
+      "old_schema_version": 2,
+      "new_schema_version": 3,
+      "checkpoint_schema_version": {
+        "old": 2,
+        "new": 3
+      },
+      "checkpoint_count": 1,
+      "transform": [
+        "checkpoint.session_digest -> checkpoint.conversation_history_digest",
+        "nested TaskCheckpoint schema_version 2 -> 3"
+      ],
+      "normalized_semantic_sha256": "1911c35d80100dd214bf996d8c5daec16f1fe7dee9a0adfe327b7f9a99ad247d"
+    },
+    {
+      "path": ".agent_forge/runs/showcases/lab1-governed-change-control__2026-08-17_00-59-30__4d0d7db/phases/lab1-governed-change-start__2026-08-17_00-59-30__9b9775a/trace.json",
+      "old_sha256": "dc5f06dcbd99166ac7aa0f0dab3245e3b16a8d5dda0150d06b8954b901c6050d",
+      "new_sha256": "d4c5c3f9bd2032aff6815c6572d02f568f95e86dfe00068454d7f55cc3fc8136",
+      "old_byte_size": 25309,
+      "new_byte_size": 25348,
+      "old_schema_version": 2,
+      "new_schema_version": 2,
+      "checkpoint_schema_version": {
+        "old": 2,
+        "new": 3
+      },
+      "checkpoint_count": 3,
+      "transform": [
+        "checkpoint.session_digest -> checkpoint.conversation_history_digest",
+        "nested TaskCheckpoint schema_version 2 -> 3"
+      ],
+      "normalized_semantic_sha256": "9004754a78ec93be0acb3aab1d181a7f1dee14ad4b996271d704f35648f9cf60"
+    },
+    {
+      "path": ".agent_forge/runs/showcases/lab1-governed-change-control__2026-08-17_00-59-30__4d0d7db/phases/lab1-governed-change-start__2026-08-17_00-59-30__9b9775a/trace.jsonl",
+      "old_sha256": "9220d1e490e72bd818e23fc2bd5d9b250d4f31c4532850617ef9a2af4e84a3ae",
+      "new_sha256": "020adfa824ca39143deae5acb3acec023a930c1d220cac471f7cdaa8e0dcaa53",
+      "old_byte_size": 19381,
+      "new_byte_size": 19420,
+      "old_schema_version": 2,
+      "new_schema_version": 2,
+      "checkpoint_schema_version": {
+        "old": 2,
+        "new": 3
+      },
+      "checkpoint_count": 3,
+      "transform": [
+        "checkpoint.session_digest -> checkpoint.conversation_history_digest",
+        "nested TaskCheckpoint schema_version 2 -> 3"
+      ],
+      "normalized_semantic_sha256": "5babf6ae80b49454c723069f4ca291e12cca563fc5cae904d353c19a184c63a3"
+    },
+    {
+      "path": ".agent_forge/runs/showcases/lab2-checkout-policy-agents__2026-08-17_00-03-39__4028377/fanout/finalizer/task_state/0f24923f-8557-49bd-9151-c359f375d720.json",
+      "old_sha256": "97fc01e450cec1d9e54f8593e7d76e078d175edb422f0caa6c03b4b781993a4c",
+      "new_sha256": "41026657e173e1af6e798eb57de7c08137a3ee3dc1c8b93154deefd3d6eaf63b",
+      "old_byte_size": 6135,
+      "new_byte_size": 6148,
+      "old_schema_version": 2,
+      "new_schema_version": 3,
+      "checkpoint_schema_version": {
+        "old": 2,
+        "new": 3
+      },
+      "checkpoint_count": 1,
+      "transform": [
+        "checkpoint.session_digest -> checkpoint.conversation_history_digest",
+        "nested TaskCheckpoint schema_version 2 -> 3"
+      ],
+      "normalized_semantic_sha256": "92cf3538a7e7da81cf7963cb2bddb7d38240f511f4e3b3b1778dbbb166f234a1"
+    },
+    {
+      "path": ".agent_forge/runs/showcases/lab2-checkout-policy-agents__2026-08-17_00-03-39__4028377/fanout/finalizer/trace.json",
+      "old_sha256": "07e5f7b324f037b64c14ae8efe790c84aaea2a84ea8001ffa9a923f0f35084cf",
+      "new_sha256": "dc694b4633079e8f529a61d25e8f50a4d5215330dc76828512a4bab965e22a27",
+      "old_byte_size": 82368,
+      "new_byte_size": 82459,
+      "old_schema_version": 2,
+      "new_schema_version": 2,
+      "checkpoint_schema_version": {
+        "old": 2,
+        "new": 3
+      },
+      "checkpoint_count": 7,
+      "transform": [
+        "checkpoint.session_digest -> checkpoint.conversation_history_digest",
+        "nested TaskCheckpoint schema_version 2 -> 3"
+      ],
+      "normalized_semantic_sha256": "64072f3481b3982053927937ef152dab8563b4fc6346ba35776920954e245877"
+    },
+    {
+      "path": ".agent_forge/runs/showcases/lab2-checkout-policy-agents__2026-08-17_00-03-39__4028377/fanout/finalizer/trace.jsonl",
+      "old_sha256": "a8fa331cedc404d6fc9af2869d5cc747cb3eb3a9980d687e4b2f3598060cf53a",
+      "new_sha256": "538bf6cd156d383e5d0ea049bbe9b008a8ed02582de5fccecd59697cc0f6ec6b",
+      "old_byte_size": 73775,
+      "new_byte_size": 73866,
+      "old_schema_version": 2,
+      "new_schema_version": 2,
+      "checkpoint_schema_version": {
+        "old": 2,
+        "new": 3
+      },
+      "checkpoint_count": 7,
+      "transform": [
+        "checkpoint.session_digest -> checkpoint.conversation_history_digest",
+        "nested TaskCheckpoint schema_version 2 -> 3"
+      ],
+      "normalized_semantic_sha256": "13721ff2aea3393d916e93785bb723ea6a55bbb28e35cf75d7b204c327cdf499"
+    },
+    {
+      "path": ".agent_forge/runs/showcases/lab2-checkout-policy-agents__2026-08-17_00-03-39__4028377/fanout/workers/edge-case-verifier/task_state/5f792ec4-3921-49bc-9e9a-929298dd7984.json",
+      "old_sha256": "bc1fd86dfa978b1e1059c517209c325a4fc382d547d91f0d353f4076a00343e1",
+      "new_sha256": "54d41a6ce808720a2869861ed1b37b5c58228e0153bba4ceab2235f5f8bfe699",
+      "old_byte_size": 4350,
+      "new_byte_size": 4363,
+      "old_schema_version": 2,
+      "new_schema_version": 3,
+      "checkpoint_schema_version": {
+        "old": 2,
+        "new": 3
+      },
+      "checkpoint_count": 1,
+      "transform": [
+        "checkpoint.session_digest -> checkpoint.conversation_history_digest",
+        "nested TaskCheckpoint schema_version 2 -> 3"
+      ],
+      "normalized_semantic_sha256": "2a15abf4c242e158f629772512bc0124997dc48fadae4d208f0cec8d2f1b9801"
+    },
+    {
+      "path": ".agent_forge/runs/showcases/lab2-checkout-policy-agents__2026-08-17_00-03-39__4028377/fanout/workers/edge-case-verifier/trace.json",
+      "old_sha256": "c72b03b85a3ab444e7ea89dc1d5d6c03621f25293630e5705c79ca3c08626a56",
+      "new_sha256": "ccbae8de932b9fff8ec26561a47c8679530ac4d5874b45890584f38e75e7b76a",
+      "old_byte_size": 46722,
+      "new_byte_size": 46787,
+      "old_schema_version": 2,
+      "new_schema_version": 2,
+      "checkpoint_schema_version": {
+        "old": 2,
+        "new": 3
+      },
+      "checkpoint_count": 5,
+      "transform": [
+        "checkpoint.session_digest -> checkpoint.conversation_history_digest",
+        "nested TaskCheckpoint schema_version 2 -> 3"
+      ],
+      "normalized_semantic_sha256": "04d8e814fdba4b61a7400415fffe82d35844e55cb73bdeec0121d8c09f0a0a50"
+    },
+    {
+      "path": ".agent_forge/runs/showcases/lab2-checkout-policy-agents__2026-08-17_00-03-39__4028377/fanout/workers/edge-case-verifier/trace.jsonl",
+      "old_sha256": "00eb62eaae454f31f46284ae57357660d856d541c4ebacec9eecc6eeb9a265d0",
+      "new_sha256": "64c9b0bfdba6f704b58d424d0675576aee71db61ef7da835637a38be3bb961d0",
+      "old_byte_size": 38527,
+      "new_byte_size": 38592,
+      "old_schema_version": 2,
+      "new_schema_version": 2,
+      "checkpoint_schema_version": {
+        "old": 2,
+        "new": 3
+      },
+      "checkpoint_count": 5,
+      "transform": [
+        "checkpoint.session_digest -> checkpoint.conversation_history_digest",
+        "nested TaskCheckpoint schema_version 2 -> 3"
+      ],
+      "normalized_semantic_sha256": "4524d824b1d07e88267a1bd0f666d16cc66a66bc8a733f78e748868afd349576"
+    },
+    {
+      "path": ".agent_forge/runs/showcases/lab2-checkout-policy-agents__2026-08-17_00-03-39__4028377/fanout/workers/pricing-policy/task_state/c690c1d5-3e7a-4367-87a5-8ec7c6e17fe0.json",
+      "old_sha256": "e05db834d7e03b7940eb5e7efc37891686711890cdf09f1240daefcdd05ddc12",
+      "new_sha256": "fbe8b1c2a6b8d88772619ab7de4891e7a0ad098ae6f09ae534813bb237a0a21e",
+      "old_byte_size": 3416,
+      "new_byte_size": 3429,
+      "old_schema_version": 2,
+      "new_schema_version": 3,
+      "checkpoint_schema_version": {
+        "old": 2,
+        "new": 3
+      },
+      "checkpoint_count": 1,
+      "transform": [
+        "checkpoint.session_digest -> checkpoint.conversation_history_digest",
+        "nested TaskCheckpoint schema_version 2 -> 3"
+      ],
+      "normalized_semantic_sha256": "ecee2c24dd367fa3cf478d47c1782bc377040dac97eabe7474a2ce245555d6c5"
+    },
+    {
+      "path": ".agent_forge/runs/showcases/lab2-checkout-policy-agents__2026-08-17_00-03-39__4028377/fanout/workers/pricing-policy/trace.json",
+      "old_sha256": "73bddd39e4d1a6e32bdce162a4a4a4c79b1548056b43107c93eaece0c2ca0360",
+      "new_sha256": "6d2b4be492e5131875ecd8e9ca7de21f92de1116c82e172b6ddb4c61c8c3ce4f",
+      "old_byte_size": 74886,
+      "new_byte_size": 75003,
+      "old_schema_version": 2,
+      "new_schema_version": 2,
+      "checkpoint_schema_version": {
+        "old": 2,
+        "new": 3
+      },
+      "checkpoint_count": 9,
+      "transform": [
+        "checkpoint.session_digest -> checkpoint.conversation_history_digest",
+        "nested TaskCheckpoint schema_version 2 -> 3"
+      ],
+      "normalized_semantic_sha256": "c14b47a7ff661fd7ccf39112d97fe8bb1d1a7a75b24ff90d0bdba7c44c968759"
+    },
+    {
+      "path": ".agent_forge/runs/showcases/lab2-checkout-policy-agents__2026-08-17_00-03-39__4028377/fanout/workers/pricing-policy/trace.jsonl",
+      "old_sha256": "e53b8ba064e6148c9631bde7bcf260b205bc3689e22d81eb92721604965a5a30",
+      "new_sha256": "bf05580282288b902f5e680937cc0777992ed04c9e5a64bd93e4b4b003eb9b2a",
+      "old_byte_size": 61238,
+      "new_byte_size": 61355,
+      "old_schema_version": 2,
+      "new_schema_version": 2,
+      "checkpoint_schema_version": {
+        "old": 2,
+        "new": 3
+      },
+      "checkpoint_count": 9,
+      "transform": [
+        "checkpoint.session_digest -> checkpoint.conversation_history_digest",
+        "nested TaskCheckpoint schema_version 2 -> 3"
+      ],
+      "normalized_semantic_sha256": "727bc7c78269ad36e0750e4519662fdc56b5113d65e9184af166a13c80656364"
+    },
+    {
+      "path": ".agent_forge/runs/showcases/lab2-checkout-policy-agents__2026-08-17_00-03-39__4028377/fanout/workers/shipping-policy/task_state/6ffbb528-d90d-4d27-ba69-27d25701a3c3.json",
+      "old_sha256": "513b18827b7c23630cb39ddb4219aad7a511efa6a6019e72151f71b696a154ec",
+      "new_sha256": "d8fac98ae6c68ffaeadbe23cd21ff108d56e68b700345b0f497a6670aeaaf059",
+      "old_byte_size": 3418,
+      "new_byte_size": 3431,
+      "old_schema_version": 2,
+      "new_schema_version": 3,
+      "checkpoint_schema_version": {
+        "old": 2,
+        "new": 3
+      },
+      "checkpoint_count": 1,
+      "transform": [
+        "checkpoint.session_digest -> checkpoint.conversation_history_digest",
+        "nested TaskCheckpoint schema_version 2 -> 3"
+      ],
+      "normalized_semantic_sha256": "b6a6e103fda2eb65255fe2a403a502018114db2fdbdda1b9990bba1e7b74a323"
+    },
+    {
+      "path": ".agent_forge/runs/showcases/lab2-checkout-policy-agents__2026-08-17_00-03-39__4028377/fanout/workers/shipping-policy/trace.json",
+      "old_sha256": "160d2eca8856cfd7c3a24d50a68a50557bc897a1c19182f4b4c3d10ab0285ab0",
+      "new_sha256": "09b1fb2ea0308cc601ccae00da5924d4c9045b6ee3eb303f04e7fc64d526f588",
+      "old_byte_size": 76089,
+      "new_byte_size": 76206,
+      "old_schema_version": 2,
+      "new_schema_version": 2,
+      "checkpoint_schema_version": {
+        "old": 2,
+        "new": 3
+      },
+      "checkpoint_count": 9,
+      "transform": [
+        "checkpoint.session_digest -> checkpoint.conversation_history_digest",
+        "nested TaskCheckpoint schema_version 2 -> 3"
+      ],
+      "normalized_semantic_sha256": "c4e29a088cdb7913461b9efb41375ad5407f4264798a9047bb05a1246db4d399"
+    },
+    {
+      "path": ".agent_forge/runs/showcases/lab2-checkout-policy-agents__2026-08-17_00-03-39__4028377/fanout/workers/shipping-policy/trace.jsonl",
+      "old_sha256": "c05f8a5911021d2c143faf5c03e452cb429a2c3d0112a4b5f31756bd006eae06",
+      "new_sha256": "61f164ded31ac72ea97e36c54e4406aabab6a7c0a8e5baabe85b58b121f92907",
+      "old_byte_size": 62441,
+      "new_byte_size": 62558,
+      "old_schema_version": 2,
+      "new_schema_version": 2,
+      "checkpoint_schema_version": {
+        "old": 2,
+        "new": 3
+      },
+      "checkpoint_count": 9,
+      "transform": [
+        "checkpoint.session_digest -> checkpoint.conversation_history_digest",
+        "nested TaskCheckpoint schema_version 2 -> 3"
+      ],
+      "normalized_semantic_sha256": "c8958be687f135ac6c4b5676b44e96715c12ada6bb66dc4094c8ad7a88a2cabd"
+    },
+    {
+      "path": "benchmarks/experiments/mini50-v1-deepseek-v4-flash/empty-patch-failure-review-v1.json",
+      "old_sha256": "e979a8374644e1be3cd84f9869e0ed172fe0ad15024badbf4a75372dfacd9c9d",
+      "new_sha256": "790a8b763a548c9bc2215a891fd116872cd25a753c7c9654ec3f081f2c6d03f8",
+      "old_byte_size": 18568,
+      "new_byte_size": 18568,
+      "old_schema_version": 1,
+      "new_schema_version": 1,
+      "checkpoint_schema_version": null,
+      "checkpoint_count": 0,
+      "transform": [
+        "6 referenced trace_sha256 value(s) refreshed"
+      ],
+      "normalized_semantic_sha256": "1893b61a6154c6fd52eed1effbf8e971dc3029c3beb867c9fd37e110fe1e5388"
+    },
+    {
+      "path": "benchmarks/showcase/evidence-review-v1.json",
+      "old_sha256": "e86616d2ab704c5c1c6bdc2168840c40ad8a5817f08fe23de0aedc2a8099e550",
+      "new_sha256": "8cf171d4ae51b91021af0815ede08afc342b6bea78570e4c4fa95f0d404df45e",
+      "old_byte_size": 8034,
+      "new_byte_size": 8034,
+      "old_schema_version": 1,
+      "new_schema_version": 1,
+      "checkpoint_schema_version": null,
+      "checkpoint_count": 0,
+      "transform": [
+        "3 referenced trace_sha256 value(s) refreshed",
+        "canonical evidence-tree and referenced trace hashes refreshed"
+      ],
+      "normalized_semantic_sha256": "9948d78889a8bae5e4df58fbc36e36d69edf9cfbb51b4981ae9fa9979702ea6a"
+    }
+  ],
+  "preserved_values": [
+    "status and timestamps",
+    "model outputs and Tool Observations",
+    "candidate diffs and execution order",
+    "resolved/unresolved/empty-patch outcomes",
+    "usage and cost",
+    "run identities"
+  ]
+}

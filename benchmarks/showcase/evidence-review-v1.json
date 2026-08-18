@@ -25,7 +25,7 @@
           "phases/**/*"
         ],
         "file_count": 35,
-        "sha256": "5a073ba8443ad9c9216da0284489e733a8b4b4500d7ca19e33dc1271d8a01d0e"
+        "sha256": "f2ce5b83c12b838ab36c14b24214646127e437a281cecc3a0f3e777d6af10ca7"
       },
       "expected_status": "completed",
       "architecture_anchor": "#durability",
@@ -47,7 +47,7 @@
           "fanout/**/*"
         ],
         "file_count": 41,
-        "sha256": "17e5bf1659f034dd352dc67d3b0663f3085965693c8582c6b32d7e1d74ba5343"
+        "sha256": "3e01b34e77d5239e29ad980f543fb3ce665d35416434f7bb0cc77e7f61e94691"
       },
       "expected_status": "passed",
       "architecture_anchor": "#system",
@@ -81,7 +81,7 @@
           "provenance": {
             "campaign": "mini50-v1-deepseek-v4-flash-3ec537113a-9f81b94c99",
             "run_id": "swebench-20260816-010255-bdfa8cd",
-            "trace_sha256": "1e2a2b1c8e4f620af813c99dcff2a2eb725ad1489c3d78d73403811bb2d0a477",
+            "trace_sha256": "5be87ae882c94080e698d6697c58e9f92de18a5ede7f0166d9d1b08b289858a6",
             "candidate_diff_sha256": "5d88778dfe971e8c88543474dd42e6ee648088f0144f667161a1dcce6dfd49e6",
             "evaluator_report_sha256": "4b3a086037a8d41b29bbb6e2f1db51f88fd99c35ddbf5b4094c2abdbe645feea"
           }
@@ -101,7 +101,7 @@
           "provenance": {
             "campaign": "mini50-v1-deepseek-v4-flash-3ec537113a-9f81b94c99",
             "run_id": "swebench-20260816-033114-c67649d",
-            "trace_sha256": "bb68b361d51b698e9bfb8170406ad23bd72f59dd26f876c2076f5126e905fbc8",
+            "trace_sha256": "90ce9a59fb5070847e2c2514212ba9f82aea8a82003af4e20d8f2148ffbcb588",
             "candidate_diff_sha256": "65bed142760e6e616c82beedb62683b4d7d74d5e9067079d212134ea43aa6067",
             "evaluator_report_sha256": "502d8559bf38f34750904dc47ad742fa3b82c6c407585193af0c2e60666a3d55"
           }
@@ -121,7 +121,7 @@
           "provenance": {
             "campaign": "mini50-v1-deepseek-v4-flash-3ec537113a-9f81b94c99",
             "run_id": "swebench-20260816-010255-21122a0",
-            "trace_sha256": "cd76910ff73b255cbec3c691072f1c4d8b106d8415dd5613ab119b9f68d74893",
+            "trace_sha256": "a85c73ee64acf2e3282453daca20441eb4c65cd88dcb67524b42ee0f1fcdb56b",
             "derived_review": "benchmarks/experiments/mini50-v1-deepseek-v4-flash/empty-patch-failure-review-v1.json"
           }
         }
