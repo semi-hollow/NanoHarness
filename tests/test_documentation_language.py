@@ -14,12 +14,11 @@ CHINESE_FIRST_DOCS = (
     "FORGE.md",
     "SECURITY.md",
     "agent_forge/README.md",
-    "docs/架构讲解索引.md",
     "docs/架构导览.md",
     "docs/Agent运行数据结构与模型输入.md",
     "docs/上下文工程.md",
     "docs/上下文压缩与长任务设计.md",
-    "docs/工具治理与执行.md",
+    "docs/运行治理与工具执行.md",
     "docs/多Agent编排.md",
     "docs/核心能力与代码入口.md",
     "docs/运行产物与持久化契约.md",
@@ -29,12 +28,11 @@ CHINESE_FIRST_DOCS = (
 PUBLIC_DOC_LINE_BUDGETS = {
     "README.md": 250,
     "docs/MULTI_AGENT_ROADMAP.md": 700,
-    "docs/架构讲解索引.md": 170,
-    "docs/架构导览.md": 400,
+    "docs/架构导览.md": 450,
     "docs/Agent运行数据结构与模型输入.md": 430,
-    "docs/上下文工程.md": 300,
+    "docs/上下文工程.md": 350,
     "docs/上下文压缩与长任务设计.md": 320,
-    "docs/工具治理与执行.md": 380,
+    "docs/运行治理与工具执行.md": 620,
     "docs/多Agent编排.md": 720,
     "docs/核心能力与代码入口.md": 280,
     "docs/运行产物与持久化契约.md": 340,
@@ -42,12 +40,11 @@ PUBLIC_DOC_LINE_BUDGETS = {
 }
 
 CANONICAL_README_LINKS = (
-    "docs/架构讲解索引.md",
     "docs/架构导览.md",
     "docs/Agent运行数据结构与模型输入.md",
     "docs/上下文工程.md",
     "docs/上下文压缩与长任务设计.md",
-    "docs/工具治理与执行.md",
+    "docs/运行治理与工具执行.md",
     "docs/多Agent编排.md",
     "docs/核心能力与代码入口.md",
     "docs/运行产物与持久化契约.md",
@@ -63,12 +60,11 @@ APPROVED_TECHNICAL_DOC_NAMES = {"docs/MULTI_AGENT_ROADMAP.md"}
 
 ALLOWED_TOP_LEVEL_DOCS = {
     "docs/MULTI_AGENT_ROADMAP.md",
-    "docs/架构讲解索引.md",
     "docs/架构导览.md",
     "docs/Agent运行数据结构与模型输入.md",
     "docs/上下文工程.md",
     "docs/上下文压缩与长任务设计.md",
-    "docs/工具治理与执行.md",
+    "docs/运行治理与工具执行.md",
     "docs/多Agent编排.md",
     "docs/核心能力与代码入口.md",
     "docs/运行产物与持久化契约.md",
@@ -77,8 +73,8 @@ ALLOWED_TOP_LEVEL_DOCS = {
 MAX_PUBLIC_DOCS = len(ALLOWED_TOP_LEVEL_DOCS)
 
 REVIEW_FIRST_DOCS = {
-    "docs/上下文工程.md": ("# 3. 当前 Turn 的真实构造链", 70),
-    "docs/工具治理与执行.md": ("# 1. 一张主链图", 70),
+    "docs/上下文工程.md": ("# 2. 当前 Turn 的输入构造", 70),
+    "docs/运行治理与工具执行.md": ("# 1. 主链", 70),
 }
 
 PUBLIC_POSITIONING_FORBIDDEN = (
@@ -189,6 +185,42 @@ class DocumentationLanguageTest(unittest.TestCase):
                 f"{relative_path} 在主链前堆积了过多背景",
             )
 
+    def test_core_docs_use_searchable_canonical_code_symbols(self) -> None:
+        """数据流和运行链必须能用文档中的真实名称直接定位源码。"""
+
+        required_symbols = {
+            "docs/上下文工程.md": (
+                "AgentRunSession.messages",
+                "conversation_history = list(session.messages)",
+                "PromptWindowRequest.conversation_history",
+                "PromptWindowManager.prepare()",
+                "PromptWindowResult.llm_messages",
+                "PreparedTurn.llm_messages",
+                "ModelPort.chat(...)",
+                "TurnSystemContextBuildReport",
+                "turn_system_message",
+            ),
+            "docs/运行治理与工具执行.md": (
+                "ToolExecutionPipeline._execute_call()",
+                "OperationTracker.build_operation_intent()",
+                "ToolAuthorizationGate.authorize()",
+                "ToolExecutionPipeline._run_tool()",
+                "ToolGateway.execute()",
+                "HookManager.after_tool()",
+                "OperationTracker.record_execution_result()",
+                "AgentRunSession.messages(role=tool)",
+            ),
+        }
+        missing: list[str] = []
+        for relative_path, symbols in required_symbols.items():
+            content = (PROJECT_ROOT / relative_path).read_text(encoding="utf-8")
+            missing.extend(
+                f"{relative_path}: {symbol}"
+                for symbol in symbols
+                if symbol not in content
+            )
+        self.assertEqual(missing, [], "Canonical CodeSymbol 文档映射发生漂移")
+
     def test_public_repository_uses_project_facing_language(self) -> None:
         """公开源码只描述项目范围、工程事实、操作方法和验证标准。"""
 
@@ -253,26 +285,30 @@ class DocumentationLanguageTest(unittest.TestCase):
             if line.startswith("# ") and line != "# 架构导览"
         ]
         expected_headings = [
-            "# 1. 系统为什么不是一个简单 AgentLoop",
-            "# 2. 一张主链图",
-            "# 3. 四个核心平面",
-            "# 4. Context 不应该按变量堆叠理解",
-            "# 5. Workspace、Worktree、Run Artifacts 必须分开",
-            "# 6. 当前 Multi-Agent 能力边界",
-            "# 7. 长任务是 Runtime 问题，不只是 Context 问题",
-            "# 8. 核心源码主链",
-            "# 9. 60 秒摘要",
+            "# 1. 系统定位",
+            "# 2. 总体主链",
+            "# 3. Agent 运行数据模型",
+            "# 4. LLM 输入的三块来源",
+            "# 5. 提示窗口（Prompt Window）",
+            "# 6. 运行治理（Runtime Governance）",
+            "# 7. 持久化控制面（Durable Control Plane）",
+            "# 8. 多 Agent 编排（Multi-Agent）",
+            "# 9. 评测（Evaluation）",
+            "# 10. 文档导航",
         ]
         if main_headings != expected_headings:
-            violations.append("架构导览必须保持九段唯一主链")
+            violations.append("架构导览必须保持十段唯一主链")
         for contract in (
             '<a id="system"></a>',
             '<a id="context"></a>',
             '<a id="governance"></a>',
             '<a id="durability"></a>',
             '<a id="evaluation"></a>',
-            "Official resolved  28 / 50",
-            "feature/multi-agent-v1` 当前已经补齐",
+            "Model proposes",
+            "Runtime decides",
+            "V1 capability branch",
+            "Fixed Case Cohort",
+            "V1 capability branch（CURRENT）",
             "V2 定量评测和自动语义冲突解决仍是 FUTURE / NOT IMPLEMENTED",
         ):
             if contract not in architecture:
