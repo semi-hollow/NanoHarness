@@ -76,22 +76,40 @@ def _check_docs() -> list[Check]:
     readme = PROJECT_ROOT / "README.md"
     architecture_text = _text(architecture)
     readme_text = _text(readme)
-    plane_headings = [
-        line for line in architecture_text.splitlines() if line.startswith("## ")
+    main_headings = [
+        line
+        for line in architecture_text.splitlines()
+        if line.startswith("# ") and line != "# 架构导览"
     ]
-    expected_plane_headings = [
-        "## 3.1 模型输入平面 / Model Input Plane",
-        "## 3.2 执行与治理平面 / Execution & Governance Plane",
-        "## 3.3 持久化控制平面 / Durable Control Plane",
-        "## 3.4 评测平面 / Evaluation Plane",
+    expected_main_headings = [
+        "# 1. 系统定位",
+        "# 2. 总体主链",
+        "# 3. Agent 运行数据模型",
+        "# 4. LLM 输入的三块来源",
+        "# 5. 提示窗口（Prompt Window）",
+        "# 6. 运行治理（Runtime Governance）",
+        "# 7. 持久化控制面（Durable Control Plane）",
+        "# 8. 多 Agent 编排（Multi-Agent）",
+        "# 9. 评测（Evaluation）",
+        "# 10. 文档导航",
     ]
+    stable_anchors = ("system", "context", "governance", "durability", "evaluation")
     return [
         Check("Docs", "Architecture Guide", architecture.is_file(), str(architecture)),
         Check(
             "Docs",
-            "Four architecture planes",
-            plane_headings == expected_plane_headings,
-            " | ".join(plane_headings),
+            "Canonical architecture sections",
+            main_headings == expected_main_headings,
+            " | ".join(main_headings),
+        ),
+        Check(
+            "Docs",
+            "Stable architecture anchors",
+            all(
+                f'<a id="{anchor}"></a>' in architecture_text
+                for anchor in stable_anchors
+            ),
+            " / ".join(f"#{anchor}" for anchor in stable_anchors),
         ),
         Check(
             "Docs",

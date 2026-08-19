@@ -5,7 +5,7 @@ Coordinated Agents；真实 repository repair 则直接使用已经发布的 SWE
 证据，不再维护一套功能重叠的第三个样例。
 
 系统主链见[架构导览](../../docs/架构导览.md)，工具机制见
-[工具治理与执行](../../docs/工具治理与执行.md#overview)，源码入口见
+[运行治理与工具执行](../../docs/运行治理与工具执行.md)，源码入口见
 [核心能力与代码入口](../../docs/核心能力与代码入口.md)。Debugger 用于观察动态因果，
 Workbench 用于复核 Runtime 已经写下的权威 Evidence；二者不生成第二份展示数据。
 

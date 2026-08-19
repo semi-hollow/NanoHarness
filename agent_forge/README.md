@@ -41,7 +41,7 @@ CLI parser、Adapter 序列化、Memory、MCP、Skills、Multi/Fanout、Campaign
 | 结果与恢复 | 发生了什么，中断后怎样继续 | `tool_execution.py::_run_tool` | `run_lifecycle.py`、`domain/operation.py`、`observability/domain/event.py` |
 
 本表只给代码路径；四层、Hook 和操作状态表的语义由
-`docs/工具治理与执行.md` 与 `docs/运行产物与持久化契约.md` 说明。
+`docs/运行治理与工具执行.md` 与 `docs/运行产物与持久化契约.md` 说明。
 
 ## Capability 地图
 
