@@ -56,7 +56,7 @@ class LiveFanoutBuildRequest:
 
 @dataclass(frozen=True)
 class LiveHandoffBuildRequest:
-    """Composition request for the cooperative milestone scheduler."""
+    """协作里程碑调度器的 Composition Request。"""
 
     plan: LiveHandoffPlan
     scenario: str
@@ -114,7 +114,7 @@ def build_live_fanout(request: LiveFanoutBuildRequest) -> LiveFanoutCoordinator:
 
 
 def build_live_handoff(request: LiveHandoffBuildRequest) -> LiveHandoffCoordinator:
-    """Assemble the durable timeline, governed Runtime, workers, and validator."""
+    """装配 durable timeline、治理 Runtime、Worker 与 validator。"""
 
     return LiveHandoffCoordinator(
         plan=request.plan,

@@ -1,4 +1,4 @@
-"""Milestone-level Multi-Agent dependency contracts."""
+"""里程碑级 Multi-Agent 依赖契约。"""
 
 from __future__ import annotations
 
@@ -18,14 +18,14 @@ SEMANTIC_KEY_PATTERN = re.compile(r"^[A-Za-z0-9_.:/-]+$")
 
 
 class DependencyType(str, Enum):
-    """The only dependency semantics supported by the MVP."""
+    """MVP 支持的两种依赖语义。"""
 
     HARD = "HARD"
     LIVE = "LIVE"
 
 
 class LiveEventType(str, Enum):
-    """Structured facts workers may propose to the coordination Runtime."""
+    """Worker 可以向协作 Runtime 提出的结构化事实类型。"""
 
     READY = "READY"
     FEEDBACK = "FEEDBACK"
@@ -33,7 +33,7 @@ class LiveEventType(str, Enum):
 
 
 class HandoffSeverity(str, Enum):
-    """Feedback urgency without introducing another event type."""
+    """不增加事件类型，只表达 Feedback 的紧急程度。"""
 
     INFO = "info"
     BLOCKING = "blocking"
@@ -41,10 +41,10 @@ class HandoffSeverity(str, Enum):
 
 @dataclass(frozen=True)
 class LiveDependency:
-    """A validated producer-to-consumer dependency edge.
+    """经过校验的 producer → consumer 依赖边。
 
-    ``HARD`` keeps completion-level scheduling. ``LIVE`` names the milestone that
-    can make the consumer runnable before the producer completes.
+    ``HARD`` 保留完成级调度；``LIVE`` 指定可在 producer 完成前让 consumer
+    进入 runnable 状态的里程碑。
     """
 
     producer_task_id: str
@@ -80,11 +80,10 @@ class LiveDependency:
 
 @dataclass(frozen=True)
 class LiveHandoffEvent:
-    """A worker-proposed coordination fact; publishing is not authorization.
+    """Worker 提出的协作事实；发布事件不等于获得调度授权。
 
-    ``producer_task_id`` identifies the worker publishing this event. For
-    ``READY``/``UPDATE`` it is the milestone producer; for ``FEEDBACK`` it is the
-    downstream consumer sending evidence back to the upstream producer.
+    ``producer_task_id`` 标识事件发布者。对 ``READY``/``UPDATE``，它是里程碑
+    producer；对 ``FEEDBACK``，它是向上游返回证据的 downstream consumer。
     """
 
     event_type: LiveEventType
@@ -134,7 +133,7 @@ class LiveHandoffEvent:
 
     @property
     def event_id(self) -> str:
-        """Return a stable content identity used for duplicate detection."""
+        """返回用于重复检测的稳定内容标识。"""
 
         payload = {
             "event_type": self.event_type.value,
@@ -166,7 +165,7 @@ class LiveHandoffEvent:
 
 @dataclass(frozen=True)
 class LiveHandoffPlan:
-    """A small, deterministic task graph with HARD and LIVE dependency edges."""
+    """包含 HARD 与 LIVE 依赖边的小型确定性任务图。"""
 
     goal: str
     tasks: tuple[SubagentTask, ...]
@@ -219,7 +218,7 @@ class LiveHandoffPlan:
 
     @property
     def all_dependencies(self) -> tuple[LiveDependency, ...]:
-        """Return explicit edges plus legacy ``SubagentTask.depends_on`` as HARD."""
+        """合并显式边，并把旧 ``SubagentTask.depends_on`` 解释成 HARD。"""
 
         explicit_pairs = {
             (dependency.producer_task_id, dependency.target_task_id)
@@ -293,7 +292,7 @@ class LiveHandoffPlan:
 
 @dataclass(frozen=True)
 class LiveWorkerCandidate:
-    """A worker's isolated candidate and mechanism-level validation facts."""
+    """一个 Worker 的隔离候选结果与机制级校验事实。"""
 
     payload: dict[str, Any]
     test_passed: bool
@@ -317,7 +316,7 @@ class LiveWorkerCandidate:
 
 @dataclass(frozen=True)
 class LiveWorkerResult:
-    """Worker timing, candidate, consumed milestone versions and terminal state."""
+    """记录 Worker 时序、候选结果、已消费版本和终态。"""
 
     task_id: str
     status: str
@@ -346,7 +345,7 @@ class LiveWorkerResult:
 
 @dataclass
 class LiveHandoffSummary:
-    """Canonical result projection for one controlled Live Handoff run."""
+    """单次受控 Live Handoff Run 的 canonical 结果投影。"""
 
     run_id: str
     scenario: str

@@ -1,4 +1,4 @@
-"""Process-local durable artifacts for one Live Handoff run."""
+"""单次 Live Handoff Run 的进程内持久化产物。"""
 
 from __future__ import annotations
 
@@ -14,7 +14,7 @@ from ..ports import LiveHandoffArtifactPort
 
 
 class JsonlLiveHandoffRepository(LiveHandoffArtifactPort):
-    """Append one flushed timeline record per line and atomically publish summary."""
+    """每行追加并 flush 一条 timeline，同时原子发布 summary。"""
 
     def __init__(self, root: str | Path) -> None:
         self.root = Path(root).resolve()

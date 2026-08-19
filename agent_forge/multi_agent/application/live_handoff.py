@@ -1,4 +1,4 @@
-"""Runtime-governed milestone dependencies and cooperative worker scheduling."""
+"""由 Runtime 治理的里程碑依赖与协作 Worker 调度。"""
 
 from __future__ import annotations
 
@@ -23,7 +23,7 @@ from .dependencies import LiveHandoffDependencies
 
 
 class MilestoneRegistry:
-    """Own latest accepted milestones and consumer-version facts."""
+    """持有最新已接受里程碑和 consumer 实际消费版本。"""
 
     def __init__(self, plan: LiveHandoffPlan) -> None:
         self.plan = plan
@@ -32,7 +32,7 @@ class MilestoneRegistry:
         self._accepted_event_ids: set[str] = set()
 
     def validate(self, event: LiveHandoffEvent) -> str:
-        """Return an empty string only when the event may mutate registry state."""
+        """仅当事件允许改变 registry 状态时返回空字符串。"""
 
         if event.event_id in self._accepted_event_ids:
             return "duplicate_event"
@@ -66,7 +66,7 @@ class MilestoneRegistry:
         return ""
 
     def commit(self, event: LiveHandoffEvent) -> None:
-        """Apply a previously validated event after durable append succeeds."""
+        """只在 durable append 成功后提交已校验事件。"""
 
         self._accepted_event_ids.add(event.event_id)
         if event.event_type in {LiveEventType.READY, LiveEventType.UPDATE}:
@@ -79,7 +79,7 @@ class MilestoneRegistry:
             ] = event
 
     def record_consumed(self, task_id: str, event: LiveHandoffEvent) -> None:
-        """Record only milestone events actually drained by their target worker."""
+        """只记录 target Worker 确实从 mailbox 取出的里程碑事件。"""
 
         if (
             event.event_type in {LiveEventType.READY, LiveEventType.UPDATE}
@@ -134,7 +134,7 @@ class MilestoneRegistry:
 
 
 class WorkerMailbox:
-    """Per-worker FIFO of accepted facts; it does not make scheduling decisions."""
+    """保存每个 Worker 的已接受事实 FIFO，不参与调度决策。"""
 
     def __init__(self) -> None:
         self._pending: dict[str, list[LiveHandoffEvent]] = {}
@@ -147,7 +147,7 @@ class WorkerMailbox:
 
 
 class LiveHandoffRuntime:
-    """Validate, persist, and project worker facts into readiness and mailboxes."""
+    """校验并持久化 Worker 事实，再投影为 readiness 与 mailbox 状态。"""
 
     def __init__(
         self,
@@ -272,7 +272,7 @@ class LiveHandoffRuntime:
             return ended_at_ms
 
     def publish(self, publisher_task_id: str, event: LiveHandoffEvent) -> bool:
-        """Fail closed on impersonation, invalid routes, versions, or late feedback."""
+        """遇到冒充发布者、非法路由/版本或过期 Feedback 时 fail closed。"""
 
         with self._condition:
             rejection = self._validate_publish_locked(publisher_task_id, event)
@@ -288,7 +288,7 @@ class LiveHandoffRuntime:
                 self._notify_locked()
                 return False
 
-            # Durable append is the commit barrier. State changes happen only after it.
+            # Durable append 是提交屏障；只有它成功后才允许改变内存状态。
             self._append_locked(
                 "handoff_event",
                 task_id=publisher_task_id,
@@ -306,7 +306,7 @@ class LiveHandoffRuntime:
         *,
         boundary: str,
     ) -> list[LiveHandoffEvent]:
-        """Drain accepted messages at an explicit cooperative safe boundary."""
+        """只在显式命名的协作安全边界取出已接受消息。"""
 
         if not boundary.strip():
             raise ValueError("mailbox drain requires a named safe boundary")
@@ -444,7 +444,7 @@ class LiveHandoffRuntime:
 
 
 class LiveWorkerContext(LiveWorkerContextPort):
-    """Bind one worker identity to the Runtime without exposing scheduler state."""
+    """把单一 Worker 身份绑定到 Runtime，同时不暴露调度器状态。"""
 
     def __init__(self, task_id: str, runtime: LiveHandoffRuntime) -> None:
         self._task_id = task_id
@@ -465,7 +465,7 @@ class LiveWorkerContext(LiveWorkerContextPort):
 
 
 class LiveHandoffCoordinator:
-    """Start workers only when Runtime-owned HARD/LIVE readiness is satisfied."""
+    """仅在 Runtime 判定 HARD/LIVE readiness 满足时启动 Worker。"""
 
     def __init__(
         self,
@@ -496,7 +496,7 @@ class LiveHandoffCoordinator:
         self.runtime = LiveHandoffRuntime(plan=plan, dependencies=dependencies)
 
     def run(self) -> LiveHandoffSummary:
-        """Run cooperative workers, reject stale candidates, then validate integration."""
+        """运行协作 Worker，拒绝过期候选，再执行 integration 校验。"""
 
         self.runtime.record_run_started(self.run_id, self.scenario, self.mode)
         deadline = time.monotonic() + self.timeout_seconds
