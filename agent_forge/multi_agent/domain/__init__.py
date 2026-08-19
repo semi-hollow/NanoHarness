@@ -23,6 +23,17 @@ from .live import (
     LiveSubagentResult,
     aggregate_live_metrics,
 )
+from .live_handoff import (
+    DependencyType,
+    HandoffSeverity,
+    LiveDependency,
+    LiveEventType,
+    LiveHandoffEvent,
+    LiveHandoffPlan,
+    LiveHandoffSummary,
+    LiveWorkerCandidate,
+    LiveWorkerResult,
+)
 
 __all__ = [
     "AgentProfile",
@@ -30,8 +41,17 @@ __all__ = [
     "FanoutConflict",
     "FanoutPlan",
     "FinalizerResult",
+    "DependencyType",
+    "HandoffSeverity",
+    "LiveDependency",
+    "LiveEventType",
+    "LiveHandoffEvent",
+    "LiveHandoffPlan",
+    "LiveHandoffSummary",
     "LiveFanoutSummary",
     "LiveSubagentResult",
+    "LiveWorkerCandidate",
+    "LiveWorkerResult",
     "aggregate_live_metrics",
     "MultiAgentRunSummary",
     "RoleRunResult",

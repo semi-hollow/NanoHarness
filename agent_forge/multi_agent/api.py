@@ -1,21 +1,35 @@
-"""Orchestration / Multi-Agent 的稳定公共 API。
+"""Orchestration / Multi-Agent 的公共装配 API。
 
-两条真实主线：``build_multi_agent_coordinator(...).run()`` 顺序执行
-Implementer/Reviewer/Verifier；``build_live_fanout(...).run()`` 按验证后的任务 DAG
-并发运行真实 AgentLoop worker。DAG、写范围和动态冲突规则由两条主线复用，
-不再公开一套只执行注入 callback 的平行调度器。
+``build_multi_agent_coordinator(...).run()`` 顺序执行多角色流程；
+``build_live_fanout(...).run()`` 按验证后的 DAG 运行隔离 AgentLoop worker；
+``build_live_handoff(...).run()`` 为协作 Worker 增加 Runtime 治理的里程碑依赖、
+mailbox 和版本新鲜度检查，但不改写 Single-Agent Runtime。
 """
 
 from .adapters.plan_files import load_fanout_plan
 from .application.coordinator import MultiAgentCoordinator
 from .application.live_fanout import LiveFanoutCoordinator
+from .application.live_handoff import LiveHandoffCoordinator
 from .domain.fanout import FanoutConflict, SubagentResult, SubagentTask
 from .domain.live import FanoutPlan, LiveFanoutSummary, LiveSubagentResult
+from .domain.live_handoff import (
+    DependencyType,
+    HandoffSeverity,
+    LiveDependency,
+    LiveEventType,
+    LiveHandoffEvent,
+    LiveHandoffPlan,
+    LiveHandoffSummary,
+    LiveWorkerCandidate,
+    LiveWorkerResult,
+)
 from .domain.models import AgentProfile, MultiAgentRunSummary, RoleSpec
 from .wiring import (
     LiveFanoutBuildRequest,
+    LiveHandoffBuildRequest,
     SequentialCoordinatorBuildRequest,
     build_live_fanout,
+    build_live_handoff,
     build_multi_agent_coordinator,
 )
 
@@ -23,10 +37,21 @@ __all__ = [
     "AgentProfile",
     "FanoutConflict",
     "FanoutPlan",
+    "DependencyType",
+    "HandoffSeverity",
+    "LiveDependency",
+    "LiveEventType",
+    "LiveHandoffCoordinator",
+    "LiveHandoffEvent",
+    "LiveHandoffBuildRequest",
+    "LiveHandoffPlan",
+    "LiveHandoffSummary",
     "LiveFanoutCoordinator",
     "LiveFanoutBuildRequest",
     "LiveFanoutSummary",
     "LiveSubagentResult",
+    "LiveWorkerCandidate",
+    "LiveWorkerResult",
     "MultiAgentCoordinator",
     "MultiAgentRunSummary",
     "RoleSpec",
@@ -34,6 +59,7 @@ __all__ = [
     "SubagentResult",
     "SubagentTask",
     "build_live_fanout",
+    "build_live_handoff",
     "build_multi_agent_coordinator",
     "load_fanout_plan",
 ]

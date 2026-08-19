@@ -1,0 +1,179 @@
+{
+  "schema_version": 1,
+  "experiment_id": "live-handoff-v1",
+  "stable_baseline_commit": "40d3f0316f7fb66e02e2a9aa77b0ea689d7dbfb9",
+  "generated_at": "2026-08-19T17:55:58.459989+00:00",
+  "plan_sha256": "c7f31bb13081a325efac174f02e51f86b04c4c00801455bca0b922bd7ff92c95",
+  "overall_passed": true,
+  "assertions": {
+    "case1_live_starts_before_producer_completes": true,
+    "case1_live_passes": true,
+    "case1_sequential_passes": true,
+    "case1_naive_exposes_contract_mismatch": true,
+    "case2_live_starts_before_producer_completes": true,
+    "case2_ready_feedback_update_observed": true,
+    "case2_producer_trajectory_changed": true,
+    "case2_consumer_consumed_v2": true,
+    "case2_live_passes": true,
+    "case2_sequential_requires_rework": true,
+    "case2_naive_requires_rework": true,
+    "case3_hard_consumer_waits_for_completion": true,
+    "case3_hard_passes": true
+  },
+  "runs": [
+    {
+      "scenario": "early_unblock",
+      "mode": "sequential",
+      "status": "passed",
+      "wall_time_ms": 206,
+      "integration_passed": true,
+      "metrics": {
+        "worker_count": 2,
+        "completed_count": 2,
+        "wall_time_ms": 206,
+        "summed_worker_duration_ms": 206,
+        "handoff_event_count": 0,
+        "ready_count": 0,
+        "feedback_count": 0,
+        "update_count": 0,
+        "retry_count": 0,
+        "rework_count": 0,
+        "trajectory_change_count": 0
+      },
+      "artifact": "runs/early_unblock-sequential/summary.json",
+      "timeline": "runs/early_unblock-sequential/timeline.jsonl"
+    },
+    {
+      "scenario": "early_unblock",
+      "mode": "naive_parallel",
+      "status": "failed",
+      "wall_time_ms": 137,
+      "integration_passed": false,
+      "metrics": {
+        "worker_count": 2,
+        "completed_count": 2,
+        "wall_time_ms": 137,
+        "summed_worker_duration_ms": 191,
+        "handoff_event_count": 0,
+        "ready_count": 0,
+        "feedback_count": 0,
+        "update_count": 0,
+        "retry_count": 0,
+        "rework_count": 0,
+        "trajectory_change_count": 0
+      },
+      "artifact": "runs/early_unblock-naive_parallel/summary.json",
+      "timeline": "runs/early_unblock-naive_parallel/timeline.jsonl"
+    },
+    {
+      "scenario": "early_unblock",
+      "mode": "live_handoff",
+      "status": "passed",
+      "wall_time_ms": 136,
+      "integration_passed": true,
+      "metrics": {
+        "worker_count": 2,
+        "completed_count": 2,
+        "wall_time_ms": 136,
+        "summed_worker_duration_ms": 200,
+        "handoff_event_count": 1,
+        "ready_count": 1,
+        "feedback_count": 0,
+        "update_count": 0,
+        "retry_count": 0,
+        "rework_count": 0,
+        "trajectory_change_count": 0
+      },
+      "artifact": "runs/early_unblock-live_handoff/summary.json",
+      "timeline": "runs/early_unblock-live_handoff/timeline.jsonl"
+    },
+    {
+      "scenario": "bidirectional_schema",
+      "mode": "sequential",
+      "status": "failed",
+      "wall_time_ms": 187,
+      "integration_passed": false,
+      "metrics": {
+        "worker_count": 2,
+        "completed_count": 2,
+        "wall_time_ms": 187,
+        "summed_worker_duration_ms": 186,
+        "handoff_event_count": 0,
+        "ready_count": 0,
+        "feedback_count": 0,
+        "update_count": 0,
+        "retry_count": 0,
+        "rework_count": 1,
+        "trajectory_change_count": 0
+      },
+      "artifact": "runs/bidirectional_schema-sequential/summary.json",
+      "timeline": "runs/bidirectional_schema-sequential/timeline.jsonl"
+    },
+    {
+      "scenario": "bidirectional_schema",
+      "mode": "naive_parallel",
+      "status": "failed",
+      "wall_time_ms": 106,
+      "integration_passed": false,
+      "metrics": {
+        "worker_count": 2,
+        "completed_count": 2,
+        "wall_time_ms": 106,
+        "summed_worker_duration_ms": 172,
+        "handoff_event_count": 0,
+        "ready_count": 0,
+        "feedback_count": 0,
+        "update_count": 0,
+        "retry_count": 0,
+        "rework_count": 1,
+        "trajectory_change_count": 0
+      },
+      "artifact": "runs/bidirectional_schema-naive_parallel/summary.json",
+      "timeline": "runs/bidirectional_schema-naive_parallel/timeline.jsonl"
+    },
+    {
+      "scenario": "bidirectional_schema",
+      "mode": "live_handoff",
+      "status": "passed",
+      "wall_time_ms": 138,
+      "integration_passed": true,
+      "metrics": {
+        "worker_count": 2,
+        "completed_count": 2,
+        "wall_time_ms": 138,
+        "summed_worker_duration_ms": 212,
+        "handoff_event_count": 3,
+        "ready_count": 1,
+        "feedback_count": 1,
+        "update_count": 1,
+        "retry_count": 0,
+        "rework_count": 1,
+        "trajectory_change_count": 2
+      },
+      "artifact": "runs/bidirectional_schema-live_handoff/summary.json",
+      "timeline": "runs/bidirectional_schema-live_handoff/timeline.jsonl"
+    },
+    {
+      "scenario": "hard_dependency_control",
+      "mode": "hard_dependency",
+      "status": "passed",
+      "wall_time_ms": 104,
+      "integration_passed": true,
+      "metrics": {
+        "worker_count": 2,
+        "completed_count": 2,
+        "wall_time_ms": 104,
+        "summed_worker_duration_ms": 104,
+        "handoff_event_count": 0,
+        "ready_count": 0,
+        "feedback_count": 0,
+        "update_count": 0,
+        "retry_count": 0,
+        "rework_count": 0,
+        "trajectory_change_count": 0
+      },
+      "artifact": "runs/hard_dependency_control-hard_dependency/summary.json",
+      "timeline": "runs/hard_dependency_control-hard_dependency/timeline.jsonl"
+    }
+  ]
+}

@@ -1,0 +1,9 @@
+{"elapsed_ms": 0, "mode": "sequential", "plan_digest": "8058de5e546564f826df80fb59d9e637fe53764a14d0955e61e1e0013b39cbd2", "record_type": "run_started", "run_id": "early_unblock-sequential", "scenario": "early_unblock", "schema_version": 1, "sequence": 1}
+{"elapsed_ms": 0, "record_type": "worker_started", "schema_version": 1, "sequence": 2, "started_at_ms": 0, "task_id": "producer"}
+{"action": "api_contract_materialized", "artifact": "workers/producer/core_api.py", "elapsed_ms": 40, "record_type": "worker_action", "schema_version": 1, "sequence": 3, "signature": "fetch_user(user_id, *, timeout_ms=1000)", "task_id": "producer"}
+{"elapsed_ms": 140, "ended_at_ms": 140, "error": "", "record_type": "worker_completed", "schema_version": 1, "sequence": 4, "status": "completed", "task_id": "producer"}
+{"elapsed_ms": 140, "record_type": "worker_started", "schema_version": 1, "sequence": 5, "started_at_ms": 140, "task_id": "consumer"}
+{"action": "caller_migrated", "artifact": "workers/consumer/sdk_caller.py", "contract": "keyword_timeout", "elapsed_ms": 141, "record_type": "worker_action", "schema_version": 1, "sequence": 6, "task_id": "consumer"}
+{"elapsed_ms": 206, "ended_at_ms": 206, "error": "", "record_type": "worker_completed", "schema_version": 1, "sequence": 7, "status": "completed", "task_id": "consumer"}
+{"detail": "integration assertion passed", "elapsed_ms": 206, "integration_passed": true, "record_type": "integration_checked", "schema_version": 1, "sequence": 8, "stale_dependencies": [], "status": "passed"}
+{"elapsed_ms": 206, "integration_passed": true, "record_type": "run_completed", "schema_version": 1, "sequence": 9, "status": "passed"}

@@ -8,6 +8,9 @@ from ..ports import (
     FanoutArtifactPort,
     FanoutWorkerPort,
     FanoutWorkspacePort,
+    LiveHandoffArtifactPort,
+    LiveHandoffWorkerPort,
+    LiveIntegrationPort,
     LiveFanoutEvents,
     RoleArtifactPort,
     RoleRunnerPort,
@@ -22,6 +25,15 @@ class LiveFanoutDependencies:
     workspace: FanoutWorkspacePort
     artifacts: FanoutArtifactPort
     workers: FanoutWorkerPort
+
+
+@dataclass(frozen=True)
+class LiveHandoffDependencies:
+    """Cooperative workers, durable timeline, and final integration validator."""
+
+    artifacts: LiveHandoffArtifactPort
+    workers: LiveHandoffWorkerPort
+    integration: LiveIntegrationPort
 
 
 @dataclass(frozen=True)

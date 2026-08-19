@@ -4,6 +4,12 @@ from .live import (
     FanoutWorkspacePort,
     LiveFanoutEvents,
 )
+from .live_handoff import (
+    LiveHandoffArtifactPort,
+    LiveHandoffWorkerPort,
+    LiveIntegrationPort,
+    LiveWorkerContextPort,
+)
 from .sequential import (
     CandidateDiffPort,
     CoordinatorEventSink,
@@ -16,6 +22,10 @@ __all__ = [
     "FanoutWorkerPort",
     "FanoutWorkspacePort",
     "LiveFanoutEvents",
+    "LiveHandoffArtifactPort",
+    "LiveHandoffWorkerPort",
+    "LiveIntegrationPort",
+    "LiveWorkerContextPort",
     "CandidateDiffPort",
     "CoordinatorEventSink",
     "RoleArtifactPort",

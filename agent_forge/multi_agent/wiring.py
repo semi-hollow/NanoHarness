@@ -12,19 +12,28 @@ from agent_forge.runtime.ports.model import ModelPort
 from agent_forge.tools.registry import ToolRegistry
 
 from .adapters.fanout_files import FanoutFileRepository
+from .adapters.live_handoff_files import JsonlLiveHandoffRepository
 from .adapters.artifact_files import FileArtifactRepository
 from .adapters.git_workspace import GitFanoutWorkspace
 from .adapters.local_worker import LocalAgentWorkerAdapter
 from .adapters.role_runtime import AgentLoopRoleRunner, GitCandidateDiff
 from .application.coordinator import MultiAgentCoordinator
+from .application.live_handoff import LiveHandoffCoordinator
 from .application.dependencies import (
     LiveFanoutDependencies,
+    LiveHandoffDependencies,
     SequentialCoordinatorDependencies,
 )
 from .application.live_fanout import LiveFanoutCoordinator
 from .domain.live import FanoutPlan
+from .domain.live_handoff import LiveHandoffPlan
 from .domain.models import AgentProfile
-from .ports import CoordinatorEventSink, LiveFanoutEvents
+from .ports import (
+    CoordinatorEventSink,
+    LiveFanoutEvents,
+    LiveHandoffWorkerPort,
+    LiveIntegrationPort,
+)
 
 RegistryFactory = Callable[[Path, ExecutionEnvironment], ToolRegistry]
 LLMFactory = Callable[[], ModelPort]
@@ -43,6 +52,21 @@ class LiveFanoutBuildRequest:
     registry_factory: RegistryFactory
     max_workers: int = 4
     resume_from: str | Path | None = None
+
+
+@dataclass(frozen=True)
+class LiveHandoffBuildRequest:
+    """Composition request for the cooperative milestone scheduler."""
+
+    plan: LiveHandoffPlan
+    scenario: str
+    mode: str
+    run_dir: str | Path
+    workers: LiveHandoffWorkerPort
+    integration: LiveIntegrationPort
+    max_workers: int = 4
+    timeout_seconds: float = 30.0
+    run_id: str | None = None
 
 
 # 核心数据：装配顺序多角色 coordinator 所需的运行对象。
@@ -86,6 +110,24 @@ def build_live_fanout(request: LiveFanoutBuildRequest) -> LiveFanoutCoordinator:
         ),
         max_workers=request.max_workers,
         resume_from=str(request.resume_from) if request.resume_from else None,
+    )
+
+
+def build_live_handoff(request: LiveHandoffBuildRequest) -> LiveHandoffCoordinator:
+    """Assemble the durable timeline, governed Runtime, workers, and validator."""
+
+    return LiveHandoffCoordinator(
+        plan=request.plan,
+        scenario=request.scenario,
+        mode=request.mode,
+        dependencies=LiveHandoffDependencies(
+            artifacts=JsonlLiveHandoffRepository(request.run_dir),
+            workers=request.workers,
+            integration=request.integration,
+        ),
+        max_workers=request.max_workers,
+        timeout_seconds=request.timeout_seconds,
+        run_id=request.run_id,
     )
 
 

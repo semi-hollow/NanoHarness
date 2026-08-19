@@ -1,0 +1,69 @@
+{
+  "schema_version": 1,
+  "experiment_id": "live-handoff-v1",
+  "purpose": "Evaluate milestone-level dependencies with deterministic software-engineering micro cases.",
+  "frozen_cases": [
+    {
+      "id": "early_unblock",
+      "description": "A publishes an API contract before completing implementation; B migrates the caller from that contract.",
+      "semantic_key": "api_contract",
+      "modes": [
+        "sequential",
+        "naive_parallel",
+        "live_handoff"
+      ],
+      "timing_ms": {
+        "producer_before_ready": 30,
+        "producer_after_ready": 90,
+        "consumer_work": 55
+      },
+      "success_criteria": [
+        "live consumer starts after READY and before producer completion",
+        "live integration test passes",
+        "sequential integration test passes",
+        "naive parallel records the uncoordinated contract mismatch"
+      ]
+    },
+    {
+      "id": "bidirectional_schema",
+      "description": "A publishes a config schema; B discovers a legacy alias constraint that changes A's remaining work.",
+      "semantic_key": "config_schema",
+      "modes": [
+        "sequential",
+        "naive_parallel",
+        "live_handoff"
+      ],
+      "timing_ms": {
+        "producer_before_ready": 25,
+        "producer_after_update": 65,
+        "consumer_discovery": 18,
+        "consumer_after_update": 40,
+        "safe_boundary_poll": 6
+      },
+      "success_criteria": [
+        "live consumer starts before producer completion",
+        "consumer publishes blocking FEEDBACK for version 1",
+        "producer consumes FEEDBACK at a named safe boundary",
+        "producer changes its candidate and publishes UPDATE version 2",
+        "consumer consumes version 2",
+        "live integration test passes"
+      ]
+    },
+    {
+      "id": "hard_dependency_control",
+      "description": "B requires A's completed generated constant and must not start early.",
+      "semantic_key": null,
+      "modes": [
+        "hard_dependency"
+      ],
+      "timing_ms": {
+        "producer_work": 70,
+        "consumer_work": 20
+      },
+      "success_criteria": [
+        "consumer starts at or after producer completion",
+        "integration test passes"
+      ]
+    }
+  ]
+}

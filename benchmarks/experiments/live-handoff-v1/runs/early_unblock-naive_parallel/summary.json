@@ -1,0 +1,152 @@
+{
+  "schema_version": 1,
+  "run_id": "early_unblock-naive_parallel",
+  "scenario": "early_unblock",
+  "mode": "naive_parallel",
+  "status": "failed",
+  "plan_digest": "d29e6737270c8b6e9b5528bf78cbd07dfc91adf689902915c8fa39e73098dc0a",
+  "wall_time_ms": 137,
+  "results": [
+    {
+      "task_id": "producer",
+      "status": "completed",
+      "started_at_ms": 0,
+      "ended_at_ms": 136,
+      "duration_ms": 136,
+      "candidate": {
+        "payload": {
+          "artifact": "core_api.py",
+          "source": "def fetch_user(user_id: str, *, timeout_ms: int = 1000) -> dict:\n    return {'id': user_id, 'timeout_ms': timeout_ms}\n"
+        },
+        "test_passed": true,
+        "retry_count": 0,
+        "rework_count": 0,
+        "trajectory_changed": false
+      },
+      "consumed_versions": {},
+      "error": ""
+    },
+    {
+      "task_id": "consumer",
+      "status": "completed",
+      "started_at_ms": 0,
+      "ended_at_ms": 55,
+      "duration_ms": 55,
+      "candidate": {
+        "payload": {
+          "artifact": "sdk_caller.py",
+          "source": "def load_user(fetch_user):\n    return fetch_user('u-1', 250)\n"
+        },
+        "test_passed": true,
+        "retry_count": 0,
+        "rework_count": 0,
+        "trajectory_changed": false
+      },
+      "consumed_versions": {},
+      "error": ""
+    }
+  ],
+  "handoff_events": [],
+  "timeline": [
+    {
+      "schema_version": 1,
+      "sequence": 1,
+      "elapsed_ms": 0,
+      "record_type": "run_started",
+      "run_id": "early_unblock-naive_parallel",
+      "scenario": "early_unblock",
+      "mode": "naive_parallel",
+      "plan_digest": "d29e6737270c8b6e9b5528bf78cbd07dfc91adf689902915c8fa39e73098dc0a"
+    },
+    {
+      "schema_version": 1,
+      "sequence": 2,
+      "elapsed_ms": 0,
+      "record_type": "worker_started",
+      "task_id": "producer",
+      "started_at_ms": 0
+    },
+    {
+      "schema_version": 1,
+      "sequence": 3,
+      "elapsed_ms": 0,
+      "record_type": "worker_started",
+      "task_id": "consumer",
+      "started_at_ms": 0
+    },
+    {
+      "schema_version": 1,
+      "sequence": 4,
+      "elapsed_ms": 0,
+      "record_type": "worker_action",
+      "task_id": "consumer",
+      "action": "caller_migrated",
+      "contract": "guessed_positional",
+      "artifact": "workers/consumer/sdk_caller.py"
+    },
+    {
+      "schema_version": 1,
+      "sequence": 5,
+      "elapsed_ms": 40,
+      "record_type": "worker_action",
+      "task_id": "producer",
+      "action": "api_contract_materialized",
+      "artifact": "workers/producer/core_api.py",
+      "signature": "fetch_user(user_id, *, timeout_ms=1000)"
+    },
+    {
+      "schema_version": 1,
+      "sequence": 6,
+      "elapsed_ms": 55,
+      "record_type": "worker_completed",
+      "task_id": "consumer",
+      "status": "completed",
+      "ended_at_ms": 55,
+      "error": ""
+    },
+    {
+      "schema_version": 1,
+      "sequence": 7,
+      "elapsed_ms": 136,
+      "record_type": "worker_completed",
+      "task_id": "producer",
+      "status": "completed",
+      "ended_at_ms": 136,
+      "error": ""
+    },
+    {
+      "schema_version": 1,
+      "sequence": 8,
+      "elapsed_ms": 136,
+      "record_type": "integration_checked",
+      "status": "failed",
+      "integration_passed": false,
+      "detail": "integration assertion failed: TypeError: fetch_user() takes 1 positional argument but 2 were given",
+      "stale_dependencies": []
+    },
+    {
+      "schema_version": 1,
+      "sequence": 9,
+      "elapsed_ms": 137,
+      "record_type": "run_completed",
+      "status": "failed",
+      "integration_passed": false
+    }
+  ],
+  "stale_dependencies": [],
+  "integration_passed": false,
+  "integration_detail": "integration assertion failed: TypeError: fetch_user() takes 1 positional argument but 2 were given",
+  "metrics": {
+    "worker_count": 2,
+    "completed_count": 2,
+    "wall_time_ms": 137,
+    "summed_worker_duration_ms": 191,
+    "handoff_event_count": 0,
+    "ready_count": 0,
+    "feedback_count": 0,
+    "update_count": 0,
+    "retry_count": 0,
+    "rework_count": 0,
+    "trajectory_change_count": 0
+  }
+}

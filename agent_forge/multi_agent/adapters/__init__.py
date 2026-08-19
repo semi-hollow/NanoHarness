@@ -4,6 +4,7 @@ from .artifact_files import FileArtifactRepository
 from .fanout_files import FanoutFileRepository
 from .git_workspace import GitFanoutWorkspace
 from .local_worker import LocalAgentWorkerAdapter
+from .live_handoff_files import JsonlLiveHandoffRepository
 from .role_runtime import AgentLoopRoleRunner, GitCandidateDiff
 from .plan_files import load_fanout_plan
 
@@ -12,6 +13,7 @@ __all__ = [
     "FileArtifactRepository",
     "GitFanoutWorkspace",
     "LocalAgentWorkerAdapter",
+    "JsonlLiveHandoffRepository",
     "AgentLoopRoleRunner",
     "GitCandidateDiff",
     "load_fanout_plan",

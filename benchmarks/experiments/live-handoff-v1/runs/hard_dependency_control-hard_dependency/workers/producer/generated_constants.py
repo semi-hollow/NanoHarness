@@ -1,0 +1,1 @@
+GENERATED_TOKEN = 'token-v1'

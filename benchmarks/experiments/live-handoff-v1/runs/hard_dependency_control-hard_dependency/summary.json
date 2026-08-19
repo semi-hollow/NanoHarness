@@ -1,0 +1,150 @@
+{
+  "schema_version": 1,
+  "run_id": "hard_dependency_control-hard_dependency",
+  "scenario": "hard_dependency_control",
+  "mode": "hard_dependency",
+  "status": "passed",
+  "plan_digest": "6de34e8445f380087fc03ba2bc923165fdf060d048e72f5d99e6b81b17311242",
+  "wall_time_ms": 104,
+  "results": [
+    {
+      "task_id": "producer",
+      "status": "completed",
+      "started_at_ms": 0,
+      "ended_at_ms": 73,
+      "duration_ms": 73,
+      "candidate": {
+        "payload": {
+          "artifact": "generated_constants.py",
+          "source": "GENERATED_TOKEN = 'token-v1'\n"
+        },
+        "test_passed": true,
+        "retry_count": 0,
+        "rework_count": 0,
+        "trajectory_changed": false
+      },
+      "consumed_versions": {},
+      "error": ""
+    },
+    {
+      "task_id": "consumer",
+      "status": "completed",
+      "started_at_ms": 73,
+      "ended_at_ms": 104,
+      "duration_ms": 31,
+      "candidate": {
+        "payload": {
+          "artifact": "constant_consumer.py",
+          "source": "def read_token():\n    return GENERATED_TOKEN\n"
+        },
+        "test_passed": true,
+        "retry_count": 0,
+        "rework_count": 0,
+        "trajectory_changed": false
+      },
+      "consumed_versions": {},
+      "error": ""
+    }
+  ],
+  "handoff_events": [],
+  "timeline": [
+    {
+      "schema_version": 1,
+      "sequence": 1,
+      "elapsed_ms": 0,
+      "record_type": "run_started",
+      "run_id": "hard_dependency_control-hard_dependency",
+      "scenario": "hard_dependency_control",
+      "mode": "hard_dependency",
+      "plan_digest": "6de34e8445f380087fc03ba2bc923165fdf060d048e72f5d99e6b81b17311242"
+    },
+    {
+      "schema_version": 1,
+      "sequence": 2,
+      "elapsed_ms": 0,
+      "record_type": "worker_started",
+      "task_id": "producer",
+      "started_at_ms": 0
+    },
+    {
+      "schema_version": 1,
+      "sequence": 3,
+      "elapsed_ms": 73,
+      "record_type": "worker_action",
+      "task_id": "producer",
+      "action": "generated_constant_finalized",
+      "token": "token-v1"
+    },
+    {
+      "schema_version": 1,
+      "sequence": 4,
+      "elapsed_ms": 73,
+      "record_type": "worker_completed",
+      "task_id": "producer",
+      "status": "completed",
+      "ended_at_ms": 73,
+      "error": ""
+    },
+    {
+      "schema_version": 1,
+      "sequence": 5,
+      "elapsed_ms": 73,
+      "record_type": "worker_started",
+      "task_id": "consumer",
+      "started_at_ms": 73
+    },
+    {
+      "schema_version": 1,
+      "sequence": 6,
+      "elapsed_ms": 74,
+      "record_type": "worker_action",
+      "task_id": "consumer",
+      "action": "completed_output_consumed",
+      "token": "token-v1"
+    },
+    {
+      "schema_version": 1,
+      "sequence": 7,
+      "elapsed_ms": 104,
+      "record_type": "worker_completed",
+      "task_id": "consumer",
+      "status": "completed",
+      "ended_at_ms": 104,
+      "error": ""
+    },
+    {
+      "schema_version": 1,
+      "sequence": 8,
+      "elapsed_ms": 104,
+      "record_type": "integration_checked",
+      "status": "passed",
+      "integration_passed": true,
+      "detail": "integration assertion passed",
+      "stale_dependencies": []
+    },
+    {
+      "schema_version": 1,
+      "sequence": 9,
+      "elapsed_ms": 104,
+      "record_type": "run_completed",
+      "status": "passed",
+      "integration_passed": true
+    }
+  ],
+  "stale_dependencies": [],
+  "integration_passed": true,
+  "integration_detail": "integration assertion passed",
+  "metrics": {
+    "worker_count": 2,
+    "completed_count": 2,
+    "wall_time_ms": 104,
+    "summed_worker_duration_ms": 104,
+    "handoff_event_count": 0,
+    "ready_count": 0,
+    "feedback_count": 0,
+    "update_count": 0,
+    "retry_count": 0,
+    "rework_count": 0,
+    "trajectory_change_count": 0
+  }
+}

@@ -1,0 +1,9 @@
+{"elapsed_ms": 0, "mode": "naive_parallel", "plan_digest": "e2758663444cb133f6a905423532130d8e25c2afa6b0d5929f0e4f86f703c1cf", "record_type": "run_started", "run_id": "bidirectional_schema-naive_parallel", "scenario": "bidirectional_schema", "schema_version": 1, "sequence": 1}
+{"elapsed_ms": 0, "record_type": "worker_started", "schema_version": 1, "sequence": 2, "started_at_ms": 0, "task_id": "producer"}
+{"elapsed_ms": 0, "record_type": "worker_started", "schema_version": 1, "sequence": 3, "started_at_ms": 0, "task_id": "consumer"}
+{"action": "downstream_constraint_discovered", "constraint": "deployed configs still use legacy_timeout", "elapsed_ms": 23, "record_type": "worker_action", "schema_version": 1, "sequence": 4, "task_id": "consumer"}
+{"accepted_keys": ["timeout"], "action": "initial_schema_materialized", "artifact": "workers/producer/config_schema.py", "elapsed_ms": 35, "record_type": "worker_action", "schema_version": 1, "sequence": 5, "task_id": "producer"}
+{"elapsed_ms": 66, "ended_at_ms": 66, "error": "", "record_type": "worker_completed", "schema_version": 1, "sequence": 6, "status": "completed", "task_id": "consumer"}
+{"elapsed_ms": 106, "ended_at_ms": 106, "error": "", "record_type": "worker_completed", "schema_version": 1, "sequence": 7, "status": "completed", "task_id": "producer"}
+{"detail": "integration assertion failed: ValueError: unknown config keys: ['legacy_timeout']", "elapsed_ms": 106, "integration_passed": false, "record_type": "integration_checked", "schema_version": 1, "sequence": 8, "stale_dependencies": [], "status": "failed"}
+{"elapsed_ms": 106, "integration_passed": false, "record_type": "run_completed", "schema_version": 1, "sequence": 9, "status": "failed"}
