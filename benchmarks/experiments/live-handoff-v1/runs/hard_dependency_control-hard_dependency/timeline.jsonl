@@ -1,9 +1,9 @@
 {"elapsed_ms": 0, "mode": "hard_dependency", "plan_digest": "6de34e8445f380087fc03ba2bc923165fdf060d048e72f5d99e6b81b17311242", "record_type": "run_started", "run_id": "hard_dependency_control-hard_dependency", "scenario": "hard_dependency_control", "schema_version": 1, "sequence": 1}
 {"elapsed_ms": 0, "record_type": "worker_started", "schema_version": 1, "sequence": 2, "started_at_ms": 0, "task_id": "producer"}
-{"action": "generated_constant_finalized", "elapsed_ms": 73, "record_type": "worker_action", "schema_version": 1, "sequence": 3, "task_id": "producer", "token": "token-v1"}
-{"elapsed_ms": 73, "ended_at_ms": 73, "error": "", "record_type": "worker_completed", "schema_version": 1, "sequence": 4, "status": "completed", "task_id": "producer"}
-{"elapsed_ms": 73, "record_type": "worker_started", "schema_version": 1, "sequence": 5, "started_at_ms": 73, "task_id": "consumer"}
-{"action": "completed_output_consumed", "elapsed_ms": 74, "record_type": "worker_action", "schema_version": 1, "sequence": 6, "task_id": "consumer", "token": "token-v1"}
-{"elapsed_ms": 104, "ended_at_ms": 104, "error": "", "record_type": "worker_completed", "schema_version": 1, "sequence": 7, "status": "completed", "task_id": "consumer"}
-{"detail": "integration assertion passed", "elapsed_ms": 104, "integration_passed": true, "record_type": "integration_checked", "schema_version": 1, "sequence": 8, "stale_dependencies": [], "status": "passed"}
-{"elapsed_ms": 104, "integration_passed": true, "record_type": "run_completed", "schema_version": 1, "sequence": 9, "status": "passed"}
+{"action": "generated_constant_finalized", "elapsed_ms": 81, "record_type": "worker_action", "schema_version": 1, "sequence": 3, "task_id": "producer", "token": "token-v1"}
+{"elapsed_ms": 81, "ended_at_ms": 81, "error": "", "record_type": "worker_completed", "schema_version": 1, "sequence": 4, "status": "completed", "task_id": "producer"}
+{"elapsed_ms": 81, "record_type": "worker_started", "schema_version": 1, "sequence": 5, "started_at_ms": 81, "task_id": "consumer"}
+{"action": "completed_output_consumed", "elapsed_ms": 82, "record_type": "worker_action", "schema_version": 1, "sequence": 6, "task_id": "consumer", "token": "token-v1"}
+{"elapsed_ms": 110, "ended_at_ms": 110, "error": "", "record_type": "worker_completed", "schema_version": 1, "sequence": 7, "status": "completed", "task_id": "consumer"}
+{"detail": "integration assertion passed", "elapsed_ms": 110, "integration_passed": true, "record_type": "integration_checked", "schema_version": 1, "sequence": 8, "stale_dependencies": [], "status": "passed"}
+{"elapsed_ms": 111, "integration_passed": true, "record_type": "run_completed", "schema_version": 1, "sequence": 9, "status": "passed"}

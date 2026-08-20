@@ -2,8 +2,8 @@
 {"elapsed_ms": 0, "record_type": "worker_started", "schema_version": 1, "sequence": 2, "started_at_ms": 0, "task_id": "producer"}
 {"elapsed_ms": 0, "record_type": "worker_started", "schema_version": 1, "sequence": 3, "started_at_ms": 0, "task_id": "consumer"}
 {"action": "caller_migrated", "artifact": "workers/consumer/sdk_caller.py", "contract": "guessed_positional", "elapsed_ms": 0, "record_type": "worker_action", "schema_version": 1, "sequence": 4, "task_id": "consumer"}
-{"action": "api_contract_materialized", "artifact": "workers/producer/core_api.py", "elapsed_ms": 40, "record_type": "worker_action", "schema_version": 1, "sequence": 5, "signature": "fetch_user(user_id, *, timeout_ms=1000)", "task_id": "producer"}
-{"elapsed_ms": 55, "ended_at_ms": 55, "error": "", "record_type": "worker_completed", "schema_version": 1, "sequence": 6, "status": "completed", "task_id": "consumer"}
-{"elapsed_ms": 136, "ended_at_ms": 136, "error": "", "record_type": "worker_completed", "schema_version": 1, "sequence": 7, "status": "completed", "task_id": "producer"}
-{"detail": "integration assertion failed: TypeError: fetch_user() takes 1 positional argument but 2 were given", "elapsed_ms": 136, "integration_passed": false, "record_type": "integration_checked", "schema_version": 1, "sequence": 8, "stale_dependencies": [], "status": "failed"}
-{"elapsed_ms": 137, "integration_passed": false, "record_type": "run_completed", "schema_version": 1, "sequence": 9, "status": "failed"}
+{"action": "api_contract_materialized", "artifact": "workers/producer/core_api.py", "elapsed_ms": 41, "record_type": "worker_action", "schema_version": 1, "sequence": 5, "signature": "fetch_user(user_id, *, timeout_ms=1000)", "task_id": "producer"}
+{"elapsed_ms": 62, "ended_at_ms": 62, "error": "", "record_type": "worker_completed", "schema_version": 1, "sequence": 6, "status": "completed", "task_id": "consumer"}
+{"elapsed_ms": 134, "ended_at_ms": 134, "error": "", "record_type": "worker_completed", "schema_version": 1, "sequence": 7, "status": "completed", "task_id": "producer"}
+{"detail": "integration assertion failed: TypeError: fetch_user() takes 1 positional argument but 2 were given", "elapsed_ms": 135, "integration_passed": false, "record_type": "integration_checked", "schema_version": 1, "sequence": 8, "stale_dependencies": [], "status": "failed"}
+{"elapsed_ms": 135, "integration_passed": false, "record_type": "run_completed", "schema_version": 1, "sequence": 9, "status": "failed"}

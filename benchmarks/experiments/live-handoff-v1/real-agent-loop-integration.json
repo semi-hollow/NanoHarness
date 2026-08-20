@@ -1,0 +1,271 @@
+{
+  "schema_version": 1,
+  "evidence_class": "deterministic_real_agent_loop_integration",
+  "performance_evaluated": false,
+  "status": "passed",
+  "integration_passed": true,
+  "integration_detail": "real worktree candidate diffs integrated and assertion passed",
+  "plan_digest": "8335a5596bee4ed7d48a16224fef50d244ad8b85f14f62162634168a5bbaee64",
+  "handoff_events": [
+    {
+      "event_id": "90c1d90ed2438cf7f698e2a2e0cbe1c21851e39961dced72c96c896c7d630888",
+      "event_type": "READY",
+      "producer_task_id": "producer",
+      "target_task_id": "consumer",
+      "semantic_key": "config_schema",
+      "version": 1,
+      "summary": "Schema v1 accepts timeout only.",
+      "evidence": [
+        "accepted_keys=timeout"
+      ],
+      "severity": "info",
+      "caused_by_event_id": ""
+    },
+    {
+      "event_id": "dddf83b2ce4a85b09a43a55adf63e13d5333a6a184946f361e5c5a66f1da55a6",
+      "event_type": "FEEDBACK",
+      "producer_task_id": "consumer",
+      "target_task_id": "producer",
+      "semantic_key": "config_schema",
+      "version": 1,
+      "summary": "Deployed configs still require legacy_timeout.",
+      "evidence": [
+        "fixture uses legacy_timeout"
+      ],
+      "severity": "blocking",
+      "caused_by_event_id": "90c1d90ed2438cf7f698e2a2e0cbe1c21851e39961dced72c96c896c7d630888"
+    },
+    {
+      "event_id": "c402eccc973195138d4fb60abacc33543959049a785cfc1a9a88c966ec0b7de5",
+      "event_type": "UPDATE",
+      "producer_task_id": "producer",
+      "target_task_id": "consumer",
+      "semantic_key": "config_schema",
+      "version": 2,
+      "summary": "Schema v2 accepts legacy_timeout.",
+      "evidence": [
+        "accepted_keys=timeout,legacy_timeout",
+        "candidate=config_schema.py"
+      ],
+      "severity": "info",
+      "caused_by_event_id": "dddf83b2ce4a85b09a43a55adf63e13d5333a6a184946f361e5c5a66f1da55a6"
+    }
+  ],
+  "agent_loop_boundaries": [
+    {
+      "sequence": 8,
+      "record_type": "mailbox_drained",
+      "task_id": "consumer",
+      "boundary": "before_model:step=1",
+      "event_ids": [
+        "90c1d90ed2438cf7f698e2a2e0cbe1c21851e39961dced72c96c896c7d630888"
+      ]
+    },
+    {
+      "sequence": 11,
+      "record_type": "mailbox_drained",
+      "task_id": "producer",
+      "boundary": "after_model:step=2",
+      "event_ids": [
+        "dddf83b2ce4a85b09a43a55adf63e13d5333a6a184946f361e5c5a66f1da55a6"
+      ]
+    },
+    {
+      "sequence": 16,
+      "record_type": "mailbox_drained",
+      "task_id": "consumer",
+      "boundary": "after_model:step=2",
+      "event_ids": [
+        "c402eccc973195138d4fb60abacc33543959049a785cfc1a9a88c966ec0b7de5"
+      ]
+    }
+  ],
+  "workers": {
+    "producer": {
+      "model_calls": 4,
+      "touched_files": [
+        "config_schema.py"
+      ],
+      "candidate_diff_sha256": "c5118790ca73bb07b11d9f1c2c341702aac0443020add0d6b94072c85d011120",
+      "attempts": [
+        {
+          "index": 1,
+          "kind": "initial",
+          "action": "real_agent_loop_candidate",
+          "caused_by_event_id": "",
+          "evidence": [
+            "c5118790ca73bb07b11d9f1c2c341702aac0443020add0d6b94072c85d011120"
+          ]
+        },
+        {
+          "index": 2,
+          "kind": "rework",
+          "action": "candidate_changed_after_feedback",
+          "caused_by_event_id": "dddf83b2ce4a85b09a43a55adf63e13d5333a6a184946f361e5c5a66f1da55a6",
+          "evidence": [
+            "c5118790ca73bb07b11d9f1c2c341702aac0443020add0d6b94072c85d011120"
+          ]
+        }
+      ],
+      "selected_trace": [
+        {
+          "step": 1,
+          "event_type": "permission_check",
+          "tool_name": "publish_handoff_event",
+          "permission_action": "coordination_publish",
+          "permission_decision": "allow"
+        },
+        {
+          "step": 1,
+          "event_type": "tool_call",
+          "tool_name": "publish_handoff_event",
+          "success": true
+        },
+        {
+          "step": 1,
+          "event_type": "tool_observation",
+          "tool_name": "publish_handoff_event",
+          "success": true
+        },
+        {
+          "step": 2,
+          "event_type": "runtime_coordination",
+          "boundary": "after_model",
+          "human_authority": false,
+          "provenance": {
+            "event_id": "dddf83b2ce4a85b09a43a55adf63e13d5333a6a184946f361e5c5a66f1da55a6",
+            "event_type": "FEEDBACK",
+            "producer_task_id": "consumer",
+            "target_task_id": "producer",
+            "semantic_key": "config_schema",
+            "version": 1,
+            "caused_by_event_id": "90c1d90ed2438cf7f698e2a2e0cbe1c21851e39961dced72c96c896c7d630888"
+          }
+        },
+        {
+          "step": 2,
+          "event_type": "recovery_decision",
+          "failure_kind": "runtime_input_changed",
+          "input_sources": [
+            "runtime_coordination"
+          ]
+        },
+        {
+          "step": 3,
+          "event_type": "permission_check",
+          "tool_name": "publish_handoff_event",
+          "permission_action": "coordination_publish",
+          "permission_decision": "allow"
+        },
+        {
+          "step": 3,
+          "event_type": "tool_call",
+          "tool_name": "publish_handoff_event",
+          "success": true
+        },
+        {
+          "step": 3,
+          "event_type": "tool_observation",
+          "tool_name": "publish_handoff_event",
+          "success": true
+        }
+      ],
+      "coordination_operation_ledger_events": 0
+    },
+    "consumer": {
+      "model_calls": 4,
+      "touched_files": [
+        "service_consumer.py"
+      ],
+      "candidate_diff_sha256": "0cfc593cc9f53cc3ad3ea3fd013429764506046e043c07b93cdbec3bbb1e76f9",
+      "attempts": [
+        {
+          "index": 1,
+          "kind": "initial",
+          "action": "real_agent_loop_candidate",
+          "caused_by_event_id": "",
+          "evidence": [
+            "0cfc593cc9f53cc3ad3ea3fd013429764506046e043c07b93cdbec3bbb1e76f9"
+          ]
+        }
+      ],
+      "selected_trace": [
+        {
+          "step": 1,
+          "event_type": "runtime_coordination",
+          "boundary": "before_model",
+          "human_authority": false,
+          "provenance": {
+            "event_id": "90c1d90ed2438cf7f698e2a2e0cbe1c21851e39961dced72c96c896c7d630888",
+            "event_type": "READY",
+            "producer_task_id": "producer",
+            "target_task_id": "consumer",
+            "semantic_key": "config_schema",
+            "version": 1,
+            "caused_by_event_id": ""
+          }
+        },
+        {
+          "step": 1,
+          "event_type": "permission_check",
+          "tool_name": "publish_handoff_event",
+          "permission_action": "coordination_publish",
+          "permission_decision": "allow"
+        },
+        {
+          "step": 1,
+          "event_type": "tool_call",
+          "tool_name": "publish_handoff_event",
+          "success": true
+        },
+        {
+          "step": 1,
+          "event_type": "tool_observation",
+          "tool_name": "publish_handoff_event",
+          "success": true
+        },
+        {
+          "step": 2,
+          "event_type": "runtime_coordination",
+          "boundary": "after_model",
+          "human_authority": false,
+          "provenance": {
+            "event_id": "c402eccc973195138d4fb60abacc33543959049a785cfc1a9a88c966ec0b7de5",
+            "event_type": "UPDATE",
+            "producer_task_id": "producer",
+            "target_task_id": "consumer",
+            "semantic_key": "config_schema",
+            "version": 2,
+            "caused_by_event_id": "dddf83b2ce4a85b09a43a55adf63e13d5333a6a184946f361e5c5a66f1da55a6"
+          }
+        },
+        {
+          "step": 2,
+          "event_type": "recovery_decision",
+          "failure_kind": "runtime_input_changed",
+          "input_sources": [
+            "runtime_coordination"
+          ]
+        }
+      ],
+      "coordination_operation_ledger_events": 0
+    }
+  },
+  "assertions": {
+    "integration_passed": true,
+    "ready_feedback_update": true,
+    "feedback_caused_by_ready": true,
+    "update_caused_by_feedback": true,
+    "both_workers_replanned_from_runtime_coordination": true,
+    "coordination_is_not_human_authority": true,
+    "coordination_publish_is_explicitly_authorized": true,
+    "coordination_publish_is_not_operation_ledger_side_effect": true,
+    "real_candidate_diffs_exist": true
+  },
+  "overall_passed": true,
+  "limitations": [
+    "Scripted ModelPort; provider/model quality and performance were not evaluated.",
+    "Coordination evidence is process-local and has no replay/resume contract.",
+    "Stale candidates are detected and rejected; automatic rerun is not implemented."
+  ]
+}

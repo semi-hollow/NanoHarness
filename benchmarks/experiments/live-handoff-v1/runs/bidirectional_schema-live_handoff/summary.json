@@ -19,6 +19,26 @@
           "source": "def normalize_config(config):\n    normalized = dict(config)\n    if 'legacy_timeout' in normalized and 'timeout' not in normalized:\n        normalized['timeout'] = normalized.pop('legacy_timeout')\n    allowed = {'timeout'}\n    unknown = set(normalized) - allowed\n    if unknown:\n        raise ValueError(f'unknown config keys: {sorted(unknown)}')\n    return {'timeout': int(normalized['timeout'])}\n"
         },
         "test_passed": true,
+        "attempts": [
+          {
+            "index": 1,
+            "kind": "initial",
+            "action": "schema_v1_materialized",
+            "caused_by_event_id": "",
+            "evidence": [
+              "accepted_keys=timeout"
+            ]
+          },
+          {
+            "index": 2,
+            "kind": "rework",
+            "action": "schema_v2_materialized",
+            "caused_by_event_id": "820d9a021cdc8595446acdc59e3d29c4735671d799e290797d81ef6c2811f322",
+            "evidence": [
+              "accepted_keys=timeout,legacy_timeout"
+            ]
+          }
+        ],
         "retry_count": 0,
         "rework_count": 1,
         "trajectory_changed": true
@@ -29,18 +49,29 @@
     {
       "task_id": "consumer",
       "status": "completed",
-      "started_at_ms": 36,
-      "ended_at_ms": 111,
-      "duration_ms": 75,
+      "started_at_ms": 34,
+      "ended_at_ms": 121,
+      "duration_ms": 87,
       "candidate": {
         "payload": {
           "artifact": "service_consumer.py",
           "source": "def boot_service(normalize_config):\n    return normalize_config({'legacy_timeout': '30'})\n"
         },
         "test_passed": true,
+        "attempts": [
+          {
+            "index": 1,
+            "kind": "initial",
+            "action": "consumer_candidate_materialized",
+            "caused_by_event_id": "",
+            "evidence": [
+              "consumed_schema_v2"
+            ]
+          }
+        ],
         "retry_count": 0,
         "rework_count": 0,
-        "trajectory_changed": true
+        "trajectory_changed": false
       },
       "consumed_versions": {
         "producer:config_schema": 2
@@ -50,7 +81,7 @@
   ],
   "handoff_events": [
     {
-      "event_id": "adc493cf8d8c2ff2f2480ae64ab56b77f46bcadf42331ac3609318f99bafcc60",
+      "event_id": "d68ca6fee828e99ded7f401cc8cda6b32a6c3b22030601493966341d4ed9aabc",
       "event_type": "READY",
       "producer_task_id": "producer",
       "target_task_id": "consumer",
@@ -61,10 +92,11 @@
         "accepted_keys=timeout"
       ],
       "severity": "info",
-      "emitted_at": 1787162158.247693
+      "caused_by_event_id": "",
+      "emitted_at": 1787209193.342945
     },
     {
-      "event_id": "834601408ba5de1c227fa7c2d849b21d5d4c5b5d162112063c1f83dd646effc5",
+      "event_id": "820d9a021cdc8595446acdc59e3d29c4735671d799e290797d81ef6c2811f322",
       "event_type": "FEEDBACK",
       "producer_task_id": "consumer",
       "target_task_id": "producer",
@@ -75,10 +107,11 @@
         "fixture=configs/service-a.yaml uses legacy_timeout"
       ],
       "severity": "blocking",
-      "emitted_at": 1787162158.272254
+      "caused_by_event_id": "d68ca6fee828e99ded7f401cc8cda6b32a6c3b22030601493966341d4ed9aabc",
+      "emitted_at": 1787209193.370372
     },
     {
-      "event_id": "10525ba3efdc2cdd3a7d3991c4956e4e7ee65741176da4eaf7667c26e417d8b6",
+      "event_id": "591af5068b1627ccdf0195e3b4c77fd280d3dd0b1767a7c50481ca0f521581ae",
       "event_type": "UPDATE",
       "producer_task_id": "producer",
       "target_task_id": "consumer",
@@ -90,7 +123,8 @@
         "legacy_timeout maps to timeout"
       ],
       "severity": "info",
-      "emitted_at": 1787162158.2752352
+      "caused_by_event_id": "820d9a021cdc8595446acdc59e3d29c4735671d799e290797d81ef6c2811f322",
+      "emitted_at": 1787209193.3719099
     }
   ],
   "timeline": [
@@ -115,7 +149,7 @@
     {
       "schema_version": 1,
       "sequence": 3,
-      "elapsed_ms": 36,
+      "elapsed_ms": 34,
       "record_type": "worker_action",
       "task_id": "producer",
       "action": "initial_schema_materialized",
@@ -127,11 +161,11 @@
     {
       "schema_version": 1,
       "sequence": 4,
-      "elapsed_ms": 36,
+      "elapsed_ms": 34,
       "record_type": "handoff_event",
       "task_id": "producer",
       "event": {
-        "event_id": "adc493cf8d8c2ff2f2480ae64ab56b77f46bcadf42331ac3609318f99bafcc60",
+        "event_id": "d68ca6fee828e99ded7f401cc8cda6b32a6c3b22030601493966341d4ed9aabc",
         "event_type": "READY",
         "producer_task_id": "producer",
         "target_task_id": "consumer",
@@ -142,27 +176,28 @@
           "accepted_keys=timeout"
         ],
         "severity": "info",
-        "emitted_at": 1787162158.247693
+        "caused_by_event_id": "",
+        "emitted_at": 1787209193.342945
       }
     },
     {
       "schema_version": 1,
       "sequence": 5,
-      "elapsed_ms": 36,
+      "elapsed_ms": 34,
       "record_type": "worker_started",
       "task_id": "consumer",
-      "started_at_ms": 36
+      "started_at_ms": 34
     },
     {
       "schema_version": 1,
       "sequence": 6,
-      "elapsed_ms": 36,
+      "elapsed_ms": 34,
       "record_type": "mailbox_drained",
       "task_id": "consumer",
       "boundary": "before_first_model_turn",
       "events": [
         {
-          "event_id": "adc493cf8d8c2ff2f2480ae64ab56b77f46bcadf42331ac3609318f99bafcc60",
+          "event_id": "d68ca6fee828e99ded7f401cc8cda6b32a6c3b22030601493966341d4ed9aabc",
           "event_type": "READY",
           "producer_task_id": "producer",
           "target_task_id": "consumer",
@@ -173,14 +208,15 @@
             "accepted_keys=timeout"
           ],
           "severity": "info",
-          "emitted_at": 1787162158.247693
+          "caused_by_event_id": "",
+          "emitted_at": 1787209193.342945
         }
       ]
     },
     {
       "schema_version": 1,
       "sequence": 7,
-      "elapsed_ms": 44,
+      "elapsed_ms": 43,
       "record_type": "mailbox_drained",
       "task_id": "producer",
       "boundary": "after_tool_observation_1",
@@ -189,7 +225,7 @@
     {
       "schema_version": 1,
       "sequence": 8,
-      "elapsed_ms": 54,
+      "elapsed_ms": 52,
       "record_type": "mailbox_drained",
       "task_id": "producer",
       "boundary": "after_tool_observation_2",
@@ -198,7 +234,7 @@
     {
       "schema_version": 1,
       "sequence": 9,
-      "elapsed_ms": 60,
+      "elapsed_ms": 61,
       "record_type": "worker_action",
       "task_id": "consumer",
       "action": "downstream_constraint_discovered",
@@ -207,11 +243,11 @@
     {
       "schema_version": 1,
       "sequence": 10,
-      "elapsed_ms": 60,
+      "elapsed_ms": 62,
       "record_type": "handoff_event",
       "task_id": "consumer",
       "event": {
-        "event_id": "834601408ba5de1c227fa7c2d849b21d5d4c5b5d162112063c1f83dd646effc5",
+        "event_id": "820d9a021cdc8595446acdc59e3d29c4735671d799e290797d81ef6c2811f322",
         "event_type": "FEEDBACK",
         "producer_task_id": "consumer",
         "target_task_id": "producer",
@@ -222,19 +258,20 @@
           "fixture=configs/service-a.yaml uses legacy_timeout"
         ],
         "severity": "blocking",
-        "emitted_at": 1787162158.272254
+        "caused_by_event_id": "d68ca6fee828e99ded7f401cc8cda6b32a6c3b22030601493966341d4ed9aabc",
+        "emitted_at": 1787209193.370372
       }
     },
     {
       "schema_version": 1,
       "sequence": 11,
-      "elapsed_ms": 63,
+      "elapsed_ms": 62,
       "record_type": "mailbox_drained",
       "task_id": "producer",
       "boundary": "after_tool_observation_3",
       "events": [
         {
-          "event_id": "834601408ba5de1c227fa7c2d849b21d5d4c5b5d162112063c1f83dd646effc5",
+          "event_id": "820d9a021cdc8595446acdc59e3d29c4735671d799e290797d81ef6c2811f322",
           "event_type": "FEEDBACK",
           "producer_task_id": "consumer",
           "target_task_id": "producer",
@@ -245,14 +282,15 @@
             "fixture=configs/service-a.yaml uses legacy_timeout"
           ],
           "severity": "blocking",
-          "emitted_at": 1787162158.272254
+          "caused_by_event_id": "d68ca6fee828e99ded7f401cc8cda6b32a6c3b22030601493966341d4ed9aabc",
+          "emitted_at": 1787209193.370372
         }
       ]
     },
     {
       "schema_version": 1,
       "sequence": 12,
-      "elapsed_ms": 63,
+      "elapsed_ms": 62,
       "record_type": "worker_action",
       "task_id": "producer",
       "action": "trajectory_changed_from_feedback",
@@ -262,7 +300,8 @@
       "new_accepted_keys": [
         "timeout",
         "legacy_timeout"
-      ]
+      ],
+      "caused_by_event_id": "820d9a021cdc8595446acdc59e3d29c4735671d799e290797d81ef6c2811f322"
     },
     {
       "schema_version": 1,
@@ -271,7 +310,7 @@
       "record_type": "handoff_event",
       "task_id": "producer",
       "event": {
-        "event_id": "10525ba3efdc2cdd3a7d3991c4956e4e7ee65741176da4eaf7667c26e417d8b6",
+        "event_id": "591af5068b1627ccdf0195e3b4c77fd280d3dd0b1767a7c50481ca0f521581ae",
         "event_type": "UPDATE",
         "producer_task_id": "producer",
         "target_task_id": "consumer",
@@ -283,19 +322,20 @@
           "legacy_timeout maps to timeout"
         ],
         "severity": "info",
-        "emitted_at": 1787162158.2752352
+        "caused_by_event_id": "820d9a021cdc8595446acdc59e3d29c4735671d799e290797d81ef6c2811f322",
+        "emitted_at": 1787209193.3719099
       }
     },
     {
       "schema_version": 1,
       "sequence": 14,
-      "elapsed_ms": 67,
+      "elapsed_ms": 70,
       "record_type": "mailbox_drained",
       "task_id": "consumer",
       "boundary": "before_next_model_turn_1",
       "events": [
         {
-          "event_id": "10525ba3efdc2cdd3a7d3991c4956e4e7ee65741176da4eaf7667c26e417d8b6",
+          "event_id": "591af5068b1627ccdf0195e3b4c77fd280d3dd0b1767a7c50481ca0f521581ae",
           "event_type": "UPDATE",
           "producer_task_id": "producer",
           "target_task_id": "consumer",
@@ -307,27 +347,29 @@
             "legacy_timeout maps to timeout"
           ],
           "severity": "info",
-          "emitted_at": 1787162158.2752352
+          "caused_by_event_id": "820d9a021cdc8595446acdc59e3d29c4735671d799e290797d81ef6c2811f322",
+          "emitted_at": 1787209193.3719099
         }
       ]
     },
     {
       "schema_version": 1,
       "sequence": 15,
-      "elapsed_ms": 67,
+      "elapsed_ms": 71,
       "record_type": "worker_action",
       "task_id": "consumer",
       "action": "consumer_revalidated_against_update",
-      "consumed_version": 2
+      "consumed_version": 2,
+      "caused_by_event_id": "591af5068b1627ccdf0195e3b4c77fd280d3dd0b1767a7c50481ca0f521581ae"
     },
     {
       "schema_version": 1,
       "sequence": 16,
-      "elapsed_ms": 111,
+      "elapsed_ms": 121,
       "record_type": "worker_completed",
       "task_id": "consumer",
       "status": "completed",
-      "ended_at_ms": 111,
+      "ended_at_ms": 121,
       "error": ""
     },
     {
@@ -366,13 +408,13 @@
     "worker_count": 2,
     "completed_count": 2,
     "wall_time_ms": 138,
-    "summed_worker_duration_ms": 212,
+    "summed_worker_duration_ms": 224,
     "handoff_event_count": 3,
     "ready_count": 1,
     "feedback_count": 1,
     "update_count": 1,
     "retry_count": 0,
     "rework_count": 1,
-    "trajectory_change_count": 2
+    "trajectory_change_count": 1
   }
 }

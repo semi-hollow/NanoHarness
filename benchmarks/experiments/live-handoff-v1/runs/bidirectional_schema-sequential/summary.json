@@ -3,22 +3,33 @@
   "run_id": "bidirectional_schema-sequential",
   "scenario": "bidirectional_schema",
   "mode": "sequential",
-  "status": "failed",
-  "plan_digest": "c7d6adaa8073e3115e1df1b42e7d9e86459262c777156c8b57331e0f4dcba341",
-  "wall_time_ms": 187,
+  "status": "passed",
+  "plan_digest": "4e6f350b068a14fee3273699026e99f10b70cc0affc115beb0063c73a773dfe9",
+  "wall_time_ms": 179,
   "results": [
     {
       "task_id": "producer",
       "status": "completed",
       "started_at_ms": 0,
-      "ended_at_ms": 109,
-      "duration_ms": 109,
+      "ended_at_ms": 100,
+      "duration_ms": 100,
       "candidate": {
         "payload": {
           "artifact": "config_schema.py",
           "source": "def normalize_config(config):\n    allowed = {'timeout'}\n    unknown = set(config) - allowed\n    if unknown:\n        raise ValueError(f'unknown config keys: {sorted(unknown)}')\n    return {'timeout': int(config['timeout'])}\n"
         },
         "test_passed": true,
+        "attempts": [
+          {
+            "index": 1,
+            "kind": "initial",
+            "action": "candidate_materialized",
+            "caused_by_event_id": "",
+            "evidence": [
+              "config_schema.py"
+            ]
+          }
+        ],
         "retry_count": 0,
         "rework_count": 0,
         "trajectory_changed": false
@@ -27,20 +38,91 @@
       "error": ""
     },
     {
-      "task_id": "consumer",
+      "task_id": "consumer_discovery",
       "status": "completed",
-      "started_at_ms": 109,
-      "ended_at_ms": 186,
-      "duration_ms": 77,
+      "started_at_ms": 100,
+      "ended_at_ms": 126,
+      "duration_ms": 26,
       "candidate": {
         "payload": {
           "artifact": "service_consumer.py",
           "source": "def boot_service(normalize_config):\n    return normalize_config({'legacy_timeout': '30'})\n"
         },
         "test_passed": true,
+        "attempts": [
+          {
+            "index": 1,
+            "kind": "initial",
+            "action": "consumer_v1_candidate_materialized",
+            "caused_by_event_id": "",
+            "evidence": [
+              "fixture uses legacy_timeout"
+            ]
+          }
+        ],
+        "retry_count": 0,
+        "rework_count": 0,
+        "trajectory_changed": false
+      },
+      "consumed_versions": {},
+      "error": ""
+    },
+    {
+      "task_id": "producer_revision",
+      "status": "completed",
+      "started_at_ms": 127,
+      "ended_at_ms": 128,
+      "duration_ms": 1,
+      "candidate": {
+        "payload": {
+          "artifact": "config_schema.py",
+          "source": "def normalize_config(config):\n    normalized = dict(config)\n    if 'legacy_timeout' in normalized and 'timeout' not in normalized:\n        normalized['timeout'] = normalized.pop('legacy_timeout')\n    allowed = {'timeout'}\n    unknown = set(normalized) - allowed\n    if unknown:\n        raise ValueError(f'unknown config keys: {sorted(unknown)}')\n    return {'timeout': int(normalized['timeout'])}\n"
+        },
+        "test_passed": true,
+        "attempts": [
+          {
+            "index": 1,
+            "kind": "rework",
+            "action": "schema_v2_materialized_after_completion_feedback",
+            "caused_by_event_id": "",
+            "evidence": [
+              "accepted_keys=timeout,legacy_timeout"
+            ]
+          }
+        ],
         "retry_count": 0,
         "rework_count": 1,
-        "trajectory_changed": false
+        "trajectory_changed": true
+      },
+      "consumed_versions": {},
+      "error": ""
+    },
+    {
+      "task_id": "consumer",
+      "status": "completed",
+      "started_at_ms": 128,
+      "ended_at_ms": 178,
+      "duration_ms": 50,
+      "candidate": {
+        "payload": {
+          "artifact": "service_consumer.py",
+          "source": "def boot_service(normalize_config):\n    return normalize_config({'legacy_timeout': '30'})\n"
+        },
+        "test_passed": true,
+        "attempts": [
+          {
+            "index": 1,
+            "kind": "rework",
+            "action": "consumer_revalidated_after_completion_revision",
+            "caused_by_event_id": "",
+            "evidence": [
+              "consumed_schema_v2"
+            ]
+          }
+        ],
+        "retry_count": 0,
+        "rework_count": 1,
+        "trajectory_changed": true
       },
       "consumed_versions": {},
       "error": ""
@@ -56,7 +138,7 @@
       "run_id": "bidirectional_schema-sequential",
       "scenario": "bidirectional_schema",
       "mode": "sequential",
-      "plan_digest": "c7d6adaa8073e3115e1df1b42e7d9e86459262c777156c8b57331e0f4dcba341"
+      "plan_digest": "4e6f350b068a14fee3273699026e99f10b70cc0affc115beb0063c73a773dfe9"
     },
     {
       "schema_version": 1,
@@ -69,7 +151,7 @@
     {
       "schema_version": 1,
       "sequence": 3,
-      "elapsed_ms": 35,
+      "elapsed_ms": 28,
       "record_type": "worker_action",
       "task_id": "producer",
       "action": "initial_schema_materialized",
@@ -81,73 +163,135 @@
     {
       "schema_version": 1,
       "sequence": 4,
-      "elapsed_ms": 109,
+      "elapsed_ms": 100,
       "record_type": "worker_completed",
       "task_id": "producer",
       "status": "completed",
-      "ended_at_ms": 109,
+      "ended_at_ms": 100,
       "error": ""
     },
     {
       "schema_version": 1,
       "sequence": 5,
-      "elapsed_ms": 109,
+      "elapsed_ms": 100,
       "record_type": "worker_started",
-      "task_id": "consumer",
-      "started_at_ms": 109
+      "task_id": "consumer_discovery",
+      "started_at_ms": 100
     },
     {
       "schema_version": 1,
       "sequence": 6,
-      "elapsed_ms": 135,
+      "elapsed_ms": 126,
       "record_type": "worker_action",
-      "task_id": "consumer",
-      "action": "downstream_constraint_discovered",
-      "constraint": "deployed configs still use legacy_timeout"
+      "task_id": "consumer_discovery",
+      "action": "completion_time_feedback",
+      "constraint": "deployed configs still use legacy_timeout",
+      "producer_state": "completed_v1"
     },
     {
       "schema_version": 1,
       "sequence": 7,
-      "elapsed_ms": 186,
+      "elapsed_ms": 126,
       "record_type": "worker_completed",
-      "task_id": "consumer",
+      "task_id": "consumer_discovery",
       "status": "completed",
-      "ended_at_ms": 186,
+      "ended_at_ms": 126,
       "error": ""
     },
     {
       "schema_version": 1,
       "sequence": 8,
-      "elapsed_ms": 187,
-      "record_type": "integration_checked",
-      "status": "failed",
-      "integration_passed": false,
-      "detail": "integration assertion failed: ValueError: unknown config keys: ['legacy_timeout']",
-      "stale_dependencies": []
+      "elapsed_ms": 127,
+      "record_type": "worker_started",
+      "task_id": "producer_revision",
+      "started_at_ms": 127
     },
     {
       "schema_version": 1,
       "sequence": 9,
-      "elapsed_ms": 187,
+      "elapsed_ms": 127,
+      "record_type": "worker_action",
+      "task_id": "producer_revision",
+      "action": "completion_time_revision",
+      "old_accepted_keys": [
+        "timeout"
+      ],
+      "new_accepted_keys": [
+        "timeout",
+        "legacy_timeout"
+      ],
+      "cause": "consumer_completion_feedback"
+    },
+    {
+      "schema_version": 1,
+      "sequence": 10,
+      "elapsed_ms": 128,
+      "record_type": "worker_completed",
+      "task_id": "producer_revision",
+      "status": "completed",
+      "ended_at_ms": 128,
+      "error": ""
+    },
+    {
+      "schema_version": 1,
+      "sequence": 11,
+      "elapsed_ms": 128,
+      "record_type": "worker_started",
+      "task_id": "consumer",
+      "started_at_ms": 128
+    },
+    {
+      "schema_version": 1,
+      "sequence": 12,
+      "elapsed_ms": 128,
+      "record_type": "worker_action",
+      "task_id": "consumer",
+      "action": "completion_time_consumer_rework",
+      "cause": "producer_completion_revision"
+    },
+    {
+      "schema_version": 1,
+      "sequence": 13,
+      "elapsed_ms": 178,
+      "record_type": "worker_completed",
+      "task_id": "consumer",
+      "status": "completed",
+      "ended_at_ms": 178,
+      "error": ""
+    },
+    {
+      "schema_version": 1,
+      "sequence": 14,
+      "elapsed_ms": 179,
+      "record_type": "integration_checked",
+      "status": "passed",
+      "integration_passed": true,
+      "detail": "integration assertion passed",
+      "stale_dependencies": []
+    },
+    {
+      "schema_version": 1,
+      "sequence": 15,
+      "elapsed_ms": 179,
       "record_type": "run_completed",
-      "status": "failed",
-      "integration_passed": false
+      "status": "passed",
+      "integration_passed": true
     }
   ],
   "stale_dependencies": [],
-  "integration_passed": false,
-  "integration_detail": "integration assertion failed: ValueError: unknown config keys: ['legacy_timeout']",
+  "integration_passed": true,
+  "integration_detail": "integration assertion passed",
   "metrics": {
-    "worker_count": 2,
-    "completed_count": 2,
-    "wall_time_ms": 187,
-    "summed_worker_duration_ms": 186,
+    "worker_count": 4,
+    "completed_count": 4,
+    "wall_time_ms": 179,
+    "summed_worker_duration_ms": 177,
     "handoff_event_count": 0,
     "ready_count": 0,
     "feedback_count": 0,
     "update_count": 0,
     "retry_count": 0,
-    "rework_count": 1,
-    "trajectory_change_count": 0
+    "rework_count": 2,
+    "trajectory_change_count": 2
   }
 }

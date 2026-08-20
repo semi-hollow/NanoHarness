@@ -1,9 +1,15 @@
-{"elapsed_ms": 0, "mode": "sequential", "plan_digest": "c7d6adaa8073e3115e1df1b42e7d9e86459262c777156c8b57331e0f4dcba341", "record_type": "run_started", "run_id": "bidirectional_schema-sequential", "scenario": "bidirectional_schema", "schema_version": 1, "sequence": 1}
+{"elapsed_ms": 0, "mode": "sequential", "plan_digest": "4e6f350b068a14fee3273699026e99f10b70cc0affc115beb0063c73a773dfe9", "record_type": "run_started", "run_id": "bidirectional_schema-sequential", "scenario": "bidirectional_schema", "schema_version": 1, "sequence": 1}
 {"elapsed_ms": 0, "record_type": "worker_started", "schema_version": 1, "sequence": 2, "started_at_ms": 0, "task_id": "producer"}
-{"accepted_keys": ["timeout"], "action": "initial_schema_materialized", "artifact": "workers/producer/config_schema.py", "elapsed_ms": 35, "record_type": "worker_action", "schema_version": 1, "sequence": 3, "task_id": "producer"}
-{"elapsed_ms": 109, "ended_at_ms": 109, "error": "", "record_type": "worker_completed", "schema_version": 1, "sequence": 4, "status": "completed", "task_id": "producer"}
-{"elapsed_ms": 109, "record_type": "worker_started", "schema_version": 1, "sequence": 5, "started_at_ms": 109, "task_id": "consumer"}
-{"action": "downstream_constraint_discovered", "constraint": "deployed configs still use legacy_timeout", "elapsed_ms": 135, "record_type": "worker_action", "schema_version": 1, "sequence": 6, "task_id": "consumer"}
-{"elapsed_ms": 186, "ended_at_ms": 186, "error": "", "record_type": "worker_completed", "schema_version": 1, "sequence": 7, "status": "completed", "task_id": "consumer"}
-{"detail": "integration assertion failed: ValueError: unknown config keys: ['legacy_timeout']", "elapsed_ms": 187, "integration_passed": false, "record_type": "integration_checked", "schema_version": 1, "sequence": 8, "stale_dependencies": [], "status": "failed"}
-{"elapsed_ms": 187, "integration_passed": false, "record_type": "run_completed", "schema_version": 1, "sequence": 9, "status": "failed"}
+{"accepted_keys": ["timeout"], "action": "initial_schema_materialized", "artifact": "workers/producer/config_schema.py", "elapsed_ms": 28, "record_type": "worker_action", "schema_version": 1, "sequence": 3, "task_id": "producer"}
+{"elapsed_ms": 100, "ended_at_ms": 100, "error": "", "record_type": "worker_completed", "schema_version": 1, "sequence": 4, "status": "completed", "task_id": "producer"}
+{"elapsed_ms": 100, "record_type": "worker_started", "schema_version": 1, "sequence": 5, "started_at_ms": 100, "task_id": "consumer_discovery"}
+{"action": "completion_time_feedback", "constraint": "deployed configs still use legacy_timeout", "elapsed_ms": 126, "producer_state": "completed_v1", "record_type": "worker_action", "schema_version": 1, "sequence": 6, "task_id": "consumer_discovery"}
+{"elapsed_ms": 126, "ended_at_ms": 126, "error": "", "record_type": "worker_completed", "schema_version": 1, "sequence": 7, "status": "completed", "task_id": "consumer_discovery"}
+{"elapsed_ms": 127, "record_type": "worker_started", "schema_version": 1, "sequence": 8, "started_at_ms": 127, "task_id": "producer_revision"}
+{"action": "completion_time_revision", "cause": "consumer_completion_feedback", "elapsed_ms": 127, "new_accepted_keys": ["timeout", "legacy_timeout"], "old_accepted_keys": ["timeout"], "record_type": "worker_action", "schema_version": 1, "sequence": 9, "task_id": "producer_revision"}
+{"elapsed_ms": 128, "ended_at_ms": 128, "error": "", "record_type": "worker_completed", "schema_version": 1, "sequence": 10, "status": "completed", "task_id": "producer_revision"}
+{"elapsed_ms": 128, "record_type": "worker_started", "schema_version": 1, "sequence": 11, "started_at_ms": 128, "task_id": "consumer"}
+{"action": "completion_time_consumer_rework", "cause": "producer_completion_revision", "elapsed_ms": 128, "record_type": "worker_action", "schema_version": 1, "sequence": 12, "task_id": "consumer"}
+{"elapsed_ms": 178, "ended_at_ms": 178, "error": "", "record_type": "worker_completed", "schema_version": 1, "sequence": 13, "status": "completed", "task_id": "consumer"}
+{"detail": "integration assertion passed", "elapsed_ms": 179, "integration_passed": true, "record_type": "integration_checked", "schema_version": 1, "sequence": 14, "stale_dependencies": [], "status": "passed"}
+{"elapsed_ms": 179, "integration_passed": true, "record_type": "run_completed", "schema_version": 1, "sequence": 15, "status": "passed"}

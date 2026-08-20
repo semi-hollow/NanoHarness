@@ -5,20 +5,31 @@
   "mode": "hard_dependency",
   "status": "passed",
   "plan_digest": "6de34e8445f380087fc03ba2bc923165fdf060d048e72f5d99e6b81b17311242",
-  "wall_time_ms": 104,
+  "wall_time_ms": 111,
   "results": [
     {
       "task_id": "producer",
       "status": "completed",
       "started_at_ms": 0,
-      "ended_at_ms": 73,
-      "duration_ms": 73,
+      "ended_at_ms": 81,
+      "duration_ms": 81,
       "candidate": {
         "payload": {
           "artifact": "generated_constants.py",
           "source": "GENERATED_TOKEN = 'token-v1'\n"
         },
         "test_passed": true,
+        "attempts": [
+          {
+            "index": 1,
+            "kind": "initial",
+            "action": "candidate_materialized",
+            "caused_by_event_id": "",
+            "evidence": [
+              "generated_constants.py"
+            ]
+          }
+        ],
         "retry_count": 0,
         "rework_count": 0,
         "trajectory_changed": false
@@ -29,15 +40,26 @@
     {
       "task_id": "consumer",
       "status": "completed",
-      "started_at_ms": 73,
-      "ended_at_ms": 104,
-      "duration_ms": 31,
+      "started_at_ms": 81,
+      "ended_at_ms": 110,
+      "duration_ms": 29,
       "candidate": {
         "payload": {
           "artifact": "constant_consumer.py",
           "source": "def read_token():\n    return GENERATED_TOKEN\n"
         },
         "test_passed": true,
+        "attempts": [
+          {
+            "index": 1,
+            "kind": "initial",
+            "action": "candidate_materialized",
+            "caused_by_event_id": "",
+            "evidence": [
+              "constant_consumer.py"
+            ]
+          }
+        ],
         "retry_count": 0,
         "rework_count": 0,
         "trajectory_changed": false
@@ -69,7 +91,7 @@
     {
       "schema_version": 1,
       "sequence": 3,
-      "elapsed_ms": 73,
+      "elapsed_ms": 81,
       "record_type": "worker_action",
       "task_id": "producer",
       "action": "generated_constant_finalized",
@@ -78,25 +100,25 @@
     {
       "schema_version": 1,
       "sequence": 4,
-      "elapsed_ms": 73,
+      "elapsed_ms": 81,
       "record_type": "worker_completed",
       "task_id": "producer",
       "status": "completed",
-      "ended_at_ms": 73,
+      "ended_at_ms": 81,
       "error": ""
     },
     {
       "schema_version": 1,
       "sequence": 5,
-      "elapsed_ms": 73,
+      "elapsed_ms": 81,
       "record_type": "worker_started",
       "task_id": "consumer",
-      "started_at_ms": 73
+      "started_at_ms": 81
     },
     {
       "schema_version": 1,
       "sequence": 6,
-      "elapsed_ms": 74,
+      "elapsed_ms": 82,
       "record_type": "worker_action",
       "task_id": "consumer",
       "action": "completed_output_consumed",
@@ -105,17 +127,17 @@
     {
       "schema_version": 1,
       "sequence": 7,
-      "elapsed_ms": 104,
+      "elapsed_ms": 110,
       "record_type": "worker_completed",
       "task_id": "consumer",
       "status": "completed",
-      "ended_at_ms": 104,
+      "ended_at_ms": 110,
       "error": ""
     },
     {
       "schema_version": 1,
       "sequence": 8,
-      "elapsed_ms": 104,
+      "elapsed_ms": 110,
       "record_type": "integration_checked",
       "status": "passed",
       "integration_passed": true,
@@ -125,7 +147,7 @@
     {
       "schema_version": 1,
       "sequence": 9,
-      "elapsed_ms": 104,
+      "elapsed_ms": 111,
       "record_type": "run_completed",
       "status": "passed",
       "integration_passed": true
@@ -137,8 +159,8 @@
   "metrics": {
     "worker_count": 2,
     "completed_count": 2,
-    "wall_time_ms": 104,
-    "summed_worker_duration_ms": 104,
+    "wall_time_ms": 111,
+    "summed_worker_duration_ms": 110,
     "handoff_event_count": 0,
     "ready_count": 0,
     "feedback_count": 0,

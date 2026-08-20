@@ -2,6 +2,16 @@
   "schema_version": 1,
   "experiment_id": "live-handoff-v1",
   "purpose": "Evaluate milestone-level dependencies with deterministic software-engineering micro cases.",
+  "evidence_layers": [
+    "deterministic_controlled_mechanism",
+    "deterministic_real_agent_loop_integration"
+  ],
+  "real_model_performance_evaluated": false,
+  "baseline_policy": {
+    "sequential": "Completion-time handoff may trigger an explicit producer revision and consumer rework.",
+    "naive_parallel": "One-shot no-communication negative control; it has no recovery and is not a performance-equivalent baseline.",
+    "live_handoff": "In-flight plan-bound READY/FEEDBACK/UPDATE delivery with version validation."
+  },
   "frozen_cases": [
     {
       "id": "early_unblock",
@@ -41,6 +51,8 @@
         "safe_boundary_poll": 6
       },
       "success_criteria": [
+        "sequential completes through late feedback, producer revision, and consumer rework",
+        "naive parallel remains an explicitly labeled no-recovery negative control",
         "live consumer starts before producer completion",
         "consumer publishes blocking FEEDBACK for version 1",
         "producer consumes FEEDBACK at a named safe boundary",
@@ -65,5 +77,18 @@
         "integration test passes"
       ]
     }
-  ]
+  ],
+  "real_agent_loop_case": {
+    "id": "bidirectional_schema_real_agent_loop",
+    "model": "deterministic scripted ModelPort",
+    "required_path": [
+      "real AgentLoop",
+      "publish_handoff_event ToolCall/Observation",
+      "runtime coordination safe boundary",
+      "stale model response discard and REPLAN",
+      "isolated worktree candidate diffs",
+      "integration assertion"
+    ],
+    "performance_claim_allowed": false
+  }
 }
