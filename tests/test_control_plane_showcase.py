@@ -1,4 +1,3 @@
-import asyncio
 import json
 import re
 import tempfile
@@ -236,9 +235,8 @@ class GovernedShowcaseConsoleTest(unittest.IsolatedAsyncioTestCase):
                 self._assert_on_screen(app, "#start")
                 self._assert_panels_fit(app)
                 await pilot.click("#start")
-                await self._wait_for(
-                    lambda: app.query_one("#human-input-actions").display,
-                )
+                await app.workers.wait_for_complete()
+                self.assertTrue(app.query_one("#human-input-actions").display)
                 self.assertEqual(app._controller.current.status, "waiting_human")
                 self._assert_panels_fit(app)
 
@@ -246,9 +244,8 @@ class GovernedShowcaseConsoleTest(unittest.IsolatedAsyncioTestCase):
                 self._assert_on_screen(app, "#save-human-answer")
                 app.query_one("#human-answer", Input).value = OPERATOR_REQUEST
                 await pilot.click("#save-human-answer")
-                await self._wait_for(
-                    lambda: app.query_one("#resume-actions").display,
-                )
+                await app.workers.wait_for_complete()
+                self.assertTrue(app.query_one("#resume-actions").display)
                 self.assertEqual(app._controller.current.status, "waiting_human")
                 self.assertEqual(
                     app._controller.current.action,
@@ -258,17 +255,15 @@ class GovernedShowcaseConsoleTest(unittest.IsolatedAsyncioTestCase):
 
                 self._assert_on_screen(app, "#resume")
                 await pilot.click("#resume")
-                await self._wait_for(
-                    lambda: app.query_one("#approval-actions").display,
-                )
+                await app.workers.wait_for_complete()
+                self.assertTrue(app.query_one("#approval-actions").display)
                 self.assertEqual(app._controller.current.status, "waiting_approval")
                 self._assert_panels_fit(app)
 
                 self._assert_on_screen(app, "#approve")
                 await pilot.click("#approve")
-                await self._wait_for(
-                    lambda: app.query_one("#resume-actions").display,
-                )
+                await app.workers.wait_for_complete()
+                self.assertTrue(app.query_one("#resume-actions").display)
                 self.assertEqual(app._controller.current.status, "waiting_approval")
                 self.assertEqual(
                     app._controller.current.action,
@@ -278,9 +273,8 @@ class GovernedShowcaseConsoleTest(unittest.IsolatedAsyncioTestCase):
 
                 self._assert_on_screen(app, "#resume")
                 await pilot.click("#resume")
-                await self._wait_for(
-                    lambda: app.query_one("#terminal-actions").display,
-                )
+                await app.workers.wait_for_complete()
+                self.assertTrue(app.query_one("#terminal-actions").display)
                 self.assertEqual(app._controller.current.status, "completed")
                 self.assertEqual(
                     app._controller.state_sequence,
@@ -307,14 +301,6 @@ class GovernedShowcaseConsoleTest(unittest.IsolatedAsyncioTestCase):
                 widget.content_size.height,
                 f"{selector} content is clipped in a 140x38 Run window",
             )
-
-    async def _wait_for(self, predicate, *, timeout_seconds: float = 10.0):
-        for _ in range(int(timeout_seconds * 20)):
-            if predicate():
-                return
-            await asyncio.sleep(0.05)
-        self.fail("Textual control state did not arrive before timeout")
-
 
 if __name__ == "__main__":
     unittest.main()
