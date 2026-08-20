@@ -24,6 +24,11 @@ class PermissionPolicy:
             return PermissionDecision.ALLOW, "bounded validation allowed"
         if action == "memory_write":
             return PermissionDecision.ALLOW, "explicit user memory provenance required"
+        if action == "coordination_publish":
+            return (
+                PermissionDecision.ALLOW,
+                "plan-bound runtime coordination is validated by LiveHandoffRuntime",
+            )
         if action == "write":
             return PermissionDecision.ASK, "write needs approval"
         if action == "run_command":

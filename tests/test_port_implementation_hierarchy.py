@@ -42,6 +42,11 @@ from agent_forge.multi_agent.adapters.local_worker import LocalAgentWorkerAdapte
 from agent_forge.multi_agent.adapters.live_handoff_files import (
     JsonlLiveHandoffRepository,
 )
+from agent_forge.multi_agent.adapters.live_agent_worker import (
+    LiveAgentWorkerAdapter,
+    LiveCandidateDiffIntegration,
+    LiveHandoffRunControl,
+)
 from agent_forge.multi_agent.adapters.role_runtime import (
     AgentLoopRoleRunner,
     GitCandidateDiff,
@@ -52,6 +57,8 @@ from agent_forge.multi_agent.ports import (
     FanoutWorkerPort,
     FanoutWorkspacePort,
     LiveHandoffArtifactPort,
+    LiveHandoffWorkerPort,
+    LiveIntegrationPort,
     RoleArtifactPort,
     RoleRunnerPort,
 )
@@ -134,6 +141,9 @@ FORMAL_IMPLEMENTATIONS = (
     (FanoutFileRepository, FanoutArtifactPort),
     (LocalAgentWorkerAdapter, FanoutWorkerPort),
     (JsonlLiveHandoffRepository, LiveHandoffArtifactPort),
+    (LiveAgentWorkerAdapter, LiveHandoffWorkerPort),
+    (LiveCandidateDiffIntegration, LiveIntegrationPort),
+    (LiveHandoffRunControl, RunControlPort),
     (FileArtifactRepository, RoleArtifactPort),
     (AgentLoopRoleRunner, RoleRunnerPort),
     (GitCandidateDiff, CandidateDiffPort),

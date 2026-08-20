@@ -94,6 +94,7 @@ class LiveHandoffEvent:
     summary: str
     evidence: tuple[str, ...]
     severity: HandoffSeverity = HandoffSeverity.INFO
+    caused_by_event_id: str = ""
     emitted_at: float = field(default_factory=time.time, compare=False)
 
     def __post_init__(self) -> None:
@@ -130,6 +131,11 @@ class LiveHandoffEvent:
             and self.severity == HandoffSeverity.BLOCKING
         ):
             raise ValueError("blocking severity is only valid for FEEDBACK")
+        if self.caused_by_event_id and not re.fullmatch(
+            r"[a-f0-9]{64}",
+            self.caused_by_event_id,
+        ):
+            raise ValueError("caused_by_event_id must be a sha256 event id")
 
     @property
     def event_id(self) -> str:
@@ -144,6 +150,7 @@ class LiveHandoffEvent:
             "summary": self.summary,
             "evidence": list(self.evidence),
             "severity": self.severity.value,
+            "caused_by_event_id": self.caused_by_event_id,
         }
         encoded = json.dumps(payload, ensure_ascii=False, sort_keys=True)
         return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
@@ -159,6 +166,7 @@ class LiveHandoffEvent:
             "summary": self.summary,
             "evidence": list(self.evidence),
             "severity": self.severity.value,
+            "caused_by_event_id": self.caused_by_event_id,
             "emitted_at": self.emitted_at,
         }
 
@@ -291,23 +299,69 @@ class LiveHandoffPlan:
 
 
 @dataclass(frozen=True)
+class LiveWorkerAttempt:
+    """一次真实初始执行、基础设施重试或证据驱动返工。"""
+
+    index: int
+    kind: str
+    action: str
+    caused_by_event_id: str = ""
+    evidence: tuple[str, ...] = ()
+
+    def __post_init__(self) -> None:
+        if self.index < 1:
+            raise ValueError("worker attempt index must be positive")
+        if self.kind not in {"initial", "retry", "rework"}:
+            raise ValueError("worker attempt kind must be initial, retry, or rework")
+        if not self.action.strip():
+            raise ValueError("worker attempt action must not be empty")
+        if self.caused_by_event_id and not re.fullmatch(
+            r"[a-f0-9]{64}",
+            self.caused_by_event_id,
+        ):
+            raise ValueError("attempt caused_by_event_id must be a sha256 event id")
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "index": self.index,
+            "kind": self.kind,
+            "action": self.action,
+            "caused_by_event_id": self.caused_by_event_id,
+            "evidence": list(self.evidence),
+        }
+
+
+@dataclass(frozen=True)
 class LiveWorkerCandidate:
-    """一个 Worker 的隔离候选结果与机制级校验事实。"""
+    """一个 Worker 的隔离候选，以及推导指标所依据的真实 attempts。"""
 
     payload: dict[str, Any]
     test_passed: bool
-    retry_count: int = 0
-    rework_count: int = 0
-    trajectory_changed: bool = False
+    attempts: tuple[LiveWorkerAttempt, ...] = ()
 
     def __post_init__(self) -> None:
-        if self.retry_count < 0 or self.rework_count < 0:
-            raise ValueError("retry/rework counts must not be negative")
+        if self.attempts and [attempt.index for attempt in self.attempts] != list(
+            range(1, len(self.attempts) + 1)
+        ):
+            raise ValueError("worker attempt indices must be contiguous from one")
+
+    @property
+    def retry_count(self) -> int:
+        return sum(attempt.kind == "retry" for attempt in self.attempts)
+
+    @property
+    def rework_count(self) -> int:
+        return sum(attempt.kind == "rework" for attempt in self.attempts)
+
+    @property
+    def trajectory_changed(self) -> bool:
+        return any(attempt.kind == "rework" for attempt in self.attempts)
 
     def to_dict(self) -> dict[str, Any]:
         return {
             "payload": self.payload,
             "test_passed": self.test_passed,
+            "attempts": [attempt.to_dict() for attempt in self.attempts],
             "retry_count": self.retry_count,
             "rework_count": self.rework_count,
             "trajectory_changed": self.trajectory_changed,
@@ -345,7 +399,7 @@ class LiveWorkerResult:
 
 @dataclass
 class LiveHandoffSummary:
-    """单次受控 Live Handoff Run 的 canonical 结果投影。"""
+    """单次 Live Handoff Run 的 canonical 结果投影。"""
 
     run_id: str
     scenario: str

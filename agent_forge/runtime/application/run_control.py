@@ -1,30 +1,52 @@
-"""把外部 pause、cancel 和 steer 转换为 AgentLoop 状态迁移。"""
+"""把人工控制和 Runtime 协作输入转换为 AgentLoop 安全边界状态迁移。"""
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
 
 from agent_forge.runtime.application.run_lifecycle import StopRequest
 from agent_forge.runtime.application.session import AgentRunSession
 from agent_forge.runtime.domain.conversation import Message
-from agent_forge.runtime.domain.run_control import RunControlKind, RunControlSignal
+from agent_forge.runtime.domain.run_control import (
+    RunControlKind,
+    RunControlSignal,
+    RuntimeCoordinationSignal,
+)
 from agent_forge.runtime.domain.task import TaskCheckpointUpdate, TaskRunStatus
 from agent_forge.runtime.ports import EventSink, RunControlPort
 
 
 @dataclass(frozen=True, kw_only=True)
 class RunControlOutcome:
-    """一次安全边界检查产生的停止请求和 steer 事实。"""
+    """一次安全边界检查产生的停止请求和模型输入变化。"""
 
     stop: StopRequest | None = None
     steered: bool = False
+    coordination_delivered: bool = False
+
+    @property
+    def model_input_changed(self) -> bool:
+        """模型请求期间有新输入到达时，旧 response 必须丢弃。"""
+
+        return self.steered or self.coordination_delivered
+
+    @property
+    def input_sources(self) -> tuple[str, ...]:
+        sources: list[str] = []
+        if self.steered:
+            sources.append("operator_steer")
+        if self.coordination_delivered:
+            sources.append("runtime_coordination")
+        return tuple(sources)
 
 
 class RunControlHandler:
     """只在模型/工具安全边界消费控制信号，不伪装进程级抢占。
 
-    pause/cancel 在每个安全边界都可消费；steer 只在模型边界消费。这样不会在一条
-    assistant ToolCall 与对应 tool Observation 之间插入 user message，破坏消息协议。
+    pause/cancel 在每个安全边界都可消费；steer 与 coordination 只在模型边界消费。
+    这样不会在一条 assistant ToolCall 与对应 tool Observation 之间插入新消息，破坏
+    provider 协议。
     """
 
     def __init__(self, control: RunControlPort, trace: EventSink) -> None:
@@ -38,12 +60,13 @@ class RunControlHandler:
         step: int,
         *,
         include_steer: bool = True,
+        boundary: str = "model_boundary",
     ) -> RunControlOutcome:
-        """返回 pause/cancel 停止请求；steer 只追加新的用户消息。
+        """返回 pause/cancel 停止请求，并在模型边界追加新的输入。
 
         ``include_steer=False`` 用于工具前的最后检查：仍允许操作员阻止状态变更操作启动，但把
-        改方向消息留在队列，直到下一次模型输入组装前。若 steer 在模型调用期间到达，
-        AgentLoop 会丢弃已经过时的模型响应，再开始下一 turn。
+        改方向消息和协作证据留在队列，直到下一次模型输入组装前。若任一输入在模型调用
+        期间到达，AgentLoop 会丢弃已经过时的模型响应，再开始下一 turn。
         """
 
         # region 1. 终止类信号：pause/cancel 优先，并转换为可持久化 StopRequest
@@ -81,7 +104,11 @@ class RunControlHandler:
             return RunControlOutcome()
 
         pending_steer_signals = self.control.drain_steers(self.trace.run_id)
-        if not pending_steer_signals:
+        pending_coordination_signals = self.control.drain_coordination(
+            self.trace.run_id,
+            boundary=f"{boundary}:step={step}",
+        )
+        if not pending_steer_signals and not pending_coordination_signals:
             return RunControlOutcome()
         # endregion 2. 工具边界结束
 
@@ -99,6 +126,19 @@ class RunControlHandler:
                 )
             )
             self._record_control_signal(session, step, steer_signal)
+        for coordination_signal in pending_coordination_signals:
+            session.messages.append(
+                Message(
+                    role="user",
+                    content=self._render_coordination_signal(coordination_signal),
+                )
+            )
+            self._record_runtime_coordination(
+                session,
+                step,
+                boundary,
+                coordination_signal,
+            )
         metadata = dict(session.lifecycle.checkpoint.metadata)
         stored_steer_messages = metadata.get("steer_messages")
         updated_steer_messages = (
@@ -110,6 +150,21 @@ class RunControlHandler:
             steer_signal.message[:1_000] for steer_signal in pending_steer_signals
         )
         metadata["steer_messages"] = updated_steer_messages[-10:]
+        stored_coordination = metadata.get("runtime_coordination")
+        updated_coordination = (
+            list(stored_coordination)
+            if isinstance(stored_coordination, list)
+            else []
+        )
+        updated_coordination.extend(
+            {
+                "source": coordination_signal.source,
+                "message": coordination_signal.message[:1_000],
+                "provenance": dict(coordination_signal.provenance),
+            }
+            for coordination_signal in pending_coordination_signals
+        )
+        metadata["runtime_coordination"] = updated_coordination[-10:]
         session.lifecycle.update_checkpoint(
             TaskCheckpointUpdate(
                 current_step=step,
@@ -117,8 +172,29 @@ class RunControlHandler:
                 metadata=metadata,
             )
         )
-        return RunControlOutcome(steered=True)
+        return RunControlOutcome(
+            steered=bool(pending_steer_signals),
+            coordination_delivered=bool(pending_coordination_signals),
+        )
         # endregion 3. 模型边界结束
+
+    @staticmethod
+    def _render_coordination_signal(signal: RuntimeCoordinationSignal) -> str:
+        """把 peer evidence 显式标成非人工 Runtime 投影。"""
+
+        source = signal.source
+        message = signal.message.strip()
+        provenance = dict(signal.provenance)
+        return "\n".join(
+            [
+                "[RUNTIME COORDINATION EVIDENCE]",
+                "This is validated peer-agent evidence, not a user or operator instruction.",
+                f"source={source}",
+                "provenance="
+                + json.dumps(provenance, ensure_ascii=False, sort_keys=True),
+                message,
+            ]
+        )
 
     def _record_control_signal(
         self,
@@ -133,4 +209,22 @@ class RunControlHandler:
             session.agent_name,
             "run_control",
             control=signal.to_dict(),
+        )
+
+    def _record_runtime_coordination(
+        self,
+        session: AgentRunSession,
+        step: int,
+        boundary: str,
+        coordination_signal: RuntimeCoordinationSignal,
+    ) -> None:
+        """记录 peer coordination 的独立来源，不归入 operator control。"""
+
+        self.trace.add(
+            step,
+            session.agent_name,
+            "runtime_coordination",
+            coordination=coordination_signal.to_dict(),
+            boundary=boundary,
+            human_authority=False,
         )

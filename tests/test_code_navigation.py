@@ -83,7 +83,7 @@ CORE_WORKFLOW_ENTRYPOINTS = {
         "LiveFanoutCoordinator.run": 3,
     },
     "agent_forge/multi_agent/adapters/local_worker.py": {
-        "LocalAgentWorkerAdapter.run_worker": 5,
+        "LocalAgentWorkerAdapter.run_worker_with_options": 5,
         "LocalAgentWorkerAdapter.run_finalizer": 4,
     },
     "agent_forge/bench/application/swebench.py": {

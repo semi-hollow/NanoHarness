@@ -27,6 +27,7 @@ _EVENT_NAMES: dict[str, str] = {
     "human_input_requested": "human.required",
     "human_approval": "approval.updated",
     "run_control": "run.control",
+    "runtime_coordination": "coordination.delivered",
     "run_completed": "run.completed",
     "skill_selection": "skill.selected",
 }

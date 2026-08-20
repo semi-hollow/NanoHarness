@@ -29,7 +29,7 @@ class LiveFanoutDependencies:
 
 @dataclass(frozen=True)
 class LiveHandoffDependencies:
-    """协作 Worker、durable timeline 与最终 integration validator。"""
+    """协作 Worker、可审计 timeline 与最终 integration validator。"""
 
     artifacts: LiveHandoffArtifactPort
     workers: LiveHandoffWorkerPort

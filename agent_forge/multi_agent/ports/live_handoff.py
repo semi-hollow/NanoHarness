@@ -63,7 +63,7 @@ class LiveIntegrationPort(Protocol):
 
 
 class LiveHandoffArtifactPort(Protocol):
-    """持久化 append-only timeline 与最终 summary 投影。"""
+    """保存可审计 append-only timeline 与最终 summary 投影。"""
 
     def append_timeline(self, record: Mapping[str, Any]) -> None:
         """追加并 flush 一条不可变 timeline 记录。"""

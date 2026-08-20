@@ -13,6 +13,9 @@ from typing import Any, Mapping
 from agent_forge.multi_agent.adapters.live_handoff_files import (
     JsonlLiveHandoffRepository,
 )
+from agent_forge.multi_agent.adapters.live_agent_worker import (
+    PublishHandoffEventTool,
+)
 from agent_forge.multi_agent.application.dependencies import LiveHandoffDependencies
 from agent_forge.multi_agent.application.live_handoff import (
     LiveHandoffCoordinator,
@@ -36,6 +39,8 @@ from agent_forge.multi_agent.ports import (
     LiveWorkerContextPort,
 )
 from scripts.run_live_handoff_experiments import run_suite
+from scripts.run_live_agent_handoff_integration import run_real_agent_loop_case
+from agent_forge.safety.permission import PermissionDecision, PermissionPolicy
 
 
 PROJECT_ROOT = Path(__file__).parents[1]
@@ -358,6 +363,49 @@ class LiveHandoffRuntimeTest(unittest.TestCase):
             ["duplicate_event", "FEEDBACK_target_is_not_running"],
         )
 
+    def test_causal_reference_must_point_to_an_accepted_event(self) -> None:
+        runtime, artifacts = _runtime(DependencyType.LIVE)
+        runtime.mark_worker_started("producer")
+        invalid = LiveHandoffEvent(
+            event_type=LiveEventType.READY,
+            producer_task_id="producer",
+            target_task_id="consumer",
+            semantic_key="schema",
+            version=1,
+            summary="Invalid causal source.",
+            evidence=("fixture",),
+            caused_by_event_id="a" * 64,
+        )
+
+        self.assertFalse(runtime.publish("producer", invalid))
+        self.assertEqual(
+            artifacts.timeline[-1]["reason"],
+            "caused_by_event_not_accepted",
+        )
+
+    def test_publish_tool_binds_worker_identity_and_uses_explicit_action(self) -> None:
+        runtime, _ = _runtime(DependencyType.LIVE)
+        runtime.mark_worker_started("producer")
+        from agent_forge.multi_agent.application.live_handoff import LiveWorkerContext
+
+        tool = PublishHandoffEventTool(LiveWorkerContext("producer", runtime))
+        observation = tool.execute(
+            {
+                "event_type": "READY",
+                "producer_task_id": "spoofed-worker",
+                "target_task_id": "consumer",
+                "semantic_key": "schema",
+                "version": 1,
+                "summary": "Schema is ready.",
+                "evidence": ["fixture"],
+            }
+        )
+        permission, _ = PermissionPolicy().decide("coordination_publish")
+
+        self.assertTrue(observation.success)
+        self.assertEqual(runtime.events[0].producer_task_id, "producer")
+        self.assertEqual(permission, PermissionDecision.ALLOW)
+
     def test_hard_dependency_never_unblocks_before_completion(self) -> None:
         runtime, _ = _runtime(DependencyType.HARD)
         runtime.mark_worker_started("producer")
@@ -409,6 +457,26 @@ class ControlledLiveHandoffExperimentTest(unittest.TestCase):
             self.assertTrue(result["overall_passed"])
             self.assertEqual(len(result["runs"]), 7)
             self.assertTrue(all(result["assertions"].values()))
+            self.assertFalse(result["real_model_performance_evaluated"])
+            self.assertTrue(
+                (output_root / "real-agent-loop-integration.json").is_file()
+            )
+            sequential = next(
+                run
+                for run in result["runs"]
+                if run["scenario"] == "bidirectional_schema"
+                and run["mode"] == "sequential"
+            )
+            naive = next(
+                run
+                for run in result["runs"]
+                if run["scenario"] == "bidirectional_schema"
+                and run["mode"] == "naive_parallel"
+            )
+            self.assertTrue(sequential["integration_passed"])
+            self.assertEqual(sequential["metrics"]["rework_count"], 2)
+            self.assertFalse(naive["integration_passed"])
+            self.assertEqual(naive["metrics"]["rework_count"], 0)
 
             result_text = (output_root / "result.json").read_text(encoding="utf-8")
             self.assertNotIn(str(output_root), result_text)
@@ -431,6 +499,31 @@ class ControlledLiveHandoffExperimentTest(unittest.TestCase):
 
     def test_jsonl_repository_is_a_formal_artifact_port(self) -> None:
         self.assertIn(LiveHandoffArtifactPort, JsonlLiveHandoffRepository.__bases__)
+
+    def test_real_agent_loop_case_has_safe_boundary_diff_and_causal_evidence(
+        self,
+    ) -> None:
+        result = run_real_agent_loop_case()
+
+        self.assertTrue(result["overall_passed"])
+        self.assertEqual(
+            result["evidence_class"],
+            "deterministic_real_agent_loop_integration",
+        )
+        self.assertFalse(result["performance_evaluated"])
+        self.assertEqual(
+            [event["event_type"] for event in result["handoff_events"]],
+            ["READY", "FEEDBACK", "UPDATE"],
+        )
+        self.assertTrue(
+            all(
+                boundary["boundary"].startswith(("before_model", "after_model"))
+                for boundary in result["agent_loop_boundaries"]
+            )
+        )
+        serialized = json.dumps(result, ensure_ascii=False)
+        self.assertNotIn("Operator steer for the current task", serialized)
+        self.assertNotIn("/var/folders/", serialized)
 
 
 if __name__ == "__main__":

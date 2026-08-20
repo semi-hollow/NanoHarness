@@ -77,6 +77,7 @@ class ToolAuthorizationGate:
         self._record_authorization_decision(
             session=session,
             tool_call=tool_call,
+            intent=intent,
             hook_result=hook_result,
             step=step,
         )
@@ -344,6 +345,7 @@ class ToolAuthorizationGate:
         *,
         session: AgentRunSession,
         tool_call: ToolCall,
+        intent: OperationIntent,
         hook_result: HookResult,
         step: int,
     ) -> None:
@@ -362,6 +364,7 @@ class ToolAuthorizationGate:
             session.agent_name,
             "permission_check",
             permission_decision=hook_result.decision.value,
+            permission_action=intent.action,
             tool_call=tool_call.name,
             reason=hook_result.reason,
         )

@@ -158,6 +158,12 @@ class ToolRouter:
             "latency": "low",
             "mode": "memory_write",
         },
+        "publish_handoff_event": {
+            "capability": "coordinate",
+            "risk": "bounded",
+            "latency": "low",
+            "mode": "coordination_publish",
+        },
         "replace_text": {
             "capability": "edit",
             "risk": "medium",
@@ -280,6 +286,7 @@ class ToolRouter:
         visible_tool_names |= registered_tool_names & {
             "ask_human",
             "remember_memory",
+            "publish_handoff_event",
         }
 
         # 修复任务需要“检查 -> 编辑 -> 验证 -> 查看改动”的完整闭环。这里允许模型看见
@@ -404,6 +411,7 @@ class ToolRouter:
                     "grep_search",
                     "git_status",
                     "git_diff",
+                    "publish_handoff_event",
                 }
                 closure_phase = "read_only_closeout"
             else:
@@ -415,6 +423,7 @@ class ToolRouter:
                     "python_validation",
                     "run_command",
                     "git_diff",
+                    "publish_handoff_event",
                 }
                 closure_phase = "repair_closeout"
             visible_tool_names &= closeout_tool_names

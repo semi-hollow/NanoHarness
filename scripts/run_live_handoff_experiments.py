@@ -24,6 +24,7 @@ from agent_forge.multi_agent.api import (
     LiveHandoffEvent,
     LiveHandoffPlan,
     LiveHandoffSummary,
+    LiveWorkerAttempt,
     LiveWorkerCandidate,
     SubagentTask,
     build_live_handoff,
@@ -33,6 +34,10 @@ from agent_forge.multi_agent.ports import (
     LiveIntegrationPort,
     LiveWorkerContextPort,
 )
+if __package__:
+    from scripts.run_live_agent_handoff_integration import run_real_agent_loop_case
+else:
+    from run_live_agent_handoff_integration import run_real_agent_loop_case
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -167,6 +172,10 @@ class ControlledWorker(LiveHandoffWorkerPort):
     ) -> LiveWorkerCandidate:
         if task.id == "producer":
             return self._run_schema_producer(context)
+        if task.id == "consumer_discovery":
+            return self._run_sequential_schema_discovery(context)
+        if task.id == "producer_revision":
+            return self._run_sequential_schema_revision(context)
         return self._run_schema_consumer(context)
 
     def _run_schema_producer(
@@ -186,8 +195,7 @@ class ControlledWorker(LiveHandoffWorkerPort):
             _sleep_ms(self.settings["producer_after_update"])
             return _candidate("config_schema.py", source)
 
-        accepted = context.publish(
-            LiveHandoffEvent(
+        ready_event = LiveHandoffEvent(
                 event_type=LiveEventType.READY,
                 producer_task_id="producer",
                 target_task_id="consumer",
@@ -195,8 +203,8 @@ class ControlledWorker(LiveHandoffWorkerPort):
                 version=1,
                 summary="Config schema v1 accepts timeout only.",
                 evidence=("accepted_keys=timeout",),
-            )
         )
+        accepted = context.publish(ready_event)
         if not accepted:
             raise RuntimeError("Runtime rejected schema READY(v1)")
 
@@ -206,24 +214,29 @@ class ControlledWorker(LiveHandoffWorkerPort):
             feedback = context.drain_mailbox(
                 boundary=f"after_tool_observation_{boundary_index + 1}"
             )
-            if not any(
-                event.event_type == LiveEventType.FEEDBACK
-                and event.semantic_key == "config_schema"
-                and event.version == 1
-                for event in feedback
-            ):
+            feedback_event = next(
+                (
+                    event
+                    for event in feedback
+                    if event.event_type == LiveEventType.FEEDBACK
+                    and event.semantic_key == "config_schema"
+                    and event.version == 1
+                ),
+                None,
+            )
+            if feedback_event is None:
                 continue
             trajectory_changed = True
             context.record_action(
                 "trajectory_changed_from_feedback",
                 old_accepted_keys=["timeout"],
                 new_accepted_keys=["timeout", "legacy_timeout"],
+                caused_by_event_id=feedback_event.event_id,
             )
             source = _schema_v2_source()
             self.state.set_source("producer", source)
             self._write_source("producer", "config_schema.py", source)
-            accepted = context.publish(
-                LiveHandoffEvent(
+            update_event = LiveHandoffEvent(
                     event_type=LiveEventType.UPDATE,
                     producer_task_id="producer",
                     target_task_id="consumer",
@@ -234,8 +247,9 @@ class ControlledWorker(LiveHandoffWorkerPort):
                         "accepted_keys=timeout,legacy_timeout",
                         "legacy_timeout maps to timeout",
                     ),
-                )
+                    caused_by_event_id=feedback_event.event_id,
             )
+            accepted = context.publish(update_event)
             if not accepted:
                 raise RuntimeError("Runtime rejected schema UPDATE(v2)")
             break
@@ -246,8 +260,80 @@ class ControlledWorker(LiveHandoffWorkerPort):
         return _candidate(
             "config_schema.py",
             source,
-            trajectory_changed=True,
-            rework_count=1,
+            attempts=(
+                LiveWorkerAttempt(
+                    index=1,
+                    kind="initial",
+                    action="schema_v1_materialized",
+                    evidence=("accepted_keys=timeout",),
+                ),
+                LiveWorkerAttempt(
+                    index=2,
+                    kind="rework",
+                    action="schema_v2_materialized",
+                    caused_by_event_id=feedback_event.event_id,
+                    evidence=("accepted_keys=timeout,legacy_timeout",),
+                ),
+            ),
+        )
+
+    def _run_sequential_schema_discovery(
+        self,
+        context: LiveWorkerContextPort,
+    ) -> LiveWorkerCandidate:
+        if "allowed = {'timeout'}" not in self.state.get_source("producer"):
+            raise RuntimeError("sequential discovery started without schema v1")
+        _sleep_ms(self.settings["consumer_discovery"])
+        self.state.set_source("constraint", "legacy_timeout")
+        source = (
+            "def boot_service(normalize_config):\n"
+            "    return normalize_config({'legacy_timeout': '30'})\n"
+        )
+        self._write_source("consumer_discovery", "service_consumer.py", source)
+        context.record_action(
+            "completion_time_feedback",
+            constraint="deployed configs still use legacy_timeout",
+            producer_state="completed_v1",
+        )
+        return _candidate(
+            "service_consumer.py",
+            source,
+            attempts=(
+                LiveWorkerAttempt(
+                    index=1,
+                    kind="initial",
+                    action="consumer_v1_candidate_materialized",
+                    evidence=("fixture uses legacy_timeout",),
+                ),
+            ),
+        )
+
+    def _run_sequential_schema_revision(
+        self,
+        context: LiveWorkerContextPort,
+    ) -> LiveWorkerCandidate:
+        if self.state.get_source("constraint") != "legacy_timeout":
+            raise RuntimeError("producer revision started without completion feedback")
+        source = _schema_v2_source()
+        self.state.set_source("producer", source)
+        self._write_source("producer_revision", "config_schema.py", source)
+        context.record_action(
+            "completion_time_revision",
+            old_accepted_keys=["timeout"],
+            new_accepted_keys=["timeout", "legacy_timeout"],
+            cause="consumer_completion_feedback",
+        )
+        return _candidate(
+            "config_schema.py",
+            source,
+            attempts=(
+                LiveWorkerAttempt(
+                    index=1,
+                    kind="rework",
+                    action="schema_v2_materialized_after_completion_feedback",
+                    evidence=("accepted_keys=timeout,legacy_timeout",),
+                ),
+            ),
         )
 
     def _run_schema_consumer(
@@ -265,14 +351,21 @@ class ControlledWorker(LiveHandoffWorkerPort):
             ):
                 raise RuntimeError("consumer started without READY(v1)")
 
-        _sleep_ms(self.settings["consumer_discovery"])
-        context.record_action(
-            "downstream_constraint_discovered",
-            constraint="deployed configs still use legacy_timeout",
-        )
+        if self.mode != "sequential":
+            _sleep_ms(self.settings["consumer_discovery"])
+            context.record_action(
+                "downstream_constraint_discovered",
+                constraint="deployed configs still use legacy_timeout",
+            )
         if self.mode == "live_handoff":
-            accepted = context.publish(
-                LiveHandoffEvent(
+            ready_event = next(
+                event
+                for event in ready_events
+                if event.event_type == LiveEventType.READY
+                and event.semantic_key == "config_schema"
+                and event.version == 1
+            )
+            feedback_event = LiveHandoffEvent(
                     event_type=LiveEventType.FEEDBACK,
                     producer_task_id="consumer",
                     target_task_id="producer",
@@ -281,8 +374,9 @@ class ControlledWorker(LiveHandoffWorkerPort):
                     summary="Consumer migration requires legacy_timeout compatibility.",
                     evidence=("fixture=configs/service-a.yaml uses legacy_timeout",),
                     severity=HandoffSeverity.BLOCKING,
-                )
+                    caused_by_event_id=ready_event.event_id,
             )
+            accepted = context.publish(feedback_event)
             if not accepted:
                 raise RuntimeError("Runtime rejected blocking FEEDBACK(v1)")
             for boundary_index in range(30):
@@ -290,16 +384,22 @@ class ControlledWorker(LiveHandoffWorkerPort):
                 updates = context.drain_mailbox(
                     boundary=f"before_next_model_turn_{boundary_index + 1}"
                 )
-                if any(
-                    event.event_type == LiveEventType.UPDATE
-                    and event.semantic_key == "config_schema"
-                    and event.version == 2
-                    for event in updates
-                ):
+                update_event = next(
+                    (
+                        event
+                        for event in updates
+                        if event.event_type == LiveEventType.UPDATE
+                        and event.semantic_key == "config_schema"
+                        and event.version == 2
+                    ),
+                    None,
+                )
+                if update_event is not None:
                     received_v2 = True
                     context.record_action(
                         "consumer_revalidated_against_update",
                         consumed_version=2,
+                        caused_by_event_id=update_event.event_id,
                     )
                     break
             if not received_v2:
@@ -310,12 +410,29 @@ class ControlledWorker(LiveHandoffWorkerPort):
             "    return normalize_config({'legacy_timeout': '30'})\n"
         )
         self._write_source("consumer", "service_consumer.py", source)
+        if self.mode == "sequential":
+            context.record_action(
+                "completion_time_consumer_rework",
+                cause="producer_completion_revision",
+            )
         _sleep_ms(self.settings["consumer_after_update"])
         return _candidate(
             "service_consumer.py",
             source,
-            rework_count=0 if received_v2 else 1,
-            trajectory_changed=received_v2,
+            attempts=(
+                LiveWorkerAttempt(
+                    index=1,
+                    kind="rework" if self.mode == "sequential" else "initial",
+                    action=(
+                        "consumer_revalidated_after_completion_revision"
+                        if self.mode == "sequential"
+                        else "consumer_candidate_materialized"
+                    ),
+                    evidence=("consumed_schema_v2",)
+                    if received_v2 or self.mode == "sequential"
+                    else ("unresolved_legacy_timeout_collision",),
+                ),
+            ),
         )
 
     def _run_hard_control(
@@ -348,15 +465,22 @@ class ControlledWorker(LiveHandoffWorkerPort):
 class ControlledIntegration(LiveIntegrationPort):
     """Run a real Python assertion over the isolated candidate sources."""
 
-    def __init__(self, scenario: str) -> None:
+    def __init__(self, scenario: str, mode: str) -> None:
         self.scenario = scenario
+        self.mode = mode
 
     def validate(
         self,
         candidates: Mapping[str, LiveWorkerCandidate],
     ) -> tuple[bool, str]:
         try:
-            producer = candidates["producer"].payload["source"]
+            producer_id = (
+                "producer_revision"
+                if self.scenario == "bidirectional_schema"
+                and self.mode == "sequential"
+                else "producer"
+            )
+            producer = candidates[producer_id].payload["source"]
             consumer = candidates["consumer"].payload["source"]
             namespace: dict[str, Any] = {}
             exec(compile(producer, "producer_candidate.py", "exec"), namespace)
@@ -378,17 +502,21 @@ def _candidate(
     artifact: str,
     source: str,
     *,
-    retry_count: int = 0,
-    rework_count: int = 0,
-    trajectory_changed: bool = False,
+    attempts: tuple[LiveWorkerAttempt, ...] | None = None,
 ) -> LiveWorkerCandidate:
     compile(source, artifact, "exec")
     return LiveWorkerCandidate(
         payload={"artifact": artifact, "source": source},
         test_passed=True,
-        retry_count=retry_count,
-        rework_count=rework_count,
-        trajectory_changed=trajectory_changed,
+        attempts=attempts
+        or (
+            LiveWorkerAttempt(
+                index=1,
+                kind="initial",
+                action="candidate_materialized",
+                evidence=(artifact,),
+            ),
+        ),
     )
 
 
@@ -422,7 +550,7 @@ def _sleep_ms(milliseconds: int) -> None:
 
 
 def _make_plan(scenario: str, mode: str, semantic_key: str | None) -> LiveHandoffPlan:
-    tasks = (
+    default_tasks = (
         SubagentTask(
             id="producer",
             task=f"Produce the upstream artifact for {scenario}.",
@@ -440,6 +568,49 @@ def _make_plan(scenario: str, mode: str, semantic_key: str | None) -> LiveHandof
             max_steps=8,
         ),
     )
+    if scenario == "bidirectional_schema" and mode == "sequential":
+        tasks = (
+            default_tasks[0],
+            SubagentTask(
+                id="consumer_discovery",
+                task="Run the completed upstream schema and report late feedback.",
+                write_scope=["consumer_discovery/"],
+                expected_artifact="consumer_discovery",
+                max_steps=8,
+            ),
+            SubagentTask(
+                id="producer_revision",
+                task="Revise the completed schema from downstream feedback.",
+                write_scope=["producer_revision/"],
+                expected_artifact="producer_revision",
+                max_steps=8,
+            ),
+            default_tasks[1],
+        )
+        dependencies = (
+            LiveDependency(
+                producer_task_id="producer",
+                target_task_id="consumer_discovery",
+                dependency_type=DependencyType.HARD,
+            ),
+            LiveDependency(
+                producer_task_id="consumer_discovery",
+                target_task_id="producer_revision",
+                dependency_type=DependencyType.HARD,
+            ),
+            LiveDependency(
+                producer_task_id="producer_revision",
+                target_task_id="consumer",
+                dependency_type=DependencyType.HARD,
+            ),
+        )
+        return LiveHandoffPlan(
+            goal=f"Controlled {scenario} run in {mode} mode.",
+            tasks=tasks,
+            dependencies=dependencies,
+        )
+
+    tasks = default_tasks
     dependencies: tuple[LiveDependency, ...]
     if mode in {"sequential", "hard_dependency"}:
         dependencies = (
@@ -510,7 +681,7 @@ def _run_one(
             mode=mode,
             run_dir=run_root,
             workers=worker,
-            integration=ControlledIntegration(scenario),
+            integration=ControlledIntegration(scenario, mode),
             max_workers=2,
             timeout_seconds=5.0,
             run_id=run_id,
@@ -560,8 +731,14 @@ def _evaluate_assertions(
             case2_consumer.consumed_versions.get("producer:config_schema") == 2
         ),
         "case2_live_passes": case2_live.integration_passed,
-        "case2_sequential_requires_rework": not case2_sequential.integration_passed,
-        "case2_naive_requires_rework": not case2_naive.integration_passed,
+        "case2_sequential_passes_after_late_revision": (
+            case2_sequential.integration_passed
+            and case2_sequential.metrics["rework_count"] == 2
+        ),
+        "case2_naive_negative_control_fails_without_recovery": (
+            not case2_naive.integration_passed
+            and case2_naive.metrics["rework_count"] == 0
+        ),
         "case3_hard_consumer_waits_for_completion": (
             hard_consumer.started_at_ms >= hard_producer.ended_at_ms
         ),
@@ -591,19 +768,35 @@ def run_suite(
         )
 
     assertions = _evaluate_assertions(runs)
+    real_agent_loop_artifact = output_root / "real-agent-loop-integration.json"
+    real_agent_loop = run_real_agent_loop_case(real_agent_loop_artifact)
+    assertions["real_agent_loop_integration_passes"] = bool(
+        real_agent_loop["overall_passed"]
+    )
     plan_digest = hashlib.sha256(published_plan_path.read_bytes()).hexdigest()
     result = {
         "schema_version": 1,
         "experiment_id": plan["experiment_id"],
+        "evidence_classes": [
+            "deterministic_controlled_mechanism",
+            "deterministic_real_agent_loop_integration",
+        ],
+        "real_model_performance_evaluated": False,
         "stable_baseline_commit": stable_baseline_commit,
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "plan_sha256": plan_digest,
         "overall_passed": all(assertions.values()),
         "assertions": assertions,
+        "real_agent_loop_integration": {
+            "status": real_agent_loop["status"],
+            "integration_passed": real_agent_loop["integration_passed"],
+            "artifact": "real-agent-loop-integration.json",
+        },
         "runs": [
             {
                 "scenario": scenario,
                 "mode": mode,
+                "evidence_class": "deterministic_controlled_mechanism",
                 "status": summary.status,
                 "wall_time_ms": summary.wall_time_ms,
                 "integration_passed": summary.integration_passed,

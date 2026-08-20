@@ -110,14 +110,15 @@ class AgentLoop:
         # 创建 session 后先消费 pause/cancel/steer，再执行输入策略、Memory 与澄清准备；
         # 任一步产生 StopRequest 都直接汇合到唯一终态 owner，而不进入 Turn Loop。
         run_session = self.run_preparation.create_session(task, agent_name)
-        initial_operator_control = self.run_control_handler.consume_pending_signals(
+        initial_run_control = self.run_control_handler.consume_pending_signals(
             run_session,
             0,
+            boundary="before_run",
         )
-        if initial_operator_control.stop is not None:
+        if initial_run_control.stop is not None:
             return self._finalize_run(
                 run_session,
-                initial_operator_control.stop,
+                initial_run_control.stop,
             )
         preparation_stop = self.run_preparation.prepare_run(run_session)
         if preparation_stop is not None:
@@ -127,14 +128,15 @@ class AgentLoop:
         # region 2. 有界 Turn Loop：每轮只编排，不复制阶段规则
         for step in range(1, run_session.max_iterations + 1):
             # 模型边界 1：先把已排队 steer 写成 user message，再组装本 turn 上下文。
-            operator_control = self.run_control_handler.consume_pending_signals(
+            run_control = self.run_control_handler.consume_pending_signals(
                 run_session,
                 step,
+                boundary="before_model",
             )
-            if operator_control.stop is not None:
+            if run_control.stop is not None:
                 return self._finalize_run(
                     run_session,
-                    operator_control.stop,
+                    run_control.stop,
                 )
             turn_outcome = self._run_turn(run_session, step)
             if turn_outcome.kind == TurnOutcomeKind.STOP:
@@ -185,14 +187,19 @@ class AgentLoop:
 
         # region 2. 模型返回边界：优先消费操作员控制与预算信号
         # 模型边界 2：模型调用期间到达的 steer 使本次 response 过时；丢弃后重规划。
-        operator_control = self.run_control_handler.consume_pending_signals(
+        run_control = self.run_control_handler.consume_pending_signals(
             session,
             step,
+            boundary="after_model",
         )
-        if operator_control.stop is not None:
-            return TurnOutcome(TurnOutcomeKind.STOP, operator_control.stop)
-        if operator_control.steered:
-            self._record_steer_replan(session, step)
+        if run_control.stop is not None:
+            return TurnOutcome(TurnOutcomeKind.STOP, run_control.stop)
+        if run_control.model_input_changed:
+            self._record_control_replan(
+                session,
+                step,
+                sources=run_control.input_sources,
+            )
             return TurnOutcome(TurnOutcomeKind.REPLAN)
 
         budget_stop_request = self._budget_stop_request(session, step)
@@ -419,16 +426,30 @@ class AgentLoop:
             turn={"max_iterations": session.max_iterations},
         )
 
-    def _record_steer_replan(self, session: AgentRunSession, step: int) -> None:
-        """记录旧模型响应因 operator steer 到达而被丢弃。"""
+    def _record_control_replan(
+        self,
+        session: AgentRunSession,
+        step: int,
+        *,
+        sources: tuple[str, ...],
+    ) -> None:
+        """记录旧模型响应因模型输入在请求期间变化而被丢弃。"""
 
+        operator_only = sources == ("operator_steer",)
         self.trace.add(
             step,
             session.agent_name,
             "recovery_decision",
-            recovery_hint="discard model response and re-plan from operator steer",
+            recovery_hint=(
+                "discard model response and re-plan from operator steer"
+                if operator_only
+                else "discard stale model response and re-plan from new input"
+            ),
             retryable=True,
-            failure_kind="operator_steer",
+            failure_kind=(
+                "operator_steer" if operator_only else "runtime_input_changed"
+            ),
+            input_sources=list(sources),
         )
 
     def _record_context_overflow_recovery(

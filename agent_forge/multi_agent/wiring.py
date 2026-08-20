@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import uuid
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable
@@ -13,6 +14,10 @@ from agent_forge.tools.registry import ToolRegistry
 
 from .adapters.fanout_files import FanoutFileRepository
 from .adapters.live_handoff_files import JsonlLiveHandoffRepository
+from .adapters.live_agent_worker import (
+    LiveModelFactory,
+    build_local_live_agent_worker,
+)
 from .adapters.artifact_files import FileArtifactRepository
 from .adapters.git_workspace import GitFanoutWorkspace
 from .adapters.local_worker import LocalAgentWorkerAdapter
@@ -69,6 +74,23 @@ class LiveHandoffBuildRequest:
     run_id: str | None = None
 
 
+@dataclass(frozen=True)
+class LiveAgentHandoffBuildRequest:
+    """真实 AgentLoop Live Handoff 的窄 Composition Request。"""
+
+    plan: LiveHandoffPlan
+    scenario: str
+    mode: str
+    base_config: RuntimeConfig
+    run_dir: str | Path
+    model_factory: LiveModelFactory
+    registry_factory: RegistryFactory
+    integration: LiveIntegrationPort
+    max_workers: int = 4
+    timeout_seconds: float = 30.0
+    run_id: str | None = None
+
+
 # 核心数据：装配顺序多角色 coordinator 所需的运行对象。
 @dataclass(frozen=True)
 class SequentialCoordinatorBuildRequest:
@@ -114,7 +136,7 @@ def build_live_fanout(request: LiveFanoutBuildRequest) -> LiveFanoutCoordinator:
 
 
 def build_live_handoff(request: LiveHandoffBuildRequest) -> LiveHandoffCoordinator:
-    """装配 durable timeline、治理 Runtime、Worker 与 validator。"""
+    """装配可审计 timeline、治理 Runtime、Worker 与 validator。"""
 
     return LiveHandoffCoordinator(
         plan=request.plan,
@@ -128,6 +150,41 @@ def build_live_handoff(request: LiveHandoffBuildRequest) -> LiveHandoffCoordinat
         max_workers=request.max_workers,
         timeout_seconds=request.timeout_seconds,
         run_id=request.run_id,
+    )
+
+
+def build_live_agent_handoff(
+    request: LiveAgentHandoffBuildRequest,
+) -> LiveHandoffCoordinator:
+    """复用本地 worktree/AgentLoop substrate 装配真实协作 Worker。"""
+
+    run_id = request.run_id or str(uuid.uuid4())
+    workspace = GitFanoutWorkspace(request.base_config.workspace)
+    base_head = workspace.head()
+    if not base_head:
+        raise RuntimeError("live agent handoff requires a git workspace")
+    artifacts = JsonlLiveHandoffRepository(request.run_dir)
+    workers = build_local_live_agent_worker(
+        plan=request.plan,
+        base_config=request.base_config,
+        run_root=artifacts.root / "agent_loop",
+        run_id=run_id,
+        base_head=base_head,
+        model_factory=request.model_factory,
+        registry_factory=request.registry_factory,
+    )
+    return LiveHandoffCoordinator(
+        plan=request.plan,
+        scenario=request.scenario,
+        mode=request.mode,
+        dependencies=LiveHandoffDependencies(
+            artifacts=artifacts,
+            workers=workers,
+            integration=request.integration,
+        ),
+        max_workers=request.max_workers,
+        timeout_seconds=request.timeout_seconds,
+        run_id=run_id,
     )
 
 

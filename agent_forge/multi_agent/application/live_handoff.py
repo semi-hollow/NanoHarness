@@ -36,6 +36,11 @@ class MilestoneRegistry:
 
         if event.event_id in self._accepted_event_ids:
             return "duplicate_event"
+        if (
+            event.caused_by_event_id
+            and event.caused_by_event_id not in self._accepted_event_ids
+        ):
+            return "caused_by_event_not_accepted"
         if event.event_type in {LiveEventType.READY, LiveEventType.UPDATE}:
             identity = (
                 event.producer_task_id,
@@ -66,7 +71,7 @@ class MilestoneRegistry:
         return ""
 
     def commit(self, event: LiveHandoffEvent) -> None:
-        """只在 durable append 成功后提交已校验事件。"""
+        """只在 timeline append 成功后提交已校验事件。"""
 
         self._accepted_event_ids.add(event.event_id)
         if event.event_type in {LiveEventType.READY, LiveEventType.UPDATE}:
@@ -288,7 +293,7 @@ class LiveHandoffRuntime:
                 self._notify_locked()
                 return False
 
-            # Durable append 是提交屏障；只有它成功后才允许改变内存状态。
+            # Timeline append 是进程内提交屏障；只有它成功后才允许改变内存状态。
             self._append_locked(
                 "handoff_event",
                 task_id=publisher_task_id,

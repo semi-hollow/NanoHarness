@@ -47,6 +47,7 @@ TraceEventType: TypeAlias = Literal[
     "revision_round",
     "run_completed",
     "run_control",
+    "runtime_coordination",
     "skill_selection",
     "stop_hooks",
     "task_state_checkpoint",

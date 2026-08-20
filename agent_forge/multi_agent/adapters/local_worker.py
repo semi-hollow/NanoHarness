@@ -6,7 +6,7 @@ import hashlib
 import json
 import threading
 import time
-from dataclasses import replace
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Callable
 
@@ -23,9 +23,16 @@ from agent_forge.runtime.git_workspace import (
     collect_changed_files,
     collect_workspace_diff,
 )
+from agent_forge.runtime.ports import RunControlPort
 from agent_forge.runtime.ports.model import ModelPort
+from agent_forge.runtime.wiring import (
+    AgentLoopBuildRequest,
+    RuntimeDependencyOverrides,
+    build_agent_loop_from_request,
+)
 from agent_forge.safety.guardrails import sanitize_quoted_evidence
 from agent_forge.tools.registry import ToolRegistry
+from agent_forge.tools.base import Tool
 
 from ..domain.fanout import SubagentTask
 from ..domain.live import (
@@ -45,11 +52,23 @@ READ_TOOLS = {
     "python_validation",
     "ask_human",
 }
+COORDINATION_TOOLS = {"publish_handoff_event"}
 FINALIZER_READ_TOOLS = {"git_status", "git_diff", "python_validation"}
 WRITE_TOOLS = {*READ_TOOLS, *WORKSPACE_WRITE_TOOL_NAMES, "run_command"}
 
 RegistryFactory = Callable[[Path, ExecutionEnvironment], ToolRegistry]
 LLMFactory = Callable[[], ModelPort]
+
+
+@dataclass(frozen=True, kw_only=True)
+class AgentWorkerRuntimeOptions:
+    """Live adapter 复用本地 Worker substrate 时允许替换的窄接口。"""
+
+    control: RunControlPort | None = None
+    extra_tools: tuple[Tool, ...] = ()
+    model: ModelPort | None = None
+    task_prompt: str = ""
+    agent_name: str = ""
 
 
 class LocalAgentWorkerAdapter(FanoutWorkerPort):
@@ -84,6 +103,24 @@ class LocalAgentWorkerAdapter(FanoutWorkerPort):
         base_diff_text: str,
     ) -> LiveSubagentResult:
         """在临时 worktree 中运行一个受 scope 限制的 AgentLoop。"""
+
+        return self.run_worker_with_options(
+            task,
+            batch_index,
+            base_diff_text,
+        )
+
+    def run_worker_with_options(
+        self,
+        task: SubagentTask,
+        batch_index: int,
+        base_diff_text: str,
+        *,
+        options: AgentWorkerRuntimeOptions | None = None,
+    ) -> LiveSubagentResult:
+        """复用同一 worktree/diff substrate，并注入有界 Runtime 扩展。"""
+
+        runtime_options = options or AgentWorkerRuntimeOptions()
 
         # region 1. 输出契约准备（实现细节）：固定目录，并先准备失败兜底值
         # 先创建所有稳定路径和默认失败值，保证后续任意阶段抛异常时仍能返回结构完整的
@@ -135,10 +172,10 @@ class LocalAgentWorkerAdapter(FanoutWorkerPort):
             # region 3. 受限 Runtime 装配（实现细节）：收窄工具，并隔离状态存储
             # Registry 按任务允许工具过滤；RuntimeConfig 的 checkpoint、approval 和操作状态表
             # 全部写入 worker_dir，多个并发 Worker 不会共享可变运行状态。
-            registry = _filtered_registry(
-                self.registry_factory(active_workspace, environment),
-                task,
-            )
+            full_registry = self.registry_factory(active_workspace, environment)
+            for extra_tool in runtime_options.extra_tools:
+                full_registry.register(extra_tool)
+            registry = _filtered_registry(full_registry, task)
             worker_trace = TraceRecorder(str(trace_path))
             worker_config = replace(
                 self.base_config,
@@ -162,14 +199,29 @@ class LocalAgentWorkerAdapter(FanoutWorkerPort):
             # region 4. AgentLoop 执行（主链）：任务契约进入模型，结果写入独立 Trace/Usage
             # worker_task_prompt 把总目标与子任务 scope 合并；AgentLoop 完成后立即冻结
             # Trace/Usage，后续候选收集只读取 workspace，不修改模型运行证据。
-            final_answer = build_agent_loop(
-                worker_config,
-                worker_trace,
-                registry,
-                self.llm_factory(),
-            ).run(
-                worker_task_prompt(self.plan.goal, task),
-                agent_name=f"Subagent:{task.id}",
+            worker_model = runtime_options.model or self.llm_factory()
+            if runtime_options.control is None:
+                worker_loop = build_agent_loop(
+                    worker_config,
+                    worker_trace,
+                    registry,
+                    worker_model,
+                )
+            else:
+                worker_loop = build_agent_loop_from_request(
+                    AgentLoopBuildRequest(
+                        config=worker_config,
+                        trace=worker_trace,
+                        registry=registry,
+                        llm=worker_model,
+                        overrides=RuntimeDependencyOverrides(
+                            control=runtime_options.control,
+                        ),
+                    )
+                )
+            final_answer = worker_loop.run(
+                runtime_options.task_prompt or worker_task_prompt(self.plan.goal, task),
+                agent_name=runtime_options.agent_name or f"Subagent:{task.id}",
             )
             worker_trace.write()
             usage_json, _ = write_usage_artifacts(trace_path)
@@ -438,7 +490,7 @@ def _filtered_registry(
         raise ValueError(
             f"fanout task {task.id} requested unknown tools: {', '.join(unknown)}"
         )
-    if not task.write_scope and allowed - READ_TOOLS:
+    if not task.write_scope and allowed - READ_TOOLS - COORDINATION_TOOLS:
         raise ValueError(
             f"read-only fanout task {task.id} requested write-capable tools"
         )

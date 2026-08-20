@@ -11,7 +11,11 @@ from __future__ import annotations
 from collections import defaultdict, deque
 from threading import RLock
 
-from agent_forge.runtime.domain.run_control import RunControlKind, RunControlSignal
+from agent_forge.runtime.domain.run_control import (
+    RunControlKind,
+    RunControlSignal,
+    RuntimeCoordinationSignal,
+)
 from agent_forge.runtime.ports.run_control import RunControlPort
 
 
@@ -76,6 +80,16 @@ class RunController(RunControlPort):
             signals = list(self._steers.pop(run_id, ()))
             signals.extend(self._steers.pop("", ()))
             return sorted(signals, key=lambda item: item.requested_at)
+
+    def drain_coordination(
+        self,
+        run_id: str,
+        *,
+        boundary: str,
+    ) -> list[RuntimeCoordinationSignal]:
+        """人工控制器不产生 peer-agent coordination evidence。"""
+
+        return []
 
     # 内部规则：cancel 优先级最高，后来的 pause 不能覆盖它。
     def _set_terminal(self, run_id: str, signal: RunControlSignal) -> None:

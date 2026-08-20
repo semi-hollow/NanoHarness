@@ -32,6 +32,7 @@ from .live_handoff import (
     LiveHandoffPlan,
     LiveHandoffSummary,
     LiveWorkerCandidate,
+    LiveWorkerAttempt,
     LiveWorkerResult,
 )
 
@@ -51,6 +52,7 @@ __all__ = [
     "LiveFanoutSummary",
     "LiveSubagentResult",
     "LiveWorkerCandidate",
+    "LiveWorkerAttempt",
     "LiveWorkerResult",
     "aggregate_live_metrics",
     "MultiAgentRunSummary",
