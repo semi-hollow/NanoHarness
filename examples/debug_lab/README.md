@@ -122,7 +122,7 @@ HumanInput、Approval、Operation Ledger、TaskState 和 Trace 才是各自 owne
 ## Lab 2：协同智能体
 
 ```text
-LiveFanoutCoordinator.run
+FanoutCoordinator.run
 → pricing-policy + shipping-policy（并行）
 → scoped merge
 → edge-case-verifier（依赖前两项）
@@ -138,28 +138,6 @@ LiveFanoutCoordinator.run
 
 验证标准：Workbench 显示两个依赖批次、三个 Worker、各自 touched files、合并结果与
 `Finalizer PASS`；任一任务失败或越界时，后续依赖任务不得被包装成成功。
-
-## V1：五个机制 Case
-
-V1 不用新的大规模 benchmark 证明收益，而用五个确定性 Case 证明控制流真的发生：Single Gate、
-并行 Fanout、依赖 Handoff、合并可应用性失败后的新 Worker 串行重跑，以及一次 Worker retry 后的一次
-remaining-plan replan。
-
-```bash
-.venv/bin/python examples/debug_lab/multi_agent_v1_cases.py
-```
-
-证据只写入独立目录：
-
-```text
-.agent_forge/runs/v1-multi-agent/run-<timestamp>/
-```
-
-每个 Case 都有 `mechanism_evidence.json`、Trace 与 Fanout artifact；汇总入口是
-`mechanism_cases_summary.json`。该目录不写 `latest`/`canonical` 指针，不修改已有 Showcase 或
-Mini-50 资产，也不据此声称 Multi-Agent 提升 Pass@1。Case 4 是在 `FanoutWorkspacePort` 的
-apply-check 边界进行一次确定性 fault injection，用来验证 recovery control flow，不冒充自然发生的
-同文件 Git conflict。
 
 ## Mini-50：真实 Repository Repair
 

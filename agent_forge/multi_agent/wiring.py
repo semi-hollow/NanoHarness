@@ -15,7 +15,7 @@ from .adapters.fanout_files import FanoutFileRepository
 from .adapters.git_workspace import GitFanoutWorkspace
 from .adapters.local_worker import LocalAgentWorkerAdapter
 from .application.dependencies import LiveFanoutDependencies
-from .application.live_fanout import LiveFanoutCoordinator
+from .application.fanout import FanoutCoordinator
 from .domain.live import FanoutPlan
 from .ports import FanoutReplannerPort, LiveFanoutEvents
 
@@ -41,7 +41,7 @@ class LiveFanoutBuildRequest:
 
 
 # 主要入口：装配 DAG、隔离 workspace、真实 AgentLoop worker 和 finalizer。
-def build_live_fanout(request: LiveFanoutBuildRequest) -> LiveFanoutCoordinator:
+def build_live_fanout(request: LiveFanoutBuildRequest) -> FanoutCoordinator:
     """装配 Git、文件 artifact 和真实 AgentLoop worker adapters。"""
 
     workspace = GitFanoutWorkspace(request.base_config.workspace)
@@ -55,7 +55,7 @@ def build_live_fanout(request: LiveFanoutBuildRequest) -> LiveFanoutCoordinator:
         llm_factory=request.llm_factory,
         registry_factory=request.registry_factory,
     )
-    return LiveFanoutCoordinator(
+    return FanoutCoordinator(
         plan=request.plan,
         base_config=request.base_config,
         dependencies=LiveFanoutDependencies(

@@ -12,7 +12,7 @@ from agent_forge.multi_agent.adapters.local_worker import (
     worker_task_prompt,
 )
 from agent_forge.multi_agent.application.dependencies import LiveFanoutDependencies
-from agent_forge.multi_agent.application.live_fanout import LiveFanoutCoordinator
+from agent_forge.multi_agent.application.fanout import FanoutCoordinator
 from agent_forge.multi_agent.application.planning import AdaptivePlanner
 from agent_forge.multi_agent.domain.live import (
     CriterionResult,
@@ -26,7 +26,6 @@ from agent_forge.multi_agent.domain.planning import PlanningDecision
 from agent_forge.observability.api import TraceRecorder
 from agent_forge.runtime.config import RuntimeConfig
 from agent_forge.runtime.domain.conversation import AgentResponse
-from examples.debug_lab.multi_agent_v1_cases import run_cases
 
 
 class ScriptedPlannerModel:
@@ -322,7 +321,7 @@ class FanoutV1MechanismTest(unittest.TestCase):
         replanner=None,
     ):
         trace = TraceRecorder(str(Path(root) / "trace.json"))
-        coordinator = LiveFanoutCoordinator(
+        coordinator = FanoutCoordinator(
             plan=plan,
             base_config=RuntimeConfig(workspace=str(root), max_steps=4),
             dependencies=LiveFanoutDependencies(
@@ -500,7 +499,7 @@ class FanoutV1MechanismTest(unittest.TestCase):
             forbidden_replanner = FixedReplanner(
                 _planning_decision([_task("should-not-run")])
             )
-            resumed = LiveFanoutCoordinator(
+            resumed = FanoutCoordinator(
                 plan=initial_plan,
                 base_config=RuntimeConfig(
                     workspace=str(resumed_root),
@@ -553,41 +552,6 @@ class CriteriaFinalizerContractTest(unittest.TestCase):
         self.assertEqual(failed[1].status, "FAIL")
         self.assertEqual(unknown[1].status, "UNKNOWN")
         self.assertEqual(_decision("FINAL: PASS"), "PASS")
-
-
-class MechanismCaseBundleTest(unittest.TestCase):
-    def test_exactly_five_isolated_cases_leave_inspectable_evidence(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            output_root = Path(tmp) / "v1-multi-agent"
-            summary_path = run_cases(output_root)
-            payload = json.loads(summary_path.read_text(encoding="utf-8"))
-
-            self.assertEqual(payload["status"], "passed")
-            self.assertEqual(len(payload["cases"]), 5)
-            self.assertEqual(
-                [case["case"] for case in payload["cases"]],
-                [
-                    "case-1-single-gate",
-                    "case-2-parallel-fanout",
-                    "case-3-dependency-handoff",
-                    "case-4-merge-fault-recovery",
-                    "case-5-retry-replan",
-                ],
-            )
-            for case in payload["cases"]:
-                self.assertEqual(case["benchmark_claim"], "none")
-                self.assertTrue(
-                    (
-                        summary_path.parent / case["case"] / "mechanism_evidence.json"
-                    ).is_file()
-                )
-
-            merge_calls = payload["cases"][3]["worker_calls"]
-            self.assertEqual(
-                sorted((call["task_id"], call["attempt"]) for call in merge_calls),
-                [("A", 1), ("B", 1), ("B", 2)],
-            )
-            self.assertEqual(payload["cases"][4]["replan_round"], 1)
 
 
 if __name__ == "__main__":

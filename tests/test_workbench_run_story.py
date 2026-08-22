@@ -6,7 +6,7 @@ import unittest
 from pathlib import Path
 
 from agent_forge.multi_agent.adapters.local_worker import LocalAgentWorkerAdapter
-from agent_forge.multi_agent.application.live_fanout import LiveFanoutCoordinator
+from agent_forge.multi_agent.application.fanout import FanoutCoordinator
 from apps.workbench.adapters.evidence_files import FileEvidenceCatalog
 from apps.workbench.application.context_inspection import (
     build_context_turn_inspections,
@@ -1125,22 +1125,22 @@ class WorkbenchRunStoryTest(unittest.TestCase):
         self.assertIn("无前置依赖：允许与同批次任务并行", rendered)
         self.assertIn("replace_text", rendered)
         self.assertIn("失败调用：0 次", rendered)
-        self.assertIn("LiveFanoutCoordinator.run", rendered)
-        self.assertIn("LiveFanoutCoordinator._mark_dynamic_conflicts", rendered)
-        self.assertNotIn("LiveFanoutCoordinator._validate_plan", rendered)
+        self.assertIn("FanoutCoordinator.run", rendered)
+        self.assertIn("FanoutCoordinator._mark_dynamic_conflicts", rendered)
+        self.assertNotIn("FanoutCoordinator._validate_plan", rendered)
         rendered_entrypoints = set(
             re.findall(
-                r"(?:LiveFanoutCoordinator|LocalAgentWorkerAdapter)\.[A-Za-z_][A-Za-z0-9_]*",
+                r"(?:FanoutCoordinator|LocalAgentWorkerAdapter)\.[A-Za-z_][A-Za-z0-9_]*",
                 rendered,
             )
         )
         self.assertEqual(
             rendered_entrypoints,
             {
-                "LiveFanoutCoordinator.run",
-                "LiveFanoutCoordinator._run_batch",
-                "LiveFanoutCoordinator._mark_dynamic_conflicts",
-                "LiveFanoutCoordinator._merge_batch",
+                "FanoutCoordinator.run",
+                "FanoutCoordinator._run_batch",
+                "FanoutCoordinator._mark_dynamic_conflicts",
+                "FanoutCoordinator._merge_batch",
                 "LocalAgentWorkerAdapter.run_finalizer",
             },
         )
@@ -1148,10 +1148,10 @@ class WorkbenchRunStoryTest(unittest.TestCase):
 
     def test_workbench_fanout_entrypoints_exist_in_code(self):
         entrypoints = (
-            (LiveFanoutCoordinator, "run"),
-            (LiveFanoutCoordinator, "_run_batch"),
-            (LiveFanoutCoordinator, "_mark_dynamic_conflicts"),
-            (LiveFanoutCoordinator, "_merge_batch"),
+            (FanoutCoordinator, "run"),
+            (FanoutCoordinator, "_run_batch"),
+            (FanoutCoordinator, "_mark_dynamic_conflicts"),
+            (FanoutCoordinator, "_merge_batch"),
             (LocalAgentWorkerAdapter, "run_finalizer"),
         )
 

@@ -10,7 +10,10 @@ from __future__ import annotations
 
 from typing import Protocol
 
-from agent_forge.runtime.domain.run_control import RunControlSignal
+from agent_forge.runtime.domain.run_control import (
+    RunControlSignal,
+    RuntimeCoordinationSignal,
+)
 
 
 class RunControlPort(Protocol):
@@ -30,5 +33,15 @@ class RunControlPort(Protocol):
 
     def drain_steers(self, run_id: str) -> list[RunControlSignal]:
         """按提交顺序取走等待注入下一轮上下文的 steer。"""
+
+        ...
+
+    def drain_coordination(
+        self,
+        run_id: str,
+        *,
+        boundary: str,
+    ) -> list[RuntimeCoordinationSignal]:
+        """取出只允许在模型边界进入下一输入的 Runtime coordination。"""
 
         ...

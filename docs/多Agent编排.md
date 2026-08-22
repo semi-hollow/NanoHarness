@@ -1,712 +1,400 @@
 # 多 Agent 编排
 
-> 本文描述 NanoHarness Multi-Agent 的**当前稳定基线（V0）**、feature branch 已实现的 **V1 MVP**，以及明确不在 V1 实现的后续能力。
-> Roadmap 以 [`MULTI_AGENT_ROADMAP.md`](./MULTI_AGENT_ROADMAP.md) 为准。
+本文只描述 NanoHarness 当前 `feature/multi-agent-v1` 的真实实现。目标不是介绍一组 Multi-Agent 术语，而是回答三个问题：自然语言任务如何变成执行图、多个 Worker 如何在隔离环境中协作、Runtime 如何保证最终结果可信。
 
 ---
 
-# 1. 版本与分支
+# 1. 它在系统里解决什么问题
 
-当前使用两条明确分支：
-
-```text
-stable/v0-20260818
-    ↓
-当前冻结稳定版本
-
-feature/multi-agent-v1
-    ↓
-已完成 V1 capability closure 的开发分支
-```
-
-同时保留两个不可变 snapshot tag：
+输入是一条自然语言任务和一个 Git 仓库：
 
 ```text
-v0-stable-20260818
-→ 原始 V0 baseline
-
-v0-stable-20260819
-→ Semantic Naming Refactor 后的 V0 frozen head
+Natural-language Task + Repository
 ```
 
-原则：
+输出不是多个 Agent 的聊天记录，而是：
 
-- V0 稳定分支不接收 V1 开发改动；
-- V1 已完成本分支定义的能力闭环，但是否提升为新的稳定版本仍需独立决定；
-- 未实现能力不得在文档中写成 CURRENT。
+```text
+Integrated candidate diff
++ WorkerHandoff
++ Finalizer decision
++ auditable runtime evidence
+```
+
+Multi-Agent 层解决的是任务拆分、隔离执行、受控协作和确定性集成。它不取代 Single-Agent `AgentLoop`；每个 Worker 内部仍运行同一个真实 `AgentLoop`。
 
 ---
 
-# 2. V0：当前稳定能力
-
-当前 V0 的真实主链：
+# 2. 唯一主链
 
 ```text
-Typed FanoutPlan
-        ↓
-LiveFanoutCoordinator
-        ↓
-Dependency / Ready Level
-        ↓
-Conflict-Free Batch
-        ↓
-ThreadPoolExecutor
-        ↓
-Independent Worker AgentLoops
-        ↓
-Isolated Git Worktrees
-        ↓
-LiveSubagentResult + Candidate Diff
-        ↓
-Conflict Gates
-        ↓
-Stable Integration
-        ↓
-Read-only Finalizer
-```
-
-当前 Coordinator：
-
-```text
-Coordinator
-= deterministic orchestrator
-≠ LLM Main Agent
-≠ shared WorkingMemory
-```
-
-当前能力本质上是：
-
-> **Planning 之后的 Orchestration / Execution half。**
-
----
-
-# 3. V0 的 FanoutPlan 是谁生成的？
-
-当前：
-
-```text
-Manual / External JSON or Python Mapping
-        ↓
-FanoutPlan.from_mapping(...)
-        ↓
-Runtime Validation
-        ↓
-Coordinator Execution
-```
-
-当前 `FanoutPlan` 已包含：
-
-```text
-goal
-tasks[]
-├── id
-├── task
-├── depends_on
-├── write_scope
-├── allowed_tools
-├── expected_artifact
-└── max_steps
-```
-
-V0 不会把自然语言任务自动拆成多个 Worker。
-
-因此 V0 的最大结构性缺口是：
-
-```text
-Natural Language Task
-        ↓
-       ???
-        ↓
-FanoutPlan
-```
-
-V1 已补齐这一段，同时保留 V0 的手工 `FanoutPlan` 入口。
-
----
-
-# 4. V0 Worker 的 Context 隔离
-
-每个 Worker 都拥有独立：
-
-- `AgentRunSession`
-- WorkingMemory
-- Conversation
-- RuntimeConfig
-- Tool Surface
-- Git worktree
-- durable state path
-
-多个 Worker **不共享完整 Conversation 或 WorkingMemory**。
-
-因此 V1 不会改成：
-
-```text
-Main Agent huge context
-        ↓
-copy everything to every Worker
-```
-
-而会继续保持：
-
-```text
-Private context
-→ isolated
-```
-
----
-
-# 5. V0 Worker 如何交接代码状态？
-
-Worker A/B 成功 merge 后：
-
-```text
-Integration Workspace
-= original baseline + merged successful candidate changes
-```
-
-下一批 Worker C 启动时：
-
-```text
-fresh worktree
-        ↓
-seed current cumulative integrated diff
-        ↓
-commit as Worker baseline
-        ↓
-run Worker C
-```
-
-因此 C 能看到 A/B 已经成功进入集成空间的代码修改。
-
-V0 的 **code-state handoff 是存在的**。
-
-当前不足的是：
-
-> 缺少一个明确、紧凑、可追溯的 **semantic handoff contract**。
-
----
-
-# 6. V0 的冲突处理
-
-当前系统主要做 **Conflict Detection / Blocking**，不做自动语义修复。
-
-主要门禁：
-
-| Gate | 时机 | 依据 | 当前作用 |
-|---|---|---|---|
-| Static Plan Gate | Worker 前 | declared `write_scope` | 拆分冲突 batch |
-| Scope Violation Gate | Worker 后 | actual touched files vs scope | fail closed |
-| Dynamic Result Gate | 同批 Worker 后 | actual `touched_files` | 阻止冲突 merge |
-| Merge Applicability Gate | Integration | candidate patch 是否仍可 apply | 标记 merge conflict |
-
-V0：
-
-```text
-Conflict Detection         ✅
-Automatic Conflict Repair  ❌
-Bounded Serialized Retry   ❌
-Semantic Replan            ❌
-```
-
----
-
-# 7. V0 Finalizer 是否只是汇总？
-
-不是。
-
-V0 Finalizer 已经是一个真实的 **read-only verification gate**：
-
-- 能读取当前 integrated candidate；
-- 能查看 Git diff/status；
-- 能运行允许的 validation；
-- 最终输出 `PASS / NEEDS_REVISION / BLOCKED`；
-- 不允许修改 workspace。
-
-但 V0 的 completion semantics 仍偏软：
-
-```text
-Goal
-+ Worker results
-+ Integrated state
+AdaptivePlanner.decide()
 ↓
-Prompt-driven judgment
-```
-
-V1 已加入显式 Acceptance Criteria，使完成判断更可解释。
-
----
-
-# 8. V1：当前已实现主链
-
-V1 不重写 V0 execution half。
-
-V1 只补当前能力闭环最关键的缺口：
-
-```text
-Natural Language Task
-        ↓
-Planner
-        ↓
-Single / Fanout Strategy Gate
-        ↓
-Validated Typed FanoutPlan
-        ↓
-Existing DAG Scheduler
-        ↓
-Isolated Workers
-        ↓
-Structured WorkerHandoff
-        ↓
-Existing Deterministic Integration
-        ↓
-Bounded Recovery / Replan
-        ↓
-Criteria-aware Read-only Finalizer
-        ↓
-PASS / NEEDS_REVISION / BLOCKED
-```
-
----
-
-# 9. V1.1 规划器与单/多 Agent 策略门 / Planner + Single/Multi Strategy Gate
-
-V1 Planner 只负责：
-
-- task decomposition；
-- dependency proposal；
-- coarse `write_scope` proposal；
-- acceptance criteria；
-- Single/Fanout strategy。
-
-Planner 不拥有最终执行权。
-
-原则：
-
-```text
-LLM proposes.
-Runtime validates.
-```
-
-当前 contract：
-
-```text
 PlanningDecision
-├── mode: single | fanout
-├── reason
-├── global_acceptance_criteria
-└── tasks[]
+↓
+PlanningDecision.to_fanout_plan()
+↓
+FanoutPlan
+↓
+FanoutCoordinator.run()
+↓
+LocalAgentWorkerAdapter.run_worker()
+↓
+isolated AgentLoop + isolated Git worktree
+↕
+LiveHandoffRuntime
+  ├── READY
+  ├── FEEDBACK
+  └── UPDATE
+↓
+candidate diff
+↓
+scope / conflict / version / apply / integration gates
+↓
+trusted WorkerHandoff
+↓
+LocalAgentWorkerAdapter.run_finalizer()
+↓
+Integrated result
 ```
 
-Fanout task 只保留必要字段：
+系统只有一个执行计划、一个调度器、一个协作状态 Owner：
 
 ```text
-id
-task
-depends_on
-write_scope
-allowed_tools
-acceptance_criteria
-max_steps
+FanoutPlan
+FanoutCoordinator
+LiveHandoffRuntime
 ```
 
-Planner 输出仍必须进入 deterministic validation。
+没有第二套 Live plan、第二套 scheduler 或第二套 Worker framework。
 
-如果任务足够局部或高度耦合：
+---
+
+# 3. 三个核心 Owner
+
+## 3.1 `FanoutPlan`：执行契约
+
+代码：`agent_forge/multi_agent/domain/live.py`。
+
+`FanoutPlan` 保存目标、任务、全局验收标准和两类依赖。它的 `__post_init__()` 是计划规则的集中校验入口：未知任务、自依赖、重复依赖、HARD/LIVE 重叠、组合环和不安全的 LIVE write scope 都在这里 fail closed。
+
+## 3.2 `FanoutCoordinator`：执行与集成
+
+代码：`agent_forge/multi_agent/application/fanout.py`。
+
+`FanoutCoordinator.run()` 负责 Worker 生命周期、HARD/LIVE readiness、并发、retry、replan、candidate gate、稳定集成和 Finalizer。它查询 `LiveHandoffRuntime` 的事实，但不自己保存第二份 mailbox/version 状态。
+
+## 3.3 `LiveHandoffRuntime`：协作事实与版本门禁
+
+代码：`agent_forge/multi_agent/application/live_handoff.py`。
+
+`LiveHandoffRuntime` 在一个锁保护的状态边界内维护事件、mailbox、最新版本、已消费版本、generation、attempt 和集成封印。关键入口只有：
+
+```text
+begin_attempt()
+publish()
+drain_mailbox()
+authorize_integration()
+seal_integration()
+```
+
+Milestone、mailbox 和版本状态没有被拆成多组小服务；它们属于同一个一致性问题，因此由同一个 Runtime 管理。
+
+---
+
+# 4. Planner：建议计划，Runtime 决定能否执行
+
+代码：`agent_forge/multi_agent/application/planning.py`。
+
+```text
+task
+↓
+AdaptivePlanner.decide()
+↓
+structured PlanningDecision
+↓
+PlanningDecision.to_fanout_plan()
+↓
+FanoutPlan deterministic validation
+```
+
+Planner 可以选择：
 
 ```text
 mode = single
+mode = fanout
 ```
 
-避免为了 Multi-Agent 而强行 Multi-Agent。
+在 fanout 模式下，Planner 提议任务、依赖、write scope、allowed tools 和 acceptance criteria。模型只提出结构化计划；是否允许执行由 `FanoutPlan` 的确定性规则决定。
+
+核心原则：
+
+```text
+LLM proposes.
+Runtime validates and executes.
+```
 
 ---
 
-# 10. V1.2 验收标准与结构化交接 / Acceptance Criteria + Structured Handoff
+# 5. HARD 与 LIVE 不是两套图
 
-## 10.1 验收标准 / Acceptance Criteria
+二者都属于同一个 `FanoutPlan`，并一起做 cycle 和 scope 校验。
 
-Acceptance Criteria 从 Planner 贯穿到 Finalizer：
+## HARD：需要上游代码结果
+
+真实字段：`SubagentTask.depends_on`。
 
 ```text
-Planner
+Producer successful integration
 ↓
-Task Contract
+Consumer may start
+```
+
+如果 Consumer 需要 Producer 已修改的文件，必须使用 HARD。READY、FEEDBACK 或 UPDATE 不能替代代码集成。
+
+## LIVE：只允许提前消费语义证据
+
+真实字段：`FanoutPlan.live_dependencies`。
+
+```text
+Producer publishes required READY/UPDATE
 ↓
-Worker
+Consumer may start before Producer completes
+```
+
+LIVE 改变的是启动时机，不降低最终正确性门槛。Consumer 最终集成前仍必须满足：
+
+```text
+relevant Producer successfully integrated and sealed
++
+Consumer consumed Producer final current version
+```
+
+一句话区分：
+
+```text
+HARD controls when a Worker may start from trusted code state.
+LIVE permits an early start from versioned semantic evidence.
+Final integration remains fail closed.
+```
+
+---
+
+# 6. READY / FEEDBACK / UPDATE 如何进入真实 AgentLoop
+
+Worker 只有在 frozen plan 存在合法 LIVE route 时，才获得 `publish_handoff_event` 工具。普通 Worker 看不到这个工具。
+
+```text
+Agent ToolCall: publish_handoff_event
 ↓
-Evidence
+PublishHandoffEventTool
 ↓
+worker-bound LiveWorkerContext
+↓
+LiveHandoffRuntime.publish()
+↓
+route / type / version / causal validation
+↓
+target mailbox + coordination.jsonl
+```
+
+Producer identity、`plan_generation_id` 和 `worker_attempt_id` 由 Runtime 注入，模型不能伪造发布者身份。
+
+三种事件的角色：
+
+```text
+READY
+→ 上游宣布某个语义契约已可供下游开始使用
+
+FEEDBACK
+→ 下游把执行中发现的约束反馈给上游
+
+UPDATE
+→ 上游基于已经送达的 FEEDBACK 发布新版本
+```
+
+`UPDATE` 必须引用一条已验证、已送达给当前 Producer 的 `FEEDBACK`；不能用一个任意 event ID 伪造因果关系。
+
+---
+
+# 7. safe boundary 与 operator steer 的区别
+
+`LiveHandoffRunControl` 复用现有 `AgentLoop` 的 RunControl seam，但 runtime coordination 不等于人类 steer。
+
+```text
+LiveHandoffRuntime mailbox
+↓
+RunControlHandler.consume_pending_signals(boundary="before_model")
+↓
+PreparedTurn model input
+```
+
+如果 coordination 在 provider request 进行中到达：
+
+```text
+provider returns old response
+↓
+AgentLoop checks after_model boundary
+↓
+old response is discarded
+↓
+REPLAN with current coordination evidence
+```
+
+传输给模型时可以编码为 `role=user`，但内容明确标记：
+
+```text
+[RUNTIME COORDINATION EVIDENCE]
+human_authority=false
+```
+
+内部 trace/checkpoint 也使用独立的 `runtime_coordination` provenance，因此它不会被审计为 operator direction。
+
+`coordination_publish` 是 Runtime 内部协作动作：它经过显式 route/version 授权和 Trace，但不是外部副作用，不要求 human Approval，也不进入 Operation Ledger。
+
+---
+
+# 8. Worker 隔离与可信集成
+
+每个 Worker 都拥有独立：
+
+- `AgentRunSession`；
+- Conversation 和 WorkingMemory；
+- Tool surface；
+- Git worktree；
+- candidate diff 和 trace。
+
+Worker 不共享完整 Conversation，也不能直接读取其他 Worker 的私有 worktree。跨 Worker 只传递两类状态：
+
+```text
+semantic state
+→ versioned READY / FEEDBACK / UPDATE
+
+trusted code state
+→ successful integration + WorkerHandoff
+```
+
+最终 candidate 还必须经过 declared scope、actual touched files、并发冲突、patch applicability 和 LIVE final-version gate。模型声称“完成”不能绕过这些 Runtime hard facts。
+
+---
+
+# 9. Attempt、Replan 与 Resume 边界
+
+每个事件都绑定：
+
+```text
+plan_generation_id
+worker_attempt_id
+```
+
+Worker retry 会使旧 attempt 的发布和消费状态失效；remaining-plan replan 会创建新 generation，旧 generation mailbox 不可复用。
+
+当前恢复策略保持有界：
+
+```text
+worker retry <= 1
+remaining-plan replan <= 1
+merge conflict may use one serialized rerun
+```
+
+HARD-only plan 保留已有 checkpoint resume。LIVE plan 的 `resume_from` 当前直接拒绝，因为 mailbox、in-flight provider request 与已消费版本还没有完整 replay 语义。
+
+Stale 只做 detect + reject，本版本不自动无限 rerun。
+
+---
+
+# 10. 唯一机制证据
+
+入口：`scripts/run_multi_agent_v1_smoke.py`。
+
+它使用 temporary Git repository 和 deterministic `ScriptedModelPort`，但经过真实：
+
+```text
+AdaptivePlanner
+FanoutPlan
+FanoutCoordinator
+AgentLoop
+ToolCall / Observation
+RunControl safe boundary
+isolated worktrees
+candidate diffs
+integration
 Finalizer
 ```
 
-它不是单纯 Prompt decoration。
-
----
-
-## 10.2 Worker 交接 / WorkerHandoff
-
-V1 继续保持 Context isolation。
-
-Agent 之间的通信拆成三类：
+唯一场景验证：
 
 ```text
-Code State
-→ Integrated Workspace
-
-Semantic State
-→ Compact WorkerHandoff
-
-Private Context
-→ Isolated
-```
-
-当前 Handoff：
-
-```text
-WorkerHandoff
-├── task_id
-├── status
-├── summary
-├── touched_files
-├── validation_evidence
-├── unresolved_issues
-└── artifact_path
-```
-
-Handoff 优先从已有 `LiveSubagentResult` / Artifact 做 deterministic projection。
-
-不要为了 Handoff 再调用一个 LLM。
-
-如果 C `depends_on=[A,B]`：
-
-C 只收到：
-
-- 自己的 task；
-- 自己的 acceptance criteria；
-- A/B compact handoff；
-- 当前 integrated workspace。
-
-不收到 A/B 完整 Conversation。
-
----
-
-# 11. V1.3 有界恢复与重规划 / Bounded Recovery and Replan
-
-硬边界：
-
-```text
-max_worker_retry <= 1
-max_plan_replan_rounds <= 1
-```
-
----
-
-## 11.1 合并适用性冲突到串行重跑 / Merge Applicability Conflict to Serialized Rerun
-
-目标场景：
-
-```text
-A || B
+A starts
 ↓
-A merge success
+A publishes READY(v1)
 ↓
-B old candidate becomes stale / non-applicable
-```
-
-V1 recovery：
-
-```text
-discard B old patch
-        ↓
-latest integrated workspace
-        ↓
-fresh B Worker
-        ↓
-re-read / re-edit / re-validate
-        ↓
-B-v2 candidate
-```
-
-核心设计：
-
-> 乐观并行执行，加上串行冲突恢复。
-
-不做 LLM textual patch merge。
-
----
-
-## 11.2 可重试的 Worker 失败 / Retryable Worker Failure
-
-只对可合理判断为 transient/retryable 的失败最多 retry 一次。
-
-不盲目 retry：
-
-- scope violation；
-- deterministic permission violation；
-- invalid plan。
-
----
-
-## 11.3 一轮剩余计划重规划 / One-Round Remaining-Plan Replan
-
-已经成功完成并 merge 的任务冻结：
-
-```text
-Completed Prefix
-= immutable history
-```
-
-只允许替换剩余任务图：
-
-```text
-Remaining Graph
-= replaceable once
-```
-
-Replanner 输入：
-
-- original goal；
-- current plan；
-- completed task IDs；
-- completed handoffs；
-- current integrated-state summary；
-- failure/conflict evidence；
-- remaining work。
-
-Replanner 输出仍必须通过 deterministic validation。
-
-最多一次。
-
----
-
-## 11.4 失败关闭边界 / Fail-Closed Boundaries
-
-V1 明确不做：
-
-- scope violation 自动重试；
-- LLM semantic merge；
-- 无限 replan；
-- completed-task rollback；
-- Agent ping-pong。
-
----
-
-# 12. V1.4 感知验收标准的 Finalizer / Criteria-Aware Finalizer
-
-V1 不重写 Finalizer。
-
-继续使用 read-only Finalizer AgentLoop。
-
-输入升级为：
-
-```text
-Original Goal
-+
-Global Acceptance Criteria
-+
-Per-task Acceptance Criteria
-+
-WorkerHandoffs
-+
-Integrated Workspace / Diff
-+
-Validation Evidence
-```
-
-目标判断：
-
-```text
-criterion 1 → PASS / FAIL / UNKNOWN
-criterion 2 → PASS / FAIL / UNKNOWN
-...
+B starts before A completes
 ↓
-Final Decision
-```
-
-最终仍是：
-
-```text
+B publishes FEEDBACK(v1)
+↓
+A receives it at a real AgentLoop boundary
+↓
+A discards stale in-flight response and publishes UPDATE(v2)
+↓
+B consumes v2
+↓
+A then B integrate under final freshness gates
+↓
 PASS
-NEEDS_REVISION
-BLOCKED
 ```
 
-Runtime hard facts 优先于模型文字。
-
----
-
-# 13. V1.5 五个机制 Case
-
-V1 不跑大规模 Multi-Agent Benchmark。
-
-只要求五个 deterministic mechanism cases：
-
-1. **Single Gate**
-   - 局部任务应选择 `single`。
-
-2. **Independent Parallel Fanout**
-   - 独立任务可并发、隔离执行、稳定 merge。
-
-3. **Dependency + Handoff**
-   - 下游 Worker 得到 dependency handoff + integrated code state。
-
-4. **Merge Conflict Serialized Recovery**
-   - stale candidate 丢弃，在最新集成状态重新执行一次。
-
-5. **Worker Failure / Bad Remaining Plan**
-   - 最多一次 retry/replan，然后成功或 controlled abort。
-
-这些 Case 的目标是证明：
-
-> orchestration mechanism correctness
-
-不是证明：
-
-> Multi-Agent Pass@1 一定高于 Single-Agent。
-
----
-
-# 14. V2：多 Agent 定量评测 / Multi-Agent Quantitative Evaluation
-
-V2 当前不实现。
-
-未来固定 Golden-10 比较：
+提交的派生证据位于：
 
 ```text
-Single Agent
-vs
-Static Fanout
-vs
-Adaptive Fanout
+benchmarks/experiments/multi-agent-v1/mechanism-evidence.json
 ```
 
-关注：
-
-- success rate；
-- wall time；
-- token；
-- LLM calls；
-- conflict rate；
-- recovery rate。
-
-在 V2 完成以前，不声称 Multi-Agent 已量化提高 Pass@1。
-
-NanoHarness 已有 Single-Agent benchmark/eval 能力，因此 V1 当前优先把 Multi-Agent mechanism 做完整。
+它证明 deterministic mechanism correctness 和 real-AgentLoop integration。它不评估真实模型效果，不声明性能提升，也不比较 sequential/naive-parallel wall time。
 
 ---
 
-# 15. V3：评测驱动的多 Agent 优化 / Evaluation-Driven Multi-Agent Optimization
+# 11. 当前明确不实现
 
-V3 当前不实现。
+- 真实模型 benchmark 或 Planner 质量 benchmark；
+- speedup / Pass@1 提升声明；
+- automatic semantic conflict resolver；
+- unlimited retry/replan；
+- LIVE checkpoint resume/replay；
+- 分布式 mailbox、A2A 协议、Redis/MQ/Kubernetes worker platform；
+- Agent 群聊、voting、recursive supervisor。
 
-它仍放在 Multi-Agent Roadmap 中，因为第一阶段只优化：
-
-- Planner；
-- Handoff；
-- Recovery/Replan；
-- Finalizer；
-- Multi-Agent orchestration policy。
-
-链路：
-
-```text
-Multi-Agent Runs
-↓
-FailureReport
-↓
-ImprovementProposal
-↓
-ExperimentSpec
-```
-
-边界：
-
-```text
-Agent proposes
-Engineer changes source
-Eval judges
-```
-
-不做 Agent 自动修改 NanoHarness。
-
-如果未来优化范围扩展到整个 Harness，则拆出独立 Harness Improvement Roadmap。
+这些边界不是缺失的 CURRENT 功能，不应在面试中说成已经实现。
 
 ---
 
-# 16. 当前明确不做
+# 12. 最快的代码定位顺序
 
-当前不引入：
-
-- Auto Research 第二主线；
-- Agent 群聊；
-- unrestricted A2A；
-- voting / consensus；
-- recursive supervisors；
-- unlimited agent spawning；
-- semantic merge Agent；
-- Redis / MQ / Kubernetes worker platform；
-- cloud multi-tenancy；
-- organization memory；
-- knowledge graph；
-- Skill marketplace；
-- automatic Harness self-modification。
-
----
-
-# 17. 核心源码 Owner
-
-## V0 已有
+只看五处：
 
 ```text
-FanoutPlan
-→ agent_forge/multi_agent/domain/live.py
+1. agent_forge/multi_agent/application/planning.py
+   AdaptivePlanner.decide()
 
-Dependency / conflict-free batching
-→ agent_forge/multi_agent/domain/fanout.py
+2. agent_forge/multi_agent/domain/live.py
+   FanoutPlan.__post_init__()
 
-Live orchestration / integration
-→ agent_forge/multi_agent/application/live_fanout.py
+3. agent_forge/multi_agent/application/fanout.py
+   FanoutCoordinator.run()
+   FanoutCoordinator._run_live_plan()
 
-Worker runtime / worktree / finalizer
-→ agent_forge/multi_agent/adapters/local_worker.py
+4. agent_forge/multi_agent/application/live_handoff.py
+   LiveHandoffRuntime.publish()
+   LiveHandoffRuntime.drain_mailbox()
+   LiveHandoffRuntime.authorize_integration()
 
-Composition root
-→ agent_forge/multi_agent/wiring.py
+5. agent_forge/runtime/application/agent_loop.py
+   AgentLoop.run()
+   before_model / after_model safe boundaries
 ```
 
-## V1 新增/增强 Owner
+如果只解释总体设计，前三处已经足够；只有需要说明“运行中的 Worker 如何收到反馈”时，再进入第 4、5 处。
 
-当前实现保持少量明确 Owner：
+30 秒版本：
 
-```text
-Planner / PlanningDecision
-→ agent_forge/multi_agent/application/planning.py
-→ agent_forge/multi_agent/domain/planning.py
-
-Acceptance Criteria
-→ agent_forge/multi_agent/domain/live.py
-→ agent_forge/multi_agent/domain/fanout.py
-
-WorkerHandoff
-→ agent_forge/multi_agent/domain/live.py
-
-Recovery / Replan
-→ agent_forge/multi_agent/application/live_fanout.py
-
-Criteria-aware Finalizer
-→ agent_forge/multi_agent/adapters/local_worker.py
-```
-
-不要为了 V1 引入复杂多层抽象。
-
----
-
-# 18. 30 秒架构摘要
-
-V0：
-
-> NanoHarness 当前 Multi-Agent 已经不是多个 Agent 共用一个 Working Tree 的玩具实现。它由 typed FanoutPlan 驱动，Coordinator 按 dependency 和 write scope 做 deterministic scheduling，每个 Worker 使用独立 AgentLoop 和 Git worktree，执行后通过 actual touched files 和 patch applicability 做冲突检查，再稳定顺序集成，最后由只读 Finalizer 验收。但 V0 的 Plan 仍由外部提供，semantic handoff、bounded replan 和显式 completion criteria 还不完整。
-
-V1 CURRENT：
-
-> V1 在不重写现有 execution half 的前提下实现了 Planner、Single/Multi strategy、structured handoff、acceptance criteria、bounded conflict recovery 和 criteria-aware Finalizer，使系统从人工 DAG executor 升级为一个小而完整的 adaptive Multi-Agent coding harness。
+> NanoHarness 先让 `AdaptivePlanner` 把自然语言任务转成唯一的 `FanoutPlan`。`FanoutCoordinator` 在隔离 worktree 中运行真实 `AgentLoop` Worker；HARD 依赖等待可信代码集成，LIVE 依赖只允许基于版本化 READY/FEEDBACK/UPDATE 提前启动。所有协作事实由一个 thread-safe `LiveHandoffRuntime` 管理，并通过真实 RunControl safe boundary 进入下一次模型输入。最终集成仍检查 Producer 已成功集成、Consumer 已消费最新版本，再由只读 Finalizer 验收。

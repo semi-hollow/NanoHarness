@@ -445,6 +445,8 @@ class OperationTracker:
             return "run_command"
         if tool_name == "remember_memory":
             return "memory_write"
+        if tool_name == "publish_handoff_event":
+            return "coordination_publish"
         if tool_name in WORKSPACE_WRITE_TOOL_NAMES:
             return "write"
         if tool_name == "python_validation":

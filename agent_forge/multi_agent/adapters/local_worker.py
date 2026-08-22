@@ -24,6 +24,11 @@ from agent_forge.runtime.adapters.git_workspace import (
     collect_workspace_diff,
 )
 from agent_forge.runtime.ports.model import ModelPort
+from agent_forge.runtime.wiring import (
+    AgentLoopBuildRequest,
+    RuntimeDependencyOverrides,
+    build_agent_loop_from_request,
+)
 from agent_forge.safety.guardrails import sanitize_quoted_evidence
 from agent_forge.tools.registry import ToolRegistry
 
@@ -37,7 +42,8 @@ from ..domain.live import (
     WorkerHandoff,
     project_worker_handoff,
 )
-from ..ports import FanoutWorkerPort
+from ..ports import FanoutWorkerPort, LiveWorkerContextPort
+from .live_agent_worker import LiveHandoffRunControl, PublishHandoffEventTool
 from .git_workspace import apply_unified_diff_to_workspace, commit_worker_baseline
 
 RegistryFactory = Callable[[Path, ExecutionEnvironment], ToolRegistry]
@@ -76,6 +82,7 @@ class LocalAgentWorkerAdapter(FanoutWorkerPort):
         base_diff_text: str,
         dependency_handoffs: list[WorkerHandoff],
         attempt: int,
+        coordination: LiveWorkerContextPort | None = None,
     ) -> LiveSubagentResult:
         """在临时 worktree 中运行一个受 scope 限制的 AgentLoop。"""
 
@@ -139,6 +146,8 @@ class LocalAgentWorkerAdapter(FanoutWorkerPort):
                 self.registry_factory(active_workspace, environment),
                 task,
             )
+            if coordination is not None:
+                registry.register(PublishHandoffEventTool(coordination))
             worker_trace = TraceRecorder(str(trace_path))
             worker_config = replace(
                 self.base_config,
@@ -163,16 +172,35 @@ class LocalAgentWorkerAdapter(FanoutWorkerPort):
             # region 4. AgentLoop 执行（主链）：任务契约进入模型，结果写入独立 Trace/Usage
             # worker_task_prompt 把总目标与子任务 scope 合并；AgentLoop 完成后立即冻结
             # Trace/Usage，后续候选收集只读取 workspace，不修改模型运行证据。
-            final_answer = build_agent_loop(
-                worker_config,
-                worker_trace,
-                registry,
-                self.llm_factory(),
-            ).run(
+            worker_loop = (
+                build_agent_loop_from_request(
+                    AgentLoopBuildRequest(
+                        config=worker_config,
+                        trace=worker_trace,
+                        registry=registry,
+                        llm=self.llm_factory(),
+                        overrides=RuntimeDependencyOverrides(
+                            control=LiveHandoffRunControl(coordination)
+                        ),
+                    )
+                )
+                if coordination is not None
+                else build_agent_loop(
+                    worker_config,
+                    worker_trace,
+                    registry,
+                    self.llm_factory(),
+                )
+            )
+            final_answer = worker_loop.run(
                 worker_task_prompt(
                     self.plan.goal,
                     task,
                     dependency_handoffs,
+                    live_routes=[
+                        dependency.to_dict()
+                        for dependency in self.plan.live_routes_for(task.id)
+                    ],
                 ),
                 agent_name=f"Subagent:{task.id}",
             )
@@ -511,6 +539,7 @@ def worker_task_prompt(
     goal: str,
     task: SubagentTask,
     dependency_handoffs: list[WorkerHandoff] | None = None,
+    live_routes: list[dict[str, str]] | None = None,
 ) -> str:
     """构造隔离 worker 的最小任务上下文。"""
 
@@ -532,6 +561,14 @@ def worker_task_prompt(
             )[:6000]
             if handoffs
             else "[]",
+            "Authorized LIVE semantic routes (no private worktree or candidate diff):",
+            json.dumps(live_routes or [], ensure_ascii=False, sort_keys=True),
+            (
+                "Use publish_handoff_event for READY/FEEDBACK/UPDATE on those routes. "
+                "Publisher identity and attempt are injected by Runtime."
+                if live_routes
+                else "No LIVE coordination capability is granted to this Worker."
+            ),
             "Implement only this task. Do not touch paths outside the declared scope.",
             "Return a concise evidence-grounded result after using the available tools.",
         ]

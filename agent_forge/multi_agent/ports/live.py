@@ -15,6 +15,7 @@ from ..domain.live import (
     LiveSubagentResult,
     WorkerHandoff,
 )
+from ..domain.live_handoff import LiveHandoffEvent
 from ..domain.planning import PlanningDecision
 
 
@@ -60,6 +61,32 @@ class FanoutArtifactPort(Protocol):
     def read_text(self, path: str) -> str:
         """读取结果中已经记录的文本 artifact。"""
 
+    def append_coordination(self, record: dict[str, Any]) -> str:
+        """追加一条可审计 coordination JSONL 事实。"""
+
+
+class LiveWorkerContextPort(Protocol):
+    """绑定单一 Worker 身份与 attempt 的最小 coordination 能力。"""
+
+    task_id: str
+    worker_attempt_id: int
+
+    def publish(
+        self,
+        *,
+        event_type: str,
+        target_task_id: str,
+        semantic_key: str,
+        version: int,
+        summary: str,
+        evidence: list[str],
+        caused_by_event_id: str = "",
+    ) -> LiveHandoffEvent:
+        """由 Runtime 注入 publisher/generation/attempt 后发布事实。"""
+
+    def drain_mailbox(self, *, boundary: str) -> list[LiveHandoffEvent]:
+        """在真实 AgentLoop 安全边界消费当前 attempt 的事实。"""
+
 
 class FanoutWorkerPort(Protocol):
     """隔离 AgentLoop worker 和 finalizer 的执行边界。"""
@@ -71,6 +98,7 @@ class FanoutWorkerPort(Protocol):
         base_diff_text: str,
         dependency_handoffs: list[WorkerHandoff],
         attempt: int,
+        coordination: LiveWorkerContextPort | None = None,
     ) -> LiveSubagentResult:
         """在隔离 workspace 中执行一个真实 AgentLoop。"""
 

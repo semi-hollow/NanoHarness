@@ -30,7 +30,8 @@ READING_SCOPES = (
         "||file:agent_forge/runtime/application/run_lifecycle.py"
         "||file:agent_forge/context/application/compaction.py"
         "||file:agent_forge/memory/application/service.py"
-        "||file:agent_forge/multi_agent/application/live_fanout.py"
+        "||file:agent_forge/multi_agent/application/fanout.py"
+        "||file:agent_forge/multi_agent/application/live_handoff.py"
         "||file:agent_forge/bench/application/swebench.py",
     ),
     (
@@ -117,15 +118,15 @@ TARGETS = (
     BreakpointTarget(
         scenario="coordinated",
         label="Lab 2 - Fanout coordinator",
-        relative_path="agent_forge/multi_agent/application/live_fanout.py",
-        class_name="LiveFanoutCoordinator",
+        relative_path="agent_forge/multi_agent/application/fanout.py",
+        class_name="FanoutCoordinator",
         function_name="run",
     ),
     BreakpointTarget(
         scenario="coordinated",
         label="Lab 2 - Dependency batch",
-        relative_path="agent_forge/multi_agent/application/live_fanout.py",
-        class_name="LiveFanoutCoordinator",
+        relative_path="agent_forge/multi_agent/application/fanout.py",
+        class_name="FanoutCoordinator",
         function_name="_run_batch",
     ),
     BreakpointTarget(
@@ -138,8 +139,8 @@ TARGETS = (
     BreakpointTarget(
         scenario="coordinated",
         label="Lab 2 - Scoped merge",
-        relative_path="agent_forge/multi_agent/application/live_fanout.py",
-        class_name="LiveFanoutCoordinator",
+        relative_path="agent_forge/multi_agent/application/fanout.py",
+        class_name="FanoutCoordinator",
         function_name="_merge_batch",
     ),
     BreakpointTarget(

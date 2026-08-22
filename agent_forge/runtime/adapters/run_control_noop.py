@@ -1,6 +1,9 @@
 """CLI 默认使用的无控制信号 Adapter。"""
 
-from agent_forge.runtime.domain.run_control import RunControlSignal
+from agent_forge.runtime.domain.run_control import (
+    RunControlSignal,
+    RuntimeCoordinationSignal,
+)
 from agent_forge.runtime.ports.run_control import RunControlPort
 
 
@@ -11,4 +14,12 @@ class NoopRunControl(RunControlPort):
         return None
 
     def drain_steers(self, run_id: str) -> list[RunControlSignal]:
+        return []
+
+    def drain_coordination(
+        self,
+        run_id: str,
+        *,
+        boundary: str,
+    ) -> list[RuntimeCoordinationSignal]:
         return []

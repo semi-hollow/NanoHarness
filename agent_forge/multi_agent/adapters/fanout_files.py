@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import threading
 import time
 from pathlib import Path
 from typing import Any
@@ -20,6 +21,7 @@ class FanoutFileRepository(FanoutArtifactPort):
     def __init__(self, run_dir: str | Path) -> None:
         self.root = Path(run_dir).resolve() / "fanout"
         self.root.mkdir(parents=True, exist_ok=True)
+        self._coordination_lock = threading.Lock()
 
     def write_plan(self, plan: FanoutPlan) -> str:
         path = self.root / "fanout_plan.json"
@@ -80,6 +82,16 @@ class FanoutFileRepository(FanoutArtifactPort):
 
     def read_text(self, path: str) -> str:
         return Path(path).read_text(encoding="utf-8")
+
+    def append_coordination(self, record: dict[str, Any]) -> str:
+        """每条事实一行并立即 flush；Runtime lock 维护跨字段提交顺序。"""
+
+        path = self.root / "coordination.jsonl"
+        line = json.dumps(record, ensure_ascii=False, sort_keys=True)
+        with self._coordination_lock, path.open("a", encoding="utf-8") as stream:
+            stream.write(line + "\n")
+            stream.flush()
+        return str(path)
 
 
 def _resolve_resume_artifact(path: Path) -> Path:

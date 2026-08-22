@@ -64,6 +64,22 @@ PLANNING_SCHEMA: dict[str, Any] = {
                 },
             },
         },
+        "live_dependencies": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "required": [
+                    "producer_task_id",
+                    "target_task_id",
+                    "semantic_key",
+                ],
+                "properties": {
+                    "producer_task_id": {"type": "string"},
+                    "target_task_id": {"type": "string"},
+                    "semantic_key": {"type": "string"},
+                },
+            },
+        },
     },
 }
 
@@ -121,6 +137,9 @@ class AdaptivePlanner:
                 "Use mode=single for local or highly coupled work. Use fanout only when "
                 "tasks have useful isolation or dependencies.",
                 "For fanout, propose coarse relative write scopes and only listed tools.",
+                "Use depends_on only for HARD file/result dependencies. Use "
+                "live_dependencies only when semantic READY/FEEDBACK/UPDATE can let "
+                "a downstream worker start early without seeing unmerged files.",
                 f"Maximum fanout tasks: {self.max_fanout_tasks}",
                 f"Maximum steps per task: {self.max_steps}",
                 f"Available tools: {self.available_tools}",
@@ -248,6 +267,9 @@ def resumed_planning_outcome(plan: FanoutPlan) -> PlanningOutcome:
                     "max_steps": task.max_steps,
                 }
                 for task in plan.tasks
+            ],
+            "live_dependencies": [
+                dependency.to_dict() for dependency in plan.live_dependencies
             ],
         },
         available_tools={tool for task in plan.tasks for tool in task.allowed_tools},

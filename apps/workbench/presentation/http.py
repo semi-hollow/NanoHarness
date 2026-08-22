@@ -3346,7 +3346,7 @@ def _render_fanout_run_evidence(
             "计划与依赖检查",
             bool(batches),
             f"{len(results)} 个任务被编排为 {len(batches)} 个依赖批次",
-            "LiveFanoutCoordinator.run",
+            "FanoutCoordinator.run",
             plan_path,
         ),
         (
@@ -3354,7 +3354,7 @@ def _render_fanout_run_evidence(
             bool(results)
             and all(result.get("status") == "completed" for result in results),
             worker_evidence,
-            "LiveFanoutCoordinator._run_batch",
+            "FanoutCoordinator._run_batch",
             None,
         ),
         (
@@ -3364,14 +3364,14 @@ def _render_fanout_run_evidence(
                 f"改动文件：{', '.join(touched_files) or '无'}；"
                 f"检测到 {len(conflicts)} 个范围冲突"
             ),
-            "LiveFanoutCoordinator._mark_dynamic_conflicts",
+            "FanoutCoordinator._mark_dynamic_conflicts",
             None,
         ),
         (
             "候选改动合并",
             bool(merged_task_ids) and _path_is_file(diff_path),
             f"已合并：{', '.join(str(item) for item in merged_task_ids) or '无'}",
-            "LiveFanoutCoordinator._merge_batch",
+            "FanoutCoordinator._merge_batch",
             diff_path,
         ),
         (
@@ -3385,7 +3385,7 @@ def _render_fanout_run_evidence(
             "Checkpoint 与证据发布",
             bool(summary_path and summary_path.is_file()),
             "协调状态、Worker 结果、合并改动与验证结论已经持久化",
-            "LiveFanoutCoordinator.run",
+            "FanoutCoordinator.run",
             summary_path,
         ),
     ]

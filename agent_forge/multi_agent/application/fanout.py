@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import time
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import Future, ThreadPoolExecutor, as_completed
 from dataclasses import asdict, fields
 from typing import Any
 
@@ -16,6 +16,7 @@ from ..domain.fanout import (
     SubagentTask,
     build_conflict_free_batches,
     detect_result_conflicts,
+    detect_write_scope_conflicts,
 )
 from ..domain.live import (
     FanoutCheckpoint,
@@ -28,6 +29,7 @@ from ..domain.live import (
 )
 from ..domain.planning import PlanningDecision
 from .dependencies import LiveFanoutDependencies
+from .live_handoff import LiveHandoffRuntime
 
 FAIL_CLOSED_STATUSES = {
     "scope_violation",
@@ -37,7 +39,7 @@ FAIL_CLOSED_STATUSES = {
 }
 
 
-class LiveFanoutCoordinator:
+class FanoutCoordinator:
     """运行已验证 DAG；模型不能绕过 scope、merge 或 retry 边界。"""
 
     def __init__(
@@ -57,9 +59,19 @@ class LiveFanoutCoordinator:
         self.artifacts = dependencies.artifacts
         self.workers = dependencies.workers
         self.replanner = dependencies.replanner
-        self.max_workers = max(1, min(int(max_workers), 8))
+        requested_workers = int(max_workers)
+        if plan.live_dependencies and requested_workers < 2:
+            raise ValueError("LIVE dependencies require max_workers >= 2")
+        if plan.live_dependencies and resume_from:
+            raise ValueError("LIVE coordination resume is not supported in V1")
+        self.max_workers = max(1, min(requested_workers, 8))
         self.resume_from = resume_from
         self.allow_replan = allow_replan and not bool(resume_from)
+        self.live_handoff = (
+            LiveHandoffRuntime(plan, self.artifacts)
+            if plan.live_dependencies
+            else None
+        )
 
     def run(self) -> LiveFanoutSummary:
         """执行 Worker、集成、一次有界恢复和只读最终验收。"""
@@ -115,86 +127,102 @@ class LiveFanoutCoordinator:
 
         # region 2. 执行 DAG、一次 Worker retry 和一次 remaining-plan replan
         while True:
-            dependency_batches = build_conflict_free_batches(effective_plan.tasks)
-            pass_executed_task = False
-            for batch_index, batch in enumerate(dependency_batches):
-                runnable = [
-                    task
-                    for task in batch
-                    if task.id not in successful_task_ids
-                    and set(task.depends_on).issubset(successful_task_ids)
-                ]
-                if not runnable:
-                    continue
-                pass_executed_task = True
-                batch_history.append([task.id for task in runnable])
-                base_diff = self.workspace.diff()
-                dependency_handoffs = {
-                    task.id: self._dependency_handoffs(task, current_results)
-                    for task in runnable
-                }
-                batch_results = self._run_batch(
-                    runnable,
-                    batch_index,
-                    base_diff,
-                    dependency_handoffs,
-                    attempt_counts,
-                )
-                for batch_worker_result in batch_results:
-                    attempt_results.append(batch_worker_result)
-                    current_results[batch_worker_result.task_id] = batch_worker_result
-
-                # Runtime 是否允许重试，只能由 Worker Trace 中的事实证据决定。
-                for index, task in enumerate(runnable):
-                    initial_worker_result = batch_results[index]
-                    if not self._worker_retry_allowed(initial_worker_result):
-                        continue
-                    self._record_worker_retry(
-                        step=batch_index + 1,
-                        task_id=task.id,
-                        prior_attempt=initial_worker_result.attempt,
-                        failure_kind=initial_worker_result.failure_kind,
-                    )
-                    retried = self._run_worker_attempt(
-                        task,
-                        batch_index,
-                        base_diff,
-                        dependency_handoffs[task.id],
-                        attempt_counts,
-                    )
-                    attempt_results.append(retried)
-                    current_results[task.id] = retried
-                    batch_results[index] = retried
-
-                batch_conflicts = self._mark_dynamic_conflicts(batch_results)
-                detected_conflicts.extend(batch_conflicts)
-                self._merge_batch(
-                    tasks=runnable,
-                    batch_results=batch_results,
-                    batch_index=batch_index,
+            if effective_plan.live_dependencies:
+                pass_executed_task = self._run_live_plan(
+                    effective_plan,
                     current_results=current_results,
                     attempt_results=attempt_results,
                     attempt_counts=attempt_counts,
                     successful_task_ids=successful_task_ids,
                     merged_task_ids=merged_task_ids,
                     detected_conflicts=detected_conflicts,
+                    batch_history=batch_history,
                 )
-                self._checkpoint(
-                    base_revision,
-                    initial_identity,
-                    effective_plan,
-                    current_results,
-                    attempt_results,
-                    merged_task_ids,
-                    replan_round,
-                    "running",
+            else:
+                dependency_batches = build_conflict_free_batches(
+                    effective_plan.tasks
                 )
-                self._record_fanout_batch_completed(
-                    batch_index + 1,
-                    runnable,
-                    batch_results,
-                    batch_conflicts,
-                )
+                pass_executed_task = False
+                for batch_index, batch in enumerate(dependency_batches):
+                    runnable = [
+                        task
+                        for task in batch
+                        if task.id not in successful_task_ids
+                        and set(task.depends_on).issubset(successful_task_ids)
+                    ]
+                    if not runnable:
+                        continue
+                    pass_executed_task = True
+                    batch_history.append([task.id for task in runnable])
+                    base_diff = self.workspace.diff()
+                    dependency_handoffs = {
+                        task.id: self._dependency_handoffs(task, current_results)
+                        for task in runnable
+                    }
+                    batch_results = self._run_batch(
+                        runnable,
+                        batch_index,
+                        base_diff,
+                        dependency_handoffs,
+                        attempt_counts,
+                    )
+                    for batch_worker_result in batch_results:
+                        attempt_results.append(batch_worker_result)
+                        current_results[batch_worker_result.task_id] = (
+                            batch_worker_result
+                        )
+
+                    # Runtime 是否允许重试，只能由 Worker Trace 中的事实证据决定。
+                    for index, task in enumerate(runnable):
+                        initial_worker_result = batch_results[index]
+                        if not self._worker_retry_allowed(initial_worker_result):
+                            continue
+                        self._record_worker_retry(
+                            step=batch_index + 1,
+                            task_id=task.id,
+                            prior_attempt=initial_worker_result.attempt,
+                            failure_kind=initial_worker_result.failure_kind,
+                        )
+                        retried = self._run_worker_attempt(
+                            task,
+                            batch_index,
+                            base_diff,
+                            dependency_handoffs[task.id],
+                            attempt_counts,
+                        )
+                        attempt_results.append(retried)
+                        current_results[task.id] = retried
+                        batch_results[index] = retried
+
+                    batch_conflicts = self._mark_dynamic_conflicts(batch_results)
+                    detected_conflicts.extend(batch_conflicts)
+                    self._merge_batch(
+                        tasks=runnable,
+                        batch_results=batch_results,
+                        batch_index=batch_index,
+                        current_results=current_results,
+                        attempt_results=attempt_results,
+                        attempt_counts=attempt_counts,
+                        successful_task_ids=successful_task_ids,
+                        merged_task_ids=merged_task_ids,
+                        detected_conflicts=detected_conflicts,
+                    )
+                    self._checkpoint(
+                        base_revision,
+                        initial_identity,
+                        effective_plan,
+                        current_results,
+                        attempt_results,
+                        merged_task_ids,
+                        replan_round,
+                        "running",
+                    )
+                    self._record_fanout_batch_completed(
+                        batch_index + 1,
+                        runnable,
+                        batch_results,
+                        batch_conflicts,
+                    )
 
             unfinished = [
                 task
@@ -230,6 +258,18 @@ class LiveFanoutCoordinator:
                 )
                 break
             replan_round = 1
+            if effective_plan.live_dependencies:
+                if self.max_workers < 2:  # pragma: no cover - constructor protects V1
+                    raise ValueError("LIVE dependencies require max_workers >= 2")
+                if self.live_handoff is None:
+                    self.live_handoff = LiveHandoffRuntime(
+                        effective_plan,
+                        self.artifacts,
+                    )
+                else:
+                    self.live_handoff.replace_plan(effective_plan)
+            else:
+                self.live_handoff = None
             current_results = {
                 task_id: current_worker_result
                 for task_id, current_worker_result in current_results.items()
@@ -384,25 +424,173 @@ class LiveFanoutCoordinator:
                 worker_results_by_id[task.id] = worker_result
         return [worker_results_by_id[task.id] for task in tasks]
 
-    def _run_worker_attempt(
+    def _run_live_plan(
         self,
+        plan: FanoutPlan,
+        *,
+        current_results: dict[str, LiveSubagentResult],
+        attempt_results: list[LiveSubagentResult],
+        attempt_counts: dict[str, int],
+        successful_task_ids: set[str],
+        merged_task_ids: list[str],
+        detected_conflicts: list[FanoutConflict],
+        batch_history: list[list[str]],
+    ) -> bool:
+        """动态启动 LIVE target，但只在 producer 最终集成后放行其 candidate。"""
+
+        runtime = self.live_handoff
+        if runtime is None:  # pragma: no cover - caller protects this invariant
+            raise AssertionError("LIVE plan requires LiveHandoffRuntime")
+        task_by_id = {task.id: task for task in plan.tasks}
+        pending = {
+            task.id for task in plan.tasks if task.id not in successful_task_ids
+        }
+        running: dict[Future[LiveSubagentResult], SubagentTask] = {}
+        executed = False
+
+        with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
+            while pending or running:
+                observed_revision = runtime.state_revision
+                running_tasks = list(running.values())
+                launched: list[SubagentTask] = []
+                for task in plan.tasks:
+                    if task.id not in pending or len(running) >= self.max_workers:
+                        continue
+                    if not set(task.depends_on).issubset(successful_task_ids):
+                        continue
+                    if not runtime.live_ready(task.id):
+                        continue
+                    if detect_write_scope_conflicts([task, *running_tasks]):
+                        continue
+                    attempt = self._next_attempt(task.id, attempt_counts)
+                    context = runtime.begin_attempt(task.id, attempt)
+                    worker_context = context if plan.live_routes_for(task.id) else None
+                    future = executor.submit(
+                        self._execute_live_worker,
+                        runtime,
+                        task,
+                        len(batch_history),
+                        self.workspace.diff(),
+                        self._dependency_handoffs(task, current_results),
+                        attempt,
+                        worker_context,
+                    )
+                    running[future] = task
+                    running_tasks.append(task)
+                    pending.remove(task.id)
+                    launched.append(task)
+                    executed = True
+                if launched:
+                    batch_history.append([task.id for task in launched])
+
+                done = [future for future in running if future.done()]
+                if not done:
+                    if not running:
+                        break
+                    runtime.wait_for_change(observed_revision, timeout=30.0)
+                    continue
+
+                done.sort(key=lambda future: list(task_by_id).index(running[future].id))
+                completed_now: list[LiveSubagentResult] = []
+                for future in done:
+                    task = running.pop(future)
+                    completed_worker_result = future.result()
+                    attempt_results.append(completed_worker_result)
+                    current_results[task.id] = completed_worker_result
+                    if self._worker_retry_allowed(completed_worker_result):
+                        self._record_worker_retry(
+                            step=len(batch_history),
+                            task_id=task.id,
+                            prior_attempt=completed_worker_result.attempt,
+                            failure_kind=completed_worker_result.failure_kind,
+                        )
+                        completed_worker_result = self._run_worker_attempt(
+                            task,
+                            completed_worker_result.batch_index,
+                            self.workspace.diff(),
+                            self._dependency_handoffs(task, current_results),
+                            attempt_counts,
+                            live_handoff=runtime,
+                        )
+                        attempt_results.append(completed_worker_result)
+                        current_results[task.id] = completed_worker_result
+                    completed_now.append(completed_worker_result)
+
+                # 组合拓扑序也是集成顺序；LIVE target 可以提前完成，但不能提前越过门禁。
+                for task_id in plan.integration_order(set(current_results)):
+                    if task_id in successful_task_ids or task_id in pending:
+                        continue
+                    task = task_by_id[task_id]
+                    current_worker_result = current_results[task_id]
+                    if current_worker_result.status != "completed":
+                        continue
+                    if not set(task.depends_on).issubset(successful_task_ids):
+                        continue
+                    if not {
+                        dependency.producer_task_id
+                        for dependency in plan.live_dependencies_for(task_id)
+                    }.issubset(successful_task_ids):
+                        continue
+                    self._merge_live_result(
+                        runtime=runtime,
+                        task=task,
+                        worker_result=current_worker_result,
+                        current_results=current_results,
+                        attempt_results=attempt_results,
+                        attempt_counts=attempt_counts,
+                        successful_task_ids=successful_task_ids,
+                        merged_task_ids=merged_task_ids,
+                        detected_conflicts=detected_conflicts,
+                    )
+
+                self._record_fanout_batch_completed(
+                    len(batch_history),
+                    [
+                        task_by_id[completed_worker_result.task_id]
+                        for completed_worker_result in completed_now
+                    ],
+                    completed_now,
+                    [],
+                )
+
+        for task in plan.tasks:
+            final_result = current_results.get(task.id)
+            if (
+                final_result is not None
+                and final_result.status == "completed"
+                and task.id not in successful_task_ids
+            ):
+                final_result.status = "stale_live_dependency"
+                final_result.error = (
+                    "final LIVE integration freshness barrier rejected candidate"
+                )
+                final_result.unresolved_issues = [final_result.error]
+                final_result.handoff = project_worker_handoff(final_result)
+        return executed
+
+    def _execute_live_worker(
+        self,
+        runtime: LiveHandoffRuntime,
         task: SubagentTask,
         batch_index: int,
         base_diff_text: str,
         dependency_handoffs: list[WorkerHandoff],
-        attempt_counts: dict[str, int],
+        attempt: int,
+        coordination: Any,
     ) -> LiveSubagentResult:
-        attempt = self._next_attempt(task.id, attempt_counts)
+        """执行一个真实 Worker，并保证 future 完成前 Runtime 已观察 attempt 终态。"""
+
         try:
-            return self.workers.run_worker(
+            live_worker_result = self.workers.run_worker(
                 task,
                 batch_index,
                 base_diff_text,
                 dependency_handoffs,
                 attempt,
+                coordination,
             )
         except Exception as exc:
-            failed_worker_result = LiveSubagentResult(
+            live_worker_result = LiveSubagentResult(
                 task_id=task.id,
                 status="failed",
                 batch_index=batch_index,
@@ -410,8 +598,160 @@ class LiveFanoutCoordinator:
                 error=str(exc),
                 failure_kind="worker_port_exception",
             )
-            failed_worker_result.handoff = project_worker_handoff(failed_worker_result)
-            return failed_worker_result
+            live_worker_result.handoff = project_worker_handoff(live_worker_result)
+        runtime.finish_attempt(
+            task.id,
+            attempt,
+            success=live_worker_result.status == "completed",
+        )
+        return live_worker_result
+
+    def _merge_live_result(
+        self,
+        *,
+        runtime: LiveHandoffRuntime,
+        task: SubagentTask,
+        worker_result: LiveSubagentResult,
+        current_results: dict[str, LiveSubagentResult],
+        attempt_results: list[LiveSubagentResult],
+        attempt_counts: dict[str, int],
+        successful_task_ids: set[str],
+        merged_task_ids: list[str],
+        detected_conflicts: list[FanoutConflict],
+    ) -> None:
+        """在一个原子 freshness 授权之后应用 candidate；冲突仍只恢复一次。"""
+
+        try:
+            runtime.authorize_integration(task.id, worker_result.attempt)
+        except RuntimeError as exc:
+            worker_result.status = "stale_live_dependency"
+            worker_result.error = str(exc)
+            worker_result.retryable = False
+            worker_result.unresolved_issues = [str(exc)]
+            worker_result.handoff = project_worker_handoff(worker_result)
+            current_results[task.id] = worker_result
+            runtime.seal_integration(task.id, worker_result.attempt, success=False)
+            return
+        outcome, detail = self._apply_candidate(task, worker_result)
+        if outcome == "merge_conflict":
+            worker_result.status = "merge_conflict"
+            worker_result.error = detail
+            worker_result.unresolved_issues = [detail]
+            worker_result.handoff = project_worker_handoff(worker_result)
+            self._record_serialized_conflict_retry(
+                step=worker_result.batch_index + 1,
+                task_id=task.id,
+                discarded_attempt=worker_result.attempt,
+                failure=detail,
+            )
+            fresh = self._run_worker_attempt(
+                task,
+                worker_result.batch_index,
+                self.workspace.diff(),
+                self._dependency_handoffs(task, current_results),
+                attempt_counts,
+                live_handoff=runtime,
+            )
+            attempt_results.append(fresh)
+            current_results[task.id] = fresh
+            if fresh.status != "completed":
+                fresh.status = "merge_recovery_failed"
+                fresh.retryable = False
+                fresh.unresolved_issues = [
+                    fresh.error or "serialized merge recovery worker failed"
+                ]
+                fresh.handoff = project_worker_handoff(fresh)
+                return
+            try:
+                runtime.authorize_integration(task.id, fresh.attempt)
+            except RuntimeError as exc:
+                fresh.status = "stale_live_dependency"
+                fresh.error = str(exc)
+                fresh.retryable = False
+                fresh.unresolved_issues = [str(exc)]
+                fresh.handoff = project_worker_handoff(fresh)
+                runtime.seal_integration(task.id, fresh.attempt, success=False)
+                return
+            outcome, detail = self._apply_candidate(task, fresh)
+            worker_result = fresh
+        if outcome != "merged":
+            worker_result.status = outcome
+            worker_result.error = detail
+            worker_result.retryable = False
+            worker_result.unresolved_issues = [detail]
+            worker_result.handoff = project_worker_handoff(worker_result)
+            runtime.seal_integration(
+                task.id,
+                worker_result.attempt,
+                success=False,
+            )
+            if outcome == "merge_conflict":
+                detected_conflicts.append(FanoutConflict([task.id], detail))
+            return
+        worker_result.status = "completed"
+        worker_result.error = ""
+        worker_result.unresolved_issues = []
+        worker_result.handoff = project_worker_handoff(worker_result)
+        current_results[task.id] = worker_result
+        successful_task_ids.add(task.id)
+        if task.id not in merged_task_ids:
+            merged_task_ids.append(task.id)
+        runtime.seal_integration(task.id, worker_result.attempt, success=True)
+
+    def _run_worker_attempt(
+        self,
+        task: SubagentTask,
+        batch_index: int,
+        base_diff_text: str,
+        dependency_handoffs: list[WorkerHandoff],
+        attempt_counts: dict[str, int],
+        *,
+        live_handoff: LiveHandoffRuntime | None = None,
+    ) -> LiveSubagentResult:
+        attempt = self._next_attempt(task.id, attempt_counts)
+        coordination = None
+        if live_handoff is not None:
+            context = live_handoff.begin_attempt(task.id, attempt)
+            if live_handoff.plan.live_routes_for(task.id):
+                coordination = context
+        try:
+            attempted_worker_result = (
+                self.workers.run_worker(
+                    task,
+                    batch_index,
+                    base_diff_text,
+                    dependency_handoffs,
+                    attempt,
+                    coordination,
+                )
+                if live_handoff is not None
+                else self.workers.run_worker(
+                    task,
+                    batch_index,
+                    base_diff_text,
+                    dependency_handoffs,
+                    attempt,
+                )
+            )
+        except Exception as exc:
+            attempted_worker_result = LiveSubagentResult(
+                task_id=task.id,
+                status="failed",
+                batch_index=batch_index,
+                attempt=attempt,
+                error=str(exc),
+                failure_kind="worker_port_exception",
+            )
+            attempted_worker_result.handoff = project_worker_handoff(
+                attempted_worker_result
+            )
+        if live_handoff is not None:
+            live_handoff.finish_attempt(
+                task.id,
+                attempt,
+                success=attempted_worker_result.status == "completed",
+            )
+        return attempted_worker_result
 
     @staticmethod
     def _next_attempt(task_id: str, attempt_counts: dict[str, int]) -> int:
@@ -665,12 +1005,30 @@ class LiveFanoutCoordinator:
             raise ValueError(
                 "replan attempted to redefine completed tasks: " + ", ".join(overlap)
             )
+        remaining_ids = {task.id for task in proposed.tasks}
+        invalid_live_endpoints = sorted(
+            {
+                task_id
+                for dependency in proposed.live_dependencies
+                for task_id in (
+                    dependency.producer_task_id,
+                    dependency.target_task_id,
+                )
+                if task_id not in remaining_ids
+            }
+        )
+        if invalid_live_endpoints:
+            raise ValueError(
+                "replan LIVE dependencies may only connect current-generation "
+                "remaining tasks: " + ", ".join(invalid_live_endpoints)
+            )
         # 根验收标准保持冻结；重规划只能替换尚未完成的任务。
         bounded = PlanningDecision(
             mode="fanout",
             reason=proposed.reason,
             global_acceptance_criteria=effective_plan.global_acceptance_criteria,
             tasks=proposed.tasks,
+            live_dependencies=proposed.live_dependencies,
         )
         new_plan = bounded.to_fanout_plan(
             self.plan.goal, completed_tasks=completed_tasks
@@ -828,7 +1186,7 @@ class LiveFanoutCoordinator:
     def _record_fanout_started(self, effective_plan: FanoutPlan) -> None:
         self.events.add(
             0,
-            "LiveFanoutCoordinator",
+            "FanoutCoordinator",
             "fanout_start",
             initial_plan_identity={"digest": self.plan.digest, "goal": self.plan.goal},
             effective_plan=effective_plan.to_dict(),
@@ -843,7 +1201,7 @@ class LiveFanoutCoordinator:
     ) -> None:
         self.events.add(
             step,
-            "LiveFanoutCoordinator",
+            "FanoutCoordinator",
             "fanout_batch_done",
             batch=[task.id for task in tasks],
             results=[worker_result.to_dict() for worker_result in worker_results],
@@ -860,7 +1218,7 @@ class LiveFanoutCoordinator:
     ) -> None:
         self.events.add(
             step,
-            "LiveFanoutCoordinator",
+            "FanoutCoordinator",
             "worker_retry",
             task_id=task_id,
             prior_attempt=prior_attempt,
@@ -877,7 +1235,7 @@ class LiveFanoutCoordinator:
     ) -> None:
         self.events.add(
             step,
-            "LiveFanoutCoordinator",
+            "FanoutCoordinator",
             "serialized_conflict_retry",
             task_id=task_id,
             discarded_attempt=discarded_attempt,
@@ -892,7 +1250,7 @@ class LiveFanoutCoordinator:
     ) -> None:
         self.events.add(
             0,
-            "LiveFanoutCoordinator",
+            "FanoutCoordinator",
             "replan_started",
             completed_task_ids=completed_task_ids,
             failed_task_ids=failed_task_ids,
@@ -906,7 +1264,7 @@ class LiveFanoutCoordinator:
     ) -> None:
         self.events.add(
             0,
-            "LiveFanoutCoordinator",
+            "FanoutCoordinator",
             "replan_result",
             effective_plan=effective_plan,
             effective_plan_digest=effective_plan_digest,
@@ -915,7 +1273,7 @@ class LiveFanoutCoordinator:
     def _record_replan_failure(self, *, step: int, error: str) -> None:
         self.events.add(
             step,
-            "LiveFanoutCoordinator",
+            "FanoutCoordinator",
             "replan_result",
             success=False,
             error=error,
@@ -931,7 +1289,7 @@ class LiveFanoutCoordinator:
     ) -> None:
         self.events.add(
             step,
-            "LiveFanoutCoordinator",
+            "FanoutCoordinator",
             "fanout_done",
             success=fanout_status == "passed",
             status=fanout_status,

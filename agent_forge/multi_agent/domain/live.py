@@ -9,7 +9,13 @@ from dataclasses import asdict, dataclass, field
 from pathlib import PurePosixPath
 from typing import Any
 
-from .fanout import FanoutConflict, SubagentTask, build_execution_batches
+from .fanout import (
+    FanoutConflict,
+    SubagentTask,
+    build_execution_batches,
+    detect_write_scope_conflicts,
+)
+from .live_handoff import LiveDependency
 
 TASK_ID_PATTERN = re.compile(r"^[A-Za-z0-9_.-]+$")
 
@@ -27,6 +33,16 @@ class FanoutPlan:
     goal: str
     tasks: list[SubagentTask]
     global_acceptance_criteria: list[str] = field(default_factory=list)
+    live_dependencies: list[LiveDependency] = field(default_factory=list)
+
+    def __post_init__(self) -> None:
+        """集中维护 HARD/LIVE 图的全部安全不变量。"""
+
+        if not self.goal.strip():
+            raise ValueError("fanout plan goal must not be empty")
+        if not 1 <= len(self.tasks) <= 16:
+            raise ValueError("fanout plan supports 1..16 tasks")
+        _validate_dependency_graph(self.tasks, self.live_dependencies)
 
     @classmethod
     def from_mapping(cls, data: dict[str, Any]) -> "FanoutPlan":
@@ -72,7 +88,7 @@ class FanoutPlan:
                 SubagentTask(
                     id=task_id,
                     task=task_text,
-                    depends_on=_string_list(row, "depends_on"),
+                    depends_on=_dependency_list(row),
                     write_scope=[
                         _normalize_scope(value)
                         for value in _string_list(row, "write_scope")
@@ -86,7 +102,9 @@ class FanoutPlan:
                     max_steps=max_steps,
                 )
             )
-        build_execution_batches(tasks)
+        live_rows = data.get("live_dependencies", [])
+        if not isinstance(live_rows, list):
+            raise ValueError("fanout plan live_dependencies must be a list")
         return cls(
             goal=goal,
             tasks=tasks,
@@ -94,6 +112,9 @@ class FanoutPlan:
                 data,
                 "global_acceptance_criteria",
             ),
+            live_dependencies=[
+                LiveDependency.from_mapping(row) for row in live_rows
+            ],
         )
 
     @property
@@ -113,7 +134,56 @@ class FanoutPlan:
             payload["global_acceptance_criteria"] = list(
                 self.global_acceptance_criteria
             )
+        if self.live_dependencies:
+            payload["live_dependencies"] = [
+                dependency.to_dict() for dependency in self.live_dependencies
+            ]
         return payload
+
+    def live_dependencies_for(self, task_id: str) -> list[LiveDependency]:
+        return [
+            dependency
+            for dependency in self.live_dependencies
+            if dependency.target_task_id == task_id
+        ]
+
+    def live_routes_for(self, task_id: str) -> list[LiveDependency]:
+        """返回 task 可作为 producer 或 consumer 参与的有效 LIVE 边。"""
+
+        return [
+            dependency
+            for dependency in self.live_dependencies
+            if task_id
+            in {dependency.producer_task_id, dependency.target_task_id}
+        ]
+
+    def integration_order(self, task_ids: set[str]) -> list[str]:
+        """按 HARD + LIVE 组合图返回当前结果的稳定集成顺序。"""
+
+        dependencies = {
+            task.id: set(task.depends_on)
+            | {
+                edge.producer_task_id
+                for edge in self.live_dependencies
+                if edge.target_task_id == task.id
+            }
+            for task in self.tasks
+            if task.id in task_ids
+        }
+        ordered: list[str] = []
+        while dependencies:
+            ready = [
+                task.id
+                for task in self.tasks
+                if task.id in dependencies
+                and not (dependencies[task.id] & set(dependencies))
+            ]
+            if not ready:  # pragma: no cover - FanoutPlan validation protects this
+                raise AssertionError("validated fanout plan contains a cycle")
+            ordered.extend(ready)
+            for task_id in ready:
+                dependencies.pop(task_id)
+        return ordered
 
 
 @dataclass(frozen=True)
@@ -397,6 +467,20 @@ def _criteria_list(data: dict[str, Any], key: str) -> list[str]:
     return criteria
 
 
+def _dependency_list(data: dict[str, Any]) -> list[str]:
+    dependencies = data.get("depends_on")
+    if dependencies is None:
+        return []
+    if not isinstance(dependencies, list):
+        raise ValueError("fanout task depends_on must be a list")
+    normalized = [str(value).strip() for value in dependencies]
+    if any(not value for value in normalized):
+        raise ValueError("fanout task depends_on entries must not be empty")
+    if len(normalized) != len(set(normalized)):
+        raise ValueError("fanout task HARD dependencies must be unique")
+    return normalized
+
+
 def _task_to_dict(task: SubagentTask) -> dict[str, Any]:
     payload: dict[str, Any] = {
         "id": task.id,
@@ -410,3 +494,80 @@ def _task_to_dict(task: SubagentTask) -> dict[str, Any]:
     if task.acceptance_criteria:
         payload["acceptance_criteria"] = list(task.acceptance_criteria)
     return payload
+
+
+def _validate_dependency_graph(
+    tasks: list[SubagentTask],
+    live_dependencies: list[LiveDependency],
+) -> None:
+    """一次性验证唯一 FanoutPlan 的 HARD、LIVE 和组合并发边界。"""
+
+    task_ids = [task.id for task in tasks]
+    if len(task_ids) != len(set(task_ids)):
+        raise ValueError("subagent task ids must be unique")
+    known = set(task_ids)
+    for task in tasks:
+        if task.id in task.depends_on:
+            raise ValueError(f"task {task.id} cannot depend on itself")
+        if len(task.depends_on) != len(set(task.depends_on)):
+            raise ValueError(f"task {task.id} HARD dependencies must be unique")
+    hard_pairs = {
+        (dependency, task.id) for task in tasks for dependency in task.depends_on
+    }
+    live_identities = [
+        (edge.producer_task_id, edge.target_task_id, edge.semantic_key)
+        for edge in live_dependencies
+    ]
+    if len(live_identities) != len(set(live_identities)):
+        raise ValueError("LIVE semantic dependencies must be unique")
+    live_pairs = {(producer, target) for producer, target, _ in live_identities}
+    if len(live_pairs) != len(live_identities):
+        raise ValueError("a producer-target pair may declare only one LIVE dependency")
+    unknown = sorted(
+        {
+            endpoint
+            for edge in live_dependencies
+            for endpoint in (edge.producer_task_id, edge.target_task_id)
+            if endpoint not in known
+        }
+        | {dependency for dependency, _ in hard_pairs if dependency not in known}
+    )
+    if unknown:
+        raise ValueError(f"unknown dependencies: {', '.join(unknown)}")
+    overlap = sorted(hard_pairs & live_pairs)
+    if overlap:
+        producer, target = overlap[0]
+        raise ValueError(
+            f"dependency {producer} -> {target} cannot be both HARD and LIVE"
+        )
+
+    # 复用 HARD 图校验，再校验组合图，统一阻断依赖环。
+    build_execution_batches(tasks)
+    upstream_by_task = {task.id: list(task.depends_on) for task in tasks}
+    for edge in live_dependencies:
+        upstream_by_task[edge.target_task_id].append(edge.producer_task_id)
+    build_execution_batches(
+        [
+            SubagentTask(
+                id=task.id,
+                task=task.task,
+                depends_on=upstream_by_task[task.id],
+                write_scope=task.write_scope,
+            )
+            for task in tasks
+        ]
+    )
+
+    live_task_ids = {
+        task_id
+        for edge in live_dependencies
+        for task_id in (edge.producer_task_id, edge.target_task_id)
+    }
+    conflicts = detect_write_scope_conflicts(
+        [task for task in tasks if task.id in live_task_ids]
+    )
+    if conflicts:
+        raise ValueError(
+            "LIVE workers require non-overlapping write scopes: "
+            + conflicts[0].reason
+        )

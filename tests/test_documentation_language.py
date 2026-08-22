@@ -27,13 +27,12 @@ CHINESE_FIRST_DOCS = (
 
 PUBLIC_DOC_LINE_BUDGETS = {
     "README.md": 250,
-    "docs/MULTI_AGENT_ROADMAP.md": 700,
     "docs/架构导览.md": 450,
     "docs/Agent运行数据结构与模型输入.md": 430,
     "docs/上下文工程.md": 350,
     "docs/上下文压缩与长任务设计.md": 320,
     "docs/运行治理与工具执行.md": 620,
-    "docs/多Agent编排.md": 720,
+    "docs/多Agent编排.md": 420,
     "docs/核心能力与代码入口.md": 280,
     "docs/运行产物与持久化契约.md": 340,
     "examples/debug_lab/README.md": 210,
@@ -54,12 +53,9 @@ CANONICAL_README_LINKS = (
 
 ALLOWED_DOC_SURFACES: tuple[str, ...] = ()
 
-# 所有者提供的 Multi-Agent 技术 Roadmap 使用稳定英文文件名；该例外不放宽
-# 其他面向读者文档的中文优先规则。
-APPROVED_TECHNICAL_DOC_NAMES = {"docs/MULTI_AGENT_ROADMAP.md"}
+APPROVED_TECHNICAL_DOC_NAMES: set[str] = set()
 
 ALLOWED_TOP_LEVEL_DOCS = {
-    "docs/MULTI_AGENT_ROADMAP.md",
     "docs/架构导览.md",
     "docs/Agent运行数据结构与模型输入.md",
     "docs/上下文工程.md",

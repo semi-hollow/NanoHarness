@@ -7,6 +7,7 @@ from typing import Any, Iterable
 
 from .fanout import SubagentTask
 from .live import FanoutPlan
+from .live_handoff import LiveDependency
 
 MAX_CRITERIA = 16
 MAX_CRITERION_CHARS = 500
@@ -44,6 +45,7 @@ class PlanningDecision:
     reason: str
     global_acceptance_criteria: list[str] = field(default_factory=list)
     tasks: list[PlannedTask] = field(default_factory=list)
+    live_dependencies: list[LiveDependency] = field(default_factory=list)
 
     @classmethod
     def from_mapping(
@@ -70,6 +72,11 @@ class PlanningDecision:
             raise ValueError("planning tasks must be a list")
         if mode == "single" and rows:
             raise ValueError("single planning decision must not contain fanout tasks")
+        live_rows = data.get("live_dependencies", [])
+        if not isinstance(live_rows, list):
+            raise ValueError("planning live_dependencies must be a list")
+        if mode == "single" and live_rows:
+            raise ValueError("single planning decision cannot contain LIVE dependencies")
         if mode == "fanout" and not 1 <= len(rows) <= max_fanout_tasks:
             raise ValueError(
                 f"fanout planning decision requires 1-{max_fanout_tasks} tasks"
@@ -109,6 +116,9 @@ class PlanningDecision:
             reason=reason,
             global_acceptance_criteria=global_criteria,
             tasks=tasks,
+            live_dependencies=[
+                LiveDependency.from_mapping(row) for row in live_rows
+            ],
         )
 
     def to_fanout_plan(
@@ -128,16 +138,24 @@ class PlanningDecision:
                 "goal": goal,
                 "global_acceptance_criteria": self.global_acceptance_criteria,
                 "tasks": task_rows,
+                "live_dependencies": [
+                    dependency.to_dict() for dependency in self.live_dependencies
+                ],
             }
         )
 
     def to_dict(self) -> dict[str, Any]:
-        return {
+        payload = {
             "mode": self.mode,
             "reason": self.reason,
             "global_acceptance_criteria": list(self.global_acceptance_criteria),
             "tasks": [task.to_mapping() for task in self.tasks],
         }
+        if self.live_dependencies:
+            payload["live_dependencies"] = [
+                dependency.to_dict() for dependency in self.live_dependencies
+            ]
+        return payload
 
 
 def _subagent_mapping(task: SubagentTask) -> dict[str, Any]:

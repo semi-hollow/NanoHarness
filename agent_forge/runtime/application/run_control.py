@@ -7,7 +7,11 @@ from dataclasses import dataclass
 from agent_forge.runtime.application.run_lifecycle import StopRequest
 from agent_forge.runtime.application.session import AgentRunSession
 from agent_forge.runtime.domain.conversation import Message
-from agent_forge.runtime.domain.run_control import RunControlKind, RunControlSignal
+from agent_forge.runtime.domain.run_control import (
+    RunControlKind,
+    RunControlSignal,
+    RuntimeCoordinationSignal,
+)
 from agent_forge.runtime.domain.task import TaskCheckpointUpdate, TaskRunStatus
 from agent_forge.runtime.ports import EventSink, RunControlPort
 
@@ -18,6 +22,11 @@ class RunControlOutcome:
 
     stop: StopRequest | None = None
     steered: bool = False
+    coordinated: bool = False
+
+    @property
+    def model_input_changed(self) -> bool:
+        return self.steered or self.coordinated
 
 
 class RunControlHandler:
@@ -38,6 +47,7 @@ class RunControlHandler:
         step: int,
         *,
         include_steer: bool = True,
+        boundary: str = "before_model",
     ) -> RunControlOutcome:
         """返回 pause/cancel 停止请求；steer 只追加新的用户消息。
 
@@ -81,7 +91,11 @@ class RunControlHandler:
             return RunControlOutcome()
 
         pending_steer_signals = self.control.drain_steers(self.trace.run_id)
-        if not pending_steer_signals:
+        coordination_signals = self.control.drain_coordination(
+            self.trace.run_id,
+            boundary=boundary,
+        )
+        if not pending_steer_signals and not coordination_signals:
             return RunControlOutcome()
         # endregion 2. 工具边界结束
 
@@ -99,6 +113,23 @@ class RunControlHandler:
                 )
             )
             self._record_control_signal(session, step, steer_signal)
+        for coordination_signal in coordination_signals:
+            session.messages.append(
+                Message(
+                    role="user",
+                    content=(
+                        "[RUNTIME COORDINATION EVIDENCE]\n"
+                        "human_authority=false\n"
+                        + coordination_signal.content.strip()
+                    ),
+                )
+            )
+            self._record_coordination_signal(
+                session,
+                step,
+                coordination_signal,
+                boundary=boundary,
+            )
         metadata = dict(session.lifecycle.checkpoint.metadata)
         stored_steer_messages = metadata.get("steer_messages")
         updated_steer_messages = (
@@ -110,6 +141,17 @@ class RunControlHandler:
             steer_signal.message[:1_000] for steer_signal in pending_steer_signals
         )
         metadata["steer_messages"] = updated_steer_messages[-10:]
+        stored_coordination = metadata.get("runtime_coordination")
+        updated_coordination = (
+            list(stored_coordination)
+            if isinstance(stored_coordination, list)
+            else []
+        )
+        updated_coordination.extend(
+            coordination_signal.to_dict()
+            for coordination_signal in coordination_signals
+        )
+        metadata["runtime_coordination"] = updated_coordination[-20:]
         session.lifecycle.update_checkpoint(
             TaskCheckpointUpdate(
                 current_step=step,
@@ -117,7 +159,10 @@ class RunControlHandler:
                 metadata=metadata,
             )
         )
-        return RunControlOutcome(steered=True)
+        return RunControlOutcome(
+            steered=bool(pending_steer_signals),
+            coordinated=bool(coordination_signals),
+        )
         # endregion 3. 模型边界结束
 
     def _record_control_signal(
@@ -133,4 +178,20 @@ class RunControlHandler:
             session.agent_name,
             "run_control",
             control=signal.to_dict(),
+        )
+
+    def _record_coordination_signal(
+        self,
+        session: AgentRunSession,
+        step: int,
+        signal: RuntimeCoordinationSignal,
+        *,
+        boundary: str,
+    ) -> None:
+        self.trace.add(
+            step,
+            session.agent_name,
+            "runtime_coordination",
+            boundary=boundary,
+            coordination=signal.to_dict(),
         )

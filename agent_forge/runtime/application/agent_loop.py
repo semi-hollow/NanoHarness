@@ -12,7 +12,10 @@ from enum import Enum
 from agent_forge.runtime.application.dependencies import RuntimeDependencies
 from agent_forge.runtime.application.final_answer import FinalAnswerBuilder
 from agent_forge.runtime.application.run_lifecycle import StopRequest
-from agent_forge.runtime.application.run_control import RunControlHandler
+from agent_forge.runtime.application.run_control import (
+    RunControlHandler,
+    RunControlOutcome,
+)
 from agent_forge.runtime.application.run_preparation import RunPreparation
 from agent_forge.runtime.application.session import AgentRunSession
 from agent_forge.runtime.application.tool_execution import ToolExecutionPipeline
@@ -113,6 +116,8 @@ class AgentLoop:
         initial_operator_control = self.run_control_handler.consume_pending_signals(
             run_session,
             0,
+            include_steer=False,
+            boundary="before_run",
         )
         if initial_operator_control.stop is not None:
             return self._finalize_run(
@@ -130,6 +135,7 @@ class AgentLoop:
             operator_control = self.run_control_handler.consume_pending_signals(
                 run_session,
                 step,
+                boundary="before_model",
             )
             if operator_control.stop is not None:
                 return self._finalize_run(
@@ -188,11 +194,12 @@ class AgentLoop:
         operator_control = self.run_control_handler.consume_pending_signals(
             session,
             step,
+            boundary="after_model",
         )
         if operator_control.stop is not None:
             return TurnOutcome(TurnOutcomeKind.STOP, operator_control.stop)
-        if operator_control.steered:
-            self._record_steer_replan(session, step)
+        if operator_control.model_input_changed:
+            self._record_stale_model_response(session, step, operator_control)
             return TurnOutcome(TurnOutcomeKind.REPLAN)
 
         budget_stop_request = self._budget_stop_request(session, step)
@@ -419,16 +426,25 @@ class AgentLoop:
             turn={"max_iterations": session.max_iterations},
         )
 
-    def _record_steer_replan(self, session: AgentRunSession, step: int) -> None:
-        """记录旧模型响应因 operator steer 到达而被丢弃。"""
+    def _record_stale_model_response(
+        self,
+        session: AgentRunSession,
+        step: int,
+        outcome: RunControlOutcome,
+    ) -> None:
+        """模型返回后丢弃已被 steer 或 coordination 过时化的响应。"""
 
         self.trace.add(
             step,
             session.agent_name,
             "recovery_decision",
-            recovery_hint="discard model response and re-plan from operator steer",
+            recovery_hint="discard stale model response and rebuild current input",
             retryable=True,
-            failure_kind="operator_steer",
+            failure_kind=(
+                "runtime_coordination"
+                if outcome.coordinated
+                else "operator_steer"
+            ),
         )
 
     def _record_context_overflow_recovery(

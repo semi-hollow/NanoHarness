@@ -75,8 +75,8 @@ CORE_WORKFLOW_ENTRYPOINTS = {
     "agent_forge/tools/tool_router.py": {
         "ToolRouter.route": 4,
     },
-    "agent_forge/multi_agent/application/live_fanout.py": {
-        "LiveFanoutCoordinator.run": 3,
+    "agent_forge/multi_agent/application/fanout.py": {
+        "FanoutCoordinator.run": 3,
     },
     "agent_forge/multi_agent/adapters/local_worker.py": {
         "LocalAgentWorkerAdapter.run_worker": 5,
@@ -249,7 +249,7 @@ MODULE_SCOPED_VAGUE_LOCAL_NAMES = {
         "raw_cases",
         "root",
     },
-    "agent_forge/multi_agent/application/live_fanout.py": {
+    "agent_forge/multi_agent/application/fanout.py": {
         "apply_detail",
         "item",
         "result",
@@ -427,7 +427,7 @@ EVIDENCE_RECORDER_MODULES = {
     "agent_forge/runtime/application/tool_execution.py",
     "agent_forge/runtime/application/tool_feedback.py",
     "agent_forge/runtime/application/turn_preparation.py",
-    "agent_forge/multi_agent/application/live_fanout.py",
+    "agent_forge/multi_agent/application/fanout.py",
 }
 
 # 这些消息/结果对象在核心流程中频繁出现，位置参数会迫使读者记字段顺序。

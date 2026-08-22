@@ -7,7 +7,8 @@ from .application.planning import (
     resumed_planning_outcome,
     write_planning_artifact,
 )
-from .application.live_fanout import LiveFanoutCoordinator
+from .application.fanout import FanoutCoordinator
+from .application.live_handoff import LiveHandoffRuntime
 from .domain.fanout import FanoutConflict, SubagentResult, SubagentTask
 from .domain.live import (
     FanoutPlan,
@@ -16,6 +17,7 @@ from .domain.live import (
     WorkerHandoff,
 )
 from .domain.planning import PlannedTask, PlanningDecision
+from .domain.live_handoff import LiveDependency, LiveEventType, LiveHandoffEvent
 from .domain.tool_policy import fanout_available_tools
 from .wiring import (
     LiveFanoutBuildRequest,
@@ -26,10 +28,14 @@ __all__ = [
     "AdaptivePlanner",
     "FanoutConflict",
     "FanoutPlan",
-    "LiveFanoutCoordinator",
+    "FanoutCoordinator",
+    "LiveHandoffRuntime",
     "LiveFanoutBuildRequest",
     "LiveFanoutSummary",
     "LiveSubagentResult",
+    "LiveDependency",
+    "LiveEventType",
+    "LiveHandoffEvent",
     "WorkerHandoff",
     "PlannedTask",
     "PlanningDecision",

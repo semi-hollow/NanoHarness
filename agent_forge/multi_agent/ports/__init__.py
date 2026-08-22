@@ -4,6 +4,7 @@ from .live import (
     FanoutWorkerPort,
     FanoutWorkspacePort,
     LiveFanoutEvents,
+    LiveWorkerContextPort,
 )
 
 __all__ = [
@@ -12,4 +13,5 @@ __all__ = [
     "FanoutWorkerPort",
     "FanoutWorkspacePort",
     "LiveFanoutEvents",
+    "LiveWorkerContextPort",
 ]

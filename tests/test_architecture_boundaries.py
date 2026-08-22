@@ -240,12 +240,15 @@ class ArchitectureBoundaryTest(unittest.TestCase):
         expected = [
             root / "api.py",
             root / "application" / "planning.py",
-            root / "application" / "live_fanout.py",
+            root / "application" / "fanout.py",
+            root / "application" / "live_handoff.py",
             root / "domain" / "fanout.py",
             root / "domain" / "live.py",
+            root / "domain" / "live_handoff.py",
             root / "domain" / "planning.py",
             root / "ports" / "live.py",
             root / "adapters" / "local_worker.py",
+            root / "adapters" / "live_agent_worker.py",
             root / "presentation" / "live_report.py",
             root / "wiring.py",
         ]

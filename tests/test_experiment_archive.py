@@ -14,6 +14,7 @@ ACTIVE_EXPERIMENTS = (
     "tool-aci-r1",
     "tool-aci-r2",
 )
+MECHANISM_EVIDENCE_DIRECTORIES = ("multi-agent-v1",)
 ARCHIVED_EXPERIMENTS = (
     "01-runtime-preset-50x2",
     "02-context-budget-exploration",
@@ -37,7 +38,9 @@ def test_active_experiment_surface_contains_declared_experiments() -> None:
     directories = tuple(
         path.name for path in sorted(EXPERIMENT_ROOT.iterdir()) if path.is_dir()
     )
-    assert directories == ACTIVE_EXPERIMENTS
+    assert directories == tuple(
+        sorted(ACTIVE_EXPERIMENTS + MECHANISM_EVIDENCE_DIRECTORIES)
+    )
 
     index = (EXPERIMENT_ROOT / "README.md").read_text(encoding="utf-8")
     for experiment in ACTIVE_EXPERIMENTS:
@@ -60,6 +63,15 @@ def test_active_experiment_links_and_machine_artifacts_resolve() -> None:
         assert execution_indexes
         for index in execution_indexes:
             json.loads(index.read_text(encoding="utf-8"))
+
+
+def test_multi_agent_v1_keeps_one_sanitized_mechanism_artifact() -> None:
+    root = EXPERIMENT_ROOT / "multi-agent-v1"
+    assert tuple(path.name for path in root.iterdir()) == ("mechanism-evidence.json",)
+    evidence = json.loads((root / "mechanism-evidence.json").read_text("utf-8"))
+    assert evidence["evidence_class"] == "deterministic_real_agent_loop_mechanism"
+    assert evidence["real_model_performance_evaluated"] is False
+    assert evidence["benchmark_claim"] == "none"
 
 
 def test_r2_record_contains_exact_code_identity_and_decision() -> None:

@@ -1,0 +1,238 @@
+{
+  "schema_version": 1,
+  "evidence_class": "deterministic_real_agent_loop_mechanism",
+  "natural_language_task": "升级配置加载能力以支持新的 timeout 字段，同时保持现有调用方兼容，并完成必要实现和验证。请选择最小安全的执行策略。",
+  "planning_decision": {
+    "mode": "fanout",
+    "reason": "two isolated files need one bounded semantic contract",
+    "global_acceptance_criteria": [
+      "legacy and new timeout inputs produce the same normalized value"
+    ],
+    "tasks": [
+      {
+        "id": "producer",
+        "task": "Publish the config contract and implement compatibility feedback.",
+        "depends_on": [],
+        "write_scope": [
+          "config_schema.py"
+        ],
+        "allowed_tools": [
+          "replace_text"
+        ],
+        "acceptance_criteria": [
+          "normalize_config accepts timeout and legacy_timeout"
+        ],
+        "max_steps": 6
+      },
+      {
+        "id": "consumer",
+        "task": "Report the legacy constraint and implement the consumer against v2.",
+        "depends_on": [],
+        "write_scope": [
+          "service_consumer.py"
+        ],
+        "allowed_tools": [
+          "replace_text"
+        ],
+        "acceptance_criteria": [
+          "boot_service consumes the compatible normalized config"
+        ],
+        "max_steps": 6
+      }
+    ],
+    "live_dependencies": [
+      {
+        "producer_task_id": "producer",
+        "target_task_id": "consumer",
+        "semantic_key": "config_schema"
+      }
+    ]
+  },
+  "fanout_plan_digest": "a52267f2acf38841c9bf68a5ac58a928c5145f4f710ff4539a30fe1b0ffe33e5",
+  "plan_generation_id": "g1-a52267f2acf38841",
+  "worker_attempt_ids": {
+    "producer": 1,
+    "consumer": 1
+  },
+  "coordination_timeline": [
+    {
+      "sequence": 1,
+      "record_type": "worker_attempt_started",
+      "task_id": "producer",
+      "boundary": "",
+      "event": null,
+      "human_authority": null
+    },
+    {
+      "sequence": 2,
+      "record_type": "handoff_event",
+      "task_id": "producer",
+      "boundary": "",
+      "event": {
+        "event_id": "2a862b8506ae86763db4ac9a67d412bae98f98fa917b0873f76d57934609a7bf",
+        "event_type": "READY",
+        "publisher_task_id": "producer",
+        "target_task_id": "consumer",
+        "semantic_key": "config_schema",
+        "version": 1,
+        "worker_attempt_id": 1,
+        "caused_by_event_id": ""
+      },
+      "human_authority": false
+    },
+    {
+      "sequence": 3,
+      "record_type": "worker_attempt_started",
+      "task_id": "consumer",
+      "boundary": "",
+      "event": null,
+      "human_authority": null
+    },
+    {
+      "sequence": 4,
+      "record_type": "mailbox_delivered",
+      "task_id": "consumer",
+      "boundary": "before_model",
+      "event": null,
+      "human_authority": false
+    },
+    {
+      "sequence": 5,
+      "record_type": "handoff_event",
+      "task_id": "consumer",
+      "boundary": "",
+      "event": {
+        "event_id": "a67fbaabfe5a5dbbbcef6111d75fe43d73d1f342c1bd548d1f012c91226a7a68",
+        "event_type": "FEEDBACK",
+        "publisher_task_id": "consumer",
+        "target_task_id": "producer",
+        "semantic_key": "config_schema",
+        "version": 1,
+        "worker_attempt_id": 1,
+        "caused_by_event_id": "2a862b8506ae86763db4ac9a67d412bae98f98fa917b0873f76d57934609a7bf"
+      },
+      "human_authority": false
+    },
+    {
+      "sequence": 6,
+      "record_type": "mailbox_delivered",
+      "task_id": "producer",
+      "boundary": "after_model",
+      "event": null,
+      "human_authority": false
+    },
+    {
+      "sequence": 7,
+      "record_type": "handoff_event",
+      "task_id": "producer",
+      "boundary": "",
+      "event": {
+        "event_id": "195fa5da69a31ba1c3a0e867c091ad5e38e3824fce43ee8968503c8d3896b9c8",
+        "event_type": "UPDATE",
+        "publisher_task_id": "producer",
+        "target_task_id": "consumer",
+        "semantic_key": "config_schema",
+        "version": 2,
+        "worker_attempt_id": 1,
+        "caused_by_event_id": "a67fbaabfe5a5dbbbcef6111d75fe43d73d1f342c1bd548d1f012c91226a7a68"
+      },
+      "human_authority": false
+    },
+    {
+      "sequence": 8,
+      "record_type": "mailbox_delivered",
+      "task_id": "consumer",
+      "boundary": "after_model",
+      "event": null,
+      "human_authority": false
+    },
+    {
+      "sequence": 9,
+      "record_type": "worker_attempt_finished",
+      "task_id": "producer",
+      "boundary": "",
+      "event": null,
+      "human_authority": null
+    },
+    {
+      "sequence": 10,
+      "record_type": "integration_authorized",
+      "task_id": "producer",
+      "boundary": "",
+      "event": null,
+      "human_authority": null
+    },
+    {
+      "sequence": 11,
+      "record_type": "integration_sealed",
+      "task_id": "producer",
+      "boundary": "",
+      "event": null,
+      "human_authority": null
+    },
+    {
+      "sequence": 12,
+      "record_type": "worker_attempt_finished",
+      "task_id": "consumer",
+      "boundary": "",
+      "event": null,
+      "human_authority": null
+    },
+    {
+      "sequence": 13,
+      "record_type": "integration_authorized",
+      "task_id": "consumer",
+      "boundary": "",
+      "event": null,
+      "human_authority": null
+    },
+    {
+      "sequence": 14,
+      "record_type": "integration_sealed",
+      "task_id": "consumer",
+      "boundary": "",
+      "event": null,
+      "human_authority": null
+    }
+  ],
+  "candidate_diff_sha256": {
+    "producer": "c5118790ca73bb07b11d9f1c2c341702aac0443020add0d6b94072c85d011120",
+    "consumer": "0cfc593cc9f53cc3ad3ea3fd013429764506046e043c07b93cdbec3bbb1e76f9"
+  },
+  "integration_status": "passed",
+  "finalizer_decision": "PASS",
+  "assertions": {
+    "planner_selected_fanout": true,
+    "isolated_worker_worktrees": true,
+    "consumer_started_before_producer_completed": true,
+    "ready_feedback_update_observed": true,
+    "feedback_entered_producer_next_model_input": true,
+    "update_v2_caused_by_feedback_event": true,
+    "consumer_consumed_latest_version": true,
+    "consumer_waited_for_producer_final_integration": true,
+    "integration_and_finalizer_passed": true,
+    "stale_model_response_discarded": true
+  },
+  "reused": [
+    "AdaptivePlanner",
+    "AgentLoop",
+    "RunControl safe boundary",
+    "isolated Git worktree",
+    "candidate diff integration gates",
+    "criteria-aware Finalizer"
+  ],
+  "new": [
+    "FanoutPlan.live_dependencies",
+    "LiveHandoffRuntime",
+    "publish_handoff_event",
+    "final LIVE freshness barrier"
+  ],
+  "omitted": [
+    "real-model benchmark",
+    "performance comparison",
+    "LIVE resume/replay",
+    "distributed transport"
+  ],
+  "real_model_performance_evaluated": false,
+  "benchmark_claim": "none"
+}

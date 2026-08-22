@@ -19,6 +19,7 @@ from .live import (
     aggregate_live_metrics,
 )
 from .planning import PlannedTask, PlanningDecision
+from .live_handoff import LiveDependency, LiveEventType, LiveHandoffEvent
 
 __all__ = [
     "FanoutConflict",
@@ -27,6 +28,9 @@ __all__ = [
     "CriterionResult",
     "LiveFanoutSummary",
     "LiveSubagentResult",
+    "LiveDependency",
+    "LiveEventType",
+    "LiveHandoffEvent",
     "WorkerHandoff",
     "PlannedTask",
     "PlanningDecision",

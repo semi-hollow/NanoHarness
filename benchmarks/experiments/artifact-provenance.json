@@ -117,6 +117,23 @@
           "producer": "codex_assisted_human_reviewed"
         }
       ]
+    },
+    {
+      "experiment_id": "multi-agent-v1-mechanism",
+      "directory": "benchmarks/experiments/multi-agent-v1",
+      "execution_origin": "checked_in_hermetic_real_agent_loop_smoke",
+      "artifacts": [
+        {
+          "locator": ".agent_forge/runs/v1-multi-agent/deterministic-smoke-v1/**",
+          "role": "private_raw_mechanism_artifacts",
+          "producer": "pipeline_direct"
+        },
+        {
+          "locator": "benchmarks/experiments/multi-agent-v1/mechanism-evidence.json",
+          "role": "sanitized_deterministic_real_agent_loop_evidence",
+          "producer": "deterministic_postprocessor"
+        }
+      ]
     }
   ],
   "archive": {
