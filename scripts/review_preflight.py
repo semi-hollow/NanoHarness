@@ -14,15 +14,15 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from agent_forge.workbench.adapters.evidence_files import FileEvidenceCatalog
-from agent_forge.workbench.application.review_projection import (
+from apps.workbench.adapters.evidence_files import FileEvidenceCatalog
+from apps.workbench.application.review_projection import (
     REVIEW_MANIFEST,
     build_lab1_review,
     build_lab2_review,
     build_mini50_review,
     load_review_manifest,
 )
-from agent_forge.workbench.presentation.http import (
+from apps.workbench.presentation.http import (
     INDEX_HTML,
     ForgeUiHandler,
     _render_workspace_view,

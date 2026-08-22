@@ -49,7 +49,7 @@ def test_shard_command_adds_only_pipeline_owned_coordinates() -> None:
     assert command[:5] == [
         Path(command[0]).as_posix(),
         "-m",
-        "agent_forge.forge_cli",
+        "apps.cli.dispatch",
         "bench",
         "swebench",
     ]

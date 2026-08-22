@@ -19,29 +19,29 @@ LAB_GROUP = "NanoHarness Debug Lab"
 # 阅读范围只影响 IDE 展示：主路径隐藏 tests/support 和外围 Adapter，需要时再切换范围。
 READING_SCOPES = (
     (
-        "00_NanoHarness_Review_Path.xml",
-        "00 NanoHarness Review Path",
+        "00_NanoHarness_Core_Owners.xml",
+        "00 NanoHarness Core Owners",
         "file:agent_forge/harness.py"
+        "||file:agent_forge/runtime/wiring.py"
         "||file:agent_forge/runtime/application/agent_loop.py"
         "||file:agent_forge/runtime/application/run_preparation.py"
         "||file:agent_forge/runtime/application/turn_preparation.py"
         "||file:agent_forge/runtime/application/tool_execution.py"
-        "||file:agent_forge/runtime/application/run_lifecycle.py",
-    ),
-    (
-        "05_NanoHarness_Extended_Flows.xml",
-        "05 NanoHarness Extended Flows",
-        "file:agent_forge/runtime/wiring.py"
-        "||file:agent_forge/multi_agent/application/live_fanout.py"
-        "||file:agent_forge/multi_agent/adapters/local_worker.py"
+        "||file:agent_forge/runtime/application/run_lifecycle.py"
         "||file:agent_forge/context/application/compaction.py"
-        "||file:agent_forge/operator_console//*"
-        "||file:agent_forge/bench//*",
+        "||file:agent_forge/memory/application/service.py"
+        "||file:agent_forge/multi_agent/application/live_fanout.py"
+        "||file:agent_forge/bench/application/swebench.py",
     ),
     (
-        "10_NanoHarness_Production_Code.xml",
-        "10 NanoHarness Production Code",
-        "file:agent_forge//*||file:examples//*||file:scripts//*",
+        "01_NanoHarness_All_Production.xml",
+        "01 NanoHarness All Production",
+        "file:agent_forge//*||file:apps//*",
+    ),
+    (
+        "20_NanoHarness_Inbound_Apps.xml",
+        "20 NanoHarness Inbound Apps",
+        "file:apps//*",
     ),
     (
         "90_NanoHarness_Tests.xml",
@@ -103,7 +103,7 @@ TARGETS = (
     BreakpointTarget(
         scenario="governed",
         label="Lab 1 - Restricted validation",
-        relative_path="agent_forge/tools/python_validation.py",
+        relative_path="agent_forge/tools/builtins/python_validation.py",
         class_name="PythonValidationTool",
         function_name="execute",
     ),

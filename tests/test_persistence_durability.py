@@ -7,7 +7,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from agent_forge.atomic_json import atomic_write_json
+from agent_forge.infrastructure.atomic_json import atomic_write_json
 from agent_forge.observability.adapters.json_trace import (
     JsonTraceRecorder,
     read_trace_jsonl,
@@ -28,11 +28,11 @@ class AtomicJsonTest(unittest.TestCase):
 
             with (
                 patch(
-                    "agent_forge.atomic_json.os.fsync",
+                    "agent_forge.infrastructure.atomic_json.os.fsync",
                     side_effect=lambda _descriptor: calls.append("fsync"),
                 ),
                 patch(
-                    "agent_forge.atomic_json.os.replace",
+                    "agent_forge.infrastructure.atomic_json.os.replace",
                     side_effect=replace,
                 ),
             ):
@@ -49,7 +49,7 @@ class AtomicJsonTest(unittest.TestCase):
 
             with (
                 patch(
-                    "agent_forge.atomic_json.os.replace",
+                    "agent_forge.infrastructure.atomic_json.os.replace",
                     side_effect=OSError("simulated crash boundary"),
                 ),
                 self.assertRaises(OSError),

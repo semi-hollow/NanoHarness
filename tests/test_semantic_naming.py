@@ -14,7 +14,7 @@ from agent_forge.runtime.wiring import (
     build_agent_loop_from_request,
 )
 from agent_forge.safety.sandbox import WorkspaceSandbox
-from agent_forge.tools.read_file import ReadFileTool
+from agent_forge.tools.builtins.read_file import ReadFileTool
 from agent_forge.tools.registry import ToolRegistry
 from scripts.migrate_context_semantic_naming_v3 import (
     _semantic_normalize,

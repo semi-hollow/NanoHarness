@@ -1,0 +1,3 @@
+<component name="DependencyValidationManager">
+  <scope name="01 NanoHarness All Production" pattern="file:agent_forge//*||file:apps//*" />
+</component>

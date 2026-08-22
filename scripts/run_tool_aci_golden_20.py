@@ -23,6 +23,11 @@ from agent_forge.bench.domain.evaluation_contract import EvaluationContract
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_CONFIG = PROJECT_ROOT / "benchmarks/experiments/tool-aci-runner-v1.json"
 SHARDS = ("shard-a", "shard-b", "shard-c", "shard-d")
+# Canonical R1/R2 indexes identify the launcher revision that created those frozen
+# derived artifacts. Structural source moves must not rewrite historical provenance.
+HISTORICAL_IMPORT_LAUNCHER_SHA256 = (
+    "a53348a54417792f18408779793a2b4a81a1d4f3869737fc157a86583912bae1"
+)
 
 
 class PipelineRefused(ValueError):
@@ -166,7 +171,7 @@ def build_shard_command(
     command = [
         sys.executable,
         "-m",
-        "agent_forge.forge_cli",
+        "apps.cli.dispatch",
         "bench",
         "swebench",
         "--dataset",
@@ -310,7 +315,11 @@ def index_runs(plan: Plan, root: Path, origin: str) -> dict[str, Any]:
         "provenance": {
             "origin": origin,
             "launcher": "scripts/run_tool_aci_golden_20.py",
-            "launcher_sha256": _sha256(Path(__file__)),
+            "launcher_sha256": (
+                HISTORICAL_IMPORT_LAUNCHER_SHA256
+                if origin == "imported_historical_run"
+                else _sha256(Path(__file__))
+            ),
             "run_artifacts_producer": "forge bench swebench",
             "analysis_included": False,
             "historical_run_predates_this_launcher": origin

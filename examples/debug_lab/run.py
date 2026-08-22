@@ -27,8 +27,8 @@ from examples.debug_lab.support import (  # noqa: E402
     create_workspace,
     publish_latest,
 )
-from agent_forge.showcase import ControlPlaneShowcaseResult  # noqa: E402
-from agent_forge.storage_layout import (  # noqa: E402
+from apps.showcase import ControlPlaneShowcaseResult  # noqa: E402
+from agent_forge.infrastructure.storage_layout import (  # noqa: E402
     ensure_storage_layout,
     human_readable_run_name,
 )
@@ -91,7 +91,7 @@ def run_governed(
 ) -> None:
     """运行 Lab 1；正式 IDE 入口使用按钮控制台，自动化保留 headless 路径。"""
 
-    from agent_forge.showcase import run_governed_demo
+    from apps.showcase import run_governed_demo
 
     def publish_and_open(result: ControlPlaneShowcaseResult) -> None:
         _publish_latest(result.artifact_dir, scenario="control")
@@ -99,7 +99,7 @@ def run_governed(
             _open_published_evidence_in_workbench("governed")
 
     if interactive:
-        from agent_forge.showcase.console import run_governed_showcase_console
+        from apps.showcase.console import run_governed_showcase_console
 
         run_governed_showcase_console(
             output_root=RUNS_ROOT,
@@ -127,7 +127,7 @@ def run_coordinated() -> None:
     )
     from agent_forge.observability.api import TraceRecorder
     from agent_forge.runtime.config import RuntimeConfig
-    from agent_forge.runtime.execution_environment import ExecutionEnvironment
+    from agent_forge.runtime.adapters.execution_environment import ExecutionEnvironment
     from agent_forge.runtime.wiring import ToolRegistryBuildRequest, build_registry
 
     workspace = create_workspace(

@@ -2,7 +2,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from agent_forge.cli.parser import build_parser
+from apps.cli.parser import build_parser
 from agent_forge.observability.api import TraceRecorder
 from agent_forge.runtime.adapters import (
     JsonHumanInputRepository,
@@ -18,9 +18,9 @@ from agent_forge.runtime.domain.task import (
     TaskRunStatus,
     TaskStartRequest,
 )
-from agent_forge.runtime.llm_client import AgentResponse
+from agent_forge.runtime.adapters.openai_compatible import AgentResponse
 from agent_forge.runtime.wiring import ToolRegistryBuildRequest, build_registry
-from agent_forge.tools.ask_human import AskHumanTool
+from agent_forge.tools.builtins.ask_human import AskHumanTool
 from agent_forge.tools.registry import ToolRegistry
 from tests.support import StaticResponseModel
 

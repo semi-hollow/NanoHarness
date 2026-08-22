@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
-from agent_forge.context.context_builder import (
+from agent_forge.context.application.context_builder import (
     TurnSystemContextBuildPolicy,
     TurnSystemContextBuildReport,
     TurnSystemContextBuildRequest,
     build_turn_system_context,
 )
-from agent_forge.context.repo_map import build_repo_map
+from agent_forge.context.adapters.repository_map import build_repo_map
 from agent_forge.runtime.ports.context import (
     TurnSystemContextAssemblerPort,
     TurnSystemContextRequest,

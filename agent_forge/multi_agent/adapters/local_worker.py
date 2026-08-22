@@ -15,11 +15,11 @@ from agent_forge.observability.adapters.json_trace import TraceRecorder
 from agent_forge.observability.api import write_usage_artifacts
 from agent_forge.runtime.api import build_agent_loop
 from agent_forge.runtime.config import RuntimeConfig
-from agent_forge.runtime.execution_environment import (
+from agent_forge.runtime.adapters.execution_environment import (
     ExecutionEnvironment,
     ExecutionEnvironmentConfig,
 )
-from agent_forge.runtime.git_workspace import (
+from agent_forge.runtime.adapters.git_workspace import (
     collect_changed_files,
     collect_workspace_diff,
 )

@@ -1,6 +1,6 @@
 import unittest
 
-from agent_forge.code_compass import inspect_symbol, render_symbol_card
+from apps.cli.source_inspection import inspect_symbol, render_symbol_card
 
 
 class CodeCompassTest(unittest.TestCase):

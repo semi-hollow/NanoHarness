@@ -14,7 +14,7 @@ from agent_forge.runtime.wiring import (
     build_agent_loop_from_request,
 )
 from agent_forge.runtime.config import RuntimeConfig
-from agent_forge.runtime.llm_client import AgentResponse
+from agent_forge.runtime.adapters.openai_compatible import AgentResponse
 from agent_forge.runtime.domain.conversation import ToolCall
 from agent_forge.runtime.domain.operation import (
     OperationPlan,
@@ -22,8 +22,8 @@ from agent_forge.runtime.domain.operation import (
     OperationTransition,
 )
 from agent_forge.safety.sandbox import WorkspaceSandbox
-from agent_forge.tools.create_file import CreateFileTool
-from agent_forge.tools.replace_text import ReplaceTextTool
+from agent_forge.tools.builtins.create_file import CreateFileTool
+from agent_forge.tools.builtins.replace_text import ReplaceTextTool
 from agent_forge.tools.registry import ToolRegistry
 
 

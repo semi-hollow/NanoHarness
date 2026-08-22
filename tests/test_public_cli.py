@@ -8,8 +8,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from agent_forge.cli.parser import build_parser
-from agent_forge.workbench.presentation.http import (
+from apps.cli.parser import build_parser
+from apps.workbench.presentation.http import (
     INDEX_HTML,
     _TRACE_EVENT_LABELS,
     _TRACE_EVENT_PURPOSES,

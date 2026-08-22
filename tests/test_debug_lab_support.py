@@ -68,18 +68,18 @@ class DebugLabSupportTest(unittest.TestCase):
                 if (scope := ET.parse(path).getroot().find("scope")) is not None
             }
 
-        main_path = str(scopes["00 NanoHarness Review Path"])
-        extended_flows = str(scopes["05 NanoHarness Extended Flows"])
-        production = str(scopes["10 NanoHarness Production Code"])
+        main_path = str(scopes["00 NanoHarness Core Owners"])
+        production = str(scopes["01 NanoHarness All Production"])
+        inbound_apps = str(scopes["20 NanoHarness Inbound Apps"])
         tests = str(scopes["90 NanoHarness Tests"])
         self.assertIn("agent_forge/harness.py", main_path)
         self.assertNotIn("tests", main_path)
-        self.assertIn("multi_agent/application/live_fanout.py", extended_flows)
-        self.assertIn("context/application/compaction.py", extended_flows)
-        self.assertIn("agent_forge/operator_console", extended_flows)
-        self.assertIn("agent_forge/bench", extended_flows)
-        self.assertNotIn("tests", extended_flows)
+        self.assertIn("multi_agent/application/live_fanout.py", main_path)
+        self.assertIn("context/application/compaction.py", main_path)
+        self.assertIn("agent_forge", production)
+        self.assertIn("apps", production)
         self.assertNotIn("tests", production)
+        self.assertEqual(inbound_apps, "file:apps//*")
         self.assertEqual(tests, "file:tests//*")
 
     def test_shared_configs_route_to_one_debug_lab_in_order(self) -> None:

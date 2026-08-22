@@ -5,13 +5,13 @@ from __future__ import annotations
 import hashlib
 import json
 
-from agent_forge.context.domain import LongTermMemoryRecord
+from agent_forge.memory.domain import LongTermMemoryRecord
 from agent_forge.runtime.application.dependencies import RuntimeDependencies
 from agent_forge.runtime.application.run_lifecycle import RunLifecycle, StopRequest
 from agent_forge.runtime.application.session import AgentRunSession
-from agent_forge.runtime.clarification import ClarificationDecision, ClarificationPolicy
+from agent_forge.runtime.application.clarification import ClarificationDecision, ClarificationPolicy
 from agent_forge.runtime.config import RuntimeConfig
-from agent_forge.runtime.control import StepController
+from agent_forge.runtime.application.step_control import StepController
 from agent_forge.runtime.domain.conversation import Message
 from agent_forge.runtime.domain.human_input import HumanInputQuestion
 from agent_forge.runtime.domain.task import (

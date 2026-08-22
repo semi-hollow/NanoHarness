@@ -6,13 +6,13 @@
 工具执行阶段追加 ``Observation``；
 ``TurnSystemContextAssemblerPort`` 只读取 ``recent/summary/long_term`` 视图。
 
-长期记忆的显式 remember/forget 由 ``context.application.memory_service`` 管理，完整会话窗口压缩由
+长期记忆的显式 remember/forget 由 ``memory.application`` 管理，完整会话窗口压缩由
 ``context.application.compaction`` 管理。三者不要混为同一个“Memory”。
 """
 
 from __future__ import annotations
 
-from agent_forge.context.domain import LongTermMemoryRecord
+from agent_forge.memory.domain import LongTermMemoryRecord
 from agent_forge.runtime.domain.conversation import Observation
 
 

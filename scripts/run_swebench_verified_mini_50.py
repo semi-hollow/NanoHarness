@@ -13,7 +13,7 @@ import tempfile
 from pathlib import Path
 from typing import Any, Sequence
 
-from agent_forge.atomic_json import atomic_write_json
+from agent_forge.infrastructure.atomic_json import atomic_write_json
 from agent_forge.bench.adapters.campaign_files import (
     FileCampaignArtifacts,
     GitSourceIdentity,

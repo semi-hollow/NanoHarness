@@ -4,9 +4,9 @@ import unittest
 from pathlib import Path
 
 from agent_forge import Harness, HarnessConfig, RunRequest, TaskRunStatus
-from agent_forge.context.adapters import JsonLongTermMemoryRepository
-from agent_forge.context.application import LongTermMemoryService
-from agent_forge.context.domain import MemoryScope
+from agent_forge.memory.adapters import JsonLongTermMemoryRepository
+from agent_forge.memory.application import LongTermMemoryService
+from agent_forge.memory.domain import MemoryScope
 from agent_forge.runtime.adapters import RepositoryTurnSystemContextAssembler
 from agent_forge.runtime.application.working_memory import WorkingMemory
 from agent_forge.runtime.domain.conversation import AgentResponse, ToolCall

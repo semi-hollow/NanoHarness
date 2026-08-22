@@ -26,7 +26,7 @@ from agent_forge.harness_contracts import (
     RunResult,
 )
 from agent_forge.runtime.domain.task import TaskRunStatus
-from agent_forge.runtime.execution_environment import (
+from agent_forge.runtime.adapters.execution_environment import (
     ExecutionEnvironment,
     ExecutionEnvironmentConfig,
 )

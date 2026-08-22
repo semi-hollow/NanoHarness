@@ -5,7 +5,7 @@ import json
 from pathlib import Path
 from typing import Any
 
-from agent_forge.atomic_json import atomic_write_json
+from agent_forge.infrastructure.atomic_json import atomic_write_json
 from agent_forge.runtime.domain.approval import ApprovalRequest, ApprovalRequestDraft
 from agent_forge.runtime.ports.repositories import ApprovalRepository
 

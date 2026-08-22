@@ -9,9 +9,9 @@ from agent_forge.bench.adapters.case_runtime import LocalCaseExecutor
 from agent_forge.bench.application.swebench import _new_summary
 from agent_forge.bench.domain.config import BenchRunLayout, SwebenchRunRequest
 from agent_forge.bench.presentation.cli import _positive_int
-from agent_forge.cli.parser import build_parser
+from apps.cli.parser import build_parser
 from agent_forge.evaluation.domain.scorecard import build_scorecard
-from agent_forge.runtime.llm_config import LLMConfig
+from agent_forge.runtime.adapters.model_config import LLMConfig
 from agent_forge.runtime.wiring import build_llm
 
 

@@ -1,5 +1,5 @@
-"""Context 能力访问外部状态的端口。"""
+"""Context 能力访问运行期状态的端口。"""
 
-from .memory import LongTermMemoryRecallPort, LongTermMemoryRepository
+from .context_memory import ContextMemory
 
-__all__ = ["LongTermMemoryRecallPort", "LongTermMemoryRepository"]
+__all__ = ["ContextMemory"]

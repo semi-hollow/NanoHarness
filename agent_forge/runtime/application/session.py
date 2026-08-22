@@ -6,7 +6,7 @@ from dataclasses import dataclass, field
 
 from agent_forge.runtime.application.working_memory import WorkingMemory
 from agent_forge.observability.domain.evidence import EvidenceLedger
-from agent_forge.runtime.control import StepController
+from agent_forge.runtime.application.step_control import StepController
 from agent_forge.runtime.domain.conversation import Message, Observation
 from agent_forge.runtime.application.run_lifecycle import RunLifecycle
 from agent_forge.runtime.ports.skills import SkillView

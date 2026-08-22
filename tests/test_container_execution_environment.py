@@ -5,7 +5,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from agent_forge.runtime.execution_environment import (
+from agent_forge.runtime.adapters.execution_environment import (
     ExecutionEnvironment,
     ExecutionEnvironmentConfig,
 )

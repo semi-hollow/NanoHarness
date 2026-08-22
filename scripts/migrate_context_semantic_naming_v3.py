@@ -17,7 +17,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Iterable
 
-from agent_forge.workbench.adapters.evidence_files import FileEvidenceCatalog
+from apps.workbench.adapters.evidence_files import FileEvidenceCatalog
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]

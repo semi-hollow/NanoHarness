@@ -2,7 +2,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from agent_forge.context.repo_map import build_repo_map
+from agent_forge.context.adapters.repository_map import build_repo_map
 from agent_forge.runtime.application.working_memory import WorkingMemory
 from agent_forge.runtime.adapters.context_assembler import (
     RepositoryTurnSystemContextAssembler,

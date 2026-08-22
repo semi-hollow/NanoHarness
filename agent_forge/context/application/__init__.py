@@ -6,12 +6,10 @@ from .compaction import (
     PromptWindowResult,
     PromptBudget,
 )
-from .memory_service import LongTermMemoryService
 
 __all__ = [
     "PromptWindowManager",
     "PromptWindowRequest",
     "PromptWindowResult",
-    "LongTermMemoryService",
     "PromptBudget",
 ]

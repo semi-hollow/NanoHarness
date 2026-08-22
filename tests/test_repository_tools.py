@@ -3,8 +3,8 @@ import unittest
 from pathlib import Path
 
 from agent_forge.safety.sandbox import WorkspaceSandbox
-from agent_forge.tools.grep import GrepSearchTool
-from agent_forge.tools.list_files import ListFilesTool
+from agent_forge.tools.builtins.grep_search import GrepSearchTool
+from agent_forge.tools.builtins.list_files import ListFilesTool
 
 
 class RepositoryDiscoveryToolsTest(unittest.TestCase):

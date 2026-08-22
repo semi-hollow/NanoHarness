@@ -6,7 +6,7 @@ from agent_forge.observability.api import TraceRecorder
 from agent_forge.runtime.adapters import JsonTaskStateRepository
 from agent_forge.runtime.api import build_agent_loop
 from agent_forge.runtime.config import RuntimeConfig
-from agent_forge.runtime.llm_client import AgentResponse
+from agent_forge.runtime.adapters.openai_compatible import AgentResponse
 from agent_forge.runtime.domain.conversation import ToolCall
 from agent_forge.runtime.domain.task import (
     TaskCheckpointUpdate,
@@ -14,7 +14,7 @@ from agent_forge.runtime.domain.task import (
     TaskStartRequest,
 )
 from agent_forge.safety.sandbox import WorkspaceSandbox
-from agent_forge.tools.read_file import ReadFileTool
+from agent_forge.tools.builtins.read_file import ReadFileTool
 from agent_forge.tools.registry import ToolRegistry
 from tests.support import StaticResponseModel
 

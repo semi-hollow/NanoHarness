@@ -37,21 +37,21 @@ fi
 
 export AGENT_FORGE_WEB_PROVIDER="${AGENT_FORGE_WEB_PROVIDER:-offline}"
 
-"${PYTHON_BIN}" -m agent_forge.mcp.builtin_server --workspace . --list-tools >/tmp/agent_forge_mcp_tools.json
+"${PYTHON_BIN}" -m apps.mcp_server.builtin_server --workspace . --list-tools >/tmp/agent_forge_mcp_tools.json
 
 "${PYTHON_BIN}" - <<'PY'
 import json
 import sys
 
 from agent_forge.safety.sandbox import WorkspaceSandbox
-from agent_forge.tools.mcp_config import MCPConfigLoader
-from agent_forge.tools.mcp_stdio import MCPStdioClient, MCPStdioServerSpec
+from agent_forge.tools.mcp.config import MCPConfigLoader
+from agent_forge.tools.mcp.stdio import MCPStdioClient, MCPStdioServerSpec
 from agent_forge.tools.registry import ToolRegistry
 
 spec = MCPStdioServerSpec(
     name="forge",
     command=sys.executable,
-    args=["-m", "agent_forge.mcp.builtin_server", "--workspace", "."],
+    args=["-m", "apps.mcp_server.builtin_server", "--workspace", "."],
     cwd=".",
     env={"AGENT_FORGE_WEB_PROVIDER": "offline"},
 )

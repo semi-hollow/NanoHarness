@@ -1,9 +1,9 @@
 import unittest
 
-from agent_forge.models.gateway import ModelGateway, RetryPolicy
+from agent_forge.runtime.adapters.model_gateway import ModelGateway, RetryPolicy
 from agent_forge.observability.domain.usage import build_usage_report
 from agent_forge.runtime.domain.conversation import AgentResponse, Message
-from agent_forge.runtime.llm_client import OpenAICompatibleLLMClient
+from agent_forge.runtime.adapters.openai_compatible import OpenAICompatibleLLMClient
 from tests.support import SequenceModel
 
 

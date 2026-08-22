@@ -6,7 +6,7 @@ import uuid
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Mapping, TextIO
 
-from agent_forge.atomic_json import atomic_write_json
+from agent_forge.infrastructure.atomic_json import atomic_write_json
 from agent_forge.observability.domain.event import TraceEvent, TraceEventType, TraceRecord
 from agent_forge.observability.domain.metrics import summarize
 from agent_forge.observability.presentation.trace_summary import render_trace_summary

@@ -8,7 +8,7 @@ from typing import Any
 
 from agent_forge.contracts import JsonObject, ToolArguments
 from agent_forge.runtime.application.session import AgentRunSession
-from agent_forge.runtime.control import FailureSignal
+from agent_forge.runtime.application.step_control import FailureSignal
 from agent_forge.runtime.domain.conversation import Message, Observation, ToolCall
 from agent_forge.runtime.ports import EventSink
 

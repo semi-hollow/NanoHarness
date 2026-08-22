@@ -5,8 +5,8 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from agent_forge.cli.parser import build_parser
-from agent_forge.cli.repository import run_repository_task
+from apps.cli.parser import build_parser
+from apps.repository_run import run_repository_task
 from agent_forge.multi_agent.adapters.local_worker import _decision, _finalizer_task
 from agent_forge.multi_agent.domain.live import FanoutPlan, LiveSubagentResult
 from agent_forge.multi_agent.wiring import LiveFanoutBuildRequest, build_live_fanout
@@ -14,8 +14,8 @@ from agent_forge.observability.api import TraceRecorder
 from agent_forge.runtime.adapters import JsonHumanInputRepository
 from agent_forge.runtime.config import RuntimeConfig
 from agent_forge.runtime.domain.conversation import ToolCall
-from agent_forge.runtime.execution_environment import ExecutionEnvironment
-from agent_forge.runtime.llm_client import AgentResponse
+from agent_forge.runtime.adapters.execution_environment import ExecutionEnvironment
+from agent_forge.runtime.adapters.openai_compatible import AgentResponse
 from agent_forge.runtime.wiring import ToolRegistryBuildRequest, build_registry
 from agent_forge.safety.guardrails import input_guardrail
 
@@ -933,7 +933,7 @@ class LiveFanoutTest(unittest.TestCase):
             )
 
             with patch(
-                "agent_forge.cli.repository.build_llm",
+                "apps.repository_run.build_llm",
                 side_effect=lambda _config: EditingLLM(),
             ):
                 run_dir = run_repository_task(args)

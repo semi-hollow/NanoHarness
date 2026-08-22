@@ -7,22 +7,22 @@ from pathlib import Path
 from unittest.mock import patch
 
 from agent_forge.control import RunController
-from agent_forge.cli.parser import build_parser
+from apps.cli.parser import build_parser
 from agent_forge.harness import Harness, HarnessConfig, HarnessExtensions, RunRequest
 from agent_forge.observability.adapters.streaming import EventStreamPolicy
-from agent_forge.operator_console.adapters import JsonTaskSessionCatalog
-from agent_forge.operator_console.application import TaskSessionLibrary
-from agent_forge.operator_console.events import (
+from apps.operator_console.adapters import JsonTaskSessionCatalog
+from apps.operator_console.application import TaskSessionLibrary
+from apps.operator_console.events import (
     RuntimeEventBuffer,
     render_event,
     should_render_event,
 )
-from agent_forge.operator_console.session import OperatorSession
+from apps.operator_console.session import OperatorSession
 from agent_forge.runtime.adapters.approval_json import JsonApprovalRepository
 from agent_forge.runtime.adapters.human_input_json import JsonHumanInputRepository
 from agent_forge.runtime.domain.conversation import ToolCall
 from agent_forge.runtime.domain.task import TaskRunStatus
-from agent_forge.runtime.llm_client import AgentResponse
+from agent_forge.runtime.adapters.openai_compatible import AgentResponse
 
 
 class AskThenFinishModel:
@@ -484,7 +484,7 @@ class OperatorConsoleTest(unittest.TestCase):
         )
 
     def test_textual_console_mounts_with_primary_controls(self):
-        from agent_forge.operator_console.app import OperatorConsoleApp
+        from apps.operator_console.app import OperatorConsoleApp
         from textual.containers import VerticalScroll
         from textual.widgets import Button, RichLog, Select, TextArea
 
@@ -515,8 +515,8 @@ class OperatorConsoleTest(unittest.TestCase):
         asyncio.run(exercise())
 
     def test_approval_prompt_separates_complete_old_and_new_content(self):
-        from agent_forge.operator_console.app import OperatorConsoleApp
-        from agent_forge.operator_console.session import OperatorPrompt
+        from apps.operator_console.app import OperatorConsoleApp
+        from apps.operator_console.session import OperatorPrompt
 
         prompt = OperatorPrompt(
             kind="approval",
@@ -546,7 +546,7 @@ class OperatorConsoleTest(unittest.TestCase):
         self.assertIn("Operation Key：operation-1", rendered)
 
     def test_textual_session_picker_renames_pins_and_archives_without_deleting_runs(self):
-        from agent_forge.operator_console.app import OperatorConsoleApp
+        from apps.operator_console.app import OperatorConsoleApp
         from textual.widgets import Input, Select, Static
 
         async def exercise(root: Path) -> None:
@@ -586,8 +586,8 @@ class OperatorConsoleTest(unittest.TestCase):
             asyncio.run(exercise(Path(tmp)))
 
     def test_textual_console_drives_real_hitl_continuation(self):
-        from agent_forge.operator_console.api import OperatorSessionBundle
-        from agent_forge.operator_console.app import OperatorConsoleApp
+        from apps.operator_console.api import OperatorSessionBundle
+        from apps.operator_console.app import OperatorConsoleApp
         from textual.containers import Vertical, VerticalScroll
         from textual.widgets import Input, Static
 
@@ -606,7 +606,7 @@ class OperatorConsoleTest(unittest.TestCase):
                 ["console", "exercise HITL", "--workspace", str(root)]
             )
             with patch(
-                "agent_forge.operator_console.app.build_operator_session",
+                "apps.operator_console.app.build_operator_session",
                 return_value=bundle,
             ):
                 app = OperatorConsoleApp(args)

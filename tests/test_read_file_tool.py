@@ -3,7 +3,7 @@ import unittest
 from pathlib import Path
 
 from agent_forge.safety.sandbox import WorkspaceSandbox
-from agent_forge.tools.read_file import MAX_CONTENT_CHARS, ReadFileTool
+from agent_forge.tools.builtins.read_file import MAX_CONTENT_CHARS, ReadFileTool
 
 
 class ReadFileToolTest(unittest.TestCase):

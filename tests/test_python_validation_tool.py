@@ -5,7 +5,7 @@ import os
 from pathlib import Path
 
 from agent_forge.safety.sandbox import WorkspaceSandbox
-from agent_forge.tools.python_validation import PythonValidationTool
+from agent_forge.tools.builtins.python_validation import PythonValidationTool
 
 
 class PythonValidationToolTest(unittest.TestCase):

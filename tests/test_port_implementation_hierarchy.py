@@ -21,9 +21,9 @@ from agent_forge.bench.ports import (
     OfficialEvaluatorPort,
     SourceIdentityPort,
 )
-from agent_forge.context.adapters.memory_json import JsonLongTermMemoryRepository
-from agent_forge.context.application.memory_service import LongTermMemoryService
-from agent_forge.context.ports import (
+from agent_forge.memory.adapters.json_repository import JsonLongTermMemoryRepository
+from agent_forge.memory.application.service import LongTermMemoryService
+from agent_forge.memory.ports import (
     LongTermMemoryRecallPort,
     LongTermMemoryRepository,
 )
@@ -34,7 +34,7 @@ from agent_forge.evaluation.adapters.json_files import (
 from agent_forge.evaluation.ports import (
     CaseEvidenceReader as EvaluationCaseEvidenceReader,
 )
-from agent_forge.models.gateway import ModelGateway
+from agent_forge.runtime.adapters.model_gateway import ModelGateway
 from agent_forge.multi_agent.adapters.artifact_files import FileArtifactRepository
 from agent_forge.multi_agent.adapters.fanout_files import FanoutFileRepository
 from agent_forge.multi_agent.adapters.git_workspace import GitFanoutWorkspace
@@ -55,11 +55,11 @@ from agent_forge.observability.adapters.json_trace import JsonTraceRecorder
 from agent_forge.observability.adapters.otel import OpenTelemetryEventListener
 from agent_forge.observability.adapters.streaming import StreamingEventSink
 from agent_forge.observability.ports.events import RuntimeEventListener
-from agent_forge.operator_console.adapters.session_catalog_json import (
+from apps.operator_console.adapters.session_catalog_json import (
     JsonTaskSessionCatalog,
 )
-from agent_forge.operator_console.events import RuntimeEventBuffer
-from agent_forge.operator_console.ports.session_catalog import TaskSessionCatalogPort
+from apps.operator_console.events import RuntimeEventBuffer
+from apps.operator_console.ports.session_catalog import TaskSessionCatalogPort
 from agent_forge.runtime.adapters.approval_json import JsonApprovalRepository
 from agent_forge.runtime.adapters.context_assembler import (
     RepositoryTurnSystemContextAssembler,
@@ -70,9 +70,9 @@ from agent_forge.runtime.adapters.operation_ledger_json import (
 )
 from agent_forge.runtime.adapters.run_control_noop import NoopRunControl
 from agent_forge.runtime.adapters.task_state_json import JsonTaskStateRepository
-from agent_forge.runtime.execution_environment import ExecutionEnvironment
-from agent_forge.runtime.hooks import HookManager
-from agent_forge.runtime.llm_client import LLMClient
+from agent_forge.runtime.adapters.execution_environment import ExecutionEnvironment
+from agent_forge.runtime.adapters.hook_manager import HookManager
+from agent_forge.runtime.adapters.openai_compatible import LLMClient
 from agent_forge.runtime.ports import (
     ApprovalRepository,
     TurnSystemContextAssemblerPort,
@@ -89,9 +89,9 @@ from agent_forge.runtime.ports import (
 )
 from agent_forge.skills.registry import SkillRegistry
 from agent_forge.tools.registry import ToolRegistry
-from agent_forge.workbench.adapters.evidence_files import FileEvidenceCatalog
-from agent_forge.workbench.adapters.experiment_files import FileExperimentCatalog
-from agent_forge.workbench.ports import EvidenceCatalogPort, ExperimentCatalogPort
+from apps.workbench.adapters.evidence_files import FileEvidenceCatalog
+from apps.workbench.adapters.experiment_files import FileExperimentCatalog
+from apps.workbench.ports import EvidenceCatalogPort, ExperimentCatalogPort
 
 
 FORMAL_IMPLEMENTATIONS = (

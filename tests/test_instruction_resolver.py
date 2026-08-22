@@ -2,7 +2,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from agent_forge.context.instructions import (
+from agent_forge.context.application.instructions import (
     InstructionResolutionRequest,
     resolve_instructions,
 )

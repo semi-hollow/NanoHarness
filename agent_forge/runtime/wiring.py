@@ -8,11 +8,11 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
-from agent_forge.context.adapters import JsonLongTermMemoryRepository
-from agent_forge.context.application import LongTermMemoryService
-from agent_forge.context.ports import LongTermMemoryRecallPort
+from agent_forge.memory.adapters import JsonLongTermMemoryRepository
+from agent_forge.memory.application import LongTermMemoryService
+from agent_forge.memory.ports import LongTermMemoryRecallPort
 from agent_forge.contracts import DEFAULT_TOOL_EXECUTION_TIMEOUT_SECONDS
-from agent_forge.models.gateway import ModelGateway, RetryPolicy
+from agent_forge.runtime.adapters.model_gateway import ModelGateway, RetryPolicy
 from agent_forge.hooks import RuntimeHook
 from agent_forge.runtime.adapters import (
     JsonApprovalRepository,
@@ -34,11 +34,11 @@ from agent_forge.runtime.application.operator_control import (
 from agent_forge.runtime.domain.approval import ApprovalRequest
 from agent_forge.runtime.domain.human_input import HumanInputRequest
 from agent_forge.runtime.domain.task import TaskCheckpoint
-from agent_forge.runtime.execution_environment import ExecutionEnvironment
-from agent_forge.runtime.execution_environment import ExecutionEnvironmentConfig
-from agent_forge.runtime.hooks import HookManager
-from agent_forge.runtime.llm_client import OpenAICompatibleLLMClient
-from agent_forge.runtime.llm_config import LLMConfig
+from agent_forge.runtime.adapters.execution_environment import ExecutionEnvironment
+from agent_forge.runtime.adapters.execution_environment import ExecutionEnvironmentConfig
+from agent_forge.runtime.adapters.hook_manager import HookManager
+from agent_forge.runtime.adapters.openai_compatible import OpenAICompatibleLLMClient
+from agent_forge.runtime.adapters.model_config import LLMConfig
 from agent_forge.runtime.ports import (
     ApprovalRepository,
     TurnSystemContextAssemblerPort,
@@ -55,21 +55,21 @@ from agent_forge.runtime.ports import (
 )
 from agent_forge.safety.sandbox import WorkspaceSandbox
 from agent_forge.skills import build_default_skill_registry
-from agent_forge.tools.create_file import CreateFileTool
-from agent_forge.tools.replace_text import ReplaceTextTool
-from agent_forge.tools.ask_human import AskHumanTool
-from agent_forge.tools.python_validation import PythonValidationTool
-from agent_forge.tools.git_diff import GitDiffTool
-from agent_forge.tools.git_status import GitStatusTool
-from agent_forge.tools.grep import GrepSearchTool
-from agent_forge.tools.list_files import ListFilesTool
-from agent_forge.tools.mcp_config import MCPConfigLoader
-from agent_forge.tools.read_file import ReadFileTool
-from agent_forge.tools.remember_memory import RememberMemoryTool
+from agent_forge.tools.builtins.create_file import CreateFileTool
+from agent_forge.tools.builtins.replace_text import ReplaceTextTool
+from agent_forge.tools.builtins.ask_human import AskHumanTool
+from agent_forge.tools.builtins.python_validation import PythonValidationTool
+from agent_forge.tools.builtins.git_diff import GitDiffTool
+from agent_forge.tools.builtins.git_status import GitStatusTool
+from agent_forge.tools.builtins.grep_search import GrepSearchTool
+from agent_forge.tools.builtins.list_files import ListFilesTool
+from agent_forge.tools.mcp.config import MCPConfigLoader
+from agent_forge.tools.builtins.read_file import ReadFileTool
+from agent_forge.tools.builtins.remember_memory import RememberMemoryTool
 from agent_forge.tools.registry import ToolRegistry
-from agent_forge.tools.run_command import RunCommandTool
-from agent_forge.tools.write_file import WriteFileTool
-from agent_forge.storage_layout import MEMORY_ROOT
+from agent_forge.tools.builtins.run_command import RunCommandTool
+from agent_forge.tools.builtins.write_file import WriteFileTool
+from agent_forge.infrastructure.storage_layout import MEMORY_ROOT
 
 
 # 核心数据：装配受治理工具注册表所需的完整输入。

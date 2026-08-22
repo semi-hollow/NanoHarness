@@ -10,7 +10,7 @@ from agent_forge.multi_agent.wiring import (
 )
 from agent_forge.observability.api import TraceRecorder
 from agent_forge.runtime.config import RuntimeConfig
-from agent_forge.runtime.llm_client import AgentResponse
+from agent_forge.runtime.adapters.openai_compatible import AgentResponse
 from agent_forge.tools.registry import ToolRegistry
 
 

@@ -12,7 +12,7 @@ from dataclasses import replace
 from pathlib import Path
 from typing import Any, Sequence
 
-from agent_forge.atomic_json import atomic_write_json
+from agent_forge.infrastructure.atomic_json import atomic_write_json
 from agent_forge.bench.api import run_benchmark_campaign
 from agent_forge.bench.domain.campaign import BenchmarkCampaignRequest, CampaignState
 
