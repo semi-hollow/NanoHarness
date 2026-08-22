@@ -11,7 +11,7 @@ from agent_forge.bench.domain.models import BenchCaseResult, BenchRunSummary
 from agent_forge.bench.ports.benchmark import BenchArtifactPort
 from agent_forge.bench.presentation.case_study import write_case_study
 from agent_forge.bench.presentation.report import write_bench_artifacts
-from agent_forge.storage_layout import INDEX_ROOT
+from agent_forge.infrastructure.storage_layout import INDEX_ROOT
 
 
 class FileBenchArtifacts(BenchArtifactPort):

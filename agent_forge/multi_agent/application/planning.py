@@ -7,11 +7,11 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable
 
-from agent_forge.atomic_json import atomic_write_json
-from agent_forge.context.repo_map import build_repo_map
+from agent_forge.infrastructure.atomic_json import atomic_write_json
+from agent_forge.context.adapters.repository_map import build_repo_map
 from agent_forge.runtime.domain.conversation import Message
 from agent_forge.runtime.ports.model import ModelPort
-from agent_forge.runtime.structured_output import StructuredOutputParser
+from agent_forge.runtime.domain.structured_output import StructuredOutputParser
 
 from ..domain.live import FanoutPlan, LiveSubagentResult, WorkerHandoff
 from ..domain.planning import PlanningDecision

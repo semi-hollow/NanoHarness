@@ -4,8 +4,8 @@ import unittest
 from pathlib import Path
 
 from agent_forge.observability.api import write_run_manifest
-from agent_forge.operator_console.adapters import JsonTaskSessionCatalog
-from agent_forge.operator_console.application import TaskSessionLibrary
+from apps.operator_console.adapters import JsonTaskSessionCatalog
+from apps.operator_console.application import TaskSessionLibrary
 from agent_forge.runtime.domain.task import TaskCheckpoint, TaskRunStatus
 
 

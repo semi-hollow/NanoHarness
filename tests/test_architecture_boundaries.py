@@ -9,12 +9,13 @@ from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).parents[1]
 PACKAGE_ROOT = PROJECT_ROOT / "agent_forge"
+APPS_ROOT = PROJECT_ROOT / "apps"
 RUNTIME_ROOT = PACKAGE_ROOT / "runtime"
 EVALUATION_ROOT = PACKAGE_ROOT / "evaluation"
 BENCH_ROOT = PACKAGE_ROOT / "bench"
 OBSERVABILITY_ROOT = PACKAGE_ROOT / "observability"
-WORKBENCH_ROOT = PACKAGE_ROOT / "workbench"
-CLI_ROOT = PACKAGE_ROOT / "cli"
+WORKBENCH_ROOT = APPS_ROOT / "workbench"
+CLI_ROOT = APPS_ROOT / "cli"
 
 
 def _absolute_imports(path: Path) -> list[tuple[int, str]]:
@@ -31,16 +32,34 @@ def _absolute_imports(path: Path) -> list[tuple[int, str]]:
 class ArchitectureBoundaryTest(unittest.TestCase):
     def test_production_package_never_imports_test_support(self) -> None:
         violations: list[str] = []
+        for production_root in (PACKAGE_ROOT, APPS_ROOT):
+            for path in sorted(production_root.rglob("*.py")):
+                for line, imported in _absolute_imports(path):
+                    if imported == "tests" or imported.startswith("tests."):
+                        violations.append(
+                            f"{path.relative_to(PROJECT_ROOT)}:{line} -> {imported}"
+                        )
+        self.assertEqual(
+            violations,
+            [],
+            "Production code must not depend on tests/support or test fixtures",
+        )
+
+    def test_core_never_imports_inbound_apps_except_executable_bootstrap(self) -> None:
+        violations: list[str] = []
+        bootstrap = PACKAGE_ROOT / "__main__.py"
         for path in sorted(PACKAGE_ROOT.rglob("*.py")):
+            if path == bootstrap:
+                continue
             for line, imported in _absolute_imports(path):
-                if imported == "tests" or imported.startswith("tests."):
+                if imported == "apps" or imported.startswith("apps."):
                     violations.append(
                         f"{path.relative_to(PROJECT_ROOT)}:{line} -> {imported}"
                     )
         self.assertEqual(
             violations,
             [],
-            "Production code must not depend on tests/support or test fixtures",
+            "Reusable Core must not depend on inbound applications",
         )
 
     def test_runtime_domain_has_no_outward_dependencies(self) -> None:
@@ -61,7 +80,7 @@ class ArchitectureBoundaryTest(unittest.TestCase):
     def test_runtime_ports_depend_only_on_contracts_and_domain(self) -> None:
         allowed = (
             "agent_forge.contracts",
-            "agent_forge.context.contracts",
+            "agent_forge.context.ports.context_memory",
             "agent_forge.runtime.domain",
             "agent_forge.observability.event",
             "agent_forge.observability.domain.event",
@@ -88,10 +107,10 @@ class ArchitectureBoundaryTest(unittest.TestCase):
             "agent_forge.runtime.human_input",
             "agent_forge.runtime.operation_ledger",
             "agent_forge.runtime.task_state",
-            "agent_forge.runtime.execution_environment",
+            "agent_forge.runtime.adapters.execution_environment",
             "agent_forge.runtime.wiring",
-            "agent_forge.context.context_builder",
-            "agent_forge.context.repo_map",
+            "agent_forge.context.application.context_builder",
+            "agent_forge.context.adapters.repository_map",
             "agent_forge.skills",
             "agent_forge.observability.trace",
             "agent_forge.tools.registry",
@@ -107,25 +126,33 @@ class ArchitectureBoundaryTest(unittest.TestCase):
             violations, [], "Runtime Application must depend on Ports, not adapters"
         )
 
-    def test_only_runtime_composition_imports_runtime_adapters(self) -> None:
-        allowed = {
-            Path("agent_forge/runtime/wiring.py"),
-            Path("agent_forge/runtime/adapters/__init__.py"),
-        }
+    def test_core_layers_do_not_import_runtime_adapters(self) -> None:
         violations: list[str] = []
         for path in sorted(PACKAGE_ROOT.rglob("*.py")):
             relative = path.relative_to(PROJECT_ROOT)
-            if relative in allowed or "runtime/adapters" in relative.as_posix():
+            layer_parts = set(path.relative_to(PACKAGE_ROOT).parts[:-1])
+            if not layer_parts.intersection({"application", "domain", "ports"}):
                 continue
             for line, imported in _absolute_imports(path):
                 if imported.startswith("agent_forge.runtime.adapters"):
                     violations.append(f"{relative}:{line} -> {imported}")
         self.assertEqual(
-            violations, [], "Concrete adapters must be assembled in runtime.wiring"
+            violations, [], "Application, Domain and Ports must not use Runtime adapters"
         )
 
     def test_removed_compatibility_facades_do_not_return(self) -> None:
         removed = [
+            "agent_forge/cli",
+            "agent_forge/mcp",
+            "agent_forge/models",
+            "agent_forge/operator_console",
+            "agent_forge/showcase",
+            "agent_forge/workbench",
+            "agent_forge/atomic_json.py",
+            "agent_forge/code_compass.py",
+            "agent_forge/configuration.py",
+            "agent_forge/forge_cli.py",
+            "agent_forge/storage_layout.py",
             "agent_forge/ui.py",
             "agent_forge/runtime/agent_loop.py",
             "agent_forge/runtime/approval.py",
@@ -144,6 +171,15 @@ class ArchitectureBoundaryTest(unittest.TestCase):
         ]
         present = [path for path in removed if (PROJECT_ROOT / path).exists()]
         self.assertEqual(present, [], "旧兼容入口会让正式调用路径重新变得含糊")
+
+    def test_top_level_apps_are_in_the_installable_package(self) -> None:
+        pyproject = (PROJECT_ROOT / "pyproject.toml").read_text(encoding="utf-8")
+        for contract in (
+            'forge = "apps.cli.dispatch:main"',
+            'files = ["agent_forge", "apps"]',
+            'include = ["agent_forge*", "apps*"]',
+        ):
+            self.assertIn(contract, pyproject)
 
     def test_runtime_public_api_and_layers_exist(self) -> None:
         expected = [
@@ -182,7 +218,7 @@ class ArchitectureBoundaryTest(unittest.TestCase):
             "agent_forge.multi_agent.adapters",
             "agent_forge.multi_agent.wiring",
             "agent_forge.observability.trace",
-            "agent_forge.runtime.execution_environment",
+            "agent_forge.runtime.adapters.execution_environment",
             "agent_forge.runtime.api",
             "agent_forge.tools.registry",
         )
@@ -383,7 +419,7 @@ class ArchitectureBoundaryTest(unittest.TestCase):
         for path in sorted((WORKBENCH_ROOT / "domain").glob("*.py")):
             for line, imported in _absolute_imports(path):
                 if imported.startswith("agent_forge") and not imported.startswith(
-                    "agent_forge.workbench.domain"
+                    "apps.workbench.domain"
                 ):
                     violations.append(
                         f"{path.relative_to(PROJECT_ROOT)}:{line} -> {imported}"
@@ -397,7 +433,7 @@ class ArchitectureBoundaryTest(unittest.TestCase):
         for layer in ("application", "presentation"):
             for path in sorted((WORKBENCH_ROOT / layer).glob("*.py")):
                 for line, imported in _absolute_imports(path):
-                    if imported.startswith("agent_forge.workbench.adapters"):
+                    if imported.startswith("apps.workbench.adapters"):
                         violations.append(
                             f"{path.relative_to(PROJECT_ROOT)}:{line} -> {imported}"
                         )
@@ -414,7 +450,7 @@ class ArchitectureBoundaryTest(unittest.TestCase):
             "agent_forge.evaluation.adapters",
             "agent_forge.bench.adapters",
             "agent_forge.observability.adapters",
-            "agent_forge.workbench.adapters",
+            "apps.workbench.adapters",
         )
         violations: list[str] = []
         for path in sorted(CLI_ROOT.glob("*.py")):
@@ -430,14 +466,22 @@ class ArchitectureBoundaryTest(unittest.TestCase):
         )
 
     def test_single_agent_cli_delegates_to_harness_facade(self) -> None:
-        repository_path = CLI_ROOT / "repository.py"
+        repository_path = APPS_ROOT / "repository_run.py"
         tree = ast.parse(repository_path.read_text(encoding="utf-8"))
         functions = {
             node.name: node for node in tree.body if isinstance(node, ast.FunctionDef)
         }
         dispatcher = functions["run_repository_task"]
         single_run = functions["execute_single_repository_task"]
-        harness_builder = functions["build_single_harness"]
+        composition_tree = ast.parse(
+            (APPS_ROOT / "run_composition.py").read_text(encoding="utf-8")
+        )
+        composition_functions = {
+            node.name: node
+            for node in composition_tree.body
+            if isinstance(node, ast.FunctionDef)
+        }
+        harness_builder = composition_functions["build_single_harness"]
 
         dispatcher_calls = {
             node.func.id

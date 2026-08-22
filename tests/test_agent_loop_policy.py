@@ -6,14 +6,14 @@ from types import SimpleNamespace
 from agent_forge.runtime.api import build_agent_loop
 from agent_forge.runtime.application.tool_feedback import ToolFeedback
 from agent_forge.runtime.config import RuntimeConfig
-from agent_forge.runtime.control import ExecutionBudget, FailureKind, StepController
-from agent_forge.runtime.llm_client import AgentResponse
+from agent_forge.runtime.application.step_control import ExecutionBudget, FailureKind, StepController
+from agent_forge.runtime.adapters.openai_compatible import AgentResponse
 from agent_forge.runtime.domain.conversation import Observation, ToolCall
 from agent_forge.observability.api import TraceRecorder
 from agent_forge.observability.domain.usage import build_usage_report
 from agent_forge.safety.sandbox import WorkspaceSandbox
-from agent_forge.tools.replace_text import ReplaceTextTool
-from agent_forge.tools.read_file import ReadFileTool
+from agent_forge.tools.builtins.replace_text import ReplaceTextTool
+from agent_forge.tools.builtins.read_file import ReadFileTool
 from agent_forge.tools.registry import ToolRegistry
 from tests.support import StaticResponseModel
 

@@ -7,11 +7,11 @@ from pathlib import Path
 
 from agent_forge.multi_agent.adapters.local_worker import LocalAgentWorkerAdapter
 from agent_forge.multi_agent.application.live_fanout import LiveFanoutCoordinator
-from agent_forge.workbench.adapters.evidence_files import FileEvidenceCatalog
-from agent_forge.workbench.application.context_inspection import (
+from apps.workbench.adapters.evidence_files import FileEvidenceCatalog
+from apps.workbench.application.context_inspection import (
     build_context_turn_inspections,
 )
-from agent_forge.workbench.presentation.http import (
+from apps.workbench.presentation.http import (
     INDEX_HTML,
     WORKBENCH_READ_ONLY_MESSAGE,
     _canonical_score_is_publishable,

@@ -17,7 +17,7 @@ from pathlib import Path
 
 from agent_forge.contracts import ToolSchema
 from agent_forge.runtime.domain.conversation import AgentResponse, Message, ToolCall
-from agent_forge.storage_layout import INDEX_ROOT
+from agent_forge.infrastructure.storage_layout import INDEX_ROOT
 
 
 class DeterministicRepairModel:

@@ -9,7 +9,7 @@ import time
 import uuid
 from pathlib import Path
 
-from agent_forge.atomic_json import atomic_write_json
+from agent_forge.infrastructure.atomic_json import atomic_write_json
 from agent_forge.multi_agent.adapters.fanout_files import FanoutFileRepository
 from agent_forge.multi_agent.application.dependencies import LiveFanoutDependencies
 from agent_forge.multi_agent.application.live_fanout import LiveFanoutCoordinator

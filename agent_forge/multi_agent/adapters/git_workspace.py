@@ -5,7 +5,7 @@ from __future__ import annotations
 import subprocess
 from pathlib import Path
 
-from agent_forge.runtime.git_workspace import (
+from agent_forge.runtime.adapters.git_workspace import (
     collect_workspace_diff,
     collect_workspace_status,
 )

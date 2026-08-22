@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Callable
 
 from agent_forge.runtime.config import RuntimeConfig
-from agent_forge.runtime.execution_environment import ExecutionEnvironment
+from agent_forge.runtime.adapters.execution_environment import ExecutionEnvironment
 from agent_forge.runtime.ports.model import ModelPort
 from agent_forge.tools.registry import ToolRegistry
 

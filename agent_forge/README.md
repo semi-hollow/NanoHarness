@@ -1,81 +1,60 @@
-# `agent_forge` 包内导航
+# `agent_forge` Core 导航
 
-本文件只帮助从 package 目录定位代码。项目定位和公开命令见根目录 `README.md`，
-系统主链见 `docs/架构导览.md`，首个代码 Owner 见 `docs/核心能力与代码入口.md`；
-机制语义由上下文、工具治理和持久化三份 owner 文档分别维护。
-
-## 唯一 Single-Run 入口
+`agent_forge/` 是可复用 Core，不包含 CLI、Operator Console、Showcase、Workbench 或 MCP Server。
+这些入站应用统一位于顶层 `apps/`，依赖方向只能是：
 
 ```text
-__main__.py / forge_cli.py
--> cli/parser.py                 参数契约
--> cli/dispatch.py               薄命令分发
--> cli/repository.py             类型化配置与 Adapter 选择
--> harness.py::Harness.run       唯一 Single-Run Public API
--> runtime/wiring.py
--> runtime/application/agent_loop.py
--> RunResult + RunManifest / RunStory
+apps
+  ↓
+agent_forge public/capability API
 ```
 
-Single mode 中，`cli/repository.py` 不拥有第二套 trace、environment、AgentLoop、patch 或 cleanup。
-Multi/Fanout 保留为 Advanced coordinator，不属于这条黄金主链。
+`agent_forge/__main__.py` 仅为保留 `python -m agent_forge` 的 executable bootstrap 例外。
 
-## Single-Run 核心入口
-
-1. `harness.py::Harness.run`：一次 Run 从哪里进入和返回。
-2. `runtime/application/agent_loop.py::AgentLoop.run`：模型循环怎样推进和停止。
-3. `runtime/application/turn_preparation.py::TurnPreparation.prepare_turn`：模型本轮看到什么。
-4. `runtime/application/tool_execution.py::ToolExecutionPipeline.execute_calls`：ToolCall 怎样被治理和执行。
-5. `runtime/application/run_lifecycle.py::RunLifecycle.finalize_run`：等待、恢复和终态怎样落盘。
-
-CLI parser、Adapter 序列化、Memory、MCP、Skills、Multi/Fanout、Campaign 和 UI 属于扩展实现，
-不在 Single-Run 核心路径内。具体机制可按下面四层定位，无需沿 import 关系遍历全部源码。
-
-## ToolCall 四层代码地图
-
-| 主视图 | 核心问题 | 主要入口 | 深入实现 |
-| --- | --- | --- | --- |
-| 入口控制 | 调用是否合法、当前是否可用 | `turn_preparation.py`、`tool_execution.py` | `tools/tool_router.py`、`models/tool_call_normalizer.py`、`tools/registry.py` |
-| 执行决策 | 允许、拒绝、询问人工，还是已有结果 | `tool_execution.py::_execute_call` | `operation_tracker.py`、`tool_authorization.py`、`runtime/hooks.py` |
-| 受限执行 | 获准后最多能影响哪里 | `tools/<tool>.py::execute` | `safety/command_policy.py`、`safety/sandbox.py`、`runtime/execution_environment.py` |
-| 结果与恢复 | 发生了什么，中断后怎样继续 | `tool_execution.py::_run_tool` | `run_lifecycle.py`、`domain/operation.py`、`observability/domain/event.py` |
-
-本表只给代码路径；四层、Hook 和操作状态表的语义由
-`docs/运行治理与工具执行.md` 与 `docs/运行产物与持久化契约.md` 说明。
-
-## Capability 地图
-
-| Package | 第一入口 | 主要责任 |
-| --- | --- | --- |
-| `runtime` | `application/agent_loop.py` | 单 Agent 控制循环、工具治理、HITL、恢复、幂等 |
-| `observability` | `domain/run_story.py` | trace facts、artifact manifest 与 Run Story |
-| `context` | `context_builder.py` | repository/context selection 与预算 |
-| `tools` / `safety` | `registry.py` / policy modules | 工具 schema、权限、命令和路径边界 |
-| 高级：`bench` / `evaluation` | `api.py` | 评测用例、官方判定、计分卡与重复实验 |
-| Advanced：`multi_agent` | `api.py` | 顺序角色与 live fanout |
-| Advanced：`workbench` | `api.py` | 只读 Evidence presentation |
-| Advanced：Context Memory / `skills` / `mcp` | `context/api.py` / `skills/__init__.py` / `mcp/server.py` | 可选 Context 与工具集成 |
-
-## 导航契约
-
-```bash
-forge inspect AgentLoop.run
-forge inspect ToolExecutionPipeline.execute_calls
-forge inspect <run-or-artifact>
-```
-
-随机 symbol 必须能说明层级、规范上游、下一 owner、状态变更、Evidence 和删除影响；随机
-artifact 必须能说明 producer、consumer、source/authority、claim boundary 与可重建性。Code
-Compass 的静态 caller/callee 不等于完整运行时调用图，动态注入边以 Core owner 契约为准。
-
-## 分层约定
+## Single-Agent 主链
 
 ```text
-api.py -> application -> domain + ports
-wiring.py -> application + adapters
-adapters -> ports
-presentation -> API / canonical read model
+apps/repository_run.py
+→ Harness.run                         agent_forge/harness.py
+→ build_agent_loop_from_request       agent_forge/runtime/wiring.py
+→ AgentLoop.run                       agent_forge/runtime/application/agent_loop.py
+→ RunResult + RunManifest / RunStory
 ```
 
-Port 只为真实外部边界、替换需求或有价值的测试替身存在。无新增语义的 Wrapper、Service、Mapper
-和单实现 Port 不能仅因“六边形架构”保留。
+`Harness.run` 是 standalone/public Single-Agent fresh-run facade；`Harness.resume` 是公开 continuation
+facade。Bench Worker、Multi-Agent Worker 与 Finalizer 可直接使用 `runtime.wiring` 装配，但最终都进入
+同一个 `AgentLoop.run` Runtime Kernel。
+
+## 能力包怎么读
+
+```text
+application/  用例编排与控制流
+domain/       业务状态与纯语义
+ports/        Core 需要的外部能力契约
+adapters/     文件、Git、Provider、进程等具体实现
+api.py        能力对外入口
+wiring.py     该能力的装配点
+```
+
+Domain 不等于“只有字段的类”；真正决定状态是否合法、如何转移的纯业务规则也属于 Domain。
+Application 负责何时调用这些规则，不拥有 Provider、文件或进程 IO。
+
+## Capability 第一入口
+
+| Capability | 第一处代码 |
+| --- | --- |
+| Runtime 主循环 | `runtime/application/agent_loop.py` |
+| Context 组装 | `context/application/context_builder.py` |
+| Conversation Compaction | `context/application/compaction.py` |
+| Long-Term Memory | `memory/application/service.py` |
+| Tool Governance | `runtime/application/tool_execution.py` |
+| Tool 实现 | `tools/builtins/` |
+| Model Gateway | `runtime/adapters/model_gateway.py` |
+| Multi-Agent | `multi_agent/api.py` |
+| Benchmark | `bench/api.py` |
+| Evaluation | `evaluation/api.py` |
+| Evidence | `observability/api.py` |
+
+代码讲解或审阅时先打开 [`docs/核心能力与代码入口.md`](../docs/核心能力与代码入口.md) 指定的唯一
+Owner，再用 IDE 的 Go to Declaration / Implementation / Usages 追相邻 Port 和 Adapter；不要从展示层、
+测试或全项目文本搜索反推主链。

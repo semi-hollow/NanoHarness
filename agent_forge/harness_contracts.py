@@ -10,7 +10,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Protocol
 
-from agent_forge.context.ports import LongTermMemoryRecallPort
+from agent_forge.memory.ports import LongTermMemoryRecallPort
 from agent_forge.contracts import JsonObject
 from agent_forge.hooks import RuntimeHook
 from agent_forge.observability.adapters.streaming import EventStreamPolicy

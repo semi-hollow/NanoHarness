@@ -9,9 +9,9 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from agent_forge.workbench.adapters.experiment_files import FileExperimentCatalog
-from agent_forge.workbench.presentation.experiments import render_experiment_bundle
-from agent_forge.workbench.presentation.http import INDEX_HTML
+from apps.workbench.adapters.experiment_files import FileExperimentCatalog
+from apps.workbench.presentation.experiments import render_experiment_bundle
+from apps.workbench.presentation.http import INDEX_HTML
 
 
 PROJECT_DIR = Path(__file__).resolve().parents[1]

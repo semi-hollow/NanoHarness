@@ -5,8 +5,8 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
 
-from agent_forge.cli.parser import build_parser
-from agent_forge.cli.resume import resume_repository_task, write_resume_link
+from apps.cli.parser import build_parser
+from apps.cli.resume import resume_repository_task, write_resume_link
 from agent_forge.observability.api import read_run_manifest, write_run_manifest
 from agent_forge.runtime.api import latest_checkpoint_path
 from agent_forge.runtime.application.operator_control import ContinuationPlan
@@ -154,18 +154,18 @@ class ResumeCliTest(unittest.TestCase):
             human_thread_id="thread-1",
         )
         with mock.patch(
-            "agent_forge.cli.resume.latest_checkpoint_path",
+            "apps.cli.resume.latest_checkpoint_path",
             return_value="/tmp/checkpoint.json",
         ), mock.patch(
-            "agent_forge.cli.resume.load_task_checkpoint",
+            "apps.cli.resume.load_task_checkpoint",
             return_value=checkpoint,
         ), mock.patch(
-            "agent_forge.cli.resume.prepare_continuation",
+            "apps.cli.resume.prepare_continuation",
             return_value=(checkpoint, "/tmp/checkpoint.json", plan),
         ), mock.patch(
-            "agent_forge.cli.resume.run_repository_task",
+            "apps.cli.resume.run_repository_task",
             return_value=Path("/tmp/new-run"),
-        ) as run, mock.patch("agent_forge.cli.resume.write_resume_link"):
+        ) as run, mock.patch("apps.cli.resume.write_resume_link"):
             resume_repository_task(args)
 
         forwarded = run.call_args.args[0]
@@ -232,18 +232,18 @@ class ResumeCliTest(unittest.TestCase):
                 human_thread_id="thread-1",
             )
             with mock.patch(
-                "agent_forge.cli.resume.latest_checkpoint_path",
+                "apps.cli.resume.latest_checkpoint_path",
                 return_value=str(source_run / "task_state" / "checkpoint.json"),
             ), mock.patch(
-                "agent_forge.cli.resume.load_task_checkpoint",
+                "apps.cli.resume.load_task_checkpoint",
                 return_value=checkpoint,
             ), mock.patch(
-                "agent_forge.cli.resume.prepare_continuation",
+                "apps.cli.resume.prepare_continuation",
                 return_value=(checkpoint, "/tmp/checkpoint.json", plan),
             ), mock.patch(
-                "agent_forge.cli.resume.run_repository_task",
+                "apps.cli.resume.run_repository_task",
                 return_value=Path("/tmp/new-run"),
-            ) as run, mock.patch("agent_forge.cli.resume.write_resume_link"):
+            ) as run, mock.patch("apps.cli.resume.write_resume_link"):
                 resume_repository_task(args)
 
             forwarded = run.call_args.args[0]
@@ -279,10 +279,10 @@ class ResumeCliTest(unittest.TestCase):
                 status="paused",
             )
             with mock.patch(
-                "agent_forge.cli.resume.latest_checkpoint_path",
+                "apps.cli.resume.latest_checkpoint_path",
                 return_value=str(source_run / "task_state" / "checkpoint.json"),
             ), mock.patch(
-                "agent_forge.cli.resume.load_task_checkpoint",
+                "apps.cli.resume.load_task_checkpoint",
                 return_value=checkpoint,
             ):
                 with self.assertRaisesRegex(
@@ -303,10 +303,10 @@ class ResumeCliTest(unittest.TestCase):
                 status="paused",
             )
             with mock.patch(
-                "agent_forge.cli.resume.latest_checkpoint_path",
+                "apps.cli.resume.latest_checkpoint_path",
                 return_value=str(source_run / "task_state" / "checkpoint.json"),
             ), mock.patch(
-                "agent_forge.cli.resume.load_task_checkpoint",
+                "apps.cli.resume.load_task_checkpoint",
                 return_value=checkpoint,
             ):
                 with self.assertRaisesRegex(
@@ -329,18 +329,18 @@ class ResumeCliTest(unittest.TestCase):
             human_thread_id="thread-1",
         )
         with mock.patch(
-            "agent_forge.cli.resume.latest_checkpoint_path",
+            "apps.cli.resume.latest_checkpoint_path",
             return_value="/tmp/checkpoint.json",
         ), mock.patch(
-            "agent_forge.cli.resume.load_task_checkpoint",
+            "apps.cli.resume.load_task_checkpoint",
             return_value=checkpoint,
         ), mock.patch(
-            "agent_forge.cli.resume.prepare_continuation",
+            "apps.cli.resume.prepare_continuation",
             return_value=(checkpoint, "/tmp/checkpoint.json", plan),
         ), mock.patch(
-            "agent_forge.cli.resume.run_repository_task",
+            "apps.cli.resume.run_repository_task",
             return_value=Path("/tmp/new-run"),
-        ) as run, mock.patch("agent_forge.cli.resume.write_resume_link"):
+        ) as run, mock.patch("apps.cli.resume.write_resume_link"):
             resume_repository_task(args)
 
         forwarded = run.call_args.args[0]
@@ -363,23 +363,23 @@ class ResumeCliTest(unittest.TestCase):
         )
         pending = SimpleNamespace(request_id="request-1")
         with mock.patch(
-            "agent_forge.cli.resume.latest_checkpoint_path",
+            "apps.cli.resume.latest_checkpoint_path",
             return_value="/tmp/checkpoint.json",
         ), mock.patch(
-            "agent_forge.cli.resume.load_task_checkpoint",
+            "apps.cli.resume.load_task_checkpoint",
             return_value=checkpoint,
         ), mock.patch(
-            "agent_forge.cli.resume.list_pending_human_inputs",
+            "apps.cli.resume.list_pending_human_inputs",
             return_value=[pending],
         ), mock.patch(
-            "agent_forge.cli.resume.respond_to_human_input"
+            "apps.cli.resume.respond_to_human_input"
         ) as respond, mock.patch(
-            "agent_forge.cli.resume.prepare_continuation",
+            "apps.cli.resume.prepare_continuation",
             return_value=(checkpoint, "/tmp/checkpoint.json", plan),
         ), mock.patch(
-            "agent_forge.cli.resume.run_repository_task",
+            "apps.cli.resume.run_repository_task",
             return_value=Path("/tmp/new-run"),
-        ), mock.patch("agent_forge.cli.resume.write_resume_link"):
+        ), mock.patch("apps.cli.resume.write_resume_link"):
             resume_repository_task(args)
 
         command = respond.call_args.args[0]
@@ -396,13 +396,13 @@ class ResumeCliTest(unittest.TestCase):
         )
         pending = SimpleNamespace(operation_key="operation-1")
         with mock.patch(
-            "agent_forge.cli.resume.latest_checkpoint_path",
+            "apps.cli.resume.latest_checkpoint_path",
             return_value="/tmp/checkpoint.json",
         ), mock.patch(
-            "agent_forge.cli.resume.load_task_checkpoint",
+            "apps.cli.resume.load_task_checkpoint",
             return_value=checkpoint,
         ), mock.patch(
-            "agent_forge.cli.resume.list_pending_approvals",
+            "apps.cli.resume.list_pending_approvals",
             return_value=[pending],
         ):
             with self.assertRaisesRegex(SystemExit, "--decision approved"):

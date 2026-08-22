@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Protocol
 
-from agent_forge.context.contracts import ContextMemory
+from agent_forge.context.ports.context_memory import ContextMemory
 from agent_forge.contracts import ToolSchema
 
 

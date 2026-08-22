@@ -7,7 +7,7 @@ import time
 from pathlib import Path
 from typing import Any
 
-from agent_forge.atomic_json import atomic_write_json
+from agent_forge.infrastructure.atomic_json import atomic_write_json
 
 from ..domain.live import FanoutCheckpoint, FanoutPlan, LiveFanoutSummary
 from ..ports import FanoutArtifactPort

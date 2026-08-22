@@ -3,10 +3,10 @@ import json
 import unittest
 from unittest.mock import patch
 
-from agent_forge.runtime.llm_client import OpenAICompatibleLLMClient
+from agent_forge.runtime.adapters.openai_compatible import OpenAICompatibleLLMClient
 from agent_forge.runtime.domain.conversation import Message
 from agent_forge.runtime.domain.model import ModelCapabilities
-from agent_forge.runtime.llm_config import (
+from agent_forge.runtime.adapters.model_config import (
     DEEPSEEK_V4_CONTEXT_WINDOW,
     GLM_52_CONTEXT_WINDOW,
     LLMConfigRequest,

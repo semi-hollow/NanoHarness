@@ -12,7 +12,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Mapping
 
-from agent_forge.atomic_json import atomic_write_json
+from agent_forge.infrastructure.atomic_json import atomic_write_json
 from agent_forge.observability.domain.run_story import RunArtifact, RunManifest
 
 

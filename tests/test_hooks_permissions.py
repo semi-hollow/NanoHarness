@@ -3,11 +3,11 @@ import unittest
 
 from agent_forge.hooks import RuntimeHook
 from agent_forge.runtime.domain.conversation import Observation
-from agent_forge.runtime.execution_environment import (
+from agent_forge.runtime.adapters.execution_environment import (
     ExecutionEnvironment,
     ExecutionEnvironmentConfig,
 )
-from agent_forge.runtime.hooks import HookContext, HookDecisionType, HookManager
+from agent_forge.runtime.adapters.hook_manager import HookContext, HookDecisionType, HookManager
 
 
 class BrokenBeforeToolHook(RuntimeHook):

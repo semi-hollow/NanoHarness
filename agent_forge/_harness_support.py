@@ -23,7 +23,7 @@ from agent_forge.observability.api import (
     write_run_manifest,
     write_usage_artifacts,
 )
-from agent_forge.runtime.execution_environment import ExecutionEnvironment
+from agent_forge.runtime.adapters.execution_environment import ExecutionEnvironment
 from agent_forge.runtime.config import RuntimeConfig
 from agent_forge.runtime.domain.task import (
     TaskCheckpoint,
@@ -31,7 +31,7 @@ from agent_forge.runtime.domain.task import (
     TaskStartRequest,
 )
 from agent_forge.runtime.ports import EnvironmentPort, EventSink, TaskStateRepository
-from agent_forge.storage_layout import (
+from agent_forge.infrastructure.storage_layout import (
     AGENT_FORGE_ROOT,
     INDEX_ROOT,
     LEGACY_CONTROL_ROOTS,

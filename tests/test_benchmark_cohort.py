@@ -10,7 +10,7 @@ from agent_forge.bench.adapters.dataset import SwebenchCaseSource
 from agent_forge.bench.domain.campaign import BenchmarkCampaignRequest
 from agent_forge.bench.domain.cohort import load_benchmark_cohort
 from agent_forge.bench.domain.config import SwebenchRunRequest
-from agent_forge.cli.parser import build_parser
+from apps.cli.parser import build_parser
 
 
 PROJECT_ROOT = Path(__file__).parents[1]

@@ -5,7 +5,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from agent_forge.cli.repository import prepare_execution_environment
+from apps.repository_run import prepare_execution_environment
 
 
 class ExecutionEnvironmentCliTest(unittest.TestCase):

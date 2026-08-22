@@ -26,17 +26,17 @@ from agent_forge.bench.adapters.local_validation import read_local_validation
 from agent_forge.bench.domain.config import SwebenchRunRequest, safe_id
 from agent_forge.bench.domain.models import BenchCase, BenchCaseResult
 from agent_forge.bench.ports import CaseExecutorPort
-from agent_forge.models.gateway import ModelGateway
+from agent_forge.runtime.adapters.model_gateway import ModelGateway
 from agent_forge.observability.adapters.json_trace import TraceRecorder
 from agent_forge.observability.api import write_usage_artifacts
 from agent_forge.runtime.api import build_agent_loop
 from agent_forge.runtime.config import RuntimeConfig
 from agent_forge.runtime.domain.model import ModelCapabilities
-from agent_forge.runtime.execution_environment import (
+from agent_forge.runtime.adapters.execution_environment import (
     ExecutionEnvironment,
     ExecutionEnvironmentConfig,
 )
-from agent_forge.runtime.llm_config import LLMConfigRequest, resolve_llm_config
+from agent_forge.runtime.adapters.model_config import LLMConfigRequest, resolve_llm_config
 from agent_forge.runtime.wiring import (
     ToolRegistryBuildRequest,
     build_llm,

@@ -1,11 +1,21 @@
 .DS_Store
+# 只共享用于源码导航的 PyCharm 模块与 Scope；个人窗口、断点和历史仍忽略。
 .idea/
+!.idea/
+.idea/*
+!.idea/NanoHarness.iml
+!.idea/scopes/
 __pycache__/
 *.pyc
 *.pyo
 .venv/
 .venv-win/
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
 *.egg-info/
+build/
+dist/
 .env
 .env.local
 # Personal one-off provider wrappers may contain API keys. They are not part of

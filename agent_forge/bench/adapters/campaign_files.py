@@ -15,7 +15,7 @@ from agent_forge.bench.ports import (
     SourceIdentityPort,
 )
 from agent_forge.bench.presentation.campaign_report import render_campaign_report
-from agent_forge.storage_layout import INDEX_ROOT
+from agent_forge.infrastructure.storage_layout import INDEX_ROOT
 
 
 _SECRET_KEY = re.compile(

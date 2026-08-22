@@ -14,7 +14,7 @@
       "command": "python",
       "args": [
         "-m",
-        "agent_forge.mcp.builtin_server",
+        "apps.mcp_server.builtin_server",
         "--workspace",
         "."
       ],

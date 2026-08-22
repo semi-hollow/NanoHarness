@@ -3,7 +3,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from agent_forge.cli.inspection import render_inspection
+from apps.cli.inspection import render_inspection
 from agent_forge.observability.api import write_run_manifest
 
 

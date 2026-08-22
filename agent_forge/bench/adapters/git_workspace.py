@@ -8,7 +8,7 @@ from typing import Iterator
 
 from agent_forge.bench.domain.config import safe_id
 from agent_forge.bench.domain.models import BenchCase
-from agent_forge.runtime.git_workspace import collect_workspace_diff
+from agent_forge.runtime.adapters.git_workspace import collect_workspace_diff
 
 
 class SwebenchWorkspaceManager:

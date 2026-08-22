@@ -5,9 +5,9 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from agent_forge.cli.parser import build_parser
-from agent_forge.cli.repository import run_repository_task
-from agent_forge.configuration import (
+from apps.cli.parser import build_parser
+from apps.repository_run import run_repository_task
+from apps.run_configuration import (
     load_run_config,
     resolve_run_arguments,
     resolved_run_config,
@@ -235,7 +235,7 @@ tools:
                 {"DEEPSEEK_API_KEY": "test-secret-value"},
                 clear=True,
             ), mock.patch(
-                "agent_forge.cli.repository.build_llm",
+                "apps.run_composition.build_llm",
                 return_value=StaticResponseModel("configuration path completed"),
             ):
                 run_dir = run_repository_task(args)

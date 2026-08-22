@@ -7,12 +7,12 @@ from pathlib import Path
 
 from textual.widgets import Input
 
-from agent_forge.showcase import run_governed_demo
-from agent_forge.showcase.console import (
+from apps.showcase import run_governed_demo
+from apps.showcase.console import (
     GovernedShowcaseConsoleApp,
     _readable_durable_paths,
 )
-from agent_forge.showcase.control_plane import (
+from apps.showcase.control_plane import (
     GOVERNED_PLACEHOLDER,
     GovernedShowcaseController,
     _continue_control_plane_demo,

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from agent_forge.context.ports import LongTermMemoryRecallPort
+from agent_forge.memory.ports import LongTermMemoryRecallPort
 from agent_forge.runtime.domain.model import ModelCapabilities
 from agent_forge.runtime.ports import (
     ApprovalRepository,

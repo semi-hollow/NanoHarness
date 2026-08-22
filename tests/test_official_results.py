@@ -21,7 +21,7 @@ from agent_forge.bench.presentation.cli import (
     run_campaign_from_args,
     run_swebench_from_args,
 )
-from agent_forge.cli.parser import build_parser
+from apps.cli.parser import build_parser
 
 
 class OfficialResultsTest(unittest.TestCase):

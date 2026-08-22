@@ -5,7 +5,7 @@ import os
 from pathlib import Path
 
 from agent_forge.safety.sandbox import WorkspaceSandbox
-from agent_forge.tools.run_command import (
+from agent_forge.tools.builtins.run_command import (
     COMMAND_TIMEOUT_SECONDS,
     MAX_COMMAND_OUTPUT_CHARS,
     RunCommandTool,

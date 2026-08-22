@@ -3,10 +3,10 @@ import unittest
 from pathlib import Path
 
 from agent_forge.safety.sandbox import WorkspaceSandbox
-from agent_forge.tools.create_file import CreateFileTool
-from agent_forge.tools.replace_text import ReplaceTextTool
+from agent_forge.tools.builtins.create_file import CreateFileTool
+from agent_forge.tools.builtins.replace_text import ReplaceTextTool
 from agent_forge.tools.registry import ToolRegistry
-from agent_forge.tools.write_file import WriteFileTool
+from agent_forge.tools.builtins.write_file import WriteFileTool
 
 
 class WriteReplaceTextToolsTest(unittest.TestCase):

@@ -4,14 +4,14 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from agent_forge.workbench.adapters.evidence_files import FileEvidenceCatalog
-from agent_forge.workbench.application.review_projection import (
+from apps.workbench.adapters.evidence_files import FileEvidenceCatalog
+from apps.workbench.application.review_projection import (
     build_lab1_review,
     build_lab2_review,
     build_mini50_review,
     current_git_revision,
 )
-from agent_forge.workbench.presentation.http import INDEX_HTML, _render_workspace_view
+from apps.workbench.presentation.http import INDEX_HTML, _render_workspace_view
 from scripts.review_preflight import (
     EVIDENCE_TREE_ALGORITHM,
     _evidence_tree,

@@ -8,7 +8,7 @@ from dataclasses import dataclass, replace
 from typing import TypeVar
 
 from agent_forge.context.domain import ConversationHistoryDigest, ToolTransactionDigest
-from agent_forge.context.token_budget import truncate_middle
+from agent_forge.context.application.text_budget import truncate_middle
 from agent_forge.contracts import ToolSchema
 from agent_forge.runtime.domain.conversation import Message, Observation
 

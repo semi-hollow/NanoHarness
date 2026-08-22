@@ -5,7 +5,7 @@ from pathlib import Path
 from agent_forge.bench.application.swebench import _new_summary
 from agent_forge.bench.domain.config import BenchRunLayout, SwebenchRunRequest
 from agent_forge.bench.presentation.report import render_bench_report
-from agent_forge.cli.parser import build_parser
+from apps.cli.parser import build_parser
 from agent_forge.runtime.config import RuntimeConfig
 from agent_forge.runtime.wiring import ToolRegistryBuildRequest, build_registry
 

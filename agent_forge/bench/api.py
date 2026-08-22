@@ -31,7 +31,7 @@ from agent_forge.bench.wiring import (
     build_benchmark_campaign_runner,
     build_swebench_runner,
 )
-from agent_forge.storage_layout import ensure_storage_layout, human_readable_run_name
+from agent_forge.infrastructure.storage_layout import ensure_storage_layout, human_readable_run_name
 
 
 # 主要入口：构造并执行一次完整的 SWE-bench 证据运行。

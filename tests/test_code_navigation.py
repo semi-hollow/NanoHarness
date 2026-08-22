@@ -8,7 +8,7 @@ from pathlib import Path
 
 from agent_forge.control import RunController
 from agent_forge.runtime.adapters.run_control_noop import NoopRunControl
-from agent_forge.runtime.hooks import HookManager
+from agent_forge.runtime.adapters.hook_manager import HookManager
 from agent_forge.runtime.ports import HookPort, RunControlPort
 
 
@@ -66,7 +66,7 @@ CORE_WORKFLOW_ENTRYPOINTS = {
     "agent_forge/context/application/compaction.py": {
         "PromptWindowManager.prepare": 4,
     },
-    "agent_forge/context/application/memory_service.py": {
+    "agent_forge/memory/application/service.py": {
         "LongTermMemoryService.remember": 3,
         "LongTermMemoryService.forget": 2,
         "LongTermMemoryService.list_for_project": 2,
@@ -176,8 +176,8 @@ KEYWORD_ONLY_RECORDS = {
         "PromptWindowResult",
         "PromptBudget",
     },
-    "agent_forge/models/gateway.py": {"RetryPolicy"},
-    "agent_forge/models/tool_call_normalizer.py": {
+    "agent_forge/runtime/adapters/model_gateway.py": {"RetryPolicy"},
+    "agent_forge/runtime/adapters/tool_call_normalizer.py": {
         "ToolCallNormalizationResult",
     },
     "agent_forge/runtime/application/operation_tracker.py": {
@@ -191,8 +191,8 @@ KEYWORD_ONLY_RECORDS = {
     },
     "agent_forge/runtime/application/run_control.py": {"RunControlOutcome"},
     "agent_forge/runtime/application/turn_preparation.py": {"PreparedTurn"},
-    "agent_forge/runtime/clarification.py": {"ClarificationDecision"},
-    "agent_forge/runtime/control.py": {
+    "agent_forge/runtime/application/clarification.py": {"ClarificationDecision"},
+    "agent_forge/runtime/application/step_control.py": {
         "ExecutionBudget",
         "FailureSignal",
         "StepController",
@@ -210,7 +210,7 @@ KEYWORD_ONLY_RECORDS = {
         "OperationTransition",
     },
     "agent_forge/runtime/domain/run_control.py": {"RunControlSignal"},
-    "agent_forge/runtime/execution_environment.py": {
+    "agent_forge/runtime/adapters/execution_environment.py": {
         "EnvironmentProbe",
         "ExecutionEnvironmentConfig",
     },
@@ -280,7 +280,7 @@ MODULE_SCOPED_VAGUE_LOCAL_NAMES = {
         "unavailable",
     },
     "agent_forge/runtime/domain/task.py": {"status", "summary"},
-    "agent_forge/runtime/execution_environment.py": {
+    "agent_forge/runtime/adapters/execution_environment.py": {
         "output",
         "path",
         "result",
@@ -288,7 +288,7 @@ MODULE_SCOPED_VAGUE_LOCAL_NAMES = {
         "target",
         "value",
     },
-    "agent_forge/runtime/git_workspace.py": {
+    "agent_forge/runtime/adapters/git_workspace.py": {
         "additions",
         "lines",
         "normalized",
@@ -296,7 +296,7 @@ MODULE_SCOPED_VAGUE_LOCAL_NAMES = {
         "result",
         "tracked",
     },
-    "agent_forge/runtime/hooks.py": {
+    "agent_forge/runtime/adapters/hook_manager.py": {
         "current",
         "decision",
         "invoke",
@@ -307,7 +307,7 @@ MODULE_SCOPED_VAGUE_LOCAL_NAMES = {
         "stage",
         "value",
     },
-    "agent_forge/runtime/llm_client.py": {
+    "agent_forge/runtime/adapters/openai_compatible.py": {
         "catalog",
         "choices",
         "content",
@@ -334,7 +334,7 @@ MODULE_SCOPED_VAGUE_LOCAL_NAMES = {
         "segments",
         "target",
     },
-    "agent_forge/context/application/memory_service.py": {
+    "agent_forge/memory/application/service.py": {
         "current",
         "item",
         "merged",
@@ -344,7 +344,7 @@ MODULE_SCOPED_VAGUE_LOCAL_NAMES = {
         "score",
         "scored",
     },
-    "agent_forge/models/gateway.py": {
+    "agent_forge/runtime/adapters/model_gateway.py": {
         "attempt",
         "client",
         "code",
@@ -353,7 +353,7 @@ MODULE_SCOPED_VAGUE_LOCAL_NAMES = {
         "response",
         "usage",
     },
-    "agent_forge/models/tool_call_normalizer.py": {
+    "agent_forge/runtime/adapters/tool_call_normalizer.py": {
         "arguments",
         "calls",
         "candidates",
@@ -435,7 +435,7 @@ EVIDENCE_RECORDER_MODULES = {
 # 一并纳入，避免为形式统一制造无关改动。
 EXPLICIT_CORE_RECORD_CALLS = {"Message", "Observation", "ToolCallOutcome"}
 EXPLICIT_CORE_RECORD_DIRECTORIES = ("agent_forge/runtime/application",)
-EXPLICIT_CORE_RECORD_FILES = ("agent_forge/runtime/hooks.py",)
+EXPLICIT_CORE_RECORD_FILES = ("agent_forge/runtime/adapters/hook_manager.py",)
 REMOVED_PATCH_API_MARKERS = {
     '"apply_patch"',
     "'apply_patch'",

@@ -28,7 +28,7 @@ from agent_forge.runtime.application.session import AgentRunSession
 from agent_forge.runtime.application.tool_authorization import ToolAuthorizationGate
 from agent_forge.runtime.application.tool_feedback import ToolFeedback
 from agent_forge.runtime.config import RuntimeConfig
-from agent_forge.runtime.control import FailureSignal
+from agent_forge.runtime.application.step_control import FailureSignal
 from agent_forge.runtime.domain.conversation import (
     AgentResponse,
     Message,

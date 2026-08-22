@@ -1,7 +1,7 @@
 import json
 from pathlib import Path
 
-from agent_forge.atomic_json import atomic_write_json
+from agent_forge.infrastructure.atomic_json import atomic_write_json
 from agent_forge.runtime.domain.task import (
     TaskCheckpoint,
     TaskCheckpointUpdate,

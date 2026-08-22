@@ -43,7 +43,9 @@ forge console
 forge ui
 ```
 
-PyCharm 配置、两个确定性 Lab 和证据路径见 [Debug Lab](examples/debug_lab/README.md)。
+仓库已共享 PyCharm 的 Core / Production / Apps / Tests 搜索范围；运行 Evidence 与历史归档默认
+Excluded，`tests/` 保持 Test Sources Root。两个确定性 Lab 和证据路径见
+[Debug Lab](examples/debug_lab/README.md)。
 外部项目可通过 [`Harness`](agent_forge/harness.py) facade 注入自己的 Model 和 ToolGateway。
 
 ## 架构与源码

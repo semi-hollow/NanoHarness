@@ -42,7 +42,7 @@ from agent_forge.runtime.config import (
     DEFAULT_TOOL_EXECUTION_TIMEOUT_SECONDS,
     DEFAULT_TIMEOUT_SECONDS,
 )
-from agent_forge.storage_layout import BENCH_REPO_CACHE_ROOT, CAMPAIGN_RUN_ROOT
+from agent_forge.infrastructure.storage_layout import BENCH_REPO_CACHE_ROOT, CAMPAIGN_RUN_ROOT
 
 
 def _positive_int(value: str) -> int:

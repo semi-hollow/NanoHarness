@@ -744,12 +744,12 @@ def build_report(
 
     treatment_files = [
         "agent_forge/runtime/wiring.py",
-        "agent_forge/tools/grep.py",
+        "agent_forge/tools/builtins/grep_search.py",
         "agent_forge/tools/find_files.py",
         "agent_forge/tools/output_window.py",
-        "agent_forge/tools/python_validation.py",
+        "agent_forge/tools/builtins/python_validation.py",
         "agent_forge/tools/rg_support.py",
-        "agent_forge/tools/run_command.py",
+        "agent_forge/tools/builtins/run_command.py",
         "agent_forge/tools/tool_router.py",
     ]
     return {
@@ -910,11 +910,11 @@ def render_markdown(report: dict[str, Any]) -> str:
             "",
             "以下路径绑定到 R2 Treatment commit：",
             "",
-            "- `agent_forge/tools/grep.py`",
+            "- `agent_forge/tools/builtins/grep_search.py`",
             "- `agent_forge/tools/find_files.py`",
             "- `agent_forge/tools/output_window.py`",
-            "- `agent_forge/tools/python_validation.py`",
-            "- `agent_forge/tools/run_command.py`",
+            "- `agent_forge/tools/builtins/python_validation.py`",
+            "- `agent_forge/tools/builtins/run_command.py`",
             "- `agent_forge/tools/tool_router.py`",
             "",
         ]

@@ -4,11 +4,11 @@
 内部实现，不属于兼容性承诺。
 """
 
-from agent_forge.context.ports import (
+from agent_forge.memory.ports import (
     LongTermMemoryRecallPort,
     LongTermMemoryRepository,
 )
-from agent_forge.context.instructions import (
+from agent_forge.context.application.instructions import (
     InstructionResolution,
     InstructionResolutionRequest,
     InstructionSource,

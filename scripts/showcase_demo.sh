@@ -59,7 +59,7 @@ printf '\n=== NanoHarness: open the same Evidence in read-only Workbench ===\n'
 expected_project="$(pwd -P)"
 expected_workbench_source="$(
   .venv/bin/python -c \
-    'import hashlib,pathlib; print(hashlib.sha256(pathlib.Path("agent_forge/workbench/presentation/http.py").read_bytes()).hexdigest())'
+    'import hashlib,pathlib; print(hashlib.sha256(pathlib.Path("apps/workbench/presentation/http.py").read_bytes()).hexdigest())'
 )"
 expected_evidence=""
 if [[ "${require_evidence}" == true ]]; then

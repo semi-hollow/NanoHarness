@@ -3,14 +3,14 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from agent_forge.runtime.execution_environment import ExecutionEnvironment, ExecutionEnvironmentConfig
-from agent_forge.runtime.git_workspace import (
+from agent_forge.runtime.adapters.execution_environment import ExecutionEnvironment, ExecutionEnvironmentConfig
+from agent_forge.runtime.adapters.git_workspace import (
     collect_changed_files,
     collect_workspace_diff,
     collect_workspace_status,
 )
 from agent_forge.safety.sandbox import WorkspaceSandbox
-from agent_forge.tools.git_diff import GitDiffTool
+from agent_forge.tools.builtins.git_diff import GitDiffTool
 
 
 def _init_repo(root: Path) -> None:
