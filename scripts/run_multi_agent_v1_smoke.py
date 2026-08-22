@@ -1,5 +1,14 @@
 #!/usr/bin/env python3
-"""Run the single deterministic Multi-Agent V1 mechanism smoke."""
+"""运行唯一的 deterministic Multi-Agent V1 机制验证。
+
+系统角色：用一个自然语言任务串起 Adaptive Planner、真实 AgentLoop、隔离
+worktree、LIVE Handoff、候选 Diff 集成和 Finalizer。它证明机制确实接入生产
+主链，但不评估真实模型性能，也不是第二套 Multi-Agent 实现。
+
+输入是脚本内的 hermetic 小仓库；输出是脱敏 ``mechanism-evidence.json``，原始
+Trace 只写独立 ``.agent_forge/runs/v1-multi-agent``。折叠时按“脚本模型 ->
+真实运行 -> fixture -> evidence”阅读即可。
+"""
 
 from __future__ import annotations
 
@@ -26,6 +35,7 @@ from agent_forge.runtime.wiring import ToolRegistryBuildRequest, build_registry
 from agent_forge.tools.registry import ToolRegistry
 
 
+# region 1. 固定实验契约：一个自然语言任务、独立输出路径和 deterministic Planner
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 NATURAL_LANGUAGE_TASK = (
     "升级配置加载能力以支持新的 timeout 字段，同时保持现有调用方兼容，"
@@ -43,6 +53,8 @@ EVENT_ID_PATTERN = re.compile(r'"event_id":\s*"([a-f0-9]{64})"')
 
 
 class _PlannerModel:
+    """只固定计划响应；计划解析和领域校验仍走真实 ``AdaptivePlanner``。"""
+
     last_usage = None
 
     def chat(self, messages: list[Message], tools: list[dict]) -> AgentResponse:
@@ -90,9 +102,13 @@ class _PlannerModel:
             ),
             [],
         )
+# endregion 1. 固定实验契约
 
 
+# region 2. Scripted Model：控制并发时序，但仍走真实 AgentLoop 与 ToolCall
 class _AcceptedEventWaiter:
+    """等待 Runtime 接受指定事件，不用 sleep 猜并发顺序。"""
+
     def __init__(self) -> None:
         self._runtime: Callable[[], Any] | None = None
 
@@ -116,7 +132,7 @@ class _AcceptedEventWaiter:
 
 
 class _ScriptedModelPort:
-    """Scripted model responses over the real AgentLoop and tool protocol."""
+    """为两个 Worker 提供可重复响应，并记录真实下一 Turn 的模型输入。"""
 
     last_usage = None
 
@@ -265,15 +281,18 @@ class _ScriptedModelPort:
                 ],
             )
         return AgentResponse("consumer candidate complete", [])
+# endregion 2. Scripted Model
 
 
+# region 3. 唯一运行入口：Planner -> composition root -> Coordinator -> evidence
 def run_smoke(
     *,
     raw_root: Path | None = None,
     summary_path: Path | None = None,
 ) -> dict[str, Any]:
-    """Run one hermetic mechanism case and optionally write its sanitized projection."""
+    """运行一个 hermetic mechanism case，并写出脱敏事实投影。"""
 
+    # region 3.1 Fixture 与计划：临时 Git 仓库不会覆盖历史 Evidence
     selected_raw_root = raw_root or DEFAULT_RAW_ROOT
     selected_summary = summary_path or DEFAULT_SUMMARY
     with tempfile.TemporaryDirectory(prefix="nanoharness-multi-agent-v1-") as temporary:
@@ -293,7 +312,9 @@ def run_smoke(
             raise AssertionError(f"Planner did not select fanout: {planning.failure}")
         write_planning_artifact(run_dir / "planning.json", planning)
         plan = planning.decision.to_fanout_plan(NATURAL_LANGUAGE_TASK)
+        # endregion 3.1 Fixture 与计划
 
+        # region 3.2 真实主链：唯一 wiring 装配真实 Coordinator 与 AgentLoop
         waiter = _AcceptedEventWaiter()
         model = _ScriptedModelPort(waiter)
         trace = TraceRecorder(str(run_dir / "trace.json"))
@@ -315,6 +336,9 @@ def run_smoke(
         waiter.bind(lambda: coordinator.live_handoff)
         summary = coordinator.run()
         trace.write()
+        # endregion 3.2 真实主链
+
+        # region 3.3 结果收口：验证集成行为，再发布 sanitized derived evidence
         behavior_passed = _validate_integrated_result(repository)
         projection = _project_evidence(
             planning=planning.to_dict(),
@@ -326,8 +350,11 @@ def run_smoke(
         )
         atomic_write_json(selected_summary, projection)
         return projection
+        # endregion 3.3 结果收口
+# endregion 3. 唯一运行入口
 
 
+# region 4. Hermetic fixture：初始化仓库、生产 Tool Registry 和最终行为断言
 def _initialize_repository(repository: Path) -> None:
     subprocess.run(["git", "init", "-q"], cwd=repository, check=True)
     subprocess.run(
@@ -374,12 +401,16 @@ def _build_registry(
 
 
 def _validate_integrated_result(repository: Path) -> bool:
+    """执行集成后的两个小函数，证明最终 Diff 的业务行为成立。"""
+
     namespace: dict[str, Any] = {}
     exec((repository / "config_schema.py").read_text(encoding="utf-8"), namespace)
     exec((repository / "service_consumer.py").read_text(encoding="utf-8"), namespace)
     return namespace["boot_service"](namespace["normalize_config"]) == {"timeout": 30}
+# endregion 4. Hermetic fixture
 
 
+# region 5. Evidence 投影：只保留可追问的因果链、版本和集成事实
 def _project_evidence(
     *,
     planning: dict[str, Any],
@@ -389,6 +420,9 @@ def _project_evidence(
     model: _ScriptedModelPort,
     behavior_passed: bool,
 ) -> dict[str, Any]:
+    """从 canonical Runtime/Trace 事实生成不含私有 Prompt 的机制证据。"""
+
+    # region 5.1 事实提取：事件顺序、Worker 生命周期和 stale response
     runtime = coordinator.live_handoff
     timeline = runtime.timeline
     events = [
@@ -416,6 +450,9 @@ def _project_evidence(
         if event.get("event_type") == "recovery_decision"
         and event.get("failure_kind") == "runtime_coordination"
     ]
+    # endregion 5.1 事实提取
+
+    # region 5.2 机制断言：每条结论都绑定真实 Timeline、输入或集成结果
     assertions = {
         "planner_selected_fanout": planning["decision"]["mode"] == "fanout",
         "isolated_worker_worktrees": len(
@@ -450,6 +487,9 @@ def _project_evidence(
     }
     if not all(assertions.values()):
         raise AssertionError(f"Multi-Agent V1 smoke failed: {assertions}")
+    # endregion 5.2 机制断言
+
+    # region 5.3 脱敏输出：区分 Reused、New、Omitted 和性能 Claim Boundary
     return {
         "schema_version": 1,
         "evidence_class": "deterministic_real_agent_loop_mechanism",
@@ -517,8 +557,11 @@ def _project_evidence(
         "real_model_performance_evaluated": False,
         "benchmark_claim": "none",
     }
+    # endregion 5.3 脱敏输出
+# endregion 5. Evidence 投影
 
 
+# region 6. 因果辅助断言与脚本启动
 def _require_runtime_evidence(text: str, event_type: str) -> None:
     if (
         "RUNTIME COORDINATION EVIDENCE" not in text
@@ -538,3 +581,4 @@ def _latest_event_id(text: str) -> str:
 if __name__ == "__main__":
     result = run_smoke()
     print(json.dumps(result["assertions"], ensure_ascii=False, indent=2))
+# endregion 6. 因果辅助断言与脚本启动

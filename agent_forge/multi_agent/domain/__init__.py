@@ -1,4 +1,4 @@
-"""Multi-Agent 计划、结果和冲突规则。"""
+"""Multi-Agent Domain 层：计划、结果、依赖、冲突与指标的纯业务规则。"""
 
 from .fanout import (
     FanoutConflict,

@@ -1,9 +1,16 @@
+"""Fanout 最小任务、拓扑批次和文件冲突规则。
+
+系统角色：提供不依赖模型、线程、Git 或持久化的确定性调度原语。
+折叠导航：1 Task/Conflict contract；2 HARD 拓扑与静态批次；3 动态冲突；4 路径判断。
+"""
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field
 from typing import Any
 
 
+# region 1. Task 与 Conflict contract：Coordinator 和测试共用的最小事实
 # 核心数据：一个可独立调度的子任务及其依赖、写范围和工具预算。
 @dataclass(frozen=True)
 class SubagentTask:
@@ -43,8 +50,10 @@ class SubagentResult:
     output: Any = None
     touched_files: list[str] = field(default_factory=list)
     batch_index: int = 0
+# endregion 1. Task 与 Conflict contract 结束
 
 
+# region 2. HARD 拓扑与静态批次：先按 depends_on 分层，再按 write_scope 拆批
 # 核心规则：按 depends_on 拓扑排序；未知依赖、重复 ID 和环直接失败。
 def build_execution_batches(tasks: list[SubagentTask]) -> list[list[SubagentTask]]:
     """返回可并发执行的依赖层级，不处理写范围冲突。"""
@@ -89,8 +98,10 @@ def build_conflict_free_batches(tasks: list[SubagentTask]) -> list[list[Subagent
                 level_batches.append([task])
         batches.extend(level_batches)
     return batches
+# endregion 2. HARD 拓扑与静态批次结束
 
 
+# region 3. 冲突事实：运行前查 declared scope，运行后查 actual touched_files
 # 核心规则：运行前检测声明写范围的父子路径或同路径重叠。
 def detect_write_scope_conflicts(tasks: list[SubagentTask]) -> list[FanoutConflict]:
     """返回静态计划冲突；空列表表示这些 task 可并发。"""
@@ -125,8 +136,10 @@ def detect_result_conflicts(results: list[SubagentResult]) -> list[FanoutConflic
                     )
                 )
     return conflicts
+# endregion 3. 冲突事实结束
 
 
+# region 4. 路径判断：统一处理同路径和父子目录重叠
 def _first_overlap(left_paths: list[str], right_paths: list[str]) -> str:
     for left in left_paths:
         for right in right_paths:
@@ -149,3 +162,4 @@ def _paths_overlap(left: str, right: str) -> bool:
 
 def _normalize_path(path: str) -> str:
     return str(path or "").strip().strip("/").rstrip("/")
+# endregion 4. 路径判断结束

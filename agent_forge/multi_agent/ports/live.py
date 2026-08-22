@@ -1,4 +1,8 @@
-"""Live fanout 对 Git、文件和 worker runtime 的外部能力契约。"""
+"""Multi-Agent Application 依赖的全部外部能力契约。
+
+这里没有实现逻辑。折叠后只看四组 Port：1 workspace/artifact；2 worker-bound LIVE；
+3 Worker/Finalizer/Replanner；4 事件流。Application 只依赖这些 Protocol。
+"""
 
 from __future__ import annotations
 
@@ -19,6 +23,7 @@ from ..domain.live_handoff import LiveHandoffEvent
 from ..domain.planning import PlanningDecision
 
 
+# region 1. Workspace 与 Artifact Ports：隔离 Git 副作用和持久化格式
 class FanoutWorkspacePort(Protocol):
     """Application 合并 worker candidate diff 所需的 Git 能力。"""
 
@@ -63,8 +68,10 @@ class FanoutArtifactPort(Protocol):
 
     def append_coordination(self, record: dict[str, Any]) -> str:
         """追加一条可审计 coordination JSONL 事实。"""
+# endregion 1. Workspace 与 Artifact Ports 结束
 
 
+# region 2. Worker-bound LIVE Port：只暴露绑定身份后的 publish/drain
 class LiveWorkerContextPort(Protocol):
     """绑定单一 Worker 身份与 attempt 的最小 coordination 能力。"""
 
@@ -86,8 +93,10 @@ class LiveWorkerContextPort(Protocol):
 
     def drain_mailbox(self, *, boundary: str) -> list[LiveHandoffEvent]:
         """在真实 AgentLoop 安全边界消费当前 attempt 的事实。"""
+# endregion 2. Worker-bound LIVE Port 结束
 
 
+# region 3. Worker、Finalizer 与 Replanner Ports：执行端和模型端均可替换但语义固定
 class FanoutWorkerPort(Protocol):
     """隔离 AgentLoop worker 和 finalizer 的执行边界。"""
 
@@ -125,7 +134,10 @@ class FanoutReplannerPort(Protocol):
         failed_results: list[LiveSubagentResult],
     ) -> PlanningDecision:
         """返回未完成工作的替换提议；Coordinator 再做确定性校验。"""
+# endregion 3. Worker、Finalizer 与 Replanner Ports 结束
 
 
+# region 4. 事件流 Port：与 Runtime 共用同一 Trace sink
 class LiveFanoutEvents(EventSink, Protocol):
     """别名，强调 fanout 与 Runtime 共用同一事实流端口。"""
+# endregion 4. 事件流 Port 结束

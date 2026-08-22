@@ -1,4 +1,10 @@
-"""Fanout 集成 workspace 的 Git adapter。"""
+"""Fanout candidate 与集成 workspace 之间的 Git Adapter。
+
+系统角色：读取主 workspace 的 HEAD/status/diff，并用 ``git apply`` 做 check/apply。
+Worker worktree 的基线固化也复用这里的 helper；本文件不决定集成顺序或冲突恢复。
+
+折叠导航：1 主 workspace Port；2 Worker worktree helper。
+"""
 
 from __future__ import annotations
 
@@ -12,6 +18,7 @@ from agent_forge.runtime.adapters.git_workspace import (
 from agent_forge.multi_agent.ports import FanoutWorkspacePort
 
 
+# region 1. 主 workspace Port：Coordinator 唯一通过这里读取和应用 candidate Diff
 class GitFanoutWorkspace(FanoutWorkspacePort):
     """封装主 workspace 的 unified diff 检查、合并和状态读取。"""
 
@@ -56,8 +63,10 @@ class GitFanoutWorkspace(FanoutWorkspacePort):
             check=False,
         )
         return result.returncode == 0, (result.stderr or result.stdout).strip()
+# endregion 1. 主 workspace Port 结束
 
 
+# region 2. Worker worktree helper：seed 已集成 Diff，并提交成下一 Worker 的干净基线
 def apply_unified_diff_to_workspace(
     workspace: Path,
     diff_text: str,
@@ -96,3 +105,4 @@ def commit_worker_baseline(workspace: Path) -> None:
         check=True,
         capture_output=True,
     )
+# endregion 2. Worker worktree helper 结束

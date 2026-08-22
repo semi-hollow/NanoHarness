@@ -1,4 +1,4 @@
-"""Multi-Agent 文件、Git 和执行适配器。"""
+"""Multi-Agent Adapter 层：实现文件、Git worktree 和真实 AgentLoop 边界。"""
 
 from .fanout_files import FanoutFileRepository
 from .git_workspace import GitFanoutWorkspace

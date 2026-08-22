@@ -1,4 +1,15 @@
-"""Live fanout 的确定性调度、受限恢复和一次剩余任务重规划。"""
+"""Multi-Agent 唯一执行编排器。
+
+系统角色：接收已经通过 ``FanoutPlan`` 校验的执行图，调度隔离 Worker，并把候选
+Diff 经过确定性门禁后合入集成 workspace。
+输入：计划、RuntimeConfig，以及 workspace/artifact/worker/replanner Ports。
+输出：``LiveFanoutSummary``、checkpoint、集成 Diff 和 Finalizer 证据。
+相邻边界：Planner 只提议计划；``LiveHandoffRuntime`` 只维护协作事实；本文件唯一
+拥有 Worker 生命周期、retry/replan、candidate gate 和最终集成顺序。
+
+折叠导航：1 Public 主链；2 Worker 调度；3 Candidate 集成；4 恢复与 checkpoint；
+5 Trace 证据；6 纯结果投影。先读 ``run``，需要解释 LIVE 时只展开 ``_run_live_plan``。
+"""
 
 from __future__ import annotations
 
@@ -40,8 +51,9 @@ FAIL_CLOSED_STATUSES = {
 
 
 class FanoutCoordinator:
-    """运行已验证 DAG；模型不能绕过 scope、merge 或 retry 边界。"""
+    """运行已验证 DAG；模型不能绕过 scope、freshness、merge 或 retry 边界。"""
 
+    # region 1. Public 主链：固定计划身份，执行所有 Worker，再由只读 Finalizer 收口
     def __init__(
         self,
         *,
@@ -369,6 +381,8 @@ class FanoutCoordinator:
         # endregion 3. Finalizer 与 evidence 发布结束
 
     def _validate_run_preconditions(self, base_revision: str) -> None:
+        """在创建 Worker 前拒绝脏 workspace、不可恢复审批和无 Git 基线。"""
+
         if not base_revision:
             raise RuntimeError("live fanout requires a git workspace")
         contains_writes = any(task.write_scope for task in self.plan.tasks)
@@ -379,7 +393,9 @@ class FanoutCoordinator:
             )
         if contains_writes and self.workspace.status():
             raise RuntimeError("write fanout requires a clean integration workspace")
+    # endregion 1. Public 主链结束
 
+    # region 2. Worker 调度：HARD 批次与 LIVE 动态启动共用同一 Worker/attempt 生命周期
     def _run_batch(
         self,
         tasks: list[SubagentTask],
@@ -436,7 +452,12 @@ class FanoutCoordinator:
         detected_conflicts: list[FanoutConflict],
         batch_history: list[list[str]],
     ) -> bool:
-        """动态启动 LIVE target，但只在 producer 最终集成后放行其 candidate。"""
+        """动态启动 LIVE target，但只在 Producer 最终集成后放行其 candidate。
+
+        输入是当前 generation 的 plan、结果和 attempt 账本；输出只表示本轮是否真正
+        启动过 Worker。启动只依赖 HARD completion 与 LIVE readiness，最终正确性则
+        始终由后面的 integration freshness gate 决定。
+        """
 
         runtime = self.live_handoff
         if runtime is None:  # pragma: no cover - caller protects this invariant
@@ -450,6 +471,7 @@ class FanoutCoordinator:
 
         with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
             while pending or running:
+                # region 1. 动态启动：HARD、LIVE readiness、并发与 write-scope 全部满足
                 observed_revision = runtime.state_revision
                 running_tasks = list(running.values())
                 launched: list[SubagentTask] = []
@@ -482,7 +504,9 @@ class FanoutCoordinator:
                     executed = True
                 if launched:
                     batch_history.append([task.id for task in launched])
+                # endregion 1. 动态启动结束
 
+                # region 2. 完成与 retry：Condition 唤醒，不靠轮询 sleep 决定正确性
                 done = [future for future in running if future.done()]
                 if not done:
                     if not running:
@@ -515,7 +539,9 @@ class FanoutCoordinator:
                         attempt_results.append(completed_worker_result)
                         current_results[task.id] = completed_worker_result
                     completed_now.append(completed_worker_result)
+                # endregion 2. 完成与 retry 结束
 
+                # region 3. 稳定集成：组合拓扑序 + Producer sealed + Consumer final version
                 # 组合拓扑序也是集成顺序；LIVE target 可以提前完成，但不能提前越过门禁。
                 for task_id in plan.integration_order(set(current_results)):
                     if task_id in successful_task_ids or task_id in pending:
@@ -552,6 +578,7 @@ class FanoutCoordinator:
                     completed_now,
                     [],
                 )
+                # endregion 3. 稳定集成结束
 
         for task in plan.tasks:
             final_result = current_results.get(task.id)
@@ -621,6 +648,8 @@ class FanoutCoordinator:
     ) -> None:
         """在一个原子 freshness 授权之后应用 candidate；冲突仍只恢复一次。"""
 
+        # region 1. Freshness 授权：最终版本或 Attempt 已过期时直接拒绝集成
+        # authorize_integration 是正确性边界；调度完成不等于仍有资格写入集成结果。
         try:
             runtime.authorize_integration(task.id, worker_result.attempt)
         except RuntimeError as exc:
@@ -632,6 +661,10 @@ class FanoutCoordinator:
             current_results[task.id] = worker_result
             runtime.seal_integration(task.id, worker_result.attempt, success=False)
             return
+        # endregion 1. Freshness 授权
+
+        # region 2. 候选应用与一次恢复：冲突后只允许从最新集成状态串行重跑
+        # 第一次失败的 candidate 只保留作证据；恢复 Attempt 必须重新过 freshness gate。
         outcome, detail = self._apply_candidate(task, worker_result)
         if outcome == "merge_conflict":
             worker_result.status = "merge_conflict"
@@ -674,6 +707,9 @@ class FanoutCoordinator:
                 return
             outcome, detail = self._apply_candidate(task, fresh)
             worker_result = fresh
+        # endregion 2. 候选应用与一次恢复
+
+        # region 3. 终态收口：失败保留 Handoff，成功再 sealed 并进入已合并集合
         if outcome != "merged":
             worker_result.status = outcome
             worker_result.error = detail
@@ -697,6 +733,7 @@ class FanoutCoordinator:
         if task.id not in merged_task_ids:
             merged_task_ids.append(task.id)
         runtime.seal_integration(task.id, worker_result.attempt, success=True)
+        # endregion 3. 终态收口
 
     def _run_worker_attempt(
         self,
@@ -708,12 +745,19 @@ class FanoutCoordinator:
         *,
         live_handoff: LiveHandoffRuntime | None = None,
     ) -> LiveSubagentResult:
+        """运行一个有编号的 Worker Attempt，并把异常统一投影为结果契约。"""
+
+        # region 1. Attempt 身份：先递增尝试号，再绑定不可伪造的 Worker Context
         attempt = self._next_attempt(task.id, attempt_counts)
         coordination = None
         if live_handoff is not None:
             context = live_handoff.begin_attempt(task.id, attempt)
             if live_handoff.plan.live_routes_for(task.id):
                 coordination = context
+        # endregion 1. Attempt 身份
+
+        # region 2. Worker Port：兼容 HARD-only 调用，并把 Adapter 异常投影为稳定结果
+        # 是否启用 LIVE 只改变额外 Context，不分叉 Worker 的真实执行 substrate。
         try:
             attempted_worker_result = (
                 self.workers.run_worker(
@@ -745,6 +789,9 @@ class FanoutCoordinator:
             attempted_worker_result.handoff = project_worker_handoff(
                 attempted_worker_result
             )
+        # endregion 2. Worker Port 调用
+
+        # region 3. Attempt 终态：LIVE Runtime 只记录真实完成状态，再返回 Coordinator
         if live_handoff is not None:
             live_handoff.finish_attempt(
                 task.id,
@@ -752,6 +799,7 @@ class FanoutCoordinator:
                 success=attempted_worker_result.status == "completed",
             )
         return attempted_worker_result
+        # endregion 3. Attempt 终态
 
     @staticmethod
     def _next_attempt(task_id: str, attempt_counts: dict[str, int]) -> int:
@@ -766,7 +814,9 @@ class FanoutCoordinator:
             and result.retryable
             and not _is_fail_closed_result(result)
         )
+    # endregion 2. Worker 调度结束
 
+    # region 3. Candidate 集成：动态冲突、scope、hash、patch applicability 与 handoff
     def _mark_dynamic_conflicts(
         self,
         batch_results: list[LiveSubagentResult],
@@ -810,6 +860,7 @@ class FanoutCoordinator:
     ) -> None:
         """按稳定顺序合并候选结果；补丁失效时仅允许一次最新状态串行重跑。"""
 
+        # region 1. 稳定索引：按输入任务顺序处理，不依赖并发完成顺序
         worker_result_by_id = {
             worker_result.task_id: worker_result for worker_result in batch_results
         }
@@ -817,11 +868,15 @@ class FanoutCoordinator:
             worker_result.task_id: index
             for index, worker_result in enumerate(batch_results)
         }
+        # endregion 1. 稳定索引
+
+        # region 2. 顺序集成：每个候选独立经过 apply gate 与一次冲突恢复
         for task in tasks:
             worker_result = worker_result_by_id[task.id]
             current_results[task.id] = worker_result
             if worker_result.status != "completed":
                 continue
+            # region 2.1 Apply 与恢复：旧候选失败时从最新 workspace 重跑一次
             outcome, detail = self._apply_candidate(task, worker_result)
             if outcome == "merge_conflict":
                 worker_result.status = "merge_conflict"
@@ -864,6 +919,9 @@ class FanoutCoordinator:
                     detected_conflicts.append(FanoutConflict([task.id], detail))
                     continue
                 worker_result = fresh
+            # endregion 2.1 Apply 与恢复
+
+            # region 2.2 接受结果：no-patch 保留失败证据，merged 才进入成功集合
             if outcome == "no_patch":
                 worker_result.status = "no_patch"
                 worker_result.error = detail
@@ -878,6 +936,8 @@ class FanoutCoordinator:
             successful_task_ids.add(task.id)
             if task.id not in merged_task_ids:
                 merged_task_ids.append(task.id)
+            # endregion 2.2 接受结果
+        # endregion 2. 顺序集成
 
     def _apply_candidate(
         self,
@@ -914,7 +974,9 @@ class FanoutCoordinator:
             if dependency_result is not None and dependency_result.handoff is not None:
                 handoffs.append(dependency_result.handoff)
         return handoffs
+    # endregion 3. Candidate 集成结束
 
+    # region 4. 有界恢复与 checkpoint：只替换未完成图，HARD-only 才允许 resume
     def _materialize_blocked_dependencies(
         self,
         plan: FanoutPlan,
@@ -969,6 +1031,10 @@ class FanoutCoordinator:
         current_results: dict[str, LiveSubagentResult],
         successful_task_ids: set[str],
     ) -> FanoutPlan:
+        """只为 remaining work 请求一次新计划，并保护已完成前缀。"""
+
+        # region 1. Remaining-work 证据：只把已完成 Handoff 与当前失败交给 Replanner
+        # Replanner 只能看稳定 Handoff/Result，不能读取 Worker 私有 Conversation。
         if self.replanner is None:
             raise RuntimeError("no replanner is configured")
         completed_tasks = [
@@ -990,6 +1056,10 @@ class FanoutCoordinator:
                 failed_worker_result.task_id for failed_worker_result in failed_results
             ),
         )
+        # endregion 1. Remaining-work 证据
+
+        # region 2. 有界提案：不得重定义已完成任务，LIVE 边只能连接本代剩余任务
+        # Proposed tasks 先过完成前缀与 generation 边界，再允许成为 effective plan。
         proposed = self.replanner.replan(
             goal=self.plan.goal,
             current_plan=effective_plan,
@@ -1022,6 +1092,9 @@ class FanoutCoordinator:
                 "replan LIVE dependencies may only connect current-generation "
                 "remaining tasks: " + ", ".join(invalid_live_endpoints)
             )
+        # endregion 2. 有界提案
+
+        # region 3. 新有效计划：冻结根验收标准，并记录新 digest 后返回
         # 根验收标准保持冻结；重规划只能替换尚未完成的任务。
         bounded = PlanningDecision(
             mode="fanout",
@@ -1038,6 +1111,7 @@ class FanoutCoordinator:
             effective_plan_digest=new_plan.digest,
         )
         return new_plan
+        # endregion 3. 新有效计划
 
     def _restore_previous(
         self,
@@ -1045,6 +1119,8 @@ class FanoutCoordinator:
     ) -> tuple[FanoutPlan, list[LiveSubagentResult], list[LiveSubagentResult], int]:
         """校验并恢复有效计划与已合并前缀，不重新调用 Planner 或改写历史结果。"""
 
+        # region 1. Run 身份：initial/effective plan、base revision 与 replan round 必须一致
+        # Resume 信任的是 digest 与 base revision，不信任 latest 指针或调用方描述。
         if not self.resume_from:
             return self.plan, [], [], 0
         payload = self.artifacts.load_resume(self.resume_from)
@@ -1071,7 +1147,10 @@ class FanoutCoordinator:
         replan_round = int(payload.get("replan_round") or 0)
         if replan_round not in {0, 1}:
             raise RuntimeError("fanout resume replan round is invalid")
+        # endregion 1. Run 身份
 
+        # region 2. 已合并前缀：逐项验证状态、文件存在性与 candidate SHA
+        # 只有 checkpoint 明确列入 merged_task_ids 的 completed 结果可以被恢复。
         saved_results = {
             str(row.get("task_id")): row
             for row in payload.get("results") or []
@@ -1121,7 +1200,10 @@ class FanoutCoordinator:
                     )
                 recovery_diffs.append((task_id, candidate))
             restored.append(restored_worker_result)
+        # endregion 2. 已合并前缀
 
+        # region 3. 隔离重放：先在临时 worktree 合成，再经真实 workspace apply gate
+        # validate_recovery_diffs 证明前缀内部可重放；workspace gate 再保护当前目标树。
         if recovery_diffs:
             combined = self.workers.validate_recovery_diffs(recovery_diffs)
             applicable, detail = self.workspace.apply_unified_diff(
@@ -1134,7 +1216,9 @@ class FanoutCoordinator:
             )
             if not applied:
                 raise RuntimeError(f"fanout resume integration failed: {detail}")
+        # endregion 3. 隔离重放
 
+        # region 4. Evidence 历史：只恢复已合并任务的历史 Attempts
         attempt_rows = payload.get("attempt_results") or payload.get("results") or []
         merged_id_set = set(merged_ids)
         restored_attempts = [
@@ -1143,6 +1227,7 @@ class FanoutCoordinator:
             if isinstance(row, dict) and str(row.get("task_id")) in merged_id_set
         ]
         return effective_plan, restored, restored_attempts, replan_round
+        # endregion 4. Evidence 历史
 
     def _checkpoint(
         self,
@@ -1182,7 +1267,9 @@ class FanoutCoordinator:
             for task in plan.tasks
             if task.id in current_results
         ]
+    # endregion 4. 有界恢复与 checkpoint 结束
 
+    # region 5. Trace 证据：集中记录调度、retry、replan 和终态，不参与业务决策
     def _record_fanout_started(self, effective_plan: FanoutPlan) -> None:
         self.events.add(
             0,
@@ -1296,8 +1383,10 @@ class FanoutCoordinator:
             metrics=metrics,
             replan_round=replan_round,
         )
+    # endregion 5. Trace 证据结束
 
 
+# region 6. 纯结果投影：把持久化 payload 和运行事实转换为稳定结果类型
 def _is_fail_closed_result(result: LiveSubagentResult) -> bool:
     kind = result.failure_kind.lower()
     deterministic_denial = any(
@@ -1352,3 +1441,4 @@ def _fanout_status(
     if finalizer_decision == "BLOCKED":
         return "blocked"
     return "needs_revision"
+# endregion 6. 纯结果投影结束

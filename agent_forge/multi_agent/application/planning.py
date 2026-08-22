@@ -1,4 +1,13 @@
-"""Planner 只提出 Single/Fanout 方案；Runtime 负责校验和执行。"""
+"""自然语言任务到唯一 ``FanoutPlan`` 之前的有界提议层。
+
+系统角色：让模型选择 Single/Fanout 并提出结构化任务图，但不授予任何执行权。
+输入：原始任务、bounded repository map、可用工具和失败/完成 handoff。
+输出：``PlanningOutcome`` 或 remaining-work ``PlanningDecision``。
+相邻边界：``StructuredOutputParser`` 只修复 JSON；Domain contract 校验字段；
+``FanoutPlan`` 再校验 HARD/LIVE 图；``FanoutCoordinator`` 才执行。
+
+折叠导航：1 输出契约；2 Planner 主链；3 artifact/resume；4 纯投影 helper。
+"""
 
 from __future__ import annotations
 
@@ -18,6 +27,7 @@ from ..domain.planning import PlanningDecision
 
 MAX_REPO_MAP_CHARS = 12_000
 
+# region 1. 输出契约：固定 Schema、明确失败类型，并且持久化时不保存模型原文
 PLANNING_SCHEMA: dict[str, Any] = {
     "type": "object",
     "required": ["mode", "reason", "global_acceptance_criteria", "tasks"],
@@ -109,11 +119,14 @@ class PlanningOutcome:
             "decision": self.decision.to_dict() if self.decision else None,
             # 持久化产物不复制模型原文；已解析契约和失败原因足以构成审计证据。
         }
+# endregion 1. 输出契约结束
 
 
+# region 2. Planner 主链：一次正常请求 + 至多一次结构修复，不直接启动 Worker
 class AdaptivePlanner:
     """一次提议、至多一次 JSON 修复的有界 Planner/Replanner。"""
 
+    # region 1. Public 决策：首轮 decide 与 remaining-work replan 共用同一请求边界
     def __init__(
         self,
         *,
@@ -180,13 +193,16 @@ class AdaptivePlanner:
         if outcome.decision is None or outcome.decision.mode != "fanout":
             raise PlanningError(outcome.failure or "replanner did not return fanout")
         return outcome.decision
+    # endregion 1. Public 决策结束
 
+    # region 2. 模型请求：解析、Domain 校验、一次 repair，失败则显式 fallback
     def _request(
         self,
         prompt: str,
         *,
         validate_fanout_goal: str = "",
     ) -> PlanningOutcome:
+        # region 1. 固定请求：同一 Schema 同时约束首轮规划和剩余任务重规划
         parser = StructuredOutputParser(PLANNING_SCHEMA, max_repair_attempts=1)
         model = self.model_factory()
         messages = [
@@ -201,6 +217,9 @@ class AdaptivePlanner:
         ]
         raw_responses: list[str] = []
         failure = ""
+        # endregion 1. 固定请求结束
+
+        # region 2. 有界解析：模型只提议，Parser 与 Domain 两次检查后才形成 decision
         for attempt in range(2):
             response = model.chat(messages, [])
             if response.error:
@@ -233,6 +252,9 @@ class AdaptivePlanner:
             if attempt == 0:
                 messages.append(Message(role="assistant", content=raw))
                 messages.append(Message(role="user", content=repair_prompt))
+        # endregion 2. 有界解析结束
+
+        # region 3. 失败收口：不执行半结构计划，交给上层选择 Single fallback
         return PlanningOutcome(
             decision=None,
             fallback_to_single=True,
@@ -240,9 +262,15 @@ class AdaptivePlanner:
             attempts=len(raw_responses) or 1,
             raw_responses=raw_responses,
         )
+        # endregion 3. 失败收口结束
+    # endregion 2. 模型请求结束
+# endregion 2. Planner 主链结束
 
 
+# region 3. Artifact 与 resume：保存已解析事实，恢复时绝不重新调用 Planner
 def write_planning_artifact(path: str | Path, outcome: PlanningOutcome) -> Path:
+    """原子写入已解析 PlanningOutcome，不把 raw model response 复制到 artifact。"""
+
     artifact = Path(path)
     atomic_write_json(artifact, outcome.to_dict())
     return artifact
@@ -280,8 +308,10 @@ def resumed_planning_outcome(plan: FanoutPlan) -> PlanningOutcome:
         attempts=0,
         source="resume",
     )
+# endregion 3. Artifact 与 resume 结束
 
 
+# region 4. 纯投影 helper：限制 Prompt 体积并提取失败事实，不做调度决策
 def _bounded_json(value: Any, limit: int = 8_000) -> str:
     return json.dumps(value, ensure_ascii=False, sort_keys=True)[:limit]
 
@@ -296,3 +326,4 @@ def _failure_evidence(result: LiveSubagentResult) -> dict[str, Any]:
         "error": result.error[:1000],
         "handoff": result.handoff.to_dict() if result.handoff else None,
     }
+# endregion 4. 纯投影 helper 结束

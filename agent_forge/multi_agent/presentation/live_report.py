@@ -1,11 +1,17 @@
-"""Live fanout summary 的 Markdown renderer。"""
+"""把 ``LiveFanoutSummary`` 投影为只读、可审计的 Markdown 报告。
+
+输入是 Coordinator 已经收口的结构化事实，输出是展示文本；本文件不重新判断
+成功、冲突或恢复，也不读取 Worker 私有 Trace。折叠后按“Run/指标 -> Worker
+证据 -> 治理结论”三块阅读即可。
+"""
 
 from ..domain.live import LiveFanoutSummary
 
 
 def render_live_fanout_report(summary: LiveFanoutSummary) -> str:
-    """渲染当前消耗、恢复消耗、任务证据和 claim boundary。"""
+    """渲染当前消耗、恢复消耗、任务证据和 Claim Boundary。"""
 
+    # region 1. Run 与指标：区分本轮成本、历史恢复成本和完整证据链成本
     current_metric_keys = (
         "task_count",
         "attempt_count",
@@ -69,6 +75,10 @@ def render_live_fanout_report(summary: LiveFanoutSummary) -> str:
     lines.extend(
         f"| {key} | {summary.metrics.get(key, 0)} |" for key in recovery_metric_keys
     )
+    # endregion 1. Run 与指标
+
+    # region 2. Worker 证据：展示任务结果、最小 Handoff 和恢复事实
+    # 这里只使用 Summary 内已脱敏的投影，不展开私有 Conversation 或完整 Trace。
     lines.extend(
         [
             "",
@@ -110,6 +120,9 @@ def render_live_fanout_report(summary: LiveFanoutSummary) -> str:
             "",
         ]
     )
+    # endregion 2. Worker 证据
+
+    # region 3. 治理结论：冲突门、Finalizer 与可对外声称的边界
     if summary.conflicts:
         lines.extend(
             f"- `{conflict.task_ids}`: {conflict.reason}"
@@ -150,3 +163,4 @@ def render_live_fanout_report(summary: LiveFanoutSummary) -> str:
         ]
     )
     return "\n".join(lines)
+    # endregion 3. 治理结论

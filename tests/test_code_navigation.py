@@ -77,10 +77,18 @@ CORE_WORKFLOW_ENTRYPOINTS = {
     },
     "agent_forge/multi_agent/application/fanout.py": {
         "FanoutCoordinator.run": 3,
+        "FanoutCoordinator._merge_live_result": 3,
+        "FanoutCoordinator._run_worker_attempt": 3,
+        "FanoutCoordinator._merge_batch": 4,
+        "FanoutCoordinator._replan_remaining": 3,
+        "FanoutCoordinator._restore_previous": 4,
     },
     "agent_forge/multi_agent/adapters/local_worker.py": {
         "LocalAgentWorkerAdapter.run_worker": 5,
         "LocalAgentWorkerAdapter.run_finalizer": 4,
+    },
+    "agent_forge/multi_agent/domain/live.py": {
+        "aggregate_live_metrics": 3,
     },
     "agent_forge/bench/application/swebench.py": {
         "RunSwebench.run_benchmark": 4,
@@ -447,6 +455,39 @@ REMOVED_PATCH_API_MARKERS = {
     "write_integration_patch",
 }
 
+# 这五个文件是 Multi-Agent 核心阅读主线的唯一深读 Owner。约束大区名称而不锁行号、
+# 私有 helper 或小实现，保证 Collapse All 后先看到稳定架构骨架，也避免测试反过来
+# 阻碍正常重构。
+MULTI_AGENT_FOLD_MAP = {
+    "agent_forge/multi_agent/application/fanout.py": {
+        "Public 主链",
+        "Worker 调度",
+        "Candidate 集成",
+        "有界恢复与 checkpoint",
+        "Trace 证据",
+    },
+    "agent_forge/multi_agent/application/live_handoff.py": {
+        "Attempt 生命周期",
+        "发布与投递",
+        "最终集成门禁",
+        "Generation、唤醒与只读查询",
+    },
+    "agent_forge/multi_agent/application/planning.py": {
+        "Planner 主链",
+        "Artifact 与 resume",
+    },
+    "agent_forge/multi_agent/adapters/local_worker.py": {
+        "Worker 生命周期",
+        "Finalizer",
+        "恢复验证",
+    },
+    "agent_forge/multi_agent/domain/live.py": {
+        "唯一执行计划",
+        "结果与持久化 contract",
+        "输入规范化与组合图校验",
+    },
+}
+
 
 class CodeNavigationContractTest(unittest.TestCase):
     def test_runtime_core_is_exactly_twelve_existing_files(self) -> None:
@@ -543,6 +584,31 @@ class CodeNavigationContractTest(unittest.TestCase):
                         unexplained_regions,
                         [],
                         "long core regions need a call-site navigation comment",
+                    )
+
+    def test_multi_agent_core_owners_keep_a_foldable_architecture_map(self) -> None:
+        """Multi-Agent 深读文件折叠后必须保留少量、可搜索的大阶段。"""
+
+        for relative_path, expected_sections in MULTI_AGENT_FOLD_MAP.items():
+            source = (PROJECT_ROOT / relative_path).read_text(encoding="utf-8")
+            tree = ast.parse(source)
+            region_titles = [
+                line.strip().removeprefix("# region ")
+                for line in source.splitlines()
+                if line.strip().startswith("# region ")
+                and len(line) - len(line.lstrip()) <= 4
+            ]
+            with self.subTest(path=relative_path):
+                self.assertTrue(ast.get_docstring(tree))
+                self.assertEqual(
+                    source.count("# region "),
+                    source.count("# endregion "),
+                    "all folding regions must remain paired",
+                )
+                for section in expected_sections:
+                    self.assertTrue(
+                        any(section in title for title in region_titles),
+                        f"missing foldable architecture section: {section}",
                     )
 
     def test_control_adapters_explicitly_expose_their_port_hierarchy(self) -> None:

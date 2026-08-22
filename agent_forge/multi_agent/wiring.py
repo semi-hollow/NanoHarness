@@ -1,4 +1,11 @@
-"""Multi-Agent 用例的统一依赖装配点。"""
+"""Multi-Agent 用例的唯一 composition root。
+
+输入：typed plan、RuntimeConfig、trace 和两个 factory。
+输出：已经连接 Git workspace、artifact repository 和真实 AgentLoop Worker 的
+``FanoutCoordinator``。本文件只装配，不复制调度或治理逻辑。
+
+折叠导航：1 BuildRequest；2 Composition root。
+"""
 
 from __future__ import annotations
 
@@ -23,6 +30,7 @@ RegistryFactory = Callable[[Path, ExecutionEnvironment], ToolRegistry]
 LLMFactory = Callable[[], ModelPort]
 
 
+# region 1. BuildRequest：调用方需要提供的完整、显式装配输入
 # 核心数据：装配真实 fanout coordinator 所需的计划、Runtime 与 factory。
 @dataclass(frozen=True)
 class LiveFanoutBuildRequest:
@@ -38,11 +46,17 @@ class LiveFanoutBuildRequest:
     resume_from: str | Path | None = None
     replanner: FanoutReplannerPort | None = None
     allow_replan: bool = True
+# endregion 1. BuildRequest 结束
 
 
+# region 2. Composition root：创建三个 Adapter，再把 Ports 交给唯一 Coordinator
 # 主要入口：装配 DAG、隔离 workspace、真实 AgentLoop worker 和 finalizer。
 def build_live_fanout(request: LiveFanoutBuildRequest) -> FanoutCoordinator:
-    """装配 Git、文件 artifact 和真实 AgentLoop worker adapters。"""
+    """装配 Git、文件 artifact 和真实 AgentLoop Worker adapters。
+
+    这里是外部调用进入 Multi-Agent execution half 的第一跳；执行顺序必须继续进入
+    ``FanoutCoordinator.run``，不能在 wiring 中提前启动 Worker。
+    """
 
     workspace = GitFanoutWorkspace(request.base_config.workspace)
     artifacts = FanoutFileRepository(request.run_dir)
@@ -69,3 +83,4 @@ def build_live_fanout(request: LiveFanoutBuildRequest) -> FanoutCoordinator:
         resume_from=str(request.resume_from) if request.resume_from else None,
         allow_replan=request.allow_replan,
     )
+# endregion 2. Composition root 结束

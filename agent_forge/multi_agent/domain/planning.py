@@ -1,4 +1,8 @@
-"""Adaptive execution 的最小规划契约。"""
+"""Planner model output 到 canonical ``FanoutPlan`` 之间的 Domain contract。
+
+本文件只解析和校验模型提议，不调用模型、不调度 Worker。折叠后只保留三块：
+1 单个任务；2 Single/Fanout decision；3 无状态输入 helper。
+"""
 
 from __future__ import annotations
 
@@ -13,6 +17,7 @@ MAX_CRITERIA = 16
 MAX_CRITERION_CHARS = 500
 
 
+# region 1. 单个 Planner task：仍是提议，尚未获得 Runtime 执行权
 @dataclass(frozen=True)
 class PlannedTask:
     """Planner 可以提出、但必须由 Runtime 校验的一个任务。"""
@@ -26,6 +31,8 @@ class PlannedTask:
     max_steps: int = 12
 
     def to_mapping(self) -> dict[str, Any]:
+        """投影成 ``FanoutPlan.from_mapping`` 可继续校验的结构。"""
+
         return {
             "id": self.id,
             "task": self.task,
@@ -35,8 +42,10 @@ class PlannedTask:
             "acceptance_criteria": list(self.acceptance_criteria),
             "max_steps": self.max_steps,
         }
+# endregion 1. 单个 Planner task 结束
 
 
+# region 2. PlanningDecision：解析策略门，并把 fanout 提议送入唯一 FanoutPlan
 @dataclass(frozen=True)
 class PlanningDecision:
     """Single/Fanout 策略和 Fanout 候选任务的已解析结果。"""
@@ -55,6 +64,9 @@ class PlanningDecision:
         available_tools: Iterable[str],
         max_fanout_tasks: int = 16,
     ) -> "PlanningDecision":
+        """解析结构化模型输出，并拒绝模式、工具和预算越界。"""
+
+        # region 1. Decision header：先确定 Single/Fanout 和全局验收边界
         if not isinstance(data, dict):
             raise ValueError("planning decision must be an object")
         mode = str(data.get("mode") or "").strip().lower()
@@ -81,7 +93,9 @@ class PlanningDecision:
             raise ValueError(
                 f"fanout planning decision requires 1-{max_fanout_tasks} tasks"
             )
+        # endregion 1. Decision header 结束
 
+        # region 2. Fanout tasks：逐个校验工具集合和 step budget，再构造 typed task
         allowed = set(available_tools)
         tasks: list[PlannedTask] = []
         for row in rows:
@@ -111,6 +125,9 @@ class PlanningDecision:
                     max_steps=max_steps,
                 )
             )
+        # endregion 2. Fanout tasks 结束
+
+        # region 3. Decision 收口：LIVE 边仍要在 FanoutPlan 中参与组合图校验
         return cls(
             mode=mode,
             reason=reason,
@@ -120,6 +137,7 @@ class PlanningDecision:
                 LiveDependency.from_mapping(row) for row in live_rows
             ],
         )
+        # endregion 3. Decision 收口结束
 
     def to_fanout_plan(
         self,
@@ -145,6 +163,8 @@ class PlanningDecision:
         )
 
     def to_dict(self) -> dict[str, Any]:
+        """生成 planning artifact 使用的已解析、无 raw response 结构。"""
+
         payload = {
             "mode": self.mode,
             "reason": self.reason,
@@ -156,8 +176,10 @@ class PlanningDecision:
                 dependency.to_dict() for dependency in self.live_dependencies
             ]
         return payload
+# endregion 2. PlanningDecision 结束
 
 
+# region 3. 无状态输入 helper：只做 mapping/list/criteria 规范化
 def _subagent_mapping(task: SubagentTask) -> dict[str, Any]:
     return {
         "id": task.id,
@@ -191,3 +213,4 @@ def _criteria(value: Any, name: str) -> list[str]:
             f"{name} entries support at most {MAX_CRITERION_CHARS} characters"
         )
     return criteria
+# endregion 3. 无状态输入 helper 结束

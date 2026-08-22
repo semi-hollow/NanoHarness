@@ -1,4 +1,19 @@
-"""基于本地 worktree 和真实 AgentLoop 的 fanout worker adapter。"""
+"""把一个计划任务落到真实 AgentLoop、隔离 worktree 和候选 Diff。
+
+系统角色：这是 Multi-Agent Application 与 Single-Agent Runtime 之间的执行桥梁。
+输入是 ``SubagentTask``、已集成的前置 Diff 和依赖 Handoff；输出是
+``LiveSubagentResult`` 或只读 ``FinalizerResult``。Coordinator 只消费这些稳定
+结果，不接触 Worker 内部的 AgentLoop、临时 worktree 或模型对象。
+
+相邻边界：
+
+* ``FanoutCoordinator`` 决定何时运行、重试和合并；本文件只执行一个 Worker。
+* ``AgentLoop`` 仍拥有模型/工具主循环；本文件只为它装配隔离环境和受限工具。
+* ``LiveHandoffRuntime`` 传递协作证据；它不共享 Conversation、Window Memory 或 Diff。
+
+折叠阅读顺序：构造依赖 -> Worker 生命周期 -> Finalizer -> 恢复验证 ->
+Prompt/Registry -> 结果判定。理解主执行链时通常只需展开前四区。
+"""
 
 from __future__ import annotations
 
@@ -51,8 +66,9 @@ LLMFactory = Callable[[], ModelPort]
 
 
 class LocalAgentWorkerAdapter(FanoutWorkerPort):
-    """执行隔离 worker、只读 finalizer 和恢复 diff 验证。"""
+    """执行隔离 Worker、只读 Finalizer 和恢复 Diff 验证的唯一 Adapter。"""
 
+    # region 1. 构造依赖：保存计划、Runtime 工厂和受锁保护的 Git 操作
     def __init__(
         self,
         *,
@@ -73,7 +89,9 @@ class LocalAgentWorkerAdapter(FanoutWorkerPort):
         self.registry_factory = registry_factory
         self.workspace = Path(base_config.workspace).resolve()
         self._git_lock = threading.Lock()
+    # endregion 1. 构造依赖
 
+    # region 2. Worker 生命周期：隔离 -> AgentLoop -> 候选 Diff -> 稳定结果
     # 主要入口：把一个 SubagentTask 变成隔离运行、候选 Diff 和可合并 Worker 结果。
     def run_worker(
         self,
@@ -318,7 +336,9 @@ class LocalAgentWorkerAdapter(FanoutWorkerPort):
             unresolved_issues=unresolved_issues,
             handoff=handoff,
         )
+    # endregion 2. Worker 生命周期
 
+    # region 3. Finalizer：在独立只读环境验收已集成候选
     # 主要入口：在独立只读环境复核合并结果，且禁止 Finalizer 产生新改动。
     def run_finalizer(
         self,
@@ -472,9 +492,15 @@ class LocalAgentWorkerAdapter(FanoutWorkerPort):
             usage_summary=usage_summary,
             criterion_results=criterion_results,
         )
+    # endregion 3. 只读 Finalizer
 
+    # region 4. 恢复验证：重放 checkpoint Diff，但不触碰真实集成 workspace
     def validate_recovery_diffs(self, diffs: list[tuple[str, str]]) -> str:
-        """在临时 worktree 顺序重放 diff，返回合并后的 unified diff。"""
+        """在临时 worktree 顺序重放 Diff，返回可恢复的合并候选。
+
+        这一步只验证 checkpoint 中记录的候选仍可按原顺序应用；任何失败都交给
+        Coordinator 以 fail-closed 方式停止恢复，绝不在真实 workspace 上试错。
+        """
 
         validation_dir = self.root / "resume_validation"
         environment = ExecutionEnvironment(
@@ -506,8 +532,10 @@ class LocalAgentWorkerAdapter(FanoutWorkerPort):
             finally:
                 with self._git_lock:
                     environment.cleanup()
+    # endregion 4. 恢复验证
 
 
+# region 5. Worker 输入：按任务裁剪 Tool Registry，并构造最小 Prompt
 def _filtered_registry(
     full_registry: ToolRegistry,
     task: SubagentTask,
@@ -611,8 +639,10 @@ def finalizer_task_prompt(
             *rows,
         ]
     )
+# endregion 5. Worker 输入
 
 
+# region 6. 结果投影：从真实文件、Trace 和 Finalizer 文本推导结构化事实
 def _worker_status(
     task: SubagentTask,
     final_answer: str,
@@ -782,3 +812,4 @@ def _decision(answer: str) -> str:
 
 
 _finalizer_task = finalizer_task_prompt
+# endregion 6. 结果投影

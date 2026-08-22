@@ -1,4 +1,9 @@
-"""Adaptive Planner 与真实 AgentLoop fanout 的稳定公共 API。"""
+"""Multi-Agent V1 的稳定 import surface。
+
+本文件只 re-export Planner、Coordinator、领域契约和唯一 composition root；没有
+业务逻辑或第二条执行链。调用方从这里认识能力，真实控制流从
+``build_live_fanout(...)`` 进入 ``FanoutCoordinator.run(...)``。
+"""
 
 from .adapters.plan_files import load_fanout_plan, load_resume_initial_plan
 from .application.planning import (

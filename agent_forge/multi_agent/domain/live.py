@@ -1,4 +1,13 @@
-"""真实 AgentLoop fanout 的计划与结果模型。"""
+"""Multi-Agent 执行计划、Worker 结果和最终汇总的 canonical Domain contract。
+
+系统角色：定义从 Planner 到 Coordinator、再到 artifact/Workbench 的稳定数据语言。
+输入：外部 mapping、真实 Worker evidence 和 Finalizer 结果。
+输出：可哈希 ``FanoutPlan``、紧凑 ``WorkerHandoff``、checkpoint 与 summary。
+相邻边界：本文件不调用模型、不创建线程、不操作 Git；所有执行行为由 Application
+拥有，所有文件 IO 由 Adapter 拥有。
+
+折叠导航：1 唯一计划；2 结果与持久化 contract；3 metrics；4 输入规范化与图校验。
+"""
 
 from __future__ import annotations
 
@@ -20,14 +29,14 @@ from .live_handoff import LiveDependency
 TASK_ID_PATTERN = re.compile(r"^[A-Za-z0-9_.-]+$")
 
 
+# region 1. 唯一执行计划：JSON mapping → typed tasks → HARD/LIVE 组合图校验 → digest
 # 核心数据：经过校验并可恢复的 live fanout 任务 DAG。
 @dataclass(frozen=True)
 class FanoutPlan:
     """经过验证、可确定性调度的任务 DAG。
 
     ``goal`` 是整体目标，``tasks`` 是带依赖和写范围的子任务。
-    ``digest`` 对规范化
-    计划做内容哈希，恢复时拒绝计划漂移。
+    ``digest`` 对规范化计划做内容哈希，恢复时拒绝计划漂移。
     """
 
     goal: str
@@ -48,6 +57,7 @@ class FanoutPlan:
     def from_mapping(cls, data: dict[str, Any]) -> "FanoutPlan":
         """在 JSON 边界之后验证计划结构和依赖关系。"""
 
+        # region 1. Task contract：逐个收敛 id、文本、scope、tools、criteria 和 step budget
         goal = str(data.get("goal") or "").strip()
         if not goal:
             raise ValueError("fanout plan goal must not be empty")
@@ -102,6 +112,9 @@ class FanoutPlan:
                     max_steps=max_steps,
                 )
             )
+        # endregion 1. Task contract 结束
+
+        # region 2. LIVE contract：解析语义边，统一交给构造后的组合图校验
         live_rows = data.get("live_dependencies", [])
         if not isinstance(live_rows, list):
             raise ValueError("fanout plan live_dependencies must be a list")
@@ -116,6 +129,7 @@ class FanoutPlan:
                 LiveDependency.from_mapping(row) for row in live_rows
             ],
         )
+        # endregion 2. LIVE contract 结束
 
     @property
     def digest(self) -> str:
@@ -125,6 +139,8 @@ class FanoutPlan:
         return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
     def to_dict(self) -> dict[str, Any]:
+        """生成 digest、checkpoint 和 artifact 共用的 canonical mapping。"""
+
         payload: dict[str, Any] = {
             "goal": self.goal,
             "tasks": [_task_to_dict(task) for task in self.tasks],
@@ -141,6 +157,8 @@ class FanoutPlan:
         return payload
 
     def live_dependencies_for(self, task_id: str) -> list[LiveDependency]:
+        """返回以该 task 为 Consumer 的 inbound LIVE 边。"""
+
         return [
             dependency
             for dependency in self.live_dependencies
@@ -184,8 +202,10 @@ class FanoutPlan:
             for task_id in ready:
                 dependencies.pop(task_id)
         return ordered
+# endregion 1. 唯一执行计划结束
 
 
+# region 2. 结果与持久化 contract：Worker evidence → handoff/checkpoint/summary/finalizer
 @dataclass(frozen=True)
 class WorkerHandoff:
     """上游结果向直接依赖任务传递的紧凑、确定性语义状态。"""
@@ -366,8 +386,10 @@ class FinalizerResult:
     usage_path: str
     usage_summary: dict[str, Any]
     criterion_results: list[CriterionResult] = field(default_factory=list)
+# endregion 2. 结果与持久化 contract 结束
 
 
+# region 3. Metrics 投影：区分当前 Run、恢复历史和完整 evidence chain
 def aggregate_live_metrics(
     results: list[LiveSubagentResult],
     wall_time_ms: int,
@@ -377,6 +399,8 @@ def aggregate_live_metrics(
 ) -> dict[str, Any]:
     """区分本次消耗、恢复历史和完整证据链消耗。"""
 
+    # region 1. 时间与数量：恢复 Worker 不进入本轮并发收益口径
+    # wall time 只对应当前执行；历史恢复时长另列，避免制造虚假并发比率。
     keys = (
         "llm_calls",
         "total_tokens",
@@ -408,6 +432,10 @@ def aggregate_live_metrics(
         if wall_time_ms
         else 0.0,
     }
+    # endregion 1. 时间与数量
+
+    # region 2. Usage 三口径：current、resumed history、evidence chain
+    # 每个 Usage key 使用同一公式，只有成本字段保留小数精度。
     for key in keys:
         current_worker_value = sum(
             float(result.usage_summary.get(key) or 0)
@@ -429,10 +457,16 @@ def aggregate_live_metrics(
             metrics[key] = int(current_value)
             metrics[f"resumed_{key}"] = int(resumed_worker_value)
             metrics[f"evidence_chain_{key}"] = int(evidence_chain_value)
+    # endregion 2. Usage 三口径
+
+    # region 3. Finalizer 单独可见：便于区分执行成本与最终验收成本
     metrics["finalizer_llm_calls"] = int(finalizer_usage.get("llm_calls") or 0)
     return metrics
+    # endregion 3. Finalizer 单独可见
+# endregion 3. Metrics 投影结束
 
 
+# region 4. 输入规范化与组合图校验：所有外部字符串和依赖关系在执行前 fail closed
 def _normalize_scope(value: Any) -> str:
     text = str(value or "").strip().replace("\\", "/")
     while text.startswith("./"):
@@ -502,6 +536,7 @@ def _validate_dependency_graph(
 ) -> None:
     """一次性验证唯一 FanoutPlan 的 HARD、LIVE 和组合并发边界。"""
 
+    # region 1. Identity 与 edge：拒绝重复、未知、自引用和 HARD/LIVE 双重语义
     task_ids = [task.id for task in tasks]
     if len(task_ids) != len(set(task_ids)):
         raise ValueError("subagent task ids must be unique")
@@ -540,7 +575,9 @@ def _validate_dependency_graph(
         raise ValueError(
             f"dependency {producer} -> {target} cannot be both HARD and LIVE"
         )
+    # endregion 1. Identity 与 edge 结束
 
+    # region 2. 组合拓扑：分别复用 HARD 校验，再把 LIVE 边加入同一死锁检查
     # 复用 HARD 图校验，再校验组合图，统一阻断依赖环。
     build_execution_batches(tasks)
     upstream_by_task = {task.id: list(task.depends_on) for task in tasks}
@@ -557,7 +594,9 @@ def _validate_dependency_graph(
             for task in tasks
         ]
     )
+    # endregion 2. 组合拓扑结束
 
+    # region 3. 并发写范围：所有 LIVE participant 必须能安全并行
     live_task_ids = {
         task_id
         for edge in live_dependencies
@@ -571,3 +610,5 @@ def _validate_dependency_graph(
             "LIVE workers require non-overlapping write scopes: "
             + conflicts[0].reason
         )
+    # endregion 3. 并发写范围结束
+# endregion 4. 输入规范化与组合图校验结束

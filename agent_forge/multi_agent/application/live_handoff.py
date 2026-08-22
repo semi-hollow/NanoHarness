@@ -1,4 +1,15 @@
-"""LIVE facts 的唯一授权、mailbox、版本与 freshness owner。"""
+"""LIVE coordination 的唯一一致性 Owner。
+
+系统角色：在多个真实 Worker 并发运行时，集中维护 READY/FEEDBACK/UPDATE、mailbox、
+版本、generation、attempt 和最终 freshness；它不负责调度 Worker，也不应用 Diff。
+输入：已冻结 ``FanoutPlan``、worker-bound publish/drain 请求和集成阶段通知。
+输出：可交付语义证据、LIVE readiness、集成授权以及追加式 coordination timeline。
+相邻边界：``FanoutCoordinator`` 决定何时启动/集成；``LiveWorkerContext`` 隐藏发布者
+身份；``AgentLoop`` 只在 safe model boundary 消费 mailbox。
+
+折叠导航：1 状态容器；2 Attempt 生命周期；3 发布与投递；4 最终集成门禁；
+5 Generation/查询；6 锁内不变量；7 Worker-bound facade。
+"""
 
 from __future__ import annotations
 
@@ -14,6 +25,7 @@ from ..ports import FanoutArtifactPort, LiveWorkerContextPort
 class LiveHandoffRuntime:
     """用一个锁维护 LIVE 跨字段不变量；它不调度 Worker，也不应用 Diff。"""
 
+    # region 1. 状态容器：一个 Condition/RLock 保护所有跨字段事实和唤醒版本
     def __init__(self, plan: FanoutPlan, artifacts: FanoutArtifactPort) -> None:
         self.plan = plan
         self.artifacts = artifacts
@@ -51,7 +63,9 @@ class LiveHandoffRuntime:
     def timeline(self) -> list[dict[str, Any]]:
         with self._condition:
             return [dict(record) for record in self._timeline]
+    # endregion 1. 状态容器结束
 
+    # region 2. Attempt 生命周期：retry 原子失效旧发布、消费版本和 mailbox
     def begin_attempt(self, task_id: str, worker_attempt_id: int) -> LiveWorkerContextPort:
         """绑定 Worker attempt；retry 会原子失效旧发布、mailbox 与消费版本。"""
 
@@ -81,6 +95,8 @@ class LiveHandoffRuntime:
         *,
         success: bool,
     ) -> None:
+        """记录 Worker 终态；只有 completed attempt 才可能进入集成授权。"""
+
         with self._condition:
             self._require_current_attempt(task_id, worker_attempt_id)
             if self._worker_states.get(task_id) != "running":
@@ -93,7 +109,9 @@ class LiveHandoffRuntime:
                 success=success,
             )
             self._bump_locked()
+    # endregion 2. Attempt 生命周期结束
 
+    # region 3. 发布与投递：Runtime 注入身份，模型只填写语义内容和合法 route
     def publish(
         self,
         publisher_task_id: str,
@@ -109,6 +127,7 @@ class LiveHandoffRuntime:
     ) -> LiveHandoffEvent:
         """Runtime 注入发布者与代际身份，并在持久化成功后提交内存状态。"""
 
+        # region 1. 绑定事实：规范事件类型，并从 Worker context 取得可信身份
         try:
             normalized_type = LiveEventType(str(event_type).upper())
         except ValueError as exc:
@@ -129,6 +148,9 @@ class LiveHandoffRuntime:
                 worker_attempt_id=worker_attempt_id,
                 caused_by_event_id=caused_by_event_id,
             )
+            # endregion 1. 绑定事实结束
+
+            # region 2. 原子提交：先校验并持久化，再更新 latest/mailbox 和唤醒调度器
             self._validate_publish_locked(event)
             if event.event_id in self._events:
                 raise ValueError("duplicate coordination event")
@@ -145,6 +167,7 @@ class LiveHandoffRuntime:
                 self._latest[self._route_key(event)] = event
             self._mailboxes.setdefault(target_task_id, []).append(event)
             self._bump_locked()
+            # endregion 2. 原子提交结束
             return event
 
     def drain_mailbox(
@@ -201,7 +224,9 @@ class LiveHandoffRuntime:
                 if self._worker_states.get(dependency.producer_task_id) == "failed":
                     return False
             return True
+    # endregion 3. 发布与投递结束
 
+    # region 4. 最终集成门禁：启动可以早，Producer sealed 与最终版本消费不能省略
     def authorize_integration(self, task_id: str, worker_attempt_id: int) -> None:
         """原子冻结 freshness 判断；成功后该 attempt 不再允许发布新事实。"""
 
@@ -249,6 +274,8 @@ class LiveHandoffRuntime:
         *,
         success: bool,
     ) -> None:
+        """记录 candidate apply 的可信结果，供下游 integration gate 使用。"""
+
         with self._condition:
             self._require_current_attempt(task_id, worker_attempt_id)
             if self._worker_states.get(task_id) not in {
@@ -269,7 +296,9 @@ class LiveHandoffRuntime:
                 final_versions=self.latest_versions_from(task_id),
             )
             self._bump_locked()
+    # endregion 4. 最终集成门禁结束
 
+    # region 5. Generation、唤醒与只读查询：replan 后旧事件不能跨代复用
     def replace_plan(self, plan: FanoutPlan) -> None:
         """Remaining-plan replan 开启新代际；旧 mailbox/event 状态不跨代复制。"""
 
@@ -292,12 +321,16 @@ class LiveHandoffRuntime:
             self._bump_locked()
 
     def wait_for_change(self, state_revision: int, timeout: float) -> int:
+        """等待状态版本变化；revision 检查避免通知先于 wait 时丢失唤醒。"""
+
         with self._condition:
             if self._state_revision == state_revision:
                 self._condition.wait(timeout=max(0.0, timeout))
             return self._state_revision
 
     def consumed_versions(self, task_id: str) -> dict[str, int]:
+        """返回一个 Consumer 已实际接收的 Producer 最终版本视图。"""
+
         with self._condition:
             return {
                 f"{producer}:{semantic_key}": value[0]
@@ -308,6 +341,8 @@ class LiveHandoffRuntime:
             }
 
     def latest_versions_from(self, task_id: str) -> dict[str, int]:
+        """返回一个 Producer 当前 attempt 已发布的最新 READY/UPDATE 版本。"""
+
         with self._condition:
             return {
                 f"{target}:{semantic_key}": event.version
@@ -316,7 +351,9 @@ class LiveHandoffRuntime:
                 )
                 if publisher == task_id and self._event_is_current_locked(event)
             }
+    # endregion 5. Generation、唤醒与只读查询结束
 
+    # region 6. 锁内不变量：route、因果、attempt freshness、timeline commit 与 notify
     def _validate_publish_locked(self, event: LiveHandoffEvent) -> None:
         forward = next(
             (
@@ -447,8 +484,10 @@ class LiveHandoffRuntime:
     def _bump_locked(self) -> None:
         self._state_revision += 1
         self._condition.notify_all()
+    # endregion 6. 锁内不变量结束
 
 
+# region 7. Worker-bound facade：调用方不能覆盖 publisher/generation/attempt 身份
 class LiveWorkerContext(LiveWorkerContextPort):
     """只向一个 Worker 暴露绑定后的发布与消费能力。"""
 
@@ -491,3 +530,4 @@ class LiveWorkerContext(LiveWorkerContextPort):
             self.worker_attempt_id,
             boundary=boundary,
         )
+# endregion 7. Worker-bound facade 结束

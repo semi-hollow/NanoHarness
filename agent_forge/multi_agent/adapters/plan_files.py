@@ -1,4 +1,9 @@
-"""Fanout 计划文件适配器。"""
+"""把持久化 JSON 边界转换成经过领域校验的 ``FanoutPlan``。
+
+直接启动时读取显式计划文件；恢复时只定位 prior run 的 immutable initial plan。
+两条路径最终都进入 ``FanoutPlan.from_mapping``，因此文件层不复制 schema 规则，
+也不会在恢复阶段重新调用 Planner。
+"""
 
 from __future__ import annotations
 

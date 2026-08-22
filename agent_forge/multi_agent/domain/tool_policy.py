@@ -1,4 +1,9 @@
-"""Planner 与 Worker 共用的最小 fanout 工具边界。"""
+"""定义 Planner 可选择、Worker 可获得、Finalizer 可读取的三档 Tool 集合。
+
+这里回答的是“每种角色最多能看见哪些工具名”；具体 Worker 还会被任务自己的
+``allowed_tools`` 与 ``write_scope`` 二次收窄，真正执行仍经过 Single-Agent
+Runtime 的 Tool Governance。它不是第二套授权系统。
+"""
 
 from agent_forge.contracts import WORKSPACE_WRITE_TOOL_NAMES
 

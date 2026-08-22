@@ -1,4 +1,11 @@
-"""Live fanout 的原子文件 artifact adapter。"""
+"""Multi-Agent canonical artifacts 的文件 Adapter。
+
+系统角色：把计划、checkpoint、集成 Diff、summary/report 和 coordination JSONL 写入
+一个 run 的 ``fanout/`` 目录。强一致 mutable state 使用 atomic JSON；coordination
+使用单 Runtime 顺序下的 append+flush JSONL。
+
+折叠导航：1 canonical 写入；2 resume/read；3 coordination；4 路径解析。
+"""
 
 from __future__ import annotations
 
@@ -18,6 +25,7 @@ from ..presentation.live_report import render_live_fanout_report
 class FanoutFileRepository(FanoutArtifactPort):
     """保存计划、恢复点、合并 diff 和最终 summary。"""
 
+    # region 1. Canonical 写入：plan/checkpoint/diff/summary 各自只有一个稳定路径
     def __init__(self, run_dir: str | Path) -> None:
         self.root = Path(run_dir).resolve() / "fanout"
         self.root.mkdir(parents=True, exist_ok=True)
@@ -72,7 +80,9 @@ class FanoutFileRepository(FanoutArtifactPort):
             render_live_fanout_report(summary),
             encoding="utf-8",
         )
+    # endregion 1. Canonical 写入结束
 
+    # region 2. Resume 与只读 artifact：返回未信任 mapping，由 Application 继续校验
     def load_resume(self, path: str) -> dict[str, Any]:
         resume_path = _resolve_resume_artifact(Path(path))
         data = json.loads(resume_path.read_text(encoding="utf-8"))
@@ -82,7 +92,9 @@ class FanoutFileRepository(FanoutArtifactPort):
 
     def read_text(self, path: str) -> str:
         return Path(path).read_text(encoding="utf-8")
+    # endregion 2. Resume 与只读 artifact 结束
 
+    # region 3. Coordination：每个事实一行，持久化成功才允许 Runtime 提交内存状态
     def append_coordination(self, record: dict[str, Any]) -> str:
         """每条事实一行并立即 flush；Runtime lock 维护跨字段提交顺序。"""
 
@@ -92,8 +104,10 @@ class FanoutFileRepository(FanoutArtifactPort):
             stream.write(line + "\n")
             stream.flush()
         return str(path)
+    # endregion 3. Coordination 结束
 
 
+# region 4. 路径解析：兼容 run root 或直接 artifact 文件，不承载 schema fallback
 def _resolve_resume_artifact(path: Path) -> Path:
     if path.is_file():
         return path
@@ -104,3 +118,4 @@ def _resolve_resume_artifact(path: Path) -> Path:
             if candidate.exists():
                 return candidate
     raise FileNotFoundError(f"no fanout summary or checkpoint found under {path}")
+# endregion 4. 路径解析结束
