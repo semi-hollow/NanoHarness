@@ -86,14 +86,26 @@ class FanoutCoordinator:
         )
 
     def run(self) -> LiveFanoutSummary:
-        """执行 Worker、集成、一次有界恢复和只读最终验收。"""
+        """执行 Worker、集成、一次有界恢复和只读最终验收。
 
+        伪代码主线：
+
+        1. 固定 Git/Plan 身份，必要时恢复已经验证并合入的前缀。
+        2. 按 HARD batches 或 LIVE dependencies 调度尚未成功的 Worker。
+        3. 每轮把 candidate 过冲突与集成门；失败只允许一次 retry/replan。
+        4. 所有任务成功且无冲突时，才启动只读 Finalizer。
+        5. 无论成功或失败，都发布同一份 Summary、Checkpoint 和 Trace 事实。
+        """
+
+        # 从进入编排器开始计时；Worker 历史恢复成本会在 Metrics 中另行区分。
         started_at = time.monotonic()
         # region 1. 固定计划身份并恢复已合并前缀
         # Resume 先验证 initial/effective plan 身份，再重放已合并 Diff；不会调用 Planner。
+        # 先读取不可变 Git 基线并做前置检查，检查失败时还没有创建任何 Worker。
         base_revision = self.workspace.head()
         self._validate_run_preconditions(base_revision)
 
+        # 下面这些集合是整个 Run 的唯一可变状态：当前结果、全部尝试、成功和合并前缀。
         initial_identity = {"digest": self.plan.digest, "goal": self.plan.goal}
         effective_plan = self.plan
         current_results: dict[str, LiveSubagentResult] = {}
@@ -105,6 +117,7 @@ class FanoutCoordinator:
         attempt_counts: dict[str, int] = {}
         replan_round = 0
 
+        # 如果调用方指定 resume：只恢复已验证的成功前缀，未完成任务仍由本轮重新调度。
         if self.resume_from:
             (
                 effective_plan,
@@ -112,17 +125,20 @@ class FanoutCoordinator:
                 restored_attempts,
                 replan_round,
             ) = self._restore_previous(base_revision)
+            # 把恢复结果重新放回当前状态，并视为已经成功、已经合并，避免重复执行。
             for restored_worker_result in restored_results:
                 current_results[restored_worker_result.task_id] = restored_worker_result
                 successful_task_ids.add(restored_worker_result.task_id)
                 merged_task_ids.append(restored_worker_result.task_id)
             attempt_results.extend(restored_attempts)
+            # 从历史最大 Attempt 号继续计数，防止新尝试复用旧身份或覆盖旧目录。
             for restored_attempt in restored_attempts:
                 attempt_counts[restored_attempt.task_id] = max(
                     attempt_counts.get(restored_attempt.task_id, 0),
                     restored_attempt.attempt,
                 )
 
+        # 先落 initial plan 和 running checkpoint；进程中断时也能知道 Run 从哪里开始。
         self.artifacts.write_plan(self.plan)
         self._record_fanout_started(effective_plan)
         self._checkpoint(
@@ -138,7 +154,9 @@ class FanoutCoordinator:
         # endregion 1. 固定计划身份并恢复已合并前缀结束
 
         # region 2. 执行 DAG、一次 Worker retry 和一次 remaining-plan replan
+        # 外层循环代表一次 effective plan generation；正常情况只走一轮，replan 最多再走一轮。
         while True:
+            # 有 LIVE 边时使用事件驱动调度，让下游能在上游完成前消费 READY/UPDATE。
             if effective_plan.live_dependencies:
                 pass_executed_task = self._run_live_plan(
                     effective_plan,
@@ -151,21 +169,26 @@ class FanoutCoordinator:
                     batch_history=batch_history,
                 )
             else:
+                # 没有 LIVE 边时按 HARD dependency + write scope 生成可安全并行的批次。
                 dependency_batches = build_conflict_free_batches(
                     effective_plan.tasks
                 )
                 pass_executed_task = False
+                # 逐批执行：同一 batch 内并发，不同 batch 按依赖顺序推进。
                 for batch_index, batch in enumerate(dependency_batches):
+                    # 过滤已恢复/已成功任务，并确认所有 HARD 前置任务都已经成功。
                     runnable = [
                         task
                         for task in batch
                         if task.id not in successful_task_ids
                         and set(task.depends_on).issubset(successful_task_ids)
                     ]
+                    # 当前批次没有新任务时直接跳过；它可能已由 resume 恢复完成。
                     if not runnable:
                         continue
                     pass_executed_task = True
                     batch_history.append([task.id for task in runnable])
+                    # 同批 Worker 共享同一集成基线，但各自在隔离 worktree 中执行。
                     base_diff = self.workspace.diff()
                     dependency_handoffs = {
                         task.id: self._dependency_handoffs(task, current_results)
@@ -178,6 +201,7 @@ class FanoutCoordinator:
                         dependency_handoffs,
                         attempt_counts,
                     )
+                    # 先保存每个原始 Attempt 的事实；是否能重试或合并在后面单独判断。
                     for batch_worker_result in batch_results:
                         attempt_results.append(batch_worker_result)
                         current_results[batch_worker_result.task_id] = (
@@ -185,8 +209,10 @@ class FanoutCoordinator:
                         )
 
                     # Runtime 是否允许重试，只能由 Worker Trace 中的事实证据决定。
+                    # 逐个检查初次结果：不可重试就保留原结果，可重试则仅替换当前候选。
                     for index, task in enumerate(runnable):
                         initial_worker_result = batch_results[index]
+                        # scope/conflict 等 fail-closed 结果不能靠自动重试绕过治理边界。
                         if not self._worker_retry_allowed(initial_worker_result):
                             continue
                         self._record_worker_retry(
@@ -206,6 +232,7 @@ class FanoutCoordinator:
                         current_results[task.id] = retried
                         batch_results[index] = retried
 
+                    # 先检测同批 Worker 的真实 touched-files 冲突，再按计划顺序集成 candidate。
                     batch_conflicts = self._mark_dynamic_conflicts(batch_results)
                     detected_conflicts.extend(batch_conflicts)
                     self._merge_batch(
@@ -219,6 +246,7 @@ class FanoutCoordinator:
                         merged_task_ids=merged_task_ids,
                         detected_conflicts=detected_conflicts,
                     )
+                    # 每个批次合并后立即 checkpoint；下一批和恢复流程只依赖 durable 前缀。
                     self._checkpoint(
                         base_revision,
                         initial_identity,
@@ -236,13 +264,16 @@ class FanoutCoordinator:
                         batch_conflicts,
                     )
 
+            # 一轮调度结束后，只根据 successful_task_ids 计算仍未完成的任务。
             unfinished = [
                 task
                 for task in effective_plan.tasks
                 if task.id not in successful_task_ids
             ]
+            # 没有剩余任务说明执行图已完成，可以离开调度循环进入 Finalizer。
             if not unfinished:
                 break
+            # 对 HARD 前置已失败的任务生成显式 blocked 结果，不能让它们静默消失。
             self._materialize_blocked_dependencies(
                 effective_plan,
                 current_results,
@@ -250,6 +281,7 @@ class FanoutCoordinator:
                 attempt_results,
                 attempt_counts,
             )
+            # 没有 retryable evidence、已经 replan 过或功能关闭时，以当前失败事实收口。
             if not self._replan_allowed(
                 unfinished,
                 current_results,
@@ -257,6 +289,7 @@ class FanoutCoordinator:
                 replan_round,
             ):
                 break
+            # Replanner 只替换 remaining work；异常不能破坏已经成功并合入的前缀。
             try:
                 effective_plan = self._replan_remaining(
                     effective_plan,
@@ -264,15 +297,19 @@ class FanoutCoordinator:
                     successful_task_ids,
                 )
             except Exception as exc:
+                # 计划生成或校验失败时记录原因，并保留本轮所有 Worker/候选证据。
                 self._record_replan_failure(
                     step=len(batch_history) + 1,
                     error=str(exc),
                 )
                 break
             replan_round = 1
+            # 新计划包含 LIVE 边时，创建或换代 Runtime；旧 generation 事件不能继续使用。
             if effective_plan.live_dependencies:
+                # 构造器已经保护该约束；这里保留防御检查，避免未来调用路径绕过构造器。
                 if self.max_workers < 2:  # pragma: no cover - constructor protects V1
                     raise ValueError("LIVE dependencies require max_workers >= 2")
+                # 第一次进入 LIVE 创建状态机；已有状态机则原子切换到新 generation。
                 if self.live_handoff is None:
                     self.live_handoff = LiveHandoffRuntime(
                         effective_plan,
@@ -281,13 +318,16 @@ class FanoutCoordinator:
                 else:
                     self.live_handoff.replace_plan(effective_plan)
             else:
+                # 新计划退化为 HARD-only 时移除 LIVE 状态，不保留上一代 mailbox。
                 self.live_handoff = None
+            # Replan 后只保留成功前缀；失败结果仍在 attempt_results 中作为历史证据。
             current_results = {
                 task_id: current_worker_result
                 for task_id, current_worker_result in current_results.items()
                 if task_id in successful_task_ids
             }
             detected_conflicts = []
+            # 在下一代 Worker 启动前持久化 effective plan 与保留的成功前缀。
             self._checkpoint(
                 base_revision,
                 initial_identity,
@@ -298,24 +338,30 @@ class FanoutCoordinator:
                 replan_round,
                 "running",
             )
+            # 如果上一轮一个 Worker 都未启动，继续循环也不会改变状态，必须防止空转。
             if not pass_executed_task:  # 防止异常计划导致调度循环无法推进。
                 break
         # endregion 2. DAG 与有界恢复结束
 
         # region 3. 只读 Finalizer 与 canonical evidence 发布
+        # 按 effective plan 顺序投影结果，避免并发完成顺序影响报告和持久化内容。
         ordered_results = self._ordered_results(effective_plan, current_results)
+        # 无论最终状态如何，都把当前 workspace Diff 固化为可审计的集成候选。
         integrated_diff_file = self.artifacts.write_integrated_diff(
             self.workspace.diff()
         )
+        # Finalizer 的准入条件是“所有任务成功且没有任何已知冲突”，不是模型自述完成。
         every_task_succeeded = all(
             task.id in successful_task_ids for task in effective_plan.tasks
         )
         finalizer_result = None
+        # 只有满足准入条件才运行只读验收；否则保留空 decision，由统一状态函数判失败。
         if every_task_succeeded and not detected_conflicts:
             finalizer_result = self.workers.run_finalizer(
                 effective_plan, ordered_results
             )
         finalizer_decision = finalizer_result.decision if finalizer_result else ""
+        # 把 Worker、Conflict、完成度和 Finalizer 四类事实集中投影为唯一 Run 终态。
         fanout_status = _fanout_status(
             worker_results=ordered_results,
             detected_conflicts=detected_conflicts,
@@ -324,6 +370,7 @@ class FanoutCoordinator:
         )
         elapsed_ms = int((time.monotonic() - started_at) * 1000)
         finalizer_usage = finalizer_result.usage_summary if finalizer_result else {}
+        # Summary 只引用结构化结果和 canonical 路径，不嵌入 Worker 私有 Conversation。
         summary = LiveFanoutSummary(
             run_id=self.events.run_id,
             goal=self.plan.goal,
@@ -360,6 +407,7 @@ class FanoutCoordinator:
                 finalizer_result.criterion_results if finalizer_result else []
             ),
         )
+        # 先写终态 checkpoint，再写报告和完成事件；三者表达同一个 fanout_status。
         self._checkpoint(
             base_revision,
             initial_identity,
