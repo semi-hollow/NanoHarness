@@ -26,7 +26,10 @@ class ToolFeedback:
         observation: Observation,
         step: int,
     ) -> None:
-        """把未执行、被拒绝或人工回答反馈给下一轮模型。"""
+        """把未执行、被拒绝或人工回答写入 tool 协议与 Trace。
+
+        调用方可以在写入后立即返回 ``StopRequest``；是否存在下一 Turn 不由本方法决定。
+        """
 
         session.working_memory.add_observation(observation)
         session.messages.append(

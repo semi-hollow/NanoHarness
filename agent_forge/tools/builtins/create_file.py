@@ -37,8 +37,15 @@ class CreateFileTool(Tool):
             "arguments": {"path": "str", "content": "str"},
         }
 
-    # 主要入口：审批通过后，仅在目标不存在时完成一次原子语义的创建。
+    # 主要入口：基础权限通过后，仅为检查时不存在的目标创建新文件。
     def execute(self, arguments: ToolArguments) -> Observation:
+        """基础权限 -> 安全且不存在的目标 -> 创建正文并返回 Observation。
+
+        这是单次创建流程，不宣称跨进程原子性；若需要并发安全，必须由更外层协调。
+        """
+
+        # 1. 主链先由 ToolAuthorizationGate 解析 ASK；这里保留 direct-call 防御。
+        # 未自动放行时只返回 needs_approval Observation，不自行创建或伪造人工审批事实。
         decision, reason = self.policy.decide("write")
         if decision == PermissionDecision.DENY:
             return Observation(
@@ -53,6 +60,8 @@ class CreateFileTool(Tool):
                 content="needs_approval",
             )
 
+        # 2. Sandbox 限制 workspace 边界；已有目标必须由 replace_text 修改，
+        # 防止 create 意图静默退化成整文件覆盖。
         target_path = self.sandbox.ensure_safe_path(arguments["path"])
         if target_path.exists():
             return Observation(
@@ -64,6 +73,7 @@ class CreateFileTool(Tool):
                 ),
             )
 
+        # 3. 只为明确的新目标补齐父目录并写入正文，随后返回可审计结果。
         target_path.parent.mkdir(parents=True, exist_ok=True)
         target_path.write_text(arguments["content"], encoding="utf-8")
         return Observation(

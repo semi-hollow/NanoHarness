@@ -81,6 +81,7 @@ class PythonValidationTool(Tool):
     def _compile_python(self, validation_target: str) -> Observation:
         """只检查 Python 语法/字节码编译，不执行测试，也不证明行为正确。"""
 
+        # 1. 先把目标限制到 workspace；不存在的目标不是“零错误”，而是验证失败。
         resolved_target = self.sandbox.ensure_safe_path(validation_target)
         if not resolved_target.exists():
             return Observation(
@@ -88,6 +89,9 @@ class PythonValidationTool(Tool):
                 success=False,
                 content=f"compile target does not exist in workspace: {validation_target}",
             )
+
+        # 2. 有隔离执行环境时，把相对目标交给环境内固定 compileall argv；
+        # 返回码只证明编译命令结果，不升级为行为测试证据。
         if self.execution_environment is not None:
             relative_target = (
                 resolved_target.relative_to(self.sandbox.workspace_root).as_posix()
@@ -109,6 +113,8 @@ class PythonValidationTool(Tool):
                 execution_succeeded=True,
             )
 
+        # 3. 无隔离执行环境时才使用本地 py_compile fallback；逐文件收集语法错误，
+        # “没有 Python 文件”明确写成 validation_blocked，而不是测试通过。
         python_files = (
             [resolved_target]
             if resolved_target.is_file()
@@ -173,6 +179,7 @@ class PythonValidationTool(Tool):
     ) -> Observation:
         """执行固定 argv，并区分测试失败与验证环境不可用。"""
 
+        # 1. 优先使用目标运行环境；本地 fallback 仍坚持 argv + shell=False。
         if self.execution_environment is not None:
             process = self.execution_environment.execute_command(
                 command,
@@ -192,6 +199,8 @@ class PythonValidationTool(Tool):
                 timeout=self.timeout_seconds,
                 shell=False,
             )
+
+        # 2. 统一截断输出并保留真实命令；随后识别“无法验证”而不是把它算作断言失败。
         output = (process.stdout + process.stderr).strip()[:3000]
         command_evidence = f"validation_command={shlex.join(command)}"
         normalized_output = output.lower()
@@ -232,6 +241,8 @@ class PythonValidationTool(Tool):
                 ),
                 execution_succeeded=True,
             )
+
+        # 3. 只有真正执行且有可裁决返回码的检查，才把 returncode 映射为验证成败。
         return Observation(
             tool_name=self.name,
             success=process.returncode == 0,

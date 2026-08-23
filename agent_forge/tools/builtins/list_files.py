@@ -38,6 +38,9 @@ class ListFilesTool(Tool):
         }
 
     def execute(self, arguments: ToolArguments) -> Observation:
+        """在安全根目录下列出有界相对路径，并显式报告是否截断。"""
+
+        # 1. Sandbox 先冻结可见根目录；不存在的目标不退化为列出整个 workspace。
         root = self.sandbox.ensure_safe_path(arguments.get("path", "."))
         if not root.exists():
             return Observation(
@@ -46,6 +49,8 @@ class ListFilesTool(Tool):
                 content=f"path not found: {arguments.get('path', '.')}",
             )
 
+        # 2. 过滤运行数据和生成目录；故意多收集一个文件作为 truncated sentinel，
+        # 从而区分“正好 200 个”与“至少还有更多文件”。
         candidates = [root] if root.is_file() else sorted(root.rglob("*"))
         files: list[str] = []
         for path in candidates:
@@ -59,6 +64,7 @@ class ListFilesTool(Tool):
             if len(files) > MAX_FILES:
                 break
 
+        # 3. 只返回硬上限内的路径；截断时给模型明确的下一步收窄提示。
         truncated = len(files) > MAX_FILES
         visible_files = files[:MAX_FILES]
         header = f"files={len(visible_files)} truncated={str(truncated).lower()}"

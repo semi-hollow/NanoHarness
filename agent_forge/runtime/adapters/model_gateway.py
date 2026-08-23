@@ -42,6 +42,13 @@ class RetryPolicy:
 
 
 class ModelGateway(LLMClient):
+    """把 Provider 差异收敛为一套有界尝试策略。
+
+    主链只做三件事：调用 primary、在同一 Provider 内按错误类型重试、必要时切换
+    fallback；Runtime 的 Turn 决策、窗口压缩和停止语义仍由 ``AgentLoop`` 拥有，
+    当前 Gateway 不把 Run 剩余预算传播为 in-flight request cancellation。
+    """
+
     def __init__(
         self,
         primary: LLMClient,
@@ -75,6 +82,7 @@ class ModelGateway(LLMClient):
     ) -> AgentResponse:
         """执行一次与供应商无关的模型调用，并统一重试、回退和用量。"""
 
+        # 1. Primary 是唯一默认路径；每次公开 chat 都重置本次调用的 usage 聚合。
         self.last_usage = ModelUsage(provider=self.provider, model=self.model)
         primary_response = self._call_with_retry(
             self.primary,
@@ -85,9 +93,11 @@ class ModelGateway(LLMClient):
         if not primary_response.error:
             return primary_response
 
+        # 2. 没有 fallback 或错误不适合换模型时，保留 primary 的真实失败交回 Runtime。
         if not self.fallback or not self._should_fallback(primary_response):
             return primary_response
 
+        # 3. Fallback 使用独立 usage 容器执行，最后合并尝试次数、token 与成本证据。
         fallback_usage = ModelUsage(
             provider=self.fallback_provider, model=self.fallback_model
         )
@@ -128,7 +138,10 @@ class ModelGateway(LLMClient):
             error={"code": "not_called", "message": "model not called"},
         )
         attempt_messages = list(messages)
+        # 每轮只允许三种出口：成功返回、次数/错误类型阻止继续、生成下一次有界请求。
         for attempt_index in range(max_attempts):
+            # 1. 记录真实尝试/延迟/错误，以及 provider-reported 或估算的 usage/cost；
+            # 不把重试隐藏成一次成功调用，也不把估算值冒充精确计费事实。
             call_started_at = time.time()
             latest_model_response = model_client.chat(attempt_messages, tools)
             latency_ms = int((time.time() - call_started_at) * 1000)
@@ -155,6 +168,8 @@ class ModelGateway(LLMClient):
             model_usage.record_attempt(latency_ms, error_code)
             if not latest_model_response.error:
                 return latest_model_response
+
+            # 2. 已用完次数，或错误既不可传输重试也不可格式修复时，停止当前 Provider。
             if attempt_index >= max_attempts - 1:
                 break
             retry_messages = self._retry_messages(
@@ -163,6 +178,8 @@ class ModelGateway(LLMClient):
             )
             if retry_messages is None:
                 break
+
+            # 3. 传输错误复用原输入；ToolCall 格式错误才追加 repair system message。
             attempt_messages = retry_messages
             if self.retry_policy.backoff_seconds > 0:
                 time.sleep(self.retry_policy.backoff_seconds)

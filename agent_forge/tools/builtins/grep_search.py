@@ -67,8 +67,13 @@ class GrepSearchTool(Tool):
         }
 
     def execute(self, arguments: ToolArguments) -> Observation:
-        """返回带完整性标记的匹配结果，避免模型把截断结果当成全量结果。"""
+        """返回带完整性标记的匹配结果，避免模型把截断结果当成全量结果。
 
+        伪代码：验证关键词和搜索根 -> 应用大小写/数量边界 -> 扫描候选文本
+        -> 返回匹配及 truncated/next 证据。
+        """
+
+        # 1. 查询与路径必须先成立，空关键词或不存在的根目录不启动全仓库扫描。
         keyword = str(arguments.get("keyword", "") or "")
         if not keyword:
             return Observation(
@@ -85,6 +90,7 @@ class GrepSearchTool(Tool):
                 content=f"search path not found: {arguments.get('path', '.')}",
             )
 
+        # 2. 调用方可以收窄数量，但不能突破硬上限；大小写规则在比较前统一冻结。
         case_sensitive = _optional_bool(arguments.get("case_sensitive"), False)
         requested_limit = _optional_int(
             arguments.get("max_results"), DEFAULT_MAX_RESULTS
@@ -92,6 +98,8 @@ class GrepSearchTool(Tool):
         result_limit = max(1, min(requested_limit, HARD_MAX_RESULTS))
         comparable_keyword = keyword if case_sensitive else keyword.lower()
 
+        # 3. 只扫描允许的文本文件和目录；故意多收集一条作为 truncated sentinel，
+        # 最终仍只把 result_limit 条正文返回给模型。
         matches: list[str] = []
         for path in _candidate_files(search_root):
             relative_to_search_root = path.relative_to(search_root)
@@ -110,6 +118,7 @@ class GrepSearchTool(Tool):
             if len(matches) > result_limit:
                 break
 
+        # 4. header 是完整性证据：结果被截断时明确指导模型缩小 path/keyword。
         truncated = len(matches) > result_limit
         visible_matches = matches[:result_limit]
         header = (

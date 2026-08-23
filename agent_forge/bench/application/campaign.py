@@ -3,6 +3,8 @@
 阅读入口只有 ``RunBenchmarkCampaign.run_campaign``。它在每个运行槽位前后保存
 ``campaign.json``。普通 A/B campaign 可重试 running/failed 槽位；严格 Pass@1
 campaign 则只继续未开始槽位，已经启动的轨迹会 fail closed。
+
+折叠导航：1 Campaign 主链；2 单槽位执行；3 状态创建/恢复；4 证据投影。
 """
 
 from __future__ import annotations
@@ -60,6 +62,7 @@ class RunBenchmarkCampaign:
         self._source_identity = source_identity
         self._now = now or _utc_now
 
+    # region 1. Campaign 主链：冻结身份 → 执行/恢复槽位 → 聚合并发布
     # 主要入口：运行或恢复整个 campaign；其余方法只做单槽位适配。
     def run_campaign(
         self,
@@ -184,8 +187,9 @@ class RunBenchmarkCampaign:
             published_bundle_dir=published_bundle_dir,
         )
         # endregion 3. 聚合发布结束
+    # endregion 1. Campaign 主链结束
 
-    # region 单槽位与恢复细节
+    # region 2. 单槽位执行：running checkpoint → benchmark → evidence → bounded retry
     def _run_slot(
         self,
         request: BenchmarkCampaignRequest,
@@ -196,9 +200,14 @@ class RunBenchmarkCampaign:
         variant: CampaignVariant,
         state_lock: Any,
     ) -> None:
-        """运行一个独立槽位；共享状态的每次读写都持有同一把锁。"""
+        """运行一个独立槽位；共享状态的每次读写都持有同一把锁。
+
+        伪代码：先持久化 running → 构造隔离请求 → 调用单次 benchmark
+        → 提取 scorecard facts → infra 可重试则原槽位再跑 → 其他结果收口。
+        """
 
         retry_same_slot = True
+        # 循环只服务同一预注册槽位的 bounded infrastructure retry，不新增统计分母。
         while retry_same_slot:
             with state_lock:
                 self._mark_run_slot_started(
@@ -229,7 +238,9 @@ class RunBenchmarkCampaign:
                     campaign_state.updated_at = self._now()
                     self._artifacts.save_state(campaign_dir, campaign_state)
                 retry_same_slot = False
+    # endregion 2. 单槽位执行结束
 
+    # region 3. 状态创建/恢复：config+source digest 保护同一实验身份
     def _load_or_create_state(
         self,
         request: BenchmarkCampaignRequest,
@@ -239,6 +250,8 @@ class RunBenchmarkCampaign:
         source_identity: dict[str, Any],
         configuration_digest: str,
     ) -> CampaignState:
+        """只恢复相同 configuration digest；否则要求新的 campaign identity。"""
+
         existing_campaign_state = self._artifacts.load_state(campaign_dir)
         if existing_campaign_state is not None:
             if not request.resume:
@@ -269,7 +282,7 @@ class RunBenchmarkCampaign:
         campaign_state: CampaignState,
         campaign_dir: Path,
     ) -> None:
-        """先保存 running 状态，使进程崩溃后该槽位可被识别并重试。"""
+        """先保存 running，使恢复策略能明确选择原槽位重试或 fail closed。"""
 
         campaign_run_slot.status = "running"
         campaign_run_slot.attempts += 1
@@ -370,15 +383,17 @@ class RunBenchmarkCampaign:
         if failure_class in RETRYABLE_INFRASTRUCTURE_FAILURES:
             campaign_run_slot.evidence["infrastructure_retry_exhausted"] = True
         return False
+    # endregion 3. 状态创建/恢复结束
 
-    # endregion 单槽位与恢复细节结束
 
-
+# region 4. 证据投影：scorecard 为首选，CaseResult 只补空缺字段
 def _extract_run_evidence(
     benchmark_run: BenchRunSummary,
     scorecard_payload: dict[str, Any],
 ) -> dict[str, Any]:
-    # 准备区：优先读取 scorecard；缺字段时才回退到本次 run 的 case result。
+    """提取 campaign 聚合需要的有界字段，不重新判定 Case correctness。"""
+
+    # scorecard 中 truthy 值优先；空/缺字段按现有契约回退到本次 CaseResult。
     scorecard_cases = (
         scorecard_payload.get("cases") if isinstance(scorecard_payload, dict) else None
     )
@@ -446,3 +461,4 @@ def _extract_run_evidence(
 
 def _utc_now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
+# endregion 4. 证据投影结束

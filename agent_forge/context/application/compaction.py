@@ -98,7 +98,10 @@ class _HistorySegment:
 
 
 class PromptWindowManager:
-    """在 LLM 边界前控制完整请求，而不删除原始 session/trace。"""
+    """在 LLM 边界前治理完整请求，不修改 live session 的原始会话历史。
+
+    Trace 只记录窗口度量、来源 hash 与压缩投影事实，不保存完整 Prompt 正文。
+    """
 
     def __init__(self, budget: PromptBudget) -> None:
         self.budget = budget
@@ -287,6 +290,8 @@ def _group_history_segments(
 ) -> list[_HistorySegment]:
     """把一轮 assistant tool intent 与随后的 tool 结果绑定成不可拆分单元。"""
 
+    # Message 与 Observation 使用各自游标：前者保持协议原顺序，后者只在遇到
+    # tool message 时前进，避免普通 user/assistant 消息打乱结果对应关系。
     observation_index = 0
     grouped_history_segments: list[_HistorySegment] = []
     index = 0
@@ -296,6 +301,8 @@ def _group_history_segments(
         segment_observations: list[Observation | None] = [None]
         index += 1
         if message.role == "assistant" and message.tool_calls:
+            # assistant ToolCall 与紧随其后的全部 tool message 组成一个事务；压缩时
+            # 要么整段进入摘要，要么整段保留原文，绝不能只留下意图或只留下结果。
             while index < len(messages) and messages[index].role == "tool":
                 segment_messages.append(messages[index])
                 observation = (
@@ -307,6 +314,8 @@ def _group_history_segments(
                 observation_index += 1
                 index += 1
         elif message.role == "tool":
+            # 历史可能从 tool message 开始（例如恢复或旧数据）；仍按顺序绑定可用的
+            # Observation，但不伪造一个不存在的 assistant ToolCall。
             observation = (
                 observations[observation_index]
                 if observation_index < len(observations)
@@ -337,6 +346,15 @@ def _build_digest(
     *,
     estimated_tokens_before: int,
 ) -> ConversationHistoryDigest:
+    """把被压缩的旧历史投影为可审计、大小有界的会话摘要。
+
+    伪代码：冻结覆盖范围与来源 hash -> 提取初始任务后的 user 更新 -> 重建
+    ToolCall/Observation 事务与失败证据 -> 返回有界 ``ConversationHistoryDigest``。
+    原始消息仍保留在当前 live session；Trace 只记录窗口指标、来源 hash 和压缩事实，
+    这里不修改权威会话历史。
+    """
+
+    # region 1. 来源边界：冻结本次摘要覆盖的消息和稳定 hash
     covered_messages = [
         message
         for history_segment in history_segments
@@ -356,6 +374,11 @@ def _build_digest(
         ensure_ascii=False,
         sort_keys=True,
     )
+    # endregion 1. 来源边界结束
+
+    # region 2. 任务演进：保留初始任务之后的 user steer/约束更新
+    # ``task`` 单独保留根任务；covered messages 中第一条 user message 只是原任务，
+    # 后续 user message 才属于 task_updates，避免摘要重复发送同一语义。
     initial_user_message_seen = False
     task_updates: list[str] = []
     for message in covered_messages:
@@ -369,6 +392,11 @@ def _build_digest(
         [update for update in task_updates if update],
         6,
     )
+    # endregion 2. 任务演进结束
+
+    # region 3. 工具事务：按 call id 重建意图、结果和失败证据
+    # 每个 segment 先索引实际 tool message，再遍历 assistant ToolCall；这样缺失结果时
+    # success 保持 None，而不会把“模型提出调用”误写成“工具已经成功”。
     tool_transactions: list[ToolTransactionDigest] = []
     failed_tool_evidence: list[str] = []
     for history_segment in history_segments:
@@ -423,6 +451,8 @@ def _build_digest(
                     failed_tool_evidence.append(
                         f"{tool_name}: {_excerpt(tool_observation_content, 240)}"
                     )
+    # endregion 3. 工具事务结束
+
     return ConversationHistoryDigest(
         task=task,
         covered_message_count=len(covered_messages),

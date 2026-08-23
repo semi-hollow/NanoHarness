@@ -22,6 +22,7 @@ CHINESE_FIRST_DOCS = (
     "docs/多Agent编排.md",
     "docs/核心能力与代码入口.md",
     "docs/运行产物与持久化契约.md",
+    "docs/DOCUMENTATION_RULES.md",
     "examples/debug_lab/README.md",
 )
 
@@ -35,6 +36,7 @@ PUBLIC_DOC_LINE_BUDGETS = {
     "docs/多Agent编排.md": 420,
     "docs/核心能力与代码入口.md": 280,
     "docs/运行产物与持久化契约.md": 340,
+    "docs/DOCUMENTATION_RULES.md": 180,
     "examples/debug_lab/README.md": 210,
 }
 
@@ -53,7 +55,7 @@ CANONICAL_README_LINKS = (
 
 ALLOWED_DOC_SURFACES: tuple[str, ...] = ()
 
-APPROVED_TECHNICAL_DOC_NAMES: set[str] = set()
+APPROVED_TECHNICAL_DOC_NAMES = {"docs/DOCUMENTATION_RULES.md"}
 
 ALLOWED_TOP_LEVEL_DOCS = {
     "docs/架构导览.md",
@@ -64,6 +66,7 @@ ALLOWED_TOP_LEVEL_DOCS = {
     "docs/多Agent编排.md",
     "docs/核心能力与代码入口.md",
     "docs/运行产物与持久化契约.md",
+    "docs/DOCUMENTATION_RULES.md",
 }
 
 MAX_PUBLIC_DOCS = len(ALLOWED_TOP_LEVEL_DOCS)
@@ -221,7 +224,15 @@ class DocumentationLanguageTest(unittest.TestCase):
         """公开源码只描述项目范围、工程事实、操作方法和验证标准。"""
 
         result = subprocess.run(
-            ["git", "ls-files", "--cached", "--others", "--exclude-standard"],
+            [
+                "git",
+                "-c",
+                "core.quotepath=false",
+                "ls-files",
+                "--cached",
+                "--others",
+                "--exclude-standard",
+            ],
             cwd=PROJECT_ROOT,
             check=True,
             capture_output=True,
@@ -302,10 +313,13 @@ class DocumentationLanguageTest(unittest.TestCase):
             '<a id="evaluation"></a>',
             "Model proposes",
             "Runtime decides",
-            "V1 capability branch",
             "Fixed Case Cohort",
-            "V1 capability branch（CURRENT）",
-            "V2 定量评测和自动语义冲突解决仍是 FUTURE / NOT IMPLEMENTED",
+            "AdaptivePlanner.decide()",
+            "build_live_fanout()",
+            "FanoutCoordinator.run()",
+            "_run_batch()",
+            "_run_live_plan()",
+            "scheduling strategy selected again",
         ):
             if contract not in architecture:
                 violations.append(f"架构导览缺少审阅契约: {contract}")

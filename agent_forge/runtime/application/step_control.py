@@ -91,18 +91,23 @@ class StepController:
     ) -> FailureSignal | None:
         """识别连续相同 ToolCall；不同动作出现时立即重置计数。
 
+        伪代码：生成稳定 ToolCall identity -> 相同则累加、不同则重置
+        -> 超过连续阈值时返回 ``REPEATED_ACTION``。
+
         这里检查“模型是否仍在推进”，不是操作状态表的“状态变更操作是否已执行”。
         首次调用和一次同动作重试被允许；第三次连续给出相同工具和规范化参数时，返回
         ``REPEATED_ACTION``。调用方再按操作是否可能改变持久状态，决定跳过本次调用还是停止 run。
         """
 
         current_tool_call_key = self._stable_tool_call_key(tool_call)
+        # 相同工具和规范化参数表示模型没有换动作；否则从新动作重新计数。
         if current_tool_call_key == self.last_tool_call_key:
             self.consecutive_identical_tool_call_count += 1
         else:
             self.last_tool_call_key = current_tool_call_key
             self.consecutive_identical_tool_call_count = 1
 
+        # 计数只产生恢复信号；是否跳过或停止仍由 ToolExecutionPipeline 按 side effect 决定。
         if (
             self.consecutive_identical_tool_call_count
             > self.budget.max_consecutive_identical_tool_calls
@@ -127,18 +132,27 @@ class StepController:
     def classify_observation(self, observation: Observation) -> FailureSignal | None:
         """把原始 Observation 转换为重试判断和恢复建议。
 
+        伪代码：成功 -> 清零连续失败；验证命令已执行但目标未通过
+        -> 可恢复 validation feedback；
+        其余失败 -> 累加 failure_count -> 按工具、参数、Patch、权限、命令分类
+        -> 无法细分时返回 ``TOOL_EXCEPTION`` fallback。
+
         ``ToolExecutionPipeline`` 在每个工具结果后调用这里。返回的
         ``FailureSignal`` 进入 trace，并为下一轮提供 recovery hint；另外两个入口分别
         处理重复 intent 和预算耗尽。
         """
 
+        # region 1. 正常结果与业务验证失败：区分“工具坏了”和“测试发现问题”
+        # 成功 Observation 证明当前工具链可用，立即清零连续工具失败计数。
         if observation.success:
             self.failure_count = 0
             return None
 
-        # pytest/unittest 已正常运行但断言失败，是模型下一轮要消费的业务反馈，
+        # 验证工具已正常运行但测试/编译目标未通过，是模型下一轮要消费的业务反馈，
         # 不是工具网关、参数或执行环境故障。它会产生 recovery signal，但不会
         # 累加“连续工具故障”熔断计数；原地重复同一验证仍由 ToolCall 重复保护拦截。
+        # execution_succeeded=True 表示验证命令正常完成；测试或编译目标未通过时应先修复
+        # 对应问题，而不是把它误判为 Tool/环境不可用。
         if observation.execution_succeeded is True:
             self.failure_count = 0
             return FailureSignal(
@@ -150,9 +164,12 @@ class StepController:
                     "then rerun the smallest relevant validation."
                 ),
             )
+        # endregion 1. 正常结果与业务验证失败结束
 
+        # region 2. 工具故障分类：按最具体且可行动的恢复路径优先匹配
         self.failure_count += 1
         normalized_observation_text = observation.content.lower()
+        # 未注册或本 Agent 不可见的工具无法靠相同参数重试恢复。
         if (
             "unknown tool" in normalized_observation_text
             or "not allowed for this agent" in normalized_observation_text
@@ -163,6 +180,7 @@ class StepController:
                 retryable=False,
                 recovery_hint="Use only tools exposed in available_tools or stop with a clear limitation.",
             )
+        # 参数缺失或物理格式错误可根据 schema 修正后重试一次。
         if (
             "invalid arguments" in normalized_observation_text
             or "missing" in normalized_observation_text
@@ -173,6 +191,7 @@ class StepController:
                 retryable=True,
                 recovery_hint="Repair the tool arguments using the tool schema and retry once.",
             )
+        # Patch anchor 不存在或不唯一时必须重新读取目标，不能盲目重复 replace。
         if (
             "old text not found" in normalized_observation_text
             or "old text is ambiguous" in normalized_observation_text
@@ -183,6 +202,7 @@ class StepController:
                 retryable=True,
                 recovery_hint="Re-read the target file, choose a unique patch anchor, then retry.",
             )
+        # 权限与审批拒绝是治理结论，不允许模型用变形参数绕过后自动重试。
         if any(
             policy_marker in normalized_observation_text
             for policy_marker in ("denied", "blocked", "needs_approval")
@@ -193,6 +213,7 @@ class StepController:
                 retryable=False,
                 recovery_hint="Do not bypass policy; ask for approval or report the blocked action.",
             )
+        # 命令确实启动但返回非零状态时，可依据 stderr/stdout 修复根因后再验证。
         if (
             "exit_code=" in normalized_observation_text
             and "exit_code=0" not in normalized_observation_text
@@ -203,12 +224,16 @@ class StepController:
                 retryable=True,
                 recovery_hint="Inspect the failure output, patch the root cause, and rerun the smallest validation.",
             )
+        # endregion 2. 工具故障分类结束
+
+        # region 3. 未知失败 fallback：只表示无法细分，不宣称发生了 Python exception
         return FailureSignal(
             kind=FailureKind.TOOL_EXCEPTION,
             reason=observation.content,
             retryable=True,
             recovery_hint="Use the observation text as evidence, adjust the next action, and avoid repeating blindly.",
         )
+        # endregion 3. 未知失败 fallback结束
 
     def should_stop(
         self,
@@ -219,10 +244,13 @@ class StepController:
     ) -> FailureSignal | None:
         """依次检查 step、连续工具失败、运行时间和模型成本四项硬上限。
 
+        伪代码：step -> consecutive failures -> wall clock -> cost；首个命中即停止。
+
         命中任一上限即返回不可重试的 ``BUDGET_EXCEEDED``；否则返回 ``None``。
         ``include_step_limit=False`` 只放开 step，供最后一次模型回答使用，其余预算仍生效。
         """
 
+        # Step 上限最先检查；final-answer 调用只通过 include_step_limit 显式放开这一项。
         if include_step_limit and step >= self.budget.max_steps:
             return FailureSignal(
                 kind=FailureKind.BUDGET_EXCEEDED,
@@ -230,6 +258,7 @@ class StepController:
                 retryable=False,
                 recovery_hint="Summarize current state and stop rather than continuing indefinitely.",
             )
+        # 连续工具故障达到阈值说明当前恢复策略未推进，继续尝试只会形成失败循环。
         if self.failure_count >= self.budget.max_consecutive_failures:
             return FailureSignal(
                 kind=FailureKind.BUDGET_EXCEEDED,
@@ -241,6 +270,8 @@ class StepController:
                 retryable=False,
                 recovery_hint="Stop and report the failure chain instead of looping.",
             )
+        # Wall-clock 是 control-boundary deadline：每次回到本控制点都会收口，但当前实现
+        # 不能 interrupt 已在进行中的 ModelPort/Tool request，因此请求可能越过预算后才停止。
         if time.time() - self.started_at > self.budget.timeout_seconds:
             return FailureSignal(
                 kind=FailureKind.BUDGET_EXCEEDED,
@@ -248,6 +279,7 @@ class StepController:
                 retryable=False,
                 recovery_hint="Stop and preserve enough state for a later resume.",
             )
+        # Cost 只有配置上限时启用，且独立于 step/timeout 继续生效。
         if (
             self.budget.cost_budget_usd is not None
             and estimated_cost_usd > self.budget.cost_budget_usd

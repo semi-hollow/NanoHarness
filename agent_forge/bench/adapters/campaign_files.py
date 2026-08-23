@@ -93,7 +93,11 @@ class GitSourceIdentity(SourceIdentityPort):
 
 
 class FileCampaignArtifacts(CampaignArtifactPort):
-    """本地状态保留完整 provenance；公开 bundle 只保留脱敏聚合与 scorecard。"""
+    """本地状态保留完整 provenance；公开 bundle 写 policy-filtered 派生投影。
+
+    当前 sanitizer 处理已知 secret key、赋值片段和本机路径；它不是通用内容审查，
+    因此 publish 调用方仍需对新字段做披露检查。
+    """
 
     def __init__(self, project_dir: Path) -> None:
         self._project_dir = project_dir.resolve()

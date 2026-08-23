@@ -1,3 +1,13 @@
+"""SWE-bench official harness 的进程与 Docker 生命周期 Adapter。
+
+系统角色：把已经冻结的 predictions 交给 official evaluator，再把显式报告结果写回
+``BenchCaseResult``；本文件不根据 candidate diff 或本地测试自行判断 resolved。
+输入：``BenchRunSummary`` 与同一轮 ``SwebenchRunRequest``。
+输出：official command/output、逐 Case official status、报告路径和清理告警。
+
+折叠导航：1 official 生命周期；2 镜像 ownership；3 结果不可用收口；4 命令构造。
+"""
+
 from __future__ import annotations
 
 import importlib.util
@@ -24,11 +34,16 @@ _OFFICIAL_IMAGE_LIFECYCLE_LOCK = threading.Lock()
 
 
 class SwebenchOfficialEvaluator(OfficialEvaluatorPort):
+    """串行保护 official 镜像生命周期，并消费 official harness 的显式结果。"""
+
+    # region 1. Official 生命周期：preflight → harness → report parse → owned cleanup
     def evaluate(
         self,
         summary: BenchRunSummary,
         request: SwebenchRunRequest,
     ) -> None:
+        """在进程级镜像锁内完成一次 official evaluation 生命周期。"""
+
         with _OFFICIAL_IMAGE_LIFECYCLE_LOCK:
             self._evaluate_serial(summary, request)
 
@@ -37,6 +52,13 @@ class SwebenchOfficialEvaluator(OfficialEvaluatorPort):
         summary: BenchRunSummary,
         request: SwebenchRunRequest,
     ) -> None:
+        """运行 official harness，并让 parser 而非进程退出码决定逐 Case 结果。
+
+        伪代码：检查 harness → 准备本轮镜像 lease → 执行官方命令
+        → 解析 aggregate/per-case reports → 写回 Case → 释放本轮 owned 镜像。
+        """
+
+        # Harness 不可用时所有 Case 显式标记 unavailable，不能降级成本地正确性。
         if importlib.util.find_spec("swebench") is None:
             self._mark_unavailable(summary)
             return
@@ -49,6 +71,7 @@ class SwebenchOfficialEvaluator(OfficialEvaluatorPort):
             self._mark_image_unavailable(summary, str(exc))
             return
 
+        # 命令退出码是运行级诊断；逐 Case resolved/unresolved 只读 official report。
         command = self._command(summary, request)
         summary.official_eval_command = command
         try:
@@ -75,6 +98,7 @@ class SwebenchOfficialEvaluator(OfficialEvaluatorPort):
             )
             summary.official_eval_warnings = list(parsed.warnings)
         finally:
+            # 只释放本次新拉取的 tag；预先存在的宿主镜像不属于当前 Evaluator。
             cleanup_warnings = self._release_owned_images(leases)
             summary.official_eval_warnings.extend(cleanup_warnings)
             if cleanup_warnings:
@@ -88,7 +112,9 @@ class SwebenchOfficialEvaluator(OfficialEvaluatorPort):
                     result.official_evaluation_status = "official_eval_error"
                     result.official_evaluation_detail = summary.official_eval_output
                     result.evaluation_status = "official_eval_error"
+    # endregion 1. Official 生命周期结束
 
+    # region 2. 镜像 ownership：只登记并释放当前 evaluation 新拉取的 tag
     @classmethod
     def _prepare_official_images(
         cls,
@@ -198,6 +224,8 @@ class SwebenchOfficialEvaluator(OfficialEvaluatorPort):
 
     @staticmethod
     def _release_owned_images(leases: list[dict[str, Any]]) -> list[str]:
+        """逆序释放 owned lease；清理失败作为 evaluator error 证据返回。"""
+
         warnings: list[str] = []
         for lease in reversed(leases):
             if not lease.get("owned"):
@@ -214,7 +242,9 @@ class SwebenchOfficialEvaluator(OfficialEvaluatorPort):
                     f"{tag}: {(process.stderr or process.stdout).strip()}"
                 )
         return warnings
+    # endregion 2. 镜像 ownership 结束
 
+    # region 3. 不可用收口：区分 package 缺失与 image preflight 失败
     @staticmethod
     def _mark_unavailable(summary: BenchRunSummary) -> None:
         summary.official_eval_exit_code = 127
@@ -236,12 +266,16 @@ class SwebenchOfficialEvaluator(OfficialEvaluatorPort):
             result.official_evaluation_status = "official_eval_error"
             result.official_evaluation_detail = summary.official_eval_output
             result.evaluation_status = "official_eval_error"
+    # endregion 3. 不可用收口结束
 
+    # region 4. 命令构造：冻结 dataset、prediction、worker、cache 与 namespace 参数
     @staticmethod
     def _command(
         summary: BenchRunSummary,
         request: SwebenchRunRequest,
     ) -> list[str]:
+        """只构造 official harness argv，不执行命令也不解释结果。"""
+
         command = [
             sys.executable,
             "-m",
@@ -269,3 +303,4 @@ class SwebenchOfficialEvaluator(OfficialEvaluatorPort):
         )
         command.extend(["--namespace", official_namespace])
         return command
+    # endregion 4. 命令构造结束

@@ -109,6 +109,9 @@ class RunPreparation:
     def prepare_run(self, session: AgentRunSession) -> StopRequest | None:
         """完成首次模型调用前的一次性决策，并把控制权还给 ``AgentLoop``。
 
+        伪代码：input guardrail -> clarification/HITL -> freeze Skill
+        -> seed Working Memory 与 Long-Term Memory snapshot。
+
         流程位置：首次模型调用之前的一次性策略阶段。
         规范上游：``AgentLoop.run``。
         下一 owner：成功时 ``TurnPreparation.prepare_turn``；停止时
@@ -119,9 +122,11 @@ class RunPreparation:
         """
 
         input_policy_stop = self._apply_input_policy(session)
+        # 输入策略拒绝时立即停止，不能继续选择 Skill 或召回 Memory。
         if input_policy_stop is not None:
             return input_policy_stop
         clarification_stop = self._resolve_clarification(session)
+        # 澄清需要等待、被取消或任务被拒绝时，同样不初始化后续运行上下文。
         if clarification_stop is not None:
             return clarification_stop
         self._activate_skills(session)
@@ -144,14 +149,22 @@ class RunPreparation:
         self,
         session: AgentRunSession,
     ) -> StopRequest | None:
+        """把澄清策略投影为停止、继续或 durable 人工输入屏障。
+
+        伪代码：refuse -> stop；无需澄清 -> continue；需要澄清 -> durable request；
+        已有回答 -> 合并回 task 并继续，否则返回 Lifecycle 生成的 StopRequest。
+        """
+
         clarification_decision = self.clarification_policy.evaluate_task(session.task)
         self._record_clarification_decision(session, clarification_decision)
+        # 明确不支持的任务直接 BLOCKED，不创建一个无法解决的人工问题。
         if clarification_decision.action == "refuse":
             return StopRequest(
                 status=TaskRunStatus.BLOCKED,
                 reason="unsupported_task",
                 stop_output=f"blocked: {clarification_decision.reason}",
             )
+        # 信息已经充分时保持原任务，跳过 HITL repository。
         if not clarification_decision.needs_user_input():
             return None
 
@@ -165,6 +178,7 @@ class RunPreparation:
                 step=0,
             )
         )
+        # pending/cancelled 由 Lifecycle 返回稳定停止事实；只有 responded 可改写 task。
         if human_input_resolution.stop is not None:
             return human_input_resolution.stop
         session.task = "\n".join(

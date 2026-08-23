@@ -95,6 +95,10 @@ class TurnPreparation:
     ) -> PreparedTurn:
         """为 ``AgentLoop`` 生成一次可直接提交给模型的 ``PreparedTurn``。
 
+        伪代码：保存 Turn checkpoint -> 路由 Tool schema/allowed names
+        -> 组装当前 Turn System Context -> 加入临时预算提示
+        -> PromptWindow governance -> 返回冻结的 ``PreparedTurn``。
+
         流程位置：每个 turn 的上下文、工具集合与预算汇合点。
         规范上游：``AgentLoop._run_turn``。
         下一 owner：模型调用边界。
@@ -146,11 +150,13 @@ class TurnPreparation:
             "dangerous commands denied; "
             f"{self.execution_environment.render_boundary_summary()}"
         )
+        # FINALIZE 关闭所有工具，明确要求模型只输出有证据约束的最终答案。
         if tool_route.phase == "finalize":
             model_permission_summary += (
                 "; final step: no more tool calls are available, provide the best "
                 "evidence-based final answer and clearly mark unverified items"
             )
+        # CLOSEOUT 仍保留最后一次受限工具机会，但禁止重新开始宽泛探索。
         elif tool_route.phase == "closeout":
             model_permission_summary += (
                 "; closure phase: broad discovery is closed; use this last tool "
@@ -202,6 +208,7 @@ class TurnPreparation:
             step=step,
             max_steps=session.max_iterations,
         )
+        # 预算提示只加入本 Turn 的历史副本，不写回 session.messages 或长期对话事实。
         if runtime_control_message is not None:
             conversation_history.append(runtime_control_message)
         prompt_window = self.prompt_window.prepare(
@@ -215,8 +222,9 @@ class TurnPreparation:
             )
         )
         self._record_prompt_window(session, step, prompt_window)
+        # 压缩只把 digest 引用写入 checkpoint；原始消息仍由 live Session 保存。
+        # Trace 只记录窗口度量、source hash 与压缩事实，不复制完整 Prompt 正文。
         if prompt_window.conversation_history_digest is not None:
-            # 只把摘要引用写入 checkpoint；原始消息仍保留在 session/trace 中，不被压缩删除。
             session.lifecycle.update_checkpoint(
                 TaskCheckpointUpdate(
                     conversation_history_digest=(
@@ -280,6 +288,7 @@ class TurnPreparation:
         """在接近预算边界时追加不落入会话历史的 Runtime 控制消息。"""
 
         remaining_tool_turns = max(0, max_steps - step)
+        # 剩余为零表示 Tool 已关闭，本 Turn 必须只返回最终文本。
         if remaining_tool_turns == 0:
             return Message(
                 role="user",
@@ -288,6 +297,7 @@ class TurnPreparation:
                     "evidence-based answer now. Do not emit tool-call markup."
                 ),
             )
+        # 剩余一次时只允许完成最小修复或验证，不再扩展问题范围。
         if remaining_tool_turns == 1:
             return Message(
                 role="user",
@@ -297,6 +307,7 @@ class TurnPreparation:
                     "or diff check that can still change the outcome."
                 ),
             )
+        # 剩余两次时提前进入收口阶段，提示模型从探索切换到落地。
         if remaining_tool_turns == 2:
             return Message(
                 role="user",

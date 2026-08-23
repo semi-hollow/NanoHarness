@@ -1,4 +1,10 @@
-"""重复 benchmark campaign 的人类可读报告。"""
+"""把 CampaignState 与已聚合 summary 渲染为只读 Markdown。
+
+本层不重新计算 resolved、配对胜负或成本；它只展示 Domain 已给出的不同分母，避免
+把 presentation 变成第二个 correctness owner。
+
+折叠导航：1 报告主链；2 格式化 helper；3 claim-boundary helper。
+"""
 
 from __future__ import annotations
 
@@ -14,8 +20,9 @@ def render_campaign_report(
     *,
     public: bool = False,
 ) -> str:
-    """报告同时给出样本解决率与已评测补丁接受率，避免混淆分母。"""
+    """按 summary 的既有分母展示 aggregate、paired 与逐槽位证据。"""
 
+    # region 1. Identity 与 Runtime preset：先固定比较对象，再展示结果
     config = state.config
     source = state.source
     repetitions = int(config.get("repetitions") or 0)
@@ -84,6 +91,9 @@ def render_campaign_report(
                 description=_table_cell(str(variant.get("description") or "")),
             )
         )
+    # endregion 1. Identity 与 Runtime preset 结束
+
+    # region 2. Aggregate 与 paired views：不跨视图混用 denominator
     lines.extend(
         [
             "",
@@ -161,6 +171,9 @@ def render_campaign_report(
                 f"- ties: `{paired_sample.get('ties', 0)}`",
             ]
         )
+    # endregion 2. Aggregate 与 paired views 结束
+
+    # region 3. Run matrix 与声明边界：让每个聚合数都能下钻到槽位
     lines.extend(
         [
             "",
@@ -211,6 +224,7 @@ def render_campaign_report(
         ]
     )
     return "\n".join(lines)
+    # endregion 3. Run matrix 与声明边界结束
 
 
 def _benchmark(config: dict[str, Any], key: str) -> Any:

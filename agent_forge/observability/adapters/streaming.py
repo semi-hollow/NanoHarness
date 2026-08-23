@@ -1,4 +1,11 @@
-"""把内部 EventSink 双写为脱敏实时事件流。"""
+"""把内部 EventSink 事件双写为可选实时 ``RuntimeEvent`` 投影。
+
+系统角色：delegate 保留内部 Trace 事实，本适配器按提交顺序生成面向 listener 的实时
+read model。默认策略会删除一组已知内容字段并截断文本，但它是 key-based policy，
+不是通用 secret/PII 检测器；开启 ``include_sensitive_data`` 会显式允许内容字段进入流。
+
+折叠导航：1 Streaming policy；2 Delegate + 实时投影；3 有序分发；4 字段过滤。
+"""
 
 from __future__ import annotations
 
@@ -50,18 +57,21 @@ _SENSITIVE_KEYS = {
 }
 
 
+# region 1. Streaming policy：内容字段 opt-in、文本上限、listener 失败策略
 @dataclass(frozen=True)
 class EventStreamPolicy:
-    """控制实时事件是否包含内容字段，以及单个文本字段的上限。"""
+    """控制已知内容字段是否进入实时流，以及单个文本值的上限。"""
 
     include_sensitive_data: bool = False
     max_text_chars: int = 500
     fail_on_listener_error: bool = False
+# endregion 1. Streaming policy 结束
 
 
 class StreamingEventSink(EventSink):
-    """保留原始 EventSink，同时按提交顺序通知实时 listener。"""
+    """保留 delegate 的内部事实，同时按提交顺序通知实时 listener。"""
 
+    # region 2. Delegate + 实时投影：先保留内部事实，再发布 RuntimeEvent
     def __init__(
         self,
         delegate: EventSink,
@@ -94,7 +104,7 @@ class StreamingEventSink(EventSink):
                 payload["task"] = task[: self.policy.max_text_chars]
             self._emit("run.started", 0, "Runtime", True, payload)
 
-    # 主要入口：保留内部事实，并同步投影一个脱敏有序 RuntimeEvent。
+    # 主要入口：保留内部事实，并同步投影一个经过 policy 过滤的有序 RuntimeEvent。
     def add(
         self,
         step: int,
@@ -104,7 +114,7 @@ class StreamingEventSink(EventSink):
         error: str = "",
         **data: Any,
     ) -> None:
-        """先写内部事实事件，再按同一顺序发布脱敏的实时事件。"""
+        """先写内部事实事件，再按同一顺序发布 policy-filtered 实时事件。"""
         self.delegate.add(
             step,
             agent_name,
@@ -150,7 +160,9 @@ class StreamingEventSink(EventSink):
     def publish(self) -> None:
         self.delegate.publish()
         self._emit("run.published", 0, "Runtime", True, {})
+    # endregion 2. Delegate + 实时投影结束
 
+    # region 3. 有序分发：sequence → immutable event → listener isolation/fail-fast
     def _emit(
         self,
         name: str,
@@ -159,6 +171,12 @@ class StreamingEventSink(EventSink):
         success: bool,
         payload: Mapping[str, object],
     ) -> None:
+        """为一次投影分配单调序号，并按 listener 注册顺序同步通知。
+
+        默认一个 listener 异常只进入 ``listener_errors``，不阻断其他 listener；
+        ``fail_on_listener_error=True`` 才把异常传播给调用方。
+        """
+
         self.sequence += 1
         event = RuntimeEvent(
             name=name,
@@ -176,8 +194,12 @@ class StreamingEventSink(EventSink):
                 self.listener_errors.append(f"{type(exc).__name__}: {exc}")
                 if self.policy.fail_on_listener_error:
                     raise
+    # endregion 3. 有序分发结束
 
+    # region 4. 字段过滤：已知 key 删除 + 递归截断，不做任意文本内容识别
     def _sanitize(self, value: Mapping[str, Any]) -> dict[str, object]:
+        """按 key policy 过滤 mapping；未知 key 的字符串内容不会被语义扫描。"""
+
         return {
             str(key): self._safe_value(child, key=str(key))
             for key, child in value.items()
@@ -186,6 +208,8 @@ class StreamingEventSink(EventSink):
         }
 
     def _safe_value(self, value: Any, *, key: str = "") -> object:
+        """递归限制值形状与长度；仅已知 sensitive key 会被删除或替换。"""
+
         if not self.policy.include_sensitive_data and key.lower() in _SENSITIVE_KEYS:
             return "[redacted]"
         if isinstance(value, str):
@@ -202,3 +226,4 @@ class StreamingEventSink(EventSink):
         if isinstance(value, (list, tuple)):
             return [self._safe_value(item) for item in value[:50]]
         return str(value)[: self.policy.max_text_chars]
+    # endregion 4. 字段过滤结束

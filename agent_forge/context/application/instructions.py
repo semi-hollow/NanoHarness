@@ -90,8 +90,12 @@ def resolve_instructions(request: InstructionResolutionRequest) -> InstructionRe
 
     自动发现限定在 workspace 内；预算从高优先级来源向低优先级来源分配。
     返回正文及 path、hash、字节数和截断信息，不执行指令本身。
+
+    伪代码：验证 workspace/global source -> 沿 repo root 到 active directory 收集
+    base/local/runtime override -> 高优先级先分配 byte budget -> 返回正文与 provenance。
     """
 
+    # region 1. 输入边界：解析工作区，并验证显式 global source
     if request.max_bytes < 1:
         raise ValueError("instruction max_bytes must be positive")
     workspace = Path(request.workspace).resolve()
@@ -109,7 +113,11 @@ def resolve_instructions(request: InstructionResolutionRequest) -> InstructionRe
             pass
         else:
             seen.add(path)
+    # endregion 1. 输入边界结束
 
+    # region 2. 稳定发现：从仓库根逐层走到 active directory，再加入运行时覆盖
+    # 越靠近 active directory、越晚发现的 local/runtime source 优先级越高；seen 保证
+    # global 文件若恰好位于 workspace 内，不会在目录扫描时重复进入模型输入。
     directories = [workspace, *_relative_directories(workspace, active_directory)]
     for index, directory in enumerate(directories):
         kind = "repository" if index == 0 else "directory"
@@ -127,7 +135,9 @@ def resolve_instructions(request: InstructionResolutionRequest) -> InstructionRe
         discovered.append(
             ("<runtime_override>", "runtime_override", request.runtime_override.strip())
         )
+    # endregion 2. 稳定发现结束
 
+    # region 3. 预算与证据：优先保住高优先级正文，再恢复稳定展示顺序
     sources = _allocate_sources(discovered, request.max_bytes)
     blocks = [
         f"[instruction:{source.kind} path={source.path}]\n{source.content}"
@@ -144,6 +154,7 @@ def resolve_instructions(request: InstructionResolutionRequest) -> InstructionRe
         max_bytes=request.max_bytes,
         truncated=any(source.truncated for source in sources),
     )
+    # endregion 3. 预算与证据结束
 
 
 def _active_directory(workspace: Path, active_path: str | Path) -> Path:
@@ -194,8 +205,12 @@ def _allocate_sources(
     discovered: list[tuple[str, str, str]],
     max_bytes: int,
 ) -> list[InstructionSource]:
+    """让高优先级来源先领取预算，同时保持返回列表的稳定优先级顺序。"""
+
     remaining = max_bytes
     allocated: list[InstructionSource] = []
+    # discovered 越靠后优先级越高，因此反向遍历先分预算；完成后再反转回来，
+    # 使渲染顺序与 provenance precedence 都保持从低到高、可重复比较。
     for precedence, (path, kind, content) in reversed(list(enumerate(discovered))):
         raw = content.encode("utf-8")
         included = _truncate_utf8(content, remaining)

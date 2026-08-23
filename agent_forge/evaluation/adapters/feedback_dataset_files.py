@@ -1,3 +1,11 @@
+"""把人工反馈和既有运行证据投影成可追溯的文件 artifact。
+
+系统角色：记录人工 outcome、连接 campaign 改进判断、导出分析 JSONL；本文件不会
+重新判定 correctness，也不自动完成 secret/PII 审查。导出内容是否可外发由调用方负责。
+
+折叠导航：1 请求契约；2 单次反馈；3 改进闭环；4 Dataset export；5 路径/JSON helper。
+"""
+
 from __future__ import annotations
 
 import hashlib
@@ -13,6 +21,7 @@ IMPROVEMENT_SCHEMA_VERSION = "agent-forge-improvement-v1"
 IMPROVEMENT_DECISIONS = {"adopt", "iterate", "reject"}
 
 
+# region 1. 请求契约：人工反馈与 campaign 改进判断的显式输入
 # 核心数据：在既有运行证据上追加人工反馈的完整输入。
 @dataclass(frozen=True, kw_only=True)
 class FeedbackRequest:
@@ -44,11 +53,17 @@ class ImprovementRecordRequest:
     reviewer: str = "project-maintainer"
     diagnosis_finding: str = ""
     diagnosis_evidence: tuple[str, ...] = ()
+# endregion 1. 请求契约结束
 
 
+# region 2. 单次反馈：验证目标/outcome，再以同目录 replace 发布 feedback.json
 # 主要入口：在现有 run/case artifact 上追加人工 outcome、label 和 note。
 def record_feedback(request: FeedbackRequest) -> Path:
-    """把人工 outcome、标签和备注挂接到指定运行证据。"""
+    """把人工 outcome、标签和备注挂接到指定运行证据。
+
+    note/reviewer 是调用方提供的原文，不经过内容脱敏；该文件用于项目内审阅事实，
+    不能仅因结构化写入就视为可公开数据。
+    """
 
     target_path = Path(request.target)
     target_dir = target_path.parent if target_path.is_file() else target_path
@@ -76,8 +91,10 @@ def record_feedback(request: FeedbackRequest) -> Path:
     )
     temporary.replace(path)
     return path
+# endregion 2. 单次反馈结束
 
 
+# region 3. 改进闭环：只引用已发布 summary/manifest，不重算 benchmark
 # 主要入口：从现有 campaign 事实生成一条可审计的改进闭环记录。
 def write_improvement_record(request: ImprovementRecordRequest) -> Path:
     """只投影既有 benchmark 指标，不重新计算或拔高 correctness 结论。"""
@@ -189,7 +206,7 @@ def write_improvement_record(request: ImprovementRecordRequest) -> Path:
     }
     # endregion 3. 审计载荷结束
 
-    # region 4. 原子发布：临时文件完整写入后再替换正式记录
+    # region 4. Replace 发布：避免读到半份 JSON，但不声明 fsync/OS-crash durability
     path = campaign_dir / "improvement_record.json"
     temporary = path.with_suffix(".json.tmp")
     temporary.write_text(
@@ -198,9 +215,11 @@ def write_improvement_record(request: ImprovementRecordRequest) -> Path:
     )
     temporary.replace(path)
     return path
-    # endregion 4. 原子发布结束
+    # endregion 4. Replace 发布结束
+# endregion 3. 改进闭环结束
 
 
+# region 4. Dataset export：去重 trace → 证据投影 → 可选反馈过滤 → JSONL
 # 主要入口：将有反馈的 case evidence 导出为可追溯训练/分析 JSONL。
 def export_feedback_dataset(
     targets: Iterable[str | Path],
@@ -209,10 +228,18 @@ def export_feedback_dataset(
     require_feedback: bool = False,
     include_patch: bool = False,
 ) -> list[dict[str, Any]]:
-    """筛选可公开字段并导出逐行反馈数据集。"""
+    """导出固定字段的逐行反馈数据集，不把“字段受限”等同于“可公开”。
+
+    默认记录仍可能包含 task、final_answer、路径、人工 note；``include_patch=True``
+    还会加入 candidate diff 原文。调用方必须在外发或训练前单独做隐私与授权审查。
+
+    伪代码：展开目标下 trace.json → 按 resolved path 去重 → 构造 derived record
+    → 可选只保留已审核记录 → 写 JSONL。
+    """
 
     records: list[dict[str, Any]] = []
     seen_traces: set[Path] = set()
+    # 多个 target 可能覆盖同一 run；resolved trace identity 防止重复样本。
     for raw_target in targets:
         target = Path(raw_target)
         root = target.parent if target.is_file() else target
@@ -226,6 +253,7 @@ def export_feedback_dataset(
                 continue
             records.append(record)
 
+    # 一行一个完整 derived record；写出并不改变来源 trace/feedback/candidate artifact。
     destination = Path(output_path)
     destination.parent.mkdir(parents=True, exist_ok=True)
     lines = [
@@ -233,11 +261,15 @@ def export_feedback_dataset(
     ]
     destination.write_text("\n".join(lines) + ("\n" if lines else ""), encoding="utf-8")
     return records
+# endregion 4. Dataset export 结束
 
 
+# region 5. 单记录与路径 helper：只关联邻近 artifact，不猜测缺失结论
 def _build_record(
     root: Path, trace_path: Path, *, include_patch: bool
 ) -> dict[str, Any]:
+    """从一个 trace 关联最近 result/feedback/diff，并生成有 provenance 的投影。"""
+
     trace = _read_json(trace_path)
     events_value = trace.get("events")
     events: list[Any] = events_value if isinstance(events_value, list) else []
@@ -247,6 +279,7 @@ def _build_record(
     hidden_tools: list[str] = []
     environment: dict[str, Any] = {}
 
+    # 只提取 export contract 所需事件；未知事件仍留在原 Trace，不在这里解释。
     for event in events:
         if not isinstance(event, dict):
             continue
@@ -334,6 +367,7 @@ def _build_record(
         },
     }
     if include_patch:
+        # Patch 原文是显式 opt-in；默认只输出长度和 SHA-256 identity。
         record["candidate_diff"] = candidate_diff_bytes.decode(
             "utf-8",
             errors="replace",
@@ -459,3 +493,4 @@ def _improvement_metrics(variant: dict[str, Any]) -> dict[str, int | float]:
 def _number(mapping: dict[str, Any], key: str) -> float:
     value = mapping.get(key)
     return float(value) if isinstance(value, (int, float)) else 0.0
+# endregion 5. 单记录与路径 helper 结束

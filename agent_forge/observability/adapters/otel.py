@@ -1,4 +1,11 @@
-"""将脱敏 RuntimeEvent 可选投影到 OpenTelemetry Span。"""
+"""将 policy-filtered ``RuntimeEvent`` 可选投影到 OpenTelemetry Span。
+
+本 listener 不回读内部 Trace，也不再次执行 secret/PII 过滤。默认只导出 envelope；
+开启 payload 后会把上游实时事件中的标量值交给 exporter，因此调用方必须同时审阅
+``EventStreamPolicy`` 与 OTEL exporter 的数据边界。
+
+折叠导航：1 OTEL 契约与 policy；2 Event → Span 生命周期；3 Attribute/Span helper。
+"""
 
 from __future__ import annotations
 
@@ -9,6 +16,7 @@ from agent_forge.observability.domain.live_event import RuntimeEvent
 from agent_forge.observability.ports.events import RuntimeEventListener
 
 
+# region 1. OTEL 契约与 policy：默认 envelope-only，payload 显式 opt-in
 class SpanLike(Protocol):
     def set_attribute(self, key: str, value: object) -> None: ...
     def add_event(self, name: str, attributes: dict[str, object] | None = None) -> None: ...
@@ -27,19 +35,22 @@ class TracerLike(Protocol):
 
 @dataclass(frozen=True)
 class OpenTelemetryPolicy:
-    """默认只导出 envelope；开启 payload 也只使用已脱敏的 stream event。"""
+    """默认只导出 envelope；开启 payload 时信任上游 stream policy。"""
 
     include_payload: bool = False
     max_attribute_chars: int = 300
+# endregion 1. OTEL 契约与 policy 结束
 
 
 class OpenTelemetryEventListener(RuntimeEventListener):
     """不改变内部 trace 的可选 OTEL 双写 listener。
 
     ``model.started/tool.started`` 打开 span，对应 completed 事件关闭 span；只有
-    completed 而没有 started 时，才降级为零时长 span。内部 JSON 始终是事实源。
+    completed 而没有 started 时，才降级为零时长 span。上游 internal EventSink/Trace
+    仍是事实源，OTEL 只是一份可选 projection。
     """
 
+    # region 2. Event → Span 生命周期：root、子 span、瞬时 event、终态收口
     def __init__(
         self,
         tracer: TracerLike,
@@ -52,7 +63,11 @@ class OpenTelemetryEventListener(RuntimeEventListener):
 
     # 主要入口：把 RuntimeEvent 映射为 run root span、子 span 或 root event。
     def on_event(self, event: RuntimeEvent) -> None:
-        """run 完成时关闭 root；LLM、Tool、Context 等事实投影为子 span。"""
+        """Run 完成时关闭 root；LLM、Tool、Context 等投影为子 span。
+
+        伪代码：run.started 建 root → started/completed 配对子 span
+        → 其他事件挂 root 或瞬时 span → run.completed/published 关闭遗留 span。
+        """
 
         if event.name == "run.published":
             root = self._roots.pop(event.run_id, None)
@@ -121,7 +136,9 @@ class OpenTelemetryEventListener(RuntimeEventListener):
         )
         span.add_event(event.name)
         span.end()
+    # endregion 2. Event → Span 生命周期结束
 
+    # region 3. Attribute/Span helper：只接收实时投影，不重新读取 canonical Trace
     def _end_orphan_spans(self, run_id: str) -> None:
         """终态兜底关闭缺少 completed 事件的子 span，避免 exporter 泄漏。"""
 
@@ -130,6 +147,8 @@ class OpenTelemetryEventListener(RuntimeEventListener):
             self._active.pop(key).end()
 
     def _attributes(self, event: RuntimeEvent) -> dict[str, object]:
+        """构造 OTEL attributes；payload opt-in 不等于额外内容脱敏。"""
+
         attributes: dict[str, object] = {
             "gen_ai.run.id": event.run_id,
             "gen_ai.event.name": event.name,
@@ -180,3 +199,4 @@ def _span_context(root: SpanLike) -> object | None:
         return trace.set_span_in_context(root)
     except (ImportError, TypeError, AttributeError):
         return None
+    # endregion 3. Attribute/Span helper 结束

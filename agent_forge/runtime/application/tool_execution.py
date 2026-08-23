@@ -191,6 +191,10 @@ class ToolExecutionPipeline:
     ) -> ToolCallOutcome:
         """让一个 ToolCall 依次经过路由、HITL、操作防重、重复保护和授权门。
 
+        伪代码：路由与 Guardrail -> ask_human durable barrier
+        -> remember_memory provenance -> Operation Ledger replay/fail-closed
+        -> repeat limit -> authorization -> 唯一真实执行入口 ``_run_tool``。
+
         只有前述阶段均允许时才进入 ``_run_tool``；每个拒绝、等待、回填或执行分支都返回
         明确的 ``ToolCallOutcome``，并在对应阶段提交 Observation、Trace 或 Checkpoint。
         """
@@ -212,6 +216,7 @@ class ToolExecutionPipeline:
         )
         self._record_tool_guardrail(session, step, guardrail_decision)
 
+        # 本 Turn 没有向模型暴露该工具时立即失败，不能进入 HITL、Ledger 或 Gateway。
         if not tool_is_routed_for_this_turn:
             self._handle_unrouted_tool(session, tool_call, step)
             return ToolCallOutcome(
@@ -222,6 +227,7 @@ class ToolExecutionPipeline:
 
         # region 2. 协议分支：记录工具意图，ask_human 转入 durable HITL
         self._record_model_tool_intent(session, step, tool_call)
+        # ask_human 是协议特殊分支：建立可恢复人工屏障，不按普通 Tool 执行。
         if tool_call.name == "ask_human":
             return self._handle_human_question(session, tool_call, step)
         # endregion 2. 协议分支结束
@@ -234,11 +240,13 @@ class ToolExecutionPipeline:
         # operation key 和执行前目标指纹。无需操作状态表治理的调用也会归一化，
         # 但不会创建 operation record。
         memory_provenance: JsonObject | None = None
+        # Memory 写入必须先绑定当前 Session 的 user 原文，模型声明本身不构成授权。
         if tool_call.name == "remember_memory":
             memory_provenance = self._find_user_memory_provenance(
                 session,
                 tool_call,
             )
+            # 找不到精确 user quote 时 fail closed，且不创建 operation record。
             if memory_provenance is None:
                 return self._reject_memory_without_provenance(
                     session,
@@ -246,6 +254,7 @@ class ToolExecutionPipeline:
                     step,
                 )
         operation_intent = self.operation_tracker.build_operation_intent(tool_call)
+        # 只有已验证的 quote 才记录为 Memory 授权 provenance。
         if memory_provenance is not None:
             self._record_memory_authorization(
                 session=session,
@@ -253,6 +262,7 @@ class ToolExecutionPipeline:
                 operation_key=operation_intent.operation_key,
                 provenance=memory_provenance,
             )
+        # 只有可能改变持久状态的操作才进入 Ledger 防重与恢复判断。
         if operation_intent.side_effect:
             existing_operation = self.operation_tracker.resolve_existing_operation(
                 session,
@@ -260,12 +270,14 @@ class ToolExecutionPipeline:
                 operation_intent,
                 step,
             )
+            # unknown outcome 或 stale record 必须停止，不能冒险再次执行。
             if existing_operation.stop_request is not None:
                 return ToolCallOutcome(
                     status=ToolCallStatus.STOPPED,
                     reason=existing_operation.stop_request.reason,
                     stop_request=existing_operation.stop_request,
                 )
+            # 确定执行且未漂移的旧事实只回填 Observation，不再次调用真实工具。
             if existing_operation.handled_without_execution:
                 return ToolCallOutcome(
                     status=ToolCallStatus.SKIPPED,
@@ -274,6 +286,7 @@ class ToolExecutionPipeline:
         # endregion 3. 操作状态表结束
 
         # region 4. 连续重复策略：无持久状态变化的调用跳过，可能改变持久状态的调用停止
+        # Ledger 没有可复用事实后，才按连续 ToolCall 计数处理模型无进展循环。
         if repeat_limit_signal is not None:
             return self._handle_exceeded_repeat_limit(
                 session=session,
@@ -293,12 +306,14 @@ class ToolExecutionPipeline:
             operation_intent,
             step,
         )
+        # WAITING_APPROVAL 或 stale approval 通过 StopRequest 返回，不能进入 Gateway。
         if authorization_decision.stop is not None:
             return ToolCallOutcome(
                 status=ToolCallStatus.STOPPED,
                 reason=authorization_decision.stop.reason,
                 stop_request=authorization_decision.stop,
             )
+        # 明确 DENY 已形成失败 Observation；这里终止当前调用，不重复记录事实。
         if not authorization_decision.proceed:
             return ToolCallOutcome(
                 status=ToolCallStatus.FAILED,
@@ -383,6 +398,9 @@ class ToolExecutionPipeline:
     ) -> list[ToolCall]:
         """按单轮上限截取普通 ToolCall；出现 ``ask_human`` 时只保留第一个问题。
 
+        伪代码：无人工问题 -> 按 ToolCall budget 截断
+        -> 有人工问题 -> 只保留第一个问题，并把其他调用记为 deferred evidence。
+
         被预算截断或因 HITL 屏障延后的调用只写入证据，不在本 Turn 执行；continuation
         会让模型基于人工回答重新规划，而不是继续消费旧调用列表。
         """
@@ -390,9 +408,11 @@ class ToolExecutionPipeline:
         human_input_calls = [
             call for call in response.tool_calls if call.name == "ask_human"
         ]
+        # 没有 HITL 屏障时，普通调用只受本 Turn 最大 ToolCall 数量限制。
         if not human_input_calls:
             selected_tool_calls = response.tool_calls[: self.max_tool_calls_per_turn]
             dropped_tool_calls = response.tool_calls[self.max_tool_calls_per_turn :]
+            # 被预算截断的调用没有执行，只记录为模型曾提出但本 Turn 未消费的证据。
             if dropped_tool_calls:
                 self._record_tool_call_budget(
                     session=session,
@@ -406,6 +426,7 @@ class ToolExecutionPipeline:
         deferred_tool_names = [
             call.name for call in response.tool_calls if call is not selected_human_call
         ]
+        # ask_human 建立同 Turn 屏障；其他调用留给模型在取得回答后重新规划。
         if deferred_tool_names:
             self._record_deferred_tool_calls(
                 session=session,
@@ -575,7 +596,11 @@ class ToolExecutionPipeline:
         tool_call: ToolCall,
         step: int,
     ) -> ToolCallOutcome:
-        """阶段 2：把 ask_human 转成持久化回答或 waiting_human 暂停。"""
+        """阶段 2：把 ask_human 转成持久化回答或 waiting_human 暂停。
+
+        伪代码：校验 question/choices -> 幂等查找 durable request
+        -> pending/cancelled 返回 StopRequest -> responded 回填 Tool Observation。
+        """
 
         # region 1. 参数校验：坏问题作为 Observation 回填，不建立无效人工请求
         # ask_human 也是模型工具协议的一部分；参数错误应作为失败 Observation 反馈给模型，
@@ -584,13 +609,16 @@ class ToolExecutionPipeline:
         question_text = question_arguments.get("question")
         choice_values = question_arguments.get("choices", [])
         validation_error = ""
+        # 空问题无法被回答，作为普通失败 Observation 返回，不创建 durable request。
         if not isinstance(question_text, str) or not question_text.strip():
             validation_error = "invalid arguments: question must be non-empty str"
+        # choices 只接受字符串数组，避免持久化无法稳定渲染的选项。
         elif not isinstance(choice_values, list) or any(
             not isinstance(choice, str) for choice in choice_values
         ):
             validation_error = "invalid arguments: choices must be list"
 
+        # 参数错误留在模型工具协议内反馈，不把整个 Run 锁进人工等待状态。
         if validation_error:
             invalid_question_observation = Observation(
                 tool_name=tool_call.name,
@@ -633,6 +661,7 @@ class ToolExecutionPipeline:
                 step=step,
             )
         )
+        # pending/cancelled 都由 Lifecycle 映射为明确 StopRequest；只有 responded 可继续。
         if human_input_resolution.stop is not None:
             return ToolCallOutcome(
                 status=ToolCallStatus.STOPPED,
@@ -672,7 +701,12 @@ class ToolExecutionPipeline:
         operation_intent: OperationIntent,
         step: int,
     ) -> ToolCallOutcome:
-        """阶段 5：执行已获授权工具，再提交操作状态、证据和 checkpoint。"""
+        """阶段 5：执行已获授权工具，再提交操作状态、证据和 checkpoint。
+
+        伪代码：最后 terminal 检查 -> side effect 写 approved/executing
+        -> Gateway -> after_tool -> Ledger 提交结果 -> Evidence/Checkpoint
+        -> budget gate -> 下一 Turn 的 tool message。
+        """
 
         # region 1. 最后控制边界：terminal 可阻止启动，输入类信号留到模型边界
         # 这是 ToolGateway 前最后一个 safe point。这里只消费 pause/cancel；steer 和
@@ -694,6 +728,7 @@ class ToolExecutionPipeline:
         # region 2. 幂等状态迁移：状态变更操作先进入 approved/executing，再调用工具
         # 手动审批路径此前已经创建操作状态；自动放行的状态变更操作也必须先落一条 approved
         # 记录，确保真实工具返回后 record_execution_result 一定有可迁移的持久化对象。
+        # 自动放行且尚无记录的 side effect 也要先建立 approved 事实。
         if operation_intent.side_effect and not self.operation_tracker.has_record(
             operation_intent
         ):
@@ -702,6 +737,7 @@ class ToolExecutionPipeline:
                 step=step,
                 status="approved",
             )
+        # executing 必须先于 Gateway 落盘，崩溃恢复才能把未提交结果视为 unknown。
         if operation_intent.side_effect:
             self.operation_tracker.record_executing(operation_intent, step=step)
         # endregion 2. 幂等状态迁移结束
@@ -721,6 +757,7 @@ class ToolExecutionPipeline:
             tool_observation,
             step,
         )
+        # Gateway 已返回且 after_tool 已规范化后，才允许提交最终 executed/failed 事实。
         if operation_intent.side_effect:
             # 操作状态表记录工具执行后的最终 Observation，不能在 Gateway 调用前抢先写 executed。
             self.operation_tracker.record_execution_result(
@@ -738,6 +775,7 @@ class ToolExecutionPipeline:
             tool_call.arguments or {},
             tool_observation,
         )
+        # 只有明确的测试型证据才能改变 ran_tests，普通成功 Observation 不算验证。
         if validation_evidence:
             session.ran_tests = (
                 session.ran_tests or validation_evidence["status"] == "passed"
@@ -779,6 +817,7 @@ class ToolExecutionPipeline:
             step,
             estimated_cost_usd=session.estimated_cost_usd,
         )
+        # 预算命中时停止在当前 Observation，不再把它作为下一轮模型输入继续扩张执行。
         if budget_stop_signal is not None:
             budget_stop_request = StopRequest(
                 status=TaskRunStatus.BLOCKED,

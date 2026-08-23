@@ -53,15 +53,24 @@ class ContextStrategy:
 
 # 核心规则：按任务相关性选择文件、检索结果和可继承的记忆视图。
 def build_context_strategy(request: ContextStrategyRequest) -> ContextStrategy:
-    """在 ``root`` 内读取有界文件预览，并返回类型化候选上下文。"""
+    """在 ``root`` 内读取有界文件预览，并返回类型化候选上下文。
+
+    伪代码：按 task 选择文件与预览 -> 判断 topic relation 并治理 session working
+    memory 继承 -> 生成 retrieval、长期记忆和预算/丢弃证据。
+    """
 
     root_path = Path(request.root)
 
+    # region 1. 仓库候选：先排序文件，再只读取前几个文件的有界预览
     selected_files = rank_files(request.task, request.files, root=root_path)[:8]
 
     preview_budget = max(1200, request.max_chars // 3)
     file_previews = _read_file_previews(root_path, selected_files[:4], preview_budget)
+    # endregion 1. 仓库候选结束
 
+    # region 2. 会话继承：topic shift 只切断 session working memory
+    # Long-Term Memory 是用户显式保存的跨 Run 事实，不随 topic shift 被静默清空；
+    # topic relation 只决定 previous session items/summary 是否继续进入当前候选。
     previous_task = str(request.working_memory.get("previous_task", "") or "")
     topic_relation = infer_topic_relation(request.task, previous_task)
     inherit_session = topic_relation in {"same_topic", "related_topic", "unknown"}
@@ -78,7 +87,9 @@ def build_context_strategy(request: ContextStrategyRequest) -> ContextStrategy:
         working_memory_summary = (
             "Previous session context intentionally ignored because the topic changed."
         )
+    # endregion 2. 会话继承结束
 
+    # region 3. 检索与证据：生成其余候选，并记录实际预算和丢弃原因
     retrieved_docs = retrieve(request.task, request.files, limit=5)
     retrieved_docs = [truncate_middle(doc, 600) for doc in retrieved_docs]
 
@@ -108,6 +119,7 @@ def build_context_strategy(request: ContextStrategyRequest) -> ContextStrategy:
         dropped_context=dropped,
         budget_breakdown=used,
     )
+    # endregion 3. 检索与证据结束
 
 
 def infer_topic_relation(current_task: str, previous_task: str) -> str:

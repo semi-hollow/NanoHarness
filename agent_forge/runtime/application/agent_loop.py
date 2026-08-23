@@ -244,7 +244,9 @@ class AgentLoop:
             )
             # 只有确实压缩成功才允许一次额外模型调用，避免重复相同失败请求。
             if recovery_reduced_context:
-                # 重试仍走同一个模型 Hook 和预算检查，恢复路径不能绕过正常治理。
+                # 重试仍走同一个模型 Hook 和预算检查；当前返回后不再次消费 after_model
+                # signal。若 Run 继续，期间到达的信号留到下一 boundary；若本响应终止
+                # Run，则本 Run 不再消费这些信号。
                 prepared_turn = compacted_turn
                 model_response, hook_stop_request = self._call_model(
                     session,

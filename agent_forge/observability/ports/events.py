@@ -9,4 +9,4 @@ class RuntimeEventListener(Protocol):
     """同步接收有序事件；实现应保持轻量或自行转交队列。"""
 
     def on_event(self, event: RuntimeEvent) -> None:
-        """处理一个已经按 StreamPolicy 脱敏的事件。"""
+        """处理一个已按 StreamPolicy 过滤的事件；该 policy 不等于通用 DLP。"""

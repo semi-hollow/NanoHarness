@@ -130,15 +130,25 @@ class OperationTracker:
     ) -> ExistingOperationResolution:
         """在工具执行前复用确定结果，或阻止不安全的重复执行。
 
+        伪代码：无记录 -> 正常继续；``executing`` -> outcome unknown，fail closed；
+        非 ``executed`` -> 交回授权链；``executed`` 但 fingerprint 漂移 -> 阻止复用；
+        ``executed`` 且未漂移 -> 回填旧 Observation，不重新执行。
+
         规范上游是 ``ToolExecutionPipeline``；命中时下一 owner 是 trace、反馈与
         ``RunLifecycle``，未命中时由调用方继续授权。系统不变量是只有
         post-fingerprint 仍匹配的 ``executed`` 记录才可转成成功 Observation；
         ``executing`` 表示进程可能在工具改变外部状态后崩溃，必须 fail closed。
         """
 
+        # region 1. Ledger lookup：无历史事实时把控制权交回正常授权链
         existing_operation_record = self.operation_repository.get(intent.operation_key)
+        # Miss 只表示尚无可复用记录，不表示操作已获授权或可以跳过。
         if existing_operation_record is None:
             return ExistingOperationResolution(handled_without_execution=False)
+        # endregion 1. Ledger lookup结束
+
+        # region 2. Unknown outcome：executing 可能已经改变外部状态，禁止自动重试
+        # executing 不是“仍在后台运行”；它表示进程越过执行边界后没有提交最终结果。
         if existing_operation_record.status == "executing":
             unknown_outcome_observation = Observation(
                 tool_name=tool_call.name,
@@ -180,6 +190,10 @@ class OperationTracker:
                     metadata={"operation_key": intent.operation_key},
                 ),
             )
+        # endregion 2. Unknown outcome结束
+
+        # region 3. Executed freshness：只有确定完成且目标未漂移的记录可以复用
+        # planned/pending/approved/failed 都不是确定成功事实，由后续授权或执行链继续处理。
         if existing_operation_record.status != "executed":
             return ExistingOperationResolution(handled_without_execution=False)
 
@@ -190,6 +204,7 @@ class OperationTracker:
                 existing_operation_record.post_fingerprint,
             )
         )
+        # 目标状态已变化时，旧 executed 事实不再证明当前 ToolCall 的结果。
         if target_state_drifted:
             stale_record_observation = Observation(
                 tool_name=tool_call.name,
@@ -231,7 +246,9 @@ class OperationTracker:
                     metadata={"operation_key": intent.operation_key},
                 ),
             )
+        # endregion 3. Executed freshness结束
 
+        # region 4. Deterministic replay：回填既有结果，但绝不再次触达真实工具
         # 回填的是上次执行结果，不会再次调用持久状态变更工具。
         prior_execution_fact = (
             existing_operation_record.observation or "operation completed successfully"
@@ -269,6 +286,7 @@ class OperationTracker:
             )
         )
         return ExistingOperationResolution(handled_without_execution=True)
+        # endregion 4. Deterministic replay结束
 
     def ensure_planned(
         self,

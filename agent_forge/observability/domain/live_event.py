@@ -6,10 +6,10 @@ from dataclasses import dataclass, field
 from typing import Mapping
 
 
-# 核心数据：从内部 Evidence Event 投影出的脱敏实时事件。
+# 核心数据：从内部 Trace Event 经 StreamPolicy 投影出的实时事件。
 @dataclass(frozen=True)
 class RuntimeEvent:
-    """``name/run_id/sequence`` 提供稳定排序，其余字段描述安全的运行事实。"""
+    """``name/run_id/sequence`` 提供稳定排序，payload 的披露边界由上游 policy 决定。"""
 
     name: str
     run_id: str

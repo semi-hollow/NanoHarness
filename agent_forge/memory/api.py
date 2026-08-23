@@ -1,4 +1,4 @@
-"""外围入口使用的 Context capability 公共 API。"""
+"""CLI、Operator Console 等外围入口使用的 Long-Term Memory 公共 API。"""
 
 from __future__ import annotations
 

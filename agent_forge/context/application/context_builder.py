@@ -47,8 +47,8 @@ class TurnSystemContextBuildRequest:
 class TurnSystemContextBuildReport:
     """一次上下文组装的完整读模型，可渲染给模型并写入 trace。
 
-    system/project/repo 是 Runtime Context 基础输入；task 只用于内部候选选择，不渲染；
-    retrieval、working memory、long-term memory、
+    system/project/repo 是 Turn System Context 的基础区段；task 只用于内部候选选择，
+    不渲染到 ``turn_system_message``；retrieval、working memory、long-term memory、
     selected files、tools 和 Skill 是候选区段；permission/attention/topic/dropped 是治理
     事实；budget/total/max/truncated/rendered 描述最终模型可见结果。
     """
@@ -86,8 +86,13 @@ class TurnSystemContextBuildReport:
 def build_turn_system_context(
     request: TurnSystemContextBuildRequest,
 ) -> TurnSystemContextBuildReport:
-    """汇总项目指令、仓库结构、检索结果、记忆、Skill 和工具契约。"""
+    """汇总候选事实，再投影为预算内的 Turn System Context。
 
+    伪代码：收集 repo/tool/strategy/instructions -> 构造类型化 report -> 按区段
+    预算渲染，并把实际字符数与截断原因写回 report。
+    """
+
+    # region 1. 候选收集：仓库、工具、Context Strategy 与项目指令
     files = [line for line in request.repo_map.splitlines() if line.strip()]
     raw_repo = "\n".join(files)
 
@@ -124,6 +129,10 @@ def build_turn_system_context(
     system_prompt = (
         f"[prompt:{prompt.header()} purpose:{prompt.purpose}]\n{prompt.content}"
     )
+    # endregion 1. 候选收集结束
+
+    # region 2. 类型化汇总：保留候选、治理事实与 provenance
+    # 这里还没有宣称所有区段都会进入模型；最终可见内容由下一阶段统一按预算裁剪。
     report = TurnSystemContextBuildReport(
         system_prompt=system_prompt,
         project_instructions=project_instructions,
@@ -147,6 +156,9 @@ def build_turn_system_context(
         truncated=False,
         instruction_evidence=instruction_resolution.to_evidence(),
     )
+    # endregion 2. 类型化汇总结束
+
+    # region 3. 最终投影：渲染预算内正文并记录真实截断证据
     rendered, included, truncated_sections = _fit_context_sections(report)
     report.rendered_context = rendered
     report.total_chars = len(rendered)
@@ -157,6 +169,7 @@ def build_turn_system_context(
     report.dropped_context.extend(
         f"{name} truncated to context budget" for name in truncated_sections
     )
+    # endregion 3. 最终投影结束
     return report
 
 
@@ -218,6 +231,7 @@ def _fit_context_sections(
             2,
         ),
     ]
+    # 区段标签本身也占模型窗口；先扣除稳定标签开销，再把剩余字符分给正文。
     active = [section for section in sections if section[1]]
     label_chars = sum(len(name) + 3 for name, _, _ in active)
     content_budget = max(0, report.max_chars - label_chars)
@@ -225,6 +239,7 @@ def _fit_context_sections(
     blocks: list[str] = []
     included: dict[str, int] = {}
     truncated_sections: list[str] = []
+    # 同一轮循环同时生成最终正文、实际使用量和截断名单，保证 report 与模型输入一致。
     for (name, content, _), budget in zip(active, budgets):
         value = truncate_middle(content, budget)
         included[name] = len(value)
@@ -242,12 +257,15 @@ def _weighted_budgets(
 
     if total_budget <= 0:
         return [0 for _ in sections]
+    # 第一轮按权重分配，但短区段只领取自身真正需要的字符数。
     weight_total = sum(weight for _, _, weight in sections)
     budgets = [
         min(len(content), total_budget * weight // weight_total)
         for _, content, weight in sections
     ]
     remaining = total_budget - sum(budgets)
+    # 短区段退回的额度继续按权重分给尚未装完的区段，直到预算耗尽、没有候选，
+    # 或本轮无法再前进；后两个条件防止空内容造成无意义循环。
     while remaining > 0:
         candidates = [
             index

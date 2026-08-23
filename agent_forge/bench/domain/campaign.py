@@ -3,6 +3,8 @@
 阅读入口：先看 ``BenchmarkCampaignRequest`` 理解实验身份，再看
 ``build_campaign_records`` 理解交错执行顺序，最后看 ``summarize_campaign``
 理解哪些数字可以形成质量结论。这里不调用模型、不读写文件。
+
+折叠导航：1 输入与状态契约；2 预注册槽位；3 Variant 汇总；4 配对视图。
 """
 
 from __future__ import annotations
@@ -30,6 +32,7 @@ RETRYABLE_INFRASTRUCTURE_FAILURES = frozenset(
 _CAMPAIGN_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,79}$")
 
 
+# region 1. 输入与状态契约：Variant、Request、Run Record、Campaign checkpoint
 # 核心数据：一个被比较的 Runtime preset，只描述主动变化的实验因子。
 @dataclass(frozen=True)
 class CampaignVariant:
@@ -87,7 +90,9 @@ class BenchmarkCampaignRequest:
 
     ``benchmark`` 保存所有不应变化的模型、预算、安全和隔离参数；``case_ids``、
     ``repetitions`` 与 ``variants`` 共同定义执行矩阵；``campaign_id`` 是恢复同一实验
-    的稳定主键。``output_root`` 是私有原始证据，``publish_root`` 只接收脱敏摘要。
+    的稳定主键。``output_root`` 是私有原始证据；``publish_root`` 接收经过现有
+    key/path sanitizer 的 manifest、summary、scorecard 和 result 投影，但该过滤器
+    不是通用 secret/PII 检测器。
     """
 
     benchmark: SwebenchRunRequest
@@ -259,10 +264,10 @@ class CampaignRunRecord:
         )
 
 
-# 核心数据：可在每个执行槽位后原子保存、可恢复的 campaign 状态。
+# 核心数据：可在每个执行槽位后通过同目录 replace 发布、可恢复的 campaign 状态。
 @dataclass
 class CampaignState:
-    """整个 campaign 的 durable checkpoint。
+    """整个 campaign 的 persisted checkpoint；不宣称已执行文件/目录 fsync。
 
     ``config_digest`` 同时绑定实验配置和 source identity，避免恢复时混入另一版代码；
     ``records`` 是完整 planned denominator，未完成槽位也不会从统计分母中消失。
@@ -308,8 +313,10 @@ class CampaignState:
                 if isinstance(item, dict)
             ],
         )
+# endregion 1. 输入与状态契约结束
 
 
+# region 2. 预注册槽位：配置/源码 identity → 固定 denominator 与交错 ordinal
 def campaign_config_digest(identity: dict[str, Any], source: dict[str, Any]) -> str:
     """把实验配置和 source revision 绑定，防止恢复时混入另一版代码。"""
 
@@ -323,11 +330,13 @@ def build_campaign_records(
 ) -> list[CampaignRunRecord]:
     """交错 variant 顺序，降低 provider 时间漂移总是偏向同一 variant 的风险。"""
 
+    # 三层循环只展开预注册矩阵，不执行任何 Case。
     records: list[CampaignRunRecord] = []
     ordinal = 0
     variants = list(request.variants)
     for repetition in range(1, request.repetitions + 1):
         for case_index, case_id in enumerate(request.case_ids):
+            # 相邻 case/repetition 反转 variant 次序，降低 provider 时间漂移的固定偏向。
             ordered = (
                 variants if (repetition + case_index) % 2 else list(reversed(variants))
             )
@@ -345,12 +354,19 @@ def build_campaign_records(
                     )
                 )
     return records
+# endregion 2. 预注册槽位结束
 
 
+# region 3. Variant 汇总：planned denominator → rates/cost → claim boundary
 # 主要入口：按 planned denominator 聚合进度、成本和 claim-safe 质量证据。
 def summarize_campaign(state: CampaignState) -> dict[str, Any]:
-    """聚合重复运行，并把样本解决率与候选补丁接受率分开。"""
+    """聚合重复运行，并把预注册解决率与显式 official verdict 覆盖率分开。
 
+    伪代码：按 variant 累积所有 planned slots → 加入 retry/usage/result facts
+    → 用各自明确分母计算 rate → 构造 official-only 与 selected-sample 配对视图。
+    """
+
+    # region 3.1 原始计数：failed/pending 仍留在 planned denominator
     variants = {
         str(item.get("name")): _empty_variant_summary(
             str(item.get("label") or item.get("name"))
@@ -405,7 +421,9 @@ def summarize_campaign(state: CampaignState) -> dict[str, Any]:
         summary["failure_classes"][failure] = (
             int(summary["failure_classes"].get(failure) or 0) + 1
         )
+    # endregion 3.1 原始计数结束
 
+    # region 3.2 派生率：每个指标明确使用 planned、completed 或 official_count
     for summary in variants.values():
         planned = int(summary["planned"])
         official_count = int(summary["official_evaluated"])
@@ -414,8 +432,8 @@ def summarize_campaign(state: CampaignState) -> dict[str, Any]:
         summary["patch_generated_rate"] = (
             int(summary["patch_generated"]) / planned if planned else None
         )
-        # 主指标使用预注册样本作为分母。只在已产出 patch 中计算的比率单独命名，
-        # 防止把“补丁被接受的概率”误读为“随机任务解决率”。
+        # 主指标使用预注册样本作为分母；另一比率只使用 explicit official verdict，
+        # 防止把 evaluator 覆盖子集的接受率误读为随机任务解决率。
         summary["official_resolved_rate"] = (
             int(summary["official_resolved"]) / planned if planned else None
         )
@@ -448,7 +466,9 @@ def summarize_campaign(state: CampaignState) -> dict[str, Any]:
             int(summary["total_tokens"]) / completed if completed else None
         )
         summary["failure_classes"] = dict(sorted(summary["failure_classes"].items()))
+    # endregion 3.2 派生率结束
 
+    # region 3.3 配对与最终投影：两种配对分母保持独立命名
     paired = _paired_official_summary(state)
     paired_sample = _paired_sample_summary(state)
     status_counts: dict[str, int] = {}
@@ -493,6 +513,8 @@ def summarize_campaign(state: CampaignState) -> dict[str, Any]:
             "statistical_limit": "pre-registered engineering sample, not an official leaderboard or population estimate",
         },
     }
+    # endregion 3.3 配对与最终投影结束
+# endregion 3. Variant 汇总结束
 
 
 def _wilson_95_interval(resolved: int, planned: int) -> list[float] | None:
@@ -537,7 +559,10 @@ def _empty_variant_summary(label: str) -> dict[str, Any]:
     }
 
 
+# region 4. 配对视图：official-only 与 selected-sample 不共享 denominator
 def _paired_official_summary(state: CampaignState) -> dict[str, Any]:
+    """只比较两侧都有 explicit official resolved/unresolved 的同 Case 同 repetition。"""
+
     variant_names = [
         str(item.get("name"))
         for item in state.config.get("variants") or []
@@ -555,6 +580,7 @@ def _paired_official_summary(state: CampaignState) -> dict[str, Any]:
     treatment_wins = 0
     ties = 0
     evaluated_pairs = 0
+    # 缺一侧、未完成或任一侧没有 explicit official verdict 的 pair 不进入此分母。
     for pair in grouped.values():
         left = pair.get(control)
         right = pair.get(treatment)
@@ -592,7 +618,12 @@ def _paired_official_summary(state: CampaignState) -> dict[str, Any]:
 
 
 def _paired_sample_summary(state: CampaignState) -> dict[str, Any]:
-    """在全部可裁决样本上配对；稳定 no-patch 也计为未解决。"""
+    """比较两侧均完成且非 infrastructure failure 的预注册样本。
+
+    当前投影只有 ``official_resolved`` 计成功；稳定 no-patch、未 resolved 或没有
+    resolved verdict 的完成槽位均按未解决进入 selected-sample 视图。它不是
+    official-only 配对率。
+    """
 
     variant_names = [
         str(item.get("name"))
@@ -617,6 +648,7 @@ def _paired_sample_summary(state: CampaignState) -> dict[str, Any]:
     ties = 0
     adjudicated_pairs = 0
     excluded_infrastructure_pairs = 0
+    # 缺失/未完成或任一侧为 infrastructure failure 的 pair 单独计入 excluded。
     for pair in grouped.values():
         left = pair.get(control)
         right = pair.get(treatment)
@@ -658,6 +690,7 @@ def _paired_sample_summary(state: CampaignState) -> dict[str, Any]:
         "wins": wins,
         "ties": ties,
     }
+# endregion 4. 配对视图结束
 
 
 def _safe_base_url(value: str) -> str:

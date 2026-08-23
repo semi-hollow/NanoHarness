@@ -1,3 +1,11 @@
+"""把 SWE-bench official JSON 报告解析成 NanoHarness 的逐 Case 事实。
+
+系统角色：统一 aggregate run report 与 per-case report，并显式暴露缺失、冲突和错误；
+本文件不运行 evaluator，也不使用本地 validation 猜测 official outcome。
+
+折叠导航：1 结果契约；2 报告解析与冲突合并；3 Case 写回；4 文件 helper。
+"""
+
 from __future__ import annotations
 
 import json
@@ -16,6 +24,7 @@ RUN_REPORT_KEYS = {
 }
 
 
+# region 1. 结果契约：单 Case outcome 与一次 official run 的解析集合
 # 核心数据：official evaluator 对单题给出的明确 resolved/unresolved/error 事实。
 @dataclass(frozen=True)
 class OfficialCaseOutcome:
@@ -48,14 +57,21 @@ class OfficialResults:
     report_path: Path | None
     outcomes: dict[str, OfficialCaseOutcome]
     warnings: list[str] = field(default_factory=list)
+# endregion 1. 结果契约结束
 
+
+# region 2. 报告解析：aggregate 先建默认结果，per-case explicit boolean 再校验/补全
 # 主要入口：解析 aggregate/per-case official JSON，并显式暴露缺失或冲突结果。
 def parse_official_results(
     output_dir: str | Path,
     run_id: str,
     instance_ids: list[str],
 ) -> OfficialResults:
-    """解析 official harness 输出并保留缺失或冲突警告。"""
+    """按 requested instance 集合返回完整 outcome map，并保留解析警告。
+
+    伪代码：定位 aggregate report → 为每个 wanted Case 建 outcome
+    → 扫描 per-case report → 显式 resolved 布尔值补全或冲突升级为 error。
+    """
 
     root = Path(output_dir)
     wanted = list(dict.fromkeys(instance_ids))
@@ -66,6 +82,7 @@ def parse_official_results(
         for instance_id in wanted
     }
 
+    # per-case report 只接受明确 bool；模糊或残缺记录保持 aggregate/missing 结论。
     for path in sorted((root / "logs" / "run_evaluation" / run_id).glob("**/report.json")):
         data = _read_json(path, warnings)
         if not isinstance(data, dict):
@@ -106,14 +123,19 @@ def parse_official_results(
                 outcomes[instance_id] = per_case
 
     return OfficialResults(run_id=run_id, report_path=report_path, outcomes=outcomes, warnings=warnings)
+# endregion 2. 报告解析结束
 
+
+# region 3. Case 写回：进程退出码只把 incomplete 升级为 error，不覆盖显式 verdict
 # 运行时端口：把已解析 official outcome 写回对应 BenchCaseResult 证据层。
 def apply_official_results(
     case_results: list[BenchCaseResult],
     parsed: OfficialResults,
     process_exit_code: int,
 ) -> None:
+    """把 parser 事实投影到 Case；不把 exit code 直接等同于所有 Case 失败。"""
 
+    # 每个 Case 独立写回；部分报告成功时保留已有显式 resolved/unresolved verdict。
     for result in case_results:
         outcome = parsed.outcomes.get(result.instance_id)
         if outcome is None:
@@ -132,8 +154,10 @@ def apply_official_results(
         result.official_evaluation_report_path = report_path
         result.official_evaluation_detail = detail
         result.evaluation_status = status
+# endregion 3. Case 写回结束
 
 
+# region 4. 文件 helper：只解析 JSON 和集合 membership，不产生新的业务结论
 def _find_run_report(root: Path, run_id: str, warnings: list[str]) -> tuple[Path | None, dict[str, Any]]:
     for path in sorted(root.glob(f"*.{run_id}.json")):
         data = _read_json(path, warnings)
@@ -193,3 +217,4 @@ def _string_set(value: Any) -> set[str]:
     if not isinstance(value, list):
         return set()
     return {str(item) for item in value}
+# endregion 4. 文件 helper 结束

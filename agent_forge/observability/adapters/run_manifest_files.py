@@ -1,7 +1,12 @@
 """Single-Run artifact manifest 的文件适配器。
 
-规范上游是 ``Harness.run``；下游是 Run Story、inspection 与 Workbench。它只登记已经
-存在的文件，不从文件名推断任务是否解决。
+调用方在选定的 Run 收口点触发登记；上游既可以是 ``Harness.run``，也可以是复用同一
+artifact contract 的高级执行路径。它只登记调用时已经存在的文件，后续新增产物需要
+显式 refresh。下游是 Run Story、inspection 与 Workbench。本适配器只登记文件及
+声明式 provenance，不从文件名推断任务是否解决，也不验证 ``producer_symbol`` 是否
+就是本次运行的实际调用栈。
+
+折叠导航：1 Artifact 规格表；2 Manifest 发布；3 读取/刷新；4 记录 helper。
 """
 
 from __future__ import annotations
@@ -29,6 +34,9 @@ class _ArtifactSpec:
     source_event_refs: tuple[str, ...] = ()
 
 
+# region 1. Artifact 规格表：声明 expected owner/consumer/claim boundary
+# producer_symbol 是面向读者的 owner 标签，不是运行时 attestation；实际文件内容仍由
+# SHA-256、大小和来源 artifact 关系标识。
 _KNOWN_ARTIFACTS: dict[str, _ArtifactSpec] = {
     "run_request.json": _ArtifactSpec(
         "run_request",
@@ -165,8 +173,10 @@ _CHECKPOINT_SPEC = _ArtifactSpec(
     ("恢复了进程内对象或模型 KV cache",),
     source_event_refs=("task_state_checkpoint",),
 )
+# endregion 1. Artifact 规格表结束
 
 
+# region 2. Manifest 发布：登记已知文件 → 显式登记未知文件 → atomic JSON
 # 主要入口：发布完整 single-run artifact 目录，替代外围按文件名猜测 owner。
 def write_run_manifest(
     run_dir: str | Path,
@@ -176,7 +186,11 @@ def write_run_manifest(
     status: str,
     stop_reason: str,
 ) -> Path:
-    """登记当前 run 的全部文件；未知文件显式标记而不是静默忽略。"""
+    """登记当前 Run 的全部文件；未知文件显式标记而不是静默忽略。
+
+    伪代码：按规格表登记存在的 canonical artifact → 扫描 checkpoint
+    → 把剩余文件标成 unclassified → 排序并原子写 manifest。
+    """
 
     root = Path(run_dir)
     known_paths: set[str] = set()
@@ -224,8 +238,10 @@ def write_run_manifest(
     path = root / "run_manifest.json"
     atomic_write_json(path, manifest.to_dict())
     return path
+# endregion 2. Manifest 发布结束
 
 
+# region 3. 读取/刷新：验证根结构，并保留原 Run 结论重建文件清单
 def read_run_manifest(path: str | Path) -> RunManifest:
     """读取并验证 manifest 根结构；claim 语义仍由类型化模型承载。"""
 
@@ -247,8 +263,10 @@ def refresh_run_manifest(run_dir: str | Path) -> Path:
         status=manifest.status,
         stop_reason=manifest.stop_reason,
     )
+# endregion 3. 读取/刷新结束
 
 
+# region 4. 记录 helper：内容 identity、删除影响与重建边界
 def _record(path: Path, root: Path, spec: _ArtifactSpec) -> RunArtifact:
     content = path.read_bytes()
     relative = path.relative_to(root).as_posix()
@@ -283,6 +301,7 @@ def _deletion_impact(spec: _ArtifactSpec) -> str:
     if spec.evidence_level == "unknown":
         return "影响未知；先登记 owner、consumer 与来源，再决定是否删除。"
     return "删除会丢失本次运行事实、恢复依据或审计链的一部分。"
+# endregion 4. 记录 helper 结束
 
 
 __all__ = ["read_run_manifest", "refresh_run_manifest", "write_run_manifest"]

@@ -434,6 +434,8 @@ def _optimization_notes(
     context_breakdown: dict[str, Any],
     tool_efficiency: dict[str, Any],
 ) -> list[str]:
+    """生成基于阈值的排查提示，不把相关性升级为根因或 Runtime 决策。"""
+
     notes = []
     if summary["llm_calls"] == 0:
         notes.append(

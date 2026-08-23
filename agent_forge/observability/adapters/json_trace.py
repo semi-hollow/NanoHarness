@@ -1,3 +1,12 @@
+"""把 Run 事件先写入 JSONL journal，再投影为最终 ``trace.json``。
+
+系统角色：JSONL 是按事件追加、每行 flush 的进程崩溃恢复来源；它没有逐事件 fsync，
+因此不能宣称每条记录都具备 OS/power-loss durability。``trace.json`` 是终态派生投影，
+不是另一套独立事实源。
+
+折叠导航：1 Writer 生命周期；2 事件追加；3 终态投影；4 Journal 严格读取。
+"""
+
 from __future__ import annotations
 
 import json
@@ -20,8 +29,9 @@ TRACE_SCHEMA_VERSION = 2
 
 
 class JsonTraceRecorder(EventSink):
-    """实时追加 ``trace.jsonl``，终止时生成可读 ``trace.json`` 投影。"""
+    """逐行追加并 flush ``trace.jsonl``，终止时生成可读投影。"""
 
+    # region 1. Writer 生命周期：一个 Run 一个 journal handle
     def __init__(
         self,
         path: str,
@@ -76,7 +86,9 @@ class JsonTraceRecorder(EventSink):
             update["final_answer"] = final_answer
         if len(update) > 1:
             self._append_record(update)
+    # endregion 1. Writer 生命周期结束
 
+    # region 2. 事件追加：构造 TraceEvent → 内存镜像 → JSONL 一行 → flush
     def add(
         self,
         step: int,
@@ -161,14 +173,18 @@ class JsonTraceRecorder(EventSink):
             )
 
     def _append_record(self, record: Mapping[str, Any]) -> None:
+        """追加完整 JSON 行并 flush Python buffer；这里没有逐事件 ``fsync``。"""
+
         if self._journal is None:
             raise RuntimeError("trace journal is already closed")
         self._journal.write(json.dumps(record, ensure_ascii=False, default=str))
         self._journal.write("\n")
         self._journal.flush()
+    # endregion 2. 事件追加结束
 
+    # region 3. 终态投影：重读 journal → metrics → atomic trace.json → close
     def write(self) -> None:
-        """从 durable journal 读取事实并生成最终 projection。"""
+        """从已 flush journal 重建事实并生成最终 ``trace.json`` projection。"""
 
         if self._journal is not None:
             self._journal.flush()
@@ -202,8 +218,10 @@ class JsonTraceRecorder(EventSink):
 
     def __del__(self) -> None:  # pragma: no cover - interpreter cleanup fallback
         self.close()
+    # endregion 3. 终态投影结束
 
 
+# region 4. Journal 严格读取：只容忍最后一条未换行的 crash tail
 def read_trace_jsonl(
     path: str | Path,
 ) -> tuple[dict[str, Any], list[TraceRecord], bool]:
@@ -262,6 +280,7 @@ def read_trace_jsonl(
         event.pop("record_type", None)
         events.append(event)
     return context, events, truncated_tail
+# endregion 4. Journal 严格读取结束
 
 
 TraceRecorder = JsonTraceRecorder

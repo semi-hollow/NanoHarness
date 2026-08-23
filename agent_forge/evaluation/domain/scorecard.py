@@ -1,3 +1,11 @@
+"""Benchmark Case 证据的纯归一化与固定分母聚合。
+
+这里不读文件、不运行 evaluator；official correctness 只接受上游已记录的
+``official_resolved``，candidate diff 和 local validation 保持不同证据层级。
+
+折叠导航：1 Case 归一化；2 Scorecard 投影；3 聚合指标；4 metadata/helper。
+"""
+
 from __future__ import annotations
 
 from collections import Counter
@@ -19,12 +27,15 @@ NUMERIC_METRICS = (
 )
 
 
+# region 1. Case 归一化：results + usage + environment → 稳定 Case read model
 def normalize_case(
     case: dict[str, Any],
     *,
     usage: dict[str, Any],
     environment: dict[str, Any],
 ) -> dict[str, Any]:
+    """把三类输入映射到一个 Case；不把缺失 official verdict 推断成 resolved。"""
+
     probe_value = environment.get("probe")
     probe: dict[str, Any] = probe_value if isinstance(probe_value, dict) else {}
     summary_value = usage.get("summary")
@@ -63,12 +74,16 @@ def normalize_case(
         "_observed_models": _observed_models(usage),
         "_observed_container_image_id": str(probe.get("container_image_id") or ""),
     }
+# endregion 1. Case 归一化结束
 
 
+# region 2. Scorecard 投影：剥离内部观测字段，再附聚合与 claim boundary
 def build_scorecard(
     results: dict[str, Any],
     normalized_cases: list[dict[str, Any]],
 ) -> dict[str, Any]:
+    """构造稳定 scorecard；内部 `_observed_*` 字段只用于 run metadata。"""
+
     cases = [dict(case) for case in normalized_cases]
     observed_models = sorted(
         {model for case in cases for model in case.pop("_observed_models", []) if model}
@@ -96,8 +111,10 @@ def build_scorecard(
             "official_resolved": "official per-case SWE-bench report resolved=true",
         },
     }
+# endregion 2. Scorecard 投影结束
 
 
+# region 3. 聚合指标：每类 rate 使用代码中明确的 denominator
 def aggregate_cases(cases: list[dict[str, Any]]) -> dict[str, Any]:
     """按固定分母聚合 Case 证据，并汇总失败分类、官方状态和运行指标。
 
@@ -153,8 +170,10 @@ def aggregate_cases(cases: list[dict[str, Any]]) -> dict[str, Any]:
         total = sum(_float(case.get(key)) for case in cases)
         metrics[key] = round(total, 6) if key == "estimated_cost_usd" else int(total)
     return metrics
+# endregion 3. 聚合指标结束
 
 
+# region 4. Metadata/helper：只整理 run identity 和数值类型
 def _metadata(
     results: dict[str, Any],
     *,
@@ -277,3 +296,4 @@ def _float(value: Any) -> float:
         return float(value or 0.0)
     except (TypeError, ValueError):
         return 0.0
+# endregion 4. Metadata/helper 结束

@@ -1,3 +1,5 @@
+"""Benchmark results 到 claim-safe scorecard 的 Application 用例。"""
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -8,6 +10,8 @@ from agent_forge.evaluation.ports.evidence import CaseEvidenceReader
 
 
 class BuildBenchmarkScorecard:
+    """协调 EvidenceReader 与纯 Domain 聚合，不拥有 correctness 判定规则。"""
+
     def __init__(self, evidence_reader: CaseEvidenceReader) -> None:
         self._evidence_reader = evidence_reader
 
@@ -17,11 +21,16 @@ class BuildBenchmarkScorecard:
         results: dict[str, Any],
         run_dir: str | Path,
     ) -> dict[str, Any]:
-        """读取运行证据并构造 claim-safe benchmark scorecard。"""
+        """读取每个 Case 的 usage/environment，再交给 Domain 统一归一化和聚合。
+
+        伪代码：读取 results.case_results → 为每题关联 usage/environment
+        → normalize_case() → build_scorecard()。缺失证据保持默认值，不猜测通过。
+        """
 
         run_directory = Path(run_dir)
         raw_case_results = results.get("case_results")
         case_results = raw_case_results if isinstance(raw_case_results, list) else []
+        # 每个 Case 独立读取证据；一个 Case 缺失 usage 不影响其他 Case 的归一化。
         normalized_cases = [
             normalize_case(
                 case_result,

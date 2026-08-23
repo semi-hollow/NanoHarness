@@ -1,413 +1,174 @@
 # Agent 运行数据结构与模型输入
 
-> 这份文档专门解决最容易混淆的一组概念：  
-> `AgentRunSession`、`WorkingMemory`、`PreparedTurn`、LLM 两个入参、`TaskCheckpoint`、`ConversationHistoryDigest`。
+> 本文说明一次 Run 中谁持有状态、状态如何跨 Turn 流动，以及模型最终收到什么。
+> System Context 的内容和 Conversation 压缩算法分别由对应文档展开。
 
----
+# 1. 五个核心对象
 
-# 1. 先记四句话
+| 对象 | 生命周期 | 输入 | 输出 / 作用 |
+|---|---|---|---|
+| `AgentRunSession` | 整个 Run | task、lifecycle、controller | 跨 Turn 的 messages、observations、working state |
+| `WorkingMemory` | 整个 Run | continuation seed、recall snapshot、Observation | 当前 Run 的有界任务状态视图 |
+| `PreparedTurn` | 单个 Turn | system context、history、tool route、budget | 一次 `ModelPort.chat(...)` 的冻结输入 |
+| `TaskCheckpoint` | durable latest state | lifecycle transition | crash/pause/resume 使用的控制面快照 |
+| `ConversationHistoryDigest` | 某次 compaction | 被覆盖的旧 Message/Observation | 旧 Conversation History 的结构化投影 |
+
+关键边界：
+
+```text
+AgentRunSession        ≠ TaskCheckpoint
+live mutable state       durable latest-state snapshot
+
+WorkingMemory          ≠ Long-term Memory Repository
+current Run view         cross-Run persisted records
+
+PreparedTurn           ≠ AgentRunSession
+one-call snapshot        complete live Run state
+```
+
+# 2. 对象所有权（Ownership Graph）
+
+```text
+AgentLoop
+└── AgentRunSession
+    ├── messages[]                         Conversation History
+    ├── observations[]                     typed Tool facts
+    ├── working_memory                     bounded current-Run view
+    ├── lifecycle ────────────────→ TaskCheckpoint Repository
+    ├── controller                         budget / failure / repetition
+    ├── evidence                           final-answer grounding
+    └── active_skills[]
+            │
+            │ current Turn reads a snapshot
+            ▼
+TurnPreparation.prepare_turn()
+└── PreparedTurn
+    ├── turn_system_message
+    ├── llm_messages
+    ├── tool_schemas
+    ├── allowed_tool_names
+    ├── prompt metrics
+    └── conversation_history_digest?
+```
+
+`AgentRunSession` 保存数据，不拥有策略。Turn 控制在 `AgentLoop`，模型输入治理在
+`TurnPreparation`，工具治理在 `ToolExecutionPipeline`，持久化在 `RunLifecycle`。
+
+# 3. 一个 Turn 的状态流
 
 ```text
 AgentRunSession
-= 一个 Run 跨 Turn 存活的 live mutable state
-
-WorkingMemory
-= Session 里专门保存当前任务认知状态的一块 bounded view
-
+    ↓
+TurnPreparation.prepare_turn()
+    ├── checkpoint current turn boundary
+    ├── ToolRouter.route()
+    ├── TurnSystemContextAssemblerPort.build()
+    └── PromptWindowManager.prepare()
+    ↓
 PreparedTurn
-= 当前这一轮冻结后的 LLM input snapshot
-
-TaskCheckpoint
-= Crash / Pause / Resume 使用的 durable control-plane snapshot
+    ↓
+ModelPort.chat(
+    PreparedTurn.llm_messages,
+    PreparedTurn.tool_schemas,
+)
+    ↓
+AgentResponse
+    ├── final text → StopRequest
+    └── ToolCall
+          ↓
+       Observation
+          ├── session.observations
+          ├── WorkingMemory
+          ├── Evidence / Trace / Checkpoint
+          └── if Run continues → session.messages(role=tool)
 ```
 
-`ConversationHistoryDigest`：
+每个 Turn 都重新生成 `PreparedTurn`；上一个 Turn 的快照不会被原地修改后复用。
+
+# 4. Conversation 与临时控制消息
+
+持久 Conversation 的 Owner 是：
 
 ```text
-= 旧 Conversation History 的有界结构化投影
-≠ 整个 AgentRunSession 的摘要
+AgentRunSession.messages
 ```
 
----
-
-# 2. 完整数据关系图
-
-```text
-┌─────────────────────────────────────────────────────────────────────────────┐
-│ AgentRunSession                         跨 Turn 存活                        │
-│                                                                             │
-│ task / agent_name / workspace_root                                          │
-│ iteration / max_iterations                                                  │
-│                                                                             │
-│ messages[]                ← Conversation History                            │
-│ observations[]            ← typed Tool Observations                         │
-│                                                                             │
-│ working_memory            ← bounded task-state read model                   │
-│ active_skills[]                                                           │
-│ skill_tool_names                                                          │
-│ evidence                                                                    │
-│                                                                             │
-│ lifecycle                 ← checkpoint / resume / finalization               │
-│ controller                ← budget / repeat / failure control                │
-│                                                                             │
-│ ran_tests / blocked / cost / status / stop_*                                │
-└──────────────────────────────┬──────────────────────────────────────────────┘
-                               │
-                               │ 每个 Turn 读取当前 Session
-                               │ + 当前 Workspace/Repo
-                               │ + ToolRoute / Permission / Budget
-                               ▼
-┌─────────────────────────────────────────────────────────────────────────────┐
-│ TurnPreparation                                                             │
-│                                                                             │
-│ ① route tools                                                               │
-│ ② build Current Turn System Context                                         │
-│ ③ build Conversation Window                                                 │
-│ ④ enforce Prompt Budget                                                     │
-│ ⑤ produce PreparedTurn                                                      │
-└──────────────────────────────┬──────────────────────────────────────────────┘
-                               ▼
-┌─────────────────────────────────────────────────────────────────────────────┐
-│ PreparedTurn                           单 Turn 临时快照                       │
-│                                                                             │
-│ turn_system_message                                                        │
-│   ├ repo / current workspace context                                        │
-│   ├ WorkingMemory projection                                                │
-│   ├ active Skill cards                                                      │
-│   ├ permission summary                                                      │
-│   └ runtime/global instructions                                             │
-│                                                                             │
-│ llm_messages[]                                                              │
-│   ├ [0] turn_system_message                                                 │
-│   └ [1..] Conversation Window                                               │
-│         ├ normal: session.messages                                          │
-│         └ compacted: ConversationHistoryDigest + recent raw messages        │
-│                                                                             │
-│ tool_schemas[]             ← 当前 Turn ToolRouter 选择                      │
-│ allowed_tool_names / phase / estimated_prompt_tokens                        │
-└──────────────────────────────┬──────────────────────────────────────────────┘
-                               ▼
-                    ┌──────────────────────────┐
-                    │ LLM.chat(                │
-                    │   llm_messages,          │
-                    │   tool_schemas           │
-                    │ )                        │
-                    └──────────────────────────┘
-
-
-                 ───────── durable recovery side path ─────────
-
-AgentRunSession / Turn / Tool execution
-                               │
-                               ▼
-┌─────────────────────────────────────────────────────────────────────────────┐
-│ TaskCheckpoint                         durable latest-state snapshot         │
-│                                                                             │
-│ Identity                                                                    │
-│   run_id / task / workspace / agent_name                                    │
-│                                                                             │
-│ Execution Snapshot                                                          │
-│   status / current_step                                                     │
-│   last_tool / last_observation                                              │
-│   stop_reason / stop_output / final_answer / resume_hint                    │
-│   messages_count / observations_count                                       │
-│                                                                             │
-│ Historical Projection                                                       │
-│   conversation_history_digest                                               │
-│                                                                             │
-│ metadata / timestamps                                                       │
-└──────────────────────────────┬──────────────────────────────────────────────┘
-                               │ crash / pause / explicit resume
-                               ▼
-                     summarize_checkpoint(...)
-                               │
-                               ▼
-                         resume_summary
-                               │
-                               ▼
-                      NEW AgentRunSession
-                               │
-                               └─ WorkingMemory.seed_session(...)
-```
-
----
-
-# 3. Session 和 WorkingMemory 到底差在哪
-
-```text
-AgentRunSession
-├── Conversation
-├── Observation
-├── WorkingMemory
-├── Skill
-├── Lifecycle
-├── Controller
-├── Evidence
-└── Run status / cost
-```
-
-而：
-
-```text
-WorkingMemory
-├── recent items
-├── recent typed observations
-├── bounded summaries
-├── run-local KV
-└── recalled long-term-memory snapshot
-```
-
-所以：
-
-```text
-Session ⊃ WorkingMemory
-```
-
-WorkingMemory 不是“整个 Agent 的 Memory 总称”。
-
----
-
-# 4. Current Turn System Context 是什么
-
-它不是 Session。
-
-它是当前 Turn 临时生成的一条：
-
-```text
-Message(role="system")
-```
-
-内容来自：
-
-```text
-Current Turn System Context
-├── Repo / Workspace Context
-├── WorkingMemory projection
-├── Skills
-├── Permissions
-└── Instructions
-```
-
-它不持久化。
-
-下一 Turn 根据最新状态重新 assemble。
-
----
-
-# 5. LLM 真正只有两个主入参
+当前模型窗口的初始历史则是：
 
 ```python
-llm.chat(
-    prepared_turn.llm_messages,
-    prepared_turn.tool_schemas,
-)
+conversation_history = list(session.messages)
 ```
 
-其中：
+`TurnPreparation` 可能只向这个副本追加当前 Turn 的预算控制 Message。该临时
+Message 不写回 `session.messages`，因此不会成为下一 Turn 的永久历史。
+
+Runtime 先把本轮保留的 assistant ToolCall 写入 Session。产生 Observation 的拒绝、
+回放或执行分支再按各自边界写入 tool Message；重复副作用等停止分支可以直接返回
+`StopRequest` 而不伪造 Observation。正常执行结果只有在预算允许继续时才成为下一
+Turn 的 tool Message。
+
+# 5. WorkingMemory 的边界
+
+`WorkingMemory` 聚合：
+
+- 当前 Run 的显式键值；
+- 最近普通事实与类型化 Observation；
+- 被移出最近窗口的短摘要；
+- Run 启动时固定的长期记忆召回快照；
+- continuation 注入的旧运行摘要。
+
+它不负责：
+
+- 保存完整 Conversation；
+- 写长期记忆 Repository；
+- 决定 Prompt Window compaction；
+- 持久化 TaskCheckpoint。
+
+# 6. Checkpoint 与 Digest
+
+`TaskCheckpoint` 只保存继续执行所需的最小控制事实，包括 identity、status、current
+step、最近 Tool/Observation、stop/resume 信息、计数和可选 digest。它不保存 Python
+stack、Provider 连接、完整 `session.messages` 或模型 hidden state。
+
+`ConversationHistoryDigest` 只在实际 compaction 时产生：
 
 ```text
-llm_messages
-=
-Current Turn System Context
-+
-Conversation Window
-```
-
-正常：
-
-```text
-system
-user
-assistant
-tool
-assistant
-tool
-...
-```
-
-压缩后：
-
-```text
-system: Current Turn System Context
-system: ConversationHistoryDigest
-recent user / assistant / tool ...
-```
-
-Tool Schema 是第二个独立入参，不属于 `session.messages`。
-
----
-
-# 6. ConversationHistoryDigest 的真实来源
-
-输入：
-
-```text
-session.task
-+
-old session.messages segments
-+
-aligned session.observations
-```
-
-输出：
-
-```text
-ConversationHistoryDigest
-├── task
-├── covered_message_count
-├── source_hash
-├── task_updates[]
-├── tool_transactions[]
-├── failed_tool_evidence[]
-├── estimated_tokens_before
-├── estimated_tokens_after
-└── created_at
-```
-
-字段来源：
-
-```text
-task_updates
-← 旧 user messages 中的后续 task/steer 变化
-
-tool_transactions
-← assistant ToolCall + matching tool message + typed Observation
-
-failed_tool_evidence
-← failed tool transactions 的派生视图
-```
-
-所以这些不是四套互相独立的输入。
-
----
-
-# 7. 为什么 Digest 里没有 messages[]
-
-因为 Digest 是 projection：
-
-```text
-M1 ... M80
-    ↓
-extract durable meaning
+old Conversation segments
     ↓
 ConversationHistoryDigest
+    ├── initial task
+    ├── task updates
+    ├── tool transactions / failures
+    └── covered-message provenance
 ```
 
-原始 `messages[]` 仍在 live Session / Trace。
+Digest 被写入 checkpoint 作为 historical projection；原始消息继续留在当前 live
+Session，不因构造模型窗口而被删除。Trace 只记录窗口度量、source hash 和压缩事实，
+不保存完整 Prompt 正文。
 
-Digest 只保留：
-
-```text
-“做过什么”
-“哪些结果成功/失败”
-“任务约束怎么变化”
-“覆盖了多少历史”
-“原历史指纹是什么”
-```
-
----
-
-# 8. 当前正常 Turn 不读取上轮 Checkpoint Digest
-
-当前行为：
+# 7. Resume 是新的 continuation
 
 ```text
-Turn N
-
-完整 session.messages
-↓
-PromptWindowManager
-↓
-若超限
-  build ConversationHistoryDigest-N
-  ├→ 本轮 LLM
-  └→ TaskCheckpoint
-```
-
-Turn N+1：
-
-```text
-完整 session.messages
-↓
-重新计算
-```
-
-不会：
-
-```text
-checkpoint.conversation_history_digest
-↓
-继续 incremental merge
-```
-
-因此当前 Digest 的两个用途是：
-
-```text
-① 当前 Turn History compaction result
-② Crash/Resume 的 durable historical projection
-```
-
-不是下一 Turn 的 rolling state。
-
----
-
-# 9. Resume 是 continuation，不是 Session resurrection
-
-```text
-Old Run
-↓
-TaskCheckpoint
-↓
-summarize_checkpoint
-↓
+Old TaskCheckpoint
+    ↓
+summarize_checkpoint()
+    ↓
 resume_summary
-↓
+    ↓
 NEW AgentRunSession
-↓
-WorkingMemory.seed_session
+    ↓
+WorkingMemory.seed_session(...)
 ```
 
-不会恢复：
+Resume 继承显式持久化事实，不声称恢复旧进程内对象或完整模型状态。
 
-```text
-old session.messages
-old Python stack
-old HTTP connection
-old model hidden state
-```
+## 源码入口（Source Anchors）
 
-因此要准确说：
-
-> Checkpoint 提供 continuation context 和 execution snapshot，不是完整 live object serialization。
-
----
-
-# 10. 字段命名原则
-
-代码中推荐：
-
-```text
-PreparedTurn.turn_system_message
-PreparedTurn.llm_messages
-PreparedTurn.tool_schemas
-PreparedTurn.conversation_history_digest
-
-TurnPreparation.turn_system_context
-TurnPreparation.conversation_history
-PromptWindowManager
-ConversationHistoryDigest
-
-TaskCheckpoint.conversation_history_digest
-```
-
-不要再使用容易跨层混淆的：
-
-```text
-Runtime Context
-context_message
-messages_for_llm
-schemas
-SessionDigest
-```
-
-作为核心业务术语。
+- `agent_forge/runtime/application/session.py::AgentRunSession`：跨 Turn live state。
+- `agent_forge/runtime/application/working_memory.py::WorkingMemory`：当前 Run 的有界状态视图。
+- `agent_forge/runtime/application/turn_preparation.py::PreparedTurn`：单次模型输入契约。
+- `agent_forge/runtime/application/turn_preparation.py::TurnPreparation.prepare_turn()`：Turn 数据汇合点。
+- `agent_forge/runtime/domain/conversation.py::Message / Observation`：对话与工具事实。
+- `agent_forge/runtime/domain/task.py::TaskCheckpoint`：durable latest-state snapshot。
+- `agent_forge/context/domain/conversation_digest.py::ConversationHistoryDigest`：历史压缩投影。
+- `agent_forge/runtime/application/run_preparation.py::RunPreparation.create_session()`：新 Session 与首个 checkpoint。
