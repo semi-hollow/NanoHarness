@@ -213,10 +213,10 @@ class RunPreparation:
         self._record_skill_selection(session)
 
     def _initialize_memory_context(self, session: AgentRunSession) -> None:
-        """创建 working memory，并在 Run 开始时固定长期记忆快照。
+        """创建 working memory，并在 Run 开始时固定 task-aware Recall Snapshot。
 
-        Repository 只在 RunPreparation 生成两个冻结视图：task-aware Recall Snapshot
-        服务推理；非 task-filtered Management Catalog 服务任意后续 Turn 的显式 remember。
+        该快照服务整个 Run 的推理且不会随写入漂移；显式 remember 使用的 Management
+        Candidates 由 ``TurnPreparation`` 根据最新 human message 每 Turn 单独查询。
         """
 
         session.messages = [Message(role="user", content=session.task)]
@@ -236,18 +236,12 @@ class RunPreparation:
             query=session.task,
             max_chars=memory_max_chars,
         )
-        memory_management_catalog = self.memory_recall.management_catalog(
-            namespace=memory_namespace,
-            max_chars=memory_max_chars,
-        )
         session.working_memory.seed_long_term(recalled_memories)
-        session.memory_management_catalog = memory_management_catalog
         session.working_memory.set("task", session.task)
         self._record_memory_recall(
             session=session,
             memory_namespace=memory_namespace,
             recalled_memories=recalled_memories,
-            management_catalog=memory_management_catalog,
         )
 
     def _load_resume_state(
@@ -409,9 +403,8 @@ class RunPreparation:
         session: AgentRunSession,
         memory_namespace: str,
         recalled_memories: list[LongTermMemoryRecord],
-        management_catalog: list[LongTermMemoryRecord],
     ) -> None:
-        """记录本 Run 固定快照的身份和指纹，不复制记忆正文。"""
+        """记录本 Run 固定 Recall Snapshot 的身份和指纹，不复制记忆正文。"""
 
         snapshot_payload = [
             memory_record.to_dict() for memory_record in recalled_memories
@@ -443,10 +436,6 @@ class RunPreparation:
                     memory_record.scope for memory_record in recalled_memories
                 ],
                 "snapshot_sha256": snapshot_sha256,
-                "management_catalog_count": len(management_catalog),
-                "management_catalog_ids": [
-                    memory_record.memory_id for memory_record in management_catalog
-                ],
             },
         )
 

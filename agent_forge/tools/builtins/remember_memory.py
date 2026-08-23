@@ -17,9 +17,10 @@ class RememberMemoryTool(Tool):
     name = "remember_memory"
     description = (
         "Persist information only when the user explicitly asks to remember it for "
-        "future runs. source_quote must be an exact quote from that user message. "
+        "future runs. source_quote must be an exact quote from that human-authority "
+        "user message; runtime coordination evidence never qualifies. "
         "Propose action=CREATE, UPDATE, or NOOP. UPDATE/NOOP require a target_memory_id "
-        "from the supplied Memory Management Catalog; CREATE must omit it. "
+        "from the current-turn Memory Management Candidates; CREATE must omit it. "
         "Never persist model-inferred facts. Default scope is project; use user only "
         "when the quote explicitly requests a global or cross-project preference."
     )

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 from dataclasses import dataclass
 
 from agent_forge.context.application import (
@@ -12,10 +13,13 @@ from agent_forge.context.application import (
 )
 from agent_forge.context.domain import ConversationHistoryDigest
 from agent_forge.contracts import ToolSchema
+from agent_forge.memory.domain import LongTermMemoryRecord
+from agent_forge.memory.ports import LongTermMemoryRecallPort
 from agent_forge.runtime.application.session import AgentRunSession
 from agent_forge.runtime.config import RuntimeConfig
 from agent_forge.runtime.domain.conversation import Message
 from agent_forge.runtime.domain.model import ModelCapabilities
+from agent_forge.runtime.domain.run_control import RUNTIME_COORDINATION_EVIDENCE_PREFIX
 from agent_forge.runtime.domain.task import TaskCheckpointUpdate, TaskRunStatus
 from agent_forge.runtime.ports import (
     TurnSystemContextAssemblerPort,
@@ -60,6 +64,7 @@ class TurnPreparation:
         tools: ToolGateway,
         environment: EnvironmentPort,
         model_capabilities: ModelCapabilities,
+        long_term_memory_recall: LongTermMemoryRecallPort,
     ) -> None:
         self.config = config
         self.trace = trace
@@ -67,6 +72,7 @@ class TurnPreparation:
         self.tool_gateway = tools
         self.execution_environment = environment
         self.model_capabilities = model_capabilities
+        self.long_term_memory_recall = long_term_memory_recall
         self.tool_router = ToolRouter()
         effective_context_window = max(
             1_024,
@@ -142,9 +148,13 @@ class TurnPreparation:
                 mode=self.config.tool_routing_mode,
             )
         )
-        visible_tool_schemas = self._attach_memory_management_catalog(
-            tool_route.schemas,
+        memory_management_candidates = self._management_candidates_for_turn(
             session,
+            step,
+        )
+        visible_tool_schemas = self._attach_memory_management_candidates(
+            tool_route.schemas,
+            memory_management_candidates,
         )
         allowed_tool_names = set(tool_route.allowed_names)
         model_permission_summary = (
@@ -262,18 +272,89 @@ class TurnPreparation:
         )
         # endregion 4. 会话窗口治理结束
 
-    @staticmethod
-    def _attach_memory_management_catalog(
-        schemas: list[ToolSchema],
+    def _management_candidates_for_turn(
+        self,
         session: AgentRunSession,
-    ) -> list[ToolSchema]:
-        """只给 remember_memory schema 附加 Run-start 冻结的 ID 候选。"""
+        step: int,
+    ) -> list[LongTermMemoryRecord]:
+        """按最新 human message 查询一次，并把结果冻结到当前 Turn 结束。"""
 
-        catalog_lines = [
+        # Provider overflow 可能在同一个 step 再次准备请求；复用第一次候选，避免同一
+        # Model response 的 schema 与后续 target validation 观察到两份 Repository 视图。
+        if session.memory_management_candidates_step == step:
+            return session.memory_management_candidates
+
+        query, message_index = self._latest_human_authority_message(session)
+        memory_namespace = self.config.memory_namespace or str(self.config.workspace)
+        candidates = self.long_term_memory_recall.management_candidates(
+            namespace=memory_namespace,
+            query=query,
+            max_chars=max(0, int(self.config.memory_max_chars)),
+        )
+        session.memory_management_candidates = candidates
+        session.memory_management_candidates_step = step
+        self._record_memory_management_candidates(
+            session=session,
+            step=step,
+            namespace=memory_namespace,
+            query=query,
+            query_message_index=message_index,
+            candidates=candidates,
+        )
+        return candidates
+
+    def _record_memory_management_candidates(
+        self,
+        *,
+        session: AgentRunSession,
+        step: int,
+        namespace: str,
+        query: str,
+        query_message_index: int,
+        candidates: list[LongTermMemoryRecord],
+    ) -> None:
+        """记录当前 Turn 候选的来源与身份，不复制 Memory 正文。"""
+
+        self.trace.add(
+            step,
+            session.agent_name,
+            "memory_management_candidates",
+            memory={
+                "namespace": namespace,
+                "query_message_index": query_message_index,
+                "query_sha256": hashlib.sha256(query.encode("utf-8")).hexdigest(),
+                "candidate_count": len(candidates),
+                "memory_ids": [record.memory_id for record in candidates],
+            },
+        )
+
+    @staticmethod
+    def _latest_human_authority_message(
+        session: AgentRunSession,
+    ) -> tuple[str, int]:
+        """取最近 human-origin user 输入，排除 role=user 的 Runtime 协调编码。"""
+
+        for message_index in range(len(session.messages) - 1, -1, -1):
+            message = session.messages[message_index]
+            if message.role != "user":
+                continue
+            if message.content.startswith(RUNTIME_COORDINATION_EVIDENCE_PREFIX):
+                continue
+            return message.content, message_index
+        return session.task, -1
+
+    @staticmethod
+    def _attach_memory_management_candidates(
+        schemas: list[ToolSchema],
+        candidates: list[LongTermMemoryRecord],
+    ) -> list[ToolSchema]:
+        """只给 remember_memory schema 附加当前 Turn 冻结的 ID 候选。"""
+
+        candidate_lines = [
             memory_record.render_management_line()
-            for memory_record in session.memory_management_catalog
+            for memory_record in candidates
         ]
-        catalog_text = "\n".join(f"- {line}" for line in catalog_lines) or "- none"
+        candidate_text = "\n".join(f"- {line}" for line in candidate_lines) or "- none"
         augmented_schemas: list[ToolSchema] = []
         for schema in schemas:
             if str(schema.get("name") or "") != "remember_memory":
@@ -282,11 +363,11 @@ class TurnPreparation:
             augmented_schema = dict(schema)
             augmented_schema["description"] = (
                 f"{schema.get('description', '')}\n"
-                "Run-start Memory Management Catalog (management candidates only; "
+                "Current-turn Memory Management Candidates (mutation targets only; "
                 "not task reasoning evidence):\n"
-                f"{catalog_text}\n"
+                f"{candidate_text}\n"
                 "Use CREATE when no candidate matches. UPDATE/NOOP must name one "
-                "catalog target_memory_id with the requested scope."
+                "candidate target_memory_id with the requested scope."
             )
             augmented_schemas.append(augmented_schema)
         return augmented_schemas

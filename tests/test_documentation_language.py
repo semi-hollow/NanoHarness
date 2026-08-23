@@ -20,6 +20,7 @@ CHINESE_FIRST_DOCS = (
     "docs/上下文压缩与长任务设计.md",
     "docs/运行治理与工具执行.md",
     "docs/多Agent编排.md",
+    "docs/生产化边界与扩展.md",
     "docs/核心能力与代码入口.md",
     "docs/运行产物与持久化契约.md",
     "docs/DOCUMENTATION_RULES.md",
@@ -34,6 +35,7 @@ PUBLIC_DOC_LINE_BUDGETS = {
     "docs/上下文压缩与长任务设计.md": 320,
     "docs/运行治理与工具执行.md": 620,
     "docs/多Agent编排.md": 420,
+    "docs/生产化边界与扩展.md": 220,
     "docs/核心能力与代码入口.md": 280,
     "docs/运行产物与持久化契约.md": 340,
     "docs/DOCUMENTATION_RULES.md": 180,
@@ -64,6 +66,7 @@ ALLOWED_TOP_LEVEL_DOCS = {
     "docs/上下文压缩与长任务设计.md",
     "docs/运行治理与工具执行.md",
     "docs/多Agent编排.md",
+    "docs/生产化边界与扩展.md",
     "docs/核心能力与代码入口.md",
     "docs/运行产物与持久化契约.md",
     "docs/DOCUMENTATION_RULES.md",
@@ -320,6 +323,7 @@ class DocumentationLanguageTest(unittest.TestCase):
             "_run_batch()",
             "_run_live_plan()",
             "scheduling strategy selected again",
+            "生产化边界与扩展.md",
         ):
             if contract not in architecture:
                 violations.append(f"架构导览缺少审阅契约: {contract}")

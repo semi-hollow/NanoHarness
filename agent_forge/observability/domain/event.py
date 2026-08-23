@@ -31,6 +31,7 @@ TraceEventType: TypeAlias = Literal[
     "human_input_requested",
     "human_input_response_loaded",
     "llm_call",
+    "memory_management_candidates",
     "memory_recall",
     "memory_authorization",
     "memory_consolidation_validation",

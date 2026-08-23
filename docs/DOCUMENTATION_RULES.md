@@ -59,6 +59,7 @@ Input
 | `运行治理与工具执行.md` | ToolCall 到授权、副作用、Observation 和 durable facts |
 | `运行产物与持久化契约.md` | Authoritative State、Audit Evidence 与 Derived Presentation |
 | `多Agent编排.md` | Planning、HARD/LIVE scheduling、Worker、Integration 与 Recovery |
+| `生产化边界与扩展.md` | 跨能力区分当前简化实现、适用规模与可能的生产方向，不形成 Roadmap |
 
 非 Owner 文档只能保留一句角色说明、一个链接和必要的 Source Anchor，不重复展开。
 

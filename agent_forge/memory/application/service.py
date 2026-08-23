@@ -1,6 +1,6 @@
 """用户显式控制的长期记忆用例。
 
-这里集中 ``apply_consolidation / recall / management_catalog`` 与人工管理动作。
+这里集中 ``apply_consolidation / recall / management_candidates`` 与人工管理动作。
 模型不能自行挖掘或晋升跨 Run 记忆，避免错误结论污染后续任务。
 """
 
@@ -28,7 +28,7 @@ class LongTermMemoryService(LongTermMemoryRecallPort):
     """长期记忆的唯一应用服务。
 
     Repository 只负责 JSON 存取；本类负责 ID 更新、作用域、项目值覆盖用户默认值、
-    task-aware recall 和有界 management catalog。
+    task-aware recall 和有界 management candidates。
     """
 
     def __init__(self, repository: LongTermMemoryRepository) -> None:
@@ -274,19 +274,22 @@ class LongTermMemoryService(LongTermMemoryRecallPort):
         return selected_records
         # endregion 3. 稳定排序并冻结本次 Run 的记忆上限结束
 
-    def management_catalog(
+    def management_candidates(
         self,
         *,
         namespace: str,
+        query: str,
         max_chars: int = 2_000,
     ) -> list[LongTermMemoryRecord]:
-        """返回不按 task 过滤的有界管理候选，供任意后续 Turn 做 ID 合并。"""
+        """按最新 human message 返回有界管理候选，供当前 Turn 做 ID 合并。"""
 
         if max_chars <= 0:
             return []
+        query_terms = _lexical_terms(query)
         visible_records = sorted(
             self.list_for_project(project_namespace=namespace),
             key=lambda memory_record: (
+                -_relevance_score(query_terms, memory_record),
                 0 if memory_record.scope == MemoryScope.PROJECT.value else 1,
                 -memory_record.updated_at,
                 memory_record.key.casefold(),

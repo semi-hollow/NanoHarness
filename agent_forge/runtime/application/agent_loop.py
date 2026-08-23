@@ -81,6 +81,7 @@ class AgentLoop:
             dependencies.tools,
             dependencies.environment,
             dependencies.model_capabilities,
+            dependencies.long_term_memory_recall,
         )
         self.tool_execution_pipeline = ToolExecutionPipeline(
             config,

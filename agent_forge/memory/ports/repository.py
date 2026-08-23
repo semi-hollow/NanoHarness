@@ -24,7 +24,7 @@ class LongTermMemoryRepository(Protocol):
 
 
 class LongTermMemoryRecallPort(Protocol):
-    """Runtime 只需要长期记忆的只读召回能力。"""
+    """Runtime 只需要长期记忆的有界只读查询能力。"""
 
     def recall(
         self,
@@ -35,10 +35,11 @@ class LongTermMemoryRecallPort(Protocol):
     ) -> list[LongTermMemoryRecord]:
         """按 Context 字符预算返回 Run 开始时固定的完整记录快照。"""
 
-    def management_catalog(
+    def management_candidates(
         self,
         *,
         namespace: str,
+        query: str,
         max_chars: int = 2_000,
     ) -> list[LongTermMemoryRecord]:
-        """返回不按 task 过滤、仅供显式 remember 合并的有界候选。"""
+        """按当前 human message 返回仅供显式 remember 合并的有界候选。"""

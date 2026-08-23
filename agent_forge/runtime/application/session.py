@@ -43,8 +43,9 @@ class AgentRunSession:
     compacted_message_cursor: int = 0
     # Runtime Context 的重建输入；Tool schemas 由 TurnPreparation 单独路由。
     working_memory: WorkingMemory = field(default_factory=WorkingMemory)
-    # 与 task-aware recall 分离；只给 remember_memory 查看稳定 ID 候选。
-    memory_management_catalog: list[LongTermMemoryRecord] = field(default_factory=list)
+    # 与 Run-level recall 分离；按最新 human message 查询，并在当前 Turn 内冻结。
+    memory_management_candidates: list[LongTermMemoryRecord] = field(default_factory=list)
+    memory_management_candidates_step: int = -1
     evidence: EvidenceLedger = field(default_factory=EvidenceLedger)
     active_skills: list[SkillView] = field(default_factory=list)
     skill_tool_names: set[str] = field(default_factory=set)

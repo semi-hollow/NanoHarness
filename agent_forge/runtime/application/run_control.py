@@ -8,6 +8,7 @@ from agent_forge.runtime.application.run_lifecycle import StopRequest
 from agent_forge.runtime.application.session import AgentRunSession
 from agent_forge.runtime.domain.conversation import Message
 from agent_forge.runtime.domain.run_control import (
+    RUNTIME_COORDINATION_EVIDENCE_PREFIX,
     RunControlKind,
     RunControlSignal,
     RuntimeCoordinationSignal,
@@ -125,8 +126,7 @@ class RunControlHandler:
                 Message(
                     role="user",
                     content=(
-                        "[RUNTIME COORDINATION EVIDENCE]\n"
-                        "human_authority=false\n"
+                        RUNTIME_COORDINATION_EVIDENCE_PREFIX
                         + coordination_signal.content.strip()
                     ),
                 )

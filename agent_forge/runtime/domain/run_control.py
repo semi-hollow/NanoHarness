@@ -9,6 +9,12 @@ from enum import Enum
 from agent_forge.contracts import JsonObject
 
 
+RUNTIME_COORDINATION_EVIDENCE_PREFIX = (
+    "[RUNTIME COORDINATION EVIDENCE]\n"
+    "human_authority=false\n"
+)
+
+
 class RunControlKind(Enum):
     """操作员在 Runtime 安全边界可提交的控制动作。"""
 

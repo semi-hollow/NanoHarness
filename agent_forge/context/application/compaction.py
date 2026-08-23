@@ -208,35 +208,47 @@ class PromptWindowManager:
             )
         # endregion 2. 安全切分结束
 
-        # region 3. 候选搜索：逐步扩大旧历史摘要范围，保留最新原始消息
+        # region 3. Rolling 候选搜索：每个新 segment 只提取一次
         # cut_index 只扫描未覆盖 delta；已被 previous_digest 覆盖的 raw prefix 不再读取。
-        # 每个候选把新覆盖 segment 合入旧投影，最近 segment 仍保留原文。
+        # rolling_delta_digest 每轮只合入下一个 segment，避免 candidate 1 提取 81、
+        # candidate 2 又提取 81~83。候选仍从最小 legal prefix 开始，首次满足预算即提交。
         target_token_count = (
             max(256, int(self.budget.soft_input_limit * 0.65))
             if request.force_compaction
             else self.budget.soft_input_limit
         )
         best_compaction_result: PromptWindowResult | None = None
+        rolling_delta_digest: ConversationHistoryDigest | None = None
+        root_user_message_pending = request.previous_digest is None
         for cut_index in range(1, len(history_segments)):
-            omitted_segments = history_segments[:cut_index]
-            recent_messages = _flatten(history_segments[cut_index:])
-            recent_messages = _trim_large_messages(
-                recent_messages,
-                max_chars=800 if request.force_compaction else 2_000,
-            )
-            delta_digest = _build_digest(
+            next_segment = history_segments[cut_index - 1]
+            segment_digest = _build_digest(
                 (
                     request.previous_digest.task
                     if request.previous_digest is not None
                     else request.task
                 ),
-                omitted_segments,
+                [next_segment],
                 estimated_tokens_before=estimated_tokens_before,
-                skip_initial_user_message=request.previous_digest is None,
+                skip_initial_user_message=root_user_message_pending,
+            )
+            if root_user_message_pending and any(
+                message.role == "user" for message in next_segment.messages
+            ):
+                root_user_message_pending = False
+            rolling_delta_digest = _merge_digest(
+                rolling_delta_digest,
+                segment_digest,
+                estimated_tokens_before=estimated_tokens_before,
+            )
+            recent_messages = _flatten(history_segments[cut_index:])
+            recent_messages = _trim_large_messages(
+                recent_messages,
+                max_chars=800 if request.force_compaction else 2_000,
             )
             conversation_history_digest = _merge_digest(
                 request.previous_digest,
-                delta_digest,
+                rolling_delta_digest,
                 estimated_tokens_before=estimated_tokens_before,
             )
             candidate_llm_messages = [
@@ -278,7 +290,7 @@ class PromptWindowManager:
                 ),
                 compacted_message_cursor=(
                     request.compacted_message_cursor
-                    + delta_digest.covered_message_count
+                    + rolling_delta_digest.covered_message_count
                 ),
                 estimated_tokens_before=estimated_tokens_before,
                 estimated_tokens_after=estimated_tokens_after,
@@ -301,7 +313,7 @@ class PromptWindowManager:
                 and estimated_tokens_after < estimated_tokens_before
             ):
                 return candidate_window_result
-        # endregion 3. 候选搜索结束
+        # endregion 3. Rolling 候选搜索结束
 
         # region 4. 保守回退：只接受真实缩小的结果，否则明确报告无法安全压缩
         if (

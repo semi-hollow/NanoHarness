@@ -1,5 +1,7 @@
 import unittest
+from unittest.mock import patch
 
+import agent_forge.context.application.compaction as compaction_module
 from agent_forge.context.application.compaction import (
     PromptWindowRequest,
     PromptWindowManager,
@@ -299,6 +301,91 @@ class PromptWindowManagerTest(unittest.TestCase):
             "this already-covered raw text",
             next_from_original.conversation_history_digest.render(),
         )
+
+    def test_rolling_scan_extracts_each_new_segment_once(self) -> None:
+        history = [Message("user", "initial task")]
+        history.extend(
+            Message("assistant", f"analysis-{index} " + (str(index) * 1_200))
+            for index in range(6)
+        )
+        manager = PromptWindowManager(
+            PromptBudget(
+                max_prompt_tokens=1_200,
+                reserved_output_tokens=100,
+                soft_limit_ratio=0.6,
+            )
+        )
+
+        with patch.object(
+            compaction_module,
+            "_build_digest",
+            wraps=compaction_module._build_digest,
+        ) as build_digest, patch.object(
+            compaction_module,
+            "_group_history_segments",
+            wraps=compaction_module._group_history_segments,
+        ) as group_segments:
+            result = manager.prepare(
+                PromptWindowRequest(
+                    turn_system_message=Message("system", "policy"),
+                    conversation_history=history,
+                    observations=[],
+                    tool_schemas=[],
+                    task="initial task",
+                )
+            )
+
+        self.assertTrue(result.compacted)
+        self.assertEqual(group_segments.call_count, 1)
+        self.assertGreater(build_digest.call_count, 1)
+        self.assertTrue(
+            all(len(call.args[1]) == 1 for call in build_digest.call_args_list)
+        )
+
+    def test_selects_first_legal_prefix_that_restores_budget(self) -> None:
+        history = [
+            Message("user", "initial task"),
+            Message("assistant", "analysis one"),
+            Message("user", "preserve API"),
+            Message("assistant", "analysis two"),
+            Message("user", "run tests"),
+        ]
+        manager = PromptWindowManager(
+            PromptBudget(
+                max_prompt_tokens=1_000,
+                reserved_output_tokens=100,
+                soft_limit_ratio=0.7,
+            )
+        )
+
+        def controlled_estimate(messages, tools, budget):
+            del tools, budget
+            has_digest = any(
+                (message.content or "").startswith("conversation_history_digest")
+                for message in messages
+            )
+            if not has_digest:
+                return 900
+            recent_raw_count = sum(message.role != "system" for message in messages)
+            return 500 if recent_raw_count <= 2 else 700
+
+        with patch.object(
+            compaction_module,
+            "estimate_prompt_tokens",
+            side_effect=controlled_estimate,
+        ):
+            result = manager.prepare(
+                PromptWindowRequest(
+                    turn_system_message=Message("system", "policy"),
+                    conversation_history=history,
+                    observations=[],
+                    tool_schemas=[],
+                    task="initial task",
+                )
+            )
+
+        self.assertEqual(result.compacted_message_cursor, 3)
+        self.assertEqual(result.llm_messages[2:], history[3:])
 
 
 if __name__ == "__main__":

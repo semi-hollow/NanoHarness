@@ -7,7 +7,7 @@
 
 | 对象 | 生命周期 | 输入 | 输出 / 作用 |
 |---|---|---|---|
-| `AgentRunSession` | 整个 Run | task、lifecycle、controller | messages、working state、rolling digest/cursor、memory catalog |
+| `AgentRunSession` | 整个 Run | task、lifecycle、controller | messages、working state、rolling digest/cursor、current-Turn memory candidates |
 | `WorkingMemory` | 整个 Run | continuation seed、recall snapshot、Observation | 当前 Run 的有界任务状态视图 |
 | `PreparedTurn` | 单个 Turn | system context、history、tool route、budget | 一次 `ModelPort.chat(...)` 的冻结输入 |
 | `TaskCheckpoint` | durable latest state | lifecycle transition | crash/pause/resume 使用的控制面快照 |
@@ -36,7 +36,7 @@ AgentLoop
     ├── working_memory                     bounded current-Run view
     ├── conversation_history_digest         rolling derived projection
     ├── compacted_message_cursor            current-session raw index
-    ├── memory_management_catalog           frozen remember candidates
+    ├── memory_management_candidates        current-Turn remember targets
     ├── lifecycle ────────────────→ TaskCheckpoint Repository
     ├── controller                         budget / failure / repetition
     ├── evidence                           final-answer grounding

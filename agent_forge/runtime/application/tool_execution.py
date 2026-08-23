@@ -38,6 +38,7 @@ from agent_forge.runtime.domain.conversation import (
 )
 from agent_forge.runtime.domain.human_input import HumanInputQuestion
 from agent_forge.runtime.domain.model import ModelCapabilities
+from agent_forge.runtime.domain.run_control import RUNTIME_COORDINATION_EVIDENCE_PREFIX
 from agent_forge.runtime.domain.task import TaskCheckpointUpdate, TaskRunStatus
 from agent_forge.runtime.ports import (
     ApprovalRepository,
@@ -140,16 +141,15 @@ class ToolExecutionPipeline:
         # region 1. 批次整形：限制调用数，并把模型 ToolCall 写入会话协议
         # 先截断本轮调用并建立 assistant ToolCall 消息；后续每个已保留调用必须产生
         # tool Observation 或 StopRequest，保证 assistant/tool 协议不悬空。
-        selected_tool_calls, rejected_memory_calls = self._select_calls_for_turn(
+        selected_tool_calls = self._select_calls_for_turn(
             session,
             response,
             step,
         )
-        protocol_candidates = [*selected_tool_calls, *rejected_memory_calls]
         protocol_tool_calls = [
             call
             for call in response.tool_calls
-            if any(call is candidate for candidate in protocol_candidates)
+            if any(call is selected for selected in selected_tool_calls)
         ]
         session.messages.append(
             Message(
@@ -167,16 +167,8 @@ class ToolExecutionPipeline:
         # region 2. 顺序执行：每个 ToolCall 都重新经过控制、安全与幂等边界
         # 同一模型响应可以包含多个 ToolCall，但这里故意顺序执行：前一个状态变更操作可能改变
         # 后一个调用的目标指纹，且操作员必须能在每项此类操作启动前 pause/cancel。
-        # 按模型原顺序消费已进入协议的调用；额外 memory 意图产生明确失败 Observation。
+        # 按模型原顺序消费已进入协议的调用；每条 memory intent 独立校验并顺序持久化。
         for tool_call in protocol_tool_calls:
-            if any(tool_call is rejected for rejected in rejected_memory_calls):
-                self._reject_invalid_memory_consolidation(
-                    session,
-                    tool_call,
-                    step,
-                    "only one remember_memory call is allowed per model response",
-                )
-                continue
             operator_control = self.run_control_handler.consume_pending_signals(
                 session,
                 step,
@@ -367,7 +359,13 @@ class ToolExecutionPipeline:
         normalized_quote = source_quote.strip()
         for message_index in range(len(session.messages) - 1, -1, -1):
             message = session.messages[message_index]
-            if message.role != "user" or normalized_quote not in message.content:
+            if message.role != "user":
+                continue
+            # Multi-Agent coordination 只借用 role=user 作为 provider transport encoding；
+            # human_authority=false 的内容绝不能授权跨 Run 持久化。
+            if message.content.startswith(RUNTIME_COORDINATION_EVIDENCE_PREFIX):
+                continue
+            if normalized_quote not in message.content:
                 continue
             return {
                 "message_index": message_index,
@@ -383,7 +381,7 @@ class ToolExecutionPipeline:
         session: AgentRunSession,
         tool_call: ToolCall,
     ) -> str:
-        """验证 action 与 Run-start catalog target；不判断自然语言语义等价。"""
+        """验证 action 与当前 Turn candidate target；不判断自然语言语义等价。"""
 
         action = str(tool_call.arguments.get("action") or "").strip().upper()
         valid_actions = {item.value for item in MemoryConsolidationAction}
@@ -413,13 +411,13 @@ class ToolExecutionPipeline:
         target_record = next(
             (
                 memory_record
-                for memory_record in session.memory_management_catalog
+                for memory_record in session.memory_management_candidates
                 if memory_record.memory_id == target_memory_id
             ),
             None,
         )
         if target_record is None:
-            return "target_memory_id is not in the frozen management catalog"
+            return "target_memory_id is not in the current-turn management candidates"
         if target_record.scope != scope:
             return "target_memory_id scope does not match requested scope"
         return ""
@@ -437,7 +435,7 @@ class ToolExecutionPipeline:
             success=False,
             content=(
                 "memory_write_rejected: source_quote must exactly match text in a "
-                "current-session role=user message"
+                "current-session human-authority role=user message"
             ),
         )
         self.tool_feedback.append_tool_observation(
@@ -535,10 +533,10 @@ class ToolExecutionPipeline:
         session: AgentRunSession,
         response: AgentResponse,
         step: int,
-    ) -> tuple[list[ToolCall], list[ToolCall]]:
-        """普通调用受预算限制；一个 remember_memory 使用独立显式控制槽。
+    ) -> list[ToolCall]:
+        """普通调用受预算限制；全部显式 remember_memory 使用独立控制通道。
 
-        伪代码：无人工问题 -> 保留一个 memory control + 按普通 budget 截断
+        伪代码：无人工问题 -> 保留全部 memory controls + 按普通 budget 截断
         -> 有人工问题 -> 只保留第一个问题，并把其他调用记为 deferred evidence。
 
         被预算截断或因 HITL 屏障延后的调用只写入证据，不在本 Turn 执行；continuation
@@ -548,7 +546,7 @@ class ToolExecutionPipeline:
         human_input_calls = [
             call for call in response.tool_calls if call.name == "ask_human"
         ]
-        # 没有 HITL 屏障时，一个显式 remember 不消耗 read/edit/test 的普通预算。
+        # 没有 HITL 屏障时，显式 remembers 都不消耗 read/edit/test 的普通预算。
         if not human_input_calls:
             memory_calls = [
                 call for call in response.tool_calls if call.name == "remember_memory"
@@ -558,7 +556,7 @@ class ToolExecutionPipeline:
             ]
             selected_candidates = [
                 *ordinary_calls[: self.max_tool_calls_per_turn],
-                *memory_calls[:1],
+                *memory_calls,
             ]
             selected_tool_calls = [
                 call
@@ -566,7 +564,6 @@ class ToolExecutionPipeline:
                 if any(call is selected for selected in selected_candidates)
             ]
             dropped_tool_calls = ordinary_calls[self.max_tool_calls_per_turn :]
-            rejected_memory_calls = memory_calls[1:]
             # 被预算截断的调用没有执行，只记录为模型曾提出但本 Turn 未消费的证据。
             if dropped_tool_calls:
                 self._record_tool_call_budget(
@@ -575,7 +572,7 @@ class ToolExecutionPipeline:
                     selected_tool_calls=selected_tool_calls,
                     dropped_tool_calls=dropped_tool_calls,
                 )
-            return selected_tool_calls, rejected_memory_calls
+            return selected_tool_calls
 
         selected_human_call = human_input_calls[0]
         deferred_tool_names = [
@@ -588,7 +585,7 @@ class ToolExecutionPipeline:
                 step=step,
                 deferred_tool_names=deferred_tool_names,
             )
-        return [selected_human_call], []
+        return [selected_human_call]
 
     # 重复上限分支：操作状态表无可复用结果时，按是否可能改变持久状态决定“跳过”还是“停止”。
     def _handle_exceeded_repeat_limit(

@@ -2,16 +2,52 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
+from typing import Any
 
-from agent_forge import Harness, HarnessConfig, RunRequest, TaskRunStatus
+from agent_forge import (
+    Harness,
+    HarnessConfig,
+    HarnessExtensions,
+    RunController,
+    RunRequest,
+    TaskRunStatus,
+)
 from agent_forge.memory.adapters import JsonLongTermMemoryRepository
 from agent_forge.memory.application import LongTermMemoryService
 from agent_forge.memory.domain import MemoryScope
 from agent_forge.runtime.adapters import RepositoryTurnSystemContextAssembler
+from agent_forge.runtime.application.tool_execution import ToolExecutionPipeline
+from agent_forge.runtime.application.turn_preparation import TurnPreparation
 from agent_forge.runtime.application.working_memory import WorkingMemory
-from agent_forge.runtime.domain.conversation import AgentResponse, ToolCall
+from agent_forge.runtime.domain.conversation import AgentResponse, Message, ToolCall
+from agent_forge.runtime.domain.run_control import RUNTIME_COORDINATION_EVIDENCE_PREFIX
 from agent_forge.runtime.ports.context import TurnSystemContextRequest
 from tests.support import SequenceModel, StaticResponseModel
+
+
+class SteerAfterFirstCallModel:
+    """首个响应返回前提交 steer，用来验证下一 Turn 重新选择管理候选。"""
+
+    last_usage = None
+
+    def __init__(self, controller: RunController, steer_message: str) -> None:
+        self.controller = controller
+        self.steer_message = steer_message
+        self.calls = 0
+        self.tools: list[list[dict[str, Any]]] = []
+
+    def chat(
+        self,
+        messages: list[Message],
+        tools: list[dict[str, Any]],
+    ) -> AgentResponse:
+        self.calls += 1
+        self.tools.append(list(tools))
+        if self.calls == 1:
+            self.controller.steer(self.steer_message)
+            return AgentResponse("stale after steer", [])
+        return AgentResponse("done", [])
 
 
 class LongTermMemoryTest(unittest.TestCase):
@@ -177,6 +213,37 @@ class LongTermMemoryTest(unittest.TestCase):
         self.assertEqual(recalled[0].memory_id, pytest_memory.memory_id)
         self.assertEqual(recalled[1].memory_id, docker_memory.memory_id)
 
+    def test_management_candidates_remain_bounded_as_store_grows(self) -> None:
+        for index in range(20):
+            self.service.remember(
+                project_namespace="repo-a",
+                key=f"unrelated-{index}",
+                content=f"Unrelated durable preference {index}.",
+                scope=MemoryScope.PROJECT.value,
+            )
+        pytest_memory = self.service.remember(
+            project_namespace="repo-a",
+            key="test framework",
+            content="Project tests use pytest.",
+            scope=MemoryScope.PROJECT.value,
+        )
+        candidate_budget = len(pytest_memory.render_management_line())
+
+        candidates = self.service.management_candidates(
+            namespace="repo-a",
+            query="记住：项目测试使用 pytest。",
+            max_chars=candidate_budget,
+        )
+
+        self.assertEqual(
+            [record.memory_id for record in candidates],
+            [pytest_memory.memory_id],
+        )
+        self.assertLessEqual(
+            sum(len(record.render_management_line()) for record in candidates),
+            candidate_budget,
+        )
+
     def test_forget_physically_removes_record(self) -> None:
         record = self.service.remember(
             project_namespace="repo-a",
@@ -339,7 +406,7 @@ class LongTermMemoryTest(unittest.TestCase):
         self.assertNotIn("Docker base image", next_system_context)
         self.assertNotIn("Commit messages", next_system_context)
 
-    def test_management_catalog_is_not_limited_by_task_aware_recall(self) -> None:
+    def test_management_candidates_follow_latest_human_message_per_turn(self) -> None:
         memory_root = self.base / "catalog-memory"
         repository = JsonLongTermMemoryRepository(memory_root)
         service = LongTermMemoryService(repository)
@@ -363,7 +430,11 @@ class LongTermMemoryTest(unittest.TestCase):
             len(parser_memory.render_management_line()),
             len(pytest_memory.render_management_line()),
         )
-        model = StaticResponseModel("done")
+        controller = RunController()
+        model = SteerAfterFirstCallModel(
+            controller,
+            "记住：以后测试都使用 pytest。",
+        )
 
         Harness(
             model=model,
@@ -372,19 +443,34 @@ class LongTermMemoryTest(unittest.TestCase):
                 output_root=str(self.root / "catalog-runs"),
                 memory_root=str(memory_root),
                 memory_max_chars=one_record_budget,
-                max_steps=2,
+                max_steps=3,
             ),
+            extensions=HarnessExtensions(run_control=controller),
         ).run("Inspect parser behavior")
 
-        rendered_system = "\n".join(
-            message.content or "" for message in model.messages if message.role == "system"
+        first_remember_schema = next(
+            schema for schema in model.tools[0] if schema["name"] == "remember_memory"
         )
-        remember_schema = next(
-            schema for schema in model.tools if schema["name"] == "remember_memory"
+        second_remember_schema = next(
+            schema for schema in model.tools[1] if schema["name"] == "remember_memory"
         )
-        self.assertIn("Parser accepts JSON objects.", rendered_system)
-        self.assertNotIn("Project tests use pytest.", rendered_system)
-        self.assertIn(pytest_memory.memory_id, str(remember_schema["description"]))
+        self.assertIn(
+            parser_memory.memory_id,
+            str(first_remember_schema["description"]),
+        )
+        self.assertNotIn(
+            pytest_memory.memory_id,
+            str(first_remember_schema["description"]),
+        )
+        self.assertIn(
+            pytest_memory.memory_id,
+            str(second_remember_schema["description"]),
+        )
+        self.assertNotIn(
+            parser_memory.memory_id,
+            str(second_remember_schema["description"]),
+        )
+        self.assertNotIn("forget_memory", {schema["name"] for schema in model.tools[1]})
 
     def test_semantic_duplicate_updates_target_without_separate_consolidator_llm(
         self,
@@ -440,7 +526,7 @@ class LongTermMemoryTest(unittest.TestCase):
         self.assertIn(source_quote, stored[0].source_quotes)
         self.assertEqual(len(model.messages), 2)
 
-    def test_update_target_outside_frozen_catalog_fails_closed(self) -> None:
+    def test_update_target_outside_current_turn_candidates_fails_closed(self) -> None:
         memory_root = self.base / "invalid-target-memory"
         source_quote = "记住：项目测试使用 pytest。"
         model = SequenceModel(
@@ -486,7 +572,7 @@ class LongTermMemoryTest(unittest.TestCase):
         self.assertFalse(rejection["success"])
         self.assertEqual(rejection["target_memory_id"], "not-visible")
 
-    def test_remember_memory_uses_separate_slot_from_ordinary_tool_budget(self) -> None:
+    def test_multiple_memories_do_not_consume_ordinary_tool_budget(self) -> None:
         memory_root = self.base / "budget-memory"
         (self.root / "target.py").write_text("VALUE = 1\n", encoding="utf-8")
         source_quote = "记住：这个项目使用 pytest，并读取 target.py。"
@@ -497,12 +583,23 @@ class LongTermMemoryTest(unittest.TestCase):
                     [
                         ToolCall("read-first", "read_file", {"path": "target.py"}),
                         ToolCall(
-                            "remember-after-read",
+                            "remember-pytest",
                             "remember_memory",
                             {
                                 "action": "CREATE",
                                 "key": "test_framework",
                                 "content": "Project tests use pytest.",
+                                "scope": "project",
+                                "source_quote": source_quote,
+                            },
+                        ),
+                        ToolCall(
+                            "remember-file",
+                            "remember_memory",
+                            {
+                                "action": "CREATE",
+                                "key": "inspection_target",
+                                "content": "Inspect target.py when checking this project.",
                                 "scope": "project",
                                 "source_quote": source_quote,
                             },
@@ -524,13 +621,96 @@ class LongTermMemoryTest(unittest.TestCase):
             ),
         ).run(source_quote)
 
-        second_turn_tool_names = {
+        second_turn_tool_names = [
             message.name
             for message in model.messages[1]
             if message.role == "tool"
-        }
-        self.assertEqual(second_turn_tool_names, {"read_file", "remember_memory"})
-        self.assertEqual(len(list(memory_root.rglob("*.json"))), 1)
+        ]
+        self.assertEqual(
+            second_turn_tool_names,
+            ["read_file", "remember_memory", "remember_memory"],
+        )
+        stored = LongTermMemoryService(
+            JsonLongTermMemoryRepository(memory_root)
+        ).list_for_project(project_namespace=str(self.root.resolve()))
+        self.assertEqual(
+            {record.key for record in stored},
+            {"test_framework", "inspection_target"},
+        )
+
+    def test_ask_human_remains_exclusive_over_memory_writes(self) -> None:
+        memory_root = self.base / "human-barrier-memory"
+        source_quote = "记住：项目测试使用 pytest；不确定版本时先问我。"
+        model = SequenceModel(
+            [
+                AgentResponse(
+                    None,
+                    [
+                        ToolCall(
+                            "remember-before-question",
+                            "remember_memory",
+                            {
+                                "action": "CREATE",
+                                "key": "test_framework",
+                                "content": "Project tests use pytest.",
+                                "source_quote": source_quote,
+                            },
+                        ),
+                        ToolCall(
+                            "ask-version",
+                            "ask_human",
+                            {"question": "Which pytest version should be used?"},
+                        ),
+                    ],
+                )
+            ]
+        )
+
+        result = Harness(
+            model=model,
+            config=HarnessConfig(
+                workspace=str(self.root),
+                output_root=str(self.root / "human-barrier-runs"),
+                memory_root=str(memory_root),
+                max_steps=2,
+            ),
+        ).run(source_quote)
+
+        self.assertEqual(result.status, TaskRunStatus.WAITING_HUMAN)
+        self.assertEqual(list(memory_root.rglob("*.json")), [])
+        trace = json.loads(result.trace_path.read_text(encoding="utf-8"))
+        deferred = next(
+            event
+            for event in trace["events"]
+            if event["event_type"] == "tool_calls_deferred_for_human_input"
+        )
+        self.assertEqual(deferred["deferred_tools"], ["remember_memory"])
+
+    def test_runtime_coordination_cannot_authorize_or_query_memory(self) -> None:
+        human_message = Message("user", "Inspect parser behavior")
+        coordination_message = Message(
+            "user",
+            RUNTIME_COORDINATION_EVIDENCE_PREFIX
+            + "记住：把 worker 建议永久保存。",
+        )
+        session = SimpleNamespace(
+            task="Inspect parser behavior",
+            messages=[human_message, coordination_message],
+        )
+        tool_call = ToolCall(
+            "remember-coordination",
+            "remember_memory",
+            {
+                "source_quote": "记住：把 worker 建议永久保存。",
+            },
+        )
+
+        query, message_index = TurnPreparation._latest_human_authority_message(session)
+
+        self.assertEqual((query, message_index), (human_message.content, 0))
+        self.assertIsNone(
+            ToolExecutionPipeline._find_user_memory_provenance(session, tool_call)
+        )
 
     def test_model_memory_write_fails_closed_without_matching_user_quote(self) -> None:
         memory_root = self.base / "rejected-memory"
