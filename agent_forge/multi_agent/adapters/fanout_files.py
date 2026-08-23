@@ -84,8 +84,11 @@ class FanoutFileRepository(FanoutArtifactPort):
 
     # region 2. Resume 与只读 artifact：返回未信任 mapping，由 Application 继续校验
     def load_resume(self, path: str) -> dict[str, Any]:
+        """定位 Summary/Checkpoint，读取后只做物理 object 校验。"""
+
         resume_path = _resolve_resume_artifact(Path(path))
         data = json.loads(resume_path.read_text(encoding="utf-8"))
+        # Application 需要 mapping 才能继续做 digest/base/effective plan 校验。
         if not isinstance(data, dict):
             raise ValueError("fanout resume artifact must contain an object")
         return data
@@ -109,12 +112,18 @@ class FanoutFileRepository(FanoutArtifactPort):
 
 # region 4. 路径解析：兼容 run root 或直接 artifact 文件，不承载 schema fallback
 def _resolve_resume_artifact(path: Path) -> Path:
+    """按稳定优先级解析显式文件、fanout 子目录或 Run 根目录。"""
+
+    # 调用方直接给出文件时原样使用，不猜其他 latest 路径。
     if path.is_file():
         return path
     roots = [path / "fanout", path]
+    # Summary 优先于 Checkpoint；每种文件先查 canonical fanout/，再查兼容 Run 根。
     for filename in ("fanout_summary.json", "fanout_checkpoint.json"):
+        # 对同一种 artifact，先查 canonical fanout 子目录，再查直接 Run 根。
         for root in roots:
             candidate = root / filename
+            # 找到首个稳定候选立即返回；都不存在才报告明确错误。
             if candidate.exists():
                 return candidate
     raise FileNotFoundError(f"no fanout summary or checkpoint found under {path}")

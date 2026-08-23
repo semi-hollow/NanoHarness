@@ -171,7 +171,11 @@ class AdaptivePlanner:
         completed_handoffs: list[WorkerHandoff],
         failed_results: list[LiveSubagentResult],
     ) -> PlanningDecision:
-        """仅替换未完成工作；completed history 的冻结由 Coordinator 校验。"""
+        """仅替换未完成工作；completed history 的冻结由 Coordinator 校验。
+
+        伪代码：把当前计划、完成 Handoff、失败结果压缩进 Prompt -> 请求有界新计划
+        -> 必须返回 fanout -> 交给 Coordinator 校验完成前缀和 generation 边界。
+        """
 
         prompt = "\n".join(
             [
@@ -190,6 +194,7 @@ class AdaptivePlanner:
             ]
         )
         outcome = self._request(prompt)
+        # Replan 不能退回 Single 或空决定，否则剩余图没有可执行 contract。
         if outcome.decision is None or outcome.decision.mode != "fanout":
             raise PlanningError(outcome.failure or "replanner did not return fanout")
         return outcome.decision
@@ -202,6 +207,12 @@ class AdaptivePlanner:
         *,
         validate_fanout_goal: str = "",
     ) -> PlanningOutcome:
+        """请求一次规划并最多修复一次结构，任何失败都显式回退而不执行半成品。
+
+        伪代码：固定 Schema/Prompt -> 请求模型 -> Parser 校验 JSON -> Domain 校验字段
+        -> 可选 FanoutPlan 图校验 -> 失败时追加一次 repair -> 仍失败则 fallback_to_single。
+        """
+
         # region 1. 固定请求：同一 Schema 同时约束首轮规划和剩余任务重规划
         parser = StructuredOutputParser(PLANNING_SCHEMA, max_repair_attempts=1)
         model = self.model_factory()
@@ -220,21 +231,26 @@ class AdaptivePlanner:
         # endregion 1. 固定请求结束
 
         # region 2. 有界解析：模型只提议，Parser 与 Domain 两次检查后才形成 decision
+        # 最多两轮：第一次正常回答，第二次只修复第一次的结构/领域错误。
         for attempt in range(2):
             response = model.chat(messages, [])
+            # Provider 失败不是结构错误，不做 repair，直接保留失败事实。
             if response.error:
                 failure = f"provider failure: {response.error}"
                 break
             raw = response.content or ""
             raw_responses.append(raw)
             parsed = parser.parse(raw)
+            # 只有 Schema 通过才进入 Domain contract；否则使用 Parser 的 repair prompt。
             if parsed.ok:
+                # Domain 校验失败也只允许同一次 repair，模型无法绕过工具和任务上限。
                 try:
                     decision = PlanningDecision.from_mapping(
                         parsed.data,
                         available_tools=self.available_tools,
                         max_fanout_tasks=self.max_fanout_tasks,
                     )
+                    # 初次 decide 的 fanout 还要立即构造 FanoutPlan，提前验证组合依赖图。
                     if validate_fanout_goal and decision.mode == "fanout":
                         decision.to_fanout_plan(validate_fanout_goal)
                     return PlanningOutcome(
@@ -249,6 +265,7 @@ class AdaptivePlanner:
             else:
                 failure = parsed.error
                 repair_prompt = parsed.repair_prompt
+            # 只有第一次失败才追加 assistant 原文和定向 repair；第二次失败直接收口。
             if attempt == 0:
                 messages.append(Message(role="assistant", content=raw))
                 messages.append(Message(role="user", content=repair_prompt))

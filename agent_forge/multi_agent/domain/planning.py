@@ -64,15 +64,22 @@ class PlanningDecision:
         available_tools: Iterable[str],
         max_fanout_tasks: int = 16,
     ) -> "PlanningDecision":
-        """解析结构化模型输出，并拒绝模式、工具和预算越界。"""
+        """解析结构化模型输出，并拒绝模式、工具和预算越界。
+
+        伪代码：校验 Single/Fanout header -> 校验 tasks/live 容器与模式一致
+        -> 逐 Task 限制工具和预算 -> 构造 typed decision，等待 FanoutPlan 图校验。
+        """
 
         # region 1. Decision header：先确定 Single/Fanout 和全局验收边界
+        # Parser 正常会提供 object；Domain 仍独立保护直接调用路径。
         if not isinstance(data, dict):
             raise ValueError("planning decision must be an object")
         mode = str(data.get("mode") or "").strip().lower()
+        # 策略门只允许 Single/Fanout 两种当前已实现模式。
         if mode not in {"single", "fanout"}:
             raise ValueError("planning mode must be single or fanout")
         reason = str(data.get("reason") or "").strip()
+        # 决策必须能解释为何选择该执行模式，空 reason 不可审计。
         if not reason:
             raise ValueError("planning reason must not be empty")
         global_criteria = _criteria(
@@ -80,15 +87,20 @@ class PlanningDecision:
             "global_acceptance_criteria",
         )
         rows = data.get("tasks", [])
+        # tasks 必须是显式数组，即使 Single 模式也使用空数组而非其他形状。
         if not isinstance(rows, list):
             raise ValueError("planning tasks must be a list")
+        # Single 不能偷偷携带将被忽略的 fanout tasks。
         if mode == "single" and rows:
             raise ValueError("single planning decision must not contain fanout tasks")
         live_rows = data.get("live_dependencies", [])
+        # LIVE edges 同样必须为显式数组。
         if not isinstance(live_rows, list):
             raise ValueError("planning live_dependencies must be a list")
+        # Single 没有 Worker graph，因此不能声明 LIVE 协作。
         if mode == "single" and live_rows:
             raise ValueError("single planning decision cannot contain LIVE dependencies")
+        # Fanout Task 数量由 Runtime 上限约束，模型不能自行扩大。
         if mode == "fanout" and not 1 <= len(rows) <= max_fanout_tasks:
             raise ValueError(
                 f"fanout planning decision requires 1-{max_fanout_tasks} tasks"
@@ -98,17 +110,21 @@ class PlanningDecision:
         # region 2. Fanout tasks：逐个校验工具集合和 step budget，再构造 typed task
         allowed = set(available_tools)
         tasks: list[PlannedTask] = []
+        # 每个不可信 task mapping 分别收窄，任一非法则拒绝整个 decision。
         for row in rows:
+            # 不接受字符串式 task shortcut，确保所有治理字段显式出现。
             if not isinstance(row, dict):
                 raise ValueError("planned task must be an object")
             task_tools = _strings(row.get("allowed_tools"), "allowed_tools")
             unavailable = sorted(set(task_tools) - allowed)
+            # Planner 只能从 Runtime 公布的工具集合中选择，不能发明 Tool。
             if unavailable:
                 raise ValueError(
                     "planned task requested unavailable tools: "
                     + ", ".join(unavailable)
                 )
             max_steps = row.get("max_steps", 12)
+            # bool 不能冒充整数预算；具体 2..32 边界由 FanoutPlan 再校验。
             if isinstance(max_steps, bool) or not isinstance(max_steps, int):
                 raise ValueError("planned task max_steps must be an integer")
             tasks.append(
@@ -145,8 +161,9 @@ class PlanningDecision:
         *,
         completed_tasks: Iterable[SubagentTask] = (),
     ) -> FanoutPlan:
-        """把模型提议送入现有 FanoutPlan 确定性校验。"""
+        """把模型提议与冻结完成前缀合并，再送入 ``FanoutPlan`` 确定性校验。"""
 
+        # Single decision 没有 Task graph，不能被错误转换成 FanoutPlan。
         if self.mode != "fanout":
             raise ValueError("single planning decision has no fanout plan")
         task_rows = [_subagent_mapping(task) for task in completed_tasks]
@@ -171,6 +188,7 @@ class PlanningDecision:
             "global_acceptance_criteria": list(self.global_acceptance_criteria),
             "tasks": [task.to_mapping() for task in self.tasks],
         }
+        # 没有 LIVE 时不落空字段，保持 canonical artifact 简洁。
         if self.live_dependencies:
             payload["live_dependencies"] = [
                 dependency.to_dict() for dependency in self.live_dependencies
@@ -194,11 +212,16 @@ def _subagent_mapping(task: SubagentTask) -> dict[str, Any]:
 
 
 def _strings(value: Any, name: str) -> list[str]:
+    """规范可选字符串数组，并按首次出现顺序去重。"""
+
+    # 缺失可选字段统一成空列表。
     if value is None:
         return []
+    # 不接受单字符串或其他 iterable，避免隐式逐字符处理。
     if not isinstance(value, list):
         raise ValueError(f"planned task {name} must be a list")
     normalized = [str(item).strip() for item in value]
+    # 空元素会让工具、scope 或依赖失去明确含义。
     if any(not item for item in normalized):
         raise ValueError(f"planned task {name} entries must not be empty")
     return list(dict.fromkeys(normalized))
@@ -206,8 +229,10 @@ def _strings(value: Any, name: str) -> list[str]:
 
 def _criteria(value: Any, name: str) -> list[str]:
     criteria = _strings(value, name)
+    # 条数上限控制 Planner/Finalizer Prompt 与 artifact 体积。
     if len(criteria) > MAX_CRITERIA:
         raise ValueError(f"{name} supports at most {MAX_CRITERIA} entries")
+    # 每条标准也有独立字符上限，防止单条过大。
     if any(len(criterion) > MAX_CRITERION_CHARS for criterion in criteria):
         raise ValueError(
             f"{name} entries support at most {MAX_CRITERION_CHARS} characters"

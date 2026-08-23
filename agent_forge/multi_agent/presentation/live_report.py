@@ -9,7 +9,11 @@ from ..domain.live import LiveFanoutSummary
 
 
 def render_live_fanout_report(summary: LiveFanoutSummary) -> str:
-    """渲染当前消耗、恢复消耗、任务证据和 Claim Boundary。"""
+    """渲染当前消耗、恢复消耗、任务证据和 Claim Boundary。
+
+    伪代码：先写 Run/两套成本口径 -> 逐 Worker 写结果和 Handoff
+    -> 展示恢复/冲突/Finalizer -> 以 Claim Boundary 收尾；不重新计算业务状态。
+    """
 
     # region 1. Run 与指标：区分本轮成本、历史恢复成本和完整证据链成本
     current_metric_keys = (
@@ -88,6 +92,7 @@ def render_live_fanout_report(summary: LiveFanoutSummary) -> str:
             "| --- | ---: | --- | ---: | --- | --- | --- | --- |",
         ]
     )
+    # 每个 Worker 一行，只引用 Summary 中已经收口的 canonical 路径和状态。
     for result in summary.results:
         lines.append(
             f"| `{result.task_id}` | {result.attempt} | `{result.status}` | "
@@ -97,7 +102,9 @@ def render_live_fanout_report(summary: LiveFanoutSummary) -> str:
             f"[trace]({result.trace_path}) |"
         )
     lines.extend(["", "## Handoffs", ""])
+    # 逐结果展示最小 Handoff；完整 Conversation 和私有 Trace 不进入报告正文。
     for result in summary.results:
+        # 没有 Handoff 的结果跳过，稍后用统一占位说明。
         if result.handoff is None:
             continue
         lines.append(
@@ -105,6 +112,7 @@ def render_live_fanout_report(summary: LiveFanoutSummary) -> str:
             f"validation=`{result.handoff.validation_evidence}`, "
             f"unresolved=`{result.handoff.unresolved_issues}`"
         )
+    # 所有结果都无 Handoff 时显式呈现空状态，避免报告段落看似损坏。
     if not any(result.handoff is not None for result in summary.results):
         lines.append("- No WorkerHandoff was produced.")
     lines.extend(
@@ -123,6 +131,7 @@ def render_live_fanout_report(summary: LiveFanoutSummary) -> str:
     # endregion 2. Worker 证据
 
     # region 3. 治理结论：冲突门、Finalizer 与可对外声称的边界
+    # 有冲突时逐条列出；无冲突时明确说明四类 gate 都未观察到冲突。
     if summary.conflicts:
         lines.extend(
             f"- `{conflict.task_ids}`: {conflict.reason}"
@@ -145,6 +154,7 @@ def render_live_fanout_report(summary: LiveFanoutSummary) -> str:
             "",
         ]
     )
+    # Finalizer 返回逐条结果时展开；缺失时保留明确占位，不推测 PASS。
     if summary.criterion_results:
         lines.extend(
             f"- `{result.status}` {result.criterion}: {result.evidence}"

@@ -64,13 +64,19 @@ class PublishHandoffEventTool(Tool):
         }
 
     def execute(self, arguments: ToolArguments) -> Observation:
-        """做物理参数检查后调用 worker-bound context；所有语义规则仍由 Runtime 拥有。"""
+        """做物理参数检查后调用 worker-bound context；所有语义规则仍由 Runtime 拥有。
+
+        伪代码：校验模型参数物理类型 -> 调用绑定身份的 Context
+        -> Runtime 拒绝转失败 Observation -> 成功只返回事件审计身份。
+        """
 
         # region 1. Tool 参数边界：先拒绝错误 evidence/version 物理类型
         evidence = arguments.get("evidence")
+        # evidence 必须是数组，字符串不能被隐式按字符拆分。
         if not isinstance(evidence, list):
             return Observation(self.name, False, "evidence must be a list of strings")
         version = arguments.get("version")
+        # bool 在 Python 中属于 int，显式拒绝后再要求真正整数。
         if isinstance(version, bool) or not isinstance(version, int):
             return Observation(self.name, False, "version must be an integer")
         # endregion 1. Tool 参数边界结束

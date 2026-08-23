@@ -47,36 +47,50 @@ class FanoutPlan:
     def __post_init__(self) -> None:
         """集中维护 HARD/LIVE 图的全部安全不变量。"""
 
+        # 整体目标为空时无法解释 Planner/Finalizer 的共同验收对象。
         if not self.goal.strip():
             raise ValueError("fanout plan goal must not be empty")
+        # Fanout 必须至少一个 Task，并限制规模以控制 Prompt、线程和校验成本。
         if not 1 <= len(self.tasks) <= 16:
             raise ValueError("fanout plan supports 1..16 tasks")
         _validate_dependency_graph(self.tasks, self.live_dependencies)
 
     @classmethod
     def from_mapping(cls, data: dict[str, Any]) -> "FanoutPlan":
-        """在 JSON 边界之后验证计划结构和依赖关系。"""
+        """在 JSON 边界之后验证计划结构和依赖关系。
+
+        伪代码：校验 goal/tasks 容器 -> 逐 Task 收窄字段和预算
+        -> 解析 LIVE edges -> 构造 ``FanoutPlan`` 并统一校验组合图。
+        """
 
         # region 1. Task contract：逐个收敛 id、文本、scope、tools、criteria 和 step budget
         goal = str(data.get("goal") or "").strip()
+        # goal 是所有 Task 和 Finalizer 的共同业务目标，必须明确存在。
         if not goal:
             raise ValueError("fanout plan goal must not be empty")
         rows = data.get("tasks")
+        # 物理边界要求非空 JSON array，不能接受单对象或隐式默认 Task。
         if not isinstance(rows, list) or not rows:
             raise ValueError("fanout plan tasks must be a non-empty list")
+        # 控制最大 fanout，避免模型通过计划字段放大运行资源。
         if len(rows) > 16:
             raise ValueError("fanout plan supports at most 16 tasks")
         tasks: list[SubagentTask] = []
+        # 逐行把不可信 mapping 收窄成 typed SubagentTask。
         for row in rows:
+            # 每个 Task 必须是独立 object，不能接受字符串等快捷形式。
             if not isinstance(row, dict):
                 raise ValueError("fanout task must be an object")
             task_id = str(row.get("id") or "").strip()
             task_text = str(row.get("task") or "").strip()
+            # ID 同时用于目录、事件和依赖引用，只允许安全且稳定的字符。
             if task_id in {".", ".."} or not TASK_ID_PATTERN.fullmatch(task_id):
                 raise ValueError(f"invalid fanout task id: {task_id!r}")
+            # 没有任务文本就不存在可交给 Worker 的目标。
             if not task_text:
                 raise ValueError(f"fanout task {task_id!r} has no task text")
             max_steps = row.get("max_steps", 12)
+            # bool 在 Python 中属于 int，必须显式排除；预算限制为 2..32。
             if (
                 isinstance(max_steps, bool)
                 or not isinstance(max_steps, int)
@@ -88,6 +102,7 @@ class FanoutPlan:
             expected_artifact = str(
                 row.get("expected_artifact") or "task_output"
             ).strip()
+            # Artifact 名称会进入文件路径，因此使用与 Task ID 相同的安全规则。
             if expected_artifact in {"", ".", ".."} or not TASK_ID_PATTERN.fullmatch(
                 expected_artifact
             ):
@@ -116,6 +131,7 @@ class FanoutPlan:
 
         # region 2. LIVE contract：解析语义边，统一交给构造后的组合图校验
         live_rows = data.get("live_dependencies", [])
+        # 没有 LIVE 时允许空列表；出现字段时必须仍是 JSON array。
         if not isinstance(live_rows, list):
             raise ValueError("fanout plan live_dependencies must be a list")
         return cls(
@@ -150,6 +166,7 @@ class FanoutPlan:
             payload["global_acceptance_criteria"] = list(
                 self.global_acceptance_criteria
             )
+        # LIVE 为空时同样省略字段，保持 HARD-only 计划的 canonical 形式。
         if self.live_dependencies:
             payload["live_dependencies"] = [
                 dependency.to_dict() for dependency in self.live_dependencies
@@ -176,7 +193,11 @@ class FanoutPlan:
         ]
 
     def integration_order(self, task_ids: set[str]) -> list[str]:
-        """按 HARD + LIVE 组合图返回当前结果的稳定集成顺序。"""
+        """按 HARD + LIVE 组合图返回当前结果的稳定集成顺序。
+
+        伪代码：构造每个候选的 HARD+LIVE 上游集合 -> 反复选出当前无未处理上游者
+        -> 按计划顺序追加 -> 移除 ready，直到候选集合为空。
+        """
 
         dependencies = {
             task.id: set(task.depends_on)
@@ -189,6 +210,7 @@ class FanoutPlan:
             if task.id in task_ids
         }
         ordered: list[str] = []
+        # 每轮剥离当前可集成层；输入 Plan 已校验，所以正常不会遇到环。
         while dependencies:
             ready = [
                 task.id
@@ -196,9 +218,11 @@ class FanoutPlan:
                 if task.id in dependencies
                 and not (dependencies[task.id] & set(dependencies))
             ]
+            # 防御性断言：若无 ready，说明组合图校验与此投影发生不一致。
             if not ready:  # pragma: no cover - FanoutPlan validation protects this
                 raise AssertionError("validated fanout plan contains a cycle")
             ordered.extend(ready)
+            # 移除本层后，下一轮下游 Task 才可能变为 ready。
             for task_id in ready:
                 dependencies.pop(task_id)
         return ordered
@@ -277,6 +301,7 @@ def project_worker_handoff(result: LiveSubagentResult) -> WorkerHandoff:
 
     summary = " ".join((result.final_answer or "").split())[:1200]
     issues = list(result.unresolved_issues)
+    # 失败结果没有显式 issue 时补一条稳定原因，避免下游看到空失败 Handoff。
     if result.status != "completed" and not issues:
         issues.append(result.error or f"worker ended with status {result.status}")
     return WorkerHandoff(
@@ -449,6 +474,7 @@ def aggregate_live_metrics(
         )
         current_value = current_worker_value + float(finalizer_usage.get(key) or 0)
         evidence_chain_value = current_value + resumed_worker_value
+        # 成本保留六位小数；计数和 token/latency 统一投影为整数。
         if key == "estimated_cost_usd":
             metrics[key] = round(current_value, 6)
             metrics[f"resumed_{key}"] = round(resumed_worker_value, 6)
@@ -468,25 +494,35 @@ def aggregate_live_metrics(
 
 # region 4. 输入规范化与组合图校验：所有外部字符串和依赖关系在执行前 fail closed
 def _normalize_scope(value: Any) -> str:
+    """把外部 scope 收敛为安全的 workspace 相对 POSIX 路径。"""
+
     text = str(value or "").strip().replace("\\", "/")
+    # 连续移除无语义的 ``./``，让等价 scope 得到同一 canonical 形式。
     while text.startswith("./"):
         text = text[2:]
     path = PurePosixPath(text)
+    # 空值、绝对路径和父目录逃逸都不能成为 Worker write scope。
     if not text or path.is_absolute() or ".." in path.parts:
         raise ValueError(f"write scope must be a relative workspace path: {value!r}")
     normalized = path.as_posix()
+    # ``.`` 规范化后仍代表 workspace 根，不允许用它绕过粗粒度 scope 限制。
     if not normalized or normalized == ".":
         raise ValueError(f"write scope must be a relative workspace path: {value!r}")
     return normalized.rstrip("/") + ("/" if text.endswith("/") else "")
 
 
 def _string_list(data: dict[str, Any], key: str) -> list[str]:
+    """读取可选字符串数组，去空白并按首次出现顺序去重。"""
+
     values = data.get(key)
+    # 缺失字段等价为空列表，避免调用方重复处理 None。
     if values is None:
         return []
+    # 不接受单字符串，防止按字符迭代造成隐式错误。
     if not isinstance(values, list):
         raise ValueError(f"fanout task {key} must be a list")
     normalized = [str(value).strip() for value in values]
+    # 任意空元素都会让依赖、scope 或工具名失去明确含义。
     if any(not value for value in normalized):
         raise ValueError(f"fanout task {key} entries must not be empty")
     return list(dict.fromkeys(normalized))
@@ -494,22 +530,30 @@ def _string_list(data: dict[str, Any], key: str) -> list[str]:
 
 def _criteria_list(data: dict[str, Any], key: str) -> list[str]:
     criteria = _string_list(data, key)
+    # 限制条数，控制 Planner/Finalizer Prompt 和 artifact 体积。
     if len(criteria) > 16:
         raise ValueError(f"{key} supports at most 16 entries")
+    # 每条 criteria 也限制长度，避免单条内容绕过总量边界。
     if any(len(criterion) > 500 for criterion in criteria):
         raise ValueError(f"{key} entries support at most 500 characters")
     return criteria
 
 
 def _dependency_list(data: dict[str, Any]) -> list[str]:
+    """读取 HARD dependencies，保留顺序并拒绝重复或空引用。"""
+
     dependencies = data.get("depends_on")
+    # 未声明 depends_on 表示没有 HARD 前置任务。
     if dependencies is None:
         return []
+    # 依赖必须显式为数组，不接受逗号字符串等模糊输入。
     if not isinstance(dependencies, list):
         raise ValueError("fanout task depends_on must be a list")
     normalized = [str(value).strip() for value in dependencies]
+    # 空 ID 无法解析到 Task，立即拒绝。
     if any(not value for value in normalized):
         raise ValueError("fanout task depends_on entries must not be empty")
+    # 重复 HARD edge 没有额外语义，只会污染拓扑和 digest。
     if len(normalized) != len(set(normalized)):
         raise ValueError("fanout task HARD dependencies must be unique")
     return normalized
@@ -525,6 +569,7 @@ def _task_to_dict(task: SubagentTask) -> dict[str, Any]:
         "expected_artifact": task.expected_artifact,
         "max_steps": task.max_steps,
     }
+    # 空 criteria 不落盘，维持无该能力时的 canonical digest 兼容性。
     if task.acceptance_criteria:
         payload["acceptance_criteria"] = list(task.acceptance_criteria)
     return payload
@@ -534,16 +579,24 @@ def _validate_dependency_graph(
     tasks: list[SubagentTask],
     live_dependencies: list[LiveDependency],
 ) -> None:
-    """一次性验证唯一 FanoutPlan 的 HARD、LIVE 和组合并发边界。"""
+    """一次性验证唯一 FanoutPlan 的 HARD、LIVE 和组合并发边界。
+
+    伪代码：校验 Task/edge identity -> 拒绝未知和 HARD/LIVE 重叠
+    -> 验证 HARD 图 -> 验证 HARD+LIVE 组合图 -> 检查 LIVE participant 写范围。
+    """
 
     # region 1. Identity 与 edge：拒绝重复、未知、自引用和 HARD/LIVE 双重语义
     task_ids = [task.id for task in tasks]
+    # 重复 ID 会让所有 dependency lookup 和 artifact 路径失去唯一性。
     if len(task_ids) != len(set(task_ids)):
         raise ValueError("subagent task ids must be unique")
     known = set(task_ids)
+    # 逐 Task 校验 HARD 自引用与重复 edge。
     for task in tasks:
+        # 自依赖天然形成环，给出比通用 cycle 更直接的错误。
         if task.id in task.depends_on:
             raise ValueError(f"task {task.id} cannot depend on itself")
+        # 同一上游只允许声明一次，保持 canonical graph。
         if len(task.depends_on) != len(set(task.depends_on)):
             raise ValueError(f"task {task.id} HARD dependencies must be unique")
     hard_pairs = {
@@ -553,9 +606,11 @@ def _validate_dependency_graph(
         (edge.producer_task_id, edge.target_task_id, edge.semantic_key)
         for edge in live_dependencies
     ]
+    # Producer/Target/semantic_key 三元组必须唯一。
     if len(live_identities) != len(set(live_identities)):
         raise ValueError("LIVE semantic dependencies must be unique")
     live_pairs = {(producer, target) for producer, target, _ in live_identities}
+    # V1 每个 Task pair 只允许一个 semantic key，避免多 mailbox barrier 复杂度。
     if len(live_pairs) != len(live_identities):
         raise ValueError("a producer-target pair may declare only one LIVE dependency")
     unknown = sorted(
@@ -567,9 +622,11 @@ def _validate_dependency_graph(
         }
         | {dependency for dependency, _ in hard_pairs if dependency not in known}
     )
+    # HARD 或 LIVE 的任一 endpoint 未出现在 tasks 中都无法调度。
     if unknown:
         raise ValueError(f"unknown dependencies: {', '.join(unknown)}")
     overlap = sorted(hard_pairs & live_pairs)
+    # 同一方向不能既 HARD 又 LIVE，否则启动语义互相矛盾。
     if overlap:
         producer, target = overlap[0]
         raise ValueError(
@@ -581,6 +638,7 @@ def _validate_dependency_graph(
     # 复用 HARD 图校验，再校验组合图，统一阻断依赖环。
     build_execution_batches(tasks)
     upstream_by_task = {task.id: list(task.depends_on) for task in tasks}
+    # 把 LIVE Producer 也作为集成拓扑上游，再复用同一个 cycle detector。
     for edge in live_dependencies:
         upstream_by_task[edge.target_task_id].append(edge.producer_task_id)
     build_execution_batches(
@@ -605,6 +663,7 @@ def _validate_dependency_graph(
     conflicts = detect_write_scope_conflicts(
         [task for task in tasks if task.id in live_task_ids]
     )
+    # LIVE Workers 会真实并发运行，因此声明 scope 重叠在执行前直接拒绝。
     if conflicts:
         raise ValueError(
             "LIVE workers require non-overlapping write scopes: "

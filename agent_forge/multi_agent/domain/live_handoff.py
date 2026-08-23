@@ -41,19 +41,26 @@ class LiveDependency:
     semantic_key: str
 
     def __post_init__(self) -> None:
+        """校验 route 两端身份、非自引用和安全 semantic key。"""
+
+        # Producer/Target 都会进入索引和目录，使用统一安全标识符规则。
         for label, value in (
             ("producer_task_id", self.producer_task_id),
             ("target_task_id", self.target_task_id),
         ):
+            # 任一 endpoint 非法都拒绝整个 route。
             if not IDENTIFIER_PATTERN.fullmatch(value):
                 raise ValueError(f"invalid {label}: {value!r}")
+        # LIVE 只描述跨 Worker 协作，自指向没有调度意义。
         if self.producer_task_id == self.target_task_id:
             raise ValueError("LIVE dependency cannot target the producer itself")
+        # semantic key 进入 route key 和审计事件，必须非空且可稳定序列化。
         if not SEMANTIC_KEY_PATTERN.fullmatch(self.semantic_key):
             raise ValueError("LIVE dependency requires a safe semantic_key")
 
     @classmethod
     def from_mapping(cls, data: dict[str, Any]) -> "LiveDependency":
+        # JSON 边界只接受 object，具体字段规范化交给构造器统一处理。
         if not isinstance(data, dict):
             raise ValueError("LIVE dependency must be an object")
         return cls(
@@ -89,42 +96,57 @@ class LiveHandoffEvent:
     emitted_at: float = field(default_factory=time.time, compare=False)
 
     def __post_init__(self) -> None:
-        """一次性校验身份、版本、内容边界和可选因果引用的物理格式。"""
+        """一次性校验身份、版本、内容边界和可选因果引用的物理格式。
+
+        Domain 只验证事件“长什么样”；route authorization、版本连续性和 cause
+        是否真实送达由持锁的 ``LiveHandoffRuntime`` 校验。
+        """
 
         # region 1. Identity：事件类型、generation、attempt 和 Worker route
+        # 事件类型必须已经由 Runtime 规范为 enum，不能接受任意字符串。
         if not isinstance(self.event_type, LiveEventType):
             raise ValueError("event_type must be READY, FEEDBACK, or UPDATE")
+        # Generation 绑定事件所属计划代际，缺失时无法判断 stale。
         if not self.plan_generation_id.strip():
             raise ValueError("event requires plan_generation_id")
+        # bool 不能冒充 int；Attempt 必须是正整数。
         if (
             isinstance(self.worker_attempt_id, bool)
             or not isinstance(self.worker_attempt_id, int)
             or self.worker_attempt_id < 1
         ):
             raise ValueError("worker_attempt_id must be a positive integer")
+        # Publisher/Target 使用与 Task 相同的安全标识符规则。
         for label, value in (
             ("publisher_task_id", self.publisher_task_id),
             ("target_task_id", self.target_task_id),
         ):
+            # 任一 Worker ID 非法都使事件无法安全路由。
             if not IDENTIFIER_PATTERN.fullmatch(value):
                 raise ValueError(f"invalid {label}: {value!r}")
+        # 事件必须跨 Worker 传递，不能向自己发布。
         if self.publisher_task_id == self.target_task_id:
             raise ValueError("handoff event target must be another task")
+        # semantic key 必须能稳定进入 route key 和 event hash。
         if not SEMANTIC_KEY_PATTERN.fullmatch(self.semantic_key):
             raise ValueError("handoff event requires a safe semantic_key")
         # endregion 1. Identity 结束
 
         # region 2. Version 与内容：限制版本、摘要和 evidence 体积
+        # 版本同样拒绝 bool/非整数/非正数；连续性稍后由 Runtime 校验。
         if (
             isinstance(self.version, bool)
             or not isinstance(self.version, int)
             or self.version < 1
         ):
             raise ValueError("handoff event version must be a positive integer")
+        # Summary 必须非空且有界，作为 Worker 下一 Turn 的紧凑语义输入。
         if not self.summary.strip() or len(self.summary) > 1_000:
             raise ValueError("handoff event summary must contain 1..1000 characters")
+        # Evidence 至少一条、最多八条，防止把完整上下文塞进 mailbox。
         if not self.evidence or len(self.evidence) > 8:
             raise ValueError("handoff event requires 1..8 evidence items")
+        # 每条 Evidence 也必须非空且限制体积。
         if any(not item.strip() or len(item) > 1_000 for item in self.evidence):
             raise ValueError("handoff evidence items must contain 1..1000 characters")
         # endregion 2. Version 与内容结束

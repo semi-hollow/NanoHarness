@@ -102,7 +102,12 @@ class LocalAgentWorkerAdapter(FanoutWorkerPort):
         attempt: int,
         coordination: LiveWorkerContextPort | None = None,
     ) -> LiveSubagentResult:
-        """在临时 worktree 中运行一个受 scope 限制的 AgentLoop。"""
+        """在临时 worktree 中运行一个受 scope 限制的 AgentLoop。
+
+        伪代码：准备稳定输出路径 -> 创建隔离 worktree/带入前置 Diff
+        -> 裁剪 Tool 并装配真实 AgentLoop -> 执行 -> 收集 candidate/Trace/Usage
+        -> 异常也生成稳定失败 artifact -> 清理 worktree -> 返回结果契约。
+        """
 
         # region 1. 输出契约准备（实现细节）：固定目录，并先准备失败兜底值
         # 先创建所有稳定路径和默认失败值，保证后续任意阶段抛异常时仍能返回结构完整的
@@ -142,6 +147,7 @@ class LocalAgentWorkerAdapter(FanoutWorkerPort):
             with self._git_lock:
                 environment.prepare()
             active_workspace = environment.active_workspace
+            # 后续 HARD Task 需要看见前序已集成代码；无前置 Diff 时保持原 Git 基线。
             if base_diff_text.strip():
                 # 有依赖的后续 Worker 必须看见前序改动；提交为新基线后，自己的 Diff
                 # 只包含本任务增量，不会把前序改动重复交给 Coordinator。
@@ -150,6 +156,7 @@ class LocalAgentWorkerAdapter(FanoutWorkerPort):
                     base_diff_text,
                     check_only=False,
                 )
+                # Seed 失败说明恢复/集成前缀不适用于该 worktree，Worker 不应继续运行。
                 if not ok:
                     raise RuntimeError(
                         f"could not seed integrated diff into worker: {detail}"
@@ -164,6 +171,7 @@ class LocalAgentWorkerAdapter(FanoutWorkerPort):
                 self.registry_factory(active_workspace, environment),
                 task,
             )
+            # 只有拥有合法 LIVE route 的 Worker 才注册 coordination publish Tool。
             if coordination is not None:
                 registry.register(PublishHandoffEventTool(coordination))
             worker_trace = TraceRecorder(str(trace_path))
@@ -298,6 +306,7 @@ class LocalAgentWorkerAdapter(FanoutWorkerPort):
                 ),
                 encoding="utf-8",
             )
+            # AgentLoop 尚未创建 Trace 时补一个最小错误文件，确保结果路径始终可读。
             if not trace_path.exists():
                 trace_path.write_text(
                     json.dumps({"error": error}, indent=2),
@@ -349,6 +358,9 @@ class LocalAgentWorkerAdapter(FanoutWorkerPort):
 
         Finalizer 只获得检查类 Tool、禁网和 dry-run 权限；只有明确输出 PASS 才通过，
         异常或非 PASS 均保留证据并返回阻断结论，不修改或回滚 Coordinator 的成果。
+
+        伪代码：复制集成 Diff 到隔离 worktree -> 只注册验证 Tool -> 运行 Finalizer
+        -> 解析 criteria/decision -> 检查它没有写文件 -> 固化 Trace/Usage/manifest。
         """
 
         # region 1. 验证输出准备（实现细节）：固定 Trace、Usage 和默认阻断结论
@@ -382,12 +394,14 @@ class LocalAgentWorkerAdapter(FanoutWorkerPort):
                 environment.prepare()
             workspace = environment.active_workspace
             integrated_diff_text = collect_workspace_diff(self.workspace)
+            # 没有代码 Diff 时仍允许只读 Finalizer 验收其他 Worker 证据。
             if integrated_diff_text.strip():
                 ok, detail = apply_unified_diff_to_workspace(
                     workspace,
                     integrated_diff_text,
                     check_only=False,
                 )
+                # 候选无法复制到隔离树时，验证环境与真实集成结果不一致，必须阻断。
                 if not ok:
                     raise RuntimeError(
                         f"could not seed integrated diff into finalizer: {detail}"
@@ -400,8 +414,10 @@ class LocalAgentWorkerAdapter(FanoutWorkerPort):
             # 工具可见性和执行权限两层都禁止 Finalizer 修补候选代码。
             full_registry = self.registry_factory(workspace, environment)
             registry = ToolRegistry()
+            # 逐个复制白名单验证 Tool；完整 Registry 中的写工具不会暴露给 Finalizer。
             for name in sorted(FINALIZER_READ_TOOLS):
                 tool = full_registry.get(name)
+                # 某个可选验证 Tool 未注册时跳过，而不是引入新的执行能力。
                 if tool is not None:
                     registry.register(tool)
             config = replace(
@@ -432,12 +448,15 @@ class LocalAgentWorkerAdapter(FanoutWorkerPort):
             )
             decision = _decision(answer)
             criterion_results = _criterion_results(answer, _all_criteria(plan))
+            # 文本声称 PASS 但任一标准不是 PASS 时，统一降级为 NEEDS_REVISION。
             if decision == "PASS" and any(
                 result.status != "PASS" for result in criterion_results
             ):
                 decision = "NEEDS_REVISION"
+            # Worker Trace/candidate 已有失败事实时，Finalizer 文本不能把它提升为 PASS。
             if decision == "PASS" and _has_failed_runtime_evidence(plan, results):
                 decision = "NEEDS_REVISION"
+            # Finalizer 理论上只读；实际 Diff 变化说明治理被绕过，最高优先级 BLOCKED。
             if collect_workspace_diff(workspace) != candidate_snapshot:
                 decision = "BLOCKED"
                 answer = "\n".join(
@@ -468,12 +487,14 @@ class LocalAgentWorkerAdapter(FanoutWorkerPort):
                 final_answer=answer if decision == "PASS" else None,
             )
             final_trace.write()
+            # Usage 投影失败也不能阻止后面的 manifest 写入和 worktree 清理。
             try:
                 usage_json, _ = write_usage_artifacts(trace_path)
                 usage_path = usage_json
                 usage = json.loads(usage_json.read_text(encoding="utf-8"))
                 usage_summary = dict(usage.get("summary") or {})
             finally:
+                # 环境清单独立于 Usage；最后一层 finally 保证临时 worktree 总被回收。
                 try:
                     environment.write_manifest(final_dir)
                 finally:
@@ -500,6 +521,9 @@ class LocalAgentWorkerAdapter(FanoutWorkerPort):
 
         这一步只验证 checkpoint 中记录的候选仍可按原顺序应用；任何失败都交给
         Coordinator 以 fail-closed 方式停止恢复，绝不在真实 workspace 上试错。
+
+        伪代码：创建临时 worktree -> 按原集成顺序应用每个 Diff
+        -> 任一失败立即拒绝 -> 返回合成 Diff -> 无论结果都写 manifest 并清理。
         """
 
         validation_dir = self.root / "resume_validation"
@@ -512,21 +536,25 @@ class LocalAgentWorkerAdapter(FanoutWorkerPort):
                 keep_worktree=False,
             )
         )
+        # 准备或重放发生任何异常时，仍需写环境清单并清理临时目录。
         try:
             with self._git_lock:
                 environment.prepare()
+            # 严格按 checkpoint 的 merged 顺序重放，验证前缀内部仍可组合。
             for task_id, diff_text in diffs:
                 ok, detail = apply_unified_diff_to_workspace(
                     environment.active_workspace,
                     diff_text,
                     check_only=False,
                 )
+                # 任一历史 candidate 无法应用时，整个恢复前缀都不可信。
                 if not ok:
                     raise RuntimeError(
                         f"fanout resume diff failed for {task_id}: {detail}"
                     )
             return collect_workspace_diff(environment.active_workspace)
         finally:
+            # Manifest 记录验证环境；即使写 manifest 失败也继续 cleanup。
             try:
                 environment.write_manifest(validation_dir)
             finally:
@@ -540,23 +568,29 @@ def _filtered_registry(
     full_registry: ToolRegistry,
     task: SubagentTask,
 ) -> ToolRegistry:
+    """按 Task 工具声明和读写性质，从完整 Registry 复制最小子集。"""
+
     allowed = (
         set(task.allowed_tools)
         if task.allowed_tools
         else (WRITE_TOOLS if task.write_scope else READ_TOOLS)
     )
     unknown = sorted(name for name in allowed if full_registry.get(name) is None)
+    # Task 请求了 Runtime 不存在的工具时立即失败，不能静默忽略后继续执行。
     if unknown:
         raise ValueError(
             f"fanout task {task.id} requested unknown tools: {', '.join(unknown)}"
         )
+    # read-only Task 不能通过 allowed_tools 自行请求写能力。
     if not task.write_scope and allowed - READ_TOOLS:
         raise ValueError(
             f"read-only fanout task {task.id} requested write-capable tools"
         )
     registry = ToolRegistry()
+    # 按稳定名称顺序复制 Tool，使模型 schema 和 Trace 顺序可重复。
     for name in sorted(allowed):
         tool = full_registry.get(name)
+        # 前面的 unknown 检查已经保护；这里防御 Registry 在两次读取间发生变化。
         if tool is None:
             raise ValueError(f"fanout task requested unavailable tool: {name}")
         registry.register(tool)
@@ -648,15 +682,21 @@ def _worker_status(
     final_answer: str,
     touched_files: list[str],
 ) -> tuple[str, str]:
+    """按 Human/blocked 信号和真实 touched-files 投影 Worker 业务状态。"""
+
+    # AgentLoop 等待人工输入时保留可恢复状态，不按普通失败处理。
     if final_answer.startswith("waiting_human:"):
         return "waiting_human", ""
+    # AgentLoop 显式 blocked 时保留阻断语义。
     if final_answer.startswith("blocked:"):
         return "blocked", ""
+    # 实际文件越过声明 scope 时，模型即使声称成功也必须 fail closed。
     if not _within_scopes(touched_files, task.write_scope):
         return (
             "scope_violation",
             f"actual touched files escaped declared scope: {touched_files}",
         )
+    # read-only Task 的任意文件修改都属于 scope violation。
     if not task.write_scope and touched_files:
         return "scope_violation", f"read-only task modified files: {touched_files}"
     return "completed", ""
@@ -690,12 +730,18 @@ def _render_worker_artifact(
 
 
 def _within_scopes(paths: list[str], scopes: list[str]) -> bool:
+    """验证每条实际路径都落在至少一个声明 scope 本身或其子路径内。"""
+
+    # 没有实际改动时天然不越界。
     if not paths:
         return True
+    # 有改动却没声明任何 scope 时必然越界。
     if not scopes:
         return False
+    # 每条 touched path 都必须被某个 scope 覆盖，任一越界立即返回 False。
     for path in paths:
         normalized = path.strip("/")
+        # scope 可精确匹配文件，也可作为目录前缀覆盖其子路径。
         if not any(
             normalized == scope.rstrip("/")
             or normalized.startswith(f"{scope.rstrip('/')}/")
@@ -715,12 +761,16 @@ def _trace_outcome(
     failure_kind = ""
     retryable = False
     validation_evidence: list[dict[str, object]] = []
+    # Trace 是 retry/validation 的唯一事实源，逐事件提取而不推测模型文本。
     for event in payload.get("events") or []:
+        # 非 object 事件不是 canonical TraceEvent，直接忽略。
         if not isinstance(event, dict):
             continue
+        # recovery_decision 明确给出 failure_kind 与是否可重试。
         if event.get("event_type") == "recovery_decision":
             failure_kind = str(event.get("failure_kind") or "")
             retryable = event.get("retryable") is True
+        # validation_evidence 只接受结构化 validation mapping。
         if event.get("event_type") == "validation_evidence" and isinstance(
             event.get("validation"), dict
         ):
@@ -729,28 +779,35 @@ def _trace_outcome(
 
 
 def _unresolved_issues(status: str, error: str) -> list[str]:
+    # completed 没有未解决问题；其他状态至少保留错误或稳定状态说明。
     if status == "completed":
         return []
     return [error or f"worker ended with status {status}"]
 
 
 def _all_criteria(plan: FanoutPlan | None) -> list[str]:
+    # 没有 Plan 时 Finalizer 没有可枚举 criteria。
     if plan is None:
         return []
     criteria = list(plan.global_acceptance_criteria)
+    # 按计划顺序追加每个 Task criteria，最后稳定去重。
     for task in plan.tasks:
         criteria.extend(task.acceptance_criteria)
     return list(dict.fromkeys(criteria))
 
 
 def _criterion_results(answer: str, criteria: list[str]) -> list[CriterionResult]:
+    """解析 Finalizer 的显式逐条判断；缺失条目投影为 UNKNOWN。"""
+
     observed: dict[int, tuple[str, str]] = {}
     pattern = re.compile(
         r"^CRITERION\s+(\d+)\s*:\s*(PASS|FAIL|UNKNOWN)(?:\s*\|\s*(.*))?$",
         re.IGNORECASE,
     )
+    # 限制扫描行数，只识别严格 CRITERION n 格式，避免自由文本误判。
     for line in (answer or "").splitlines()[:160]:
         match = pattern.match(line.strip().strip("*`"))
+        # 非结构化行只是解释文字，不参与 criterion 状态。
         if not match:
             continue
         observed[int(match.group(1))] = (
@@ -771,20 +828,28 @@ def _has_failed_runtime_evidence(
     plan: FanoutPlan,
     results: list[LiveSubagentResult],
 ) -> bool:
+    """检查 Worker 结构化结果中是否存在 Finalizer 不能覆盖的失败事实。"""
+
     task_by_id = {task.id: task for task in plan.tasks}
+    # 每个结果依次检查状态、Task 身份、写任务 candidate 和 validation evidence。
     for result in results:
+        # 非 completed Worker 已经是失败事实。
         if result.status != "completed":
             return True
         task = task_by_id.get(result.task_id)
+        # 结果引用未知 Task 时 provenance 不成立。
         if task is None:
             return True
+        # 声明写入的 Task 必须有非空 canonical candidate Diff。
         if task.write_scope:
             candidate = Path(result.candidate_diff_path)
+            # 文件缺失或内容为空都不能被 Finalizer 文本提升为成功。
             if (
                 not candidate.is_file()
                 or not candidate.read_text(encoding="utf-8").strip()
             ):
                 return True
+        # 任一 validation 明确非 passed 都构成失败证据。
         if any(
             str(item.get("status") or "").lower() not in {"", "passed"}
             for item in result.validation_evidence
@@ -794,10 +859,15 @@ def _has_failed_runtime_evidence(
 
 
 def _decision(answer: str) -> str:
+    """从 Finalizer 前 80 行提取唯一明确终态；歧义时保守返回 NEEDS_REVISION。"""
+
     decisions: set[str] = set()
+    # 逐行扫描少量允许格式，忽略普通解释文字。
     for line in (answer or "").splitlines()[:80]:
         normalized = line.strip().strip("*#:- `").upper()
+        # 每行分别尝试三个合法 marker，命中后加入去重集合。
         for marker in ("PASS", "NEEDS_REVISION", "BLOCKED"):
+            # 兼容有限前缀，但不做模糊包含匹配。
             if normalized in {
                 marker,
                 f"VERDICT: {marker}",
@@ -806,6 +876,7 @@ def _decision(answer: str) -> str:
                 f"FINAL: {marker}",
             }:
                 decisions.add(marker)
+    # 只有且仅有一个决定时接受；零个或互相矛盾都需要修订。
     if len(decisions) == 1:
         return decisions.pop()
     return "NEEDS_REVISION"

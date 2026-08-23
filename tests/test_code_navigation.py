@@ -611,6 +611,44 @@ class CodeNavigationContractTest(unittest.TestCase):
                         f"missing foldable architecture section: {section}",
                     )
 
+    def test_multi_agent_control_flow_reads_like_pseudocode(self) -> None:
+        """核心分支和循环前必须先说明业务目的，折叠展开后无需逐行猜语法。"""
+
+        missing_navigation_comments: list[str] = []
+        multi_agent_root = PROJECT_ROOT / "agent_forge/multi_agent"
+
+        # 一条粗粒度规则覆盖整个能力包，避免为每个类分别维护细碎白名单。
+        for path in sorted(multi_agent_root.rglob("*.py")):
+            source_lines = path.read_text(encoding="utf-8").splitlines()
+            tree = ast.parse("\n".join(source_lines), filename=str(path))
+
+            # 只约束会改变执行路径的语句；简单赋值、返回和序列化不机械加注释。
+            for node in ast.walk(tree):
+                if not isinstance(
+                    node,
+                    (ast.If, ast.For, ast.AsyncFor, ast.While, ast.Try),
+                ):
+                    continue
+                previous_line_index = node.lineno - 2
+                while (
+                    previous_line_index >= 0
+                    and not source_lines[previous_line_index].strip()
+                ):
+                    previous_line_index -= 1
+                if previous_line_index < 0 or not source_lines[
+                    previous_line_index
+                ].lstrip().startswith("#"):
+                    relative_path = path.relative_to(PROJECT_ROOT)
+                    missing_navigation_comments.append(
+                        f"{relative_path}:{node.lineno}:{type(node).__name__}"
+                    )
+
+        self.assertEqual(
+            missing_navigation_comments,
+            [],
+            "Multi-Agent control flow needs a preceding navigation comment",
+        )
+
     def test_control_adapters_explicitly_expose_their_port_hierarchy(self) -> None:
         """关键控制面牺牲一点结构化自由，换取 PyCharm 可直接导航实现。"""
 

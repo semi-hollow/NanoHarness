@@ -48,9 +48,13 @@ class GitFanoutWorkspace(FanoutWorkspacePort):
         *,
         check_only: bool,
     ) -> tuple[bool, str]:
-        """把 ``git diff`` 文本交给 ``git apply`` 检查或应用。"""
+        """把 ``git diff`` 文本交给 ``git apply`` 检查或应用。
+
+        ``check_only`` 只增加 ``--check``，因此 dry-check 与真正 apply 使用同一解析器。
+        """
 
         command = ["git", "apply", "--binary"]
+        # 预检模式不修改 workspace；真正 apply 省略该参数。
         if check_only:
             command.append("--check")
         result = subprocess.run(
