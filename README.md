@@ -176,24 +176,23 @@ Public API 与控制流见 [`agent_forge/multi_agent/api.py`](agent_forge/multi_
 `forge ui` 启动统一的只读 Workbench，将 Runtime 和 Evaluation 产生的结构化制品组织成可导航视图，
 帮助开发者快速理解运行过程、定位失败阶段并比较调整前后的行为变化。
 
-```text
-运行证据
-└── 能力类型
-    └── 不可变 Run
-        └── Case / Worker
-            ├── 运行概览
-            ├── 执行过程
-            ├── 上下文与决策
-            └── 结果与证据
-
-实验对比
-└── 实验方向
-    └── 轮次 / 测量
-        └── 变量、结果、Case 转移与关联制品
-```
-
 Workbench 直接读取真实运行目录和版本化实验资产，不要求开发者先手工整理第二份展示数据。
 同一入口可以审阅确定性 Lab、普通 Repository Run、Multi-Agent Worker 和 Benchmark Case。
+
+先运行 `forge ui`，再通过固定深链审阅 Stable 阶段冻结的三类证据：
+
+1. [Lab 1 · Durable Control](http://127.0.0.1:8765/?source=governed&view=overview)：人工输入、审批、Ledger 与恢复状态链；
+2. [Lab 2 · Agent Coordination](http://127.0.0.1:8765/?source=orchestration&view=overview)：显式计划、隔离 Worker、冲突门禁与 Finalizer；
+3. [Mini-50 · Repository Capability](http://127.0.0.1:8765/?source=evaluation&view=overview)：固定 50 个 Case、代表案例与版本来源。
+
+实验对比页保留 [R0→R1](http://127.0.0.1:8765/?mode=experiments&source=tool-aci-r1%3Aoverview)、
+[R0→R2](http://127.0.0.1:8765/?mode=experiments&source=tool-aci-r2%3Aoverview)、Mini-50 与只读 Engineering History。
+完整 Lab raw Evidence 只保存在本机 `.agent_forge/`；Git 保存实验资产、manifest、hash 与 provenance，
+Workbench 不会重跑或改写历史实验。
+
+```bash
+.venv/bin/python scripts/review_preflight.py
+```
 
 ## CLI 与嵌入式使用
 
