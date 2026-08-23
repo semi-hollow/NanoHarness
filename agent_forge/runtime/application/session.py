@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
+from agent_forge.context.domain import ConversationHistoryDigest
+from agent_forge.memory.domain import LongTermMemoryRecord
 from agent_forge.runtime.application.working_memory import WorkingMemory
 from agent_forge.observability.domain.evidence import EvidenceLedger
 from agent_forge.runtime.application.step_control import StepController
@@ -36,8 +38,13 @@ class AgentRunSession:
     iteration: int = 0
     messages: list[Message] = field(default_factory=list)
     observations: list[Observation] = field(default_factory=list)
+    # Digest 跨 continuation 恢复；cursor 只索引当前 Session.messages，resume 时归零。
+    conversation_history_digest: ConversationHistoryDigest | None = None
+    compacted_message_cursor: int = 0
     # Runtime Context 的重建输入；Tool schemas 由 TurnPreparation 单独路由。
     working_memory: WorkingMemory = field(default_factory=WorkingMemory)
+    # 与 task-aware recall 分离；只给 remember_memory 查看稳定 ID 候选。
+    memory_management_catalog: list[LongTermMemoryRecord] = field(default_factory=list)
     evidence: EvidenceLedger = field(default_factory=EvidenceLedger)
     active_skills: list[SkillView] = field(default_factory=list)
     skill_tool_names: set[str] = field(default_factory=set)

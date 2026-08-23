@@ -54,7 +54,7 @@ Input
 | `架构导览.md` | 顶层 Ownership、Single-Agent 主链、能力边界与文档导航 |
 | `核心能力与代码入口.md` | 能力（Capability）→ canonical Owner → primary method → source file |
 | `Agent运行数据结构与模型输入.md` | Run/Turn 数据所有权及模型输入快照 |
-| `上下文工程.md` | 当前 Turn System Context 的组成与组装 |
+| `上下文工程.md` | 当前 Turn System Context，以及跨 Run Memory 的召回、管理候选与写入边界 |
 | `上下文压缩与长任务设计.md` | Prompt Window、Conversation compaction 与继续执行 |
 | `运行治理与工具执行.md` | ToolCall 到授权、副作用、Observation 和 durable facts |
 | `运行产物与持久化契约.md` | Authoritative State、Audit Evidence 与 Derived Presentation |

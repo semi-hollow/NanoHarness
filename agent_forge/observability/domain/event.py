@@ -33,6 +33,7 @@ TraceEventType: TypeAlias = Literal[
     "llm_call",
     "memory_recall",
     "memory_authorization",
+    "memory_consolidation_validation",
     "model_started",
     "model_capabilities",
     "multi_agent_done",

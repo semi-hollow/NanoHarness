@@ -29,6 +29,14 @@ class MemorySource(str, Enum):
     USER_EXPLICIT = "user_explicit"
 
 
+class MemoryConsolidationAction(str, Enum):
+    """当前 AgentLoop 模型允许提出的三种记忆合并动作。"""
+
+    CREATE = "CREATE"
+    UPDATE = "UPDATE"
+    NOOP = "NOOP"
+
+
 # user 作用域不属于任何项目，因此使用稳定专用 namespace。
 USER_MEMORY_NAMESPACE = "__user__"
 
@@ -40,20 +48,22 @@ class LongTermMemoryRecord:
 
     字段说明：
 
-    - ``memory_id``：稳定主键；同 key 更新时不改变。
+    - ``memory_id``：唯一权威主键；UPDATE 必须显式指定它。
     - ``namespace``：用户全局命名空间，或项目的绝对路径。
-    - ``key`` / ``content``：人可识别的配置键和注入 Prompt 的正文。
+    - ``key``：非权威 topic/override label；``content`` 是注入 Prompt 的正文。
+    - ``source_quotes``：产生当前记录版本的精确 user evidence。
     - ``scope``：``user`` 或 ``project``；项目级同 key 覆盖用户级默认值。
-    - ``revision``：每次显式 remember 同 key 时递增，供 Run 快照审计。
+    - ``revision``：每次显式 UPDATE 时递增，供 Run 快照审计。
     - ``source`` 固定为 ``user_explicit``，表示模型无权自动污染跨 Run 记忆。
     """
 
-    SCHEMA_VERSION: ClassVar[int] = 2
+    SCHEMA_VERSION: ClassVar[int] = 3
 
     memory_id: str
     namespace: str
     key: str
     content: str
+    source_quotes: list[str]
     scope: str = MemoryScope.PROJECT.value
     source: str = MemorySource.USER_EXPLICIT.value
     status: str = MemoryStatus.ACTIVE.value
@@ -66,6 +76,10 @@ class LongTermMemoryRecord:
 
         if not self.memory_id or not self.namespace or not self.key or not self.content:
             raise ValueError("memory_id, namespace, key and content are required")
+        if not self.source_quotes or any(
+            not quote.strip() for quote in self.source_quotes
+        ):
+            raise ValueError("long-term memory requires exact user source quotes")
         if self.scope not in {item.value for item in MemoryScope}:
             raise ValueError(f"unsupported memory scope: {self.scope}")
         if self.source != MemorySource.USER_EXPLICIT.value:
@@ -91,9 +105,20 @@ class LongTermMemoryRecord:
         )
 
     def render_prompt_line(self) -> str:
-        """渲染必要语义；ID 不进入 Prompt，仅进入 Trace。"""
+        """渲染 reasoning snapshot；稳定 ID 只进入管理 Catalog 与 Trace。"""
 
         return f"[{self.scope}; revision={self.revision}] {self.key}: {self.content}"
+
+    def render_management_line(self, max_content_chars: int = 240) -> str:
+        """给 remember_memory Tool schema 渲染有 ID 的紧凑候选行。"""
+
+        compact_content = " ".join(self.content.split())
+        if len(compact_content) > max_content_chars:
+            compact_content = compact_content[: max_content_chars - 3] + "..."
+        return (
+            f"id={self.memory_id}; scope={self.scope}; key={self.key}; "
+            f"content={compact_content}"
+        )
 
     def to_dict(self) -> JsonObject:
         """返回可原子写入 JSON 的稳定结构。"""
@@ -104,6 +129,7 @@ class LongTermMemoryRecord:
             "namespace": self.namespace,
             "key": self.key,
             "content": self.content,
+            "source_quotes": list(self.source_quotes),
             "scope": self.scope,
             "source": self.source,
             "status": self.status,
@@ -128,6 +154,7 @@ class LongTermMemoryRecord:
             namespace=str(data.get("namespace") or ""),
             key=str(data.get("key") or ""),
             content=str(data.get("content") or ""),
+            source_quotes=[str(item) for item in data.get("source_quotes") or []],
             scope=str(data.get("scope") or MemoryScope.PROJECT.value),
             source=str(data.get("source") or ""),
             status=str(data.get("status") or MemoryStatus.ACTIVE.value),

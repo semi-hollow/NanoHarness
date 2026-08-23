@@ -7,11 +7,11 @@
 
 | 对象 | 生命周期 | 输入 | 输出 / 作用 |
 |---|---|---|---|
-| `AgentRunSession` | 整个 Run | task、lifecycle、controller | 跨 Turn 的 messages、observations、working state |
+| `AgentRunSession` | 整个 Run | task、lifecycle、controller | messages、working state、rolling digest/cursor、memory catalog |
 | `WorkingMemory` | 整个 Run | continuation seed、recall snapshot、Observation | 当前 Run 的有界任务状态视图 |
 | `PreparedTurn` | 单个 Turn | system context、history、tool route、budget | 一次 `ModelPort.chat(...)` 的冻结输入 |
 | `TaskCheckpoint` | durable latest state | lifecycle transition | crash/pause/resume 使用的控制面快照 |
-| `ConversationHistoryDigest` | 某次 compaction | 被覆盖的旧 Message/Observation | 旧 Conversation History 的结构化投影 |
+| `ConversationHistoryDigest` | 跨增量 compaction，可随 checkpoint 恢复 | previous digest + raw delta | 已覆盖 Conversation 的结构化投影 |
 
 关键边界：
 
@@ -34,6 +34,9 @@ AgentLoop
     ├── messages[]                         Conversation History
     ├── observations[]                     typed Tool facts
     ├── working_memory                     bounded current-Run view
+    ├── conversation_history_digest         rolling derived projection
+    ├── compacted_message_cursor            current-session raw index
+    ├── memory_management_catalog           frozen remember candidates
     ├── lifecycle ────────────────→ TaskCheckpoint Repository
     ├── controller                         budget / failure / repetition
     ├── evidence                           final-answer grounding
@@ -87,7 +90,7 @@ AgentResponse
 
 # 4. Conversation 与临时控制消息
 
-持久 Conversation 的 Owner 是：
+当前进程 Conversation 的 Owner 是：
 
 ```text
 AgentRunSession.messages
@@ -99,8 +102,9 @@ AgentRunSession.messages
 conversation_history = list(session.messages)
 ```
 
-`TurnPreparation` 可能只向这个副本追加当前 Turn 的预算控制 Message。该临时
-Message 不写回 `session.messages`，因此不会成为下一 Turn 的永久历史。
+`TurnPreparation` 将当前 Turn 的预算控制 Message 作为
+`PromptWindowRequest.transient_messages` 单独传入。该临时 Message 不写回
+`session.messages`，也不进入 conversation digest 或 cursor。
 
 Runtime 先把本轮保留的 assistant ToolCall 写入 Session。产生 Observation 的拒绝、
 回放或执行分支再按各自边界写入 tool Message；重复副作用等停止分支可以直接返回
@@ -130,10 +134,11 @@ Turn 的 tool Message。
 step、最近 Tool/Observation、stop/resume 信息、计数和可选 digest。它不保存 Python
 stack、Provider 连接、完整 `session.messages` 或模型 hidden state。
 
-`ConversationHistoryDigest` 只在实际 compaction 时产生：
+`ConversationHistoryDigest` 在第一次实际 compaction 时产生，后续只合并尚未覆盖的
+current-session raw delta：
 
 ```text
-old Conversation segments
+previous digest + new raw segments after current cursor
     ↓
 ConversationHistoryDigest
     ├── initial task
@@ -143,24 +148,23 @@ ConversationHistoryDigest
 ```
 
 Digest 被写入 checkpoint 作为 historical projection；原始消息继续留在当前 live
-Session，不因构造模型窗口而被删除。Trace 只记录窗口度量、source hash 和压缩事实，
-不保存完整 Prompt 正文。
+Session，不因构造模型窗口而被删除。`covered_message_count` 是跨合并累计审计数，
+`AgentRunSession.compacted_message_cursor` 才是当前 Session list index。Trace 只记录
+窗口度量、source hash 和压缩事实，不保存完整 Prompt 正文或完整 raw Conversation。
 
 # 7. Resume 是新的 continuation
 
 ```text
 Old TaskCheckpoint
-    ↓
-summarize_checkpoint()
-    ↓
-resume_summary
-    ↓
-NEW AgentRunSession
-    ↓
-WorkingMemory.seed_session(...)
+    ├── summarize_checkpoint() → WorkingMemory continuation seed
+    └── conversation_history_digest
+              ↓ ConversationHistoryDigest.from_dict()
+       NEW AgentRunSession.conversation_history_digest
+       NEW AgentRunSession.compacted_message_cursor = 0
 ```
 
-Resume 继承显式持久化事实，不声称恢复旧进程内对象或完整模型状态。
+Resume 继承显式持久化事实。下一次 compaction 把 restored digest 与新 Session 从 index 0
+开始的 raw delta 合并；它不声称恢复旧 raw tail、旧进程对象或完整模型状态。
 
 ## 源码入口（Source Anchors）
 
@@ -171,4 +175,4 @@ Resume 继承显式持久化事实，不声称恢复旧进程内对象或完整�
 - `agent_forge/runtime/domain/conversation.py::Message / Observation`：对话与工具事实。
 - `agent_forge/runtime/domain/task.py::TaskCheckpoint`：durable latest-state snapshot。
 - `agent_forge/context/domain/conversation_digest.py::ConversationHistoryDigest`：历史压缩投影。
-- `agent_forge/runtime/application/run_preparation.py::RunPreparation.create_session()`：新 Session 与首个 checkpoint。
+- `agent_forge/runtime/application/run_preparation.py::RunPreparation._load_resume_state()`：continuation summary 与 digest 恢复。

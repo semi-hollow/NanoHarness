@@ -67,7 +67,7 @@ CORE_WORKFLOW_ENTRYPOINTS = {
         "PromptWindowManager.prepare": 4,
     },
     "agent_forge/memory/application/service.py": {
-        "LongTermMemoryService.remember": 3,
+        "LongTermMemoryService.apply_consolidation": 3,
         "LongTermMemoryService.forget": 2,
         "LongTermMemoryService.list_for_project": 2,
         "LongTermMemoryService.recall": 3,
@@ -405,7 +405,7 @@ TRACE_FREE_ORCHESTRATION_METHODS = {
         "_activate_skills",
         "_apply_input_policy",
         "_initialize_memory_context",
-        "_load_resume_summary",
+        "_load_resume_state",
         "_resolve_clarification",
         "create_session",
         "prepare_run",

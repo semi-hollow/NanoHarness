@@ -61,8 +61,14 @@ class TaskResumeTest(unittest.TestCase):
                     stop_reason="patch_mismatch",
                     resume_hint="Re-read the file and repair the patch anchor.",
                     conversation_history_digest={
+                        "task": "fix original failure",
+                        "covered_message_count": 7,
                         "source_hash": "digest-old",
+                        "task_updates": ["keep the public API"],
+                        "tool_transactions": [],
                         "failed_tool_evidence": ["patch anchor mismatch"],
+                        "estimated_tokens_before": 1200,
+                        "estimated_tokens_after": 600,
                     },
                 ),
             )
@@ -82,10 +88,24 @@ class TaskResumeTest(unittest.TestCase):
             )
 
             self.assertIn("continued from checkpoint", final)
-            system_context = llm.messages[0].content or ""
-            self.assertIn("resume_from_run=old-run", system_context)
-            self.assertIn("last_tool=replace_text", system_context)
-            self.assertIn("digest-old", system_context)
+            rendered_messages = "\n".join(message.content or "" for message in llm.messages)
+            self.assertIn("resume_from_run=old-run", rendered_messages)
+            self.assertIn("last_tool=replace_text", rendered_messages)
+            digest_messages = [
+                message
+                for message in llm.messages
+                if message.role == "system"
+                and (message.content or "").startswith("conversation_history_digest")
+            ]
+            self.assertEqual(len(digest_messages), 1)
+            self.assertIn("digest-old", digest_messages[0].content or "")
+            resume_window = next(
+                event
+                for event in trace.events
+                if event["event_type"] == "context_window"
+            )
+            self.assertEqual(resume_window["context_window"]["covered_message_count"], 7)
+            self.assertEqual(resume_window["context_window"]["current_session_cursor"], 0)
             self.assertTrue(
                 any(
                     event["event_type"] == "resume_state_loaded"
@@ -93,11 +113,35 @@ class TaskResumeTest(unittest.TestCase):
                 )
             )
 
-    def test_compaction_digest_is_persisted_in_checkpoint(self):
+    def test_resume_digest_merges_new_session_delta_and_persists_checkpoint(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             (root / "a.txt").write_text("a" * 8_000, encoding="utf-8")
             (root / "b.txt").write_text("b" * 8_000, encoding="utf-8")
+            old_store = JsonTaskStateRepository(root / "old_state")
+            old_checkpoint = old_store.start(
+                TaskStartRequest(
+                    run_id="old-compacted-run",
+                    task="inspect original files",
+                    workspace=str(root),
+                    agent_name="CodingAgent",
+                )
+            )
+            old_store.update(
+                old_checkpoint,
+                TaskCheckpointUpdate(
+                    status=TaskRunStatus.BLOCKED.value,
+                    current_step=2,
+                    conversation_history_digest={
+                        "task": "inspect original files",
+                        "covered_message_count": 7,
+                        "source_hash": "digest-before-resume",
+                        "task_updates": [],
+                        "tool_transactions": [],
+                        "failed_tool_evidence": [],
+                    },
+                ),
+            )
             trace_path = root / "trace.json"
             state_root = root / "task_state"
             trace = TraceRecorder(str(trace_path))
@@ -111,6 +155,7 @@ class TaskResumeTest(unittest.TestCase):
                 reserved_output_tokens=200,
                 trace_file=str(trace_path),
                 task_state_root=str(state_root),
+                resume_state=str(old_store.path_for("old-compacted-run")),
             )
 
             final = build_agent_loop(
@@ -126,7 +171,11 @@ class TaskResumeTest(unittest.TestCase):
         self.assertTrue(checkpoint.conversation_history_digest)
         self.assertGreater(
             checkpoint.conversation_history_digest["covered_message_count"],
-            0,
+            7,
+        )
+        self.assertNotEqual(
+            checkpoint.conversation_history_digest["source_hash"],
+            "digest-before-resume",
         )
         self.assertTrue(
             any(

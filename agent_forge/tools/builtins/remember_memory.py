@@ -18,6 +18,8 @@ class RememberMemoryTool(Tool):
     description = (
         "Persist information only when the user explicitly asks to remember it for "
         "future runs. source_quote must be an exact quote from that user message. "
+        "Propose action=CREATE, UPDATE, or NOOP. UPDATE/NOOP require a target_memory_id "
+        "from the supplied Memory Management Catalog; CREATE must omit it. "
         "Never persist model-inferred facts. Default scope is project; use user only "
         "when the quote explicitly requests a global or cross-project preference."
     )
@@ -38,30 +40,37 @@ class RememberMemoryTool(Tool):
             "name": self.name,
             "description": self.description,
             "arguments": {
+                "action": "str",
+                "target_memory_id": "str",
                 "key": "str",
                 "content": "str",
                 "scope": "str",
                 "source_quote": "str",
             },
-            "required": ["key", "content", "source_quote"],
+            "required": ["action", "key", "content", "source_quote"],
         }
 
     def execute(self, arguments: ToolArguments) -> Observation:
-        """校验字段后写入一条记忆，并明确它只会从下一次 Run 起参与召回。"""
+        """收口一次 typed proposal；CREATE/UPDATE 的结果从下一 Run 起参与召回。"""
 
-        record = self._service.remember(
+        action = str(arguments.get("action") or "").strip().upper()
+        record = self._service.apply_consolidation(
             project_namespace=self._project_namespace,
+            action=action,
+            target_memory_id=str(arguments.get("target_memory_id") or ""),
             key=str(arguments.get("key") or ""),
             content=str(arguments.get("content") or ""),
             scope=str(
                 arguments.get("scope") or MemoryScope.PROJECT.value
             ).strip(),
+            source_quote=str(arguments.get("source_quote") or ""),
         )
         return Observation(
             self.name,
             True,
             (
-                f"memory_saved: id={record.memory_id} scope={record.scope} "
+                f"memory_consolidated: action={action} id={record.memory_id} "
+                f"scope={record.scope} "
                 f"key={record.key} revision={record.revision}; current Run memory "
                 "snapshot is unchanged; the value is recalled by the next Run"
             ),

@@ -30,6 +30,15 @@ class LongTermMemoryRecallPort(Protocol):
         self,
         *,
         namespace: str,
+        query: str = "",
         max_chars: int = 2_000,
     ) -> list[LongTermMemoryRecord]:
         """按 Context 字符预算返回 Run 开始时固定的完整记录快照。"""
+
+    def management_catalog(
+        self,
+        *,
+        namespace: str,
+        max_chars: int = 2_000,
+    ) -> list[LongTermMemoryRecord]:
+        """返回不按 task 过滤、仅供显式 remember 合并的有界候选。"""

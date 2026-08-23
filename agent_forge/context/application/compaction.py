@@ -70,6 +70,7 @@ class PromptWindowResult:
     conversation_history_digest: ConversationHistoryDigest | None
     compacted: bool
     covered_message_count: int
+    compacted_message_cursor: int
     estimated_tokens_before: int
     estimated_tokens_after: int
     hard_input_limit: int
@@ -79,14 +80,23 @@ class PromptWindowResult:
 # 核心数据：完整模型请求进入窗口治理前的输入快照。
 @dataclass(frozen=True, kw_only=True)
 class PromptWindowRequest:
-    """System、历史、Observation、工具和强制压缩信号。"""
+    """System、当前 Session 历史、旧投影、工具和强制压缩信号。"""
 
     turn_system_message: Message
     conversation_history: list[Message]
     observations: list[Observation]
     tool_schemas: list[ToolSchema]
     task: str
+    previous_digest: ConversationHistoryDigest | None = None
+    compacted_message_cursor: int = 0
+    transient_messages: tuple[Message, ...] = ()
     force_compaction: bool = False
+
+    def __post_init__(self) -> None:
+        if not 0 <= self.compacted_message_cursor <= len(self.conversation_history):
+            raise ValueError("compacted_message_cursor is outside current session history")
+        if self.previous_digest is None and self.compacted_message_cursor:
+            raise ValueError("a compaction cursor requires a previous digest")
 
 
 @dataclass(frozen=True)
@@ -106,7 +116,7 @@ class PromptWindowManager:
     def __init__(self, budget: PromptBudget) -> None:
         self.budget = budget
 
-    # 主要入口：预算足够时直通，接近窗口时压缩旧历史。
+    # 主要入口：复用旧投影，只把当前 Session 尚未覆盖的前缀增量合入摘要。
     def prepare(self, request: PromptWindowRequest) -> PromptWindowResult:
         """在模型调用前生成满足硬窗口限制的、可解释的消息视图。
 
@@ -116,12 +126,22 @@ class PromptWindowManager:
         压缩时不得伪称已经满足 hard limit。
         """
 
-        # region 1. 预算判定：先估算完整请求，未超软限制时保持原文
-        # 估算覆盖 system、完整历史和 Tool schema；软限制以内直接透传，
-        # force_compaction 仅用于 Provider 已明确拒绝当前窗口后的恢复重试。
+        # region 1. 增量基线：旧摘要 + 当前 Session 未覆盖 raw tail
+        # cursor 只索引当前 Session；resume 恢复旧 digest 后 cursor 从 0 重新开始。
+        # transient budget message 永远留在 raw tail，不能进入摘要并污染 cursor。
+        current_session_delta = request.conversation_history[
+            request.compacted_message_cursor :
+        ]
+        previous_digest_message = (
+            [Message(role="system", content=request.previous_digest.render())]
+            if request.previous_digest is not None
+            else []
+        )
         full_llm_messages = [
             request.turn_system_message,
-            *request.conversation_history,
+            *previous_digest_message,
+            *current_session_delta,
+            *request.transient_messages,
         ]
         estimated_tokens_before = estimate_prompt_tokens(
             full_llm_messages,
@@ -134,39 +154,63 @@ class PromptWindowManager:
         ):
             return PromptWindowResult(
                 llm_messages=full_llm_messages,
-                conversation_history_digest=None,
-                compacted=False,
-                covered_message_count=0,
+                conversation_history_digest=request.previous_digest,
+                compacted=request.previous_digest is not None,
+                covered_message_count=(
+                    request.previous_digest.covered_message_count
+                    if request.previous_digest is not None
+                    else 0
+                ),
+                compacted_message_cursor=request.compacted_message_cursor,
                 estimated_tokens_before=estimated_tokens_before,
                 estimated_tokens_after=estimated_tokens_before,
                 hard_input_limit=self.budget.hard_input_limit,
-                reason="within_soft_limit",
+                reason=(
+                    "reused_previous_digest"
+                    if request.previous_digest is not None
+                    else "within_soft_limit"
+                ),
             )
-        # endregion 1. 预算判定结束
+        # endregion 1. 增量基线结束
 
         # region 2. 安全切分：assistant ToolCall 与对应 tool Observation 不可拆散
         # 历史先按协议事务分组，再选择摘要边界；少于两个 segment 时没有“旧历史”
         # 可以安全替换，所以宁可报告无法压缩，也不拆坏 ToolCall 对应关系。
+        observation_offset = sum(
+            message.role == "tool"
+            for message in request.conversation_history[
+                : request.compacted_message_cursor
+            ]
+        )
         history_segments = _group_history_segments(
-            request.conversation_history,
-            request.observations,
+            current_session_delta,
+            request.observations[observation_offset:],
         )
         if len(history_segments) < 2:
             return PromptWindowResult(
                 llm_messages=full_llm_messages,
-                conversation_history_digest=None,
-                compacted=False,
-                covered_message_count=0,
+                conversation_history_digest=request.previous_digest,
+                compacted=request.previous_digest is not None,
+                covered_message_count=(
+                    request.previous_digest.covered_message_count
+                    if request.previous_digest is not None
+                    else 0
+                ),
+                compacted_message_cursor=request.compacted_message_cursor,
                 estimated_tokens_before=estimated_tokens_before,
                 estimated_tokens_after=estimated_tokens_before,
                 hard_input_limit=self.budget.hard_input_limit,
-                reason="insufficient_history_to_compact",
+                reason=(
+                    "insufficient_delta_to_compact"
+                    if request.previous_digest is not None
+                    else "insufficient_history_to_compact"
+                ),
             )
         # endregion 2. 安全切分结束
 
         # region 3. 候选搜索：逐步扩大旧历史摘要范围，保留最新原始消息
-        # cut_index 从最小旧历史开始递增；每个候选都重建摘要并重新估算 token，
-        # 第一个达到目标且确实变小的候选立即返回，同时保留最小候选作为保守回退。
+        # cut_index 只扫描未覆盖 delta；已被 previous_digest 覆盖的 raw prefix 不再读取。
+        # 每个候选把新覆盖 segment 合入旧投影，最近 segment 仍保留原文。
         target_token_count = (
             max(256, int(self.budget.soft_input_limit * 0.65))
             if request.force_compaction
@@ -180,9 +224,19 @@ class PromptWindowManager:
                 recent_messages,
                 max_chars=800 if request.force_compaction else 2_000,
             )
-            conversation_history_digest = _build_digest(
-                request.task,
+            delta_digest = _build_digest(
+                (
+                    request.previous_digest.task
+                    if request.previous_digest is not None
+                    else request.task
+                ),
                 omitted_segments,
+                estimated_tokens_before=estimated_tokens_before,
+                skip_initial_user_message=request.previous_digest is None,
+            )
+            conversation_history_digest = _merge_digest(
+                request.previous_digest,
+                delta_digest,
                 estimated_tokens_before=estimated_tokens_before,
             )
             candidate_llm_messages = [
@@ -192,6 +246,7 @@ class PromptWindowManager:
                     content=conversation_history_digest.render(),
                 ),
                 *recent_messages,
+                *request.transient_messages,
             ]
             estimated_tokens_after = estimate_prompt_tokens(
                 candidate_llm_messages,
@@ -220,6 +275,10 @@ class PromptWindowManager:
                 compacted=True,
                 covered_message_count=(
                     conversation_history_digest.covered_message_count
+                ),
+                compacted_message_cursor=(
+                    request.compacted_message_cursor
+                    + delta_digest.covered_message_count
                 ),
                 estimated_tokens_before=estimated_tokens_before,
                 estimated_tokens_after=estimated_tokens_after,
@@ -252,13 +311,22 @@ class PromptWindowManager:
             return best_compaction_result
         return PromptWindowResult(
             llm_messages=full_llm_messages,
-            conversation_history_digest=None,
-            compacted=False,
-            covered_message_count=0,
+            conversation_history_digest=request.previous_digest,
+            compacted=request.previous_digest is not None,
+            covered_message_count=(
+                request.previous_digest.covered_message_count
+                if request.previous_digest is not None
+                else 0
+            ),
+            compacted_message_cursor=request.compacted_message_cursor,
             estimated_tokens_before=estimated_tokens_before,
             estimated_tokens_after=estimated_tokens_before,
             hard_input_limit=self.budget.hard_input_limit,
-            reason="no_safe_compaction_boundary",
+            reason=(
+                "no_safe_incremental_boundary"
+                if request.previous_digest is not None
+                else "no_safe_compaction_boundary"
+            ),
         )
         # endregion 4. 保守回退结束
 
@@ -345,6 +413,7 @@ def _build_digest(
     history_segments: list[_HistorySegment],
     *,
     estimated_tokens_before: int,
+    skip_initial_user_message: bool,
 ) -> ConversationHistoryDigest:
     """把被压缩的旧历史投影为可审计、大小有界的会话摘要。
 
@@ -379,7 +448,7 @@ def _build_digest(
     # region 2. 任务演进：保留初始任务之后的 user steer/约束更新
     # ``task`` 单独保留根任务；covered messages 中第一条 user message 只是原任务，
     # 后续 user message 才属于 task_updates，避免摘要重复发送同一语义。
-    initial_user_message_seen = False
+    initial_user_message_seen = not skip_initial_user_message
     task_updates: list[str] = []
     for message in covered_messages:
         if message.role != "user":
@@ -460,6 +529,60 @@ def _build_digest(
         task_updates=task_updates,
         tool_transactions=_bounded(tool_transactions, 16),
         failed_tool_evidence=_bounded(failed_tool_evidence, 8),
+        estimated_tokens_before=estimated_tokens_before,
+        estimated_tokens_after=0,
+    )
+
+
+def _merge_digest(
+    previous_digest: ConversationHistoryDigest | None,
+    delta_digest: ConversationHistoryDigest,
+    *,
+    estimated_tokens_before: int,
+) -> ConversationHistoryDigest:
+    """把尚未覆盖的 raw delta 合入旧投影，不重新读取已覆盖消息。
+
+    ``covered_message_count`` 是跨 Run 累计审计计数；真正索引当前 Session list 的
+    cursor 由 ``AgentRunSession`` 单独拥有。source hash 使用前一投影 hash 与本次
+    delta hash 形成确定性链，证明增量来源而不冒充完整 raw-conversation hash。
+    """
+
+    if previous_digest is None:
+        return delta_digest
+    chained_source_hash = hashlib.sha256(
+        json.dumps(
+            {
+                "previous_digest": previous_digest.source_hash,
+                "raw_delta": delta_digest.source_hash,
+            },
+            sort_keys=True,
+        ).encode("utf-8")
+    ).hexdigest()
+    return ConversationHistoryDigest(
+        task=previous_digest.task,
+        covered_message_count=(
+            previous_digest.covered_message_count
+            + delta_digest.covered_message_count
+        ),
+        source_hash=chained_source_hash,
+        task_updates=_bounded(
+            [*previous_digest.task_updates, *delta_digest.task_updates],
+            6,
+        ),
+        tool_transactions=_bounded(
+            [
+                *previous_digest.tool_transactions,
+                *delta_digest.tool_transactions,
+            ],
+            16,
+        ),
+        failed_tool_evidence=_bounded(
+            [
+                *previous_digest.failed_tool_evidence,
+                *delta_digest.failed_tool_evidence,
+            ],
+            8,
+        ),
         estimated_tokens_before=estimated_tokens_before,
         estimated_tokens_after=0,
     )

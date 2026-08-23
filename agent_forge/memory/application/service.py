@@ -1,16 +1,18 @@
 """用户显式控制的长期记忆用例。
 
-这里故意只保留 ``remember / forget / list / recall`` 四个动作。
-模型不能自行候选、打分或晋升跨 Run 记忆，避免错误结论污染后续任务。
+这里集中 ``apply_consolidation / recall / management_catalog`` 与人工管理动作。
+模型不能自行挖掘或晋升跨 Run 记忆，避免错误结论污染后续任务。
 """
 
 from __future__ import annotations
 
+import re
 import time
 import uuid
 
 from agent_forge.memory.domain import (
     LongTermMemoryRecord,
+    MemoryConsolidationAction,
     MemoryScope,
     MemorySource,
     MemoryStatus,
@@ -25,8 +27,8 @@ from agent_forge.memory.ports import (
 class LongTermMemoryService(LongTermMemoryRecallPort):
     """长期记忆的唯一应用服务。
 
-    可以类比 Java 中的 Application Service：Repository 只负责 JSON 存取，
-    本类负责作用域、同 key 更新和项目值覆盖用户默认值等业务规则。
+    Repository 只负责 JSON 存取；本类负责 ID 更新、作用域、项目值覆盖用户默认值、
+    task-aware recall 和有界 management catalog。
     """
 
     def __init__(self, repository: LongTermMemoryRepository) -> None:
@@ -40,8 +42,13 @@ class LongTermMemoryService(LongTermMemoryRecallPort):
         key: str,
         content: str,
         scope: str,
+        source_quote: str = "",
     ) -> LongTermMemoryRecord:
-        """同作用域、同 key 原地更新，保留 ID 并递增 revision。"""
+        """供人工管理入口使用的 exact-key convenience upsert。
+
+        记录 identity 仍是 ``memory_id``；这里按 key 定位只是 management API 的显式
+        编辑便利。模型写路径必须调用 ``apply_consolidation`` 并提交 target ID。
+        """
 
         # region 1. 校验用户命令
         normalized_key = key.strip()
@@ -64,35 +71,104 @@ class LongTermMemoryService(LongTermMemoryRecallPort):
         )
         # endregion 2. 定位同作用域、同 key 的已有记忆结束
 
-        # region 3. 更新原记录，或创建第一版记录
-        # 同 key 更新保留 memory_id，便于外部引用稳定；新 key 才创建新 ID。
-        # 两条路径都先通过领域 validate，再交给 Repository 原子持久化。
-        now = time.time()
-        if existing_record is not None:
-            existing_record.key = normalized_key
-            existing_record.content = normalized_content
-            existing_record.revision += 1
-            existing_record.updated_at = now
-            existing_record.validate()
-            self._repository.save(existing_record)
-            return existing_record
-
-        new_record = LongTermMemoryRecord(
-            memory_id=uuid.uuid4().hex,
-            namespace=storage_namespace,
+        # region 3. 把人工 upsert 转成同一套 ID-based consolidation
+        return self.apply_consolidation(
+            project_namespace=project_namespace,
+            action=(
+                MemoryConsolidationAction.UPDATE.value
+                if existing_record is not None
+                else MemoryConsolidationAction.CREATE.value
+            ),
+            target_memory_id=(
+                existing_record.memory_id if existing_record is not None else ""
+            ),
             key=normalized_key,
             content=normalized_content,
             scope=scope,
-            source=MemorySource.USER_EXPLICIT.value,
-            status=MemoryStatus.ACTIVE.value,
-            revision=1,
-            created_at=now,
-            updated_at=now,
+            source_quote=(source_quote.strip() or normalized_content),
         )
-        new_record.validate()
-        self._repository.save(new_record)
-        return new_record
         # endregion 3. 更新原记录，或创建第一版记录结束
+
+    # 模型写入口：只接受显式 action，UPDATE/NOOP 必须绑定稳定 target ID。
+    def apply_consolidation(
+        self,
+        *,
+        project_namespace: str,
+        action: str,
+        target_memory_id: str,
+        key: str,
+        content: str,
+        scope: str,
+        source_quote: str,
+    ) -> LongTermMemoryRecord:
+        """验证 consolidation proposal，并原子创建、更新或复用一条记录。"""
+
+        # region 1. 归一化模型提案；authority 字段仍由 Runtime/Service 拥有
+        # Model 只提出 typed intent；先把 action/正文/scope 收敛为确定值，再解析存储边界。
+        try:
+            consolidation_action = MemoryConsolidationAction(action.strip().upper())
+        except ValueError as exc:
+            raise ValueError(f"unsupported memory action: {action}") from exc
+        normalized_key = key.strip()
+        normalized_content = content.strip()
+        normalized_source_quote = source_quote.strip()
+        if not normalized_key or not normalized_content or not normalized_source_quote:
+            raise ValueError("memory key, content and source_quote are required")
+        if scope not in {memory_scope.value for memory_scope in MemoryScope}:
+            raise ValueError(f"unsupported memory scope: {scope}")
+        storage_namespace = self._storage_namespace(
+            project_namespace=project_namespace,
+            scope=scope,
+        )
+        # endregion 1. 提案归一化结束
+
+        # region 2. CREATE：Runtime 生成 ID、revision 和时间戳
+        # CREATE 不接受模型自填 identity；领域校验通过后才由 Repository 原子保存第一版。
+        if consolidation_action == MemoryConsolidationAction.CREATE:
+            if target_memory_id.strip():
+                raise ValueError("CREATE memory action cannot specify target_memory_id")
+            now = time.time()
+            new_record = LongTermMemoryRecord(
+                memory_id=uuid.uuid4().hex,
+                namespace=storage_namespace,
+                key=normalized_key,
+                content=normalized_content,
+                source_quotes=[normalized_source_quote],
+                scope=scope,
+                source=MemorySource.USER_EXPLICIT.value,
+                status=MemoryStatus.ACTIVE.value,
+                revision=1,
+                created_at=now,
+                updated_at=now,
+            )
+            new_record.validate()
+            self._repository.save(new_record)
+            return new_record
+        # endregion 2. CREATE 结束
+
+        # region 3. UPDATE/NOOP：目标必须真实存在于同一 namespace/scope
+        normalized_target_id = target_memory_id.strip()
+        if not normalized_target_id:
+            raise ValueError(f"{consolidation_action.value} requires target_memory_id")
+        existing_record = self._require(normalized_target_id)
+        if (
+            existing_record.namespace != storage_namespace
+            or existing_record.scope != scope
+        ):
+            raise ValueError("memory target is outside the requested namespace or scope")
+        if consolidation_action == MemoryConsolidationAction.NOOP:
+            return existing_record
+
+        # UPDATE 保留既有 key/identity，只更新语义正文和本次明确 user evidence。
+        existing_record.content = normalized_content
+        if normalized_source_quote not in existing_record.source_quotes:
+            existing_record.source_quotes.append(normalized_source_quote)
+        existing_record.revision += 1
+        existing_record.updated_at = time.time()
+        existing_record.validate()
+        self._repository.save(existing_record)
+        return existing_record
+        # endregion 3. UPDATE/NOOP 结束
 
     # 主要入口：用户显式忘记一条记忆。
     def forget(self, memory_id: str) -> LongTermMemoryRecord:
@@ -151,9 +227,10 @@ class LongTermMemoryService(LongTermMemoryRecallPort):
         self,
         *,
         namespace: str,
+        query: str = "",
         max_chars: int = 2_000,
     ) -> list[LongTermMemoryRecord]:
-        """按字符预算选择完整记录；项目同 key 覆盖用户默认值。"""
+        """先应用项目同 key 覆盖，再按 task relevance、scope tie 和 recency 排序。"""
 
         # region 1. 在 Run 开始时加载当前可见记录
         if max_chars <= 0:
@@ -173,10 +250,12 @@ class LongTermMemoryService(LongTermMemoryRecallPort):
                 selected_by_key[normalized_key] = memory_record
         # endregion 2. 同 key 冲突时让项目记忆覆盖用户默认值结束
 
-        # region 3. 项目优先、更新时间倒序；整条记录装得下才进入快照
+        # region 3. task relevance 优先；同分才按项目 scope 和更新时间排序
+        query_terms = _lexical_terms(query)
         ranked_records = sorted(
             selected_by_key.values(),
             key=lambda memory_record: (
+                -_relevance_score(query_terms, memory_record),
                 0 if memory_record.scope == MemoryScope.PROJECT.value else 1,
                 -memory_record.updated_at,
                 memory_record.key.casefold(),
@@ -194,6 +273,36 @@ class LongTermMemoryService(LongTermMemoryRecallPort):
             used_chars += separator_chars + record_chars
         return selected_records
         # endregion 3. 稳定排序并冻结本次 Run 的记忆上限结束
+
+    def management_catalog(
+        self,
+        *,
+        namespace: str,
+        max_chars: int = 2_000,
+    ) -> list[LongTermMemoryRecord]:
+        """返回不按 task 过滤的有界管理候选，供任意后续 Turn 做 ID 合并。"""
+
+        if max_chars <= 0:
+            return []
+        visible_records = sorted(
+            self.list_for_project(project_namespace=namespace),
+            key=lambda memory_record: (
+                0 if memory_record.scope == MemoryScope.PROJECT.value else 1,
+                -memory_record.updated_at,
+                memory_record.key.casefold(),
+                memory_record.memory_id,
+            ),
+        )
+        selected_records: list[LongTermMemoryRecord] = []
+        used_chars = 0
+        for memory_record in visible_records:
+            record_chars = len(memory_record.render_management_line())
+            separator_chars = 1 if selected_records else 0
+            if used_chars + separator_chars + record_chars > max_chars:
+                continue
+            selected_records.append(memory_record)
+            used_chars += separator_chars + record_chars
+        return selected_records
 
     def _find_by_key(
         self,
@@ -227,3 +336,23 @@ class LongTermMemoryService(LongTermMemoryRecallPort):
         if not normalized_project_namespace:
             raise ValueError("project memory requires a project namespace")
         return normalized_project_namespace
+
+
+def _lexical_terms(text: str) -> set[str]:
+    """提取轻量中英文词项；英文复数做最小归一化，不引入 retrieval 依赖。"""
+
+    terms = re.findall(r"[a-z0-9_]+|[\u4e00-\u9fff]", text.casefold())
+    return {
+        term[:-1] if len(term) > 3 and term.endswith("s") else term
+        for term in terms
+    }
+
+
+def _relevance_score(
+    query_terms: set[str],
+    memory_record: LongTermMemoryRecord,
+) -> int:
+    if not query_terms:
+        return 0
+    record_terms = _lexical_terms(f"{memory_record.key} {memory_record.content}")
+    return len(query_terms & record_terms)

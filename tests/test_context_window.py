@@ -222,6 +222,84 @@ class PromptWindowManagerTest(unittest.TestCase):
             [(message.role, message.content) for message in second.llm_messages],
         )
 
+    def test_next_turn_merges_only_current_session_uncovered_delta(self) -> None:
+        manager = PromptWindowManager(
+            PromptBudget(max_prompt_tokens=1_200, reserved_output_tokens=100)
+        )
+        initial_history = [
+            Message("user", "initial task"),
+            Message("assistant", "analysis-a " + ("a" * 3_000)),
+            Message("user", "preserve API"),
+            Message("assistant", "analysis-b " + ("b" * 3_000)),
+        ]
+        first = manager.prepare(
+            PromptWindowRequest(
+                turn_system_message=Message("system", "policy"),
+                conversation_history=initial_history,
+                observations=[],
+                tool_schemas=[],
+                task="initial task",
+                force_compaction=True,
+            )
+        )
+        assert first.conversation_history_digest is not None
+        self.assertGreater(first.compacted_message_cursor, 0)
+
+        new_delta = [
+            Message("user", "steer: tests still use pytest"),
+            Message("assistant", "analysis-c " + ("c" * 3_000)),
+            Message("user", "also run a regression test"),
+            Message("assistant", "analysis-d " + ("d" * 3_000)),
+        ]
+        unchanged_prefix = [*initial_history, *new_delta]
+        mutated_covered_prefix = [*initial_history, *new_delta]
+        mutated_covered_prefix[0] = Message(
+            "user",
+            "this already-covered raw text must never be rescanned",
+        )
+
+        def prepare_next(history: list[Message]):
+            return manager.prepare(
+                PromptWindowRequest(
+                    turn_system_message=Message("system", "policy"),
+                    conversation_history=history,
+                    observations=[],
+                    tool_schemas=[],
+                    task="initial task",
+                    previous_digest=first.conversation_history_digest,
+                    compacted_message_cursor=first.compacted_message_cursor,
+                    force_compaction=True,
+                )
+            )
+
+        next_from_original = prepare_next(unchanged_prefix)
+        next_from_mutated_prefix = prepare_next(mutated_covered_prefix)
+        assert next_from_original.conversation_history_digest is not None
+        assert next_from_mutated_prefix.conversation_history_digest is not None
+
+        self.assertGreater(
+            next_from_original.compacted_message_cursor,
+            first.compacted_message_cursor,
+        )
+        self.assertGreater(
+            next_from_original.covered_message_count,
+            first.covered_message_count,
+        )
+        self.assertEqual(
+            next_from_original.conversation_history_digest.task_updates[
+                : len(first.conversation_history_digest.task_updates)
+            ],
+            first.conversation_history_digest.task_updates,
+        )
+        self.assertEqual(
+            next_from_original.conversation_history_digest.source_hash,
+            next_from_mutated_prefix.conversation_history_digest.source_hash,
+        )
+        self.assertNotIn(
+            "this already-covered raw text",
+            next_from_original.conversation_history_digest.render(),
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

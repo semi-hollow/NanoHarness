@@ -18,6 +18,7 @@ from dataclasses import dataclass
 from enum import Enum
 
 from agent_forge.contracts import JsonObject
+from agent_forge.memory.domain import MemoryConsolidationAction, MemoryScope
 from agent_forge.runtime.application.operation_tracker import (
     OperationIntent,
     OperationTracker,
@@ -139,7 +140,17 @@ class ToolExecutionPipeline:
         # region 1. 批次整形：限制调用数，并把模型 ToolCall 写入会话协议
         # 先截断本轮调用并建立 assistant ToolCall 消息；后续每个已保留调用必须产生
         # tool Observation 或 StopRequest，保证 assistant/tool 协议不悬空。
-        selected_tool_calls = self._select_calls_for_turn(session, response, step)
+        selected_tool_calls, rejected_memory_calls = self._select_calls_for_turn(
+            session,
+            response,
+            step,
+        )
+        protocol_candidates = [*selected_tool_calls, *rejected_memory_calls]
+        protocol_tool_calls = [
+            call
+            for call in response.tool_calls
+            if any(call is candidate for candidate in protocol_candidates)
+        ]
         session.messages.append(
             Message(
                 role="assistant",
@@ -147,7 +158,7 @@ class ToolExecutionPipeline:
                 reasoning_content=response.reasoning_content,
                 tool_calls=[
                     self.tool_feedback.to_message_tool_call(tool_call)
-                    for tool_call in selected_tool_calls
+                    for tool_call in protocol_tool_calls
                 ],
             )
         )
@@ -156,7 +167,16 @@ class ToolExecutionPipeline:
         # region 2. 顺序执行：每个 ToolCall 都重新经过控制、安全与幂等边界
         # 同一模型响应可以包含多个 ToolCall，但这里故意顺序执行：前一个状态变更操作可能改变
         # 后一个调用的目标指纹，且操作员必须能在每项此类操作启动前 pause/cancel。
-        for tool_call in selected_tool_calls:
+        # 按模型原顺序消费已进入协议的调用；额外 memory 意图产生明确失败 Observation。
+        for tool_call in protocol_tool_calls:
+            if any(tool_call is rejected for rejected in rejected_memory_calls):
+                self._reject_invalid_memory_consolidation(
+                    session,
+                    tool_call,
+                    step,
+                    "only one remember_memory call is allowed per model response",
+                )
+                continue
             operator_control = self.run_control_handler.consume_pending_signals(
                 session,
                 step,
@@ -253,6 +273,17 @@ class ToolExecutionPipeline:
                     tool_call,
                     step,
                 )
+            memory_validation_error = self._memory_consolidation_validation_error(
+                session,
+                tool_call,
+            )
+            if memory_validation_error:
+                return self._reject_invalid_memory_consolidation(
+                    session,
+                    tool_call,
+                    step,
+                    memory_validation_error,
+                )
         operation_intent = self.operation_tracker.build_operation_intent(tool_call)
         # 只有已验证的 quote 才记录为 Memory 授权 provenance。
         if memory_provenance is not None:
@@ -347,6 +378,52 @@ class ToolExecutionPipeline:
             }
         return None
 
+    @staticmethod
+    def _memory_consolidation_validation_error(
+        session: AgentRunSession,
+        tool_call: ToolCall,
+    ) -> str:
+        """验证 action 与 Run-start catalog target；不判断自然语言语义等价。"""
+
+        action = str(tool_call.arguments.get("action") or "").strip().upper()
+        valid_actions = {item.value for item in MemoryConsolidationAction}
+        if action not in valid_actions:
+            return "action must be CREATE, UPDATE, or NOOP"
+        key = str(tool_call.arguments.get("key") or "").strip()
+        content = str(tool_call.arguments.get("content") or "").strip()
+        if not key or not content:
+            return "key and content are required"
+        scope = str(
+            tool_call.arguments.get("scope") or MemoryScope.PROJECT.value
+        ).strip()
+        if scope not in {item.value for item in MemoryScope}:
+            return "scope must be project or user"
+
+        target_memory_id = str(
+            tool_call.arguments.get("target_memory_id") or ""
+        ).strip()
+        if action == MemoryConsolidationAction.CREATE.value:
+            return (
+                "CREATE cannot specify target_memory_id"
+                if target_memory_id
+                else ""
+            )
+        if not target_memory_id:
+            return f"{action} requires target_memory_id"
+        target_record = next(
+            (
+                memory_record
+                for memory_record in session.memory_management_catalog
+                if memory_record.memory_id == target_memory_id
+            ),
+            None,
+        )
+        if target_record is None:
+            return "target_memory_id is not in the frozen management catalog"
+        if target_record.scope != scope:
+            return "target_memory_id scope does not match requested scope"
+        return ""
+
     def _reject_memory_without_provenance(
         self,
         session: AgentRunSession,
@@ -389,16 +466,79 @@ class ToolExecutionPipeline:
             reason="memory_user_provenance_not_found",
         )
 
+    def _reject_invalid_memory_consolidation(
+        self,
+        session: AgentRunSession,
+        tool_call: ToolCall,
+        step: int,
+        error: str,
+    ) -> ToolCallOutcome:
+        """在创建 Operation 前把越权或畸形 consolidation 提案变成明确 Observation。"""
+
+        observation = Observation(
+            tool_name=tool_call.name,
+            success=False,
+            content=f"memory_consolidation_rejected: {error}",
+        )
+        self.tool_feedback.append_tool_observation(
+            session,
+            tool_call,
+            observation,
+            step,
+        )
+        self._record_memory_consolidation_rejection(
+            session=session,
+            tool_call=tool_call,
+            step=step,
+            error=error,
+        )
+        session.lifecycle.update_checkpoint(
+            TaskCheckpointUpdate(
+                status=TaskRunStatus.RUNNING,
+                current_step=step,
+                last_tool=tool_call.name,
+                last_observation=observation.content,
+                messages_count=len(session.messages),
+                observations_count=len(session.observations),
+            )
+        )
+        return ToolCallOutcome(
+            status=ToolCallStatus.FAILED,
+            reason="memory_consolidation_rejected",
+        )
+
+    def _record_memory_consolidation_rejection(
+        self,
+        *,
+        session: AgentRunSession,
+        tool_call: ToolCall,
+        step: int,
+        error: str,
+    ) -> None:
+        """把 consolidation 拒绝原因集中投影到 Trace。"""
+
+        self.trace.add(
+            step,
+            session.agent_name,
+            "memory_consolidation_validation",
+            success=False,
+            rejection=error,
+            action=str(tool_call.arguments.get("action") or ""),
+            target_memory_id=str(
+                tool_call.arguments.get("target_memory_id") or ""
+            ),
+        )
+
     # 批次整形：限制本 turn 调用数；ask_human 出现时建立同 turn 屏障。
     def _select_calls_for_turn(
         self,
         session: AgentRunSession,
         response: AgentResponse,
         step: int,
-    ) -> list[ToolCall]:
-        """按单轮上限截取普通 ToolCall；出现 ``ask_human`` 时只保留第一个问题。
+    ) -> tuple[list[ToolCall], list[ToolCall]]:
+        """普通调用受预算限制；一个 remember_memory 使用独立显式控制槽。
 
-        伪代码：无人工问题 -> 按 ToolCall budget 截断
+        伪代码：无人工问题 -> 保留一个 memory control + 按普通 budget 截断
         -> 有人工问题 -> 只保留第一个问题，并把其他调用记为 deferred evidence。
 
         被预算截断或因 HITL 屏障延后的调用只写入证据，不在本 Turn 执行；continuation
@@ -408,10 +548,25 @@ class ToolExecutionPipeline:
         human_input_calls = [
             call for call in response.tool_calls if call.name == "ask_human"
         ]
-        # 没有 HITL 屏障时，普通调用只受本 Turn 最大 ToolCall 数量限制。
+        # 没有 HITL 屏障时，一个显式 remember 不消耗 read/edit/test 的普通预算。
         if not human_input_calls:
-            selected_tool_calls = response.tool_calls[: self.max_tool_calls_per_turn]
-            dropped_tool_calls = response.tool_calls[self.max_tool_calls_per_turn :]
+            memory_calls = [
+                call for call in response.tool_calls if call.name == "remember_memory"
+            ]
+            ordinary_calls = [
+                call for call in response.tool_calls if call.name != "remember_memory"
+            ]
+            selected_candidates = [
+                *ordinary_calls[: self.max_tool_calls_per_turn],
+                *memory_calls[:1],
+            ]
+            selected_tool_calls = [
+                call
+                for call in response.tool_calls
+                if any(call is selected for selected in selected_candidates)
+            ]
+            dropped_tool_calls = ordinary_calls[self.max_tool_calls_per_turn :]
+            rejected_memory_calls = memory_calls[1:]
             # 被预算截断的调用没有执行，只记录为模型曾提出但本 Turn 未消费的证据。
             if dropped_tool_calls:
                 self._record_tool_call_budget(
@@ -420,7 +575,7 @@ class ToolExecutionPipeline:
                     selected_tool_calls=selected_tool_calls,
                     dropped_tool_calls=dropped_tool_calls,
                 )
-            return selected_tool_calls
+            return selected_tool_calls, rejected_memory_calls
 
         selected_human_call = human_input_calls[0]
         deferred_tool_names = [
@@ -433,7 +588,7 @@ class ToolExecutionPipeline:
                 step=step,
                 deferred_tool_names=deferred_tool_names,
             )
-        return [selected_human_call]
+        return [selected_human_call], []
 
     # 重复上限分支：操作状态表无可复用结果时，按是否可能改变持久状态决定“跳过”还是“停止”。
     def _handle_exceeded_repeat_limit(

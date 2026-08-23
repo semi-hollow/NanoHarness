@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 import time
 from dataclasses import dataclass, field
 from enum import Enum
@@ -101,7 +100,7 @@ class TaskCheckpoint:
     位置；``last_*``、``stop_reason`` 和 ``resume_hint`` 指导恢复；计数字段与
     ``conversation_history_digest`` 保存旧 Conversation History 的有界投影；
     ``metadata`` 承载人工请求和执行环境等扩展事实。Repository 只负责保存和加载。
-    完整消息和工具输出属于 Trace，不进入本对象。
+    完整消息只存在于 live Session；Trace 保存执行证据，但不是 raw conversation store。
     """
 
     SCHEMA_VERSION: ClassVar[int] = 3
@@ -208,8 +207,6 @@ def summarize_checkpoint(checkpoint: TaskCheckpoint, max_chars: int = 1400) -> s
         f"last_observation={checkpoint.last_observation}\n"
         f"stop_reason={checkpoint.stop_reason}\n"
         f"resume_hint={checkpoint.resume_hint}\n"
-        "conversation_history_digest="
-        f"{json.dumps(checkpoint.conversation_history_digest, ensure_ascii=False)}\n"
         f"stop_output={checkpoint.stop_output}\n"
         f"final_answer={checkpoint.final_answer}"
     )

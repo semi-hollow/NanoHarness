@@ -2,6 +2,7 @@
 
 from .model import (
     LongTermMemoryRecord,
+    MemoryConsolidationAction,
     MemoryScope,
     MemorySource,
     MemoryStatus,
@@ -10,6 +11,7 @@ from .model import (
 
 __all__ = [
     "LongTermMemoryRecord",
+    "MemoryConsolidationAction",
     "MemoryScope",
     "MemorySource",
     "MemoryStatus",

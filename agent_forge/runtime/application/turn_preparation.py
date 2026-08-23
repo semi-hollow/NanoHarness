@@ -142,7 +142,10 @@ class TurnPreparation:
                 mode=self.config.tool_routing_mode,
             )
         )
-        visible_tool_schemas: list[ToolSchema] = tool_route.schemas
+        visible_tool_schemas = self._attach_memory_management_catalog(
+            tool_route.schemas,
+            session,
+        )
         allowed_tool_names = set(tool_route.allowed_names)
         model_permission_summary = (
             "read/list/search allowed; replace_text/write_file asks approval; "
@@ -203,28 +206,35 @@ class TurnPreparation:
             role="system",
             content=turn_system_context.render(),
         )
-        conversation_history = list(session.messages)
         runtime_control_message = self._turn_budget_control_message(
             step=step,
             max_steps=session.max_iterations,
         )
-        # 预算提示只加入本 Turn 的历史副本，不写回 session.messages 或长期对话事实。
-        if runtime_control_message is not None:
-            conversation_history.append(runtime_control_message)
+        # 预算提示作为 transient tail 发送；它不进入 session.messages、digest 或 cursor。
         prompt_window = self.prompt_window.prepare(
             PromptWindowRequest(
                 turn_system_message=turn_system_message,
-                conversation_history=conversation_history,
+                conversation_history=list(session.messages),
                 observations=session.observations,
                 tool_schemas=visible_tool_schemas,
                 task=session.task,
+                previous_digest=session.conversation_history_digest,
+                compacted_message_cursor=session.compacted_message_cursor,
+                transient_messages=(
+                    (runtime_control_message,)
+                    if runtime_control_message is not None
+                    else ()
+                ),
                 force_compaction=force_compaction,
             )
         )
         self._record_prompt_window(session, step, prompt_window)
-        # 压缩只把 digest 引用写入 checkpoint；原始消息仍由 live Session 保存。
-        # Trace 只记录窗口度量、source hash 与压缩事实，不复制完整 Prompt 正文。
+        # 更新同一 Session 的 rolling state；resume 只恢复 digest，新 Session cursor 归零。
         if prompt_window.conversation_history_digest is not None:
+            session.conversation_history_digest = (
+                prompt_window.conversation_history_digest
+            )
+            session.compacted_message_cursor = prompt_window.compacted_message_cursor
             session.lifecycle.update_checkpoint(
                 TaskCheckpointUpdate(
                     conversation_history_digest=(
@@ -251,6 +261,35 @@ class TurnPreparation:
             phase=tool_route.phase,
         )
         # endregion 4. 会话窗口治理结束
+
+    @staticmethod
+    def _attach_memory_management_catalog(
+        schemas: list[ToolSchema],
+        session: AgentRunSession,
+    ) -> list[ToolSchema]:
+        """只给 remember_memory schema 附加 Run-start 冻结的 ID 候选。"""
+
+        catalog_lines = [
+            memory_record.render_management_line()
+            for memory_record in session.memory_management_catalog
+        ]
+        catalog_text = "\n".join(f"- {line}" for line in catalog_lines) or "- none"
+        augmented_schemas: list[ToolSchema] = []
+        for schema in schemas:
+            if str(schema.get("name") or "") != "remember_memory":
+                augmented_schemas.append(schema)
+                continue
+            augmented_schema = dict(schema)
+            augmented_schema["description"] = (
+                f"{schema.get('description', '')}\n"
+                "Run-start Memory Management Catalog (management candidates only; "
+                "not task reasoning evidence):\n"
+                f"{catalog_text}\n"
+                "Use CREATE when no candidate matches. UPDATE/NOOP must name one "
+                "catalog target_memory_id with the requested scope."
+            )
+            augmented_schemas.append(augmented_schema)
+        return augmented_schemas
 
     @staticmethod
     def _verify_skill_tool_dependencies(
@@ -378,6 +417,7 @@ class TurnPreparation:
                 "compacted": prompt_window.compacted,
                 "reason": prompt_window.reason,
                 "covered_message_count": prompt_window.covered_message_count,
+                "current_session_cursor": prompt_window.compacted_message_cursor,
                 "estimated_tokens_before": prompt_window.estimated_tokens_before,
                 "estimated_tokens_after": prompt_window.estimated_tokens_after,
                 "hard_input_limit": prompt_window.hard_input_limit,

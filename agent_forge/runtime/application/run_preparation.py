@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 
+from agent_forge.context.domain import ConversationHistoryDigest
 from agent_forge.memory.domain import LongTermMemoryRecord
 from agent_forge.runtime.application.dependencies import RuntimeDependencies
 from agent_forge.runtime.application.run_lifecycle import RunLifecycle, StopRequest
@@ -64,7 +65,9 @@ class RunPreparation:
 
         # region 准备区（实现细节）：恢复摘要与首个 durable checkpoint
         self.trace.set_run_context(task=task)
-        restored_state_summary = self._load_resume_summary(agent_name)
+        restored_state_summary, restored_conversation_digest = (
+            self._load_resume_state(agent_name)
+        )
         initial_checkpoint = self.task_states.start(
             TaskStartRequest(
                 run_id=self.trace.run_id,
@@ -103,6 +106,7 @@ class RunPreparation:
             lifecycle=run_lifecycle,
             controller=StepController.from_config(self.config),
             resume_summary=restored_state_summary,
+            conversation_history_digest=restored_conversation_digest,
         )
 
     # 主要入口：应用输入策略、恢复人工状态、选择 Skill 并召回长期记忆。
@@ -211,9 +215,8 @@ class RunPreparation:
     def _initialize_memory_context(self, session: AgentRunSession) -> None:
         """创建 working memory，并在 Run 开始时固定长期记忆快照。
 
-        这里只读一次 Repository。后续每个 Turn 都复用
-        ``WorkingMemory.long_term_records``，因此运行中 remember/forget 不会
-        悄悄改变已启动 Run 的判断依据。
+        Repository 只在 RunPreparation 生成两个冻结视图：task-aware Recall Snapshot
+        服务推理；非 task-filtered Management Catalog 服务任意后续 Turn 的显式 remember。
         """
 
         session.messages = [Message(role="user", content=session.task)]
@@ -227,31 +230,53 @@ class RunPreparation:
             session_summary=prior_session_summary,
         )
         memory_namespace = self.config.memory_namespace or str(self.config.workspace)
+        memory_max_chars = max(0, int(self.config.memory_max_chars))
         recalled_memories = self.memory_recall.recall(
             namespace=memory_namespace,
-            max_chars=max(0, int(self.config.memory_max_chars)),
+            query=session.task,
+            max_chars=memory_max_chars,
+        )
+        memory_management_catalog = self.memory_recall.management_catalog(
+            namespace=memory_namespace,
+            max_chars=memory_max_chars,
         )
         session.working_memory.seed_long_term(recalled_memories)
+        session.memory_management_catalog = memory_management_catalog
         session.working_memory.set("task", session.task)
         self._record_memory_recall(
             session=session,
             memory_namespace=memory_namespace,
             recalled_memories=recalled_memories,
+            management_catalog=memory_management_catalog,
         )
 
-    def _load_resume_summary(self, agent_name: str) -> str:
+    def _load_resume_state(
+        self,
+        agent_name: str,
+    ) -> tuple[str, ConversationHistoryDigest | None]:
+        """恢复 continuation 摘要和 typed digest；新 Session cursor 仍从 0 开始。"""
+
         resume_checkpoint_path = self.config.resume_state
         if not resume_checkpoint_path:
-            return ""
+            return "", None
         restored_checkpoint = self.task_states.load_path(resume_checkpoint_path)
         restored_summary = summarize_checkpoint(restored_checkpoint)
+        digest_payload = restored_checkpoint.conversation_history_digest
+        restored_digest = (
+            ConversationHistoryDigest.from_dict(
+                dict(digest_payload),
+                default_task=restored_checkpoint.task,
+            )
+            if digest_payload
+            else None
+        )
         self._record_resume_state_loaded(
             agent_name=agent_name,
             resume_checkpoint_path=resume_checkpoint_path,
             checkpoint=restored_checkpoint.to_dict(),
             resume_summary=restored_summary,
         )
-        return restored_summary
+        return restored_summary, restored_digest
 
     def _select_active_skills(self, task: str) -> list[SkillView]:
         """按运行配置选择最多一个主 Skill，并返回已选择的轻量视图。
@@ -384,6 +409,7 @@ class RunPreparation:
         session: AgentRunSession,
         memory_namespace: str,
         recalled_memories: list[LongTermMemoryRecord],
+        management_catalog: list[LongTermMemoryRecord],
     ) -> None:
         """记录本 Run 固定快照的身份和指纹，不复制记忆正文。"""
 
@@ -417,6 +443,10 @@ class RunPreparation:
                     memory_record.scope for memory_record in recalled_memories
                 ],
                 "snapshot_sha256": snapshot_sha256,
+                "management_catalog_count": len(management_catalog),
+                "management_catalog_ids": [
+                    memory_record.memory_id for memory_record in management_catalog
+                ],
             },
         )
 
