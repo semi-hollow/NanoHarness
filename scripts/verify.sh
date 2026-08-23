@@ -39,7 +39,7 @@ mkdir -p "${VERIFY_DIR}"
 
 # 在启动 Agent 之前先通过编译发现语法、导入和打包问题。
 echo "== Compile Python files =="
-"${PYTHON_BIN}" -m compileall -q agent_forge tests
+"${PYTHON_BIN}" -m compileall -q agent_forge apps tests
 echo
 
 echo "== Static type contracts =="
@@ -47,7 +47,7 @@ if ! "${PYTHON_BIN}" -m mypy --version >/dev/null 2>&1; then
   echo "mypy is missing; install the development tools with: python -m pip install -e '.[dev]'" >&2
   exit 1
 fi
-"${PYTHON_BIN}" -m mypy agent_forge
+"${PYTHON_BIN}" -m mypy agent_forge apps
 echo
 
 # 这里只做冒烟检查，不把结果当作 benchmark 质量证明。
@@ -59,8 +59,8 @@ echo "== Public CLI skills =="
 "${PYTHON_BIN}" -m agent_forge skills list >/dev/null
 echo
 
-echo "== Unit smoke =="
-"${PYTHON_BIN}" -m unittest discover tests
+echo "== Full deterministic test suite =="
+"${PYTHON_BIN}" -m pytest -q
 echo
 
 if [ -n "${DEEPSEEK_API_KEY:-}" ]; then

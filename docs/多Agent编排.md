@@ -73,11 +73,10 @@ Generation 2 → _run_batch()
 反向切换同样成立。每代只有一个 active `effective_plan`；completed prefix、initial
 identity 和 global acceptance criteria 在 replan 中受 Runtime 保护。
 
-这里的切换准确指 Coordinator 调度与 `LiveHandoffRuntime` generation。当前
-`LocalAgentWorkerAdapter` 在 composition 时仍持有 initial plan；replan 后新 Task 来自
-`effective_plan`，Task/scope/tools/criteria 随之更新，goal 按设计保持 initial identity；
-但 prompt 中的 LIVE route listing 仍从 initial plan 渲染。因而 HARD/LIVE 调度切换已经
-实现，Worker LIVE-route prompt rebind 尚未实现。
+这里的切换同时作用于 Coordinator 调度、`LiveHandoffRuntime` generation 和 Worker
+prompt。每代启动前，`FanoutWorkerPort.bind_effective_plan()` 将当前 `effective_plan`
+绑定到 `LocalAgentWorkerAdapter`；因此 Task/scope/tools/criteria 与 LIVE route listing
+都来自当前 generation，goal 仍按设计保持 initial identity。
 
 # 3. Runtime 对象所有权
 
@@ -129,9 +128,9 @@ FanoutPlan deterministic validation
 ```
 
 Planner 只提议；结构或领域约束校验失败后至多允许一次 repair，Provider failure 不做
-结构修复。无效 plan 不会启动 Worker。Worker prompt 由已校验的 Task 与 plan facts
-确定性渲染，不直接复用模型原文；replan generation 使用当前 Task 字段，但 LIVE route
-prompt section 受上一节所述 initial-plan binding 限制。
+结构修复。无效 plan 不会启动 Worker。Worker prompt 由已校验的当前 generation Task
+与 plan facts 确定性渲染，不直接复用模型原文；HARD → LIVE 或 LIVE → HARD replan
+后都会重新绑定 route listing。
 
 # 5. 两种 generation 调度策略
 
@@ -302,9 +301,13 @@ Replan 只替换 remaining work。新 `FanoutPlan` 进入下一 generation 后�
 - Agent-level Turn REPLAN 与 plan-level remaining-task replan 是两个控制环；
 - LIVE early start 不绕过最终 integration trust gates；
 - Runtime coordination 不获得 human authority；
-- per-generation scheduling 已使用 `effective_plan`，Worker LIVE-route prompt rebind 尚未实现；
+- per-generation scheduling 与 Worker prompt 都绑定当前 `effective_plan`；
 - HARD-only checkpoint 支持已有 resume；LIVE mailbox/in-flight state 不提供 replay；
 - 当前证据验证 deterministic mechanism 与真实 AgentLoop integration，不构成真实模型性能结论。
+
+唯一公开机制证据见
+[`multi-agent-v1/mechanism-evidence.json`](../benchmarks/experiments/multi-agent-v1/mechanism-evidence.json)：
+它验证当前控制闭环，不评估真实模型性能，也不提供性能提升 claim。
 
 ## 源码入口（Source Anchors）
 
@@ -313,6 +316,7 @@ Replan 只替换 remaining work。新 `FanoutPlan` 进入下一 generation 后�
 - `agent_forge/multi_agent/domain/planning.py::PlanningDecision.to_fanout_plan()`：提议到 canonical plan。
 - `agent_forge/multi_agent/wiring.py::build_live_fanout()`：Coordinator、Worker 与 LIVE Runtime 装配。
 - `agent_forge/multi_agent/application/fanout.py::FanoutCoordinator.run()`：per-generation 调度与集成闭环。
+- `agent_forge/multi_agent/ports/live.py::FanoutWorkerPort.bind_effective_plan()`：当前 generation 到 Worker prompt 的绑定边界。
 - `agent_forge/multi_agent/application/live_handoff.py::LiveHandoffRuntime`：协作状态与 freshness Owner。
 - `agent_forge/multi_agent/adapters/local_worker.py::LocalAgentWorkerAdapter`：隔离 Worker 与 Finalizer。
 - `agent_forge/runtime/application/agent_loop.py::AgentLoop.run()`：Worker 复用的 canonical Runtime。

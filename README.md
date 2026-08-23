@@ -71,7 +71,7 @@ Excluded，`tests/` 保持 Test Sources Root。两个确定性 Lab 和证据路�
 1. [Lab 1 · Durable Control](http://127.0.0.1:8765/?source=governed&view=overview)：
    状态链为 HumanInput → Resume → Approval → Ledger → side effect → Validation。
 2. [Lab 2 · Agent Coordination](http://127.0.0.1:8765/?source=orchestration&view=overview)：
-   DAG、并发批次、隔离 worktree、三道冲突门和只读 Finalizer。
+   DAG、并发批次、隔离 worktree、四道冲突门和只读 Finalizer。
 3. [Mini-50 · Real Repository Capability](http://127.0.0.1:8765/?source=evaluation&view=overview)：
    固定 50 个 Case、发布漏斗、代表 Case 和 evaluated revision provenance。
 

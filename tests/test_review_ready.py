@@ -121,12 +121,12 @@ class ReviewReadyTest(unittest.TestCase):
             sources=self.sources,
         )
         for value in (
-            "Fanout Algorithm Map · CURRENT",
+            "Historical Lab 2 · OBSERVED STATIC PLAN",
             "Worker AgentLoop",
             "Candidate Diff",
             "Four Conflict Gates",
             "Scope Violation Gate",
-            "Planner Agent",
+            "Planner Agent · CURRENT",
             "Conflict Resolver Agent",
             "FUTURE / NOT IMPLEMENTED",
         ):

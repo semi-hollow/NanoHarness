@@ -6,6 +6,16 @@ from pathlib import Path
 from scripts.run_multi_agent_v1_smoke import run_smoke
 
 
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+CHECKED_MECHANISM_EVIDENCE = (
+    PROJECT_ROOT
+    / "benchmarks"
+    / "experiments"
+    / "multi-agent-v1"
+    / "mechanism-evidence.json"
+)
+
+
 class MultiAgentV1SmokeTest(unittest.TestCase):
     def test_natural_task_runs_real_planner_agentloops_worktrees_and_integration(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -23,6 +33,11 @@ class MultiAgentV1SmokeTest(unittest.TestCase):
             self.assertNotIn(str(root), serialized)
             self.assertNotIn("Operator steer", serialized)
             self.assertEqual(json.loads(serialized), result)
+            self.assertEqual(
+                json.loads(CHECKED_MECHANISM_EVIDENCE.read_text(encoding="utf-8")),
+                result,
+                "checked mechanism evidence must equal a fresh deterministic smoke",
+            )
 
 
 if __name__ == "__main__":

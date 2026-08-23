@@ -25,14 +25,16 @@ experiments/
 │   ├── r2.execution.json
 │   ├── result.json
 │   └── report.md
-└── mini50-v1-deepseek-v4-flash/
+├── mini50-v1-deepseek-v4-flash/
     ├── experiment.json           # 绝对能力测量视图声明
     ├── README.md                 # 先读：扩大样本结果与发布门裁决
     ├── plan.json                 # 冻结身份与 Pass@1 规则
     ├── mini50.execution.json     # 原始机器制品索引与 hash
     ├── completion.execution.json # 两轮 infra-only 补全索引
     ├── result.json               # 机器结果投影
-    └── report.md                 # 分母、故障和准确表述
+│   └── report.md                 # 分母、故障和准确表述
+└── multi-agent-v1/
+    └── mechanism-evidence.json   # deterministic mechanism，不是性能实验
 ```
 
 原始 Trace、Usage、candidate Patch 和 official evaluator 产物保存在本机
@@ -64,6 +66,7 @@ README/report 承担。未标记为 `active` 的历史实验不会平铺到主�
 | [R1](tool-aci-r1/README.md) | 同时加入 rg、find_files、repo_outline、validation head/tail 是否提升正确性 | R0 `14/20` → R1 `13/20` | 搜索略降，但失败 Tool 增加 | Reject，回滚 |
 | [R2](tool-aci-r2/README.md) | 去掉 repo_outline、消除文件发现职责重叠后是否无回归提升 | R0 `14/20` → R2 `14/20` | Token -33.6%，Tool -20.8% | Reject，回滚 |
 | [Mini-50](mini50-v1-deepseek-v4-flash/README.md) | 固定 quality profile 在扩大样本上的能力 | **`28/50`** | 44 个 official verdict，6 Agent Empty Patch | Publish Gate PASS |
+| [Multi-Agent V1 mechanism](multi-agent-v1/mechanism-evidence.json) | Planner、真实 AgentLoop、LIVE Handoff 与集成门是否闭环 | 不适用 | deterministic mechanism assertions 全部通过 | Mechanism PASS；performance NOT EVALUATED |
 
 准确结论是：R2 的最小正交 Tool surface 在 official correctness 持平时显著减少探索开销，
 但出现一项 gain 和一项 regression，没有通过 non-regression gate，因此没有进入 stable Runtime。
@@ -91,4 +94,4 @@ README/report 承担。未标记为 `active` 的历史实验不会平铺到主�
 - Golden-20 是反复使用的开发集，不是 holdout 或完整 SWE-bench Verified 排行榜。
 - R1/R2 都是 bundle 实验，不能把总体结果单独归因给其中某一项 Tool。
 - Candidate Patch、本地验证和 official resolved 是三层不同证据。
-- 当前 stable master 是两次 Treatment 回滚后的代码；历史实现由 commit 精确恢复。
+- 当前 stable 基线是两次 Treatment 回滚后的代码；历史实现由 commit 精确恢复。
