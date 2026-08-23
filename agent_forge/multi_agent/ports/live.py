@@ -100,6 +100,9 @@ class LiveWorkerContextPort(Protocol):
 class FanoutWorkerPort(Protocol):
     """隔离 AgentLoop worker 和 finalizer 的执行边界。"""
 
+    def bind_effective_plan(self, plan: FanoutPlan) -> None:
+        """在新 generation 启动前绑定本代 Worker prompt 所需的计划事实。"""
+
     def run_worker(
         self,
         task: SubagentTask,

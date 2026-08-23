@@ -64,6 +64,13 @@ class RuntimeCoordinationSignal:
     version: int
     human_authority: bool = False
 
+    def __post_init__(self) -> None:
+        """拒绝把 Worker 协调证据伪装成人工授权。"""
+
+        # Runtime coordination 只能提供 peer evidence，永远不能升级为 human authority。
+        if self.human_authority:
+            raise ValueError("runtime coordination cannot carry human authority")
+
     def to_dict(self) -> JsonObject:
         """只投影协调身份与版本，模型输入内容不重复写入控制元数据。"""
 

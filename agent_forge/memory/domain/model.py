@@ -105,7 +105,7 @@ class LongTermMemoryRecord:
         )
 
     def render_prompt_line(self) -> str:
-        """渲染 reasoning snapshot；稳定 ID 只进入管理 Catalog 与 Trace。"""
+        """渲染 reasoning snapshot；稳定 ID 只进入 Management Candidates 与 Trace。"""
 
         return f"[{self.scope}; revision={self.revision}] {self.key}: {self.content}"
 

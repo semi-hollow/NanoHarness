@@ -285,8 +285,9 @@ class ToolExecutionPipeline:
                 operation_key=operation_intent.operation_key,
                 provenance=memory_provenance,
             )
-        # 只有可能改变持久状态的操作才进入 Ledger 防重与恢复判断。
-        if operation_intent.side_effect:
+        # 只有持久状态变更才进入 Ledger 防重与恢复判断。验证命令仍经过
+        # 授权与沙箱，但必须在代码/状态变化后重新执行，不按命令文本回放旧结果。
+        if operation_intent.ledger_tracked:
             existing_operation = self.operation_tracker.resolve_existing_operation(
                 session,
                 tool_call,
@@ -855,7 +856,7 @@ class ToolExecutionPipeline:
     ) -> ToolCallOutcome:
         """阶段 5：执行已获授权工具，再提交操作状态、证据和 checkpoint。
 
-        伪代码：最后 terminal 检查 -> side effect 写 approved/executing
+        伪代码：最后 terminal 检查 -> durable state change 写 approved/executing
         -> Gateway -> after_tool -> Ledger 提交结果 -> Evidence/Checkpoint
         -> budget gate -> 下一 Turn 的 tool message。
         """
@@ -880,8 +881,8 @@ class ToolExecutionPipeline:
         # region 2. 幂等状态迁移：状态变更操作先进入 approved/executing，再调用工具
         # 手动审批路径此前已经创建操作状态；自动放行的状态变更操作也必须先落一条 approved
         # 记录，确保真实工具返回后 record_execution_result 一定有可迁移的持久化对象。
-        # 自动放行且尚无记录的 side effect 也要先建立 approved 事实。
-        if operation_intent.side_effect and not self.operation_tracker.has_record(
+        # 自动放行且尚无记录的 durable state change 也要先建立 approved 事实。
+        if operation_intent.ledger_tracked and not self.operation_tracker.has_record(
             operation_intent
         ):
             self.operation_tracker.ensure_planned(
@@ -890,7 +891,7 @@ class ToolExecutionPipeline:
                 status="approved",
             )
         # executing 必须先于 Gateway 落盘，崩溃恢复才能把未提交结果视为 unknown。
-        if operation_intent.side_effect:
+        if operation_intent.ledger_tracked:
             self.operation_tracker.record_executing(operation_intent, step=step)
         # endregion 2. 幂等状态迁移结束
 
@@ -910,7 +911,7 @@ class ToolExecutionPipeline:
             step,
         )
         # Gateway 已返回且 after_tool 已规范化后，才允许提交最终 executed/failed 事实。
-        if operation_intent.side_effect:
+        if operation_intent.ledger_tracked:
             # 操作状态表记录工具执行后的最终 Observation，不能在 Gateway 调用前抢先写 executed。
             self.operation_tracker.record_execution_result(
                 session,

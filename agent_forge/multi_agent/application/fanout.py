@@ -158,6 +158,9 @@ class FanoutCoordinator:
         # region 2. 执行 DAG、一次 Worker retry 和一次 remaining-plan replan
         # 外层循环代表一次 effective plan generation；正常情况只走一轮，replan 最多再走一轮。
         while True:
+            # Worker Adapter 必须先切换到当前 generation；否则 replan 后的 LIVE routes
+            # 只存在于 Coordinator/Runtime，Worker prompt 仍会渲染 initial plan。
+            self.workers.bind_effective_plan(effective_plan)
             # 有 LIVE 边时使用事件驱动调度，让下游能在上游完成前消费 READY/UPDATE。
             if effective_plan.live_dependencies:
                 pass_executed_task = self._run_live_plan(

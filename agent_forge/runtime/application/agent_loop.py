@@ -203,23 +203,10 @@ class AgentLoop:
 
         # region 2. 模型返回边界：优先消费 Runtime 控制/协调与预算信号
         # 模型边界 2：调用期间到达的 steer/coordination 使 response 过时；丢弃后重规划。
-        run_control_outcome = self.run_control_handler.consume_pending_signals(
-            session,
-            step,
-            boundary="after_model",
-        )
-        # pause/cancel 到达时优先停止，不再使用已经返回的模型结果。
-        if run_control_outcome.stop is not None:
-            return TurnOutcome(TurnOutcomeKind.STOP, run_control_outcome.stop)
-        # 任一输入类信号到达都要求废弃旧响应，下一 Turn 会看到新输入。
-        if run_control_outcome.model_input_changed:
-            self._record_stale_model_response(session, step, run_control_outcome)
-            return TurnOutcome(TurnOutcomeKind.REPLAN)
-
-        budget_stop_request = self._budget_stop_request(session, step)
-        # 模型成本和 wall-clock 已计入后再判断预算，超限响应不能继续执行 Tool。
-        if budget_stop_request is not None:
-            return TurnOutcome(TurnOutcomeKind.STOP, budget_stop_request)
+        after_model_outcome = self._after_model_boundary(session, step)
+        # helper 已把 terminal、stale response 或预算超限收敛为显式 TurnOutcome。
+        if after_model_outcome is not None:
+            return after_model_outcome
         # endregion 2. 模型返回边界结束
 
         # region 3. 上下文溢出恢复：仅在确实缩小窗口后重试一次
@@ -245,9 +232,9 @@ class AgentLoop:
             )
             # 只有确实压缩成功才允许一次额外模型调用，避免重复相同失败请求。
             if recovery_reduced_context:
-                # 重试仍走同一个模型 Hook 和预算检查；当前返回后不再次消费 after_model
-                # signal。若 Run 继续，期间到达的信号留到下一 boundary；若本响应终止
-                # Run，则本 Run 不再消费这些信号。
+                # 重试仍走同一个模型 Hook，返回后也必须重新经过
+                # after_model 安全边界；否则请求期间到达的 cancel/steer/
+                # coordination 会让旧 ToolCall 越过新输入而执行。
                 prepared_turn = compacted_turn
                 model_response, hook_stop_request = self._call_model(
                     session,
@@ -259,10 +246,10 @@ class AgentLoop:
                 # 恢复路径也必须满足模型响应契约。
                 if model_response is None:  # pragma: no cover - protected above
                     raise AssertionError("model recovery returned no response")
-                budget_stop_request = self._budget_stop_request(session, step)
-                # 第二次调用产生的新成本也必须立即进入同一预算门。
-                if budget_stop_request is not None:
-                    return TurnOutcome(TurnOutcomeKind.STOP, budget_stop_request)
+                recovery_boundary_outcome = self._after_model_boundary(session, step)
+                # recovery 返回后与普通请求使用同一停止/过时判定。
+                if recovery_boundary_outcome is not None:
+                    return recovery_boundary_outcome
         # endregion 3. 上下文溢出恢复结束
 
         # region 4. 响应分流：失败、最终回答或工具治理三选一
@@ -341,6 +328,33 @@ class AgentLoop:
         self._accumulate_model_cost(session)
         self._record_llm_call(session, prepared_turn, model_response)
         return model_response, None
+
+    def _after_model_boundary(
+        self,
+        session: AgentRunSession,
+        step: int,
+    ) -> TurnOutcome | None:
+        """每次 provider 返回后统一消费控制/协调与预算信号。"""
+
+        run_control_outcome = self.run_control_handler.consume_pending_signals(
+            session,
+            step,
+            boundary="after_model",
+        )
+        # pause/cancel 优先停止，不再使用已返回的模型结果。
+        if run_control_outcome.stop is not None:
+            return TurnOutcome(TurnOutcomeKind.STOP, run_control_outcome.stop)
+        # steer/coordination 改变了模型输入；旧响应必须丢弃后重规划。
+        if run_control_outcome.model_input_changed:
+            self._record_stale_model_response(session, step, run_control_outcome)
+            return TurnOutcome(TurnOutcomeKind.REPLAN)
+
+        # 成本和 wall-clock 已计入后再判断预算，超限响应不能执行 Tool。
+        budget_stop_request = self._budget_stop_request(session, step)
+        # 预算命中时丢弃当前响应，统一交给 Lifecycle 收口。
+        if budget_stop_request is not None:
+            return TurnOutcome(TurnOutcomeKind.STOP, budget_stop_request)
+        return None
 
     def _budget_stop_request(
         self,

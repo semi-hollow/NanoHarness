@@ -56,6 +56,10 @@ class JsonApprovalRepository(ApprovalRepository):
             draft.action,
         )
         existing = self.get(key)
+        # stale 只否定旧 fingerprint 的授权；同一操作意图在新目标状态上
+        # 必须能重新进入 pending，仍使用同一稳定 operation key。
+        if existing is not None and existing.status == "stale":
+            existing = None
         if (
             existing is not None
             and existing.operation_fingerprint is None

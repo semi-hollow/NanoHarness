@@ -18,6 +18,7 @@ from agent_forge.multi_agent.domain.live import (
 )
 from agent_forge.observability.api import TraceRecorder
 from agent_forge.runtime.config import RuntimeConfig
+from agent_forge.runtime.domain.run_control import RuntimeCoordinationSignal
 
 
 def _task(task_id, *, depends_on=None, scope=None):
@@ -132,6 +133,21 @@ class FanoutPlanContractTest(unittest.TestCase):
 
 
 class LiveHandoffRuntimeTest(unittest.TestCase):
+    def test_runtime_coordination_cannot_claim_human_authority(self):
+        with self.assertRaisesRegex(ValueError, "cannot carry human authority"):
+            RuntimeCoordinationSignal(
+                event_id="event-1",
+                content="peer evidence",
+                plan_generation_id="plan-1",
+                worker_attempt_id=1,
+                publisher_task_id="A",
+                target_task_id="B",
+                event_type="FEEDBACK",
+                semantic_key="timeout_contract",
+                version=1,
+                human_authority=True,
+            )
+
     def test_ready_feedback_update_and_final_freshness_are_runtime_facts(self):
         with tempfile.TemporaryDirectory() as tmp:
             runtime = LiveHandoffRuntime(
@@ -280,6 +296,9 @@ class _CoordinatingWorker:
         self.update_published = threading.Event()
         self.producer_completed = threading.Event()
         self.consumer_started_before_producer_completed = False
+
+    def bind_effective_plan(self, plan):
+        self.plan = plan
 
     def run_worker(self, task, batch_index, base_diff, handoffs, attempt, coordination=None):
         if coordination is None:

@@ -80,7 +80,11 @@ class OperationRecord:
         self.updated_at = time.time()
         if update.observation:
             self.observation = update.observation
-        if self.pre_fingerprint is None and update.pre_fingerprint is not None:
+        # fresh pending 表示 stale approval 已在当前目标上重新申请；此时重新
+        # 绑定当前 pre-fingerprint，供后续审批与执行证据使用。
+        if update.pre_fingerprint is not None and (
+            self.pre_fingerprint is None or update.status == "pending"
+        ):
             self.pre_fingerprint = update.pre_fingerprint
         if update.post_fingerprint is not None:
             self.post_fingerprint = update.post_fingerprint

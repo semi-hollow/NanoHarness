@@ -24,6 +24,7 @@ from agent_forge.runtime.domain.operation import (
 from agent_forge.safety.sandbox import WorkspaceSandbox
 from agent_forge.tools.builtins.create_file import CreateFileTool
 from agent_forge.tools.builtins.replace_text import ReplaceTextTool
+from agent_forge.tools.builtins.run_command import RunCommandTool
 from agent_forge.tools.registry import ToolRegistry
 
 
@@ -77,6 +78,30 @@ class CreateThenFinalLLM:
         return AgentResponse("PASS\nfile created", [])
 
 
+class RunCommandThenFinalLLM:
+    """每次 Run 执行同一验证命令，再结束。"""
+
+    last_usage = None
+
+    def __init__(self):
+        self.calls = 0
+
+    def chat(self, messages, tools):
+        self.calls += 1
+        if self.calls == 1:
+            return AgentResponse(
+                None,
+                [
+                    ToolCall(
+                        "validate-1",
+                        "run_command",
+                        {"command": "python -m compileall target.py"},
+                    )
+                ],
+            )
+        return AgentResponse("PASS\nvalidation finished", [])
+
+
 class CrashBeforeLedgerCommit(JsonOperationLedgerRepository):
     """故障注入：文件已改变，但最终 executed 事实尚未提交时进程崩溃。"""
 
@@ -98,7 +123,122 @@ def _create_registry(root: Path) -> ToolRegistry:
     return registry
 
 
+def _run_command_registry(root: Path) -> ToolRegistry:
+    registry = ToolRegistry()
+    registry.register(RunCommandTool(WorkspaceSandbox(root)))
+    return registry
+
+
 class OperationLedgerTest(unittest.TestCase):
+    def test_same_validation_command_executes_again_after_workspace_changes(self):
+        """run_command 不得按命令文本回放修改代码前的 PASS。"""
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            ledger_root = root / "ledger"
+            target = root / "target.py"
+            target.write_text("value = 1\n", encoding="utf-8")
+
+            traces = []
+            for run_number in (1, 2):
+                trace = TraceRecorder(str(root / f"trace-{run_number}.json"))
+                traces.append(trace)
+                config = RuntimeConfig(
+                    workspace=str(root),
+                    max_steps=3,
+                    trace_file=str(root / f"trace-{run_number}.json"),
+                    operation_ledger_root=str(ledger_root),
+                    tool_routing_mode="all",
+                )
+                final = build_agent_loop(
+                    config,
+                    trace,
+                    _run_command_registry(root),
+                    RunCommandThenFinalLLM(),
+                ).run("validate target.py")
+                self.assertIn("validation finished", final)
+                if run_number == 1:
+                    target.write_text("value = 2\n", encoding="utf-8")
+
+            self.assertEqual(
+                sum(
+                    event["event_type"] == "tool_execution_started"
+                    for trace in traces
+                    for event in trace.events
+                ),
+                2,
+            )
+            self.assertEqual(list(ledger_root.glob("*.json")), [])
+            self.assertFalse(
+                any(
+                    event["event_type"] == "operation_ledger"
+                    for trace in traces
+                    for event in trace.events
+                )
+            )
+
+    def test_on_risk_command_keeps_approval_identity_without_ledger_replay(self):
+        """Ledger 不去重 run_command，但 ON_RISK 仍使用稳定非空审批 key。"""
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "target.py").write_text("value = 1\n", encoding="utf-8")
+            ledger_root = root / "ledger"
+            approval_root = root / "approvals"
+            approvals = JsonApprovalRepository(approval_root)
+
+            first_trace = TraceRecorder(str(root / "first-trace.json"))
+            first_config = RuntimeConfig(
+                workspace=str(root),
+                max_steps=3,
+                trace_file=str(root / "first-trace.json"),
+                auto_approve_writes=False,
+                approval_mode="on-risk",
+                approval_root=str(approval_root),
+                operation_ledger_root=str(ledger_root),
+                tool_routing_mode="all",
+            )
+            waiting = build_agent_loop(
+                first_config,
+                first_trace,
+                _run_command_registry(root),
+                RunCommandThenFinalLLM(),
+            ).run("validate target.py")
+
+            self.assertIn("waiting_approval", waiting)
+            pending = approvals.list_pending()
+            self.assertEqual(len(pending), 1)
+            self.assertTrue(pending[0].operation_key)
+            self.assertEqual(list(ledger_root.glob("*.json")), [])
+
+            approvals.decide(pending[0].operation_key, "approved")
+            second_trace = TraceRecorder(str(root / "second-trace.json"))
+            second_config = RuntimeConfig(
+                workspace=str(root),
+                max_steps=3,
+                trace_file=str(root / "second-trace.json"),
+                auto_approve_writes=False,
+                approval_mode="on-risk",
+                approval_root=str(approval_root),
+                operation_ledger_root=str(ledger_root),
+                tool_routing_mode="all",
+            )
+            final = build_agent_loop(
+                second_config,
+                second_trace,
+                _run_command_registry(root),
+                RunCommandThenFinalLLM(),
+            ).run("validate target.py")
+
+            self.assertIn("validation finished", final)
+            self.assertTrue(
+                any(
+                    event["event_type"] == "tool_execution_started"
+                    for event in second_trace.events
+                )
+            )
+            self.assertEqual(list(ledger_root.glob("*.json")), [])
+
     def test_create_file_passes_approval_ledger_and_evidence_chain(self):
         """证明 create_file 会真实改变文件，而不只是写工具名单中的字符串。"""
 

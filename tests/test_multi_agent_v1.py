@@ -192,6 +192,12 @@ class DeterministicWorkerPort:
         self.calls = []
         self.base_diffs = {}
         self.handoffs = {}
+        self.bound_plans = []
+        self.plan_at_call = {}
+
+    def bind_effective_plan(self, plan):
+        self.bound_plans.append(plan)
+        self.active_plan = plan
 
     def run_worker(
         self,
@@ -200,8 +206,10 @@ class DeterministicWorkerPort:
         base_diff_text,
         dependency_handoffs,
         attempt,
+        coordination=None,
     ):
         self.calls.append((task.id, attempt))
+        self.plan_at_call[(task.id, attempt)] = self.active_plan
         self.base_diffs[(task.id, attempt)] = base_diff_text
         self.handoffs[(task.id, attempt)] = [
             item.task_id for item in dependency_handoffs
@@ -243,6 +251,29 @@ class DeterministicWorkerPort:
                 error="fixture transient failure",
             )
         else:
+            # HARD -> LIVE replan fixture：Producer 发布 READY，Consumer 在启动后消费。
+            if coordination is not None:
+                outgoing = [
+                    route
+                    for route in self.active_plan.live_dependencies
+                    if route.producer_task_id == task.id
+                ]
+                incoming = [
+                    route
+                    for route in self.active_plan.live_dependencies
+                    if route.target_task_id == task.id
+                ]
+                for route in outgoing:
+                    coordination.publish(
+                        event_type="READY",
+                        target_task_id=route.target_task_id,
+                        semantic_key=route.semantic_key,
+                        version=1,
+                        summary="fixture ready",
+                        evidence=["fixture contract"],
+                    )
+                if incoming:
+                    coordination.drain_mailbox(boundary="before_model")
             patch = f"PATCH:{task.id}:{attempt}"
             patch_path.write_text(patch, encoding="utf-8")
             result = LiveSubagentResult(
@@ -299,13 +330,14 @@ def _fanout_plan(tasks):
     )
 
 
-def _planning_decision(tasks):
+def _planning_decision(tasks, *, live_dependencies=None):
     return PlanningDecision.from_mapping(
         {
             "mode": "fanout",
             "reason": "replace failed remaining work",
             "global_acceptance_criteria": [],
             "tasks": tasks,
+            "live_dependencies": live_dependencies or [],
         },
         available_tools=["replace_text"],
     )
@@ -443,6 +475,50 @@ class FanoutV1MechanismTest(unittest.TestCase):
             )
             self.assertTrue(
                 any(event["event_type"] == "replan_result" for event in trace.events)
+            )
+
+    def test_hard_to_live_replan_rebinds_worker_generation_routes(self):
+        """HARD 首代失败后，下一代 Worker 必须看到新 LIVE routes 而非 initial plan。"""
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            initial_plan = _fanout_plan([_task("A"), _task("B")])
+            workers = DeterministicWorkerPort(root / "workers", retry_failures=2)
+            replanner = FixedReplanner(
+                _planning_decision(
+                    [_task("P"), _task("C")],
+                    live_dependencies=[
+                        {
+                            "producer_task_id": "P",
+                            "target_task_id": "C",
+                            "semantic_key": "shared_contract",
+                        }
+                    ],
+                )
+            )
+
+            summary, _ = self._run(
+                root,
+                initial_plan,
+                OneShotMergeFaultWorkspace(),
+                workers,
+                replanner=replanner,
+            )
+
+            self.assertEqual(summary.status, "passed")
+            self.assertEqual(summary.replan_round, 1)
+            self.assertFalse(workers.bound_plans[0].live_dependencies)
+            self.assertEqual(
+                [route.semantic_key for route in workers.bound_plans[-1].live_dependencies],
+                ["shared_contract"],
+            )
+            self.assertEqual(
+                workers.plan_at_call[("P", 1)].digest,
+                summary.effective_plan_digest,
+            )
+            self.assertEqual(
+                workers.plan_at_call[("C", 1)].digest,
+                summary.effective_plan_digest,
             )
 
     def test_invalid_replan_fails_safely_without_rerunning_completed_task(self):

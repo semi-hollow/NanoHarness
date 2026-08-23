@@ -91,6 +91,11 @@ class LocalAgentWorkerAdapter(FanoutWorkerPort):
         self._git_lock = threading.Lock()
     # endregion 1. 构造依赖
 
+    def bind_effective_plan(self, plan: FanoutPlan) -> None:
+        """切换 Worker prompt 使用的 generation goal、routes 与计划身份。"""
+
+        self.plan = plan
+
     # region 2. Worker 生命周期：隔离 -> AgentLoop -> 候选 Diff -> 稳定结果
     # 主要入口：把一个 SubagentTask 变成隔离运行、候选 Diff 和可合并 Worker 结果。
     def run_worker(

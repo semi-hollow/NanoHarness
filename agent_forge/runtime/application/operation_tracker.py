@@ -33,13 +33,15 @@ class OperationIntent:
     action: str
     # 仅 run_command 使用；授权策略需要单独检查命令文本。
     command: str
-    # True 表示这是“需审批和防重复保护的持久状态变更操作”，因此必须经过操作状态表
-    # 和授权；它是执行前分类，不表示工具已执行或持久状态已经改变。
-    # 验证工具可能在隔离工作区生成可丢弃缓存，但不属于这个 durable 分类。
+    # True 表示这项操作仍属于授权/重复风险分类；它是执行前事实，
+    # 不表示工具已执行或持久状态已经改变。
     side_effect: bool
+    # 只有外部持久状态变更才进入 durable Operation Ledger。run_command 仍经过
+    # CommandPolicy/Approval/Sandbox/timeout，但验证结果不能按命令文本跨状态去重。
+    ledger_tracked: bool
     # 生成稳定 key 和目标指纹所需的工具、参数、工作区事实。
     target: OperationTarget
-    # 需要操作状态表治理的调用才有稳定身份；其他调用保持空字符串。
+    # 需要 durable Ledger 或人工审批的调用才有稳定身份；其他调用保持空字符串。
     operation_key: str = ""
     # 工具执行前目标的当前状态，例如文件路径、SHA256 和大小。
     pre_execution_fingerprint: dict[str, Any] | None = None
@@ -89,13 +91,15 @@ class OperationTracker:
         调用位置：``ToolExecutionPipeline._execute_call`` 已完成路由、重复调用和
         ``ask_human`` 分支检查，尚未查询操作状态表、审批或执行真实工具。
 
-        返回结果：只读操作只有 action/target；可能改变持久状态的操作额外包含由工具、参数、workspace
-        和 action 生成的稳定 key，以及执行前目标 fingerprint。
+        返回结果：只读操作只有 action/target；需审批或 Ledger 治理的操作
+        额外包含由工具、参数、workspace 和 action 生成的稳定 key，
+        以及执行前目标 fingerprint。
         """
 
         action = self._permission_action(tool_call.name)
         command = str((tool_call.arguments or {}).get("command", ""))
         side_effect = self._is_side_effect_action(action)
+        ledger_tracked = self._is_ledger_tracked_action(action)
         target = OperationTarget(
             tool_name=tool_call.name,
             arguments=tool_call.arguments or {},
@@ -107,12 +111,14 @@ class OperationTracker:
                 action=action,
                 command=command,
                 side_effect=False,
+                ledger_tracked=False,
                 target=target,
             )
         return OperationIntent(
             action=action,
             command=command,
             side_effect=True,
+            ledger_tracked=ledger_tracked,
             target=target,
             operation_key=self.operation_repository.operation_key(target),
             pre_execution_fingerprint=(
@@ -302,7 +308,7 @@ class OperationTracker:
         前写入 ``approved``。已有相同 key 时复用记录，不覆盖既有执行事实。
         """
 
-        if not intent.side_effect:
+        if not intent.ledger_tracked:
             return
         self.operation_repository.ensure_planned(self._plan(intent, step, status))
 
@@ -314,6 +320,8 @@ class OperationTracker:
     ) -> None:
         """记录这项可能改变持久状态的操作正在等待人工审批；工具尚未执行。"""
 
+        if not intent.ledger_tracked:
+            return
         self.operation_repository.record_pending(self._plan(intent, step, "pending"))
 
     def record_approved(self, intent: OperationIntent, *, step: int) -> None:
@@ -322,6 +330,8 @@ class OperationTracker:
         人工授权事实仍由 ``ApprovalRepository`` 保存；这里更新的是操作状态表。
         """
 
+        if not intent.ledger_tracked:
+            return
         self.operation_repository.record_approved(
             OperationTransition(
                 operation_key=intent.operation_key,
@@ -338,6 +348,8 @@ class OperationTracker:
         continuation 必须把结果视为未知，而不是再次调用工具。
         """
 
+        if not intent.ledger_tracked:
+            return
         executing_operation_record = self.operation_repository.record_executing(
             OperationTransition(
                 operation_key=intent.operation_key,
@@ -371,6 +383,8 @@ class OperationTracker:
         已执行。
         """
 
+        if not intent.ledger_tracked:
+            return
         post_fingerprint = self.operation_repository.operation_fingerprint(
             intent.target
         )
@@ -401,7 +415,9 @@ class OperationTracker:
     def has_record(self, intent: OperationIntent) -> bool:
         """判断这项状态变更操作是否已经进入操作状态表。"""
 
-        return self.operation_repository.get(intent.operation_key) is not None
+        return intent.ledger_tracked and (
+            self.operation_repository.get(intent.operation_key) is not None
+        )
 
     def _record_operation_state(
         self,
@@ -473,6 +489,12 @@ class OperationTracker:
 
     @staticmethod
     def _is_side_effect_action(action: str) -> bool:
-        """只让需审批和防重复保护的持久状态变更操作进入操作状态表。"""
+        """保留授权与连续重复风险分类。"""
 
         return action in {"write", "run_command", "memory_write"}
+
+    @staticmethod
+    def _is_ledger_tracked_action(action: str) -> bool:
+        """只把持久状态变更放入跨 continuation 防重状态表。"""
+
+        return action in {"write", "memory_write"}

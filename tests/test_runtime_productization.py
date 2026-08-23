@@ -25,6 +25,16 @@ from agent_forge.extensions import (
     ToolRegistry,
     ToolSchema,
 )
+from agent_forge.observability.api import TraceRecorder
+from agent_forge.runtime.application.turn_preparation import PreparedTurn
+from agent_forge.runtime.config import RuntimeConfig
+from agent_forge.runtime.domain.conversation import Message
+from agent_forge.runtime.domain.run_control import RuntimeCoordinationSignal
+from agent_forge.runtime.wiring import (
+    AgentLoopBuildRequest,
+    RuntimeDependencyOverrides,
+    build_agent_loop_from_request,
+)
 from tests.support import StaticResponseModel
 
 
@@ -54,6 +64,93 @@ class BlockingSteerModel:
                 raise TimeoutError("test did not release the model")
             return AgentResponse("stale answer that must be discarded", [])
         return AgentResponse("steer applied", [])
+
+
+class OverflowThenBlockingToolModel:
+    """首次溢出，recovery 返回一个必须被丢弃的 ToolCall。"""
+
+    last_usage = None
+
+    def __init__(self) -> None:
+        self.recovery_entered = threading.Event()
+        self.release_recovery = threading.Event()
+        self.calls = 0
+        self.messages = []
+
+    def chat(self, messages, tools):
+        self.calls += 1
+        self.messages = list(messages)
+        if self.calls == 1:
+            return AgentResponse(
+                None,
+                [],
+                error={
+                    "code": "context_length_exceeded",
+                    "message": "maximum context length exceeded",
+                },
+            )
+        if self.calls == 2:
+            self.recovery_entered.set()
+            if not self.release_recovery.wait(timeout=3):
+                raise TimeoutError("test did not release overflow recovery model")
+            return AgentResponse(
+                None,
+                [ToolCall("stale-call", "counting_tool", {})],
+            )
+        return AgentResponse("fresh response after new input", [])
+
+
+class ScriptedOverflowTurnPreparation:
+    """只固定 overflow recovery 前后的输入规模，不伪造模型结果。"""
+
+    def __init__(self, tool: Tool) -> None:
+        self.tool = tool
+
+    def prepare_turn(self, session, step, *, force_compaction=False):
+        system_message = Message("system", "runtime policy")
+        return PreparedTurn(
+            step=step,
+            turn_system_message=system_message,
+            llm_messages=[system_message, *session.messages],
+            tool_schemas=[self.tool.schema()],
+            allowed_tool_names={self.tool.name},
+            history_chars=sum(len(message.content) for message in session.messages),
+            tool_schema_chars=len(str(self.tool.schema())),
+            estimated_prompt_tokens=400 if force_compaction else 900,
+            compacted=force_compaction,
+            conversation_history_digest=None,
+            phase="execute",
+        )
+
+
+class CoordinationController(RunController):
+    """测试用 controller：在真实 after_model 边界交付 Runtime coordination。"""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._coordination_lock = threading.Lock()
+        self._coordination = []
+
+    def publish_coordination(self) -> None:
+        signal = RuntimeCoordinationSignal(
+            event_id="feedback-1",
+            content="upstream contract changed",
+            plan_generation_id="generation-1",
+            worker_attempt_id=1,
+            publisher_task_id="worker-b",
+            target_task_id="worker-a",
+            event_type="FEEDBACK",
+            semantic_key="api-contract",
+            version=1,
+        )
+        with self._coordination_lock:
+            self._coordination.append(signal)
+
+    def drain_coordination(self, run_id, *, boundary):
+        with self._coordination_lock:
+            signals = list(self._coordination)
+            self._coordination.clear()
+        return signals
 
 
 class CaptureContextModel:
@@ -133,6 +230,77 @@ class RejectCompletionHook(RuntimeHook):
 
 
 class RuntimeProductizationTest(unittest.TestCase):
+    def test_overflow_recovery_response_rechecks_every_after_model_signal(self):
+        """recovery provider call 期间到达的信号必须阻止旧 ToolCall。"""
+
+        for signal_kind in ("steer", "coordination", "cancel"):
+            with self.subTest(signal=signal_kind), tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                controller = CoordinationController()
+                model = OverflowThenBlockingToolModel()
+                tool = CountingTool("counting_tool")
+                registry = ToolRegistry()
+                registry.register(tool)
+                trace = TraceRecorder(str(root / "trace.json"))
+                config = RuntimeConfig(
+                    workspace=str(root),
+                    max_steps=3,
+                    trace_file=str(root / "trace.json"),
+                    task_state_root=str(root / "task-state"),
+                    approval_root=str(root / "approvals"),
+                    human_input_root=str(root / "human-input"),
+                    operation_ledger_root=str(root / "ledger"),
+                    memory_root=str(root / "memory"),
+                )
+                loop = build_agent_loop_from_request(
+                    AgentLoopBuildRequest(
+                        config=config,
+                        trace=trace,
+                        registry=registry,
+                        llm=model,
+                        overrides=RuntimeDependencyOverrides(control=controller),
+                    )
+                )
+                loop.turn_preparation = ScriptedOverflowTurnPreparation(tool)
+
+                outcome = []
+                worker = threading.Thread(
+                    target=lambda: outcome.append(loop.run("repair target"))
+                )
+                worker.start()
+                self.assertTrue(model.recovery_entered.wait(timeout=3))
+                if signal_kind == "steer":
+                    controller.steer("use the newly supplied constraint")
+                elif signal_kind == "coordination":
+                    controller.publish_coordination()
+                else:
+                    controller.cancel("operator cancelled during recovery")
+                model.release_recovery.set()
+                worker.join(timeout=5)
+
+                self.assertFalse(worker.is_alive())
+                self.assertEqual(tool.calls, 0)
+                self.assertFalse(
+                    any(
+                        event["event_type"] == "tool_execution_started"
+                        for event in trace.events
+                    )
+                )
+                if signal_kind == "cancel":
+                    self.assertIn("cancel", outcome[0])
+                    self.assertEqual(model.calls, 2)
+                else:
+                    self.assertIn("fresh response after new input", outcome[0])
+                    self.assertEqual(model.calls, 3)
+                    self.assertTrue(
+                        any(
+                            event["event_type"] == "recovery_decision"
+                            and event.get("failure_kind")
+                            in {"operator_steer", "runtime_coordination"}
+                            for event in trace.events
+                        )
+                    )
+
     def test_steer_discards_in_flight_model_result_and_streams_safe_events(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

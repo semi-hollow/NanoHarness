@@ -164,11 +164,16 @@ class ToolAuthorizationGate:
         """创建或读取人工授权事实，并拒绝复用目标已变化的批准。"""
 
         # region 1. 建立审批请求：操作意图先进入 planned/pending，进程退出后仍可恢复
-        # operation_key 同时索引操作状态表与 ApprovalStore，因此 resume 能定位原操作，
-        # 而不会仅凭工具名重新创建一次可能重复的写入。
+        # operation_key 始终索引 ApprovalStore；对真正的持久状态变更它也索引
+        # Operation Ledger。resume 因而能定位原操作，不仅凭工具名猜测。
         self.operation_tracker.ensure_planned(intent, step=step)
         approval = self.approvals.get(intent.operation_key)
-        if approval is None and not self.config.auto_approve_writes:
+        # stale 是旧 fingerprint 上的授权结论，不能永久占住同一 operation
+        # key。下一次 continuation 使用当前 fingerprint 覆盖为 fresh pending。
+        if (
+            (approval is None or approval.status == "stale")
+            and not self.config.auto_approve_writes
+        ):
             approval = self.approvals.request(
                 ApprovalRequestDraft(
                     tool_name=tool_call.name,
@@ -183,7 +188,7 @@ class ToolAuthorizationGate:
                     operation_fingerprint=intent.pre_execution_fingerprint,
                 )
             )
-            if intent.side_effect:
+            if intent.ledger_tracked:
                 self.operation_tracker.record_pending(intent, step=step)
         # endregion 1. 建立审批请求结束
 
@@ -252,7 +257,7 @@ class ToolAuthorizationGate:
         # ApprovalStore 保存人工授权事实；OperationTracker 保存获批后的操作状态，Trace 保存证据。
         # Gate 再把事实映射为三种控制结果：pending -> 暂停，rejected -> 失败 Observation，
         # approved -> 恢复 RUNNING 并允许调用方进入 ToolGateway。
-        if intent.side_effect and approved:
+        if intent.ledger_tracked and approved:
             self.operation_tracker.record_approved(intent, step=step)
         approval_trace = (
             approval.to_dict()

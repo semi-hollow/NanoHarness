@@ -1,9 +1,13 @@
+import hashlib
 import tempfile
 import unittest
 from pathlib import Path
 
 from agent_forge.observability.api import TraceRecorder
-from agent_forge.runtime.adapters import JsonApprovalRepository
+from agent_forge.runtime.adapters import (
+    JsonApprovalRepository,
+    JsonOperationLedgerRepository,
+)
 from agent_forge.runtime.api import build_agent_loop
 from agent_forge.runtime.config import RuntimeConfig
 from agent_forge.runtime.adapters.openai_compatible import AgentResponse
@@ -110,6 +114,7 @@ class HumanApprovalTest(unittest.TestCase):
             root = Path(tmp)
             (root / "target.py").write_text("value = 1\n", encoding="utf-8")
             approvals = JsonApprovalRepository(root / "approvals")
+            ledger_root = root / "ledger"
 
             first_trace = TraceRecorder(str(root / "first-trace.json"))
             first_config = RuntimeConfig(
@@ -118,6 +123,7 @@ class HumanApprovalTest(unittest.TestCase):
                 trace_file=str(root / "first-trace.json"),
                 auto_approve_writes=False,
                 approval_root=str(root / "approvals"),
+                operation_ledger_root=str(ledger_root),
             )
             first = build_agent_loop(first_config, first_trace, _registry(root), ReplaceThenFinalLLM()).run("fix target")
 
@@ -125,7 +131,11 @@ class HumanApprovalTest(unittest.TestCase):
             pending = approvals.list_pending()
             self.assertEqual(len(pending), 1)
             approvals.decide(pending[0].operation_key, "approved")
-            (root / "target.py").write_text("value = 3\n", encoding="utf-8")
+            original_fingerprint = pending[0].operation_fingerprint
+            (root / "target.py").write_text(
+                "# independently changed\nvalue = 1\n",
+                encoding="utf-8",
+            )
 
             second_trace = TraceRecorder(str(root / "second-trace.json"))
             second_config = RuntimeConfig(
@@ -134,17 +144,85 @@ class HumanApprovalTest(unittest.TestCase):
                 trace_file=str(root / "second-trace.json"),
                 auto_approve_writes=False,
                 approval_root=str(root / "approvals"),
+                operation_ledger_root=str(ledger_root),
             )
             second = build_agent_loop(second_config, second_trace, _registry(root), ReplaceThenFinalLLM()).run("fix target")
 
             self.assertIn("approval_stale", second)
-            self.assertEqual((root / "target.py").read_text(encoding="utf-8"), "value = 3\n")
+            self.assertEqual(
+                (root / "target.py").read_text(encoding="utf-8"),
+                "# independently changed\nvalue = 1\n",
+            )
             self.assertEqual(approvals.get(pending[0].operation_key).status, "stale")
             self.assertTrue(
                 any(
                     event["event_type"] == "human_approval"
                     and event.get("observation") == "approval_stale"
                     for event in second_trace.events
+                )
+            )
+
+            # 下一次 continuation 不复用 stale，而是为当前目标建立 fresh pending。
+            third_trace = TraceRecorder(str(root / "third-trace.json"))
+            third_config = RuntimeConfig(
+                workspace=str(root),
+                max_steps=3,
+                trace_file=str(root / "third-trace.json"),
+                auto_approve_writes=False,
+                approval_root=str(root / "approvals"),
+                operation_ledger_root=str(ledger_root),
+            )
+            third = build_agent_loop(
+                third_config,
+                third_trace,
+                _registry(root),
+                ReplaceThenFinalLLM(),
+            ).run("fix target")
+
+            self.assertIn("waiting_approval", third)
+            fresh = approvals.get(pending[0].operation_key)
+            self.assertIsNotNone(fresh)
+            assert fresh is not None
+            self.assertEqual(fresh.status, "pending")
+            self.assertNotEqual(fresh.operation_fingerprint, original_fingerprint)
+            expected_sha = hashlib.sha256(
+                (root / "target.py").read_bytes()
+            ).hexdigest()
+            self.assertEqual(fresh.operation_fingerprint["sha256"], expected_sha)
+            operation = JsonOperationLedgerRepository(ledger_root).get(
+                pending[0].operation_key
+            )
+            self.assertIsNotNone(operation)
+            assert operation is not None
+            self.assertEqual(operation.pre_fingerprint, fresh.operation_fingerprint)
+
+            # fresh approval 仅授权新 fingerprint；获批后真实工具才执行。
+            approvals.decide(fresh.operation_key, "approved")
+            fourth_trace = TraceRecorder(str(root / "fourth-trace.json"))
+            fourth_config = RuntimeConfig(
+                workspace=str(root),
+                max_steps=3,
+                trace_file=str(root / "fourth-trace.json"),
+                auto_approve_writes=False,
+                approval_root=str(root / "approvals"),
+                operation_ledger_root=str(ledger_root),
+            )
+            fourth = build_agent_loop(
+                fourth_config,
+                fourth_trace,
+                _registry(root),
+                ReplaceThenFinalLLM(),
+            ).run("fix target")
+
+            self.assertIn("patch applied after approval", fourth)
+            self.assertEqual(
+                (root / "target.py").read_text(encoding="utf-8"),
+                "# independently changed\nvalue = 2\n",
+            )
+            self.assertTrue(
+                any(
+                    event["event_type"] == "tool_execution_started"
+                    for event in fourth_trace.events
                 )
             )
 

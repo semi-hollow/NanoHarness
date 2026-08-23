@@ -435,7 +435,7 @@ def _build_digest(
     这里不修改权威会话历史。
     """
 
-    # region 1. 来源边界：冻结本次摘要覆盖的消息和稳定 hash
+    # region 1. 来源边界：冻结覆盖消息、配对 Observation 与稳定 hash
     covered_messages = [
         message
         for history_segment in history_segments
@@ -444,13 +444,30 @@ def _build_digest(
     digest_source_payload = json.dumps(
         [
             {
-                "role": message.role,
-                "content": message.content,
-                "name": message.name,
-                "tool_call_id": message.tool_call_id,
-                "tool_calls": message.tool_calls,
+                "message": {
+                    "role": message.role,
+                    "content": message.content,
+                    "name": message.name,
+                    "tool_call_id": message.tool_call_id,
+                    "tool_calls": message.tool_calls,
+                    "reasoning_content": message.reasoning_content,
+                },
+                "observation": (
+                    {
+                        "tool_name": observation.tool_name,
+                        "success": observation.success,
+                        "content": observation.content,
+                        "execution_succeeded": observation.execution_succeeded,
+                    }
+                    if observation is not None
+                    else None
+                ),
             }
-            for message in covered_messages
+            for history_segment in history_segments
+            for message, observation in zip(
+                history_segment.messages,
+                history_segment.observations,
+            )
         ],
         ensure_ascii=False,
         sort_keys=True,

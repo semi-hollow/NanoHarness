@@ -224,6 +224,64 @@ class PromptWindowManagerTest(unittest.TestCase):
             [(message.role, message.content) for message in second.llm_messages],
         )
 
+    def test_digest_source_hash_covers_assistant_reasoning_content(self) -> None:
+        def build(reasoning_content: str):
+            segments = compaction_module._group_history_segments(
+                [
+                    Message(
+                        "assistant",
+                        "inspect parser",
+                        reasoning_content=reasoning_content,
+                    )
+                ],
+                [],
+            )
+            return compaction_module._build_digest(
+                "inspect parser",
+                segments,
+                estimated_tokens_before=100,
+                skip_initial_user_message=False,
+            )
+
+        self.assertNotEqual(
+            build("reason-a").source_hash,
+            build("reason-b").source_hash,
+        )
+
+    def test_digest_source_hash_covers_typed_observation_fields(self) -> None:
+        messages = [
+            Message(
+                "assistant",
+                "",
+                tool_calls=[
+                    {
+                        "id": "read-1",
+                        "name": "read_file",
+                        "arguments": {"path": "target.py"},
+                    }
+                ],
+            ),
+            Message("tool", "content", tool_call_id="read-1"),
+        ]
+
+        def build(success: bool):
+            segments = compaction_module._group_history_segments(
+                messages,
+                [Observation("read_file", success, "content")],
+            )
+            return compaction_module._build_digest(
+                "inspect parser",
+                segments,
+                estimated_tokens_before=100,
+                skip_initial_user_message=False,
+            )
+
+        successful = build(True)
+        failed = build(False)
+        self.assertNotEqual(successful.source_hash, failed.source_hash)
+        self.assertTrue(successful.tool_transactions[0].success)
+        self.assertFalse(failed.tool_transactions[0].success)
+
     def test_next_turn_merges_only_current_session_uncovered_delta(self) -> None:
         manager = PromptWindowManager(
             PromptBudget(max_prompt_tokens=1_200, reserved_output_tokens=100)
