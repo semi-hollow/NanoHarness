@@ -318,7 +318,7 @@ def project_worker_handoff(result: LiveSubagentResult) -> WorkerHandoff:
 # 核心数据：fanout 中途恢复点的计划身份、结果和合并进度。
 @dataclass(frozen=True)
 class FanoutCheckpoint:
-    """写入 durable checkpoint 的完整快照。"""
+    """写入 durable checkpoint 的进度证据；LIVE mailbox 不在快照中。"""
 
     plan_digest: str
     base_head: str
@@ -422,7 +422,11 @@ def aggregate_live_metrics(
     max_workers: int,
     finalizer_usage: dict[str, Any],
 ) -> dict[str, Any]:
-    """区分本次消耗、恢复历史和完整证据链消耗。"""
+    """区分本次消耗、恢复历史和完整证据链消耗。
+
+    伪代码：先算当前/恢复 Worker 时间 -> 对每个 usage key 分别聚合当前与历史
+    -> current 加 Finalizer -> evidence chain 再加恢复历史 -> 单列 Finalizer 调用数。
+    """
 
     # region 1. 时间与数量：恢复 Worker 不进入本轮并发收益口径
     # wall time 只对应当前执行；历史恢复时长另列，避免制造虚假并发比率。

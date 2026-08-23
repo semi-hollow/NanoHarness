@@ -1,4 +1,4 @@
-"""把外部 pause、cancel 和 steer 转换为 AgentLoop 状态迁移。"""
+"""把操作员控制与 Runtime coordination 转换为 AgentLoop 安全边界迁移。"""
 
 from __future__ import annotations
 
@@ -18,7 +18,7 @@ from agent_forge.runtime.ports import EventSink, RunControlPort
 
 @dataclass(frozen=True, kw_only=True)
 class RunControlOutcome:
-    """一次安全边界检查产生的停止请求和 steer 事实。"""
+    """一次安全边界检查产生的停止、steer 与 coordination 事实。"""
 
     stop: StopRequest | None = None
     steered: bool = False
@@ -30,36 +30,41 @@ class RunControlOutcome:
 
 
 class RunControlHandler:
-    """只在模型/工具安全边界消费控制信号，不伪装进程级抢占。
+    """只在模型/工具安全边界消费控制与协调信号，不伪装进程级抢占。
 
-    pause/cancel 在每个安全边界都可消费；steer 只在模型边界消费。这样不会在一条
-    assistant ToolCall 与对应 tool Observation 之间插入 user message，破坏消息协议。
+    pause/cancel 在每个安全边界都可消费；operator steer 和 Runtime coordination
+    只在模型边界进入输入。coordination 即使使用 ``role=user`` 传输，也始终带有
+    ``human_authority=false``，不能获得操作员授权语义。
     """
 
     def __init__(self, control: RunControlPort, trace: EventSink) -> None:
         self.control = control
         self.trace = trace
 
-    # 主要入口：处理终止信号，并按顺序把 steer 注入下一轮会话。
+    # 主要入口：先处理终止信号，再把 steer/coordination 分别注入下一轮模型输入。
     def consume_pending_signals(
         self,
         session: AgentRunSession,
         step: int,
         *,
-        include_steer: bool = True,
+        include_model_input_signals: bool = True,
         boundary: str = "before_model",
     ) -> RunControlOutcome:
-        """返回 pause/cancel 停止请求；steer 只追加新的用户消息。
+        """消费当前安全边界允许处理的控制与协调输入。
 
-        ``include_steer=False`` 用于工具前的最后检查：仍允许操作员阻止状态变更操作启动，但把
-        改方向消息留在队列，直到下一次模型输入组装前。若 steer 在模型调用期间到达，
-        AgentLoop 会丢弃已经过时的模型响应，再开始下一 turn。
+        伪代码：优先消费 pause/cancel -> 若当前不是模型边界则保留输入类信号
+        -> 分别 drain operator steer 与 coordination -> 注入不同来源标记
+        -> 分开记录 checkpoint/trace provenance -> 返回模型输入是否变化。
+
+        ``include_model_input_signals=False`` 用于工具事务边界：仍允许操作员阻止
+        状态变更操作启动，但把 steer 和 coordination 留到下一模型边界。
         """
 
         # region 1. 终止类信号：pause/cancel 优先，并转换为可持久化 StopRequest
         # RunController 每个 run 只保留一个最新 terminal 信号；消费后立即返回，
-        # 保证 pause/cancel 不会与后面的 steer 同时改变同一个安全边界。
+        # 保证 pause/cancel 不会与后面的模型输入信号同时改变同一个安全边界。
         terminal_control_signal = self.control.take_terminal(self.trace.run_id)
+        # terminal 优先级最高；一旦命中，本边界不再 drain steer 或 coordination。
         if terminal_control_signal is not None:
             self._record_control_signal(session, step, terminal_control_signal)
             terminal_stop_status = (
@@ -86,8 +91,9 @@ class RunControlHandler:
             )
         # endregion 1. 终止类信号结束
 
-        # region 2. 工具边界：保留 steer，避免插入 assistant/tool 协议事务中间
-        if not include_steer:
+        # region 2. 非模型边界：保留输入类信号，避免插入 assistant/tool 协议事务中间
+        # ToolCall 与 Observation 必须相邻，因此两类模型输入信号都继续留在队列。
+        if not include_model_input_signals:
             return RunControlOutcome()
 
         pending_steer_signals = self.control.drain_steers(self.trace.run_id)
@@ -95,13 +101,13 @@ class RunControlHandler:
             self.trace.run_id,
             boundary=boundary,
         )
+        # 两条来源都为空时不修改 Conversation、Checkpoint 或 Trace。
         if not pending_steer_signals and not coordination_signals:
             return RunControlOutcome()
-        # endregion 2. 工具边界结束
+        # endregion 2. 非模型边界结束
 
-        # region 3. 模型边界：按到达顺序注入 steer，并持久化最近控制历史
-        # drain_steers 一次取走当前 FIFO 队列；每条消息以 user role 追加，
-        # 使下一次 llm.chat 看见新方向，同时 checkpoint 只保留最近十条审计摘要。
+        # region 3. 模型边界：分别注入操作员方向和非人工协调证据
+        # steer 以明确的 Operator envelope 进入下一次 llm.chat，并保留人工控制审计。
         for steer_signal in pending_steer_signals:
             session.messages.append(
                 Message(
@@ -113,6 +119,7 @@ class RunControlHandler:
                 )
             )
             self._record_control_signal(session, step, steer_signal)
+        # coordination 也使用 user role 作为传输编码，但 envelope 明确否认 human authority。
         for coordination_signal in coordination_signals:
             session.messages.append(
                 Message(
@@ -130,6 +137,7 @@ class RunControlHandler:
                 coordination_signal,
                 boundary=boundary,
             )
+        # 两类 provenance 使用不同 metadata key；任何一类都不能覆盖另一类历史。
         metadata = dict(session.lifecycle.checkpoint.metadata)
         stored_steer_messages = metadata.get("steer_messages")
         updated_steer_messages = (
@@ -188,6 +196,8 @@ class RunControlHandler:
         *,
         boundary: str,
     ) -> None:
+        """以独立事件类型记录非人工协调身份、版本和实际消费边界。"""
+
         self.trace.add(
             step,
             session.agent_name,

@@ -1,4 +1,4 @@
-"""运行中人工控制的领域信号。"""
+"""运行时控制与协调的领域信号。"""
 
 from __future__ import annotations
 
@@ -10,7 +10,7 @@ from agent_forge.contracts import JsonObject
 
 
 class RunControlKind(Enum):
-    """Runtime 在安全边界上能够处理的控制动作。"""
+    """操作员在 Runtime 安全边界可提交的控制动作。"""
 
     PAUSE = "pause"
     CANCEL = "cancel"
@@ -28,6 +28,7 @@ class RunControlSignal:
     requested_at: float = field(default_factory=time.time)
 
     def __post_init__(self) -> None:
+        # STEER 会进入下一轮模型输入，空消息无法表达新的操作员方向。
         if self.kind == RunControlKind.STEER and not self.message.strip():
             raise ValueError("steer message must not be empty")
 
@@ -58,6 +59,8 @@ class RuntimeCoordinationSignal:
     human_authority: bool = False
 
     def to_dict(self) -> JsonObject:
+        """只投影协调身份与版本，模型输入内容不重复写入控制元数据。"""
+
         return {
             "event_id": self.event_id,
             "plan_generation_id": self.plan_generation_id,

@@ -1,9 +1,10 @@
-"""AgentLoop 查询运行中人工控制信号的端口。
+"""AgentLoop 查询运行中人工控制与 Runtime coordination 的读取端口。
 
-本文件只有 ``Protocol`` 契约，不负责接收用户输入。真实输入端是公开
-``agent_forge.RunController.pause/cancel/steer``；它作为
-``HarnessExtensions.run_control`` 注入后，由 Application 通过下面两个只读方法消费。
-CLI 默认装配 ``NoopRunControl``，因此当前 live steer 是嵌入式 SDK 能力，不是终端交互命令。
+本文件只有 ``Protocol`` 契约，不接收输入。操作员通过公开
+``agent_forge.RunController.pause/cancel/steer`` 提交控制；Multi-Agent Worker 通过
+``LiveHandoffRunControl`` 接收非人工协调证据。两条来源都由 composition root 注入，
+再由 Application 通过下面三个只读方法消费。CLI 默认装配 ``NoopRunControl``，
+因此当前 operator live steer 是嵌入式 SDK 能力，不是终端交互命令。
 """
 
 from __future__ import annotations
@@ -17,13 +18,12 @@ from agent_forge.runtime.domain.run_control import (
 
 
 class RunControlPort(Protocol):
-    """控制信号的 Runtime 读取侧契约，不是具体队列实现。
+    """人工控制与 Runtime coordination 的统一读取侧契约，不是队列实现。
 
-    实现地图：``RunController`` 是线程安全内存 Adapter；``NoopRunControl`` 是无输入
-    Adapter；``RunControlHandler.consume_pending_signals`` 把读出的信号转换为状态
-    迁移或下一轮 user message。
-    Python 本可用结构化类型；两个关键 Adapter 仍显式继承本类，让 IDE Hierarchy
-    能直接跳到实现。
+    实现地图：``RunController`` 提供线程安全的人工控制；``LiveHandoffRunControl``
+    投影 Worker mailbox；``NoopRunControl`` 让两类输入都为空。
+    ``RunControlHandler.consume_pending_signals`` 再把读出的信号转换为状态迁移或
+    下一轮模型输入。三个关键 Adapter 都显式继承本类，IDE Hierarchy 可直接跳转。
     """
 
     def take_terminal(self, run_id: str) -> RunControlSignal | None:
@@ -42,6 +42,6 @@ class RunControlPort(Protocol):
         *,
         boundary: str,
     ) -> list[RuntimeCoordinationSignal]:
-        """取出只允许在模型边界进入下一输入的 Runtime coordination。"""
+        """取出只允许在命名模型边界进入下一输入的非人工协调证据。"""
 
         ...

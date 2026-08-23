@@ -401,7 +401,11 @@ class LiveHandoffRuntime:
 
     # region 6. 锁内不变量：route、因果、attempt freshness、timeline commit 与 notify
     def _validate_publish_locked(self, event: LiveHandoffEvent) -> None:
-        """按事件方向校验显式 route、单调版本和 FEEDBACK/UPDATE 因果。"""
+        """按事件方向校验显式 route、单调版本和 FEEDBACK/UPDATE 因果。
+
+        伪代码：定位正向/反向授权 route -> READY/UPDATE 校验连续版本
+        -> UPDATE 证明 FEEDBACK cause -> FEEDBACK 证明目标仍运行且版本确实被消费。
+        """
 
         # forward 对应 Producer -> Consumer 的 READY/UPDATE 授权边。
         forward = next(

@@ -16,6 +16,7 @@ from agent_forge.multi_agent.application.fanout import FanoutCoordinator
 from agent_forge.multi_agent.application.planning import AdaptivePlanner
 from agent_forge.multi_agent.domain.live import (
     CriterionResult,
+    FanoutCheckpoint,
     FanoutPlan,
     FinalizerResult,
     LiveSubagentResult,
@@ -525,6 +526,62 @@ class FanoutV1MechanismTest(unittest.TestCase):
             self.assertEqual(resumed_workers.calls, [("B2", 1)])
             self.assertEqual(forbidden_replanner.calls, 0)
             self.assertTrue(resumed.results[0].resumed)
+
+    def test_resume_rejects_live_effective_plan_created_by_replan(self):
+        """初始 HARD Plan 也不能绕过 LIVE mailbox 不支持 replay 的边界。"""
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            initial_plan = _fanout_plan([_task("A"), _task("B")])
+            live_effective_plan = FanoutPlan.from_mapping(
+                {
+                    "goal": initial_plan.goal,
+                    "global_acceptance_criteria": list(
+                        initial_plan.global_acceptance_criteria
+                    ),
+                    "tasks": [_task("B2"), _task("C2")],
+                    "live_dependencies": [
+                        {
+                            "producer_task_id": "B2",
+                            "target_task_id": "C2",
+                            "semantic_key": "shared_contract",
+                        }
+                    ],
+                }
+            )
+            prior_artifacts = FanoutFileRepository(root / "prior")
+            checkpoint_path = prior_artifacts.write_checkpoint(
+                FanoutCheckpoint(
+                    plan_digest=initial_plan.digest,
+                    base_head="base-sha",
+                    results=[],
+                    merged_task_ids=[],
+                    status="partial_failure",
+                    initial_plan_identity={
+                        "digest": initial_plan.digest,
+                        "goal": initial_plan.goal,
+                    },
+                    effective_plan=live_effective_plan,
+                    effective_plan_digest=live_effective_plan.digest,
+                    replan_round=1,
+                )
+            )
+
+            coordinator = FanoutCoordinator(
+                plan=initial_plan,
+                base_config=RuntimeConfig(workspace=str(root), max_steps=4),
+                dependencies=LiveFanoutDependencies(
+                    events=TraceRecorder(str(root / "trace.json")),
+                    workspace=OneShotMergeFaultWorkspace(inject_b_fault=False),
+                    artifacts=FanoutFileRepository(root / "resumed"),
+                    workers=DeterministicWorkerPort(root / "workers"),
+                ),
+                max_workers=2,
+                resume_from=checkpoint_path,
+            )
+
+            with self.assertRaisesRegex(RuntimeError, "LIVE coordination resume"):
+                coordinator.run()
 
 
 class CriteriaFinalizerContractTest(unittest.TestCase):

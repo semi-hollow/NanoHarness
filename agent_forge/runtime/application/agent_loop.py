@@ -39,7 +39,7 @@ class TurnOutcomeKind(str, Enum):
 
 @dataclass(frozen=True)
 class TurnOutcome:
-    """显式区分正常下一轮、steer 重规划和停止。"""
+    """显式区分正常下一轮、模型输入变化后的重规划和停止。"""
 
     kind: TurnOutcomeKind
     stop_request: StopRequest | None = None
@@ -110,47 +110,52 @@ class AgentLoop:
         """
 
         # region 1. 创建会话并处理首次控制/澄清屏障
-        # 创建 session 后先消费 pause/cancel/steer，再执行输入策略、Memory 与澄清准备；
+        # 创建 session 后先消费 pause/cancel，再执行输入策略、Memory 与澄清准备；
         # 任一步产生 StopRequest 都直接汇合到唯一终态 owner，而不进入 Turn Loop。
         run_session = self.run_preparation.create_session(task, agent_name)
         initial_operator_control = self.run_control_handler.consume_pending_signals(
             run_session,
             0,
-            include_steer=False,
+            include_model_input_signals=False,
             boundary="before_run",
         )
+        # 首次边界只消费 terminal；steer/coordination 要等首个模型输入边界。
         if initial_operator_control.stop is not None:
             return self._finalize_run(
                 run_session,
                 initial_operator_control.stop,
             )
         preparation_stop = self.run_preparation.prepare_run(run_session)
+        # 澄清、恢复或前置策略产生 StopRequest 时，不创建任何模型 Turn。
         if preparation_stop is not None:
             return self._finalize_run(run_session, preparation_stop)
         # endregion 1. 创建会话并处理首次控制/澄清屏障结束
 
         # region 2. 有界 Turn Loop：每轮只编排，不复制阶段规则
         for step in range(1, run_session.max_iterations + 1):
-            # 模型边界 1：先把已排队 steer 写成 user message，再组装本 turn 上下文。
-            operator_control = self.run_control_handler.consume_pending_signals(
+            # 模型边界 1：先注入已排队的 steer/coordination，再组装本 Turn 上下文。
+            run_control_outcome = self.run_control_handler.consume_pending_signals(
                 run_session,
                 step,
                 boundary="before_model",
             )
-            if operator_control.stop is not None:
+            # terminal 仍优先于任何新模型输入，命中后直接走统一终态 owner。
+            if run_control_outcome.stop is not None:
                 return self._finalize_run(
                     run_session,
-                    operator_control.stop,
+                    run_control_outcome.stop,
                 )
             turn_outcome = self._run_turn(run_session, step)
+            # 只有 STOP 离开循环；CONTINUE/REPLAN 都由下一次迭代重建输入。
             if turn_outcome.kind == TurnOutcomeKind.STOP:
+                # STOP 没有 StopRequest 属于内部契约损坏，不能猜测终态。
                 if turn_outcome.stop_request is None:  # pragma: no cover - invariant
                     raise AssertionError("STOP turn outcome requires StopRequest")
                 return self._finalize_run(
                     run_session,
                     turn_outcome.stop_request,
                 )
-            # CONTINUE 表示工具事务完成；REPLAN 表示 steer 使旧响应失效。
+            # CONTINUE 表示工具事务完成；REPLAN 表示 steer/coordination 使旧响应失效。
             # 两者都进入下一 turn，但语义不再由 ``None`` 隐式承载。
         # endregion 2. 有界 Turn Loop结束
 
@@ -171,7 +176,11 @@ class AgentLoop:
         session: AgentRunSession,
         step: int,
     ) -> TurnOutcome:
-        """执行一个 turn：准备输入 -> 调用模型 -> final 或工具分支。"""
+        """执行一个 Turn：准备输入 -> 调用模型 -> final 或工具分支。
+
+        伪代码：冻结当前输入 -> 调用模型 -> 消费调用期间到达的控制/协调
+        -> 必要时丢弃 stale response -> 尝试一次窗口恢复 -> 分流 final/tool/stop。
+        """
 
         # region 1. 准备模型输入并执行一次受 Hook 治理的模型调用
         # TurnPreparation 冻结本轮 context、可见工具和预算；_call_model 负责模型前后 Hook，
@@ -183,26 +192,31 @@ class AgentLoop:
             session,
             prepared_turn,
         )
+        # 决策 Hook 拒绝模型调用时，直接携带它生成的停止事实离开本 Turn。
         if hook_stop_request is not None:
             return TurnOutcome(TurnOutcomeKind.STOP, hook_stop_request)
+        # _call_model 正常路径必须返回响应；空值只能代表内部契约被破坏。
         if model_response is None:  # pragma: no cover - protected by _call_model
             raise AssertionError("model invocation returned no response")
         # endregion 1. 准备模型输入并执行一次受 Hook 治理的模型调用结束
 
-        # region 2. 模型返回边界：优先消费操作员控制与预算信号
-        # 模型边界 2：模型调用期间到达的 steer 使本次 response 过时；丢弃后重规划。
-        operator_control = self.run_control_handler.consume_pending_signals(
+        # region 2. 模型返回边界：优先消费 Runtime 控制/协调与预算信号
+        # 模型边界 2：调用期间到达的 steer/coordination 使 response 过时；丢弃后重规划。
+        run_control_outcome = self.run_control_handler.consume_pending_signals(
             session,
             step,
             boundary="after_model",
         )
-        if operator_control.stop is not None:
-            return TurnOutcome(TurnOutcomeKind.STOP, operator_control.stop)
-        if operator_control.model_input_changed:
-            self._record_stale_model_response(session, step, operator_control)
+        # pause/cancel 到达时优先停止，不再使用已经返回的模型结果。
+        if run_control_outcome.stop is not None:
+            return TurnOutcome(TurnOutcomeKind.STOP, run_control_outcome.stop)
+        # 任一输入类信号到达都要求废弃旧响应，下一 Turn 会看到新输入。
+        if run_control_outcome.model_input_changed:
+            self._record_stale_model_response(session, step, run_control_outcome)
             return TurnOutcome(TurnOutcomeKind.REPLAN)
 
         budget_stop_request = self._budget_stop_request(session, step)
+        # 模型成本和 wall-clock 已计入后再判断预算，超限响应不能继续执行 Tool。
         if budget_stop_request is not None:
             return TurnOutcome(TurnOutcomeKind.STOP, budget_stop_request)
         # endregion 2. 模型返回边界结束
@@ -228,6 +242,7 @@ class AgentLoop:
                 model_error=model_response.error,
                 recovery_reduced_context=recovery_reduced_context,
             )
+            # 只有确实压缩成功才允许一次额外模型调用，避免重复相同失败请求。
             if recovery_reduced_context:
                 # 重试仍走同一个模型 Hook 和预算检查，恢复路径不能绕过正常治理。
                 prepared_turn = compacted_turn
@@ -235,11 +250,14 @@ class AgentLoop:
                     session,
                     prepared_turn,
                 )
+                # 恢复调用仍受相同 Hook 决策约束。
                 if hook_stop_request is not None:
                     return TurnOutcome(TurnOutcomeKind.STOP, hook_stop_request)
+                # 恢复路径也必须满足模型响应契约。
                 if model_response is None:  # pragma: no cover - protected above
                     raise AssertionError("model recovery returned no response")
                 budget_stop_request = self._budget_stop_request(session, step)
+                # 第二次调用产生的新成本也必须立即进入同一预算门。
                 if budget_stop_request is not None:
                     return TurnOutcome(TurnOutcomeKind.STOP, budget_stop_request)
         # endregion 3. 上下文溢出恢复结束
@@ -268,6 +286,7 @@ class AgentLoop:
             step=step,
             allowed_tool_names=prepared_turn.allowed_tool_names,
         )
+        # Tool pipeline 产生审批、人工输入或失败终态时，主循环统一收口。
         if tool_stop is not None:
             return TurnOutcome(TurnOutcomeKind.STOP, tool_stop)
         return TurnOutcome(TurnOutcomeKind.CONTINUE)
@@ -296,6 +315,7 @@ class AgentLoop:
             prepared_turn=prepared_turn,
             hook_result=before_model_decision.to_dict(),
         )
+        # DENY/ASK 都不允许发起 provider 请求，直接返回显式 StopRequest。
         if before_model_decision.decision in {
             HookDecisionType.DENY,
             HookDecisionType.ASK,
@@ -331,6 +351,7 @@ class AgentLoop:
             estimated_cost_usd=session.estimated_cost_usd,
             include_step_limit=False,
         )
+        # 没有预算停止信号时继续使用本次模型响应。
         if budget_stop_signal is None:
             return None
         return StopRequest(
@@ -545,8 +566,10 @@ class AgentLoop:
     ) -> str:
         """更新内存状态，并把唯一 terminal transition 交给 lifecycle。"""
 
+        # 内存字符串只做轻量展示投影；TaskRunStatus 仍由 lifecycle 持久化。
         if stop_request.status == TaskRunStatus.COMPLETED:
             session.status = "completed"
+        # provider/runtime 明确失败与普通暂停、阻断分开显示。
         elif stop_request.status == TaskRunStatus.FAILED:
             session.status = "failed"
         else:

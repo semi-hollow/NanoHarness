@@ -613,6 +613,9 @@ class LiveFanoutTest(unittest.TestCase):
             self.assertEqual(summary.results[0].status, "scope_violation")
             self.assertEqual((repo / "b.py").read_text(encoding="utf-8"), "value = 1\n")
             self.assertEqual(summary.merged_task_ids, [])
+            report = Path(summary.report_path).read_text(encoding="utf-8")
+            self.assertIn("No explicit FanoutConflict record", report)
+            self.assertNotIn("No static, dynamic, scope", report)
 
     def test_write_fanout_rejects_non_recoverable_per_operation_manual_approval(self):
         with tempfile.TemporaryDirectory() as tmp:

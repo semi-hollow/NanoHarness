@@ -612,13 +612,22 @@ class CodeNavigationContractTest(unittest.TestCase):
                     )
 
     def test_multi_agent_control_flow_reads_like_pseudocode(self) -> None:
-        """核心分支和循环前必须先说明业务目的，折叠展开后无需逐行猜语法。"""
+        """Multi-Agent 及其协调主链的分支前必须先说明业务目的。"""
 
         missing_navigation_comments: list[str] = []
         multi_agent_root = PROJECT_ROOT / "agent_forge/multi_agent"
+        coordination_runtime_paths = [
+            PROJECT_ROOT / "agent_forge/runtime/domain/run_control.py",
+            PROJECT_ROOT / "agent_forge/runtime/application/run_control.py",
+            PROJECT_ROOT / "agent_forge/runtime/application/agent_loop.py",
+        ]
+        navigation_paths = [
+            *sorted(multi_agent_root.rglob("*.py")),
+            *coordination_runtime_paths,
+        ]
 
-        # 一条粗粒度规则覆盖整个能力包，避免为每个类分别维护细碎白名单。
-        for path in sorted(multi_agent_root.rglob("*.py")):
+        # 一条粗粒度规则覆盖能力包及真实 AgentLoop 接缝，避免维护细碎方法白名单。
+        for path in navigation_paths:
             source_lines = path.read_text(encoding="utf-8").splitlines()
             tree = ast.parse("\n".join(source_lines), filename=str(path))
 

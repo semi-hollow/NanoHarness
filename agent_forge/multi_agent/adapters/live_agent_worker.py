@@ -135,6 +135,12 @@ class LiveHandoffRunControl(RunControlPort):
         *,
         boundary: str,
     ) -> list[RuntimeCoordinationSignal]:
+        """把当前 mailbox 事件投影为 AgentLoop 可消费的非人工协调信号。
+
+        伪代码：按 safe boundary drain mailbox -> 保留 generation/attempt/route/version
+        -> 编码紧凑内容 -> 固定 ``human_authority=False`` -> 交给 RunControlHandler。
+        """
+
         return [
             RuntimeCoordinationSignal(
                 event_id=event.event_id,

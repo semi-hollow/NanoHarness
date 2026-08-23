@@ -92,9 +92,9 @@ class FanoutCoordinator:
 
         伪代码主线：
 
-        1. 固定 Git/Plan 身份，必要时恢复已经验证并合入的前缀。
+        1. 固定 Git/Plan 身份，HARD-only 时可恢复已经验证并合入的前缀。
         2. 按 HARD batches 或 LIVE dependencies 调度尚未成功的 Worker。
-        3. 每轮把 candidate 过冲突与集成门；失败只允许一次 retry/replan。
+        3. 每 Task 最多一次 retry，每 candidate 最多一次冲突恢复，整轮最多一次 Replan。
         4. 所有任务成功且无冲突时，才启动只读 Finalizer。
         5. 无论成功或失败，都发布同一份 Summary、Checkpoint 和 Trace 事实。
         """
@@ -102,7 +102,7 @@ class FanoutCoordinator:
         # 从进入编排器开始计时；Worker 历史恢复成本会在 Metrics 中另行区分。
         started_at = time.monotonic()
         # region 1. 固定计划身份并恢复已合并前缀
-        # Resume 先验证 initial/effective plan 身份，再重放已合并 Diff；不会调用 Planner。
+        # HARD-only Resume 验证 initial/effective plan 后重放前缀；不会调用 Planner。
         # 先读取不可变 Git 基线并做前置检查，检查失败时还没有创建任何 Worker。
         base_revision = self.workspace.head()
         self._validate_run_preconditions(base_revision)
@@ -734,7 +734,11 @@ class FanoutCoordinator:
         merged_task_ids: list[str],
         detected_conflicts: list[FanoutConflict],
     ) -> None:
-        """在一个原子 freshness 授权之后应用 candidate；冲突仍只恢复一次。"""
+        """在一个原子 freshness 授权之后应用 candidate；冲突仍只恢复一次。
+
+        伪代码：冻结 freshness -> 尝试应用 candidate -> 冲突则从最新基线重跑一次
+        -> 新 Attempt 再过 freshness -> 失败 sealed=false，成功 sealed=true 并记入前缀。
+        """
 
         # region 1. Freshness 授权：最终版本或 Attempt 已过期时直接拒绝集成
         # authorize_integration 是正确性边界；调度完成不等于仍有资格写入集成结果。
@@ -839,7 +843,11 @@ class FanoutCoordinator:
         *,
         live_handoff: LiveHandoffRuntime | None = None,
     ) -> LiveSubagentResult:
-        """运行一个有编号的 Worker Attempt，并把异常统一投影为结果契约。"""
+        """运行一个有编号的 Worker Attempt，并把异常统一投影为结果契约。
+
+        伪代码：分配 Attempt -> 可选绑定 LIVE Context -> 调用同一个 Worker Port
+        -> 异常转失败结果 -> LIVE Runtime 原子记录 finished/failed -> 返回结果。
+        """
 
         # region 1. Attempt 身份：先递增尝试号，再绑定不可伪造的 Worker Context
         attempt = self._next_attempt(task.id, attempt_counts)
@@ -960,7 +968,11 @@ class FanoutCoordinator:
         merged_task_ids: list[str],
         detected_conflicts: list[FanoutConflict],
     ) -> None:
-        """按稳定顺序合并候选结果；补丁失效时仅允许一次最新状态串行重跑。"""
+        """按稳定顺序合并候选结果；补丁失效时仅允许一次最新状态串行重跑。
+
+        伪代码：恢复计划顺序 -> 跳过失败 Worker -> apply candidate
+        -> merge conflict 时从最新 workspace 重跑一次 -> 只有 merged 才加入成功前缀。
+        """
 
         # region 1. 稳定索引：按输入任务顺序处理，不依赖并发完成顺序
         worker_result_by_id = {
@@ -1158,7 +1170,11 @@ class FanoutCoordinator:
         current_results: dict[str, LiveSubagentResult],
         successful_task_ids: set[str],
     ) -> FanoutPlan:
-        """只为 remaining work 请求一次新计划，并保护已完成前缀。"""
+        """只为 remaining work 请求一次新计划，并保护已完成前缀。
+
+        伪代码：投影已完成 Handoff 与失败结果 -> 请求一次 Replan
+        -> 拒绝重定义完成任务或跨 generation LIVE route -> 合并冻结前缀形成新计划。
+        """
 
         # region 1. Remaining-work 证据：只把已完成 Handoff 与当前失败交给 Replanner
         # Replanner 只能看稳定 Handoff/Result，不能读取 Worker 私有 Conversation。
@@ -1246,7 +1262,11 @@ class FanoutCoordinator:
         self,
         base_revision: str,
     ) -> tuple[FanoutPlan, list[LiveSubagentResult], list[LiveSubagentResult], int]:
-        """校验并恢复有效计划与已合并前缀，不重新调用 Planner 或改写历史结果。"""
+        """校验并恢复有效计划与已合并前缀，不重新调用 Planner 或改写历史结果。
+
+        伪代码：校验 initial/effective plan 与 Git 基线 -> 逐项验证 merged candidate SHA
+        -> 在临时 worktree 重放 -> 对集成树 dry-check/apply -> 恢复历史 Attempt 证据。
+        """
 
         # region 1. Run 身份：initial/effective plan、base revision 与 replan round 必须一致
         # Resume 信任的是 digest 与 base revision，不信任 latest 指针或调用方描述。
@@ -1280,6 +1300,9 @@ class FanoutCoordinator:
         # 当前实现最多一次 Replan；其他值代表不受支持或损坏的状态。
         if replan_round not in {0, 1}:
             raise RuntimeError("fanout resume replan round is invalid")
+        # LIVE checkpoint 只保存进度证据，没有 mailbox replay，不能恢复成可执行状态机。
+        if effective_plan.live_dependencies:
+            raise RuntimeError("LIVE coordination resume is not supported in V1")
         # endregion 1. Run 身份
 
         # region 2. 已合并前缀：逐项验证状态、文件存在性与 candidate SHA
@@ -1383,7 +1406,7 @@ class FanoutCoordinator:
         replan_round: int,
         status: str,
     ) -> None:
-        """原子持久化当前有效计划、全部尝试和已合并前缀，供确定性恢复使用。"""
+        """原子持久化计划、尝试和合并进度；仅 HARD-only Run 支持确定性恢复。"""
 
         self.artifacts.write_checkpoint(
             FanoutCheckpoint(

@@ -160,8 +160,9 @@ class ToolExecutionPipeline:
             operator_control = self.run_control_handler.consume_pending_signals(
                 session,
                 step,
-                include_steer=False,
+                include_model_input_signals=False,
             )
+            # Tool 批次中只允许 terminal 打断；模型输入类信号继续等待下一模型边界。
             if operator_control.stop is not None:
                 return operator_control.stop
             tool_call_outcome = self._execute_call(
@@ -170,6 +171,7 @@ class ToolExecutionPipeline:
                 step=step,
                 allowed_tool_names=allowed_tool_names,
             )
+            # 单个 ToolCall 产生明确停止请求时，不再执行同批后续调用。
             if tool_call_outcome.stop_request is not None:
                 return tool_call_outcome.stop_request
         # endregion 2. 顺序执行结束
@@ -672,14 +674,15 @@ class ToolExecutionPipeline:
     ) -> ToolCallOutcome:
         """阶段 5：执行已获授权工具，再提交操作状态、证据和 checkpoint。"""
 
-        # region 1. 最后控制边界：pause/cancel 阻止状态变更操作启动，steer 留到模型边界
-        # 这是 ToolGateway 前最后一个 safe point。这里只消费终止类信号；steer 不能插在
-        # assistant ToolCall 与 tool Observation 中间，必须留到下一模型边界。
+        # region 1. 最后控制边界：terminal 可阻止启动，输入类信号留到模型边界
+        # 这是 ToolGateway 前最后一个 safe point。这里只消费 pause/cancel；steer 和
+        # coordination 都不能插在 ToolCall/Observation 中间，必须留到下一模型边界。
         operator_control = self.run_control_handler.consume_pending_signals(
             session,
             step,
-            include_steer=False,
+            include_model_input_signals=False,
         )
+        # pause/cancel 命中后阻止 ToolGateway 启动，避免新的状态变化发生。
         if operator_control.stop is not None:
             return ToolCallOutcome(
                 status=ToolCallStatus.STOPPED,

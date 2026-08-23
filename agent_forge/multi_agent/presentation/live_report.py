@@ -11,7 +11,7 @@ from ..domain.live import LiveFanoutSummary
 def render_live_fanout_report(summary: LiveFanoutSummary) -> str:
     """渲染当前消耗、恢复消耗、任务证据和 Claim Boundary。
 
-    伪代码：先写 Run/两套成本口径 -> 逐 Worker 写结果和 Handoff
+    伪代码：先写 Run/三种成本口径 -> 逐 Worker 写结果和 Handoff
     -> 展示恢复/冲突/Finalizer -> 以 Claim Boundary 收尾；不重新计算业务状态。
     """
 
@@ -131,7 +131,7 @@ def render_live_fanout_report(summary: LiveFanoutSummary) -> str:
     # endregion 2. Worker 证据
 
     # region 3. 治理结论：冲突门、Finalizer 与可对外声称的边界
-    # 有冲突时逐条列出；无冲突时明确说明四类 gate 都未观察到冲突。
+    # 有显式 FanoutConflict 时逐条列出；Worker status 中的失败仍由 Tasks 表保留。
     if summary.conflicts:
         lines.extend(
             f"- `{conflict.task_ids}`: {conflict.reason}"
@@ -139,7 +139,8 @@ def render_live_fanout_report(summary: LiveFanoutSummary) -> str:
         )
     else:
         lines.append(
-            "- No static, dynamic, scope, or diff-apply conflict was observed."
+            "- No explicit FanoutConflict record was emitted; inspect Worker status "
+            "for scope or candidate failures."
         )
     lines.extend(
         [

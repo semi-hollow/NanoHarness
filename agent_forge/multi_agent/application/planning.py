@@ -3,7 +3,7 @@
 系统角色：让模型选择 Single/Fanout 并提出结构化任务图，但不授予任何执行权。
 输入：原始任务、bounded repository map、可用工具和失败/完成 handoff。
 输出：``PlanningOutcome`` 或 remaining-work ``PlanningDecision``。
-相邻边界：``StructuredOutputParser`` 只修复 JSON；Domain contract 校验字段；
+相邻边界：``StructuredOutputParser`` 解析 JSON；Planner 至多发起一次结构或领域约束修复；
 ``FanoutPlan`` 再校验 HARD/LIVE 图；``FanoutCoordinator`` 才执行。
 
 折叠导航：1 输出契约；2 Planner 主链；3 artifact/resume；4 纯投影 helper。
@@ -122,9 +122,9 @@ class PlanningOutcome:
 # endregion 1. 输出契约结束
 
 
-# region 2. Planner 主链：一次正常请求 + 至多一次结构修复，不直接启动 Worker
+# region 2. Planner 主链：一次正常请求 + 至多一次结构/领域修复，不直接启动 Worker
 class AdaptivePlanner:
-    """一次提议、至多一次 JSON 修复的有界 Planner/Replanner。"""
+    """一次提议、至多一次结构或领域约束修复的有界 Planner/Replanner。"""
 
     # region 1. Public 决策：首轮 decide 与 remaining-work replan 共用同一请求边界
     def __init__(
