@@ -11,6 +11,54 @@ from agent_forge.runtime.ports.context import TurnSystemContextRequest
 
 
 class RepositoryTurnSystemContextAssemblerTest(unittest.TestCase):
+    def test_system_prompt_profile_matches_agentloop_execution_role(self) -> None:
+        expected_markers = {
+            "single_agent": "single_agent_system@2026-08-role-aware-v1",
+            "fanout_worker": "fanout_worker_system@2026-08-role-aware-v1",
+            "fanout_finalizer": "fanout_finalizer_system@2026-08-role-aware-v1",
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            (Path(tmp) / "target.py").write_text("VALUE = 1\n", encoding="utf-8")
+            rendered = {}
+            for profile in expected_markers:
+                report = RepositoryTurnSystemContextAssembler().build(
+                    TurnSystemContextRequest(
+                        task="inspect target.py",
+                        workspace=tmp,
+                        working_memory=WorkingMemory(),
+                        tool_schemas=[],
+                        active_skill_cards=[],
+                        max_chars=4_000,
+                        permission_summary="read allowed",
+                        system_prompt_profile=profile,
+                    )
+                )
+                rendered[profile] = report.render()
+
+        for profile, marker in expected_markers.items():
+            self.assertIn(marker, rendered[profile])
+            self.assertIn("actual authority", rendered[profile])
+        self.assertIn("complete repository task", rendered["single_agent"])
+        self.assertIn("isolated Worker", rendered["fanout_worker"])
+        self.assertIn("final read-only verifier", rendered["fanout_finalizer"])
+        self.assertEqual(len(set(rendered.values())), 3)
+
+    def test_unknown_system_prompt_profile_fails_closed(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            with self.assertRaisesRegex(KeyError, "unknown system prompt profile"):
+                RepositoryTurnSystemContextAssembler().build(
+                    TurnSystemContextRequest(
+                        task="inspect repository",
+                        workspace=tmp,
+                        working_memory=WorkingMemory(),
+                        tool_schemas=[],
+                        active_skill_cards=[],
+                        max_chars=4_000,
+                        permission_summary="read allowed",
+                        system_prompt_profile="unknown-role",
+                    )
+                )
+
     def test_repo_map_does_not_ignore_workspace_because_of_parent_directory(
         self,
     ) -> None:

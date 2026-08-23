@@ -1,7 +1,8 @@
-"""单 Agent Runtime 的类型化输入配置。
+"""AgentLoop Runtime 的类型化输入配置。
 
 字段按职责排列：workspace 与循环预算、恢复与人工控制、Skill/Tool 策略、
-长期记忆。
+长期记忆。Standalone、Fanout Worker 与 Finalizer 复用该配置类型，但由 composition
+显式选择不同的 System Prompt profile。
 新增运行策略应先归入这些分组，避免把任意 CLI 字段散落进 AgentLoop。
 """
 
@@ -62,6 +63,8 @@ class RuntimeConfig:
     skill_names: list[str] = field(default_factory=list)
     skill_manifest_files: list[str] = field(default_factory=list)
     tool_routing_mode: str = "task-aware"
+    # AgentLoop 复用同一控制流，但 System Prompt 必须准确表达当前执行角色。
+    system_prompt_profile: str = "single_agent"
 
     # 分层项目指令发现与 runtime override。
     instruction_target: str = ""

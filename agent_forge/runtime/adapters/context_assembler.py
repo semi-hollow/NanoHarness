@@ -43,5 +43,6 @@ class RepositoryTurnSystemContextAssembler(TurnSystemContextAssemblerPort):
                 global_instruction_files=request.global_instruction_files,
                 runtime_instructions=request.runtime_instructions,
                 instruction_max_bytes=request.instruction_max_bytes,
+                system_prompt_profile=request.system_prompt_profile,
             )
         )

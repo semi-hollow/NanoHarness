@@ -197,6 +197,7 @@ class LocalAgentWorkerAdapter(FanoutWorkerPort):
                     f"{task.id}:attempt-{attempt}"
                 ),
                 operation_ledger_root=str(worker_dir / "operation_ledger"),
+                system_prompt_profile="fanout_worker",
             )
             # endregion 3. 受限 Runtime 装配结束
 
@@ -436,6 +437,7 @@ class LocalAgentWorkerAdapter(FanoutWorkerPort):
                 human_input_root=str(final_dir / "human_input"),
                 human_thread_id=f"{self.run_id}:finalizer",
                 operation_ledger_root=str(final_dir / "operation_ledger"),
+                system_prompt_profile="fanout_finalizer",
             )
             # endregion 3. 只读 Runtime 装配结束
 

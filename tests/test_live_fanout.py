@@ -56,16 +56,20 @@ class EditingLLM:
         escape_scope=False,
         create_new=False,
         finalizer_answer="PASS\nintegrated artifacts are present",
+        prompts=None,
     ):
         self.calls = 0
         self.fail_task = fail_task
         self.escape_scope = escape_scope
         self.create_new = create_new
         self.finalizer_answer = finalizer_answer
+        self.prompts = prompts
 
     def chat(self, messages, tools):
         self.calls += 1
         prompt = "\n".join(message.content or "" for message in messages)
+        if self.prompts is not None:
+            self.prompts.append(prompt)
         if "FanoutFinalizer" in prompt:
             return AgentResponse(self.finalizer_answer, [])
         task_id = (
@@ -513,9 +517,10 @@ class LiveFanoutTest(unittest.TestCase):
             run_dir = root / "run"
             trace = TraceRecorder(str(run_dir / "trace.json"))
             created_llms = []
+            captured_prompts = []
 
             def llm_factory():
-                llm = EditingLLM()
+                llm = EditingLLM(prompts=captured_prompts)
                 created_llms.append(llm)
                 return llm
 
@@ -543,6 +548,23 @@ class LiveFanoutTest(unittest.TestCase):
                 (repo / "b.py").read_text(encoding="utf-8"), "value = 'beta'\n"
             )
             self.assertGreaterEqual(len(created_llms), 3)  # two workers plus verifier
+            worker_prompts = [
+                prompt for prompt in captured_prompts if "task_id=" in prompt
+            ]
+            finalizer_prompts = [
+                prompt for prompt in captured_prompts if "FanoutFinalizer" in prompt
+            ]
+            self.assertTrue(worker_prompts)
+            self.assertTrue(finalizer_prompts)
+            self.assertTrue(
+                all("[prompt:fanout_worker_system@" in prompt for prompt in worker_prompts)
+            )
+            self.assertTrue(
+                all(
+                    "[prompt:fanout_finalizer_system@" in prompt
+                    for prompt in finalizer_prompts
+                )
+            )
             worker_roots = {result.workspace for result in summary.results}
             self.assertEqual(len(worker_roots), 2)
             self.assertTrue(all(not Path(path).exists() for path in worker_roots))

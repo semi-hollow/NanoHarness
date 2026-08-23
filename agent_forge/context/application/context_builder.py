@@ -40,6 +40,7 @@ class TurnSystemContextBuildRequest:
     global_instruction_files: tuple[str, ...] = ()
     runtime_instructions: str = ""
     instruction_max_bytes: int = 2_600
+    system_prompt_profile: str = "single_agent"
 
 
 # 核心数据：模型输入、选择事实、预算结果和截断原因的完整读模型。
@@ -115,7 +116,9 @@ def build_turn_system_context(
         strategy.dropped_context.append(
             "repository map pre-truncated before section allocation"
         )
-    prompt = PromptRegistry().get("agent_system")
+    # composition root 显式选择角色；未知 profile fail closed，不能静默使用
+    # Single-Agent 契约运行 Worker 或 Finalizer。
+    prompt = PromptRegistry().get(request.system_prompt_profile)
     instruction_resolution = resolve_instructions(
         InstructionResolutionRequest(
             workspace=request.root,

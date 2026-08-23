@@ -198,6 +198,7 @@ class TurnPreparation:
                     1,
                     int(self.config.instruction_max_bytes),
                 ),
+                system_prompt_profile=self.config.system_prompt_profile,
             )
         )
         # endregion 3. 静态上下文组装结束
@@ -470,6 +471,7 @@ class TurnPreparation:
                     f"{skill.name}@{skill.version}" for skill in session.active_skills
                 ],
                 "permission_summary": turn_system_context.permission_summary,
+                "system_prompt_profile": self.config.system_prompt_profile,
                 "instructions": turn_system_context.instruction_evidence,
                 "tool_routing": {
                     "reason": tool_route.reason,

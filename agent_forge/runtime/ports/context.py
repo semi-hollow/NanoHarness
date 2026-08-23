@@ -25,6 +25,7 @@ class TurnSystemContextRequest:
     global_instruction_files: tuple[str, ...] = ()
     runtime_instructions: str = ""
     instruction_max_bytes: int = 2_600
+    system_prompt_profile: str = "single_agent"
 
 
 class TurnSystemContextView(Protocol):

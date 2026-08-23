@@ -221,6 +221,17 @@ semantic state → READY / FEEDBACK / UPDATE
 trusted code   → successful integration + WorkerHandoff
 ```
 
+复用同一个 `AgentLoop` 不等于复用同一个身份 Prompt。Composition 明确设置：
+
+```text
+standalone Runtime → system_prompt_profile=single_agent
+Worker Runtime     → system_prompt_profile=fanout_worker
+Finalizer Runtime  → system_prompt_profile=fanout_finalizer
+```
+
+因此通用 Tool/Context/Checkpoint 控制流只有一套，而 Worker 的隔离职责与 Finalizer 的
+只读职责仍在模型输入中明确可见；具体 task/scope/routes/criteria 来自当前有效计划。
+
 # 8. Live Handoff 与 AgentLoop safe boundary
 
 ```text
