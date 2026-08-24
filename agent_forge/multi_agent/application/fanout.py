@@ -386,6 +386,10 @@ class FanoutCoordinator:
 
         runtime = self.live_handoff
         task_by_id = {task.id: task for task in plan.tasks}
+        candidate_order = plan.integration_order(set(task_by_id))
+        candidate_position = {
+            task_id: index for index, task_id in enumerate(candidate_order)
+        }
         pending = {
             task.id for task in plan.tasks if task.id not in successful_task_ids
         }
@@ -488,6 +492,12 @@ class FanoutCoordinator:
                 # region 3. 稳定集成：组合拓扑序 + 可选 LIVE freshness
                 # 组合拓扑序也是集成顺序；LIVE target 可以提前完成，但不能提前越过门禁。
                 # 遍历所有已有结果而非仅 completed_now，让早完成的 Consumer 可在稍后重试集成。
+                running_write_task_ids = {
+                    running_task.id
+                    for running_task in running.values()
+                    if running_task.write_scope
+                }
+                # 按组合拓扑顺序逐个检查已有 candidate，不按 Future 完成顺序提交。
                 for task_id in plan.integration_order(set(current_results)):
                     # 已成功结果不重复合并；仍 pending 的任务还没有 candidate。
                     if task_id in successful_task_ids or task_id in pending:
@@ -506,6 +516,15 @@ class FanoutCoordinator:
                         for dependency in plan.live_dependencies_for(task_id)
                     }.issubset(successful_task_ids):
                         continue
+                    # Worker 可以乱序完成，但 candidate commit 必须稳定。若计划顺序中
+                    # 更早的写任务仍在运行，先缓存当前结果；这样冲突恢复一定基于同一
+                    # trusted prefix，而不会受操作系统线程调度影响。
+                    earlier_task_ids = candidate_order[:candidate_position[task_id]]
+                    # 只等待会改变 workspace 的更早任务；只读 Worker 不阻塞提交。
+                    if task.write_scope and running_write_task_ids.intersection(
+                        earlier_task_ids
+                    ):
+                        continue
                     self._integrate_result(
                         runtime=runtime,
                         task=task,
@@ -518,6 +537,15 @@ class FanoutCoordinator:
                         detected_conflicts=detected_conflicts,
                     )
 
+                # Future 完成顺序属于线程调度噪音；对外 evidence 固定按计划位置、
+                # Attempt 编号排序，保证同一机制实验不会因操作系统不同而漂移。
+                attempt_results.sort(
+                    key=lambda result: (
+                        1 if result.task_id in candidate_position else 0,
+                        candidate_position.get(result.task_id, 0),
+                        result.attempt if result.task_id in candidate_position else 0,
+                    )
+                )
                 self._record_fanout_batch_completed(
                     len(batch_history),
                     [

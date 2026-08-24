@@ -1,6 +1,7 @@
 import hashlib
 import json
 import tempfile
+import time
 import unittest
 from pathlib import Path
 
@@ -192,12 +193,14 @@ class DeterministicWorkerPort:
         retry_failures=0,
         scope_violation=False,
         terminal_failures=None,
+        completion_delays=None,
     ):
         self.root = Path(root)
         self.root.mkdir(parents=True, exist_ok=True)
         self.retry_failures = retry_failures
         self.scope_violation = scope_violation
         self.terminal_failures = set(terminal_failures or [])
+        self.completion_delays = dict(completion_delays or {})
         self.calls = []
         self.base_diffs = {}
         self.handoffs = {}
@@ -223,6 +226,8 @@ class DeterministicWorkerPort:
         self.handoffs[(task.id, attempt)] = [
             item.task_id for item in dependency_handoffs
         ]
+        # 测试可强制后序 Task 先完成，验证集成结果不依赖线程完成顺序。
+        time.sleep(self.completion_delays.get(task.id, 0.0))
         worker_dir = self.root / task.id / f"attempt-{attempt}"
         worker_dir.mkdir(parents=True, exist_ok=True)
         patch_path = worker_dir / "candidate.diff"
@@ -469,7 +474,10 @@ class FanoutV1MechanismTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             plan = _fanout_plan([_task("A"), _task("B")])
-            workers = DeterministicWorkerPort(root / "workers")
+            workers = DeterministicWorkerPort(
+                root / "workers",
+                completion_delays={"A": 0.05},
+            )
             summary, trace = self._run(
                 root, plan, OneShotMergeFaultWorkspace(), workers
             )
