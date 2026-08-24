@@ -164,7 +164,7 @@ class ScriptedOverflowModelStepPreparation:
         system_message = Message("system", "runtime policy")
         return PreparedModelStep(
             step=step,
-            turn_system_message=system_message,
+            model_step_system_message=system_message,
             llm_messages=[system_message, *session.messages],
             tool_schemas=[self.tool.schema()],
             allowed_tool_names={self.tool.name},

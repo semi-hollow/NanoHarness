@@ -16,7 +16,7 @@ from agent_forge import (
 from agent_forge.memory.adapters import JsonLongTermMemoryRepository
 from agent_forge.memory.application import LongTermMemoryService
 from agent_forge.memory.domain import MemoryScope
-from agent_forge.runtime.adapters import RepositoryTurnSystemContextAssembler
+from agent_forge.runtime.adapters import RepositorySystemContextAssembler
 from agent_forge.runtime.application.tool_execution import ToolExecutionPipeline
 from agent_forge.runtime.domain.conversation import AgentResponse, Message, ToolCall
 from agent_forge.runtime.domain.run_control import RUNTIME_COORDINATION_EVIDENCE_PREFIX
@@ -280,7 +280,7 @@ class LongTermMemoryTest(unittest.TestCase):
         )
         (self.root / "target.py").write_text("VALUE = 1\n", encoding="utf-8")
 
-        report = RepositoryTurnSystemContextAssembler().freeze_stable(
+        report = RepositorySystemContextAssembler().freeze_stable(
             StableTurnContextRequest(
                 root_task="inspect parser JSON behavior",
                 workspace=str(self.root),
@@ -618,13 +618,13 @@ class LongTermMemoryTest(unittest.TestCase):
             ),
         ).run(source_quote)
 
-        second_turn_tool_names = [
+        second_model_step_tool_names = [
             message.name
             for message in model.messages[1]
             if message.role == "tool"
         ]
         self.assertEqual(
-            second_turn_tool_names,
+            second_model_step_tool_names,
             ["read_file", "remember_memory", "remember_memory"],
         )
         stored = LongTermMemoryService(

@@ -51,7 +51,7 @@ from apps.operator_console.events import RuntimeEventBuffer
 from agent_forge.runtime.adapters.thread_json import JsonConversationThreadRepository
 from agent_forge.runtime.adapters.approval_json import JsonApprovalRepository
 from agent_forge.runtime.adapters.context_assembler import (
-    RepositoryTurnSystemContextAssembler,
+    RepositorySystemContextAssembler,
 )
 from agent_forge.runtime.adapters.human_input_json import JsonHumanInputRepository
 from agent_forge.runtime.adapters.operation_ledger_json import (
@@ -64,7 +64,7 @@ from agent_forge.runtime.adapters.hook_manager import HookManager
 from agent_forge.runtime.adapters.openai_compatible import LLMClient
 from agent_forge.runtime.ports import (
     ApprovalRepository,
-    TurnSystemContextAssemblerPort,
+    SystemContextAssemblerPort,
     EnvironmentPort,
     EventSink,
     HookPort,
@@ -99,7 +99,7 @@ FORMAL_IMPLEMENTATIONS = (
     (JsonHumanInputRepository, HumanInputRepository),
     (JsonApprovalRepository, ApprovalRepository),
     (JsonOperationLedgerRepository, OperationLedgerRepository),
-    (RepositoryTurnSystemContextAssembler, TurnSystemContextAssemblerPort),
+    (RepositorySystemContextAssembler, SystemContextAssemblerPort),
     (RunController, RunControlPort),
     (NoopRunControl, RunControlPort),
     (HookManager, HookPort),

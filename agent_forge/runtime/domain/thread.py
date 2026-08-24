@@ -523,7 +523,7 @@ class ConversationThread:
 
 # region 3. Turn context state：同 Turn immutable snapshot + 跨 Turn rolling digest
 @dataclass(frozen=True, kw_only=True)
-class TurnContextSnapshot:
+class StableTurnContextSnapshot:
     """同一 Turn 的稳定 System/Tool/Skill/Memory 输入快照。"""
 
     turn_id: str
@@ -552,7 +552,7 @@ class TurnContextSnapshot:
     def expected_contract_hash(self) -> str:
         return _canonical_hash(self.contract_payload())
 
-    def normalized(self) -> "TurnContextSnapshot":
+    def normalized(self) -> "StableTurnContextSnapshot":
         expected = self.expected_contract_hash()
         if self.contract_hash and self.contract_hash != expected:
             raise ValueError("turn context snapshot contract hash mismatch")
@@ -571,7 +571,7 @@ class TurnContextSnapshot:
         }
 
     @classmethod
-    def from_dict(cls, value: Mapping[str, Any]) -> "TurnContextSnapshot":
+    def from_dict(cls, value: Mapping[str, Any]) -> "StableTurnContextSnapshot":
         """恢复 stable snapshot，并让构造期 contract hash 校验拒绝漂移。"""
 
         raw_schemas = value.get("base_tool_schemas")
@@ -613,7 +613,7 @@ class ThreadContextState:
     revision: int = 0
     covered_sequence: int = 0
     conversation_history_digest: JsonObject = field(default_factory=dict)
-    turn_snapshots: tuple[TurnContextSnapshot, ...] = ()
+    turn_snapshots: tuple[StableTurnContextSnapshot, ...] = ()
     updated_at: float = 0.0
 
     def __post_init__(self) -> None:
@@ -636,20 +636,20 @@ class ThreadContextState:
                     "conversation digest count exceeds covered journal sequence"
                 )
 
-    def snapshot_for(self, turn_id: str) -> TurnContextSnapshot | None:
+    def snapshot_for(self, turn_id: str) -> StableTurnContextSnapshot | None:
         return next(
             (item for item in self.turn_snapshots if item.turn_id == turn_id),
             None,
         )
 
-    def with_snapshot(self, snapshot: TurnContextSnapshot) -> "ThreadContextState":
+    def with_snapshot(self, snapshot: StableTurnContextSnapshot) -> "ThreadContextState":
         normalized = snapshot.normalized()
         by_id = {item.turn_id: item for item in self.turn_snapshots}
         existing = by_id.get(normalized.turn_id)
         if existing is not None:
             if existing.normalized().contract_hash != normalized.contract_hash:
                 raise ValueError(
-                    "TurnContextSnapshot is immutable after the Turn starts"
+                    "StableTurnContextSnapshot is immutable after the Turn starts"
                 )
             return self
         by_id[normalized.turn_id] = normalized
@@ -686,7 +686,7 @@ class ThreadContextState:
             ),
             turn_snapshots=(
                 tuple(
-                    TurnContextSnapshot.from_dict(item)
+                    StableTurnContextSnapshot.from_dict(item)
                     for item in raw_snapshots
                     if isinstance(item, Mapping)
                 )
@@ -707,5 +707,5 @@ __all__ = [
     "ThreadContextState",
     "ThreadRun",
     "Turn",
-    "TurnContextSnapshot",
+    "StableTurnContextSnapshot",
 ]

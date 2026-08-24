@@ -82,7 +82,7 @@ ConversationThread                         durable user conversation
 - `conversation.jsonl` 是带 sequence、稳定 item identity 和 hash chain 的对话事实；
 - `trace.jsonl` 是执行证据，不是原始对话权威存储。
 
-`TurnContextSnapshot` 在 Turn 创建后首次准备时冻结 Prompt profile、项目指令、Skill、
+`StableTurnContextSnapshot` 在 Turn 创建后首次准备时冻结 Prompt profile、项目指令、Skill、
 Long-Term Memory recall 与基础 Tool schemas；同一 Turn 的 Resume 复用该快照。当前 Runtime
 若与快照契约不兼容会 fail closed，新 Turn 才重新发现稳定输入。
 
@@ -94,7 +94,7 @@ cursor，不复制 root task 或完整 Conversation。
 ```text
 ConversationThread raw items
 + ConversationHistoryDigest
-+ TurnContextSnapshot stable prefix
++ StableTurnContextSnapshot stable prefix
 + current repository / policy facts
 + routed Tool schemas
         ↓

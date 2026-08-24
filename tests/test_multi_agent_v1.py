@@ -385,7 +385,7 @@ class FanoutV1MechanismTest(unittest.TestCase):
         trace.write()
         return summary, trace
 
-    def test_dependency_receives_only_direct_stable_handoff_and_code_state(self):
+    def test_dependency_receives_direct_handoff_and_integrated_code_state(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             plan = _fanout_plan(
@@ -402,9 +402,8 @@ class FanoutV1MechanismTest(unittest.TestCase):
             self.assertEqual(workers.handoffs[("C", 1)], ["A"])
             self.assertNotIn("B", workers.handoffs[("C", 1)])
             self.assertIn("PATCH:A:1", workers.base_diffs[("C", 1)])
-            # Readiness-driven scheduling 不等待无关 B；C 只需 A 进入 trusted
-            # integrated state 就可启动。这是删除 Batch barrier 后的核心语义。
-            self.assertNotIn("PATCH:B:2", workers.base_diffs[("C", 1)])
+            # Handoff 只投影直接依赖 A；base diff 则是启动时完整的 trusted workspace。
+            # 并发 B 若已先集成，C 看见 B 的代码是合法时序，不能据此断言 C 等待了 B。
             prompt = worker_task_prompt(
                 plan.goal,
                 plan.tasks[2],

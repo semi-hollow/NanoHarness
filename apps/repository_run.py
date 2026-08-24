@@ -67,8 +67,10 @@ def run_repository_task(args: argparse.Namespace) -> Path:
 
     config_document = resolve_repository_arguments(args)
     agent_mode = getattr(args, "agent_mode", "single") or "single"
+    # Single 不触发 Planner，直接进入所有入口共用的 Harness.run。
     if agent_mode == "single":
         return execute_single_repository_task(args, config_document).artifact_dir
+    # Ultra 强制经过 Planning，再由 PlanningDecision 选择同一 Single 主链或 Multi。
     if agent_mode == "ultra":
         return _run_ultra_repository_task(args, config_document)
     raise SystemExit(f"unsupported agent mode: {agent_mode}")
@@ -99,8 +101,15 @@ def _run_multi_agent_plan(
     allow_replan: bool = True,
     resume_from: str | None = None,
 ) -> Path:
-    """为已校验 Multi-Agent Plan 创建独立 Run，再发布可审计产物。"""
+    """执行一个已校验 Multi-Agent Plan，并发布完整 Run artifact。
 
+    输入已经是 Planner/Resume 产生的 canonical ``FanoutPlan``；本方法不重新解释
+    dependency。输出是可被 Workbench 发现的 Run 目录。Coordinator 拥有 Worker
+    调度与集成，本层只负责外围 Run 生命周期、共享依赖和终态证据。
+    """
+
+    # region 2.1 Run identity：先固定请求 workspace、Run ID 与脱敏配置快照
+    # storage layout 固定公开发现根；Run ID 隔离本次 Trace、配置和终态 artifacts。
     requested_workspace = Path(args.workspace).expanduser().resolve()
     ensure_storage_layout(requested_workspace)
     run_id = f"run-{time.strftime('%Y%m%d-%H%M%S')}-{uuid.uuid4().hex[:7]}"
@@ -117,6 +126,9 @@ def _run_multi_agent_plan(
     trace_path = run_dir / "trace.json"
     trace = TraceRecorder(str(trace_path))
     trace.set_run_context(task=args.task)
+    # endregion 2.1 Run identity 结束
+
+    # region 2.2 Execution boundary：准备隔离 workspace，并把真实环境写入 Trace
     environment, probe = prepare_execution_environment(args, run_id, run_dir)
     trace.add(
         0,
@@ -124,6 +136,10 @@ def _run_multi_agent_plan(
         "execution_environment",
         execution_environment=probe.to_dict(),
     )
+    # endregion 2.2 Execution boundary 结束
+
+    # region 2.3 Runtime contract：所有 Worker 共享同一配置边界和规划 provenance
+    # 从这里开始可能创建 Worker 或写终态 artifact；任何退出都必须进入 finally 清理。
     try:
         active_workspace = str(environment.active_workspace)
         llm_config = resolve_llm_config_from_args(args)
@@ -134,6 +150,7 @@ def _run_multi_agent_plan(
             trace_path,
             environment,
         )
+        # Fresh Ultra Run 保存 Planner 决策；Resume 的调用方也可提供恢复来源说明。
         if planning_outcome is not None:
             write_planning_artifact(
                 run_dir / "planning_decision.json",
@@ -147,11 +164,14 @@ def _run_multi_agent_plan(
                 success=True,
                 planning=planning_outcome.to_dict(),
             )
+        # endregion 2.3 Runtime contract 结束
 
+        # region 2.4 Worker Tool composition：每个隔离 worktree 复用同一治理配置
         def registry_factory(
             workspace: str | Path,
             worker_environment: ExecutionEnvironment,
         ) -> ToolRegistry:
+            # 每个 Worker 只替换自己的 worktree/environment，其余 Tool Governance 保持一致。
             enabled_tools = getattr(args, "enabled_tools", None)
             return build_registry(
                 ToolRegistryBuildRequest(
@@ -167,7 +187,10 @@ def _run_multi_agent_plan(
                     memory_namespace=config.memory_namespace,
                 )
             )
+        # endregion 2.4 Worker Tool composition 结束
 
+        # region 2.5 Coordinator execution：执行 validated plan，并取得唯一终态摘要
+        # _execute_validated_plan 是 Apps 到 deterministic Coordinator 的唯一执行接缝。
         stop_output = _execute_validated_plan(
             args,
             config,
@@ -181,9 +204,13 @@ def _run_multi_agent_plan(
             resume_from=resume_from,
         )
         run_status = trace.stop_reason.removeprefix("fanout_") or "completed"
+        # endregion 2.5 Coordinator execution 结束
+
+        # region 2.6 Terminal artifacts：Trace -> Usage -> Answer/Diff -> Manifest -> latest pointer
         trace.write()
         write_usage_artifacts(trace_path)
         (run_dir / "stop_output.txt").write_text(stop_output, encoding="utf-8")
+        # 只有 Finalizer 接受的 passed Run 才拥有 final_answer.txt。
         if run_status == "passed":
             (run_dir / "final_answer.txt").write_text(
                 stop_output,
@@ -204,13 +231,17 @@ def _run_multi_agent_plan(
         environment.write_manifest(run_dir)
         _publish_multi_agent_run_pointer(requested_workspace, run_dir)
         return run_dir
+        # endregion 2.6 Terminal artifacts 结束
     finally:
+        # region 2.7 Failure-safe cleanup：异常 Run 也尽量保留环境证据，再释放本次资源
+        # cleanup 必须执行，因此使用内层 try/finally 隔离补写 manifest 的失败。
         try:
             # 异常路径仍尽量保存执行边界；成功路径已经在发布导航前完成落盘。
             if not (run_dir / "execution_environment.json").is_file():
                 environment.write_manifest(run_dir)
         finally:
             environment.cleanup()
+        # endregion 2.7 Failure-safe cleanup 结束
 # endregion 2. Multi-Agent Run 结束
 
 
@@ -321,6 +352,8 @@ def _execute_validated_plan(
 ) -> str:
     """执行 Runtime 已接受的 plan；正常用户无法从文件绕过 Planner。"""
 
+    # region 4.1 Coordinator：构造唯一 Multi-Agent Runtime，并同步执行 validated plan
+    # build_live_fanout 只做 composition；run() 才进入统一 dependency-aware scheduler。
     trace.set_run_context(task=args.task)
     summary = build_live_fanout(
         LiveFanoutBuildRequest(
@@ -336,6 +369,10 @@ def _execute_validated_plan(
             allow_replan=allow_replan,
         )
     ).run()
+    # endregion 4.1 Coordinator 结束
+
+    # region 4.2 Stop output：把 Finalizer、状态和报告位置投影成用户可读终态
+    # Finalizer 结论、Coordinator 状态与 report 路径共同组成可审计的停止说明。
     stop_output = "\n".join(
         part
         for part in [
@@ -349,12 +386,16 @@ def _execute_validated_plan(
         ]
         if part
     )
+    # endregion 4.2 Stop output 结束
+
+    # region 4.3 Trace terminal state：passed 才投影 final_answer，其余只保留 stop_output
     trace.set_run_context(
         stop_reason=f"fanout_{summary.status}",
         stop_output=stop_output,
         final_answer=stop_output if summary.status == "passed" else None,
     )
     return stop_output
+    # endregion 4.3 Trace terminal state 结束
 
 
 def _run_ultra_repository_task(
@@ -363,9 +404,12 @@ def _run_ultra_repository_task(
 ) -> Path:
     """Ultra 先经 Planner；Single 决策始终回到同一 ``Harness.run``。"""
 
+    # region 4.4 Resume：恢复既有 canonical plan，不重新调用 Planner 或扩张计划
     llm_config = resolve_llm_config_from_args(args)
     resume_from = getattr(args, "multi_agent_resume", "") or ""
+    # Resume 只接受 durable plan；损坏或不兼容 artifact 必须在启动 Worker 前失败。
     if resume_from:
+        # 先完成 schema/graph 读取，再进入与 Fresh Run 相同的 Multi-Agent 执行入口。
         try:
             plan = load_resume_initial_plan(resume_from)
         except (OSError, ValueError, json.JSONDecodeError) as exc:
@@ -380,7 +424,9 @@ def _run_ultra_repository_task(
             allow_replan=False,
             resume_from=resume_from,
         )
+    # endregion 4.4 Resume 结束
 
+    # region 4.5 Fresh planning：LLM 只提出 PlanningDecision，Runtime 负责校验与收口
     planner = AdaptivePlanner(
         model_factory=lambda: build_llm(llm_config),
         available_tools=_available_planner_tools(args),
@@ -388,6 +434,9 @@ def _run_ultra_repository_task(
         max_steps=args.max_steps,
     )
     outcome = planner.decide(args.task, args.workspace)
+    # endregion 4.5 Fresh planning 结束
+
+    # region 4.6 Strategy selection：Single 复用 Harness；Multi 才创建 Coordinator
     # 无合法计划或显式 Single 都回到同一个 canonical Harness.run；不复制第二套 Runtime。
     if outcome.decision is None or outcome.decision.mode == "single":
         result = execute_single_repository_task(args, config_document)
@@ -404,10 +453,12 @@ def _run_ultra_repository_task(
         planning_outcome=outcome,
         replanner=planner,
     )
+    # endregion 4.6 Strategy selection 结束
 
 
 def _available_planner_tools(args: argparse.Namespace) -> list[str]:
     configured = getattr(args, "enabled_tools", None)
+    # 显式 allowlist 仍需合并用户批准的 MCP 工具；否则从 canonical fanout 集合起步。
     if configured is not None:
         return sorted(set(configured) | set(getattr(args, "mcp_tool", [])))
     return sorted(set(fanout_available_tools()) | set(getattr(args, "mcp_tool", [])))

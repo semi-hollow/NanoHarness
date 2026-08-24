@@ -23,7 +23,7 @@ class RunControlPort(Protocol):
     实现地图：``RunController`` 提供线程安全的人工控制；``LiveHandoffRunControl``
     投影 Worker mailbox；``NoopRunControl`` 让两类输入都为空。
     ``RunControlHandler.consume_pending_signals`` 再把读出的信号转换为状态迁移或
-    下一轮模型输入。三个关键 Adapter 都显式继承本类，IDE Hierarchy 可直接跳转。
+    下一 Model Step 输入。三个关键 Adapter 都显式继承本类，IDE Hierarchy 可直接跳转。
     """
 
     def take_terminal(self, run_id: str) -> RunControlSignal | None:
@@ -32,7 +32,7 @@ class RunControlPort(Protocol):
         ...
 
     def drain_steers(self, run_id: str) -> list[RunControlSignal]:
-        """按提交顺序取走等待注入下一轮上下文的 steer。"""
+        """按提交顺序取走等待注入下一 Model Step 的 steer。"""
 
         ...
 

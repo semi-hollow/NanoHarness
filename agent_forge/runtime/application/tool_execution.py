@@ -791,19 +791,19 @@ class ToolExecutionPipeline:
         repeat_limit_signal = (
             session.controller.observe_tool_intent_for_repeat_limit(tool_call)
         )
-        tool_is_routed_for_this_turn = (
+        tool_is_routed_for_this_model_step = (
             self.tool_gateway.get(tool_call.name) is not None
             and tool_call.name in allowed_tool_names
         )
         guardrail_decision = tool_guardrail(
             tool_call.name,
             tool_call.arguments,
-            exists=tool_is_routed_for_this_turn,
+            exists=tool_is_routed_for_this_model_step,
         )
         self._record_tool_guardrail(session, step, guardrail_decision)
 
         # 当前 Model Step 没有向模型暴露该工具时立即失败，不能进入 HITL、Ledger 或 Gateway。
-        if not tool_is_routed_for_this_turn:
+        if not tool_is_routed_for_this_model_step:
             self._handle_unrouted_tool(session, tool_call, step)
             return ToolCallOutcome(
                 status=ToolCallStatus.FAILED,
@@ -1608,12 +1608,12 @@ class ToolExecutionPipeline:
         )
         # endregion 3. 工具调用与证据提交结束
 
-        # region 4. Turn 收口：Observation 已持久化，再决定是否允许下一轮模型调用
+        # region 4. Model Step 收口：Observation 已持久化，再决定是否继续调用模型
         budget_stop_signal = session.controller.should_stop(
             step,
             estimated_cost_usd=session.estimated_cost_usd,
         )
-        # 预算命中时停止在当前 Observation，不再把它作为下一轮模型输入继续扩张执行。
+        # 预算命中时停止在当前 Observation，不再把它送入下一 Model Step 扩张执行。
         if budget_stop_signal is not None:
             budget_stop_request = StopRequest(
                 status=TaskRunStatus.BLOCKED,
@@ -1638,7 +1638,7 @@ class ToolExecutionPipeline:
             ),
             reason=("tool_succeeded" if tool_observation.success else "tool_failed"),
         )
-        # endregion 4. Turn 收口结束
+        # endregion 4. Model Step 收口结束
 
     # region 证据记录器
     def _record_memory_authorization(

@@ -72,7 +72,7 @@ class AgentLoop:
         self.model_step_preparation = ModelStepPreparation(
             config,
             dependencies.events,
-            dependencies.turn_system_context_assembler,
+            dependencies.system_context_assembler,
             dependencies.tools,
             dependencies.environment,
             dependencies.model_capabilities,
@@ -454,7 +454,7 @@ class AgentLoop:
             llm_request_summary=(
                 f"messages={len(prepared_model_step.llm_messages)} "
                 f"tools={len(prepared_model_step.tool_schemas)} "
-                f"context_chars={len(prepared_model_step.turn_system_message.content)} "
+                f"context_chars={len(prepared_model_step.model_step_system_message.content)} "
                 f"prompt_tokens_estimate={prepared_model_step.estimated_prompt_tokens} "
                 f"compacted={prepared_model_step.compacted}"
             ),
@@ -468,7 +468,7 @@ class AgentLoop:
             # “一次模型决策”和“多次顺序工具执行”的边界。
             tool_call_count=len(model_response.tool_calls),
             llm_input_breakdown_chars={
-                "system_context": len(prepared_model_step.turn_system_message.content),
+                "system_context": len(prepared_model_step.model_step_system_message.content),
                 "conversation_history": prepared_model_step.history_chars,
                 "tool_schemas": prepared_model_step.tool_schema_chars,
             },

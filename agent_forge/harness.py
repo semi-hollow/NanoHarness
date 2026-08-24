@@ -44,7 +44,7 @@ from agent_forge.runtime.domain.thread import (
     ConversationThread,
     ThreadRun,
     Turn,
-    TurnContextSnapshot,
+    StableTurnContextSnapshot,
 )
 from agent_forge.runtime.application.agent_loop import AgentLoop
 from agent_forge.runtime.adapters.execution_environment import (
@@ -213,14 +213,14 @@ class Harness:
                 conversation_threads=conversation_threads,
                 tracked_task_states=tracked_task_states,
             )
-            turn_snapshot = conversation_threads.load_turn_snapshot(
+            turn_snapshot = conversation_threads.load_stable_turn_snapshot(
                 run_request.thread_id,
                 run_request.turn_id,
             )
             if relationship == "resume":
                 if turn_snapshot is None:  # _plan_thread_run 已 fail closed
                     raise RuntimeError(
-                        "cannot resume Turn without durable TurnContextSnapshot"
+                        "cannot resume Turn without durable StableTurnContextSnapshot"
                     )
                 agent_loop.run_preparation.validate_snapshot_contract(
                     turn_snapshot,
@@ -228,7 +228,7 @@ class Harness:
                     root_task=run_request.task.strip(),
                 )
             elif turn_snapshot is None:
-                turn_snapshot = agent_loop.run_preparation.build_new_turn_snapshot(
+                turn_snapshot = agent_loop.run_preparation.build_stable_turn_context_snapshot(
                     turn_id=run_request.turn_id,
                     root_task=run_request.task.strip(),
                 )
@@ -553,8 +553,8 @@ class Harness:
                 registry=tool_gateway,
                 llm=self._model,
                 overrides=RuntimeDependencyOverrides(
-                    turn_system_context_assembler=(
-                        self._extensions.turn_system_context_assembler
+                    system_context_assembler=(
+                        self._extensions.system_context_assembler
                     ),
                     skills=self._extensions.skill_selector,
                     environment=environment,
@@ -672,9 +672,9 @@ class Harness:
 
             # Resume 继续的是原 Turn，不能在发布新 Run ownership 后才发现稳定规则丢失。
             # 缺少快照时直接拒绝，避免按当前 AGENTS/Skill/Memory 静默重建另一套契约。
-            if repository.load_turn_snapshot(thread.thread_id, turn.turn_id) is None:
+            if repository.load_stable_turn_snapshot(thread.thread_id, turn.turn_id) is None:
                 raise RuntimeError(
-                    "cannot resume Turn without durable TurnContextSnapshot"
+                    "cannot resume Turn without durable StableTurnContextSnapshot"
                 )
             return (
                 replace(
@@ -760,7 +760,7 @@ class Harness:
         parent_run_id: str,
         expected_current_run_id: str,
         started_at: float,
-        snapshot: TurnContextSnapshot | None,
+        snapshot: StableTurnContextSnapshot | None,
         expected_context_revision: int,
     ) -> None:
         """在 bootstrap checkpoint durable 后，原子发布本 Run ownership。"""

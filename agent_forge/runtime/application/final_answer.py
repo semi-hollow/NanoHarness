@@ -116,7 +116,7 @@ class FinalAnswerBuilder:
         stop_output: str,
         rejected_tool_name: str,
     ) -> None:
-        """记录最终轮仍出现 ToolCall，且该调用没有进入执行链。"""
+        """记录 final Model Step 仍出现 ToolCall，且该调用没有进入执行链。"""
 
         self.trace.add(
             step,
@@ -126,6 +126,7 @@ class FinalAnswerBuilder:
             observation=stop_output,
             tool_call=rejected_tool_name,
             pending_tool_call=True,
+            # 历史 Trace discriminator 保持稳定，不随 Python terminology 重命名。
             rejection_reason="final_turn_tools_closed",
         )
 

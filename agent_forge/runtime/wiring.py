@@ -28,7 +28,7 @@ from agent_forge.runtime.adapters import (
     JsonOperationLedgerRepository,
     JsonTaskStateRepository,
     NoopRunControl,
-    RepositoryTurnSystemContextAssembler,
+    RepositorySystemContextAssembler,
 )
 from agent_forge.runtime.application.agent_loop import AgentLoop
 from agent_forge.runtime.application.dependencies import RuntimeDependencies
@@ -48,7 +48,7 @@ from agent_forge.runtime.adapters.model_config import LLMConfig
 from agent_forge.runtime.ports import (
     ApprovalRepository,
     ConversationThreadRepository,
-    TurnSystemContextAssemblerPort,
+    SystemContextAssemblerPort,
     EnvironmentPort,
     EventSink,
     HookPort,
@@ -120,7 +120,7 @@ class RuntimeDependencyOverrides:
     继续共享同一个 composition root。
     """
 
-    turn_system_context_assembler: TurnSystemContextAssemblerPort | None = None
+    system_context_assembler: SystemContextAssemblerPort | None = None
     skills: SkillSelectorPort | None = None
     environment: EnvironmentPort | None = None
     hooks: HookPort | None = None
@@ -285,9 +285,9 @@ def _build_runtime_dependencies(
         )
     return RuntimeDependencies(
         events=build_request.trace,
-        turn_system_context_assembler=(
-            dependency_overrides.turn_system_context_assembler
-            or RepositoryTurnSystemContextAssembler()
+        system_context_assembler=(
+            dependency_overrides.system_context_assembler
+            or RepositorySystemContextAssembler()
         ),
         skills=dependency_overrides.skills
         or build_default_skill_registry(runtime_config.skill_manifest_files),

@@ -1,8 +1,8 @@
-"""基于文件系统的 Turn System Context 组装 Adapter。
+"""基于文件系统的 System Context 组装 Adapter。
 
 系统角色：连接 Runtime Context Port 与 Context Application；稳定输入在 Turn 创建时冻结，
 动态输入在每个 Model Step 根据 repo map/Working Memory 重建。
-输入：``StableTurnContextRequest`` / ``TurnSystemContextRequest``；输出：typed context view/report。
+输入：``StableTurnContextRequest`` / ``ModelStepSystemContextRequest``；输出：typed context view/report。
 相邻边界：Context Application 决定预算与内容；本 Adapter 只提供仓库扫描和缓存。
 
 折叠导航：1 stable Turn snapshot；2 dynamic Model Step context。
@@ -14,10 +14,10 @@ from pathlib import Path
 
 from agent_forge.context.application.context_builder import (
     StableTurnContextBuildRequest,
-    TurnSystemContextBuildPolicy,
-    TurnSystemContextBuildReport,
-    TurnSystemContextBuildRequest,
-    build_turn_system_context,
+    SystemContextBuildPolicy,
+    ModelStepSystemContextBuildReport,
+    ModelStepSystemContextBuildRequest,
+    build_model_step_system_context,
     build_stable_turn_context,
 )
 from agent_forge.context.adapters.repository_map import (
@@ -27,12 +27,12 @@ from agent_forge.context.adapters.repository_map import (
 from agent_forge.runtime.ports.context import (
     StableTurnContextRequest,
     StableTurnContextView,
-    TurnSystemContextAssemblerPort,
-    TurnSystemContextRequest,
+    SystemContextAssemblerPort,
+    ModelStepSystemContextRequest,
 )
 
 
-class RepositoryTurnSystemContextAssembler(TurnSystemContextAssemblerPort):
+class RepositorySystemContextAssembler(SystemContextAssemblerPort):
     """扫描 workspace，并构造 Runtime 消费的上下文报告。"""
 
     def __init__(self) -> None:
@@ -52,7 +52,7 @@ class RepositoryTurnSystemContextAssembler(TurnSystemContextAssemblerPort):
                 base_tool_schemas=request.base_tool_schemas,
                 active_skill_cards=request.active_skill_cards,
                 long_term_memory=request.long_term_memory,
-                policy=TurnSystemContextBuildPolicy(max_chars=request.max_chars),
+                policy=SystemContextBuildPolicy(max_chars=request.max_chars),
                 instruction_target=request.instruction_target,
                 global_instruction_files=request.global_instruction_files,
                 runtime_instructions=request.runtime_instructions,
@@ -64,7 +64,10 @@ class RepositoryTurnSystemContextAssembler(TurnSystemContextAssemblerPort):
 
     # region 2. Dynamic Model Step context：Repo structure 可缓存，Working Memory 每轮变化
     # 运行时端口：读取 repository 事实并返回有预算的类型化 ContextReport。
-    def build(self, request: TurnSystemContextRequest) -> TurnSystemContextBuildReport:
+    def build_model_step(
+        self,
+        request: ModelStepSystemContextRequest,
+    ) -> ModelStepSystemContextBuildReport:
         """先生成仓库结构图，再组装受字符预算约束的类型化 Context 报告。
 
         报告合并任务、指令、工作记忆、Skill 和 Tool 信息；本 Adapter 只读取并组装证据，
@@ -80,15 +83,15 @@ class RepositoryTurnSystemContextAssembler(TurnSystemContextAssemblerPort):
             cached_repo_map = (structure_revision, build_repo_map(workspace))
             self._repo_maps[workspace] = cached_repo_map
         repo_map = cached_repo_map[1]
-        return build_turn_system_context(
-            TurnSystemContextBuildRequest(
+        return build_model_step_system_context(
+            ModelStepSystemContextBuildRequest(
                 turn_focus=request.turn_focus,
                 stable_system_prefix=request.stable_system_prefix,
                 repo_map=repo_map,
                 working_memory=request.working_memory,
                 root=request.workspace,
                 tool_schemas=request.tool_schemas,
-                policy=TurnSystemContextBuildPolicy(
+                policy=SystemContextBuildPolicy(
                     max_chars=request.max_chars,
                     permission_summary=request.permission_summary,
                 ),

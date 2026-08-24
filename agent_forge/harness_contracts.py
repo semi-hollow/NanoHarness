@@ -26,7 +26,7 @@ from agent_forge.runtime.domain.task import TaskCheckpoint, TaskRunStatus
 from agent_forge.runtime.ports import (
     ApprovalRepository,
     ConversationThreadRepository,
-    TurnSystemContextAssemblerPort,
+    SystemContextAssemblerPort,
     EnvironmentPort,
     EventSink,
     HookPort,
@@ -52,6 +52,7 @@ class HarnessConfig:
     max_consecutive_failures: int = 3
     # 同一个工具和参数最多连续出现两次：首次尝试加一次重试。
     max_consecutive_identical_tool_calls: int = 2
+    # 历史 Public API key 保持稳定；实际限制的是单个 Model Step 的 ToolCall batch。
     max_tool_calls_per_turn: int = 4
     timeout_seconds: float = DEFAULT_TIMEOUT_SECONDS
     cost_budget_usd: float | None = None
@@ -199,7 +200,7 @@ class EventSinkFactory(Protocol):
 class HarnessExtensions:
     """高级调用方可以替换的稳定 Port 集合；未提供项使用内置 Adapter。"""
 
-    turn_system_context_assembler: TurnSystemContextAssemblerPort | None = None
+    system_context_assembler: SystemContextAssemblerPort | None = None
     checkpoint_repository: TaskStateRepository | None = None
     conversation_threads: ConversationThreadRepository | None = None
     event_sink_factory: EventSinkFactory | None = None

@@ -57,7 +57,7 @@ class ModelGateway(LLMClient):
     """把 Provider 差异收敛为一套有界尝试策略。
 
     主链只做三件事：调用 primary、在同一 Provider 内按错误类型重试、必要时切换
-    fallback；Runtime 的 Turn 决策、窗口压缩和停止语义仍由 ``AgentLoop`` 拥有，
+    fallback；Runtime 的 Model Step 决策、窗口压缩和停止语义仍由 ``AgentLoop`` 拥有，
     当前 Gateway 不把 Run 剩余预算传播为 in-flight request cancellation。
     """
 

@@ -45,7 +45,7 @@ class RunControlHandler:
         self.control = control
         self.trace = trace
 
-    # 主要入口：先处理终止信号，再把 steer/coordination 分别注入下一轮模型输入。
+    # 主要入口：先处理终止信号，再把 steer/coordination 注入下一 Model Step 输入。
     def consume_pending_signals(
         self,
         session: AgentRunSession,

@@ -72,7 +72,7 @@ def build_context_strategy(request: ContextStrategyRequest) -> ContextStrategy:
     )
 
     # region 1. 仓库候选：冻结规则文件不能作为动态正文再次进入同一 Turn
-    # 指令文件的旧正文已经属于 TurnContextSnapshot。即使 Tool 在本 Turn 中改写它，
+    # 指令文件的旧正文已经属于 StableTurnContextSnapshot。即使 Tool 在本 Turn 中改写它，
     # 动态 preview/retrieval 也只从其余文件选取，避免新正文绕过 snapshot 改变治理规则。
     dynamic_files = [
         path for path in request.files if path not in frozen_instruction_paths

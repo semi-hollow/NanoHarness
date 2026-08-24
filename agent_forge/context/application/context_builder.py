@@ -6,7 +6,7 @@
 相邻边界：Assembler Adapter 提供仓库事实；本 Application 决定内容与预算；Prompt
 Window 再把完整 Conversation/Tools 纳入 token 硬上限。
 
-核心阅读：``build_stable_turn_context`` 与 ``build_turn_system_context``。
+核心阅读：``build_stable_turn_context`` 与 ``build_model_step_system_context``。
 """
 
 from __future__ import annotations
@@ -24,7 +24,7 @@ from .text_budget import truncate, truncate_middle
 
 
 @dataclass(frozen=True)
-class TurnSystemContextBuildPolicy:
+class SystemContextBuildPolicy:
     """一个上下文分区的字符预算与当前动态权限摘要。"""
 
     max_chars: int = 8_000
@@ -40,7 +40,7 @@ class StableTurnContextBuildRequest:
     base_tool_schemas: list[ToolSchema]
     active_skill_cards: list[str]
     long_term_memory: list[str]
-    policy: TurnSystemContextBuildPolicy
+    policy: SystemContextBuildPolicy
     instruction_target: str = ""
     global_instruction_files: tuple[str, ...] = ()
     runtime_instructions: str = ""
@@ -50,7 +50,7 @@ class StableTurnContextBuildRequest:
 
 @dataclass(frozen=True)
 class StableTurnContextBuildReport:
-    """可持久化进 ``TurnContextSnapshot`` 的稳定前缀与构建证据。"""
+    """可持久化进 ``StableTurnContextSnapshot`` 的稳定前缀与构建证据。"""
 
     rendered_prefix: str
     total_chars: int
@@ -66,7 +66,7 @@ class StableTurnContextBuildReport:
 
 
 @dataclass(frozen=True)
-class TurnSystemContextBuildRequest:
+class ModelStepSystemContextBuildRequest:
     """每个 Model Step 只重建的任务焦点、仓库和派生状态候选。"""
 
     turn_focus: str
@@ -75,12 +75,12 @@ class TurnSystemContextBuildRequest:
     working_memory: ContextMemory
     root: str | Path
     tool_schemas: list[ToolSchema]
-    policy: TurnSystemContextBuildPolicy
+    policy: SystemContextBuildPolicy
     frozen_instruction_paths: tuple[str, ...] = ()
 
 
 @dataclass
-class TurnSystemContextBuildReport:
+class ModelStepSystemContextBuildReport:
     """稳定前缀与动态候选合并后的当前模型输入读模型。"""
 
     stable_system_prefix: str
@@ -169,9 +169,9 @@ def build_stable_turn_context(
     # endregion 2. 独立预算结束
 
 
-def build_turn_system_context(
-    request: TurnSystemContextBuildRequest,
-) -> TurnSystemContextBuildReport:
+def build_model_step_system_context(
+    request: ModelStepSystemContextBuildRequest,
+) -> ModelStepSystemContextBuildReport:
     """按最新 ``turn_focus`` 构造动态仓库上下文，再附到冻结前缀之后。"""
 
     # region 1. 动态候选：结构图、文件预览、检索和派生 WorkingMemory
@@ -195,7 +195,7 @@ def build_turn_system_context(
         )
     # endregion 1. 动态候选结束
 
-    report = TurnSystemContextBuildReport(
+    report = ModelStepSystemContextBuildReport(
         stable_system_prefix=request.stable_system_prefix,
         repo_map=shortened_repo,
         retrieved_docs=strategy.retrieved_docs,
@@ -242,7 +242,7 @@ def load_project_instructions(root: str | Path, max_chars: int = 2_600) -> str:
 
 
 def _render_model_step_context(
-    report: TurnSystemContextBuildReport,
+    report: ModelStepSystemContextBuildReport,
 ) -> tuple[str, dict[str, int], list[str]]:
     sections = [
         ("permission_summary", report.permission_summary, 10),

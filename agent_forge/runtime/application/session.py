@@ -133,7 +133,7 @@ def _normalize_conversation_transactions(
 
     normalized: list[ConversationItem] = []
     index = 0
-    # 每轮复制一个普通 item，或一次完整 Assistant transaction。
+    # 每次循环复制一个普通 item，或一次完整 Assistant transaction。
     while index < len(items):
         assistant = items[index]
         if assistant.role != "assistant" or not assistant.tool_calls:

@@ -36,7 +36,7 @@ from .thread import (
     ThreadContextState,
     ThreadRun,
     Turn,
-    TurnContextSnapshot,
+    StableTurnContextSnapshot,
 )
 
 __all__ = [
@@ -72,5 +72,5 @@ __all__ = [
     "ThreadRun",
     "ToolCall",
     "Turn",
-    "TurnContextSnapshot",
+    "StableTurnContextSnapshot",
 ]

@@ -222,7 +222,7 @@ class PromptWindowManagerTest(unittest.TestCase):
             )
         ).prepare(
             PromptWindowRequest(
-                turn_system_message=Message("system", "runtime policy"),
+                model_step_system_message=Message("system", "runtime policy"),
                 conversation_history=history,
                 observations=observations,
                 tool_schemas=[{"name": "read_file", "arguments": {"path": "str"}}],
@@ -254,7 +254,7 @@ class PromptWindowManagerTest(unittest.TestCase):
         history = [Message("user", "inspect target.py")]
         result = PromptWindowManager(PromptBudget()).prepare(
             PromptWindowRequest(
-                turn_system_message=Message("system", "policy"),
+                model_step_system_message=Message("system", "policy"),
                 conversation_history=history,
                 observations=[],
                 tool_schemas=[],
@@ -279,7 +279,7 @@ class PromptWindowManagerTest(unittest.TestCase):
 
         normal = manager.prepare(
             PromptWindowRequest(
-                turn_system_message=Message("system", "policy"),
+                model_step_system_message=Message("system", "policy"),
                 conversation_history=history,
                 observations=[],
                 tool_schemas=[],
@@ -288,7 +288,7 @@ class PromptWindowManagerTest(unittest.TestCase):
         )
         forced = manager.prepare(
             PromptWindowRequest(
-                turn_system_message=Message("system", "policy"),
+                model_step_system_message=Message("system", "policy"),
                 conversation_history=history,
                 observations=[],
                 tool_schemas=[],
@@ -332,7 +332,7 @@ class PromptWindowManagerTest(unittest.TestCase):
             )
         ).prepare(
             PromptWindowRequest(
-                turn_system_message=Message("system", "policy"),
+                model_step_system_message=Message("system", "policy"),
                 conversation_history=history,
                 observations=[],
                 tool_schemas=[],
@@ -368,7 +368,7 @@ class PromptWindowManagerTest(unittest.TestCase):
             Message("assistant", "continue " + ("x" * 4_000)),
         ]
         request = PromptWindowRequest(
-            turn_system_message=Message("system", "policy"),
+            model_step_system_message=Message("system", "policy"),
             conversation_history=history,
             observations=[Observation("read_file", True, "content")],
             tool_schemas=[{"name": "read_file"}],
@@ -504,7 +504,7 @@ class PromptWindowManagerTest(unittest.TestCase):
         ]
         first = manager.prepare(
             PromptWindowRequest(
-                turn_system_message=Message("system", "policy"),
+                model_step_system_message=Message("system", "policy"),
                 conversation_history=initial_history,
                 observations=[],
                 tool_schemas=[],
@@ -533,7 +533,7 @@ class PromptWindowManagerTest(unittest.TestCase):
         ]
         next_from_original = manager.prepare(
             PromptWindowRequest(
-                turn_system_message=Message("system", "policy"),
+                model_step_system_message=Message("system", "policy"),
                 conversation_history=new_delta,
                 observations=[],
                 tool_schemas=[],
@@ -581,7 +581,7 @@ class PromptWindowManagerTest(unittest.TestCase):
         ) as group_segments:
             result = manager.prepare(
                 PromptWindowRequest(
-                    turn_system_message=Message("system", "policy"),
+                    model_step_system_message=Message("system", "policy"),
                     conversation_history=history,
                     observations=[],
                     tool_schemas=[],
@@ -630,7 +630,7 @@ class PromptWindowManagerTest(unittest.TestCase):
         ):
             result = manager.prepare(
                 PromptWindowRequest(
-                    turn_system_message=Message("system", "policy"),
+                    model_step_system_message=Message("system", "policy"),
                     conversation_history=history,
                     observations=[],
                     tool_schemas=[],

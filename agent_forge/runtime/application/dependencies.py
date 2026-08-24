@@ -9,7 +9,7 @@ from agent_forge.runtime.domain.model import ModelCapabilities
 from agent_forge.runtime.ports import (
     ApprovalRepository,
     ConversationThreadRepository,
-    TurnSystemContextAssemblerPort,
+    SystemContextAssemblerPort,
     EnvironmentPort,
     EventSink,
     HookPort,
@@ -35,7 +35,7 @@ class RuntimeDependencies:
     """
 
     events: EventSink
-    turn_system_context_assembler: TurnSystemContextAssemblerPort
+    system_context_assembler: SystemContextAssemblerPort
     skills: SkillSelectorPort
     tools: ToolGateway
     model: ModelPort

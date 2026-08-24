@@ -84,7 +84,7 @@ class ToolRoute:
     dropped_names: list[str]
     metadata: dict[str, dict]
     phase: str = "work"
-    remaining_tool_turns: int | None = None
+    remaining_tool_model_steps: int | None = None
 
     def policy_summary(self) -> dict[str, object]:
         """生成可写入 trace 和 UI 的真实路由摘要。"""
@@ -98,15 +98,16 @@ class ToolRoute:
             },
             "metadata": self.metadata,
             "phase": self.phase,
-            "remaining_tool_turns": self.remaining_tool_turns,
+            # 保留历史 serialized key；Python owner 已使用 Model Step 语义。
+            "remaining_tool_turns": self.remaining_tool_model_steps,
         }
 
 
 class ToolRouter:
-    """把已注册工具投影成本轮允许模型看见的工具集合。
+    """把已注册工具投影成本 Model Step 允许模型看见的工具集合。
 
     可类比 API Gateway 的请求级路由表：``ToolRegistry`` 已经回答“系统有什么工具”，
-    本类只回答“这个 task 的当前 turn 应该把哪些 schema 发给模型”。它不发现工具、
+    本类只回答“这个 task 的当前 Model Step 应该把哪些 schema 发给模型”。它不发现工具、
     不执行工具，也不代替执行阶段的权限检查。
 
     ``route`` 的固定顺序是：
@@ -228,15 +229,15 @@ class ToolRouter:
             schema.get("name", ""): schema for schema in candidate_schemas
         }
         registered_tool_names = set(schema_by_tool_name)
-        remaining_tool_turns = (
+        remaining_tool_model_steps = (
             max(0, max_steps - current_step) if max_steps > 0 else None
         )
         if routing_mode not in {"task-aware", "all"}:
             raise ValueError(f"unsupported tool routing mode: {routing_mode}")
 
         # FINALIZE 是所有配置共享的硬边界。即使 ``mode=all`` 或 Skill 请求了工具，
-        # 最终 turn 也只能生成结论；这样 schema、执行白名单和 Trace 保持一致。
-        if remaining_tool_turns == 0:
+        # 最终 Model Step 只能生成结论；这样 schema、执行白名单和 Trace 保持一致。
+        if remaining_tool_model_steps == 0:
             return ToolRoute(
                 schemas=[],
                 allowed_names=set(),
@@ -247,7 +248,7 @@ class ToolRouter:
                 dropped_names=sorted(registered_tool_names),
                 metadata={},
                 phase="finalize",
-                remaining_tool_turns=0,
+                remaining_tool_model_steps=0,
             )
 
         # ``all`` 只表示全部工具对模型可见，执行时仍然要经过权限与安全策略。
@@ -274,10 +275,10 @@ class ToolRouter:
                 },
                 phase=(
                     "closeout_all_tools_visible"
-                    if remaining_tool_turns == 1
+                    if remaining_tool_model_steps == 1
                     else "work"
                 ),
-                remaining_tool_turns=remaining_tool_turns,
+                remaining_tool_model_steps=remaining_tool_model_steps,
             )
         # endregion 1. 候选目录结束
 
@@ -409,12 +410,14 @@ class ToolRouter:
             ):
                 visible_tool_names.add(tool_name)
 
-        # SWE-bench 的最后一个可执行工具 turn 进入收口阶段。这里关闭目录级漫游和
+        # SWE-bench 的最后一个可执行工具 Model Step 进入收口阶段。这里关闭目录级漫游和
         # 人工澄清，但保留 read/grep：最后一次验证失败后，模型仍需读取报错相关源码，
         # 不能被迫盲改。真正的硬边界是下一轮 FINALIZE 的零工具视图。
         closure_phase = "open"
-        is_closeout_turn = is_swebench_task and remaining_tool_turns == 1
-        if is_closeout_turn:
+        is_closeout_model_step = (
+            is_swebench_task and remaining_tool_model_steps == 1
+        )
+        if is_closeout_model_step:
             if is_read_only_task:
                 closeout_tool_names = {
                     "list_files",
@@ -441,7 +444,7 @@ class ToolRouter:
         # region 4. 输出投影：生成模型 schema、执行白名单和可观测证据
         # 兼容兜底：规则未选中任何工具时保持旧行为，暴露全部已注册工具。这是可见性
         # fail-open，不会绕过执行阶段的 Hook 和权限检查。
-        if not visible_tool_names and not is_closeout_turn:
+        if not visible_tool_names and not is_closeout_model_step:
             visible_tool_names = set(registered_tool_names)
 
         # 保持 Registry 原始 schema 顺序，使 provider 请求和 Trace 在多次运行间稳定。
@@ -459,10 +462,11 @@ class ToolRouter:
         )
         if is_swebench_task and "python_validation" in visible_tool_names:
             routing_reason += " swebench_validation=python_validation|allowlisted_run_command"
-        if remaining_tool_turns is not None:
+        if remaining_tool_model_steps is not None:
             routing_reason += (
                 f" closure_phase={closure_phase}"
-                f" remaining_tool_turns={remaining_tool_turns}"
+                # 保持既有模型/Trace 文本，避免语义重命名改变 Prompt 或 Evidence。
+                f" remaining_tool_turns={remaining_tool_model_steps}"
             )
         return ToolRoute(
             schemas=visible_tool_schemas,
@@ -483,7 +487,7 @@ class ToolRouter:
                 )
                 for name in sorted(visible_tool_names)
             },
-            phase=("closeout" if remaining_tool_turns == 1 else "work"),
-            remaining_tool_turns=remaining_tool_turns,
+            phase=("closeout" if remaining_tool_model_steps == 1 else "work"),
+            remaining_tool_model_steps=remaining_tool_model_steps,
         )
         # endregion 4. 输出投影结束

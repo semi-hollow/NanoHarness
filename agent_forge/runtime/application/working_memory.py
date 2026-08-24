@@ -3,7 +3,7 @@
 这个对象属于 Runtime 的运行期状态，而不是长期记忆仓储：
 
 应用服务只追加由执行事实提炼出的 task state；
-``TurnSystemContextAssemblerPort`` 只读取 ``recent/summary`` 派生视图。
+``SystemContextAssemblerPort`` 只读取 ``recent/summary`` 派生视图。
 
 长期记忆的显式 remember/forget 由 ``memory.application`` 管理，完整会话窗口压缩由
 ``context.application.compaction`` 管理。原始 Tool Observation 只属于 Conversation，

@@ -19,9 +19,9 @@ from agent_forge.observability.api import load_run_story
 from agent_forge.observability.domain.run_story import RunStory
 from apps.workbench.application.context_inspection import (
     ContextComponent,
-    ContextTurnInspection,
+    ContextModelStepInspection,
     ToolDecision,
-    build_context_turn_inspections,
+    build_context_model_step_inspections,
 )
 from apps.workbench.application.services import WorkbenchServices
 from apps.workbench.domain import EvidenceSource
@@ -686,7 +686,7 @@ def _source_overview_facts(
     trace_path = source.trace_entries[0][1] if source.trace_entries else None
     trace = _read_json_file(trace_path)
     events = _event_list(trace)
-    turns = {
+    model_steps = {
         int(event.get("step") or 0)
         for event in events
         if int(event.get("step") or 0) > 0
@@ -697,7 +697,7 @@ def _source_overview_facts(
     failed_tools = int(summary.get("failed_tool_calls") or 0)
     return (
         [
-            ("Model Step", str(len(turns)), "真实模型边界", "neutral"),
+            ("Model Step", str(len(model_steps)), "真实模型边界", "neutral"),
             (
                 "模型调用",
                 str(int(summary.get("llm_calls") or 0)),
@@ -754,8 +754,8 @@ def _render_source_context(source: EvidenceSource) -> str:
     panels: list[str] = []
     for index, (label, trace_path) in enumerate(source.trace_entries[:8]):
         trace = _read_json_file(trace_path)
-        turns = build_context_turn_inspections(trace)
-        if not turns:
+        model_steps = build_context_model_step_inspections(trace)
+        if not model_steps:
             panels.append(
                 "<details class='trace-context-unit'"
                 + (" open" if index == 0 else "")
@@ -768,7 +768,7 @@ def _render_source_context(source: EvidenceSource) -> str:
                 label=label,
                 trace_path=trace_path,
                 trace=trace,
-                turns=turns,
+                model_steps=model_steps,
                 open_panel=index == 0,
             )
         )
@@ -787,42 +787,56 @@ def _render_context_trace_panel(
     label: str,
     trace_path: Path,
     trace: dict[str, Any],
-    turns: tuple[ContextTurnInspection, ...],
+    model_steps: tuple[ContextModelStepInspection, ...],
     open_panel: bool,
 ) -> str:
-    key_turns = [turn for turn in turns if turn.is_key_turn]
-    peak_tokens = max((turn.estimated_tokens for turn in turns), default=0)
-    compacted_turns = sum(turn.compacted for turn in turns)
+    key_model_steps = [
+        model_step for model_step in model_steps if model_step.is_key_model_step
+    ]
+    peak_tokens = max(
+        (model_step.estimated_tokens for model_step in model_steps),
+        default=0,
+    )
+    compacted_model_steps = sum(
+        model_step.compacted for model_step in model_steps
+    )
     tool_names = {
-        decision.tool_name for turn in turns for decision in turn.tool_decisions
+        decision.tool_name
+        for model_step in model_steps
+        for decision in model_step.tool_decisions
     }
-    repeated_tool_calls = _repeated_tool_call_sequences(turns)
+    repeated_tool_calls = _repeated_tool_call_sequences(model_steps)
     key_links = "".join(
         "<a class='context-jump' "
-        f"href='#context-{_safe_html_id(label)}-{turn.step}'><b>Model Step {turn.step}</b>"
-        f"<span>{_escape(turn.key_reason)}</span></a>"
-        for turn in key_turns
+        f"href='#context-{_safe_html_id(label)}-{model_step.step}'><b>Model Step {model_step.step}</b>"
+        f"<span>{_escape(model_step.key_reason)}</span></a>"
+        for model_step in key_model_steps
     )
-    turn_blocks = "".join(
-        _render_context_turn(
-            turn,
-            element_id=f"context-{_safe_html_id(label)}-{turn.step}",
+    model_step_blocks = "".join(
+        _render_context_model_step(
+            model_step,
+            element_id=f"context-{_safe_html_id(label)}-{model_step.step}",
         )
-        for turn in turns
+        for model_step in model_steps
     )
     task = str(trace.get("task") or "未记录任务")
     open_attribute = " open" if open_panel else ""
     return (
         f"<details class='trace-context-unit'{open_attribute}>"
-        f"<summary><b>{_escape(label)}</b><span>{len(turns)} Model Step · "
-        f"{len(key_turns)} 个关键转折 · 峰值 {peak_tokens:,} tokens</span></summary>"
+        f"<summary><b>{_escape(label)}</b><span>{len(model_steps)} Model Step · "
+        f"{len(key_model_steps)} 个关键转折 · 峰值 {peak_tokens:,} tokens</span></summary>"
         "<div class='trace-context-body'>"
         f"<p class='task-summary'><span>任务</span>{_escape(task)}</p>"
         + _metric_grid(
             [
-                ("Model Step", str(len(turns)), "真实模型边界", "neutral"),
-                ("关键转折", str(len(key_turns)), "优先展开", "ok"),
-                ("上下文压缩", str(compacted_turns), "触发压缩的 Model Step", "neutral"),
+                ("Model Step", str(len(model_steps)), "真实模型边界", "neutral"),
+                ("关键转折", str(len(key_model_steps)), "优先展开", "ok"),
+                (
+                    "上下文压缩",
+                    str(compacted_model_steps),
+                    "触发压缩的 Model Step",
+                    "neutral",
+                ),
                 ("实际工具", str(len(tool_names)), "实际调用种类", "neutral"),
                 (
                     "重复参数链",
@@ -834,7 +848,7 @@ def _render_context_trace_panel(
         )
         + _render_repeated_tool_call_sequences(repeated_tool_calls)
         + (f"<div class='context-jumps'>{key_links}</div>" if key_links else "")
-        + f"<div class='context-turns'>{turn_blocks}</div>"
+        + f"<div class='context-turns'>{model_step_blocks}</div>"
         "<details class='provenance'><summary>证据来源</summary>"
         f"<code>{_escape(str(trace_path))}</code></details>"
         "</div></details>"
@@ -1118,7 +1132,7 @@ def _render_observability_overview(project_dir: Path) -> str:
     usage = _read_json_file(_latest_governed_usage_path(project_dir))
     usage_summary = usage.get("summary") or {}
     events = _event_list(trace)
-    turns = {
+    model_steps = {
         int(event.get("step") or 0)
         for event in events
         if int(event.get("step") or 0) > 0
@@ -1183,7 +1197,7 @@ def _render_observability_overview(project_dir: Path) -> str:
         "<small>跨运行比较</small></div>"
         f"<div><b>02</b><span>单次运行</span><strong>{_escape(_display_value(run_status))}</strong>"
         f"<small class='mono'>{_escape(run_id[:18])}</small></div>"
-        f"<div><b>03</b><span>模型步骤</span><strong>{len(turns)} 步</strong>"
+        f"<div><b>03</b><span>模型步骤</span><strong>{len(model_steps)} 步</strong>"
         "<small>一次模型决策</small></div>"
         "<div><b>04</b><span>语义阶段</span><strong>固定 6 类</strong>"
         "<small>上下文到持久化</small></div>"
@@ -1201,7 +1215,7 @@ def _render_observability_overview(project_dir: Path) -> str:
                 (
                     "受治理运行",
                     _display_value(run_status),
-                    f"{len(turns)} 个 Model Step · {checkpoint_count} 个 Checkpoint",
+                    f"{len(model_steps)} 个 Model Step · {checkpoint_count} 个 Checkpoint",
                     _tone_for_status(run_status),
                 ),
                 (
@@ -1857,44 +1871,44 @@ def _render_orchestration_trace_timeline(project_dir: Path) -> str:
     )
 
 
-def _render_context_turn(
-    turn: ContextTurnInspection,
+def _render_context_model_step(
+    model_step: ContextModelStepInspection,
     *,
     element_id: str | None = None,
 ) -> str:
-    """渲染一轮四段式 Context 检查视图。"""
+    """渲染一次 Model Step 的四段式 Context 检查视图。"""
 
-    open_attribute = " open" if turn.is_key_turn else ""
+    open_attribute = " open" if model_step.is_key_model_step else ""
     key_badge = (
-        f"<span class='context-key'>{_escape(turn.key_reason)}</span>"
-        if turn.is_key_turn
+        f"<span class='context-key'>{_escape(model_step.key_reason)}</span>"
+        if model_step.is_key_model_step
         else ""
     )
-    previous_evidence = _render_context_fact_list(turn.previous_evidence)
+    previous_evidence = _render_context_fact_list(model_step.previous_evidence)
     decision_summary = _compact_timeline_text(
-        turn.model_response_summary or "模型只返回了结构化 ToolCall。",
+        model_step.model_response_summary or "模型只返回了结构化 ToolCall。",
         max_chars=520,
     )
-    action_rows = _render_context_action_list(turn.tool_decisions)
-    feedback_rows = _render_context_feedback_list(turn.tool_decisions)
-    input_bars = _render_context_component_bars(turn.input_components)
-    message_delta = _signed_number(turn.message_delta)
-    token_delta = _signed_number(turn.token_delta)
+    action_rows = _render_context_action_list(model_step.tool_decisions)
+    feedback_rows = _render_context_feedback_list(model_step.tool_decisions)
+    input_bars = _render_context_component_bars(model_step.input_components)
+    message_delta = _signed_number(model_step.message_delta)
+    token_delta = _signed_number(model_step.token_delta)
     pressure = (
-        turn.estimated_tokens / turn.hard_input_limit * 100
-        if turn.hard_input_limit
+        model_step.estimated_tokens / model_step.hard_input_limit * 100
+        if model_step.hard_input_limit
         else 0.0
     )
-    technical_details = _render_context_technical_details(turn)
+    technical_details = _render_context_technical_details(model_step)
 
-    resolved_element_id = element_id or f"context-turn-{turn.step}"
+    resolved_element_id = element_id or f"context-turn-{model_step.step}"
     return (
         f"<details class='context-turn' id='{_escape(resolved_element_id)}'{open_attribute}>"
         "<summary>"
-        f"<span><b>Model Step {turn.step}</b><small>{_escape(turn.phase)}</small></span>"
-        f"<span class='context-turn-summary'>{_escape(turn.phase_reason)}</span>"
-        f"<span class='context-turn-metrics'>{turn.message_count} messages "
-        f"({message_delta}) · {turn.estimated_tokens:,} tokens ({token_delta})</span>"
+        f"<span><b>Model Step {model_step.step}</b><small>{_escape(model_step.phase)}</small></span>"
+        f"<span class='context-turn-summary'>{_escape(model_step.phase_reason)}</span>"
+        f"<span class='context-turn-metrics'>{model_step.message_count} messages "
+        f"({message_delta}) · {model_step.estimated_tokens:,} tokens ({token_delta})</span>"
         f"{key_badge}</summary>"
         "<div class='context-turn-body'>"
         "<div class='context-flow-grid'>"
@@ -1903,8 +1917,8 @@ def _render_context_turn(
         "<section><span class='context-stage'>02 · 当前 Model Step 输入组成</span>"
         f"{input_bars}"
         f"<p class='context-caption'>窗口占用约 {pressure:.1f}% · "
-        f"{'已压缩' if turn.compacted else '未压缩'} · "
-        f"系统 Context {turn.total_context_chars:,}/{turn.max_context_chars:,} chars</p>"
+        f"{'已压缩' if model_step.compacted else '未压缩'} · "
+        f"系统 Context {model_step.total_context_chars:,}/{model_step.max_context_chars:,} chars</p>"
         "</section>"
         "<section><span class='context-stage'>03 · 模型可观测决定</span>"
         f"<p class='context-decision'>{_escape(decision_summary)}</p>{action_rows}</section>"
@@ -1938,7 +1952,7 @@ def _render_context_component_bars(
 
 def _render_context_action_list(decisions: tuple[ToolDecision, ...]) -> str:
     if not decisions:
-        return "<p class='empty-inline'>没有 ToolCall，本轮输出最终文本。</p>"
+        return "<p class='empty-inline'>没有 ToolCall，本 Model Step 输出最终文本。</p>"
     rows = "".join(_render_context_action(decision) for decision in decisions)
     return f"<ol class='context-actions'>{rows}</ol>"
 
@@ -1962,12 +1976,14 @@ def _render_context_action(decision: ToolDecision) -> str:
 
 
 def _repeated_tool_call_sequences(
-    turns: tuple[ContextTurnInspection, ...],
+    model_steps: tuple[ContextModelStepInspection, ...],
 ) -> tuple[dict[str, Any], ...]:
     """找出跨 Model Step 连续出现的相同 Tool + 参数，不猜测模型内部原因。"""
 
     flattened = [
-        (turn.step, decision) for turn in turns for decision in turn.tool_decisions
+        (model_step.step, decision)
+        for model_step in model_steps
+        for decision in model_step.tool_decisions
     ]
     sequences: list[dict[str, Any]] = []
     current: list[tuple[int, ToolDecision]] = []
@@ -2035,7 +2051,7 @@ def _render_repeated_tool_call_sequences(
 
 def _render_context_feedback_list(decisions: tuple[ToolDecision, ...]) -> str:
     if not decisions:
-        return "<p class='empty-inline'>本轮没有工具执行反馈。</p>"
+        return "<p class='empty-inline'>本 Model Step 没有工具执行反馈。</p>"
     rows = "".join(
         "<li>"
         + _badge(
@@ -2056,25 +2072,34 @@ def _render_context_feedback_list(decisions: tuple[ToolDecision, ...]) -> str:
     return f"<ul class='context-feedback'>{rows}</ul>"
 
 
-def _render_context_technical_details(turn: ContextTurnInspection) -> str:
+def _render_context_technical_details(
+    model_step: ContextModelStepInspection,
+) -> str:
     system_rows = (
         "".join(
             f"<tr><td>{_escape(_display_context_section(component.key))}</td>"
             f"<td>{component.chars:,}</td></tr>"
-            for component in turn.system_sections
+            for component in model_step.system_sections
         )
         or "<tr><td colspan='2'>没有区段数据</td></tr>"
     )
-    tools_state = "发生变化" if turn.tools_changed else "与上一 Model Step 相同"
-    skills_state = "发生变化" if turn.skills_changed else "与上一 Model Step 相同"
-    files_seen = "、".join(turn.files_seen) or "尚未通过 read_file 取得文件正文"
-    selected_files = (
-        "、".join(turn.selected_files) or "0（本次文件正文来自工具 Observation）"
+    tools_state = (
+        "发生变化" if model_step.tools_changed else "与上一 Model Step 相同"
     )
-    visible_tools = "、".join(turn.visible_tools) or "无"
-    active_skills = "、".join(turn.active_skills) or "无"
-    dropped_tools = "、".join(turn.dropped_tools) or "无"
-    working_memory = turn.working_memory_summary or "未记录"
+    skills_state = (
+        "发生变化" if model_step.skills_changed else "与上一 Model Step 相同"
+    )
+    files_seen = (
+        "、".join(model_step.files_seen) or "尚未通过 read_file 取得文件正文"
+    )
+    selected_files = (
+        "、".join(model_step.selected_files)
+        or "0（本次文件正文来自工具 Observation）"
+    )
+    visible_tools = "、".join(model_step.visible_tools) or "无"
+    active_skills = "、".join(model_step.active_skills) or "无"
+    dropped_tools = "、".join(model_step.dropped_tools) or "无"
+    working_memory = model_step.working_memory_summary or "未记录"
 
     return (
         "<details class='context-technical'><summary>查看这一轮怎样组装 Context</summary>"
@@ -2091,9 +2116,10 @@ def _render_context_technical_details(turn: ContextTurnInspection) -> str:
         "</div>"
         "<details class='context-memory'><summary>查看 Working Memory 摘要</summary>"
         f"<pre>{_escape(working_memory)}</pre></details>"
-        f"<p class='boundary-note'>模型：{_escape(turn.model_name)}；reasoning tokens："
-        f"{turn.reasoning_tokens}；本 Model Step 估算成本：${turn.estimated_cost_usd:.6f}；"
-        f"压缩原因：{_escape(turn.compaction_reason)}。Trace 不复制完整 Prompt，"
+        f"<p class='boundary-note'>模型：{_escape(model_step.model_name)}；reasoning tokens："
+        f"{model_step.reasoning_tokens}；本 Model Step 估算成本："
+        f"${model_step.estimated_cost_usd:.6f}；"
+        f"压缩原因：{_escape(model_step.compaction_reason)}。Trace 不复制完整 Prompt，"
         "避免重复大文本和敏感内容；这里展示的是可复核的输入结构。</p>"
         "</details>"
     )
@@ -2158,12 +2184,16 @@ def _render_trace_lane(label: str, trace_path: Path) -> str:
             model_steps.setdefault(step, []).append(event)
     inspections = {
         inspection.step: inspection
-        for inspection in build_context_turn_inspections(trace)
+        for inspection in build_context_model_step_inspections(trace)
     }
 
     model_step_blocks = "".join(
-        _render_timeline_turn(turn, turn_events, inspections.get(turn))
-        for turn, turn_events in sorted(model_steps.items())
+        _render_timeline_model_step(
+            model_step,
+            model_step_events,
+            inspections.get(model_step),
+        )
+        for model_step, model_step_events in sorted(model_steps.items())
     )
     return (
         "<section class='evidence-section timeline-lane'>"
@@ -2306,7 +2336,7 @@ _TRACE_EVENT_PURPOSES = {
     "human_input_cancelled": "记录人工取消及后续控制结果，防止把取消误报为正常完成。",
     "tool_calls_deferred_for_human_input": "冻结尚未执行的工具请求，等待人工信息后重新规划。",
     "tool_calls_bounded": "记录预算裁剪，解释为什么模型请求的部分工具没有进入执行链。",
-    "observation": "把工具结果写回会话，明确下一轮模型判断能够看到的反馈。",
+    "observation": "把工具结果写回会话，明确下一 Model Step 能够看到的反馈。",
     "evidence_collected": "把可复核事实加入证据集合，供最终回答和报告引用。",
     "recovery_decision": "记录中断后的继续、重试或阻断理由，避免恢复策略成为隐式行为。",
     "resume_state_loaded": "证明恢复从哪个 Checkpoint 和待处理操作继续，而不是重新执行整项任务。",
@@ -2488,10 +2518,10 @@ def _checkpoint_change_summary(
     return " · ".join(parts)
 
 
-def _render_timeline_turn(
-    turn: int,
+def _render_timeline_model_step(
+    model_step: int,
     events: list[dict[str, Any]],
-    inspection: ContextTurnInspection | None,
+    inspection: ContextModelStepInspection | None,
 ) -> str:
     grouped: dict[str, list[dict[str, Any]]] = {
         "input": [],
@@ -2545,15 +2575,15 @@ def _render_timeline_turn(
                 "Observation / Checkpoint / terminal",
             )
         )
-    outcome, outcome_tone = _timeline_turn_outcome(events)
-    turn_summary = _timeline_turn_summary(events)
+    outcome, outcome_tone = _timeline_model_step_outcome(events)
+    model_step_summary = _timeline_model_step_summary(events)
     key_reason = _timeline_key_reason(events, inspection)
     open_attribute = " open" if key_reason else ""
     key_class = " key-turn" if key_reason else ""
     return (
         f"<details class='timeline-turn{key_class}'{open_attribute}>"
         "<summary>"
-        f"<span><b>Model Step {turn} · {_escape(turn_summary)}</b>"
+        f"<span><b>Model Step {model_step} · {_escape(model_step_summary)}</b>"
         f"<small>{_escape(key_reason or '普通轮次，展开查看')}</small></span>"
         f"{_badge(outcome, outcome_tone)}</summary>"
         f"<div class='timeline-turn-body'>{''.join(rows)}"
@@ -2576,7 +2606,7 @@ def _render_timeline_fact_row(
 
 
 def _timeline_input_summary(
-    inspection: ContextTurnInspection | None,
+    inspection: ContextModelStepInspection | None,
     events: list[dict[str, Any]],
 ) -> str:
     if inspection is None:
@@ -2603,7 +2633,7 @@ def _timeline_input_summary(
 
 def _timeline_key_reason(
     events: list[dict[str, Any]],
-    inspection: ContextTurnInspection | None,
+    inspection: ContextModelStepInspection | None,
 ) -> str:
     if _pending_tool_rejection(events) is not None:
         return "收口时仍请求工具，Runtime 明确拒绝未执行动作"
@@ -2807,7 +2837,7 @@ def _render_raw_event_details(
     )
 
 
-def _timeline_turn_summary(events: list[dict[str, Any]]) -> str:
+def _timeline_model_step_summary(events: list[dict[str, Any]]) -> str:
     """用本轮主动作替代没有业务含义的 event 数量。"""
 
     rejected_tool_request = _pending_tool_rejection(events)
@@ -3070,7 +3100,7 @@ def _event_learning_reason(event: dict[str, Any]) -> str:
     if event_type == "tool_observation":
         tool = str(event.get("tool_call") or "工具")
         return (
-            f"记录 {tool} 返回给 Agent 的结果；下一轮模型判断将基于这条 Observation。"
+            f"记录 {tool} 返回给 Agent 的结果；下一 Model Step 将基于这条 Observation。"
         )
     if event_type == "validation_evidence":
         validation = event.get("validation") or {}
@@ -3121,7 +3151,7 @@ def _render_event_result(event: dict[str, Any]) -> str:
     return _badge("success" if succeeded else "failed", "ok" if succeeded else "bad")
 
 
-def _timeline_turn_outcome(events: list[dict[str, Any]]) -> tuple[str, str]:
+def _timeline_model_step_outcome(events: list[dict[str, Any]]) -> tuple[str, str]:
     completed = _last_trace_event(events, "run_completed")
     if completed is not None:
         status = str(completed.get("run_status") or "completed")

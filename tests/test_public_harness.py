@@ -339,7 +339,7 @@ class PublicHarnessTest(unittest.TestCase):
     def test_snapshot_build_failure_does_not_publish_active_turn(self):
         with tempfile.TemporaryDirectory() as tmp, mock.patch(
             "agent_forge.runtime.application.run_preparation."
-            "RunPreparation.build_new_turn_snapshot",
+            "RunPreparation.build_stable_turn_context_snapshot",
             side_effect=OSError("snapshot build failed"),
         ):
             root = Path(tmp)

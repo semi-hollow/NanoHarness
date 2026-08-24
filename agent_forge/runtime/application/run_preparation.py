@@ -29,7 +29,7 @@ from agent_forge.runtime.domain.task import (
 from agent_forge.runtime.domain.thread import (
     ConversationItem,
     ConversationItemDraft,
-    TurnContextSnapshot,
+    StableTurnContextSnapshot,
 )
 from agent_forge.runtime.ports import SkillView, StableTurnContextRequest
 from agent_forge.safety.guardrails import GuardrailResult, input_guardrail
@@ -54,7 +54,7 @@ class RunPreparation:
         self.clarification_policy = ClarificationPolicy()
         self.skill_selector = dependencies.skills
         self.tool_gateway = dependencies.tools
-        self.context_assembler = dependencies.turn_system_context_assembler
+        self.context_assembler = dependencies.system_context_assembler
         self.model_capabilities = dependencies.model_capabilities
 
     def create_session(self, agent_name: str) -> AgentRunSession:
@@ -63,7 +63,7 @@ class RunPreparation:
         流程位置：``Harness`` 完成装配后，AgentLoop 进入治理主链的第一站。
         规范上游：``AgentLoop.run``。
         下一 owner：``prepare_run``，随后才允许进入 Model Step。
-        状态与证据：Run checkpoint、Thread 有界视图、TurnContextSnapshot 与模型能力事件。
+        状态与证据：Run checkpoint、Thread 有界视图、StableTurnContextSnapshot 与模型能力事件。
         系统不变量：任务身份只来自 canonical Thread/Turn，checkpoint 不能复制另一份任务真相。
         删除/内联影响：会把身份校验、恢复装载和 session 组装重新散到 AgentLoop。
         """
@@ -186,7 +186,7 @@ class RunPreparation:
         )
         # Turn 一进入 Runtime 就冻结稳定契约；即使操作员在首个模型步骤前 pause，
         # 后续 resume 也只复用这里的 Snapshot，不会读取已经变化的治理规则。
-        self._ensure_turn_context_snapshot(session)
+        self._ensure_stable_turn_context_snapshot(session)
         return session
         # endregion 3. 有界视图结束
 
@@ -243,9 +243,9 @@ class RunPreparation:
         return None
 
     # region Turn 稳定快照
-    def _ensure_turn_context_snapshot(self, session: AgentRunSession) -> None:
+    def _ensure_stable_turn_context_snapshot(self, session: AgentRunSession) -> None:
         # region 1. 复用：同一 Turn 只接受已经 durable 的 immutable Snapshot
-        existing = self.conversation_threads.load_turn_snapshot(
+        existing = self.conversation_threads.load_stable_turn_snapshot(
             session.thread_id,
             session.turn_id,
         )
@@ -265,19 +265,19 @@ class RunPreparation:
         # 的 durable snapshot，不能重新读取已经变化的指令、Skill、Memory 或 Tool contract。
         if self.config.resume_state:
             raise RuntimeError(
-                "cannot resume Turn without durable TurnContextSnapshot"
+                "cannot resume Turn without durable StableTurnContextSnapshot"
             )
         # endregion 1. Snapshot 复用与 fail-closed结束
 
         # region 2. 新 Turn 冻结：Direct AgentLoop 的兼容 fallback
-        snapshot = self.build_new_turn_snapshot(
+        snapshot = self.build_stable_turn_context_snapshot(
             turn_id=session.turn_id,
             root_task=session.root_task,
         )
         # endregion 2. 新 Turn 稳定输入冻结结束
 
         # region 3. CAS 持久化：先保存 Snapshot，再把 revision 与投影恢复到当前 Session
-        saved_state = self.conversation_threads.save_turn_snapshot(
+        saved_state = self.conversation_threads.save_stable_turn_snapshot(
             session.thread_id,
             snapshot,
             expected_revision=session.context_revision,
@@ -296,12 +296,12 @@ class RunPreparation:
         self._record_snapshot(session, snapshot, reused=False)
         # endregion 3. Snapshot 持久化与 Session 恢复结束
 
-    def build_new_turn_snapshot(
+    def build_stable_turn_context_snapshot(
         self,
         *,
         turn_id: str,
         root_task: str,
-    ) -> TurnContextSnapshot:
+    ) -> StableTurnContextSnapshot:
         """发现并构造新 Turn 的稳定输入；调用方负责在 claim 前持久化。"""
 
         active_skills = self._select_active_skills(root_task)
@@ -340,7 +340,7 @@ class RunPreparation:
             "available_tools": list(stable_context.available_tools),
             "runtime_contract": self._runtime_contract(),
         }
-        snapshot = TurnContextSnapshot(
+        snapshot = StableTurnContextSnapshot(
             turn_id=turn_id,
             root_task=root_task,
             stable_system_prefix=stable_context.render(),
@@ -357,11 +357,11 @@ class RunPreparation:
 
     def validate_snapshot_contract(
         self,
-        snapshot: TurnContextSnapshot,
+        snapshot: StableTurnContextSnapshot,
         *,
         turn_id: str,
         root_task: str,
-    ) -> TurnContextSnapshot:
+    ) -> StableTurnContextSnapshot:
         """在 resume claim 前纯校验冻结输入与当前 Runtime/Tool 契约。"""
 
         normalized = snapshot.normalized()
@@ -386,7 +386,7 @@ class RunPreparation:
     def _restore_snapshot(
         self,
         session: AgentRunSession,
-        snapshot: TurnContextSnapshot,
+        snapshot: StableTurnContextSnapshot,
     ) -> None:
         normalized = self.validate_snapshot_contract(
             snapshot,
@@ -699,7 +699,7 @@ class RunPreparation:
     def _record_skill_selection(
         self,
         session: AgentRunSession,
-        snapshot: TurnContextSnapshot,
+        snapshot: StableTurnContextSnapshot,
     ) -> None:
         raw_skills = snapshot.stable_context_evidence.get("active_skills")
         skills = list(raw_skills) if isinstance(raw_skills, list) else []
@@ -737,7 +737,7 @@ class RunPreparation:
     def _record_snapshot(
         self,
         session: AgentRunSession,
-        snapshot: TurnContextSnapshot,
+        snapshot: StableTurnContextSnapshot,
         *,
         reused: bool,
     ) -> None:

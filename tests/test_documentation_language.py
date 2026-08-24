@@ -199,8 +199,8 @@ class DocumentationLanguageTest(unittest.TestCase):
                 "PromptWindowResult.llm_messages",
                 "PreparedModelStep.llm_messages",
                 "ModelPort.chat(...)",
-                "TurnSystemContextBuildReport",
-                "turn_system_message",
+                "ModelStepSystemContextBuildReport",
+                "model_step_system_message",
             ),
             "docs/运行治理与工具执行.md": (
                 "ToolExecutionPipeline.execute_calls()",

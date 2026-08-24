@@ -32,7 +32,7 @@ from agent_forge.runtime.domain.thread import (
     ThreadContextState,
     ThreadRun,
     Turn,
-    TurnContextSnapshot,
+    StableTurnContextSnapshot,
 )
 from agent_forge.runtime.domain.task import RESUMABLE_RUN_STATUSES, TaskCheckpoint
 from agent_forge.runtime.ports.thread import ConversationThreadRepository
@@ -95,7 +95,7 @@ class JsonConversationThreadRepository(ConversationThreadRepository):
         input_item: ConversationItemDraft,
         initial_run: ThreadRun,
         *,
-        snapshot: TurnContextSnapshot | None = None,
+        snapshot: StableTurnContextSnapshot | None = None,
         expected_context_revision: int | None = None,
     ) -> tuple[ConversationThread, ConversationItem]:
         """原子建立新 Turn：验证 bootstrap，再提交 snapshot、输入与 active identity。
@@ -481,18 +481,18 @@ class JsonConversationThreadRepository(ConversationThreadRepository):
                 expected_revision=expected_revision,
             )
 
-    def load_turn_snapshot(
+    def load_stable_turn_snapshot(
         self,
         thread_id: str,
         turn_id: str,
-    ) -> TurnContextSnapshot | None:
+    ) -> StableTurnContextSnapshot | None:
         state = self.load_context_state(thread_id)
         return state.snapshot_for(turn_id) if state is not None else None
 
-    def save_turn_snapshot(
+    def save_stable_turn_snapshot(
         self,
         thread_id: str,
-        snapshot: TurnContextSnapshot,
+        snapshot: StableTurnContextSnapshot,
         *,
         expected_revision: int,
     ) -> ThreadContextState:

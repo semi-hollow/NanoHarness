@@ -27,9 +27,9 @@ from agent_forge.runtime.domain.model import ModelCapabilities
 from agent_forge.runtime.domain.thread import ConversationItem, ThreadContextState
 from agent_forge.runtime.domain.task import TaskCheckpointUpdate, TaskRunStatus
 from agent_forge.runtime.ports import (
-    TurnSystemContextAssemblerPort,
-    TurnSystemContextRequest,
-    TurnSystemContextView,
+    SystemContextAssemblerPort,
+    ModelStepSystemContextRequest,
+    ModelStepSystemContextView,
     EnvironmentPort,
     EventSink,
     ToolGateway,
@@ -41,12 +41,12 @@ from agent_forge.tools.tool_router import ToolRoute, ToolRouter, ToolRoutingRequ
 class PreparedModelStep:
     """一次 LLM 调用所需的完整、可度量输入。
 
-    ``llm_messages`` 是当前 Turn System Context 与 Conversation Window；
+    ``llm_messages`` 是当前 Model Step System Context 与 Conversation Window；
     ``tool_schemas`` 是同一次调用的独立工具契约，不混进消息列表。
     """
 
     step: int
-    turn_system_message: Message
+    model_step_system_message: Message
     llm_messages: list[Message]
     tool_schemas: list[ToolSchema]
     allowed_tool_names: set[str]
@@ -65,7 +65,7 @@ class ModelStepPreparation:
         self,
         config: RuntimeConfig,
         trace: EventSink,
-        turn_system_context_assembler: TurnSystemContextAssemblerPort,
+        system_context_assembler: SystemContextAssemblerPort,
         tools: ToolGateway,
         environment: EnvironmentPort,
         model_capabilities: ModelCapabilities,
@@ -73,7 +73,7 @@ class ModelStepPreparation:
     ) -> None:
         self.config = config
         self.trace = trace
-        self.turn_system_context_assembler = turn_system_context_assembler
+        self.system_context_assembler = system_context_assembler
         self.tool_gateway = tools
         self.execution_environment = environment
         self.model_capabilities = model_capabilities
@@ -107,7 +107,7 @@ class ModelStepPreparation:
         """为 ``AgentLoop`` 生成一次可直接提交给模型的 ``PreparedModelStep``。
 
         伪代码：保存 Model Step checkpoint -> 路由 Tool schema/allowed names
-        -> 组装当前 Turn System Context -> 加入临时预算提示
+        -> 组装当前 Model Step System Context -> 加入临时预算提示
         -> PromptWindow governance -> 返回冻结的 ``PreparedModelStep``。
 
         流程位置：每个 Model Step 的上下文、工具集合与预算汇合点。
@@ -183,13 +183,13 @@ class ModelStepPreparation:
         # endregion 2. Thread view 与工具路由结束
 
         # region 3. 动态上下文组装：稳定前缀不重建，只刷新仓库与派生状态
-        # TurnSystemContextAssemblerPort 是动态仓库视图的唯一 IO owner；这里仅传入
+        # SystemContextAssemblerPort 是动态仓库视图的唯一 IO owner；这里仅传入
         # 冻结前缀、最新 focus 和预算，避免 Application 主链自行扫描文件。
         _, dynamic_context_budget = partition_context_budgets(
             self.config.max_context_chars
         )
-        turn_system_context = self.turn_system_context_assembler.build(
-            TurnSystemContextRequest(
+        model_step_system_context = self.system_context_assembler.build_model_step(
+            ModelStepSystemContextRequest(
                 turn_focus=session.turn_focus,
                 stable_system_prefix=session.stable_system_prefix,
                 workspace=self.config.workspace,
@@ -205,16 +205,16 @@ class ModelStepPreparation:
         # region 4. 会话窗口治理：压缩历史并返回模型可直接消费的 PreparedModelStep
         # 先记录静态 context，再把 system context、历史和临时预算提示交给窗口管理器；
         # PreparedModelStep 是 ModelPort 的唯一输入快照，后续不得再单独修改工具或消息。
-        self._record_turn_system_context(
+        self._record_model_step_system_context(
             session=session,
             step=step,
-            turn_system_context=turn_system_context,
+            model_step_system_context=model_step_system_context,
             tool_route=tool_route,
             allowed_tool_names=allowed_tool_names,
         )
-        turn_system_message = Message(
+        model_step_system_message = Message(
             role="system",
-            content=turn_system_context.render(),
+            content=model_step_system_context.render(),
         )
         runtime_control_message = self._model_step_budget_control_message(
             step=step,
@@ -226,7 +226,7 @@ class ModelStepPreparation:
         while has_more_uncovered:
             page_window = self.prompt_window.prepare(
                 PromptWindowRequest(
-                    turn_system_message=turn_system_message,
+                    model_step_system_message=model_step_system_message,
                     conversation_history=list(session.messages),
                     observations=session.observations,
                     tool_schemas=visible_tool_schemas,
@@ -255,7 +255,7 @@ class ModelStepPreparation:
         # 预算提示作为 transient tail 发送；它不进入 session.messages、digest 或 cursor。
         prompt_window = self.prompt_window.prepare(
             PromptWindowRequest(
-                turn_system_message=turn_system_message,
+                model_step_system_message=model_step_system_message,
                 conversation_history=list(session.messages),
                 observations=session.observations,
                 tool_schemas=visible_tool_schemas,
@@ -283,7 +283,7 @@ class ModelStepPreparation:
             )
         return PreparedModelStep(
             step=step,
-            turn_system_message=turn_system_message,
+            model_step_system_message=model_step_system_message,
             llm_messages=prompt_window.llm_messages,
             tool_schemas=visible_tool_schemas,
             allowed_tool_names=allowed_tool_names,
@@ -558,12 +558,12 @@ class ModelStepPreparation:
         return None
 
     # region 证据记录器
-    def _record_turn_system_context(
+    def _record_model_step_system_context(
         self,
         *,
         session: AgentRunSession,
         step: int,
-        turn_system_context: TurnSystemContextView,
+        model_step_system_context: ModelStepSystemContextView,
         tool_route: ToolRoute,
         allowed_tool_names: set[str],
     ) -> None:
@@ -578,24 +578,24 @@ class ModelStepPreparation:
             session.agent_name,
             "context_assembly",
             context={
-                "selected_files": turn_system_context.selected_files,
-                "retrieved_docs_count": len(turn_system_context.retrieved_docs),
-                "working_memory_summary": (turn_system_context.working_memory_summary),
-                "total_chars": turn_system_context.total_chars,
-                "max_chars": turn_system_context.max_chars,
-                "truncated": turn_system_context.truncated,
-                "stable_chars": turn_system_context.stable_chars,
-                "dynamic_chars": turn_system_context.dynamic_chars,
-                "dynamic_max_chars": turn_system_context.dynamic_max_chars,
-                "dropped_context": turn_system_context.dropped_context,
-                "budget_breakdown": turn_system_context.budget_breakdown,
-                "available_tools": turn_system_context.available_tools,
+                "selected_files": model_step_system_context.selected_files,
+                "retrieved_docs_count": len(model_step_system_context.retrieved_docs),
+                "working_memory_summary": (model_step_system_context.working_memory_summary),
+                "total_chars": model_step_system_context.total_chars,
+                "max_chars": model_step_system_context.max_chars,
+                "truncated": model_step_system_context.truncated,
+                "stable_chars": model_step_system_context.stable_chars,
+                "dynamic_chars": model_step_system_context.dynamic_chars,
+                "dynamic_max_chars": model_step_system_context.dynamic_max_chars,
+                "dropped_context": model_step_system_context.dropped_context,
+                "budget_breakdown": model_step_system_context.budget_breakdown,
+                "available_tools": model_step_system_context.available_tools,
                 "active_skills": [
                     str(item.get("name") or "")
                     for item in active_skill_items
                     if isinstance(item, dict)
                 ],
-                "permission_summary": turn_system_context.permission_summary,
+                "permission_summary": model_step_system_context.permission_summary,
                 "system_prompt_profile": self.config.system_prompt_profile,
                 "instructions": session.stable_context_evidence.get(
                     "instructions",
@@ -604,7 +604,8 @@ class ModelStepPreparation:
                 "tool_routing": {
                     "reason": tool_route.reason,
                     "phase": tool_route.phase,
-                    "remaining_tool_turns": tool_route.remaining_tool_turns,
+                    # 历史 trace key 保持不变；值的运行时语义是一项 Model Step 预算。
+                    "remaining_tool_turns": tool_route.remaining_tool_model_steps,
                     "allowed_tools": sorted(allowed_tool_names),
                     "dropped_tools": tool_route.dropped_names,
                     "metadata": tool_route.metadata,

@@ -54,7 +54,7 @@ Input
 | `架构导览.md` | 顶层 Ownership、Thread→Turn→Run→Model Step 主链、能力边界与文档导航 |
 | `核心能力与代码入口.md` | 能力（Capability）→ canonical Owner → primary method → source file |
 | `Agent运行数据结构与模型输入.md` | Thread/Turn/Run/Model Step 所有权及模型输入快照 |
-| `上下文工程.md` | TurnContextSnapshot、动态 System Context，以及跨 Turn Memory 边界 |
+| `上下文工程.md` | StableTurnContextSnapshot、动态 System Context，以及跨 Turn Memory 边界 |
 | `上下文压缩与长任务设计.md` | raw Thread、Prompt Window、Conversation compaction 与继续执行 |
 | `运行治理与工具执行.md` | 完整 assistant batch 到授权、副作用、唯一 Observation 与 crash resume |
 | `运行产物与持久化契约.md` | Thread authority、Run recovery、Audit Evidence 与 Derived Presentation |

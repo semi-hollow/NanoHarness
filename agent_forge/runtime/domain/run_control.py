@@ -34,7 +34,7 @@ class RunControlSignal:
     requested_at: float = field(default_factory=time.time)
 
     def __post_init__(self) -> None:
-        # STEER 会进入下一轮模型输入，空消息无法表达新的操作员方向。
+        # STEER 会进入下一 Model Step 输入，空消息无法表达新的操作员方向。
         if self.kind == RunControlKind.STEER and not self.message.strip():
             raise ValueError("steer message must not be empty")
 

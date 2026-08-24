@@ -35,6 +35,11 @@ RUNTIME_CORE = {
 # 可折叠阶段，使 Collapse All 后呈现架构骨架；普通 serializer/renderer 不在此
 # 机械加注释，避免注释本身变成新噪音。
 CORE_WORKFLOW_ENTRYPOINTS = {
+    "apps/repository_run.py": {
+        "_run_multi_agent_plan": 7,
+        "_execute_validated_plan": 3,
+        "_run_ultra_repository_task": 3,
+    },
     "agent_forge/harness.py": {
         "Harness.run": 3,
         "Harness._execute_run": 3,
@@ -221,7 +226,7 @@ KEYWORD_ONLY_RECORDS = {
         "EnvironmentProbe",
         "ExecutionEnvironmentConfig",
     },
-    "agent_forge/runtime/ports/context.py": {"TurnSystemContextRequest"},
+    "agent_forge/runtime/ports/context.py": {"ModelStepSystemContextRequest"},
     "agent_forge/runtime/wiring.py": {
         "AgentLoopBuildRequest",
         "HumanInputResponseCommand",
@@ -402,7 +407,7 @@ TRACE_FREE_ORCHESTRATION_METHODS = {
     },
     "agent_forge/runtime/application/run_preparation.py": {
         "_apply_input_policy",
-        "_ensure_turn_context_snapshot",
+        "_ensure_stable_turn_context_snapshot",
         "_load_resume_checkpoint",
         "_resolve_clarification",
         "_select_active_skills",
@@ -745,11 +750,12 @@ class CodeNavigationContractTest(unittest.TestCase):
                     )
 
     def test_multi_agent_control_flow_reads_like_pseudocode(self) -> None:
-        """Multi-Agent 及其协调主链的分支前必须先说明业务目的。"""
+        """Multi-Agent、产品入口及协调主链的分支前必须先说明业务目的。"""
 
         missing_navigation_comments: list[str] = []
         multi_agent_root = PROJECT_ROOT / "agent_forge/multi_agent"
         coordination_runtime_paths = [
+            PROJECT_ROOT / "apps/repository_run.py",
             PROJECT_ROOT / "agent_forge/runtime/domain/run_control.py",
             PROJECT_ROOT / "agent_forge/runtime/application/run_control.py",
             PROJECT_ROOT / "agent_forge/runtime/application/agent_loop.py",
@@ -759,7 +765,8 @@ class CodeNavigationContractTest(unittest.TestCase):
             *coordination_runtime_paths,
         ]
 
-        # 一条粗粒度规则覆盖能力包及真实 AgentLoop 接缝，避免维护细碎方法白名单。
+        # 一条粗粒度规则覆盖产品入口、能力包及真实 AgentLoop 接缝，避免再遗漏
+        # “文件有架构标题、核心方法内部却没有伪代码导航”的情况。
         for path in navigation_paths:
             source_lines = path.read_text(encoding="utf-8").splitlines()
             tree = ast.parse("\n".join(source_lines), filename=str(path))

@@ -56,7 +56,7 @@ class StableTurnContextView(Protocol):
 
 # 核心数据：Runtime 请求 Context capability 组装一次模型输入的完整契约。
 @dataclass(frozen=True, kw_only=True)
-class TurnSystemContextRequest:
+class ModelStepSystemContextRequest:
     """每个 Model Step 的最新焦点、动态状态、工具和独立预算。"""
 
     turn_focus: str
@@ -69,7 +69,7 @@ class TurnSystemContextRequest:
     frozen_instruction_paths: tuple[str, ...] = ()
 
 
-class TurnSystemContextView(Protocol):
+class ModelStepSystemContextView(Protocol):
     """选择和压缩上下文时产生的类型化事实。"""
 
     selected_files: list[str]
@@ -90,7 +90,7 @@ class TurnSystemContextView(Protocol):
         """返回模型可见的 system context。"""
 
 
-class TurnSystemContextAssemblerPort(Protocol):
+class SystemContextAssemblerPort(Protocol):
     """隔离仓库扫描和文件预览 IO。"""
 
     def freeze_stable(
@@ -99,5 +99,8 @@ class TurnSystemContextAssemblerPort(Protocol):
     ) -> StableTurnContextView:
         """创建一次 Turn stable-prefix；同 Turn resume 不得再次调用。"""
 
-    def build(self, request: TurnSystemContextRequest) -> TurnSystemContextView:
+    def build_model_step(
+        self,
+        request: ModelStepSystemContextRequest,
+    ) -> ModelStepSystemContextView:
         """在冻结前缀之后构造一次有界动态模型上下文。"""

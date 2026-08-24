@@ -4,7 +4,7 @@
 收进硬预算，同时保持 Assistant ToolCall/Observation 事务不可拆。
 输入：``PromptWindowRequest``；输出：``PromptWindowResult.llm_messages`` 与更新后的
 ``ConversationHistoryDigest``。
-相邻边界：ModelStepPreparation 冻结本轮请求；本 Application 只治理窗口；Thread
+相邻边界：ModelStepPreparation 冻结当前 Model Step 请求；本 Application 只治理窗口；Thread
 Repository 持久化 derived digest，Model Adapter 不参与压缩决策。
 
 核心阅读：``PromptWindowManager.prepare`` 四段折叠主链；``_build_digest`` 解释被移出
@@ -93,7 +93,7 @@ class PromptWindowResult:
 class PromptWindowRequest:
     """System、Thread 未覆盖有界切片、旧投影、工具和强制压缩信号。"""
 
-    turn_system_message: Message
+    model_step_system_message: Message
     conversation_history: list[Message]
     observations: list[Observation]
     tool_schemas: list[ToolSchema]
@@ -139,7 +139,7 @@ class PromptWindowManager:
             else []
         )
         full_llm_messages = [
-            request.turn_system_message,
+            request.model_step_system_message,
             *previous_digest_message,
             *current_session_delta,
             *request.transient_messages,
@@ -248,7 +248,7 @@ class PromptWindowManager:
                 estimated_tokens_before=estimated_tokens_before,
             )
             candidate_llm_messages = [
-                request.turn_system_message,
+                request.model_step_system_message,
                 Message(
                     role="system",
                     content=conversation_history_digest.render(),

@@ -56,7 +56,7 @@ class ExecutionBudget:
 class StepController:
     """一次 Agent run 的重复检测、恢复分类和预算状态。
 
-    ``AgentLoop`` 只编排 turn，``ToolExecutionPipeline`` 在 action 前后调用本对象。
+    ``AgentLoop`` 只编排 Model Step，``ToolExecutionPipeline`` 在 action 前后调用本对象。
     本对象只决定 repeat/retry/stop，不执行工具也不写 checkpoint。
     """
 
@@ -138,7 +138,7 @@ class StepController:
         -> 无法细分时返回 ``TOOL_EXCEPTION`` fallback。
 
         ``ToolExecutionPipeline`` 在每个工具结果后调用这里。返回的
-        ``FailureSignal`` 进入 trace，并为下一轮提供 recovery hint；另外两个入口分别
+        ``FailureSignal`` 进入 trace，并为下一 Model Step 提供 recovery hint；另外两个入口分别
         处理重复 intent 和预算耗尽。
         """
 
@@ -148,7 +148,7 @@ class StepController:
             self.failure_count = 0
             return None
 
-        # 验证工具已正常运行但测试/编译目标未通过，是模型下一轮要消费的业务反馈，
+        # 验证工具已正常运行但测试/编译目标未通过，是下一 Model Step 要消费的业务反馈，
         # 不是工具网关、参数或执行环境故障。它会产生 recovery signal，但不会
         # 累加“连续工具故障”熔断计数；原地重复同一验证仍由 ToolCall 重复保护拦截。
         # execution_succeeded=True 表示验证命令正常完成；测试或编译目标未通过时应先修复

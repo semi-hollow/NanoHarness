@@ -1,8 +1,8 @@
 """将 Runtime Trace 投影为逐 Model Step 的 Context 决策视图。
 
 系统角色：把分散事件还原成 ``Context -> Model decision -> Tool feedback``，帮助源码讲解
-演示每轮输入为何变化；只使用可观测事件，不推断隐藏 chain-of-thought。
-输入：一个 canonical Trace mapping；输出：有顺序的 ``ContextTurnInspection``。
+演示每个 Model Step 的输入为何变化；只使用可观测事件，不推断隐藏 chain-of-thought。
+输入：一个 canonical Trace mapping；输出：有顺序的 ``ContextModelStepInspection``。
 相邻边界：Trace Adapter 提供事实；本 Application 负责解释性聚合；Presentation 只渲染。
 
 折叠导航：1 投影 contract；2 逐 Step 聚合；3 ToolCall/Observation 配对；
@@ -40,13 +40,13 @@ class ToolDecision:
 
 
 @dataclass(frozen=True)
-class ContextTurnInspection:
-    """供 Workbench 展示的一轮 Context -> Decision -> Feedback 快照。"""
+class ContextModelStepInspection:
+    """供 Workbench 展示的一次 Model Step 输入、决定与反馈快照。"""
 
     step: int
     phase: str
     phase_reason: str
-    is_key_turn: bool
+    is_key_model_step: bool
     key_reason: str
     previous_evidence: tuple[str, ...]
     message_count: int
@@ -77,12 +77,12 @@ class ContextTurnInspection:
 # endregion 1. Workbench 投影 contract 结束
 
 
-# region 2. 逐 Model Step 聚合：前一轮反馈成为下一轮可解释输入
-# 主要入口：把细粒度 Trace 投影为便于检查的逐轮上下文视图。
-def build_context_turn_inspections(
+# region 2. 逐 Model Step 聚合：前一步反馈成为下一步可解释输入
+# 主要入口：把细粒度 Trace 投影为便于检查的逐步上下文视图。
+def build_context_model_step_inspections(
     trace: dict[str, Any],
-) -> tuple[ContextTurnInspection, ...]:
-    """按 Turn 聚合上下文、模型决定和工具反馈，不推断隐藏思维链。"""
+) -> tuple[ContextModelStepInspection, ...]:
+    """按 Model Step 聚合上下文、模型决定和工具反馈，不推断隐藏思维链。"""
 
     events = [
         event
@@ -94,9 +94,9 @@ def build_context_turn_inspections(
     for event in events:
         events_by_step.setdefault(int(event.get("step") or 0), []).append(event)
 
-    turns: list[ContextTurnInspection] = []
+    model_steps: list[ContextModelStepInspection] = []
     previous_evidence: tuple[str, ...] = (
-        "初始 Task、Runtime 指令与权限边界进入第一轮。",
+        "初始 Task、Runtime 指令与权限边界进入第一个 Model Step。",
     )
     previous_messages = 0
     previous_tokens = 0
@@ -107,7 +107,7 @@ def build_context_turn_inspections(
     saw_write = False
     saw_validation_pass = False
 
-    # 每轮先读取 Context/Window/Model/Tool 四类事实，再更新跨轮累积状态。
+    # 每个 Model Step 先读取 Context/Window/Model/Tool 四类事实，再更新累积状态。
     for step in sorted(events_by_step):
         step_events = events_by_step[step]
         context = _event_payload(step_events, "context_assembly", "context")
@@ -144,8 +144,8 @@ def build_context_turn_inspections(
             or model_request.get("estimated_prompt_tokens")
             or 0
         )
-        phase, phase_reason = _classify_turn(tool_decisions)
-        key_reason = _key_turn_reason(
+        phase, phase_reason = _classify_model_step(tool_decisions)
+        key_reason = _key_model_step_reason(
             step=step,
             tool_decisions=tool_decisions,
             compacted=window.get("compacted") is True,
@@ -155,12 +155,12 @@ def build_context_turn_inspections(
         )
         model_usage = _mapping(llm_call.get("model_usage"))
 
-        turns.append(
-            ContextTurnInspection(
+        model_steps.append(
+            ContextModelStepInspection(
                 step=step,
                 phase=phase,
                 phase_reason=phase_reason,
-                is_key_turn=bool(key_reason),
+                is_key_model_step=bool(key_reason),
                 key_reason=key_reason,
                 previous_evidence=previous_evidence,
                 message_count=message_count,
@@ -191,8 +191,8 @@ def build_context_turn_inspections(
             )
         )
 
-        # 当前轮完成后才推进“previous”状态，保证 delta 与 files_seen 不偷看未来。
-        previous_evidence = _feedback_for_next_turn(tool_decisions)
+        # 当前 Model Step 完成后才推进 previous 状态，保证 delta 不偷看未来。
+        previous_evidence = _feedback_for_next_model_step(tool_decisions)
         previous_messages = message_count
         previous_tokens = estimated_tokens
         previous_tools = visible_tools
@@ -209,7 +209,7 @@ def build_context_turn_inspections(
             tool_decisions, succeeded=True
         )
 
-    return tuple(turns)
+    return tuple(model_steps)
 # endregion 2. 逐 Model Step 聚合结束
 
 
@@ -258,9 +258,9 @@ def _build_tool_decisions(
 
 
 # region 4. 阶段与关键点分类：用可见 Tool 行为解释 trajectory
-def _classify_turn(decisions: tuple[ToolDecision, ...]) -> tuple[str, str]:
+def _classify_model_step(decisions: tuple[ToolDecision, ...]) -> tuple[str, str]:
     if not decisions:
-        return "形成答案", "模型没有继续请求工具，本轮进入结果收口。"
+        return "形成答案", "模型没有继续请求工具，本 Model Step 进入结果收口。"
     names = {decision.tool_name for decision in decisions}
     if names & set(WORKSPACE_WRITE_TOOL_NAMES):
         write_count = sum(
@@ -269,12 +269,12 @@ def _classify_turn(decisions: tuple[ToolDecision, ...]) -> tuple[str, str]:
         )
         return (
             "修改代码",
-            f"本轮共 {len(decisions)} 个 ToolCall，其中 {write_count} 个会修改文件。",
+            f"本 Model Step 共 {len(decisions)} 个 ToolCall，其中 {write_count} 个会修改文件。",
         )
     if names & _VALIDATION_TOOLS:
         failed = any(decision.succeeded is False for decision in decisions)
         return (
-            ("验证失败", "验证结果将作为下一轮的新证据。")
+            ("验证失败", "验证结果将作为下一 Model Step 的新证据。")
             if failed
             else ("验证通过", "验证证据支持继续扩大回归范围或形成结论。")
         )
@@ -283,7 +283,7 @@ def _classify_turn(decisions: tuple[ToolDecision, ...]) -> tuple[str, str]:
     return "执行工具", f"模型提出 {len(decisions)} 个工具调用。"
 
 
-def _key_turn_reason(
+def _key_model_step_reason(
     *,
     step: int,
     tool_decisions: tuple[ToolDecision, ...],
@@ -326,11 +326,11 @@ def _has_validation_result(
     )
 
 
-def _feedback_for_next_turn(
+def _feedback_for_next_model_step(
     decisions: tuple[ToolDecision, ...],
 ) -> tuple[str, ...]:
     if not decisions:
-        return ("上一轮没有新增工具 Observation。",)
+        return ("上一 Model Step 没有新增工具 Observation。",)
     return tuple(decision.feedback for decision in decisions)
 
 

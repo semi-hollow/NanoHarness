@@ -5,12 +5,12 @@ from unittest.mock import patch
 
 from agent_forge.context.adapters.repository_map import build_repo_map
 from agent_forge.runtime.adapters.context_assembler import (
-    RepositoryTurnSystemContextAssembler,
+    RepositorySystemContextAssembler,
 )
 from agent_forge.runtime.application.working_memory import WorkingMemory
 from agent_forge.runtime.ports.context import (
     StableTurnContextRequest,
-    TurnSystemContextRequest,
+    ModelStepSystemContextRequest,
 )
 from agent_forge.safety.sandbox import WorkspaceSandbox
 from agent_forge.tools.builtins.create_file import CreateFileTool
@@ -39,8 +39,8 @@ def _dynamic_request(
     stable_prefix: str,
     *,
     max_chars: int = 2_000,
-) -> TurnSystemContextRequest:
-    return TurnSystemContextRequest(
+) -> ModelStepSystemContextRequest:
+    return ModelStepSystemContextRequest(
         turn_focus="inspect target.py",
         stable_system_prefix=stable_prefix,
         workspace=workspace,
@@ -51,7 +51,7 @@ def _dynamic_request(
     )
 
 
-class RepositoryTurnSystemContextAssemblerTest(unittest.TestCase):
+class RepositorySystemContextAssemblerTest(unittest.TestCase):
     def test_system_prompt_profile_is_frozen_by_execution_role(self) -> None:
         expected = {
             "single_agent": "single_agent_system@2026-08-role-aware-v1",
@@ -60,7 +60,7 @@ class RepositoryTurnSystemContextAssemblerTest(unittest.TestCase):
         }
         with tempfile.TemporaryDirectory() as tmp:
             rendered = {
-                profile: RepositoryTurnSystemContextAssembler()
+                profile: RepositorySystemContextAssembler()
                 .freeze_stable(_stable_request(tmp, profile=profile))
                 .render()
                 for profile in expected
@@ -74,14 +74,14 @@ class RepositoryTurnSystemContextAssemblerTest(unittest.TestCase):
     def test_unknown_system_prompt_profile_fails_closed(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             with self.assertRaisesRegex(KeyError, "unknown system prompt profile"):
-                RepositoryTurnSystemContextAssembler().freeze_stable(
+                RepositorySystemContextAssembler().freeze_stable(
                     _stable_request(tmp, profile="unknown-role")
                 )
 
     def test_stable_prefix_keeps_complete_system_and_ignores_large_repo(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            assembler = RepositoryTurnSystemContextAssembler()
+            assembler = RepositorySystemContextAssembler()
             before = assembler.freeze_stable(_stable_request(tmp)).render()
             for index in range(50):
                 (root / f"huge_{index}.py").write_text("x" * 10_000, encoding="utf-8")
@@ -94,7 +94,7 @@ class RepositoryTurnSystemContextAssemblerTest(unittest.TestCase):
     def test_stable_budget_too_small_for_system_fails_closed(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             with self.assertRaisesRegex(ValueError, "complete governing System Prompt"):
-                RepositoryTurnSystemContextAssembler().freeze_stable(
+                RepositorySystemContextAssembler().freeze_stable(
                     _stable_request(tmp, max_chars=256)
                 )
 
@@ -112,25 +112,25 @@ class RepositoryTurnSystemContextAssemblerTest(unittest.TestCase):
             root = Path(tmp)
             target = root / "target.py"
             target.write_text("VALUE = 1\n", encoding="utf-8")
-            assembler = RepositoryTurnSystemContextAssembler()
+            assembler = RepositorySystemContextAssembler()
             stable = assembler.freeze_stable(_stable_request(tmp)).render()
             request = _dynamic_request(tmp, stable)
             with patch(
                 "agent_forge.runtime.adapters.context_assembler.build_repo_map",
                 wraps=build_repo_map,
             ) as scan_repo_map:
-                assembler.build(request)
+                assembler.build_model_step(request)
                 target.write_text("VALUE = 2\n", encoding="utf-8")
-                assembler.build(request)
+                assembler.build_model_step(request)
                 self.assertEqual(scan_repo_map.call_count, 1)
                 created = CreateFileTool(WorkspaceSandbox(root)).execute(
                     {"path": "new_module.py", "content": "NEW = 1\n"}
                 )
-                rebuilt = assembler.build(request)
+                rebuilt = assembler.build_model_step(request)
                 command = RunCommandTool(WorkspaceSandbox(root)).execute(
                     {"command": "python -m compileall target.py"}
                 )
-                assembler.build(request)
+                assembler.build_model_step(request)
 
         self.assertTrue(created.success)
         self.assertTrue(command.success)
@@ -142,9 +142,11 @@ class RepositoryTurnSystemContextAssemblerTest(unittest.TestCase):
             root = Path(tmp)
             (root / "target.py").write_text("VALUE = 1\n" + "x" * 8_000, encoding="utf-8")
             (root / "FORGE.md").write_text("Always inspect target.py.\n", encoding="utf-8")
-            assembler = RepositoryTurnSystemContextAssembler()
+            assembler = RepositorySystemContextAssembler()
             stable = assembler.freeze_stable(_stable_request(tmp)).render()
-            report = assembler.build(_dynamic_request(tmp, stable, max_chars=700))
+            report = assembler.build_model_step(
+                _dynamic_request(tmp, stable, max_chars=700)
+            )
 
         self.assertTrue(report.render().startswith(stable.rstrip()))
         self.assertEqual(report.stable_chars, len(stable))

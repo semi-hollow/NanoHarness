@@ -11,7 +11,7 @@ from agent_forge.runtime.domain.thread import (
     ThreadContextState,
     ThreadRun,
     Turn,
-    TurnContextSnapshot,
+    StableTurnContextSnapshot,
 )
 
 
@@ -37,7 +37,7 @@ class ConversationThreadRepository(Protocol):
         input_item: ConversationItemDraft,
         initial_run: ThreadRun,
         *,
-        snapshot: TurnContextSnapshot | None = None,
+        snapshot: StableTurnContextSnapshot | None = None,
         expected_context_revision: int | None = None,
     ) -> tuple[ConversationThread, ConversationItem]:
         """同锁冻结可选 snapshot，再创建 active Turn + initial Run 导航。"""
@@ -120,17 +120,17 @@ class ConversationThreadRepository(Protocol):
     ) -> ThreadContextState:
         """CAS 更新 context_state.json 并分配下一 revision。"""
 
-    def load_turn_snapshot(
+    def load_stable_turn_snapshot(
         self,
         thread_id: str,
         turn_id: str,
-    ) -> TurnContextSnapshot | None:
+    ) -> StableTurnContextSnapshot | None:
         """读取同一 Turn 跨 Run 复用的稳定输入快照。"""
 
-    def save_turn_snapshot(
+    def save_stable_turn_snapshot(
         self,
         thread_id: str,
-        snapshot: TurnContextSnapshot,
+        snapshot: StableTurnContextSnapshot,
         *,
         expected_revision: int,
     ) -> ThreadContextState:

@@ -38,8 +38,8 @@ class StructuredFinalToolCallLLM:
         )
 
 
-class CaptureFinalTurnControlLLM:
-    """记录每轮真实模型输入，验证 Runtime 的最终收口消息。"""
+class CaptureFinalModelStepControlLLM:
+    """记录每个 Model Step 的真实输入，验证 Runtime 的最终收口消息。"""
 
     last_usage = None
 
@@ -302,7 +302,7 @@ def _run_direct_agent_loop(
 
 
 class AgentLoopPolicyTest(unittest.TestCase):
-    def test_final_turn_has_no_tools_and_explicit_runtime_control(self):
+    def test_final_model_step_has_no_tools_and_explicit_runtime_control(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             (root / "target.py").write_text("value = 1\n", encoding="utf-8")
@@ -310,7 +310,7 @@ class AgentLoopPolicyTest(unittest.TestCase):
             trace = TraceRecorder(str(trace_path))
             registry = ToolRegistry()
             registry.register(ReadFileTool(WorkspaceSandbox(root)))
-            model = CaptureFinalTurnControlLLM()
+            model = CaptureFinalModelStepControlLLM()
 
             final = _run_direct_agent_loop(
                 RuntimeConfig(
@@ -393,7 +393,7 @@ class AgentLoopPolicyTest(unittest.TestCase):
                 )
             )
 
-    def test_structured_tool_call_on_final_turn_uses_same_blocked_reason(self):
+    def test_structured_tool_call_on_final_model_step_uses_same_blocked_reason(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             (root / "target.py").write_text("value = 1\n", encoding="utf-8")

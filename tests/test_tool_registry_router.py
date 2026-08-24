@@ -231,7 +231,7 @@ class ToolRegistryRouterTest(unittest.TestCase):
         self.assertIn("python_validation", route.allowed_names)
         self.assertEqual(route.phase, "work")
 
-    def test_last_swebench_tool_turn_after_write_focuses_on_closure(self):
+    def test_last_swebench_tool_model_step_after_write_focuses_on_closure(self):
         schemas = [
             {"name": "list_files"},
             {"name": "read_file"},
@@ -267,7 +267,7 @@ class ToolRegistryRouterTest(unittest.TestCase):
         self.assertIn("closure_phase=repair_closeout", route.reason)
         self.assertEqual(route.phase, "closeout")
 
-    def test_final_turn_is_empty_even_in_all_mode(self):
+    def test_final_model_step_is_empty_even_in_all_mode(self):
         schemas = [
             {"name": "read_file"},
             {"name": "grep_search"},

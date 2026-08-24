@@ -22,7 +22,7 @@ from agent_forge.runtime.domain.thread import (
     ThreadContextState,
     ThreadRun,
     Turn,
-    TurnContextSnapshot,
+    StableTurnContextSnapshot,
 )
 
 
@@ -438,7 +438,7 @@ class ConversationThreadRepositoryTest(unittest.TestCase):
                         turn,
                         self._user(turn),
                         self._run(),
-                        snapshot=TurnContextSnapshot(
+                        snapshot=StableTurnContextSnapshot(
                             turn_id=turn.turn_id,
                             root_task=turn.root_task,
                             stable_system_prefix="frozen before Turn publish",
@@ -458,7 +458,7 @@ class ConversationThreadRepositoryTest(unittest.TestCase):
             self.assertIsNotNone(
                 JsonConversationThreadRepository(
                     Path(tmp) / "threads"
-                ).load_turn_snapshot("thread-1", turn.turn_id)
+                ).load_stable_turn_snapshot("thread-1", turn.turn_id)
             )
 
     def test_truncated_tail_is_removed_before_next_append(self) -> None:
@@ -559,13 +559,13 @@ class ConversationThreadRepositoryTest(unittest.TestCase):
             repository.start_turn(
                 "thread-1", turn, self._user(turn), self._run()
             )
-            snapshot = TurnContextSnapshot(
+            snapshot = StableTurnContextSnapshot(
                 turn_id=turn.turn_id,
                 root_task=turn.root_task,
                 stable_system_prefix="stable",
             )
 
-            state = repository.save_turn_snapshot(
+            state = repository.save_stable_turn_snapshot(
                 "thread-1",
                 snapshot,
                 expected_revision=0,
@@ -573,7 +573,7 @@ class ConversationThreadRepositoryTest(unittest.TestCase):
 
             self.assertEqual(state.revision, 1)
             self.assertEqual(
-                repository.load_turn_snapshot("thread-1", turn.turn_id),
+                repository.load_stable_turn_snapshot("thread-1", turn.turn_id),
                 state.snapshot_for(turn.turn_id),
             )
             with self.assertRaisesRegex(RuntimeError, "revision conflict"):
@@ -582,9 +582,9 @@ class ConversationThreadRepositoryTest(unittest.TestCase):
                     expected_revision=0,
                 )
             with self.assertRaisesRegex(ValueError, "immutable"):
-                repository.save_turn_snapshot(
+                repository.save_stable_turn_snapshot(
                     "thread-1",
-                    TurnContextSnapshot(
+                    StableTurnContextSnapshot(
                         turn_id=turn.turn_id,
                         root_task=turn.root_task,
                         stable_system_prefix="silently changed",

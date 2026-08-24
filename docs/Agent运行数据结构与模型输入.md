@@ -39,7 +39,7 @@ Resume 不是“继续聊天”。它只继续同一个尚未完成的 Turn；�
 | `ConversationThread` | 跨 Turn、跨进程 | Thread 元数据、Turn/Run 导航 | 不复制 Run trace |
 | `conversation.jsonl` | 跨 Turn、跨进程 | 完整 user/assistant/tool Conversation items | 不保存 System Prompt 投影 |
 | `ThreadContextState` | 跨 Run | rolling digest、covered sequence、Turn snapshots | 不替代 raw Conversation |
-| `TurnContextSnapshot` | 一个 Turn | 冻结的 Prompt、指令、Skill、LTM recall、base tools | 不保存动态仓库正文 |
+| `StableTurnContextSnapshot` | 一个 Turn | 冻结的 Prompt、指令、Skill、LTM recall、base tools | 不保存动态仓库正文 |
 | `AgentRunSession` | 一个 Run 的当前进程 | 有界消息视图、控制器、Working Memory、运行累计 | 不作为 durable truth |
 | `PreparedModelStep` | 一次模型调用 | 最终 messages、tool schemas、路由与预算证据 | 不执行模型或工具 |
 | `TaskCheckpoint` v4 | 一个 Run | 状态、step、context revision、pending tool cursor | 不保存 root task 或 Conversation |
@@ -94,7 +94,7 @@ RunPreparation.create_session()
     ↓
 RunPreparation.prepare_run()
     ├── input policy
-    ├── TurnContextSnapshot freeze / restore
+    ├── StableTurnContextSnapshot freeze / restore
     └── clarification barrier
     ↓
 AgentLoop.run()
@@ -117,7 +117,7 @@ RunLifecycle.finalize_run()
 
 `AgentLoop` 只拥有阶段顺序。输入治理、窗口压缩、工具授权、执行幂等和最终答案质量门分别由具名 Application owner 负责。
 
-# 5. TurnContextSnapshot 冻结什么
+# 5. StableTurnContextSnapshot 冻结什么
 
 新 Turn 首次运行时，`RunPreparation` 冻结：
 
@@ -184,7 +184,7 @@ Run-local derived state
 ```text
 PreparedModelStep
 ├── llm_messages
-│   ├── current Turn System Context
+│   ├── current ModelStepSystemContext
 │   ├── optional ConversationHistoryDigest
 │   ├── recent raw Conversation tail
 │   └── optional transient Runtime control message
@@ -217,10 +217,10 @@ ModelPort.chat(...)
 System Context 由两块组成：
 
 ```text
-TurnContextSnapshot.stable_system_prefix
+StableTurnContextSnapshot.stable_system_prefix
 +
-TurnSystemContextBuildReport dynamic context
-→ turn_system_message
+ModelStepSystemContextBuildReport dynamic context
+→ model_step_system_message
 ```
 
 完整 governing System Prompt 是 mandatory block。动态 repository 内容只能在自己的预算内裁剪，不能挤掉或改写它。

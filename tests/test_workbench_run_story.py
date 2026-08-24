@@ -9,7 +9,7 @@ from agent_forge.multi_agent.adapters.local_worker import LocalAgentWorkerAdapte
 from agent_forge.multi_agent.application.fanout import FanoutCoordinator
 from apps.workbench.adapters.evidence_files import FileEvidenceCatalog
 from apps.workbench.application.context_inspection import (
-    build_context_turn_inspections,
+    build_context_model_step_inspections,
 )
 from apps.workbench.presentation.http import (
     INDEX_HTML,
@@ -605,6 +605,7 @@ class WorkbenchRunStoryTest(unittest.TestCase):
 
         self.assertIn("运行摘要", rendered["overview"])
         self.assertIn("执行时间线", rendered["timeline"])
+        self.assertIn("历史 Model Step 开始", rendered["timeline"])
         self.assertIn("上下文与决策", rendered["context"])
         self.assertIn("Runtime 控制面", rendered["results"])
 
@@ -699,7 +700,7 @@ class WorkbenchRunStoryTest(unittest.TestCase):
         self.assertIn("&quot;pattern&quot;: &quot;needle&quot;", rendered)
         self.assertIn("<td>2</td><td>2</td>", rendered)
 
-    def test_context_inspector_links_previous_feedback_to_next_turn(self):
+    def test_context_inspector_links_feedback_to_next_model_step(self):
         trace = {
             "events": [
                 {
@@ -797,15 +798,18 @@ class WorkbenchRunStoryTest(unittest.TestCase):
             ]
         }
 
-        turns = build_context_turn_inspections(trace)
+        model_steps = build_context_model_step_inspections(trace)
 
-        self.assertEqual(len(turns), 2)
-        self.assertEqual(turns[0].phase, "验证失败")
-        self.assertIn("2 failed", turns[1].previous_evidence[0])
-        self.assertEqual(turns[1].message_delta, 2)
-        self.assertTrue(turns[1].tools_changed)
-        self.assertEqual(turns[1].phase, "修改代码")
-        self.assertEqual(turns[1].tool_decisions[0].tool_name, "create_file")
+        self.assertEqual(len(model_steps), 2)
+        self.assertEqual(model_steps[0].phase, "验证失败")
+        self.assertIn("2 failed", model_steps[1].previous_evidence[0])
+        self.assertEqual(model_steps[1].message_delta, 2)
+        self.assertTrue(model_steps[1].tools_changed)
+        self.assertEqual(model_steps[1].phase, "修改代码")
+        self.assertEqual(
+            model_steps[1].tool_decisions[0].tool_name,
+            "create_file",
+        )
 
     def test_run_evidence_prefers_canonical_run_story(self):
         with tempfile.TemporaryDirectory() as tmp:

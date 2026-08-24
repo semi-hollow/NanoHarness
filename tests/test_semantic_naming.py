@@ -1,13 +1,16 @@
+import ast
 import tempfile
 import unittest
 from dataclasses import fields
 from pathlib import Path
 
-from agent_forge import Harness, HarnessConfig, HarnessExtensions
+from agent_forge import Harness, HarnessConfig, HarnessExtensions, RunRequest
+from agent_forge.runtime.adapters import JsonHumanInputRepository
 from agent_forge.runtime.application.model_step_preparation import PreparedModelStep
 from agent_forge.runtime.domain.conversation import AgentResponse, ToolCall
 from agent_forge.runtime.domain.task import TaskCheckpoint, TaskRunStatus
 from agent_forge.safety.sandbox import WorkspaceSandbox
+from agent_forge.tools.builtins.ask_human import AskHumanTool
 from agent_forge.tools.builtins.read_file import ReadFileTool
 from agent_forge.tools.registry import ToolRegistry
 from scripts.migrate_context_semantic_naming_v3 import (
@@ -16,7 +19,7 @@ from scripts.migrate_context_semantic_naming_v3 import (
 )
 
 
-class _TurnSystemContextView:
+class _ModelStepSystemContextView:
     selected_files: list[str] = []
     retrieved_docs: list[str] = []
     working_memory_summary = ""
@@ -38,7 +41,7 @@ class _TurnSystemContextView:
         return self.content
 
 
-class _CountingTurnSystemContextAssembler:
+class _CountingSystemContextAssembler:
     def __init__(self) -> None:
         self.calls = 0
         self.freeze_calls = 0
@@ -61,15 +64,15 @@ class _CountingTurnSystemContextAssembler:
             },
         )()
 
-    def build(self, request):
+    def build_model_step(self, request):
         self.calls += 1
         self.requests.append(request)
-        return _TurnSystemContextView(
+        return _ModelStepSystemContextView(
             f"{request.stable_system_prefix}\nmodel-step-{self.calls}"
         )
 
 
-class _CaptureTwoTurnModel:
+class _CaptureTwoModelStepModel:
     last_usage = None
 
     def __init__(self) -> None:
@@ -85,13 +88,105 @@ class _CaptureTwoTurnModel:
         return AgentResponse("PASS\nsemantic naming verified", [])
 
 
+class _TwoModelStepsThenHumanModel:
+    """先完成一次真实 Tool round，再把同一 Turn 停在人工输入边界。"""
+
+    last_usage = None
+
+    def __init__(self) -> None:
+        self.calls = 0
+
+    def chat(self, llm_messages, tool_schemas):
+        self.calls += 1
+        if self.calls == 1:
+            return AgentResponse(
+                None,
+                [ToolCall("read-before-pause", "read_file", {"path": "target.py"})],
+            )
+        return AgentResponse(
+            None,
+            [
+                ToolCall(
+                    "ask-before-resume",
+                    "ask_human",
+                    {"question": "Continue the same Turn?"},
+                )
+            ],
+        )
+
+
+class _ImmediateFinalModel:
+    last_usage = None
+
+    def __init__(self, answer: str) -> None:
+        self.answer = answer
+        self.calls = 0
+
+    def chat(self, llm_messages, tool_schemas):
+        self.calls += 1
+        return AgentResponse(self.answer, [])
+
+
 class SemanticNamingTest(unittest.TestCase):
-    def test_prepared_turn_exposes_only_current_semantic_names(self) -> None:
+    def test_dynamic_context_uses_only_model_step_terminology(self) -> None:
+        """当前源码和文档不得重新引入历史的 Turn=model iteration 名称。"""
+
+        repository = Path(__file__).resolve().parents[1]
+        forbidden = (
+            "Turn" + "SystemContext",
+            "turn" + "_system_context",
+            "turn" + "_system_message",
+            "RepositoryTurn" + "SystemContextAssembler",
+            "Turn" + "SystemContextAssemblerPort",
+        )
+        sources = [repository / "README.md"]
+        for relative_root in ("agent_forge", "apps", "docs"):
+            root = repository / relative_root
+            sources.extend(root.rglob("*.py"))
+            sources.extend(root.rglob("*.md"))
+
+        violations = {
+            str(path.relative_to(repository)): term
+            for path in sources
+            for term in forbidden
+            if term in path.read_text(encoding="utf-8")
+        }
+        self.assertEqual(violations, {})
+
+        forbidden_identifiers = {
+            "remaining_tool_" + "turns",
+            "is_closeout_" + "turn",
+            "tool_is_routed_for_this_" + "turn",
+            "is_key_" + "turn",
+            "_classify_" + "turn",
+            "_feedback_for_next_" + "turn",
+        }
+        identifier_violations: dict[str, set[str]] = {}
+        for path in [item for item in sources if item.suffix == ".py"]:
+            tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+            identifiers: set[str] = set()
+            for node in ast.walk(tree):
+                if isinstance(node, ast.Name):
+                    identifiers.add(node.id)
+                elif isinstance(node, ast.Attribute):
+                    identifiers.add(node.attr)
+                elif isinstance(node, ast.arg):
+                    identifiers.add(node.arg)
+                elif isinstance(node, (ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)):
+                    identifiers.add(node.name)
+                elif isinstance(node, ast.keyword) and node.arg:
+                    identifiers.add(node.arg)
+            stale = identifiers & forbidden_identifiers
+            if stale:
+                identifier_violations[str(path.relative_to(repository))] = stale
+        self.assertEqual(identifier_violations, {})
+
+    def test_prepared_model_step_exposes_only_current_semantic_names(self) -> None:
         names = {item.name for item in fields(PreparedModelStep)}
 
         self.assertTrue(
             {
-                "turn_system_message",
+                "model_step_system_message",
                 "llm_messages",
                 "tool_schemas",
                 "conversation_history_digest",
@@ -113,8 +208,8 @@ class SemanticNamingTest(unittest.TestCase):
             (root / "target.py").write_text("VALUE = 1\n", encoding="utf-8")
             registry = ToolRegistry()
             registry.register(ReadFileTool(WorkspaceSandbox(root)))
-            assembler = _CountingTurnSystemContextAssembler()
-            model = _CaptureTwoTurnModel()
+            assembler = _CountingSystemContextAssembler()
+            model = _CaptureTwoModelStepModel()
             result = Harness(
                 model=model,
                 tools=registry,
@@ -125,7 +220,7 @@ class SemanticNamingTest(unittest.TestCase):
                     skill_mode="none",
                 ),
                 extensions=HarnessExtensions(
-                    turn_system_context_assembler=assembler,
+                    system_context_assembler=assembler,
                 ),
             ).run("read target.py and report")
 
@@ -149,6 +244,75 @@ class SemanticNamingTest(unittest.TestCase):
         self.assertEqual(second_schemas, [])
         self.assertEqual(assembler.requests[0].tool_schemas, first_schemas)
         self.assertEqual(assembler.requests[1].tool_schemas, second_schemas)
+
+    def test_context_lifecycle_freezes_per_turn_and_builds_per_model_step(self) -> None:
+        """同 Turn resume 只重建动态输入；新 Turn 才重新冻结稳定契约。"""
+
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / "target.py").write_text("VALUE = 1\n", encoding="utf-8")
+            registry = ToolRegistry()
+            registry.register(ReadFileTool(WorkspaceSandbox(root)))
+            registry.register(AskHumanTool())
+            assembler = _CountingSystemContextAssembler()
+            config = HarnessConfig(
+                workspace=str(root),
+                output_root=str(root / "runs"),
+                conversation_thread_root=str(root / "threads"),
+                human_input_root=str(root / "human-input"),
+                max_steps=3,
+                skill_mode="none",
+                tool_routing_mode="all",
+            )
+            extensions = HarnessExtensions(system_context_assembler=assembler)
+
+            # Run 1 / Model Step 1-2：先执行 read_file，再停在 ask_human。
+            first = Harness(
+                model=_TwoModelStepsThenHumanModel(),
+                tools=registry,
+                config=config,
+                extensions=extensions,
+            ).run("read target.py, then ask whether to continue")
+            self.assertEqual(first.status, TaskRunStatus.WAITING_HUMAN)
+            self.assertEqual(assembler.freeze_calls, 1)
+            self.assertEqual(assembler.calls, 2)
+
+            # Run 2 / Model Step 3：人工回答后恢复同一 Turn，不重新冻结稳定输入。
+            human_inputs = JsonHumanInputRepository(root / "human-input")
+            pending = human_inputs.list_pending()[0]
+            human_inputs.respond(pending.request_id, "continue")
+            resumed_model = _ImmediateFinalModel("PASS\nresumed same Turn")
+            resumed = Harness(
+                model=resumed_model,
+                tools=registry,
+                config=config,
+                extensions=extensions,
+            ).resume(first.artifact_dir / "task_state" / f"{first.run_id}.json")
+            self.assertEqual(resumed.thread_id, first.thread_id)
+            self.assertEqual(resumed.turn_id, first.turn_id)
+            self.assertNotEqual(resumed.run_id, first.run_id)
+            self.assertEqual(assembler.freeze_calls, 1)
+            self.assertEqual(assembler.calls, 3)
+            self.assertEqual(resumed_model.calls, 1)
+
+            # 新顶层请求创建 Turn 2；它冻结新 Snapshot，再构建自己的 Model Step。
+            follow_up_model = _ImmediateFinalModel("PASS\nnew Turn")
+            follow_up = Harness(
+                model=follow_up_model,
+                tools=registry,
+                config=config,
+                extensions=extensions,
+            ).run(
+                RunRequest(
+                    "summarize the previous result",
+                    thread_id=first.thread_id,
+                )
+            )
+            self.assertEqual(follow_up.thread_id, first.thread_id)
+            self.assertNotEqual(follow_up.turn_id, first.turn_id)
+            self.assertEqual(assembler.freeze_calls, 2)
+            self.assertEqual(assembler.calls, 4)
+            self.assertEqual(follow_up_model.calls, 1)
 
     def test_checkpoint_v4_points_to_thread_state_and_v3_fails_closed(self) -> None:
         checkpoint = TaskCheckpoint(

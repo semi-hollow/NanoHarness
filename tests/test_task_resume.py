@@ -27,7 +27,7 @@ from agent_forge.runtime.domain.thread import (
     ThreadContextState,
     ThreadRun,
     Turn,
-    TurnContextSnapshot,
+    StableTurnContextSnapshot,
 )
 from agent_forge.safety.sandbox import WorkspaceSandbox
 from agent_forge.tools.builtins.read_file import ReadFileTool
@@ -169,9 +169,9 @@ def _seed_resumable_turn(
     )
     if include_snapshot:
         stable_budget, dynamic_budget = partition_context_budgets(max_context_chars)
-        state = repository.save_turn_snapshot(
+        state = repository.save_stable_turn_snapshot(
             thread_id,
-            TurnContextSnapshot(
+            StableTurnContextSnapshot(
                 turn_id=turn_id,
                 root_task=task,
                 stable_system_prefix="stable resume fixture",
@@ -412,7 +412,7 @@ class TaskResumeTest(unittest.TestCase):
 
             with self.assertRaisesRegex(
                 RuntimeError,
-                "without durable TurnContextSnapshot",
+                "without durable StableTurnContextSnapshot",
             ):
                 Harness(
                     model=model,
@@ -425,7 +425,7 @@ class TaskResumeTest(unittest.TestCase):
             assert after_state is not None
             self.assertEqual(after_state.revision, before_state.revision)
             self.assertIsNone(
-                repository.load_turn_snapshot("thread-resume", "turn-resume")
+                repository.load_stable_turn_snapshot("thread-resume", "turn-resume")
             )
             thread = repository.get("thread-resume")
             assert thread is not None
@@ -473,7 +473,7 @@ class TaskResumeTest(unittest.TestCase):
             after_turn = after_thread.require_turn("turn-resume")
             self.assertEqual(after_turn.current_run_id, before_turn.current_run_id)
             self.assertEqual(after_turn.runs, before_turn.runs)
-            snapshot = repository.load_turn_snapshot(
+            snapshot = repository.load_stable_turn_snapshot(
                 "thread-resume", "turn-resume"
             )
             self.assertIsNotNone(snapshot)

@@ -40,6 +40,7 @@ class RuntimeConfig:
     reserved_output_tokens: int = 4_096
     max_consecutive_failures: int = 3
     max_consecutive_identical_tool_calls: int = 2
+    # 历史 public/config key 保持稳定；实际限制的是单个 Model Step 的 ToolCall batch。
     max_tool_calls_per_turn: int = 4
     timeout_seconds: float = DEFAULT_TIMEOUT_SECONDS
     tool_execution_timeout_seconds: int = DEFAULT_TOOL_EXECUTION_TIMEOUT_SECONDS
@@ -75,7 +76,7 @@ class RuntimeConfig:
     runtime_instructions: str = ""
     instruction_max_bytes: int = 2_600
 
-    # 证据长期记忆；reasoning snapshot 由 TurnContextSnapshot 冻结。
+    # 证据长期记忆；reasoning snapshot 由 StableTurnContextSnapshot 冻结。
     memory_root: str = ""
     memory_namespace: str = ""
     memory_max_chars: int = 2_000
