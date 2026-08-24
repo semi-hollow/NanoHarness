@@ -4,6 +4,11 @@
 ``campaign.json``。普通 A/B campaign 可重试 running/failed 槽位；严格 Pass@1
 campaign 则只继续未开始槽位，已经启动的轨迹会 fail closed。
 
+系统角色：把固定 Case × Variant × Repetition 展开成可恢复 slots，并只从已持久化
+scorecard 聚合比较结果；不重判单 Case correctness。
+输入：Campaign request 与 source identity；输出：checkpoint、summary、public bundle。
+相邻边界：``RunSwebench`` 执行单槽位；Artifact Port 保存状态；Domain 负责配对汇总。
+
 折叠导航：1 Campaign 主链；2 单槽位执行；3 状态创建/恢复；4 证据投影。
 """
 

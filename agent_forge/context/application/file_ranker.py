@@ -1,4 +1,9 @@
-"""用可解释的任务相关性信号，为 Context Strategy 排序仓库文件。"""
+"""用确定性任务相关性信号，为 Context Strategy 排序仓库文件。
+
+系统角色：让最可能承载当前能力的生产源码优先进入有限 preview 预算；它是轻量 ranking，
+不是 semantic retrieval，也不决定工具权限。
+核心阅读：``rank_files`` 的任务信号、候选评分与稳定输出三段。
+"""
 
 from pathlib import Path
 

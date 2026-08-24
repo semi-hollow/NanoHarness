@@ -1,3 +1,14 @@
+"""将 Runtime Trace 投影为逐 Model Step 的 Context 决策视图。
+
+系统角色：把分散事件还原成 ``Context -> Model decision -> Tool feedback``，帮助源码讲解
+演示每轮输入为何变化；只使用可观测事件，不推断隐藏 chain-of-thought。
+输入：一个 canonical Trace mapping；输出：有顺序的 ``ContextTurnInspection``。
+相邻边界：Trace Adapter 提供事实；本 Application 负责解释性聚合；Presentation 只渲染。
+
+折叠导航：1 投影 contract；2 逐 Step 聚合；3 ToolCall/Observation 配对；
+4 阶段与关键点分类；5 文本/path helper。
+"""
+
 from __future__ import annotations
 
 import re
@@ -8,6 +19,7 @@ from typing import Any
 from agent_forge.contracts import WORKSPACE_WRITE_TOOL_NAMES
 
 
+# region 1. Workbench 投影 contract
 @dataclass(frozen=True)
 class ContextComponent:
     """模型输入中的一个可计量区段。"""
@@ -62,8 +74,10 @@ class ContextTurnInspection:
     reasoning_tokens: int
     estimated_cost_usd: float
     tool_decisions: tuple[ToolDecision, ...]
+# endregion 1. Workbench 投影 contract 结束
 
 
+# region 2. 逐 Model Step 聚合：前一轮反馈成为下一轮可解释输入
 # 主要入口：把细粒度 Trace 投影为便于检查的逐轮上下文视图。
 def build_context_turn_inspections(
     trace: dict[str, Any],
@@ -76,6 +90,7 @@ def build_context_turn_inspections(
         if isinstance(event, dict) and int(event.get("step") or 0) > 0
     ]
     events_by_step: dict[int, list[dict[str, Any]]] = {}
+    # 先按 step 保留原事件顺序；step=0 的 Run 级事件不冒充模型轮次。
     for event in events:
         events_by_step.setdefault(int(event.get("step") or 0), []).append(event)
 
@@ -92,6 +107,7 @@ def build_context_turn_inspections(
     saw_write = False
     saw_validation_pass = False
 
+    # 每轮先读取 Context/Window/Model/Tool 四类事实，再更新跨轮累积状态。
     for step in sorted(events_by_step):
         step_events = events_by_step[step]
         context = _event_payload(step_events, "context_assembly", "context")
@@ -175,6 +191,7 @@ def build_context_turn_inspections(
             )
         )
 
+        # 当前轮完成后才推进“previous”状态，保证 delta 与 files_seen 不偷看未来。
         previous_evidence = _feedback_for_next_turn(tool_decisions)
         previous_messages = message_count
         previous_tokens = estimated_tokens
@@ -193,12 +210,14 @@ def build_context_turn_inspections(
         )
 
     return tuple(turns)
+# endregion 2. 逐 Model Step 聚合结束
 
 
 _READ_TOOLS = {"list_files", "read_file", "grep_search", "git_status"}
 _VALIDATION_TOOLS = {"python_validation", "run_command"}
 
 
+# region 3. ToolCall / Observation 配对：只按同一 Step 内的记录顺序建立反馈
 def _build_tool_decisions(
     events: list[dict[str, Any]],
 ) -> tuple[ToolDecision, ...]:
@@ -206,12 +225,14 @@ def _build_tool_decisions(
     observations = [
         event for event in events if event.get("event_type") == "tool_observation"
     ]
+    # 兼容早期事件名只影响展示读取，不进入生产 Runtime recovery。
     if not observations:
         observations = [
             event for event in events if event.get("event_type") == "observation"
         ]
 
     decisions: list[ToolDecision] = []
+    # Observation 缺失时保留决定并标成 unknown，不能伪造成功或失败。
     for index, action in enumerate(actions):
         tool_name = str(action.get("tool_call") or "unknown_tool")
         arguments = _mapping(action.get("tool_arguments"))
@@ -233,8 +254,10 @@ def _build_tool_decisions(
             )
         )
     return tuple(decisions)
+# endregion 3. ToolCall / Observation 配对结束
 
 
+# region 4. 阶段与关键点分类：用可见 Tool 行为解释 trajectory
 def _classify_turn(decisions: tuple[ToolDecision, ...]) -> tuple[str, str]:
     if not decisions:
         return "形成答案", "模型没有继续请求工具，本轮进入结果收口。"
@@ -320,8 +343,10 @@ def _remember_read_files(
             continue
         if decision.target not in files_seen:
             files_seen.append(decision.target)
+# endregion 4. 阶段与关键点分类结束
 
 
+# region 5. 文本、事件与路径 helper
 def _tool_target(tool_name: str, arguments: dict[str, Any]) -> str:
     for key in ("validation_target", "path", "command", "pattern", "query"):
         value = str(arguments.get(key) or "").strip()
@@ -397,3 +422,4 @@ def _short_path(value: str) -> str:
 def _first_match(pattern: str, value: str) -> str:
     match = re.search(pattern, value)
     return match.group(1) if match else ""
+# endregion 5. 文本、事件与路径 helper 结束

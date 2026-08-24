@@ -1,4 +1,12 @@
-"""基于文件系统的仓库上下文组装 Adapter。"""
+"""基于文件系统的 Turn System Context 组装 Adapter。
+
+系统角色：连接 Runtime Context Port 与 Context Application；稳定输入在 Turn 创建时冻结，
+动态输入在每个 Model Step 根据 repo map/Working Memory 重建。
+输入：``StableTurnContextRequest`` / ``TurnSystemContextRequest``；输出：typed context view/report。
+相邻边界：Context Application 决定预算与内容；本 Adapter 只提供仓库扫描和缓存。
+
+折叠导航：1 stable Turn snapshot；2 dynamic Model Step context。
+"""
 
 from __future__ import annotations
 
@@ -30,6 +38,7 @@ class RepositoryTurnSystemContextAssembler(TurnSystemContextAssemblerPort):
     def __init__(self) -> None:
         self._repo_maps: dict[str, tuple[int, str]] = {}
 
+    # region 1. Stable Turn snapshot：同一 Turn 的 resume 复用，不重新发现规则
     def freeze_stable(
         self,
         request: StableTurnContextRequest,
@@ -51,7 +60,9 @@ class RepositoryTurnSystemContextAssembler(TurnSystemContextAssemblerPort):
                 system_prompt_profile=request.system_prompt_profile,
             )
         )
+    # endregion 1. Stable Turn snapshot 结束
 
+    # region 2. Dynamic Model Step context：Repo structure 可缓存，Working Memory 每轮变化
     # 运行时端口：读取 repository 事实并返回有预算的类型化 ContextReport。
     def build(self, request: TurnSystemContextRequest) -> TurnSystemContextBuildReport:
         """先生成仓库结构图，再组装受字符预算约束的类型化 Context 报告。
@@ -64,6 +75,7 @@ class RepositoryTurnSystemContextAssembler(TurnSystemContextAssemblerPort):
         workspace = str(Path(request.workspace).expanduser().resolve())
         structure_revision = repository_structure_revision(workspace)
         cached_repo_map = self._repo_maps.get(workspace)
+        # 只有路径结构变化才重建 Repo Map；文件正文仍由后续 Context 逻辑动态读取。
         if cached_repo_map is None or cached_repo_map[0] != structure_revision:
             cached_repo_map = (structure_revision, build_repo_map(workspace))
             self._repo_maps[workspace] = cached_repo_map
@@ -83,3 +95,4 @@ class RepositoryTurnSystemContextAssembler(TurnSystemContextAssemblerPort):
                 frozen_instruction_paths=request.frozen_instruction_paths,
             )
         )
+    # endregion 2. Dynamic Model Step context 结束

@@ -1,3 +1,14 @@
+"""短生命周期 MCP stdio JSON-RPC transport 与 Tool Adapter。
+
+系统角色：为 discovery/call 启动进程、发送 initialize + request、解析 line-delimited 或
+Content-Length response，再把远端结果归一化为 Observation。
+输入：ServerSpec/method/arguments；输出：JSON-RPC result 或 Tool Observation。
+相邻边界：Config Loader 控制注册/allowlist；Runtime Tool Governance 控制可见与授权；
+本文件只负责 transport。
+
+折叠导航：1 server contract；2 session calls；3 response framing；4 Tool adapter/content。
+"""
+
 import json
 import os
 import subprocess
@@ -9,6 +20,7 @@ from agent_forge.runtime.domain.conversation import Observation
 from agent_forge.tools.base import Tool
 
 
+# region 1. Server 契约
 @dataclass(frozen=True)
 class MCPStdioServerSpec:
 
@@ -19,6 +31,7 @@ class MCPStdioServerSpec:
     env: dict[str, str] = field(default_factory=dict)
     timeout_seconds: float = 10.0
     prefix_tool_names: bool = True
+# endregion 1. Server contract 结束
 
 
 class MCPStdioClient:
@@ -27,6 +40,7 @@ class MCPStdioClient:
 
         self.spec = spec
 
+# region 2. 短生命周期 session 调用
     def discover_tools(self) -> list[dict[str, Any]]:
         """启动短生命周期 stdio 会话，依次调用 ``initialize`` 和 ``tools/list``。
 
@@ -72,6 +86,7 @@ class MCPStdioClient:
         )
         last_response: dict[str, Any] = {}
         try:
+            # 同一短会话内按 request id 串行发送；error 立即结束，不继续后续 call。
             for index, (method, params) in enumerate(calls, start=1):
                 request = {"jsonrpc": "2.0", "id": index, "method": method, "params": params}
                 assert proc.stdin is not None
@@ -93,7 +108,9 @@ class MCPStdioClient:
                 proc.wait(timeout=1)
             except Exception:
                 proc.kill()
+    # endregion 2. Short-lived session calls 结束
 
+    # region 3. Response framing：兼容 Content-Length 与一行 JSON
     def _read_response(self, proc: subprocess.Popen, request_id: int) -> dict[str, Any]:
 
         assert proc.stdout is not None
@@ -140,8 +157,10 @@ class MCPStdioClient:
                 except ValueError:
                     return None
         return None
+    # endregion 3. Response framing 结束
 
 
+# region 4. Remote Tool adapter 与 content projection
 class MCPStdioTool(Tool):
 
     def __init__(self, client: MCPStdioClient, local_name: str, remote_name: str, spec: dict[str, Any]) -> None:
@@ -189,3 +208,4 @@ def _content_to_text(content: Any) -> str:
     if isinstance(content, dict):
         return json.dumps(content, ensure_ascii=False, sort_keys=True)
     return str(content)
+# endregion 4. Tool adapter/content 结束

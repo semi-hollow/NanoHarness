@@ -2,6 +2,13 @@
 
 这里集中 ``apply_consolidation / recall / management_candidates`` 与人工管理动作。
 模型不能自行挖掘或晋升跨 Run 记忆，避免错误结论污染后续任务。
+
+系统角色：唯一负责 Memory identity、scope override、typed consolidation、召回排序与预算；
+Repository 只保存 JSON，Tool 只传递已经过 authority 校验的 proposal。
+输入：显式用户管理动作或 Runtime recall request；输出：记录、Reasoning Snapshot 或
+Management Candidates。
+核心阅读：写入看 ``apply_consolidation``，读取看 ``recall``，当前 Turn 合并看
+``management_candidates``。
 """
 
 from __future__ import annotations
@@ -283,6 +290,7 @@ class LongTermMemoryService(LongTermMemoryRecallPort):
     ) -> list[LongTermMemoryRecord]:
         """按最新 human message 返回有界管理候选，供当前 Turn 做 ID 合并。"""
 
+        # region 1. Human-turn query：不复用 Run-start task recall，避免后续 steer 漏掉旧 ID
         if max_chars <= 0:
             return []
         query_terms = _lexical_terms(query)
@@ -296,6 +304,9 @@ class LongTermMemoryService(LongTermMemoryRecallPort):
                 memory_record.memory_id,
             ),
         )
+        # endregion 1. Human-turn query 结束
+
+        # region 2. 有界 Catalog：保留稳定 ID/scope/key/content 供 UPDATE/NOOP
         selected_records: list[LongTermMemoryRecord] = []
         used_chars = 0
         for memory_record in visible_records:
@@ -306,6 +317,7 @@ class LongTermMemoryService(LongTermMemoryRecallPort):
             selected_records.append(memory_record)
             used_chars += separator_chars + record_chars
         return selected_records
+        # endregion 2. 有界 Catalog 结束
 
     def _find_by_key(
         self,

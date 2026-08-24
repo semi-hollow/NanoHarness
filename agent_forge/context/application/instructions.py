@@ -1,4 +1,12 @@
-"""分层项目指令的发现、优先级合并和 provenance。"""
+"""分层 Project Instructions 的发现、优先级合并和 provenance。
+
+系统角色：在 Turn 创建时按 workspace -> active directory -> runtime override 的范围解析
+稳定规则，并记录每段正文来自哪里、是否截断。
+输入：``InstructionResolutionRequest``；输出：冻结正文与 source evidence。
+相邻边界：本 Application 只解析规则；Turn Snapshot 固化结果；动态 Context 不得重读。
+
+核心阅读：``resolve_instructions`` 的输入校验、稳定发现、预算证据三段。
+"""
 
 from __future__ import annotations
 

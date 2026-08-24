@@ -1,4 +1,13 @@
-"""工具注册、schema 汇总和统一调用入口。"""
+"""工具注册、物理 schema 校验和统一调用入口。
+
+系统角色：保存 composition root 注册的 Tool 实现，并把一次已经路由/授权的调用转换成
+统一 ``Observation``；实现异常不会穿透 AgentLoop。
+输入：tool name + arguments；输出：成功/失败 Observation。
+相邻边界：Router/Authorization 在调用前治理；具体 Tool 执行文件/命令；Registry 不
+重新判断任务语义或人工授权。
+
+折叠导航：1 registry/schema；2 execute；3 physical argument validation。
+"""
 
 from __future__ import annotations
 
@@ -18,6 +27,7 @@ class ToolRegistry(ToolGateway):
     模型看；本类只负责查找并执行已经选中的 Tool。
     """
 
+    # region 1. Registry 与 schemas
     def __init__(self) -> None:
         self._tools: dict[str, Tool] = {}
         self.mcp_config_report: Any | None = None
@@ -36,7 +46,9 @@ class ToolRegistry(ToolGateway):
         """按稳定工具名查找实现；找不到时返回 None。"""
 
         return self._tools.get(name)
+    # endregion 1. Registry 与 schemas 结束
 
+    # region 2. 唯一执行出口：未知、坏参数、实现异常都归一化为 Observation
     # 主要入口：校验参数并执行已注册 Tool，所有异常归一化为 Observation。
     def execute(self, name: str, arguments: ToolArguments) -> Observation:
         """按名称查找 Tool，校验必填参数和基础类型，再调用实现。
@@ -60,7 +72,9 @@ class ToolRegistry(ToolGateway):
             return tool.execute(arguments)
         except Exception as e:
             return Observation(name, False, f"tool execution error: {e}")
+    # endregion 2. 唯一执行出口结束
 
+    # region 3. 物理参数校验：不替代业务 Policy
     def _validate_arguments(self, tool: Tool, arguments: ToolArguments) -> str:
         """区分坏 schema 与坏调用参数；空字符串表示物理契约通过。
 
@@ -111,3 +125,4 @@ class ToolRegistry(ToolGateway):
         if typ in {"dict", "object"}:
             return isinstance(value, dict)
         return True
+    # endregion 3. 物理参数校验结束

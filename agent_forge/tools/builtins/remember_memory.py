@@ -1,4 +1,13 @@
-"""用户明确授权后写入 machine-local Long-Term Memory 的内置 Tool。"""
+"""用户明确授权后写入 machine-local Long-Term Memory 的内置 Tool。
+
+系统角色：承接同一 AgentLoop 模型提出的 CREATE/UPDATE/NOOP，并把已经通过
+human-authority provenance 校验的 proposal 交给 Memory Application。
+输入：action/target id/key/content/scope/source quote；输出：持久化 record 摘要。
+相邻边界：ToolExecutionPipeline 验证 source quote 与候选 ID；本 Tool 不自行推断授权；
+``LongTermMemoryService`` 拥有 identity、revision 与 recall 语义。
+
+折叠导航：1 Memory Tool contract；2 typed consolidation。
+"""
 
 from __future__ import annotations
 
@@ -36,6 +45,7 @@ class RememberMemoryTool(Tool):
         )
         self._project_namespace = project_namespace
 
+    # region 1. Memory Tool contract：模型只能提出 typed action
     def schema(self) -> ToolSchema:
         return {
             "name": self.name,
@@ -50,7 +60,9 @@ class RememberMemoryTool(Tool):
             },
             "required": ["action", "key", "content", "source_quote"],
         }
+    # endregion 1. Memory Tool contract 结束
 
+    # region 2. Typed consolidation：当前 Run snapshot 不被写后突变
     def execute(self, arguments: ToolArguments) -> Observation:
         """收口一次 typed proposal；CREATE/UPDATE 的结果从下一 Run 起参与召回。"""
 
@@ -76,6 +88,7 @@ class RememberMemoryTool(Tool):
                 "snapshot is unchanged; the value is recalled by the next Run"
             ),
         )
+    # endregion 2. Typed consolidation 结束
 
 
 __all__ = ["RememberMemoryTool"]

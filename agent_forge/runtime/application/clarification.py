@@ -2,11 +2,18 @@
 
 可类比为 Java 服务入口的参数校验器：它只决定“继续、请求补充信息还是拒绝”，
 不执行任务，也不保存人工回答。人工问题的持久化由 HumanInputRepository 负责。
+
+系统角色：在任何 Model Step 前，用可解释规则区分 proceed / ask / refuse；它只生成
+``ClarificationDecision``，RunPreparation/RunLifecycle 才创建 durable human barrier。
+输入：root task；输出：typed decision。
+
+折叠导航：1 decision contract；2 policy vocabulary；3 evaluation flow。
 """
 
 from dataclasses import dataclass, field
 
 
+# region 1. Clarification 决策契约
 @dataclass(frozen=True, kw_only=True)
 class ClarificationDecision:
     """一次任务澄清判断；关键字构造避免混淆 action、reason 和 question。"""
@@ -19,11 +26,13 @@ class ClarificationDecision:
 
     def needs_user_input(self) -> bool:
         return self.action == "ask"
+# endregion 1. Decision contract 结束
 
 
 class ClarificationPolicy:
     """根据任务文本决定 AgentLoop 能否开始。"""
 
+    # region 2. 可解释 vocabulary：仅标记当前支持的模糊、目标与越界信号
     VAGUE_REFERENCES = {
         "这个",
         "那个",
@@ -74,7 +83,9 @@ class ClarificationPolicy:
         "上线支付",
         "真实转账",
     }
+    # endregion 2. Policy vocabulary 结束
 
+    # region 3. Evaluation flow：empty/refuse/ask/proceed 四个显式出口
     # 主要入口：在创建运行状态前，决定继续、请求补充信息或拒绝。
     def evaluate_task(self, task: str) -> ClarificationDecision:
         """返回任务的澄清决策，不修改外部状态。"""
@@ -90,6 +101,7 @@ class ClarificationPolicy:
                 missing_fields=["task"],
             )
 
+        # 明确超出本地 Coding Harness 的任务直接拒绝，不把它包装成澄清问题。
         if any(topic in text for topic in self.UNSUPPORTED_TOPICS):
             return ClarificationDecision(
                 action="refuse",
@@ -124,3 +136,4 @@ class ClarificationPolicy:
             confidence=0.85 if has_target else 0.65,
             reason="task is specific enough to start",
         )
+    # endregion 3. Evaluation flow 结束

@@ -1,4 +1,12 @@
-"""Benchmark campaign 的本地 checkpoint、source identity 与公开证据导出。"""
+"""Benchmark campaign 的本地 checkpoint、source identity 与公开证据导出。
+
+系统角色：冻结代码快照身份，保存完整本地 CampaignState，并生成去 secret/本机路径的
+public derived bundle；公开投影不覆盖 raw evidence。
+输入：Campaign state/summary/scorecards；输出：atomic state、report、public bundle/pointer。
+
+折叠导航：1 source identity；2 local state/final artifacts；3 public bundle；
+4 sanitizer/public state；5 atomic/hash helper。
+"""
 
 from __future__ import annotations
 
@@ -32,6 +40,7 @@ _SECRET_ASSIGNMENT = re.compile(
 _LOCAL_PATH = re.compile(r"(?<![A-Za-z0-9])/(?:Users|home|private|tmp)/[^\s\"'<>]*")
 
 
+# region 1. Source identity：clean revision 或 dirty working-tree digest
 class GitSourceIdentity(SourceIdentityPort):
     """读取 campaign 所属代码快照；不读取 remote 或用户身份。"""
 
@@ -90,6 +99,7 @@ class GitSourceIdentity(SourceIdentityPort):
             if path.is_file():
                 digest.update(path.read_bytes())
         return digest.hexdigest()
+# endregion 1. Source identity 结束
 
 
 class FileCampaignArtifacts(CampaignArtifactPort):
@@ -102,6 +112,7 @@ class FileCampaignArtifacts(CampaignArtifactPort):
     def __init__(self, project_dir: Path) -> None:
         self._project_dir = project_dir.resolve()
 
+    # region 2. Local state 与 final artifacts：完整 provenance 留在本地
     def campaign_dir(self, output_root: str, campaign_id: str) -> Path:
         root = Path(output_root)
         if not root.is_absolute():
@@ -146,7 +157,9 @@ class FileCampaignArtifacts(CampaignArtifactPort):
         _write_json_atomic(summary_path, summary)
         _write_text_atomic(report_path, render_campaign_report(state, summary))
         return summary_path, report_path
+    # endregion 2. Local state 与 final artifacts 结束
 
+    # region 3. Public bundle：先 sanitize，再计算公开内容 hash
     def publish_public_bundle(
         self,
         publish_root: str,
@@ -177,6 +190,7 @@ class FileCampaignArtifacts(CampaignArtifactPort):
             render_campaign_report(public_state, public_summary, public=True),
         )
 
+        # 每个 completed slot 只发布 derived scorecard/result，不复制 raw trace/prompt。
         for record in state.records:
             if record.status != "completed" or not record.run_dir:
                 continue
@@ -203,8 +217,10 @@ class FileCampaignArtifacts(CampaignArtifactPort):
         latest = self._project_dir / INDEX_ROOT
         latest.mkdir(parents=True, exist_ok=True)
         _write_text_atomic(latest / "campaign.txt", str(campaign_dir))
+    # endregion 3. Public bundle 结束
 
 
+# region 4. Public state 与递归 sanitizer
 def _public_state(
     state: CampaignState,
     public_scorecard_hashes: dict[str, str],
@@ -245,8 +261,10 @@ def _sanitize(value: Any, *, key: str = "") -> Any:
         without_paths = _LOCAL_PATH.sub("<local-path>", value)
         return _SECRET_ASSIGNMENT.sub(r"\1=<redacted>", without_paths)
     return value
+# endregion 4. Public state 与 sanitizer 结束
 
 
+# region 5. 原子写与哈希辅助逻辑
 def _write_json_atomic(path: Path, data: Any) -> None:
     _write_text_atomic(path, _json_text(data))
 
@@ -264,3 +282,4 @@ def _write_text_atomic(path: Path, text: str) -> None:
     temporary = path.with_suffix(path.suffix + ".tmp")
     temporary.write_text(text, encoding="utf-8")
     temporary.replace(path)
+# endregion 5. Atomic/hash helper 结束

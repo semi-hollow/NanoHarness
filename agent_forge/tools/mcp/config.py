@@ -1,3 +1,13 @@
+"""MCP config discovery 与 ToolRegistry registration Adapter。
+
+系统角色：解析显式 servers/allowlist，发现 stdio tools 或构造受控内置 handler，并把
+允许项注册进统一 Registry；注册不等于本轮可见或已授权。
+输入：config path + optional allowlist；输出：``MCPConfigReport`` 与 Registry mutations。
+相邻边界：ToolRouter 决定 Model Step visibility；Tool Pipeline 仍执行统一治理。
+
+折叠导航：1 report contract；2 config/register；3 stdio discovery；4 local handler/path。
+"""
+
 import json
 import sys
 from dataclasses import dataclass, field
@@ -11,6 +21,7 @@ from agent_forge.tools.mcp.stdio import MCPStdioClient, MCPStdioServerSpec, MCPS
 from agent_forge.tools.registry import ToolRegistry
 
 
+# region 1. 注册报告契约
 @dataclass(frozen=True)
 class MCPToolRegistration:
 
@@ -38,6 +49,7 @@ class MCPConfigReport:
                 for tool in self.tools
             ],
         }
+# endregion 1. Registration report contract 结束
 
 
 class MCPConfigLoader:
@@ -46,6 +58,7 @@ class MCPConfigLoader:
 
         self.sandbox = sandbox
 
+    # region 2. Config / registration：disabled/denied/unsupported 都保留 report row
     # 主要入口：校验 MCP 配置和 allowlist，将外部工具注册到 ToolRegistry。
     def load_into(
         self,
@@ -60,6 +73,7 @@ class MCPConfigLoader:
         explicit_allowlist = set(allowed_tools or data.get("allowed_tools") or [])
         rows: list[MCPToolRegistration] = []
 
+        # 每个 server 独立处理；一个被禁用或不支持的 server 不隐藏其余合法注册结果。
         for server in data.get("servers", []):
             if not server.get("enabled", True):
                 rows.append(MCPToolRegistration(str(server.get("name", "unknown")), False, "server disabled"))
@@ -101,7 +115,9 @@ class MCPConfigLoader:
                 rows.append(MCPToolRegistration(name, True, "registered"))
 
         return MCPConfigReport(str(path), rows)
+    # endregion 2. Config / registration 结束
 
+    # region 3. Stdio discovery：先 discover，再逐 Tool 应用 allowlist
     def _register_stdio_server(
         self,
         registry: ToolRegistry,
@@ -143,7 +159,9 @@ class MCPConfigLoader:
         if not tools:
             rows.append(MCPToolRegistration(server_name, False, "stdio server returned no tools"))
         return rows
+    # endregion 3. Stdio discovery 结束
 
+    # region 4. Command/CWD 与受控 local handler
     def _resolve_command(self, command: str) -> str:
 
         if command in {"python", "python3"}:
@@ -194,3 +212,4 @@ class MCPConfigLoader:
             return text[:3000]
         lines = [line for line in text.splitlines() if topic in line.lower()]
         return "\n".join(lines[:20]) or text[:1200]
+    # endregion 4. Command/CWD 与 handler 结束

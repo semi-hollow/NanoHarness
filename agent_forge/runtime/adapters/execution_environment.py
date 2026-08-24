@@ -1,7 +1,11 @@
-"""为 Agent 工具提供可探测、可限制、可留证的代码执行边界。
+"""为 Agent 工具提供可探测、可限制、可留证的代码执行 Adapter。
 
-可类比为支付系统为外部调用准备的受控执行容器：Sandbox 判断路径，CommandPolicy
-判断命令意图，本类决定命令最终在哪个 workspace/容器中运行并记录环境事实。
+系统角色：在 Sandbox/CommandPolicy 已作逻辑判断后，决定命令最终在哪个 workspace、
+临时 worktree 或容器运行，并把环境边界投影为可审计 manifest。
+输入：ExecutionEnvironmentConfig、路径和命令；输出：受限执行结果、Diff 与环境证据。
+相邻边界：Policy 决定“是否允许”；本 Adapter 负责“在哪里、以什么资源边界执行”。
+
+折叠导航：1 config/probe；2 guards；3 evidence；4 execute；5 backends。
 """
 
 import os
@@ -27,6 +31,7 @@ PROTECTED_GIT_COMMANDS = {"push", "reset", "checkout", "switch", "merge", "rebas
 PROTECTED_PATH_PARTS = {".git", ".venv", ".agent_forge"}
 
 
+# region 1. 配置与探测 contract：冻结执行模式、资源限制和实际环境事实
 @dataclass(frozen=True, kw_only=True)
 class ExecutionEnvironmentConfig:
     """执行环境声明；只描述边界，不在构造时启动容器或创建 worktree。"""
@@ -72,6 +77,7 @@ class EnvironmentProbe:
 
     def to_dict(self) -> dict:
         return asdict(self)
+# endregion 1. 配置与探测 contract 结束
 
 
 class ExecutionEnvironment(EnvironmentPort):
@@ -104,6 +110,7 @@ class ExecutionEnvironment(EnvironmentPort):
         self._container_start_command: list[str] = []
         self._command_history: list[dict[str, object]] = []
 
+    # region 1. 生命周期与模式选择：prepare 一次，probe 多次读取真实边界
     # 主要入口：创建并探测 local、detached worktree 或 OCI 执行环境。
     def prepare(self) -> EnvironmentProbe:
         """按 local、worktree 或 container 模式准备受约束执行环境。"""
@@ -192,7 +199,9 @@ class ExecutionEnvironment(EnvironmentPort):
         ):
             return "local"
         return self.config.mode
+    # endregion 1. 生命周期与模式选择结束
 
+    # region 2. 路径、命令和敏感信息：执行前统一 fail closed / redact
     def resolve_path(self, path: str | Path) -> Path:
         """把输入路径解析为当前 active workspace 下的绝对路径。"""
 
@@ -273,6 +282,9 @@ class ExecutionEnvironment(EnvironmentPort):
                 )
         return redacted
 
+    # endregion 2. 路径、命令和敏感信息结束
+
+    # region 3. Cleanup 与 evidence：只清理本次资源，并发布 manifest/Diff
     def cleanup(self) -> None:
         """释放本次运行创建的容器和临时快照。"""
 
@@ -365,6 +377,9 @@ class ExecutionEnvironment(EnvironmentPort):
             f"branch={probe.current_branch}; dirty={probe.dirty}"
         )
 
+    # endregion 3. Cleanup 与 evidence 结束
+
+    # region 4. 命令执行：根据 effective mode 选择唯一 backend
     def execute_command(
         self, argv: list[str], timeout: float
     ) -> subprocess.CompletedProcess[str]:
@@ -419,7 +434,9 @@ class ExecutionEnvironment(EnvironmentPort):
             }
         )
         return command_process
+    # endregion 4. 命令执行结束
 
+    # region 5. Backend 准备：container / snapshot / worktree 与资源限制
     def _prepare_container(self) -> None:
         runtime = self._executable_resolver(self.config.container_runtime)
         if not runtime:
@@ -649,7 +666,9 @@ class ExecutionEnvironment(EnvironmentPort):
         self.created_worktree = candidate
         self.active_workspace = candidate
         self._notes.append("reattached unfinished Turn execution worktree")
+    # endregion 5. Backend 准备结束
 
+    # region 6. Git / serialization helper：不拥有策略，只读取 backend 事实
     def _git_output(self, command: list[str], cwd: Path | None = None) -> str:
         try:
             git_process = subprocess.run(
@@ -678,3 +697,4 @@ class ExecutionEnvironment(EnvironmentPort):
         import json
 
         return json.dumps(data, ensure_ascii=False, indent=2)
+    # endregion 6. Git / serialization helper 结束

@@ -1,3 +1,16 @@
+"""把项目内真实 Evidence 布局投影成 Workbench 的只读导航目录。
+
+系统角色：发现 Lab、Mini-50、Run/Campaign 等 artifact，验证 canonical pointer 与路径
+边界，再统一输出 ``EvidenceSource``；它不运行实验，也不改写任何 raw evidence。
+输入：项目目录、版本化 manifest 和本机 immutable artifacts；输出：可选择、可下钻的
+Evidence source 与 artifact 路径。
+相邻边界：Runtime/Benchmark 写事实；本 Adapter 只发现事实；Application projection
+解释事实，Presentation 只渲染。
+
+折叠导航：1 Canonical Lab/Mini-50；2 fallback/历史来源；3 公开 artifact 查询；
+4 纯路径与状态 helper。
+"""
+
 from __future__ import annotations
 
 import json
@@ -20,9 +33,12 @@ from agent_forge.infrastructure.storage_layout import (
 
 
 class FileEvidenceCatalog(EvidenceCatalogPort):
+    """Workbench Evidence Port 的文件系统实现；所有读取都保持 fail-closed。"""
+
     def __init__(self, project_dir: Path) -> None:
         self.project_dir = project_dir.absolute()
 
+    # region 1. Canonical Lab / Mini-50：主动展示面的唯一入口
     # 主要入口：把不同目录布局的运行统一成 Workbench 可选择的证据来源。
     def evidence_sources(self) -> tuple[EvidenceSource, ...]:
         """返回“能力类型 → 不可变 Run → Case/Worker”的稳定叶子列表。
@@ -38,6 +54,8 @@ class FileEvidenceCatalog(EvidenceCatalogPort):
         )
 
     def _governed_sources(self) -> tuple[EvidenceSource, ...]:
+        """优先返回 manifest 固定的 Lab 1 Run；缺失时显式暴露 not_observed。"""
+
         root = self.project_dir / SHOWCASE_RUN_ROOT
         run_roots = []
         if root.is_dir():
@@ -50,6 +68,7 @@ class FileEvidenceCatalog(EvidenceCatalogPort):
         run_roots.sort(key=lambda path: path.stat().st_mtime, reverse=True)
         canonical_name = _review_canonical_run(self.project_dir, "governed")
         run_roots = _canonical_first(run_roots, canonical_name)
+        # canonical 不可读与“从未运行”是两个不同事实，不能静默选另一轮替代。
         if not run_roots:
             if canonical_name:
                 missing = root / canonical_name / "showcase.json"
@@ -156,6 +175,8 @@ class FileEvidenceCatalog(EvidenceCatalogPort):
         )
 
     def _orchestration_sources(self) -> tuple[EvidenceSource, ...]:
+        """把 Lab 2 总览与每个 Worker/Finalizer Trace 投影成同一导航树。"""
+
         root = self.project_dir / SHOWCASE_RUN_ROOT
         summaries = sorted(
             root.glob("*/fanout/fanout_summary.json") if root.is_dir() else (),
@@ -174,6 +195,7 @@ class FileEvidenceCatalog(EvidenceCatalogPort):
             and summaries[0].parent.parent.name == canonical_name
         )
         missing_source = None
+        # 固定 Run 缺失时先创建显式故障叶子，随后才附带可读的非 canonical Run。
         if canonical_name and not canonical_available:
             missing = root / canonical_name / "fanout/fanout_summary.json"
             missing_source = EvidenceSource(
@@ -206,6 +228,7 @@ class FileEvidenceCatalog(EvidenceCatalogPort):
                 ),
             )
         sources: list[EvidenceSource] = []
+        # 每个 Run 先生成 overview，再生成只指向该 Run 内部 Trace 的 Worker 叶子。
         for run_index, summary_path in enumerate(summaries):
             summary = read_json_file(summary_path)
             run_root = summary_path.parent.parent
@@ -264,6 +287,8 @@ class FileEvidenceCatalog(EvidenceCatalogPort):
         )
 
     def _mini50_sources(self) -> tuple[EvidenceSource, ...]:
+        """仅在完整 50 Case closure 可读时暴露逐 Case raw evidence。"""
+
         canonical = self._benchmark_source()
         canonical_summary = read_json_file(canonical.primary_path)
         evaluation = canonical_summary.get("canonical_evaluation")
@@ -285,6 +310,7 @@ class FileEvidenceCatalog(EvidenceCatalogPort):
             )
         run_root = canonical_root
         records, run_status = _mini50_records(run_root)
+        # 分母不完整时 fail closed 为单个 invalid overview，绝不展示残缺 Case 列表。
         if len(records) != 50:
             return (
                 _with_navigation(
@@ -358,7 +384,9 @@ class FileEvidenceCatalog(EvidenceCatalogPort):
                 )
             )
         return tuple(sources)
+    # endregion 1. Canonical Lab / Mini-50 结束
 
+    # region 2. Fallback 与历史来源：供下钻，不抢 canonical 主视图
     @staticmethod
     def _same_run(left: EvidenceSource, right: EvidenceSource) -> bool:
         """判断两个选择项是否最终指向同一个不可变 Run 目录。"""
@@ -783,7 +811,9 @@ class FileEvidenceCatalog(EvidenceCatalogPort):
             trace_entries=tuple(trace_entries),
             usage_path=usage_paths[0] if usage_paths else None,
         )
+    # endregion 2. Fallback 与历史来源结束
 
+    # region 3. 公开 artifact 查询：统一 pointer、mtime 与 run-local 路径规则
     def runtime_quality_summary_path(self) -> Path | None:
         """返回公开、稳定的 Runtime 质量实验摘要。"""
 
@@ -821,6 +851,8 @@ class FileEvidenceCatalog(EvidenceCatalogPort):
             return None
 
     def latest_run_dir(self) -> Path | None:
+        """解析最近的 canonical Run；显式 pointer 优先于目录 mtime 猜测。"""
+
         latest = self.project_dir / INDEX_ROOT
         runs_dir = self.project_dir / RUNS_ROOT
         candidates: list[Path] = []
@@ -839,6 +871,7 @@ class FileEvidenceCatalog(EvidenceCatalogPort):
                 # continuation artifact，而不是被旧目录的异常 mtime 抢走。
                 return latest_run
             candidates.append(latest_run)
+        # 没有权威的新 pointer 时，最后才从 canonical runs 目录按 mtime 回退。
         if runs_dir.exists():
             candidates.extend(path for path in runs_dir.iterdir() if path.is_dir())
         if candidates:
@@ -1024,6 +1057,8 @@ class FileEvidenceCatalog(EvidenceCatalogPort):
         return _newest_existing(candidates)
 
     def trace_paths(self) -> list[tuple[str, Path]]:
+        """返回当前选择范围内的 Trace，并保持 label 与真实执行主体对应。"""
+
         run_dir = self.latest_run_dir()
         if run_dir is None:
             return []
@@ -1131,8 +1166,10 @@ class FileEvidenceCatalog(EvidenceCatalogPort):
         if not run_dir.is_absolute():
             run_dir = self.project_dir / run_dir
         return run_dir if run_dir.exists() else None
+    # endregion 3. 公开 artifact 查询结束
 
 
+# region 4. 纯路径、状态与显示 helper
 def read_json_file(path: Path | None) -> dict[str, Any]:
     if not path or not path.exists():
         return {}
@@ -1390,3 +1427,4 @@ def _display_case_status(status: str) -> str:
 
 def _first_existing(*candidates: Path) -> Path | None:
     return next((path for path in candidates if path.exists()), None)
+# endregion 4. 纯路径、状态与显示 helper 结束

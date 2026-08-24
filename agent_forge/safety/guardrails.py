@@ -4,6 +4,10 @@
 安全门禁。当前输入风险词和最终回答检查用于记录证据；工具检查也只记录最小完整性，
 本轮可见性由执行管线复核。执行许可由 ``ToolAuthorizationGate`` 决定，命令和路径
 边界分别由 ``CommandPolicy``、``WorkspaceSandbox`` 与执行环境强制实施。
+
+系统角色：给输入、ToolCall 形状与最终回答生成可观测语义检查结果；只有明确的
+output claim violation 会参与最终质量门，它不是完整授权系统。
+输入：文本/Tool 形状与已发生验证事实；输出：``GuardrailResult``。
 """
 
 import re

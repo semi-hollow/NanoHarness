@@ -1,4 +1,14 @@
-"""一次 Agent run 的显式数据字段；本文件不决定策略。"""
+"""一次 Agent Run 的有界 Conversation 视图与显式可变状态。
+
+系统角色：从 durable Thread journal 重建 provider-valid Conversation page，并用
+``AgentRunSession`` 集中保存 AgentLoop 当前 attempt 的内存状态。
+输入：权威 ``ConversationItem`` 与 Runtime dependencies；输出：规范化消息视图和
+唯一 mutable session owner。
+相邻边界：Thread Repository 拥有 raw truth；本文件只做读取投影与状态承载；
+``AgentLoop`` / Application services 决定下一步控制流。
+
+折叠导航：1 Conversation 事务页；2 provider 顺序投影；3 Run session state。
+"""
 
 from __future__ import annotations
 
@@ -16,6 +26,7 @@ from agent_forge.runtime.ports.skills import SkillView
 from agent_forge.runtime.ports.thread import ConversationThreadRepository
 
 
+# region 1. Conversation 事务页：有界读取，但不把 Assistant ToolCall batch 截断
 def load_transaction_safe_conversation_page(
     repository: ConversationThreadRepository,
     *,
@@ -48,6 +59,7 @@ def load_transaction_safe_conversation_page(
             after_sequence=items[-1].sequence,
             limit=max_lookahead,
         )
+        # 只读到当前跨页事务闭合即停止，避免“补事务”变成无界读取历史。
         for candidate in lookahead:
             items.append(candidate)
             if _first_incomplete_transaction_index(items) is None:
@@ -64,6 +76,7 @@ def _first_incomplete_transaction_index(
 ) -> int | None:
     """校验页内事务顺序；只允许 ask_human 授权回答穿过 raw batch。"""
 
+    # 顺序扫描 Assistant batch；普通消息直接跳过，只有 tool_calls 打开一个事务。
     for index, item in enumerate(items):
         if item.role != "assistant" or not item.tool_calls:
             continue
@@ -82,6 +95,7 @@ def _first_incomplete_transaction_index(
         }
         observed: set[str] = set()
         cursor = index + 1
+        # batch 内只接受对应 Tool Observation；ask_human 的权威回答是唯一合法穿插项。
         while cursor < len(items) and observed != expected:
             candidate = items[cursor]
             if candidate.role == "tool":
@@ -108,8 +122,10 @@ def _first_incomplete_transaction_index(
         if observed != expected:
             return index
     return None
+# endregion 1. Conversation 事务页结束
 
 
+# region 2. Provider 顺序投影：不改 durable journal，只重排当前模型输入
 def _normalize_conversation_transactions(
     items: list[ConversationItem],
 ) -> list[ConversationItem]:
@@ -117,6 +133,7 @@ def _normalize_conversation_transactions(
 
     normalized: list[ConversationItem] = []
     index = 0
+    # 每轮复制一个普通 item，或一次完整 Assistant transaction。
     while index < len(items):
         assistant = items[index]
         if assistant.role != "assistant" or not assistant.tool_calls:
@@ -130,6 +147,7 @@ def _normalize_conversation_transactions(
         transaction: list[ConversationItem] = [assistant]
         observed: set[str] = set()
         cursor = index + 1
+        # 第一阶段收集完整 batch，第二阶段才按 provider 协议重排 tool 与 authority item。
         while cursor < len(items) and observed != expected:
             candidate = items[cursor]
             transaction.append(candidate)
@@ -148,8 +166,10 @@ def _tool_call_name(call: JsonObject) -> str:
     if isinstance(function, dict):
         return str(function.get("name") or "")
     return str(call.get("name") or "")
+# endregion 2. Provider 顺序投影结束
 
 
+# region 3. Run session state：AgentLoop 内唯一 mutable owner，不复制策略
 # 核心数据：AgentLoop 内部唯一的可变 run 状态容器。
 @dataclass
 class AgentRunSession:
@@ -202,3 +222,4 @@ class AgentRunSession:
     status: str = "running"
     stop_output: str = ""
     stop_reason: str = ""
+# endregion 3. Run session state 结束

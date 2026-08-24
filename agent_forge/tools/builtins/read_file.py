@@ -1,3 +1,13 @@
+"""有界、可续读的 repository file Tool。
+
+系统角色：让模型看到明确行号窗口，并准确报告字符截断与下一 offset，避免把未返回正文
+误认为已经读取。
+输入：workspace path + optional offset/limit；输出：带窗口元数据的 Observation。
+相邻边界：Sandbox 负责路径；本 Tool 负责读取完整性；Context preview 是另一条被动输入链。
+
+折叠导航：1 schema；2 bounded read；3 optional integer helper。
+"""
+
 from typing import Any
 
 from agent_forge.contracts import ToolArguments, ToolSchema
@@ -20,6 +30,7 @@ class ReadFileTool(Tool):
     def __init__(self, sandbox: WorkspaceSandbox) -> None:
         self.sandbox = sandbox
 
+# region 1. 模型 schema
     def schema(self) -> ToolSchema:
         return {
             "name": self.name,
@@ -27,7 +38,9 @@ class ReadFileTool(Tool):
             "arguments": {"path": "str", "offset": "any", "limit": "any"},
             "required": ["path"],
         }
+    # endregion 1. Model schema 结束
 
+    # region 2. Bounded read：真实 returned window 驱动续读
     def execute(self, arguments: ToolArguments) -> Observation:
         path = self.sandbox.ensure_safe_path(arguments["path"])
         if not path.exists():
@@ -86,8 +99,10 @@ class ReadFileTool(Tool):
             success=True,
             content="\n".join([header, *rendered_lines]),
         )
+    # endregion 2. Bounded read 结束
 
 
+# region 3. 可选整数辅助逻辑
 def _optional_int(value: Any, default: int) -> int:
     if value is None or value == "":
         return default
@@ -97,3 +112,4 @@ def _optional_int(value: Any, default: int) -> int:
         return int(value)
     except (TypeError, ValueError):
         return default
+# endregion 3. Optional integer helper 结束

@@ -487,6 +487,116 @@ MULTI_AGENT_FOLD_MAP = {
     },
 }
 
+# 架构讲解会从产品入口一路下钻到 Application、Domain 与 Adapter。这里保护的是
+# 每项能力真正的阅读 Owner，不把纯 DTO、re-export、路径 helper 或页面渲染机械纳入。
+# 这样既能保证 Collapse All 后先看到架构骨架，也不会让注释本身成为新的搜索噪音。
+ARCHITECTURE_NAVIGATION_CLOSURE = {
+    "agent_forge/runtime/domain/thread.py": {
+        "Conversation journal",
+        "Thread / Turn / Run",
+        "Turn context state",
+    },
+    "agent_forge/runtime/adapters/thread_json.py": {
+        "ownership",
+        "Conversation journal",
+        "immutable Turn snapshot",
+        "崩溃修复",
+    },
+    "agent_forge/runtime/application/session.py": {
+        "Conversation 事务页",
+        "Provider 顺序投影",
+        "Run session state",
+    },
+    "agent_forge/runtime/wiring.py": {
+        "装配请求",
+        "Tool / Model Adapter",
+        "Runtime dependencies",
+        "Canonical AgentLoop",
+    },
+    "agent_forge/runtime/adapters/operation_ledger_json.py": {
+        "身份与 Fingerprint",
+        "公开状态迁移",
+        "锁内提交",
+    },
+    "agent_forge/runtime/adapters/execution_environment.py": {
+        "生命周期与模式选择",
+        "路径、命令和敏感信息",
+        "Cleanup 与 evidence",
+        "命令执行",
+    },
+    "agent_forge/context/application/compaction.py": {
+        "增量基线",
+        "安全切分",
+        "Rolling 候选搜索",
+        "保守回退",
+    },
+    "agent_forge/context/application/context_builder.py": {
+        "一次性发现",
+        "独立预算",
+        "动态候选",
+    },
+    "agent_forge/tools/tool_router.py": {
+        "候选目录",
+        "通用任务意图",
+        "专项策略",
+        "输出投影",
+    },
+    "agent_forge/tools/registry.py": {
+        "Registry 与 schemas",
+        "唯一执行出口",
+        "物理参数校验",
+    },
+    "agent_forge/memory/application/service.py": {
+        "CREATE",
+        "UPDATE/NOOP",
+        "同 key 冲突",
+        "有界 Catalog",
+    },
+    "agent_forge/bench/application/swebench.py": {
+        "Case 执行",
+        "Official evaluation",
+        "诊断与发布",
+    },
+    "agent_forge/evaluation/application/scorecard.py": {
+        "主要入口",
+    },
+    "agent_forge/observability/domain/usage.py": {
+        "聚合容器",
+        "事件投影",
+        "派生指标",
+    },
+    "agent_forge/safety/sandbox.py": {
+        "Canonical 路径解析",
+        "敏感路径分类",
+        "强制 workspace",
+    },
+    "agent_forge/skills/registry.py": {
+        "核心主链",
+        "启动装配与目录管理",
+    },
+    "apps/repository_run.py": {
+        "公开策略入口",
+        "Multi-Agent Run",
+        "Runtime 装配",
+        "Validated Plan 执行",
+    },
+    "apps/operator_console/application/thread_library.py": {
+        "创建与查询",
+        "导航 metadata",
+        "标题规范化",
+    },
+    "apps/workbench/adapters/evidence_files.py": {
+        "Canonical Lab / Mini-50",
+        "Fallback 与历史来源",
+        "公开 artifact 查询",
+    },
+    "apps/workbench/application/context_inspection.py": {
+        "逐 Model Step 聚合",
+        "ToolCall / Observation 配对",
+        "阶段与关键点分类",
+    },
+}
+
 
 class CodeNavigationContractTest(unittest.TestCase):
     def test_runtime_core_is_exactly_twelve_existing_files(self) -> None:
@@ -608,6 +718,30 @@ class CodeNavigationContractTest(unittest.TestCase):
                     self.assertTrue(
                         any(section in title for title in region_titles),
                         f"missing foldable architecture section: {section}",
+                    )
+
+    def test_architecture_navigation_closure_keeps_roles_and_fold_map(self) -> None:
+        """六层核心 Owner 必须先说明角色，并保留可折叠的阅读地图。"""
+
+        for relative_path, expected_sections in ARCHITECTURE_NAVIGATION_CLOSURE.items():
+            source = (PROJECT_ROOT / relative_path).read_text(encoding="utf-8")
+            tree = ast.parse(source)
+            with self.subTest(path=relative_path):
+                self.assertIn(
+                    "系统角色",
+                    ast.get_docstring(tree) or "",
+                    "architecture owner needs role/input/output boundary",
+                )
+                self.assertEqual(
+                    source.count("# region "),
+                    source.count("# endregion "),
+                    "all folding regions must remain paired",
+                )
+                for section in expected_sections:
+                    self.assertIn(
+                        section,
+                        source,
+                        f"missing architecture navigation section: {section}",
                     )
 
     def test_multi_agent_control_flow_reads_like_pseudocode(self) -> None:

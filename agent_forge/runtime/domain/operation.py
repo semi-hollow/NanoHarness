@@ -1,4 +1,11 @@
-"""需审批和防重复保护的持久状态变更操作状态。"""
+"""需 Approval 和防重复保护的持久状态变更 Operation Domain。
+
+系统角色：区分目标、首次计划、状态迁移和可恢复记录；operation key/fingerprint 的物理
+计算与 JSON 落盘由 Adapter 完成。
+输入：``OperationPlan`` / ``OperationTransition``；输出：更新后的 ``OperationRecord``。
+
+折叠导航：1 target/commands；2 record transition；3 serialization。
+"""
 
 from __future__ import annotations
 
@@ -7,6 +14,7 @@ from dataclasses import asdict, dataclass, field
 from typing import Any
 
 
+# region 1. Target / Plan / Transition 命令
 # 核心数据：状态变更操作指向的工具、参数和工作区目标。
 @dataclass(frozen=True, kw_only=True)
 class OperationTarget:
@@ -43,8 +51,10 @@ class OperationTransition:
     observation: str = ""
     pre_fingerprint: dict[str, Any] | None = None
     post_fingerprint: dict[str, Any] | None = None
+# endregion 1. Commands 结束
 
 
+# region 2. Record transition：保留 history 与前后 fingerprint
 # 核心数据：可恢复状态变更操作的状态记录和前后目标指纹。
 @dataclass(kw_only=True)
 class OperationRecord:
@@ -90,6 +100,9 @@ class OperationRecord:
             self.post_fingerprint = update.post_fingerprint
         if not self.history or self.history[-1] != update.status:
             self.history.append(update.status)
+    # endregion 2. Record transition 结束
 
+# region 3. 序列化
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
+    # endregion 3. Serialization 结束

@@ -1,3 +1,13 @@
+"""收集一次执行 workspace 的 candidate diff、changed files 与可见 status。
+
+系统角色：把 tracked 与 untracked 修改统一投影为可集成 Candidate Patch，同时排除
+``.agent_forge`` 自身运行数据。
+输入：Git workspace；输出：binary-safe diff、文件列表或 porcelain status。
+相邻边界：ExecutionEnvironment 决定 workspace；本 Adapter 只读取 Git state。
+
+折叠导航：1 candidate diff；2 changed/status；3 Git helper。
+"""
+
 from __future__ import annotations
 
 import os
@@ -7,10 +17,12 @@ from pathlib import Path
 RESERVED_UNTRACKED_ROOTS = {".agent_forge"}
 
 
+# region 1. Candidate diff：tracked + untracked 合成一个可审计 Patch
 def collect_workspace_diff(workspace: str | Path) -> str:
     root = Path(workspace).resolve()
     tracked_diff_text = _tracked_diff(root)
     untracked_file_diff_fragments: list[str] = []
+    # Git diff 不包含 untracked；逐文件用 no-index 生成同格式 fragment。
     for untracked_file_path in _untracked_files(root):
         git_diff_process = subprocess.run(
             [
@@ -40,14 +52,17 @@ def collect_workspace_diff(workspace: str | Path) -> str:
         if git_diff_process.stdout:
             untracked_file_diff_fragments.append(git_diff_process.stdout)
     return _join_diff_fragments([tracked_diff_text, *untracked_file_diff_fragments])
+# endregion 1. Candidate diff 结束
 
 
+# region 2. Changed files / status：隐藏运行数据，不隐藏真实代码修改
 def collect_changed_files(workspace: str | Path) -> list[str]:
     root = Path(workspace).resolve()
     tracked_file_names = _git_name_list(
         root,
         ["diff", "HEAD", "--name-only", "-z", "--", "."],
     )
+    # 尚无 HEAD 的仓库回退 working-tree diff，保证新仓库仍可列出修改。
     if tracked_file_names is None:
         tracked_file_names = (
             _git_name_list(
@@ -76,8 +91,10 @@ def collect_workspace_status(workspace: str | Path) -> list[str]:
             continue
         visible_status_lines.append(status_line)
     return visible_status_lines
+# endregion 2. Changed files / status 结束
 
 
+# region 3. Git subprocess 与文本 helper
 def _tracked_diff(root: Path) -> str:
     git_diff_process = _run_git(
         root,
@@ -128,3 +145,4 @@ def _join_diff_fragments(diff_fragments: list[str]) -> str:
         if fragment
     ]
     return "".join(normalized_diff_fragments)
+# endregion 3. Git helper 结束

@@ -3,6 +3,11 @@
 通用治理契约保持一致；composition root 只选择当前 AgentLoop 的执行角色。
 任务、write scope、handoff 和验收标准仍由 user task / typed plan 提供，不复制进
 System Prompt。
+
+系统角色：为 Single Worker、Fanout Worker 与只读 Finalizer 提供版本化角色契约；
+它声明职责，不授予 Tool authority。
+输入：profile name；输出：``PromptSpec``；未知角色 fail closed。
+相邻边界：Runtime/Worker composition 选择 profile；Tool Governance 决定真实权限。
 """
 
 from dataclasses import dataclass

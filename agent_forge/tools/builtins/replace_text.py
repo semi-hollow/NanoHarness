@@ -2,6 +2,12 @@
 
 本工具接收 ``path + old + new``，不接收也不解析 unified diff。真正的 Git diff
 由运行结束后的 workspace 收口生成，并作为 candidate diff artifact 保存。
+
+系统角色：把一次编辑限制为“当前文件中唯一 old anchor -> new”的确定性变换；
+路径、权限和目标漂移任一不成立都 fail closed。
+输入：path/old/new；输出：单次替换 Observation。
+
+折叠导航：1 schema；2 authorization/path/anchor/write；3 overlap helper。
 """
 
 import os
@@ -32,13 +38,16 @@ class ReplaceTextTool(Tool):
         self.policy = PermissionPolicy(auto_approve_writes)
         self.auto_approve_writes = auto_approve_writes
 
+# region 1. 模型 schema
     def schema(self) -> ToolSchema:
         return {
             "name": self.name,
             "description": self.description,
             "arguments": {"path": "str", "old": "str", "new": "str"},
         }
+    # endregion 1. Model schema 结束
 
+# region 2. 授权 -> 安全路径 -> 唯一锚点 -> 单次写入
     # 主要入口：通过唯一旧文本锚点，把一次模型编辑收敛为确定性替换。
     def execute(self, arguments: ToolArguments) -> Observation:
         """基础权限 -> 安全路径和唯一锚点 -> 单次替换与缓存清理。"""
@@ -80,8 +89,10 @@ class ReplaceTextTool(Tool):
         if cache_dir.exists():
             shutil.rmtree(cache_dir, ignore_errors=True)
         return Observation(self.name, True, f"replaced text once: {arguments['path']}")
+    # endregion 2. Governed replacement 结束
 
 
+# region 3. 重叠检查辅助逻辑
 def _count_overlapping(text: str, needle: str) -> int:
     if needle == "":
         return 0
@@ -93,3 +104,4 @@ def _count_overlapping(text: str, needle: str) -> int:
             return count
         count += 1
         start = index + 1
+# endregion 3. Overlap helper 结束

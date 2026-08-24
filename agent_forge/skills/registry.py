@@ -4,6 +4,12 @@
 ``select_for_task`` -> ``discover_for_task`` -> ``activate``。
 JSON 兼容、版本目录和文件解析都是装配细节；标准包 I/O 已隔离到
 ``_package_support.py``。
+
+系统角色：根据 Task 发现可用 Skill、应用版本/只读/required-tool 约束，再把选中的
+Skill 激活为 Prompt card 与 tool recommendations；Skill 不直接执行 Tool。
+输入：Task、registered specs、available tools；输出：``ActivatedSkill``。
+相邻边界：RunPreparation 冻结选择；ToolRouter 只合并已注册 tool names；Package Support
+负责磁盘解析。
 """
 
 from __future__ import annotations

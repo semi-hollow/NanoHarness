@@ -1,4 +1,9 @@
-"""CLI/UI 共用的人工控制与恢复用例。"""
+"""CLI/UI 共用的人工 decision 用例。
+
+系统角色：把外部 Approval 或 HumanInput 动作翻译为 Repository mutation；保存事实后不
+自动启动 continuation，是否 resume 仍由显式产品入口决定。
+输入：operation/request identity + decision；输出：更新后的 durable Domain object。
+"""
 
 from __future__ import annotations
 

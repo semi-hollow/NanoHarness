@@ -1,4 +1,13 @@
-"""跨 Run Conversation Thread 的领域事实，不包含文件系统读写。"""
+"""Thread / Turn / Run 的 canonical 领域状态机。
+
+系统角色：定义持久用户会话、一次顶层请求、一次执行尝试，以及权威 Conversation
+条目和 Turn 稳定上下文之间的关系；本文件不做任何文件系统读写。
+输入：Repository 已读取的 mapping，或 Application 准备提交的领域字段。
+输出：不可变的 ``ConversationThread``、``Turn``、``ThreadRun`` 与 Context state。
+相邻边界：Application 决定何时迁移；``thread_json`` 负责 CAS、hash-chain 和落盘。
+
+折叠导航：1 Conversation journal；2 Thread/Turn/Run 生命周期；3 Turn context state。
+"""
 
 from __future__ import annotations
 
@@ -24,6 +33,7 @@ ACTIVE_TURN_STATUSES = frozenset(
 THREAD_KINDS = frozenset({"user", "worker", "finalizer"})
 
 
+# region 1. Conversation journal：Draft → sequence/hash 身份 → durable item
 def _canonical_hash(payload: Mapping[str, object]) -> str:
     encoded = json.dumps(
         payload,
@@ -119,6 +129,8 @@ class ConversationItem:
         draft: ConversationItemDraft,
         created_at: float | None = None,
     ) -> "ConversationItem":
+        """由 Repository 分配的顺序和前序 hash 构造一条不可篡改 journal item。"""
+
         timestamp = time.time() if created_at is None else created_at
         payload = {
             **draft.logical_payload(thread_id),
@@ -184,6 +196,8 @@ class ConversationItem:
 
     @classmethod
     def from_dict(cls, value: Mapping[str, Any]) -> "ConversationItem":
+        """恢复 journal item，并立即校验 identity 与 payload hash。"""
+
         raw_tool_calls = value.get("tool_calls")
         raw_metadata = value.get("metadata")
         tool_calls = (
@@ -223,8 +237,10 @@ class ConversationItem:
         if item.item_hash != item.expected_hash():
             raise ValueError(f"conversation item hash mismatch: {item.item_id}")
         return item
+# endregion 1. Conversation journal 结束
 
 
+# region 2. Thread / Turn / Run 生命周期：唯一 active Turn 与同 Turn 多 Run
 @dataclass(frozen=True, kw_only=True)
 class ThreadRun:
     """一个 Turn 下不可变的 Run 导航索引；真实证据仍在 artifact 目录。"""
@@ -256,6 +272,8 @@ class ThreadRun:
 
     @classmethod
     def from_dict(cls, value: Mapping[str, Any]) -> "ThreadRun":
+        """从导航 metadata 恢复 Run；真实执行状态仍以 checkpoint 为准。"""
+
         return cls(
             run_id=str(value.get("run_id") or ""),
             artifact_dir=str(value.get("artifact_dir") or ""),
@@ -363,6 +381,8 @@ class ConversationThread:
     pinned: bool = False
 
     def __post_init__(self) -> None:
+        """一次性验证 Thread kind、唯一 Turn/Run 身份和 active Turn 约束。"""
+
         if not self.thread_id.strip():
             raise ValueError("thread_id must not be empty")
         if not self.initial_task.strip():
@@ -468,6 +488,8 @@ class ConversationThread:
 
     @classmethod
     def from_dict(cls, value: Mapping[str, Any]) -> "ConversationThread":
+        """恢复 Thread 导航树；不在 Domain 层读取 conversation journal。"""
+
         if int(value.get("schema_version") or 0) != 1:
             raise ValueError("unsupported conversation thread schema_version")
         if int(value.get("conversation_item_schema_version") or 0) != 1:
@@ -496,8 +518,10 @@ class ConversationThread:
                 else ()
             ),
         )
+# endregion 2. Thread / Turn / Run 生命周期结束
 
 
+# region 3. Turn context state：同 Turn immutable snapshot + 跨 Turn rolling digest
 @dataclass(frozen=True, kw_only=True)
 class TurnContextSnapshot:
     """同一 Turn 的稳定 System/Tool/Skill/Memory 输入快照。"""
@@ -548,6 +572,8 @@ class TurnContextSnapshot:
 
     @classmethod
     def from_dict(cls, value: Mapping[str, Any]) -> "TurnContextSnapshot":
+        """恢复 stable snapshot，并让构造期 contract hash 校验拒绝漂移。"""
+
         raw_schemas = value.get("base_tool_schemas")
         raw_memories = value.get("long_term_memory_snapshot")
         raw_evidence = value.get("stable_context_evidence")
@@ -645,6 +671,8 @@ class ThreadContextState:
 
     @classmethod
     def from_dict(cls, value: Mapping[str, Any]) -> "ThreadContextState":
+        """恢复跨 Run context revision、digest coverage 与每个 Turn 的快照。"""
+
         if int(value.get("schema_version") or 0) != 1:
             raise ValueError("unsupported thread context state schema_version")
         raw_digest = value.get("conversation_history_digest")
@@ -667,6 +695,7 @@ class ThreadContextState:
             ),
             updated_at=float(value.get("updated_at") or 0.0),
         )
+# endregion 3. Turn context state 结束
 
 
 __all__ = [

@@ -1,3 +1,12 @@
+"""Task Checkpoint 的 canonical JSON Repository。
+
+系统角色：保存一次 Run attempt 的最新生命周期快照，供 continuation 定位和恢复；状态
+迁移合法性仍由 Domain ``TaskCheckpoint`` 拥有。
+输入：Start request / typed update；输出：原子持久化的 checkpoint。
+
+折叠导航：1 create/update；2 load/latest；3 list。
+"""
+
 import json
 from pathlib import Path
 
@@ -22,6 +31,7 @@ class JsonTaskStateRepository(TaskStateRepository):
     def path_for(self, run_id: str) -> Path:
         return self.root / f"{run_id}.json"
 
+    # region 1. Create / Update：Domain 迁移后以完整快照落盘
     # 运行时端口：创建 run 的首个 checkpoint 并写入 JSON。
     def start(self, request: TaskStartRequest) -> TaskCheckpoint:
         checkpoint = TaskCheckpoint(
@@ -64,7 +74,9 @@ class JsonTaskStateRepository(TaskStateRepository):
         """
 
         atomic_write_json(self.path_for(checkpoint.run_id), checkpoint.to_dict())
+    # endregion 1. Create / Update 结束
 
+    # region 2. Load / Latest：恢复只读取 canonical schema
     def load(self, run_id: str) -> TaskCheckpoint:
         data = json.loads(self.path_for(run_id).read_text(encoding="utf-8"))
         return TaskCheckpoint.from_dict(data)
@@ -83,6 +95,7 @@ class JsonTaskStateRepository(TaskStateRepository):
         if not candidates:
             raise FileNotFoundError(f"no task_state checkpoints found under {run_dir}")
 
+        # 优先使用 payload 的业务更新时间；坏文件仅在导航场景回退文件 mtime。
         def updated_at(path: Path) -> float:
             try:
                 data = json.loads(path.read_text(encoding="utf-8"))
@@ -91,7 +104,9 @@ class JsonTaskStateRepository(TaskStateRepository):
                 return path.stat().st_mtime
 
         return max(candidates, key=updated_at)
+    # endregion 2. Load / Latest 结束
 
+    # region 3. 控制面列表：隔离单个坏文件
     def list(self) -> list[TaskCheckpoint]:
         checkpoints = []
         for path in self.root.glob("*.json"):
@@ -104,3 +119,4 @@ class JsonTaskStateRepository(TaskStateRepository):
             except (OSError, json.JSONDecodeError, TypeError):
                 continue
         return sorted(checkpoints, key=lambda item: item.updated_at, reverse=True)
+    # endregion 3. 控制面列表结束

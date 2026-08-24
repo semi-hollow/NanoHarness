@@ -1,3 +1,9 @@
+"""Usage read model 的薄 Application owner。
+
+系统角色：为 API/Wiring 提供稳定用例入口，把 append-only Trace 交给纯 Domain projector；
+不读写文件、不修改 Runtime 状态。
+"""
+
 from __future__ import annotations
 
 from typing import Any

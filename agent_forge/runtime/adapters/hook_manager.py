@@ -1,8 +1,11 @@
-"""Runtime 内置生命周期处理器与聚合器。
+"""Runtime 内置生命周期处理器与 HookPort 聚合 Adapter。
 
+系统角色：在固定生命周期边界顺序调用内置/扩展 Hook，合并治理决定，并隔离扩展异常。
 当前只有三个内置处理器：工具执行前的环境边界检查、权限判断，以及工具执行后的
 敏感信息脱敏。``HookManager`` 在六个固定时机调用内置和调用方注册的处理器；它只
 负责顺序、决策合并与异常隔离，不拥有审批、Checkpoint 或工具执行状态。
+
+折叠导航：1 permission；2 environment；3 redaction；4 dispatch；5 isolation。
 """
 
 from __future__ import annotations
@@ -27,6 +30,7 @@ from agent_forge.runtime.ports import EventSink, HookPort
 from agent_forge.safety.permission import PermissionDecision, PermissionPolicy
 
 
+# region 1. Permission Hook：把 Tool intent 映射为 ALLOW / ASK / DENY 建议
 class PermissionHook(RuntimeHook):
     """在 ``before_tool`` 时机执行动作权限规则并返回统一决策。"""
 
@@ -84,8 +88,10 @@ class PermissionHook(RuntimeHook):
                 "base_permission_decision": permission_decision.value,
             },
         )
+# endregion 1. Permission Hook 结束
 
 
+# region 2. Environment Hook：把路径/命令边界转成执行前 deny
 class ExecutionEnvironmentHook(RuntimeHook):
     """在 ``before_tool`` 时机预检查命令和路径是否越过执行环境边界。"""
 
@@ -129,8 +135,10 @@ class ExecutionEnvironmentHook(RuntimeHook):
             reason="execution environment has no additional restriction",
             metadata={"environment": self.environment.render_boundary_summary()},
         )
+# endregion 2. Environment Hook 结束
 
 
+# region 3. Redaction Hook：工具执行后只改变可见 Observation，不改执行事实
 class SecretRedactionHook(RuntimeHook):
     """在 ``after_tool`` 时机对 Observation 做最终凭据脱敏。"""
 
@@ -152,8 +160,10 @@ class SecretRedactionHook(RuntimeHook):
             success=observation.success,
             content=redacted,
         )
+# endregion 3. Redaction Hook 结束
 
 
+# region 4. HookManager：固定顺序 dispatch 并投影六个生命周期点
 class HookManager(HookPort):
     """按稳定顺序调用生命周期处理器，合并决策并隔离处理器异常。"""
 
@@ -335,7 +345,9 @@ class HookManager(HookPort):
                     checkpoint.current_step,
                     checkpoint.agent_name,
                 )
+    # endregion 4. HookManager dispatch 结束
 
+    # region 5. 异常隔离与证据：decision Hook fail closed，notification Hook 只记录
     def _safe_decision(
         self,
         hook: RuntimeHook,
@@ -383,3 +395,4 @@ class HookManager(HookPort):
                 else "isolated"
             ),
         )
+    # endregion 5. 异常隔离与证据结束

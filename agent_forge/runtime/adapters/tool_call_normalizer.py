@@ -1,4 +1,13 @@
-"""把弱模型常见的工具调用格式归一化到 Runtime 契约。"""
+"""把 provider/弱模型工具调用归一化到 Runtime 的 typed contract。
+
+系统角色：只修复可确定的协议形状，不猜工具名、参数或权限；失败时生成一次受限 repair
+提示，由上层决定是否重试。
+输入：native/legacy/text tool-call payload；输出：``ToolCallNormalizationResult``。
+相邻边界：Model Adapter 解析 provider 响应；Normalizer 统一形状；Tool Pipeline 再做
+Routing、Authorization 与执行。
+
+折叠导航：1 result contract；2 normalization 主链；3 text fallback；4 arguments；5 failure。
+"""
 
 from __future__ import annotations
 
@@ -10,6 +19,7 @@ from agent_forge.runtime.domain.conversation import ToolCall
 from agent_forge.runtime.domain.structured_output import StructuredOutputParser
 
 
+# region 1. 归一化结果契约
 @dataclass(frozen=True, kw_only=True)
 class ToolCallNormalizationResult:
     """归一化结果包含修复证据，失败时给出一次受限重试提示。"""
@@ -20,11 +30,13 @@ class ToolCallNormalizationResult:
     source: str = "native"
     error: str = ""
     repair_prompt: str = ""
+# endregion 1. Result contract 结束
 
 
 class ToolCallNormalizer:
     """只做确定性格式修复，不猜测工具名或缺失业务参数。"""
 
+    # region 2. 主链：native/legacy 优先，文本 fallback 最后
     # 主要入口：先处理原生 tool_calls，再尝试受约束的文本降级格式。
     def normalize(
         self,
@@ -48,6 +60,7 @@ class ToolCallNormalizer:
             )
         tool_call_source = "native"
         normalization_repairs: list[str] = []
+        # 只有 provider 没有结构化调用时才尝试文本提升，不能覆盖原生 payload。
         if not tool_call_rows and content:
             tool_call_rows = self._extract_text_calls(
                 content,
@@ -60,6 +73,7 @@ class ToolCallNormalizer:
             return ToolCallNormalizationResult(content=content)
 
         normalized_tool_calls: list[ToolCall] = []
+        # 每个 call 独立解析；任一畸形都会让整个 batch fail closed，避免半执行。
         for index, provider_tool_call in enumerate(tool_call_rows):
             function_payload = provider_tool_call.get(
                 "function",
@@ -95,7 +109,9 @@ class ToolCallNormalizer:
             repairs=normalization_repairs,
             source=tool_call_source,
         )
+    # endregion 2. Normalization 主链结束
 
+    # region 3. Text fallback：只有全部工具名均在可见 allowlist 才提升
     def _extract_text_calls(
         self,
         content: str,
@@ -136,7 +152,9 @@ class ToolCallNormalizer:
         ):
             return []
         return candidate_call_payloads
+    # endregion 3. Text fallback 结束
 
+    # region 4. Arguments：JSON object 优先，最后只允许安全 literal dict 修复
     def _arguments(
         self,
         encoded_arguments: object,
@@ -164,7 +182,9 @@ class ToolCallNormalizer:
                 "",
             )
         return {}, "", parsed_arguments.error or "invalid encoded object"
+    # endregion 4. Arguments 结束
 
+# region 5. Fail-closed 修复提示
     @staticmethod
     def _failure(
         content: str | None,
@@ -185,3 +205,4 @@ class ToolCallNormalizer:
             error=error,
             repair_prompt=repair_prompt,
         )
+    # endregion 5. Fail-closed repair prompt 结束

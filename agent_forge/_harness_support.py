@@ -2,6 +2,13 @@
 
 本文件不是主阅读路径。它集中收纳路径构造、请求快照、事件出口和 checkpoint
 跟踪等机械工作，让 ``Harness`` 只呈现运行时装配与执行顺序。
+
+系统角色：承接 ``Harness.run`` 已决定的动作，完成路径、事件、内部 Config 与
+artifact 发布；不拥有 Run/Turn 状态机和 AgentLoop 策略。
+输入：Public ``RunRequest`` / ``HarnessConfig``；输出：Run paths、RuntimeConfig、
+EventSink 与最终 manifest。
+折叠导航：1 路径与 checkpoint tracking；2 Event/Runtime config；3 artifact 收口；
+4 控制面路径与导航 pointer。
 """
 
 from __future__ import annotations
@@ -43,6 +50,7 @@ from agent_forge.infrastructure.storage_layout import (
 )
 
 
+# region 1. Run 路径与 checkpoint tracking
 @dataclass(frozen=True)
 class HarnessRunPaths:
     """本次运行会用到的全部路径；只构造名称，不执行 Runtime。"""
@@ -119,8 +127,10 @@ def create_run_paths(
         task_state_dir=artifact_dir / "task_state",
         manifest_file=artifact_dir / "run_manifest.json",
     )
+# endregion 1. Run 路径与 checkpoint tracking 结束
 
 
+# region 2. Event 与 Runtime config：Public contract 到内部 contract 的机械映射
 def create_event_sink(
     extensions: HarnessExtensions,
     trace_file: Path,
@@ -133,6 +143,7 @@ def create_event_sink(
         if extensions.event_sink_factory is not None
         else TraceRecorder(str(trace_file))
     )
+    # Listener 只包装唯一 base sink，避免 Trace 与实时事件形成两份不一致的事实。
     event_sink: EventSink = (
         StreamingEventSink(
             base_event_sink,
@@ -222,8 +233,10 @@ def build_runtime_config(
         runtime_instructions=config.runtime_instructions,
         instruction_max_bytes=config.instruction_max_bytes,
     )
+# endregion 2. Event 与 Runtime config 结束
 
 
+# region 3. Artifact 收口：先发布事实，再按 Turn 终态决定 workspace cleanup
 def finalize_run_artifacts(
     *,
     request: RunRequest,
@@ -238,6 +251,7 @@ def finalize_run_artifacts(
 ) -> None:
     """发布事件、清理执行环境，并保存一次 run 的最终 manifest。"""
 
+    # Trace/usage 必须在 manifest 前完成，manifest 才能描述最终可见的 evidence closure。
     try:
         events.publish()
         if uses_default_trace:
@@ -293,12 +307,15 @@ def write_request_artifact(
         encoding="utf-8",
     )
     if resolved_config is not None:
+        # resolved_config 单独落盘，便于复现“最终采用了什么”，又不泄露 Runtime 指令正文。
         (run_dir / "resolved_config.json").write_text(
             json.dumps(resolved_config, ensure_ascii=False, indent=2),
             encoding="utf-8",
         )
+# endregion 3. Artifact 收口结束
 
 
+# region 4. 控制面路径与导航 pointer
 def control_path(value: str, workspace: Path, default_name: str) -> Path:
     """把控制面目录收进 ``internal/state``，并兼容旧默认路径。"""
 
@@ -306,6 +323,7 @@ def control_path(value: str, workspace: Path, default_name: str) -> Path:
     if not path.is_absolute():
         path = LEGACY_CONTROL_ROOTS.get(path, path)
         return workspace / path
+    # 绝对旧默认路径也收敛到 canonical owner；用户显式自定义绝对路径保持不变。
     for legacy, current in LEGACY_CONTROL_ROOTS.items():
         if path == workspace / legacy:
             return workspace / current
@@ -348,6 +366,7 @@ def _managed_storage_workspace(
         if output_root.is_absolute()
         else (Path.cwd() / output_root).resolve()
     )
+    # 先从 output ancestors 识别现成 owner，再判断 output 是否属于请求 workspace。
     for candidate in (resolved_output, *resolved_output.parents):
         if candidate.name == AGENT_FORGE_ROOT.name:
             return candidate.parent
@@ -358,3 +377,4 @@ def _managed_storage_workspace(
         # 保留旧的 pointer/control 相对语义，但不预建整套目录。
         return None
     return requested_workspace
+# endregion 4. 控制面路径与导航 pointer 结束

@@ -1,3 +1,13 @@
+"""Provider-neutral 模型调用、retry、fallback 与 usage Adapter。
+
+系统角色：把一次 ``ModelPort.chat`` 收口成有界 primary attempts 和可选 fallback，
+同时累计真实/估算 token、延迟与成本；不拥有 Context、Run deadline 或 Tool 执行。
+输入：Prepared Model messages 与 visible tools；输出：最终 ``AgentResponse`` 和 usage。
+相邻边界：HTTP client 只做一次 transport；AgentLoop 决定收到结果后的控制流。
+
+折叠导航：1 retry policy；2 public call；3 retry/repair；4 usage estimation。
+"""
+
 import time
 from dataclasses import dataclass
 
@@ -9,6 +19,7 @@ from agent_forge.runtime.domain.model import ModelCapabilities
 from agent_forge.runtime.domain.model_usage import ModelUsage
 
 
+# region 1. Retry policy：区分 transport retry、ToolCall repair 与 provider fallback
 # 核心数据：模型重试、tool-call 修复和 fallback 的有界策略。
 @dataclass(kw_only=True)
 class RetryPolicy:
@@ -39,6 +50,7 @@ class RetryPolicy:
         "invalid_tool_call",
         "parse_failed",
     )
+# endregion 1. Retry policy 结束
 
 
 class ModelGateway(LLMClient):
@@ -74,6 +86,7 @@ class ModelGateway(LLMClient):
 
         self.last_usage = ModelUsage(provider=provider, model=model)
 
+    # region 1. Public call：primary 成功直接返回，否则按错误类型决定 fallback
     # 主要入口：调用主模型，并统一处理重试、协议修复、fallback 与 usage。
     def chat(
         self,
@@ -117,7 +130,9 @@ class ModelGateway(LLMClient):
         response_error = model_response.error or {}
         error_code = str(response_error.get("code") or response_error.get("type") or "")
         return error_code in self.retry_policy.fallback_error_codes
+    # endregion 1. Public call 结束
 
+    # region 2. Provider 内有界尝试：transport retry 或一次格式 repair
     def _call_with_retry(
         self,
         model_client: LLMClient,
@@ -205,7 +220,9 @@ class ModelGateway(LLMClient):
         if error_code in self.retry_policy.retryable_error_codes:
             return list(attempted_messages)
         return None
+    # endregion 2. Provider 内有界尝试结束
 
+    # region 3. Usage estimation：provider 未返回精确值时提供明确标记的估算证据
     def _estimate_prompt_tokens(
         self, messages: list[Message], tools: list[ToolSchema]
     ) -> int:
@@ -290,3 +307,4 @@ class ModelGateway(LLMClient):
             input_cost = prompt_tokens / 1_000_000 * price["input_cache_miss"]
         output_cost = completion_tokens / 1_000_000 * price["output"]
         return round(input_cost + output_cost, 6)
+    # endregion 3. Usage estimation 结束

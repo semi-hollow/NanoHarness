@@ -1,4 +1,10 @@
-"""Benchmark results 到 claim-safe scorecard 的 Application 用例。"""
+"""Benchmark results 到 claim-safe scorecard 的 Application 用例。
+
+系统角色：为每个 Case 关联 usage/environment evidence，再交给纯 Domain 归一化与聚合；
+缺失证据保持 unknown，不把 local validation 提升为 official correctness。
+输入：raw benchmark result + run dir；输出：claim-safe scorecard。
+相邻边界：EvidenceReader 只读文件；Domain 定义指标；本 Application 只协调。
+"""
 
 from __future__ import annotations
 

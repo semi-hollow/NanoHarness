@@ -1,3 +1,13 @@
+"""Human Approval 的 crash-safe JSON Repository。
+
+系统角色：将一次具体副作用 intent 变成可由人工决定的 durable request，并保证并发
+continuation 不会覆盖同一授权事实。
+输入：``ApprovalRequestDraft`` / 人工 decision；输出：稳定 ``ApprovalRequest``。
+相邻边界：Authorization Gate 决定是否 ASK；本 Adapter 只持久化 pending/decision/stale。
+
+折叠导航：1 identity/read；2 request/list；3 decision；4 atomic write/lock。
+"""
+
 from __future__ import annotations
 
 import fcntl
@@ -26,6 +36,7 @@ class JsonApprovalRepository(ApprovalRepository):
         self.root = Path(root)
         self.root.mkdir(parents=True, exist_ok=True)
 
+    # region 1. Identity 与读取
     @staticmethod
     def operation_key(
         tool_name: str, arguments: dict[str, Any], workspace: str, action: str = ""
@@ -52,7 +63,9 @@ class JsonApprovalRepository(ApprovalRepository):
             return None
         data = json.loads(path.read_text(encoding="utf-8"))
         return ApprovalRequest(**data)
+    # endregion 1. Identity 与读取结束
 
+    # region 2. 幂等请求与导航查询
     # 运行时端口：按 operation key 幂等创建尚未执行的操作审批请求。
     def request(self, draft: ApprovalRequestDraft) -> ApprovalRequest:
         """为一次可能改变持久状态的操作创建或复用持久化授权记录。
@@ -108,6 +121,7 @@ class JsonApprovalRepository(ApprovalRepository):
 
     def list_all(self) -> list[ApprovalRequest]:
         requests: list[ApprovalRequest] = []
+        # 单个坏文件被隔离，不能阻断操作员查看其余待审批请求。
         for path in self.root.glob("*.json"):
             try:
                 requests.append(
@@ -116,7 +130,9 @@ class JsonApprovalRepository(ApprovalRepository):
             except (OSError, json.JSONDecodeError, TypeError):
                 continue
         return sorted(requests, key=lambda request: request.updated_at, reverse=True)
+    # endregion 2. 幂等请求与导航查询结束
 
+    # region 3. 人工决定与失效：Domain 对象校验合法终态
     # 运行时端口：将 pending 请求转换为 approved 或 rejected 并原子落盘。
     def decide(
         self, operation_key: str, status: str, note: str = ""
@@ -137,7 +153,9 @@ class JsonApprovalRepository(ApprovalRepository):
             request.mark_stale(note)
             self._write(request)
             return request
+    # endregion 3. 人工决定与失效结束
 
+    # region 4. 原子写与同 key 跨线程/进程互斥
     def _write(self, request: ApprovalRequest) -> None:
         request.path = str(self.path_for(request.operation_key))
         atomic_write_json(self.path_for(request.operation_key), request.to_dict())
@@ -156,3 +174,4 @@ class JsonApprovalRepository(ApprovalRepository):
                     yield
                 finally:
                     fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+    # endregion 4. 原子写与互斥结束

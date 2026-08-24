@@ -1,3 +1,15 @@
+"""Operation Ledger 的 crash-safe JSON Adapter。
+
+系统角色：用稳定 operation identity 和 fingerprint 记录状态变更操作，
+使 continuation 能区分“未执行”、“执行中结果不确定”与“已执行”。
+输入：``OperationPlan`` / ``OperationTransition``；输出：持久化
+``OperationRecord``。
+相邻边界：``OperationTracker`` 决定复用/拒绝/执行；本 Adapter 只负责
+身份、合法迁移、跨进程互斥与强原子落盘。
+
+折叠导航：1 身份/fingerprint；2 公开状态迁移；3 锁内提交；4 路径 helper。
+"""
+
 from __future__ import annotations
 
 import hashlib
@@ -31,6 +43,7 @@ class JsonOperationLedgerRepository(OperationLedgerRepository):
         self.root = Path(root)
         self.root.mkdir(parents=True, exist_ok=True)
 
+    # region 1. 身份与 Fingerprint：跨 continuation 识别同一操作与目标漂移
     @staticmethod
     def operation_key(target: OperationTarget) -> str:
         """用规范化操作事实生成跨 continuation 稳定的幂等主键。
@@ -104,7 +117,9 @@ class JsonOperationLedgerRepository(OperationLedgerRepository):
             "action": target.action,
             "arguments_sha256": hashlib.sha256(raw.encode("utf-8")).hexdigest(),
         }
+    # endregion 1. 身份与 Fingerprint 结束
 
+    # region 2. 公开状态迁移：Planned -> Pending/Approved -> Executing -> Terminal
     def path_for(self, operation_key: str) -> Path:
         return self.root / f"{operation_key}.json"
 
@@ -178,18 +193,24 @@ class JsonOperationLedgerRepository(OperationLedgerRepository):
         with self._operation_lock(plan.operation_key):
             existing = self._get_unlocked(plan.operation_key)
             if existing is not None:
+                # 旧记录缺 fingerprint 时只补证据，不重置它已有的执行状态。
                 if existing.pre_fingerprint is None and plan.pre_fingerprint is not None:
                     existing.pre_fingerprint = plan.pre_fingerprint
                     self._write_unlocked(existing)
                 return existing
             return self._record_unlocked(plan, existing=None)
+    # endregion 2. 公开状态迁移结束
 
+    # region 3. 锁内提交：所有 read-modify-write 都从这里落盘
     def _record_unlocked(
         self,
         plan: OperationPlan,
         *,
         existing: OperationRecord | None,
     ) -> OperationRecord:
+        """在已持有 operation lock 时创建记录，或推进已有记录。"""
+
+        # 同 key 重入只能经过 Domain transition，不能用新对象覆盖 history。
         if existing is not None:
             return self._transition_unlocked(
                 existing,
@@ -234,6 +255,7 @@ class JsonOperationLedgerRepository(OperationLedgerRepository):
     def _finish_execution(self, update: OperationTransition) -> OperationRecord:
         with self._operation_lock(update.operation_key):
             record = self._require_unlocked(update.operation_key)
+            # 只有已 claim 的 executing 记录，才能提交成功或失败结果。
             if record.status != "executing":
                 raise RuntimeError(
                     f"cannot record {update.status} from operation status {record.status}"
@@ -263,9 +285,12 @@ class JsonOperationLedgerRepository(OperationLedgerRepository):
                 yield
             finally:
                 fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+    # endregion 3. 锁内提交结束
 
 
+# region 4. Fingerprint 路径 helper
 def _target_path_value(arguments: dict[str, Any]) -> Any:
+    # 工具 schema 的路径字段名不同，但 fingerprint 只选第一个真实目标。
     for key in ("path", "file", "target_path", "output_path"):
         value = arguments.get(key)
         if value:
@@ -279,3 +304,4 @@ def _is_relative_to(path: Path, root: Path) -> bool:
         return True
     except ValueError:
         return False
+# endregion 4. Fingerprint 路径 helper 结束

@@ -1,4 +1,13 @@
-"""单 Agent Run 的 checkpoint 领域状态，不包含 Thread 内容或持久化实现。"""
+"""单 Agent Run attempt 的 checkpoint 领域状态。
+
+系统角色：保存恢复执行所需的最小 Run 状态与 pending ToolCall cursor；Thread/Turn 拥有
+任务和 Conversation，Repository 拥有落盘。
+输入：``TaskStartRequest`` / ``TaskCheckpointUpdate``；输出：canonical v4 checkpoint。
+相邻边界：RunLifecycle 决定何时迁移；本 Domain 校验单向字段更新；JSON Adapter 持久化。
+
+折叠导航：1 serialized contract/status；2 pending execution pointer；3 update contract；
+4 checkpoint transition；5 canonical serialization。
+"""
 
 from __future__ import annotations
 
@@ -10,6 +19,7 @@ from typing import Any, ClassVar, TypedDict
 from agent_forge.contracts import JsonObject
 
 
+# region 1. Serialized contract 与 Run statuses
 class PendingExecutionPointerData(TypedDict):
     """Checkpoint 指向 canonical assistant item 的同 Turn tool-batch cursor。"""
 
@@ -70,8 +80,10 @@ RESUMABLE_RUN_STATUSES = frozenset(
         TaskRunStatus.PAUSED.value,
     }
 )
+# endregion 1. Contract 与 statuses 结束
 
 
+# region 2. Pending execution pointer：恢复同一 Assistant batch，不重新问模型
 @dataclass(frozen=True, kw_only=True)
 class PendingExecutionPointer:
     """未完成 tool batch 的最小恢复指针；assistant payload 只存 Thread journal。"""
@@ -114,8 +126,10 @@ class _PendingExecutionUnchanged:
 
 
 PENDING_EXECUTION_UNCHANGED = _PendingExecutionUnchanged()
+# endregion 2. Pending execution pointer 结束
 
 
+# region 3. Start / Update 类型化命令
 @dataclass(frozen=True)
 class TaskStartRequest:
     """一次新 Run 的 Thread/Turn、工作区和初始元数据。"""
@@ -156,8 +170,10 @@ class TaskCheckpointUpdate:
         if isinstance(self.status, TaskRunStatus):
             return self.status.value
         return self.status
+# endregion 3. Start / Update command 结束
 
 
+# region 4. Checkpoint identity 与显式字段 transition
 @dataclass
 class TaskCheckpoint:
     """一次 Run 的最小执行恢复快照。
@@ -206,6 +222,7 @@ class TaskCheckpoint:
     def apply_transition(self, update: TaskCheckpointUpdate) -> None:
         """应用一次显式执行状态转换；持久化由 Repository 在调用后完成。"""
 
+        # Update 是 patch contract：只有非 None/非 UNCHANGED 字段改变当前快照。
         next_task_status = update.status_value()
         if next_task_status is not None:
             self.status = next_task_status
@@ -238,7 +255,9 @@ class TaskCheckpoint:
         self.updated_at = (
             update.updated_at if update.updated_at is not None else time.time()
         )
+    # endregion 4. Checkpoint transition 结束
 
+    # region 5. Canonical v4 serialization：production loader 不带 legacy fallback
     def to_dict(self) -> TaskCheckpointData:
         return {
             "schema_version": self.SCHEMA_VERSION,
@@ -289,6 +308,7 @@ class TaskCheckpoint:
             else None
         )
         return cls(**payload)
+    # endregion 5. Canonical serialization 结束
 
 
 __all__ = [

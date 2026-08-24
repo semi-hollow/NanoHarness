@@ -1,7 +1,11 @@
-"""Operator Console 与 Harness 之间唯一的应用层桥梁。
+"""Operator Console 与 Harness 之间唯一的 Application bridge。
 
-核心入口是 ``start``、``answer_and_resume``、``decide_and_resume`` 和
-``resume``；路径查找、pending request 选择等方法负责展示层准备工作。
+系统角色：把 start、人工回答、审批、pause/cancel/steer 与 continuation 映射到真实
+Harness/RunController；Textual UI 不直接碰 Repository 或 checkpoint JSON。
+输入：界面动作与当前 durable checkpoint；输出：``RunResult`` 或 typed prompt。
+相邻边界：Harness 拥有执行，Controller 拥有信号，Repository 拥有人工事实。
+
+折叠导航：1 执行/continuation；2 pending prompt；3 live control；4 状态同步。
 """
 
 from __future__ import annotations
@@ -85,6 +89,7 @@ class OperatorSession:
         with self._lock:
             return self._artifact_dir
 
+    # region 1. 执行与 continuation：所有入口最终回到 Harness.run/resume
     # 主要入口：从界面输入启动真实 Harness 主链。
     def start(self) -> RunResult:
         """执行 ``Harness.run``，并保存后续人工控制所需的当前状态。"""
@@ -181,7 +186,9 @@ class OperatorSession:
         raw_target = Path(pointer.read_text(encoding="utf-8").strip())
         target = raw_target if raw_target.is_absolute() else pointer.parent / raw_target
         return self.attach_run(target)
+    # endregion 1. 执行与 continuation 结束
 
+    # region 2. Pending prompt：把 durable request 投影成 UI 可展示的唯一问题
     def pending_prompt(self) -> OperatorPrompt | None:
         """从当前 checkpoint 解析真正待处理的 human/approval 记录。"""
 
@@ -212,7 +219,9 @@ class OperatorSession:
         if prompt is None or prompt.kind != kind:
             raise RuntimeError(f"当前没有待处理的 {kind}")
         return prompt
+    # endregion 2. Pending prompt 结束
 
+    # region 3. Live control：只入队控制信号，不在 UI 线程执行 Runtime
     def pause(self) -> None:
         """请求 Runtime 在下一个安全边界暂停。"""
 
@@ -229,7 +238,9 @@ class OperatorSession:
         if not message.strip():
             raise ValueError("steer message must not be empty")
         self.controller.steer(message.strip())
+    # endregion 3. Live control 结束
 
+    # region 4. 状态同步与 prompt projection：集中维护当前 artifact/checkpoint
     def _remember_result(
         self,
         result: RunResult,
@@ -309,6 +320,8 @@ class OperatorSession:
 
     @staticmethod
     def _approval_prompt(approval_request: ApprovalRequest) -> OperatorPrompt:
+        """把操作身份、参数摘要与风险原因投影为审批卡片。"""
+
         details = json.dumps(
             {
                 "tool": approval_request.tool_name,
@@ -330,3 +343,4 @@ class OperatorSession:
             body=approval_request.reason or "该工具调用需要人工授权。",
             details=details,
         )
+    # endregion 4. 状态同步与 prompt projection 结束

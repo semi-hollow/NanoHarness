@@ -1,3 +1,13 @@
+"""受白名单约束的验证/只读 Git 命令 Tool；不是任意 Shell。
+
+系统角色：把模型提供的 command 解析成 argv，经 PermissionPolicy 与 workspace 路径校验后，
+交给隔离 ExecutionEnvironment 执行并返回有界 Observation。
+输入：单个 command string；输出：exit code + 截断输出；不支持 shell operators/cd/python -c。
+相邻边界：Router 决定是否可见，Tool Pipeline 负责 Approval/Ledger，本 Tool 负责 argv/path。
+
+折叠导航：1 schema/normalization；2 path validation；3 governed execution。
+"""
+
 import os
 import shlex
 import subprocess
@@ -44,6 +54,7 @@ class RunCommandTool(Tool):
         self.execution_environment = execution_environment
         self.timeout_seconds = timeout_seconds
 
+    # region 1. Schema 与固定 validation entrypoint normalization
     def schema(self) -> ToolSchema:
         return {
             "name": self.name,
@@ -81,7 +92,9 @@ class RunCommandTool(Tool):
             if (self.sandbox.workspace_root / filename).is_file():
                 return filename
         return os.devnull
+    # endregion 1. Schema 与 normalization 结束
 
+    # region 2. Path validation：命令能运行不代表参数可以逃出 workspace
     def _validate_command_paths(self, parts: list[str]) -> None:
         normalized = list(parts)
         if normalized and normalized[0] in {
@@ -112,6 +125,7 @@ class RunCommandTool(Tool):
     def _validate_discovery_args(self, args: list[str]) -> None:
         path_options = {"-s", "--start-directory", "-t", "--top-level-directory"}
         index = 0
+        # unittest discovery 同时存在独立值和 attached short option 两种路径形状。
         while index < len(args):
             value = args[index]
             attached_option_path = self._extract_attached_short_option_path(
@@ -153,6 +167,7 @@ class RunCommandTool(Tool):
             "-i",
         }
         index = 0
+        # pytest/compile 参数逐项扫描；已知 path option 与 path-like positional 都受 Sandbox 约束。
         while index < len(args):
             value = args[index]
             attached_option_path = self._extract_attached_short_option_path(
@@ -208,7 +223,9 @@ class RunCommandTool(Tool):
             or "\\" in candidate
             or candidate.endswith((".py", ".ini", ".toml", ".xml"))
         )
+    # endregion 2. Path validation 结束
 
+# region 3. 受治理执行：Policy -> argv -> Environment -> Observation
     def execute(self, arguments: ToolArguments) -> Observation:
         cmd = str(arguments.get("command", "") or "")
         decision, reason = self.policy.decide("run_command", cmd)
@@ -220,6 +237,7 @@ class RunCommandTool(Tool):
             )
 
         try:
+            # shell=False 前仍先 shlex 解析与路径检查；ExecutionEnvironment 只接收 argv。
             parts = shlex.split(cmd)
             self._validate_command_paths(parts)
             parts = self._normalize_validation_entrypoint(parts)
@@ -259,3 +277,4 @@ class RunCommandTool(Tool):
                 success=False,
                 content=f"command execution error: {e}",
             )
+    # endregion 3. Governed execution 结束

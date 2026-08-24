@@ -2,6 +2,13 @@
 
 本模块只读取版本化 contract 和 Runtime 已写入的 artifact。它不会补写 Run、推断
 未观测状态，或把设计说明伪装成 Trace 事实。
+
+系统角色：分别回答 Lab 1 的 durable governance、Lab 2 的协作执行和 Mini-50 的
+能力评测问题，并把 contract 与 observed evidence 保持分栏。
+输入：``EvidenceSource`` 与 manifest/raw artifact；输出：三个 typed Review model。
+相邻边界：Evidence Catalog 负责定位文件；本 Application 负责事实投影；UI 只展示。
+
+折叠导航：1 Review contract；2 Lab 1；3 Lab 2；4 Mini-50；5 manifest/event helper。
 """
 
 from __future__ import annotations
@@ -15,6 +22,7 @@ from typing import Any
 from apps.workbench.domain import EvidenceSource
 
 
+# region 1. Review contract：问题/机制/边界来自版本控制，不冒充 Run observation
 REVIEW_MANIFEST = Path("benchmarks/showcase/evidence-review-v1.json")
 
 
@@ -134,14 +142,17 @@ def canonical_run_name(project_dir: Path, category: str) -> str:
 
     source = _manifest_source(project_dir, category)
     return str(source.get("canonical_run") or "")
+# endregion 1. Review contract 结束
 
 
+# region 2. Lab 1：从 durable owner 与事件顺序证明控制面不变量
 def build_lab1_review(project_dir: Path, source: EvidenceSource) -> Lab1Review:
     """从一个完整 governed Run 投影状态机、权威对象和三条不变量。"""
 
     contract = _contract(project_dir, "governed")
     root = source.primary_path.parent if source.primary_path else Path()
     manifest = _read_json(source.primary_path)
+    # Checkpoint sequence 与各控制面 Repository 分开读取，避免把 Trace 当成唯一权威。
     checkpoints = list(
         (_read_json(path), path)
         for path in root.glob("phases/*/task_state/*.json")
@@ -207,6 +218,7 @@ def build_lab1_review(project_dir: Path, source: EvidenceSource) -> Lab1Review:
             final_trace,
         ),
     )
+    # 不变量只在事件索引和 durable 状态同时满足时 observed，缺一项即 false。
     invariants = (
         InvariantFact(
             "Human answer persisted before Resume",
@@ -242,8 +254,10 @@ def build_lab1_review(project_dir: Path, source: EvidenceSource) -> Lab1Review:
         observed_result=observed,
         evidence_revision=_evidence_revision(final_trace),
     )
+# endregion 2. Lab 1 结束
 
 
+# region 3. Lab 2：计划约束与 Worker 实际结果逐 Task 对齐
 def build_lab2_review(project_dir: Path, source: EvidenceSource) -> Lab2Review:
     """读取 FanoutPlan 与 summary，保持设计门禁和观测结果来源分离。"""
 
@@ -257,6 +271,7 @@ def build_lab2_review(project_dir: Path, source: EvidenceSource) -> Lab2Review:
         if isinstance(item, dict)
     }
     tasks: list[Lab2Task] = []
+    # Plan 提供约束，summary 提供实际 touched/status；二者按 task_id 连接但不互相覆盖。
     for task in plan.get("tasks") or ():
         if not isinstance(task, dict):
             continue
@@ -295,8 +310,10 @@ def build_lab2_review(project_dir: Path, source: EvidenceSource) -> Lab2Review:
             f"{summary.get('final_decision') or 'not observed'}"
         ),
     )
+# endregion 3. Lab 2 结束
 
 
+# region 4. Mini-50：固定分母、代表 Case 与 provenance closure
 def build_mini50_review(
     project_dir: Path,
     source: EvidenceSource,
@@ -324,6 +341,7 @@ def build_mini50_review(
         for case_id in ids if isinstance(ids, list) else ():
             classification_by_case[str(case_id)] = str(classification)
     representatives: list[Mini50Case] = []
+    # 只投影 manifest 明确选择的代表 Case，不从结果好坏反向挑样本。
     for item in manifest_source.get("representative_cases") or ():
         if not isinstance(item, dict):
             continue
@@ -391,8 +409,10 @@ def build_mini50_review(
         representatives=tuple(representatives),
         attempts=attempts,
     )
+# endregion 4. Mini-50 结束
 
 
+# region 5. Manifest、Event 与 Revision helper
 def _manifest_source(project_dir: Path, category: str) -> dict[str, Any]:
     sources = load_review_manifest(project_dir).get("sources")
     sources = sources if isinstance(sources, dict) else {}
@@ -488,3 +508,4 @@ def current_git_revision(project_dir: Path) -> str:
         encoding="utf-8",
     )
     return result.stdout.strip() if result.returncode == 0 else ""
+# endregion 5. Manifest、Event 与 Revision helper 结束

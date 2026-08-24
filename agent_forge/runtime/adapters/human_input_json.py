@@ -1,3 +1,13 @@
+"""Human Input barrier 的 crash-safe JSON Repository。
+
+系统角色：把 Agent 的澄清问题变成可跨 Run continuation 回答的权威事实，并保证同一
+问题只接受一个合法终态。
+输入：``HumanInputRequestDraft`` / 人工 answer/cancel；输出：durable request。
+相邻边界：RunLifecycle 决定何时停在人工屏障；本 Adapter 负责 identity、幂等与落盘。
+
+折叠导航：1 request identity/read；2 create/list；3 answer/cancel；4 atomic lock。
+"""
+
 from __future__ import annotations
 
 import fcntl
@@ -29,6 +39,7 @@ class JsonHumanInputRepository(HumanInputRepository):
         self.root = Path(root)
         self.root.mkdir(parents=True, exist_ok=True)
 
+    # region 1. Request identity 与读取
     @staticmethod
     def request_id(
         thread_id: str,
@@ -66,7 +77,9 @@ class JsonHumanInputRepository(HumanInputRepository):
         if not path.exists():
             return None
         return HumanInputRequest(**json.loads(path.read_text(encoding="utf-8")))
+    # endregion 1. Request identity 与读取结束
 
+    # region 2. 幂等创建与导航查询
     # 运行时端口：以确定性 request id 创建或复用待回答问题。
     def request(self, draft: HumanInputRequestDraft) -> HumanInputRequest:
         """创建或复用使当前运行可恢复的持久化问题。
@@ -78,6 +91,7 @@ class JsonHumanInputRepository(HumanInputRepository):
         question = str(draft.question or "").strip()
         if not question:
             raise ValueError("human input question must not be empty")
+        # 选择项先去空、去重，确保同一语义问题生成相同 request id。
         normalized_choices = list(
             dict.fromkeys(
                 str(item).strip() for item in draft.choices if str(item).strip()
@@ -127,7 +141,9 @@ class JsonHumanInputRepository(HumanInputRepository):
 
     def list_pending(self) -> list[HumanInputRequest]:
         return [request for request in self.list_all() if request.status == "pending"]
+    # endregion 2. 幂等创建与导航查询结束
 
+    # region 3. 权威回答或取消：只允许 pending -> terminal
     # 运行时端口：只允许 pending 问题写入一次有效回答。
     def respond(
         self, request_id: str, answer: str, note: str = ""
@@ -153,7 +169,9 @@ class JsonHumanInputRepository(HumanInputRepository):
         if request is None:
             raise FileNotFoundError(f"human input request not found: {request_id}")
         return request
+    # endregion 3. 权威回答或取消结束
 
+    # region 4. 原子写与同 request 跨线程/进程互斥
     def _write(self, request: HumanInputRequest) -> None:
         path = self.path_for(request.request_id)
         request.path = str(path)
@@ -175,3 +193,4 @@ class JsonHumanInputRepository(HumanInputRepository):
                     yield
                 finally:
                     fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+    # endregion 4. 原子写与互斥结束

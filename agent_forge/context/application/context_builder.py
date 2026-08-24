@@ -1,4 +1,13 @@
-"""Turn 稳定前缀与 Model Step 动态仓库上下文的独立预算组装。"""
+"""Turn 稳定前缀与 Model Step 动态仓库上下文的独立预算组装。
+
+系统角色：把 System Prompt、Project Instructions、Skill/LTM 与动态 Repo/WorkingMemory
+分成两条生命周期不同的上下文；稳定部分随 Turn 冻结，动态部分每个 Model Step 重建。
+输入：stable/dynamic typed build request；输出：可 render 且带预算证据的 report。
+相邻边界：Assembler Adapter 提供仓库事实；本 Application 决定内容与预算；Prompt
+Window 再把完整 Conversation/Tools 纳入 token 硬上限。
+
+核心阅读：``build_stable_turn_context`` 与 ``build_turn_system_context``。
+"""
 
 from __future__ import annotations
 

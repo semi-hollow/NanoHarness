@@ -1,4 +1,9 @@
-"""通用整文件覆盖工具；能力宽于锚点替换，因此由 Router 标为高风险写能力。"""
+"""通用整文件覆盖 Tool；能力宽于锚点替换，因此由 Router 标为高风险写能力。
+
+系统角色：在显式可见、通过 Authorization 且路径属于 workspace 后覆盖完整正文；
+普通修复优先使用 ``replace_text``，本 Tool 只是宽能力 fallback。
+输入：path/content；输出：写入 Observation，并在新文件出现时失效 Repo Map cache。
+"""
 
 from agent_forge.context.adapters.repository_map import invalidate_repo_map
 from agent_forge.contracts import ToolArguments, ToolSchema

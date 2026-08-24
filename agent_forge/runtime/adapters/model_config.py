@@ -1,4 +1,14 @@
-"""LLM provider 连接与采样配置的解析边界。"""
+"""LLM provider 连接与采样配置的解析边界。
+
+系统角色：把显式参数、profile、环境变量和 provider 默认值合并成一份
+可直接交给 Model Adapter 的 ``LLMConfig``。
+输入：``LLMConfigRequest``；输出：有明确凭据来源和能力上限的有效配置。
+相邻边界：本文件决定“连接什么模型”；``OpenAICompatibleLLMClient``
+负责一次 transport，``ModelGateway`` 负责重试与 fallback。
+
+折叠导航：1 能力与配置契约；2 profile 加载；3 优先级合并；
+4 凭据与默认能力。
+"""
 
 import json
 import os
@@ -9,6 +19,7 @@ from typing import Any
 from agent_forge.runtime.domain.model import ModelCapabilities
 
 
+# region 1. 能力与配置契约
 DEFAULT_MODEL_CONTEXT_WINDOW = 32_768
 DEEPSEEK_V4_CONTEXT_WINDOW = 1_000_000
 GLM_52_CONTEXT_WINDOW = 1_000_000
@@ -85,11 +96,15 @@ class LLMConfigRequest:
     thinking_mode: str | None = None
     reasoning_effort: str | None = None
     capabilities: ModelCapabilities | None = None
+# endregion 1. 能力与配置契约结束
 
 
+# region 2. Profile 加载：显式文件优先，再查找统一环境入口
 def load_llm_profile(
     profile_name: str, profile_file: str | None = None
 ) -> dict[str, Any]:
+    """读取命名 profile；找不到文件或名称时显式失败。"""
+
     candidates = []
     if profile_file:
         candidates.append(Path(profile_file))
@@ -97,6 +112,7 @@ def load_llm_profile(
         Path(os.getenv("AGENT_FORGE_LLM_PROFILE_FILE", "llm_profiles.json"))
     )
 
+    # 按稳定优先级找第一个存在的配置源，不跨文件混合 profile。
     for path in candidates:
         if not path.exists():
             continue
@@ -109,9 +125,14 @@ def load_llm_profile(
 
     searched = ", ".join(str(path) for path in candidates)
     raise FileNotFoundError(f"LLM profile file not found. Searched: {searched}")
+# endregion 2. Profile 加载结束
 
 
+# region 3. 配置优先级：Request > Profile > Environment > Provider default
 def resolve_llm_config(request: LLMConfigRequest) -> LLMConfig:
+    """将多个配置源解析、校验为唯一 effective config。"""
+
+    # 先确定 provider；后续 URL、默认模型和凭据隔离都依赖这个结果。
     profile_data: dict[str, Any] = {}
     resolved_provider = request.provider
     if request.profile:
@@ -134,6 +155,7 @@ def resolve_llm_config(request: LLMConfigRequest) -> LLMConfig:
         if opencode_go_defaults
         else ""
     )
+    # 采样和能力参数在返回前一次校验，不把非法值留给 HTTP 层。
     resolved_model = (
         request.model
         or profile_data.get("model")
@@ -176,6 +198,7 @@ def resolve_llm_config(request: LLMConfigRequest) -> LLMConfig:
             raise ValueError("reasoning_effort must be high or max")
         if resolved_thinking_mode == "disabled":
             raise ValueError("reasoning_effort requires thinking_mode enabled or auto")
+    # 当前 Adapter 只能对已知 Chat Completions 模型作真实请求。
     if (
         opencode_go_defaults
         and resolved_model not in OPENCODE_GO_CHAT_COMPLETIONS_MODELS
@@ -216,8 +239,10 @@ def resolve_llm_config(request: LLMConfigRequest) -> LLMConfig:
             thinking_mode=resolved_thinking_mode,
         ),
     )
+# endregion 3. 配置优先级结束
 
 
+# region 4. 凭据隔离与 Provider 默认能力
 def _resolve_api_key(
     *,
     provider: str,
@@ -240,6 +265,7 @@ def _resolve_api_key(
     candidates.extend(
         (name, os.getenv(name)) for name in provider_environment.get(provider, ())
     )
+    # 只返回第一个有值来源，同时保留来源名供审计。
     for source, value in candidates:
         if value:
             return value, source
@@ -291,3 +317,4 @@ def default_model_capabilities(
         context_window=context_window,
         source=f"provider_default:{provider}:{model or 'unknown'}",
     )
+# endregion 4. 凭据与默认能力结束

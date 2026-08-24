@@ -1,4 +1,15 @@
-"""完整模型请求的预算估算与结构化会话压缩。"""
+"""完整模型请求的预算估算与增量 Rolling Compaction。
+
+系统角色：在 ModelPort 调用前，把 stable system、tool schemas、旧 digest 与新 raw delta
+收进硬预算，同时保持 Assistant ToolCall/Observation 事务不可拆。
+输入：``PromptWindowRequest``；输出：``PromptWindowResult.llm_messages`` 与更新后的
+``ConversationHistoryDigest``。
+相邻边界：ModelStepPreparation 冻结本轮请求；本 Application 只治理窗口；Thread
+Repository 持久化 derived digest，Model Adapter 不参与压缩决策。
+
+核心阅读：``PromptWindowManager.prepare`` 四段折叠主链；``_build_digest`` 解释被移出
+窗口的事实如何生成，``_merge_digest`` 解释增量合并。
+"""
 
 from __future__ import annotations
 

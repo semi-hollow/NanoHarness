@@ -1,3 +1,13 @@
+"""OpenAI-compatible HTTP transport 与 provider response Adapter。
+
+系统角色：把 Runtime Message/ToolSchema 编码为 provider 请求，再把不可信响应规范成
+``AgentResponse``；它不决定 retry、Run deadline、Tool 权限或执行顺序。
+输入：已准备的消息和可见工具；输出：文本、typed ToolCall 或 provider error。
+相邻边界：``ModelGateway`` 拥有重试/usage；``ToolCallNormalizer`` 修复协议形状。
+
+折叠导航：1 client/config；2 request；3 response；4 schema；5 errors。
+"""
+
 import http.client
 import json
 import os
@@ -14,6 +24,7 @@ from agent_forge.runtime.domain.model import ModelCapabilities
 from agent_forge.runtime.adapters.model_config import LLMConfig
 
 
+# region 1. ModelPort compatibility contract：供 IDE 直接定位 Adapter 实现
 class LLMClient(ModelPort):
     """模型 Adapter 基类；显式实现 ``ModelPort`` 供 IDE 追踪装配关系。"""
 
@@ -23,9 +34,11 @@ class LLMClient(ModelPort):
         tools: list[ToolSchema],
     ) -> AgentResponse:
         raise NotImplementedError
+# endregion 1. ModelPort compatibility contract 结束
 
 
 class OpenAICompatibleLLMClient(LLMClient):
+    # region 1. 连接配置：只固定 provider transport 参数
     def __init__(
         self,
         base_url: str | None = None,
@@ -78,7 +91,9 @@ class OpenAICompatibleLLMClient(LLMClient):
 
     def is_configured(self) -> bool:
         return bool(self.base_url and self.api_key and self.model)
+    # endregion 1. Client contract 与连接配置结束
 
+    # region 2. Request transport：编码消息/工具并执行一次 HTTP 请求
     def chat(
         self,
         messages: list[Message],
@@ -197,7 +212,9 @@ class OpenAICompatibleLLMClient(LLMClient):
                 content=fallback_tool_protocol_instruction,
             ),
         ]
+    # endregion 2. Request transport 结束
 
+    # region 3. Response parsing：校验 choice/message/tool_calls 并拒绝越权工具
     def parse_response(
         self,
         provider_response_payload: dict[str, Any],
@@ -273,7 +290,9 @@ class OpenAICompatibleLLMClient(LLMClient):
             )
         except Exception as exc:
             return self._invalid("parse_failed", str(exc))
+    # endregion 3. Response parsing 结束
 
+# region 4. 传输 schema：Runtime Message/Tool schema → provider JSON
     @staticmethod
     def _allowed_tool_names(tools: list[dict[str, Any]]) -> set[str]:
         names: set[str] = set()
@@ -332,7 +351,9 @@ class OpenAICompatibleLLMClient(LLMClient):
         if typ in {"dict", "object"}:
             return "object"
         return "string"
+    # endregion 4. Transport schema 结束
 
+    # region 5. Error projection：HTTP/协议失败统一转成 typed provider error
     @staticmethod
     def _classify_http_error(status: int, raw: str) -> str:
         """先识别需要改变请求的错误，再区分可重试 transport 状态。"""
@@ -373,6 +394,7 @@ class OpenAICompatibleLLMClient(LLMClient):
                 **details,
             },
         )
+    # endregion 5. Error projection 结束
 
 
 def _tool_definition(tool: dict[str, Any]) -> dict[str, Any]:

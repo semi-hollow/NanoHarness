@@ -1,6 +1,13 @@
-"""所有入站入口共用的 Runtime 依赖装配点。
+"""所有入站入口共用的 Runtime composition root。
 
-本模块是 Runtime 中唯一同时认识 Application 和具体 Adapter 的位置。
+系统角色：把 Config 与 Ports 绑定到具体 Adapter，再构造唯一的 canonical
+``AgentLoop``；Application/Domain 均不在内部自行 new 基础设施对象。
+输入：typed build request、Event/Model/Tool 边界与可选 overrides；输出：
+``RuntimeDependencies``、``AgentLoop`` 或控制面 Repository。
+相邻边界：Apps/Harness 只调用这里完成装配；``AgentLoop`` 从此处以后只依赖 Ports。
+
+折叠导航：1 装配请求；2 Tool/Model Adapter；3 Runtime dependencies；
+4 AgentLoop；5 控制面 Repository helper。
 """
 
 from __future__ import annotations
@@ -72,6 +79,7 @@ from agent_forge.tools.builtins.write_file import WriteFileTool
 from agent_forge.infrastructure.storage_layout import MEMORY_ROOT
 
 
+# region 1. 装配请求：所有外围入口共享同一组 typed dependency contract
 # 核心数据：装配受治理工具注册表所需的完整输入。
 @dataclass(frozen=True, kw_only=True)
 class ToolRegistryBuildRequest:
@@ -135,8 +143,10 @@ class AgentLoopBuildRequest:
     registry: ToolGateway
     llm: ModelPort | None
     overrides: RuntimeDependencyOverrides | None = None
+# endregion 1. 装配请求结束
 
 
+# region 2. Tool / Model Adapter：只创建边界实现，不启动 AgentLoop
 def build_registry(request: ToolRegistryBuildRequest) -> ToolRegistry:
     """构造 AgentLoop 使用的受治理工具注册表。"""
 
@@ -177,11 +187,13 @@ def build_registry(request: ToolRegistryBuildRequest) -> ToolRegistry:
     unknown_names = sorted((requested_names or set()) - known_names)
     if unknown_names:
         raise ValueError(f"unknown built-in tools: {', '.join(unknown_names)}")
+    # enabled_tools 是 allowlist；未列出的 built-in 不注册，也不会出现在模型 schema 中。
     for tool in builtin_tools:
         if requested_names is not None and tool.name not in requested_names:
             continue
         registry.register(tool)
     if request.mcp_config_file:
+        # MCP 工具仍进入同一个 Registry，后续继续经过相同 Routing/Authorization 主链。
         registry.mcp_config_report = MCPConfigLoader(sandbox).load_into(
             registry,
             request.mcp_config_file,
@@ -205,8 +217,10 @@ def build_llm(config: LLMConfig, *, max_attempts: int = 2) -> ModelGateway:
             capabilities=config.capabilities,
         )
     raise ValueError(f"Unsupported LLM provider: {config.provider}")
+# endregion 2. Tool / Model Adapter 结束
 
 
+# region 3. Runtime dependencies：默认 Adapter 与显式 Port override 在一个位置收口
 def build_runtime_dependencies(
     config: "RuntimeConfig",
     trace: EventSink,
@@ -232,6 +246,12 @@ def build_runtime_dependencies(
 def _build_runtime_dependencies(
     build_request: AgentLoopBuildRequest,
 ) -> RuntimeDependencies:
+    """执行真正的 dependency binding；不运行模型或工具。
+
+    伪代码：验证 Model -> 选择 Environment -> 选择/装配 Hook -> 为剩余 Port
+    注入 override 或 canonical JSON/Memory Adapter -> 返回一份依赖集合。
+    """
+
     runtime_config = build_request.config
     if build_request.llm is None:
         raise ValueError(
@@ -245,6 +265,7 @@ def _build_runtime_dependencies(
             ExecutionEnvironmentConfig(workspace=runtime_config.workspace)
         )
     )
+    # Hook 与 Environment 必须成对保持治理语义；custom Environment 不能偷用默认 Hook。
     if dependency_overrides.hooks is not None:
         if dependency_overrides.additional_hooks:
             raise ValueError(
@@ -295,8 +316,10 @@ def _build_runtime_dependencies(
             JsonLongTermMemoryRepository(runtime_config.memory_root or str(MEMORY_ROOT))
         ),
     )
+# endregion 3. Runtime dependencies 结束
 
 
+# region 4. Canonical AgentLoop：Single、Benchmark 与 Multi-Agent Worker 共用此路径
 # 主要入口：为所有入站路径装配同一套单 Agent Runtime 和治理端口。
 def build_agent_loop(
     config: "RuntimeConfig",
@@ -326,8 +349,10 @@ def build_agent_loop_from_request(request: AgentLoopBuildRequest) -> AgentLoop:
     """按类型化请求装配允许端口覆盖的标准单 Agent 用例。"""
 
     return AgentLoop(request.config, _build_runtime_dependencies(request))
+# endregion 4. Canonical AgentLoop 结束
 
 
+# region 5. 控制面 Repository helper：外围入口复用类型化 Adapter，不复制业务流程
 def build_task_state_repository(root: str | Path) -> TaskStateRepository:
     """为 SDK facade 创建默认 JSON checkpoint repository。"""
 
@@ -407,6 +432,7 @@ def list_pending_approvals(root: str) -> list[ApprovalRequest]:
     """查询指定控制面目录中尚未执行的待审批操作。"""
 
     return JsonApprovalRepository(root).list_pending()
+# endregion 5. 控制面 Repository helper 结束
 
 
 from agent_forge.runtime.config import RuntimeConfig  # noqa: E402

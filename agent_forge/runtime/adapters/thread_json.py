@@ -1,4 +1,13 @@
-"""Conversation Thread 的本地 JSON/JSONL durable Adapter。"""
+"""Conversation Thread 的 crash-safe JSON/JSONL Adapter。
+
+系统角色：把 Domain Thread/Turn/Run 状态映射到 ``thread.json``，把权威消息映射到
+hash-chained ``conversation.jsonl``，并用进程锁和 CAS 保证唯一 active Turn。
+输入：已经通过 Application/Domain 校验的 Thread mutation 与 Conversation draft。
+输出：durable Thread navigation、journal item、Turn snapshot 和 context revision。
+相邻边界：Domain 定义合法状态；本 Adapter 只拥有并发、幂等、修复和持久化顺序。
+
+折叠导航：1 ownership；2 journal/terminal；3 context；4 append/reconcile；5 I/O。
+"""
 
 from __future__ import annotations
 
@@ -89,6 +98,12 @@ class JsonConversationThreadRepository(ConversationThreadRepository):
         snapshot: TurnContextSnapshot | None = None,
         expected_context_revision: int | None = None,
     ) -> tuple[ConversationThread, ConversationItem]:
+        """原子建立新 Turn：验证 bootstrap，再提交 snapshot、输入与 active identity。
+
+        伪代码：验证 CREATED checkpoint → 拒绝 active Turn 冲突 → 可选保存 snapshot
+        → append turn_start → CAS 更新 ``thread.json``。
+        """
+
         with self._thread_lock(thread_id):
             # 1. 先证明 canonical v4 bootstrap 已 durable，并验证输入 authority/identity。
             thread = self._require_thread_unlocked(thread_id)
@@ -177,6 +192,8 @@ class JsonConversationThreadRepository(ConversationThreadRepository):
         turn_id: str,
         run: ThreadRun,
     ) -> ConversationThread:
+        """把新 Run claim 绑定到既有 Turn，并拒绝 current Run 的 CAS 漂移。"""
+
         with self._thread_lock(thread_id):
             thread = self._require_thread_unlocked(thread_id)
             turn = thread.require_turn(turn_id)
@@ -349,6 +366,8 @@ class JsonConversationThreadRepository(ConversationThreadRepository):
         *,
         run_id: str,
     ) -> ConversationThread:
+        """消费已准备的 terminal intent，提交 Turn 终态并清除 active identity。"""
+
         if status not in TERMINAL_TURN_STATUSES:
             raise ValueError("finish_turn requires a terminal status")
         with self._thread_lock(thread_id):
@@ -401,6 +420,8 @@ class JsonConversationThreadRepository(ConversationThreadRepository):
         turn_id: str | None = None,
         limit: int = 200,
     ) -> list[ConversationItem]:
+        """从 hash-chain 验证后的 journal 返回稳定 sequence window。"""
+
         if after_sequence < 0:
             raise ValueError("after_sequence must not be negative")
         if limit < 1:
@@ -475,6 +496,8 @@ class JsonConversationThreadRepository(ConversationThreadRepository):
         *,
         expected_revision: int,
     ) -> ThreadContextState:
+        """以 context revision CAS 保存 immutable snapshot；已有值只能幂等复用。"""
+
         if snapshot.turn_id.strip() == "":
             raise ValueError("turn snapshot requires turn_id")
         with self._thread_lock(thread_id):
@@ -498,6 +521,8 @@ class JsonConversationThreadRepository(ConversationThreadRepository):
         thread: ConversationThread,
         draft: ConversationItemDraft,
     ) -> tuple[ConversationItem, ConversationThread]:
+        """持锁追加唯一 journal item，并把 sequence/tail hash 回写 metadata。"""
+
         thread.require_turn(draft.turn_id)
         existing: ConversationItem | None = None
 
@@ -582,6 +607,8 @@ class JsonConversationThreadRepository(ConversationThreadRepository):
         self,
         thread_id: str,
     ) -> ConversationThread | None:
+        """只修复可由 journal 或 terminal intent 唯一证明的崩溃窗口。"""
+
         path = self._thread_path(thread_id)
         if not path.is_file():
             return None
@@ -838,6 +865,8 @@ class JsonConversationThreadRepository(ConversationThreadRepository):
         expected_revision: int,
         known_thread: ConversationThread | None = None,
     ) -> ThreadContextState:
+        """校验 Thread identity 与 revision 后，用强原子写提交 context state。"""
+
         thread = known_thread or self._require_thread_unlocked(state.thread_id)
         current = self._load_context_state_unlocked(state.thread_id)
         actual_revision = current.revision if current is not None else 0

@@ -1,4 +1,12 @@
-"""Repository context 的选择与只读预览策略；不调用模型、不写外部状态。"""
+"""Repository context 的选择与只读预览策略；不调用模型、不写外部状态。
+
+系统角色：根据当前 ``turn_focus`` 从 Repo Map、文件预览、检索候选和派生
+WorkingMemory 中选择一个有界动态上下文视图。
+输入：``ContextStrategyRequest``；输出：``ContextStrategy`` 与 dropped/budget 证据。
+相邻边界：稳定 Instructions/LTM 不在这里重读；Context Builder 负责最终 section 组装。
+
+核心阅读：``build_context_strategy`` 的三个折叠阶段。
+"""
 
 from dataclasses import dataclass, field
 from pathlib import Path

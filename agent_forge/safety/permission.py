@@ -1,4 +1,11 @@
-"""Runtime 工具动作的基础权限分类策略。"""
+"""Runtime Tool action 的第一层确定性权限分类。
+
+系统角色：把 read/write/command/memory/coordination 等动作映射为 ALLOW/ASK/DENY；
+它不执行 Approval、不验证 provenance，也不调用 Tool。
+输入：action + optional command；输出：基础 decision/reason。
+相邻边界：ToolAuthorizationGate 合并 Hook/Approval；CommandPolicy 细分命令 allowlist；
+专项 Runtime 规则继续验证 Memory/LIVE 等业务边界。
+"""
 
 from enum import Enum
 from .command_policy import check_command

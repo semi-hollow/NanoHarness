@@ -1,3 +1,12 @@
+"""有界 repository text search Tool。
+
+系统角色：在允许的文本文件中返回带 path/line 的关键词证据，并显式报告结果是否截断；
+它不承担符号解析或语义检索。
+输入：keyword、可选 path/case/limit；输出：最多硬上限条匹配的 Observation。
+
+折叠导航：1 search policy/schema；2 governed scan；3 candidate/type helpers。
+"""
+
 from pathlib import Path
 from typing import Any
 
@@ -8,6 +17,7 @@ from agent_forge.safety.sandbox import WorkspaceSandbox
 from agent_forge.tools.base import Tool
 
 
+# region 1. Search policy 与 schema
 IGNORE = {
     ".git",
     ".agent_forge",
@@ -65,7 +75,9 @@ class GrepSearchTool(Tool):
             },
             "required": ["keyword"],
         }
+    # endregion 1. Search policy 与 schema 结束
 
+    # region 2. Governed scan：路径、文件类型、数量与完整性标记
     def execute(self, arguments: ToolArguments) -> Observation:
         """返回带完整性标记的匹配结果，避免模型把截断结果当成全量结果。
 
@@ -133,8 +145,10 @@ class GrepSearchTool(Tool):
             success=True,
             content="\n".join([header, *visible_matches]),
         )
+    # endregion 2. Governed scan 结束
 
 
+# region 3. Candidate 与类型辅助逻辑
 def _candidate_files(root: Path) -> list[Path]:
     if root.is_file():
         return [root]
@@ -164,3 +178,4 @@ def _optional_bool(value: Any, default: bool) -> bool:
         if normalized in {"false", "0", "no"}:
             return False
     return default
+# endregion 3. Candidate/type helpers 结束

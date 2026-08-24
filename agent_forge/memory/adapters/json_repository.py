@@ -1,4 +1,12 @@
-"""每条记录独立文件的长期记忆 JSON Repository。"""
+"""每条记录独立文件的 Long-Term Memory JSON Repository。
+
+系统角色：按 namespace 隔离目录、按 ``memory_id`` 定位记录，并严格读写当前 canonical
+schema；不决定 recall、scope override 或 consolidation。
+输入：已通过 Domain 校验的 ``LongTermMemoryRecord``；输出：原子持久化/读取记录。
+相邻边界：``LongTermMemoryService`` 拥有业务语义，本 Adapter 只拥有路径与存取。
+
+折叠导航：1 save/get；2 list/delete；3 identity/path/load helper。
+"""
 
 from __future__ import annotations
 
@@ -21,6 +29,7 @@ class JsonLongTermMemoryRepository(LongTermMemoryRepository):
     ) -> None:
         self.root = Path(root)
 
+    # region 1. Save / Get：稳定 ID 跨 Run 定位同一记录
     # 运行时端口：校验并原子保存领域记录，不改变其权威状态。
     def save(self, record: LongTermMemoryRecord) -> None:
         """校验后使用临时文件和原子替换写入。"""
@@ -38,7 +47,9 @@ class JsonLongTermMemoryRepository(LongTermMemoryRepository):
         for path in self.root.glob(f"*/{memory_id}.json"):
             return self._load(path)
         return None
+    # endregion 1. Save / Get 结束
 
+    # region 2. List / Delete：可见性和排序策略仍由 Application 负责
     # 运行时端口：严格读取当前 schema；可见性过滤由 LongTermMemoryService 负责。
     def list_records(self, namespace: str | None = None) -> list[LongTermMemoryRecord]:
         """按更新时间倒序返回；活动目录中的损坏或旧 schema 直接失败。"""
@@ -56,7 +67,9 @@ class JsonLongTermMemoryRepository(LongTermMemoryRepository):
         if not matching_paths:
             raise ValueError(f"memory not found: {memory_id}")
         matching_paths[0].unlink()
+    # endregion 2. List / Delete 结束
 
+# region 3. Namespace、路径与 schema 辅助逻辑
     def _path_for(self, namespace: str, memory_id: str) -> Path:
         self._validate_memory_id(memory_id)
         return self.root / self._namespace_key(namespace) / f"{memory_id}.json"
@@ -77,3 +90,4 @@ class JsonLongTermMemoryRepository(LongTermMemoryRepository):
         if not isinstance(data, dict):
             raise ValueError(f"memory record must be an object: {path}")
         return LongTermMemoryRecord.from_dict(data)
+    # endregion 3. Namespace/path/schema helper 结束

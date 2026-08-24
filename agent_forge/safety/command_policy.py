@@ -1,4 +1,11 @@
-"""把命令文本收敛为无 shell 的窄验证/只读 Git allowlist。"""
+"""把命令文本收敛为无 shell 的窄验证/只读 Git allowlist。
+
+系统角色：只判断 argv-shaped command 是否属于显式 allowlist；不启动进程、不检查
+workspace 路径。
+输入：command text；输出：allow boolean + reason。
+相邻边界：RunCommandTool 校验路径；ExecutionEnvironment 执行 argv；shell 永远关闭。
+核心阅读：``check_command`` 四步伪代码注释。
+"""
 
 import shlex
 

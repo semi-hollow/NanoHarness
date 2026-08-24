@@ -1,4 +1,14 @@
-"""从版本化实验目录构建 Workbench 的只读实验目录。"""
+"""从版本化实验 contract 构建 Workbench 的只读实验目录。
+
+系统角色：只发现显式激活的 ``experiment.json``，校验路径/hash/provenance，并将
+一次实验投影为 overview、variables、results、evidence 与逐 Case 导航项。
+输入：版本化 manifest/result 与显式历史索引；输出：``ExperimentSource`` / Bundle。
+相邻边界：Benchmark 生成实验事实；本 Adapter 只读并 fail closed；Presentation 不得
+绕过它直接猜目录。
+
+折叠导航：1 当前实验发现与 Bundle；2 受控历史投影；3 Source/Case 展开；
+4 Manifest/路径校验；5 纯读取 helper。
+"""
 
 from __future__ import annotations
 
@@ -44,8 +54,12 @@ class FileExperimentCatalog(ExperimentCatalogPort):
             / "engineering-history-v1.json"
         )
 
+    # region 1. 当前实验发现与 Bundle：只有 active + valid + result 可读才进入主视图
     def experiment_sources(self) -> tuple[ExperimentSource, ...]:
+        """返回可展示的 current/historical sources；坏 manifest 被安静隔离。"""
+
         sources: list[tuple[int, ExperimentSource]] = []
+        # 主目录只认显式 manifest，绝不把相邻 JSON 或 archive 自动提升为实验。
         for manifest_path in sorted(self._root.glob("*/experiment.json")):
             manifest = _read_json_object(manifest_path)
             if not _valid_manifest(manifest) or manifest.get("active") is not True:
@@ -74,6 +88,8 @@ class FileExperimentCatalog(ExperimentCatalogPort):
         )
 
     def experiment_bundle(self, source_key: str) -> ExperimentBundle | None:
+        """按导航 key 组装同一实验的 contract、result、provenance 与 artifact closure。"""
+
         source = next(
             (item for item in self.experiment_sources() if item.key == source_key),
             None,
@@ -91,6 +107,7 @@ class FileExperimentCatalog(ExperimentCatalogPort):
         artifacts: list[tuple[str, Path]] = []
         paths = manifest.get("paths")
         if isinstance(paths, dict):
+            # 先收固定角色，再收零到多个 execution；所有路径仍经 project boundary 校验。
             for role in (
                 "plan",
                 "result",
@@ -116,7 +133,9 @@ class FileExperimentCatalog(ExperimentCatalogPort):
             provenance=provenance,
             artifacts=tuple(artifacts),
         )
+    # endregion 1. 当前实验发现与 Bundle 结束
 
+    # region 2. 受控历史投影：必须经显式 index + SHA256 才能下钻 archive
     def _history_sources(self) -> list[tuple[int, ExperimentSource]]:
         history = _read_json_object(self._history_path)
         if not _valid_history(history):
@@ -194,6 +213,8 @@ class FileExperimentCatalog(ExperimentCatalogPort):
         )
 
     def _validated_history_source(self, entry: dict[str, Any]) -> Path | None:
+        """验证历史源仍是普通项目内文件，且内容与登记 hash 完全一致。"""
+
         source_path = self._resolve_path(entry.get("source_path"))
         expected_hash = entry.get("source_sha256")
         if (
@@ -208,7 +229,9 @@ class FileExperimentCatalog(ExperimentCatalogPort):
         except OSError:
             return None
         return source_path if actual_hash == expected_hash else None
+    # endregion 2. 受控历史投影结束
 
+    # region 3. Source / Case 展开：统一 paired transition 与 measurement outcome
     def _sources_for_manifest(
         self,
         manifest_path: Path,
@@ -242,6 +265,7 @@ class FileExperimentCatalog(ExperimentCatalogPort):
             )
             for item_key, item_title, item_kind in _VIEW_ITEMS
         ]
+        # Paired A/B 展示状态迁移；单臂 measurement 展示各 Case 的最终分类。
         if manifest.get("experiment_kind") == "paired_ab":
             paired = _mapping(result.get("paired"))
             transitions = paired.get("transitions")
@@ -301,7 +325,9 @@ class FileExperimentCatalog(ExperimentCatalogPort):
             for case_id in order
             if str(case_id) in outcomes
         )
+    # endregion 3. Source / Case 展开结束
 
+    # region 4. Manifest 与路径校验：任何绝对路径或项目逃逸都 fail closed
     def _read_manifest_artifact(
         self,
         manifest: dict[str, Any],
@@ -328,8 +354,10 @@ class FileExperimentCatalog(ExperimentCatalogPort):
         except ValueError:
             return None
         return candidate
+    # endregion 4. Manifest 与路径校验结束
 
 
+# region 5. 纯 JSON/schema/sort helper
 def _read_json_object(path: Path | None) -> dict[str, Any]:
     if path is None or not path.is_file() or path.is_symlink():
         return {}
@@ -373,3 +401,4 @@ def _item_sort_key(source: ExperimentSource) -> tuple[int, int, str]:
     if source.item_key in fixed:
         return (0, fixed[source.item_key], source.item_title)
     return (1, 0, source.item_title)
+# endregion 5. 纯 JSON/schema/sort helper 结束

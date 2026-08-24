@@ -1,4 +1,10 @@
-"""把 append-only TraceEvent 投影成面向分析的 usage/read model。"""
+"""把 append-only TraceEvent 投影成面向分析的 usage/read model。
+
+系统角色：以纯函数方式聚合 model、context、tool、validation、control 与 cost 事实，供
+Workbench/report 分析；它不修改 Trace，也不重新判断 Benchmark correctness。
+输入：final Trace mapping；输出：稳定 usage mapping。
+核心阅读：``build_usage_report`` 的聚合容器、事件投影、派生指标三段。
+"""
 
 from collections import Counter
 from typing import Any

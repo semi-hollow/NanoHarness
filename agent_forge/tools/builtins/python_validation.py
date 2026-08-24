@@ -3,6 +3,12 @@
 ``PythonValidationTool`` 不是 Benchmark 失败诊断器。它更像 Java 项目里只开放
 ``mvn test``/``mvn compile`` 的构建服务门面：模型选择允许的检查类型和 workspace
 目标，Tool 再构造固定 argv、检查路径并返回统一 Observation。它不会解释任意 shell。
+
+系统角色：为 Agent 提供 compile/unittest/pytest 三种可审计验证动作，并把“测试失败”与
+“环境无法验证/零收集”分开表达。
+输入：``check_type`` + workspace target；输出：带真实 command/exit evidence 的 Observation。
+相邻边界：Tool Pipeline 治理调用；ExecutionEnvironment 执行固定 argv；Benchmark
+Evaluator 负责最终官方判定。
 """
 
 from __future__ import annotations
@@ -60,6 +66,7 @@ class PythonValidationTool(Tool):
             "required": ["check_type"],
         }
 
+    # region 1. 公开入口：把模型意图限制到三个明确 check_type
     # 主要入口：把模型的验证意图映射到三条固定执行路径。
     def execute(self, arguments: ToolArguments) -> Observation:
         """运行一种受支持的 Python 检查，不接受任意命令文本。"""
@@ -77,7 +84,9 @@ class PythonValidationTool(Tool):
             success=False,
             content=f"unknown Python validation check_type: {check_type}",
         )
+    # endregion 1. 公开入口结束
 
+    # region 2. Compile：隔离环境优先，本地 fallback 逐文件收集错误
     def _compile_python(self, validation_target: str) -> Observation:
         """只检查 Python 语法/字节码编译，不执行测试，也不证明行为正确。"""
 
@@ -148,7 +157,9 @@ class PythonValidationTool(Tool):
             success=True,
             content=f"compile ok: {len(python_files)} python files",
         )
+    # endregion 2. Compile 结束
 
+    # region 3. Test execution：固定 argv，并区分 fail 与 validation_blocked
     def _run_unittest(self, validation_target: str) -> Observation:
         """用 Python 标准库 unittest 运行模块、文件或目录 discovery。"""
 
@@ -249,7 +260,9 @@ class PythonValidationTool(Tool):
             content=(f"{command_evidence}\nexit_code={process.returncode}\n{output}"),
             execution_succeeded=True,
         )
+    # endregion 3. Test execution 结束
 
+    # region 4. Command construction：目标校验后才生成 unittest/pytest argv
     def _build_unittest_command(
         self,
         validation_target: str,
@@ -339,3 +352,4 @@ class PythonValidationTool(Tool):
             if (self.sandbox.workspace_root / filename).is_file():
                 return filename
         return os.devnull
+    # endregion 4. Command construction 结束

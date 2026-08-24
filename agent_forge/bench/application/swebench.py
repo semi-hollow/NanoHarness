@@ -1,3 +1,13 @@
+"""一次 SWE-bench Run 的 Application 编排。
+
+系统角色：冻结 Case 输入，逐题调用 ``CaseExecutorPort``，生成 predictions，再交给 official
+evaluator 并在最终发布前完成失败诊断。
+输入：``SwebenchRunRequest``；输出：``BenchRunSummary`` 与报告 artifacts。
+相邻边界：Case Adapter 运行真实 Harness；Official Adapter 给最终 verdict；本类只编排。
+
+核心阅读：``RunSwebench.run_benchmark`` 的准备、Case、Official、诊断发布四段。
+"""
+
 from __future__ import annotations
 
 import hashlib

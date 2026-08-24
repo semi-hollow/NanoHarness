@@ -1,3 +1,14 @@
+"""每个 Model Step 的 Tool 可见性路由。
+
+系统角色：从 Registry 候选中选择当前任务/阶段允许模型看见的 schemas，并输出同一份
+``allowed_names`` 供执行前复核；可见不等于已授权。
+输入：Task、Step、Skill tools 与候选 schemas；输出：``ToolRoute`` 及选择证据。
+相邻边界：Registry 回答“系统有什么”；Router 回答“模型本轮看见什么”；
+Authorization/Approval 回答“这次调用能否执行”。
+
+核心阅读：``ToolRouter.route`` 的候选、通用意图、专项策略与输出投影四段。
+"""
+
 import re
 from dataclasses import dataclass
 
