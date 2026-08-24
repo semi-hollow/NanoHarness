@@ -77,9 +77,9 @@ CORE_WORKFLOW_ENTRYPOINTS = {
     },
     "agent_forge/multi_agent/application/fanout.py": {
         "FanoutCoordinator.run": 3,
-        "FanoutCoordinator._merge_live_result": 3,
+        "FanoutCoordinator._run_plan": 3,
+        "FanoutCoordinator._integrate_result": 3,
         "FanoutCoordinator._run_worker_attempt": 3,
-        "FanoutCoordinator._merge_batch": 4,
         "FanoutCoordinator._replan_remaining": 3,
         "FanoutCoordinator._restore_previous": 4,
     },

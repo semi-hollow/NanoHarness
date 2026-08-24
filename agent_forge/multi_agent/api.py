@@ -1,12 +1,12 @@
 """Multi-Agent V1 的稳定 import surface。
 
-本文件只提供公共 import surface：Planner、Coordinator、领域契约、Plan loader、
+本文件只提供公共 import surface：Planner、Coordinator、领域契约、Resume loader、
 Tool catalog 和唯一 composition root；没有业务逻辑或第二条执行链。
 规划入口是 ``AdaptivePlanner.decide()``；执行入口从 ``build_live_fanout(...)``
 进入 ``FanoutCoordinator.run(...)``。
 """
 
-from .adapters.plan_files import load_fanout_plan, load_resume_initial_plan
+from .adapters.plan_files import load_resume_initial_plan
 from .application.planning import (
     AdaptivePlanner,
     PlanningOutcome,
@@ -15,7 +15,7 @@ from .application.planning import (
 )
 from .application.fanout import FanoutCoordinator
 from .application.live_handoff import LiveHandoffRuntime
-from .domain.fanout import FanoutConflict, SubagentResult, SubagentTask
+from .domain.fanout import FanoutConflict, SubagentTask
 from .domain.live import (
     FanoutPlan,
     LiveFanoutSummary,
@@ -46,10 +46,8 @@ __all__ = [
     "PlannedTask",
     "PlanningDecision",
     "PlanningOutcome",
-    "SubagentResult",
     "SubagentTask",
     "build_live_fanout",
-    "load_fanout_plan",
     "load_resume_initial_plan",
     "fanout_available_tools",
     "resumed_planning_outcome",

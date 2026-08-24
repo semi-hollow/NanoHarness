@@ -7,8 +7,13 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
+from unittest import mock
 
 from apps.cli.parser import build_parser
+from apps.repository_run import run_repository_task
+from agent_forge.multi_agent.application.planning import PlanningOutcome
+from agent_forge.multi_agent.domain.planning import PlanningDecision
 from apps.workbench.presentation.http import (
     INDEX_HTML,
     _TRACE_EVENT_LABELS,
@@ -90,8 +95,9 @@ class PublicCliSmokeTest(unittest.TestCase):
         self.assertIn("--container-cpus", result.stdout)
         self.assertIn("--container-memory", result.stdout)
         self.assertIn("--container-pids-limit", result.stdout)
-        self.assertIn("--fanout-plan", result.stdout)
-        self.assertIn("--fanout-resume", result.stdout)
+        self.assertIn("--multi-agent-resume", result.stdout)
+        self.assertNotIn("--fanout-plan", result.stdout)
+        self.assertNotIn("--fanout-resume", result.stdout)
         self.assertIn("--max-workers", result.stdout)
         self.assertIn("--max-prompt-tokens", result.stdout)
         self.assertIn("--reserved-output-tokens", result.stdout)
@@ -106,21 +112,82 @@ class PublicCliSmokeTest(unittest.TestCase):
                 "run",
                 "split this work",
                 "--agent-mode",
-                "fanout",
-                "--fanout-plan",
-                "examples/fanout-plan.sample.json",
+                "ultra",
             ]
         )
-        self.assertEqual(args.agent_mode, "fanout")
+        self.assertEqual(args.agent_mode, "ultra")
 
-        adaptive = build_parser().parse_args(
-            ["run", "choose the smallest safe strategy", "--agent-mode", "adaptive"]
+        for removed_mode in ("adaptive", "fanout", "multi"):
+            with (
+                self.subTest(removed_mode=removed_mode),
+                contextlib.redirect_stderr(io.StringIO()),
+                self.assertRaises(SystemExit),
+            ):
+                build_parser().parse_args(
+                    ["run", "removed product route", "--agent-mode", removed_mode]
+                )
+
+    def test_single_policy_never_calls_planner(self):
+        args = SimpleNamespace(agent_mode="single")
+        single_result = SimpleNamespace(artifact_dir=Path("/tmp/single-run"))
+
+        with (
+            mock.patch(
+                "apps.repository_run.resolve_repository_arguments",
+                return_value=None,
+            ),
+            mock.patch(
+                "apps.repository_run.execute_single_repository_task",
+                return_value=single_result,
+            ) as execute_single,
+            mock.patch("apps.repository_run.AdaptivePlanner") as planner,
+        ):
+            run_dir = run_repository_task(args)
+
+        self.assertEqual(run_dir, single_result.artifact_dir)
+        execute_single.assert_called_once()
+        planner.assert_not_called()
+
+    def test_ultra_single_decision_reuses_canonical_single_path(self):
+        args = SimpleNamespace(
+            agent_mode="ultra",
+            task="focused task",
+            workspace=".",
+            max_steps=4,
+            enabled_tools=[],
+            mcp_tool=[],
+            multi_agent_resume="",
         )
-        self.assertEqual(adaptive.agent_mode, "adaptive")
-        with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
-            build_parser().parse_args(
-                ["run", "legacy sequential route", "--agent-mode", "multi"]
-            )
+        planner = mock.MagicMock()
+        planner.decide.return_value = PlanningOutcome(
+            decision=PlanningDecision(mode="single", reason="one coupled task"),
+            fallback_to_single=False,
+            attempts=1,
+        )
+        single_result = SimpleNamespace(artifact_dir=Path("/tmp/ultra-single-run"))
+
+        with (
+            mock.patch(
+                "apps.repository_run.resolve_repository_arguments",
+                return_value=None,
+            ),
+            mock.patch(
+                "apps.repository_run.resolve_llm_config_from_args",
+                return_value=object(),
+            ),
+            mock.patch("apps.repository_run.AdaptivePlanner", return_value=planner),
+            mock.patch(
+                "apps.repository_run.execute_single_repository_task",
+                return_value=single_result,
+            ) as execute_single,
+            mock.patch("apps.repository_run._run_multi_agent_plan") as execute_multi,
+            mock.patch("apps.repository_run.write_planning_artifact"),
+        ):
+            run_dir = run_repository_task(args)
+
+        self.assertEqual(run_dir, single_result.artifact_dir)
+        execute_single.assert_called_once()
+        execute_multi.assert_not_called()
 
     def test_resume_help_exposes_resume_specific_flags(self):
         result = subprocess.run(

@@ -61,7 +61,7 @@ class _PlannerModel:
         return AgentResponse(
             json.dumps(
                 {
-                    "mode": "fanout",
+                    "mode": "multi",
                     "reason": "two isolated files need one bounded semantic contract",
                     "global_acceptance_criteria": [
                         "legacy and new timeout inputs produce the same normalized value"
@@ -308,8 +308,8 @@ def run_smoke(
             max_fanout_tasks=4,
             max_steps=6,
         ).decide(NATURAL_LANGUAGE_TASK, repository)
-        if planning.decision is None or planning.decision.mode != "fanout":
-            raise AssertionError(f"Planner did not select fanout: {planning.failure}")
+        if planning.decision is None or planning.decision.mode != "multi":
+            raise AssertionError(f"Planner did not select multi: {planning.failure}")
         write_planning_artifact(run_dir / "planning.json", planning)
         plan = planning.decision.to_fanout_plan(NATURAL_LANGUAGE_TASK)
         # endregion 3.1 Fixture 与计划
@@ -454,7 +454,7 @@ def _project_evidence(
 
     # region 5.2 机制断言：每条结论都绑定真实 Timeline、输入或集成结果
     assertions = {
-        "planner_selected_fanout": planning["decision"]["mode"] == "fanout",
+        "planner_selected_multi": planning["decision"]["mode"] == "multi",
         "isolated_worker_worktrees": len(
             {result.workspace for result in summary.results}
         )

@@ -1,4 +1,12 @@
-"""``forge run`` 的跨 capability 装配与 artifact 发布。"""
+"""``forge run`` 的产品入口与 repository execution 装配。
+
+系统角色：把用户的 Single / Ultra 策略选择转成唯一 Single-Agent
+``Harness.run`` 或已校验 Multi-Agent Plan。本文件只做产品路由和运行装配，
+不实现 AgentLoop、Planner 校验或 Worker 调度。
+
+折叠导航：1 Single / Ultra 公开入口；2 Multi-Agent Run 与 artifacts；
+3 Runtime 依赖装配；4 validated plan 执行与发布。
+"""
 
 from __future__ import annotations
 
@@ -28,7 +36,6 @@ from agent_forge.multi_agent.api import (
     PlanningOutcome,
     build_live_fanout,
     fanout_available_tools,
-    load_fanout_plan,
     load_resume_initial_plan,
     resumed_planning_outcome,
     write_planning_artifact,
@@ -54,18 +61,16 @@ from agent_forge.infrastructure.storage_layout import MEMORY_ROOT, ensure_storag
 from agent_forge.tools.registry import ToolRegistry
 
 
-# 主要入口：从 CLI 参数装配 single、adaptive 或 manual fanout。
+# region 1. 公开策略入口：Single 直达 AgentLoop，Ultra 强制先规划
 def run_repository_task(args: argparse.Namespace) -> Path:
-    """把 CLI 输入转换为类型化请求；Single Agent 委托唯一 ``Harness`` API。"""
+    """把 CLI 输入转成 Single 或 Ultra；不暴露第三种产品模式。"""
 
     config_document = resolve_repository_arguments(args)
     agent_mode = getattr(args, "agent_mode", "single") or "single"
     if agent_mode == "single":
         return execute_single_repository_task(args, config_document).artifact_dir
-    if agent_mode == "adaptive":
-        return _run_adaptive_repository_task(args, config_document)
-    if agent_mode == "fanout":
-        return _run_advanced_repository_task(args, config_document)
+    if agent_mode == "ultra":
+        return _run_ultra_repository_task(args, config_document)
     raise SystemExit(f"unsupported agent mode: {agent_mode}")
 
 
@@ -80,18 +85,21 @@ def execute_single_repository_task(
     harness = build_single_harness(args, extensions=extensions)
     request = build_single_run_request(args, config_document)
     return harness.run(request)
+# endregion 1. 公开策略入口结束
 
 
-def _run_advanced_repository_task(
+# region 2. Multi-Agent Run：只接收 Planner/Resume 已经确定的 canonical plan
+def _run_multi_agent_plan(
     args: argparse.Namespace,
     config_document: RunConfigDocument | None,
     *,
-    plan_override: FanoutPlan | None = None,
+    plan: FanoutPlan,
     planning_outcome: PlanningOutcome | None = None,
     replanner: AdaptivePlanner | None = None,
     allow_replan: bool = True,
+    resume_from: str | None = None,
 ) -> Path:
-    """运行 manual/adaptive fanout；Single 仍只走 ``Harness.run``。"""
+    """为已校验 Multi-Agent Plan 创建独立 Run，再发布可审计产物。"""
 
     requested_workspace = Path(args.workspace).expanduser().resolve()
     ensure_storage_layout(requested_workspace)
@@ -131,22 +139,14 @@ def _run_advanced_repository_task(
                 run_dir / "planning_decision.json",
                 planning_outcome,
             )
-            if planning_outcome.fallback_to_single:
-                trace.add(
-                    0,
-                    "AdaptivePlanner",
-                    "planning_fallback",
-                    success=planning_outcome.decision is not None,
-                    planning=planning_outcome.to_dict(),
-                )
-            else:
-                trace.add(
-                    0,
-                    "AdaptivePlanner",
-                    "planning_decision",
-                    success=planning_outcome.decision is not None,
-                    planning=planning_outcome.to_dict(),
-                )
+            # 进入本函数的 outcome 已确定为 Multi；Single/fallback 不创建 Coordinator。
+            trace.add(
+                0,
+                "AdaptivePlanner",
+                "planning_decision",
+                success=True,
+                planning=planning_outcome.to_dict(),
+            )
 
         def registry_factory(
             workspace: str | Path,
@@ -168,16 +168,17 @@ def _run_advanced_repository_task(
                 )
             )
 
-        stop_output = _run_fanout(
+        stop_output = _execute_validated_plan(
             args,
             config,
             trace,
             run_dir,
             llm_config,
             registry_factory,
-            plan_override=plan_override,
+            plan=plan,
             replanner=replanner,
             allow_replan=allow_replan,
+            resume_from=resume_from,
         )
         run_status = trace.stop_reason.removeprefix("fanout_") or "completed"
         trace.write()
@@ -201,7 +202,7 @@ def _run_advanced_repository_task(
         )
         # 证据导航必须在全部 run-local artifact 落盘后建立，否则分类视图会漏掉环境证据。
         environment.write_manifest(run_dir)
-        _publish_advanced_run_pointer(requested_workspace, run_dir)
+        _publish_multi_agent_run_pointer(requested_workspace, run_dir)
         return run_dir
     finally:
         try:
@@ -210,9 +211,10 @@ def _run_advanced_repository_task(
                 environment.write_manifest(run_dir)
         finally:
             environment.cleanup()
+# endregion 2. Multi-Agent Run 结束
 
 
-# 运行时端口：把 local/worktree/container 配置落成可执行 workspace 快照。
+# region 3. Runtime 装配：固定 workspace 边界和每个 Worker 共用的 RuntimeConfig
 def prepare_execution_environment(
     args: argparse.Namespace,
     run_id: str,
@@ -300,9 +302,11 @@ def _build_runtime_config(
         runtime_instructions=getattr(args, "runtime_instructions", ""),
         instruction_max_bytes=getattr(args, "instruction_max_bytes", 2_600),
     )
+# endregion 3. Runtime 装配结束
 
 
-def _run_fanout(
+# region 4. Validated Plan 执行：Coordinator 拥有调度，本层只投影终态
+def _execute_validated_plan(
     args: argparse.Namespace,
     config: RuntimeConfig,
     trace: TraceRecorder,
@@ -310,21 +314,13 @@ def _run_fanout(
     llm_config: LLMConfig,
     registry_factory: Callable[[Path, ExecutionEnvironment], ToolRegistry],
     *,
-    plan_override: FanoutPlan | None = None,
+    plan: FanoutPlan,
     replanner: AdaptivePlanner | None = None,
     allow_replan: bool = True,
+    resume_from: str | None = None,
 ) -> str:
-    plan = plan_override
-    if plan is None:
-        plan_path = getattr(args, "fanout_plan", "")
-        if not plan_path:
-            raise SystemExit(
-                "--fanout-plan is required when --agent-mode fanout is selected."
-            )
-        try:
-            plan = load_fanout_plan(plan_path)
-        except (OSError, ValueError, json.JSONDecodeError) as exc:
-            raise SystemExit(f"invalid fanout plan: {exc}") from exc
+    """执行 Runtime 已接受的 plan；正常用户无法从文件绕过 Planner。"""
+
     trace.set_run_context(task=args.task)
     summary = build_live_fanout(
         LiveFanoutBuildRequest(
@@ -335,7 +331,7 @@ def _run_fanout(
             llm_factory=lambda: build_llm(llm_config),
             registry_factory=registry_factory,
             max_workers=getattr(args, "max_workers", 4),
-            resume_from=getattr(args, "fanout_resume", "") or None,
+            resume_from=resume_from,
             replanner=replanner,
             allow_replan=allow_replan,
         )
@@ -344,7 +340,7 @@ def _run_fanout(
         part
         for part in [
             summary.final_answer.strip(),
-            f"fanout status: {summary.status}",
+            f"Multi-Agent status: {summary.status}",
             f"report: {summary.report_path}",
             (
                 "The integration patch is a candidate artifact; "
@@ -361,29 +357,28 @@ def _run_fanout(
     return stop_output
 
 
-def _run_adaptive_repository_task(
+def _run_ultra_repository_task(
     args: argparse.Namespace,
     config_document: RunConfigDocument | None,
 ) -> Path:
-    """Planner 选择 route；Single route 仍调用现有 Harness。"""
+    """Ultra 先经 Planner；Single 决策始终回到同一 ``Harness.run``。"""
 
-    if getattr(args, "fanout_plan", None):
-        raise SystemExit("--fanout-plan belongs to --agent-mode fanout, not adaptive.")
     llm_config = resolve_llm_config_from_args(args)
-    resume_from = getattr(args, "fanout_resume", "") or ""
+    resume_from = getattr(args, "multi_agent_resume", "") or ""
     if resume_from:
         try:
             plan = load_resume_initial_plan(resume_from)
         except (OSError, ValueError, json.JSONDecodeError) as exc:
-            raise SystemExit(f"invalid adaptive resume: {exc}") from exc
+            raise SystemExit(f"invalid Multi-Agent resume: {exc}") from exc
         outcome = resumed_planning_outcome(plan)
-        return _run_advanced_repository_task(
+        return _run_multi_agent_plan(
             args,
             config_document,
-            plan_override=plan,
+            plan=plan,
             planning_outcome=outcome,
             replanner=None,
             allow_replan=False,
+            resume_from=resume_from,
         )
 
     planner = AdaptivePlanner(
@@ -393,14 +388,8 @@ def _run_adaptive_repository_task(
         max_steps=args.max_steps,
     )
     outcome = planner.decide(args.task, args.workspace)
-    if outcome.decision is None or outcome.fallback_to_single:
-        result = execute_single_repository_task(args, config_document)
-        write_planning_artifact(
-            result.artifact_dir / "planning_decision.json",
-            outcome,
-        )
-        return result.artifact_dir
-    if outcome.decision.mode == "single":
+    # 无合法计划或显式 Single 都回到同一个 canonical Harness.run；不复制第二套 Runtime。
+    if outcome.decision is None or outcome.decision.mode == "single":
         result = execute_single_repository_task(args, config_document)
         write_planning_artifact(
             result.artifact_dir / "planning_decision.json",
@@ -408,10 +397,10 @@ def _run_adaptive_repository_task(
         )
         return result.artifact_dir
     plan = outcome.decision.to_fanout_plan(args.task)
-    return _run_advanced_repository_task(
+    return _run_multi_agent_plan(
         args,
         config_document,
-        plan_override=plan,
+        plan=plan,
         planning_outcome=outcome,
         replanner=planner,
     )
@@ -424,7 +413,8 @@ def _available_planner_tools(args: argparse.Namespace) -> list[str]:
     return sorted(set(fanout_available_tools()) | set(getattr(args, "mcp_tool", [])))
 
 
-def _publish_advanced_run_pointer(workspace: Path, run_dir: Path) -> None:
+def _publish_multi_agent_run_pointer(workspace: Path, run_dir: Path) -> None:
     """让 Multi/Fanout 与 Single Agent 使用同一原生 run 发现指针。"""
 
     write_latest_run_pointer(workspace, run_dir)
+# endregion 4. Validated Plan 执行结束

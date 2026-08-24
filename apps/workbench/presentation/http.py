@@ -451,11 +451,16 @@ def _source_overview_facts(
                     "Worker 最终状态",
                     "ok" if task_count and completed_count == task_count else "warn",
                 ),
-                ("并发批次", str(batches), "按依赖和写入范围分组", "neutral"),
                 (
-                    "范围冲突",
+                    "启动波次",
+                    str(batches),
+                    "动态调度观测；兼容字段 batches",
+                    "neutral",
+                ),
+                (
+                    "未解决冲突",
                     str(conflicts),
-                    "合并前确定性门禁",
+                    "candidate gate 记录",
                     "bad" if conflicts else "ok",
                 ),
                 (
@@ -1637,7 +1642,7 @@ def _render_fanout_result_summary(fanout: dict[str, Any], path: Path | None) -> 
         task_cards.append(
             "<article class='worker-card'>"
             "<div class='artifact-head'><div>"
-            f"<span>Worker · 批次 {int(result.get('batch_index') or 0) + 1}</span>"
+            f"<span>Worker · 启动波次 {int(result.get('batch_index') or 0) + 1}</span>"
             f"<h4>{_escape(result.get('task_id') or '未命名任务')}</h4></div>"
             f"{_badge(str(result.get('status') or 'unknown'), _tone_for_status(str(result.get('status') or '')))}</div>"
             f"<p><b>改动范围：</b>{_escape(touched_files or '没有文件改动')}</p>"
@@ -1656,7 +1661,7 @@ def _render_fanout_result_summary(fanout: dict[str, Any], path: Path | None) -> 
     )
     batch_text = (
         "；".join(
-            f"批次 {index}: {', '.join(str(task) for task in batch)}"
+            f"Wave {index}: {', '.join(str(task) for task in batch)}"
             for index, batch in enumerate(batches, start=1)
         )
         or "未记录"
@@ -1703,15 +1708,15 @@ def _render_fanout_result_summary(fanout: dict[str, Any], path: Path | None) -> 
                     "ok",
                 ),
                 (
-                    "并发批次",
+                    "启动波次",
                     str(len(batches)),
-                    f"最大并发 {metrics.get('max_workers', 0)}",
+                    f"动态观测；最大并发 {metrics.get('max_workers', 0)}",
                     "neutral",
                 ),
                 (
-                    "改动冲突",
+                    "未解决冲突",
                     str(len(conflicts)),
-                    "检测到的文件范围冲突",
+                    "candidate integration 终态",
                     "bad" if conflicts else "ok",
                 ),
                 (
@@ -3349,7 +3354,7 @@ def _render_fanout_run_evidence(
         (
             "计划与依赖检查",
             bool(batches),
-            f"{len(results)} 个任务被编排为 {len(batches)} 个依赖批次",
+            f"{len(results)} 个任务；观测到 {len(batches)} 个动态启动 wave",
             "FanoutCoordinator.run",
             plan_path,
         ),
@@ -3358,7 +3363,7 @@ def _render_fanout_run_evidence(
             bool(results)
             and all(result.get("status") == "completed" for result in results),
             worker_evidence,
-            "FanoutCoordinator._run_batch",
+            "FanoutCoordinator._run_plan",
             None,
         ),
         (
@@ -3366,16 +3371,16 @@ def _render_fanout_run_evidence(
             not conflicts and bool(results),
             (
                 f"改动文件：{', '.join(touched_files) or '无'}；"
-                f"检测到 {len(conflicts)} 个范围冲突"
+                f"记录 {len(conflicts)} 个未解决集成冲突"
             ),
-            "FanoutCoordinator._mark_dynamic_conflicts",
+            "FanoutCoordinator._candidate_scope_error",
             None,
         ),
         (
             "候选改动合并",
             bool(merged_task_ids) and _path_is_file(diff_path),
             f"已合并：{', '.join(str(item) for item in merged_task_ids) or '无'}",
-            "FanoutCoordinator._merge_batch",
+            "FanoutCoordinator._integrate_result",
             diff_path,
         ),
         (

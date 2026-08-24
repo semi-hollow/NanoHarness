@@ -1,4 +1,10 @@
-"""Operator Console 的装配入口。"""
+"""Operator Console 的装配入口。
+
+系统角色：将前台交互界面绑定到真实 Single-Agent Harness、canonical
+ConversationThread 与 RunController；Console 本身不复制 Runtime 逻辑。
+
+折叠导航：1 共享 Repository/contract；2 会话装配；3 Textual 展示入口。
+"""
 
 from __future__ import annotations
 
@@ -27,6 +33,7 @@ from agent_forge.runtime.api import (
 from agent_forge.infrastructure.storage_layout import MEMORY_ROOT, THREADS_ROOT
 
 
+# region 1. 共享 Repository 与返回 contract
 def resolve_operator_memory_root(
     base_args: argparse.Namespace,
     workspace: str,
@@ -65,8 +72,10 @@ def build_conversation_thread_library(
     return ConversationThreadLibrary(
         JsonConversationThreadRepository(workspace.resolve() / THREADS_ROOT)
     )
+# endregion 1. 共享 Repository 与 contract 结束
 
 
+# region 2. 会话装配：Thread -> HarnessExtensions -> canonical Single Harness
 def build_operator_session(
     base_args: argparse.Namespace,
     *,
@@ -131,9 +140,10 @@ def build_operator_session(
         request=request,
         thread_id=thread.thread_id,
     )
+# endregion 2. 会话装配结束
 
 
-# 主要入口：由 ``forge console`` 启动本地交互操作台。
+# region 3. 展示入口：延迟加载 Textual，headless Harness 不依赖 UI
 def run_console_from_args(args: argparse.Namespace) -> None:
     """延迟导入 Textual，避免展示层影响 headless Harness 导入。"""
 
@@ -147,3 +157,4 @@ def run_console_from_args(args: argparse.Namespace) -> None:
         raise
     thread_library = build_conversation_thread_library(args)
     OperatorConsoleApp(args, threads=thread_library).run()
+# endregion 3. 展示入口结束

@@ -124,10 +124,10 @@ TARGETS = (
     ),
     BreakpointTarget(
         scenario="coordinated",
-        label="Lab 2 - Dependency batch",
+        label="Lab 2 - Unified scheduler",
         relative_path="agent_forge/multi_agent/application/fanout.py",
         class_name="FanoutCoordinator",
-        function_name="_run_batch",
+        function_name="_run_plan",
     ),
     BreakpointTarget(
         scenario="coordinated",
@@ -138,10 +138,10 @@ TARGETS = (
     ),
     BreakpointTarget(
         scenario="coordinated",
-        label="Lab 2 - Scoped merge",
+        label="Lab 2 - Candidate integration",
         relative_path="agent_forge/multi_agent/application/fanout.py",
         class_name="FanoutCoordinator",
-        function_name="_merge_batch",
+        function_name="_integrate_result",
     ),
     BreakpointTarget(
         scenario="coordinated",

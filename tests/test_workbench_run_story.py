@@ -1126,7 +1126,7 @@ class WorkbenchRunStoryTest(unittest.TestCase):
         self.assertIn("replace_text", rendered)
         self.assertIn("失败调用：0 次", rendered)
         self.assertIn("FanoutCoordinator.run", rendered)
-        self.assertIn("FanoutCoordinator._mark_dynamic_conflicts", rendered)
+        self.assertIn("FanoutCoordinator._candidate_scope_error", rendered)
         self.assertNotIn("FanoutCoordinator._validate_plan", rendered)
         rendered_entrypoints = set(
             re.findall(
@@ -1138,9 +1138,9 @@ class WorkbenchRunStoryTest(unittest.TestCase):
             rendered_entrypoints,
             {
                 "FanoutCoordinator.run",
-                "FanoutCoordinator._run_batch",
-                "FanoutCoordinator._mark_dynamic_conflicts",
-                "FanoutCoordinator._merge_batch",
+                "FanoutCoordinator._run_plan",
+                "FanoutCoordinator._candidate_scope_error",
+                "FanoutCoordinator._integrate_result",
                 "LocalAgentWorkerAdapter.run_finalizer",
             },
         )
@@ -1149,9 +1149,9 @@ class WorkbenchRunStoryTest(unittest.TestCase):
     def test_workbench_fanout_entrypoints_exist_in_code(self):
         entrypoints = (
             (FanoutCoordinator, "run"),
-            (FanoutCoordinator, "_run_batch"),
-            (FanoutCoordinator, "_mark_dynamic_conflicts"),
-            (FanoutCoordinator, "_merge_batch"),
+            (FanoutCoordinator, "_run_plan"),
+            (FanoutCoordinator, "_candidate_scope_error"),
+            (FanoutCoordinator, "_integrate_result"),
             (LocalAgentWorkerAdapter, "run_finalizer"),
         )
 

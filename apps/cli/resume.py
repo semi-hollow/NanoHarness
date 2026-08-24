@@ -30,10 +30,11 @@ _CONTINUATION_OWNED_CONFIG = {
 }
 
 
-# 主要入口：把 durable checkpoint 与人工决定装配成一个新的 continuation run。
+# region 1. Single-Agent continuation：从 durable checkpoint 继续同一 Turn
 def resume_repository_task(args: argparse.Namespace) -> Path:
     """加载 checkpoint/HITL 状态并启动新的 continuation run。"""
 
+    _reject_multi_agent_run(args.run_dir)
     checkpoint_path = latest_checkpoint_path(args.run_dir)
     checkpoint = load_task_checkpoint(checkpoint_path)
     _inherit_resolved_config(args)
@@ -74,8 +75,10 @@ def resume_repository_task(args: argparse.Namespace) -> Path:
         previous_run_id=checkpoint.run_id,
     )
     return run_dir
+# endregion 1. Single-Agent continuation 结束
 
 
+# region 2. 配置继承：防止 resume 静默改变原 Run 的执行契约
 def _inherit_resolved_config(args: argparse.Namespace) -> None:
     """除非 resume 显式覆盖，否则继承源 run 的公开配置快照。"""
 
@@ -109,18 +112,33 @@ def _inherit_resolved_config(args: argparse.Namespace) -> None:
             "the source run used redacted runtime instructions; pass "
             "--runtime-instructions explicitly to resume without configuration drift"
         )
-    source_agent_mode = values.get("agent_mode")
-    if source_agent_mode == "fanout" and getattr(args, "agent_mode", None) is None:
-        raise SystemExit(
-            "forge resume cannot restore a fanout run; use forge run --fanout-resume"
-        )
     for name, value in values.items():
         if name in _CONTINUATION_OWNED_CONFIG:
             continue
         if getattr(args, name, None) is None:
             setattr(args, name, value)
+# endregion 2. 配置继承结束
 
 
+def _reject_multi_agent_run(run_dir: str | Path) -> None:
+    """让未完成和已完成 Multi-Agent Run 都走独立 prefix 恢复协议。"""
+
+    fanout_dir = Path(run_dir) / "fanout"
+    if any(
+        (fanout_dir / name).is_file()
+        for name in (
+            "fanout_plan.json",
+            "fanout_checkpoint.json",
+            "fanout_summary.json",
+        )
+    ):
+        raise SystemExit(
+            "forge resume cannot restore a Multi-Agent run; use "
+            "forge run --agent-mode ultra --multi-agent-resume"
+        )
+
+
+# region 3. 人工决定：只回答 checkpoint 精确绑定的 pending item
 def _persist_operator_decision(
     args: argparse.Namespace,
     *,
@@ -215,6 +233,7 @@ def _persist_operator_decision(
             decision,
             note=getattr(args, "note", "") or "",
         )
+# endregion 3. 人工决定结束
 
 
 def _control_root(value: str, checkpoint: TaskCheckpoint) -> str:

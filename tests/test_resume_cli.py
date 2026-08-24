@@ -212,6 +212,17 @@ class ResumeCliTest(unittest.TestCase):
             with self.assertRaisesRegex(SystemExit, "cannot override Turn.root_task"):
                 resume_repository_task(args)
 
+    def test_generic_resume_rejects_incomplete_multi_agent_run(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            run_dir = Path(tmp) / "run-multi"
+            fanout_dir = run_dir / "fanout"
+            fanout_dir.mkdir(parents=True)
+            (fanout_dir / "fanout_plan.json").write_text("{}", encoding="utf-8")
+            args = build_parser().parse_args(["resume", str(run_dir)])
+
+            with self.assertRaisesRegex(SystemExit, "--multi-agent-resume"):
+                resume_repository_task(args)
+
     def test_resume_answers_pending_human_request_before_harness(self) -> None:
         args = build_parser().parse_args(
             ["resume", "/tmp/missing-run", "--answer", "Python 3.11"]

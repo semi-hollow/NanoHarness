@@ -89,9 +89,9 @@ class AdaptivePlannerTest(unittest.TestCase):
         self.assertFalse(outcome.fallback_to_single)
         self.assertEqual(model.calls, 1)
 
-    def test_valid_fanout_flows_through_typed_plan_validation(self):
+    def test_valid_multi_flows_through_typed_plan_validation(self):
         planner, _ = self._planner(
-            [_decision_json("fanout", [_task("alpha"), _task("beta")])]
+            [_decision_json("multi", [_task("alpha"), _task("beta")])]
         )
         with tempfile.TemporaryDirectory() as tmp:
             outcome = planner.decide("update two modules", tmp)
@@ -100,6 +100,15 @@ class AdaptivePlannerTest(unittest.TestCase):
         self.assertEqual([task.id for task in plan.tasks], ["alpha", "beta"])
         self.assertEqual(plan.tasks[0].acceptance_criteria, ["alpha behavior passes"])
         self.assertEqual(plan.global_acceptance_criteria, ["focused tests pass"])
+
+    def test_one_task_multi_proposal_normalizes_to_single(self):
+        planner, _ = self._planner([_decision_json("multi", [_task("alpha")])])
+        with tempfile.TemporaryDirectory() as tmp:
+            outcome = planner.decide("fix one focused module", tmp)
+
+        self.assertEqual(outcome.decision.mode, "single")
+        self.assertEqual(outcome.decision.tasks, [])
+        self.assertIn("one effective task", outcome.decision.reason)
 
     def test_malformed_output_gets_one_repair_then_falls_back_to_single(self):
         planner, model = self._planner(["not-json", "still-not-json"])
@@ -112,14 +121,14 @@ class AdaptivePlannerTest(unittest.TestCase):
 
     def test_cycle_and_invalid_scope_are_rejected_after_bounded_repair(self):
         cyclic = _decision_json(
-            "fanout",
+            "multi",
             [
                 _task("alpha", depends_on=["beta"]),
                 _task("beta", depends_on=["alpha"]),
             ],
         )
         invalid_scope = _decision_json(
-            "fanout",
+            "multi",
             [_task("alpha", scope=["../outside"])],
         )
         for invalid in (cyclic, invalid_scope):
@@ -333,7 +342,7 @@ def _fanout_plan(tasks):
 def _planning_decision(tasks, *, live_dependencies=None):
     return PlanningDecision.from_mapping(
         {
-            "mode": "fanout",
+            "mode": "multi",
             "reason": "replace failed remaining work",
             "global_acceptance_criteria": [],
             "tasks": tasks,
@@ -352,6 +361,7 @@ class FanoutV1MechanismTest(unittest.TestCase):
         workers,
         *,
         replanner=None,
+        max_workers=2,
     ):
         trace = TraceRecorder(str(Path(root) / "trace.json"))
         coordinator = FanoutCoordinator(
@@ -364,7 +374,7 @@ class FanoutV1MechanismTest(unittest.TestCase):
                 workers=workers,
                 replanner=replanner,
             ),
-            max_workers=2,
+            max_workers=max_workers,
         )
         summary = coordinator.run()
         trace.write()
@@ -387,7 +397,9 @@ class FanoutV1MechanismTest(unittest.TestCase):
             self.assertEqual(workers.handoffs[("C", 1)], ["A"])
             self.assertNotIn("B", workers.handoffs[("C", 1)])
             self.assertIn("PATCH:A:1", workers.base_diffs[("C", 1)])
-            self.assertIn("PATCH:B:2", workers.base_diffs[("C", 1)])
+            # Readiness-driven scheduling 不等待无关 B；C 只需 A 进入 trusted
+            # integrated state 就可启动。这是删除 Batch barrier 后的核心语义。
+            self.assertNotIn("PATCH:B:2", workers.base_diffs[("C", 1)])
             prompt = worker_task_prompt(
                 plan.goal,
                 plan.tasks[2],
@@ -397,6 +409,61 @@ class FanoutV1MechanismTest(unittest.TestCase):
             self.assertNotIn(
                 "Conversation", json.dumps(summary.results[0].handoff.to_dict())
             )
+
+    def test_hard_task_waits_for_every_predecessor_to_be_integrated(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            plan = _fanout_plan(
+                [
+                    _task("A"),
+                    _task("B"),
+                    _task("C", depends_on=["A", "B"]),
+                ]
+            )
+            workers = DeterministicWorkerPort(root / "workers")
+
+            summary, _ = self._run(
+                root,
+                plan,
+                OneShotMergeFaultWorkspace(inject_b_fault=False),
+                workers,
+            )
+
+            self.assertEqual(summary.status, "passed")
+            self.assertEqual(summary.batches, [["A", "B"], ["C"]])
+            self.assertEqual(workers.handoffs[("C", 1)], ["A", "B"])
+            self.assertIn("PATCH:A:1", workers.base_diffs[("C", 1)])
+            self.assertIn("PATCH:B:1", workers.base_diffs[("C", 1)])
+
+    def test_scheduler_admission_respects_write_scope_and_worker_limit(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            workers = DeterministicWorkerPort(root / "workers")
+            conflicting_plan = _fanout_plan(
+                [
+                    _task("A", scope=["shared"]),
+                    _task("B", scope=["independent"]),
+                    _task("C", scope=["shared"]),
+                ]
+            )
+
+            conflict_summary, _ = self._run(
+                root / "conflict",
+                conflicting_plan,
+                OneShotMergeFaultWorkspace(inject_b_fault=False),
+                workers,
+                max_workers=3,
+            )
+            self.assertEqual(conflict_summary.batches, [["A", "B"], ["C"]])
+
+            limited_summary, _ = self._run(
+                root / "limit",
+                _fanout_plan([_task("A"), _task("B"), _task("C")]),
+                OneShotMergeFaultWorkspace(inject_b_fault=False),
+                DeterministicWorkerPort(root / "limited-workers"),
+                max_workers=2,
+            )
+            self.assertEqual(limited_summary.batches, [["A", "B"], ["C"]])
 
     def test_merge_fault_discards_old_candidate_and_reruns_once_on_latest_state(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -519,6 +586,44 @@ class FanoutV1MechanismTest(unittest.TestCase):
             self.assertEqual(
                 workers.plan_at_call[("C", 1)].digest,
                 summary.effective_plan_digest,
+            )
+
+    def test_hard_to_live_replan_fails_closed_when_worker_budget_is_one(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            workers = DeterministicWorkerPort(root / "workers", retry_failures=2)
+            replanner = FixedReplanner(
+                _planning_decision(
+                    [_task("P"), _task("C")],
+                    live_dependencies=[
+                        {
+                            "producer_task_id": "P",
+                            "target_task_id": "C",
+                            "semantic_key": "shared_contract",
+                        }
+                    ],
+                )
+            )
+
+            summary, trace = self._run(
+                root,
+                _fanout_plan([_task("A"), _task("B")]),
+                OneShotMergeFaultWorkspace(),
+                workers,
+                replanner=replanner,
+                max_workers=1,
+            )
+
+            self.assertEqual(summary.status, "partial_failure")
+            self.assertEqual(summary.replan_round, 0)
+            self.assertIsNone(summary.effective_plan.get("live_dependencies"))
+            self.assertTrue(
+                any(
+                    event["event_type"] == "replan_result"
+                    and event.get("success") is False
+                    and "max_workers" in str(event.get("error"))
+                    for event in trace.events
+                )
             )
 
     def test_invalid_replan_fails_safely_without_rerunning_completed_task(self):

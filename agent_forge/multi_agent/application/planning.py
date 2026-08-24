@@ -1,6 +1,6 @@
 """自然语言任务到唯一 ``FanoutPlan`` 之前的有界提议层。
 
-系统角色：让模型选择 Single/Fanout 并提出结构化任务图，但不授予任何执行权。
+系统角色：让模型选择 Single/Multi 并提出结构化任务图，但不授予任何执行权。
 输入：原始任务、bounded repository map、可用工具和失败/完成 handoff。
 输出：``PlanningOutcome`` 或 remaining-work ``PlanningDecision``。
 相邻边界：``StructuredOutputParser`` 解析 JSON；Planner 至多发起一次结构或领域约束修复；
@@ -100,7 +100,7 @@ class PlanningError(RuntimeError):
 
 @dataclass(frozen=True)
 class PlanningOutcome:
-    """Adaptive gate 的决定或明确 Single fallback 证据。"""
+    """Ultra planning gate 的决定或明确 Single fallback 证据。"""
 
     decision: PlanningDecision | None
     fallback_to_single: bool
@@ -141,19 +141,19 @@ class AdaptivePlanner:
         self.max_steps = max(2, min(int(max_steps), 32))
 
     def decide(self, task: str, workspace: str | Path) -> PlanningOutcome:
-        """从自然语言任务产生受校验的 Single/Fanout 决定。"""
+        """从自然语言任务产生受校验的 Single/Multi 决定。"""
 
         repo_map = build_repo_map(workspace)[:MAX_REPO_MAP_CHARS]
         prompt = "\n".join(
             [
                 "Choose the smallest safe execution strategy for this repository task.",
-                "Use mode=single for local or highly coupled work. Use fanout only when "
+                "Use mode=single for local or highly coupled work. Use multi only when "
                 "tasks have useful isolation or dependencies.",
-                "For fanout, propose coarse relative write scopes and only listed tools.",
+                "For multi, propose coarse relative write scopes and only listed tools.",
                 "Use depends_on only for HARD file/result dependencies. Use "
                 "live_dependencies only when semantic READY/FEEDBACK/UPDATE can let "
                 "a downstream worker start early without seeing unmerged files.",
-                f"Maximum fanout tasks: {self.max_fanout_tasks}",
+                f"Maximum multi-agent tasks: {self.max_fanout_tasks}",
                 f"Maximum steps per task: {self.max_steps}",
                 f"Available tools: {self.available_tools}",
                 f"Original task: {task}",
@@ -161,7 +161,32 @@ class AdaptivePlanner:
                 repo_map or "(empty repository map)",
             ]
         )
-        return self._request(prompt, validate_fanout_goal=task)
+        outcome = self._request(prompt, validate_fanout_goal=task)
+        # Ultra 中的单任务 Multi 提议没有 fanout 价值；Runtime 将其规范化为
+        # Single，上层因而复用同一条 canonical AgentLoop，不创建 Coordinator。
+        if (
+            outcome.decision is not None
+            and outcome.decision.mode == "multi"
+            and len(outcome.decision.tasks) == 1
+        ):
+            decision = PlanningDecision(
+                mode="single",
+                reason=(
+                    "one effective task; canonical Single selected. "
+                    + outcome.decision.reason
+                ),
+                global_acceptance_criteria=(
+                    outcome.decision.global_acceptance_criteria
+                ),
+            )
+            return PlanningOutcome(
+                decision=decision,
+                fallback_to_single=False,
+                attempts=outcome.attempts,
+                source=outcome.source,
+                raw_responses=outcome.raw_responses,
+            )
+        return outcome
 
     def replan(
         self,
@@ -174,13 +199,13 @@ class AdaptivePlanner:
         """仅替换未完成工作；completed history 的冻结由 Coordinator 校验。
 
         伪代码：把当前计划、完成 Handoff、失败结果压缩进 Prompt -> 请求有界新计划
-        -> 必须返回 fanout -> 交给 Coordinator 校验完成前缀和 generation 边界。
+        -> 必须返回 multi -> 交给 Coordinator 校验完成前缀和 generation 边界。
         """
 
         prompt = "\n".join(
             [
-                "Replan only the unfinished part of this fanout run.",
-                "Return mode=fanout and tasks for remaining work only.",
+                "Replan only the unfinished part of this multi-agent run.",
+                "Return mode=multi and tasks for remaining work only.",
                 "Completed task IDs may be dependencies but must not be redefined.",
                 f"Maximum remaining tasks: {self.max_fanout_tasks}",
                 f"Available tools: {self.available_tools}",
@@ -195,8 +220,8 @@ class AdaptivePlanner:
         )
         outcome = self._request(prompt)
         # Replan 不能退回 Single 或空决定，否则剩余图没有可执行 contract。
-        if outcome.decision is None or outcome.decision.mode != "fanout":
-            raise PlanningError(outcome.failure or "replanner did not return fanout")
+        if outcome.decision is None or outcome.decision.mode != "multi":
+            raise PlanningError(outcome.failure or "replanner did not return multi")
         return outcome.decision
     # endregion 1. Public 决策结束
 
@@ -250,8 +275,8 @@ class AdaptivePlanner:
                         available_tools=self.available_tools,
                         max_fanout_tasks=self.max_fanout_tasks,
                     )
-                    # 初次 decide 的 fanout 还要立即构造 FanoutPlan，提前验证组合依赖图。
-                    if validate_fanout_goal and decision.mode == "fanout":
+                    # 初次 decide 的 multi 还要立即构造 FanoutPlan，提前验证组合依赖图。
+                    if validate_fanout_goal and decision.mode == "multi":
                         decision.to_fanout_plan(validate_fanout_goal)
                     return PlanningOutcome(
                         decision=decision,
@@ -298,8 +323,8 @@ def resumed_planning_outcome(plan: FanoutPlan) -> PlanningOutcome:
 
     decision = PlanningDecision.from_mapping(
         {
-            "mode": "fanout",
-            "reason": "resume existing validated fanout plan",
+            "mode": "multi",
+            "reason": "resume existing validated multi-agent plan",
             "global_acceptance_criteria": plan.global_acceptance_criteria,
             "tasks": [
                 {

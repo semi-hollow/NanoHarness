@@ -8,25 +8,22 @@ Diff 经过确定性门禁后合入集成 workspace。
 拥有 Worker 生命周期、retry/replan、candidate gate 和最终集成顺序。
 
 折叠导航：1 Public 主链；2 Worker 调度；3 Candidate 集成；4 恢复与 checkpoint；
-5 Trace 证据；6 纯结果投影。先读 ``run``，需要解释 LIVE 时只展开 ``_run_live_plan``。
+5 Trace 证据；6 纯结果投影。先读 ``run``，再展开唯一 ``_run_plan``。
 """
 
 from __future__ import annotations
 
 import hashlib
 import time
-from concurrent.futures import Future, ThreadPoolExecutor, as_completed
+from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, wait
 from dataclasses import asdict, fields
-from typing import Any
+from typing import Any, Callable
 
 from agent_forge.runtime.config import RuntimeConfig
 
 from ..domain.fanout import (
     FanoutConflict,
-    SubagentResult,
     SubagentTask,
-    build_conflict_free_batches,
-    detect_result_conflicts,
     detect_write_scope_conflicts,
 )
 from ..domain.live import (
@@ -93,7 +90,7 @@ class FanoutCoordinator:
         伪代码主线：
 
         1. 固定 Git/Plan 身份，HARD-only 时可恢复已经验证并合入的前缀。
-        2. 按 HARD batches 或 LIVE dependencies 调度尚未成功的 Worker。
+        2. 用唯一 readiness scheduler 解释 HARD / LIVE 并调度 Worker。
         3. 每 Task 最多一次 retry，每 candidate 最多一次冲突恢复，整轮最多一次 Replan。
         4. 所有任务成功且无冲突时，才启动只读 Finalizer。
         5. 无论成功或失败，都发布同一份 Summary、Checkpoint 和 Trace 事实。
@@ -161,113 +158,28 @@ class FanoutCoordinator:
             # Worker Adapter 必须先切换到当前 generation；否则 replan 后的 LIVE routes
             # 只存在于 Coordinator/Runtime，Worker prompt 仍会渲染 initial plan。
             self.workers.bind_effective_plan(effective_plan)
-            # 有 LIVE 边时使用事件驱动调度，让下游能在上游完成前消费 READY/UPDATE。
-            if effective_plan.live_dependencies:
-                pass_executed_task = self._run_live_plan(
+            # Scheduler 实现不随 generation 切换；只有 effective plan 中的
+            # HARD/LIVE readiness 会变。纯 HARD 不创建 mailbox，仍可 checkpoint/resume。
+            pass_executed_task = self._run_plan(
+                effective_plan,
+                current_results=current_results,
+                attempt_results=attempt_results,
+                attempt_counts=attempt_counts,
+                successful_task_ids=successful_task_ids,
+                merged_task_ids=merged_task_ids,
+                detected_conflicts=detected_conflicts,
+                batch_history=batch_history,
+                checkpoint=lambda: self._checkpoint(
+                    base_revision,
+                    initial_identity,
                     effective_plan,
-                    current_results=current_results,
-                    attempt_results=attempt_results,
-                    attempt_counts=attempt_counts,
-                    successful_task_ids=successful_task_ids,
-                    merged_task_ids=merged_task_ids,
-                    detected_conflicts=detected_conflicts,
-                    batch_history=batch_history,
-                )
-            else:
-                # 没有 LIVE 边时按 HARD dependency + write scope 生成可安全并行的批次。
-                dependency_batches = build_conflict_free_batches(
-                    effective_plan.tasks
-                )
-                pass_executed_task = False
-                # 逐批执行：同一 batch 内并发，不同 batch 按依赖顺序推进。
-                for batch_index, batch in enumerate(dependency_batches):
-                    # 过滤已恢复/已成功任务，并确认所有 HARD 前置任务都已经成功。
-                    runnable = [
-                        task
-                        for task in batch
-                        if task.id not in successful_task_ids
-                        and set(task.depends_on).issubset(successful_task_ids)
-                    ]
-                    # 当前批次没有新任务时直接跳过；它可能已由 resume 恢复完成。
-                    if not runnable:
-                        continue
-                    pass_executed_task = True
-                    batch_history.append([task.id for task in runnable])
-                    # 同批 Worker 共享同一集成基线，但各自在隔离 worktree 中执行。
-                    base_diff = self.workspace.diff()
-                    dependency_handoffs = {
-                        task.id: self._dependency_handoffs(task, current_results)
-                        for task in runnable
-                    }
-                    batch_results = self._run_batch(
-                        runnable,
-                        batch_index,
-                        base_diff,
-                        dependency_handoffs,
-                        attempt_counts,
-                    )
-                    # 先保存每个原始 Attempt 的事实；是否能重试或合并在后面单独判断。
-                    for batch_worker_result in batch_results:
-                        attempt_results.append(batch_worker_result)
-                        current_results[batch_worker_result.task_id] = (
-                            batch_worker_result
-                        )
-
-                    # Runtime 是否允许重试，只能由 Worker Trace 中的事实证据决定。
-                    # 逐个检查初次结果：不可重试就保留原结果，可重试则仅替换当前候选。
-                    for index, task in enumerate(runnable):
-                        initial_worker_result = batch_results[index]
-                        # scope/conflict 等 fail-closed 结果不能靠自动重试绕过治理边界。
-                        if not self._worker_retry_allowed(initial_worker_result):
-                            continue
-                        self._record_worker_retry(
-                            step=batch_index + 1,
-                            task_id=task.id,
-                            prior_attempt=initial_worker_result.attempt,
-                            failure_kind=initial_worker_result.failure_kind,
-                        )
-                        retried = self._run_worker_attempt(
-                            task,
-                            batch_index,
-                            base_diff,
-                            dependency_handoffs[task.id],
-                            attempt_counts,
-                        )
-                        attempt_results.append(retried)
-                        current_results[task.id] = retried
-                        batch_results[index] = retried
-
-                    # 先检测同批 Worker 的真实 touched-files 冲突，再按计划顺序集成 candidate。
-                    batch_conflicts = self._mark_dynamic_conflicts(batch_results)
-                    detected_conflicts.extend(batch_conflicts)
-                    self._merge_batch(
-                        tasks=runnable,
-                        batch_results=batch_results,
-                        batch_index=batch_index,
-                        current_results=current_results,
-                        attempt_results=attempt_results,
-                        attempt_counts=attempt_counts,
-                        successful_task_ids=successful_task_ids,
-                        merged_task_ids=merged_task_ids,
-                        detected_conflicts=detected_conflicts,
-                    )
-                    # 每个批次合并后立即 checkpoint；下一批和恢复流程只依赖 durable 前缀。
-                    self._checkpoint(
-                        base_revision,
-                        initial_identity,
-                        effective_plan,
-                        current_results,
-                        attempt_results,
-                        merged_task_ids,
-                        replan_round,
-                        "running",
-                    )
-                    self._record_fanout_batch_completed(
-                        batch_index + 1,
-                        runnable,
-                        batch_results,
-                        batch_conflicts,
-                    )
+                    current_results,
+                    attempt_results,
+                    merged_task_ids,
+                    replan_round,
+                    "running",
+                ),
+            )
 
             # 一轮调度结束后，只根据 successful_task_ids 计算仍未完成的任务。
             unfinished = [
@@ -311,9 +223,6 @@ class FanoutCoordinator:
             replan_round = 1
             # 新计划包含 LIVE 边时，创建或换代 Runtime；旧 generation 事件不能继续使用。
             if effective_plan.live_dependencies:
-                # 构造器已经保护该约束；这里保留防御检查，避免未来调用路径绕过构造器。
-                if self.max_workers < 2:  # pragma: no cover - constructor protects V1
-                    raise ValueError("LIVE dependencies require max_workers >= 2")
                 # 第一次进入 LIVE 创建状态机；已有状态机则原子切换到新 generation。
                 if self.live_handoff is None:
                     self.live_handoff = LiveHandoffRuntime(
@@ -438,73 +347,21 @@ class FanoutCoordinator:
 
         # 没有 Git HEAD 就无法固定 Worker 基线，也无法验证 candidate Diff。
         if not base_revision:
-            raise RuntimeError("live fanout requires a git workspace")
+            raise RuntimeError("Multi-Agent execution requires a git workspace")
         contains_writes = any(task.write_scope for task in self.plan.tasks)
         # 临时 worktree 无法跨进程恢复人工写审批；需要逐操作审批时应使用 Single mode。
         if contains_writes and not self.base_config.auto_approve_writes:
             raise RuntimeError(
-                "live fanout manual write approval is not recoverable across "
+                "Multi-Agent manual write approval is not recoverable across "
                 "ephemeral worktrees; use single mode for per-operation approval"
             )
         # 写任务必须从干净集成树开始，否则无法区分用户改动和 Worker candidate。
         if contains_writes and self.workspace.status():
-            raise RuntimeError("write fanout requires a clean integration workspace")
+            raise RuntimeError("write-capable Multi-Agent requires a clean workspace")
     # endregion 1. Public 主链结束
 
-    # region 2. Worker 调度：HARD 批次与 LIVE 动态启动共用同一 Worker/attempt 生命周期
-    def _run_batch(
-        self,
-        tasks: list[SubagentTask],
-        batch_index: int,
-        base_diff_text: str,
-        dependency_handoffs: dict[str, list[WorkerHandoff]],
-        attempt_counts: dict[str, int],
-    ) -> list[LiveSubagentResult]:
-        """并发执行同一就绪批次，并按计划顺序返回相互隔离的 Worker 结果。
-
-        伪代码：为每个 Task 分配 Attempt -> 并发提交 Worker -> 按完成顺序收结果
-        -> 把异常转成失败契约 -> 最后恢复为计划顺序返回。
-        """
-
-        # Future 可以乱序完成，因此先用 task_id 建索引，返回时再恢复计划顺序。
-        worker_results_by_id: dict[str, LiveSubagentResult] = {}
-        worker_count = max(1, min(self.max_workers, len(tasks)))
-        attempts = {
-            task.id: self._next_attempt(task.id, attempt_counts) for task in tasks
-        }
-        with ThreadPoolExecutor(max_workers=worker_count) as executor:
-            # 同一批所有 Worker 使用相同 base Diff，但各自拥有独立 worktree/Attempt。
-            futures = {
-                executor.submit(
-                    self.workers.run_worker,
-                    task,
-                    batch_index,
-                    base_diff_text,
-                    dependency_handoffs[task.id],
-                    attempts[task.id],
-                ): task
-                for task in tasks
-            }
-            # 按完成顺序尽早收集结果，某个 Worker 异常不会取消同批其他 Worker。
-            for future in as_completed(futures):
-                task = futures[future]
-                # Port 异常也必须转换成稳定结果，让后续 retry/summary 走同一控制流。
-                try:
-                    worker_result = future.result()
-                except Exception as exc:
-                    worker_result = LiveSubagentResult(
-                        task_id=task.id,
-                        status="failed",
-                        batch_index=batch_index,
-                        attempt=attempts[task.id],
-                        error=str(exc),
-                        failure_kind="worker_port_exception",
-                    )
-                    worker_result.handoff = project_worker_handoff(worker_result)
-                worker_results_by_id[task.id] = worker_result
-        return [worker_results_by_id[task.id] for task in tasks]
-
-    def _run_live_plan(
+    # region 2. Worker 调度：唯一 readiness loop 同时解释 HARD / LIVE
+    def _run_plan(
         self,
         plan: FanoutPlan,
         *,
@@ -515,21 +372,19 @@ class FanoutCoordinator:
         merged_task_ids: list[str],
         detected_conflicts: list[FanoutConflict],
         batch_history: list[list[str]],
+        checkpoint: Callable[[], None],
     ) -> bool:
-        """动态启动 LIVE target，但只在 Producer 最终集成后放行其 candidate。
+        """按 Task readiness 动态启动 Worker，不把 Batch 当作 Runtime 抽象。
 
         输入是当前 generation 的 plan、结果和 attempt 账本；输出只表示本轮是否真正
-        启动过 Worker。启动只依赖 HARD completion 与 LIVE readiness，最终正确性则
-        始终由后面的 integration freshness gate 决定。
+        启动过 Worker。HARD 依赖 trusted integrated state；LIVE 只放宽启动门；
+        write scope、max_workers、candidate 和 freshness 门始终由 Runtime 拥有。
 
         伪代码：反复扫描 pending -> 启动当前可运行任务 -> 等待事件或 Worker 完成
-        -> 对完成结果做一次 retry -> 按组合拓扑尝试集成 -> 无法集成者标记 stale。
+        -> 对完成结果做一次 retry -> 按组合拓扑尝试集成 -> checkpoint。
         """
 
         runtime = self.live_handoff
-        # 调用方只会在计划含 LIVE 边时进入；这里防御未来错误调用路径。
-        if runtime is None:  # pragma: no cover - caller protects this invariant
-            raise AssertionError("LIVE plan requires LiveHandoffRuntime")
         task_by_id = {task.id: task for task in plan.tasks}
         pending = {
             task.id for task in plan.tasks if task.id not in successful_task_ids
@@ -540,8 +395,8 @@ class FanoutCoordinator:
         with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
             # pending/running 都为空才结束；Condition 事件和 Worker future 都会推动循环。
             while pending or running:
-                # region 1. 动态启动：HARD、LIVE readiness、并发与 write-scope 全部满足
-                observed_revision = runtime.state_revision
+                # region 1. 动态启动：HARD、可选 LIVE、并发与 write-scope 全部满足
+                observed_revision = runtime.state_revision if runtime else 0
                 running_tasks = list(running.values())
                 launched: list[SubagentTask] = []
                 # 按计划稳定顺序扫描 pending，满足所有启动门后才提交 Worker。
@@ -552,17 +407,23 @@ class FanoutCoordinator:
                     # HARD dependency 是完成门：所有前置 Task 必须已经成功集成。
                     if not set(task.depends_on).issubset(successful_task_ids):
                         continue
-                    # LIVE dependency 是启动门：至少已收到当前 generation 的 READY/UPDATE。
-                    if not runtime.live_ready(task.id):
+                    # 只有真正存在 LIVE route 时才查 mailbox readiness；纯 HARD
+                    # generation 没有 LiveHandoffRuntime，也不引入 LIVE resume 限制。
+                    if runtime is not None and not runtime.live_ready(task.id):
                         continue
                     # 即使语义依赖就绪，运行中的实际 write scope 冲突仍禁止并发。
                     if detect_write_scope_conflicts([task, *running_tasks]):
                         continue
                     attempt = self._next_attempt(task.id, attempt_counts)
-                    context = runtime.begin_attempt(task.id, attempt)
-                    worker_context = context if plan.live_routes_for(task.id) else None
+                    worker_context = None
+                    # LIVE Task 先注册 Attempt；纯 HARD Task 不创建 coordination context。
+                    if runtime is not None:
+                        context = runtime.begin_attempt(task.id, attempt)
+                        worker_context = (
+                            context if plan.live_routes_for(task.id) else None
+                        )
                     future = executor.submit(
-                        self._execute_live_worker,
+                        self._execute_worker,
                         runtime,
                         task,
                         len(batch_history),
@@ -581,14 +442,18 @@ class FanoutCoordinator:
                     batch_history.append([task.id for task in launched])
                 # endregion 1. 动态启动结束
 
-                # region 2. 完成与 retry：Condition 唤醒，不靠轮询 sleep 决定正确性
+                # region 2. 完成与 retry：LIVE 等状态事件，HARD 直接等 Future
                 done = [future for future in running if future.done()]
-                # 没有 future 完成时等待 Runtime 状态变化；没有 running 则说明图已停滞。
+                # 没有 future 完成时等待对应事件；没有 running 则说明图已停滞。
                 if not done:
                     # pending 存在但无 running，表示当前没有任何依赖门可以继续打开。
                     if not running:
                         break
-                    runtime.wait_for_change(observed_revision, timeout=30.0)
+                    # LIVE 事件和普通 Future 使用各自最小的等待机制，随后回到同一扫描循环。
+                    if runtime is not None:
+                        runtime.wait_for_change(observed_revision, timeout=30.0)
+                    else:
+                        wait(tuple(running), return_when=FIRST_COMPLETED)
                     continue
 
                 done.sort(key=lambda future: list(task_by_id).index(running[future].id))
@@ -620,7 +485,7 @@ class FanoutCoordinator:
                     completed_now.append(completed_worker_result)
                 # endregion 2. 完成与 retry 结束
 
-                # region 3. 稳定集成：组合拓扑序 + Producer sealed + Consumer final version
+                # region 3. 稳定集成：组合拓扑序 + 可选 LIVE freshness
                 # 组合拓扑序也是集成顺序；LIVE target 可以提前完成，但不能提前越过门禁。
                 # 遍历所有已有结果而非仅 completed_now，让早完成的 Consumer 可在稍后重试集成。
                 for task_id in plan.integration_order(set(current_results)):
@@ -641,7 +506,7 @@ class FanoutCoordinator:
                         for dependency in plan.live_dependencies_for(task_id)
                     }.issubset(successful_task_ids):
                         continue
-                    self._merge_live_result(
+                    self._integrate_result(
                         runtime=runtime,
                         task=task,
                         worker_result=current_worker_result,
@@ -662,28 +527,34 @@ class FanoutCoordinator:
                     completed_now,
                     [],
                 )
+                # 纯 HARD 恢复依赖每次集成后的 durable prefix；LIVE 也可以
+                # 记录当前证据，但 V1 仍不宣称 mailbox replay/resume。
+                checkpoint()
                 # endregion 3. 稳定集成结束
 
-        # 循环结束后仍完成但未集成的 candidate，统一解释为 freshness barrier 拒绝。
-        for task in plan.tasks:
-            final_result = current_results.get(task.id)
-            # 只改写“Worker 完成但没过集成门”的结果，已有明确失败原因保持不变。
-            if (
-                final_result is not None
-                and final_result.status == "completed"
-                and task.id not in successful_task_ids
-            ):
-                final_result.status = "stale_live_dependency"
-                final_result.error = (
-                    "final LIVE integration freshness barrier rejected candidate"
-                )
-                final_result.unresolved_issues = [final_result.error]
-                final_result.handoff = project_worker_handoff(final_result)
+        # 只有 LIVE Consumer 可能提前完成却未通过最终版本门；纯 HARD
+        # Task 未就绪时根本不会启动。
+        if runtime is not None:
+            # 最终扫描只把“已完成但未获集成授权”的 LIVE candidate 标成 stale。
+            for task in plan.tasks:
+                final_result = current_results.get(task.id)
+                # 已完成且未进入 trusted state，说明最终 freshness/dependency 门未通过。
+                if (
+                    final_result is not None
+                    and final_result.status == "completed"
+                    and task.id not in successful_task_ids
+                ):
+                    final_result.status = "stale_live_dependency"
+                    final_result.error = (
+                        "final LIVE integration freshness barrier rejected candidate"
+                    )
+                    final_result.unresolved_issues = [final_result.error]
+                    final_result.handoff = project_worker_handoff(final_result)
         return executed
 
-    def _execute_live_worker(
+    def _execute_worker(
         self,
-        runtime: LiveHandoffRuntime,
+        runtime: LiveHandoffRuntime | None,
         task: SubagentTask,
         batch_index: int,
         base_diff_text: str,
@@ -691,7 +562,7 @@ class FanoutCoordinator:
         attempt: int,
         coordination: Any,
     ) -> LiveSubagentResult:
-        """执行一个真实 Worker，并保证 Future 完成前 Runtime 已观察 Attempt 终态。
+        """执行同一 Worker Port；LIVE 只额外绑定 coordination context。
 
         伪代码：调用 Worker Port -> 异常转失败结果 -> 通知 LIVE Runtime finished/failed
         -> 返回给 Coordinator。这样 Future 完成和 Runtime 状态不会出现竞态窗口。
@@ -699,13 +570,23 @@ class FanoutCoordinator:
 
         # Worker Adapter 抛出的异常必须落成结果，不能让 ThreadPool 丢失 Attempt 身份。
         try:
-            live_worker_result = self.workers.run_worker(
-                task,
-                batch_index,
-                base_diff_text,
-                dependency_handoffs,
-                attempt,
-                coordination,
+            live_worker_result = (
+                self.workers.run_worker(
+                    task,
+                    batch_index,
+                    base_diff_text,
+                    dependency_handoffs,
+                    attempt,
+                    coordination,
+                )
+                if runtime is not None
+                else self.workers.run_worker(
+                    task,
+                    batch_index,
+                    base_diff_text,
+                    dependency_handoffs,
+                    attempt,
+                )
             )
         except Exception as exc:
             live_worker_result = LiveSubagentResult(
@@ -717,17 +598,19 @@ class FanoutCoordinator:
                 failure_kind="worker_port_exception",
             )
             live_worker_result.handoff = project_worker_handoff(live_worker_result)
-        runtime.finish_attempt(
-            task.id,
-            attempt,
-            success=live_worker_result.status == "completed",
-        )
+        # LIVE 状态机必须在 Future 返回 Coordinator 前看到 Attempt 的真实终态。
+        if runtime is not None:
+            runtime.finish_attempt(
+                task.id,
+                attempt,
+                success=live_worker_result.status == "completed",
+            )
         return live_worker_result
 
-    def _merge_live_result(
+    def _integrate_result(
         self,
         *,
-        runtime: LiveHandoffRuntime,
+        runtime: LiveHandoffRuntime | None,
         task: SubagentTask,
         worker_result: LiveSubagentResult,
         current_results: dict[str, LiveSubagentResult],
@@ -737,25 +620,43 @@ class FanoutCoordinator:
         merged_task_ids: list[str],
         detected_conflicts: list[FanoutConflict],
     ) -> None:
-        """在一个原子 freshness 授权之后应用 candidate；冲突仍只恢复一次。
+        """对 HARD/LIVE 使用同一 candidate gate；LIVE 额外校验 freshness。
 
         伪代码：冻结 freshness -> 尝试应用 candidate -> 冲突则从最新基线重跑一次
         -> 新 Attempt 再过 freshness -> 失败 sealed=false，成功 sealed=true 并记入前缀。
         """
 
-        # region 1. Freshness 授权：最终版本或 Attempt 已过期时直接拒绝集成
-        # authorize_integration 是正确性边界；调度完成不等于仍有资格写入集成结果。
-        try:
-            runtime.authorize_integration(task.id, worker_result.attempt)
-        except RuntimeError as exc:
-            worker_result.status = "stale_live_dependency"
-            worker_result.error = str(exc)
+        # region 1. Candidate authority：先验证实际改动未越界，再可选冻结 LIVE freshness
+        # 实际 touched files 是最终 authority；越过声明 scope 的 candidate 直接拒绝。
+        scope_error = self._candidate_scope_error(task, worker_result)
+        # Scope 违规属于不可重试的权限边界，不进入 patch applicability 检查。
+        if scope_error:
+            worker_result.status = "scope_violation"
+            worker_result.error = scope_error
             worker_result.retryable = False
-            worker_result.unresolved_issues = [str(exc)]
+            worker_result.unresolved_issues = [scope_error]
             worker_result.handoff = project_worker_handoff(worker_result)
             current_results[task.id] = worker_result
-            runtime.seal_integration(task.id, worker_result.attempt, success=False)
+            # LIVE Runtime 同步封存失败，避免该 Attempt 后续被误认为可集成。
+            if runtime is not None:
+                runtime.seal_integration(task.id, worker_result.attempt, success=False)
             return
+        # 只有 LIVE candidate 需要核对最终消费版本；HARD candidate 直接复用同一门禁。
+        if runtime is not None:
+            # Runtime 以当前 version ledger 判定 freshness，Worker 无权自证版本有效。
+            try:
+                runtime.authorize_integration(task.id, worker_result.attempt)
+            except RuntimeError as exc:
+                worker_result.status = "stale_live_dependency"
+                worker_result.error = str(exc)
+                worker_result.retryable = False
+                worker_result.unresolved_issues = [str(exc)]
+                worker_result.handoff = project_worker_handoff(worker_result)
+                current_results[task.id] = worker_result
+                runtime.seal_integration(
+                    task.id, worker_result.attempt, success=False
+                )
+                return
         # endregion 1. Freshness 授权
 
         # region 2. 候选应用与一次恢复：冲突后只允许从最新集成状态串行重跑
@@ -792,17 +693,33 @@ class FanoutCoordinator:
                 ]
                 fresh.handoff = project_worker_handoff(fresh)
                 return
-            # 新 Attempt 可能在执行期间再次过期，因此必须重新检查 LIVE freshness。
-            try:
-                runtime.authorize_integration(task.id, fresh.attempt)
-            except RuntimeError as exc:
-                fresh.status = "stale_live_dependency"
-                fresh.error = str(exc)
+            scope_error = self._candidate_scope_error(task, fresh)
+            # 恢复 Attempt 也是全新的 candidate，必须重新验证实际 write scope。
+            if scope_error:
+                fresh.status = "scope_violation"
+                fresh.error = scope_error
                 fresh.retryable = False
-                fresh.unresolved_issues = [str(exc)]
+                fresh.unresolved_issues = [scope_error]
                 fresh.handoff = project_worker_handoff(fresh)
-                runtime.seal_integration(task.id, fresh.attempt, success=False)
+                # 若启用了 LIVE，同步封存这次恢复 Attempt 的失败结果。
+                if runtime is not None:
+                    runtime.seal_integration(task.id, fresh.attempt, success=False)
                 return
+            # 新 Attempt 可能在执行期间再次过期，因此 LIVE 再做一次 freshness。
+            if runtime is not None:
+                # 恢复不能继承旧 Attempt 的授权，必须重新读取当前 version ledger。
+                try:
+                    runtime.authorize_integration(task.id, fresh.attempt)
+                except RuntimeError as exc:
+                    fresh.status = "stale_live_dependency"
+                    fresh.error = str(exc)
+                    fresh.retryable = False
+                    fresh.unresolved_issues = [str(exc)]
+                    fresh.handoff = project_worker_handoff(fresh)
+                    runtime.seal_integration(
+                        task.id, fresh.attempt, success=False
+                    )
+                    return
             outcome, detail = self._apply_candidate(task, fresh)
             worker_result = fresh
         # endregion 2. 候选应用与一次恢复
@@ -815,11 +732,13 @@ class FanoutCoordinator:
             worker_result.retryable = False
             worker_result.unresolved_issues = [detail]
             worker_result.handoff = project_worker_handoff(worker_result)
-            runtime.seal_integration(
-                task.id,
-                worker_result.attempt,
-                success=False,
-            )
+            # 所有未合并的 LIVE candidate 都必须显式 sealed=false。
+            if runtime is not None:
+                runtime.seal_integration(
+                    task.id,
+                    worker_result.attempt,
+                    success=False,
+                )
             # 第二次仍为 merge conflict 时记录冲突，交给最终状态投影处理。
             if outcome == "merge_conflict":
                 detected_conflicts.append(FanoutConflict([task.id], detail))
@@ -833,7 +752,9 @@ class FanoutCoordinator:
         # merged_task_ids 保持集合语义和计划顺序，避免 retry 重复追加同一 Task。
         if task.id not in merged_task_ids:
             merged_task_ids.append(task.id)
-        runtime.seal_integration(task.id, worker_result.attempt, success=True)
+        # LIVE 成功 seal 只记录门禁结果，不改变 Git 集成事实的 authority。
+        if runtime is not None:
+            runtime.seal_integration(task.id, worker_result.attempt, success=True)
         # endregion 3. 终态收口
 
     def _run_worker_attempt(
@@ -924,144 +845,34 @@ class FanoutCoordinator:
         )
     # endregion 2. Worker 调度结束
 
-    # region 3. Candidate 集成：动态冲突、scope、hash、patch applicability 与 handoff
-    def _mark_dynamic_conflicts(
-        self,
-        batch_results: list[LiveSubagentResult],
-    ) -> list[FanoutConflict]:
-        """用真实 touched-files 复核同批结果，并把冲突状态写回对应 Worker。"""
+    # region 3. Candidate 集成：scope、freshness、patch applicability 与 handoff
+    @staticmethod
+    def _candidate_scope_error(
+        task: SubagentTask,
+        result: LiveSubagentResult,
+    ) -> str:
+        """用 Coordinator 所见的 touched files 复核 Worker 没有越过 write scope。"""
 
-        # 计划期 scope 只是静态预测；这里只比较已完成 Worker 的真实改动文件。
-        conflicts = detect_result_conflicts(
-            [
-                SubagentResult(
-                    task_id=worker_result.task_id,
-                    status=worker_result.status,
-                    touched_files=worker_result.touched_files,
-                    batch_index=worker_result.batch_index,
+        # 没有文件变化时不存在 scope 违规。
+        if not result.touched_files:
+            return ""
+        # 声明只读的 Task 产生文件变化时直接拒绝。
+        if not task.write_scope:
+            return f"read-only task modified files: {result.touched_files}"
+        # 每个实际路径都必须落入至少一个声明目录或文件。
+        for path in result.touched_files:
+            normalized = path.strip("/")
+            # 第一个越界路径即可证明整个 candidate 不具备集成资格。
+            if not any(
+                normalized == scope.strip("/")
+                or normalized.startswith(f"{scope.strip('/')}/")
+                for scope in task.write_scope
+            ):
+                return (
+                    "actual touched files escaped declared scope: "
+                    f"{result.touched_files}"
                 )
-                for worker_result in batch_results
-                if worker_result.status == "completed"
-            ]
-        )
-        conflicting_ids = {
-            task_id for conflict in conflicts for task_id in conflict.task_ids
-        }
-        # 每个命中冲突的 Worker 都降级为 dynamic_conflict，后续不会进入合并门。
-        for worker_result in batch_results:
-            # 未命中冲突的失败/成功状态保持原样，不被本检查覆盖。
-            if worker_result.task_id in conflicting_ids:
-                worker_result.status = "dynamic_conflict"
-                worker_result.unresolved_issues = [
-                    "actual touched files conflict in batch"
-                ]
-                worker_result.handoff = project_worker_handoff(worker_result)
-        return conflicts
-
-    def _merge_batch(
-        self,
-        *,
-        tasks: list[SubagentTask],
-        batch_results: list[LiveSubagentResult],
-        batch_index: int,
-        current_results: dict[str, LiveSubagentResult],
-        attempt_results: list[LiveSubagentResult],
-        attempt_counts: dict[str, int],
-        successful_task_ids: set[str],
-        merged_task_ids: list[str],
-        detected_conflicts: list[FanoutConflict],
-    ) -> None:
-        """按稳定顺序合并候选结果；补丁失效时仅允许一次最新状态串行重跑。
-
-        伪代码：恢复计划顺序 -> 跳过失败 Worker -> apply candidate
-        -> merge conflict 时从最新 workspace 重跑一次 -> 只有 merged 才加入成功前缀。
-        """
-
-        # region 1. 稳定索引：按输入任务顺序处理，不依赖并发完成顺序
-        worker_result_by_id = {
-            worker_result.task_id: worker_result for worker_result in batch_results
-        }
-        result_position_by_id = {
-            worker_result.task_id: index
-            for index, worker_result in enumerate(batch_results)
-        }
-        # endregion 1. 稳定索引
-
-        # region 2. 顺序集成：每个候选独立经过 apply gate 与一次冲突恢复
-        # 按原计划顺序遍历，避免 ThreadPool 完成顺序改变最终 Diff。
-        for task in tasks:
-            worker_result = worker_result_by_id[task.id]
-            current_results[task.id] = worker_result
-            # Worker 没完成时只保留结果证据，不读取或应用 candidate。
-            if worker_result.status != "completed":
-                continue
-            # region 2.1 Apply 与恢复：旧候选失败时从最新 workspace 重跑一次
-            outcome, detail = self._apply_candidate(task, worker_result)
-            # apply check 失败说明并发期间基线已变化，允许从最新基线串行重跑一次。
-            if outcome == "merge_conflict":
-                worker_result.status = "merge_conflict"
-                worker_result.error = detail
-                worker_result.unresolved_issues = [detail]
-                worker_result.handoff = project_worker_handoff(worker_result)
-                self._record_serialized_conflict_retry(
-                    step=batch_index + 1,
-                    task_id=task.id,
-                    discarded_attempt=worker_result.attempt,
-                    failure=detail,
-                )
-                # 旧候选只作为证据保留；新 Worker 从最新集成状态启动，并写入独立尝试目录。
-                fresh = self._run_worker_attempt(
-                    task,
-                    batch_index,
-                    self.workspace.diff(),
-                    self._dependency_handoffs(task, current_results),
-                    attempt_counts,
-                )
-                attempt_results.append(fresh)
-                current_results[task.id] = fresh
-                worker_result_by_id[task.id] = fresh
-                batch_results[result_position_by_id[task.id]] = fresh
-                # 串行恢复 Worker 未完成时标记专用终态，防止无限 retry。
-                if fresh.status != "completed":
-                    fresh.status = "merge_recovery_failed"
-                    fresh.retryable = False
-                    fresh.unresolved_issues = [
-                        fresh.error or "serialized merge recovery worker failed"
-                    ]
-                    fresh.handoff = project_worker_handoff(fresh)
-                    continue
-                outcome, detail = self._apply_candidate(task, fresh)
-                # 第二个 candidate 仍冲突时确定性失败，不再启动第三次 Worker。
-                if outcome == "merge_conflict":
-                    fresh.status = "merge_conflict"
-                    fresh.error = detail
-                    fresh.retryable = False
-                    fresh.unresolved_issues = [detail]
-                    fresh.handoff = project_worker_handoff(fresh)
-                    detected_conflicts.append(FanoutConflict([task.id], detail))
-                    continue
-                worker_result = fresh
-            # endregion 2.1 Apply 与恢复
-
-            # region 2.2 接受结果：no-patch 保留失败证据，merged 才进入成功集合
-            # 写任务没有 Diff 不是成功；它需要在 Summary 中以 no_patch 明确暴露。
-            if outcome == "no_patch":
-                worker_result.status = "no_patch"
-                worker_result.error = detail
-                worker_result.unresolved_issues = [detail]
-                worker_result.handoff = project_worker_handoff(worker_result)
-                continue
-            worker_result.status = "completed"
-            worker_result.error = ""
-            worker_result.unresolved_issues = []
-            worker_result.handoff = project_worker_handoff(worker_result)
-            current_results[task.id] = worker_result
-            successful_task_ids.add(task.id)
-            # 同一 Task 的 retry 只更新结果，不重复污染已合并顺序。
-            if task.id not in merged_task_ids:
-                merged_task_ids.append(task.id)
-            # endregion 2.2 接受结果
-        # endregion 2. 顺序集成
+        return ""
 
     def _apply_candidate(
         self,
@@ -1245,7 +1056,7 @@ class FanoutCoordinator:
         # region 3. 新有效计划：冻结根验收标准，并记录新 digest 后返回
         # 根验收标准保持冻结；重规划只能替换尚未完成的任务。
         bounded = PlanningDecision(
-            mode="fanout",
+            mode="multi",
             reason=proposed.reason,
             global_acceptance_criteria=effective_plan.global_acceptance_criteria,
             tasks=proposed.tasks,
@@ -1254,6 +1065,9 @@ class FanoutCoordinator:
         new_plan = bounded.to_fanout_plan(
             self.plan.goal, completed_tasks=completed_tasks
         )
+        # Replan 也必须服从当前 Run 的并发预算；非法 LIVE 提案在 try 边界内 fail closed。
+        if new_plan.live_dependencies and self.max_workers < 2:
+            raise ValueError("LIVE dependencies require max_workers >= 2")
         self._record_replan_success(
             effective_plan=new_plan.to_dict(),
             effective_plan_digest=new_plan.digest,

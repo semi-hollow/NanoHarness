@@ -147,23 +147,25 @@ def _add_run_command(subparsers: argparse._SubParsersAction) -> None:
     parser.add_argument(
         "--agent-mode",
         default=None,
-        choices=["single", "adaptive", "fanout"],
+        choices=["single", "ultra"],
+        help=(
+            "single runs the canonical AgentLoop directly; ultra plans first and "
+            "selects the same Single path or governed Multi-Agent execution."
+        ),
     )
     parser.add_argument(
-        "--fanout-plan",
+        "--multi-agent-resume",
         default=None,
-        help="Validated JSON task DAG required by --agent-mode fanout.",
-    )
-    parser.add_argument(
-        "--fanout-resume",
-        default=None,
-        help="Prior fanout run, summary, or checkpoint used to restore merged tasks.",
+        help=(
+            "Prior HARD-only Multi-Agent run, summary, or checkpoint used to "
+            "restore its validated plan and integrated prefix."
+        ),
     )
     parser.add_argument(
         "--max-workers",
         type=int,
         default=None,
-        help="Maximum concurrent live fanout workers (bounded to 1-8).",
+        help="Maximum concurrent Multi-Agent workers (bounded to 1-8).",
     )
     _add_extension_args(parser, defaults=False)
 

@@ -1,22 +1,19 @@
-"""Fanout 最小任务、拓扑批次和文件冲突规则。
+"""Fanout 最小任务、HARD 图校验和文件冲突规则。
 
-系统角色：提供不依赖模型、线程、Git 或持久化的确定性调度原语。
-折叠导航：1 Task/Conflict contract；2 HARD 拓扑与静态批次；3 动态冲突；4 路径判断。
+系统角色：提供不依赖模型、线程、Git 或持久化的确定性 Domain 规则。
+折叠导航：1 Task/Conflict contract；2 HARD 图校验；3 冲突事实；4 路径判断。
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any
-
-
 # region 1. Task 与 Conflict contract：Coordinator 和测试共用的最小事实
 # 核心数据：一个可独立调度的子任务及其依赖、写范围和工具预算。
 @dataclass(frozen=True)
 class SubagentTask:
     """Fanout DAG 中的最小执行单元。
 
-    ``id`` 是稳定任务键；``task`` 是 worker 目标；``depends_on`` 决定 batch；
+    ``id`` 是稳定任务键；``task`` 是 worker 目标；``depends_on`` 决定 HARD readiness；
     ``write_scope`` 用于运行前冲突隔离；``allowed_tools`` 限制 worker 工具；
     ``expected_artifact`` 声明交付物；``max_steps`` 是该 worker 的循环预算。
     """
@@ -39,27 +36,16 @@ class FanoutConflict:
     task_ids: list[str]
     reason: str
 
-
-# 核心数据：注入式 fanout worker 的最小规范化结果。
-@dataclass
-class SubagentResult:
-    """纯调度器返回的状态、输出、触碰文件和 batch 位置。"""
-
-    task_id: str
-    status: str
-    output: Any = None
-    touched_files: list[str] = field(default_factory=list)
-    batch_index: int = 0
 # endregion 1. Task 与 Conflict contract 结束
 
 
-# region 2. HARD 拓扑与静态批次：先按 depends_on 分层，再按 write_scope 拆批
+# region 2. HARD 图校验：拓扑层只是 validation 结果，不是 Runtime Batch
 # 核心规则：按 depends_on 拓扑排序；未知依赖、重复 ID 和环直接失败。
 def build_execution_batches(tasks: list[SubagentTask]) -> list[list[SubagentTask]]:
     """返回可并发执行的依赖层级，不处理写范围冲突。
 
-    伪代码：校验唯一 ID/已知依赖 -> 反复选出依赖已完成的 ready tasks
-    -> 每轮形成一层 -> 无 ready 但仍有 remaining 时判定为环。
+    伪代码：校验唯一 ID/已知依赖 -> 反复选出依赖已满足的节点
+    -> 记录拓扑层 -> 无 ready 但仍有 remaining 时判定为环。
     """
 
     by_id = {task.id: task for task in tasks}
@@ -88,34 +74,7 @@ def build_execution_batches(tasks: list[SubagentTask]) -> list[list[SubagentTask
         completed |= ready_ids
         remaining = [task for task in remaining if task.id not in ready_ids]
     return batches
-
-
-# 核心规则：在依赖层级内继续按 write_scope 拆分为无冲突批次。
-def build_conflict_free_batches(tasks: list[SubagentTask]) -> list[list[SubagentTask]]:
-    """返回同时满足 DAG 依赖和静态写范围隔离的批次。
-
-    伪代码：先取得 HARD 拓扑层 -> 逐 Task 尝试放入已有无冲突子批次
-    -> 无可放位置时新建子批次 -> 保持原始稳定顺序。
-    """
-
-    batches: list[list[SubagentTask]] = []
-    # 不跨拓扑层合批，保证 HARD dependency 先完成。
-    for ready_level in build_execution_batches(tasks):
-        level_batches: list[list[SubagentTask]] = []
-        # 对同层 Task 做稳定 first-fit，结果确定且实现简单。
-        for task in ready_level:
-            # 依次尝试已有子批次，找到第一个与全部成员无 scope 冲突的位置。
-            for batch in level_batches:
-                # 空冲突列表才允许并发；命中冲突则继续尝试下一个 batch。
-                if not detect_write_scope_conflicts([*batch, task]):
-                    batch.append(task)
-                    break
-            else:
-                # 所有已有 batch 都冲突时，为当前 Task 单独创建新批次。
-                level_batches.append([task])
-        batches.extend(level_batches)
-    return batches
-# endregion 2. HARD 拓扑与静态批次结束
+# endregion 2. HARD 图校验结束
 
 
 # region 3. 冲突事实：运行前查 declared scope，运行后查 actual touched_files
@@ -142,29 +101,6 @@ def detect_write_scope_conflicts(tasks: list[SubagentTask]) -> list[FanoutConfli
                 )
     return conflicts
 
-
-# 核心规则：运行后用真实 touched_files 再检查未声明的写冲突。
-def detect_result_conflicts(results: list[SubagentResult]) -> list[FanoutConflict]:
-    """返回动态结果冲突，防止错误 write_scope 静默合并。
-
-    算法与静态冲突相同，但事实源改为 Worker 实际 ``touched_files``。
-    """
-
-    conflicts: list[FanoutConflict] = []
-    # 两两比较真实结果，每对 Worker 只产生一次冲突判断。
-    for left_index, left in enumerate(results):
-        # 只扫描当前结果之后的成员，避免同一冲突重复记录。
-        for right in results[left_index + 1 :]:
-            overlap = _first_overlap(left.touched_files, right.touched_files)
-            # 命中真实重叠后记录 Task 身份和路径，供 Coordinator 降级状态。
-            if overlap:
-                conflicts.append(
-                    FanoutConflict(
-                        [left.task_id, right.task_id],
-                        f"worker outputs touched overlapping paths: {overlap}",
-                    )
-                )
-    return conflicts
 # endregion 3. 冲突事实结束
 
 

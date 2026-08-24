@@ -20,7 +20,7 @@ ConversationThread → Turn → Run → Model Step → Tool Transaction → Dura
 | **Durable Conversation** | 用 `ConversationThread` 保存用户对话，以 `Turn` 表示一次顶层请求，以 `Run` 表示一次执行尝试 | 可继续的完整对话与清晰身份链 |
 | **Incremental Context & Memory** | 冻结 Turn 稳定输入，按预算投影原始对话、摘要、动态仓库证据和工具契约 | `PreparedModelStep`、Conversation Digest、Working Memory |
 | **Governed Tool Execution** | 将模型 ToolCall 统一经过路由、授权、Approval、Hook、Ledger 和执行门禁 | 唯一 Observation、副作用事实、可恢复 cursor |
-| **Multi-Agent Coordination** | 规划任务图、隔离 Worker、传递 Handoff，并执行候选 Patch 集成与 Finalizer | Worker 交付物、集成结果、协调证据 |
+| **Multi-Agent Coordination** | Ultra 先生成受校验 Single/Multi 决策；Multi 使用统一 HARD/LIVE readiness scheduler、隔离 Worker 和 candidate gates | Worker 交付物、集成结果、协调证据 |
 | **Evaluation & Workbench** | 统一读取 Trace、Usage、Patch、Validation 与冻结实验资产 | 可筛选、可比较的运行和评测视图 |
 
 ## 快速开始
@@ -57,6 +57,14 @@ forge run \
 
 Provider、Context、Tool、Approval、Execution Environment 和 Agent Mode 均可由配置管理；
 显式 CLI 参数覆盖配置值。
+
+Agent Mode 只有两种公开策略：`single` 直接进入 canonical AgentLoop；
+`ultra` 强制先 Planning，再自动选择同一 Single path 或受治理 Multi-Agent。
+
+```bash
+forge run --agent-mode single "Fix the focused issue"
+forge run --agent-mode ultra "Implement the repository-wide change"
+```
 
 ## 运行生命周期
 
@@ -195,7 +203,8 @@ forge ui        打开只读 Evidence Workbench
 | Agent 主循环 | [`agent_forge/runtime/application/agent_loop.py`](agent_forge/runtime/application/agent_loop.py) |
 | Context 与 Compaction | [`agent_forge/context/application/`](agent_forge/context/application/) |
 | Tool 治理 | [`agent_forge/runtime/application/tool_execution.py`](agent_forge/runtime/application/tool_execution.py) |
-| Multi-Agent | [`agent_forge/multi_agent/application/fanout.py`](agent_forge/multi_agent/application/fanout.py) |
+| Multi-Agent Single/Ultra 路由 | [`apps/repository_run.py`](apps/repository_run.py) |
+| Multi-Agent 统一 Scheduler | [`agent_forge/multi_agent/application/fanout.py`](agent_forge/multi_agent/application/fanout.py) |
 | Benchmark / Evaluation | [`agent_forge/bench/`](agent_forge/bench/)、[`agent_forge/evaluation/`](agent_forge/evaluation/) |
 | Evidence Workbench | [`apps/workbench/`](apps/workbench/) |
 

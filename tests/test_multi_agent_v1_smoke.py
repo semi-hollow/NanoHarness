@@ -1,4 +1,5 @@
 import json
+import hashlib
 import tempfile
 import unittest
 from pathlib import Path
@@ -13,6 +14,9 @@ CHECKED_MECHANISM_EVIDENCE = (
     / "experiments"
     / "multi-agent-v1"
     / "mechanism-evidence.json"
+)
+FROZEN_MECHANISM_EVIDENCE_SHA256 = (
+    "1f12971ae6f933c9ba1aeffbe8e912601fb564d3a394706ed5c41dd15840a83c"
 )
 
 
@@ -34,11 +38,16 @@ class MultiAgentV1SmokeTest(unittest.TestCase):
             self.assertNotIn(str(root), serialized)
             self.assertNotIn("Operator steer", serialized)
             self.assertEqual(json.loads(serialized), result)
+            # 旧机制实验是冻结 Evidence，不因产品术语从 fanout 收敛到 multi 而改写。
+            frozen_evidence_bytes = CHECKED_MECHANISM_EVIDENCE.read_bytes()
             self.assertEqual(
-                json.loads(CHECKED_MECHANISM_EVIDENCE.read_text(encoding="utf-8")),
-                result,
-                "checked mechanism evidence must equal a fresh deterministic smoke",
+                hashlib.sha256(frozen_evidence_bytes).hexdigest(),
+                FROZEN_MECHANISM_EVIDENCE_SHA256,
+                "historical mechanism evidence must stay byte-preserving",
             )
+            frozen_evidence = json.loads(frozen_evidence_bytes)
+            self.assertEqual(frozen_evidence["planning_decision"]["mode"], "fanout")
+            self.assertEqual(result["planning_decision"]["mode"], "multi")
 
             # Worker 与 Finalizer 都有自己的 durable execution conversation；
             # runtime_plan 只是 provider user-role transport，不获得 human authority。

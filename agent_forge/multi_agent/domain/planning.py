@@ -1,7 +1,7 @@
 """Planner model output 到 canonical ``FanoutPlan`` 之间的 Domain contract。
 
 本文件只解析和校验模型提议，不调用模型、不调度 Worker。折叠后只保留三块：
-1 单个任务；2 Single/Fanout decision；3 无状态输入 helper。
+1 单个任务；2 Single/Multi decision；3 无状态输入 helper。
 """
 
 from __future__ import annotations
@@ -45,10 +45,10 @@ class PlannedTask:
 # endregion 1. 单个 Planner task 结束
 
 
-# region 2. PlanningDecision：解析策略门，并把 fanout 提议送入唯一 FanoutPlan
+# region 2. PlanningDecision：解析策略门，并把 multi 提议送入唯一 FanoutPlan
 @dataclass(frozen=True)
 class PlanningDecision:
-    """Single/Fanout 策略和 Fanout 候选任务的已解析结果。"""
+    """Single/Multi 策略和 Multi-Agent 候选任务的已解析结果。"""
 
     mode: str
     reason: str
@@ -66,18 +66,18 @@ class PlanningDecision:
     ) -> "PlanningDecision":
         """解析结构化模型输出，并拒绝模式、工具和预算越界。
 
-        伪代码：校验 Single/Fanout header -> 校验 tasks/live 容器与模式一致
+        伪代码：校验 Single/Multi header -> 校验 tasks/live 容器与模式一致
         -> 逐 Task 限制工具和预算 -> 构造 typed decision，等待 FanoutPlan 图校验。
         """
 
-        # region 1. Decision header：先确定 Single/Fanout 和全局验收边界
+        # region 1. Decision header：先确定 Single/Multi 和全局验收边界
         # Parser 正常会提供 object；Domain 仍独立保护直接调用路径。
         if not isinstance(data, dict):
             raise ValueError("planning decision must be an object")
         mode = str(data.get("mode") or "").strip().lower()
-        # 策略门只允许 Single/Fanout 两种当前已实现模式。
-        if mode not in {"single", "fanout"}:
-            raise ValueError("planning mode must be single or fanout")
+        # 策略门只允许对外公开的 Single/Multi 两种决策。
+        if mode not in {"single", "multi"}:
+            raise ValueError("planning mode must be single or multi")
         reason = str(data.get("reason") or "").strip()
         # 决策必须能解释为何选择该执行模式，空 reason 不可审计。
         if not reason:
@@ -90,9 +90,9 @@ class PlanningDecision:
         # tasks 必须是显式数组，即使 Single 模式也使用空数组而非其他形状。
         if not isinstance(rows, list):
             raise ValueError("planning tasks must be a list")
-        # Single 不能偷偷携带将被忽略的 fanout tasks。
+        # Single 不能偷偷携带将被忽略的 Multi-Agent tasks。
         if mode == "single" and rows:
-            raise ValueError("single planning decision must not contain fanout tasks")
+            raise ValueError("single planning decision must not contain multi-agent tasks")
         live_rows = data.get("live_dependencies", [])
         # LIVE edges 同样必须为显式数组。
         if not isinstance(live_rows, list):
@@ -100,14 +100,14 @@ class PlanningDecision:
         # Single 没有 Worker graph，因此不能声明 LIVE 协作。
         if mode == "single" and live_rows:
             raise ValueError("single planning decision cannot contain LIVE dependencies")
-        # Fanout Task 数量由 Runtime 上限约束，模型不能自行扩大。
-        if mode == "fanout" and not 1 <= len(rows) <= max_fanout_tasks:
+        # Multi Task 数量由 Runtime 上限约束，模型不能自行扩大。
+        if mode == "multi" and not 1 <= len(rows) <= max_fanout_tasks:
             raise ValueError(
-                f"fanout planning decision requires 1-{max_fanout_tasks} tasks"
+                f"multi planning decision requires 1-{max_fanout_tasks} tasks"
             )
         # endregion 1. Decision header 结束
 
-        # region 2. Fanout tasks：逐个校验工具集合和 step budget，再构造 typed task
+        # region 2. Multi tasks：逐个校验工具集合和 step budget，再构造 typed task
         allowed = set(available_tools)
         tasks: list[PlannedTask] = []
         # 每个不可信 task mapping 分别收窄，任一非法则拒绝整个 decision。
@@ -164,7 +164,7 @@ class PlanningDecision:
         """把模型提议与冻结完成前缀合并，再送入 ``FanoutPlan`` 确定性校验。"""
 
         # Single decision 没有 Task graph，不能被错误转换成 FanoutPlan。
-        if self.mode != "fanout":
+        if self.mode != "multi":
             raise ValueError("single planning decision has no fanout plan")
         task_rows = [_subagent_mapping(task) for task in completed_tasks]
         task_rows.extend(task.to_mapping() for task in self.tasks)

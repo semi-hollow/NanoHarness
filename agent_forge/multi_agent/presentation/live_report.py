@@ -53,7 +53,7 @@ def render_live_fanout_report(summary: LiveFanoutSummary) -> str:
         f"- plan_digest: `{summary.plan_digest}`",
         f"- effective_plan_digest: `{summary.effective_plan_digest or summary.plan_digest}`",
         f"- replan_round: `{summary.replan_round}`",
-        f"- batches: `{summary.batches}`",
+        f"- launch_waves (`batches` compatibility field): `{summary.batches}`",
         f"- merged_task_ids: `{summary.merged_task_ids}`",
         f"- final_decision: `{summary.final_decision or 'not_run'}`",
         "",
@@ -88,7 +88,7 @@ def render_live_fanout_report(summary: LiveFanoutSummary) -> str:
             "",
             "## Tasks",
             "",
-            "| task | attempt | status | batch | resumed | touched files | candidate diff | trace |",
+            "| task | attempt | status | launch wave | resumed | touched files | candidate diff | trace |",
             "| --- | ---: | --- | ---: | --- | --- | --- | --- |",
         ]
     )

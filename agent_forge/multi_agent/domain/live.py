@@ -30,7 +30,7 @@ TASK_ID_PATTERN = re.compile(r"^[A-Za-z0-9_.-]+$")
 
 
 # region 1. 唯一执行计划：JSON mapping → typed tasks → HARD/LIVE 组合图校验 → digest
-# 核心数据：经过校验并可恢复的 live fanout 任务 DAG。
+# 核心数据：经过校验并可恢复的 Multi-Agent 任务 DAG。
 @dataclass(frozen=True)
 class FanoutPlan:
     """经过验证、可确定性调度的任务 DAG。
@@ -332,13 +332,15 @@ class FanoutCheckpoint:
     attempt_results: list[LiveSubagentResult] = field(default_factory=list)
 
 
-# 核心数据：live fanout 调度、合并、冲突、finalizer 和 artifact 的最终汇总。
+# 核心数据：Multi-Agent 调度、合并、冲突、finalizer 和 artifact 的最终汇总。
 @dataclass
 class LiveFanoutSummary:
-    """Live fanout 当前运行和恢复证据的聚合结果。
+    """Multi-Agent 当前运行和恢复证据的聚合结果。
 
-    identity 字段记录 run/goal/plan/base；batches/results/merged/conflicts 记录调度与
-    合并；status、wall_time、metrics 和 finalizer 字段记录最终判断与成本；
+    identity 字段记录 run/goal/plan/base；历史字段 ``batches`` 现投影
+    readiness scheduler 的实际启动 waves，不是调度正确性抽象；
+    results/merged/conflicts 记录合并；status、wall_time、metrics 和 finalizer
+    字段记录最终判断与成本；
     末尾 path 字段指向 summary、report 和 integrated diff，便于 UI/评测读取，
     不重算事实。
     """

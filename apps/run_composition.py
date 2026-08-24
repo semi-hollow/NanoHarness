@@ -1,4 +1,11 @@
-"""Single-Agent 入站应用共用的 Harness 请求与依赖装配。"""
+"""Single-Agent 入站应用共用的 Harness 请求与依赖装配。
+
+系统角色：让 CLI、Operator Console 和 Ultra 的 Single fallback 全部复用
+同一 ``Harness`` / ``RunRequest`` 构造路径。输入是已解析参数，输出是
+Public API 对象；本层不启动 AgentLoop。
+
+折叠导航：1 参数收口；2 Harness/Request 装配；3 Model contract；4 轻量输入 helper。
+"""
 
 from __future__ import annotations
 
@@ -25,6 +32,7 @@ from agent_forge.runtime.domain.model import ModelCapabilities
 from agent_forge.runtime.wiring import build_llm
 
 
+# region 1. 参数收口：所有入站面共用同一 config precedence
 def resolve_repository_arguments(
     args: argparse.Namespace,
 ) -> RunConfigDocument | None:
@@ -34,8 +42,10 @@ def resolve_repository_arguments(
         return resolve_run_arguments(args)
     except (OSError, ValueError) as exc:
         raise SystemExit(f"invalid run configuration: {exc}") from exc
+# endregion 1. 参数收口结束
 
 
+# region 2. Canonical Single composition：Harness 和 RunRequest 各只有一处 owner
 def build_single_harness(
     args: argparse.Namespace,
     *,
@@ -102,8 +112,10 @@ def build_single_run_request(
         resolved_config=resolved_run_config(args, config_document),
         run_label=getattr(args, "run_label", "") or "",
     )
+# endregion 2. Canonical Single composition 结束
 
 
+# region 3. Model contract：Provider config 和能力声明在 Run 创建前固定
 def resolve_llm_config_from_args(args: argparse.Namespace) -> LLMConfig:
     """在创建 Run 前解析 Model Adapter，并拒绝不完整凭据。"""
 
@@ -151,8 +163,10 @@ def model_capabilities_from_args(args: argparse.Namespace) -> ModelCapabilities:
             "resolved_run_config" if configured_context_window else inferred.source
         ),
     )
+# endregion 3. Model contract 结束
 
 
+# region 4. 轻量输入 helper：只做 Skill 字符串规范化
 def parse_skill_mode(value: str) -> str:
     return "none" if (value or "").strip().lower() == "none" else "auto"
 
@@ -162,3 +176,4 @@ def parse_skill_names(value: str) -> list[str]:
     if not normalized or normalized.lower() in {"auto", "none"}:
         return []
     return [item.strip() for item in normalized.split(",") if item.strip()]
+# endregion 4. 轻量输入 helper 结束

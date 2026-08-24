@@ -325,9 +325,9 @@ class DocumentationLanguageTest(unittest.TestCase):
             "AdaptivePlanner.decide()",
             "build_live_fanout()",
             "FanoutCoordinator.run()",
-            "_run_batch()",
-            "_run_live_plan()",
-            "scheduling strategy selected again",
+            "_run_plan()",
+            "HARD: integrated-state readiness",
+            "LIVE: semantic early readiness",
             "生产化边界与扩展.md",
         ):
             if contract not in architecture:

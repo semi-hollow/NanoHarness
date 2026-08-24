@@ -160,6 +160,17 @@ runtime:
             ):
                 resolve_run_arguments(args)
 
+    def test_multi_agent_resume_requires_ultra_policy(self):
+        args = build_parser().parse_args(
+            ["run", "resume work", "--multi-agent-resume", "/tmp/prior-run"]
+        )
+
+        with mock.patch.dict(os.environ, {}, clear=True), self.assertRaisesRegex(
+            ValueError,
+            "multi_agent_resume requires agent_mode=ultra",
+        ):
+            resolve_run_arguments(args)
+
     def test_unknown_and_secret_fields_fail_closed(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

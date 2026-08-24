@@ -8,7 +8,9 @@ from unittest.mock import patch
 from apps.cli.parser import build_parser
 from apps.repository_run import run_repository_task
 from agent_forge.multi_agent.adapters.local_worker import _decision, _finalizer_task
+from agent_forge.multi_agent.application.planning import PlanningOutcome
 from agent_forge.multi_agent.domain.live import FanoutPlan, LiveSubagentResult
+from agent_forge.multi_agent.domain.planning import PlanningDecision
 from agent_forge.multi_agent.wiring import LiveFanoutBuildRequest, build_live_fanout
 from agent_forge.observability.api import TraceRecorder
 from agent_forge.runtime.adapters import JsonHumanInputRepository
@@ -986,14 +988,22 @@ class LiveFanoutTest(unittest.TestCase):
                 (resumed_repo / "b.py").read_text(encoding="utf-8"), "value = 1\n"
             )
 
-    def test_public_run_entrypoint_routes_fanout_and_writes_candidate_patch(self):
+    def test_public_ultra_entrypoint_routes_multi_and_writes_candidate_patch(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             repo = root / "repo"
             repo.mkdir()
             _init_repo(repo)
-            plan_path = root / "plan.json"
-            plan_path.write_text(json.dumps(_plan().to_dict()), encoding="utf-8")
+            plan = _plan()
+            decision = PlanningDecision.from_mapping(
+                {
+                    "mode": "multi",
+                    "reason": "two independent write scopes",
+                    "global_acceptance_criteria": [],
+                    "tasks": plan.to_dict()["tasks"],
+                },
+                available_tools=["read_file", "replace_text", "git_diff"],
+            )
             args = build_parser().parse_args(
                 [
                     "run",
@@ -1009,9 +1019,7 @@ class LiveFanoutTest(unittest.TestCase):
                     "--model",
                     "fixture-model",
                     "--agent-mode",
-                    "fanout",
-                    "--fanout-plan",
-                    str(plan_path),
+                    "ultra",
                     "--max-workers",
                     "2",
                     "--output-root",
@@ -1019,9 +1027,19 @@ class LiveFanoutTest(unittest.TestCase):
                 ]
             )
 
-            with patch(
-                "apps.repository_run.build_llm",
-                side_effect=lambda _config: EditingLLM(),
+            with (
+                patch(
+                    "apps.repository_run.AdaptivePlanner.decide",
+                    return_value=PlanningOutcome(
+                        decision=decision,
+                        fallback_to_single=False,
+                        attempts=1,
+                    ),
+                ),
+                patch(
+                    "apps.repository_run.build_llm",
+                    side_effect=lambda _config: EditingLLM(),
+                ),
             ):
                 run_dir = run_repository_task(args)
 
@@ -1030,6 +1048,10 @@ class LiveFanoutTest(unittest.TestCase):
             )
             self.assertEqual(summary["status"], "passed")
             self.assertEqual(set(summary["merged_task_ids"]), {"alpha", "beta"})
+            planning = json.loads(
+                (run_dir / "planning_decision.json").read_text(encoding="utf-8")
+            )
+            self.assertEqual(planning["decision"]["mode"], "multi")
             self.assertIn(
                 "diff --git",
                 (run_dir / "candidate_changes.diff").read_text(encoding="utf-8"),

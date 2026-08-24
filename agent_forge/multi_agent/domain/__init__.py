@@ -2,11 +2,8 @@
 
 from .fanout import (
     FanoutConflict,
-    SubagentResult,
     SubagentTask,
-    build_conflict_free_batches,
     build_execution_batches,
-    detect_result_conflicts,
     detect_write_scope_conflicts,
 )
 from .live import (
@@ -35,10 +32,7 @@ __all__ = [
     "PlannedTask",
     "PlanningDecision",
     "aggregate_live_metrics",
-    "SubagentResult",
     "SubagentTask",
-    "build_conflict_free_batches",
     "build_execution_batches",
-    "detect_result_conflicts",
     "detect_write_scope_conflicts",
 ]

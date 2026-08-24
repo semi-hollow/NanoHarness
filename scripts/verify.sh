@@ -98,50 +98,57 @@ print(f"Validated single-agent evidence: {run}")
 PY
   echo
 
-  echo "== Real-model two-worker fanout smoke =="
-  FANOUT_OUTPUT="$("${PYTHON_BIN}" -m agent_forge run \
-    "并行审查 runtime 与 safety 证据，不要修改文件" \
-    --agent-mode fanout \
-    --fanout-plan examples/fanout-plan.sample.json \
+  echo "== Real-model Ultra policy smoke =="
+  ULTRA_OUTPUT="$("${PYTHON_BIN}" -m agent_forge run \
+    "分别审查 runtime 与 safety 证据并汇总结论，不要修改文件" \
+    --agent-mode ultra \
     --max-workers 2 \
     --provider deepseek \
     --approval-mode locked \
-    --max-steps "${VERIFY_REAL_FANOUT_MAX_STEPS:-8}" \
+    --max-steps "${VERIFY_REAL_MULTI_AGENT_MAX_STEPS:-8}" \
     --workspace . \
     --execution-mode worktree \
     --no-keep-worktree \
     --output-root "${VERIFY_DIR}/runs")"
-  printf '%s\n' "${FANOUT_OUTPUT}"
-  FANOUT_RUN_DIR="$(printf '%s\n' "${FANOUT_OUTPUT}" | sed -n 's/^Run directory: //p' | tail -n 1)"
-  if [ -z "${FANOUT_RUN_DIR}" ]; then
-    echo "Could not identify the fanout run directory from this command." >&2
+  printf '%s\n' "${ULTRA_OUTPUT}"
+  ULTRA_RUN_DIR="$(printf '%s\n' "${ULTRA_OUTPUT}" | sed -n 's/^Run directory: //p' | tail -n 1)"
+  if [ -z "${ULTRA_RUN_DIR}" ]; then
+    echo "Could not identify the Ultra run directory from this command." >&2
     exit 1
   fi
-  "${PYTHON_BIN}" - "${FANOUT_RUN_DIR}" <<'PY'
+  "${PYTHON_BIN}" - "${ULTRA_RUN_DIR}" <<'PY'
 import json
 import sys
 from pathlib import Path
 
 run = Path(sys.argv[1])
-summary = json.loads((run / "fanout" / "fanout_summary.json").read_text(encoding="utf-8"))
+summary_path = run / "fanout" / "fanout_summary.json"
+if not summary_path.exists():
+    trace = json.loads((run / "trace.json").read_text(encoding="utf-8"))
+    if trace.get("stop_reason") != "final_answer":
+        raise SystemExit(f"Ultra-to-Single smoke did not complete: {trace.get('stop_reason')}")
+    print(f"Validated Ultra-to-Single evidence: {run}")
+    raise SystemExit(0)
+
+summary = json.loads(summary_path.read_text(encoding="utf-8"))
 results = summary.get("results") or []
 if summary.get("status") != "passed" or summary.get("final_decision") != "PASS":
     raise SystemExit(
-        f"real-model fanout did not pass: status={summary.get('status')} "
+        f"real-model Multi-Agent run did not pass: status={summary.get('status')} "
         f"final_decision={summary.get('final_decision')}"
     )
 if not results or any(result.get("status") != "completed" for result in results):
-    raise SystemExit(f"real-model fanout has incomplete workers: {results}")
+    raise SystemExit(f"real-model Multi-Agent run has incomplete workers: {results}")
 if any(result.get("touched_files") for result in results):
-    raise SystemExit("read-only real-model fanout modified a worker workspace")
+    raise SystemExit("read-only real-model Multi-Agent run modified a worker workspace")
 metrics = summary.get("metrics") or {}
 if int(metrics.get("llm_calls") or 0) < len(results) + 1:
-    raise SystemExit("real-model fanout is missing worker or finalizer LLM usage")
+    raise SystemExit("real-model Multi-Agent run is missing worker or finalizer LLM usage")
 if int(metrics.get("finalizer_llm_calls") or 0) < 1:
-    raise SystemExit("real-model fanout finalizer did not run")
+    raise SystemExit("real-model Multi-Agent finalizer did not run")
 if (run / "candidate_changes.diff").read_text(encoding="utf-8").strip():
-    raise SystemExit("read-only real-model fanout produced a candidate diff")
-print(f"Validated live fanout evidence: {run}")
+    raise SystemExit("read-only real-model Multi-Agent run produced a candidate diff")
+print(f"Validated Ultra-to-Multi evidence: {run}")
 PY
   echo
 else

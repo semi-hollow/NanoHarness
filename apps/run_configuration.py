@@ -1,4 +1,12 @@
-"""``forge run --config`` 的版本化、受控配置边界。"""
+"""``forge run --config`` 的版本化、受控配置边界。
+
+系统角色：把 CLI / model environment / file / defaults 四种输入收口为
+一个已验证 Namespace，并生成可随 Run 发布的脱敏快照。本文件不创建
+Model、Harness 或 artifact 目录。
+
+折叠导航：1 Schema contract；2 Config file 解析；3 优先级合并与快照；
+4 环境变量；5 终态校验；6 纯规范化 helper。
+"""
 
 from __future__ import annotations
 
@@ -20,6 +28,7 @@ from agent_forge.runtime.config import (
 from agent_forge.infrastructure.storage_layout import MEMORY_ROOT
 
 
+# region 1. Schema contract：只有表内字段才能进入 Runtime Namespace
 CONFIG_SCHEMA_VERSION = 1
 _SECRET_KEYS = {"api_key", "password", "secret", "access_token", "auth_token"}
 
@@ -48,7 +57,7 @@ _SECTIONS: dict[str, dict[str, _FieldSpec]] = {
         "agent_mode": _FieldSpec(
             "agent_mode",
             "str",
-            frozenset({"single", "adaptive", "fanout"}),
+            frozenset({"single", "ultra"}),
         ),
     },
     "model": {
@@ -139,8 +148,7 @@ _SECTIONS: dict[str, dict[str, _FieldSpec]] = {
         "max_bytes": _FieldSpec("instruction_max_bytes", "int"),
     },
     "multi_agent": {
-        "fanout_plan": _FieldSpec("fanout_plan", "str"),
-        "fanout_resume": _FieldSpec("fanout_resume", "str"),
+        "resume": _FieldSpec("multi_agent_resume", "str"),
         "max_workers": _FieldSpec("max_workers", "int"),
     },
 }
@@ -180,8 +188,7 @@ _RUN_DEFAULTS: dict[str, object] = {
     "resume_state": "",
     "output_root": ".agent_forge/runs",
     "agent_mode": "single",
-    "fanout_plan": "",
-    "fanout_resume": "",
+    "multi_agent_resume": "",
     "max_workers": 4,
     "skills": "auto",
     "skill_manifest": [],
@@ -203,9 +210,10 @@ _RUN_DEFAULTS: dict[str, object] = {
     "runtime_instructions": "",
     "instruction_max_bytes": 2_600,
 }
+# endregion 1. Schema contract 结束
 
 
-# 主要入口：解析 YAML/JSON，拒绝未知字段、密钥和不支持的 schema。
+# region 2. Config file：解析 YAML/JSON，拒绝未知字段、密钥和旧 schema
 def load_run_config(path: str | Path) -> RunConfigDocument:
     """返回只包含已知 argparse 目标字段的配置文档。"""
 
@@ -256,9 +264,10 @@ def load_run_config(path: str | Path) -> RunConfigDocument:
         source_sha256=hashlib.sha256(raw_text.encode("utf-8")).hexdigest(),
         values=values,
     )
+# endregion 2. Config file 结束
 
 
-# 主要入口：执行 CLI > 模型环境变量 > config > defaults 的确定性合并。
+# region 3. 优先级合并与快照：CLI > model env > config > defaults
 def resolve_run_arguments(args: argparse.Namespace) -> RunConfigDocument | None:
     """就地补全 ``forge run`` Namespace，并返回可审计的源配置。"""
 
@@ -323,8 +332,10 @@ def resolved_run_config(
         ),
         "values": values,
     }
+# endregion 3. 优先级合并与快照结束
 
 
+# region 4. Model environment：只填补 CLI 未显式指定的 provider 字段
 def _apply_model_environment(args: argparse.Namespace) -> None:
     environment_values: dict[str, str] = {}
     provider = os.getenv("AGENT_FORGE_DEFAULT_LLM")
@@ -376,8 +387,10 @@ def _first_environment(*names: str) -> str:
         if value:
             return value
     return ""
+# endregion 4. Model environment 结束
 
 
+# region 5. 终态校验：在创建任何 Run artifact 之前 fail closed
 def _validate_run_arguments(args: argparse.Namespace) -> None:
     """在创建 run artifact 前拒绝无意义或互相冲突的最终值。"""
 
@@ -417,10 +430,15 @@ def _validate_run_arguments(args: argparse.Namespace) -> None:
         args.reasoning_tokens = True
     if not 1 <= args.max_workers <= 8:
         raise ValueError("max_workers must be between 1 and 8")
+    # Multi-Agent checkpoint 只有 Ultra 路径能解释；Single 不得静默忽略该输入。
+    if args.multi_agent_resume and args.agent_mode != "ultra":
+        raise ValueError("multi_agent_resume requires agent_mode=ultra")
     if args.model_context_window != 0 and args.model_context_window < 1_024:
         raise ValueError("model_context_window must be 0 (auto) or at least 1024")
+# endregion 5. 终态校验结束
 
 
+# region 6. 纯规范化 helper：不读外部状态、不产生副作用
 def _normalize_value(value: object, spec: _FieldSpec, *, location: str) -> object:
     if spec.kind == "str":
         if not isinstance(value, str):
@@ -472,6 +490,7 @@ def _reject_secret_keys(value: object, path: str = "") -> None:
     elif isinstance(value, list):
         for index, child in enumerate(value):
             _reject_secret_keys(child, f"{path}[{index}]")
+# endregion 6. 纯规范化 helper 结束
 
 
 __all__ = [
