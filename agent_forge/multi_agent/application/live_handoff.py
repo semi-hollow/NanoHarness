@@ -196,10 +196,10 @@ class LiveHandoffRuntime:
         """只在命名的模型安全边界交付当前 generation/attempt 的事实。
 
         伪代码：验证 boundary/Attempt -> 取出 mailbox -> 丢弃 stale 事件
-        -> 记录已交付与已消费版本 -> 写 timeline -> 返回本 Turn 输入。
+        -> 记录已交付与已消费版本 -> 写 timeline -> 返回下一 Model Step 输入。
         """
 
-        # boundary 名称用于 Trace 解释事件进入哪个 model turn，不能为空。
+        # boundary 名称用于 Trace 解释事件进入哪个 Model Step，不能为空。
         if not boundary.strip():
             raise ValueError("mailbox drain requires a named safe boundary")
         with self._condition:

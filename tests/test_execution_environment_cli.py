@@ -6,6 +6,10 @@ import unittest
 from pathlib import Path
 
 from apps.repository_run import prepare_execution_environment
+from agent_forge.runtime.adapters.execution_environment import (
+    ExecutionEnvironment,
+    ExecutionEnvironmentConfig,
+)
 
 
 class ExecutionEnvironmentCliTest(unittest.TestCase):
@@ -42,6 +46,86 @@ class ExecutionEnvironmentCliTest(unittest.TestCase):
             self.assertEqual(manifest["cleanup_policy"], "remove")
             environment.cleanup()
             self.assertFalse(environment.active_workspace.exists())
+
+    def test_resume_reattaches_same_worktree_and_preserves_changes(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            repo = root / "repo"
+            repo.mkdir()
+            subprocess.run(["git", "init"], cwd=repo, check=True, capture_output=True)
+            subprocess.run(
+                ["git", "config", "user.email", "test@example.com"],
+                cwd=repo,
+                check=True,
+            )
+            subprocess.run(
+                ["git", "config", "user.name", "Test User"],
+                cwd=repo,
+                check=True,
+            )
+            (repo / "README.md").write_text("hello\n", encoding="utf-8")
+            subprocess.run(["git", "add", "README.md"], cwd=repo, check=True)
+            subprocess.run(
+                ["git", "commit", "-m", "initial"],
+                cwd=repo,
+                check=True,
+                capture_output=True,
+            )
+            first = ExecutionEnvironment(
+                ExecutionEnvironmentConfig(
+                    mode="worktree",
+                    workspace=str(repo),
+                    run_id="first",
+                    keep_worktree=False,
+                )
+            )
+            first.prepare()
+            resumed_path = first.active_workspace
+            (resumed_path / "README.md").write_text(
+                "unfinished change\n",
+                encoding="utf-8",
+            )
+            resumed = ExecutionEnvironment(
+                ExecutionEnvironmentConfig(
+                    mode="worktree",
+                    workspace=str(repo),
+                    run_id="second",
+                    keep_worktree=False,
+                    reattach_workspace=str(resumed_path),
+                )
+            )
+
+            probe = resumed.prepare()
+
+            self.assertEqual(Path(probe.active_workspace), resumed_path)
+            self.assertEqual(
+                (resumed.active_workspace / "README.md").read_text(encoding="utf-8"),
+                "unfinished change\n",
+            )
+            resumed.cleanup()
+            self.assertFalse(resumed_path.exists())
+
+    def test_resume_rejects_symlink_escape_from_worktree_root(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            repo = root / "repo"
+            repo.mkdir()
+            worktree_root = repo / ".agent_forge" / "internal" / "cache" / "worktrees"
+            worktree_root.mkdir(parents=True)
+            outside = root / "outside"
+            outside.mkdir()
+            link = worktree_root / "escaped"
+            link.symlink_to(outside, target_is_directory=True)
+            environment = ExecutionEnvironment(
+                ExecutionEnvironmentConfig(
+                    mode="worktree",
+                    workspace=str(repo),
+                    reattach_workspace=str(link),
+                )
+            )
+
+            with self.assertRaisesRegex(RuntimeError, "escapes configured worktree root"):
+                environment.prepare()
 
 
 if __name__ == "__main__":

@@ -1,4 +1,4 @@
-"""单 Agent 任务的领域状态，不包含持久化实现。"""
+"""单 Agent Run 的 checkpoint 领域状态，不包含 Thread 内容或持久化实现。"""
 
 from __future__ import annotations
 
@@ -10,13 +10,26 @@ from typing import Any, ClassVar, TypedDict
 from agent_forge.contracts import JsonObject
 
 
+class PendingExecutionPointerData(TypedDict):
+    """Checkpoint 指向 canonical assistant item 的同 Turn tool-batch cursor。"""
+
+    assistant_item_id: str
+    next_tool_call_index: int
+    pending_operation_key: str
+    pending_operation_fingerprint: JsonObject
+
+
 class TaskCheckpointData(TypedDict):
-    """Trace、CLI 和恢复流程共享的序列化契约。"""
+    """Trace、CLI 和恢复流程共享的 canonical v4 序列化契约。"""
 
     schema_version: int
     run_id: str
-    task: str
+    thread_id: str
+    turn_id: str
+    context_revision: int
     workspace: str
+    execution_workspace: str
+    execution_mode: str
     status: str
     current_step: int
     agent_name: str
@@ -28,14 +41,14 @@ class TaskCheckpointData(TypedDict):
     resume_hint: str
     messages_count: int
     observations_count: int
-    conversation_history_digest: JsonObject
+    pending_execution: PendingExecutionPointerData | None
     updated_at: float
     created_at: float
     metadata: JsonObject
 
 
 class TaskRunStatus(Enum):
-    """一次 Agent 任务允许出现的生命周期状态。"""
+    """一次 Agent Run 允许出现的生命周期状态。"""
 
     CREATED = "created"
     RUNNING = "running"
@@ -48,29 +61,83 @@ class TaskRunStatus(Enum):
     COMPLETED = "completed"
 
 
-# 核心数据：创建首个 durable checkpoint 所需的完整输入。
+RESUMABLE_RUN_STATUSES = frozenset(
+    {
+        TaskRunStatus.CREATED.value,
+        TaskRunStatus.RUNNING.value,
+        TaskRunStatus.WAITING_APPROVAL.value,
+        TaskRunStatus.WAITING_HUMAN.value,
+        TaskRunStatus.PAUSED.value,
+    }
+)
+
+
+@dataclass(frozen=True, kw_only=True)
+class PendingExecutionPointer:
+    """未完成 tool batch 的最小恢复指针；assistant payload 只存 Thread journal。"""
+
+    assistant_item_id: str
+    next_tool_call_index: int = 0
+    pending_operation_key: str = ""
+    pending_operation_fingerprint: JsonObject = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        if not self.assistant_item_id.strip():
+            raise ValueError("pending execution requires assistant_item_id")
+        if self.next_tool_call_index < 0:
+            raise ValueError("pending tool call index must not be negative")
+
+    def to_dict(self) -> PendingExecutionPointerData:
+        return {
+            "assistant_item_id": self.assistant_item_id,
+            "next_tool_call_index": self.next_tool_call_index,
+            "pending_operation_key": self.pending_operation_key,
+            "pending_operation_fingerprint": self.pending_operation_fingerprint,
+        }
+
+    @classmethod
+    def from_dict(cls, value: dict[str, Any]) -> "PendingExecutionPointer":
+        raw_fingerprint = value.get("pending_operation_fingerprint")
+        return cls(
+            assistant_item_id=str(value.get("assistant_item_id") or ""),
+            next_tool_call_index=int(value.get("next_tool_call_index") or 0),
+            pending_operation_key=str(value.get("pending_operation_key") or ""),
+            pending_operation_fingerprint=(
+                dict(raw_fingerprint) if isinstance(raw_fingerprint, dict) else {}
+            ),
+        )
+
+
+@dataclass(frozen=True)
+class _PendingExecutionUnchanged:
+    pass
+
+
+PENDING_EXECUTION_UNCHANGED = _PendingExecutionUnchanged()
+
+
 @dataclass(frozen=True)
 class TaskStartRequest:
-    """一次新 run 的身份、工作区和初始元数据。"""
+    """一次新 Run 的 Thread/Turn、工作区和初始元数据。"""
 
     run_id: str
-    task: str
+    thread_id: str
+    turn_id: str
     workspace: str
+    execution_workspace: str
+    execution_mode: str
     agent_name: str
+    context_revision: int = 0
     metadata: JsonObject = field(default_factory=dict)
 
 
-# 核心数据：一次 checkpoint 状态迁移中允许修改的字段。
 @dataclass(frozen=True)
 class TaskCheckpointUpdate:
-    """Checkpoint 的类型化 patch，未提供的字段保持原值。
-
-    Application、Repository Port 和 JSON Adapter 共享此对象，避免三层分别维护
-    一份长关键字参数表。``status`` 接受 enum 或持久化字符串，由领域对象统一归一化。
-    """
+    """Checkpoint 的类型化 patch；Thread 内容不在此对象中复制。"""
 
     status: TaskRunStatus | str | None = None
     current_step: int | None = None
+    context_revision: int | None = None
     last_tool: str | None = None
     last_observation: str | None = None
     stop_reason: str | None = None
@@ -79,36 +146,38 @@ class TaskCheckpointUpdate:
     resume_hint: str | None = None
     messages_count: int | None = None
     observations_count: int | None = None
-    conversation_history_digest: JsonObject | None = None
+    pending_execution: (
+        PendingExecutionPointer | None | _PendingExecutionUnchanged
+    ) = PENDING_EXECUTION_UNCHANGED
     metadata: JsonObject | None = None
     updated_at: float | None = None
 
     def status_value(self) -> str | None:
-        """返回 checkpoint 使用的稳定字符串状态。"""
-
         if isinstance(self.status, TaskRunStatus):
             return self.status.value
         return self.status
 
 
-# 核心数据：暂停、恢复和终态报告共享的 durable 任务快照。
 @dataclass
 class TaskCheckpoint:
-    """可恢复任务的最小控制面快照。
+    """一次 Run 的最小执行恢复快照。
 
-    ``run_id/task/workspace/agent_name`` 标识运行；``status/current_step`` 是状态机
-    位置；``last_*``、``stop_reason`` 和 ``resume_hint`` 指导恢复；计数字段与
-    ``conversation_history_digest`` 保存旧 Conversation History 的有界投影；
-    ``metadata`` 承载人工请求和执行环境等扩展事实。Repository 只负责保存和加载。
-    完整消息只存在于 live Session；Trace 保存执行证据，但不是 raw conversation store。
+    Thread/Turn 拥有 root task 与 Conversation；``context_revision`` 指向独立
+    ``context_state.json``；``pending_execution`` 指向 authoritative assistant item。
+    ``workspace`` 始终是用户项目路径，``execution_workspace`` 才是本 Turn 当前实际
+    执行树。Production loader 只接受 v4，不保留 v3 fallback。
     """
 
-    SCHEMA_VERSION: ClassVar[int] = 3
+    SCHEMA_VERSION: ClassVar[int] = 4
 
     run_id: str
-    task: str
+    thread_id: str
+    turn_id: str
     workspace: str
+    execution_workspace: str
+    execution_mode: str
     status: str
+    context_revision: int = 0
     current_step: int = 0
     agent_name: str = "CodingAgent"
     last_tool: str = ""
@@ -119,19 +188,33 @@ class TaskCheckpoint:
     resume_hint: str = ""
     messages_count: int = 0
     observations_count: int = 0
-    conversation_history_digest: JsonObject = field(default_factory=dict)
+    pending_execution: PendingExecutionPointer | None = None
     updated_at: float = field(default_factory=time.time)
     created_at: float = field(default_factory=time.time)
     metadata: JsonObject = field(default_factory=dict)
 
+    def __post_init__(self) -> None:
+        if not self.run_id or not self.thread_id or not self.turn_id:
+            raise ValueError("checkpoint run/thread/turn identity is required")
+        if self.context_revision < 0:
+            raise ValueError("checkpoint context_revision must not be negative")
+        if not self.workspace or not self.execution_workspace:
+            raise ValueError("checkpoint requested and execution workspaces are required")
+        if self.execution_mode not in {"local", "worktree", "container"}:
+            raise ValueError(f"unsupported checkpoint execution mode: {self.execution_mode}")
+
     def apply_transition(self, update: TaskCheckpointUpdate) -> None:
-        """应用一次显式字段转换；持久化由 Repository 在调用后完成。"""
+        """应用一次显式执行状态转换；持久化由 Repository 在调用后完成。"""
 
         next_task_status = update.status_value()
         if next_task_status is not None:
             self.status = next_task_status
         if update.current_step is not None:
             self.current_step = update.current_step
+        if update.context_revision is not None:
+            if update.context_revision < self.context_revision:
+                raise ValueError("checkpoint context_revision must not move backwards")
+            self.context_revision = update.context_revision
         if update.last_tool is not None:
             self.last_tool = update.last_tool
         if update.last_observation is not None:
@@ -148,8 +231,8 @@ class TaskCheckpoint:
             self.messages_count = update.messages_count
         if update.observations_count is not None:
             self.observations_count = update.observations_count
-        if update.conversation_history_digest is not None:
-            self.conversation_history_digest = update.conversation_history_digest
+        if not isinstance(update.pending_execution, _PendingExecutionUnchanged):
+            self.pending_execution = update.pending_execution
         if update.metadata is not None:
             self.metadata = update.metadata
         self.updated_at = (
@@ -157,13 +240,15 @@ class TaskCheckpoint:
         )
 
     def to_dict(self) -> TaskCheckpointData:
-        """返回稳定、可写入 JSON 的 checkpoint 结构。"""
-
         return {
             "schema_version": self.SCHEMA_VERSION,
             "run_id": self.run_id,
-            "task": self.task,
+            "thread_id": self.thread_id,
+            "turn_id": self.turn_id,
+            "context_revision": self.context_revision,
             "workspace": self.workspace,
+            "execution_workspace": self.execution_workspace,
+            "execution_mode": self.execution_mode,
             "status": self.status,
             "current_step": self.current_step,
             "agent_name": self.agent_name,
@@ -175,7 +260,11 @@ class TaskCheckpoint:
             "resume_hint": self.resume_hint,
             "messages_count": self.messages_count,
             "observations_count": self.observations_count,
-            "conversation_history_digest": self.conversation_history_digest,
+            "pending_execution": (
+                self.pending_execution.to_dict()
+                if self.pending_execution is not None
+                else None
+            ),
             "updated_at": self.updated_at,
             "created_at": self.created_at,
             "metadata": self.metadata,
@@ -183,7 +272,7 @@ class TaskCheckpoint:
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "TaskCheckpoint":
-        """只加载当前 canonical checkpoint；历史格式由一次性迁移脚本处理。"""
+        """只加载 canonical v4；历史 artifact 必须离线迁移。"""
 
         schema_version = int(data.get("schema_version") or 0)
         if schema_version != cls.SCHEMA_VERSION:
@@ -193,23 +282,23 @@ class TaskCheckpoint:
             )
         payload: dict[str, Any] = dict(data)
         payload.pop("schema_version", None)
+        raw_pending = payload.get("pending_execution")
+        payload["pending_execution"] = (
+            PendingExecutionPointer.from_dict(dict(raw_pending))
+            if isinstance(raw_pending, dict)
+            else None
+        )
         return cls(**payload)
 
 
-def summarize_checkpoint(checkpoint: TaskCheckpoint, max_chars: int = 1400) -> str:
-    """生成供 continuation 使用的紧凑、确定性上下文。"""
-
-    checkpoint_summary = (
-        f"resume_from_run={checkpoint.run_id}\n"
-        f"previous_status={checkpoint.status}\n"
-        f"previous_task={checkpoint.task}\n"
-        f"last_tool={checkpoint.last_tool}\n"
-        f"last_observation={checkpoint.last_observation}\n"
-        f"stop_reason={checkpoint.stop_reason}\n"
-        f"resume_hint={checkpoint.resume_hint}\n"
-        f"stop_output={checkpoint.stop_output}\n"
-        f"final_answer={checkpoint.final_answer}"
-    )
-    if len(checkpoint_summary) <= max_chars:
-        return checkpoint_summary
-    return checkpoint_summary[: max_chars - 14] + " [compressed]"
+__all__ = [
+    "PENDING_EXECUTION_UNCHANGED",
+    "PendingExecutionPointer",
+    "PendingExecutionPointerData",
+    "RESUMABLE_RUN_STATUSES",
+    "TaskCheckpoint",
+    "TaskCheckpointData",
+    "TaskCheckpointUpdate",
+    "TaskRunStatus",
+    "TaskStartRequest",
+]

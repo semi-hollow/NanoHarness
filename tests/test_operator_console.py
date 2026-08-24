@@ -10,8 +10,7 @@ from agent_forge.control import RunController
 from apps.cli.parser import build_parser
 from agent_forge.harness import Harness, HarnessConfig, HarnessExtensions, RunRequest
 from agent_forge.observability.adapters.streaming import EventStreamPolicy
-from apps.operator_console.adapters import JsonTaskSessionCatalog
-from apps.operator_console.application import TaskSessionLibrary
+from apps.operator_console.application import ConversationThreadLibrary
 from apps.operator_console.events import (
     RuntimeEventBuffer,
     render_event,
@@ -20,6 +19,7 @@ from apps.operator_console.events import (
 from apps.operator_console.session import OperatorSession
 from agent_forge.runtime.adapters.approval_json import JsonApprovalRepository
 from agent_forge.runtime.adapters.human_input_json import JsonHumanInputRepository
+from agent_forge.runtime.adapters.thread_json import JsonConversationThreadRepository
 from agent_forge.runtime.domain.conversation import ToolCall
 from agent_forge.runtime.domain.task import TaskRunStatus
 from agent_forge.runtime.adapters.openai_compatible import AgentResponse
@@ -130,7 +130,7 @@ class FullConsoleStoryModel:
 
 
 class CompleteThenFollowUpModel:
-    """验证同一 Task Session 可以在终态后接收新的用户要求。"""
+    """验证同一 ConversationThread 可以在终态后接收新的用户要求。"""
 
     last_usage = None
 
@@ -138,7 +138,7 @@ class CompleteThenFollowUpModel:
         visible_context = "\n".join(
             str(getattr(message, "content", "")) for message in messages
         )
-        if "new authoritative request" in visible_context:
+        if "Explain the final validation evidence." in visible_context:
             return AgentResponse("PASS\nfollow-up completed", [])
         return AgentResponse("PASS\ninitial run completed", [])
 
@@ -165,11 +165,8 @@ class OperatorConsoleTest(unittest.TestCase):
 
             self.assertEqual(completed.status, TaskRunStatus.COMPLETED)
             self.assertIn("continued with operator input", completed.final_answer)
-            self.assertIn("Python 3.11", completed.checkpoint.task)
-            self.assertIn(
-                "do not ask the same question again",
-                completed.checkpoint.task,
-            )
+            self.assertEqual(completed.thread_id, waiting.thread_id)
+            self.assertEqual(completed.turn_id, waiting.turn_id)
             stored = session.human_inputs.get(prompt.key)
             self.assertEqual(stored.status, "responded")
             self.assertEqual(stored.answer, "Python 3.11")
@@ -222,13 +219,18 @@ class OperatorConsoleTest(unittest.TestCase):
                 model=AskThenFinishModel(),
                 enabled_tools=("ask_human",),
             )
+            attached.thread_id = session.thread_id
+            attached.request = replace(
+                attached.request,
+                thread_id=session.thread_id,
+            )
             checkpoint = attached.attach_latest(root)
 
             self.assertEqual(checkpoint.status, TaskRunStatus.WAITING_HUMAN.value)
             self.assertEqual(attached.artifact_dir, waiting.artifact_dir.resolve())
             self.assertEqual(attached.pending_prompt().kind, "human_input")
 
-    def test_completed_run_accepts_follow_up_in_same_task_session(self):
+    def test_completed_run_accepts_follow_up_in_same_thread(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             session, _ = self._session(
@@ -236,26 +238,11 @@ class OperatorConsoleTest(unittest.TestCase):
                 model=CompleteThenFollowUpModel(),
                 enabled_tools=(),
             )
-            library = TaskSessionLibrary(
-                JsonTaskSessionCatalog(root / ".agent_forge" / "internal" / "state" / "sessions")
-            )
-            task_session = library.create(
-                task=session.request.task,
-                workspace=root,
-                title="结算修复会话",
-            )
-            session.task_sessions = library
-            session.task_session_id = task_session.session_id
-            session.request = replace(
-                session.request,
-                human_thread_id=task_session.human_thread_id,
-            )
-
             initial = session.start()
             follow_up = session.continue_with_user_message(
                 "Explain the final validation evidence."
             )
-            persisted = library.require(task_session.session_id)
+            persisted = session.thread_library.require(session.thread_id)
 
             self.assertEqual(initial.status, TaskRunStatus.COMPLETED)
             self.assertEqual(follow_up.status, TaskRunStatus.COMPLETED)
@@ -296,7 +283,11 @@ class OperatorConsoleTest(unittest.TestCase):
                 TaskRunStatus.WAITING_APPROVAL,
             )
             self.assertEqual(target.read_text(encoding="utf-8"), "value = 1\n")
-            self.assertIn("Python 3.11", waiting_approval.checkpoint.task)
+            self.assertEqual(waiting_approval.turn_id, waiting_human.turn_id)
+            self.assertEqual(
+                session.human_inputs.get(human_prompt.key).answer,
+                "Python 3.11",
+            )
 
             completed = session.decide_and_resume("approved")
 
@@ -550,21 +541,22 @@ class OperatorConsoleTest(unittest.TestCase):
         from textual.widgets import Input, Select, Static
 
         async def exercise(root: Path) -> None:
-            library = TaskSessionLibrary(
-                JsonTaskSessionCatalog(root / ".agent_forge" / "internal" / "state" / "sessions")
+            repository = JsonConversationThreadRepository(
+                root / ".agent_forge" / "internal" / "state" / "threads"
             )
-            task_session = library.create(
+            library = ConversationThreadLibrary(repository)
+            thread = library.create(
                 task="Repair settlement service",
                 workspace=root,
                 title="结算修复",
             )
             app = OperatorConsoleApp(
                 build_parser().parse_args(["console", "--workspace", str(root)]),
-                task_sessions=library,
+                threads=library,
             )
             async with app.run_test(size=(140, 44)) as pilot:
                 picker = app.query_one("#session-picker", Select)
-                picker.value = task_session.session_id
+                picker.value = thread.thread_id
                 await pilot.pause()
                 self.assertIn(
                     "结算修复",
@@ -574,13 +566,13 @@ class OperatorConsoleTest(unittest.TestCase):
                 app.query_one("#session-title", Input).value = "结算失败原子性"
                 await pilot.click("#rename-session")
                 await pilot.click("#pin-session")
-                persisted = library.require(task_session.session_id)
+                persisted = library.require(thread.thread_id)
                 self.assertEqual(persisted.title, "结算失败原子性")
                 self.assertTrue(persisted.pinned)
 
                 await pilot.click("#archive-session")
                 self.assertEqual(library.list_active(), [])
-                self.assertTrue(library.require(task_session.session_id).archived)
+                self.assertTrue(library.require(thread.thread_id).archived)
 
         with tempfile.TemporaryDirectory() as tmp:
             asyncio.run(exercise(Path(tmp)))
@@ -691,6 +683,14 @@ class OperatorConsoleTest(unittest.TestCase):
         human_inputs = JsonHumanInputRepository(root / ".agent_forge" / "human_input")
         controller = RunController()
         events = RuntimeEventBuffer()
+        thread_repository = JsonConversationThreadRepository(
+            root / ".agent_forge" / "internal" / "state" / "threads"
+        )
+        thread_library = ConversationThreadLibrary(thread_repository)
+        thread = thread_library.create(
+            task="complete the operator-console test task",
+            workspace=root,
+        )
         harness = Harness(
             model=model,
             config=HarnessConfig(
@@ -709,15 +709,21 @@ class OperatorConsoleTest(unittest.TestCase):
                 event_stream_policy=EventStreamPolicy(include_sensitive_data=True),
                 approval_repository=approvals,
                 human_input_repository=human_inputs,
+                conversation_threads=thread_repository,
                 run_control=controller,
             ),
         )
         session = OperatorSession(
             harness=harness,
-            request=RunRequest("complete the operator-console test task"),
+            request=RunRequest(
+                "complete the operator-console test task",
+                thread_id=thread.thread_id,
+            ),
             controller=controller,
             approvals=approvals,
             human_inputs=human_inputs,
+            thread_library=thread_library,
+            thread_id=thread.thread_id,
         )
         return session, events
 

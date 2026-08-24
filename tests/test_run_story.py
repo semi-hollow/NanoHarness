@@ -21,7 +21,7 @@ class RunStoryTest(unittest.TestCase):
                 json.dumps(
                     {
                         "events": [
-                            {"event_type": "turn_started"},
+                            {"event_type": "model_step_started"},
                             {"event_type": "tool_call"},
                             {"event_type": "task_state_checkpoint"},
                         ]

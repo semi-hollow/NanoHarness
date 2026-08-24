@@ -1,8 +1,13 @@
 import hashlib
+import json
 import tempfile
 import unittest
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+from threading import Barrier
 
+from agent_forge.harness import Harness
+from agent_forge.harness_contracts import HarnessConfig
 from agent_forge.observability.api import TraceRecorder
 from agent_forge.runtime.adapters import (
     JsonApprovalRepository,
@@ -12,9 +17,11 @@ from agent_forge.runtime.api import build_agent_loop
 from agent_forge.runtime.config import RuntimeConfig
 from agent_forge.runtime.adapters.openai_compatible import AgentResponse
 from agent_forge.runtime.domain.conversation import ToolCall
+from agent_forge.runtime.domain.approval import ApprovalRequestDraft
 from agent_forge.safety.sandbox import WorkspaceSandbox
 from agent_forge.tools.builtins.replace_text import ReplaceTextTool
 from agent_forge.tools.registry import ToolRegistry
+from tests.support import bind_new_runtime_turn, bind_resume_runtime_turn
 
 
 class ReplaceThenFinalLLM:
@@ -46,6 +53,50 @@ def _registry(root: Path) -> ToolRegistry:
 
 
 class HumanApprovalTest(unittest.TestCase):
+    def test_approval_decision_is_write_once_and_concurrent_safe(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            approvals = JsonApprovalRepository(root / "approvals")
+            request = approvals.request(
+                ApprovalRequestDraft(
+                    tool_name="replace_text",
+                    arguments={"path": "target.py", "old": "1", "new": "2"},
+                    action="write",
+                    command="",
+                    workspace=str(root),
+                    run_id="run-1",
+                    step=1,
+                    agent_name="CodingAgent",
+                    reason="state-changing operation",
+                    operation_fingerprint={"sha256": "before"},
+                )
+            )
+            barrier = Barrier(2)
+
+            def decide(status: str) -> str:
+                barrier.wait()
+                try:
+                    return approvals.decide(request.operation_key, status).status
+                except ValueError:
+                    return "conflict"
+
+            with ThreadPoolExecutor(max_workers=2) as executor:
+                results = list(executor.map(decide, ["approved", "rejected"]))
+
+            persisted = approvals.get(request.operation_key)
+            self.assertIsNotNone(persisted)
+            assert persisted is not None
+            self.assertIn(persisted.status, {"approved", "rejected"})
+            self.assertCountEqual(results, [persisted.status, "conflict"])
+            # 相同终态重试幂等；相反决定永远不能改写人工授权事实。
+            self.assertEqual(
+                approvals.decide(request.operation_key, persisted.status).status,
+                persisted.status,
+            )
+            opposite = "rejected" if persisted.status == "approved" else "approved"
+            with self.assertRaisesRegex(ValueError, "immutable"):
+                approvals.decide(request.operation_key, opposite)
+
     def test_auto_approved_write_does_not_leave_pending_request(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -60,7 +111,13 @@ class HumanApprovalTest(unittest.TestCase):
                 approval_root=str(root / "approvals"),
             )
 
-            final = build_agent_loop(config, trace, _registry(root), ReplaceThenFinalLLM()).run("fix target")
+            runtime = bind_new_runtime_turn(config, trace, "fix target")
+            final = build_agent_loop(
+                runtime.config,
+                trace,
+                _registry(root),
+                ReplaceThenFinalLLM(),
+            ).run(agent_name="CodingAgent")
 
             self.assertIn("patch applied after approval", final)
             self.assertEqual(approvals.list_pending(), [])
@@ -79,7 +136,17 @@ class HumanApprovalTest(unittest.TestCase):
                 auto_approve_writes=False,
                 approval_root=str(root / "approvals"),
             )
-            first = build_agent_loop(first_config, first_trace, _registry(root), ReplaceThenFinalLLM()).run("fix target")
+            first_runtime = bind_new_runtime_turn(
+                first_config,
+                first_trace,
+                "fix target",
+            )
+            first = build_agent_loop(
+                first_runtime.config,
+                first_trace,
+                _registry(root),
+                ReplaceThenFinalLLM(),
+            ).run(agent_name="CodingAgent")
 
             self.assertIn("waiting_approval", first)
             self.assertEqual((root / "target.py").read_text(encoding="utf-8"), "value = 1\n")
@@ -97,7 +164,17 @@ class HumanApprovalTest(unittest.TestCase):
                 auto_approve_writes=False,
                 approval_root=str(root / "approvals"),
             )
-            second = build_agent_loop(second_config, second_trace, _registry(root), ReplaceThenFinalLLM()).run("fix target")
+            second_runtime = bind_resume_runtime_turn(
+                second_config,
+                second_trace,
+                first_runtime,
+            )
+            second = build_agent_loop(
+                second_runtime.config,
+                second_trace,
+                _registry(root),
+                ReplaceThenFinalLLM(),
+            ).run(agent_name="CodingAgent")
 
             self.assertIn("patch applied after approval", second)
             self.assertEqual((root / "target.py").read_text(encoding="utf-8"), "value = 2\n")
@@ -115,19 +192,23 @@ class HumanApprovalTest(unittest.TestCase):
             (root / "target.py").write_text("value = 1\n", encoding="utf-8")
             approvals = JsonApprovalRepository(root / "approvals")
             ledger_root = root / "ledger"
-
-            first_trace = TraceRecorder(str(root / "first-trace.json"))
-            first_config = RuntimeConfig(
-                workspace=str(root),
-                max_steps=2,
-                trace_file=str(root / "first-trace.json"),
-                auto_approve_writes=False,
-                approval_root=str(root / "approvals"),
-                operation_ledger_root=str(ledger_root),
+            harness = Harness(
+                model=ReplaceThenFinalLLM(),
+                tools=_registry(root),
+                config=HarnessConfig(
+                    workspace=str(root),
+                    output_root=str(root / "runs"),
+                    max_steps=3,
+                    auto_approve_writes=False,
+                    approval_root=str(root / "approvals"),
+                    operation_ledger_root=str(ledger_root),
+                    tool_routing_mode="all",
+                    skill_mode="none",
+                ),
             )
-            first = build_agent_loop(first_config, first_trace, _registry(root), ReplaceThenFinalLLM()).run("fix target")
 
-            self.assertIn("waiting_approval", first)
+            first = harness.run("fix target")
+            self.assertEqual(first.status.value, "waiting_approval")
             pending = approvals.list_pending()
             self.assertEqual(len(pending), 1)
             approvals.decide(pending[0].operation_key, "approved")
@@ -137,49 +218,35 @@ class HumanApprovalTest(unittest.TestCase):
                 encoding="utf-8",
             )
 
-            second_trace = TraceRecorder(str(root / "second-trace.json"))
-            second_config = RuntimeConfig(
-                workspace=str(root),
-                max_steps=3,
-                trace_file=str(root / "second-trace.json"),
-                auto_approve_writes=False,
-                approval_root=str(root / "approvals"),
-                operation_ledger_root=str(ledger_root),
+            second = harness.resume(
+                first.artifact_dir / "task_state" / f"{first.run_id}.json"
             )
-            second = build_agent_loop(second_config, second_trace, _registry(root), ReplaceThenFinalLLM()).run("fix target")
-
-            self.assertIn("approval_stale", second)
+            self.assertEqual(second.status.value, "waiting_approval")
+            self.assertEqual(second.stop_reason, "approval_stale")
             self.assertEqual(
                 (root / "target.py").read_text(encoding="utf-8"),
                 "# independently changed\nvalue = 1\n",
             )
             self.assertEqual(approvals.get(pending[0].operation_key).status, "stale")
+            # Durable trace projection, not an in-memory recorder, owns resume evidence.
+            second_events = json.loads(
+                second.trace_path.read_text(encoding="utf-8")
+            )["events"]
             self.assertTrue(
                 any(
                     event["event_type"] == "human_approval"
                     and event.get("observation") == "approval_stale"
-                    for event in second_trace.events
+                    for event in second_events
                 )
             )
 
-            # 下一次 continuation 不复用 stale，而是为当前目标建立 fresh pending。
-            third_trace = TraceRecorder(str(root / "third-trace.json"))
-            third_config = RuntimeConfig(
-                workspace=str(root),
-                max_steps=3,
-                trace_file=str(root / "third-trace.json"),
-                auto_approve_writes=False,
-                approval_root=str(root / "approvals"),
-                operation_ledger_root=str(ledger_root),
+            # 同一 pending ToolCall 下次 resume 不复用 stale，而是按当前目标
+            # fingerprint 建立 fresh pending，不要求模型重提操作。
+            third = harness.resume(
+                second.artifact_dir / "task_state" / f"{second.run_id}.json"
             )
-            third = build_agent_loop(
-                third_config,
-                third_trace,
-                _registry(root),
-                ReplaceThenFinalLLM(),
-            ).run("fix target")
-
-            self.assertIn("waiting_approval", third)
+            self.assertEqual(third.status.value, "waiting_approval")
+            self.assertEqual(third.stop_reason, "waiting_approval")
             fresh = approvals.get(pending[0].operation_key)
             self.assertIsNotNone(fresh)
             assert fresh is not None
@@ -198,31 +265,21 @@ class HumanApprovalTest(unittest.TestCase):
 
             # fresh approval 仅授权新 fingerprint；获批后真实工具才执行。
             approvals.decide(fresh.operation_key, "approved")
-            fourth_trace = TraceRecorder(str(root / "fourth-trace.json"))
-            fourth_config = RuntimeConfig(
-                workspace=str(root),
-                max_steps=3,
-                trace_file=str(root / "fourth-trace.json"),
-                auto_approve_writes=False,
-                approval_root=str(root / "approvals"),
-                operation_ledger_root=str(ledger_root),
+            fourth = harness.resume(
+                third.artifact_dir / "task_state" / f"{third.run_id}.json"
             )
-            fourth = build_agent_loop(
-                fourth_config,
-                fourth_trace,
-                _registry(root),
-                ReplaceThenFinalLLM(),
-            ).run("fix target")
-
-            self.assertIn("patch applied after approval", fourth)
+            self.assertIn("patch applied after approval", fourth.final_answer or "")
             self.assertEqual(
                 (root / "target.py").read_text(encoding="utf-8"),
                 "# independently changed\nvalue = 2\n",
             )
+            fourth_events = json.loads(
+                fourth.trace_path.read_text(encoding="utf-8")
+            )["events"]
             self.assertTrue(
                 any(
                     event["event_type"] == "tool_execution_started"
-                    for event in fourth_trace.events
+                    for event in fourth_events
                 )
             )
 

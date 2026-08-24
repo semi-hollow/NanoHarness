@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import hashlib
 import json
+import fcntl
+from contextlib import contextmanager
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterator
 
 from agent_forge.infrastructure.atomic_json import atomic_write_json
 from agent_forge.runtime.domain.operation import (
@@ -109,6 +111,10 @@ class JsonOperationLedgerRepository(OperationLedgerRepository):
     def get(self, operation_key: str) -> OperationRecord | None:
         """按稳定 operation key 读取一条持久化执行记录。"""
 
+        with self._operation_lock(operation_key):
+            return self._get_unlocked(operation_key)
+
+    def _get_unlocked(self, operation_key: str) -> OperationRecord | None:
         path = self.path_for(operation_key)
         if not path.exists():
             return None
@@ -118,12 +124,24 @@ class JsonOperationLedgerRepository(OperationLedgerRepository):
     def record_pending(self, plan: OperationPlan) -> OperationRecord:
         """把 planned 记录迁移为等待人工批准。"""
 
-        return self._record(plan)
+        with self._operation_lock(plan.operation_key):
+            existing = self._get_unlocked(plan.operation_key)
+            if existing is not None and existing.status in {"executing", "executed"}:
+                raise RuntimeError(
+                    f"cannot move {existing.status} operation back to pending"
+                )
+            return self._record_unlocked(plan, existing=existing)
 
     def record_approved(self, update: OperationTransition) -> OperationRecord:
         """保存已授权状态，但不代表工具已经执行。"""
 
-        return self._transition(self._require(update.operation_key), update)
+        with self._operation_lock(update.operation_key):
+            record = self._require_unlocked(update.operation_key)
+            if record.status in {"executing", "executed"}:
+                raise RuntimeError(
+                    f"cannot move {record.status} operation back to approved"
+                )
+            return self._transition_unlocked(record, update)
 
     def record_executing(self, update: OperationTransition) -> OperationRecord:
         """在状态变更操作调用前保存执行中状态。
@@ -132,15 +150,22 @@ class JsonOperationLedgerRepository(OperationLedgerRepository):
         因而知道结果不确定，不能把操作当作“尚未执行”而盲目重试。
         """
 
-        return self._transition(self._require(update.operation_key), update)
+        with self._operation_lock(update.operation_key):
+            record = self._require_unlocked(update.operation_key)
+            if record.status != "approved":
+                raise RuntimeError(
+                    "state-changing operation execution claim rejected: "
+                    f"current status is {record.status}"
+                )
+            return self._transition_unlocked(record, update)
 
     # 运行时端口：记录状态变更操作已执行及执行后的目标指纹。
     def record_executed(self, update: OperationTransition) -> OperationRecord:
-        return self._transition(self._require(update.operation_key), update)
+        return self._finish_execution(update)
 
     # 运行时端口：记录状态变更操作失败，供恢复流程决定是否可重试。
     def record_failed(self, update: OperationTransition) -> OperationRecord:
-        return self._transition(self._require(update.operation_key), update)
+        return self._finish_execution(update)
 
     # 运行时端口：首次见到 operation 时创建 planned 状态记录。
     def ensure_planned(self, plan: OperationPlan) -> OperationRecord:
@@ -150,18 +175,23 @@ class JsonOperationLedgerRepository(OperationLedgerRepository):
         让 continuation 不再执行已完成操作，并在目标变化时拒绝复用旧结果。
         """
 
-        existing = self.get(plan.operation_key)
-        if existing is not None:
-            if existing.pre_fingerprint is None and plan.pre_fingerprint is not None:
-                existing.pre_fingerprint = plan.pre_fingerprint
-                self._write(existing)
-            return existing
-        return self._record(plan)
+        with self._operation_lock(plan.operation_key):
+            existing = self._get_unlocked(plan.operation_key)
+            if existing is not None:
+                if existing.pre_fingerprint is None and plan.pre_fingerprint is not None:
+                    existing.pre_fingerprint = plan.pre_fingerprint
+                    self._write_unlocked(existing)
+                return existing
+            return self._record_unlocked(plan, existing=None)
 
-    def _record(self, plan: OperationPlan) -> OperationRecord:
-        existing = self.get(plan.operation_key)
+    def _record_unlocked(
+        self,
+        plan: OperationPlan,
+        *,
+        existing: OperationRecord | None,
+    ) -> OperationRecord:
         if existing is not None:
-            return self._transition(
+            return self._transition_unlocked(
                 existing,
                 OperationTransition(
                     operation_key=plan.operation_key,
@@ -183,29 +213,56 @@ class JsonOperationLedgerRepository(OperationLedgerRepository):
             history=[plan.status],
             pre_fingerprint=plan.pre_fingerprint,
         )
-        self._write(record)
+        self._write_unlocked(record)
         return record
 
-    def _transition(
+    def _transition_unlocked(
         self,
         record: OperationRecord,
         update: OperationTransition,
     ) -> OperationRecord:
         record.transition(update)
-        self._write(record)
+        self._write_unlocked(record)
         return record
 
-    def _require(self, operation_key: str) -> OperationRecord:
-        record = self.get(operation_key)
+    def _require_unlocked(self, operation_key: str) -> OperationRecord:
+        record = self._get_unlocked(operation_key)
         if record is None:
             raise FileNotFoundError(f"operation record not found: {operation_key}")
         return record
 
-    def _write(self, record: OperationRecord) -> None:
+    def _finish_execution(self, update: OperationTransition) -> OperationRecord:
+        with self._operation_lock(update.operation_key):
+            record = self._require_unlocked(update.operation_key)
+            if record.status != "executing":
+                raise RuntimeError(
+                    f"cannot record {update.status} from operation status {record.status}"
+                )
+            if record.run_id != update.run_id or record.step != update.step:
+                raise RuntimeError(
+                    "only the executing claimant may commit an operation result"
+                )
+            return self._transition_unlocked(record, update)
+
+    def _write_unlocked(self, record: OperationRecord) -> None:
         """将一个 operation 的最新状态及完整 history 写入独立 JSON 文件。"""
 
         record.path = str(self.path_for(record.operation_key))
         atomic_write_json(self.path_for(record.operation_key), record.to_dict())
+
+    @contextmanager
+    def _operation_lock(self, operation_key: str) -> Iterator[None]:
+        """按 operation key 串行化跨进程 read-modify-write 与 executing claim。"""
+
+        lock_directory = self.root / ".locks"
+        lock_directory.mkdir(parents=True, exist_ok=True)
+        lock_path = lock_directory / f"{operation_key}.lock"
+        with lock_path.open("a+", encoding="utf-8") as handle:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+            try:
+                yield
+            finally:
+                fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
 
 
 def _target_path_value(arguments: dict[str, Any]) -> Any:

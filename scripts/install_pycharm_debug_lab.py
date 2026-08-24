@@ -25,7 +25,7 @@ READING_SCOPES = (
         "||file:agent_forge/runtime/wiring.py"
         "||file:agent_forge/runtime/application/agent_loop.py"
         "||file:agent_forge/runtime/application/run_preparation.py"
-        "||file:agent_forge/runtime/application/turn_preparation.py"
+        "||file:agent_forge/runtime/application/model_step_preparation.py"
         "||file:agent_forge/runtime/application/tool_execution.py"
         "||file:agent_forge/runtime/application/run_lifecycle.py"
         "||file:agent_forge/context/application/compaction.py"

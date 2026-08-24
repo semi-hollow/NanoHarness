@@ -2,9 +2,8 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
-from types import SimpleNamespace
 
-from agent_forge.runtime.application.turn_preparation import TurnPreparation
+from agent_forge.runtime.application.run_preparation import RunPreparation
 from agent_forge.skills import SkillRegistry, build_default_skill_registry
 
 
@@ -128,12 +127,10 @@ resources:
             "Resolve this SWE-bench issue.",
             names=["swebench_repair"],
         )
-        session = SimpleNamespace(active_skills=selected)
-
         with self.assertRaisesRegex(ValueError, "requires unavailable tools"):
-            TurnPreparation._verify_skill_tool_dependencies(
-                session=session,
-                registered_tool_schemas=[{"name": "read_file"}],
+            RunPreparation._verify_skill_tool_dependencies(
+                active_skills=selected,
+                schemas=[{"name": "read_file"}],
             )
 
 

@@ -6,7 +6,6 @@
 
 from agent_forge.runtime.application.agent_loop import AgentLoop
 from agent_forge.runtime.application.dependencies import RuntimeDependencies
-from agent_forge.runtime.application.operator_control import ContinuationPlan
 from agent_forge.runtime.domain.task import TaskCheckpoint, TaskRunStatus
 from agent_forge.runtime.wiring import (
     HumanInputResponseCommand,
@@ -20,13 +19,11 @@ from agent_forge.runtime.wiring import (
     list_pending_approvals,
     list_pending_human_inputs,
     load_task_checkpoint,
-    prepare_continuation,
     respond_to_human_input,
 )
 
 __all__ = [
     "AgentLoop",
-    "ContinuationPlan",
     "HumanInputResponseCommand",
     "RuntimeDependencies",
     "TaskCheckpoint",
@@ -41,6 +38,5 @@ __all__ = [
     "list_pending_approvals",
     "list_pending_human_inputs",
     "load_task_checkpoint",
-    "prepare_continuation",
     "respond_to_human_input",
 ]

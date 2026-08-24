@@ -1,5 +1,3 @@
-"""Operator Console 可持久化会话的领域模型。"""
+"""Operator Console 不复制 Runtime ConversationThread 领域对象。"""
 
-from .task_session import TaskSession, TaskSessionRun
-
-__all__ = ["TaskSession", "TaskSessionRun"]
+__all__: list[str] = []

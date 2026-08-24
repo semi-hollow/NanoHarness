@@ -28,8 +28,9 @@ from typing import Callable
 
 from agent_forge.observability.adapters.json_trace import TraceRecorder
 from agent_forge.observability.api import write_usage_artifacts
-from agent_forge.runtime.api import build_agent_loop
 from agent_forge.runtime.config import RuntimeConfig
+from agent_forge.runtime.adapters.task_state_json import JsonTaskStateRepository
+from agent_forge.runtime.adapters.thread_json import JsonConversationThreadRepository
 from agent_forge.runtime.adapters.execution_environment import (
     ExecutionEnvironment,
     ExecutionEnvironmentConfig,
@@ -39,6 +40,17 @@ from agent_forge.runtime.adapters.git_workspace import (
     collect_workspace_diff,
 )
 from agent_forge.runtime.ports.model import ModelPort
+from agent_forge.runtime.domain.task import (
+    RESUMABLE_RUN_STATUSES,
+    TaskRunStatus,
+    TaskStartRequest,
+)
+from agent_forge.runtime.domain.thread import (
+    ConversationItemDraft,
+    ConversationThread,
+    ThreadRun,
+    Turn,
+)
 from agent_forge.runtime.wiring import (
     AgentLoopBuildRequest,
     RuntimeDependencyOverrides,
@@ -146,6 +158,12 @@ class LocalAgentWorkerAdapter(FanoutWorkerPort):
         validation_evidence: list[dict[str, object]] = []
         unresolved_issues: list[str] = []
         handoff: WorkerHandoff | None = None
+        private_threads: JsonConversationThreadRepository | None = None
+        private_task_states: JsonTaskStateRepository | None = None
+        private_thread_id = ""
+        private_turn_id = ""
+        private_run_failed = False
+        worker_trace: TraceRecorder | None = None
         # endregion 1. 输出契约准备结束
         try:
             # region 2. 隔离工作区（实现细节）：创建 worktree，并带入前置任务的已合并改动
@@ -180,9 +198,34 @@ class LocalAgentWorkerAdapter(FanoutWorkerPort):
             if coordination is not None:
                 registry.register(PublishHandoffEventTool(coordination))
             worker_trace = TraceRecorder(str(trace_path))
+            worker_prompt = worker_task_prompt(
+                self.plan.goal,
+                task,
+                dependency_handoffs,
+                live_routes=[
+                    dependency.to_dict()
+                    for dependency in self.plan.live_routes_for(task.id)
+                ],
+            )
+            (
+                private_threads,
+                private_task_states,
+                private_thread_id,
+                private_turn_id,
+            ) = self._start_private_conversation(
+                root=worker_dir,
+                trace=worker_trace,
+                root_task=worker_prompt,
+                thread_kind="worker",
+                agent_name=f"Subagent:{task.id}",
+                execution_workspace=active_workspace,
+                execution_mode="worktree",
+            )
             worker_config = replace(
                 self.base_config,
                 workspace=str(active_workspace),
+                requested_workspace=str(self.workspace),
+                execution_mode="worktree",
                 execution_environment=environment,
                 max_steps=min(self.base_config.max_steps, task.max_steps),
                 approval_mode=(
@@ -192,11 +235,12 @@ class LocalAgentWorkerAdapter(FanoutWorkerPort):
                 ),
                 task_state_root=str(worker_dir / "task_state"),
                 approval_root=str(worker_dir / "approvals"),
-                human_thread_id=(
-                    f"fanout:{self.plan.digest[:16]}:{self.base_head[:12]}:"
-                    f"{task.id}:attempt-{attempt}"
-                ),
+                human_input_root=str(worker_dir / "human_input"),
                 operation_ledger_root=str(worker_dir / "operation_ledger"),
+                conversation_thread_root=str(worker_dir / "threads"),
+                thread_id=private_thread_id,
+                turn_id=private_turn_id,
+                context_revision=0,
                 system_prompt_profile="fanout_worker",
             )
             # endregion 3. 受限 Runtime 装配结束
@@ -204,38 +248,24 @@ class LocalAgentWorkerAdapter(FanoutWorkerPort):
             # region 4. AgentLoop 执行（主链）：任务契约进入模型，结果写入独立 Trace/Usage
             # worker_task_prompt 把总目标与子任务 scope 合并；AgentLoop 完成后立即冻结
             # Trace/Usage，后续候选收集只读取 workspace，不修改模型运行证据。
-            worker_loop = (
-                build_agent_loop_from_request(
-                    AgentLoopBuildRequest(
-                        config=worker_config,
-                        trace=worker_trace,
-                        registry=registry,
-                        llm=self.llm_factory(),
-                        overrides=RuntimeDependencyOverrides(
-                            control=LiveHandoffRunControl(coordination)
+            worker_loop = build_agent_loop_from_request(
+                AgentLoopBuildRequest(
+                    config=worker_config,
+                    trace=worker_trace,
+                    registry=registry,
+                    llm=self.llm_factory(),
+                    overrides=RuntimeDependencyOverrides(
+                        task_states=private_task_states,
+                        conversation_threads=private_threads,
+                        control=(
+                            LiveHandoffRunControl(coordination)
+                            if coordination is not None
+                            else None
                         ),
-                    )
-                )
-                if coordination is not None
-                else build_agent_loop(
-                    worker_config,
-                    worker_trace,
-                    registry,
-                    self.llm_factory(),
+                    ),
                 )
             )
-            final_answer = worker_loop.run(
-                worker_task_prompt(
-                    self.plan.goal,
-                    task,
-                    dependency_handoffs,
-                    live_routes=[
-                        dependency.to_dict()
-                        for dependency in self.plan.live_routes_for(task.id)
-                    ],
-                ),
-                agent_name=f"Subagent:{task.id}",
-            )
+            final_answer = worker_loop.run(agent_name=f"Subagent:{task.id}")
             worker_trace.write()
             usage_json, _ = write_usage_artifacts(trace_path)
             usage = json.loads(usage_json.read_text(encoding="utf-8"))
@@ -282,6 +312,7 @@ class LocalAgentWorkerAdapter(FanoutWorkerPort):
             # endregion 5. 候选结果收集结束
         except Exception as exc:
             # 失败也必须发布结构稳定的 artifact；Coordinator 不需要靠异常猜 Worker 状态。
+            private_run_failed = True
             error = str(exc)
             stop_reason = "worker_adapter_exception"
             failure_kind = "worker_adapter_exception"
@@ -319,12 +350,25 @@ class LocalAgentWorkerAdapter(FanoutWorkerPort):
                     encoding="utf-8",
                 )
         finally:
-            # 无论成功或失败都保留环境清单；临时 worktree 最后统一回收。
+            # 无论成功或失败都保留环境清单；active checkpoint 保留 worktree 供恢复。
+            preserve_private_workspace = False
+            # 私有 Run 先同步导航状态，再决定 worktree 是否可以安全回收。
             try:
+                preserve_private_workspace = self._settle_private_conversation(
+                    repository=private_threads,
+                    task_states=private_task_states,
+                    thread_id=private_thread_id,
+                    turn_id=private_turn_id,
+                    run_id=worker_trace.run_id if worker_trace is not None else "",
+                    artifact_dir=worker_dir,
+                    failed=private_run_failed,
+                )
                 manifest_path = environment.write_manifest(worker_dir)
             finally:
-                with self._git_lock:
-                    environment.cleanup()
+                # 只有 active checkpoint 需要保留隔离环境；终态或初始化失败均清理。
+                if not preserve_private_workspace:
+                    with self._git_lock:
+                        environment.cleanup()
 
         # 返回的是 Coordinator 唯一依赖的 Worker 数据契约，不暴露内部 AgentLoop 对象。
         return LiveSubagentResult(
@@ -391,7 +435,14 @@ class LocalAgentWorkerAdapter(FanoutWorkerPort):
         usage_summary: dict[str, object] = {}
         candidate_snapshot = ""
         criterion_results: list[CriterionResult] = []
+        private_threads: JsonConversationThreadRepository | None = None
+        private_task_states: JsonTaskStateRepository | None = None
+        private_thread_id = ""
+        private_turn_id = ""
+        private_run_failed = False
         # endregion 1. 验证输出准备结束
+        finalizer_prompt = finalizer_task_prompt(plan.goal, results, plan=plan)
+        # Finalizer 任何异常都收敛为 BLOCKED，同时仍进入统一证据与环境清理路径。
         try:
             # region 2. 隔离候选结果（实现细节）：把 Coordinator 已合并 Diff 复制到新 worktree
             # Finalizer 不直接进入集成 workspace；先复制当前 integrated diff 到隔离 worktree，
@@ -426,17 +477,37 @@ class LocalAgentWorkerAdapter(FanoutWorkerPort):
                 # 某个可选验证 Tool 未注册时跳过，而不是引入新的执行能力。
                 if tool is not None:
                     registry.register(tool)
+            finalizer_prompt = finalizer_task_prompt(plan.goal, results, plan=plan)
+            (
+                private_threads,
+                private_task_states,
+                private_thread_id,
+                private_turn_id,
+            ) = self._start_private_conversation(
+                root=final_dir,
+                trace=final_trace,
+                root_task=finalizer_prompt,
+                thread_kind="finalizer",
+                agent_name="FanoutFinalizer",
+                execution_workspace=workspace,
+                execution_mode="worktree",
+            )
             config = replace(
                 self.base_config,
                 workspace=str(workspace),
+                requested_workspace=str(self.workspace),
+                execution_mode="worktree",
                 execution_environment=environment,
                 approval_mode="dry-run",
                 max_steps=min(self.base_config.max_steps, 8),
                 task_state_root=str(final_dir / "task_state"),
                 approval_root=str(final_dir / "approvals"),
                 human_input_root=str(final_dir / "human_input"),
-                human_thread_id=f"{self.run_id}:finalizer",
                 operation_ledger_root=str(final_dir / "operation_ledger"),
+                conversation_thread_root=str(final_dir / "threads"),
+                thread_id=private_thread_id,
+                turn_id=private_turn_id,
+                context_revision=0,
                 system_prompt_profile="fanout_finalizer",
             )
             # endregion 3. 只读 Runtime 装配结束
@@ -444,13 +515,18 @@ class LocalAgentWorkerAdapter(FanoutWorkerPort):
             # region 4. Finalizer 执行与质量门（主链）：解析判定，并检查验证者没有改代码
             # 模型判定后再次比较 workspace diff；任何新增改动都会把 decision 强制降为
             # BLOCKED，防止“验证者顺手修好代码”被误算成 Worker 结果通过。
-            answer = build_agent_loop(
-                config,
-                final_trace,
-                registry,
-                self.llm_factory(),
+            answer = build_agent_loop_from_request(
+                AgentLoopBuildRequest(
+                    config=config,
+                    trace=final_trace,
+                    registry=registry,
+                    llm=self.llm_factory(),
+                    overrides=RuntimeDependencyOverrides(
+                        task_states=private_task_states,
+                        conversation_threads=private_threads,
+                    ),
+                )
             ).run(
-                finalizer_task_prompt(plan.goal, results, plan=plan),
                 agent_name="FanoutFinalizer",
             )
             decision = _decision(answer)
@@ -477,6 +553,7 @@ class LocalAgentWorkerAdapter(FanoutWorkerPort):
             # endregion 4. Finalizer 执行与质量门结束
         except Exception as exc:
             # 验证基础设施异常按 BLOCKED 处理，不能冒充 PASS。
+            private_run_failed = True
             answer = f"BLOCKED\nfinalizer error: {exc}"
             final_trace.add(
                 0,
@@ -488,7 +565,7 @@ class LocalAgentWorkerAdapter(FanoutWorkerPort):
         finally:
             # 即使异常也写 Trace/Usage/环境清单，随后回收验证 worktree。
             final_trace.set_run_context(
-                task=finalizer_task_prompt(plan.goal, results, plan=plan),
+                task=finalizer_prompt,
                 stop_reason=f"finalizer_{decision.lower()}",
                 stop_output=answer,
                 final_answer=answer if decision == "PASS" else None,
@@ -501,12 +578,25 @@ class LocalAgentWorkerAdapter(FanoutWorkerPort):
                 usage = json.loads(usage_json.read_text(encoding="utf-8"))
                 usage_summary = dict(usage.get("summary") or {})
             finally:
-                # 环境清单独立于 Usage；最后一层 finally 保证临时 worktree 总被回收。
+                # 环境清单独立于 Usage；active checkpoint 保留 worktree 供恢复。
+                preserve_private_workspace = False
+                # 先同步私有 Finalizer Run，再根据 checkpoint 终态决定是否清理。
                 try:
+                    preserve_private_workspace = self._settle_private_conversation(
+                        repository=private_threads,
+                        task_states=private_task_states,
+                        thread_id=private_thread_id,
+                        turn_id=private_turn_id,
+                        run_id=final_trace.run_id,
+                        artifact_dir=final_dir,
+                        failed=private_run_failed,
+                    )
                     environment.write_manifest(final_dir)
                 finally:
-                    with self._git_lock:
-                        environment.cleanup()
+                    # 可恢复的 active Run 保留 worktree，其余状态均回收临时环境。
+                    if not preserve_private_workspace:
+                        with self._git_lock:
+                            environment.cleanup()
         # verification.md 是给人看的结论；FinalizerResult 是给 Coordinator 的结构化结果。
         (final_dir / "verification.md").write_text(
             answer.strip() + "\n",
@@ -521,6 +611,156 @@ class LocalAgentWorkerAdapter(FanoutWorkerPort):
             criterion_results=criterion_results,
         )
     # endregion 3. 只读 Finalizer
+
+    # region Private execution conversation：每个 Worker/Finalizer 独占 Thread
+    def _start_private_conversation(
+        self,
+        *,
+        root: Path,
+        trace: TraceRecorder,
+        root_task: str,
+        thread_kind: str,
+        agent_name: str,
+        execution_workspace: Path,
+        execution_mode: str,
+    ) -> tuple[
+        JsonConversationThreadRepository,
+        JsonTaskStateRepository,
+        str,
+        str,
+    ]:
+        """建立非人类权威的私有 Thread，并把本次执行登记为首个 Run。"""
+
+        # region 1. 私有身份：Worker / Finalizer 各自拥有隔离的 Thread 与 Turn
+        thread_id = f"{thread_kind}-{trace.run_id}"
+        turn_id = f"turn-{trace.run_id}"
+        now = time.time()
+        repository = JsonConversationThreadRepository(root / "threads")
+        task_states = JsonTaskStateRepository(root / "task_state")
+        repository.create(
+            ConversationThread(
+                thread_id=thread_id,
+                title=f"{agent_name} execution",
+                initial_task=root_task,
+                workspace=str(self.workspace),
+                thread_kind=thread_kind,
+                created_at=now,
+                updated_at=now,
+            )
+        )
+        # endregion 1. 私有身份结束
+
+        # region 2. Execution bind：CREATED checkpoint 先落盘，再绑定 non-authority Turn
+        checkpoint = task_states.start(
+            TaskStartRequest(
+                run_id=trace.run_id,
+                thread_id=thread_id,
+                turn_id=turn_id,
+                workspace=str(self.workspace),
+                execution_workspace=str(execution_workspace),
+                execution_mode=execution_mode,
+                agent_name=agent_name,
+            )
+        )
+        repository.start_turn(
+            thread_id,
+            Turn(
+                turn_id=turn_id,
+                root_task=root_task,
+                input_item_id=f"runtime-plan:{turn_id}",
+                status=TaskRunStatus.CREATED.value,
+                created_at=now,
+                updated_at=now,
+            ),
+            ConversationItemDraft(
+                item_id=f"runtime-plan:{turn_id}",
+                turn_id=turn_id,
+                run_id=trace.run_id,
+                role="user",
+                content=root_task,
+                origin="runtime_plan",
+                human_authority=False,
+            ),
+            ThreadRun(
+                run_id=trace.run_id,
+                artifact_dir=str(root),
+                checkpoint_path=str(task_states.path_for(checkpoint.run_id)),
+                status=TaskRunStatus.CREATED.value,
+                relationship="initial",
+                created_at=now,
+                updated_at=now,
+            ),
+        )
+        return repository, task_states, thread_id, turn_id
+        # endregion 2. Execution bind结束
+
+    @staticmethod
+    def _settle_private_conversation(
+        *,
+        repository: JsonConversationThreadRepository | None,
+        task_states: JsonTaskStateRepository | None,
+        thread_id: str,
+        turn_id: str,
+        run_id: str,
+        artifact_dir: Path,
+        failed: bool,
+    ) -> bool:
+        """同步 Run 导航；返回是否必须保留 worktree 供 active Run 恢复。"""
+
+        # 初始化尚未拿到完整私有身份时没有可同步对象，也不需要保留 worktree。
+        if repository is None or task_states is None or not run_id:
+            return False
+        # region 1. Adapter 异常：只有明确 failed 且 checkpoint 缺失时才补 terminal 导航
+        # checkpoint 是私有 Run 的执行真相；缺失时只允许已知 Adapter 失败走兜底。
+        try:
+            checkpoint = task_states.load(run_id)
+        except FileNotFoundError:
+            # 正常 AgentLoop 结束却没有 checkpoint 代表持久化契约被破坏，必须显式失败。
+            if not failed:
+                raise RuntimeError("private AgentLoop ended without a checkpoint")
+            now = time.time()
+            repository.record_run(
+                thread_id,
+                turn_id,
+                ThreadRun(
+                    run_id=run_id,
+                    artifact_dir=str(artifact_dir),
+                    checkpoint_path=str(task_states.path_for(run_id)),
+                    status=TaskRunStatus.FAILED.value,
+                    relationship="initial",
+                    stop_reason="worker_adapter_exception",
+                    created_at=now,
+                    updated_at=now,
+                ),
+            )
+            repository.finish_turn(
+                thread_id,
+                turn_id,
+                TaskRunStatus.FAILED.value,
+                run_id=run_id,
+            )
+            return False
+        # endregion 1. Adapter 异常兜底结束
+
+        # region 2. 正常收口：checkpoint status 同步到私有 Run，active 状态保留 worktree
+        repository.record_run(
+            thread_id,
+            turn_id,
+            ThreadRun(
+                run_id=run_id,
+                artifact_dir=str(artifact_dir),
+                checkpoint_path=str(task_states.path_for(run_id)),
+                status=checkpoint.status,
+                relationship="initial",
+                stop_reason=checkpoint.stop_reason,
+                current_step=checkpoint.current_step,
+                created_at=checkpoint.created_at,
+                updated_at=checkpoint.updated_at,
+            ),
+        )
+        return checkpoint.status in RESUMABLE_RUN_STATUSES
+        # endregion 2. 正常收口结束
+    # endregion 私有执行 Conversation
 
     # region 4. 恢复验证：重放 checkpoint Diff，但不触碰真实集成 workspace
     def validate_recovery_diffs(self, diffs: list[tuple[str, str]]) -> str:

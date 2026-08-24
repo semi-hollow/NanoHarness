@@ -1,302 +1,619 @@
-"""Single Agent 运行前的会话创建与前置决策。"""
+"""Single Agent 首次模型调用前的 Run/Turn 上下文准备。"""
 
 from __future__ import annotations
 
 import hashlib
 import json
+from dataclasses import replace
+from pathlib import Path
 
-from agent_forge.context.domain import ConversationHistoryDigest
 from agent_forge.memory.domain import LongTermMemoryRecord
+from agent_forge.contracts import JsonObject, ToolSchema
+from agent_forge.runtime.application.clarification import (
+    ClarificationDecision,
+    ClarificationPolicy,
+)
+from agent_forge.runtime.application.context_budget import partition_context_budgets
 from agent_forge.runtime.application.dependencies import RuntimeDependencies
 from agent_forge.runtime.application.run_lifecycle import RunLifecycle, StopRequest
 from agent_forge.runtime.application.session import AgentRunSession
-from agent_forge.runtime.application.clarification import ClarificationDecision, ClarificationPolicy
-from agent_forge.runtime.config import RuntimeConfig
 from agent_forge.runtime.application.step_control import StepController
-from agent_forge.runtime.domain.conversation import Message
+from agent_forge.runtime.config import RuntimeConfig
+from agent_forge.runtime.domain.conversation import Message, Observation
 from agent_forge.runtime.domain.human_input import HumanInputQuestion
 from agent_forge.runtime.domain.task import (
-    TaskCheckpointData,
+    TaskCheckpoint,
+    TaskCheckpointUpdate,
     TaskRunStatus,
-    TaskStartRequest,
-    summarize_checkpoint,
 )
-from agent_forge.runtime.ports import SkillView
+from agent_forge.runtime.domain.thread import (
+    ConversationItem,
+    ConversationItemDraft,
+    TurnContextSnapshot,
+)
+from agent_forge.runtime.ports import SkillView, StableTurnContextRequest
 from agent_forge.safety.guardrails import GuardrailResult, input_guardrail
 
 
+CONVERSATION_VIEW_LIMIT = 200
+TURN_CONTEXT_CONTRACT_REVISION = 1
+
+
 class RunPreparation:
-    """创建 run，并在首次模型调用前完成所有一次性决策。
+    """创建 Run session，并冻结或恢复当前 Turn 的稳定输入快照。"""
 
-    阅读入口只有两个：``create_session`` 创建显式会话，``prepare_run`` 完成
-    guardrail、clarification/人工恢复、Skill 选择与长期记忆召回。
-    """
-
-    def __init__(
-        self,
-        config: RuntimeConfig,
-        dependencies: RuntimeDependencies,
-        *,
-        human_thread_id: str,
-    ) -> None:
+    def __init__(self, config: RuntimeConfig, dependencies: RuntimeDependencies) -> None:
         self.config = config
         self.trace = dependencies.events
         self.environment = dependencies.environment
         self.task_states = dependencies.task_states
+        self.conversation_threads = dependencies.conversation_threads
         self.human_inputs = dependencies.human_inputs
         self.hooks = dependencies.hooks
         self.memory_recall = dependencies.long_term_memory_recall
-        self.human_thread_id = human_thread_id
         self.clarification_policy = ClarificationPolicy()
         self.skill_selector = dependencies.skills
+        self.tool_gateway = dependencies.tools
+        self.context_assembler = dependencies.turn_system_context_assembler
         self.model_capabilities = dependencies.model_capabilities
 
-    # 主要入口：创建本次 run 的 session、lifecycle 和首个 durable checkpoint。
-    def create_session(self, task: str, agent_name: str) -> AgentRunSession:
-        """把 ``AgentLoop.run`` 的规范输入转换为可恢复的运行会话。
+    def create_session(self, agent_name: str) -> AgentRunSession:
+        """从 Thread/Turn 读取 root task，并创建本 attempt 的最小 checkpoint。
 
-        流程位置：黄金主链的 session 与首个 durable state 创建点。
+        流程位置：``Harness`` 完成装配后，AgentLoop 进入治理主链的第一站。
         规范上游：``AgentLoop.run``。
-        下一 owner：``RunLifecycle`` 与 ``AgentRunSession``。
-        状态与证据：首个 checkpoint、环境和模型能力事件。
-        系统不变量：任何 turn 开始前都已有唯一 run id 和首个状态事实。
-        删除/内联影响：会失去 turn 前 durable-state 屏障并扩大 ``AgentLoop``。
+        下一 owner：``prepare_run``，随后才允许进入 Model Step。
+        状态与证据：Run checkpoint、Thread 有界视图、TurnContextSnapshot 与模型能力事件。
+        系统不变量：任务身份只来自 canonical Thread/Turn，checkpoint 不能复制另一份任务真相。
+        删除/内联影响：会把身份校验、恢复装载和 session 组装重新散到 AgentLoop。
         """
 
-        # region 准备区（实现细节）：恢复摘要与首个 durable checkpoint
-        self.trace.set_run_context(task=task)
-        restored_state_summary, restored_conversation_digest = (
-            self._load_resume_state(agent_name)
-        )
-        initial_checkpoint = self.task_states.start(
-            TaskStartRequest(
-                run_id=self.trace.run_id,
-                task=task,
-                workspace=self.config.workspace,
-                agent_name=agent_name,
-                metadata={
-                    "execution_environment": self.environment.probe().to_dict(),
-                    "human_thread_id": self.human_thread_id,
-                    "model_capabilities": self.model_capabilities.to_dict(),
-                },
+        # region 1. 权威身份：Task 只从当前 Turn 读取，checkpoint/调用参数不再复制
+        if not self.config.thread_id or not self.config.turn_id:
+            raise ValueError("RuntimeConfig requires canonical thread_id and turn_id")
+        thread = self.conversation_threads.get(self.config.thread_id)
+        if thread is None:
+            raise KeyError(f"conversation thread not found: {self.config.thread_id}")
+        turn = thread.require_turn(self.config.turn_id)
+        root_task = turn.root_task
+        state = self.conversation_threads.load_context_state(thread.thread_id)
+        context_revision = state.revision if state is not None else 0
+        if self.config.context_revision > context_revision:
+            raise ValueError(
+                "checkpoint references a context revision that is not durable: "
+                f"checkpoint={self.config.context_revision}, actual={context_revision}"
             )
+        turn_focus, turn_focus_item_id = self._derive_turn_focus(thread.sequence, turn.turn_id)
+        # endregion 1. 权威身份结束
+
+        # region 2. Attempt checkpoint：加载 claim 前已 durable 的 CREATED bootstrap
+        self.trace.set_run_context(task=root_task)
+        initial_checkpoint = self.task_states.load_path(
+            str(self.task_states.path_for(self.trace.run_id))
+        )
+        self._validate_bootstrap_checkpoint(
+            initial_checkpoint,
+            thread_id=thread.thread_id,
+            turn_id=turn.turn_id,
+            agent_name=agent_name,
+        )
+        restored_checkpoint = self._load_resume_checkpoint()
+        update = TaskCheckpointUpdate(
+            status=TaskRunStatus.RUNNING,
+            context_revision=context_revision,
+            metadata={
+                **initial_checkpoint.metadata,
+                "execution_environment": self.environment.probe().to_dict(),
+                "model_capabilities": self.model_capabilities.to_dict(),
+            },
+        )
+        if restored_checkpoint is not None:
+            if (
+                restored_checkpoint.thread_id != thread.thread_id
+                or restored_checkpoint.turn_id != turn.turn_id
+            ):
+                raise ValueError("resume checkpoint does not belong to configured Thread/Turn")
+            update = replace(
+                update,
+                current_step=restored_checkpoint.current_step,
+                last_tool=restored_checkpoint.last_tool,
+                last_observation=restored_checkpoint.last_observation,
+                pending_execution=restored_checkpoint.pending_execution,
+            )
+            self._record_resume_state_loaded(
+                agent_name=agent_name,
+                checkpoint=restored_checkpoint,
+            )
+        initial_checkpoint = self.task_states.update(initial_checkpoint, update)
+        claimed_run = next(
+            (item for item in turn.runs if item.run_id == self.trace.run_id),
+            None,
+        )
+        if claimed_run is None or turn.current_run_id != self.trace.run_id:
+            raise RuntimeError("Run bootstrap is not the current claimed ThreadRun")
+        self.conversation_threads.record_run(
+            thread.thread_id,
+            turn.turn_id,
+            replace(
+                claimed_run,
+                status=TaskRunStatus.RUNNING.value,
+                current_step=initial_checkpoint.current_step,
+                updated_at=initial_checkpoint.updated_at,
+            ),
         )
         self.trace.record_task_state_checkpoint(
-            step=0,
+            step=initial_checkpoint.current_step,
             agent_name=agent_name,
             checkpoint=initial_checkpoint,
         )
         self.hooks.on_checkpoint(initial_checkpoint)
         self._record_model_capabilities(agent_name)
-        run_lifecycle = RunLifecycle(
+        lifecycle = RunLifecycle(
             checkpoint=initial_checkpoint,
             task_state_store=self.task_states,
+            conversation_threads=self.conversation_threads,
+            thread_id=thread.thread_id,
+            turn_id=turn.turn_id,
             human_input_store=self.human_inputs,
-            human_thread_id=self.human_thread_id,
             workspace=self.config.workspace,
             trace=self.trace,
             hooks=self.hooks,
         )
-        # endregion 会话准备结束
-        return AgentRunSession(
-            task=task,
+        # endregion 2. Attempt checkpoint 结束
+
+        # region 3. 有界视图：只加载 digest 尚未覆盖的 raw Conversation tail
+        messages, observations, sequences = self._load_conversation_view(
+            thread_id=thread.thread_id,
+            after_sequence=state.covered_sequence if state is not None else 0,
+        )
+        session = AgentRunSession(
+            thread_id=thread.thread_id,
+            turn_id=turn.turn_id,
+            thread_initial_task=thread.initial_task,
+            root_task=root_task,
+            turn_focus=turn_focus,
+            turn_focus_item_id=turn_focus_item_id,
             agent_name=agent_name,
             workspace_root=self.config.workspace,
             max_iterations=self.config.max_steps,
-            lifecycle=run_lifecycle,
+            lifecycle=lifecycle,
             controller=StepController.from_config(self.config),
-            resume_summary=restored_state_summary,
-            conversation_history_digest=restored_conversation_digest,
+            conversation_threads=self.conversation_threads,
+            context_revision=context_revision,
+            messages=messages,
+            observations=observations,
+            message_sequences=sequences,
         )
+        # Turn 一进入 Runtime 就冻结稳定契约；即使操作员在首个模型步骤前 pause，
+        # 后续 resume 也只复用这里的 Snapshot，不会读取已经变化的治理规则。
+        self._ensure_turn_context_snapshot(session)
+        return session
+        # endregion 3. 有界视图结束
 
-    # 主要入口：应用输入策略、恢复人工状态、选择 Skill 并召回长期记忆。
+    def _validate_bootstrap_checkpoint(
+        self,
+        checkpoint: TaskCheckpoint,
+        *,
+        thread_id: str,
+        turn_id: str,
+        agent_name: str,
+    ) -> None:
+        """证明 RunPreparation 正在推进 claim 时验证过的同一个 bootstrap。"""
+
+        if (
+            checkpoint.run_id != self.trace.run_id
+            or checkpoint.thread_id != thread_id
+            or checkpoint.turn_id != turn_id
+        ):
+            raise ValueError("bootstrap checkpoint identity does not match current Run")
+        if checkpoint.status != TaskRunStatus.CREATED.value:
+            raise ValueError("RunPreparation requires a CREATED bootstrap checkpoint")
+        requested_workspace = Path(
+            self.config.requested_workspace or self.config.workspace
+        ).resolve()
+        if (
+            Path(checkpoint.workspace).resolve() != requested_workspace
+            or Path(checkpoint.execution_workspace).resolve()
+            != Path(self.config.workspace).resolve()
+            or checkpoint.execution_mode != self.config.execution_mode
+            or checkpoint.agent_name != agent_name
+            or checkpoint.context_revision != self.config.context_revision
+        ):
+            raise ValueError("bootstrap checkpoint contract does not match RuntimeConfig")
+
     def prepare_run(self, session: AgentRunSession) -> StopRequest | None:
-        """完成首次模型调用前的一次性决策，并把控制权还给 ``AgentLoop``。
+        """在已冻结 Turn snapshot 上执行输入治理与澄清，不重复发现稳定输入。
 
-        伪代码：input guardrail -> clarification/HITL -> freeze Skill
-        -> seed Working Memory 与 Long-Term Memory snapshot。
-
-        流程位置：首次模型调用之前的一次性策略阶段。
+        流程位置：Run session 已创建、任何 Model Step 尚未开始的准备门。
         规范上游：``AgentLoop.run``。
-        下一 owner：成功时 ``TurnPreparation.prepare_turn``；停止时
-        ``RunLifecycle.finalize_run``。
-        状态与证据：guardrail、clarification、Skill 与 memory 决定写入 trace。
-        系统不变量：本方法只返回 ``StopRequest``，不直接写终态。
-        删除/内联影响：会把一次性策略重新散入 turn loop。
+        下一 owner：``ModelStepPreparation.prepare_model_step``，或一个明确的 StopRequest。
+        状态与证据：输入 Guardrail、已冻结的 Skill/Memory 选择与人工澄清。
+        系统不变量：同一 Turn 的 resume 必须复用稳定快照，新 Run 不得静默重读治理规则。
+        删除/内联影响：会让输入治理、稳定上下文和澄清顺序失去唯一 owner。
         """
 
         input_policy_stop = self._apply_input_policy(session)
-        # 输入策略拒绝时立即停止，不能继续选择 Skill 或召回 Memory。
         if input_policy_stop is not None:
             return input_policy_stop
+
         clarification_stop = self._resolve_clarification(session)
-        # 澄清需要等待、被取消或任务被拒绝时，同样不初始化后续运行上下文。
         if clarification_stop is not None:
             return clarification_stop
-        self._activate_skills(session)
-        self._initialize_memory_context(session)
+        self._refresh_conversation_view(session)
         return None
 
-    # region 一次性准备规则
+    # region Turn 稳定快照
+    def _ensure_turn_context_snapshot(self, session: AgentRunSession) -> None:
+        # region 1. 复用：同一 Turn 只接受已经 durable 的 immutable Snapshot
+        existing = self.conversation_threads.load_turn_snapshot(
+            session.thread_id,
+            session.turn_id,
+        )
+        if existing is not None:
+            self._restore_snapshot(session, existing)
+            if not self.config.resume_state:
+                self._record_skill_selection(session, existing)
+                self._record_memory_recall(
+                    session,
+                    self.config.memory_namespace or str(self.config.workspace),
+                    session.long_term_memory_snapshot,
+                )
+            self._record_snapshot(session, existing, reused=True)
+            return
+
+        # Direct AgentLoop composition 也必须守住同一不变量：resume 只能复用原 Turn
+        # 的 durable snapshot，不能重新读取已经变化的指令、Skill、Memory 或 Tool contract。
+        if self.config.resume_state:
+            raise RuntimeError(
+                "cannot resume Turn without durable TurnContextSnapshot"
+            )
+        # endregion 1. Snapshot 复用与 fail-closed结束
+
+        # region 2. 新 Turn 冻结：Direct AgentLoop 的兼容 fallback
+        snapshot = self.build_new_turn_snapshot(
+            turn_id=session.turn_id,
+            root_task=session.root_task,
+        )
+        # endregion 2. 新 Turn 稳定输入冻结结束
+
+        # region 3. CAS 持久化：先保存 Snapshot，再把 revision 与投影恢复到当前 Session
+        saved_state = self.conversation_threads.save_turn_snapshot(
+            session.thread_id,
+            snapshot,
+            expected_revision=session.context_revision,
+        )
+        session.context_revision = saved_state.revision
+        session.lifecycle.update_checkpoint(
+            TaskCheckpointUpdate(context_revision=saved_state.revision)
+        )
+        self._restore_snapshot(session, snapshot)
+        self._record_skill_selection(session, snapshot)
+        self._record_memory_recall(
+            session,
+            self.config.memory_namespace or str(self.config.workspace),
+            session.long_term_memory_snapshot,
+        )
+        self._record_snapshot(session, snapshot, reused=False)
+        # endregion 3. Snapshot 持久化与 Session 恢复结束
+
+    def build_new_turn_snapshot(
+        self,
+        *,
+        turn_id: str,
+        root_task: str,
+    ) -> TurnContextSnapshot:
+        """发现并构造新 Turn 的稳定输入；调用方负责在 claim 前持久化。"""
+
+        active_skills = self._select_active_skills(root_task)
+        base_tool_schemas = [dict(schema) for schema in self.tool_gateway.schemas()]
+        self._verify_skill_tool_dependencies(active_skills, base_tool_schemas)
+        memory_namespace = self.config.memory_namespace or str(self.config.workspace)
+        recalled_memories = self.memory_recall.recall(
+            namespace=memory_namespace,
+            query=root_task,
+            max_chars=max(0, int(self.config.memory_max_chars)),
+        )
+        stable_budget, _ = partition_context_budgets(self.config.max_context_chars)
+        stable_context = self.context_assembler.freeze_stable(
+            StableTurnContextRequest(
+                root_task=root_task,
+                workspace=self.config.workspace,
+                base_tool_schemas=base_tool_schemas,
+                active_skill_cards=[skill.prompt_card() for skill in active_skills],
+                long_term_memory=[record.render_prompt_line() for record in recalled_memories],
+                max_chars=stable_budget,
+                instruction_target=self.config.instruction_target,
+                global_instruction_files=tuple(self.config.global_instruction_files),
+                runtime_instructions=self.config.runtime_instructions,
+                instruction_max_bytes=max(1, int(self.config.instruction_max_bytes)),
+                system_prompt_profile=self.config.system_prompt_profile,
+            )
+        )
+        stable_evidence: JsonObject = {
+            "budget_breakdown": dict(stable_context.budget_breakdown),
+            "total_chars": stable_context.total_chars,
+            "max_chars": stable_context.max_chars,
+            "truncated": stable_context.truncated,
+            "dropped_context": list(stable_context.dropped_context),
+            "instructions": dict(stable_context.instruction_evidence),
+            "active_skills": [self._skill_evidence(skill) for skill in active_skills],
+            "available_tools": list(stable_context.available_tools),
+            "runtime_contract": self._runtime_contract(),
+        }
+        snapshot = TurnContextSnapshot(
+            turn_id=turn_id,
+            root_task=root_task,
+            stable_system_prefix=stable_context.render(),
+            base_tool_schemas=tuple(dict(schema) for schema in base_tool_schemas),
+            skill_tool_names=tuple(
+                sorted({name for skill in active_skills for name in skill.tool_names})
+            ),
+            long_term_memory_snapshot=tuple(
+                record.to_dict() for record in recalled_memories
+            ),
+            stable_context_evidence=stable_evidence,
+        ).normalized()
+        return snapshot
+
+    def validate_snapshot_contract(
+        self,
+        snapshot: TurnContextSnapshot,
+        *,
+        turn_id: str,
+        root_task: str,
+    ) -> TurnContextSnapshot:
+        """在 resume claim 前纯校验冻结输入与当前 Runtime/Tool 契约。"""
+
+        normalized = snapshot.normalized()
+        if normalized.turn_id != turn_id or normalized.root_task != root_task:
+            raise ValueError("Turn snapshot identity does not match authoritative Turn")
+        raw_runtime_contract = normalized.stable_context_evidence.get(
+            "runtime_contract"
+        )
+        if not isinstance(raw_runtime_contract, dict):
+            raise ValueError("Turn snapshot is missing its Runtime context contract")
+        if _canonical_json(raw_runtime_contract) != _canonical_json(
+            self._runtime_contract()
+        ):
+            raise ValueError("current Runtime is incompatible with frozen Turn context")
+        current_schemas = [dict(schema) for schema in self.tool_gateway.schemas()]
+        if _canonical_json(current_schemas) != _canonical_json(
+            list(normalized.base_tool_schemas)
+        ):
+            raise ValueError("current Tool registry no longer matches frozen Turn schemas")
+        return normalized
+
+    def _restore_snapshot(
+        self,
+        session: AgentRunSession,
+        snapshot: TurnContextSnapshot,
+    ) -> None:
+        normalized = self.validate_snapshot_contract(
+            snapshot,
+            turn_id=session.turn_id,
+            root_task=session.root_task,
+        )
+        session.stable_system_prefix = normalized.stable_system_prefix
+        session.base_tool_schemas = [dict(schema) for schema in normalized.base_tool_schemas]
+        session.skill_tool_names = set(normalized.skill_tool_names)
+        session.stable_context_evidence = dict(normalized.stable_context_evidence)
+        session.long_term_memory_snapshot = [
+            LongTermMemoryRecord.from_dict(dict(item))
+            for item in normalized.long_term_memory_snapshot
+        ]
+        session.active_skills = []
+
+    # endregion Turn 稳定快照
+
+    # region 输入与 clarification
     def _apply_input_policy(self, session: AgentRunSession) -> StopRequest | None:
-        guardrail_decision = input_guardrail(session.task)
-        self._record_input_guardrail(session, guardrail_decision)
-        if guardrail_decision.passed:
+        decision = input_guardrail(session.root_task)
+        self._record_input_guardrail(session, decision)
+        if decision.passed:
             return None
         return StopRequest(
             status=TaskRunStatus.BLOCKED,
             reason="input_guardrail_block",
-            stop_output=f"blocked: {guardrail_decision.reason}",
+            stop_output=f"blocked: {decision.reason}",
         )
 
-    def _resolve_clarification(
-        self,
-        session: AgentRunSession,
-    ) -> StopRequest | None:
-        """把澄清策略投影为停止、继续或 durable 人工输入屏障。
-
-        伪代码：refuse -> stop；无需澄清 -> continue；需要澄清 -> durable request；
-        已有回答 -> 合并回 task 并继续，否则返回 Lifecycle 生成的 StopRequest。
-        """
-
-        clarification_decision = self.clarification_policy.evaluate_task(session.task)
-        self._record_clarification_decision(session, clarification_decision)
-        # 明确不支持的任务直接 BLOCKED，不创建一个无法解决的人工问题。
-        if clarification_decision.action == "refuse":
+    def _resolve_clarification(self, session: AgentRunSession) -> StopRequest | None:
+        decision = self.clarification_policy.evaluate_task(session.root_task)
+        self._record_clarification_decision(session, decision)
+        if decision.action == "refuse":
             return StopRequest(
                 status=TaskRunStatus.BLOCKED,
                 reason="unsupported_task",
-                stop_output=f"blocked: {clarification_decision.reason}",
+                stop_output=f"blocked: {decision.reason}",
             )
-        # 信息已经充分时保持原任务，跳过 HITL repository。
-        if not clarification_decision.needs_user_input():
+        if not decision.needs_user_input():
             return None
-
-        human_input_resolution = session.lifecycle.request_human_input(
+        resolution = session.lifecycle.request_human_input(
             HumanInputQuestion(
                 agent_name=session.agent_name,
                 kind="clarification",
-                question=clarification_decision.question,
+                question=decision.question,
                 choices=(),
-                reason=clarification_decision.reason,
+                reason=decision.reason,
                 step=0,
             )
         )
-        # pending/cancelled 由 Lifecycle 返回稳定停止事实；只有 responded 可改写 task。
-        if human_input_resolution.stop is not None:
-            return human_input_resolution.stop
-        session.task = "\n".join(
+        if resolution.stop is not None:
+            return resolution.stop
+
+        # Human answer 是当前 Turn 的新 focus；它不能重写 root_task 或稳定快照。
+        focus_content = "\n".join(
             [
-                session.task,
-                "",
                 "Resolved operator clarification:",
-                f"Question: {human_input_resolution.request.question}",
-                f"Answer: {human_input_resolution.request.answer}",
-                "Continue from this answer and do not ask the same question again.",
+                f"Question: {resolution.request.question}",
+                f"Answer: {resolution.request.answer}",
             ]
         )
-        self._record_human_response_loaded(
-            session,
-            human_input_resolution.request.to_dict(),
+        item = self.conversation_threads.append(
+            session.thread_id,
+            ConversationItemDraft(
+                item_id=f"human-input:{resolution.request.request_id}",
+                turn_id=session.turn_id,
+                run_id=self.trace.run_id,
+                role="user",
+                content=focus_content,
+                origin="operator",
+                human_authority=True,
+                metadata={"human_input_request_id": resolution.request.request_id},
+            ),
         )
+        session.turn_focus = item.content
+        session.turn_focus_item_id = item.item_id
+        session.memory_management_candidates_key = ""
+        self._record_human_input_response_loaded(session, resolution.request.to_dict())
         return None
 
-    def _activate_skills(self, session: AgentRunSession) -> None:
-        """固定本 Run 的 Skill 快照，并把其工具声明交给后续 Router。"""
+    # endregion 输入与 clarification
 
-        session.active_skills = self._select_active_skills(session.task)
-        session.skill_tool_names = {
-            tool_name
-            for skill in session.active_skills
-            for tool_name in skill.tool_names
-        }
-        self._record_skill_selection(session)
-
-    def _initialize_memory_context(self, session: AgentRunSession) -> None:
-        """创建 working memory，并在 Run 开始时固定 task-aware Recall Snapshot。
-
-        该快照服务整个 Run 的推理且不会随写入漂移；显式 remember 使用的 Management
-        Candidates 由 ``TurnPreparation`` 根据最新 human message 每 Turn 单独查询。
-        """
-
-        session.messages = [Message(role="user", content=session.task)]
-        prior_session_summary = self.config.session_summary
-        if session.resume_summary:
-            prior_session_summary = "\n".join(
-                part for part in [prior_session_summary, session.resume_summary] if part
-            )
-        session.working_memory.seed_session(
-            previous_task=self.config.previous_task,
-            session_summary=prior_session_summary,
+    # region 有界 Conversation 视图
+    def _refresh_conversation_view(self, session: AgentRunSession) -> None:
+        state = self.conversation_threads.load_context_state(session.thread_id)
+        after_sequence = state.covered_sequence if state is not None else 0
+        session.context_revision = state.revision if state is not None else 0
+        messages, observations, sequences = self._load_conversation_view(
+            thread_id=session.thread_id,
+            after_sequence=after_sequence,
         )
-        memory_namespace = self.config.memory_namespace or str(self.config.workspace)
-        memory_max_chars = max(0, int(self.config.memory_max_chars))
-        recalled_memories = self.memory_recall.recall(
-            namespace=memory_namespace,
-            query=session.task,
-            max_chars=memory_max_chars,
-        )
-        session.working_memory.seed_long_term(recalled_memories)
-        session.working_memory.set("task", session.task)
-        self._record_memory_recall(
-            session=session,
-            memory_namespace=memory_namespace,
-            recalled_memories=recalled_memories,
-        )
+        session.messages = messages
+        session.observations = observations
+        session.message_sequences = sequences
+        thread = self.conversation_threads.get(session.thread_id)
+        if thread is None:
+            raise KeyError(f"conversation thread not found: {session.thread_id}")
+        focus, focus_item_id = self._derive_turn_focus(thread.sequence, session.turn_id)
+        session.turn_focus = focus
+        session.turn_focus_item_id = focus_item_id
 
-    def _load_resume_state(
+    def _load_conversation_view(
         self,
-        agent_name: str,
-    ) -> tuple[str, ConversationHistoryDigest | None]:
-        """恢复 continuation 摘要和 typed digest；新 Session cursor 仍从 0 开始。"""
+        *,
+        thread_id: str,
+        after_sequence: int,
+    ) -> tuple[list[Message], list[Observation], list[int]]:
+        items = self.conversation_threads.list_items(
+            thread_id,
+            after_sequence=after_sequence,
+            limit=CONVERSATION_VIEW_LIMIT,
+        )
+        return (
+            [self._message_from_item(item) for item in items],
+            [self._observation_from_item(item) for item in items if item.role == "tool"],
+            [item.sequence for item in items],
+        )
 
-        resume_checkpoint_path = self.config.resume_state
-        if not resume_checkpoint_path:
-            return "", None
-        restored_checkpoint = self.task_states.load_path(resume_checkpoint_path)
-        restored_summary = summarize_checkpoint(restored_checkpoint)
-        digest_payload = restored_checkpoint.conversation_history_digest
-        restored_digest = (
-            ConversationHistoryDigest.from_dict(
-                dict(digest_payload),
-                default_task=restored_checkpoint.task,
-            )
-            if digest_payload
+    def _derive_turn_focus(self, thread_sequence: int, turn_id: str) -> tuple[str, str]:
+        recent_items = self.conversation_threads.list_items(
+            self.config.thread_id,
+            after_sequence=max(0, thread_sequence - CONVERSATION_VIEW_LIMIT),
+            limit=CONVERSATION_VIEW_LIMIT,
+        )
+        for item in reversed(recent_items):
+            if item.turn_id == turn_id and item.human_authority:
+                return item.content, item.item_id
+        thread = self.conversation_threads.get(self.config.thread_id)
+        if thread is None:
+            raise KeyError(f"conversation thread not found: {self.config.thread_id}")
+        return thread.require_turn(turn_id).root_task, ""
+
+    @staticmethod
+    def _message_from_item(item: ConversationItem) -> Message:
+        return Message(
+            role=item.role,
+            content=item.content,
+            name=item.name,
+            tool_call_id=item.tool_call_id,
+            tool_calls=[dict(call) for call in item.tool_calls] or None,
+            reasoning_content=item.reasoning_content,
+            origin=item.origin,
+            human_authority=item.human_authority,
+        )
+
+    @staticmethod
+    def _observation_from_item(item: ConversationItem) -> Observation:
+        metadata = item.metadata
+        return Observation(
+            tool_name=str(metadata.get("tool_name") or item.name or "unknown"),
+            success=bool(metadata.get("success", False)),
+            content=item.content,
+            execution_succeeded=(
+                bool(metadata["execution_succeeded"])
+                if metadata.get("execution_succeeded") is not None
+                else None
+            ),
+        )
+
+    # endregion 有界 Conversation 视图
+
+    def _load_resume_checkpoint(self) -> TaskCheckpoint | None:
+        return (
+            self.task_states.load_path(self.config.resume_state)
+            if self.config.resume_state
             else None
         )
-        self._record_resume_state_loaded(
-            agent_name=agent_name,
-            resume_checkpoint_path=resume_checkpoint_path,
-            checkpoint=restored_checkpoint.to_dict(),
-            resume_summary=restored_summary,
-        )
-        return restored_summary, restored_digest
 
-    def _select_active_skills(self, task: str) -> list[SkillView]:
-        """按运行配置选择最多一个主 Skill，并返回已选择的轻量视图。
-
-        ``none`` 直接禁用；显式名称优先，否则由 Selector 按 metadata 自动匹配。
-        这里不读取 Skill 正文、不注册工具，也不执行 Skill 附带脚本。
-        """
-
-        skill_selection_mode = self.config.skill_mode
-        if skill_selection_mode == "none":
+    def _select_active_skills(self, root_task: str) -> list[SkillView]:
+        if self.config.skill_mode == "none":
             return []
-        explicitly_requested_skill_names = list(self.config.skill_names)
+        requested_names = list(self.config.skill_names)
         return list(
             self.skill_selector.select_for_task(
-                task,
-                names=explicitly_requested_skill_names or None,
-                # 自动模式只选一个主工作流。多个重叠 Skill 会重复指令并挤占任务证据；
-                # 需要组合时由调用方通过 skill_names 显式声明。
+                root_task,
+                names=requested_names or None,
                 limit=1,
             )
         )
 
+    @staticmethod
+    def _verify_skill_tool_dependencies(
+        active_skills: list[SkillView],
+        schemas: list[ToolSchema],
+    ) -> None:
+        registered = {str(schema.get("name") or "") for schema in schemas}
+        for skill in active_skills:
+            missing = sorted(set(skill.required_tool_names) - registered)
+            if missing:
+                raise ValueError(
+                    f"activated skill {skill.name}@{skill.version} requires "
+                    f"unavailable tools: {', '.join(missing)}"
+                )
+
+    @staticmethod
+    def _skill_evidence(skill: SkillView) -> JsonObject:
+        return {
+            "name": skill.name,
+            "version": skill.version,
+            "required_tools": list(skill.required_tool_names),
+            "optional_tools": list(skill.optional_tool_names),
+            "tools": list(skill.tool_names),
+            "entrypoint": skill.entrypoint,
+            "source": skill.source,
+            "content_sha256": skill.content_sha256,
+            "selection_reason": skill.selection_reason,
+        }
+
+    def _runtime_contract(self) -> JsonObject:
+        """返回 resume 必须精确兼容的最小 Runtime/Prompt 边界。"""
+
+        stable_budget, dynamic_budget = partition_context_budgets(
+            self.config.max_context_chars
+        )
+        return {
+            "revision": TURN_CONTEXT_CONTRACT_REVISION,
+            "model_capabilities": self.model_capabilities.to_dict(),
+            "system_prompt_profile": self.config.system_prompt_profile,
+            "stable_context_chars": stable_budget,
+            "dynamic_context_chars": dynamic_budget,
+            "max_prompt_tokens": int(self.config.max_prompt_tokens),
+            "reserved_output_tokens": int(self.config.reserved_output_tokens),
+        }
+
     # region 证据记录器
     def _record_model_capabilities(self, agent_name: str) -> None:
-        """记录本次运行实际采用的模型能力边界。"""
-
         self.trace.add(
             0,
             agent_name,
@@ -304,13 +621,37 @@ class RunPreparation:
             model_capabilities=self.model_capabilities.to_dict(),
         )
 
+    def _record_resume_state_loaded(
+        self,
+        *,
+        agent_name: str,
+        checkpoint: TaskCheckpoint,
+    ) -> None:
+        """记录本 Run 从哪个 execution pointer 续跑，不复制 Thread 内容。"""
+
+        self.trace.add(
+            checkpoint.current_step,
+            agent_name,
+            "resume_state_loaded",
+            resume_state=self.config.resume_state,
+            resume={
+                "thread_id": checkpoint.thread_id,
+                "turn_id": checkpoint.turn_id,
+                "previous_run_id": checkpoint.run_id,
+                "current_step": checkpoint.current_step,
+                "pending_execution": (
+                    checkpoint.pending_execution.to_dict()
+                    if checkpoint.pending_execution is not None
+                    else None
+                ),
+            },
+        )
+
     def _record_input_guardrail(
         self,
         session: AgentRunSession,
         decision: GuardrailResult,
     ) -> None:
-        """记录输入文本风险提示；它不是最终安全授权。"""
-
         self.trace.add(
             0,
             session.agent_name,
@@ -328,8 +669,6 @@ class RunPreparation:
         session: AgentRunSession,
         decision: ClarificationDecision,
     ) -> None:
-        """记录继续、请求补充信息或拒绝及其判断依据。"""
-
         self.trace.add(
             0,
             session.agent_name,
@@ -343,121 +682,85 @@ class RunPreparation:
             },
         )
 
-    def _record_human_response_loaded(
+    def _record_human_input_response_loaded(
         self,
         session: AgentRunSession,
-        human_input_request_data: dict,
+        request: JsonObject,
     ) -> None:
-        """记录 continuation 已取得对应人工回答。"""
+        """记录人工澄清已回填到当前 Turn，不在主编排里展开 Trace 字段。"""
 
         self.trace.add(
             0,
             session.agent_name,
             "human_input_response_loaded",
-            request=human_input_request_data,
+            request=request,
         )
 
-    def _record_skill_selection(self, session: AgentRunSession) -> None:
-        """记录三层披露结果；资源只记身份与规模，不复制正文。"""
-
+    def _record_skill_selection(
+        self,
+        session: AgentRunSession,
+        snapshot: TurnContextSnapshot,
+    ) -> None:
+        raw_skills = snapshot.stable_context_evidence.get("active_skills")
+        skills = list(raw_skills) if isinstance(raw_skills, list) else []
         self.trace.add(
             0,
             session.agent_name,
             "skill_selection",
-            skills=[
-                {
-                    "name": skill.name,
-                    "version": skill.version,
-                    "required_tools": skill.required_tool_names,
-                    "optional_tools": skill.optional_tool_names,
-                    "tools": skill.tool_names,
-                    "entrypoint": skill.entrypoint,
-                    "source": skill.source,
-                    "content_sha256": skill.content_sha256,
-                    "selection_reason": skill.selection_reason,
-                    "resources": [
-                        {
-                            "path": resource.path,
-                            "description": resource.description,
-                            "sha256": resource.sha256,
-                            "original_chars": resource.original_chars,
-                            "disclosed_chars": resource.disclosed_chars,
-                            "truncated": resource.truncated,
-                        }
-                        for resource in skill.loaded_resources
-                    ],
-                    "prompt_chars": len(skill.prompt_card()),
-                }
-                for skill in session.active_skills
-            ],
+            skills=skills,
             skill_mode=self.config.skill_mode,
-            disclosure=(
-                "catalog metadata -> selected SKILL.md instructions -> "
-                "task-matched bounded reference"
-            ),
+            snapshot_contract_hash=snapshot.contract_hash,
         )
 
     def _record_memory_recall(
         self,
-        *,
         session: AgentRunSession,
-        memory_namespace: str,
-        recalled_memories: list[LongTermMemoryRecord],
+        namespace: str,
+        memories: list[LongTermMemoryRecord],
     ) -> None:
-        """记录本 Run 固定 Recall Snapshot 的身份和指纹，不复制记忆正文。"""
-
-        snapshot_payload = [
-            memory_record.to_dict() for memory_record in recalled_memories
-        ]
-        snapshot_sha256 = hashlib.sha256(
-            json.dumps(
-                snapshot_payload,
-                ensure_ascii=False,
-                sort_keys=True,
-                separators=(",", ":"),
-            ).encode("utf-8")
-        ).hexdigest()
-
+        payload = [record.to_dict() for record in memories]
         self.trace.add(
             0,
             session.agent_name,
             "memory_recall",
             memory={
-                "namespace": memory_namespace,
-                "recalled_count": len(recalled_memories),
-                "memory_ids": [
-                    memory_record.memory_id for memory_record in recalled_memories
-                ],
-                "keys": [memory_record.key for memory_record in recalled_memories],
-                "revisions": [
-                    memory_record.revision for memory_record in recalled_memories
-                ],
-                "scopes": [
-                    memory_record.scope for memory_record in recalled_memories
-                ],
-                "snapshot_sha256": snapshot_sha256,
+                "namespace": namespace,
+                "recalled_count": len(memories),
+                "memory_ids": [record.memory_id for record in memories],
+                "revisions": [record.revision for record in memories],
+                "snapshot_sha256": hashlib.sha256(
+                    _canonical_json(payload).encode("utf-8")
+                ).hexdigest(),
             },
         )
 
-    def _record_resume_state_loaded(
+    def _record_snapshot(
         self,
+        session: AgentRunSession,
+        snapshot: TurnContextSnapshot,
         *,
-        agent_name: str,
-        resume_checkpoint_path: str,
-        checkpoint: TaskCheckpointData,
-        resume_summary: str,
+        reused: bool,
     ) -> None:
-        """记录 continuation 的来源 checkpoint 和注入模型的摘要。"""
-
         self.trace.add(
             0,
-            agent_name,
-            "resume_state_loaded",
-            resume_state=resume_checkpoint_path,
-            checkpoint=checkpoint,
-            resume_summary=resume_summary,
+            session.agent_name,
+            "context_assembly",
+            context={
+                "thread_id": session.thread_id,
+                "turn_id": session.turn_id,
+                "context_revision": session.context_revision,
+                "contract_hash": snapshot.contract_hash,
+                "reused": reused,
+                "instructions": snapshot.stable_context_evidence.get(
+                    "instructions",
+                    {},
+                ),
+                "stable_context": snapshot.stable_context_evidence,
+            },
         )
 
-    # endregion 证据记录器结束
+    # endregion 证据记录器
 
-    # endregion 一次性准备规则结束
+
+def _canonical_json(value: object) -> str:
+    return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))

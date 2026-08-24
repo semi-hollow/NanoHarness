@@ -1,4 +1,5 @@
 from pathlib import Path
+from threading import Lock
 
 IGNORE = {
     ".git",
@@ -12,6 +13,26 @@ IGNORE = {
     "build",
 }
 GENERATED_NAMES = {"agent_forge_trace.json", "eval_report.md", "summary.md"}
+
+
+_STRUCTURE_REVISION_LOCK = Lock()
+_STRUCTURE_REVISIONS: dict[Path, int] = {}
+
+
+def repository_structure_revision(root: str | Path) -> int:
+    """返回进程内 workspace 结构版本；读取/改正文不会改变它。"""
+
+    root_path = Path(root).resolve()
+    with _STRUCTURE_REVISION_LOCK:
+        return _STRUCTURE_REVISIONS.get(root_path, 0)
+
+
+def invalidate_repo_map(root: str | Path) -> None:
+    """在 create/delete/rename 成功后使所有本进程 Repo Map cache 失效。"""
+
+    root_path = Path(root).resolve()
+    with _STRUCTURE_REVISION_LOCK:
+        _STRUCTURE_REVISIONS[root_path] = _STRUCTURE_REVISIONS.get(root_path, 0) + 1
 
 
 def build_repo_map(root: str | Path) -> str:

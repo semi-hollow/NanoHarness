@@ -1,5 +1,5 @@
-"""Operator Console 的会话管理用例。"""
+"""Operator Console 的 Thread 导航用例。"""
 
-from .session_library import TaskSessionLibrary
+from .thread_library import ConversationThreadLibrary
 
-__all__ = ["TaskSessionLibrary"]
+__all__ = ["ConversationThreadLibrary"]

@@ -1,4 +1,5 @@
 import unittest
+from types import SimpleNamespace
 from unittest.mock import patch
 
 import agent_forge.context.application.compaction as compaction_module
@@ -8,9 +9,173 @@ from agent_forge.context.application.compaction import (
     PromptBudget,
 )
 from agent_forge.runtime.domain.conversation import Message, Observation
+from agent_forge.runtime.application.session import (
+    load_transaction_safe_conversation_page,
+)
 
 
 class PromptWindowManagerTest(unittest.TestCase):
+    def test_bounded_page_looks_ahead_to_keep_tool_batch_atomic(self) -> None:
+        items = [
+            SimpleNamespace(
+                sequence=index,
+                role="user",
+                tool_calls=(),
+                tool_call_id=None,
+            )
+            for index in range(1, 200)
+        ]
+        items.extend(
+            [
+                SimpleNamespace(
+                    sequence=200,
+                    role="assistant",
+                    tool_calls=({"id": "call-a"}, {"id": "call-b"}),
+                    tool_call_id=None,
+                ),
+                SimpleNamespace(
+                    sequence=201,
+                    role="tool",
+                    tool_calls=(),
+                    tool_call_id="call-a",
+                ),
+                SimpleNamespace(
+                    sequence=202,
+                    role="tool",
+                    tool_calls=(),
+                    tool_call_id="call-b",
+                ),
+            ]
+        )
+
+        class Repository:
+            def list_items(self, thread_id, *, after_sequence=0, turn_id=None, limit=200):
+                del thread_id, turn_id
+                return [
+                    item for item in items if item.sequence > after_sequence
+                ][:limit]
+
+        page = load_transaction_safe_conversation_page(
+            Repository(),  # type: ignore[arg-type]
+            thread_id="thread-1",
+            after_sequence=0,
+            limit=200,
+        )
+        self.assertEqual([item.sequence for item in page[-3:]], [200, 201, 202])
+
+    def test_ask_human_page_projects_provider_order_and_compacts_atomically(self) -> None:
+        def tool_call(call_id: str, name: str) -> dict:
+            return {
+                "id": call_id,
+                "type": "function",
+                "function": {"name": name, "arguments": "{}"},
+            }
+
+        items = [
+            SimpleNamespace(
+                sequence=1,
+                role="assistant",
+                content="",
+                name=None,
+                tool_calls=(
+                    tool_call("read-1", "read_file"),
+                    tool_call("ask-1", "ask_human"),
+                    tool_call("write-1", "write_file"),
+                ),
+                tool_call_id=None,
+                reasoning_content=None,
+                origin="model_tool_calls",
+                human_authority=False,
+            ),
+            SimpleNamespace(
+                sequence=2,
+                role="tool",
+                content="deferred read",
+                name="read_file",
+                tool_calls=(),
+                tool_call_id="read-1",
+                reasoning_content=None,
+                origin="tool_runtime",
+                human_authority=False,
+            ),
+            # raw authority-first journal order: answer precedes ask_human Observation.
+            SimpleNamespace(
+                sequence=3,
+                role="user",
+                content=(
+                    "Operator answer to the requested question:\n"
+                    "Question: Python version?\nAnswer: 3.11"
+                ),
+                name=None,
+                tool_calls=(),
+                tool_call_id=None,
+                reasoning_content=None,
+                origin="operator",
+                human_authority=True,
+                metadata={"human_input_request_id": "request-1"},
+            ),
+            SimpleNamespace(
+                sequence=4,
+                role="tool",
+                content="human_response: 3.11",
+                name="ask_human",
+                tool_calls=(),
+                tool_call_id="ask-1",
+                reasoning_content=None,
+                origin="tool_runtime",
+                human_authority=False,
+            ),
+            SimpleNamespace(
+                sequence=5,
+                role="tool",
+                content="deferred write",
+                name="write_file",
+                tool_calls=(),
+                tool_call_id="write-1",
+                reasoning_content=None,
+                origin="tool_runtime",
+                human_authority=False,
+            ),
+        ]
+
+        class Repository:
+            def list_items(self, thread_id, *, after_sequence=0, turn_id=None, limit=200):
+                del thread_id, turn_id
+                return [
+                    item for item in items if item.sequence > after_sequence
+                ][:limit]
+
+        projected = load_transaction_safe_conversation_page(
+            Repository(),  # type: ignore[arg-type]
+            thread_id="thread-1",
+            after_sequence=0,
+            limit=3,
+        )
+        self.assertEqual([item.sequence for item in projected], [1, 2, 4, 5, 3])
+        messages = [
+            Message(
+                role=item.role,
+                content=item.content,
+                name=item.name,
+                tool_call_id=item.tool_call_id,
+                tool_calls=list(item.tool_calls) or None,
+                reasoning_content=item.reasoning_content,
+                origin=item.origin,
+                human_authority=item.human_authority,
+            )
+            for item in projected
+        ]
+        segments = compaction_module._group_history_segments(
+            messages,
+            [
+                Observation("read_file", False, "deferred read"),
+                Observation("ask_human", True, "human_response: 3.11"),
+                Observation("write_file", False, "deferred write"),
+            ],
+        )
+        self.assertEqual(len(segments), 1)
+        self.assertEqual(len(segments[0].messages), 5)
+
     def test_rejects_output_reserve_larger_than_model_window(self) -> None:
         with self.assertRaisesRegex(ValueError, "reserved_output_tokens"):
             PromptBudget(
@@ -61,7 +226,7 @@ class PromptWindowManagerTest(unittest.TestCase):
                 conversation_history=history,
                 observations=observations,
                 tool_schemas=[{"name": "read_file", "arguments": {"path": "str"}}],
-                task="fix the parser and run tests",
+                conversation_initial_task="fix the parser and run tests",
             )
         )
 
@@ -93,7 +258,7 @@ class PromptWindowManagerTest(unittest.TestCase):
                 conversation_history=history,
                 observations=[],
                 tool_schemas=[],
-                task="inspect target.py",
+                conversation_initial_task="inspect target.py",
             )
         )
 
@@ -118,7 +283,7 @@ class PromptWindowManagerTest(unittest.TestCase):
                 conversation_history=history,
                 observations=[],
                 tool_schemas=[],
-                task="continue",
+                conversation_initial_task="continue",
             )
         )
         forced = manager.prepare(
@@ -127,7 +292,7 @@ class PromptWindowManagerTest(unittest.TestCase):
                 conversation_history=history,
                 observations=[],
                 tool_schemas=[],
-                task="continue",
+                conversation_initial_task="continue",
                 force_compaction=True,
             )
         )
@@ -141,11 +306,21 @@ class PromptWindowManagerTest(unittest.TestCase):
 
     def test_digest_keeps_initial_task_and_later_task_updates_separate(self) -> None:
         history = [
-            Message("user", "initial task"),
+            Message("user", "initial task", human_authority=True, origin="human"),
             Message("assistant", "a" * 3_000),
-            Message("user", "steer: preserve public API"),
+            Message(
+                "user",
+                "steer: preserve public API",
+                human_authority=True,
+                origin="operator",
+            ),
             Message("assistant", "b" * 3_000),
-            Message("user", "constraint: run focused tests"),
+            Message(
+                "user",
+                "constraint: run focused tests",
+                human_authority=True,
+                origin="human",
+            ),
             Message("assistant", "c" * 3_000),
         ]
 
@@ -161,14 +336,14 @@ class PromptWindowManagerTest(unittest.TestCase):
                 conversation_history=history,
                 observations=[],
                 tool_schemas=[],
-                task="initial task",
+                conversation_initial_task="initial task",
                 force_compaction=True,
             )
         )
 
         self.assertIsNotNone(result.conversation_history_digest)
         assert result.conversation_history_digest is not None
-        self.assertEqual(result.conversation_history_digest.task, "initial task")
+        self.assertEqual(result.conversation_history_digest.initial_task, "initial task")
         self.assertEqual(
             result.conversation_history_digest.task_updates,
             ["steer: preserve public API"],
@@ -197,7 +372,7 @@ class PromptWindowManagerTest(unittest.TestCase):
             conversation_history=history,
             observations=[Observation("read_file", True, "content")],
             tool_schemas=[{"name": "read_file"}],
-            task="initial task",
+            conversation_initial_task="initial task",
             force_compaction=True,
         )
         manager = PromptWindowManager(
@@ -264,10 +439,17 @@ class PromptWindowManagerTest(unittest.TestCase):
             Message("tool", "content", tool_call_id="read-1"),
         ]
 
-        def build(success: bool):
+        def build(success: bool, execution_succeeded: bool | None = None):
             segments = compaction_module._group_history_segments(
                 messages,
-                [Observation("read_file", success, "content")],
+                [
+                    Observation(
+                        "read_file",
+                        success,
+                        "content",
+                        execution_succeeded=execution_succeeded,
+                    )
+                ],
             )
             return compaction_module._build_digest(
                 "inspect parser",
@@ -281,13 +463,41 @@ class PromptWindowManagerTest(unittest.TestCase):
         self.assertNotEqual(successful.source_hash, failed.source_hash)
         self.assertTrue(successful.tool_transactions[0].success)
         self.assertFalse(failed.tool_transactions[0].success)
+        self.assertNotEqual(
+            build(True, True).source_hash,
+            build(True, False).source_hash,
+        )
 
-    def test_next_turn_merges_only_current_session_uncovered_delta(self) -> None:
+    def test_runtime_coordination_is_not_a_human_task_update(self) -> None:
+        messages = [
+            Message("user", "initial", origin="human", human_authority=True),
+            Message(
+                "user",
+                "RUNTIME COORDINATION EVIDENCE: worker ready",
+                origin="runtime_coordination",
+                human_authority=False,
+            ),
+            Message(
+                "user",
+                "operator steer",
+                origin="operator",
+                human_authority=True,
+            ),
+        ]
+        digest = compaction_module._build_digest(
+            "initial",
+            compaction_module._group_history_segments(messages, []),
+            estimated_tokens_before=100,
+            skip_initial_user_message=True,
+        )
+        self.assertEqual(digest.task_updates, ["operator steer"])
+
+    def test_next_page_merges_only_repository_supplied_uncovered_delta(self) -> None:
         manager = PromptWindowManager(
             PromptBudget(max_prompt_tokens=1_200, reserved_output_tokens=100)
         )
         initial_history = [
-            Message("user", "initial task"),
+            Message("user", "initial task", human_authority=True, origin="human"),
             Message("assistant", "analysis-a " + ("a" * 3_000)),
             Message("user", "preserve API"),
             Message("assistant", "analysis-b " + ("b" * 3_000)),
@@ -298,49 +508,43 @@ class PromptWindowManagerTest(unittest.TestCase):
                 conversation_history=initial_history,
                 observations=[],
                 tool_schemas=[],
-                task="initial task",
+                conversation_initial_task="initial task",
                 force_compaction=True,
             )
         )
         assert first.conversation_history_digest is not None
-        self.assertGreater(first.compacted_message_cursor, 0)
+        self.assertGreater(first.covered_delta_count, 0)
 
         new_delta = [
-            Message("user", "steer: tests still use pytest"),
+            Message(
+                "user",
+                "steer: tests still use pytest",
+                human_authority=True,
+                origin="operator",
+            ),
             Message("assistant", "analysis-c " + ("c" * 3_000)),
-            Message("user", "also run a regression test"),
+            Message(
+                "user",
+                "also run a regression test",
+                human_authority=True,
+                origin="human",
+            ),
             Message("assistant", "analysis-d " + ("d" * 3_000)),
         ]
-        unchanged_prefix = [*initial_history, *new_delta]
-        mutated_covered_prefix = [*initial_history, *new_delta]
-        mutated_covered_prefix[0] = Message(
-            "user",
-            "this already-covered raw text must never be rescanned",
-        )
-
-        def prepare_next(history: list[Message]):
-            return manager.prepare(
-                PromptWindowRequest(
-                    turn_system_message=Message("system", "policy"),
-                    conversation_history=history,
-                    observations=[],
-                    tool_schemas=[],
-                    task="initial task",
-                    previous_digest=first.conversation_history_digest,
-                    compacted_message_cursor=first.compacted_message_cursor,
-                    force_compaction=True,
-                )
+        next_from_original = manager.prepare(
+            PromptWindowRequest(
+                turn_system_message=Message("system", "policy"),
+                conversation_history=new_delta,
+                observations=[],
+                tool_schemas=[],
+                conversation_initial_task="initial task",
+                previous_digest=first.conversation_history_digest,
+                force_compaction=True,
             )
-
-        next_from_original = prepare_next(unchanged_prefix)
-        next_from_mutated_prefix = prepare_next(mutated_covered_prefix)
-        assert next_from_original.conversation_history_digest is not None
-        assert next_from_mutated_prefix.conversation_history_digest is not None
-
-        self.assertGreater(
-            next_from_original.compacted_message_cursor,
-            first.compacted_message_cursor,
         )
+        assert next_from_original.conversation_history_digest is not None
+
+        self.assertGreater(next_from_original.covered_delta_count, 0)
         self.assertGreater(
             next_from_original.covered_message_count,
             first.covered_message_count,
@@ -350,14 +554,6 @@ class PromptWindowManagerTest(unittest.TestCase):
                 : len(first.conversation_history_digest.task_updates)
             ],
             first.conversation_history_digest.task_updates,
-        )
-        self.assertEqual(
-            next_from_original.conversation_history_digest.source_hash,
-            next_from_mutated_prefix.conversation_history_digest.source_hash,
-        )
-        self.assertNotIn(
-            "this already-covered raw text",
-            next_from_original.conversation_history_digest.render(),
         )
 
     def test_rolling_scan_extracts_each_new_segment_once(self) -> None:
@@ -389,7 +585,7 @@ class PromptWindowManagerTest(unittest.TestCase):
                     conversation_history=history,
                     observations=[],
                     tool_schemas=[],
-                    task="initial task",
+                    conversation_initial_task="initial task",
                 )
             )
 
@@ -438,11 +634,11 @@ class PromptWindowManagerTest(unittest.TestCase):
                     conversation_history=history,
                     observations=[],
                     tool_schemas=[],
-                    task="initial task",
+                    conversation_initial_task="initial task",
                 )
             )
 
-        self.assertEqual(result.compacted_message_cursor, 3)
+        self.assertEqual(result.covered_delta_count, 3)
         self.assertEqual(result.llm_messages[2:], history[3:])
 
 

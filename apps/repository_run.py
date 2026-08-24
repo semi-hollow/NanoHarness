@@ -249,6 +249,8 @@ def _build_runtime_config(
 ) -> RuntimeConfig:
     return RuntimeConfig(
         workspace=active_workspace,
+        requested_workspace=str(requested_workspace),
+        execution_mode=environment.probe().mode,
         max_steps=args.max_steps,
         trace_file=str(trace_path),
         max_context_chars=args.max_context_chars,
@@ -274,7 +276,6 @@ def _build_runtime_config(
                 "human_input",
             )
         ),
-        human_thread_id=getattr(args, "human_thread_id", ""),
         operation_ledger_root=str(
             control_path(
                 getattr(args, "operation_ledger_root", ""),

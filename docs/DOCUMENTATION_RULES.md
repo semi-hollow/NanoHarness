@@ -51,14 +51,14 @@ Input
 
 | 文档 | 唯一详细职责 |
 |---|---|
-| `架构导览.md` | 顶层 Ownership、Single-Agent 主链、能力边界与文档导航 |
+| `架构导览.md` | 顶层 Ownership、Thread→Turn→Run→Model Step 主链、能力边界与文档导航 |
 | `核心能力与代码入口.md` | 能力（Capability）→ canonical Owner → primary method → source file |
-| `Agent运行数据结构与模型输入.md` | Run/Turn 数据所有权及模型输入快照 |
-| `上下文工程.md` | 当前 Turn System Context，以及跨 Run Memory 的召回、管理候选与写入边界 |
-| `上下文压缩与长任务设计.md` | Prompt Window、Conversation compaction 与继续执行 |
-| `运行治理与工具执行.md` | ToolCall 到授权、副作用、Observation 和 durable facts |
-| `运行产物与持久化契约.md` | Authoritative State、Audit Evidence 与 Derived Presentation |
-| `多Agent编排.md` | Planning、HARD/LIVE scheduling、Worker、Integration 与 Recovery |
+| `Agent运行数据结构与模型输入.md` | Thread/Turn/Run/Model Step 所有权及模型输入快照 |
+| `上下文工程.md` | TurnContextSnapshot、动态 System Context，以及跨 Turn Memory 边界 |
+| `上下文压缩与长任务设计.md` | raw Thread、Prompt Window、Conversation compaction 与继续执行 |
+| `运行治理与工具执行.md` | 完整 assistant batch 到授权、副作用、唯一 Observation 与 crash resume |
+| `运行产物与持久化契约.md` | Thread authority、Run recovery、Audit Evidence 与 Derived Presentation |
+| `多Agent编排.md` | Planning、HARD/LIVE、Worker/Finalizer private Thread、Integration 与 Recovery |
 | `生产化边界与扩展.md` | 跨能力区分当前简化实现、适用规模与可能的生产方向，不形成 Roadmap |
 
 非 Owner 文档只能保留一句角色说明、一个链接和必要的 Source Anchor，不重复展开。
@@ -101,6 +101,19 @@ field 或 local variable 名称。业务概念首次出现时采用：
 
 方法链应支持直接用 IDE 或 `rg` 定位。不得为易读性创造源码中不存在的近义对象。
 
+生命周期术语固定为：
+
+```text
+ConversationThread → Turn → Run → Model Step
+```
+
+`Turn` 只指一次顶层用户请求；AgentLoop 内一次 `llm.chat` 称为 Model Step。文档不得用
+“下一 Turn”描述同一顶层请求内的下一次模型调用。
+
+涉及 authority 时必须区分：`conversation.jsonl` 的 raw Conversation 是权威对话；
+`trace.jsonl` 是执行证据；Prompt Window / Digest / Workbench 都是投影。Provider role
+不能替代 `origin + human_authority`。
+
 ## 7. 跨文档重复
 
 - 一个能力只有一个详细 Owner；
@@ -109,7 +122,8 @@ field 或 local variable 名称。业务概念首次出现时采用：
 
 ## 8. 历史内容
 
-- 不保留旧类名、旧 package 路径、旧角色流水线或版本演进叙事；
+- 不在当前架构叙事中保留旧类名、旧 package 路径、旧角色流水线或版本演进叙事；
+- 冻结 Evidence 所需旧字段只能标记为 read-only presentation compatibility，不能写成生产恢复契约；
 - 当前未实现的能力只作为简短 Design Boundary，不形成版本演进计划；
 - 实验事实与设计契约分开，不把相关性写成因果结论。
 

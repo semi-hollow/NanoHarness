@@ -841,7 +841,7 @@ class LiveFanoutTest(unittest.TestCase):
                 resumed.metrics["llm_calls"] + resumed.metrics["resumed_llm_calls"],
             )
 
-    def test_fanout_resume_reuses_a_durable_worker_human_response(self):
+    def test_worker_human_input_is_durable_inside_its_private_run_root(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             human_root = root / "human-input"
@@ -879,39 +879,29 @@ class LiveFanoutTest(unittest.TestCase):
             ).run()
             self.assertEqual(first.status, "partial_failure")
             self.assertEqual(first.results[0].status, "waiting_human")
-            request = JsonHumanInputRepository(human_root).list_pending()[0]
-            JsonHumanInputRepository(human_root).respond(request.request_id, "yes")
-
-            resumed_repo = root / "resumed-repo"
-            subprocess.run(
-                ["git", "clone", str(first_repo), str(resumed_repo)],
-                check=True,
-                capture_output=True,
-            )
-            second_run = root / "second-run"
-            resumed = build_live_fanout(
-                LiveFanoutBuildRequest(
-                    plan=plan,
-                    base_config=RuntimeConfig(
-                        workspace=str(resumed_repo),
-                        max_steps=4,
-                        human_input_root=str(human_root),
-                    ),
-                    trace=TraceRecorder(str(second_run / "trace.json")),
-                    run_dir=second_run,
-                    llm_factory=AskThenEditLLM,
-                    registry_factory=_build_registry,
-                    max_workers=1,
-                    resume_from=first_run,
-                )
-            ).run()
-
-            self.assertEqual(resumed.status, "passed")
-            self.assertEqual(
-                (resumed_repo / "a.py").read_text(encoding="utf-8"),
-                "value = 'approved'\n",
-            )
+            # Worker 拥有私有 execution Conversation；HumanInput 不能泄漏到
+            # Fanout 调用方的 shared/base root，也不能被另一个 Worker Turn 复用。
             self.assertEqual(JsonHumanInputRepository(human_root).list_pending(), [])
+            worker_human_root = (
+                first_run
+                / "fanout"
+                / "workers"
+                / "alpha"
+                / "attempt-1"
+                / "human_input"
+            )
+            worker_store = JsonHumanInputRepository(worker_human_root)
+            pending = worker_store.list_pending()
+            self.assertEqual(len(pending), 1)
+            request = pending[0]
+            self.assertTrue(request.thread_id.startswith("worker-"))
+            self.assertTrue(request.turn_id.startswith("turn-"))
+            self.assertEqual(request.agent_name, "Subagent:alpha")
+            worker_store.respond(request.request_id, "yes")
+            responded = worker_store.get(request.request_id)
+            self.assertIsNotNone(responded)
+            assert responded is not None
+            self.assertEqual(responded.status, "responded")
 
     def test_resume_rejects_a_different_plan(self):
         with tempfile.TemporaryDirectory() as tmp:

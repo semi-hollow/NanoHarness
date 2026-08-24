@@ -1,40 +1,36 @@
-"""把 ContextStrategy 候选按稳定区段预算组装成模型 system context。"""
+"""Turn 稳定前缀与 Model Step 动态仓库上下文的独立预算组装。"""
+
+from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
 
-from agent_forge.contracts import ToolSchema
 from agent_forge.context.application.system_prompt import PromptRegistry
-
-from .instructions import InstructionResolutionRequest, resolve_instructions
-
 from agent_forge.context.ports import ContextMemory
-from .text_budget import truncate, truncate_middle
+from agent_forge.contracts import JsonObject, ToolSchema
+
 from .context_strategy import ContextStrategyRequest, build_context_strategy
+from .instructions import InstructionResolutionRequest, resolve_instructions
+from .text_budget import truncate, truncate_middle
 
 
-# 核心数据：Context Builder 的字符预算与权限策略。
 @dataclass(frozen=True)
 class TurnSystemContextBuildPolicy:
-    """不随候选内容变化的上下文治理参数。"""
+    """一个上下文分区的字符预算与当前动态权限摘要。"""
 
-    max_chars: int = 8000
-    permission_summary: str = (
-        "read allowed; write asks approval; dangerous commands denied"
-    )
+    max_chars: int = 8_000
+    permission_summary: str = ""
 
 
-# 核心数据：Context Builder 汇总一次模型输入所需的全部候选。
 @dataclass(frozen=True)
-class TurnSystemContextBuildRequest:
-    """任务、仓库、记忆、工具、Skill 与治理策略。"""
+class StableTurnContextBuildRequest:
+    """新 Turn 首次 attempt 冻结一次的 Prompt/Skill/Memory 输入。"""
 
-    task: str
-    repo_map: str
-    working_memory: ContextMemory
+    root_task: str
     root: str | Path
-    tool_schemas: list[ToolSchema]
+    base_tool_schemas: list[ToolSchema]
     active_skill_cards: list[str]
+    long_term_memory: list[str]
     policy: TurnSystemContextBuildPolicy
     instruction_target: str = ""
     global_instruction_files: tuple[str, ...] = ()
@@ -43,81 +39,71 @@ class TurnSystemContextBuildRequest:
     system_prompt_profile: str = "single_agent"
 
 
-# 核心数据：模型输入、选择事实、预算结果和截断原因的完整读模型。
+@dataclass(frozen=True)
+class StableTurnContextBuildReport:
+    """可持久化进 ``TurnContextSnapshot`` 的稳定前缀与构建证据。"""
+
+    rendered_prefix: str
+    total_chars: int
+    max_chars: int
+    truncated: bool
+    dropped_context: list[str]
+    budget_breakdown: dict[str, int]
+    instruction_evidence: JsonObject
+    available_tools: list[str]
+
+    def render(self) -> str:
+        return self.rendered_prefix
+
+
+@dataclass(frozen=True)
+class TurnSystemContextBuildRequest:
+    """每个 Model Step 只重建的任务焦点、仓库和派生状态候选。"""
+
+    turn_focus: str
+    stable_system_prefix: str
+    repo_map: str
+    working_memory: ContextMemory
+    root: str | Path
+    tool_schemas: list[ToolSchema]
+    policy: TurnSystemContextBuildPolicy
+    frozen_instruction_paths: tuple[str, ...] = ()
+
+
 @dataclass
 class TurnSystemContextBuildReport:
-    """一次上下文组装的完整读模型，可渲染给模型并写入 trace。
+    """稳定前缀与动态候选合并后的当前模型输入读模型。"""
 
-    system/project/repo 是 Turn System Context 的基础区段；task 只用于内部候选选择，
-    不渲染到 ``turn_system_message``；retrieval、working memory、long-term memory、
-    selected files、tools 和 Skill 是候选区段；permission/attention/topic/dropped 是治理
-    事实；budget/total/max/truncated/rendered 描述最终模型可见结果。
-    """
-
-    system_prompt: str
-    project_instructions: str
+    stable_system_prefix: str
     repo_map: str
     retrieved_docs: list[str]
     working_memory_items: list[str]
     working_memory_summary: str
-    long_term_memory: list[str]
     selected_files: list[str]
     selected_file_previews: list[str]
     available_tools: list[str]
-    active_skill_cards: list[str]
     permission_summary: str
     attention_sink: list[str]
-    topic_relation: str
-    inherit_session: bool
     dropped_context: list[str]
     budget_breakdown: dict[str, int]
     total_chars: int
     max_chars: int
     truncated: bool
-    instruction_evidence: dict[str, object]
+    stable_chars: int
+    dynamic_chars: int
+    dynamic_max_chars: int
     rendered_context: str = ""
 
     def render(self) -> str:
-        """按稳定区段顺序渲染模型输入上下文。"""
-
-        return self.rendered_context or _fit_context_sections(self)[0]
+        return self.rendered_context or _render_model_step_context(self)[0]
 
 
-# 主要入口：汇总仓库、Skill 和分层记忆，按区段预算返回 ContextReport。
-def build_turn_system_context(
-    request: TurnSystemContextBuildRequest,
-) -> TurnSystemContextBuildReport:
-    """汇总候选事实，再投影为预算内的 Turn System Context。
+def build_stable_turn_context(
+    request: StableTurnContextBuildRequest,
+) -> StableTurnContextBuildReport:
+    """冻结新 Turn 的稳定前缀；同 Turn 后续 Run 只加载，不重新发现。"""
 
-    伪代码：收集 repo/tool/strategy/instructions -> 构造类型化 report -> 按区段
-    预算渲染，并把实际字符数与截断原因写回 report。
-    """
-
-    # region 1. 候选收集：仓库、工具、Context Strategy 与项目指令
-    files = [line for line in request.repo_map.splitlines() if line.strip()]
-    raw_repo = "\n".join(files)
-
-    shortened = truncate(raw_repo, max(1000, request.policy.max_chars // 4))
-    available_tools = [
-        tool_schema.get("name", str(tool_schema))
-        for tool_schema in request.tool_schemas
-    ]
-
-    strategy = build_context_strategy(
-        ContextStrategyRequest(
-            task=request.task,
-            files=files,
-            working_memory=request.working_memory,
-            root=request.root,
-            max_chars=request.policy.max_chars,
-        )
-    )
-    if shortened != raw_repo:
-        strategy.dropped_context.append(
-            "repository map pre-truncated before section allocation"
-        )
-    # composition root 显式选择角色；未知 profile fail closed，不能静默使用
-    # Single-Agent 契约运行 Worker 或 Finalizer。
+    # region 1. 一次性发现：角色 Prompt、分层指令、Skill、Memory 和基础工具契约
     prompt = PromptRegistry().get(request.system_prompt_profile)
     instruction_resolution = resolve_instructions(
         InstructionResolutionRequest(
@@ -128,121 +114,174 @@ def build_turn_system_context(
             max_bytes=request.instruction_max_bytes,
         )
     )
-    project_instructions = instruction_resolution.content
-    system_prompt = (
-        f"[prompt:{prompt.header()} purpose:{prompt.purpose}]\n{prompt.content}"
-    )
-    # endregion 1. 候选收集结束
+    base_tool_names = [
+        str(schema.get("name") or "")
+        for schema in request.base_tool_schemas
+        if str(schema.get("name") or "")
+    ]
+    system_content = f"[prompt:{prompt.header()} purpose:{prompt.purpose}]\n{prompt.content}"
+    sections = [
+        ("project_instructions", instruction_resolution.content, 18),
+        ("active_skills", "\n\n".join(request.active_skill_cards), 13),
+        (
+            "long_term_memory",
+            "\n".join(f"- {item}" for item in request.long_term_memory),
+            13,
+        ),
+        ("base_tools", ", ".join(base_tool_names), 4),
+    ]
+    # endregion 1. 一次性发现结束
 
-    # region 2. 类型化汇总：保留候选、治理事实与 provenance
-    # 这里还没有宣称所有区段都会进入模型；最终可见内容由下一阶段统一按预算裁剪。
+    # region 2. 独立预算：稳定前缀不能被动态仓库内容挤占
+    max_chars = max(256, int(request.policy.max_chars))
+    mandatory_system_block = f"system:\n{system_content}\n"
+    if len(mandatory_system_block) > max_chars:
+        raise ValueError(
+            "stable context budget cannot contain the complete governing System Prompt"
+        )
+    remaining_budget = max_chars - len(mandatory_system_block)
+    optional_rendered, included, truncated_sections = _fit_sections(
+        sections,
+        remaining_budget,
+    )
+    rendered = mandatory_system_block + optional_rendered
+    included = {"system": len(system_content), **included}
+    dropped = [f"{name} truncated to stable-prefix budget" for name in truncated_sections]
+    return StableTurnContextBuildReport(
+        rendered_prefix=rendered,
+        total_chars=len(rendered),
+        max_chars=max_chars,
+        truncated=bool(truncated_sections),
+        dropped_context=dropped,
+        budget_breakdown=included,
+        instruction_evidence=instruction_resolution.to_evidence(),
+        available_tools=base_tool_names,
+    )
+    # endregion 2. 独立预算结束
+
+
+def build_turn_system_context(
+    request: TurnSystemContextBuildRequest,
+) -> TurnSystemContextBuildReport:
+    """按最新 ``turn_focus`` 构造动态仓库上下文，再附到冻结前缀之后。"""
+
+    # region 1. 动态候选：结构图、文件预览、检索和派生 WorkingMemory
+    files = [line for line in request.repo_map.splitlines() if line.strip()]
+    raw_repo = "\n".join(files)
+    dynamic_max_chars = max(256, int(request.policy.max_chars))
+    shortened_repo = truncate(raw_repo, max(256, dynamic_max_chars // 4))
+    strategy = build_context_strategy(
+        ContextStrategyRequest(
+            turn_focus=request.turn_focus,
+            files=files,
+            working_memory=request.working_memory,
+            root=request.root,
+            max_chars=dynamic_max_chars,
+            frozen_instruction_paths=request.frozen_instruction_paths,
+        )
+    )
+    if shortened_repo != raw_repo:
+        strategy.dropped_context.append(
+            "repository map pre-truncated before dynamic section allocation"
+        )
+    # endregion 1. 动态候选结束
+
     report = TurnSystemContextBuildReport(
-        system_prompt=system_prompt,
-        project_instructions=project_instructions,
-        repo_map=shortened,
+        stable_system_prefix=request.stable_system_prefix,
+        repo_map=shortened_repo,
         retrieved_docs=strategy.retrieved_docs,
         working_memory_items=strategy.working_memory_items,
         working_memory_summary=strategy.working_memory_summary,
-        long_term_memory=strategy.long_term_memory,
         selected_files=strategy.selected_files,
         selected_file_previews=strategy.file_previews,
-        available_tools=available_tools,
-        active_skill_cards=request.active_skill_cards,
+        available_tools=[
+            str(schema.get("name") or "")
+            for schema in request.tool_schemas
+            if str(schema.get("name") or "")
+        ],
         permission_summary=request.policy.permission_summary,
         attention_sink=strategy.attention_sink,
-        topic_relation=strategy.topic_relation,
-        inherit_session=strategy.inherit_session,
         dropped_context=strategy.dropped_context,
-        budget_breakdown=strategy.budget_breakdown,
+        budget_breakdown={},
         total_chars=0,
-        max_chars=max(512, int(request.policy.max_chars)),
+        max_chars=len(request.stable_system_prefix) + dynamic_max_chars,
         truncated=False,
-        instruction_evidence=instruction_resolution.to_evidence(),
+        stable_chars=len(request.stable_system_prefix),
+        dynamic_chars=0,
+        dynamic_max_chars=dynamic_max_chars,
     )
-    # endregion 2. 类型化汇总结束
-
-    # region 3. 最终投影：渲染预算内正文并记录真实截断证据
-    rendered, included, truncated_sections = _fit_context_sections(report)
+    rendered, included, truncated_sections = _render_model_step_context(report)
     report.rendered_context = rendered
     report.total_chars = len(rendered)
-    report.budget_breakdown = included
+    report.dynamic_chars = sum(included.values())
+    report.budget_breakdown = {"stable_prefix": report.stable_chars, **included}
     report.truncated = bool(truncated_sections) or any(
         "truncat" in item for item in report.dropped_context
     )
     report.dropped_context.extend(
-        f"{name} truncated to context budget" for name in truncated_sections
+        f"{name} truncated to dynamic-context budget" for name in truncated_sections
     )
-    # endregion 3. 最终投影结束
     return report
 
 
-def load_project_instructions(root: str | Path, max_chars: int = 2600) -> str:
-    """保留给局部调用方的根目录解析入口；主链使用类型化 Resolver。"""
+def load_project_instructions(root: str | Path, max_chars: int = 2_600) -> str:
+    """保留给局部调用方的根目录解析入口；主链使用稳定快照。"""
 
     return resolve_instructions(
         InstructionResolutionRequest(workspace=root, max_bytes=max_chars)
     ).content
 
 
-def _fit_context_sections(
+def _render_model_step_context(
     report: TurnSystemContextBuildReport,
 ) -> tuple[str, dict[str, int], list[str]]:
-    """按稳定权重压缩区段，保证静态 system message 不超过显式预算。"""
-
     sections = [
-        ("system", report.system_prompt, 14),
-        ("permission_summary", report.permission_summary, 8),
+        ("permission_summary", report.permission_summary, 10),
         (
             "attention_sink",
             "\n".join(f"- {item}" for item in report.attention_sink),
             8,
         ),
-        ("available_tools", ", ".join(report.available_tools), 5),
-        ("active_skills", "\n\n".join(report.active_skill_cards), 8),
-        (
-            "project_instructions",
-            report.project_instructions,
-            10,
-        ),
-        # 稳定前缀的最后一段：放在动态文件、检索和会话历史之前。
-        (
-            "long_term_memory",
-            "\n".join(f"- {item}" for item in report.long_term_memory),
-            11,
-        ),
-        (
-            "selected_file_previews",
-            "\n\n".join(report.selected_file_previews),
-            22,
-        ),
-        ("retrieved_docs", "\n".join(report.retrieved_docs), 5),
-        ("working_memory_summary", report.working_memory_summary, 4),
+        ("available_tools", ", ".join(report.available_tools), 6),
+        ("selected_file_previews", "\n\n".join(report.selected_file_previews), 28),
+        ("retrieved_docs", "\n".join(report.retrieved_docs), 8),
+        ("working_memory_summary", report.working_memory_summary, 7),
         (
             "working_memory_items",
             "\n".join(str(item) for item in report.working_memory_items),
-            2,
+            5,
         ),
-        ("repo_map", report.repo_map, 6),
-        ("selected_files", "\n".join(report.selected_files), 3),
-        (
-            "context_state",
-            (
-                f"topic_relation={report.topic_relation}; "
-                f"inherit_session={report.inherit_session}; "
-                f"dropped={report.dropped_context}"
-            ),
-            2,
-        ),
+        ("repo_map", report.repo_map, 8),
+        ("selected_files", "\n".join(report.selected_files), 4),
     ]
-    # 区段标签本身也占模型窗口；先扣除稳定标签开销，再把剩余字符分给正文。
-    active = [section for section in sections if section[1]]
+    dynamic, included, truncated = _fit_sections(sections, report.dynamic_max_chars)
+    prefix = report.stable_system_prefix.rstrip()
+    return f"{prefix}\n\n{dynamic}" if prefix else dynamic, included, truncated
+
+
+def _fit_sections(
+    sections: list[tuple[str, str, int]],
+    max_chars: int,
+) -> tuple[str, dict[str, int], list[str]]:
+    """按稳定权重分配一个分区预算，并返回真实使用量。"""
+
+    candidates = [section for section in sections if section[1]]
+    active: list[tuple[str, str, int]] = []
+    skipped_labels: list[str] = []
+    remaining_label_budget = max_chars
+    for section in candidates:
+        label_cost = len(section[0]) + 3
+        if label_cost <= remaining_label_budget:
+            active.append(section)
+            remaining_label_budget -= label_cost
+        else:
+            skipped_labels.append(section[0])
     label_chars = sum(len(name) + 3 for name, _, _ in active)
-    content_budget = max(0, report.max_chars - label_chars)
+    content_budget = max(0, max_chars - label_chars)
     budgets = _weighted_budgets(active, content_budget)
     blocks: list[str] = []
     included: dict[str, int] = {}
-    truncated_sections: list[str] = []
-    # 同一轮循环同时生成最终正文、实际使用量和截断名单，保证 report 与模型输入一致。
+    truncated_sections: list[str] = list(skipped_labels)
     for (name, content, _), budget in zip(active, budgets):
         value = truncate_middle(content, budget)
         included[name] = len(value)
@@ -256,19 +295,14 @@ def _weighted_budgets(
     sections: list[tuple[str, str, int]],
     total_budget: int,
 ) -> list[int]:
-    """先按权重分配，再把短区段未使用的额度返还给仍有内容的区段。"""
-
     if total_budget <= 0:
         return [0 for _ in sections]
-    # 第一轮按权重分配，但短区段只领取自身真正需要的字符数。
     weight_total = sum(weight for _, _, weight in sections)
     budgets = [
         min(len(content), total_budget * weight // weight_total)
         for _, content, weight in sections
     ]
     remaining = total_budget - sum(budgets)
-    # 短区段退回的额度继续按权重分给尚未装完的区段，直到预算耗尽、没有候选，
-    # 或本轮无法再前进；后两个条件防止空内容造成无意义循环。
     while remaining > 0:
         candidates = [
             index
@@ -281,10 +315,7 @@ def _weighted_budgets(
         granted = 0
         for index in candidates:
             available = len(sections[index][1]) - budgets[index]
-            share = max(
-                1,
-                remaining * sections[index][2] // candidate_weight,
-            )
+            share = max(1, remaining * sections[index][2] // candidate_weight)
             amount = min(available, share, remaining - granted)
             budgets[index] += amount
             granted += amount

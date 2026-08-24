@@ -1,13 +1,21 @@
 from __future__ import annotations
 
+import fcntl
 import hashlib
 import json
+import re
+from contextlib import contextmanager
 from pathlib import Path
-from typing import Any
+from threading import Lock
+from typing import Any, Iterator
 
 from agent_forge.infrastructure.atomic_json import atomic_write_json
 from agent_forge.runtime.domain.approval import ApprovalRequest, ApprovalRequestDraft
 from agent_forge.runtime.ports.repositories import ApprovalRepository
+
+
+_PROCESS_LOCK_GUARD = Lock()
+_PROCESS_LOCKS: dict[Path, Lock] = {}
 
 
 class JsonApprovalRepository(ApprovalRepository):
@@ -35,6 +43,10 @@ class JsonApprovalRepository(ApprovalRepository):
         return self.root / f"{operation_key}.json"
 
     def get(self, operation_key: str) -> ApprovalRequest | None:
+        with self._operation_lock(operation_key):
+            return self._get_unlocked(operation_key)
+
+    def _get_unlocked(self, operation_key: str) -> ApprovalRequest | None:
         path = self.path_for(operation_key)
         if not path.exists():
             return None
@@ -49,43 +61,47 @@ class JsonApprovalRepository(ApprovalRepository):
         key 和 fingerprint 将后续决定绑定到具体 tool intent 与 target state。
         """
 
-        key = self.operation_key(
+        key = draft.operation_key or self.operation_key(
             draft.tool_name,
             draft.arguments,
             draft.workspace,
             draft.action,
         )
-        existing = self.get(key)
-        # stale 只否定旧 fingerprint 的授权；同一操作意图在新目标状态上
-        # 必须能重新进入 pending，仍使用同一稳定 operation key。
-        if existing is not None and existing.status == "stale":
-            existing = None
-        if (
-            existing is not None
-            and existing.operation_fingerprint is None
-            and draft.operation_fingerprint is not None
-        ):
-            existing.operation_fingerprint = draft.operation_fingerprint
-            self._write(existing)
-        if existing is not None:
-            return existing
-        request = ApprovalRequest(
-            operation_key=key,
-            status="pending",
-            tool_name=draft.tool_name,
-            arguments=draft.arguments,
-            action=draft.action,
-            command=draft.command,
-            workspace=str(Path(draft.workspace).resolve()),
-            run_id=draft.run_id,
-            step=draft.step,
-            agent_name=draft.agent_name,
-            reason=draft.reason,
-            operation_fingerprint=draft.operation_fingerprint,
-        )
-        request.path = str(self.path_for(key))
-        self._write(request)
-        return request
+        if not re.fullmatch(r"[0-9a-f]{24}", key):
+            raise ValueError("approval operation_key must be a 24-character hex digest")
+        with self._operation_lock(key):
+            existing = self._get_unlocked(key)
+            # stale 只否定旧 fingerprint 的授权；同一操作意图在新目标状态上
+            # 必须能重新进入 pending，仍使用同一稳定 operation key。
+            if existing is not None and existing.status == "stale":
+                existing = None
+            if (
+                existing is not None
+                and existing.status == "pending"
+                and existing.operation_fingerprint is None
+                and draft.operation_fingerprint is not None
+            ):
+                existing.operation_fingerprint = draft.operation_fingerprint
+                self._write(existing)
+            if existing is not None:
+                return existing
+            request = ApprovalRequest(
+                operation_key=key,
+                status="pending",
+                tool_name=draft.tool_name,
+                arguments=draft.arguments,
+                action=draft.action,
+                command=draft.command,
+                workspace=str(Path(draft.workspace).resolve()),
+                run_id=draft.run_id,
+                step=draft.step,
+                agent_name=draft.agent_name,
+                reason=draft.reason,
+                operation_fingerprint=draft.operation_fingerprint,
+            )
+            request.path = str(self.path_for(key))
+            self._write(request)
+            return request
 
     def list_pending(self) -> list[ApprovalRequest]:
         return [request for request in self.list_all() if request.status == "pending"]
@@ -105,21 +121,38 @@ class JsonApprovalRepository(ApprovalRepository):
     def decide(
         self, operation_key: str, status: str, note: str = ""
     ) -> ApprovalRequest:
-        request = self.get(operation_key)
-        if request is None:
-            raise FileNotFoundError(f"approval request not found: {operation_key}")
-        request.decide(status, note)
-        self._write(request)
-        return request
+        with self._operation_lock(operation_key):
+            request = self._get_unlocked(operation_key)
+            if request is None:
+                raise FileNotFoundError(f"approval request not found: {operation_key}")
+            request.decide(status, note)
+            self._write(request)
+            return request
 
     def mark_stale(self, operation_key: str, note: str = "") -> ApprovalRequest:
-        request = self.get(operation_key)
-        if request is None:
-            raise FileNotFoundError(f"approval request not found: {operation_key}")
-        request.mark_stale(note)
-        self._write(request)
-        return request
+        with self._operation_lock(operation_key):
+            request = self._get_unlocked(operation_key)
+            if request is None:
+                raise FileNotFoundError(f"approval request not found: {operation_key}")
+            request.mark_stale(note)
+            self._write(request)
+            return request
 
     def _write(self, request: ApprovalRequest) -> None:
         request.path = str(self.path_for(request.operation_key))
         atomic_write_json(self.path_for(request.operation_key), request.to_dict())
+
+    @contextmanager
+    def _operation_lock(self, operation_key: str) -> Iterator[None]:
+        """同一审批键的创建、决定与失效必须串行，禁止 last-write-wins。"""
+
+        lock_path = (self.root / f".{operation_key}.lock").resolve()
+        with _PROCESS_LOCK_GUARD:
+            process_lock = _PROCESS_LOCKS.setdefault(lock_path, Lock())
+        with process_lock:
+            with lock_path.open("a+", encoding="utf-8") as handle:
+                fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+                try:
+                    yield
+                finally:
+                    fcntl.flock(handle.fileno(), fcntl.LOCK_UN)

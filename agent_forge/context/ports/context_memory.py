@@ -8,9 +8,6 @@ from __future__ import annotations
 
 from typing import Protocol
 
-from agent_forge.memory.domain import LongTermMemoryRecord
-
-
 class ContextMemory(Protocol):
     """上下文选择真正需要的最小 memory 视图。"""
 
@@ -22,8 +19,5 @@ class ContextMemory(Protocol):
 
     def summary(self, max_chars: int = 800) -> str:
         """返回适合模型上下文的有界摘要。"""
-
-    def long_term(self) -> list[LongTermMemoryRecord]:
-        """返回本 Run 开始时已经固定的长期记忆快照。"""
 
 __all__ = ["ContextMemory"]

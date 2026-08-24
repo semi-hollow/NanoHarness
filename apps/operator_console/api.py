@@ -16,15 +16,15 @@ from apps.run_composition import (
 from agent_forge.control import RunController
 from agent_forge.harness import HarnessExtensions, RunRequest
 from agent_forge.observability.adapters.streaming import EventStreamPolicy
-from apps.operator_console.adapters import JsonTaskSessionCatalog
-from apps.operator_console.application import TaskSessionLibrary
+from agent_forge.runtime.adapters.thread_json import JsonConversationThreadRepository
+from apps.operator_console.application import ConversationThreadLibrary
 from apps.operator_console.events import RuntimeEventBuffer
 from apps.operator_console.session import OperatorSession
 from agent_forge.runtime.api import (
     build_approval_repository,
     build_human_input_repository,
 )
-from agent_forge.infrastructure.storage_layout import MEMORY_ROOT, SESSIONS_ROOT
+from agent_forge.infrastructure.storage_layout import MEMORY_ROOT, THREADS_ROOT
 
 
 def resolve_operator_memory_root(
@@ -53,15 +53,18 @@ class OperatorSessionBundle:
     session: OperatorSession
     events: RuntimeEventBuffer
     request: RunRequest
-    task_session_id: str = ""
+    thread_id: str = ""
 
 
-def build_task_session_library(base_args: argparse.Namespace) -> TaskSessionLibrary:
-    """按 output root 构造项目级会话目录；Run artifact 仍放在原目录。"""
+def build_conversation_thread_library(
+    base_args: argparse.Namespace,
+) -> ConversationThreadLibrary:
+    """构造 Console 与 Harness 共用的 canonical Thread Repository。"""
 
     workspace = Path(getattr(base_args, "workspace", ".") or ".").expanduser()
-    catalog_root = workspace.resolve() / SESSIONS_ROOT
-    return TaskSessionLibrary(JsonTaskSessionCatalog(catalog_root))
+    return ConversationThreadLibrary(
+        JsonConversationThreadRepository(workspace.resolve() / THREADS_ROOT)
+    )
 
 
 def build_operator_session(
@@ -69,26 +72,26 @@ def build_operator_session(
     *,
     task: str,
     workspace: str,
-    task_session_id: str = "",
+    thread_id: str = "",
     session_title: str = "",
-    task_sessions: TaskSessionLibrary | None = None,
+    threads: ConversationThreadLibrary | None = None,
 ) -> OperatorSessionBundle:
     """复用 CLI 的配置优先级和 Harness 装配，创建前台操作会话。"""
 
     args = copy.deepcopy(base_args)
-    session_library = task_sessions or build_task_session_library(args)
-    task_session = (
-        session_library.require(task_session_id)
-        if task_session_id
-        else session_library.create(
+    thread_library = threads or build_conversation_thread_library(args)
+    thread = (
+        thread_library.require(thread_id)
+        if thread_id
+        else thread_library.create(
             task=task,
             workspace=workspace,
             title=session_title,
         )
     )
     args.task = task
-    args.workspace = task_session.workspace
-    args.human_thread_id = task_session.human_thread_id
+    args.workspace = thread.workspace
+    args.thread_id = thread.thread_id
     args.agent_mode = "single"
     config_document = resolve_repository_arguments(args)
 
@@ -109,6 +112,7 @@ def build_operator_session(
         ),
         approval_repository=approvals,
         human_input_repository=human_inputs,
+        conversation_threads=thread_library.repository,
         run_control=controller,
     )
     request = build_single_run_request(args, config_document)
@@ -118,14 +122,14 @@ def build_operator_session(
         controller=controller,
         approvals=approvals,
         human_inputs=human_inputs,
-        task_sessions=session_library,
-        task_session_id=task_session.session_id,
+        thread_library=thread_library,
+        thread_id=thread.thread_id,
     )
     return OperatorSessionBundle(
         session=session,
         events=events,
         request=request,
-        task_session_id=task_session.session_id,
+        thread_id=thread.thread_id,
     )
 
 
@@ -141,7 +145,5 @@ def run_console_from_args(args: argparse.Namespace) -> None:
                 "Operator Console 需要 Textual；请重新安装当前项目依赖。"
             ) from exc
         raise
-    session_library = build_task_session_library(args)
-    output_root = getattr(args, "output_root", "") or ".agent_forge/runs"
-    session_library.import_existing_runs(output_root)
-    OperatorConsoleApp(args, task_sessions=session_library).run()
+    thread_library = build_conversation_thread_library(args)
+    OperatorConsoleApp(args, threads=thread_library).run()

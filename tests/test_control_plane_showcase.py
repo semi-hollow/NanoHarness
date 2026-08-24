@@ -86,11 +86,19 @@ class ControlPlaneShowcaseTest(unittest.TestCase):
                 controller.state_sequence,
                 ("waiting_human", "waiting_approval", "completed"),
             )
-            trace = json.loads(completed.trace_path.read_text(encoding="utf-8"))
-            event_types = [event["event_type"] for event in trace["events"]]
-            self.assertIn("human_input_response_loaded", event_types)
-            self.assertIn("human_approval", event_types)
-            self.assertIn("validation_evidence", event_types)
+            human_trace = json.loads(
+                waiting_approval.trace_path.read_text(encoding="utf-8")
+            )
+            self.assertIn(
+                "human_input_response_loaded",
+                [event["event_type"] for event in human_trace["events"]],
+            )
+            final_trace = json.loads(completed.trace_path.read_text(encoding="utf-8"))
+            final_event_types = [
+                event["event_type"] for event in final_trace["events"]
+            ]
+            self.assertIn("human_approval", final_event_types)
+            self.assertIn("validation_evidence", final_event_types)
             self.assertTrue((completed.run_dir / "demo.md").is_file())
             approval_paths = _readable_durable_paths(recorded_approval)
             readable_paths = _readable_durable_paths(completed)

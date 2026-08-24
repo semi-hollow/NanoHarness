@@ -17,6 +17,8 @@ class Message:
     tool_call_id: str | None = None
     tool_calls: list[dict[str, Any]] | None = None
     reasoning_content: str | None = None
+    origin: str = ""
+    human_authority: bool = False
 
 
 # 核心数据：模型请求执行某个工具的规范化意图。

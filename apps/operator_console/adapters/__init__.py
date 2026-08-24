@@ -1,5 +1,3 @@
-"""Operator Console Port 的基础设施实现。"""
+"""Operator Console 复用 Runtime Thread Repository Adapter。"""
 
-from .session_catalog_json import JsonTaskSessionCatalog
-
-__all__ = ["JsonTaskSessionCatalog"]
+__all__: list[str] = []

@@ -258,6 +258,81 @@ class ModelAdaptationTest(unittest.TestCase):
             ["provider/model-build-1"],
         )
 
+    def test_usage_counts_canonical_validation_evidence_only_once(self) -> None:
+        events = []
+        for step in range(1, 4):
+            events.extend(
+                [
+                    {
+                        "step": step,
+                        "agent_name": "CodingAgent",
+                        "event_type": "action",
+                        "tool_call": "python_validation",
+                    },
+                    {
+                        "step": step,
+                        "agent_name": "CodingAgent",
+                        "event_type": "validation_evidence",
+                        "validation": {
+                            "kind": "pytest",
+                            "status": "failed",
+                            "tool": "python_validation",
+                        },
+                    },
+                    {
+                        "step": step,
+                        "agent_name": "CodingAgent",
+                        "event_type": "tool_observation",
+                        "success": False,
+                        "execution_succeeded": True,
+                    },
+                    {
+                        "step": step,
+                        "agent_name": "CodingAgent",
+                        "event_type": "tool_observation",
+                        "tool_call": "python_validation",
+                        "success": False,
+                        "execution_succeeded": True,
+                    },
+                ]
+            )
+
+        usage = build_usage_report({"run_id": "run-validation", "events": events})
+
+        self.assertEqual(usage["summary"]["failed_validations"], 3)
+        self.assertEqual(
+            usage["tool_efficiency"]["by_tool"]["python_validation"][
+                "validation_failed"
+            ],
+            3,
+        )
+
+    def test_usage_keeps_observation_fallback_for_legacy_validation_trace(
+        self,
+    ) -> None:
+        usage = build_usage_report(
+            {
+                "run_id": "legacy-run",
+                "events": [
+                    {
+                        "step": 1,
+                        "agent_name": "CodingAgent",
+                        "event_type": "action",
+                        "tool_call": "python_validation",
+                    },
+                    {
+                        "step": 1,
+                        "agent_name": "CodingAgent",
+                        "event_type": "tool_observation",
+                        "success": False,
+                        "execution_succeeded": True,
+                    },
+                ],
+            }
+        )
+
+        self.assertEqual(usage["summary"]["failed_validations"], 1)
+
     def test_gateway_prices_opencode_go_glm_usage(self) -> None:
         client = SequenceModel(
             [

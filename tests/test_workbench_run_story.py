@@ -1292,7 +1292,7 @@ class WorkbenchRunStoryTest(unittest.TestCase):
         self.assertIn("先看结论，再逐层下钻", rendered)
         self.assertIn("实验批次", rendered)
         self.assertIn("单次运行", rendered)
-        self.assertIn("Agent 轮次", rendered)
+        self.assertIn("模型步骤", rendered)
         self.assertIn("语义阶段", rendered)
         self.assertIn("原始事件", rendered)
 
@@ -1489,7 +1489,7 @@ class WorkbenchRunStoryTest(unittest.TestCase):
         self.assertIn("0 字符（只检索，未写入）", rendered)
         self.assertIn("2 次工具调用均未进入写操作", rendered)
         self.assertIn(
-            "模型在最后一轮仍请求调用工具，因此运行时阻断了不完整产物", rendered
+            "模型在最后一个 Model Step 仍请求调用工具，因此运行时阻断了不完整产物", rendered
         )
         self.assertIn("增加步骤预算，或要求模型更早明确", rendered)
         self.assertIn("结果与证据", INDEX_HTML)

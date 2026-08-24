@@ -40,12 +40,12 @@ from agent_forge.memory.domain import LongTermMemoryRecord
 from agent_forge.harness import RunResult
 from apps.operator_console.api import (
     OperatorSessionBundle,
+    build_conversation_thread_library,
     build_operator_session,
-    build_task_session_library,
     resolve_operator_memory_root,
 )
-from apps.operator_console.application import TaskSessionLibrary
-from apps.operator_console.domain import TaskSession
+from apps.operator_console.application import ConversationThreadLibrary
+from agent_forge.runtime.domain.thread import ConversationThread
 from agent_forge.observability.domain.live_event import RuntimeEvent
 from apps.operator_console.events import render_event, should_render_event
 from apps.operator_console.session import OperatorPrompt, OperatorSession
@@ -417,12 +417,12 @@ class OperatorConsoleApp(App[None]):
         self,
         args: argparse.Namespace,
         *,
-        task_sessions: TaskSessionLibrary | None = None,
+        threads: ConversationThreadLibrary | None = None,
     ) -> None:
         super().__init__()
         self._args = args
-        self._task_sessions = task_sessions or build_task_session_library(args)
-        self._selected_task_session_id = ""
+        self._threads = threads or build_conversation_thread_library(args)
+        self._selected_thread_id = ""
         self._bundle: OperatorSessionBundle | None = None
         self._busy = False
         self._event_history: list[RuntimeEvent] = []
@@ -506,10 +506,10 @@ class OperatorConsoleApp(App[None]):
         self.query_one("#task", TextArea).focus()
 
     @on(Select.Changed, "#session-picker")
-    def select_task_session(self, event: Select.Changed) -> None:
+    def select_conversation_thread(self, event: Select.Changed) -> None:
         """选择只更新预览；真正加载 checkpoint 仍需点击“打开”。"""
 
-        self._selected_task_session_id = (
+        self._selected_thread_id = (
             event.value if isinstance(event.value, str) else ""
         )
         self._render_selected_session_summary()
@@ -518,7 +518,7 @@ class OperatorConsoleApp(App[None]):
     def prepare_new_session(self) -> None:
         if self._busy:
             return
-        self._selected_task_session_id = ""
+        self._selected_thread_id = ""
         self.query_one("#session-picker", Select).clear()
         self.query_one("#session-title", Input).value = ""
         self.query_one("#workspace", Input).value = str(
@@ -535,7 +535,7 @@ class OperatorConsoleApp(App[None]):
 
     @on(Button.Pressed, "#open-session")
     def open_selected_session(self) -> None:
-        session_id = self._selected_task_session_id
+        session_id = self._selected_thread_id
         if not session_id:
             self._show_error("请先选择一个历史会话。")
             return
@@ -547,22 +547,22 @@ class OperatorConsoleApp(App[None]):
 
     @on(Button.Pressed, "#rename-session")
     def rename_selected_session(self) -> None:
-        session_id = self._selected_task_session_id
+        session_id = self._selected_thread_id
         title = self.query_one("#session-title", Input).value.strip()
         if not session_id or not title:
             self._show_error("请选择会话并输入新的名称。")
             return
-        self._task_sessions.rename(session_id, title)
+        self._threads.rename(session_id, title)
         self._refresh_session_picker(selected_session_id=session_id)
         self._render_selected_session_summary()
 
     @on(Button.Pressed, "#pin-session")
     def pin_selected_session(self) -> None:
-        session_id = self._selected_task_session_id
+        session_id = self._selected_thread_id
         if not session_id:
             self._show_error("请先选择一个会话。")
             return
-        session = self._task_sessions.toggle_pinned(session_id)
+        session = self._threads.toggle_pinned(session_id)
         self._refresh_session_picker(selected_session_id=session_id)
         self.query_one("#pin-session", Button).label = (
             "取消置顶" if session.pinned else "置顶"
@@ -570,12 +570,12 @@ class OperatorConsoleApp(App[None]):
 
     @on(Button.Pressed, "#archive-session")
     def archive_selected_session(self) -> None:
-        session_id = self._selected_task_session_id
+        session_id = self._selected_thread_id
         if not session_id:
             self._show_error("请先选择一个会话。")
             return
-        self._task_sessions.set_archived(session_id)
-        self._selected_task_session_id = ""
+        self._threads.set_archived(session_id)
+        self._selected_thread_id = ""
         self._refresh_session_picker()
         self.query_one("#session-summary", Static).update(
             "会话已归档；Run、Workspace 和证据均未删除。"
@@ -588,7 +588,7 @@ class OperatorConsoleApp(App[None]):
             return
         self._refresh_session_picker(
             selected_session_id=(
-                self._bundle.task_session_id if self._bundle is not None else ""
+                self._bundle.thread_id if self._bundle is not None else ""
             )
         )
         self.query_one("#launch", Vertical).display = True
@@ -598,7 +598,7 @@ class OperatorConsoleApp(App[None]):
         task = self.query_one("#task", TextArea).text.strip()
         workspace = self.query_one("#workspace", Input).value.strip()
         session_title = self.query_one("#session-title", Input).value.strip()
-        if self._selected_task_session_id:
+        if self._selected_thread_id:
             self._show_error("历史会话请点击“打开”；新任务请先点击“新会话”。")
             return
         if not task:
@@ -722,7 +722,7 @@ class OperatorConsoleApp(App[None]):
                 task=task,
                 workspace=workspace,
                 session_title=session_title,
-                task_sessions=self._task_sessions,
+                threads=self._threads,
             )
             self._bundle = bundle
             run_result = bundle.session.start()
@@ -732,18 +732,18 @@ class OperatorConsoleApp(App[None]):
         self.call_from_thread(self._finish_result, run_result)
 
     @work(thread=True, group="runtime", exclusive=True)
-    def _execute_attach_session(self, task_session_id: str) -> None:
+    def _execute_attach_session(self, thread_id: str) -> None:
         try:
-            task_session = self._task_sessions.require(task_session_id)
-            latest_run = task_session.latest_run
+            thread = self._threads.require(thread_id)
+            latest_run = thread.latest_run
             if latest_run is None:
                 raise RuntimeError("该会话还没有可接管的 Run")
             bundle = build_operator_session(
                 self._args,
-                task=latest_run.task or task_session.initial_task,
-                workspace=task_session.workspace,
-                task_session_id=task_session_id,
-                task_sessions=self._task_sessions,
+                task=thread.latest_task,
+                workspace=thread.workspace,
+                thread_id=thread_id,
+                threads=self._threads,
             )
             self._bundle = bundle
             checkpoint = bundle.session.attach_run(latest_run.artifact_dir)
@@ -794,9 +794,9 @@ class OperatorConsoleApp(App[None]):
     def _finish_result(self, run_result: RunResult) -> None:
         self._set_busy(False)
         if self._bundle is not None:
-            self._selected_task_session_id = self._bundle.task_session_id
+            self._selected_thread_id = self._bundle.thread_id
             self._refresh_session_picker(
-                selected_session_id=self._bundle.task_session_id
+                selected_session_id=self._bundle.thread_id
             )
         self._render_checkpoint(run_result.checkpoint, run_result.artifact_dir)
         self._render_operator_prompt()
@@ -806,7 +806,7 @@ class OperatorConsoleApp(App[None]):
     def _finish_attachment(self, checkpoint: TaskCheckpoint) -> None:
         self._set_busy(False)
         if self._bundle is not None:
-            self._selected_task_session_id = self._bundle.task_session_id
+            self._selected_thread_id = self._bundle.thread_id
         artifact_dir = self._session().artifact_dir
         self._render_checkpoint(checkpoint, artifact_dir)
         self._render_operator_prompt()
@@ -1009,8 +1009,8 @@ class OperatorConsoleApp(App[None]):
 
     def _session_options(self) -> list[tuple[str, str]]:
         return [
-            (self._session_option_label(session), session.session_id)
-            for session in self._task_sessions.list_active()
+            (self._session_option_label(thread), thread.thread_id)
+            for thread in self._threads.list_active()
         ]
 
     def _refresh_session_picker(self, *, selected_session_id: str = "") -> None:
@@ -1018,24 +1018,24 @@ class OperatorConsoleApp(App[None]):
 
         picker = self.query_one("#session-picker", Select)
         picker.set_options(self._session_options())
-        session_ids = {session.session_id for session in self._task_sessions.list_active()}
-        desired = selected_session_id or self._selected_task_session_id
+        session_ids = {thread.thread_id for thread in self._threads.list_active()}
+        desired = selected_session_id or self._selected_thread_id
         if desired and desired in session_ids:
-            self._selected_task_session_id = desired
+            self._selected_thread_id = desired
             picker.value = desired
         else:
-            self._selected_task_session_id = ""
+            self._selected_thread_id = ""
             picker.clear()
 
     def _render_selected_session_summary(self) -> None:
-        session_id = self._selected_task_session_id
+        session_id = self._selected_thread_id
         if not session_id:
             self.query_one("#session-summary", Static).update(
                 "新会话会获得稳定 Session ID；每次执行仍生成独立 Run 和证据目录。"
             )
             self.query_one("#pin-session", Button).label = "置顶"
             return
-        session = self._task_sessions.require(session_id)
+        session = self._threads.require(session_id)
         latest = session.latest_run
         self.query_one("#session-title", Input).value = session.title
         self.query_one("#workspace", Input).value = session.workspace
@@ -1054,7 +1054,7 @@ class OperatorConsoleApp(App[None]):
         self.query_one("#session-summary", Static).update(summary)
 
     @staticmethod
-    def _session_option_label(session: TaskSession) -> str:
+    def _session_option_label(session: ConversationThread) -> str:
         latest = session.latest_run
         status = latest.status.upper() if latest is not None else "NEW"
         updated_at = latest.updated_at if latest is not None else session.updated_at

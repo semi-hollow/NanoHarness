@@ -14,6 +14,7 @@ Output
 ├── integrated candidate diff
 ├── WorkerHandoff records
 ├── Finalizer decision
+├── private Worker / Finalizer execution conversations
 └── auditable runtime evidence
 ```
 
@@ -98,7 +99,27 @@ Application composition
 - `FanoutPlan`：当前 generation 的 typed execution contract；
 - `FanoutCoordinator`：调度、Worker lifecycle、candidate gates、recovery 与 Finalizer；
 - `LiveHandoffRuntime`：LIVE route、mailbox、version/freshness 与 delivery facts；
-- `LocalAgentWorkerAdapter`：worktree、受限 Tool registry、AgentLoop、diff 与 validation。
+- `LocalAgentWorkerAdapter`：私有 Thread、worktree、受限 Tool registry、AgentLoop、diff 与 validation。
+
+对话所有权不属于 Planner 或 Coordinator：
+
+```text
+User ConversationThread (thread_kind=user)
+└── top-level user Turn
+    └── planning / final top-level result
+
+Worker Task
+└── private ConversationThread (thread_kind=worker)
+    └── private Turn / Run / Model Steps / Tool Observations
+
+Finalizer Task
+└── private ConversationThread (thread_kind=finalizer)
+    └── private read-only Turn / Run / Model Steps
+```
+
+Worker/Finalizer 的 root input 来自已验证 plan，`origin=runtime_plan` 且
+`human_authority=false`。内部 provider history、ToolCall 与 Observation 不写入用户主
+Thread，也不能成为用户授权来源。
 
 | 核心概念 | 系统角色 |
 |---|---|
@@ -210,7 +231,7 @@ Worker Thread A                       Worker Thread B
 └── LocalAgentWorkerAdapter          └── LocalAgentWorkerAdapter
     ├── independent AgentLoop            ├── independent AgentLoop
     ├── isolated Git worktree            ├── isolated Git worktree
-    ├── private Conversation/WM          ├── private Conversation/WM
+    ├── private durable Thread/WM         ├── private durable Thread/WM
     └── scoped candidate diff            └── scoped candidate diff
 ```
 
@@ -220,6 +241,10 @@ Worker 不共享 Conversation、WorkingMemory 或私有 worktree。跨 Worker �
 semantic state → READY / FEEDBACK / UPDATE
 trusted code   → successful integration + WorkerHandoff
 ```
+
+私有 Thread 只负责单个 Worker/Finalizer 的执行连续性与审计。Coordinator 只读取 typed
+`SubagentResult`、`WorkerHandoff` 和 candidate diff；它不拼接各 Worker raw Conversation，
+也不创建第二套 AgentLoop lifecycle。
 
 复用同一个 `AgentLoop` 不等于复用同一个身份 Prompt。Composition 明确设置：
 
@@ -266,7 +291,7 @@ peer AgentLoop safe model boundary
 old model response returns
 → after_model safe boundary detects changed input
 → discard response before Tool side effects
-→ next Turn uses latest coordination
+→ next Model Step uses latest coordination
 ```
 
 Runtime coordination 与 operator steer 使用同一 safe-boundary mechanics，但拥有不同
@@ -312,6 +337,8 @@ Replan 只替换 remaining work。新 `FanoutPlan` 进入下一 generation 后�
 - Agent-level Turn REPLAN 与 plan-level remaining-task replan 是两个控制环；
 - LIVE early start 不绕过最终 integration trust gates；
 - Runtime coordination 不获得 human authority；
+- Planner / Coordinator 不拥有 AgentLoop Conversation；
+- Worker / Finalizer 使用私有 durable Thread，用户主 Thread 不承载内部 raw history；
 - per-generation scheduling 与 Worker prompt 都绑定当前 `effective_plan`；
 - HARD-only checkpoint 支持已有 resume；LIVE mailbox/in-flight state 不提供 replay；
 - 当前证据验证 deterministic mechanism 与真实 AgentLoop integration，不构成真实模型性能结论。
@@ -329,5 +356,6 @@ Replan 只替换 remaining work。新 `FanoutPlan` 进入下一 generation 后�
 - `agent_forge/multi_agent/application/fanout.py::FanoutCoordinator.run()`：per-generation 调度与集成闭环。
 - `agent_forge/multi_agent/ports/live.py::FanoutWorkerPort.bind_effective_plan()`：当前 generation 到 Worker prompt 的绑定边界。
 - `agent_forge/multi_agent/application/live_handoff.py::LiveHandoffRuntime`：协作状态与 freshness Owner。
-- `agent_forge/multi_agent/adapters/local_worker.py::LocalAgentWorkerAdapter`：隔离 Worker 与 Finalizer。
+- `agent_forge/multi_agent/adapters/local_worker.py::LocalAgentWorkerAdapter`：私有 durable Thread、隔离 Worker 与 Finalizer。
 - `agent_forge/runtime/application/agent_loop.py::AgentLoop.run()`：Worker 复用的 canonical Runtime。
+- `agent_forge/runtime/domain/thread.py::ConversationThread`：user/worker/finalizer 三类 Thread 的共同 durable contract。

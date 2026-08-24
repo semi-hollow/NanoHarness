@@ -1,5 +1,6 @@
 """通用整文件覆盖工具；能力宽于锚点替换，因此由 Router 标为高风险写能力。"""
 
+from agent_forge.context.adapters.repository_map import invalidate_repo_map
 from agent_forge.contracts import ToolArguments, ToolSchema
 from agent_forge.runtime.domain.conversation import Observation
 from agent_forge.safety.permission import PermissionDecision, PermissionPolicy
@@ -46,8 +47,11 @@ class WriteFileTool(Tool):
 
         # 2. Sandbox 把目标限制在 workspace；父目录只为这次明确目标创建。
         path = self.sandbox.ensure_safe_path(arguments["path"])
+        target_existed = path.exists()
         path.parent.mkdir(parents=True, exist_ok=True)
 
         # 3. 本工具按契约覆盖完整正文；结果作为 Tool Observation 返回主循环。
         path.write_text(arguments["content"], encoding="utf-8")
+        if not target_existed:
+            invalidate_repo_map(self.sandbox.workspace_root)
         return Observation(self.name, True, f"written: {arguments['path']}")

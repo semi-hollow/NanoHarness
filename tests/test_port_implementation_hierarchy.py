@@ -47,11 +47,8 @@ from agent_forge.observability.adapters.json_trace import JsonTraceRecorder
 from agent_forge.observability.adapters.otel import OpenTelemetryEventListener
 from agent_forge.observability.adapters.streaming import StreamingEventSink
 from agent_forge.observability.ports.events import RuntimeEventListener
-from apps.operator_console.adapters.session_catalog_json import (
-    JsonTaskSessionCatalog,
-)
 from apps.operator_console.events import RuntimeEventBuffer
-from apps.operator_console.ports.session_catalog import TaskSessionCatalogPort
+from agent_forge.runtime.adapters.thread_json import JsonConversationThreadRepository
 from agent_forge.runtime.adapters.approval_json import JsonApprovalRepository
 from agent_forge.runtime.adapters.context_assembler import (
     RepositoryTurnSystemContextAssembler,
@@ -78,6 +75,7 @@ from agent_forge.runtime.ports import (
     SkillSelectorPort,
     TaskStateRepository,
     ToolGateway,
+    ConversationThreadRepository,
 )
 from agent_forge.skills.registry import SkillRegistry
 from agent_forge.tools.registry import ToolRegistry
@@ -107,7 +105,7 @@ FORMAL_IMPLEMENTATIONS = (
     (HookManager, HookPort),
     (SkillRegistry, SkillSelectorPort),
     (ToolRegistry, ToolGateway),
-    (JsonTaskSessionCatalog, TaskSessionCatalogPort),
+    (JsonConversationThreadRepository, ConversationThreadRepository),
     (SwebenchCaseSource, CaseSourcePort),
     (LocalCaseExecutor, CaseExecutorPort),
     (SwebenchOfficialEvaluator, OfficialEvaluatorPort),

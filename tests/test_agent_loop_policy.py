@@ -15,7 +15,7 @@ from agent_forge.safety.sandbox import WorkspaceSandbox
 from agent_forge.tools.builtins.replace_text import ReplaceTextTool
 from agent_forge.tools.builtins.read_file import ReadFileTool
 from agent_forge.tools.registry import ToolRegistry
-from tests.support import StaticResponseModel
+from tests.support import StaticResponseModel, bind_new_runtime_turn
 
 
 class RawToolMarkupLLM:
@@ -279,6 +279,28 @@ class ValidationFailureRecoveryLLM:
         return AgentResponse("PASS\nvalidation-driven repair converged", [])
 
 
+def _run_direct_agent_loop(
+    config,
+    trace,
+    registry,
+    model,
+    task,
+    *,
+    agent_name="CodingAgent",
+):
+    """Direct Runtime tests 也必须从 canonical user Thread/Turn 进入。"""
+
+    runtime = bind_new_runtime_turn(
+        config,
+        trace,
+        task,
+        agent_name=agent_name,
+    )
+    return build_agent_loop(runtime.config, trace, registry, model).run(
+        agent_name=agent_name
+    )
+
+
 class AgentLoopPolicyTest(unittest.TestCase):
     def test_final_turn_has_no_tools_and_explicit_runtime_control(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -290,7 +312,7 @@ class AgentLoopPolicyTest(unittest.TestCase):
             registry.register(ReadFileTool(WorkspaceSandbox(root)))
             model = CaptureFinalTurnControlLLM()
 
-            final = build_agent_loop(
+            final = _run_direct_agent_loop(
                 RuntimeConfig(
                     workspace=tmp,
                     max_steps=2,
@@ -299,7 +321,8 @@ class AgentLoopPolicyTest(unittest.TestCase):
                 trace,
                 registry,
                 model,
-            ).run("resolve this coding issue")
+                "resolve this coding issue",
+            )
 
             self.assertIn("final answer", final)
             self.assertEqual(len(model.requests), 2)
@@ -315,12 +338,14 @@ class AgentLoopPolicyTest(unittest.TestCase):
             config = RuntimeConfig(
                 workspace=tmp, max_steps=2, trace_file=str(trace_path)
             )
-            final = build_agent_loop(
+            final = _run_direct_agent_loop(
                 config,
                 trace,
                 ToolRegistry(),
                 StaticResponseModel("PASS\nfinal answer"),
-            ).run("summarize safely", agent_name="Reviewer")
+                "summarize safely",
+                agent_name="Reviewer",
+            )
             self.assertIn("final answer", final)
             agent_names = {event["agent_name"] for event in trace.events}
             self.assertIn("Reviewer", agent_names)
@@ -338,9 +363,13 @@ class AgentLoopPolicyTest(unittest.TestCase):
             config = RuntimeConfig(
                 workspace=tmp, max_steps=1, trace_file=str(trace_path)
             )
-            final = build_agent_loop(
-                config, trace, ToolRegistry(), RawToolMarkupLLM()
-            ).run("resolve a coding issue")
+            final = _run_direct_agent_loop(
+                config,
+                trace,
+                ToolRegistry(),
+                RawToolMarkupLLM(),
+                "resolve a coding issue",
+            )
             self.assertIn("blocked: pending_tool_call_at_stop", final)
             stop_reasons = [
                 event.get("stop_reason")
@@ -373,7 +402,7 @@ class AgentLoopPolicyTest(unittest.TestCase):
             registry = ToolRegistry()
             registry.register(ReadFileTool(WorkspaceSandbox(root)))
 
-            final = build_agent_loop(
+            final = _run_direct_agent_loop(
                 RuntimeConfig(
                     workspace=tmp,
                     max_steps=1,
@@ -382,7 +411,8 @@ class AgentLoopPolicyTest(unittest.TestCase):
                 trace,
                 registry,
                 StructuredFinalToolCallLLM(),
-            ).run("resolve a coding issue")
+                "resolve a coding issue",
+            )
 
             self.assertIn("blocked: pending_tool_call_at_stop", final)
             self.assertFalse(
@@ -407,9 +437,13 @@ class AgentLoopPolicyTest(unittest.TestCase):
                 workspace=tmp, max_steps=4, trace_file=str(trace_path)
             )
 
-            final = build_agent_loop(
-                config, trace, registry, RepeatReadThenFinalLLM()
-            ).run("resolve a coding issue")
+            final = _run_direct_agent_loop(
+                config,
+                trace,
+                registry,
+                RepeatReadThenFinalLLM(),
+                "resolve a coding issue",
+            )
 
             self.assertIn("used prior observation", final)
             stop_reasons = [
@@ -436,6 +470,7 @@ class AgentLoopPolicyTest(unittest.TestCase):
                 event
                 for event in trace.events
                 if event["event_type"] == "guardrail_check"
+                and event.get("guardrail", {}).get("category") == "tool"
             ]
             self.assertTrue(routed_guardrail_checks)
             self.assertTrue(
@@ -515,7 +550,7 @@ class AgentLoopPolicyTest(unittest.TestCase):
             registry = ToolRegistry()
             registry.register(ValidationFailureRecoveryTool())
 
-            final = build_agent_loop(
+            final = _run_direct_agent_loop(
                 RuntimeConfig(
                     workspace=tmp,
                     max_steps=6,
@@ -525,7 +560,8 @@ class AgentLoopPolicyTest(unittest.TestCase):
                 trace,
                 registry,
                 ValidationFailureRecoveryLLM(),
-            ).run("repair the failing tests and validate the result")
+                "repair the failing tests and validate the result",
+            )
             usage = build_usage_report(
                 {
                     "run_id": trace.run_id,
@@ -538,7 +574,24 @@ class AgentLoopPolicyTest(unittest.TestCase):
 
         self.assertIn("converged", final)
         self.assertEqual(usage["summary"]["failed_tool_calls"], 0)
+        self.assertEqual(usage["summary"]["tool_calls"], 4)
         self.assertEqual(usage["summary"]["failed_validations"], 3)
+        self.assertEqual(
+            sum(
+                event["event_type"] == "validation_evidence"
+                and event.get("validation", {}).get("status") == "failed"
+                for event in trace.events
+            ),
+            3,
+        )
+        self.assertEqual(
+            sum(
+                event["event_type"] == "tool_observation"
+                and event.get("tool_call") == "python_validation"
+                for event in trace.events
+            ),
+            4,
+        )
 
     def test_tool_call_burst_is_bounded_before_execution(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -559,12 +612,13 @@ class AgentLoopPolicyTest(unittest.TestCase):
                 trace_file=str(trace_path),
             )
 
-            final = build_agent_loop(
+            final = _run_direct_agent_loop(
                 config,
                 trace,
                 registry,
                 BurstReadThenFinalLLM(),
-            ).run("read target.py")
+                "read target.py",
+            )
 
         self.assertIn("bounded burst", final)
         budget_events = [
@@ -595,7 +649,13 @@ class AgentLoopPolicyTest(unittest.TestCase):
                 trace_file=str(trace_path),
             )
 
-            final = build_agent_loop(config, trace, registry, llm).run("read target.py")
+            final = _run_direct_agent_loop(
+                config,
+                trace,
+                registry,
+                llm,
+                "read target.py",
+            )
 
         self.assertEqual(llm.calls, 2)
         self.assertEqual(final, "blocked: cost budget exceeded")
@@ -616,12 +676,13 @@ class AgentLoopPolicyTest(unittest.TestCase):
                 trace_file=str(trace_path),
             )
 
-            final = build_agent_loop(
+            final = _run_direct_agent_loop(
                 config,
                 trace,
                 ToolRegistry(),
                 CostlyModelFailureLLM(),
-            ).run("inspect safely")
+                "inspect safely",
+            )
             usage = build_usage_report(
                 {
                     "run_id": trace.run_id,
@@ -653,8 +714,12 @@ class AgentLoopPolicyTest(unittest.TestCase):
                 workspace=tmp, max_steps=4, trace_file=str(trace_path)
             )
 
-            final = build_agent_loop(config, trace, registry, RepeatPatchLLM()).run(
-                "resolve a coding issue"
+            final = _run_direct_agent_loop(
+                config,
+                trace,
+                registry,
+                RepeatPatchLLM(),
+                "resolve a coding issue",
             )
 
             self.assertEqual(final, "blocked: repeated tool call")
@@ -678,12 +743,13 @@ class AgentLoopPolicyTest(unittest.TestCase):
                 skill_mode="none",
             )
 
-            build_agent_loop(
+            _run_direct_agent_loop(
                 config,
                 trace,
                 registry,
                 ValidationThenFinalLLM("unittest"),
-            ).run("resolve and test a coding issue")
+                "resolve and test a coding issue",
+            )
 
             validation = [
                 event
@@ -707,9 +773,13 @@ class AgentLoopPolicyTest(unittest.TestCase):
                 skill_mode="none",
             )
 
-            build_agent_loop(
-                config, trace, registry, ValidationThenFinalLLM("pytest")
-            ).run("resolve a SWE-bench coding issue")
+            _run_direct_agent_loop(
+                config,
+                trace,
+                registry,
+                ValidationThenFinalLLM("pytest"),
+                "resolve a SWE-bench coding issue",
+            )
 
             validation = [
                 event
@@ -746,12 +816,13 @@ class AgentLoopPolicyTest(unittest.TestCase):
                 workspace=tmp, max_steps=3, trace_file=str(trace_path)
             )
 
-            build_agent_loop(
+            _run_direct_agent_loop(
                 config,
                 trace,
                 registry,
                 ValidationThenFinalLLM("compile"),
-            ).run("resolve and test a coding issue")
+                "resolve and test a coding issue",
+            )
 
             validation = [
                 event
@@ -777,13 +848,20 @@ class AgentLoopPolicyTest(unittest.TestCase):
                 tool_routing_mode="all",
             )
 
-            build_agent_loop(config, trace, registry, llm).run(
-                "read only inspect target.py"
+            _run_direct_agent_loop(
+                config,
+                trace,
+                registry,
+                llm,
+                "read only inspect target.py",
             )
 
         self.assertEqual(set(llm.tool_names), {"read_file", "replace_text"})
         context_events = [
-            event for event in trace.events if event["event_type"] == "context_assembly"
+            event
+            for event in trace.events
+            if event["event_type"] == "context_assembly"
+            and "tool_routing" in event.get("context", {})
         ]
         self.assertIn(
             "mode=all", context_events[0]["context"]["tool_routing"]["reason"]
@@ -804,9 +882,13 @@ class AgentLoopPolicyTest(unittest.TestCase):
                 trace_file=str(root / "trace.json"),
             )
 
-            final = build_agent_loop(
-                config, trace, registry, ReplaceThenFinalLLM()
-            ).run("implement the requested update in target.py")
+            final = _run_direct_agent_loop(
+                config,
+                trace,
+                registry,
+                ReplaceThenFinalLLM(),
+                "implement the requested update in target.py",
+            )
             target_content = target.read_text(encoding="utf-8")
 
         self.assertIn("reported the policy block", final)

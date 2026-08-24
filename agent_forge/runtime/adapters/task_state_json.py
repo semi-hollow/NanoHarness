@@ -7,7 +7,6 @@ from agent_forge.runtime.domain.task import (
     TaskCheckpointUpdate,
     TaskRunStatus,
     TaskStartRequest,
-    summarize_checkpoint,
 )
 from agent_forge.runtime.ports.repositories import TaskStateRepository
 
@@ -27,11 +26,15 @@ class JsonTaskStateRepository(TaskStateRepository):
     def start(self, request: TaskStartRequest) -> TaskCheckpoint:
         checkpoint = TaskCheckpoint(
             run_id=request.run_id,
-            task=request.task,
+            thread_id=request.thread_id,
+            turn_id=request.turn_id,
+            context_revision=request.context_revision,
             workspace=str(Path(request.workspace).resolve()),
+            execution_workspace=str(Path(request.execution_workspace).resolve()),
+            execution_mode=request.execution_mode,
             agent_name=request.agent_name,
             status=TaskRunStatus.CREATED.value,
-            resume_hint="Run with --resume-state this_id to seed a continuation from this checkpoint.",
+            resume_hint="Resume this checkpoint in the same Thread and Turn.",
             metadata=request.metadata,
         )
         self.save(checkpoint)
@@ -101,7 +104,3 @@ class JsonTaskStateRepository(TaskStateRepository):
             except (OSError, json.JSONDecodeError, TypeError):
                 continue
         return sorted(checkpoints, key=lambda item: item.updated_at, reverse=True)
-
-    def resume_summary(self, run_id: str, max_chars: int = 1400) -> str:
-        checkpoint = self.load(run_id)
-        return summarize_checkpoint(checkpoint, max_chars=max_chars)

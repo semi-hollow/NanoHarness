@@ -62,7 +62,7 @@ class ToolRoutingRequest:
     mode: str = "task-aware"
 
 
-# 核心数据：本 turn 展示给模型和隐藏于模型的真实工具可见性决策。
+# 核心数据：当前 Model Step 展示给模型和隐藏于模型的真实工具可见性决策。
 @dataclass(frozen=True, kw_only=True)
 class ToolRoute:
     """一次工具可见性决策，明确记录展示、隐藏和治理元数据。"""
@@ -190,9 +190,9 @@ class ToolRouter:
         },
     }
 
-    # 主要入口：结合任务、Skill 与模式收敛本 turn 的模型可见工具 schema。
+    # 主要入口：结合任务、Skill 与模式收敛当前 Model Step 的模型可见工具 schema。
     def route(self, request: ToolRoutingRequest) -> ToolRoute:
-        """为一个 turn 生成模型工具视图，并保留完整的选择证据。
+        """为一个 Model Step 生成模型工具视图，并保留完整的选择证据。
 
         ``schemas`` 来自 ``ToolGateway.schemas()``，表示当前 Runtime 已注册的候选工具。
         返回的 ``schemas`` 会真正进入模型请求，``allowed_names`` 交给执行管线复核，

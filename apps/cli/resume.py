@@ -5,9 +5,8 @@ from __future__ import annotations
 import argparse
 import json
 from pathlib import Path
-from typing import Callable, Sequence, TypeVar
 
-from apps.repository_run import run_repository_task
+from apps.run_composition import build_single_harness
 from apps.run_configuration import CONFIG_SCHEMA_VERSION
 from agent_forge.observability.api import refresh_run_manifest
 from agent_forge.runtime.api import (
@@ -17,14 +16,11 @@ from agent_forge.runtime.api import (
     list_pending_approvals,
     list_pending_human_inputs,
     load_task_checkpoint,
-    prepare_continuation,
     respond_to_human_input,
 )
-from agent_forge.runtime.application.operator_control import checkpoint_resume_workspace
 from agent_forge.runtime.domain.task import TaskCheckpoint
 from agent_forge.infrastructure.storage_layout import APPROVAL_ROOT, HUMAN_INPUT_ROOT
 
-_Pending = TypeVar("_Pending")
 _CONTINUATION_OWNED_CONFIG = {
     "resume_state",
     "runtime_instructions_configured",
@@ -38,7 +34,8 @@ _CONTINUATION_OWNED_CONFIG = {
 def resume_repository_task(args: argparse.Namespace) -> Path:
     """加载 checkpoint/HITL 状态并启动新的 continuation run。"""
 
-    checkpoint = load_task_checkpoint(latest_checkpoint_path(args.run_dir))
+    checkpoint_path = latest_checkpoint_path(args.run_dir)
+    checkpoint = load_task_checkpoint(checkpoint_path)
     _inherit_resolved_config(args)
     human_input_root = _control_root(
         args.human_input_root or str(HUMAN_INPUT_ROOT),
@@ -50,75 +47,26 @@ def resume_repository_task(args: argparse.Namespace) -> Path:
     )
     _persist_operator_decision(
         args,
-        checkpoint_status=checkpoint.status,
+        checkpoint=checkpoint,
         human_input_root=human_input_root,
         approval_root=approval_root,
     )
-    try:
-        checkpoint, checkpoint_path, plan = prepare_continuation(
-            args.run_dir,
-            human_input_root,
-            override_task=args.task or "",
-            workspace=args.workspace or "",
+    if getattr(args, "task", ""):
+        raise SystemExit(
+            "resume cannot override Turn.root_task; send a follow-up as a new Turn"
         )
-    except ValueError as exc:
-        raise SystemExit(str(exc)) from exc
-    run_args = argparse.Namespace(
-        task=plan.task,
-        workspace=plan.workspace,
-        provider=args.provider,
-        model=args.model,
-        base_url=args.base_url,
-        api_key=args.api_key,
-        temperature=args.temperature,
-        thinking_mode=args.thinking_mode,
-        reasoning_effort=args.reasoning_effort,
-        max_steps=args.max_steps,
-        max_context_chars=args.max_context_chars,
-        max_prompt_tokens=args.max_prompt_tokens,
-        reserved_output_tokens=args.reserved_output_tokens,
-        model_context_window=args.model_context_window,
-        native_tool_calling=args.native_tool_calling,
-        parallel_tool_calls=args.parallel_tool_calls,
-        structured_output=args.structured_output,
-        reasoning_tokens=args.reasoning_tokens,
-        prompt_cache=args.prompt_cache,
-        supports_images=args.supports_images,
-        approval_mode=args.approval_mode,
-        auto_approve_writes=args.auto_approve_writes,
-        approval_root=approval_root,
-        human_input_root=human_input_root,
-        human_thread_id=plan.human_thread_id,
-        operation_ledger_root=args.operation_ledger_root,
-        memory_root=args.memory_root,
-        memory_max_chars=args.memory_max_chars,
-        max_tool_calls_per_turn=args.max_tool_calls_per_turn,
-        cost_budget_usd=args.cost_budget_usd,
-        timeout_seconds=args.timeout_seconds,
-        instruction_target=args.instruction_target,
-        global_instruction_file=args.global_instruction_file,
-        runtime_instructions=args.runtime_instructions,
-        instruction_max_bytes=args.instruction_max_bytes,
-        resume_state=checkpoint_path,
-        output_root=args.output_root,
-        agent_mode=args.agent_mode,
-        skills=args.skills,
-        skill_manifest=args.skill_manifest,
-        mcp_config=args.mcp_config,
-        mcp_tool=args.mcp_tool,
-        enabled_tools=args.enabled_tools,
-        execution_mode=args.execution_mode,
-        network_policy=args.network_policy,
-        keep_worktree=args.keep_worktree,
-        tool_routing=args.tool_routing,
-        container_runtime=args.container_runtime,
-        container_image=args.container_image,
-        container_cpus=args.container_cpus,
-        container_memory=args.container_memory,
-        container_pids_limit=args.container_pids_limit,
-        container_read_only=args.container_read_only,
-    )
-    run_dir = run_repository_task(run_args)
+    requested_override = str(getattr(args, "workspace", "") or "")
+    if requested_override and Path(requested_override).expanduser().resolve() != Path(
+        checkpoint.workspace
+    ).resolve():
+        raise SystemExit("resume workspace does not match checkpoint Thread workspace")
+    args.workspace = checkpoint.workspace
+    args.thread_id = checkpoint.thread_id
+    args.resume_state = checkpoint_path
+    args.human_input_root = human_input_root
+    args.approval_root = approval_root
+    run_result = build_single_harness(args).resume(checkpoint_path)
+    run_dir = run_result.artifact_dir
     write_resume_link(
         run_dir,
         resumed_from_run_dir=Path(args.run_dir),
@@ -176,22 +124,39 @@ def _inherit_resolved_config(args: argparse.Namespace) -> None:
 def _persist_operator_decision(
     args: argparse.Namespace,
     *,
-    checkpoint_status: str,
+    checkpoint: TaskCheckpoint,
     human_input_root: str,
     approval_root: str,
 ) -> None:
-    """让 ``resume`` 同时承担待处理人工决定，统一恢复入口。"""
+    """只把人工决定写入当前 checkpoint 精确指向的 pending item。"""
 
-    if checkpoint_status == "waiting_human":
-        pending_human_inputs = list_pending_human_inputs(human_input_root)
-        if not pending_human_inputs:
-            return
-        selected_human_input = _select_pending(
-            pending_human_inputs,
-            identity_name="request id",
-            requested=getattr(args, "request_id", "") or "",
-            identity=lambda item: item.request_id,
+    if checkpoint.status == "waiting_human":
+        expected_request_id = str(
+            checkpoint.metadata.get("human_input_request_id") or ""
         )
+        if not expected_request_id:
+            raise SystemExit(
+                "waiting_human checkpoint is missing human_input_request_id"
+            )
+        requested_id = getattr(args, "request_id", "") or ""
+        if requested_id and requested_id != expected_request_id:
+            raise SystemExit(
+                "human input request id does not match resume checkpoint: "
+                f"expected={expected_request_id} actual={requested_id}"
+            )
+        pending_human_inputs = list_pending_human_inputs(human_input_root)
+        selected_human_input = next(
+            (
+                item
+                for item in pending_human_inputs
+                if item.request_id == expected_request_id
+            ),
+            None,
+        )
+        # 对应请求可能已由其他入口回答；其他 Turn 的 pending item 不能阻止本次 resume，
+        # 更不能被本 checkpoint 的 --answer 误写。
+        if selected_human_input is None:
+            return
         answer = getattr(args, "answer", None)
         if answer is None:
             raise SystemExit(
@@ -208,16 +173,36 @@ def _persist_operator_decision(
         )
         return
 
-    if checkpoint_status == "waiting_approval":
-        pending_approvals = list_pending_approvals(approval_root)
-        if not pending_approvals:
-            return
-        selected_approval = _select_pending(
-            pending_approvals,
-            identity_name="operation key",
-            requested=getattr(args, "operation_key", "") or "",
-            identity=lambda item: item.operation_key,
+    if checkpoint.status == "waiting_approval":
+        pending_execution = checkpoint.pending_execution
+        expected_operation_key = (
+            pending_execution.pending_operation_key
+            if pending_execution is not None
+            else ""
         )
+        if not expected_operation_key:
+            raise SystemExit(
+                "waiting_approval checkpoint is missing pending_operation_key"
+            )
+        requested_key = getattr(args, "operation_key", "") or ""
+        if requested_key and requested_key != expected_operation_key:
+            raise SystemExit(
+                "approval operation key does not match resume checkpoint: "
+                f"expected={expected_operation_key} actual={requested_key}"
+            )
+        pending_approvals = list_pending_approvals(approval_root)
+        selected_approval = next(
+            (
+                item
+                for item in pending_approvals
+                if item.operation_key == expected_operation_key
+            ),
+            None,
+        )
+        # 已由其他入口决定时直接续跑；同目录下其他 Turn 的 pending approval 不属于
+        # 本 checkpoint，不能在这里被选择。
+        if selected_approval is None:
+            return
         decision = getattr(args, "decision", None)
         if decision is None:
             raise SystemExit(
@@ -232,31 +217,11 @@ def _persist_operator_decision(
         )
 
 
-def _select_pending(
-    items: Sequence[_Pending],
-    *,
-    identity_name: str,
-    requested: str,
-    identity: Callable[[_Pending], str],
-) -> _Pending:
-    if requested:
-        for item in items:
-            if identity(item) == requested:
-                return item
-        raise SystemExit(f"pending {identity_name} not found: {requested}")
-    if len(items) != 1:
-        values = ", ".join(identity(item) for item in items)
-        raise SystemExit(
-            f"multiple pending items; pass --{identity_name.replace(' ', '-')}: {values}"
-        )
-    return items[0]
-
-
 def _control_root(value: str, checkpoint: TaskCheckpoint) -> str:
     path = Path(value)
     if path.is_absolute():
         return str(path)
-    workspace_path = Path(checkpoint_resume_workspace(checkpoint)) / path
+    workspace_path = Path(checkpoint.workspace) / path
     if workspace_path.exists() or not path.exists():
         return str(workspace_path.resolve())
     return str(path.resolve())

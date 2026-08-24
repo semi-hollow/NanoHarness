@@ -21,7 +21,7 @@ RUNTIME_CORE = {
     "agent_forge/runtime/wiring.py": "build_agent_loop_from_request",
     "agent_forge/runtime/application/agent_loop.py": "AgentLoop.run",
     "agent_forge/runtime/application/session.py": "AgentRunSession",
-    "agent_forge/runtime/application/turn_preparation.py": "TurnPreparation.prepare_turn",
+    "agent_forge/runtime/application/model_step_preparation.py": "ModelStepPreparation.prepare_model_step",
     "agent_forge/runtime/application/tool_execution.py": "ToolExecutionPipeline.execute_calls",
     "agent_forge/runtime/application/operation_tracker.py": "OperationTracker.build_operation_intent",
     "agent_forge/runtime/application/run_lifecycle.py": "RunLifecycle.update_checkpoint",
@@ -41,10 +41,10 @@ CORE_WORKFLOW_ENTRYPOINTS = {
     },
     "agent_forge/runtime/application/agent_loop.py": {
         "AgentLoop.run": 3,
-        "AgentLoop._run_turn": 4,
+        "AgentLoop._run_model_step": 4,
     },
-    "agent_forge/runtime/application/turn_preparation.py": {
-        "TurnPreparation.prepare_turn": 4,
+    "agent_forge/runtime/application/model_step_preparation.py": {
+        "ModelStepPreparation.prepare_model_step": 4,
     },
     "agent_forge/runtime/application/tool_execution.py": {
         "ToolExecutionPipeline.execute_calls": 3,
@@ -116,8 +116,8 @@ CRITICAL_APPLICATION_SERVICES = {
     "agent_forge/runtime/application/run_preparation.py": {
         "RunPreparation",
     },
-    "agent_forge/runtime/application/turn_preparation.py": {
-        "TurnPreparation",
+    "agent_forge/runtime/application/model_step_preparation.py": {
+        "ModelStepPreparation",
     },
     "agent_forge/runtime/application/run_lifecycle.py": {
         "RunLifecycle",
@@ -140,7 +140,6 @@ CRITICAL_APPLICATION_SERVICES = {
     "agent_forge/runtime/application/operator_control.py": {
         "DecideApproval",
         "RespondToHumanInput",
-        "BuildContinuationPlan",
     },
     "agent_forge/bench/application/swebench.py": {
         "RunSwebench",
@@ -198,7 +197,7 @@ KEYWORD_ONLY_RECORDS = {
         "StopRequest",
     },
     "agent_forge/runtime/application/run_control.py": {"RunControlOutcome"},
-    "agent_forge/runtime/application/turn_preparation.py": {"PreparedTurn"},
+    "agent_forge/runtime/application/model_step_preparation.py": {"PreparedModelStep"},
     "agent_forge/runtime/application/clarification.py": {"ClarificationDecision"},
     "agent_forge/runtime/application/step_control.py": {
         "ExecutionBudget",
@@ -387,7 +386,7 @@ TRACE_FREE_ORCHESTRATION_METHODS = {
     "agent_forge/runtime/application/agent_loop.py": {
         "_call_model",
         "_handle_model_failure",
-        "_run_turn",
+        "_run_model_step",
         "run",
     },
     "agent_forge/runtime/application/final_answer.py": {"build_stop_request"},
@@ -402,11 +401,11 @@ TRACE_FREE_ORCHESTRATION_METHODS = {
         "request_human_input",
     },
     "agent_forge/runtime/application/run_preparation.py": {
-        "_activate_skills",
         "_apply_input_policy",
-        "_initialize_memory_context",
-        "_load_resume_state",
+        "_ensure_turn_context_snapshot",
+        "_load_resume_checkpoint",
         "_resolve_clarification",
+        "_select_active_skills",
         "create_session",
         "prepare_run",
     },
@@ -419,7 +418,7 @@ TRACE_FREE_ORCHESTRATION_METHODS = {
         "_run_tool",
         "execute_calls",
     },
-    "agent_forge/runtime/application/turn_preparation.py": {"prepare_turn"},
+    "agent_forge/runtime/application/model_step_preparation.py": {"prepare_model_step"},
 }
 
 # 这些模块会产生 Runtime/Fanout 事实。原始 EventSink.add 只能留在具名
@@ -434,7 +433,7 @@ EVIDENCE_RECORDER_MODULES = {
     "agent_forge/runtime/application/tool_authorization.py",
     "agent_forge/runtime/application/tool_execution.py",
     "agent_forge/runtime/application/tool_feedback.py",
-    "agent_forge/runtime/application/turn_preparation.py",
+    "agent_forge/runtime/application/model_step_preparation.py",
     "agent_forge/multi_agent/application/fanout.py",
 }
 

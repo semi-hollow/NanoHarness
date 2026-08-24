@@ -98,7 +98,7 @@ def build_single_run_request(
     return RunRequest(
         task=args.task,
         resume_state=getattr(args, "resume_state", "") or "",
-        human_thread_id=getattr(args, "human_thread_id", "") or "",
+        thread_id=getattr(args, "thread_id", "") or "",
         resolved_config=resolved_run_config(args, config_document),
         run_label=getattr(args, "run_label", "") or "",
     )

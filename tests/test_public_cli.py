@@ -414,7 +414,7 @@ class PublicCliSmokeTest(unittest.TestCase):
         self.assertIn("最终回答轮按设计关闭了工具调用", html)
         self.assertIn("本次未配置 MCP Server（不适用）", html)
         self.assertIn("覆盖写入 1 个当前状态文件", html)
-        self.assertIn("不是每个 Turn 固定写一次", html)
+        self.assertIn("不是每个 Model Step 固定写一次", html)
         self.assertIn("class='fact-list'", html)
 
     def test_compare_evidence_view_has_clear_single_multi_story(self):
@@ -520,11 +520,11 @@ class PublicCliSmokeTest(unittest.TestCase):
         self.assertLess(html.index("多 Agent Runtime"), html.index("单 Agent Runtime"))
         self.assertIn("上下文组装", html)
         self.assertIn("<code>context_assembly</code>", html)
-        self.assertIn("第 1 轮 · 模型请求 git_diff", html)
+        self.assertIn("Model Step 1 · 模型请求 git_diff", html)
         self.assertIn("存在失败", html)
         self.assertIn("运行级阶段", html)
-        self.assertIn("不计入 Agent 轮次", html)
-        self.assertIn("1 个 Agent 轮次", html)
+        self.assertIn("不计入模型步骤", html)
+        self.assertIn("1 个模型步骤", html)
         self.assertIn("2 个运行级事件", html)
         self.assertIn("AgentLoop 主链与 ToolCall 四层明细", html)
         self.assertIn("1 准备模型输入", html)

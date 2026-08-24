@@ -1,9 +1,9 @@
-"""一次模型 turn 的工具路由与上下文组装。"""
+"""一次 Model Step 的工具路由与上下文组装。"""
 
 from __future__ import annotations
 
 import hashlib
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 from agent_forge.context.application import (
     PromptWindowManager,
@@ -15,11 +15,16 @@ from agent_forge.context.domain import ConversationHistoryDigest
 from agent_forge.contracts import ToolSchema
 from agent_forge.memory.domain import LongTermMemoryRecord
 from agent_forge.memory.ports import LongTermMemoryRecallPort
-from agent_forge.runtime.application.session import AgentRunSession
+from agent_forge.runtime.application.session import (
+    AgentRunSession,
+    load_transaction_safe_conversation_page,
+)
+from agent_forge.runtime.application.context_budget import partition_context_budgets
 from agent_forge.runtime.config import RuntimeConfig
 from agent_forge.runtime.domain.conversation import Message
+from agent_forge.runtime.domain.conversation import Observation
 from agent_forge.runtime.domain.model import ModelCapabilities
-from agent_forge.runtime.domain.run_control import RUNTIME_COORDINATION_EVIDENCE_PREFIX
+from agent_forge.runtime.domain.thread import ConversationItem, ThreadContextState
 from agent_forge.runtime.domain.task import TaskCheckpointUpdate, TaskRunStatus
 from agent_forge.runtime.ports import (
     TurnSystemContextAssemblerPort,
@@ -33,7 +38,7 @@ from agent_forge.tools.tool_router import ToolRoute, ToolRouter, ToolRoutingRequ
 
 
 @dataclass(frozen=True, kw_only=True)
-class PreparedTurn:
+class PreparedModelStep:
     """一次 LLM 调用所需的完整、可度量输入。
 
     ``llm_messages`` 是当前 Turn System Context 与 Conversation Window；
@@ -53,7 +58,7 @@ class PreparedTurn:
     phase: str
 
 
-class TurnPreparation:
+class ModelStepPreparation:
     """构造模型输入，但不调用模型也不执行工具。"""
 
     def __init__(
@@ -91,31 +96,31 @@ class TurnPreparation:
             )
         )
 
-    # 主要入口：为当前 turn 路由工具、组装上下文并执行会话窗口治理。
-    def prepare_turn(
+    # 主要入口：为当前 Model Step 路由工具、组装上下文并执行窗口治理。
+    def prepare_model_step(
         self,
         session: AgentRunSession,
         step: int,
         *,
         force_compaction: bool = False,
-    ) -> PreparedTurn:
-        """为 ``AgentLoop`` 生成一次可直接提交给模型的 ``PreparedTurn``。
+    ) -> PreparedModelStep:
+        """为 ``AgentLoop`` 生成一次可直接提交给模型的 ``PreparedModelStep``。
 
-        伪代码：保存 Turn checkpoint -> 路由 Tool schema/allowed names
+        伪代码：保存 Model Step checkpoint -> 路由 Tool schema/allowed names
         -> 组装当前 Turn System Context -> 加入临时预算提示
-        -> PromptWindow governance -> 返回冻结的 ``PreparedTurn``。
+        -> PromptWindow governance -> 返回冻结的 ``PreparedModelStep``。
 
-        流程位置：每个 turn 的上下文、工具集合与预算汇合点。
-        规范上游：``AgentLoop._run_turn``。
+        流程位置：每个 Model Step 的上下文、工具集合与预算汇合点。
+        规范上游：``AgentLoop._run_model_step``。
         下一 owner：模型调用边界。
         状态与证据：RUNNING checkpoint、路由、裁剪与 token 预算事件。
         系统不变量：模型 schema 必须匹配 ``allowed_tool_names``，且压缩不能拆事务。
         删除/内联影响：会拆散模型请求的 context/tool/budget 一致性边界。
         """
 
-        # region 1. Turn 起点：先持久化恢复位置，再准备任何模型输入
+        # region 1. Model Step 起点：先持久化恢复位置，再准备任何模型输入
         # 先记录“即将准备第几轮”及当前消息计数；若后续 context/model 阶段异常，
-        # resume 仍能从稳定的 turn 边界继续，而不是猜测执行到了哪里。
+        # resume 仍能从稳定的 Model Step 边界继续，而不是猜测执行到了哪里。
         session.lifecycle.update_checkpoint(
             TaskCheckpointUpdate(
                 status=TaskRunStatus.RUNNING,
@@ -127,19 +132,19 @@ class TurnPreparation:
                 ),
             )
         )
-        # endregion 1. Turn 起点结束
+        # endregion 1. Model Step 起点结束
 
-        # region 2. 工具路由：收敛模型可见 schema，并保持权限摘要一致
+        # region 2. Thread view 与工具路由：从 canonical ContextState 重建本次输入
+        thread_context_state, previous_digest, has_more_uncovered = (
+            self._refresh_thread_context_view(session)
+        )
+        # 收敛模型可见 schema，并保持权限摘要一致。
         # ToolRouter 同时返回 schema 和 allowed_names：前者发给模型，后者供执行时复核。
         # 两份视图来自同一 ToolRoute，避免模型看见的工具与 Runtime 放行集合不一致。
-        registered_tool_schemas = self.tool_gateway.schemas()
-        self._verify_skill_tool_dependencies(
-            session=session,
-            registered_tool_schemas=registered_tool_schemas,
-        )
+        registered_tool_schemas = [dict(schema) for schema in session.base_tool_schemas]
         tool_route = self.tool_router.route(
             ToolRoutingRequest(
-                task=session.task,
+                task=session.turn_focus,
                 schemas=registered_tool_schemas,
                 step=step,
                 max_steps=session.max_iterations,
@@ -173,39 +178,33 @@ class TurnPreparation:
         elif tool_route.phase == "closeout":
             model_permission_summary += (
                 "; closure phase: broad discovery is closed; use this last tool "
-                "turn only to finish the smallest repair and inspect evidence"
+                "step only to finish the smallest repair and inspect evidence"
             )
-        # endregion 2. 工具路由结束
+        # endregion 2. Thread view 与工具路由结束
 
-        # region 3. 静态上下文组装：仓库、Memory、Skill 与权限边界汇合
-        # ContextAssembler 只拼装本轮稳定事实，不携带会话历史；历史压缩由下一阶段
-        # PromptWindowManager 独立负责，避免仓库上下文和对话裁剪互相污染。
+        # region 3. 动态上下文组装：稳定前缀不重建，只刷新仓库与派生状态
+        # TurnSystemContextAssemblerPort 是动态仓库视图的唯一 IO owner；这里仅传入
+        # 冻结前缀、最新 focus 和预算，避免 Application 主链自行扫描文件。
+        _, dynamic_context_budget = partition_context_budgets(
+            self.config.max_context_chars
+        )
         turn_system_context = self.turn_system_context_assembler.build(
             TurnSystemContextRequest(
-                task=session.task,
+                turn_focus=session.turn_focus,
+                stable_system_prefix=session.stable_system_prefix,
                 workspace=self.config.workspace,
                 working_memory=session.working_memory,
                 tool_schemas=visible_tool_schemas,
-                active_skill_cards=[
-                    skill.prompt_card() for skill in session.active_skills
-                ],
-                max_chars=self.config.max_context_chars,
+                max_chars=dynamic_context_budget,
                 permission_summary=model_permission_summary,
-                instruction_target=self.config.instruction_target,
-                global_instruction_files=tuple(self.config.global_instruction_files),
-                runtime_instructions=self.config.runtime_instructions,
-                instruction_max_bytes=max(
-                    1,
-                    int(self.config.instruction_max_bytes),
-                ),
-                system_prompt_profile=self.config.system_prompt_profile,
+                frozen_instruction_paths=_frozen_instruction_paths(session),
             )
         )
-        # endregion 3. 静态上下文组装结束
+        # endregion 3. 动态上下文组装结束
 
-        # region 4. 会话窗口治理：压缩历史并返回模型可直接消费的 PreparedTurn
+        # region 4. 会话窗口治理：压缩历史并返回模型可直接消费的 PreparedModelStep
         # 先记录静态 context，再把 system context、历史和临时预算提示交给窗口管理器；
-        # PreparedTurn 是 ModelPort 的唯一输入快照，后续不得再单独修改工具或消息。
+        # PreparedModelStep 是 ModelPort 的唯一输入快照，后续不得再单独修改工具或消息。
         self._record_turn_system_context(
             session=session,
             step=step,
@@ -217,10 +216,42 @@ class TurnPreparation:
             role="system",
             content=turn_system_context.render(),
         )
-        runtime_control_message = self._turn_budget_control_message(
+        runtime_control_message = self._model_step_budget_control_message(
             step=step,
             max_steps=session.max_iterations,
         )
+        # 历史超过单页时，先逐页做 deterministic rolling merge 并 CAS 推进 state。
+        # 每次内存中最多保留一页；只有追到最终 recent raw tail 后才构造模型请求，
+        # 因而不会出现“模型看到旧 200 条，却遗漏最新 user Turn”的错误视图。
+        while has_more_uncovered:
+            page_window = self.prompt_window.prepare(
+                PromptWindowRequest(
+                    turn_system_message=turn_system_message,
+                    conversation_history=list(session.messages),
+                    observations=session.observations,
+                    tool_schemas=visible_tool_schemas,
+                    conversation_initial_task=session.thread_initial_task,
+                    previous_digest=previous_digest,
+                    force_compaction=True,
+                )
+            )
+            if (
+                page_window.conversation_history_digest is None
+                or page_window.covered_delta_count <= 0
+            ):
+                raise RuntimeError(
+                    "bounded Conversation page could not advance to the recent tail"
+                )
+            thread_context_state = self._save_thread_digest(
+                session=session,
+                state=thread_context_state,
+                digest=page_window.conversation_history_digest,
+                covered_delta_count=page_window.covered_delta_count,
+            )
+            thread_context_state, previous_digest, has_more_uncovered = (
+                self._refresh_thread_context_view(session)
+            )
+
         # 预算提示作为 transient tail 发送；它不进入 session.messages、digest 或 cursor。
         prompt_window = self.prompt_window.prepare(
             PromptWindowRequest(
@@ -228,9 +259,8 @@ class TurnPreparation:
                 conversation_history=list(session.messages),
                 observations=session.observations,
                 tool_schemas=visible_tool_schemas,
-                task=session.task,
-                previous_digest=session.conversation_history_digest,
-                compacted_message_cursor=session.compacted_message_cursor,
+                conversation_initial_task=session.thread_initial_task,
+                previous_digest=previous_digest,
                 transient_messages=(
                     (runtime_control_message,)
                     if runtime_control_message is not None
@@ -240,20 +270,18 @@ class TurnPreparation:
             )
         )
         self._record_prompt_window(session, step, prompt_window)
-        # 更新同一 Session 的 rolling state；resume 只恢复 digest，新 Session cursor 归零。
-        if prompt_window.conversation_history_digest is not None:
-            session.conversation_history_digest = (
-                prompt_window.conversation_history_digest
+        # Digest 只有 ThreadContextState 可以持久化；Session/Checkpoint 只保留 revision。
+        if (
+            prompt_window.conversation_history_digest is not None
+            and prompt_window.covered_delta_count > 0
+        ):
+            thread_context_state = self._save_thread_digest(
+                session=session,
+                state=thread_context_state,
+                digest=prompt_window.conversation_history_digest,
+                covered_delta_count=prompt_window.covered_delta_count,
             )
-            session.compacted_message_cursor = prompt_window.compacted_message_cursor
-            session.lifecycle.update_checkpoint(
-                TaskCheckpointUpdate(
-                    conversation_history_digest=(
-                        prompt_window.conversation_history_digest.to_dict()
-                    )
-                )
-            )
-        return PreparedTurn(
+        return PreparedModelStep(
             step=step,
             turn_system_message=turn_system_message,
             llm_messages=prompt_window.llm_messages,
@@ -268,24 +296,156 @@ class TurnPreparation:
             tool_schema_chars=sum(len(str(schema)) for schema in visible_tool_schemas),
             estimated_prompt_tokens=prompt_window.estimated_tokens_after,
             compacted=prompt_window.compacted,
-            conversation_history_digest=(prompt_window.conversation_history_digest),
+            conversation_history_digest=prompt_window.conversation_history_digest,
             phase=tool_route.phase,
         )
         # endregion 4. 会话窗口治理结束
+
+    def _refresh_thread_context_view(
+        self,
+        session: AgentRunSession,
+    ) -> tuple[ThreadContextState, ConversationHistoryDigest | None, bool]:
+        """从 Thread state 与 journal 重建有界 raw tail，并刷新最新 human focus。"""
+
+        state = session.conversation_threads.load_context_state(session.thread_id)
+        if state is None:
+            state = ThreadContextState(thread_id=session.thread_id)
+        if state.revision != session.context_revision:
+            raise RuntimeError(
+                "Thread context revision changed outside this Run; "
+                f"session={session.context_revision}, actual={state.revision}"
+            )
+        digest = (
+            ConversationHistoryDigest.from_dict(
+                dict(state.conversation_history_digest)
+            )
+            if state.conversation_history_digest
+            else None
+        )
+        if digest is not None and digest.initial_task != session.thread_initial_task:
+            raise ValueError("Thread digest initial_task does not match ConversationThread")
+
+        items = load_transaction_safe_conversation_page(
+            session.conversation_threads,
+            thread_id=session.thread_id,
+            after_sequence=state.covered_sequence,
+            limit=200,
+        )
+        session.messages = [self._message_from_item(item) for item in items]
+        session.observations = [
+            self._observation_from_item(item) for item in items if item.role == "tool"
+        ]
+        session.message_sequences = [item.sequence for item in items]
+
+        thread = session.conversation_threads.get(session.thread_id)
+        if thread is None:
+            raise KeyError(f"conversation thread not found: {session.thread_id}")
+        recent_items = session.conversation_threads.list_items(
+            session.thread_id,
+            after_sequence=max(0, thread.sequence - 200),
+            limit=200,
+        )
+        latest_human_item = next(
+            (
+                item
+                for item in reversed(recent_items)
+                if item.turn_id == session.turn_id and item.human_authority
+            ),
+            None,
+        )
+        if latest_human_item is not None:
+            session.turn_focus = latest_human_item.content
+            session.turn_focus_item_id = latest_human_item.item_id
+        else:
+            session.turn_focus = session.root_task
+            session.turn_focus_item_id = ""
+
+        # ask_human 的 provider-valid projection 会把授权 user item 移到 batch
+        # 末尾，因此 projection 顺序不等于 journal sequence 顺序。
+        last_loaded_sequence = max(
+            session.message_sequences,
+            default=state.covered_sequence,
+        )
+        return state, digest, thread.sequence > last_loaded_sequence
+
+    def _save_thread_digest(
+        self,
+        *,
+        session: AgentRunSession,
+        state: ThreadContextState,
+        digest: ConversationHistoryDigest,
+        covered_delta_count: int,
+    ) -> ThreadContextState:
+        """CAS 推进 digest 与 covered sequence；Checkpoint 只更新 revision pointer。"""
+
+        if not 0 < covered_delta_count <= len(session.message_sequences):
+            raise ValueError("digest covered delta is outside bounded Conversation view")
+        # Compaction 只在完整事务 segment 之后切分；用覆盖前缀的
+        # 最大 raw sequence 推进 journal cursor，不被 ask_human 投影重排影响。
+        covered_sequence = max(session.message_sequences[:covered_delta_count])
+        candidate = replace(
+            state,
+            covered_sequence=covered_sequence,
+            conversation_history_digest=digest.to_dict(),
+        )
+        try:
+            saved = session.conversation_threads.save_context_state(
+                candidate,
+                expected_revision=state.revision,
+            )
+        except RuntimeError as exc:
+            # 不做 last-write-wins：调用方必须重新从同一 revision 准备模型输入。
+            raise RuntimeError(
+                "Thread context CAS conflict; model input was not committed"
+            ) from exc
+        session.context_revision = saved.revision
+        session.lifecycle.update_checkpoint(
+            TaskCheckpointUpdate(context_revision=saved.revision)
+        )
+        return saved
+
+    @staticmethod
+    def _message_from_item(item: ConversationItem) -> Message:
+        return Message(
+            role=item.role,
+            content=item.content,
+            name=item.name,
+            tool_call_id=item.tool_call_id,
+            tool_calls=[dict(call) for call in item.tool_calls] or None,
+            reasoning_content=item.reasoning_content,
+            origin=item.origin,
+            human_authority=item.human_authority,
+        )
+
+    @staticmethod
+    def _observation_from_item(item: ConversationItem) -> Observation:
+        return Observation(
+            tool_name=str(item.metadata.get("tool_name") or item.name or "unknown"),
+            success=bool(item.metadata.get("success", False)),
+            content=item.content,
+            execution_succeeded=(
+                bool(item.metadata["execution_succeeded"])
+                if item.metadata.get("execution_succeeded") is not None
+                else None
+            ),
+        )
 
     def _management_candidates_for_turn(
         self,
         session: AgentRunSession,
         step: int,
     ) -> list[LongTermMemoryRecord]:
-        """按最新 human message 查询一次，并把结果冻结到当前 Turn 结束。"""
+        """只在 human focus 或成功 Memory mutation 变化后重查候选。"""
 
-        # Provider overflow 可能在同一个 step 再次准备请求；复用第一次候选，避免同一
-        # Model response 的 schema 与后续 target validation 观察到两份 Repository 视图。
-        if session.memory_management_candidates_step == step:
+        # Provider overflow 在相同输入上重复准备时复用；steer/clarification 的 item id
+        # 或成功 remember 后的显式 invalidation 会让 key 变化并重新查询。
+        query = session.turn_focus
+        candidate_key = hashlib.sha256(
+            f"{session.turn_focus_item_id}\0{query}".encode("utf-8")
+        ).hexdigest()
+        if session.memory_management_candidates_key == candidate_key:
             return session.memory_management_candidates
 
-        query, message_index = self._latest_human_authority_message(session)
         memory_namespace = self.config.memory_namespace or str(self.config.workspace)
         candidates = self.long_term_memory_recall.management_candidates(
             namespace=memory_namespace,
@@ -293,13 +453,13 @@ class TurnPreparation:
             max_chars=max(0, int(self.config.memory_max_chars)),
         )
         session.memory_management_candidates = candidates
-        session.memory_management_candidates_step = step
+        session.memory_management_candidates_key = candidate_key
         self._record_memory_management_candidates(
             session=session,
             step=step,
             namespace=memory_namespace,
             query=query,
-            query_message_index=message_index,
+            query_item_id=session.turn_focus_item_id,
             candidates=candidates,
         )
         return candidates
@@ -311,7 +471,7 @@ class TurnPreparation:
         step: int,
         namespace: str,
         query: str,
-        query_message_index: int,
+        query_item_id: str,
         candidates: list[LongTermMemoryRecord],
     ) -> None:
         """记录当前 Turn 候选的来源与身份，不复制 Memory 正文。"""
@@ -322,27 +482,12 @@ class TurnPreparation:
             "memory_management_candidates",
             memory={
                 "namespace": namespace,
-                "query_message_index": query_message_index,
+                "query_item_id": query_item_id,
                 "query_sha256": hashlib.sha256(query.encode("utf-8")).hexdigest(),
                 "candidate_count": len(candidates),
                 "memory_ids": [record.memory_id for record in candidates],
             },
         )
-
-    @staticmethod
-    def _latest_human_authority_message(
-        session: AgentRunSession,
-    ) -> tuple[str, int]:
-        """取最近 human-origin user 输入，排除 role=user 的 Runtime 协调编码。"""
-
-        for message_index in range(len(session.messages) - 1, -1, -1):
-            message = session.messages[message_index]
-            if message.role != "user":
-                continue
-            if message.content.startswith(RUNTIME_COORDINATION_EVIDENCE_PREFIX):
-                continue
-            return message.content, message_index
-        return session.task, -1
 
     @staticmethod
     def _attach_memory_management_candidates(
@@ -374,43 +519,16 @@ class TurnPreparation:
         return augmented_schemas
 
     @staticmethod
-    def _verify_skill_tool_dependencies(
-        *,
-        session: AgentRunSession,
-        registered_tool_schemas: list[ToolSchema],
-    ) -> None:
-        """在模型调用前拒绝依赖不完整的 Skill，避免只注入说明却无法执行。
-
-        这类似 Spring 启动期 bean 依赖校验：Skill 可以推荐可选工具，但它声明的
-        required tools 必须真实存在于当前 ToolGateway。这里仅校验“已注册”；写权限、
-        审批、命令与路径安全仍由执行阶段独立判断，Skill 不能借声明绕过治理。
-        """
-
-        registered_tool_names = {
-            str(schema.get("name") or "") for schema in registered_tool_schemas
-        }
-        for skill in session.active_skills:
-            missing_tool_names = sorted(
-                set(skill.required_tool_names) - registered_tool_names
-            )
-            if missing_tool_names:
-                missing = ", ".join(missing_tool_names)
-                raise ValueError(
-                    f"activated skill {skill.name}@{skill.version} requires "
-                    f"unavailable tools: {missing}"
-                )
-
-    @staticmethod
-    def _turn_budget_control_message(
+    def _model_step_budget_control_message(
         *,
         step: int,
         max_steps: int,
     ) -> Message | None:
         """在接近预算边界时追加不落入会话历史的 Runtime 控制消息。"""
 
-        remaining_tool_turns = max(0, max_steps - step)
-        # 剩余为零表示 Tool 已关闭，本 Turn 必须只返回最终文本。
-        if remaining_tool_turns == 0:
+        remaining_tool_steps = max(0, max_steps - step)
+        # 剩余为零表示 Tool 已关闭，本 Model Step 必须只返回最终文本。
+        if remaining_tool_steps == 0:
             return Message(
                 role="user",
                 content=(
@@ -419,17 +537,17 @@ class TurnPreparation:
                 ),
             )
         # 剩余一次时只允许完成最小修复或验证，不再扩展问题范围。
-        if remaining_tool_turns == 1:
+        if remaining_tool_steps == 1:
             return Message(
                 role="user",
                 content=(
-                    "[RUNTIME CONTROL] This is the last tool-enabled turn. Do not "
+                    "[RUNTIME CONTROL] This is the last tool-enabled model step. Do not "
                     "start broad discovery. Finish the smallest repair, validation, "
                     "or diff check that can still change the outcome."
                 ),
             )
         # 剩余两次时提前进入收口阶段，提示模型从探索切换到落地。
-        if remaining_tool_turns == 2:
+        if remaining_tool_steps == 2:
             return Message(
                 role="user",
                 content=(
@@ -451,6 +569,10 @@ class TurnPreparation:
     ) -> None:
         """记录上下文来源、裁剪和工具可见性，不保存完整 Prompt 正文。"""
 
+        raw_active_skills = session.stable_context_evidence.get("active_skills")
+        active_skill_items = (
+            raw_active_skills if isinstance(raw_active_skills, list) else []
+        )
         self.trace.add(
             step,
             session.agent_name,
@@ -462,17 +584,23 @@ class TurnPreparation:
                 "total_chars": turn_system_context.total_chars,
                 "max_chars": turn_system_context.max_chars,
                 "truncated": turn_system_context.truncated,
-                "topic_relation": turn_system_context.topic_relation,
-                "inherit_session": turn_system_context.inherit_session,
+                "stable_chars": turn_system_context.stable_chars,
+                "dynamic_chars": turn_system_context.dynamic_chars,
+                "dynamic_max_chars": turn_system_context.dynamic_max_chars,
                 "dropped_context": turn_system_context.dropped_context,
                 "budget_breakdown": turn_system_context.budget_breakdown,
                 "available_tools": turn_system_context.available_tools,
                 "active_skills": [
-                    f"{skill.name}@{skill.version}" for skill in session.active_skills
+                    str(item.get("name") or "")
+                    for item in active_skill_items
+                    if isinstance(item, dict)
                 ],
                 "permission_summary": turn_system_context.permission_summary,
                 "system_prompt_profile": self.config.system_prompt_profile,
-                "instructions": turn_system_context.instruction_evidence,
+                "instructions": session.stable_context_evidence.get(
+                    "instructions",
+                    {},
+                ),
                 "tool_routing": {
                     "reason": tool_route.reason,
                     "phase": tool_route.phase,
@@ -500,7 +628,7 @@ class TurnPreparation:
                 "compacted": prompt_window.compacted,
                 "reason": prompt_window.reason,
                 "covered_message_count": prompt_window.covered_message_count,
-                "current_session_cursor": prompt_window.compacted_message_cursor,
+                "covered_delta_count": prompt_window.covered_delta_count,
                 "estimated_tokens_before": prompt_window.estimated_tokens_before,
                 "estimated_tokens_after": prompt_window.estimated_tokens_after,
                 "hard_input_limit": prompt_window.hard_input_limit,
@@ -517,3 +645,20 @@ class TurnPreparation:
         )
 
     # endregion 证据记录器结束
+
+
+def _frozen_instruction_paths(session: AgentRunSession) -> tuple[str, ...]:
+    """返回本 Turn 已冻结的 governing instruction source 路径。"""
+
+    raw_instructions = session.stable_context_evidence.get("instructions")
+    if not isinstance(raw_instructions, dict):
+        return ()
+    raw_sources = raw_instructions.get("sources")
+    if not isinstance(raw_sources, list):
+        return ()
+    return tuple(
+        path
+        for source in raw_sources
+        if isinstance(source, dict)
+        if (path := str(source.get("path") or ""))
+    )

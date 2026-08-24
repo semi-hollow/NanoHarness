@@ -1,5 +1,3 @@
-"""Operator Console 的外部依赖契约。"""
+"""Operator Console 直接依赖 Runtime ConversationThreadRepository。"""
 
-from .session_catalog import TaskSessionCatalogPort
-
-__all__ = ["TaskSessionCatalogPort"]
+__all__: list[str] = []

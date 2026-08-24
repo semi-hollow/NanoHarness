@@ -2,38 +2,31 @@
 
 这个对象属于 Runtime 的运行期状态，而不是长期记忆仓储：
 
-``RunPreparation`` 注入 continuation 摘要和长期召回结果；
-工具执行阶段追加 ``Observation``；
-``TurnSystemContextAssemblerPort`` 只读取 ``recent/summary/long_term`` 视图。
+应用服务只追加由执行事实提炼出的 task state；
+``TurnSystemContextAssemblerPort`` 只读取 ``recent/summary`` 派生视图。
 
 长期记忆的显式 remember/forget 由 ``memory.application`` 管理，完整会话窗口压缩由
-``context.application.compaction`` 管理。三者不要混为同一个“Memory”。
+``context.application.compaction`` 管理。原始 Tool Observation 只属于 Conversation，
+不再镜像到本对象；三者不要混为同一个“Memory”。
 """
 
 from __future__ import annotations
 
-from agent_forge.memory.domain import LongTermMemoryRecord
-from agent_forge.runtime.domain.conversation import Observation
-
-
-# 核心数据：单次 run 的最近事实、工具观察、摘要和只读长期召回结果。
+# 核心数据：单次执行的派生任务状态和有界摘要。
 class WorkingMemory:
-    """一次 run 的易失 working memory，以及已召回的长期记忆视图。
+    """一次执行的易失、派生 task state。
 
     属性说明：
 
-    - ``items``：最近的普通事实；``observations``：最近的类型化工具结果。
+    - ``items``：从执行事实中显式提炼出的最近 task state。
     - ``summaries``：移出最近窗口的有界摘要；``store``：当前 run 的显式键值。
-    - ``long_term_records``：本 Run 启动时固定的只读长期记忆快照。
-    - ``n``：最近事实与 Observation 的保留上限。
+    - ``n``：最近派生事实的保留上限。
     """
 
     def __init__(self, n: int = 8) -> None:
         self.items: list[object] = []
-        self.observations: list[Observation] = []
         self.summaries: list[str] = []
         self.store: dict[str, object] = {}
-        self.long_term_records: list[LongTermMemoryRecord] = []
         self.n = n
 
     def add(self, item: object) -> None:
@@ -47,76 +40,23 @@ class WorkingMemory:
 
         self.store[key] = value
 
-    def seed_session(self, previous_task: str = "", session_summary: str = "") -> None:
-        """在 run 开始时注入显式的前序任务和 continuation 摘要。"""
-
-        if previous_task:
-            self.set("previous_task", previous_task)
-        if session_summary:
-            self.summaries.append(session_summary)
-
-    def seed_long_term(self, records: list[LongTermMemoryRecord]) -> None:
-        """注入本 Run 之后不再变化的用户/项目记忆快照。"""
-
-        self.long_term_records = list(records)
-
-    def long_term(self) -> list[LongTermMemoryRecord]:
-        """返回隔离后的长期记忆视图。"""
-
-        return list(self.long_term_records)
-
     def get(self, key: str, default: object = None) -> object:
         return self.store.get(key, default)
 
-    def add_observation(self, observation: Observation | str) -> None:
-        """保存工具结果；超过 ``n`` 时只压缩最旧一条。"""
-
-        if isinstance(observation, Observation):
-            normalized = observation
-        else:
-            normalized = Observation(
-                tool_name="memory",
-                success=True,
-                content=str(observation),
-            )
-        self.observations.append(normalized)
-        if len(self.observations) > self.n:
-            self._compact_oldest_observation()
-
-    def recent_observations(self) -> list[Observation]:
-        return list(self.observations)
-
     def clear(self) -> None:
         self.items.clear()
-        self.observations.clear()
         self.summaries.clear()
         self.store.clear()
-        self.long_term_records.clear()
 
     def summary(self, max_chars: int = 800) -> str:
         """压缩 working memory；长期记忆由独立区段渲染。"""
 
         recent = "; ".join(str(item) for item in self.items)
-        observations = "; ".join(
-            f"{item.tool_name}:{'ok' if item.success else 'fail'}:{item.content[:80]}"
-            for item in self.observations
-        )
         values = ", ".join(f"{key}={value}" for key, value in self.store.items())
         summaries = "; ".join(self.summaries[-3:])
         text = " | ".join(
-            part for part in [summaries, recent, observations, values] if part
+            part for part in [summaries, recent, values] if part
         )
         if len(text) <= max_chars:
             return text
         return text[: max_chars - 14] + " [compressed]"
-
-    def _compact_oldest_observation(self) -> None:
-        if not self.observations:
-            return
-        oldest_observation = self.observations.pop(0)
-        observation_status = "ok" if oldest_observation.success else "fail"
-        compacted_observation_note = (
-            f"{oldest_observation.tool_name}:{observation_status}:"
-            f"{oldest_observation.content[:120]}"
-        )
-        self.summaries = (self.summaries + [compacted_observation_note])[-5:]

@@ -1,5 +1,6 @@
 """只创建新文件的受治理写工具。"""
 
+from agent_forge.context.adapters.repository_map import invalidate_repo_map
 from agent_forge.contracts import ToolArguments, ToolSchema
 from agent_forge.runtime.domain.conversation import Observation
 from agent_forge.safety.permission import PermissionDecision, PermissionPolicy
@@ -76,6 +77,7 @@ class CreateFileTool(Tool):
         # 3. 只为明确的新目标补齐父目录并写入正文，随后返回可审计结果。
         target_path.parent.mkdir(parents=True, exist_ok=True)
         target_path.write_text(arguments["content"], encoding="utf-8")
+        invalidate_repo_map(self.sandbox.workspace_root)
         return Observation(
             tool_name=self.name,
             success=True,

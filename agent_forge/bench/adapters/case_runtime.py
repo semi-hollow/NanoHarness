@@ -13,6 +13,7 @@ candidate diff、trace、memory namespace、清理与 official layout 兼容，�
 from __future__ import annotations
 
 import json
+import time
 import uuid
 from pathlib import Path
 from typing import Any
@@ -27,11 +28,20 @@ from agent_forge.bench.domain.config import SwebenchRunRequest, safe_id
 from agent_forge.bench.domain.models import BenchCase, BenchCaseResult
 from agent_forge.bench.ports import CaseExecutorPort
 from agent_forge.runtime.adapters.model_gateway import ModelGateway
+from agent_forge.runtime.adapters.task_state_json import JsonTaskStateRepository
+from agent_forge.runtime.adapters.thread_json import JsonConversationThreadRepository
 from agent_forge.observability.adapters.json_trace import TraceRecorder
 from agent_forge.observability.api import write_usage_artifacts
 from agent_forge.runtime.api import build_agent_loop
 from agent_forge.runtime.config import RuntimeConfig
 from agent_forge.runtime.domain.model import ModelCapabilities
+from agent_forge.runtime.domain.task import TaskRunStatus, TaskStartRequest
+from agent_forge.runtime.domain.thread import (
+    ConversationItemDraft,
+    ConversationThread,
+    ThreadRun,
+    Turn,
+)
 from agent_forge.runtime.adapters.execution_environment import (
     ExecutionEnvironment,
     ExecutionEnvironmentConfig,
@@ -110,8 +120,15 @@ class LocalCaseExecutor(CaseExecutorPort):
                 )
             )
             llm, model_capabilities = self._build_model(request)
+            thread_id = f"benchmark-{trace.run_id}"
+            turn_id = f"turn-{trace.run_id}"
             runtime_config = RuntimeConfig(
                 workspace=str(active_workspace),
+                requested_workspace=str(workspace),
+                execution_mode=environment.probe().mode,
+                thread_id=thread_id,
+                turn_id=turn_id,
+                conversation_thread_root=str(case_dir / "threads"),
                 max_steps=request.max_steps,
                 trace_file=str(trace_path),
                 max_context_chars=request.max_context_chars,
@@ -263,7 +280,64 @@ class LocalCaseExecutor(CaseExecutorPort):
         registry: Any,
         llm: ModelGateway,
     ) -> str:
-        return build_agent_loop(runtime_config, trace, registry, llm).run(task)
+        now = time.time()
+        task_states = JsonTaskStateRepository(runtime_config.task_state_root)
+        checkpoint = task_states.start(
+            TaskStartRequest(
+                run_id=trace.run_id,
+                thread_id=runtime_config.thread_id,
+                turn_id=runtime_config.turn_id,
+                workspace=runtime_config.requested_workspace,
+                execution_workspace=runtime_config.workspace,
+                execution_mode=runtime_config.execution_mode,
+                agent_name="CodingAgent",
+                context_revision=runtime_config.context_revision,
+            )
+        )
+        threads = JsonConversationThreadRepository(
+            runtime_config.conversation_thread_root
+        )
+        threads.create(
+            ConversationThread(
+                thread_id=runtime_config.thread_id,
+                thread_kind="worker",
+                title="SWE-bench case execution",
+                initial_task=task,
+                workspace=runtime_config.requested_workspace,
+                created_at=now,
+                updated_at=now,
+            )
+        )
+        threads.start_turn(
+            runtime_config.thread_id,
+            Turn(
+                turn_id=runtime_config.turn_id,
+                root_task=task,
+                input_item_id=f"runtime-plan:{runtime_config.turn_id}",
+                status="active",
+                created_at=now,
+                updated_at=now,
+            ),
+            ConversationItemDraft(
+                item_id=f"runtime-plan:{runtime_config.turn_id}",
+                turn_id=runtime_config.turn_id,
+                run_id=trace.run_id,
+                role="user",
+                content=task,
+                origin="runtime_plan",
+                human_authority=False,
+            ),
+            ThreadRun(
+                run_id=trace.run_id,
+                artifact_dir=str(Path(runtime_config.task_state_root).parent),
+                checkpoint_path=str(task_states.path_for(checkpoint.run_id)),
+                status=TaskRunStatus.CREATED.value,
+                relationship="initial",
+                created_at=now,
+                updated_at=now,
+            ),
+        )
+        return build_agent_loop(runtime_config, trace, registry, llm).run("CodingAgent")
 
     @staticmethod
     def _finalize_environment(

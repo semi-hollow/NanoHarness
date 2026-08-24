@@ -1,9 +1,13 @@
 from __future__ import annotations
 
+import fcntl
 import hashlib
 import json
 import re
+from contextlib import contextmanager
 from pathlib import Path
+from threading import Lock
+from typing import Iterator
 
 from agent_forge.infrastructure.atomic_json import atomic_write_json
 from agent_forge.runtime.domain.human_input import (
@@ -13,6 +17,8 @@ from agent_forge.runtime.domain.human_input import (
 from agent_forge.runtime.ports.repositories import HumanInputRepository
 
 REQUEST_ID_PATTERN = re.compile(r"^[0-9a-f]{24}$")
+_PROCESS_LOCK_GUARD = Lock()
+_PROCESS_LOCKS: dict[Path, Lock] = {}
 
 
 class JsonHumanInputRepository(HumanInputRepository):
@@ -26,16 +32,20 @@ class JsonHumanInputRepository(HumanInputRepository):
     @staticmethod
     def request_id(
         thread_id: str,
+        turn_id: str,
         kind: str,
         question: str,
         choices: list[str] | None = None,
+        invocation_id: str = "",
     ) -> str:
         payload = json.dumps(
             {
                 "thread_id": thread_id,
+                "turn_id": turn_id,
                 "kind": kind,
                 "question": question.strip(),
                 "choices": choices or [],
+                "invocation_id": invocation_id,
             },
             ensure_ascii=False,
             sort_keys=True,
@@ -48,6 +58,10 @@ class JsonHumanInputRepository(HumanInputRepository):
         return self.root / f"{request_id}.json"
 
     def get(self, request_id: str) -> HumanInputRequest | None:
+        with self._request_lock(request_id):
+            return self._get_unlocked(request_id)
+
+    def _get_unlocked(self, request_id: str) -> HumanInputRequest | None:
         path = self.path_for(request_id)
         if not path.exists():
             return None
@@ -71,29 +85,34 @@ class JsonHumanInputRepository(HumanInputRepository):
         )
         request_id = self.request_id(
             draft.thread_id,
+            draft.turn_id,
             draft.kind,
             question,
             normalized_choices,
+            draft.invocation_id,
         )
-        existing = self.get(request_id)
-        if existing is not None:
-            return existing
-        request = HumanInputRequest(
-            request_id=request_id,
-            thread_id=draft.thread_id,
-            status="pending",
-            kind=draft.kind,
-            question=question,
-            choices=normalized_choices,
-            answer="",
-            workspace=str(Path(draft.workspace).resolve()),
-            run_id=draft.run_id,
-            step=draft.step,
-            agent_name=draft.agent_name,
-            reason=draft.reason,
-        )
-        self._write(request)
-        return request
+        with self._request_lock(request_id):
+            existing = self._get_unlocked(request_id)
+            if existing is not None:
+                return existing
+            request = HumanInputRequest(
+                request_id=request_id,
+                thread_id=draft.thread_id,
+                turn_id=draft.turn_id,
+                status="pending",
+                kind=draft.kind,
+                question=question,
+                choices=normalized_choices,
+                answer="",
+                workspace=str(Path(draft.workspace).resolve()),
+                run_id=draft.run_id,
+                step=draft.step,
+                agent_name=draft.agent_name,
+                reason=draft.reason,
+                invocation_id=draft.invocation_id,
+            )
+            self._write(request)
+            return request
 
     def list_all(self) -> list[HumanInputRequest]:
         requests: list[HumanInputRequest] = []
@@ -116,25 +135,43 @@ class JsonHumanInputRepository(HumanInputRepository):
         answer = str(answer or "").strip()
         if not answer:
             raise ValueError("human input answer must not be empty")
-        request = self._pending(request_id)
-        request.record_answer(answer, note)
-        self._write(request)
-        return request
+        with self._request_lock(request_id):
+            request = self._require_unlocked(request_id)
+            request.record_answer(answer, note)
+            self._write(request)
+            return request
 
     def cancel(self, request_id: str, note: str = "") -> HumanInputRequest:
-        request = self._pending(request_id)
-        request.cancel(note)
-        self._write(request)
-        return request
+        with self._request_lock(request_id):
+            request = self._require_unlocked(request_id)
+            request.cancel(note)
+            self._write(request)
+            return request
 
-    def _pending(self, request_id: str) -> HumanInputRequest:
-        request = self.get(request_id)
+    def _require_unlocked(self, request_id: str) -> HumanInputRequest:
+        request = self._get_unlocked(request_id)
         if request is None:
             raise FileNotFoundError(f"human input request not found: {request_id}")
-        request.ensure_pending()
         return request
 
     def _write(self, request: HumanInputRequest) -> None:
         path = self.path_for(request.request_id)
         request.path = str(path)
         atomic_write_json(path, request.to_dict())
+
+    @contextmanager
+    def _request_lock(self, request_id: str) -> Iterator[None]:
+        """串行化同一人工问题的创建与终态决策，禁止权威事实被覆盖。"""
+
+        # 先做 ID 校验，确保 lock file 永远留在仓储根目录内。
+        self.path_for(request_id)
+        lock_path = (self.root / f".{request_id}.lock").resolve()
+        with _PROCESS_LOCK_GUARD:
+            process_lock = _PROCESS_LOCKS.setdefault(lock_path, Lock())
+        with process_lock:
+            with lock_path.open("a+", encoding="utf-8") as handle:
+                fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+                try:
+                    yield
+                finally:
+                    fcntl.flock(handle.fileno(), fcntl.LOCK_UN)

@@ -2,7 +2,7 @@
 
 两个核心方法构成执行主链：
 
-1. ``execute_calls``：一次模型响应的公开入口，决定本轮真正处理哪些调用。
+1. ``execute_calls``：一次模型响应的公开入口，决定本 model step 真正处理哪些调用。
 2. ``_execute_call``：单个调用的主干，按治理顺序把请求送到工具或暂停点。
 
 其余私有方法都是这条主干的叶子规则，不会被外围直接调用。完整链路是：
@@ -13,11 +13,11 @@
 
 from __future__ import annotations
 
-import hashlib
+import json
 from dataclasses import dataclass
 from enum import Enum
 
-from agent_forge.contracts import JsonObject
+from agent_forge.contracts import JsonObject, JsonValue
 from agent_forge.memory.domain import MemoryConsolidationAction, MemoryScope
 from agent_forge.runtime.application.operation_tracker import (
     OperationIntent,
@@ -38,8 +38,12 @@ from agent_forge.runtime.domain.conversation import (
 )
 from agent_forge.runtime.domain.human_input import HumanInputQuestion
 from agent_forge.runtime.domain.model import ModelCapabilities
-from agent_forge.runtime.domain.run_control import RUNTIME_COORDINATION_EVIDENCE_PREFIX
-from agent_forge.runtime.domain.task import TaskCheckpointUpdate, TaskRunStatus
+from agent_forge.runtime.domain.thread import ConversationItem, ConversationItemDraft
+from agent_forge.runtime.domain.task import (
+    PendingExecutionPointer,
+    TaskCheckpointUpdate,
+    TaskRunStatus,
+)
 from agent_forge.runtime.ports import (
     ApprovalRepository,
     EventSink,
@@ -48,6 +52,7 @@ from agent_forge.runtime.ports import (
     RunControlPort,
     ToolGateway,
 )
+from agent_forge.runtime.ports.thread import ConversationThreadRepository
 from agent_forge.safety.guardrails import GuardrailResult, tool_guardrail
 
 
@@ -67,6 +72,15 @@ class ToolCallOutcome:
     status: ToolCallStatus
     reason: str
     stop_request: StopRequest | None = None
+    end_batch: bool = False
+
+
+@dataclass(frozen=True, kw_only=True)
+class PendingBatchOutcome:
+    """Run 开始时是否恢复了原 assistant batch，以及恢复中是否再次暂停。"""
+
+    resumed: bool
+    stop_request: StopRequest | None = None
 
 
 class ToolExecutionPipeline:
@@ -78,7 +92,7 @@ class ToolExecutionPipeline:
 
     折叠后按下面的纵向顺序读即可：
 
-    ``execute_calls`` -> ``_select_calls_for_turn`` -> ``_execute_call``
+    ``execute_calls`` -> ``_select_calls_for_model_step`` -> ``_execute_call``
 
     ``_execute_call`` 再按条件进入操作状态、重复策略、执行授权或真实执行分支；
     ``_run_tool`` 最后调用 evidence 叶子。
@@ -94,15 +108,17 @@ class ToolExecutionPipeline:
         operation_ledger: OperationLedgerRepository,
         run_control: RunControlPort,
         model_capabilities: ModelCapabilities,
+        conversation_threads: ConversationThreadRepository,
     ) -> None:
         self.trace = trace
         self.tool_gateway = registry
         configured_tool_calls = max(1, int(config.max_tool_calls_per_turn))
-        self.max_tool_calls_per_turn = (
+        self.max_tool_calls_per_model_step = (
             configured_tool_calls if model_capabilities.parallel_tool_calls else 1
         )
         self.run_control_handler = RunControlHandler(run_control, trace)
-        self.tool_feedback = ToolFeedback(trace)
+        self.conversation_threads = conversation_threads
+        self.tool_feedback = ToolFeedback(trace, conversation_threads)
         self.operation_tracker = OperationTracker(
             config,
             trace,
@@ -118,7 +134,7 @@ class ToolExecutionPipeline:
             self.tool_feedback,
         )
 
-    # 主要入口：治理本 turn 的 ToolCall，在人工屏障或终止处返回 StopRequest。
+    # 主要入口：治理本 model step 的 ToolCall，在人工屏障或终止处返回 StopRequest。
     def execute_calls(
         self,
         session: AgentRunSession,
@@ -138,37 +154,340 @@ class ToolExecutionPipeline:
         删除/内联影响：会失去统一状态变更治理与防重复执行边界。
         """
 
-        # region 1. 批次整形：限制调用数，并把模型 ToolCall 写入会话协议
-        # 先截断本轮调用并建立 assistant ToolCall 消息；后续每个已保留调用必须产生
-        # tool Observation 或 StopRequest，保证 assistant/tool 协议不悬空。
-        selected_tool_calls = self._select_calls_for_turn(
+        # region 1. 批次整形：区分模型原始 batch 与本轮可执行子集
+        # 截断只改变 Runtime 的执行 disposition，不能删除模型实际提出的 ToolCall；
+        # 后续每个原始调用都必须得到唯一的 Tool Observation 或明确的延后结果。
+        selected_tool_calls = self._select_calls_for_model_step(
             session,
             response,
             step,
         )
-        protocol_tool_calls = [
-            call
-            for call in response.tool_calls
-            if any(call is selected for selected in selected_tool_calls)
-        ]
-        session.messages.append(
-            Message(
-                role="assistant",
-                content="",
-                reasoning_content=response.reasoning_content,
-                tool_calls=[
-                    self.tool_feedback.to_message_tool_call(tool_call)
-                    for tool_call in protocol_tool_calls
-                ],
+        # Canonical assistant item 保存 provider 返回的完整 batch；预算截断或
+        # ask_human 屏障只改变执行 disposition，不能删除模型已经提出的 ToolCall。
+        protocol_tool_calls = list(response.tool_calls)
+        if len({call.id for call in protocol_tool_calls}) != len(protocol_tool_calls):
+            return StopRequest(
+                status=TaskRunStatus.BLOCKED,
+                reason="invalid_tool_batch",
+                stop_output="blocked: assistant tool_call ids must be unique within a batch",
+                current_step=step,
             )
-        )
+        executable_tool_call_ids = {call.id for call in selected_tool_calls}
+        assistant_tool_calls = [
+            self.tool_feedback.to_message_tool_call(tool_call)
+            for tool_call in protocol_tool_calls
+        ]
+        # 完整 assistant batch 必须先于任一 ToolGateway 调用 durable append。
+        # content 不能因同一响应带 ToolCall 而丢失；checkpoint 只保存这个 item 的指针。
+        allowed_tool_names_json: list[JsonValue] = []
+        allowed_tool_names_json.extend(sorted(allowed_tool_names))
+        executable_tool_call_ids_json: list[JsonValue] = []
+        executable_tool_call_ids_json.extend(sorted(executable_tool_call_ids))
         # endregion 1. 批次整形结束
 
-        # region 2. 顺序执行：每个 ToolCall 都重新经过控制、安全与幂等边界
+        # region 2. 协议持久化：完整 assistant batch 先落盘，再登记 pending cursor
+        # ConversationThread.append 与 checkpoint pointer 共同定义恢复入口；任何真实工具
+        # 都只能在这两个事实写入之后开始，崩溃恢复因此不依赖模型重新生成调用。
+        assistant_item = self.conversation_threads.append(
+            session.thread_id,
+            ConversationItemDraft(
+                item_id=f"assistant:{self.trace.run_id}:{step}",
+                turn_id=session.turn_id,
+                run_id=self.trace.run_id,
+                role="assistant",
+                content=response.content or "",
+                reasoning_content=response.reasoning_content,
+                tool_calls=tuple(assistant_tool_calls),
+                metadata={
+                    "model_step": step,
+                    "allowed_tool_names": allowed_tool_names_json,
+                    "executable_tool_call_ids": executable_tool_call_ids_json,
+                },
+                origin="model_tool_calls",
+                human_authority=False,
+            ),
+        )
+        self._mirror_assistant_item(session, assistant_item)
+        session.lifecycle.update_checkpoint(
+            TaskCheckpointUpdate(
+                status=TaskRunStatus.RUNNING,
+                current_step=step,
+                pending_execution=PendingExecutionPointer(
+                    assistant_item_id=assistant_item.item_id,
+                ),
+                messages_count=len(session.messages),
+            )
+        )
+        # endregion 2. 协议持久化结束
+
+        # region 3. 顺序执行：每个 ToolCall 都重新经过控制、安全与幂等边界
         # 同一模型响应可以包含多个 ToolCall，但这里故意顺序执行：前一个状态变更操作可能改变
         # 后一个调用的目标指纹，且操作员必须能在每项此类操作启动前 pause/cancel。
-        # 按模型原顺序消费已进入协议的调用；每条 memory intent 独立校验并顺序持久化。
-        for tool_call in protocol_tool_calls:
+        # 按模型原顺序消费 durable batch；cursor 只在对应 Tool Observation 已落盘后推进。
+        return self._continue_pending_batch(
+            session,
+            assistant_item=assistant_item,
+            tool_calls=protocol_tool_calls,
+            step=step,
+            allowed_tool_names=allowed_tool_names,
+            executable_tool_call_ids=executable_tool_call_ids,
+        )
+        # endregion 3. 顺序执行结束
+
+    def resume_pending_calls(self, session: AgentRunSession) -> PendingBatchOutcome:
+        """不调用模型，直接从 checkpoint cursor 恢复同 Turn 的原 assistant batch。"""
+
+        # region 1. 恢复入口：优先用 checkpoint pointer；缺失时只修复唯一 orphan batch
+        pending = session.lifecycle.checkpoint.pending_execution
+        if pending is None:
+            unfinished_batches: list[tuple[ConversationItem, int, int]] = []
+            for candidate in self.conversation_threads.list_recent_items(
+                session.thread_id,
+                turn_id=session.turn_id,
+                limit=200,
+            ):
+                if candidate.role != "assistant" or candidate.origin != "model_tool_calls":
+                    continue
+                try:
+                    candidate_calls = self._tool_calls_from_item(candidate)
+                except (TypeError, ValueError, json.JSONDecodeError):
+                    return PendingBatchOutcome(
+                        resumed=True,
+                        stop_request=StopRequest(
+                            status=TaskRunStatus.BLOCKED,
+                            reason="pending_execution_corrupt",
+                            stop_output="blocked: malformed orphaned assistant tool batch",
+                        ),
+                    )
+                first_missing = next(
+                    (
+                        index
+                        for index, call in enumerate(candidate_calls)
+                        if self.conversation_threads.get_item(
+                            session.thread_id,
+                            self._tool_item_id(candidate.item_id, index, call.id),
+                        )
+                        is None
+                    ),
+                    None,
+                )
+                if first_missing is not None:
+                    raw_step = candidate.metadata.get("model_step")
+                    if not isinstance(raw_step, int) or raw_step < 1:
+                        return PendingBatchOutcome(
+                            resumed=True,
+                            stop_request=StopRequest(
+                                status=TaskRunStatus.BLOCKED,
+                                reason="pending_execution_corrupt",
+                                stop_output="blocked: orphaned batch is missing model_step",
+                            ),
+                        )
+                    unfinished_batches.append((candidate, first_missing, raw_step))
+            if not unfinished_batches:
+                return PendingBatchOutcome(resumed=False)
+            if len(unfinished_batches) != 1:
+                return PendingBatchOutcome(
+                    resumed=True,
+                    stop_request=StopRequest(
+                        status=TaskRunStatus.BLOCKED,
+                        reason="pending_execution_ambiguous",
+                        stop_output="blocked: multiple unfinished assistant tool batches",
+                    ),
+                )
+            orphaned_assistant, first_missing, orphaned_step = unfinished_batches[0]
+            session.lifecycle.update_checkpoint(
+                TaskCheckpointUpdate(
+                    status=TaskRunStatus.RUNNING,
+                    current_step=orphaned_step,
+                    pending_execution=PendingExecutionPointer(
+                        assistant_item_id=orphaned_assistant.item_id,
+                        next_tool_call_index=first_missing,
+                    ),
+                )
+            )
+            pending = session.lifecycle.checkpoint.pending_execution
+            if pending is None:  # pragma: no cover - repository transition invariant
+                raise AssertionError("pending execution reconcile did not persist pointer")
+        # endregion 1. 恢复入口结束
+
+        # region 2. Canonical batch：恢复完整 assistant item 并验证原路由 disposition
+        assistant_item = self.conversation_threads.get_item(
+            session.thread_id,
+            pending.assistant_item_id,
+        )
+        if (
+            assistant_item is None
+            or assistant_item.turn_id != session.turn_id
+            or assistant_item.role != "assistant"
+            or not assistant_item.tool_calls
+        ):
+            return PendingBatchOutcome(
+                resumed=True,
+                stop_request=StopRequest(
+                    status=TaskRunStatus.BLOCKED,
+                    reason="pending_execution_corrupt",
+                    stop_output="blocked: pending execution assistant batch is unavailable",
+                    current_step=session.lifecycle.checkpoint.current_step,
+                    resume_hint="Inspect the ConversationThread journal and checkpoint pointer.",
+                ),
+            )
+        try:
+            tool_calls = self._tool_calls_from_item(assistant_item)
+        except (TypeError, ValueError, json.JSONDecodeError) as error:
+            return PendingBatchOutcome(
+                resumed=True,
+                stop_request=StopRequest(
+                    status=TaskRunStatus.BLOCKED,
+                    reason="pending_execution_corrupt",
+                    stop_output=f"blocked: invalid pending tool batch: {error}",
+                    current_step=session.lifecycle.checkpoint.current_step,
+                ),
+            )
+        self._mirror_assistant_item(session, assistant_item)
+        raw_allowed = assistant_item.metadata.get("allowed_tool_names")
+        raw_executable = assistant_item.metadata.get("executable_tool_call_ids")
+        if not isinstance(raw_allowed, list) or not isinstance(raw_executable, list):
+            return PendingBatchOutcome(
+                resumed=True,
+                stop_request=StopRequest(
+                    status=TaskRunStatus.BLOCKED,
+                    reason="pending_execution_corrupt",
+                    stop_output="blocked: pending batch routing metadata is unavailable",
+                    current_step=session.lifecycle.checkpoint.current_step,
+                ),
+            )
+        allowed_tool_name_values = [
+            value for value in raw_allowed if isinstance(value, str)
+        ]
+        executable_tool_call_id_values = [
+            value for value in raw_executable if isinstance(value, str)
+        ]
+        if (
+            len(allowed_tool_name_values) != len(raw_allowed)
+            or len(executable_tool_call_id_values) != len(raw_executable)
+        ):
+            return PendingBatchOutcome(
+                resumed=True,
+                stop_request=StopRequest(
+                    status=TaskRunStatus.BLOCKED,
+                    reason="pending_execution_corrupt",
+                    stop_output="blocked: pending batch routing metadata is unavailable",
+                    current_step=session.lifecycle.checkpoint.current_step,
+                ),
+            )
+        batch_call_ids = [call.id for call in tool_calls]
+        if (
+            len(batch_call_ids) != len(set(batch_call_ids))
+            or not set(executable_tool_call_id_values).issubset(batch_call_ids)
+            or any(
+                call.id in executable_tool_call_id_values
+                and call.name not in allowed_tool_name_values
+                for call in tool_calls
+            )
+        ):
+            return PendingBatchOutcome(
+                resumed=True,
+                stop_request=StopRequest(
+                    status=TaskRunStatus.BLOCKED,
+                    reason="pending_execution_corrupt",
+                    stop_output="blocked: pending batch disposition is inconsistent",
+                    current_step=session.lifecycle.checkpoint.current_step,
+                ),
+            )
+        # endregion 2. Canonical batch 验证结束
+
+        # region 3. 当前能力收窄：Registry 只能撤销旧能力，不能扩大原 Turn 的路由授权
+        # 原 Turn 的路由事实被冻结在 assistant item；当前 Registry 只能进一步收窄，
+        # 不能在 resume 时把当时隐藏的工具扩大为允许。
+        allowed_tool_names = {
+            name
+            for name in allowed_tool_name_values
+            if self.tool_gateway.get(name) is not None
+        }
+        executable_tool_call_ids = set(executable_tool_call_id_values)
+        return PendingBatchOutcome(
+            resumed=True,
+            stop_request=self._continue_pending_batch(
+                session,
+                assistant_item=assistant_item,
+                tool_calls=tool_calls,
+                step=session.lifecycle.checkpoint.current_step,
+                allowed_tool_names=allowed_tool_names,
+                executable_tool_call_ids=executable_tool_call_ids,
+            ),
+        )
+        # endregion 3. 当前能力收窄与续跑结束
+
+    def _continue_pending_batch(
+        self,
+        session: AgentRunSession,
+        *,
+        assistant_item: ConversationItem,
+        tool_calls: list[ToolCall],
+        step: int,
+        allowed_tool_names: set[str],
+        executable_tool_call_ids: set[str],
+    ) -> StopRequest | None:
+        """按 durable cursor 顺序消费 batch；Observation append 成功才推进。"""
+
+        # region 1. Cursor 契约：pointer 必须精确指向当前 assistant batch
+        pending = session.lifecycle.checkpoint.pending_execution
+        if pending is None or pending.assistant_item_id != assistant_item.item_id:
+            raise RuntimeError("pending execution pointer does not match assistant batch")
+        if pending.next_tool_call_index > len(tool_calls):
+            raise RuntimeError("pending tool call cursor is outside assistant batch")
+        # endregion 1. Cursor 契约结束
+
+        # region 2. 顺序消费：回放既有 Observation，或经控制/授权边界执行当前调用
+        for tool_call_index in range(pending.next_tool_call_index, len(tool_calls)):
+            tool_call = tool_calls[tool_call_index]
+            existing_tool_item = self.conversation_threads.get_item(
+                session.thread_id,
+                self._tool_item_id(
+                    assistant_item.item_id,
+                    tool_call_index,
+                    tool_call.id,
+                ),
+            )
+            # 上次进程已 append Observation、但尚未来得及推进 cursor：只修复 cursor。
+            if existing_tool_item is not None:
+                self._mirror_tool_item(session, existing_tool_item)
+                self._advance_pending_cursor(
+                    session,
+                    assistant_item_id=assistant_item.item_id,
+                    next_tool_call_index=tool_call_index + 1,
+                    tool_call_count=len(tool_calls),
+                    step=step,
+                )
+                continue
+
+            # 未进入执行预算的调用仍需一条确定性 Tool Observation，闭合 provider 协议。
+            if tool_call.id not in executable_tool_call_ids:
+                nonexecution_reason = (
+                    "deferred: ask_human is an exclusive barrier; re-propose this "
+                    "tool call after the human answer"
+                    if any(call.name == "ask_human" for call in tool_calls)
+                    else "skipped: tool call exceeded the per-model-step execution budget"
+                )
+                self.tool_feedback.append_tool_observation(
+                    session,
+                    tool_call,
+                    Observation(
+                        tool_name=tool_call.name,
+                        success=False,
+                        content=nonexecution_reason,
+                    ),
+                    step,
+                )
+                self._advance_pending_cursor(
+                    session,
+                    assistant_item_id=assistant_item.item_id,
+                    next_tool_call_index=tool_call_index + 1,
+                    tool_call_count=len(tool_calls),
+                    step=step,
+                )
+                continue
+
             operator_control = self.run_control_handler.consume_pending_signals(
                 session,
                 step,
@@ -176,6 +495,15 @@ class ToolExecutionPipeline:
             )
             # Tool 批次中只允许 terminal 打断；模型输入类信号继续等待下一模型边界。
             if operator_control.stop is not None:
+                if operator_control.stop.status != TaskRunStatus.PAUSED:
+                    self._close_terminal_batch(
+                        session,
+                        assistant_item_id=assistant_item.item_id,
+                        tool_calls=tool_calls,
+                        first_index=tool_call_index,
+                        step=step,
+                        reason=operator_control.stop.reason,
+                    )
                 return operator_control.stop
             tool_call_outcome = self._execute_call(
                 session,
@@ -183,14 +511,260 @@ class ToolExecutionPipeline:
                 step=step,
                 allowed_tool_names=allowed_tool_names,
             )
-            # 单个 ToolCall 产生明确停止请求时，不再执行同批后续调用。
+            persisted_tool_item = self.conversation_threads.get_item(
+                session.thread_id,
+                self._tool_item_id(
+                    assistant_item.item_id,
+                    tool_call_index,
+                    tool_call.id,
+                ),
+            )
+            # 等待 Approval/Human/Pause 时没有 Observation，cursor 必须停在原调用。
+            if persisted_tool_item is None:
+                if tool_call_outcome.stop_request is not None:
+                    if tool_call_outcome.stop_request.status in {
+                        TaskRunStatus.WAITING_APPROVAL,
+                        TaskRunStatus.WAITING_HUMAN,
+                        TaskRunStatus.PAUSED,
+                    }:
+                        return tool_call_outcome.stop_request
+                    self._close_terminal_batch(
+                        session,
+                        assistant_item_id=assistant_item.item_id,
+                        tool_calls=tool_calls,
+                        first_index=tool_call_index,
+                        step=step,
+                        reason=tool_call_outcome.stop_request.reason,
+                    )
+                    return tool_call_outcome.stop_request
+                raise RuntimeError(
+                    f"tool call completed without durable observation: {tool_call.id}"
+                )
+            self._mirror_tool_item(session, persisted_tool_item)
+            self._advance_pending_cursor(
+                session,
+                assistant_item_id=assistant_item.item_id,
+                next_tool_call_index=tool_call_index + 1,
+                tool_call_count=len(tool_calls),
+                step=step,
+            )
+            # 单个 ToolCall 产生明确停止请求时，Observation 已落盘后再停止。
             if tool_call_outcome.stop_request is not None:
+                if tool_call_outcome.stop_request.status not in {
+                    TaskRunStatus.WAITING_APPROVAL,
+                    TaskRunStatus.WAITING_HUMAN,
+                    TaskRunStatus.PAUSED,
+                }:
+                    self._close_terminal_batch(
+                        session,
+                        assistant_item_id=assistant_item.item_id,
+                        tool_calls=tool_calls,
+                        first_index=tool_call_index + 1,
+                        step=step,
+                        reason=tool_call_outcome.stop_request.reason,
+                    )
                 return tool_call_outcome.stop_request
-        # endregion 2. 顺序执行结束
+            # 人工拒绝使原 batch 后续意图失去前提，直接让下一模型 step 重规划。
+            if tool_call_outcome.end_batch:
+                self._skip_remaining_batch_calls(
+                    session,
+                    assistant_item_id=assistant_item.item_id,
+                    tool_calls=tool_calls,
+                    first_index=tool_call_index + 1,
+                    step=step,
+                )
+                return None
+        # endregion 2. 顺序消费结束
 
-        # region 3. Turn 续跑：无屏障时让 AgentLoop 开始下一轮
+        # region 3. Batch 收口：所有调用都有唯一 Observation 后清除 pending pointer
+        # 全部调用都有唯一 durable Observation 后，清除 batch pointer。
+        if session.lifecycle.checkpoint.pending_execution is not None:
+            session.lifecycle.update_checkpoint(
+                TaskCheckpointUpdate(
+                    status=TaskRunStatus.RUNNING,
+                    current_step=step,
+                    pending_execution=None,
+                    messages_count=len(session.messages),
+                    observations_count=len(session.observations),
+                )
+            )
         return None
-        # endregion 3. Turn 续跑结束
+        # endregion 3. Batch 收口结束
+
+    def _skip_remaining_batch_calls(
+        self,
+        session: AgentRunSession,
+        *,
+        assistant_item_id: str,
+        tool_calls: list[ToolCall],
+        first_index: int,
+        step: int,
+    ) -> None:
+        """审批拒绝使后续意图前提失效；逐项写 skipped Observation 后清 cursor。"""
+
+        for index in range(first_index, len(tool_calls)):
+            call = tool_calls[index]
+            if self.conversation_threads.get_item(
+                session.thread_id,
+                self._tool_item_id(assistant_item_id, index, call.id),
+            ) is None:
+                self.tool_feedback.append_tool_observation(
+                    session,
+                    call,
+                    Observation(
+                        tool_name=call.name,
+                        success=False,
+                        content=(
+                            "skipped: an earlier approval rejection invalidated the "
+                            "remaining assistant tool batch"
+                        ),
+                    ),
+                    step,
+                )
+            self._advance_pending_cursor(
+                session,
+                assistant_item_id=assistant_item_id,
+                next_tool_call_index=index + 1,
+                tool_call_count=len(tool_calls),
+                step=step,
+            )
+
+    def _close_terminal_batch(
+        self,
+        session: AgentRunSession,
+        *,
+        assistant_item_id: str,
+        tool_calls: list[ToolCall],
+        first_index: int,
+        step: int,
+        reason: str,
+    ) -> None:
+        """terminal stop 为每个未闭合调用写 Observation，并将 cursor 收到 batch 末尾。"""
+
+        for index in range(first_index, len(tool_calls)):
+            call = tool_calls[index]
+            item_id = self._tool_item_id(assistant_item_id, index, call.id)
+            if self.conversation_threads.get_item(session.thread_id, item_id) is None:
+                self.tool_feedback.append_tool_observation(
+                    session,
+                    call,
+                    Observation(
+                        tool_name=call.name,
+                        success=False,
+                        content=(
+                            f"not executed: tool batch terminated by {reason}"
+                        ),
+                    ),
+                    step,
+                )
+            self._advance_pending_cursor(
+                session,
+                assistant_item_id=assistant_item_id,
+                next_tool_call_index=index + 1,
+                tool_call_count=len(tool_calls),
+                step=step,
+            )
+
+    @staticmethod
+    def _tool_item_id(
+        assistant_item_id: str,
+        tool_call_index: int,
+        tool_call_id: str,
+    ) -> str:
+        """把 Thread-global assistant 身份、batch index 与 provider call id 绑定。"""
+
+        return (
+            f"tool:{assistant_item_id}:{tool_call_index}:{tool_call_id}"
+        )
+
+    def _advance_pending_cursor(
+        self,
+        session: AgentRunSession,
+        *,
+        assistant_item_id: str,
+        next_tool_call_index: int,
+        tool_call_count: int,
+        step: int,
+    ) -> None:
+        """原子更新 batch cursor，并清除上一调用的 Approval 定位字段。"""
+
+        next_pointer = (
+            None
+            if next_tool_call_index >= tool_call_count
+            else PendingExecutionPointer(
+                assistant_item_id=assistant_item_id,
+                next_tool_call_index=next_tool_call_index,
+            )
+        )
+        session.lifecycle.update_checkpoint(
+            TaskCheckpointUpdate(
+                status=TaskRunStatus.RUNNING,
+                current_step=step,
+                pending_execution=next_pointer,
+                messages_count=len(session.messages),
+                observations_count=len(session.observations),
+            )
+        )
+
+    @staticmethod
+    def _tool_calls_from_item(assistant_item: ConversationItem) -> list[ToolCall]:
+        """把 canonical assistant tool_calls 无损恢复为 Runtime ToolCall。"""
+
+        restored: list[ToolCall] = []
+        for raw_call in assistant_item.tool_calls:
+            raw_function = raw_call.get("function")
+            if not isinstance(raw_function, dict):
+                raise ValueError("tool call function payload is missing")
+            raw_arguments = raw_function.get("arguments", "{}")
+            if isinstance(raw_arguments, str):
+                arguments = json.loads(raw_arguments)
+            elif isinstance(raw_arguments, dict):
+                arguments = dict(raw_arguments)
+            else:
+                raise ValueError("tool call arguments must be an object or JSON string")
+            if not isinstance(arguments, dict):
+                raise ValueError("tool call arguments must be an object")
+            restored.append(
+                ToolCall(
+                    id=str(raw_call.get("id") or ""),
+                    name=str(raw_function.get("name") or ""),
+                    arguments=arguments,
+                )
+            )
+        if any(not call.id or not call.name for call in restored):
+            raise ValueError("tool call id/name is missing")
+        return restored
+
+    @staticmethod
+    def _mirror_assistant_item(
+        session: AgentRunSession,
+        item: ConversationItem,
+    ) -> None:
+        if item.sequence in session.message_sequences:
+            return
+        session.messages.append(
+            Message(
+                role="assistant",
+                content=item.content,
+                reasoning_content=item.reasoning_content,
+                tool_calls=[dict(call) for call in item.tool_calls],
+            )
+        )
+        session.message_sequences.append(item.sequence)
+
+    @staticmethod
+    def _mirror_tool_item(session: AgentRunSession, item: ConversationItem) -> None:
+        if item.sequence in session.message_sequences:
+            return
+        session.messages.append(
+            Message(
+                role="tool",
+                content=item.content,
+                name=item.name,
+                tool_call_id=item.tool_call_id,
+            )
+        )
+        session.message_sequences.append(item.sequence)
 
     # 核心主干：一个 ToolCall 从入口控制走到人工屏障、防重复、授权或执行。
     def _execute_call(
@@ -228,7 +802,7 @@ class ToolExecutionPipeline:
         )
         self._record_tool_guardrail(session, step, guardrail_decision)
 
-        # 本 Turn 没有向模型暴露该工具时立即失败，不能进入 HITL、Ledger 或 Gateway。
+        # 当前 Model Step 没有向模型暴露该工具时立即失败，不能进入 HITL、Ledger 或 Gateway。
         if not tool_is_routed_for_this_turn:
             self._handle_unrouted_tool(session, tool_call, step)
             return ToolCallOutcome(
@@ -276,7 +850,10 @@ class ToolExecutionPipeline:
                     step,
                     memory_validation_error,
                 )
-        operation_intent = self.operation_tracker.build_operation_intent(tool_call)
+        operation_intent = self.operation_tracker.build_operation_intent(
+            session,
+            tool_call,
+        )
         # 只有已验证的 quote 才记录为 Memory 授权 provenance。
         if memory_provenance is not None:
             self._record_memory_authorization(
@@ -285,8 +862,8 @@ class ToolExecutionPipeline:
                 operation_key=operation_intent.operation_key,
                 provenance=memory_provenance,
             )
-        # 只有持久状态变更才进入 Ledger 防重与恢复判断。验证命令仍经过
-        # 授权与沙箱，但必须在代码/状态变化后重新执行，不按命令文本回放旧结果。
+        # 持久状态变更进入 Ledger 防重与恢复判断。run_command 以 canonical
+        # ToolCall invocation 为 key：同一调用 crash resume 不重跑，新调用仍可执行。
         if operation_intent.ledger_tracked:
             existing_operation = self.operation_tracker.resolve_existing_operation(
                 session,
@@ -342,37 +919,38 @@ class ToolExecutionPipeline:
             return ToolCallOutcome(
                 status=ToolCallStatus.FAILED,
                 reason="tool_authorization_rejected",
+                end_batch=authorization_decision.end_batch,
             )
         return self._run_tool(session, tool_call, operation_intent, step)
         # endregion 5. 权限门与真实执行结束
 
     # region 分支与证据叶子
-    @staticmethod
     def _find_user_memory_provenance(
+        self,
         session: AgentRunSession,
         tool_call: ToolCall,
     ) -> JsonObject | None:
-        """精确匹配当前 session 的 user 原文，不推断自然语言授权语义。"""
+        """精确匹配当前 Turn 的 human-authority 原文，不推断自然语言语义。"""
 
         source_quote = tool_call.arguments.get("source_quote")
         if not isinstance(source_quote, str) or not source_quote.strip():
             return None
         normalized_quote = source_quote.strip()
-        for message_index in range(len(session.messages) - 1, -1, -1):
-            message = session.messages[message_index]
-            if message.role != "user":
+        current_turn_items = self.conversation_threads.list_recent_items(
+            session.thread_id,
+            turn_id=session.turn_id,
+            limit=200,
+        )
+        for item in reversed(current_turn_items):
+            # Provider transport role 不是授权事实；只有 Thread 标记的人类权威输入可授权。
+            if item.role != "user" or not item.human_authority:
                 continue
-            # Multi-Agent coordination 只借用 role=user 作为 provider transport encoding；
-            # human_authority=false 的内容绝不能授权跨 Run 持久化。
-            if message.content.startswith(RUNTIME_COORDINATION_EVIDENCE_PREFIX):
-                continue
-            if normalized_quote not in message.content:
+            if normalized_quote not in item.content:
                 continue
             return {
-                "message_index": message_index,
-                "message_sha256": hashlib.sha256(
-                    message.content.encode("utf-8")
-                ).hexdigest(),
+                "item_id": item.item_id,
+                "sequence": item.sequence,
+                "item_hash": item.item_hash,
                 "source_quote": normalized_quote,
             }
         return None
@@ -528,8 +1106,8 @@ class ToolExecutionPipeline:
             ),
         )
 
-    # 批次整形：限制本 turn 调用数；ask_human 出现时建立同 turn 屏障。
-    def _select_calls_for_turn(
+    # 批次整形：限制本 model step 调用数；ask_human 建立同 batch 屏障。
+    def _select_calls_for_model_step(
         self,
         session: AgentRunSession,
         response: AgentResponse,
@@ -540,7 +1118,7 @@ class ToolExecutionPipeline:
         伪代码：无人工问题 -> 保留全部 memory controls + 按普通 budget 截断
         -> 有人工问题 -> 只保留第一个问题，并把其他调用记为 deferred evidence。
 
-        被预算截断或因 HITL 屏障延后的调用只写入证据，不在本 Turn 执行；continuation
+        被预算截断或因 HITL 屏障延后的调用只写入证据，不在当前 Model Step 执行；continuation
         会让模型基于人工回答重新规划，而不是继续消费旧调用列表。
         """
 
@@ -556,7 +1134,7 @@ class ToolExecutionPipeline:
                 call for call in response.tool_calls if call.name != "remember_memory"
             ]
             selected_candidates = [
-                *ordinary_calls[: self.max_tool_calls_per_turn],
+                *ordinary_calls[: self.max_tool_calls_per_model_step],
                 *memory_calls,
             ]
             selected_tool_calls = [
@@ -564,8 +1142,10 @@ class ToolExecutionPipeline:
                 for call in response.tool_calls
                 if any(call is selected for selected in selected_candidates)
             ]
-            dropped_tool_calls = ordinary_calls[self.max_tool_calls_per_turn :]
-            # 被预算截断的调用没有执行，只记录为模型曾提出但本 Turn 未消费的证据。
+            dropped_tool_calls = ordinary_calls[
+                self.max_tool_calls_per_model_step :
+            ]
+            # 被预算截断的调用没有执行，只记录为模型曾提出但当前 Model Step 未消费的证据。
             if dropped_tool_calls:
                 self._record_tool_call_budget(
                     session=session,
@@ -804,6 +1384,13 @@ class ToolExecutionPipeline:
         # region 2. Durable barrier：已有回答直接返回；否则生成 waiting_human 停止请求
         # request_human_input 以稳定 request_id 查找同一问题：已有回答则继续，
         # 尚未回答则返回 StopRequest，由 AgentLoop 统一落成 WAITING_HUMAN checkpoint。
+        pending_execution = session.lifecycle.checkpoint.pending_execution
+        if pending_execution is None:  # pragma: no cover - batch protocol invariant
+            raise RuntimeError("ask_human requires a durable pending ToolCall invocation")
+        invocation_id = (
+            f"{pending_execution.assistant_item_id}:"
+            f"{pending_execution.next_tool_call_index}:{tool_call.id}"
+        )
         human_input_resolution = session.lifecycle.request_human_input(
             HumanInputQuestion(
                 agent_name=session.agent_name,
@@ -812,6 +1399,7 @@ class ToolExecutionPipeline:
                 choices=tuple(str(choice) for choice in choice_values),
                 reason="model requested operator input",
                 step=step,
+                invocation_id=invocation_id,
             )
         )
         # pending/cancelled 都由 Lifecycle 映射为明确 StopRequest；只有 responded 可继续。
@@ -824,6 +1412,48 @@ class ToolExecutionPipeline:
         # endregion 2. Durable barrier结束
 
         # region 3. 回答回填：人工输入变成普通 Tool Observation，协议继续
+        # Human answer 自身先作为 authoritative user item 持久化；Tool Observation
+        # 只负责闭合原 ask_human 协议，不能代替人类输入 provenance。
+        human_answer_content = (
+            "Operator answer to the requested question:\n"
+            f"Question: {human_input_resolution.request.question}\n"
+            f"Answer: {human_input_resolution.request.answer}"
+        )
+        human_answer_item = self.conversation_threads.append(
+            session.thread_id,
+            ConversationItemDraft(
+                item_id=f"human-input:{human_input_resolution.request.request_id}",
+                turn_id=session.turn_id,
+                # 新 item 必须由 current Run 写入；稳定 request_id 和 payload 负责
+                # crash resume 幂等，原请求 Run 作为 provenance 单独保留在 metadata。
+                run_id=self.trace.run_id,
+                role="user",
+                content=human_answer_content,
+                metadata={
+                    "human_input_request_id": (
+                        human_input_resolution.request.request_id
+                    ),
+                    "human_input_request_run_id": (
+                        human_input_resolution.request.run_id
+                    ),
+                },
+                origin="operator",
+                human_authority=True,
+            ),
+        )
+        if human_answer_item.sequence not in session.message_sequences:
+            session.messages.append(
+                Message(
+                    role="user",
+                    content=human_answer_content,
+                    origin="operator",
+                    human_authority=True,
+                )
+            )
+            session.message_sequences.append(human_answer_item.sequence)
+        session.turn_focus = human_answer_content
+        session.turn_focus_item_id = human_answer_item.item_id
+        session.memory_management_candidates_key = ""
         human_answer_observation = Observation(
             tool_name=tool_call.name,
             success=True,
@@ -858,7 +1488,7 @@ class ToolExecutionPipeline:
 
         伪代码：最后 terminal 检查 -> durable state change 写 approved/executing
         -> Gateway -> after_tool -> Ledger 提交结果 -> Evidence/Checkpoint
-        -> budget gate -> 下一 Turn 的 tool message。
+        -> budget gate -> 下一 Model Step 的 tool message。
         """
 
         # region 1. 最后控制边界：terminal 可阻止启动，输入类信号留到模型边界
@@ -921,7 +1551,20 @@ class ToolExecutionPipeline:
                 step,
             )
 
-        session.working_memory.add_observation(tool_observation)
+        # ToolCall 的 canonical Observation 必须先 durable append；只有这一步成功后，
+        # batch cursor 才能由调用方推进。崩溃时 Ledger 与稳定 tool item 共同决定
+        # “回放既有结果”或“outcome unknown”，绝不盲目重复状态变更。
+        self.tool_feedback.append_tool_observation(
+            session,
+            tool_call,
+            tool_observation,
+            step,
+        )
+        # Memory mutation changes management-candidate repository state；下一 model step
+        # 必须按最新 human-authority input 重查，不能复用写入前的 key。
+        if tool_call.name == "remember_memory" and tool_observation.success:
+            session.memory_management_candidates_key = ""
+
         recorded_evidence = session.evidence.add_observation(tool_observation)
         validation_evidence = self.tool_feedback.build_validation_evidence(
             tool_call.name,
@@ -965,7 +1608,7 @@ class ToolExecutionPipeline:
         )
         # endregion 3. 工具调用与证据提交结束
 
-        # region 4. Turn 收口：预算允许时补齐 tool message 供下一轮模型读取
+        # region 4. Turn 收口：Observation 已持久化，再决定是否允许下一轮模型调用
         budget_stop_signal = session.controller.should_stop(
             step,
             estimated_cost_usd=session.estimated_cost_usd,
@@ -987,14 +1630,6 @@ class ToolExecutionPipeline:
                 stop_request=budget_stop_request,
             )
 
-        session.messages.append(
-            Message(
-                role="tool",
-                content=tool_observation.content,
-                name=tool_call.name,
-                tool_call_id=tool_call.id,
-            )
-        )
         return ToolCallOutcome(
             status=(
                 ToolCallStatus.EXECUTED
@@ -1057,7 +1692,7 @@ class ToolExecutionPipeline:
             session.agent_name,
             "tool_calls_bounded",
             tool_call_budget={
-                "limit": self.max_tool_calls_per_turn,
+                "limit": self.max_tool_calls_per_model_step,
                 "selected": [call.name for call in selected_tool_calls],
                 "dropped": [call.name for call in dropped_tool_calls],
             },
@@ -1219,16 +1854,6 @@ class ToolExecutionPipeline:
             tool_call=tool_call.name,
             tool_call_id=tool_call.id,
             tool_arguments=tool_call.arguments,
-        )
-        self.trace.add(
-            step,
-            session.agent_name,
-            "tool_observation",
-            success=observation.success,
-            execution_succeeded=observation.execution_succeeded,
-            tool_call=tool_call.name,
-            tool_call_id=tool_call.id,
-            observation=observation.content,
         )
         self.trace.add(
             step,

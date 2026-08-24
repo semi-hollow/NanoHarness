@@ -37,7 +37,7 @@ NanoHarness 是面向真实代码仓库的可治理软件工程智能体与评�
 
 ## 核心阅读范围与文档 owner
 
-- Runtime 核心阅读范围限定为 `Harness.run`、`AgentLoop.run`、`TurnPreparation.prepare_turn`、
+- Runtime 核心阅读范围限定为 `Harness.run`、`AgentLoop.run`、`ModelStepPreparation.prepare_model_step`、
   `ToolExecutionPipeline.execute_calls` 和 `RunLifecycle.finalize_run` 五个入口；工具调用实现按
   “入口控制 -> 执行决策 -> 受限执行 -> 结果与恢复”四层定位。
 - Evaluation 核心范围包括执行顺序、Scorecard 和 Failure Taxonomy；JSON/HTML、

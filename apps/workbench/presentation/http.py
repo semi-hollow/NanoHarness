@@ -692,7 +692,7 @@ def _source_overview_facts(
     failed_tools = int(summary.get("failed_tool_calls") or 0)
     return (
         [
-            ("Agent Turn", str(len(turns)), "真实模型边界", "neutral"),
+            ("Model Step", str(len(turns)), "真实模型边界", "neutral"),
             (
                 "模型调用",
                 str(int(summary.get("llm_calls") or 0)),
@@ -714,7 +714,7 @@ def _source_overview_facts(
 def _render_source_timeline(source: EvidenceSource) -> str:
     if not source.trace_entries:
         return _empty_evidence(
-            "当前发布包没有 Turn 级 Trace。它仍可用于结果与改进复盘，但不能展示模型轮次。"
+            "当前发布包没有 Model Step 级 Trace。它仍可用于结果与改进复盘，但不能展示模型步骤。"
         )
     visible_entries = list(source.trace_entries[:8])
     hidden_count = max(len(source.trace_entries) - len(visible_entries), 0)
@@ -754,7 +754,7 @@ def _render_source_context(source: EvidenceSource) -> str:
             panels.append(
                 "<details class='trace-context-unit'"
                 + (" open" if index == 0 else "")
-                + f"><summary>{_escape(label)} · 无可投影 Turn</summary>"
+                + f"><summary>{_escape(label)} · 无可投影 Model Step</summary>"
                 f"<p class='empty-inline'>{_escape(str(trace_path))}</p></details>"
             )
             continue
@@ -794,7 +794,7 @@ def _render_context_trace_panel(
     repeated_tool_calls = _repeated_tool_call_sequences(turns)
     key_links = "".join(
         "<a class='context-jump' "
-        f"href='#context-{_safe_html_id(label)}-{turn.step}'><b>Turn {turn.step}</b>"
+        f"href='#context-{_safe_html_id(label)}-{turn.step}'><b>Model Step {turn.step}</b>"
         f"<span>{_escape(turn.key_reason)}</span></a>"
         for turn in key_turns
     )
@@ -809,15 +809,15 @@ def _render_context_trace_panel(
     open_attribute = " open" if open_panel else ""
     return (
         f"<details class='trace-context-unit'{open_attribute}>"
-        f"<summary><b>{_escape(label)}</b><span>{len(turns)} Turn · "
+        f"<summary><b>{_escape(label)}</b><span>{len(turns)} Model Step · "
         f"{len(key_turns)} 个关键转折 · 峰值 {peak_tokens:,} tokens</span></summary>"
         "<div class='trace-context-body'>"
         f"<p class='task-summary'><span>任务</span>{_escape(task)}</p>"
         + _metric_grid(
             [
-                ("Agent Turn", str(len(turns)), "真实模型边界", "neutral"),
+                ("Model Step", str(len(turns)), "真实模型边界", "neutral"),
                 ("关键转折", str(len(key_turns)), "优先展开", "ok"),
-                ("上下文压缩", str(compacted_turns), "触发压缩的 Turn", "neutral"),
+                ("上下文压缩", str(compacted_turns), "触发压缩的 Model Step", "neutral"),
                 ("实际工具", str(len(tool_names)), "实际调用种类", "neutral"),
                 (
                     "重复参数链",
@@ -1178,7 +1178,7 @@ def _render_observability_overview(project_dir: Path) -> str:
         "<small>跨运行比较</small></div>"
         f"<div><b>02</b><span>单次运行</span><strong>{_escape(_display_value(run_status))}</strong>"
         f"<small class='mono'>{_escape(run_id[:18])}</small></div>"
-        f"<div><b>03</b><span>Agent 轮次</span><strong>{len(turns)} 轮</strong>"
+        f"<div><b>03</b><span>模型步骤</span><strong>{len(turns)} 步</strong>"
         "<small>一次模型决策</small></div>"
         "<div><b>04</b><span>语义阶段</span><strong>固定 6 类</strong>"
         "<small>上下文到持久化</small></div>"
@@ -1196,7 +1196,7 @@ def _render_observability_overview(project_dir: Path) -> str:
                 (
                     "受治理运行",
                     _display_value(run_status),
-                    f"{len(turns)} 轮 · {checkpoint_count} 个 Checkpoint",
+                    f"{len(turns)} 个 Model Step · {checkpoint_count} 个 Checkpoint",
                     _tone_for_status(run_status),
                 ),
                 (
@@ -1454,7 +1454,7 @@ def _render_usage_dashboard(project_dir: Path) -> str:
     adaptive_rows = "".join(
         [
             "<tr><td>结构化上下文压缩</td>"
-            f"<td>{int(summary.get('compacted_context_turns') or 0)} 个 Turn</td>"
+            f"<td>{int(summary.get('compacted_context_turns') or 0)} 个 Model Step</td>"
             f"<td>{int(summary.get('context_overflow_recoveries') or 0)} 次上下文溢出恢复</td>"
             "<td>ConversationHistoryDigest + 原始 Trace 来源</td></tr>",
             "<tr><td>有证据的长期记忆召回</td>"
@@ -1886,16 +1886,16 @@ def _render_context_turn(
     return (
         f"<details class='context-turn' id='{_escape(resolved_element_id)}'{open_attribute}>"
         "<summary>"
-        f"<span><b>Turn {turn.step}</b><small>{_escape(turn.phase)}</small></span>"
+        f"<span><b>Model Step {turn.step}</b><small>{_escape(turn.phase)}</small></span>"
         f"<span class='context-turn-summary'>{_escape(turn.phase_reason)}</span>"
         f"<span class='context-turn-metrics'>{turn.message_count} messages "
         f"({message_delta}) · {turn.estimated_tokens:,} tokens ({token_delta})</span>"
         f"{key_badge}</summary>"
         "<div class='context-turn-body'>"
         "<div class='context-flow-grid'>"
-        "<section><span class='context-stage'>01 · 上一轮新增证据</span>"
+        "<section><span class='context-stage'>01 · 上一 Model Step 新增证据</span>"
         f"{previous_evidence}</section>"
-        "<section><span class='context-stage'>02 · 本轮输入组成</span>"
+        "<section><span class='context-stage'>02 · 当前 Model Step 输入组成</span>"
         f"{input_bars}"
         f"<p class='context-caption'>窗口占用约 {pressure:.1f}% · "
         f"{'已压缩' if turn.compacted else '未压缩'} · "
@@ -1904,8 +1904,8 @@ def _render_context_turn(
         "<section><span class='context-stage'>03 · 模型可观测决定</span>"
         f"<p class='context-decision'>{_escape(decision_summary)}</p>{action_rows}</section>"
         "<section><span class='context-stage'>04 · 执行反馈</span>"
-        f"{feedback_rows}<p class='context-caption'>这些 Observation 会进入下一 Turn。"
-        "若本轮已经形成最终答案，则不再回填工具结果。</p></section>"
+        f"{feedback_rows}<p class='context-caption'>这些 Observation 会进入下一 Model Step。"
+        "若当前 Model Step 已经形成最终答案，则不再回填工具结果。</p></section>"
         "</div>"
         f"{technical_details}</div></details>"
     )
@@ -1959,7 +1959,7 @@ def _render_context_action(decision: ToolDecision) -> str:
 def _repeated_tool_call_sequences(
     turns: tuple[ContextTurnInspection, ...],
 ) -> tuple[dict[str, Any], ...]:
-    """找出跨 Turn 连续出现的相同 Tool + 参数，不猜测模型内部原因。"""
+    """找出跨 Model Step 连续出现的相同 Tool + 参数，不猜测模型内部原因。"""
 
     flattened = [
         (turn.step, decision) for turn in turns for decision in turn.tool_decisions
@@ -2023,7 +2023,7 @@ def _render_repeated_tool_call_sequences(
         "<h3>连续重复 ToolCall</h3><span>确定性比较 Tool 名与完整参数</span></div>"
         "<p class='boundary-note'>这里只标记可观测的重复事实；是否因为反馈不足、"
         "参数未变化或模型未改变策略，需要结合下方 Observation 与下一轮 Context 判断。</p>"
-        "<table><thead><tr><th>Tool</th><th>Turn</th><th>次数</th><th>失败</th>"
+        "<table><thead><tr><th>Tool</th><th>Model Step</th><th>次数</th><th>失败</th>"
         f"<th>参数</th></tr></thead><tbody>{rows}</tbody></table></section>"
     )
 
@@ -2060,8 +2060,8 @@ def _render_context_technical_details(turn: ContextTurnInspection) -> str:
         )
         or "<tr><td colspan='2'>没有区段数据</td></tr>"
     )
-    tools_state = "发生变化" if turn.tools_changed else "与上一轮相同"
-    skills_state = "发生变化" if turn.skills_changed else "与上一轮相同"
+    tools_state = "发生变化" if turn.tools_changed else "与上一 Model Step 相同"
+    skills_state = "发生变化" if turn.skills_changed else "与上一 Model Step 相同"
     files_seen = "、".join(turn.files_seen) or "尚未通过 read_file 取得文件正文"
     selected_files = (
         "、".join(turn.selected_files) or "0（本次文件正文来自工具 Observation）"
@@ -2087,7 +2087,7 @@ def _render_context_technical_details(turn: ContextTurnInspection) -> str:
         "<details class='context-memory'><summary>查看 Working Memory 摘要</summary>"
         f"<pre>{_escape(working_memory)}</pre></details>"
         f"<p class='boundary-note'>模型：{_escape(turn.model_name)}；reasoning tokens："
-        f"{turn.reasoning_tokens}；本轮估算成本：${turn.estimated_cost_usd:.6f}；"
+        f"{turn.reasoning_tokens}；本 Model Step 估算成本：${turn.estimated_cost_usd:.6f}；"
         f"压缩原因：{_escape(turn.compaction_reason)}。Trace 不复制完整 Prompt，"
         "避免重复大文本和敏感内容；这里展示的是可复核的输入结构。</p>"
         "</details>"
@@ -2146,34 +2146,36 @@ def _render_trace_lane(label: str, trace_path: Path) -> str:
         _annotate_checkpoint_transitions(_event_list(trace))
     )
     run_events = [event for event in events if int(event.get("step") or 0) == 0]
-    turns: dict[int, list[dict[str, Any]]] = {}
+    model_steps: dict[int, list[dict[str, Any]]] = {}
     for event in events:
         step = int(event.get("step") or 0)
         if step > 0:
-            turns.setdefault(step, []).append(event)
+            model_steps.setdefault(step, []).append(event)
     inspections = {
         inspection.step: inspection
         for inspection in build_context_turn_inspections(trace)
     }
 
-    turn_blocks = "".join(
+    model_step_blocks = "".join(
         _render_timeline_turn(turn, turn_events, inspections.get(turn))
-        for turn, turn_events in sorted(turns.items())
+        for turn, turn_events in sorted(model_steps.items())
     )
     return (
         "<section class='evidence-section timeline-lane'>"
         f"<div class='section-title'><h3>{_escape(label)}</h3>{_badge(str(trace.get('stop_reason') or 'unknown'), _tone_for_status(str(trace.get('stop_reason') or '')))}</div>"
         f"<div class='run-facts'><span>运行 <b class='mono'>{_escape(trace.get('run_id', ''))}</b></span>"
-        f"<span>{len(turns)} 个 Agent 轮次</span><span>{len(run_events)} 个运行级事件</span>"
+        f"<span>{len(model_steps)} 个模型步骤</span><span>{len(run_events)} 个运行级事件</span>"
         f"<span>{len(events)} 条底层事件</span></div>"
-        f"{_render_run_level_events(run_events)}{turn_blocks}"
+        f"{_render_run_level_events(run_events)}{model_step_blocks}"
         f"<details class='provenance'><summary>Trace 来源</summary><code>{_escape(str(trace_path))}</code></details>"
         "</section>"
     )
 
 
 _TRACE_STAGE_BY_EVENT = {
+    # ``turn_started`` 只用于冻结历史 evidence 的只读展示；新 Runtime 写 model_step_started。
     "turn_started": "input",
+    "model_step_started": "input",
     "context_assembly": "input",
     "context_window": "input",
     "context_overflow_recovery": "input",
@@ -2224,7 +2226,8 @@ _HOOK_STAGE_LABELS = {
 }
 
 _TRACE_EVENT_LABELS = {
-    "turn_started": "轮次开始",
+    "turn_started": "历史 Model Step 开始",
+    "model_step_started": "模型步骤开始",
     "task_state_checkpoint": "Checkpoint",
     "model_capabilities": "模型能力",
     "context_assembly": "上下文组装",
@@ -2278,7 +2281,8 @@ _TRACE_EVENT_LABELS = {
 
 # 每条解释回答“没有这条证据时会看不清什么”，避免用统一空话填表。
 _TRACE_EVENT_PURPOSES = {
-    "turn_started": "建立本轮边界，把后续上下文、模型决定和工具结果归到同一轮。",
+    "turn_started": "展示冻结历史证据中的旧 Model Step 事件，不进入当前 Runtime 恢复路径。",
+    "model_step_started": "建立本次模型调用边界，把上下文、模型决定和工具结果归到同一步。",
     "model_capabilities": "记录模型是否支持工具调用等能力，避免把能力缺失误判为 AgentLoop 故障。",
     "context_assembly": "记录本轮选入了哪些上下文来源，便于解释模型实际看到了什么。",
     "context_window": "记录最终输入规模和压缩情况，用来定位上下文超限或信息丢失。",
@@ -2333,7 +2337,7 @@ def _render_run_level_events(events: list[dict[str, Any]]) -> str:
     return (
         "<div class='timeline-run-level'>"
         "<div class='timeline-head'><div><strong>运行级阶段</strong>"
-        "<small>初始化 / 发布，不计入 Agent 轮次</small></div>"
+        "<small>初始化 / 发布，不计入模型步骤</small></div>"
         f"{_badge('存在失败' if failures else '初始化完成', 'bad' if failures else 'ok')}</div>"
         f"{_render_raw_event_details(events, summary='查看运行级底层事件')}"
         "</div>"
@@ -2544,7 +2548,7 @@ def _render_timeline_turn(
     return (
         f"<details class='timeline-turn{key_class}'{open_attribute}>"
         "<summary>"
-        f"<span><b>第 {turn} 轮 · {_escape(turn_summary)}</b>"
+        f"<span><b>Model Step {turn} · {_escape(turn_summary)}</b>"
         f"<small>{_escape(key_reason or '普通轮次，展开查看')}</small></span>"
         f"{_badge(outcome, outcome_tone)}</summary>"
         f"<div class='timeline-turn-body'>{''.join(rows)}"
@@ -2640,7 +2644,7 @@ def _summarize_timeline_stage(key: str, events: list[dict[str, Any]]) -> str:
             parts.append("已压缩")
         elif window_event is not None:
             parts.append("无需压缩")
-        return " · ".join(parts) or "Turn 输入已准备"
+        return " · ".join(parts) or "Model Step 输入已准备"
 
     if key == "decision":
         completed = _last_trace_event(events, "llm_call")
@@ -3268,7 +3272,7 @@ def _render_run_evidence(project_dir: Path) -> str:
         _render_run_story_section(run_story, run_dir, run_story_error),
         "<details class='drilldown'><summary>查看本次触发的上下文、记忆、Skill 与工具适配信号</summary>"
         "<div class='drilldown-body'><div class='capability-strip'>"
-        f"<div><b>{int(summary.get('compacted_context_turns') or 0)}</b><span>上下文压缩轮次</span></div>"
+        f"<div><b>{int(summary.get('compacted_context_turns') or 0)}</b><span>发生上下文压缩的 Model Step</span></div>"
         f"<div><b>{int(summary.get('memory_recalled') or 0)}</b><span>召回记忆数量</span></div>"
         f"<div><b>{int(summary.get('tool_call_repairs') or 0)}</b><span>工具调用修复</span></div>"
         f"<div><b>{int(summary.get('bounded_tool_call_bursts') or 0)}</b><span>工具突发拦截</span></div>"
@@ -3481,7 +3485,7 @@ def _render_fanout_run_evidence(
                 (
                     "协调器 Checkpoint",
                     str(checkpoint_count),
-                    "保存协调器当前可恢复状态，不是每个 Turn 一个",
+                    "保存协调器当前可恢复状态，不是每个 Model Step 一个",
                     "ok" if checkpoint_count else "neutral",
                 ),
                 (
@@ -4209,7 +4213,7 @@ def _render_runtime_controls(
         f"<div><b>{recovery_events}</b><span>恢复决策</span></div>"
         f"<div><b>{len(permission_events)}</b><span>权限检查</span></div>"
         "</div>"
-        f"<p class='boundary-note'><strong>Checkpoint 口径：</strong> 本次 Trace 记录 {checkpoints} 次关键状态写入，当前由 {current_state_files} 个 JSON 文件保存每个任务的最新可恢复状态。它按创建、等待审批、恢复、工具结果和结束等状态转换写入，不是每个 Turn 固定写一次。</p>"
+        f"<p class='boundary-note'><strong>Checkpoint 口径：</strong> 本次 Trace 记录 {checkpoints} 次关键状态写入，当前由 {current_state_files} 个 JSON 文件保存每个任务的最新可恢复状态。它按创建、等待审批、恢复、工具结果和结束等状态转换写入，不是每个 Model Step 固定写一次。</p>"
         "<p class='boundary-note'>数值为 0 表示本次运行没有触发该能力，不会伪造成“通过”。</p></section>",
         "<section class='evidence-section'><div class='section-title'><h3>人工决策与验证时间线</h3><span>回答、审批、执行和恢复证据</span></div>"
         "<table><thead><tr><th>轮次</th><th>Agent</th><th>事件</th><th>状态</th><th>工具</th><th>证据</th></tr></thead>"
@@ -6479,7 +6483,7 @@ def _translate_evidence_text(value: Any) -> str:
     replacements = (
         (
             "The model still requested a tool on the final turn, so the runtime blocked an incomplete artifact.",
-            "模型在最后一轮仍请求调用工具，因此运行时阻断了不完整产物。",
+            "模型在最后一个 Model Step 仍请求调用工具，因此运行时阻断了不完整产物。",
         ),
         (
             "Inspect the final model action and increase budget or force an earlier patch/no-patch decision.",

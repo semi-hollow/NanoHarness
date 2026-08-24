@@ -1,6 +1,6 @@
 """Single Agent 的主控制循环。
 
-``AgentLoop.run`` 是主入口。运行前决策、turn 输入、工具治理和最终答案均由
+``AgentLoop.run`` 是主入口。运行前决策、model step 输入、工具治理和最终答案均由
 同目录中具名应用服务负责，本类只保留控制流。
 """
 
@@ -19,9 +19,9 @@ from agent_forge.runtime.application.run_control import (
 from agent_forge.runtime.application.run_preparation import RunPreparation
 from agent_forge.runtime.application.session import AgentRunSession
 from agent_forge.runtime.application.tool_execution import ToolExecutionPipeline
-from agent_forge.runtime.application.turn_preparation import (
-    PreparedTurn,
-    TurnPreparation,
+from agent_forge.runtime.application.model_step_preparation import (
+    PreparedModelStep,
+    ModelStepPreparation,
 )
 from agent_forge.runtime.config import RuntimeConfig
 from agent_forge.runtime.domain.conversation import AgentResponse
@@ -29,8 +29,8 @@ from agent_forge.runtime.domain.governance import HookDecisionType, ModelHookCon
 from agent_forge.runtime.domain.task import TaskRunStatus
 
 
-class TurnOutcomeKind(str, Enum):
-    """一个 turn 结束后，主循环唯一允许的三个动作。"""
+class ModelStepOutcomeKind(str, Enum):
+    """一个 model step 结束后，主循环唯一允许的三个动作。"""
 
     CONTINUE = "continue"
     REPLAN = "replan"
@@ -38,17 +38,17 @@ class TurnOutcomeKind(str, Enum):
 
 
 @dataclass(frozen=True)
-class TurnOutcome:
+class ModelStepOutcome:
     """显式区分正常下一轮、模型输入变化后的重规划和停止。"""
 
-    kind: TurnOutcomeKind
+    kind: ModelStepOutcomeKind
     stop_request: StopRequest | None = None
 
 
 class AgentLoop:
     """单 Agent 控制流的应用服务。
 
-    完整链路：``run`` -> ``_run_turn`` -> model -> final answer/tool pipeline。
+    完整链路：``run`` -> ``_run_model_step`` -> model -> final answer/tool pipeline。
     具体策略由具名应用服务负责，可按类名定位对应文件。
     """
 
@@ -68,13 +68,8 @@ class AgentLoop:
             dependencies.control,
             dependencies.events,
         )
-        human_thread_id = config.human_thread_id or self.trace.run_id
-        self.run_preparation = RunPreparation(
-            config,
-            dependencies,
-            human_thread_id=human_thread_id,
-        )
-        self.turn_preparation = TurnPreparation(
+        self.run_preparation = RunPreparation(config, dependencies)
+        self.model_step_preparation = ModelStepPreparation(
             config,
             dependencies.events,
             dependencies.turn_system_context_assembler,
@@ -92,16 +87,17 @@ class AgentLoop:
             dependencies.operations,
             dependencies.control,
             dependencies.model_capabilities,
+            dependencies.conversation_threads,
         )
         self.final_answer_builder = FinalAnswerBuilder(dependencies.events)
 
-    # 主要入口：依次执行 run 初始化、前置准备、turn loop 和统一停止。
-    def run(self, task: str, agent_name: str = "CodingAgent") -> str:
+    # 主要入口：依次执行 Run 初始化、前置准备、Model Step loop 和统一停止。
+    def run(self, agent_name: str = "CodingAgent") -> str:
         """编排 Single-Agent 黄金主链，不拥有任一阶段的领域规则。
 
         流程位置：Runtime 的有界阶段编排器。
         规范上游：``Harness.run`` 装配完成的 Runtime。
-        下一 owner：``RunPreparation``、``TurnPreparation``、模型端口、
+        下一 owner：``RunPreparation``、``ModelStepPreparation``、模型端口、
         ``ToolExecutionPipeline``、``RunLifecycle``。
         状态与证据：返回值只是最终文本；checkpoint、trace 与操作状态表才是
         可恢复、可审计的运行事实。
@@ -112,8 +108,8 @@ class AgentLoop:
 
         # region 1. 创建会话并处理首次控制/澄清屏障
         # 创建 session 后先消费 pause/cancel，再执行输入策略、Memory 与澄清准备；
-        # 任一步产生 StopRequest 都直接汇合到唯一终态 owner，而不进入 Turn Loop。
-        run_session = self.run_preparation.create_session(task, agent_name)
+        # 任一步产生 StopRequest 都直接汇合到唯一终态 owner，而不进入 Model Step loop。
+        run_session = self.run_preparation.create_session(agent_name)
         initial_operator_control = self.run_control_handler.consume_pending_signals(
             run_session,
             0,
@@ -127,14 +123,43 @@ class AgentLoop:
                 initial_operator_control.stop,
             )
         preparation_stop = self.run_preparation.prepare_run(run_session)
-        # 澄清、恢复或前置策略产生 StopRequest 时，不创建任何模型 Turn。
+        # 澄清、恢复或前置策略产生 StopRequest 时，不创建任何 Model Step。
         if preparation_stop is not None:
             return self._finalize_run(run_session, preparation_stop)
+
+        # accepted final 已先写入 Thread、但进程可能在 checkpoint 前崩溃；恢复时
+        # 直接幂等完成同一 Turn，不能再次调用模型生成第二个答案。
+        existing_final_answer = run_session.lifecycle.existing_accepted_final_answer()
+        # Thread 已有 accepted final 时只补齐终态，不重跑模型。
+        if existing_final_answer is not None:
+            return self._finalize_run(
+                run_session,
+                StopRequest(
+                    status=TaskRunStatus.COMPLETED,
+                    reason="final_answer",
+                    stop_output=existing_final_answer,
+                    candidate_final_answer=existing_final_answer,
+                    current_step=run_session.lifecycle.checkpoint.current_step,
+                    messages_count=len(run_session.messages),
+                    observations_count=len(run_session.observations),
+                ),
+            )
+
+        # Resume 同一 Turn 时先续跑 canonical assistant batch；模型不得重新提案。
+        pending_batch = self.tool_execution_pipeline.resume_pending_calls(run_session)
+        # 原 batch 再次到达等待或终态边界时，交给唯一 Lifecycle 收口。
+        if pending_batch.stop_request is not None:
+            return self._finalize_run(run_session, pending_batch.stop_request)
+        first_model_step = (
+            run_session.lifecycle.checkpoint.current_step + 1
+            if pending_batch.resumed
+            else 1
+        )
         # endregion 1. 创建会话并处理首次控制/澄清屏障结束
 
-        # region 2. 有界 Turn Loop：每轮只编排，不复制阶段规则
-        for step in range(1, run_session.max_iterations + 1):
-            # 模型边界 1：先注入已排队的 steer/coordination，再组装本 Turn 上下文。
+        # region 2. 有界 Model Step Loop：每轮只编排，不复制阶段规则
+        for step in range(first_model_step, run_session.max_iterations + 1):
+            # 模型边界 1：先注入已排队的 steer/coordination，再组装当前 Model Step 上下文。
             run_control_outcome = self.run_control_handler.consume_pending_signals(
                 run_session,
                 step,
@@ -146,19 +171,19 @@ class AgentLoop:
                     run_session,
                     run_control_outcome.stop,
                 )
-            turn_outcome = self._run_turn(run_session, step)
+            model_step_outcome = self._run_model_step(run_session, step)
             # 只有 STOP 离开循环；CONTINUE/REPLAN 都由下一次迭代重建输入。
-            if turn_outcome.kind == TurnOutcomeKind.STOP:
+            if model_step_outcome.kind == ModelStepOutcomeKind.STOP:
                 # STOP 没有 StopRequest 属于内部契约损坏，不能猜测终态。
-                if turn_outcome.stop_request is None:  # pragma: no cover - invariant
-                    raise AssertionError("STOP turn outcome requires StopRequest")
+                if model_step_outcome.stop_request is None:  # pragma: no cover - invariant
+                    raise AssertionError("STOP model step outcome requires StopRequest")
                 return self._finalize_run(
                     run_session,
-                    turn_outcome.stop_request,
+                    model_step_outcome.stop_request,
                 )
             # CONTINUE 表示工具事务完成；REPLAN 表示 steer/coordination 使旧响应失效。
-            # 两者都进入下一 turn，但语义不再由 ``None`` 隐式承载。
-        # endregion 2. 有界 Turn Loop结束
+            # 两者都进入下一 Model Step，但语义不再由 ``None`` 隐式承载。
+        # endregion 2. 有界 Model Step Loop结束
 
         # region 3. 预算耗尽收口：所有退出仍汇合到 RunLifecycle
         return self._finalize_run(
@@ -172,30 +197,30 @@ class AgentLoop:
         # endregion 3. 预算耗尽收口结束
 
     # region 第二层内部步骤
-    def _run_turn(
+    def _run_model_step(
         self,
         session: AgentRunSession,
         step: int,
-    ) -> TurnOutcome:
-        """执行一个 Turn：准备输入 -> 调用模型 -> final 或工具分支。
+    ) -> ModelStepOutcome:
+        """执行一个 model step：准备输入 -> 调用模型 -> final 或工具分支。
 
         伪代码：冻结当前输入 -> 调用模型 -> 消费调用期间到达的控制/协调
         -> 必要时丢弃 stale response -> 尝试一次窗口恢复 -> 分流 final/tool/stop。
         """
 
         # region 1. 准备模型输入并执行一次受 Hook 治理的模型调用
-        # TurnPreparation 冻结本轮 context、可见工具和预算；_call_model 负责模型前后 Hook，
+        # ModelStepPreparation 冻结本轮 context、可见工具和预算；_call_model 负责模型前后 Hook，
         # 因而模型响应只有通过 Hook 后才允许进入后续控制与工具分支。
         session.iteration = step
-        self._record_turn_started(session, step)
-        prepared_turn = self.turn_preparation.prepare_turn(session, step)
+        self._record_model_step_started(session, step)
+        prepared_model_step = self.model_step_preparation.prepare_model_step(session, step)
         model_response, hook_stop_request = self._call_model(
             session,
-            prepared_turn,
+            prepared_model_step,
         )
-        # 决策 Hook 拒绝模型调用时，直接携带它生成的停止事实离开本 Turn。
+        # 决策 Hook 拒绝模型调用时，直接携带它生成的停止事实离开本 Model Step。
         if hook_stop_request is not None:
-            return TurnOutcome(TurnOutcomeKind.STOP, hook_stop_request)
+            return ModelStepOutcome(ModelStepOutcomeKind.STOP, hook_stop_request)
         # _call_model 正常路径必须返回响应；空值只能代表内部契约被破坏。
         if model_response is None:  # pragma: no cover - protected by _call_model
             raise AssertionError("model invocation returned no response")
@@ -204,29 +229,29 @@ class AgentLoop:
         # region 2. 模型返回边界：优先消费 Runtime 控制/协调与预算信号
         # 模型边界 2：调用期间到达的 steer/coordination 使 response 过时；丢弃后重规划。
         after_model_outcome = self._after_model_boundary(session, step)
-        # helper 已把 terminal、stale response 或预算超限收敛为显式 TurnOutcome。
+        # helper 已把 terminal、stale response 或预算超限收敛为显式 ModelStepOutcome。
         if after_model_outcome is not None:
             return after_model_outcome
         # endregion 2. 模型返回边界结束
 
         # region 3. 上下文溢出恢复：仅在确实缩小窗口后重试一次
-        # Provider 明确报告窗口溢出时，强制生成更小的 PreparedTurn；只有 token 估算
+        # Provider 明确报告窗口溢出时，强制生成更小的 PreparedModelStep；只有 token 估算
         # 确实下降才重试，防止用同一请求盲重放并重复计费。
         if model_response.error and _is_context_overflow(model_response.error):
-            compacted_turn = self.turn_preparation.prepare_turn(
+            compacted_model_step = self.model_step_preparation.prepare_model_step(
                 session,
                 step,
                 force_compaction=True,
             )
             recovery_reduced_context = (
-                compacted_turn.compacted
-                and compacted_turn.estimated_prompt_tokens
-                < prepared_turn.estimated_prompt_tokens
+                compacted_model_step.compacted
+                and compacted_model_step.estimated_prompt_tokens
+                < prepared_model_step.estimated_prompt_tokens
             )
             self._record_context_overflow_recovery(
                 session=session,
-                initial_turn=prepared_turn,
-                compacted_turn=compacted_turn,
+                initial_model_step=prepared_model_step,
+                compacted_model_step=compacted_model_step,
                 model_error=model_response.error,
                 recovery_reduced_context=recovery_reduced_context,
             )
@@ -235,14 +260,14 @@ class AgentLoop:
                 # 重试仍走同一个模型 Hook，返回后也必须重新经过
                 # after_model 安全边界；否则请求期间到达的 cancel/steer/
                 # coordination 会让旧 ToolCall 越过新输入而执行。
-                prepared_turn = compacted_turn
+                prepared_model_step = compacted_model_step
                 model_response, hook_stop_request = self._call_model(
                     session,
-                    prepared_turn,
+                    prepared_model_step,
                 )
                 # 恢复调用仍受相同 Hook 决策约束。
                 if hook_stop_request is not None:
-                    return TurnOutcome(TurnOutcomeKind.STOP, hook_stop_request)
+                    return ModelStepOutcome(ModelStepOutcomeKind.STOP, hook_stop_request)
                 # 恢复路径也必须满足模型响应契约。
                 if model_response is None:  # pragma: no cover - protected above
                     raise AssertionError("model recovery returned no response")
@@ -254,16 +279,16 @@ class AgentLoop:
 
         # region 4. 响应分流：失败、最终回答或工具治理三选一
         if model_response.error:
-            return TurnOutcome(
-                TurnOutcomeKind.STOP,
+            return ModelStepOutcome(
+                ModelStepOutcomeKind.STOP,
                 self._handle_model_failure(session, model_response, step),
             )
 
         # FINALIZE 阶段对 structured ToolCall 和文本 ToolCall 使用同一拒绝路径，
         # 防止 provider 编码差异改变停止原因或让最终轮意外执行工具。
-        if prepared_turn.phase == "finalize" or not model_response.tool_calls:
-            return TurnOutcome(
-                TurnOutcomeKind.STOP,
+        if prepared_model_step.phase == "finalize" or not model_response.tool_calls:
+            return ModelStepOutcome(
+                ModelStepOutcomeKind.STOP,
                 self.final_answer_builder.build_stop_request(
                     session,
                     model_response,
@@ -274,35 +299,35 @@ class AgentLoop:
             session,
             model_response,
             step=step,
-            allowed_tool_names=prepared_turn.allowed_tool_names,
+            allowed_tool_names=prepared_model_step.allowed_tool_names,
         )
         # Tool pipeline 产生审批、人工输入或失败终态时，主循环统一收口。
         if tool_stop is not None:
-            return TurnOutcome(TurnOutcomeKind.STOP, tool_stop)
-        return TurnOutcome(TurnOutcomeKind.CONTINUE)
+            return ModelStepOutcome(ModelStepOutcomeKind.STOP, tool_stop)
+        return ModelStepOutcome(ModelStepOutcomeKind.CONTINUE)
         # endregion 4. 响应分流结束
 
     def _call_model(
         self,
         session: AgentRunSession,
-        prepared_turn: PreparedTurn,
+        prepared_model_step: PreparedModelStep,
     ) -> tuple[AgentResponse | None, StopRequest | None]:
         """执行 before/after model Hook，并保留唯一模型调用证据路径。"""
 
         model_hook_context = ModelHookContext(
             run_id=self.trace.run_id,
-            step=prepared_turn.step,
+            step=prepared_model_step.step,
             agent_name=session.agent_name,
-            task=session.task,
-            messages_count=len(prepared_turn.llm_messages),
-            tool_count=len(prepared_turn.tool_schemas),
-            estimated_prompt_tokens=prepared_turn.estimated_prompt_tokens,
-            compacted=prepared_turn.compacted,
+            task=session.root_task,
+            messages_count=len(prepared_model_step.llm_messages),
+            tool_count=len(prepared_model_step.tool_schemas),
+            estimated_prompt_tokens=prepared_model_step.estimated_prompt_tokens,
+            compacted=prepared_model_step.compacted,
         )
         before_model_decision = self.hooks.before_model(model_hook_context)
         self._record_before_model_hook(
             session=session,
-            prepared_turn=prepared_turn,
+            prepared_model_step=prepared_model_step,
             hook_result=before_model_decision.to_dict(),
         )
         # DENY/ASK 都不允许发起 provider 请求，直接返回显式 StopRequest。
@@ -314,26 +339,26 @@ class AgentLoop:
                 status=TaskRunStatus.BLOCKED,
                 reason="model_hook_blocked",
                 stop_output=f"blocked: {before_model_decision.reason}",
-                current_step=prepared_turn.step,
+                current_step=prepared_model_step.step,
                 resume_hint="Adjust the lifecycle hook or task before resuming.",
             )
-        self._record_model_started(session, prepared_turn)
+        self._record_model_started(session, prepared_model_step)
         model_response = self.hooks.after_model(
             model_hook_context,
             self.llm.chat(
-                prepared_turn.llm_messages,
-                prepared_turn.tool_schemas,
+                prepared_model_step.llm_messages,
+                prepared_model_step.tool_schemas,
             ),
         )
         self._accumulate_model_cost(session)
-        self._record_llm_call(session, prepared_turn, model_response)
+        self._record_llm_call(session, prepared_model_step, model_response)
         return model_response, None
 
     def _after_model_boundary(
         self,
         session: AgentRunSession,
         step: int,
-    ) -> TurnOutcome | None:
+    ) -> ModelStepOutcome | None:
         """每次 provider 返回后统一消费控制/协调与预算信号。"""
 
         run_control_outcome = self.run_control_handler.consume_pending_signals(
@@ -343,17 +368,17 @@ class AgentLoop:
         )
         # pause/cancel 优先停止，不再使用已返回的模型结果。
         if run_control_outcome.stop is not None:
-            return TurnOutcome(TurnOutcomeKind.STOP, run_control_outcome.stop)
+            return ModelStepOutcome(ModelStepOutcomeKind.STOP, run_control_outcome.stop)
         # steer/coordination 改变了模型输入；旧响应必须丢弃后重规划。
         if run_control_outcome.model_input_changed:
             self._record_stale_model_response(session, step, run_control_outcome)
-            return TurnOutcome(TurnOutcomeKind.REPLAN)
+            return ModelStepOutcome(ModelStepOutcomeKind.REPLAN)
 
         # 成本和 wall-clock 已计入后再判断预算，超限响应不能执行 Tool。
         budget_stop_request = self._budget_stop_request(session, step)
         # 预算命中时丢弃当前响应，统一交给 Lifecycle 收口。
         if budget_stop_request is not None:
-            return TurnOutcome(TurnOutcomeKind.STOP, budget_stop_request)
+            return ModelStepOutcome(ModelStepOutcomeKind.STOP, budget_stop_request)
         return None
 
     def _budget_stop_request(
@@ -416,22 +441,22 @@ class AgentLoop:
     def _record_llm_call(
         self,
         session: AgentRunSession,
-        prepared_turn: PreparedTurn,
+        prepared_model_step: PreparedModelStep,
         model_response: AgentResponse,
     ) -> None:
         """记录模型边界的输入规模、输出摘要和 provider usage。"""
 
         latest_model_usage = getattr(self.llm, "last_usage", None)
         self.trace.add(
-            prepared_turn.step,
+            prepared_model_step.step,
             session.agent_name,
             "llm_call",
             llm_request_summary=(
-                f"messages={len(prepared_turn.llm_messages)} "
-                f"tools={len(prepared_turn.tool_schemas)} "
-                f"context_chars={len(prepared_turn.turn_system_message.content)} "
-                f"prompt_tokens_estimate={prepared_turn.estimated_prompt_tokens} "
-                f"compacted={prepared_turn.compacted}"
+                f"messages={len(prepared_model_step.llm_messages)} "
+                f"tools={len(prepared_model_step.tool_schemas)} "
+                f"context_chars={len(prepared_model_step.turn_system_message.content)} "
+                f"prompt_tokens_estimate={prepared_model_step.estimated_prompt_tokens} "
+                f"compacted={prepared_model_step.compacted}"
             ),
             llm_response_summary=(
                 f"error:{model_response.error.get('code', 'unknown')}"
@@ -443,9 +468,9 @@ class AgentLoop:
             # “一次模型决策”和“多次顺序工具执行”的边界。
             tool_call_count=len(model_response.tool_calls),
             llm_input_breakdown_chars={
-                "system_context": len(prepared_turn.turn_system_message.content),
-                "conversation_history": prepared_turn.history_chars,
-                "tool_schemas": prepared_turn.tool_schema_chars,
+                "system_context": len(prepared_model_step.turn_system_message.content),
+                "conversation_history": prepared_model_step.history_chars,
+                "tool_schemas": prepared_model_step.tool_schema_chars,
             },
             model_usage=(
                 latest_model_usage.to_dict() if latest_model_usage is not None else {}
@@ -454,14 +479,14 @@ class AgentLoop:
         )
 
     # region 证据记录器
-    def _record_turn_started(self, session: AgentRunSession, step: int) -> None:
-        """记录 turn 边界；step 表示模型决策轮次，不是事件序号。"""
+    def _record_model_step_started(self, session: AgentRunSession, step: int) -> None:
+        """记录 model-step 边界；step 表示模型决策轮次，不是事件序号。"""
 
         self.trace.add(
             step,
             session.agent_name,
-            "turn_started",
-            turn={"max_iterations": session.max_iterations},
+            "model_step_started",
+            model_step={"max_iterations": session.max_iterations},
         )
 
     def _record_stale_model_response(
@@ -489,23 +514,23 @@ class AgentLoop:
         self,
         *,
         session: AgentRunSession,
-        initial_turn: PreparedTurn,
-        compacted_turn: PreparedTurn,
+        initial_model_step: PreparedModelStep,
+        compacted_model_step: PreparedModelStep,
         model_error: dict[str, object] | None,
         recovery_reduced_context: bool,
     ) -> None:
         """记录压缩前后 token 规模，证明恢复动作是否真正缩小输入。"""
 
         self.trace.add(
-            initial_turn.step,
+            initial_model_step.step,
             session.agent_name,
             "context_overflow_recovery",
             success=recovery_reduced_context,
             context_overflow={
                 "initial_error": model_error or {},
-                "tokens_before": initial_turn.estimated_prompt_tokens,
-                "tokens_after": compacted_turn.estimated_prompt_tokens,
-                "compacted": compacted_turn.compacted,
+                "tokens_before": initial_model_step.estimated_prompt_tokens,
+                "tokens_after": compacted_model_step.estimated_prompt_tokens,
+                "compacted": compacted_model_step.compacted,
             },
         )
 
@@ -513,13 +538,13 @@ class AgentLoop:
         self,
         *,
         session: AgentRunSession,
-        prepared_turn: PreparedTurn,
+        prepared_model_step: PreparedModelStep,
         hook_result: dict,
     ) -> None:
         """记录模型调用前所有 Hook 合并后的门禁决定。"""
 
         self.trace.add(
-            prepared_turn.step,
+            prepared_model_step.step,
             session.agent_name,
             "hook_check",
             hook_stage="before_model",
@@ -529,19 +554,19 @@ class AgentLoop:
     def _record_model_started(
         self,
         session: AgentRunSession,
-        prepared_turn: PreparedTurn,
+        prepared_model_step: PreparedModelStep,
     ) -> None:
         """记录实际发送给模型前的输入规模，不保存敏感 Prompt 正文。"""
 
         self.trace.add(
-            prepared_turn.step,
+            prepared_model_step.step,
             session.agent_name,
             "model_started",
             model_request={
-                "messages_count": len(prepared_turn.llm_messages),
-                "tool_count": len(prepared_turn.tool_schemas),
-                "estimated_prompt_tokens": prepared_turn.estimated_prompt_tokens,
-                "compacted": prepared_turn.compacted,
+                "messages_count": len(prepared_model_step.llm_messages),
+                "tool_count": len(prepared_model_step.tool_schemas),
+                "estimated_prompt_tokens": prepared_model_step.estimated_prompt_tokens,
+                "compacted": prepared_model_step.compacted,
             },
         )
 

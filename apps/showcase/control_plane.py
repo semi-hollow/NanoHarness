@@ -300,31 +300,27 @@ class _HitlShowcaseModel:
 
     last_usage = None
 
-    def __init__(self) -> None:
-        self.calls = 0
-
     def chat(
         self,
         messages: list[Message],
         tools: list[ToolSchema],
     ) -> AgentResponse:
-        self.calls += 1
-        if self.calls == 1:
+        if _human_response(messages):
             return AgentResponse(
-                None,
-                [
-                    ToolCall(
-                        "showcase-ask-human",
-                        "ask_human",
-                        {
-                            "question": HITL_QUESTION,
-                            "choices": [],
-                        },
-                    )
-                ],
+                "PASS\noperator response loaded; continuation completed", []
             )
         return AgentResponse(
-            "PASS\noperator response loaded; continuation completed", []
+            None,
+            [
+                ToolCall(
+                    "showcase-ask-human",
+                    "ask_human",
+                    {
+                        "question": HITL_QUESTION,
+                        "choices": [],
+                    },
+                )
+            ],
         )
 
 
@@ -333,31 +329,21 @@ class _ApprovalShowcaseModel:
 
     last_usage = None
 
-    def __init__(self) -> None:
-        self.calls = 0
-
     def chat(
         self,
         messages: list[Message],
         tools: list[ToolSchema],
     ) -> AgentResponse:
-        self.calls += 1
-        if self.calls == 1:
+        tool_names = {
+            str(message.name or "") for message in messages if message.role == "tool"
+        }
+        if "python_validation" in tool_names:
             return AgentResponse(
-                None,
-                [
-                    ToolCall(
-                        "showcase-apply-patch",
-                        "replace_text",
-                        {
-                            "path": "target.py",
-                            "old": "value = 1\n",
-                            "new": "value = 2\n",
-                        },
-                    )
-                ],
+                "PASS\napproved patch executed; focused pytest passed; "
+                "continuation completed",
+                [],
             )
-        if self.calls == 2:
+        if "replace_text" in tool_names:
             return AgentResponse(
                 None,
                 [
@@ -372,8 +358,18 @@ class _ApprovalShowcaseModel:
                 ],
             )
         return AgentResponse(
-            "PASS\napproved patch executed; focused pytest passed; continuation completed",
-            [],
+            None,
+            [
+                ToolCall(
+                    "showcase-apply-patch",
+                    "replace_text",
+                    {
+                        "path": "target.py",
+                        "old": "value = 1\n",
+                        "new": "value = 2\n",
+                    },
+                )
+            ],
         )
 
 
@@ -611,15 +607,12 @@ def _resume_control_plane_demo(
             f"expected {manifest.get('scenario')!r}, got {scenario!r}"
         )
     checkpoint_path = Path(str(manifest["checkpoint_path"]))
-    checkpoint = load_task_checkpoint(str(checkpoint_path))
 
-    metadata = checkpoint.metadata if isinstance(checkpoint.metadata, dict) else {}
     result = _run_phase(
         scenario,
         run_dir=root,
         workspace=Path(str(manifest["workspace"])),
         resume_state=checkpoint_path,
-        human_thread_id=str(metadata.get("human_thread_id") or checkpoint.run_id),
         control_action=control_action,
     )
     result = replace(
@@ -663,7 +656,6 @@ def _run_phase(
     run_dir: Path,
     workspace: Path,
     resume_state: Path | None = None,
-    human_thread_id: str = "",
     control_action: Literal["", "pause", "cancel"] = "",
 ) -> ControlPlaneShowcaseResult:
     """经唯一 ``Harness`` Public API 装配 deterministic control-plane phase。"""
@@ -694,7 +686,7 @@ def _run_phase(
     elif control_action == "cancel":
         run_controller.cancel("Lab 1 operator requested cancel before continuation")
     phase_label = "lab1-governed-change" if scenario == "governed" else f"lab1-{scenario}"
-    run_result = Harness(
+    harness = Harness(
         model=model,
         tools=tools,
         config=HarnessConfig(
@@ -710,14 +702,17 @@ def _run_phase(
             tool_routing_mode="task-aware",
         ),
         extensions=HarnessExtensions(run_control=run_controller),
-    ).run(
-        RunRequest(
-            task=task,
-            workspace=str(workspace),
-            resume_state=str(resume_state or ""),
-            human_thread_id=human_thread_id,
-            agent_name="ShowcaseAgent",
-            run_label=f"{phase_label}-{'continuation' if resume_state else 'start'}",
+    )
+    run_result = (
+        harness.resume(resume_state)
+        if resume_state is not None
+        else harness.run(
+            RunRequest(
+                task=task,
+                workspace=str(workspace),
+                agent_name="ShowcaseAgent",
+                run_label=f"{phase_label}-start",
+            )
         )
     )
     if run_result.trace_path is None:

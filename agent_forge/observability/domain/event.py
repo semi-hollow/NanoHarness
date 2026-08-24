@@ -58,7 +58,7 @@ TraceEventType: TypeAlias = Literal[
     "skill_selection",
     "stop_hooks",
     "task_state_checkpoint",
-    "turn_started",
+    "model_step_started",
     "tool_call",
     "tool_calls_bounded",
     "tool_calls_deferred_for_human_input",

@@ -6,6 +6,7 @@
 边界分别由 ``CommandPolicy``、``WorkspaceSandbox`` 与执行环境强制实施。
 """
 
+import re
 from dataclasses import dataclass
 
 RISKY_INPUT_MARKERS = ("rm -rf", "删除", ".env", "id_rsa", "http://", "https://", "../")
@@ -53,12 +54,24 @@ def sanitize_quoted_evidence(text: str) -> str:
 def output_guardrail(
     final_answer: str, ran_tests: bool, had_block: bool
 ) -> GuardrailResult:
-    """检查最终文本是否夸大验证结果或隐藏阻断；当前调用方只把结论写入 Trace。"""
+    """检查最终文本是否夸大验证结果或隐藏阻断。
 
-    if "测试通过" in final_answer and not ran_tests:
+    high-severity 的明确验证通过断言会阻止 accepted COMPLETED；
+    medium/low 结果仍作为可观测证据，不声称这是完整自然语言 classifier。
+    """
+
+    # 只识别明确的中英文 test-pass 断言；不试图理解所有自然语言。
+    explicit_test_pass_claim = "测试通过" in final_answer or bool(
+        re.search(
+            r"\b(?:all\s+)?tests?\s+(?:pass|passed|passing)\b",
+            final_answer,
+            flags=re.IGNORECASE,
+        )
+    )
+    if explicit_test_pass_claim and not ran_tests:
         return GuardrailResult(
             passed=False,
-            reason="claims test pass without execution",
+            reason="explicit test-pass claim without governed validation evidence",
             severity="high",
             category="output",
         )

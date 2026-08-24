@@ -21,7 +21,7 @@ from agent_forge.runtime.ports import EventSink
 
 
 _EVENT_NAMES: dict[str, str] = {
-    "turn_started": "turn.started",
+    "model_step_started": "model_step.started",
     "context_assembly": "context.completed",
     "context_window": "context.window",
     "model_started": "model.started",

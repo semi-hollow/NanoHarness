@@ -6,23 +6,22 @@
 
 **面向真实代码仓库的可治理 Coding Agent Harness。**
 
-NanoHarness 将增量上下文、受控工具执行、持久化任务、多 Agent 协作和运行证据组织在同一套工作流中。
-它既可以通过 CLI / TUI 直接运行，也可以作为 Python API 嵌入其他应用；从任务配置、人工干预到结果审阅，
-每个阶段都有明确的状态、产物和代码 owner。
+NanoHarness 将持久对话、增量上下文、受控工具执行、多 Agent 协作和运行证据组织在
+同一套工作流中。模型提出动作；Runtime 管理身份、权限、副作用、恢复和事实落盘。
 
 ```text
-Task → Context → AgentLoop → Tool Execution → Patch & Validation → Evidence
+ConversationThread → Turn → Run → Model Step → Tool Transaction → Durable Evidence
 ```
 
 ## 核心能力
 
 | 能力 | Runtime 负责什么 | 形成的结果 |
-| --- | --- | --- |
-| **Incremental Context & Memory** | 按预算组合仓库证据、会话历史、阶段结论和可调用工具；通过 Snapshot + Delta 维持长任务连续性 | 有界的模型输入、Conversation Digest、Working Memory |
-| **Governed Tool Execution** | 将模型的 Tool Intent 统一经过参数规范化、权限策略、Approval、Hook 和执行门禁 | Observation、Operation Ledger、Trace |
-| **Durable Runs** | 显式管理 Human Input、Pause、Resume、Cancel、Checkpoint 与中断恢复 | 可继续的任务状态和可定位的持久化文件 |
-| **Multi-Agent Coordination** | 在 Single-Agent 与 Fanout 之间规划，隔离 Worker，并管理依赖、Handoff、Patch 集成和 Finalizer | Worker 交付物、集成后的 Candidate Diff、协调证据 |
-| **Evaluation & Workbench** | 用版本化配置运行任务和 Benchmark，并统一读取 Trace、Usage、Patch、Validation 与实验制品 | 可筛选、可比较的运行与评测视图 |
+|---|---|---|
+| **Durable Conversation** | 用 `ConversationThread` 保存用户对话，以 `Turn` 表示一次顶层请求，以 `Run` 表示一次执行尝试 | 可继续的完整对话与清晰身份链 |
+| **Incremental Context & Memory** | 冻结 Turn 稳定输入，按预算投影原始对话、摘要、动态仓库证据和工具契约 | `PreparedModelStep`、Conversation Digest、Working Memory |
+| **Governed Tool Execution** | 将模型 ToolCall 统一经过路由、授权、Approval、Hook、Ledger 和执行门禁 | 唯一 Observation、副作用事实、可恢复 cursor |
+| **Multi-Agent Coordination** | 规划任务图、隔离 Worker、传递 Handoff，并执行候选 Patch 集成与 Finalizer | Worker 交付物、集成结果、协调证据 |
+| **Evaluation & Workbench** | 统一读取 Trace、Usage、Patch、Validation 与冻结实验资产 | 可筛选、可比较的运行和评测视图 |
 
 ## 快速开始
 
@@ -34,20 +33,20 @@ source .venv/bin/activate
 python -m pip install -e '.[dev]'
 ```
 
-无需在线模型即可生成一条确定性运行记录，并在浏览器中查看完整工作流：
+无需在线模型即可生成一条确定性运行记录，并在浏览器中查看：
 
 ```bash
 forge demo --scenario governed
 forge ui
 ```
 
-连接模型后，可以通过交互式 Console 在目标仓库中运行任务：
+连接模型后，可用交互式 Console 运行仓库任务：
 
 ```bash
 forge console --workspace /path/to/repository
 ```
 
-需要可重复执行时，使用版本化配置启动非交互运行：
+需要可重复执行时，使用版本化配置：
 
 ```bash
 forge run \
@@ -56,139 +55,116 @@ forge run \
   "Implement the requested change and run focused validation"
 ```
 
-所有 Provider、Context、Tool、Approval、Execution Environment 和 Agent Mode 参数均可由配置文件管理，
-显式 CLI 参数会覆盖配置值。完整入口可通过 `forge run --help` 查看。
+Provider、Context、Tool、Approval、Execution Environment 和 Agent Mode 均可由配置管理；
+显式 CLI 参数覆盖配置值。
 
-## 工作方式
+## 运行生命周期
 
-```mermaid
-flowchart LR
-    T[Repository Task] --> P[Adaptive Planner]
-    P -->|Single| A[AgentLoop]
-    P -->|Fanout| W[Isolated Worker AgentLoops]
-    A --> R[Runtime Control Plane]
-    W --> R
-    R --> C[Context & Memory]
-    R --> G[Tool Policy & Approval]
-    R --> D[Checkpoint & Run Control]
-    C --> M[Model Response]
-    G --> X[Tool Execution]
-    D --> X
-    M --> X
-    X --> V[Patch Integration & Validation]
-    V --> E[Trace / Usage / Evaluation]
-    E --> UI[Evidence Workbench]
+```text
+ConversationThread                         durable user conversation
+└── Turn                                  one top-level user request
+    ├── Run 1                             execution attempt
+    └── Run 2 (resume)                    same Turn, new attempt
+        └── Model Step 1..N               one model request per step
 ```
 
-模型提出下一步行动；Runtime 负责准备输入、约束工具、维护任务状态并收口运行结果。
-Single-Agent 与 Multi-Agent Worker 复用同一个 `AgentLoop`，因此 Context、Tool、Approval、
-Checkpoint 和 Evidence 不需要维护两套语义。
+- 普通后续消息：相同 `thread_id`，新 `turn_id`，新 `run_id`；
+- 恢复未完成工作：相同 `thread_id` 和 `turn_id`，新 `run_id`；
+- 同一用户 Thread 同时最多一个 active Turn；
+- `conversation.jsonl` 是带 sequence、稳定 item identity 和 hash chain 的对话事实；
+- `trace.jsonl` 是执行证据，不是原始对话权威存储。
 
-## 增量上下文与记忆（Incremental Context & Memory）
+`TurnContextSnapshot` 在 Turn 创建后首次准备时冻结 Prompt profile、项目指令、Skill、
+Long-Term Memory recall 与基础 Tool schemas；同一 Turn 的 Resume 复用该快照。当前 Runtime
+若与快照契约不兼容会 fail closed，新 Turn 才重新发现稳定输入。
 
-长任务不会把全部历史机械地塞回每一次模型调用。NanoHarness 将模型输入拆成相邻但职责不同的部分：
+`TaskCheckpoint` v4 只保存一次 Run 的执行恢复事实、context revision 和未完成工具批次
+cursor，不复制 root task 或完整 Conversation。
 
-- **System Context：**当前任务、仓库、预算、策略和稳定运行事实；
-- **Conversation Window：**最近交互、完整 ToolCall / Observation 对和压缩后的历史摘要；
-- **Tool Schemas：**当前 Turn 实际允许模型调用的工具契约；
-- **Working Memory：**本次运行需要持续携带的阶段结论和长期记忆召回。
+## 模型输入与增量上下文
 
-`PromptWindowManager` 根据预算生成滚动 Snapshot，并只追加尚未覆盖的 Delta；发生窗口收缩时保留最近原始尾部，
-同时避免拆开 ToolCall 与对应 Observation。每次模型调用最终接收一份冻结的 `PreparedTurn`。
+```text
+ConversationThread raw items
++ ConversationHistoryDigest
++ TurnContextSnapshot stable prefix
++ current repository / policy facts
++ routed Tool schemas
+        ↓
+ModelStepPreparation.prepare_model_step()
+        ↓
+PreparedModelStep
+        ↓
+ModelPort.chat(...)
+```
 
-核心入口：[`context_builder.py`](agent_forge/context/application/context_builder.py)、
+`PromptWindowManager` 只压缩模型输入投影：原始 Thread journal 不会因窗口收缩而被删除。
+滚动摘要只合并尚未覆盖的对话前缀，并保留最近 raw tail；assistant ToolCall batch 与对应
+Observation 在窗口切分和 Provider 投影中保持协议完整。
+
+核心入口：[`model_step_preparation.py`](agent_forge/runtime/application/model_step_preparation.py)、
 [`compaction.py`](agent_forge/context/application/compaction.py) 和
 [`working_memory.py`](agent_forge/runtime/application/working_memory.py)。
 
-## 受控工具执行（Governed Tool Execution）
+## 受控工具执行
 
-模型输出 ToolCall 后，不会直接触碰工作区：
-
-```text
-ToolCall
-  → Operation Intent
-  → Authorization（ALLOW / ASK / DENY）
-  → Approval / Hook / Sandbox
-  → Tool Execution
-  → Observation + Ledger + Trace
-```
-
-Tool Router 只暴露当前任务需要的 Schema；Runtime 再根据工具副作用、目标路径和运行策略作出确定性决策。
-需要人工确认的操作会持久化 Approval，副作用操作由 Operation Ledger 跟踪，执行结果统一回填为下一 Turn 的
-Observation。
-
-核心入口：[`tool_execution.py`](agent_forge/runtime/application/tool_execution.py) 和
-[`运行治理与工具执行`](docs/运行治理与工具执行.md)。
-
-## 持久化运行（Durable Runs）
-
-NanoHarness 把交互控制和任务恢复作为运行状态，而不是临时的终端行为：
+模型响应中的完整 assistant content 与 ToolCall batch 会先写入 Thread，再逐项执行：
 
 ```text
-running
-  ├── waiting_human → explicit resume
-  ├── waiting_approval → approve / reject → explicit resume
-  ├── paused → resume
-  ├── cancelled
-  └── completed / failed
+assistant batch durable append
+→ pending batch cursor
+→ Routing / Guardrail
+→ Authorization（ALLOW / ASK / DENY）
+→ Approval / Operation Ledger
+→ ToolGateway.execute()
+→ durable Tool Observation
+→ cursor advances
 ```
 
-Human Input、Approval、Operation Ledger、Task Checkpoint 和 Trace 分别由自己的 Repository 持久化。
-一次 Resume 会从已保存状态创建明确的 continuation，而不是依赖仍然存活的 Python 进程。
+进程中断后，Resume 从原 assistant item 和 cursor 继续，不要求模型重新生成相同 ToolCall。
+副作用由 operation identity/fingerprint 防止重复执行；每个 ToolCall 最终只能对应一条合法
+Observation。`ask_human` 与 Approval 是可恢复屏障，不是临时终端交互。
 
-运行 `forge demo --scenario governed` 可以在不调用模型的情况下观察这条状态链；
-更完整的按钮式流程见 [`Debug Lab`](examples/debug_lab/README.md)。
+完整设计见 [`运行治理与工具执行`](docs/运行治理与工具执行.md)。
 
-## 多 Agent 协作（Multi-Agent Coordination）
-
-Multi-Agent 不是另一套 Agent 实现，而是在规范 `AgentLoop` 之上增加规划、隔离、协作和集成：
+## 多 Agent 协作
 
 ```text
-Repository Task
-  → AdaptivePlanner
-  → validated FanoutPlan
-  → HARD dependencies / LIVE routes
-  → isolated Worker AgentLoops
-  → scoped candidate integration
-  → read-only Finalizer
+Natural-language Task
+→ AdaptivePlanner
+→ validated FanoutPlan
+→ HARD dependencies / LIVE routes
+→ isolated Worker AgentLoops
+→ scoped candidate integration
+→ read-only Finalizer
 ```
 
-- **Adaptive Planning：**根据任务与仓库信息选择 Single 或 Fanout；
-- **Dependency-aware Scheduling：**支持有屏障的 HARD 依赖和运行中的 LIVE Handoff；
-- **Isolated Execution：**Worker 在独立 Git Worktree 中运行，并受写入范围与工具集合约束；
-- **Structured Handoff：**阶段产物以版本化事件交付，并在 AgentLoop 安全边界进入消费者输入；
-- **Controlled Integration：**候选 Patch 依次经过范围、可应用性、冲突和验证检查；
-- **Finalizer：**只读检查合并结果是否满足整体任务标准。
+Worker 和 Finalizer 复用 canonical `AgentLoop`，但各自拥有私有 durable
+`ConversationThread`、执行目录和上下文；内部 raw token/tool history 不写入用户主 Thread。
+Coordinator 只拥有计划、调度、Handoff 与确定性集成，不拥有 AgentLoop conversation。
 
-```bash
-forge run \
-  --config /path/to/run.yaml \
-  --workspace /path/to/repository \
-  --agent-mode fanout \
-  --fanout-plan examples/fanout-plan.sample.json
-```
+- HARD dependency 等待可信代码集成后再启动消费者；
+- LIVE route 允许 Worker 在运行中传递进度、约束和反馈；
+- Worker 在独立 Git worktree 中执行，并受写入范围与工具集合约束；
+- 候选 Patch 经过版本、范围、冲突、可应用性和验证检查；
+- Finalizer 使用独立只读执行对最终结果做语义检查。
 
 Public API 与控制流见 [`agent_forge/multi_agent/api.py`](agent_forge/multi_agent/api.py) 和
 [`多 Agent 编排`](docs/多Agent编排.md)。
 
-## 运行证据 Workbench（Evidence Workbench）
+## 运行证据与 Workbench
 
-`forge ui` 启动统一的只读 Workbench，将 Runtime 和 Evaluation 产生的结构化制品组织成可导航视图，
-帮助开发者快速理解运行过程、定位失败阶段并比较调整前后的行为变化。
+`forge ui` 启动只读 Workbench。当前 Runtime 使用 `model_step_started` 等 canonical 事件；
+Workbench 仍可只读解释冻结 Evidence 中的历史事件名称，但该兼容层不进入生产恢复路径。
 
-Workbench 直接读取真实运行目录和版本化实验资产，不要求开发者先手工整理第二份展示数据。
-同一入口可以审阅确定性 Lab、普通 Repository Run、Multi-Agent Worker 和 Benchmark Case。
+Workbench 可以审阅三类冻结证据：
 
-先运行 `forge ui`，再通过固定深链审阅 Stable 阶段冻结的三类证据：
-
-1. [Lab 1 · Durable Control](http://127.0.0.1:8765/?source=governed&view=overview)：人工输入、审批、Ledger 与恢复状态链；
-2. [Lab 2 · Agent Coordination](http://127.0.0.1:8765/?source=orchestration&view=overview)：显式计划、隔离 Worker、冲突门禁与 Finalizer；
-3. [Mini-50 · Repository Capability](http://127.0.0.1:8765/?source=evaluation&view=overview)：固定 50 个 Case、代表案例与版本来源。
+1. [Lab 1 · Durable Control](http://127.0.0.1:8765/?source=governed&view=overview)：人工输入、审批、Ledger 与恢复；
+2. [Lab 2 · Agent Coordination](http://127.0.0.1:8765/?source=orchestration&view=overview)：隔离 Worker、冲突门禁与 Finalizer；
+3. [Mini-50 · Repository Capability](http://127.0.0.1:8765/?source=evaluation&view=overview)：固定 Case、代表案例与版本来源。
 
 实验对比页保留 [R0→R1](http://127.0.0.1:8765/?mode=experiments&source=tool-aci-r1%3Aoverview)、
-[R0→R2](http://127.0.0.1:8765/?mode=experiments&source=tool-aci-r2%3Aoverview)、Mini-50 与只读 Engineering History。
-完整 Lab raw Evidence 只保存在本机 `.agent_forge/`；Git 保存实验资产、manifest、hash 与 provenance，
-Workbench 不会重跑或改写历史实验。
+[R0→R2](http://127.0.0.1:8765/?mode=experiments&source=tool-aci-r2%3Aoverview) 和 Mini-50。
+Workbench 不重跑、不移动、不改写历史实验资产。
 
 ```bash
 .venv/bin/python scripts/review_preflight.py
@@ -197,47 +173,45 @@ Workbench 不会重跑或改写历史实验。
 ## CLI 与嵌入式使用
 
 ```text
-forge console   交互运行一个受治理的 Repository Agent
-forge run       从 CLI 或版本化配置执行任务
-forge demo      生成不依赖在线模型的确定性运行故事
-forge resume    从持久化 Checkpoint 继续任务
+forge console   交互运行 Repository Agent
+forge run       执行新 Turn
+forge resume    从 v4 Checkpoint 恢复同一 Turn
+forge demo      生成确定性运行故事
 forge inspect   只读查看 Run、Artifact 或源码 Symbol
 forge bench     运行批量 Benchmark
-forge ui        打开 Evidence Workbench
+forge ui        打开只读 Evidence Workbench
 ```
 
-外部应用可以通过稳定的 [`Harness`](agent_forge/harness.py) facade 注入自己的 Model、ToolGateway、
-Hook、Repository 或 Execution Environment。`Harness.run()` 返回类型化 `RunResult`，其中包含状态、
-停止原因、Checkpoint 以及 Trace、Usage、Candidate Diff 和 Manifest 的路径。
+外部应用通过 [`Harness`](agent_forge/harness.py) 注入 Model、ToolGateway、Hook、Repository
+或 Execution Environment。`Harness.run()` 创建新 Thread/Turn 或同 Thread 的后续 Turn；
+`Harness.resume()` 只恢复未完成 Turn。`RunResult` 返回状态、三层身份和产物路径。
 
 ## 源码导航
 
-| 想理解的能力 | 核心入口 |
-| --- | --- |
+| 想理解的能力 | 第一个入口 |
+|---|---|
+| Public composition | [`agent_forge/harness.py`](agent_forge/harness.py) |
+| Thread/Turn durable truth | [`agent_forge/runtime/domain/thread.py`](agent_forge/runtime/domain/thread.py) |
 | Agent 主循环 | [`agent_forge/runtime/application/agent_loop.py`](agent_forge/runtime/application/agent_loop.py) |
 | Context 与 Compaction | [`agent_forge/context/application/`](agent_forge/context/application/) |
-| Working / Long-term Memory | [`agent_forge/memory/`](agent_forge/memory/) |
-| Tool 治理与运行控制 | [`agent_forge/runtime/application/`](agent_forge/runtime/application/) |
-| Multi-Agent | [`agent_forge/multi_agent/api.py`](agent_forge/multi_agent/api.py) |
-| Benchmark 与 Evaluation | [`agent_forge/bench/`](agent_forge/bench/)、[`agent_forge/evaluation/`](agent_forge/evaluation/) |
+| Tool 治理 | [`agent_forge/runtime/application/tool_execution.py`](agent_forge/runtime/application/tool_execution.py) |
+| Multi-Agent | [`agent_forge/multi_agent/application/fanout.py`](agent_forge/multi_agent/application/fanout.py) |
+| Benchmark / Evaluation | [`agent_forge/bench/`](agent_forge/bench/)、[`agent_forge/evaluation/`](agent_forge/evaluation/) |
 | Evidence Workbench | [`apps/workbench/`](apps/workbench/) |
-| CLI / Console / MCP | [`apps/`](apps/) |
-
-核心库遵循 `application / domain / ports / adapters` 分层；`apps/` 只负责入站交互和组合，
-不会复制 Runtime 的业务语义。统一入口见 [`架构导览`](docs/架构导览.md)。
 
 ## 文档
 
-- [`架构导览`](docs/架构导览.md)：Ownership、端到端执行主链和能力边界；
-- [`Agent 运行数据结构与模型输入`](docs/Agent运行数据结构与模型输入.md)：Session、PreparedTurn 与模型请求；
-- [`上下文工程`](docs/上下文工程.md)：Context、Memory、Instructions 和 Tool Schema；
-- [`上下文压缩与长任务设计`](docs/上下文压缩与长任务设计.md)：Snapshot、Delta、Compaction 与恢复；
-- [`运行治理与工具执行`](docs/运行治理与工具执行.md)：权限、Approval、Ledger、Hook 和执行链；
-- [`多 Agent 编排`](docs/多Agent编排.md)：Planning、调度、LIVE Handoff、集成和 Finalizer；
-- [`运行产物与持久化契约`](docs/运行产物与持久化契约.md)：权威状态、审计证据和派生视图；
-- [`生产化边界与扩展`](docs/生产化边界与扩展.md)：Port、Adapter、MCP、Hook 和外部集成；
-- [`核心能力与代码入口`](docs/核心能力与代码入口.md)：从 Feature 定位到唯一代码 owner；
-- [`实验总览`](benchmarks/experiments/README.md)：版本化实验配置、运行制品与结果入口。
+- [`架构导览`](docs/架构导览.md)：Ownership 与端到端主链；
+- [`Agent 运行数据结构与模型输入`](docs/Agent运行数据结构与模型输入.md)：Thread、Turn、Run、Model Step 与输入快照；
+- [`上下文工程`](docs/上下文工程.md)：System Context、Memory、Instructions 与 Tool Schema；
+- [`上下文压缩与长任务设计`](docs/上下文压缩与长任务设计.md)：raw Thread、Digest、窗口投影与恢复；
+- [`运行治理与工具执行`](docs/运行治理与工具执行.md)：Tool batch、权限、Approval、Ledger 与 Observation；
+- [`多 Agent 编排`](docs/多Agent编排.md)：Planning、HARD/LIVE、私有 Worker Thread 与集成；
+- [`核心能力与代码入口`](docs/核心能力与代码入口.md)：能力到唯一代码 owner；
+- [`运行产物与持久化契约`](docs/运行产物与持久化契约.md)：权威状态、执行证据和派生视图；
+- [`生产化边界与扩展`](docs/生产化边界与扩展.md)：当前实现与规模边界；
+- [`Debug Lab`](examples/debug_lab/README.md)：确定性运行和按钮式观察；
+- [`实验总览`](benchmarks/experiments/README.md)：版本化实验配置与结果入口。
 
 ## 开发
 

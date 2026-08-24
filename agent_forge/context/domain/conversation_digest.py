@@ -42,9 +42,13 @@ class ToolTransactionDigest:
 
 @dataclass(frozen=True)
 class ConversationHistoryDigest:
-    """旧 Conversation History 的确定性压缩投影，不替代原始 Trace。"""
+    """旧 Conversation 的确定性投影；raw authority 是 Thread journal。
 
-    task: str
+    Trace 只保存 execution evidence，不是 raw Conversation store，也不能用于重新
+    授予 human authority。
+    """
+
+    initial_task: str
     covered_message_count: int
     source_hash: str
     task_updates: list[str]
@@ -56,7 +60,7 @@ class ConversationHistoryDigest:
 
     def to_dict(self) -> JsonObject:
         return {
-            "task": self.task,
+            "initial_task": self.initial_task,
             "covered_message_count": self.covered_message_count,
             "source_hash": self.source_hash,
             "task_updates": list(self.task_updates),
@@ -71,23 +75,24 @@ class ConversationHistoryDigest:
     def from_dict(
         cls,
         data: dict[str, Any],
-        *,
-        default_task: str = "",
     ) -> "ConversationHistoryDigest":
-        """把 checkpoint 内嵌投影恢复成可继续合并的 Runtime state。
+        """从 Thread context state 恢复可继续合并的 derived projection。
 
-        ``TaskCheckpoint`` 才是独立持久化 schema boundary；digest 继续复用其
-        ``conversation_history_digest`` 字段，不机械增加第二个 schema version。
+        ``ThreadContextState`` 是独立持久化 schema boundary；生产 loader 只接受
+        当前 canonical ``initial_task``，不在运行时背旧字段 alias。
         """
 
         source_hash = str(data.get("source_hash") or "")
         if not source_hash:
             raise ValueError("conversation history digest requires source_hash")
+        initial_task = str(data.get("initial_task") or "")
+        if not initial_task:
+            raise ValueError("conversation history digest requires initial_task")
         transaction_payloads = data.get("tool_transactions") or []
         if not isinstance(transaction_payloads, list):
             raise ValueError("conversation history digest tool_transactions must be a list")
         return cls(
-            task=str(data.get("task") or default_task),
+            initial_task=initial_task,
             covered_message_count=max(
                 0,
                 int(data.get("covered_message_count") or 0),
@@ -125,7 +130,7 @@ class ConversationHistoryDigest:
             [
                 "conversation_history_digest "
                 "(derived continuation view; trace is evidence, not raw chat):",
-                f"task: {self.task}",
+                f"initial_task: {self.initial_task}",
                 f"covered_messages: {self.covered_message_count}",
                 f"task_updates: {self.task_updates}",
                 f"failed_tool_evidence: {self.failed_tool_evidence}",

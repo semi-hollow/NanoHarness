@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any, Protocol
 
 from agent_forge.runtime.domain.approval import ApprovalRequest, ApprovalRequestDraft
@@ -27,6 +28,9 @@ class TaskStateRepository(Protocol):
 
     def start(self, request: TaskStartRequest) -> TaskCheckpoint:
         """创建初始 checkpoint。"""
+
+    def path_for(self, run_id: str) -> Path:
+        """返回该 Repository 对一个 Run 的 canonical checkpoint 路径。"""
 
     def update(
         self,

@@ -16,6 +16,7 @@ from agent_forge.runtime.adapters.model_gateway import ModelGateway, RetryPolicy
 from agent_forge.hooks import RuntimeHook
 from agent_forge.runtime.adapters import (
     JsonApprovalRepository,
+    JsonConversationThreadRepository,
     JsonHumanInputRepository,
     JsonOperationLedgerRepository,
     JsonTaskStateRepository,
@@ -26,8 +27,6 @@ from agent_forge.runtime.application.agent_loop import AgentLoop
 from agent_forge.runtime.application.dependencies import RuntimeDependencies
 from agent_forge.runtime.application.model_policy import resolve_model_capabilities
 from agent_forge.runtime.application.operator_control import (
-    BuildContinuationPlan,
-    ContinuationPlan,
     DecideApproval,
     RespondToHumanInput,
 )
@@ -41,6 +40,7 @@ from agent_forge.runtime.adapters.openai_compatible import OpenAICompatibleLLMCl
 from agent_forge.runtime.adapters.model_config import LLMConfig
 from agent_forge.runtime.ports import (
     ApprovalRepository,
+    ConversationThreadRepository,
     TurnSystemContextAssemblerPort,
     EnvironmentPort,
     EventSink,
@@ -118,6 +118,7 @@ class RuntimeDependencyOverrides:
     hooks: HookPort | None = None
     additional_hooks: tuple[RuntimeHook, ...] = ()
     task_states: TaskStateRepository | None = None
+    conversation_threads: ConversationThreadRepository | None = None
     approvals: ApprovalRepository | None = None
     human_inputs: HumanInputRepository | None = None
     operations: OperationLedgerRepository | None = None
@@ -280,6 +281,8 @@ def _build_runtime_dependencies(
         hooks=runtime_hooks,
         task_states=dependency_overrides.task_states
         or JsonTaskStateRepository(runtime_config.task_state_root),
+        conversation_threads=dependency_overrides.conversation_threads
+        or JsonConversationThreadRepository(runtime_config.conversation_thread_root),
         approvals=dependency_overrides.approvals
         or JsonApprovalRepository(runtime_config.approval_root),
         human_inputs=dependency_overrides.human_inputs
@@ -331,6 +334,14 @@ def build_task_state_repository(root: str | Path) -> TaskStateRepository:
     return JsonTaskStateRepository(root)
 
 
+def build_conversation_thread_repository(
+    root: str | Path,
+) -> ConversationThreadRepository:
+    """为 Harness/Console 创建 canonical Thread repository。"""
+
+    return JsonConversationThreadRepository(root)
+
+
 def build_approval_repository(root: str | Path) -> ApprovalRepository:
     """为控制面创建默认 JSON approval repository。"""
 
@@ -372,25 +383,6 @@ def respond_to_human_input(
         cancel=command.cancel,
         note=command.note,
     )
-
-
-def prepare_continuation(
-    run_dir: str,
-    human_input_root: str,
-    *,
-    override_task: str = "",
-    workspace: str = "",
-) -> tuple[TaskCheckpoint, str, ContinuationPlan]:
-    """从文件适配器加载 checkpoint，并构造新的显式 continuation。"""
-
-    checkpoint_path = JsonTaskStateRepository.latest_path(run_dir)
-    checkpoint = JsonTaskStateRepository.load_path(checkpoint_path)
-    plan = BuildContinuationPlan(JsonHumanInputRepository(human_input_root)).build(
-        checkpoint,
-        override_task=override_task,
-        workspace=workspace,
-    )
-    return checkpoint, str(checkpoint_path), plan
 
 
 def latest_checkpoint_path(run_dir: str) -> str:

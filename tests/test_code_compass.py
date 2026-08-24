@@ -9,7 +9,7 @@ class CodeCompassTest(unittest.TestCase):
         "AgentLoop.run",
         "RunPreparation.create_session",
         "RunPreparation.prepare_run",
-        "TurnPreparation.prepare_turn",
+        "ModelStepPreparation.prepare_model_step",
         "ToolExecutionPipeline.execute_calls",
         "RunLifecycle.finalize_run",
         "FinalAnswerBuilder.build_stop_request",

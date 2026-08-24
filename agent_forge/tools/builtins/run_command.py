@@ -3,6 +3,7 @@ import shlex
 import subprocess
 import sys
 
+from agent_forge.context.adapters.repository_map import invalidate_repo_map
 from agent_forge.contracts import (
     DEFAULT_TOOL_EXECUTION_TIMEOUT_SECONDS,
     ToolArguments,
@@ -238,6 +239,9 @@ class RunCommandTool(Tool):
                     timeout=self.timeout_seconds,
                 )
             complete_output = (proc.stdout + proc.stderr).strip()
+            # 受限命令仍可能创建/删除验证辅助文件；成功后保守失效结构缓存。
+            if proc.returncode == 0:
+                invalidate_repo_map(self.sandbox.workspace_root)
             output_truncated = len(complete_output) > MAX_COMMAND_OUTPUT_CHARS
             visible_output = complete_output[:MAX_COMMAND_OUTPUT_CHARS]
             return Observation(

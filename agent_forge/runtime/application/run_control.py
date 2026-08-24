@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import hashlib
+import json
 from dataclasses import dataclass
 
 from agent_forge.runtime.application.run_lifecycle import StopRequest
@@ -14,6 +16,7 @@ from agent_forge.runtime.domain.run_control import (
     RuntimeCoordinationSignal,
 )
 from agent_forge.runtime.domain.task import TaskCheckpointUpdate, TaskRunStatus
+from agent_forge.runtime.domain.thread import ConversationItemDraft
 from agent_forge.runtime.ports import EventSink, RunControlPort
 
 
@@ -110,27 +113,67 @@ class RunControlHandler:
         # region 3. 模型边界：分别注入操作员方向和非人工协调证据
         # steer 以明确的 Operator envelope 进入下一次 llm.chat，并保留人工控制审计。
         for steer_signal in pending_steer_signals:
-            session.messages.append(
-                Message(
-                    role="user",
-                    content=(
-                        "Operator steer for the current task:\n"
-                        + steer_signal.message.strip()
-                    ),
-                )
+            steer_content = (
+                "Operator steer for the current task:\n"
+                + steer_signal.message.strip()
             )
+            steer_identity = hashlib.sha256(
+                json.dumps(
+                    steer_signal.to_dict(),
+                    ensure_ascii=False,
+                    sort_keys=True,
+                    separators=(",", ":"),
+                ).encode("utf-8")
+            ).hexdigest()[:20]
+            steer_item = session.conversation_threads.append(
+                session.thread_id,
+                ConversationItemDraft(
+                    item_id=f"operator-steer:{session.turn_id}:{steer_identity}",
+                    turn_id=session.turn_id,
+                    run_id=self.trace.run_id,
+                    role="user",
+                    content=steer_content,
+                    metadata={"signal": steer_signal.to_dict()},
+                    origin="operator",
+                    human_authority=True,
+                ),
+            )
+            # 幂等 append 已存在时不重复注入当前进程的模型输入视图。
+            if steer_item.sequence not in session.message_sequences:
+                session.messages.append(Message(role="user", content=steer_content))
+                session.message_sequences.append(steer_item.sequence)
+            session.turn_focus = steer_content
+            session.turn_focus_item_id = steer_item.item_id
+            session.memory_management_candidates_key = ""
             self._record_control_signal(session, step, steer_signal)
         # coordination 也使用 user role 作为传输编码，但 envelope 明确否认 human authority。
         for coordination_signal in coordination_signals:
-            session.messages.append(
-                Message(
-                    role="user",
-                    content=(
-                        RUNTIME_COORDINATION_EVIDENCE_PREFIX
-                        + coordination_signal.content.strip()
-                    ),
-                )
+            coordination_content = (
+                RUNTIME_COORDINATION_EVIDENCE_PREFIX
+                + coordination_signal.content.strip()
             )
+            coordination_item = session.conversation_threads.append(
+                session.thread_id,
+                ConversationItemDraft(
+                    item_id=(
+                        f"coordination:{session.turn_id}:"
+                        f"{coordination_signal.event_id}"
+                    ),
+                    turn_id=session.turn_id,
+                    run_id=self.trace.run_id,
+                    role="user",
+                    content=coordination_content,
+                    metadata={"signal": coordination_signal.to_dict()},
+                    origin="runtime_coordination",
+                    human_authority=False,
+                ),
+            )
+            # 同一 coordination event 在 resume 时只恢复一份进程内视图。
+            if coordination_item.sequence not in session.message_sequences:
+                session.messages.append(
+                    Message(role="user", content=coordination_content)
+                )
+                session.message_sequences.append(coordination_item.sequence)
             self._record_coordination_signal(
                 session,
                 step,

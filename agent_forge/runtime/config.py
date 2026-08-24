@@ -44,17 +44,20 @@ class RuntimeConfig:
     timeout_seconds: float = DEFAULT_TIMEOUT_SECONDS
     tool_execution_timeout_seconds: int = DEFAULT_TOOL_EXECUTION_TIMEOUT_SECONDS
     cost_budget_usd: float | None = None
-    previous_task: str = ""
-    session_summary: str = ""
     execution_environment: Any | None = None
     model_capabilities: ModelCapabilities | None = None
 
-    # Checkpoint、人工控制和状态变更操作幂等状态的持久化位置。
+    # Thread/Turn 身份、Checkpoint 与 durable 控制面位置。
+    requested_workspace: str = ""
+    execution_mode: str = "local"
+    thread_id: str = ""
+    turn_id: str = ""
+    context_revision: int = 0
+    conversation_thread_root: str = ".agent_forge/internal/state/threads"
     task_state_root: str = ".agent_forge/runs/embedded/task_state"
     resume_state: str = ""
     approval_root: str = ".agent_forge/internal/state/approvals"
     human_input_root: str = ".agent_forge/internal/state/human_input"
-    human_thread_id: str = ""
     operation_ledger_root: str = ".agent_forge/internal/state/operation_ledger"
     approval_mode: str = "trusted"
 
@@ -72,7 +75,7 @@ class RuntimeConfig:
     runtime_instructions: str = ""
     instruction_max_bytes: int = 2_600
 
-    # 证据长期记忆；working memory 和 ConversationHistoryDigest 不由这三个字段持久化。
+    # 证据长期记忆；reasoning snapshot 由 TurnContextSnapshot 冻结。
     memory_root: str = ""
     memory_namespace: str = ""
     memory_max_chars: int = 2_000

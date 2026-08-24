@@ -138,7 +138,7 @@ def build_swebench_parser(parser: argparse.ArgumentParser) -> None:
         "--max-steps",
         type=int,
         default=DEFAULT_MAX_STEPS,
-        help="Total model turns; the final turn is reserved for a tool-free conclusion.",
+        help="Total model steps; the final step is reserved for a tool-free conclusion.",
     )
     parser.add_argument(
         "--max-context-chars", type=int, default=DEFAULT_MAX_CONTEXT_CHARS
@@ -305,7 +305,7 @@ def build_campaign_parser(parser: argparse.ArgumentParser) -> None:
         "--max-steps",
         type=int,
         default=DEFAULT_MAX_STEPS,
-        help="Total model turns; the final turn is reserved for a tool-free conclusion.",
+        help="Total model steps; the final step is reserved for a tool-free conclusion.",
     )
     parser.add_argument(
         "--max-context-chars", type=int, default=DEFAULT_MAX_CONTEXT_CHARS

@@ -382,7 +382,7 @@ def _add_model_args(
         "--max-steps",
         type=int,
         default=DEFAULT_MAX_STEPS if defaults else None,
-        help="Total model turns; the final turn is reserved for a tool-free conclusion.",
+        help="Total model steps; the final step is reserved for a tool-free conclusion.",
     )
     parser.add_argument(
         "--max-context-chars",

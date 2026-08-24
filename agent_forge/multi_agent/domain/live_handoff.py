@@ -140,7 +140,7 @@ class LiveHandoffEvent:
             or self.version < 1
         ):
             raise ValueError("handoff event version must be a positive integer")
-        # Summary 必须非空且有界，作为 Worker 下一 Turn 的紧凑语义输入。
+        # Summary 必须非空且有界，作为 Worker 下一 Model Step 的紧凑语义输入。
         if not self.summary.strip() or len(self.summary) > 1_000:
             raise ValueError("handoff event summary must contain 1..1000 characters")
         # Evidence 至少一条、最多八条，防止把完整上下文塞进 mailbox。

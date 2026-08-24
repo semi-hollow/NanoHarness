@@ -1,6 +1,8 @@
 """Runtime 对外部能力的最小契约。"""
 
 from .context import (
+    StableTurnContextRequest,
+    StableTurnContextView,
     TurnSystemContextAssemblerPort,
     TurnSystemContextRequest,
     TurnSystemContextView,
@@ -18,9 +20,12 @@ from .repositories import (
 from .run_control import RunControlPort
 from .skills import SkillSelectorPort, SkillView
 from .tools import ToolGateway
+from .thread import ConversationThreadRepository
 
 __all__ = [
     "ApprovalRepository",
+    "StableTurnContextRequest",
+    "StableTurnContextView",
     "TurnSystemContextAssemblerPort",
     "TurnSystemContextRequest",
     "TurnSystemContextView",
@@ -34,5 +39,6 @@ __all__ = [
     "SkillSelectorPort",
     "SkillView",
     "TaskStateRepository",
+    "ConversationThreadRepository",
     "ToolGateway",
 ]

@@ -10,7 +10,7 @@ from typing import Any
 # 核心数据：Application 提交给审批仓储的待授权操作。
 @dataclass(frozen=True)
 class ApprovalRequestDraft:
-    """创建审批请求所需的操作事实，不包含仓储生成的 key 和状态。"""
+    """创建审批请求所需的操作事实；调用级 key 可由 Runtime 显式绑定。"""
 
     tool_name: str
     arguments: dict[str, Any]
@@ -22,6 +22,7 @@ class ApprovalRequestDraft:
     agent_name: str
     reason: str
     operation_fingerprint: dict[str, Any] | None = None
+    operation_key: str = ""
 
 
 # 核心数据：绑定具体 operation fingerprint 的 durable 人工审批请求。
@@ -57,6 +58,12 @@ class ApprovalRequest:
 
         if status not in {"approved", "rejected"}:
             raise ValueError("approval status must be 'approved' or 'rejected'")
+        if self.status == status:
+            return
+        if self.status != "pending":
+            raise ValueError(
+                f"approval decision is immutable: {self.status} -> {status}"
+            )
         self.status = status
         self.decision_note = note
         self.updated_at = time.time()
@@ -64,6 +71,12 @@ class ApprovalRequest:
     def mark_stale(self, note: str = "") -> None:
         """标记审批因目标状态变化而不可继续使用。"""
 
+        if self.status == "stale":
+            return
+        if self.status != "approved":
+            raise ValueError(
+                f"only an unused approved request may become stale: {self.status}"
+            )
         self.status = "stale"
         self.decision_note = note
         self.updated_at = time.time()

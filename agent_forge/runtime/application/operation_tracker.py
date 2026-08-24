@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import hashlib
+import json
 from dataclasses import dataclass
 from typing import Any
 
@@ -36,8 +38,8 @@ class OperationIntent:
     # True 表示这项操作仍属于授权/重复风险分类；它是执行前事实，
     # 不表示工具已执行或持久状态已经改变。
     side_effect: bool
-    # 只有外部持久状态变更才进入 durable Operation Ledger。run_command 仍经过
-    # CommandPolicy/Approval/Sandbox/timeout，但验证结果不能按命令文本跨状态去重。
+    # 持久状态变更进入 durable Operation Ledger。run_command 使用 canonical
+    # assistant ToolCall invocation key，不能按命令文本跨 Model Step 去重。
     ledger_tracked: bool
     # 生成稳定 key 和目标指纹所需的工具、参数、工作区事实。
     target: OperationTarget
@@ -81,7 +83,11 @@ class OperationTracker:
         self.tool_feedback = tool_feedback
 
     # 主要入口：执行任何普通工具前，先把模型输出变成 Runtime 可治理的操作身份。
-    def build_operation_intent(self, tool_call: ToolCall) -> OperationIntent:
+    def build_operation_intent(
+        self,
+        session: AgentRunSession,
+        tool_call: ToolCall,
+    ) -> OperationIntent:
         """为一个原始 ToolCall 构造授权和操作状态表共用的 OperationIntent。
 
         为什么调用：模型只给出工具名和参数，并不知道哪个动作执行后会改变持久状态，也没有稳定
@@ -114,13 +120,20 @@ class OperationTracker:
                 ledger_tracked=False,
                 target=target,
             )
+        operation_key = self.operation_repository.operation_key(target)
+        if action == "run_command":
+            operation_key = self._tool_invocation_operation_key(
+                session,
+                tool_call,
+                base_operation_key=operation_key,
+            )
         return OperationIntent(
             action=action,
             command=command,
             side_effect=True,
             ledger_tracked=ledger_tracked,
             target=target,
-            operation_key=self.operation_repository.operation_key(target),
+            operation_key=operation_key,
             pre_execution_fingerprint=(
                 self.operation_repository.operation_fingerprint(target)
             ),
@@ -198,8 +211,58 @@ class OperationTracker:
             )
         # endregion 2. Unknown outcome结束
 
-        # region 3. Executed freshness：只有确定完成且目标未漂移的记录可以复用
-        # planned/pending/approved/failed 都不是确定成功事实，由后续授权或执行链继续处理。
+        # region 3. 已知失败回放：可能已改变状态的失败不能重进执行边界
+        # 命令即使 exit!=0 也可能已经产生副作用；写操作的前后指纹不同或不完整时同样
+        # 不能自动重试。只有明确证明目标未变化的普通写失败，才交给后续模型步骤重试。
+        if existing_operation_record.status == "failed" and (
+            intent.action == "run_command"
+            or not self.same_fingerprint(
+                existing_operation_record.pre_fingerprint,
+                existing_operation_record.post_fingerprint,
+            )
+        ):
+            prior_failure_fact = (
+                existing_operation_record.observation
+                or "operation failed without a recorded observation"
+            )
+            replayed_failure_observation = Observation(
+                tool_name=tool_call.name,
+                success=False,
+                content=(
+                    "replayed failed operation: ledger already records this operation "
+                    f"as failed: {intent.operation_key}; "
+                    f"previous_observation={prior_failure_fact}"
+                ),
+            )
+            self._record_operation_state(
+                step=step,
+                agent_name=session.agent_name,
+                intent=intent,
+                operation_record=existing_operation_record,
+                operation_status="replayed_failed_operation",
+                success=False,
+            )
+            self.tool_feedback.append_tool_observation(
+                session,
+                tool_call,
+                replayed_failure_observation,
+                step,
+            )
+            session.lifecycle.update_checkpoint(
+                TaskCheckpointUpdate(
+                    status=TaskRunStatus.RUNNING,
+                    current_step=step,
+                    last_tool=tool_call.name,
+                    last_observation=replayed_failure_observation.content,
+                    messages_count=len(session.messages),
+                    observations_count=len(session.observations),
+                )
+            )
+            return ExistingOperationResolution(handled_without_execution=True)
+        # endregion 3. 已知失败回放结束
+
+        # region 4. Executed freshness：只有确定完成且目标未漂移的记录可以复用
+        # planned/pending/approved 尚未得到确定结果，由后续授权或执行链继续处理。
         if existing_operation_record.status != "executed":
             return ExistingOperationResolution(handled_without_execution=False)
 
@@ -252,9 +315,9 @@ class OperationTracker:
                     metadata={"operation_key": intent.operation_key},
                 ),
             )
-        # endregion 3. Executed freshness结束
+        # endregion 4. Executed freshness结束
 
-        # region 4. Deterministic replay：回填既有结果，但绝不再次触达真实工具
+        # region 5. Deterministic replay：回填既有结果，但绝不再次触达真实工具
         # 回填的是上次执行结果，不会再次调用持久状态变更工具。
         prior_execution_fact = (
             existing_operation_record.observation or "operation completed successfully"
@@ -292,7 +355,7 @@ class OperationTracker:
             )
         )
         return ExistingOperationResolution(handled_without_execution=True)
-        # endregion 4. Deterministic replay结束
+        # endregion 5. Deterministic replay结束
 
     def ensure_planned(
         self,
@@ -495,6 +558,36 @@ class OperationTracker:
 
     @staticmethod
     def _is_ledger_tracked_action(action: str) -> bool:
-        """只把持久状态变更放入跨 continuation 防重状态表。"""
+        """把可能改变持久状态的动作放入跨 continuation 防重状态表。"""
 
-        return action in {"write", "memory_write"}
+        return action in {"write", "memory_write", "run_command"}
+
+    @staticmethod
+    def _tool_invocation_operation_key(
+        session: AgentRunSession,
+        tool_call: ToolCall,
+        *,
+        base_operation_key: str,
+    ) -> str:
+        """为命令绑定 canonical assistant batch 中的单次调用身份。
+
+        相同命令在代码变化后的新 Model Step 必须允许重跑；只有同一 durable
+        ToolCall 的 crash resume 才复用执行事实。因此 key 绑定 Thread、Turn、
+        assistant item、batch cursor 和 provider tool_call_id，而不是只绑定命令文本。
+        """
+
+        pending = session.lifecycle.checkpoint.pending_execution
+        if pending is None:
+            raise RuntimeError(
+                "run_command requires a durable pending ToolCall invocation"
+            )
+        payload = {
+            "base_operation_key": base_operation_key,
+            "thread_id": session.thread_id,
+            "turn_id": session.turn_id,
+            "assistant_item_id": pending.assistant_item_id,
+            "tool_call_index": pending.next_tool_call_index,
+            "tool_call_id": tool_call.id,
+        }
+        raw = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+        return hashlib.sha256(raw.encode("utf-8")).hexdigest()[:24]

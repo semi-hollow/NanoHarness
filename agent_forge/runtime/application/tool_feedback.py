@@ -10,14 +10,21 @@ from agent_forge.contracts import JsonObject, ToolArguments
 from agent_forge.runtime.application.session import AgentRunSession
 from agent_forge.runtime.application.step_control import FailureSignal
 from agent_forge.runtime.domain.conversation import Message, Observation, ToolCall
+from agent_forge.runtime.domain.thread import ConversationItemDraft
 from agent_forge.runtime.ports import EventSink
+from agent_forge.runtime.ports.thread import ConversationThreadRepository
 
 
 class ToolFeedback:
     """集中处理工具反馈，避免各治理分支拼装不同消息格式。"""
 
-    def __init__(self, trace: EventSink) -> None:
+    def __init__(
+        self,
+        trace: EventSink,
+        conversation_threads: ConversationThreadRepository,
+    ) -> None:
         self.trace = trace
+        self.conversation_threads = conversation_threads
 
     def append_tool_observation(
         self,
@@ -28,20 +35,50 @@ class ToolFeedback:
     ) -> None:
         """把未执行、被拒绝或人工回答写入 tool 协议与 Trace。
 
-        调用方可以在写入后立即返回 ``StopRequest``；是否存在下一 Turn 不由本方法决定。
+        调用方可以在写入后立即返回 ``StopRequest``；是否存在下一 Model Step 不由本方法决定。
         """
 
-        session.working_memory.add_observation(observation)
-        session.messages.append(
-            Message(
+        # ConversationThread 是 raw Tool Observation 的 durable owner。稳定 item_id
+        # 让“append 已成功、cursor 尚未推进”这一崩溃窗口可幂等恢复。
+        pending_execution = session.lifecycle.checkpoint.pending_execution
+        if pending_execution is None:
+            raise RuntimeError("tool observation requires a pending assistant batch")
+        conversation_item = self.conversation_threads.append(
+            session.thread_id,
+            ConversationItemDraft(
+                item_id=(
+                    f"tool:{pending_execution.assistant_item_id}:"
+                    f"{pending_execution.next_tool_call_index}:{tool_call.id}"
+                ),
+                turn_id=session.turn_id,
+                run_id=self.trace.run_id,
                 role="tool",
                 content=observation.content,
                 name=tool_call.name,
                 tool_call_id=tool_call.id,
-            )
+                metadata={
+                    "tool_name": observation.tool_name,
+                    "success": observation.success,
+                    "execution_succeeded": observation.execution_succeeded,
+                },
+                origin="tool_runtime",
+                human_authority=False,
+            ),
         )
+        # Session.messages 只是当前进程的模型输入视图；同一 tool_call_id 不重复镜像。
+        if conversation_item.sequence not in session.message_sequences:
+            session.messages.append(
+                Message(
+                    role="tool",
+                    content=observation.content,
+                    name=tool_call.name,
+                    tool_call_id=tool_call.id,
+                )
+            )
+            session.message_sequences.append(conversation_item.sequence)
         self._record_tool_observation(
             session=session,
+            tool_call=tool_call,
             observation=observation,
             step=step,
         )
@@ -75,6 +112,7 @@ class ToolFeedback:
         self,
         *,
         session: AgentRunSession,
+        tool_call: ToolCall,
         observation: Observation,
         step: int,
     ) -> None:
@@ -84,6 +122,8 @@ class ToolFeedback:
             step,
             session.agent_name,
             "tool_observation",
+            tool_call=observation.tool_name,
+            tool_call_id=tool_call.id,
             success=observation.success,
             execution_succeeded=observation.execution_succeeded,
             observation=observation.content,

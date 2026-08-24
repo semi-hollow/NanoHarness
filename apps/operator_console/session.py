@@ -7,16 +7,15 @@
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from threading import RLock
 from typing import Literal
 
 from agent_forge.control import RunController
 from agent_forge.harness import Harness, RunRequest, RunResult
-from apps.operator_console.application import TaskSessionLibrary
+from apps.operator_console.application import ConversationThreadLibrary
 from agent_forge.runtime.application.operator_control import (
-    BuildContinuationPlan,
     DecideApproval,
     RespondToHumanInput,
 )
@@ -55,16 +54,16 @@ class OperatorSession:
         controller: RunController,
         approvals: ApprovalRepository,
         human_inputs: HumanInputRepository,
-        task_sessions: TaskSessionLibrary | None = None,
-        task_session_id: str = "",
+        thread_library: ConversationThreadLibrary,
+        thread_id: str,
     ) -> None:
         self.harness = harness
         self.request = request
         self.controller = controller
         self.approvals = approvals
         self.human_inputs = human_inputs
-        self.task_sessions = task_sessions
-        self.task_session_id = task_session_id
+        self.thread_library = thread_library
+        self.thread_id = thread_id
         self._lock = RLock()
         self._result: RunResult | None = None
         self._checkpoint: TaskCheckpoint | None = None
@@ -92,28 +91,18 @@ class OperatorSession:
 
         return self._remember_result(
             self.harness.run(self.request),
-            relationship="initial",
         )
 
     # 主要入口：保存人工答案，并立即从当前 durable checkpoint 续跑。
     def answer_and_resume(self, answer: str) -> RunResult:
-        """完成 ``waiting_human -> responded -> continuation``。"""
+        """完成 ``waiting_human -> responded -> same-Turn resume``。"""
 
         prompt = self.require_prompt("human_input")
         RespondToHumanInput(self.human_inputs).respond(
             prompt.key,
             answer=answer,
         )
-        checkpoint = self._require_checkpoint()
-        continuation = BuildContinuationPlan(self.human_inputs).build(
-            checkpoint,
-            override_task=checkpoint.task,
-        )
-        return self._resume(
-            task=continuation.task,
-            relationship="continuation",
-            parent_run_id=checkpoint.run_id,
-        )
+        return self.resume()
 
     # 主要入口：保存工具审批决定，并立即从当前 durable checkpoint 续跑。
     def decide_and_resume(
@@ -122,7 +111,7 @@ class OperatorSession:
         *,
         note: str = "",
     ) -> RunResult:
-        """完成 ``waiting_approval -> decision -> continuation``。"""
+        """完成 ``waiting_approval -> decision -> same-Turn resume``。"""
 
         prompt = self.require_prompt("approval")
         DecideApproval(self.approvals).decide(
@@ -132,19 +121,16 @@ class OperatorSession:
         )
         return self.resume()
 
-    # 主要入口：从 checkpoint 创建新的显式 continuation。
+    # 主要入口：从 checkpoint 为同一 unfinished Turn 创建新 Run。
     def resume(self) -> RunResult:
         """恢复可见任务状态；不声称恢复模型栈、KV Cache 或进程现场。"""
 
-        checkpoint = self._require_checkpoint()
-        return self._resume(
-            relationship="continuation",
-            parent_run_id=checkpoint.run_id,
-        )
+        self._require_checkpoint()
+        return self._resume()
 
-    # 主要入口：终态后接收新要求，在同一 Task Session 下创建后续 Run。
+    # 主要入口：终态后接收新要求，在同一 ConversationThread 下创建新 Turn/Run。
     def continue_with_user_message(self, message: str) -> RunResult:
-        """利用最新 checkpoint 摘要继续对话，不伪装成恢复进程或 KV Cache。"""
+        """向同一 Thread 追加权威用户输入，并创建全新的 Turn/Run。"""
 
         user_message = message.strip()
         if not user_message:
@@ -159,19 +145,17 @@ class OperatorSession:
             raise RuntimeError(
                 f"当前状态 {checkpoint.status} 不能创建后续 Run；请先完成或恢复当前 Run"
             )
-        follow_up_task = "\n".join(
-            [
-                "Continue the same durable task session.",
-                "Use the restored checkpoint summary as prior context.",
-                "The following operator message is the new authoritative request:",
-                user_message,
-            ]
+        follow_up_request = replace(
+            self.request,
+            task=user_message,
+            thread_id=self.thread_id,
+            turn_id="",
+            context_revision=0,
+            resume_state="",
+            resume_execution_workspace="",
+            run_label="follow-up",
         )
-        return self._resume(
-            task=follow_up_task,
-            relationship="follow_up",
-            parent_run_id=checkpoint.run_id,
-        )
+        return self._remember_result(self.harness.run(follow_up_request))
 
     def attach_run(self, run_dir: str | Path) -> TaskCheckpoint:
         """载入已有 run 的最新 checkpoint，供进程重启后继续操作。"""
@@ -179,6 +163,8 @@ class OperatorSession:
         artifact_dir = Path(run_dir).expanduser().resolve()
         checkpoint_path = Path(latest_checkpoint_path(str(artifact_dir)))
         checkpoint = load_task_checkpoint(str(checkpoint_path))
+        if checkpoint.thread_id != self.thread_id:
+            raise ValueError("checkpoint does not belong to selected ConversationThread")
         with self._lock:
             self._result = None
             self._checkpoint = checkpoint
@@ -247,10 +233,9 @@ class OperatorSession:
     def _remember_result(
         self,
         result: RunResult,
-        *,
-        relationship: str,
-        parent_run_id: str = "",
     ) -> RunResult:
+        if result.thread_id != self.thread_id:
+            raise ValueError("RunResult moved to a different ConversationThread")
         checkpoint_path = (
             result.artifact_dir / "task_state" / f"{result.checkpoint.run_id}.json"
         )
@@ -261,13 +246,6 @@ class OperatorSession:
             self._checkpoint = result.checkpoint
             self._checkpoint_path = checkpoint_path
             self._artifact_dir = result.artifact_dir
-        if self.task_sessions is not None and self.task_session_id:
-            self.task_sessions.record_result(
-                self.task_session_id,
-                result,
-                relationship=relationship,
-                parent_run_id=parent_run_id,
-            )
         return result
 
     def _require_checkpoint_path(self) -> Path:
@@ -283,19 +261,9 @@ class OperatorSession:
             raise RuntimeError("当前会话还没有可恢复 checkpoint")
         return checkpoint
 
-    def _resume(
-        self,
-        *,
-        task: str = "",
-        relationship: str,
-        parent_run_id: str,
-    ) -> RunResult:
+    def _resume(self) -> RunResult:
         checkpoint_path = self._require_checkpoint_path()
-        return self._remember_result(
-            self.harness.resume(checkpoint_path, task=task),
-            relationship=relationship,
-            parent_run_id=parent_run_id,
-        )
+        return self._remember_result(self.harness.resume(checkpoint_path))
 
     def _pending_human_input(
         self,

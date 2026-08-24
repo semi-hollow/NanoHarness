@@ -46,8 +46,11 @@ class TypeContractTest(unittest.TestCase):
             checkpoint = store.start(
                 TaskStartRequest(
                     run_id="run-1",
-                    task="inspect project",
+                    thread_id="thread-1",
+                    turn_id="turn-1",
                     workspace=tmp,
+                    execution_workspace=tmp,
+                    execution_mode="local",
                     agent_name="CodingAgent",
                 )
             )

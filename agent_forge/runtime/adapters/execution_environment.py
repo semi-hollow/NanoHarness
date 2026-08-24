@@ -44,6 +44,8 @@ class ExecutionEnvironmentConfig:
     container_pids_limit: int = 256
     container_read_only: bool = True
     snapshot_root: str = ".agent_forge/internal/cache/snapshots"
+    # 只由 checkpoint resume 注入；fresh run 不能自行选择已有执行树。
+    reattach_workspace: str = ""
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -112,9 +114,21 @@ class ExecutionEnvironment(EnvironmentPort):
 
         self._requested_dirty_files = self._dirty_files(self.requested_workspace)
         if self.config.mode == "worktree":
-            self._prepare_worktree()
+            if self.config.reattach_workspace:
+                self._reattach_worktree()
+            else:
+                self._prepare_worktree()
         elif self.config.mode == "container":
+            if self.config.reattach_workspace:
+                raise RuntimeError(
+                    "container execution resume cannot reattach a durable execution workspace"
+                )
             self._prepare_container()
+        elif self.config.reattach_workspace:
+            requested = self.requested_workspace.resolve()
+            resumed = Path(self.config.reattach_workspace).expanduser().resolve()
+            if resumed != requested:
+                raise RuntimeError("local execution resume must use requested workspace")
 
         return self.probe()
 
@@ -145,7 +159,7 @@ class ExecutionEnvironment(EnvironmentPort):
         )
         dirty = bool(dirty_files)
         return EnvironmentProbe(
-            mode=self.config.mode,
+            mode=self._effective_mode(),
             requested_workspace=str(self.requested_workspace),
             active_workspace=str(self.active_workspace),
             git_root=git_root,
@@ -167,6 +181,17 @@ class ExecutionEnvironment(EnvironmentPort):
             if self.config.mode == "container"
             else {},
         )
+
+    def _effective_mode(self) -> str:
+        """报告真实执行边界，避免 worktree fallback 被持久化成不可恢复身份。"""
+
+        if (
+            self.config.mode == "worktree"
+            and self.active_workspace == self.requested_workspace
+            and self.created_worktree is None
+        ):
+            return "local"
+        return self.config.mode
 
     def resolve_path(self, path: str | Path) -> Path:
         """把输入路径解析为当前 active workspace 下的绝对路径。"""
@@ -591,6 +616,39 @@ class ExecutionEnvironment(EnvironmentPort):
         self.created_worktree = worktree_path
         self.active_workspace = worktree_path
         self._notes.append("created isolated git worktree from HEAD")
+
+    def _reattach_worktree(self) -> None:
+        """把 unfinished Turn 重新绑定到 checkpoint 指向的原 worktree。"""
+
+        configured_root = Path(self.config.worktree_root)
+        worktree_root = (
+            configured_root
+            if configured_root.is_absolute()
+            else self.requested_workspace / configured_root
+        ).resolve()
+        raw_candidate = Path(self.config.reattach_workspace).expanduser()
+        candidate = (
+            raw_candidate
+            if raw_candidate.is_absolute()
+            else self.requested_workspace / raw_candidate
+        ).resolve()
+        try:
+            candidate.relative_to(worktree_root)
+        except ValueError as exc:
+            raise RuntimeError(
+                "resume execution workspace escapes configured worktree root"
+            ) from exc
+        if not candidate.is_dir():
+            raise RuntimeError(
+                f"resume execution workspace no longer exists: {candidate}"
+            )
+        if self._git_output(
+            ["git", "rev-parse", "--is-inside-work-tree"], cwd=candidate
+        ) != "true":
+            raise RuntimeError("resume execution workspace is not a Git worktree")
+        self.created_worktree = candidate
+        self.active_workspace = candidate
+        self._notes.append("reattached unfinished Turn execution worktree")
 
     def _git_output(self, command: list[str], cwd: Path | None = None) -> str:
         try:

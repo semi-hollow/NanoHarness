@@ -18,6 +18,8 @@ def build_usage_report(trace: dict[str, Any]) -> dict[str, Any]:
     steps: dict[tuple[int, str], dict[str, Any]] = {}
     llm_call_index = 0
     evidence_refs: list[str] = []
+    canonical_validation_failures: Counter[str] = Counter()
+    has_canonical_validation_evidence = False
 
     def step_entry(event: dict[str, Any]) -> dict[str, Any]:
         """取得当前事件所属 step 槽位；首次出现时创建固定 schema。"""
@@ -117,6 +119,16 @@ def build_usage_report(trace: dict[str, Any]) -> dict[str, Any]:
             action["observation_chars"] = len(observation)
             action["duration_ms"] = int(event.get("duration_ms", 0) or 0)
 
+        elif event_type == "validation_evidence":
+            # validation_evidence 是 correctness validation 的 canonical 事实；
+            # tool_observation 只承载工具协议反馈，不能再次贡献同一失败计数。
+            has_canonical_validation_evidence = True
+            validation = event.get("validation") or {}
+            if validation.get("status") == "failed":
+                canonical_validation_failures.update(
+                    [str(validation.get("tool") or "unknown")]
+                )
+
         elif event_type == "recovery_decision":
             entry["recoveries"].append(
                 {
@@ -181,7 +193,14 @@ def build_usage_report(trace: dict[str, Any]) -> dict[str, Any]:
 
     # region 3. 派生指标：基于完成的 step 读模型计算汇总，不回写原 trace
     ordered_steps = [steps[key] for key in sorted(steps)]
-    tool_efficiency = _tool_efficiency(ordered_steps)
+    tool_efficiency = _tool_efficiency(
+        ordered_steps,
+        canonical_validation_failures=(
+            canonical_validation_failures
+            if has_canonical_validation_evidence
+            else None
+        ),
+    )
     context_breakdown = _context_breakdown(ordered_steps)
     summary = _summary(trace, ordered_steps, tool_efficiency, context_breakdown)
     return {
@@ -264,8 +283,13 @@ def _context_summary(context: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _tool_efficiency(steps: list[dict[str, Any]]) -> dict[str, Any]:
+def _tool_efficiency(
+    steps: list[dict[str, Any]],
+    *,
+    canonical_validation_failures: Counter[str] | None = None,
+) -> dict[str, Any]:
     by_tool: dict[str, dict[str, int]] = {}
+    legacy_validation_failures: Counter[str] = Counter()
     for step in steps:
         for action in step.get("actions", []):
             tool = action.get("tool") or "unknown"
@@ -283,13 +307,36 @@ def _tool_efficiency(steps: list[dict[str, Any]]) -> dict[str, Any]:
             stats["calls"] += 1
             if action.get("success") is False:
                 if action.get("execution_succeeded") is True:
-                    stats["validation_failed"] += 1
+                    # 旧 Trace 没有 validation_evidence，只能从工具 Observation
+                    # 兼容推断；新 Trace 的最终计数统一在下方读取 canonical event。
+                    legacy_validation_failures.update([tool])
                 else:
                     stats["failed"] += 1
             else:
                 stats["success"] += 1
             stats["observation_chars"] += _int(action.get("observation_chars"))
             stats["duration_ms"] += _int(action.get("duration_ms"))
+
+    # 新旧事实源互斥：只要 Trace 提供 canonical validation_evidence，就完全忽略
+    # paired tool_observation 的 validation 推断，避免一次失败被重复投影。
+    selected_validation_failures = (
+        canonical_validation_failures
+        if canonical_validation_failures is not None
+        else legacy_validation_failures
+    )
+    for tool, count in selected_validation_failures.items():
+        stats = by_tool.setdefault(
+            tool,
+            {
+                "calls": 0,
+                "success": 0,
+                "failed": 0,
+                "validation_failed": 0,
+                "observation_chars": 0,
+                "duration_ms": 0,
+            },
+        )
+        stats["validation_failed"] = count
     return {
         "by_tool": dict(sorted(by_tool.items())),
         "total_calls": sum(item["calls"] for item in by_tool.values()),

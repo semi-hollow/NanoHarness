@@ -25,6 +25,7 @@ from agent_forge.runtime.domain.model import ModelCapabilities
 from agent_forge.runtime.domain.task import TaskCheckpoint, TaskRunStatus
 from agent_forge.runtime.ports import (
     ApprovalRepository,
+    ConversationThreadRepository,
     TurnSystemContextAssemblerPort,
     EnvironmentPort,
     EventSink,
@@ -43,7 +44,7 @@ class HarnessConfig:
 
     workspace: str = "."
     output_root: str = ".agent_forge/runs"
-    # 总模型 Turn 数；最后一轮只生成结论，不再执行新工具。
+    # 总 Model Step 数；最后一步只生成结论，不再执行新工具。
     max_steps: int = DEFAULT_MAX_STEPS
     max_context_chars: int = DEFAULT_MAX_CONTEXT_CHARS
     max_prompt_tokens: int = DEFAULT_MAX_PROMPT_TOKENS
@@ -72,6 +73,7 @@ class HarnessConfig:
     approval_root: str = ""
     human_input_root: str = ""
     operation_ledger_root: str = ""
+    conversation_thread_root: str = ""
     memory_root: str = ""
     execution_mode: str = "local"
     network_policy: str = "deny"
@@ -133,7 +135,11 @@ class RunRequest:
     output_root: str = ""
     agent_name: str = "CodingAgent"
     resume_state: str = ""
-    human_thread_id: str = ""
+    thread_id: str = ""
+    turn_id: str = ""
+    context_revision: int = 0
+    # 只允许 ``Harness.resume`` 从 checkpoint 注入；fresh run 不能选择任意执行树。
+    resume_execution_workspace: str = ""
     resolved_config: JsonObject | None = None
     # 只影响 artifact 目录的人类可读标签；为空时从任务文本生成短标签。
     run_label: str = ""
@@ -145,6 +151,12 @@ class RunRequest:
             raise ValueError("task must not be empty")
         if not self.agent_name.strip():
             raise ValueError("agent_name must not be empty")
+        if self.turn_id and not self.thread_id:
+            raise ValueError("turn_id requires thread_id")
+        if self.context_revision < 0:
+            raise ValueError("context_revision must not be negative")
+        if self.resume_execution_workspace and not self.resume_state:
+            raise ValueError("resume_execution_workspace requires resume_state")
 
 
 @dataclass(frozen=True)
@@ -152,6 +164,8 @@ class RunResult:
     """一次运行的类型化结论和可追溯 artifact 入口。"""
 
     run_id: str
+    thread_id: str
+    turn_id: str
     status: TaskRunStatus
     stop_reason: str
     stop_output: str
@@ -187,6 +201,7 @@ class HarnessExtensions:
 
     turn_system_context_assembler: TurnSystemContextAssemblerPort | None = None
     checkpoint_repository: TaskStateRepository | None = None
+    conversation_threads: ConversationThreadRepository | None = None
     event_sink_factory: EventSinkFactory | None = None
     event_listeners: tuple[RuntimeEventListener, ...] = ()
     event_stream_policy: EventStreamPolicy = field(default_factory=EventStreamPolicy)

@@ -75,7 +75,7 @@ ALLOWED_TOP_LEVEL_DOCS = {
 MAX_PUBLIC_DOCS = len(ALLOWED_TOP_LEVEL_DOCS)
 
 REVIEW_FIRST_DOCS = {
-    "docs/上下文工程.md": ("# 2. 当前 Turn 的输入构造", 70),
+    "docs/上下文工程.md": ("# 2. 当前 Model Step 的输入构造", 70),
     "docs/运行治理与工具执行.md": ("# 1. 主链", 70),
 }
 
@@ -197,12 +197,16 @@ class DocumentationLanguageTest(unittest.TestCase):
                 "PromptWindowRequest.conversation_history",
                 "PromptWindowManager.prepare()",
                 "PromptWindowResult.llm_messages",
-                "PreparedTurn.llm_messages",
+                "PreparedModelStep.llm_messages",
                 "ModelPort.chat(...)",
                 "TurnSystemContextBuildReport",
                 "turn_system_message",
             ),
             "docs/运行治理与工具执行.md": (
+                "ToolExecutionPipeline.execute_calls()",
+                "ConversationItem(role=assistant, complete batch)",
+                "TaskCheckpoint.pending_execution",
+                "ToolExecutionPipeline.resume_pending_calls()",
                 "ToolExecutionPipeline._execute_call()",
                 "OperationTracker.build_operation_intent()",
                 "ToolAuthorizationGate.authorize()",
@@ -210,7 +214,8 @@ class DocumentationLanguageTest(unittest.TestCase):
                 "ToolGateway.execute()",
                 "HookManager.after_tool()",
                 "OperationTracker.record_execution_result()",
-                "AgentRunSession.messages(role=tool)",
+                "ToolFeedback.append_tool_observation()",
+                "ConversationItem(role=tool)",
             ),
         }
         missing: list[str] = []
@@ -340,7 +345,7 @@ class DocumentationLanguageTest(unittest.TestCase):
             "Harness.run",
             "AgentLoop.run",
             "RunPreparation.prepare_run",
-            "TurnPreparation.prepare_turn",
+            "ModelStepPreparation.prepare_model_step",
             "ModelGateway.chat",
             "ToolExecutionPipeline._execute_call",
             "FinalAnswerBuilder.build_stop_request",
@@ -514,16 +519,16 @@ class DocumentationLanguageTest(unittest.TestCase):
             encoding="utf-8"
         )
         required_contracts = (
-            "TaskCheckpoint 只是一份 latest-state snapshot",
-            "Historical Projection\n└ conversation_history_digest",
-            "Resume\n= new continuation run",
-            "回答：实际发生过什么？",
-            "回答：这个副作用执行到哪？",
-            "Append-only Evidence\n└── trace.jsonl",
-            "new canonical schema",
-            "old hash → new hash mapping",
-            "archive 保持原始历史",
-            "Design Contract\nvs\nObserved Artifact",
+            "Authoritative Conversation",
+            "TaskCheckpoint v4",
+            "Normal follow-up\n= same Thread + new Turn + new Run",
+            "Resume\n= same Thread + same Turn + new Run",
+            "append complete assistant batch",
+            "append exactly one Tool Observation",
+            "Trace 不保存完整 model prompt 或 raw Conversation",
+            "Production Runtime loader 只接受当前 canonical v4",
+            "read-only presentation compatibility reader",
+            "model_step_started",
         )
         missing = [contract for contract in required_contracts if contract not in text]
         self.assertEqual(missing, [], "运行产物契约缺少权威边界或迁移原则")

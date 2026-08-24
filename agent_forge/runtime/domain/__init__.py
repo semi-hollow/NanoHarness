@@ -20,12 +20,23 @@ from .operation import (
     OperationTransition,
 )
 from .task import (
+    PendingExecutionPointer,
+    PendingExecutionPointerData,
+    RESUMABLE_RUN_STATUSES,
     TaskCheckpoint,
     TaskCheckpointData,
     TaskCheckpointUpdate,
     TaskRunStatus,
     TaskStartRequest,
-    summarize_checkpoint,
+)
+from .thread import (
+    ConversationItem,
+    ConversationItemDraft,
+    ConversationThread,
+    ThreadContextState,
+    ThreadRun,
+    Turn,
+    TurnContextSnapshot,
 )
 
 __all__ = [
@@ -42,6 +53,9 @@ __all__ = [
     "HumanInputRequestDraft",
     "Message",
     "Observation",
+    "PendingExecutionPointer",
+    "PendingExecutionPointerData",
+    "RESUMABLE_RUN_STATUSES",
     "OperationRecord",
     "OperationPlan",
     "OperationTarget",
@@ -51,6 +65,12 @@ __all__ = [
     "TaskCheckpointUpdate",
     "TaskRunStatus",
     "TaskStartRequest",
+    "ConversationItem",
+    "ConversationItemDraft",
+    "ConversationThread",
+    "ThreadContextState",
+    "ThreadRun",
     "ToolCall",
-    "summarize_checkpoint",
+    "Turn",
+    "TurnContextSnapshot",
 ]

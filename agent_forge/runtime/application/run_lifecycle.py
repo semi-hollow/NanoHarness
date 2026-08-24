@@ -17,12 +17,14 @@ from agent_forge.runtime.domain.task import (
     TaskCheckpointUpdate,
     TaskRunStatus,
 )
+from agent_forge.runtime.domain.thread import ConversationItemDraft
 from agent_forge.runtime.ports import (
     EventSink,
     HookPort,
     HumanInputRepository,
     TaskStateRepository,
 )
+from agent_forge.runtime.ports.thread import ConversationThreadRepository
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -60,8 +62,10 @@ class RunLifecycle:
 
     checkpoint: TaskCheckpoint
     task_state_store: TaskStateRepository
+    conversation_threads: ConversationThreadRepository
+    thread_id: str
+    turn_id: str
     human_input_store: HumanInputRepository
-    human_thread_id: str
     workspace: str
     trace: EventSink
     hooks: HookPort
@@ -108,21 +112,73 @@ class RunLifecycle:
         # region 1. 停止质量门：模型只能提出完成，Hook 可以在落盘前否决
         # on_stop 读取候选回答；_apply_completion_quality_gate 把 Hook 结论收敛为
         # 最终 StopRequest，只有仍为 COMPLETED 的候选才成为 accepted final answer。
-        hook_input = requested_stop.candidate_final_answer or requested_stop.stop_output
-        hook_decisions = self.hooks.on_stop(
-            self.trace.run_id,
-            requested_stop.reason,
-            hook_input,
+        durable_final_before_stop = self.existing_accepted_final_answer()
+        recovering_accepted_final = (
+            durable_final_before_stop is not None
+            and requested_stop.status == TaskRunStatus.COMPLETED
+            and requested_stop.candidate_final_answer == durable_final_before_stop
         )
-        final_stop_request = self._apply_completion_quality_gate(
-            requested_stop=requested_stop,
-            hook_decisions=hook_decisions,
-        )
+        # accepted final 已证明上次 attempt 通过 stop hooks 并先于
+        # checkpoint 落盘；crash resume 只补终态，不重放可能有外部行为的 hook。
+        if recovering_accepted_final:
+            hook_decisions: list[HookDecision] = []
+            final_stop_request = requested_stop
+        else:
+            hook_input = (
+                requested_stop.candidate_final_answer or requested_stop.stop_output
+            )
+            hook_decisions = self.hooks.on_stop(
+                self.trace.run_id,
+                requested_stop.reason,
+                hook_input,
+            )
+            final_stop_request = self._apply_completion_quality_gate(
+                requested_stop=requested_stop,
+                hook_decisions=hook_decisions,
+            )
         accepted_final_answer = (
             final_stop_request.candidate_final_answer
             if final_stop_request.status == TaskRunStatus.COMPLETED
             else None
         )
+        if accepted_final_answer is not None:
+            existing_final = durable_final_before_stop
+            if existing_final is not None and existing_final != accepted_final_answer:
+                raise RuntimeError(
+                    "accepted final answer conflicts with durable ConversationThread"
+                )
+            if existing_final is None:
+                self.conversation_threads.append(
+                    self.thread_id,
+                    ConversationItemDraft(
+                        item_id=f"final:{self.trace.run_id}",
+                        turn_id=self.turn_id,
+                        run_id=self.trace.run_id,
+                        role="assistant",
+                        content=accepted_final_answer,
+                        origin="model_final",
+                        human_authority=False,
+                    ),
+                )
+        elif final_stop_request.candidate_final_answer is not None:
+            # 被 output/stop governance 拒绝的文本仍是已发生的模型事实，但不能使用
+            # model_final 身份，也不能被外围渲染成 accepted final answer。
+            self.conversation_threads.append(
+                self.thread_id,
+                ConversationItemDraft(
+                    item_id=f"final-candidate:{self.trace.run_id}",
+                    turn_id=self.turn_id,
+                    run_id=self.trace.run_id,
+                    role="assistant",
+                    content=final_stop_request.candidate_final_answer,
+                    metadata={
+                        "accepted": False,
+                        "rejection": final_stop_request.reason,
+                    },
+                    origin="model_final_candidate",
+                    human_authority=False,
+                ),
+            )
         # endregion 1. 停止质量门结束
 
         # region 2. Durable state：把最终决定写入 checkpoint，而非原始请求
@@ -133,6 +189,22 @@ class RunLifecycle:
             stop_output=final_stop_request.stop_output,
             final_answer=accepted_final_answer,
         )
+        is_terminal = final_stop_request.status in {
+            TaskRunStatus.CANCELLED,
+            TaskRunStatus.BLOCKED,
+            TaskRunStatus.FAILED,
+            TaskRunStatus.COMPLETED,
+        }
+        if is_terminal:
+            # 先把“哪个 Run 要以什么状态结束 Turn”写入 Thread，再落 terminal
+            # checkpoint。若进程恰好死在 checkpoint 与 finish_turn 之间，Thread
+            # loader 会校验这两个 durable 事实并幂等补完收口；不会要求模型重跑。
+            self.conversation_threads.prepare_turn_terminal(
+                self.thread_id,
+                self.turn_id,
+                run_id=self.checkpoint.run_id,
+                status=final_stop_request.status.value,
+            )
         self.update_checkpoint(
             TaskCheckpointUpdate(
                 status=final_stop_request.status,
@@ -156,8 +228,29 @@ class RunLifecycle:
             hook_decisions=hook_decisions,
             final_answer_accepted=accepted_final_answer is not None,
         )
+        if is_terminal:
+            self.conversation_threads.finish_turn(
+                self.thread_id,
+                self.turn_id,
+                run_id=self.checkpoint.run_id,
+                status=final_stop_request.status.value,
+            )
         return final_stop_request.stop_output
         # endregion 3. 终态证据结束
+
+    def existing_accepted_final_answer(self) -> str | None:
+        """返回当前 Turn 已 durable append 的 accepted final，供 crash resume 收口。"""
+
+        for item in reversed(
+            self.conversation_threads.list_recent_items(
+                self.thread_id,
+                turn_id=self.turn_id,
+                limit=50,
+            )
+        ):
+            if item.role == "assistant" and item.origin == "model_final":
+                return item.content
+        return None
 
     # 运行时端口：先持久化人工问题和 checkpoint，再返回 waiting_human。
     def request_human_input(
@@ -175,11 +268,12 @@ class RunLifecycle:
         """
 
         # region 1. 请求落盘：先取得稳定 request_id，再决定继续或暂停
-        # 相同 thread/kind/step 会定位同一 durable 请求；responded 表示恢复路径已带回答，
-        # 可以立即返回给调用方，不再制造第二个问题。
+        # 相同 canonical invocation 会定位同一 durable 请求；responded 表示恢复路径已带
+        # 回答，可以立即返回给调用方；后续独立 ask_human 即使文本相同也使用新身份。
         human_input_request = self.human_input_store.request(
             HumanInputRequestDraft(
-                thread_id=self.human_thread_id,
+                thread_id=self.thread_id,
+                turn_id=self.turn_id,
                 kind=question.kind,
                 question=question.question,
                 choices=question.choices,
@@ -188,6 +282,7 @@ class RunLifecycle:
                 step=question.step,
                 agent_name=question.agent_name,
                 reason=question.reason,
+                invocation_id=question.invocation_id,
             )
         )
         if human_input_request.status == "responded":
@@ -226,7 +321,6 @@ class RunLifecycle:
         metadata = dict(self.checkpoint.metadata or {})
         metadata.update(
             {
-                "human_thread_id": self.human_thread_id,
                 "human_input_request_id": human_input_request.request_id,
             }
         )

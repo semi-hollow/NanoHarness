@@ -1,7 +1,11 @@
 import tempfile
 import unittest
+import json
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
+from agent_forge.harness import Harness
+from agent_forge.harness_contracts import HarnessConfig
 from agent_forge.observability.api import TraceRecorder
 from agent_forge.runtime.adapters import (
     JsonApprovalRepository,
@@ -26,6 +30,11 @@ from agent_forge.tools.builtins.create_file import CreateFileTool
 from agent_forge.tools.builtins.replace_text import ReplaceTextTool
 from agent_forge.tools.builtins.run_command import RunCommandTool
 from agent_forge.tools.registry import ToolRegistry
+from tests.support import (
+    bind_follow_up_runtime_turn,
+    bind_new_runtime_turn,
+    bind_resume_runtime_turn,
+)
 
 
 class ReplaceThenFinalLLM:
@@ -131,7 +140,7 @@ def _run_command_registry(root: Path) -> ToolRegistry:
 
 class OperationLedgerTest(unittest.TestCase):
     def test_same_validation_command_executes_again_after_workspace_changes(self):
-        """run_command 不得按命令文本回放修改代码前的 PASS。"""
+        """不同 canonical ToolCall 的相同命令不得回放修改代码前的 PASS。"""
 
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -139,46 +148,46 @@ class OperationLedgerTest(unittest.TestCase):
             target = root / "target.py"
             target.write_text("value = 1\n", encoding="utf-8")
 
-            traces = []
+            trace_events = []
             for run_number in (1, 2):
-                trace = TraceRecorder(str(root / f"trace-{run_number}.json"))
-                traces.append(trace)
-                config = RuntimeConfig(
-                    workspace=str(root),
-                    max_steps=3,
-                    trace_file=str(root / f"trace-{run_number}.json"),
-                    operation_ledger_root=str(ledger_root),
-                    tool_routing_mode="all",
-                )
-                final = build_agent_loop(
-                    config,
-                    trace,
-                    _run_command_registry(root),
-                    RunCommandThenFinalLLM(),
+                result = Harness(
+                    model=RunCommandThenFinalLLM(),
+                    tools=_run_command_registry(root),
+                    config=HarnessConfig(
+                        workspace=str(root),
+                        output_root=str(root / f"runs-{run_number}"),
+                        operation_ledger_root=str(ledger_root),
+                        tool_routing_mode="all",
+                        skill_mode="none",
+                        max_steps=3,
+                    ),
                 ).run("validate target.py")
-                self.assertIn("validation finished", final)
+                trace_events.extend(
+                    json.loads(result.trace_path.read_text(encoding="utf-8"))["events"]
+                )
+                self.assertIn("validation finished", result.final_answer or "")
                 if run_number == 1:
                     target.write_text("value = 2\n", encoding="utf-8")
 
             self.assertEqual(
                 sum(
                     event["event_type"] == "tool_execution_started"
-                    for trace in traces
-                    for event in trace.events
+                    for event in trace_events
                 ),
                 2,
             )
-            self.assertEqual(list(ledger_root.glob("*.json")), [])
-            self.assertFalse(
-                any(
+            self.assertEqual(len(list(ledger_root.glob("*.json"))), 2)
+            self.assertEqual(
+                sum(
                     event["event_type"] == "operation_ledger"
-                    for trace in traces
-                    for event in trace.events
-                )
+                    and event.get("operation_status") == "executed"
+                    for event in trace_events
+                ),
+                2,
             )
 
-    def test_on_risk_command_keeps_approval_identity_without_ledger_replay(self):
-        """Ledger 不去重 run_command，但 ON_RISK 仍使用稳定非空审批 key。"""
+    def test_on_risk_command_uses_same_invocation_key_for_approval_and_ledger(self):
+        """同一 pending command 的 Approval 与 Ledger 共享调用级稳定身份。"""
 
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -186,58 +195,50 @@ class OperationLedgerTest(unittest.TestCase):
             ledger_root = root / "ledger"
             approval_root = root / "approvals"
             approvals = JsonApprovalRepository(approval_root)
-
-            first_trace = TraceRecorder(str(root / "first-trace.json"))
-            first_config = RuntimeConfig(
-                workspace=str(root),
-                max_steps=3,
-                trace_file=str(root / "first-trace.json"),
-                auto_approve_writes=False,
-                approval_mode="on-risk",
-                approval_root=str(approval_root),
-                operation_ledger_root=str(ledger_root),
-                tool_routing_mode="all",
+            harness = Harness(
+                model=RunCommandThenFinalLLM(),
+                tools=_run_command_registry(root),
+                config=HarnessConfig(
+                    workspace=str(root),
+                    output_root=str(root / "runs"),
+                    max_steps=3,
+                    auto_approve_writes=False,
+                    approval_mode="on-risk",
+                    approval_root=str(approval_root),
+                    operation_ledger_root=str(ledger_root),
+                    tool_routing_mode="all",
+                    skill_mode="none",
+                ),
             )
-            waiting = build_agent_loop(
-                first_config,
-                first_trace,
-                _run_command_registry(root),
-                RunCommandThenFinalLLM(),
-            ).run("validate target.py")
 
-            self.assertIn("waiting_approval", waiting)
+            waiting = harness.run("validate target.py")
+            self.assertEqual(waiting.status.value, "waiting_approval")
             pending = approvals.list_pending()
             self.assertEqual(len(pending), 1)
             self.assertTrue(pending[0].operation_key)
-            self.assertEqual(list(ledger_root.glob("*.json")), [])
+            ledger_files = list(ledger_root.glob("*.json"))
+            self.assertEqual(len(ledger_files), 1)
+            self.assertEqual(ledger_files[0].stem, pending[0].operation_key)
 
             approvals.decide(pending[0].operation_key, "approved")
-            second_trace = TraceRecorder(str(root / "second-trace.json"))
-            second_config = RuntimeConfig(
-                workspace=str(root),
-                max_steps=3,
-                trace_file=str(root / "second-trace.json"),
-                auto_approve_writes=False,
-                approval_mode="on-risk",
-                approval_root=str(approval_root),
-                operation_ledger_root=str(ledger_root),
-                tool_routing_mode="all",
+            final = harness.resume(
+                waiting.artifact_dir / "task_state" / f"{waiting.run_id}.json"
             )
-            final = build_agent_loop(
-                second_config,
-                second_trace,
-                _run_command_registry(root),
-                RunCommandThenFinalLLM(),
-            ).run("validate target.py")
 
-            self.assertIn("validation finished", final)
+            self.assertIn("validation finished", final.final_answer or "")
+            trace = json.loads(final.trace_path.read_text(encoding="utf-8"))
             self.assertTrue(
                 any(
                     event["event_type"] == "tool_execution_started"
-                    for event in second_trace.events
+                    for event in trace["events"]
                 )
             )
-            self.assertEqual(list(ledger_root.glob("*.json")), [])
+            operation = JsonOperationLedgerRepository(ledger_root).get(
+                pending[0].operation_key
+            )
+            self.assertIsNotNone(operation)
+            assert operation is not None
+            self.assertEqual(operation.status, "executed")
 
     def test_create_file_passes_approval_ledger_and_evidence_chain(self):
         """证明 create_file 会真实改变文件，而不只是写工具名单中的字符串。"""
@@ -257,12 +258,17 @@ class OperationLedgerTest(unittest.TestCase):
                 operation_ledger_root=str(ledger_root),
             )
 
-            waiting = build_agent_loop(
+            first_runtime = bind_new_runtime_turn(
                 first_config,
+                first_trace,
+                "create generated.py",
+            )
+            waiting = build_agent_loop(
+                first_runtime.config,
                 first_trace,
                 _create_registry(root),
                 CreateThenFinalLLM(),
-            ).run("create generated.py")
+            ).run(agent_name="CodingAgent")
 
             self.assertIn("waiting_approval", waiting)
             self.assertFalse((root / "generated.py").exists())
@@ -290,12 +296,17 @@ class OperationLedgerTest(unittest.TestCase):
                 approval_root=str(approval_root),
                 operation_ledger_root=str(ledger_root),
             )
-            final = build_agent_loop(
+            second_runtime = bind_resume_runtime_turn(
                 second_config,
+                second_trace,
+                first_runtime,
+            )
+            final = build_agent_loop(
+                second_runtime.config,
                 second_trace,
                 _create_registry(root),
                 CreateThenFinalLLM(),
-            ).run("create generated.py")
+            ).run(agent_name="CodingAgent")
 
             self.assertIn("file created", final)
             self.assertEqual(
@@ -381,6 +392,53 @@ class OperationLedgerTest(unittest.TestCase):
                 ["pending", "approved", "executing", "executed"],
             )
 
+    def test_only_one_concurrent_execution_claim_crosses_side_effect_boundary(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            ledger_root = root / "ledger"
+            target = OperationTarget(
+                tool_name="replace_text",
+                arguments={"path": "target.py", "old": "a", "new": "b"},
+                workspace=tmp,
+                action="write",
+            )
+            key = JsonOperationLedgerRepository.operation_key(target)
+            JsonOperationLedgerRepository(ledger_root).ensure_planned(
+                OperationPlan(
+                    operation_key=key,
+                    target=target,
+                    status="approved",
+                    run_id="approval-run",
+                    step=1,
+                )
+            )
+
+            def claim(run_id: str) -> tuple[str, str]:
+                try:
+                    JsonOperationLedgerRepository(ledger_root).record_executing(
+                        OperationTransition(
+                            operation_key=key,
+                            status="executing",
+                            run_id=run_id,
+                            step=2,
+                        )
+                    )
+                except RuntimeError:
+                    return "rejected", run_id
+                return "executing", run_id
+
+            with ThreadPoolExecutor(max_workers=2) as executor:
+                results = list(executor.map(claim, ("run-a", "run-b")))
+
+            self.assertEqual([state for state, _ in results].count("executing"), 1)
+            self.assertEqual([state for state, _ in results].count("rejected"), 1)
+            claimant = next(run_id for state, run_id in results if state == "executing")
+            record = JsonOperationLedgerRepository(ledger_root).get(key)
+            assert record is not None
+            self.assertEqual(record.status, "executing")
+            self.assertEqual(record.run_id, claimant)
+            self.assertEqual(record.history, ["approved", "executing"])
+
     def test_agent_loop_skips_already_executed_side_effect_on_rerun(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -394,9 +452,17 @@ class OperationLedgerTest(unittest.TestCase):
                 trace_file=str(root / "first-trace.json"),
                 operation_ledger_root=str(ledger_root),
             )
+            first_runtime = bind_new_runtime_turn(
+                first_config,
+                first_trace,
+                "fix target",
+            )
             build_agent_loop(
-                first_config, first_trace, _registry(root), ReplaceThenFinalLLM()
-            ).run("fix target")
+                first_runtime.config,
+                first_trace,
+                _registry(root),
+                ReplaceThenFinalLLM(),
+            ).run(agent_name="CodingAgent")
 
             second_trace = TraceRecorder(str(root / "second-trace.json"))
             second_config = RuntimeConfig(
@@ -405,9 +471,17 @@ class OperationLedgerTest(unittest.TestCase):
                 trace_file=str(root / "second-trace.json"),
                 operation_ledger_root=str(ledger_root),
             )
+            second_runtime = bind_follow_up_runtime_turn(
+                second_config,
+                second_trace,
+                first_runtime,
+            )
             second = build_agent_loop(
-                second_config, second_trace, _registry(root), ReplaceThenFinalLLM()
-            ).run("fix target")
+                second_runtime.config,
+                second_trace,
+                _registry(root),
+                ReplaceThenFinalLLM(),
+            ).run(agent_name="CodingAgent")
 
             self.assertIn("finished", second)
             self.assertEqual(
@@ -452,10 +526,15 @@ class OperationLedgerTest(unittest.TestCase):
             )
             crashing_ledger = CrashBeforeLedgerCommit(ledger_root)
 
+            first_runtime = bind_new_runtime_turn(
+                first_config,
+                first_trace,
+                "fix target",
+            )
             with self.assertRaisesRegex(RuntimeError, "crash before executed commit"):
                 build_agent_loop_from_request(
                     AgentLoopBuildRequest(
-                        config=first_config,
+                        config=first_runtime.config,
                         trace=first_trace,
                         registry=_registry(root),
                         llm=ReplaceThenFinalLLM(),
@@ -463,7 +542,7 @@ class OperationLedgerTest(unittest.TestCase):
                             operations=crashing_ledger
                         ),
                     )
-                ).run("fix target")
+                ).run(agent_name="CodingAgent")
 
             self.assertEqual(
                 (root / "target.py").read_text(encoding="utf-8"),
@@ -483,12 +562,17 @@ class OperationLedgerTest(unittest.TestCase):
                 trace_file=str(root / "second-trace.json"),
                 operation_ledger_root=str(ledger_root),
             )
-            second = build_agent_loop(
+            second_runtime = bind_resume_runtime_turn(
                 second_config,
+                second_trace,
+                first_runtime,
+            )
+            second = build_agent_loop(
+                second_runtime.config,
                 second_trace,
                 _registry(root),
                 ReplaceThenFinalLLM(),
-            ).run("fix target")
+            ).run(agent_name="CodingAgent")
 
             self.assertIn("blocked: operation outcome is unknown", second)
             self.assertEqual(
@@ -516,9 +600,17 @@ class OperationLedgerTest(unittest.TestCase):
                 trace_file=str(root / "first-trace.json"),
                 operation_ledger_root=str(ledger_root),
             )
+            first_runtime = bind_new_runtime_turn(
+                first_config,
+                first_trace,
+                "fix target",
+            )
             build_agent_loop(
-                first_config, first_trace, _registry(root), ReplaceThenFinalLLM()
-            ).run("fix target")
+                first_runtime.config,
+                first_trace,
+                _registry(root),
+                ReplaceThenFinalLLM(),
+            ).run(agent_name="CodingAgent")
 
             (root / "target.py").write_text("value = 3\n", encoding="utf-8")
 
@@ -529,9 +621,17 @@ class OperationLedgerTest(unittest.TestCase):
                 trace_file=str(root / "second-trace.json"),
                 operation_ledger_root=str(ledger_root),
             )
+            second_runtime = bind_follow_up_runtime_turn(
+                second_config,
+                second_trace,
+                first_runtime,
+            )
             second = build_agent_loop(
-                second_config, second_trace, _registry(root), ReplaceThenFinalLLM()
-            ).run("fix target")
+                second_runtime.config,
+                second_trace,
+                _registry(root),
+                ReplaceThenFinalLLM(),
+            ).run(agent_name="CodingAgent")
 
             self.assertIn("blocked: executed operation target has changed", second)
             self.assertEqual(

@@ -2,21 +2,9 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-
 from agent_forge.runtime.domain.approval import ApprovalRequest
 from agent_forge.runtime.domain.human_input import HumanInputRequest
-from agent_forge.runtime.domain.task import TaskCheckpoint
 from agent_forge.runtime.ports import ApprovalRepository, HumanInputRepository
-
-
-@dataclass(frozen=True)
-class ContinuationPlan:
-    """恢复新 run 所需的显式输入，不包含隐藏进程状态。"""
-
-    task: str
-    workspace: str
-    human_thread_id: str
 
 
 class DecideApproval:
@@ -58,61 +46,3 @@ class RespondToHumanInput:
         if cancel:
             return self.human_inputs.cancel(request_id, note=note)
         return self.human_inputs.respond(request_id, answer, note=note)
-
-
-class BuildContinuationPlan:
-    """从 durable checkpoint 与人工回答构造一个新的显式 run。"""
-
-    def __init__(self, human_inputs: HumanInputRepository) -> None:
-        self.human_inputs = human_inputs
-
-    # 主要入口：从 checkpoint 和人工结果构造 continuation 的显式输入。
-    def build(
-        self,
-        checkpoint: TaskCheckpoint,
-        *,
-        override_task: str = "",
-        workspace: str = "",
-    ) -> ContinuationPlan:
-        """构造新 run 所需的 task、workspace 和 human thread。"""
-
-        metadata = checkpoint.metadata if isinstance(checkpoint.metadata, dict) else {}
-        thread_id = str(metadata.get("human_thread_id") or checkpoint.run_id)
-        task = override_task or f"continue previous task: {checkpoint.task}"
-        request_id = str(metadata.get("human_input_request_id") or "")
-        if request_id:
-            task = self._append_human_response(task, request_id)
-        return ContinuationPlan(
-            task=task,
-            workspace=workspace or checkpoint_resume_workspace(checkpoint),
-            human_thread_id=thread_id,
-        )
-
-    def _append_human_response(self, task: str, request_id: str) -> str:
-        human_input_request = self.human_inputs.get(request_id)
-        if human_input_request is None:
-            raise ValueError(f"human input request not found: {request_id}")
-        if human_input_request.status == "pending":
-            raise ValueError(f"human input is still pending: {request_id}")
-        if human_input_request.status == "cancelled":
-            raise ValueError(f"human input request was cancelled: {request_id}")
-        return "\n".join(
-            [
-                task,
-                "",
-                "Human response from the previous run:",
-                f"Question: {human_input_request.question}",
-                f"Answer: {human_input_request.answer}",
-                "Continue from this explicit operator input; do not ask the same question again.",
-            ]
-        )
-
-
-def checkpoint_resume_workspace(checkpoint: TaskCheckpoint) -> str:
-    """临时 worktree 的恢复默认回到原始 checkout。"""
-
-    metadata = checkpoint.metadata if isinstance(checkpoint.metadata, dict) else {}
-    environment = metadata.get("execution_environment")
-    if isinstance(environment, dict) and environment.get("requested_workspace"):
-        return str(environment["requested_workspace"])
-    return checkpoint.workspace

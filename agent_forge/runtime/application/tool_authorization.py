@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any
 
 from agent_forge.runtime.application.operation_tracker import (
@@ -30,6 +30,7 @@ class GateResult:
 
     proceed: bool
     stop: StopRequest | None = None
+    end_batch: bool = False
 
 
 class ToolAuthorizationGate:
@@ -186,6 +187,7 @@ class ToolAuthorizationGate:
                     agent_name=session.agent_name,
                     reason=reason,
                     operation_fingerprint=intent.pre_execution_fingerprint,
+                    operation_key=intent.operation_key,
                 )
             )
             if intent.ledger_tracked:
@@ -196,11 +198,21 @@ class ToolAuthorizationGate:
         # 先落 WAITING_APPROVAL checkpoint，再读取人工授权事实或自动放行配置；即使进程在判断后
         # 立即退出，恢复端仍能定位这项待审批、尚未执行的操作意图。“可能产生持久状态
         # 变化”只是执行前的风险分类，不表示变化已经发生。
+        pending_execution = session.lifecycle.checkpoint.pending_execution
+        if pending_execution is not None:
+            pending_execution = replace(
+                pending_execution,
+                pending_operation_key=intent.operation_key,
+                pending_operation_fingerprint=(
+                    dict(intent.pre_execution_fingerprint or {})
+                ),
+            )
         session.lifecycle.update_checkpoint(
             TaskCheckpointUpdate(
                 status=TaskRunStatus.WAITING_APPROVAL,
                 current_step=step,
                 last_tool=tool_call.name,
+                pending_execution=pending_execution,
                 resume_hint="Approve this tool action or rerun with a safer task.",
             )
         )
@@ -318,7 +330,8 @@ class ToolAuthorizationGate:
         tool_call: ToolCall,
         step: int,
     ) -> GateResult:
-        session.blocked = True
+        # 拒绝会消费当前 pending ToolCall，并把结果反馈给下一 Model Step；
+        # 它不会再次等待同一 Approval，也不会把普通拒绝升级成 terminal safety block。
         rejected_approval_observation = Observation(
             tool_name=tool_call.name,
             success=False,
@@ -332,16 +345,16 @@ class ToolAuthorizationGate:
         )
         session.lifecycle.update_checkpoint(
             TaskCheckpointUpdate(
-                status=TaskRunStatus.WAITING_APPROVAL,
+                status=TaskRunStatus.RUNNING,
                 current_step=step,
                 last_tool=tool_call.name,
                 last_observation=rejected_approval_observation.content,
                 resume_hint=(
-                    "Human approval was rejected; rerun after narrowing the requested edit."
+                    "Human approval was rejected; replan from the rejection observation."
                 ),
             )
         )
-        return GateResult(proceed=False)
+        return GateResult(proceed=False, end_batch=True)
 
     # region 证据记录器
     def _record_authorization_decision(

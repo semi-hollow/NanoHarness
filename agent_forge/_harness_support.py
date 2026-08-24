@@ -26,6 +26,7 @@ from agent_forge.observability.api import (
 from agent_forge.runtime.adapters.execution_environment import ExecutionEnvironment
 from agent_forge.runtime.config import RuntimeConfig
 from agent_forge.runtime.domain.task import (
+    RESUMABLE_RUN_STATUSES,
     TaskCheckpoint,
     TaskCheckpointUpdate,
     TaskStartRequest,
@@ -70,6 +71,11 @@ class TrackingTaskStateRepository(TaskStateRepository):
         self.latest = self._delegate.start(request)
         return self.latest
 
+    def path_for(self, run_id: str) -> Path:
+        """返回 delegate 为该 Run 选择的 canonical checkpoint 路径。"""
+
+        return self._delegate.path_for(run_id)
+
     def update(
         self,
         checkpoint: TaskCheckpoint,
@@ -81,9 +87,10 @@ class TrackingTaskStateRepository(TaskStateRepository):
         return self.latest
 
     def load_path(self, path: str) -> TaskCheckpoint:
-        """把恢复读取原样委托给调用方选择的 Repository。"""
+        """加载 checkpoint，并同步 ``latest`` 供 Harness 异常收口读取。"""
 
-        return self._delegate.load_path(path)
+        self.latest = self._delegate.load_path(path)
+        return self.latest
 
 
 def create_run_paths(
@@ -151,8 +158,27 @@ def build_runtime_config(
     """把 Public API 配置机械映射成内部 RuntimeConfig。"""
 
     requested_workspace = Path(request.workspace or config.workspace).resolve()
+    raw_execution_mode = environment.probe().to_dict().get("mode")
+    effective_execution_mode = (
+        raw_execution_mode
+        if isinstance(raw_execution_mode, str)
+        and raw_execution_mode in {"local", "worktree", "container"}
+        else config.execution_mode
+    )
     return RuntimeConfig(
         workspace=str(workspace),
+        requested_workspace=str(requested_workspace),
+        execution_mode=effective_execution_mode,
+        thread_id=request.thread_id,
+        turn_id=request.turn_id,
+        context_revision=request.context_revision,
+        conversation_thread_root=str(
+            control_path(
+                config.conversation_thread_root,
+                control_workspace,
+                "threads",
+            )
+        ),
         max_steps=config.max_steps,
         auto_approve_writes=config.auto_approve_writes,
         trace_file=str(trace_path),
@@ -175,7 +201,6 @@ def build_runtime_config(
         human_input_root=str(
             control_path(config.human_input_root, control_workspace, "human_input")
         ),
-        human_thread_id=request.human_thread_id,
         operation_ledger_root=str(
             control_path(
                 config.operation_ledger_root,
@@ -209,6 +234,7 @@ def finalize_run_artifacts(
     owned_environment_is_prepared: bool,
     result: RunResult | None,
     failure_stop_reason: str,
+    preserve_execution_workspace: bool = False,
 ) -> None:
     """发布事件、清理执行环境，并保存一次 run 的最终 manifest。"""
 
@@ -222,7 +248,14 @@ def finalize_run_artifacts(
                 if owned_environment_is_prepared:
                     owned_environment.write_manifest(paths.artifact_dir)
             finally:
-                owned_environment.cleanup()
+                # Unfinished Turn 必须保留当前 active execution workspace，供下一
+                # continuation 重新 attach；terminal run 才执行配置的 cleanup policy。
+                should_cleanup = (
+                    result is not None
+                    and result.status.value not in RESUMABLE_RUN_STATUSES
+                ) or (result is None and not preserve_execution_workspace)
+                if should_cleanup:
+                    owned_environment.cleanup()
 
     write_run_manifest(
         paths.artifact_dir,

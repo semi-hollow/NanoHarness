@@ -6,6 +6,8 @@ import hashlib
 from dataclasses import dataclass
 from pathlib import Path
 
+from agent_forge.contracts import JsonObject
+
 
 BASE_INSTRUCTION_FILES = (
     "PROJECT_INSTRUCTIONS.md",
@@ -34,7 +36,7 @@ class InstructionSource:
     truncated: bool
     content: str
 
-    def to_evidence(self) -> dict[str, object]:
+    def to_evidence(self) -> JsonObject:
         """返回不包含指令正文的 trace 证据。"""
 
         return {
@@ -60,7 +62,7 @@ class InstructionResolution:
     max_bytes: int
     truncated: bool
 
-    def to_evidence(self) -> dict[str, object]:
+    def to_evidence(self) -> JsonObject:
         """返回 Context trace 使用的稳定 JSON 结构。"""
 
         return {

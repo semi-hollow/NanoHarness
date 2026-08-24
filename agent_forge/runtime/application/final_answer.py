@@ -64,12 +64,10 @@ class FinalAnswerBuilder:
         evidence_text = ""
         if citations:
             evidence_text = "\n证据:\n" + "\n".join(f"- {item}" for item in citations)
-        final_answer = (
-            (response.content or "")
-            + evidence_text
-            + "\n未验证点: 未进行真实线上压测。"
-        )
-        # 当前 output_guardrail 只生成审计检查结果，不改变本次 terminal status。
+        final_answer = (response.content or "") + evidence_text
+        # Output Guardrail 只对极窄的确定性声明做检查；它不是通用
+        # 语义 classifier。但 high-severity 且无运行证据的验证结论不能
+        # 被 accepted COMPLETED，必须保留为 candidate evidence 并显式阻断。
         output_check = output_guardrail(
             final_answer,
             session.ran_tests,
@@ -82,6 +80,23 @@ class FinalAnswerBuilder:
             citations=citations,
             output_check=output_check,
         )
+        if not output_check.passed and output_check.severity == "high":
+            return StopRequest(
+                status=TaskRunStatus.BLOCKED,
+                reason="unsupported_validation_claim",
+                stop_output=(
+                    "blocked: unsupported validation claim; run a governed validation "
+                    "tool or describe the result as unverified"
+                ),
+                candidate_final_answer=final_answer,
+                current_step=step,
+                messages_count=len(session.messages),
+                observations_count=len(session.observations),
+                resume_hint=(
+                    "Run python_validation/run_command, or remove the unsupported "
+                    "test-pass claim."
+                ),
+            )
         return StopRequest(
             status=TaskRunStatus.COMPLETED,
             reason="final_answer",
