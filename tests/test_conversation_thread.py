@@ -597,8 +597,17 @@ class ConversationThreadRepositoryTest(unittest.TestCase):
             thread_id="thread-1",
             covered_sequence=1,
             conversation_history_digest={
+                "schema_version": 2,
                 "initial_task": "thread root",
                 "covered_message_count": 1,
+                "source_hash": "digest-source",
+                "authority_updates": [],
+                "resource_hints": [],
+                "state_evidence": [],
+                "recent_tool_transactions": [],
+                "estimated_tokens_before": 10,
+                "estimated_tokens_after": 5,
+                "workspace_mutation_observed": False,
             },
         )
         self.assertEqual(

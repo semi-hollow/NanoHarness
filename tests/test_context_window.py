@@ -8,10 +8,69 @@ from agent_forge.context.application.compaction import (
     PromptWindowManager,
     PromptBudget,
 )
+from agent_forge.context.domain import ConversationHistoryDigest, ToolStateDigest
 from agent_forge.runtime.domain.conversation import Message, Observation
 from agent_forge.runtime.application.session import (
     load_transaction_safe_conversation_page,
 )
+from agent_forge.runtime.application.model_step_preparation import ModelStepPreparation
+from agent_forge.runtime.domain.thread import ThreadContextState
+
+
+def _tool_history(
+    entries: list[tuple[str, dict[str, object], bool, str, bool | None]],
+) -> tuple[list[Message], list[Observation]]:
+    messages: list[Message] = []
+    observations: list[Observation] = []
+    for index, (tool_name, arguments, success, content, execution_succeeded) in enumerate(
+        entries
+    ):
+        call_id = f"call-{index}"
+        messages.extend(
+            [
+                Message(
+                    "assistant",
+                    "",
+                    tool_calls=[
+                        {
+                            "id": call_id,
+                            "name": tool_name,
+                            "arguments": arguments,
+                        }
+                    ],
+                ),
+                Message(
+                    "tool",
+                    content,
+                    name=tool_name,
+                    tool_call_id=call_id,
+                ),
+            ]
+        )
+        observations.append(
+            Observation(
+                tool_name,
+                success,
+                content,
+                execution_succeeded=execution_succeeded,
+            )
+        )
+    return messages, observations
+
+
+def _digest_for_tool_history(
+    entries: list[tuple[str, dict[str, object], bool, str, bool | None]],
+    *,
+    tool_metadata: dict[str, dict[str, object]] | None = None,
+) -> ConversationHistoryDigest:
+    messages, observations = _tool_history(entries)
+    return compaction_module._build_digest(
+        "initial task",
+        compaction_module._group_history_segments(messages, observations),
+        estimated_tokens_before=1_000,
+        skip_initial_user_message=False,
+        tool_metadata=tool_metadata,
+    )
 
 
 class PromptWindowManagerTest(unittest.TestCase):
@@ -183,7 +242,7 @@ class PromptWindowManagerTest(unittest.TestCase):
                 reserved_output_tokens=1_000,
             )
 
-    def test_compacts_old_history_without_splitting_tool_transaction(self) -> None:
+    def test_forced_compaction_does_not_split_tool_transaction(self) -> None:
         history = [Message("user", "fix the parser and run tests")]
         observations = []
         for index in range(6):
@@ -227,6 +286,7 @@ class PromptWindowManagerTest(unittest.TestCase):
                 observations=observations,
                 tool_schemas=[{"name": "read_file", "arguments": {"path": "str"}}],
                 conversation_initial_task="fix the parser and run tests",
+                force_compaction=True,
             )
         )
 
@@ -238,11 +298,10 @@ class PromptWindowManagerTest(unittest.TestCase):
         self.assertIsNotNone(result.conversation_history_digest)
         assert result.conversation_history_digest is not None
         self.assertTrue(result.conversation_history_digest.source_hash)
-        self.assertTrue(
-            any(
-                "result-2" in item
-                for item in result.conversation_history_digest.failed_tool_evidence
-            )
+        self.assertEqual(result.conversation_history_digest.state_evidence, [])
+        self.assertLessEqual(
+            len(result.conversation_history_digest.recent_tool_transactions),
+            compaction_module.RECENT_TOOL_TRANSACTION_LIMIT,
         )
         roles = [message.role for message in result.llm_messages[2:]]
         for index, role in enumerate(roles):
@@ -304,7 +363,7 @@ class PromptWindowManagerTest(unittest.TestCase):
             forced.estimated_tokens_before,
         )
 
-    def test_digest_keeps_initial_task_and_later_task_updates_separate(self) -> None:
+    def test_digest_keeps_initial_task_and_later_authority_updates_separate(self) -> None:
         history = [
             Message("user", "initial task", human_authority=True, origin="human"),
             Message("assistant", "a" * 3_000),
@@ -345,7 +404,7 @@ class PromptWindowManagerTest(unittest.TestCase):
         assert result.conversation_history_digest is not None
         self.assertEqual(result.conversation_history_digest.initial_task, "initial task")
         self.assertEqual(
-            result.conversation_history_digest.task_updates,
+            result.conversation_history_digest.authority_updates,
             ["steer: preserve public API"],
         )
 
@@ -461,14 +520,14 @@ class PromptWindowManagerTest(unittest.TestCase):
         successful = build(True)
         failed = build(False)
         self.assertNotEqual(successful.source_hash, failed.source_hash)
-        self.assertTrue(successful.tool_transactions[0].success)
-        self.assertFalse(failed.tool_transactions[0].success)
+        self.assertTrue(successful.recent_tool_transactions[0].success)
+        self.assertFalse(failed.recent_tool_transactions[0].success)
         self.assertNotEqual(
             build(True, True).source_hash,
             build(True, False).source_hash,
         )
 
-    def test_runtime_coordination_is_not_a_human_task_update(self) -> None:
+    def test_runtime_coordination_is_not_a_human_authority_update(self) -> None:
         messages = [
             Message("user", "initial", origin="human", human_authority=True),
             Message(
@@ -490,7 +549,392 @@ class PromptWindowManagerTest(unittest.TestCase):
             estimated_tokens_before=100,
             skip_initial_user_message=True,
         )
-        self.assertEqual(digest.task_updates, ["operator steer"])
+        self.assertEqual(digest.authority_updates, ["operator steer"])
+
+    def test_authority_updates_are_not_silently_evicted_by_history_length(self) -> None:
+        messages = [Message("user", "initial", origin="human", human_authority=True)]
+        messages.extend(
+            Message(
+                "user",
+                f"authoritative constraint {index}",
+                origin="operator",
+                human_authority=True,
+            )
+            for index in range(6)
+        )
+        previous = compaction_module._build_digest(
+            "initial",
+            compaction_module._group_history_segments(messages, []),
+            estimated_tokens_before=1_000,
+            skip_initial_user_message=True,
+        )
+        delta_messages = [
+            Message(
+                "user",
+                f"authoritative constraint {index}",
+                origin="operator",
+                human_authority=True,
+            )
+            for index in range(6, 12)
+        ]
+        delta = compaction_module._build_digest(
+            "initial",
+            compaction_module._group_history_segments(delta_messages, []),
+            estimated_tokens_before=1_200,
+            skip_initial_user_message=False,
+        )
+        digest = compaction_module._merge_digest(
+            previous,
+            delta,
+            estimated_tokens_before=1_200,
+        )
+
+        self.assertEqual(
+            digest.authority_updates,
+            [f"authoritative constraint {index}" for index in range(12)],
+        )
+
+    def test_authority_capacity_overflow_fails_closed(self) -> None:
+        messages = [Message("user", "initial", origin="human", human_authority=True)]
+        messages.extend(
+            Message(
+                "user",
+                f"constraint-{index}-" + (str(index) * 800),
+                origin="operator",
+                human_authority=True,
+            )
+            for index in range(3)
+        )
+        digest = compaction_module._build_digest(
+            "initial",
+            compaction_module._group_history_segments(messages, []),
+            estimated_tokens_before=1_000,
+            skip_initial_user_message=True,
+        )
+
+        with self.assertRaisesRegex(
+            compaction_module.DeterministicContextOverflowError,
+            "authority_context_overflow",
+        ):
+            PromptWindowManager(
+                PromptBudget(max_prompt_tokens=1_024, reserved_output_tokens=100)
+            ).prepare(
+                PromptWindowRequest(
+                    model_step_system_message=Message("system", "policy"),
+                    conversation_history=[Message("assistant", "recent tail")],
+                    observations=[],
+                    tool_schemas=[],
+                    conversation_initial_task="initial",
+                    previous_digest=digest,
+                )
+            )
+
+    def test_recent_tool_transactions_keep_latest_n_only(self) -> None:
+        digest = _digest_for_tool_history(
+            [
+                (
+                    "read_file",
+                    {"path": f"file-{index}.py"},
+                    True,
+                    f"result-{index}",
+                    None,
+                )
+                for index in range(compaction_module.RECENT_TOOL_TRANSACTION_LIMIT + 4)
+            ]
+        )
+
+        self.assertEqual(
+            [item.observation_excerpt for item in digest.recent_tool_transactions],
+            [
+                f"result-{index}"
+                for index in range(4, compaction_module.RECENT_TOOL_TRANSACTION_LIMIT + 4)
+            ],
+        )
+
+    def test_read_and_search_observations_do_not_become_durable_state(self) -> None:
+        digest = _digest_for_tool_history(
+            [
+                ("read_file", {"path": "auth.py"}, False, "old source text", None),
+                (
+                    "grep_search",
+                    {"path": "tests", "keyword": "TokenManager"},
+                    True,
+                    "tests/test_auth.py:12",
+                    None,
+                ),
+            ],
+            tool_metadata={
+                "read_file": {"capability": "inspect", "mode": "read"},
+                "grep_search": {"capability": "search", "mode": "read"},
+            },
+        )
+
+        self.assertEqual(digest.state_evidence, [])
+        self.assertEqual(digest.unresolved_failures, [])
+        self.assertEqual(digest.resource_hints, ["auth.py", "tests", "TokenManager"])
+        self.assertEqual(len(digest.recent_tool_transactions), 2)
+
+    def test_validation_fail_then_pass_supersedes_failure_across_merge(self) -> None:
+        metadata = {
+            "python_validation": {"capability": "validate", "mode": "read"}
+        }
+        arguments = {"check_type": "pytest", "validation_target": "tests/test_auth.py"}
+        failed = _digest_for_tool_history(
+            [
+                (
+                    "python_validation",
+                    arguments,
+                    False,
+                    "validation_command=pytest tests/test_auth.py\n1 failed",
+                    True,
+                )
+            ],
+            tool_metadata=metadata,
+        )
+        passed = _digest_for_tool_history(
+            [
+                (
+                    "python_validation",
+                    arguments,
+                    True,
+                    "validation_command=pytest tests/test_auth.py\n1 passed",
+                    True,
+                )
+            ],
+            tool_metadata=metadata,
+        )
+
+        self.assertEqual([item.status for item in failed.unresolved_failures], ["failed"])
+        merged = compaction_module._merge_digest(
+            failed,
+            passed,
+            estimated_tokens_before=2_000,
+        )
+        self.assertEqual(len(merged.state_evidence), 1)
+        self.assertEqual(merged.state_evidence[0].status, "passed")
+        self.assertEqual(merged.unresolved_failures, [])
+
+    def test_successful_edit_marks_prior_validation_stale_until_revalidated(self) -> None:
+        validation_metadata = {
+            "python_validation": {"capability": "validate", "mode": "read"}
+        }
+        validation_arguments = {
+            "check_type": "pytest",
+            "validation_target": "tests/test_auth.py",
+        }
+        passed = _digest_for_tool_history(
+            [
+                (
+                    "python_validation",
+                    validation_arguments,
+                    True,
+                    "1 passed",
+                    True,
+                )
+            ],
+            tool_metadata=validation_metadata,
+        )
+        edit = _digest_for_tool_history(
+            [
+                (
+                    "replace_text",
+                    {"path": "auth.py", "old": "before", "new": "after"},
+                    True,
+                    "replaced text once: auth.py",
+                    None,
+                )
+            ],
+            tool_metadata={
+                "replace_text": {"capability": "edit", "mode": "write"}
+            },
+        )
+
+        after_edit = compaction_module._merge_digest(
+            passed,
+            edit,
+            estimated_tokens_before=2_000,
+        )
+
+        self.assertTrue(after_edit.workspace_mutation_observed)
+        self.assertEqual(after_edit.state_evidence[0].status, "stale")
+        self.assertEqual(after_edit.unresolved_failures, after_edit.state_evidence)
+
+        revalidated = _digest_for_tool_history(
+            [
+                (
+                    "python_validation",
+                    validation_arguments,
+                    True,
+                    "1 passed after edit",
+                    True,
+                )
+            ],
+            tool_metadata=validation_metadata,
+        )
+        after_revalidation = compaction_module._merge_digest(
+            after_edit,
+            revalidated,
+            estimated_tokens_before=2_200,
+        )
+        self.assertEqual(after_revalidation.state_evidence[0].status, "passed")
+        self.assertEqual(after_revalidation.unresolved_failures, [])
+
+    def test_distinct_validation_keys_keep_independent_latest_state(self) -> None:
+        metadata = {
+            "python_validation": {"capability": "validate", "mode": "read"}
+        }
+        digest = _digest_for_tool_history(
+            [
+                (
+                    "python_validation",
+                    {"check_type": "pytest", "validation_target": "tests/test_auth.py"},
+                    False,
+                    "1 failed",
+                    True,
+                ),
+                (
+                    "python_validation",
+                    {"check_type": "pytest", "validation_target": "tests/test_api.py"},
+                    True,
+                    "1 passed",
+                    True,
+                ),
+            ],
+            tool_metadata=metadata,
+        )
+
+        self.assertEqual(len(digest.state_evidence), 2)
+        self.assertNotEqual(
+            digest.state_evidence[0].state_key,
+            digest.state_evidence[1].state_key,
+        )
+        self.assertEqual(
+            [item.arguments_summary for item in digest.unresolved_failures],
+            ['{"check_type":"pytest","validation_target":"tests/test_auth.py"}'],
+        )
+
+    def test_state_key_preserves_argument_string_whitespace(self) -> None:
+        digest = _digest_for_tool_history(
+            [
+                (
+                    "run_command",
+                    {"command": 'pytest -k "a  b"'},
+                    True,
+                    "exit_code=0",
+                    None,
+                ),
+                (
+                    "run_command",
+                    {"command": 'pytest -k "a b"'},
+                    True,
+                    "exit_code=0",
+                    None,
+                ),
+            ],
+            tool_metadata={
+                "run_command": {"capability": "validate", "mode": "command"}
+            },
+        )
+
+        self.assertEqual(len(digest.state_evidence), 2)
+        self.assertNotEqual(
+            digest.state_evidence[0].state_key,
+            digest.state_evidence[1].state_key,
+        )
+
+    def test_validation_blocked_is_not_rendered_as_passed(self) -> None:
+        digest = _digest_for_tool_history(
+            [
+                (
+                    "python_validation",
+                    {"check_type": "pytest", "validation_target": "tests"},
+                    True,
+                    "validation_blocked: pytest is not installed",
+                    None,
+                )
+            ],
+            tool_metadata={
+                "python_validation": {"capability": "validate", "mode": "read"}
+            },
+        )
+
+        self.assertEqual(digest.state_evidence[0].status, "blocked")
+        self.assertEqual(digest.unresolved_failures, digest.state_evidence)
+
+    def test_digest_round_trip_derives_unresolved_failures_from_state_evidence(self) -> None:
+        digest = _digest_for_tool_history(
+            [
+                (
+                    "python_validation",
+                    {"check_type": "pytest", "validation_target": "tests"},
+                    False,
+                    "1 failed",
+                    True,
+                )
+            ],
+            tool_metadata={
+                "python_validation": {"capability": "validate", "mode": "read"}
+            },
+        )
+
+        payload = digest.to_dict()
+        restored = ConversationHistoryDigest.from_dict(dict(payload))
+
+        self.assertNotIn("unresolved_failures", payload)
+        self.assertEqual(restored.state_evidence, digest.state_evidence)
+        self.assertEqual(restored.unresolved_failures, restored.state_evidence)
+
+    def test_resource_hints_are_deduplicated_and_latest_n_bounded(self) -> None:
+        entries = [
+            ("read_file", {"path": f"file-{index}.py"}, True, "content", None)
+            for index in range(compaction_module.RESOURCE_HINT_LIMIT + 6)
+        ]
+        entries.append(("read_file", {"path": "file-0.py"}, True, "again", None))
+
+        digest = _digest_for_tool_history(entries)
+
+        self.assertEqual(len(digest.resource_hints), compaction_module.RESOURCE_HINT_LIMIT)
+        self.assertEqual(digest.resource_hints[-1], "file-0.py")
+        self.assertNotIn("file-1.py", digest.resource_hints)
+
+    def test_distinct_state_overflow_fails_closed_instead_of_evicting(self) -> None:
+        state_evidence = [
+            ToolStateDigest(
+                state_key=f"validate:key-{index}",
+                tool_name="python_validation",
+                capability="validate",
+                arguments_summary=f"target-{index}",
+                status="passed",
+                observation_excerpt="ok",
+            )
+            for index in range(compaction_module.STATE_EVIDENCE_LIMIT + 1)
+        ]
+        digest = ConversationHistoryDigest(
+            initial_task="initial",
+            covered_message_count=len(state_evidence),
+            source_hash="state-overflow",
+            authority_updates=[],
+            resource_hints=[],
+            state_evidence=state_evidence,
+            recent_tool_transactions=[],
+            estimated_tokens_before=1_000,
+            estimated_tokens_after=500,
+        )
+
+        with self.assertRaisesRegex(
+            compaction_module.DeterministicContextOverflowError,
+            "state_evidence_overflow",
+        ):
+            PromptWindowManager(PromptBudget()).prepare(
+                PromptWindowRequest(
+                    model_step_system_message=Message("system", "policy"),
+                    conversation_history=[Message("assistant", "tail")],
+                    observations=[],
+                    tool_schemas=[],
+                    conversation_initial_task="initial",
+                    previous_digest=digest,
+                )
+            )
 
     def test_next_page_merges_only_repository_supplied_uncovered_delta(self) -> None:
         manager = PromptWindowManager(
@@ -550,10 +994,10 @@ class PromptWindowManagerTest(unittest.TestCase):
             first.covered_message_count,
         )
         self.assertEqual(
-            next_from_original.conversation_history_digest.task_updates[
-                : len(first.conversation_history_digest.task_updates)
+            next_from_original.conversation_history_digest.authority_updates[
+                : len(first.conversation_history_digest.authority_updates)
             ],
-            first.conversation_history_digest.task_updates,
+            first.conversation_history_digest.authority_updates,
         )
 
     def test_rolling_scan_extracts_each_new_segment_once(self) -> None:
@@ -640,6 +1084,53 @@ class PromptWindowManagerTest(unittest.TestCase):
 
         self.assertEqual(result.covered_delta_count, 3)
         self.assertEqual(result.llm_messages[2:], history[3:])
+
+    def test_context_state_cas_conflict_fails_closed_before_checkpoint_update(self) -> None:
+        class ConflictingRepository:
+            def save_context_state(self, state, *, expected_revision):
+                del state, expected_revision
+                raise RuntimeError("context state revision conflict")
+
+        class Lifecycle:
+            checkpoint_updated = False
+
+            def update_checkpoint(self, update):
+                del update
+                self.checkpoint_updated = True
+
+        lifecycle = Lifecycle()
+        session = SimpleNamespace(
+            message_sequences=[1],
+            conversation_threads=ConflictingRepository(),
+            context_revision=2,
+            lifecycle=lifecycle,
+        )
+        digest = ConversationHistoryDigest(
+            initial_task="initial",
+            covered_message_count=1,
+            source_hash="source",
+            authority_updates=[],
+            resource_hints=[],
+            state_evidence=[],
+            recent_tool_transactions=[],
+            estimated_tokens_before=100,
+            estimated_tokens_after=50,
+        )
+
+        with self.assertRaisesRegex(RuntimeError, "model input was not committed"):
+            ModelStepPreparation._save_thread_digest(
+                ModelStepPreparation.__new__(ModelStepPreparation),
+                session=session,
+                state=ThreadContextState(
+                    thread_id="thread-1",
+                    revision=2,
+                ),
+                digest=digest,
+                covered_delta_count=1,
+            )
+
+        self.assertEqual(session.context_revision, 2)
+        self.assertFalse(lifecycle.checkpoint_updated)
 
 
 if __name__ == "__main__":

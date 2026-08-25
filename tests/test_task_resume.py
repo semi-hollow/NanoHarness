@@ -155,14 +155,17 @@ def _seed_resumable_turn(
             thread_id=thread_id,
             covered_sequence=7,
             conversation_history_digest={
+                "schema_version": 2,
                 "initial_task": task,
                 "covered_message_count": 7,
                 "source_hash": source_hash,
-                "task_updates": ["keep the public API"],
-                "tool_transactions": [],
-                "failed_tool_evidence": ["patch anchor mismatch"],
+                "authority_updates": ["keep the public API"],
+                "resource_hints": [],
+                "state_evidence": [],
+                "recent_tool_transactions": [],
                 "estimated_tokens_before": 1_200,
                 "estimated_tokens_after": 600,
+                "workspace_mutation_observed": False,
             },
         ),
         expected_revision=0,
@@ -547,6 +550,8 @@ class TaskResumeTest(unittest.TestCase):
                 max_prompt_tokens=4_000,
                 reserved_output_tokens=500,
             )
+            journal_path = threads_root / "thread-resume" / "conversation.jsonl"
+            journal_before_resume = journal_path.read_bytes()
             model = TwoReadsThenFinalLLM()
             result = Harness(
                 model=model,
@@ -570,6 +575,7 @@ class TaskResumeTest(unittest.TestCase):
             durable_items = repository.list_items(result.thread_id)
 
             self.assertIn("continued after compaction", result.stop_output)
+            self.assertTrue(journal_path.read_bytes().startswith(journal_before_resume))
             self.assertEqual(len(durable_items), thread.sequence)
             self.assertLess(state.covered_sequence, thread.sequence)
             self.assertTrue(

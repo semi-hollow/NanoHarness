@@ -142,6 +142,14 @@ class ModelStepPreparation:
         # ToolRouter 同时返回 schema 和 allowed_names：前者发给模型，后者供执行时复核。
         # 两份视图来自同一 ToolRoute，避免模型看见的工具与 Runtime 放行集合不一致。
         registered_tool_schemas = [dict(schema) for schema in session.base_tool_schemas]
+        compaction_tool_metadata = self.tool_router.metadata_for(
+            set(self.tool_router.DEFAULT_METADATA)
+            | {
+                str(schema.get("name") or "")
+                for schema in registered_tool_schemas
+                if str(schema.get("name") or "")
+            }
+        )
         tool_route = self.tool_router.route(
             ToolRoutingRequest(
                 task=session.turn_focus,
@@ -232,6 +240,7 @@ class ModelStepPreparation:
                     tool_schemas=visible_tool_schemas,
                     conversation_initial_task=session.thread_initial_task,
                     previous_digest=previous_digest,
+                    tool_metadata=compaction_tool_metadata,
                     force_compaction=True,
                 )
             )
@@ -261,6 +270,7 @@ class ModelStepPreparation:
                 tool_schemas=visible_tool_schemas,
                 conversation_initial_task=session.thread_initial_task,
                 previous_digest=previous_digest,
+                tool_metadata=compaction_tool_metadata,
                 transient_messages=(
                     (runtime_control_message,)
                     if runtime_control_message is not None

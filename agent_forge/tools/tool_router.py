@@ -202,6 +202,27 @@ class ToolRouter:
         },
     }
 
+    _EXTERNAL_METADATA = {
+        "capability": "external",
+        "risk": "configured",
+        "latency": "unknown",
+        "mode": "mcp_style",
+    }
+
+    @classmethod
+    def metadata_for(cls, tool_names: set[str]) -> dict[str, dict]:
+        """返回给定工具目录的 deterministic metadata，不受本轮可见性裁剪影响。
+
+        Compaction 会处理旧 ToolCall；如果只传当前 ``ToolRoute.metadata``，finalize
+        或路由变化可能让同一历史事务失去 capability。这里让 Router 继续作为工具
+        分类的唯一 owner，而 Context 只消费冻结的 metadata projection。
+        """
+
+        return {
+            name: dict(cls.DEFAULT_METADATA.get(name, cls._EXTERNAL_METADATA))
+            for name in sorted(tool_names)
+        }
+
     # 主要入口：结合任务、Skill 与模式收敛当前 Model Step 的模型可见工具 schema。
     def route(self, request: ToolRoutingRequest) -> ToolRoute:
         """为一个 Model Step 生成模型工具视图，并保留完整的选择证据。
@@ -261,18 +282,7 @@ class ToolRouter:
                     f"step={current_step} agent={agent_name or 'agent'}"
                 ),
                 dropped_names=[],
-                metadata={
-                    name: self.DEFAULT_METADATA.get(
-                        name,
-                        {
-                            "capability": "external",
-                            "risk": "configured",
-                            "latency": "unknown",
-                            "mode": "mcp_style",
-                        },
-                    )
-                    for name in sorted(registered_tool_names)
-                },
+                metadata=self.metadata_for(registered_tool_names),
                 phase=(
                     "closeout_all_tools_visible"
                     if remaining_tool_model_steps == 1
@@ -475,18 +485,7 @@ class ToolRouter:
             },
             reason=routing_reason,
             dropped_names=hidden_tool_names,
-            metadata={
-                name: self.DEFAULT_METADATA.get(
-                    name,
-                    {
-                        "capability": "external",
-                        "risk": "configured",
-                        "latency": "unknown",
-                        "mode": "mcp_style",
-                    },
-                )
-                for name in sorted(visible_tool_names)
-            },
+            metadata=self.metadata_for(visible_tool_names),
             phase=("closeout" if remaining_tool_model_steps == 1 else "work"),
             remaining_tool_model_steps=remaining_tool_model_steps,
         )

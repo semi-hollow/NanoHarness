@@ -15,16 +15,37 @@ from __future__ import annotations
 
 import hashlib
 import json
-from dataclasses import dataclass, replace
-from typing import TypeVar
+from dataclasses import dataclass, field, replace
+from typing import Mapping
 
-from agent_forge.context.domain import ConversationHistoryDigest, ToolTransactionDigest
+from agent_forge.context.domain import (
+    AUTHORITY_UPDATE_MAX_CHARS,
+    RECENT_TOOL_TRANSACTION_LIMIT,
+    RESOURCE_HINT_LIMIT,
+    RESOURCE_HINT_MAX_CHARS,
+    STATE_ARGUMENTS_MAX_CHARS,
+    STATE_EVIDENCE_LIMIT,
+    STATE_OBSERVATION_MAX_CHARS,
+    ConversationHistoryDigest,
+    ToolStateDigest,
+    ToolTransactionDigest,
+)
 from agent_forge.context.application.text_budget import truncate_middle
 from agent_forge.contracts import ToolSchema
 from agent_forge.runtime.domain.conversation import Message, Observation
 
 
-T = TypeVar("T")
+_AUTHORITY_INPUT_RATIO = 0.25
+_STATE_INPUT_RATIO = 0.25
+_RESOURCE_ARGUMENT_KEYS = ("path", "validation_target", "keyword")
+
+
+class DeterministicContextOverflowError(RuntimeError):
+    """不可淘汰的确定性事实已经超过其预留 prompt 空间。"""
+
+    def __init__(self, code: str, detail: str) -> None:
+        self.code = code
+        super().__init__(f"{code}: {detail}")
 
 
 # 核心数据：一次模型请求允许使用的输入窗口与输出预留预算。
@@ -66,6 +87,24 @@ class PromptBudget:
     def soft_input_limit(self) -> int:
         return max(256, int(self.hard_input_limit * self.soft_limit_ratio))
 
+    @property
+    def authority_context_char_limit(self) -> int:
+        """预留最多四分之一 input 给不可静默淘汰的 human authority。"""
+
+        return max(
+            512,
+            int(self.hard_input_limit * self.chars_per_token * _AUTHORITY_INPUT_RATIO),
+        )
+
+    @property
+    def state_context_char_limit(self) -> int:
+        """预留最多四分之一 input 给 keyed latest-state projection。"""
+
+        return max(
+            512,
+            int(self.hard_input_limit * self.chars_per_token * _STATE_INPUT_RATIO),
+        )
+
 
 # 核心数据：上下文治理后真正发送给模型的消息与压缩证据。
 @dataclass(frozen=True, kw_only=True)
@@ -99,6 +138,7 @@ class PromptWindowRequest:
     tool_schemas: list[ToolSchema]
     conversation_initial_task: str
     previous_digest: ConversationHistoryDigest | None = None
+    tool_metadata: Mapping[str, Mapping[str, object]] = field(default_factory=dict)
     transient_messages: tuple[Message, ...] = ()
     force_compaction: bool = False
 
@@ -119,6 +159,25 @@ class PromptWindowManager:
     def __init__(self, budget: PromptBudget) -> None:
         self.budget = budget
 
+    def _validate_durable_capacity(self, digest: ConversationHistoryDigest) -> None:
+        """容量不足时失败关闭，不猜测应淘汰哪条 authority/current state。"""
+
+        if digest.authority_context_chars > self.budget.authority_context_char_limit:
+            raise DeterministicContextOverflowError(
+                "authority_context_overflow",
+                "human authority exceeds the deterministic reserved context; "
+                "semantic compaction is required",
+            )
+        if (
+            len(digest.state_evidence) > STATE_EVIDENCE_LIMIT
+            or digest.state_context_chars > self.budget.state_context_char_limit
+        ):
+            raise DeterministicContextOverflowError(
+                "state_evidence_overflow",
+                "distinct latest-state evidence exceeds the deterministic reserved context; "
+                "semantic compaction is required",
+            )
+
     # 主要入口：复用旧投影，只把 Thread 尚未覆盖的前缀增量合入摘要。
     def prepare(self, request: PromptWindowRequest) -> PromptWindowResult:
         """在模型调用前生成满足硬窗口限制的、可解释的消息视图。
@@ -133,6 +192,8 @@ class PromptWindowManager:
         # ``conversation_history`` 已从 ``covered_sequence`` 之后有界读取，因此本层
         # 不再维护第二个 Session cursor。transient message 也永远不会进入摘要。
         current_session_delta = request.conversation_history
+        if request.previous_digest is not None:
+            self._validate_durable_capacity(request.previous_digest)
         previous_digest_message = (
             [Message(role="system", content=request.previous_digest.render())]
             if request.previous_digest is not None
@@ -226,6 +287,7 @@ class PromptWindowManager:
                 [next_segment],
                 estimated_tokens_before=estimated_tokens_before,
                 skip_initial_user_message=root_user_message_pending,
+                tool_metadata=request.tool_metadata,
             )
             if root_user_message_pending and any(
                 message.role == "user" and message.human_authority
@@ -247,6 +309,7 @@ class PromptWindowManager:
                 rolling_delta_digest,
                 estimated_tokens_before=estimated_tokens_before,
             )
+            self._validate_durable_capacity(conversation_history_digest)
             candidate_llm_messages = [
                 request.model_step_system_message,
                 Message(
@@ -313,7 +376,16 @@ class PromptWindowManager:
             best_compaction_result is not None
             and best_compaction_result.estimated_tokens_after < estimated_tokens_before
         ):
-            return best_compaction_result
+            # 没有候选达到目标时仍允许 bounded-page 向前追赶，但 reason 必须明确这是
+            # strictly-smaller best effort，不能伪称已经满足 soft/forced target。
+            return replace(
+                best_compaction_result,
+                reason=(
+                    "provider_overflow_best_effort_reduction"
+                    if request.force_compaction
+                    else "soft_limit_best_effort_reduction"
+                ),
+            )
         return PromptWindowResult(
             llm_messages=full_llm_messages,
             conversation_history_digest=request.previous_digest,
@@ -444,20 +516,145 @@ def _message_tool_names(message: Message) -> set[str]:
     return names
 
 
+def _normalized_argument_value(value: object) -> object:
+    """生成稳定 JSON payload；规范结构但保留字符串值的精确语义。"""
+
+    if isinstance(value, Mapping):
+        return {
+            str(key): _normalized_argument_value(item)
+            for key, item in value.items()
+        }
+    if isinstance(value, list):
+        return [_normalized_argument_value(item) for item in value]
+    if isinstance(value, tuple):
+        return [_normalized_argument_value(item) for item in value]
+    if isinstance(value, str):
+        return value
+    if value is None or isinstance(value, (bool, int, float)):
+        return value
+    return str(value)
+
+
+def _normalized_tool_arguments(raw_arguments: object) -> object:
+    """兼容 OpenAI JSON string 与内部 dict ToolCall，并返回同一 canonical shape。"""
+
+    parsed: object = raw_arguments
+    if isinstance(raw_arguments, str):
+        try:
+            parsed = json.loads(raw_arguments)
+        except json.JSONDecodeError:
+            parsed = raw_arguments
+    return _normalized_argument_value(parsed)
+
+
+def _canonical_tool_arguments(raw_arguments: object) -> str:
+    return json.dumps(
+        _normalized_tool_arguments(raw_arguments),
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+
+
+def _tool_classification(
+    tool_name: str,
+    tool_metadata: Mapping[str, Mapping[str, object]],
+) -> tuple[str, str]:
+    metadata = tool_metadata.get(tool_name, {})
+    return (
+        str(metadata.get("capability") or "external"),
+        str(metadata.get("mode") or "unknown"),
+    )
+
+
+def _resource_hints_from_arguments(raw_arguments: object) -> list[str]:
+    """只从固定 argument keys 提取小型资源标识，不扫描 Observation 正文。"""
+
+    arguments = _normalized_tool_arguments(raw_arguments)
+    if not isinstance(arguments, Mapping):
+        return []
+    hints: list[str] = []
+    for key in _RESOURCE_ARGUMENT_KEYS:
+        raw_value = arguments.get(key)
+        resource_values = raw_value if isinstance(raw_value, list) else [raw_value]
+        for resource_value in resource_values:
+            if not isinstance(resource_value, str):
+                continue
+            hint = _excerpt(resource_value, RESOURCE_HINT_MAX_CHARS)
+            if hint and hint not in {".", "./"}:
+                hints.append(hint)
+    return hints
+
+
+def _tool_state_status(observation: Observation | None) -> str:
+    if observation is None:
+        return "unknown"
+    # ``validation_blocked`` 是 Validation Tool 的显式协议标记，不是对自然语言
+    # Observation 做 semantic classification。
+    if (
+        observation.execution_succeeded is False
+        or "validation_blocked:" in observation.content.lower()
+    ):
+        return "blocked"
+    return "passed" if observation.success else "failed"
+
+
+def _tool_state_key(tool_name: str, capability: str, canonical_arguments: str) -> str:
+    arguments_hash = hashlib.sha256(canonical_arguments.encode("utf-8")).hexdigest()[:16]
+    return f"{capability}:{tool_name}:{arguments_hash}"
+
+
+def _latest_unique_strings(values: list[str], limit: int) -> list[str]:
+    """保留 latest N 个 unique hint；hint 是可淘汰导航线索，不是 authority。"""
+
+    latest: list[str] = []
+    for value in values:
+        if value in latest:
+            latest.remove(value)
+        latest.append(value)
+    return latest[-limit:]
+
+
+def _latest_state_by_key(values: list[ToolStateDigest]) -> list[ToolStateDigest]:
+    """按输入顺序做 latest-value-wins；替换后 key 移到最新位置。"""
+
+    by_key: dict[str, ToolStateDigest] = {}
+    key_order: list[str] = []
+    for value in values:
+        if value.state_key in by_key:
+            key_order.remove(value.state_key)
+        by_key[value.state_key] = value
+        key_order.append(value.state_key)
+    return [by_key[key] for key in key_order]
+
+
+def _mark_state_evidence_stale(
+    values: list[ToolStateDigest],
+) -> list[ToolStateDigest]:
+    """成功 workspace mutation 后，旧验证仍保留但不能继续宣称 current。"""
+
+    return [
+        value if value.status == "stale" else replace(value, status="stale")
+        for value in values
+    ]
+
+
 def _build_digest(
     initial_task: str,
     history_segments: list[_HistorySegment],
     *,
     estimated_tokens_before: int,
     skip_initial_user_message: bool,
+    tool_metadata: Mapping[str, Mapping[str, object]] | None = None,
 ) -> ConversationHistoryDigest:
-    """把被压缩的旧历史投影为可审计、大小有界的会话摘要。
+    """只处理本次新 compact 的 raw prefix，生成 deterministic delta digest。
 
-    伪代码：冻结覆盖范围与来源 hash -> 提取初始任务后的 user 更新 -> 重建
-    ToolCall/Observation 事务与失败证据 -> 返回有界 ``ConversationHistoryDigest``。
-    raw 消息仍保留在 ConversationThread journal；Trace 只记录窗口指标、
-    来源 hash 和压缩事实，这里不修改权威会话历史。
+    Human authority 逐条做有界 excerpt 但不按位置淘汰；validation/command 形成
+    keyed latest state；所有 ToolCall 只形成 recent breadcrumb。raw 消息仍保留在
+    ConversationThread journal，本函数不读取或修改已覆盖历史。
     """
+
+    effective_tool_metadata = tool_metadata or {}
 
     # region 1. 来源边界：冻结覆盖消息、配对 Observation 与稳定 hash
     covered_messages = [
@@ -500,29 +697,29 @@ def _build_digest(
     )
     # endregion 1. 来源边界结束
 
-    # region 2. 任务演进：保留初始任务之后的 user steer/约束更新
-    # ``initial_task`` 单独保留 Thread 起点；后续 Turn user message 都属于 updates。
-    # 后续 user message 才属于 task_updates，避免摘要重复发送同一语义。
+    # region 2. Human authority：初始任务单独保存，后续授权输入不得按数量静默淘汰
+    # ``initial_task`` 单独保留 Thread 起点；后续 human-authority user message 才进入
+    # authority_updates，避免摘要重复发送起点，也拒绝 runtime-generated role=user 信号。
     initial_user_message_seen = not skip_initial_user_message
-    task_updates: list[str] = []
+    authority_updates: list[str] = []
     for message in covered_messages:
         if message.role != "user" or not message.human_authority:
             continue
         if not initial_user_message_seen:
             initial_user_message_seen = True
             continue
-        task_updates.append(_excerpt(message.content, 320))
-    task_updates = _bounded(
-        [update for update in task_updates if update],
-        6,
-    )
-    # endregion 2. 任务演进结束
+        authority_update = _excerpt(message.content, AUTHORITY_UPDATE_MAX_CHARS)
+        if authority_update:
+            authority_updates.append(authority_update)
+    # endregion 2. Human authority 结束
 
-    # region 3. 工具事务：按 call id 重建意图、结果和失败证据
+    # region 3. 工具投影：recent event、resource hint 与 keyed current state 分责
     # 每个 segment 先索引实际 tool message，再遍历 assistant ToolCall；这样缺失结果时
     # success 保持 None，而不会把“模型提出调用”误写成“工具已经成功”。
-    tool_transactions: list[ToolTransactionDigest] = []
-    failed_tool_evidence: list[str] = []
+    recent_tool_transactions: list[ToolTransactionDigest] = []
+    resource_hints: list[str] = []
+    state_evidence: list[ToolStateDigest] = []
+    workspace_mutation_observed = False
     for history_segment in history_segments:
         tool_messages = {
             message.tool_call_id: (message, observation)
@@ -558,22 +755,54 @@ def _build_digest(
                 tool_succeeded = (
                     observation.success if observation is not None else None
                 )
+                capability, mode = _tool_classification(
+                    tool_name,
+                    effective_tool_metadata,
+                )
+                canonical_arguments = _canonical_tool_arguments(tool_arguments)
                 tool_transaction = ToolTransactionDigest(
                     tool_name=tool_name,
+                    capability=capability,
+                    mode=mode,
                     arguments_summary=_excerpt(
-                        _stable_text(tool_arguments),
-                        220,
+                        canonical_arguments,
+                        STATE_ARGUMENTS_MAX_CHARS,
                     ),
                     success=tool_succeeded,
                     observation_excerpt=_excerpt(
                         tool_observation_content,
-                        320,
+                        STATE_OBSERVATION_MAX_CHARS,
                     ),
                 )
-                tool_transactions.append(tool_transaction)
-                if tool_succeeded is False:
-                    failed_tool_evidence.append(
-                        f"{tool_name}: {_excerpt(tool_observation_content, 240)}"
+                recent_tool_transactions.append(tool_transaction)
+                resource_hints.extend(_resource_hints_from_arguments(tool_arguments))
+                if tool_succeeded is True and (
+                    capability == "edit" or mode == "write"
+                ):
+                    # 修改后的 workspace 可能使之前 PASS/FAIL 都过时；保留证据但降级为
+                    # stale，直到相同 key 或其他验证 key 被重新执行。
+                    workspace_mutation_observed = True
+                    state_evidence = _mark_state_evidence_stale(state_evidence)
+                if capability == "validate" or mode == "command":
+                    state_evidence.append(
+                        ToolStateDigest(
+                            state_key=_tool_state_key(
+                                tool_name,
+                                capability,
+                                canonical_arguments,
+                            ),
+                            tool_name=tool_name,
+                            capability=capability,
+                            arguments_summary=_excerpt(
+                                canonical_arguments,
+                                STATE_ARGUMENTS_MAX_CHARS,
+                            ),
+                            status=_tool_state_status(observation),
+                            observation_excerpt=_excerpt(
+                                tool_observation_content,
+                                STATE_OBSERVATION_MAX_CHARS,
+                            ),
+                        )
                     )
     # endregion 3. 工具事务结束
 
@@ -581,11 +810,15 @@ def _build_digest(
         initial_task=initial_task,
         covered_message_count=len(covered_messages),
         source_hash=hashlib.sha256(digest_source_payload.encode("utf-8")).hexdigest(),
-        task_updates=task_updates,
-        tool_transactions=_bounded(tool_transactions, 16),
-        failed_tool_evidence=_bounded(failed_tool_evidence, 8),
+        authority_updates=authority_updates,
+        resource_hints=_latest_unique_strings(resource_hints, RESOURCE_HINT_LIMIT),
+        state_evidence=_latest_state_by_key(state_evidence),
+        recent_tool_transactions=recent_tool_transactions[
+            -RECENT_TOOL_TRANSACTION_LIMIT:
+        ],
         estimated_tokens_before=estimated_tokens_before,
         estimated_tokens_after=0,
+        workspace_mutation_observed=workspace_mutation_observed,
     )
 
 
@@ -605,6 +838,8 @@ def _merge_digest(
 
     if previous_digest is None:
         return delta_digest
+    if previous_digest.initial_task != delta_digest.initial_task:
+        raise ValueError("cannot merge conversation digests with different initial tasks")
     chained_source_hash = hashlib.sha256(
         json.dumps(
             {
@@ -621,26 +856,36 @@ def _merge_digest(
             + delta_digest.covered_message_count
         ),
         source_hash=chained_source_hash,
-        task_updates=_bounded(
-            [*previous_digest.task_updates, *delta_digest.task_updates],
-            6,
+        authority_updates=[
+            *previous_digest.authority_updates,
+            *delta_digest.authority_updates,
+        ],
+        resource_hints=_latest_unique_strings(
+            [*previous_digest.resource_hints, *delta_digest.resource_hints],
+            RESOURCE_HINT_LIMIT,
         ),
-        tool_transactions=_bounded(
+        state_evidence=_latest_state_by_key(
             [
-                *previous_digest.tool_transactions,
-                *delta_digest.tool_transactions,
+                *(
+                    _mark_state_evidence_stale(previous_digest.state_evidence)
+                    if delta_digest.workspace_mutation_observed
+                    else previous_digest.state_evidence
+                ),
+                *delta_digest.state_evidence,
             ],
-            16,
         ),
-        failed_tool_evidence=_bounded(
+        recent_tool_transactions=(
             [
-                *previous_digest.failed_tool_evidence,
-                *delta_digest.failed_tool_evidence,
-            ],
-            8,
+                *previous_digest.recent_tool_transactions,
+                *delta_digest.recent_tool_transactions,
+            ][-RECENT_TOOL_TRANSACTION_LIMIT:]
         ),
         estimated_tokens_before=estimated_tokens_before,
         estimated_tokens_after=0,
+        workspace_mutation_observed=(
+            previous_digest.workspace_mutation_observed
+            or delta_digest.workspace_mutation_observed
+        ),
     )
 
 
@@ -666,23 +911,5 @@ def _trim_large_messages(messages: list[Message], max_chars: int) -> list[Messag
     return trimmed
 
 
-def _stable_text(value: object) -> str:
-    if isinstance(value, str):
-        return value
-    return json.dumps(value, ensure_ascii=False, sort_keys=True)
-
-
 def _excerpt(text: str, max_chars: int) -> str:
     return truncate_middle(" ".join(text.split()), max_chars)
-
-
-def _bounded(values: list[T], limit: int) -> list[T]:
-    """同时保留最早事实和最近状态，避免只看尾部。"""
-
-    if len(values) <= limit:
-        return list(values)
-    retained_prefix_count = max(1, limit // 3)
-    return [
-        *values[:retained_prefix_count],
-        *values[-(limit - retained_prefix_count) :],
-    ]
