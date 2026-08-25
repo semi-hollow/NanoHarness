@@ -157,8 +157,8 @@ def _add_run_command(subparsers: argparse._SubParsersAction) -> None:
         "--multi-agent-resume",
         default=None,
         help=(
-            "Prior HARD-only Multi-Agent run, summary, or checkpoint used to "
-            "restore its validated plan and integrated prefix."
+            "Interrupted HARD-only Multi-Agent run directory or running "
+            "fanout_checkpoint.json used to continue its verified integrated prefix."
         ),
     )
     parser.add_argument(

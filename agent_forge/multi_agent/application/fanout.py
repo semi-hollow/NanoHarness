@@ -768,12 +768,17 @@ class FanoutCoordinator:
         """从当前 schema Checkpoint 验证并重放 HARD-only strict prefix。"""
 
         # region 1. 恢复入口身份校验
-        # Checkpoint schema、冻结 Plan 与 Git base 任一漂移都立即拒绝恢复。
+        # Resume 只延续被外部中断的运行态 Run；终态结果必须通过 New Run 重试。
         if not self.resume_from:
             return
         payload = self.artifacts.load_resume(self.resume_from)
         if payload.get("schema_version") != FANOUT_CHECKPOINT_SCHEMA_VERSION:
             raise RuntimeError("fanout resume checkpoint schema_version is unsupported")
+        if payload.get("status") != "running":
+            raise RuntimeError(
+                "fanout resume checkpoint is not resumable: "
+                f"status={payload.get('status')!r}; only running is allowed"
+            )
         if payload.get("plan_digest") != self.plan.digest:
             raise RuntimeError("fanout resume plan digest does not match")
         if payload.get("base_head") != base_head:

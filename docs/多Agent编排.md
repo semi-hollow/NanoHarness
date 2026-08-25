@@ -186,9 +186,16 @@ failure_kind=integration_frontier_blocked
 
 HARD-only Resume 会验证当前 schema、相同 Plan digest、相同 Git base、严格 merged prefix、
 canonical integrated Task result、candidate SHA、`validate_recovery_diffs()` 和 replay
-applicability。单独的 Attempt evidence 不能提升为 trusted Task。
+applicability。入口只接受 `status=running` 的 Checkpoint；任意 terminal status 都在启动
+Worker 前 fail closed。单独的 Attempt evidence 不能提升为 trusted Task。
 
 LIVE V1 不支持 Resume，因为当前没有 durable mailbox / consumed-version replay。
+
+三条执行语义彼此独立：
+
+- **Worker Retry**：同一 Fanout Run 内，Runtime 明确分类为 retryable 的 Worker failure 最多进入 Attempt-2；
+- **Resume**：外部中断后，继续同一个 HARD-only Fanout execution 的 verified trusted prefix；
+- **New Run**：terminal result 后由用户显式发起的新执行，不能伪装成 Resume。
 
 ## 最小验证
 

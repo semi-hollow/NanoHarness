@@ -921,42 +921,34 @@ class FanoutResumeTests(unittest.TestCase):
         self.assertEqual(restored.digest, plan.digest)
 
     def test_checkpoint_is_only_authority_and_replays_strict_prefix(self) -> None:
-        first_artifacts = _Artifacts()
+        interrupted_artifacts = _Artifacts()
         plan = _plan(
             _task("A", write_scope=("a.py",)),
             _task("B", depends_on=("A",), write_scope=("b.py",)),
         )
-
-        def first_behavior(task: SubagentTask, attempt: int, _: Any) -> WorkerAttemptResult:
-            if task.id == "B":
-                return _attempt(
-                    first_artifacts,
-                    task,
-                    attempt,
-                    status="terminal_failure",
-                    failure_kind="worker_execution_failed",
-                )
-            return _attempt(first_artifacts, task, attempt)
-
-        first_workers = _Workers(first_artifacts, first_behavior)
-        first_summary = _coordinator(plan, first_artifacts, first_workers)[0].run()
-        self.assertEqual(first_summary.merged_task_ids, ["A"])
-        checkpoint = first_artifacts.checkpoints[-1]
+        first_attempt = _attempt(interrupted_artifacts, plan.tasks[0], 1)
+        first_attempt.handoff = project_worker_handoff(first_attempt)
+        first_task_result = FanoutTaskResult(
+            task_id="A",
+            status="integrated",
+            final_attempt=1,
+            handoff=first_attempt.handoff,
+        )
         payload = {
-            "schema_version": checkpoint.schema_version,
-            "plan_digest": checkpoint.plan_digest,
-            "base_head": checkpoint.base_head,
-            "status": checkpoint.status,
-            "merged_task_ids": list(checkpoint.merged_task_ids),
-            "task_results": [row.to_dict() for row in checkpoint.task_results],
-            "attempt_results": [row.to_dict() for row in checkpoint.attempt_results],
-            "launch_waves": [[dict(item) for item in wave] for wave in checkpoint.launch_waves],
-            "updated_at": checkpoint.updated_at,
+            "schema_version": FANOUT_CHECKPOINT_SCHEMA_VERSION,
+            "plan_digest": plan.digest,
+            "base_head": "base",
+            "status": "running",
+            "merged_task_ids": ["A"],
+            "task_results": [first_task_result.to_dict()],
+            "attempt_results": [first_attempt.to_dict()],
+            "launch_waves": [[{"task_id": "A", "attempt": 1}]],
+            "updated_at": time.time(),
         }
 
         resumed_artifacts = _Artifacts()
         resumed_artifacts.resume_payload = payload
-        resumed_artifacts.text.update(first_artifacts.text)
+        resumed_artifacts.text.update(interrupted_artifacts.text)
         resumed_workers = _Workers(
             resumed_artifacts,
             lambda task, attempt, _: _attempt(resumed_artifacts, task, attempt),
@@ -968,6 +960,10 @@ class FanoutResumeTests(unittest.TestCase):
             resume_from="fanout_checkpoint.json",
         )[0].run()
         self.assertEqual(resumed.merged_task_ids, ["A", "B"])
+        self.assertEqual(
+            [(task_id, attempt) for task_id, attempt, _, _ in resumed_workers.calls],
+            [("B", 1)],
+        )
         self.assertEqual(resumed_workers.recovery_diffs[0][0][0], "A")
         self.assertTrue(next(row for row in resumed.attempt_results if row.task_id == "A").resumed)
         self.assertEqual(
@@ -976,7 +972,7 @@ class FanoutResumeTests(unittest.TestCase):
         )
 
         sha_artifacts = _Artifacts()
-        sha_artifacts.text.update(first_artifacts.text)
+        sha_artifacts.text.update(interrupted_artifacts.text)
         sha_artifacts.text["A-1.diff"] = "mutated after checkpoint"
         sha_artifacts.resume_payload = payload
         with self.assertRaisesRegex(RuntimeError, "digest does not match"):
@@ -996,7 +992,7 @@ class FanoutResumeTests(unittest.TestCase):
 
         # Standalone Attempt evidence cannot be promoted into trusted state.
         invalid_artifacts = _Artifacts()
-        invalid_artifacts.text.update(first_artifacts.text)
+        invalid_artifacts.text.update(interrupted_artifacts.text)
         invalid_artifacts.resume_payload = {**payload, "task_results": []}
         invalid_workers = _Workers(
             invalid_artifacts,
@@ -1011,7 +1007,7 @@ class FanoutResumeTests(unittest.TestCase):
             )[0].run()
 
         incomplete_artifacts = _Artifacts()
-        incomplete_artifacts.text.update(first_artifacts.text)
+        incomplete_artifacts.text.update(interrupted_artifacts.text)
         incomplete_task_results = [dict(row) for row in payload["task_results"]]
         incomplete_task_results[0]["handoff"] = None
         incomplete_artifacts.resume_payload = {
@@ -1042,6 +1038,7 @@ class FanoutResumeTests(unittest.TestCase):
         )
         base = {
             "schema_version": FANOUT_CHECKPOINT_SCHEMA_VERSION,
+            "status": "running",
             "plan_digest": plan.digest,
             "base_head": "base",
             "merged_task_ids": [],
@@ -1064,6 +1061,42 @@ class FanoutResumeTests(unittest.TestCase):
         artifacts.resume_payload = {**base, "merged_task_ids": ["B"]}
         with self.assertRaisesRegex(RuntimeError, "strict prefix"):
             _coordinator(plan, artifacts, workers, resume_from="checkpoint")[0].run()
+
+    def test_resume_rejects_terminal_checkpoint_before_worker_launch(self) -> None:
+        artifacts = _Artifacts()
+        plan = _plan(_task("A"))
+        workers = _Workers(
+            artifacts,
+            lambda task, attempt, _: _attempt(artifacts, task, attempt),
+        )
+        base = {
+            "schema_version": FANOUT_CHECKPOINT_SCHEMA_VERSION,
+            "plan_digest": plan.digest,
+            "base_head": "base",
+            "merged_task_ids": [],
+            "task_results": [],
+            "attempt_results": [],
+            "launch_waves": [],
+        }
+
+        for status in (
+            "passed",
+            "partial_failure",
+            "conflict_resolution_required",
+            "blocked",
+            "needs_revision",
+        ):
+            with self.subTest(status=status):
+                artifacts.resume_payload = {**base, "status": status}
+                with self.assertRaisesRegex(RuntimeError, "only running is allowed"):
+                    _coordinator(
+                        plan,
+                        artifacts,
+                        workers,
+                        resume_from="checkpoint",
+                    )[0].run()
+
+        self.assertEqual(workers.calls, [])
 
 
 class MultiAgentVocabularyTests(unittest.TestCase):

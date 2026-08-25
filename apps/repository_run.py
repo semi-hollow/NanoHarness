@@ -396,10 +396,10 @@ def _run_ultra_repository_task(
 ) -> Path:
     """Ultra 先经 Planner；Single 决策始终回到同一 ``Harness.run``。"""
 
-    # region 4.4 Resume：恢复既有 canonical plan，不重新调用 Planner 或扩张计划
+    # region 4.4 Resume：只延续 running Checkpoint，不重新调用 Planner 或扩张计划
     llm_config = resolve_llm_config_from_args(args)
     resume_from = getattr(args, "multi_agent_resume", "") or ""
-    # Resume 只接受 durable plan；损坏或不兼容 artifact 必须在启动 Worker 前失败。
+    # Plan 先从 durable artifact 恢复；Checkpoint 必须仍为 running，终态必须 New Run。
     if resume_from:
         # 先完成 schema/graph 读取，再进入与 Fresh Run 相同的 Multi-Agent 执行入口。
         try:

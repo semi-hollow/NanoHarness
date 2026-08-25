@@ -158,6 +158,7 @@ Coordinator 是唯一 execution authority，拥有调度、Candidate gates 与�
 - Worker Attempt 的 `candidate_produced` 不等于 Task `integrated`；
 - Candidate 经过本地完整性/范围检查，再由 strict frontier、HARD/LIVE readiness、freshness 和 Patch applicability 授权；
 - 只有确定性 Runtime failure taxonomy 可以触发最多一次 Worker retry；
+- Multi-Agent Resume 只延续 `status=running` 的 HARD-only Run；终态失败不能借 Resume 获得新 Attempt，只能创建 New Run；
 - Finalizer 使用独立只读执行对最终结果做语义检查。
 
 Public API 与控制流见 [`agent_forge/multi_agent/api.py`](agent_forge/multi_agent/api.py) 和

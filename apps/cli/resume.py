@@ -121,7 +121,7 @@ def _inherit_resolved_config(args: argparse.Namespace) -> None:
 
 
 def _reject_multi_agent_run(run_dir: str | Path) -> None:
-    """让未完成和已完成 Multi-Agent Run 都走独立 prefix 恢复协议。"""
+    """把 Multi-Agent durable continuation 与 Single-Agent resume 分开。"""
 
     fanout_dir = Path(run_dir) / "fanout"
     if any(
@@ -133,8 +133,9 @@ def _reject_multi_agent_run(run_dir: str | Path) -> None:
         )
     ):
         raise SystemExit(
-            "forge resume cannot restore a Multi-Agent run; use "
-            "forge run --agent-mode ultra --multi-agent-resume"
+            "forge resume cannot restore a Multi-Agent run; an interrupted "
+            "HARD-only run must use forge run --agent-mode ultra "
+            "--multi-agent-resume. A terminal Multi-Agent result requires a new run"
         )
 
 
