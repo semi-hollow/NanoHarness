@@ -371,7 +371,6 @@ class FanoutCoordinator:
                 state,
             )
             if decision == CandidateDecision.INTEGRATED:
-                state.candidates.pop(frontier, None)
                 advanced = True
                 continue
             return advanced
@@ -539,7 +538,11 @@ class FanoutCoordinator:
         attempt: WorkerAttemptResult,
         state: FanoutExecutionState,
     ) -> CandidateDecision:
-        """候选本地校验与可信集成的唯一 Authority。"""
+        """候选本地校验、可信集成与 terminal candidate cleanup 的唯一 Authority。
+
+        ``state.candidates`` 只保存等待决定或前沿的 Candidate：DEFERRED 留下，
+        INTEGRATED/REJECTED 在本方法返回前移除。
+        """
 
         # region 1. Phase A：与 Frontier 无关的确定性 Candidate 本地校验
         # Candidate 一出现就验证 artifact、实际写域和 patch contract，避免延迟真实失败。
@@ -674,6 +677,7 @@ class FanoutCoordinator:
             "trusted_commit",
             CandidateDecision.INTEGRATED,
         )
+        state.candidates.pop(task.id, None)
         # endregion 3. Patch dry-check、apply 与 trusted commit
         return CandidateDecision.INTEGRATED
 
@@ -1074,6 +1078,9 @@ class FanoutCoordinator:
                     "strict integration frontier could not advance to this Task",
                 ),
             )
+        # 剩余项只能是因严格前沿终止而保持 DEFERRED 的候选；它们已在上面投影为
+        # not_integrated，不能继续残留为“等待 integration decision”。
+        state.candidates.clear()
 
     @staticmethod
     def _fanout_status(

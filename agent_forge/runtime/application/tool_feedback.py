@@ -160,19 +160,31 @@ class ToolFeedback:
         arguments: ToolArguments,
         observation: Observation,
     ) -> JsonObject | None:
-        """只把明确的测试命令结果视为 correctness validation。"""
+        """生成 Trace/Worker validation evidence，不拥有 Conversation retention。"""
 
         validation_kind = ""
         if tool_name == "python_validation":
             check_type = str(arguments.get("check_type") or "").strip().lower()
-            command_marker = f"validation_command=python -m {check_type}"
-            command_attested = any(
-                line == command_marker or line.startswith(f"{command_marker} ")
-                for line in observation.content.lower().splitlines()
-            )
-            if check_type in {"pytest", "unittest"} and command_attested:
+            # Structured Tool 自己拥有 validation status；这里不再反解析它的正文。
+            if (
+                check_type in {"pytest", "unittest"}
+                and observation.validation_status is not None
+            ):
                 validation_kind = check_type
+                validation_status = {
+                    "passed": "passed",
+                    "failed": "failed",
+                    "blocked": "unavailable",
+                }[observation.validation_status]
+                return {
+                    "kind": validation_kind,
+                    "status": validation_status,
+                    "tool": tool_name,
+                    "evidence": observation.content[:600],
+                }
         elif tool_name == "run_command":
+            # Generic command 仅为 Trace/Worker 的 best-effort test evidence；
+            # 它不是 ConversationHistoryDigest 的 durable validation-state authority。
             try:
                 parts = shlex.split(str(arguments.get("command") or ""))
             except ValueError:

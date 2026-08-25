@@ -275,11 +275,15 @@ class LocalAgentWorkerAdapter(FanoutWorkerPort):
                 candidate_diff_text.encode("utf-8")
             ).hexdigest()
             touched_files = collect_changed_files(active_workspace)
-            stop_reason, failure_kind, retryable, validation_evidence = _trace_outcome(
-                trace_path
-            )
+            (
+                run_status,
+                stop_reason,
+                failure_kind,
+                retryable,
+                validation_evidence,
+            ) = _trace_outcome(trace_path)
             status, failure_kind, error = _worker_attempt_outcome(
-                final_answer=final_answer,
+                run_status=run_status,
                 stop_reason=stop_reason,
                 failure_kind=failure_kind,
                 retryable=retryable,
@@ -295,6 +299,9 @@ class LocalAgentWorkerAdapter(FanoutWorkerPort):
                     touched_files=touched_files,
                     artifact_path=str(artifact_path),
                     error=error,
+                    failure_kind=failure_kind,
+                    retryable=retryable,
+                    stop_reason=stop_reason,
                     validation_evidence=validation_evidence,
                     unresolved_issues=unresolved_issues,
                 )
@@ -932,23 +939,38 @@ def finalizer_task_prompt(
 # region 6. 结果投影：从真实文件、Trace 和 Finalizer 文本推导结构化事实
 def _worker_attempt_outcome(
     *,
-    final_answer: str,
+    run_status: str,
     stop_reason: str,
     failure_kind: str,
     retryable: bool,
 ) -> tuple[str, str, str]:
-    """只投影 Worker execution；scope/no-patch 等治理判断留给 Coordinator。"""
+    """从 canonical Run lifecycle 投影 Worker execution typed outcome。
 
-    if retryable:
+    ``final_answer`` 是 payload，不参与状态判断；scope/no-patch/merge 等 Candidate
+    治理仍由 Coordinator 拥有。
+    """
+
+    if run_status == TaskRunStatus.COMPLETED.value:
+        return "candidate_produced", "", ""
+    if run_status == TaskRunStatus.FAILED.value and retryable:
         kind = failure_kind or "runtime_retryable_failure"
         return "retryable_failure", kind, stop_reason or kind
-    if final_answer.startswith("waiting_human:"):
-        return "terminal_failure", "waiting_human", "worker requires human input"
-    if final_answer.startswith("blocked:"):
-        return "terminal_failure", "worker_blocked", "worker reported blocked"
-    if failure_kind and stop_reason and stop_reason not in {"completed", "final_answer"}:
-        return "terminal_failure", failure_kind, stop_reason
-    return "candidate_produced", failure_kind, ""
+    lifecycle_failure_kinds = {
+        TaskRunStatus.WAITING_HUMAN.value: "waiting_human",
+        TaskRunStatus.WAITING_APPROVAL.value: "waiting_approval",
+        TaskRunStatus.BLOCKED.value: "worker_blocked",
+        TaskRunStatus.CANCELLED.value: "worker_cancelled",
+        TaskRunStatus.PAUSED.value: "worker_paused",
+    }
+    kind = (
+        failure_kind
+        if run_status == TaskRunStatus.FAILED.value and failure_kind
+        else lifecycle_failure_kinds.get(
+            run_status,
+            f"worker_{run_status}" if run_status else "worker_lifecycle_missing",
+        )
+    )
+    return "terminal_failure", kind, stop_reason or kind
 
 
 def _render_worker_artifact(
@@ -980,11 +1002,12 @@ def _render_worker_artifact(
 
 def _trace_outcome(
     trace_path: Path,
-) -> tuple[str, str, bool, list[dict[str, object]]]:
-    """只从 canonical worker trace 读取 retryability 和 validation 事实。"""
+) -> tuple[str, str, str, bool, list[dict[str, object]]]:
+    """只从 canonical worker trace 读取 Run status、retry 与 validation 事实。"""
 
     payload = json.loads(trace_path.read_text(encoding="utf-8"))
     stop_reason = str(payload.get("stop_reason") or "")
+    run_status = ""
     failure_kind = ""
     retryable = False
     validation_evidence: list[dict[str, object]] = []
@@ -998,15 +1021,21 @@ def _trace_outcome(
         if event.get("event_type") == "recovery_decision":
             failure_kind = str(event.get("failure_kind") or "")
             retryable = event.get("retryable") is True
+        if event.get("event_type") == "task_state_checkpoint" and isinstance(
+            event.get("task_state"), dict
+        ):
+            # RunLifecycle 每次 transition 都写 canonical checkpoint；最后一条就是
+            # Worker lifecycle authority，人类可读 final payload 不参与投影。
+            run_status = str(event["task_state"].get("status") or "")
         # validation_evidence 只接受结构化 validation mapping。
         if event.get("event_type") == "validation_evidence" and isinstance(
             event.get("validation"), dict
         ):
             validation_evidence.append(dict(event["validation"]))
-    if stop_reason in {"completed", "final_answer"}:
+    if run_status == TaskRunStatus.COMPLETED.value:
         failure_kind = ""
         retryable = False
-    return stop_reason, failure_kind, retryable, validation_evidence
+    return run_status, stop_reason, failure_kind, retryable, validation_evidence
 
 
 def _unresolved_issues(status: str, error: str) -> list[str]:

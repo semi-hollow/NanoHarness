@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import inspect
 import json
 import threading
 import time
@@ -330,6 +331,60 @@ class FanoutDomainTests(unittest.TestCase):
 
 
 class FanoutSchedulerAndFrontierTests(unittest.TestCase):
+    def test_deferred_candidate_is_removed_after_strict_frontier_integrates(self) -> None:
+        artifacts = _Artifacts()
+        plan = _plan(
+            _task("A", write_scope=("a.py",)),
+            _task("B", write_scope=("b.py",)),
+        )
+        b_finished = threading.Event()
+
+        def behavior(task: SubagentTask, attempt: int, _: Any) -> WorkerAttemptResult:
+            if task.id == "A":
+                self.assertTrue(b_finished.wait(1))
+            else:
+                b_finished.set()
+            return _attempt(artifacts, task, attempt)
+
+        workers = _Workers(artifacts, behavior)
+        coordinator, _, events = _coordinator(
+            plan,
+            artifacts,
+            workers,
+            max_workers=2,
+        )
+        state = coordinator._prepare_execution_state("base")
+        coordinator._execute_plan(state, "base")
+
+        self.assertEqual(state.merged_task_ids, ["A", "B"])
+        self.assertEqual(state.candidates, {})
+        self.assertTrue(
+            any(
+                event.get("task_id") == "B"
+                and event.get("decision") == "DEFERRED"
+                for event in events.events
+            )
+        )
+
+    def test_rejected_candidate_is_removed_from_pending_candidates(self) -> None:
+        artifacts = _Artifacts()
+        plan = _plan(_task("A", write_scope=("a.py",)))
+        workers = _Workers(
+            artifacts,
+            lambda task, attempt, _: _attempt(
+                artifacts,
+                task,
+                attempt,
+                touched_files=["outside.py"],
+            ),
+        )
+        coordinator, _, _ = _coordinator(plan, artifacts, workers)
+        state = coordinator._prepare_execution_state("base")
+        coordinator._execute_plan(state, "base")
+
+        self.assertEqual(state.task_results["A"].failure_kind, "scope_violation")
+        self.assertEqual(state.candidates, {})
+
     def test_independent_workers_overlap_but_trusted_integration_order_is_stable(
         self,
     ) -> None:
@@ -725,6 +780,10 @@ class FanoutSchedulerAndFrontierTests(unittest.TestCase):
                                 "event_type": "recovery_decision",
                                 "failure_kind": "model_response",
                                 "retryable": True,
+                            },
+                            {
+                                "event_type": "task_state_checkpoint",
+                                "task_state": {"status": "failed"},
                             }
                         ],
                     }
@@ -732,9 +791,11 @@ class FanoutSchedulerAndFrontierTests(unittest.TestCase):
                 encoding="utf-8",
             )
 
-            stop_reason, failure_kind, retryable, _ = _trace_outcome(trace_path)
+            run_status, stop_reason, failure_kind, retryable, _ = _trace_outcome(
+                trace_path
+            )
             status, projected_kind, _ = _worker_attempt_outcome(
-                final_answer="blocked: invalid llm response",
+                run_status=run_status,
                 stop_reason=stop_reason,
                 failure_kind=failure_kind,
                 retryable=retryable,
@@ -743,6 +804,36 @@ class FanoutSchedulerAndFrontierTests(unittest.TestCase):
         self.assertEqual(status, "retryable_failure")
         self.assertEqual(projected_kind, "model_response")
         self.assertTrue(retryable)
+
+    def test_completed_worker_lifecycle_does_not_inspect_final_answer_payload(self) -> None:
+        self.assertNotIn(
+            "final_answer",
+            inspect.signature(_worker_attempt_outcome).parameters,
+        )
+
+        status, failure_kind, error = _worker_attempt_outcome(
+            run_status="completed",
+            stop_reason="final_answer",
+            failure_kind="",
+            retryable=False,
+        )
+
+        self.assertEqual((status, failure_kind, error), ("candidate_produced", "", ""))
+
+    def test_waiting_human_and_blocked_lifecycle_are_terminal_worker_outcomes(self) -> None:
+        for run_status, expected_kind in (
+            ("waiting_human", "waiting_human"),
+            ("blocked", "worker_blocked"),
+        ):
+            with self.subTest(run_status=run_status):
+                status, failure_kind, _ = _worker_attempt_outcome(
+                    run_status=run_status,
+                    stop_reason=f"typed {run_status}",
+                    failure_kind="",
+                    retryable=False,
+                )
+                self.assertEqual(status, "terminal_failure")
+                self.assertEqual(failure_kind, expected_kind)
 
     def test_merge_conflict_fails_closed_without_worker_recovery(self) -> None:
         artifacts = _Artifacts()

@@ -592,12 +592,99 @@ class ConversationThreadRepositoryTest(unittest.TestCase):
                     expected_revision=state.revision,
                 )
 
+    def test_new_turn_snapshot_durably_retargets_digest_authority(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            repository, _ = self._repository(root)
+            turn_a = self._turn("turn-a", "Repair auth refresh")
+            run_a = self._run("run-a", turn_id=turn_a.turn_id)
+            repository.start_turn(
+                "thread-1",
+                turn_a,
+                self._user(turn_a, run_a.run_id),
+                run_a,
+                snapshot=StableTurnContextSnapshot(
+                    turn_id=turn_a.turn_id,
+                    root_task=turn_a.root_task,
+                    stable_system_prefix="stable A",
+                ),
+                expected_context_revision=0,
+            )
+            state_a = repository.save_context_state(
+                ThreadContextState(
+                    thread_id="thread-1",
+                    revision=1,
+                    covered_sequence=1,
+                    conversation_history_digest={
+                        "schema_version": 4,
+                        "authority_turn_id": turn_a.turn_id,
+                        "covered_message_count": 1,
+                        "source_hash": "turn-a-source",
+                        "authority_updates": ["preserve the public API"],
+                        "resource_hints": ["auth.py"],
+                        "state_evidence": [
+                            {
+                                "state_key": "python_validation:pytest:tests/test_auth.py",
+                                "tool_name": "python_validation",
+                                "check_type": "pytest",
+                                "validation_target": "tests/test_auth.py",
+                                "status": "passed",
+                                "observation_excerpt": "1 passed",
+                            }
+                        ],
+                        "recent_tool_transactions": [],
+                        "estimated_tokens_before": 100,
+                        "estimated_tokens_after": 50,
+                    },
+                    turn_snapshots=(
+                        StableTurnContextSnapshot(
+                            turn_id=turn_a.turn_id,
+                            root_task=turn_a.root_task,
+                            stable_system_prefix="stable A",
+                        ).normalized(),
+                    ),
+                ),
+                expected_revision=1,
+            )
+            repository.finish_turn(
+                "thread-1",
+                turn_a.turn_id,
+                TaskRunStatus.COMPLETED.value,
+                run_id=run_a.run_id,
+            )
+
+            turn_b = self._turn("turn-b", "Add regression tests")
+            run_b = self._run("run-b", turn_id=turn_b.turn_id)
+            repository.start_turn(
+                "thread-1",
+                turn_b,
+                self._user(turn_b, run_b.run_id),
+                run_b,
+                snapshot=StableTurnContextSnapshot(
+                    turn_id=turn_b.turn_id,
+                    root_task=turn_b.root_task,
+                    stable_system_prefix="stable B",
+                ),
+                expected_context_revision=state_a.revision,
+            )
+
+            state_b = repository.load_context_state("thread-1")
+            assert state_b is not None
+            digest_b = state_b.conversation_history_digest
+            self.assertEqual(state_b.revision, state_a.revision + 1)
+            self.assertEqual(digest_b["authority_turn_id"], turn_b.turn_id)
+            self.assertEqual(digest_b["authority_updates"], [])
+            self.assertEqual(state_b.covered_sequence, state_a.covered_sequence)
+            self.assertEqual(digest_b["source_hash"], "turn-a-source")
+            self.assertEqual(digest_b["resource_hints"], ["auth.py"])
+            self.assertEqual(digest_b["state_evidence"][0]["status"], "passed")
+
     def test_context_digest_requires_explicit_authority_turn_owner(self) -> None:
         state = ThreadContextState(
             thread_id="thread-1",
             covered_sequence=1,
             conversation_history_digest={
-                "schema_version": 3,
+                "schema_version": 4,
                 "authority_turn_id": "turn-1",
                 "covered_message_count": 1,
                 "source_hash": "digest-source",
@@ -607,7 +694,6 @@ class ConversationThreadRepositoryTest(unittest.TestCase):
                 "recent_tool_transactions": [],
                 "estimated_tokens_before": 10,
                 "estimated_tokens_after": 5,
-                "workspace_mutation_observed": False,
             },
         )
         self.assertEqual(

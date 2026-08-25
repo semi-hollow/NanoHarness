@@ -646,7 +646,7 @@ class PromptWindowManagerTest(unittest.TestCase):
             [f"authoritative constraint {index}" for index in range(12)],
         )
 
-    def test_new_turn_drops_previous_turn_authority_from_model_projection(self) -> None:
+    def test_prompt_window_fails_closed_on_mismatched_authority_owner(self) -> None:
         turn_a_digest = ConversationHistoryDigest(
             authority_turn_id="turn-a",
             covered_message_count=20,
@@ -659,40 +659,30 @@ class PromptWindowManagerTest(unittest.TestCase):
             estimated_tokens_after=500,
         )
 
-        result = PromptWindowManager(PromptBudget()).prepare(
-            PromptWindowRequest(
-                model_step_system_message=Message(
-                    "system",
-                    "Turn B root task: add regression tests",
-                ),
-                conversation_history=[
-                    Message(
-                        "user",
-                        "add regression tests",
-                        origin="human",
-                        human_authority=True,
-                        item_id="user:turn-b",
-                        turn_id="turn-b",
-                    )
-                ],
-                observations=[],
-                tool_schemas=[],
-                current_turn_id="turn-b",
-                current_turn_input_item_id="user:turn-b",
-                previous_digest=turn_a_digest,
+        with self.assertRaisesRegex(ValueError, "authority owner"):
+            PromptWindowManager(PromptBudget()).prepare(
+                PromptWindowRequest(
+                    model_step_system_message=Message(
+                        "system",
+                        "Turn B root task: add regression tests",
+                    ),
+                    conversation_history=[
+                        Message(
+                            "user",
+                            "add regression tests",
+                            origin="human",
+                            human_authority=True,
+                            item_id="user:turn-b",
+                            turn_id="turn-b",
+                        )
+                    ],
+                    observations=[],
+                    tool_schemas=[],
+                    current_turn_id="turn-b",
+                    current_turn_input_item_id="user:turn-b",
+                    previous_digest=turn_a_digest,
+                )
             )
-        )
-
-        digest = result.conversation_history_digest
-        assert digest is not None
-        self.assertEqual(digest.authority_turn_id, "turn-b")
-        self.assertEqual(digest.authority_updates, [])
-        self.assertEqual(digest.source_hash, "turn-a-history")
-        self.assertNotIn(
-            "Turn A: do not change the public API",
-            "\n".join(message.content for message in result.llm_messages),
-        )
-        self.assertIn("add regression tests", result.llm_messages[-1].content)
 
     def test_same_turn_reuses_persisted_authority_updates(self) -> None:
         digest = ConversationHistoryDigest(
@@ -864,7 +854,7 @@ class PromptWindowManagerTest(unittest.TestCase):
         self.assertEqual(len(merged.state_evidence), 1)
         self.assertEqual(merged.state_evidence[0].status, "passed")
 
-    def test_successful_edit_marks_prior_validation_stale_until_revalidated(self) -> None:
+    def test_successful_edit_invalidates_prior_validation_until_revalidated(self) -> None:
         validation_arguments = {
             "check_type": "pytest",
             "validation_target": "tests/test_auth.py",
@@ -898,8 +888,16 @@ class PromptWindowManagerTest(unittest.TestCase):
             estimated_tokens_before=2_000,
         )
 
-        self.assertTrue(after_edit.workspace_mutation_observed)
-        self.assertEqual(after_edit.state_evidence[0].status, "stale")
+        self.assertTrue(after_edit.invalidates_prior_validation)
+        self.assertEqual(after_edit.state_evidence, [])
+
+        persisted = after_edit.to_dict()
+        self.assertNotIn("invalidates_prior_validation", persisted)
+        self.assertFalse(
+            ConversationHistoryDigest.from_dict(
+                dict(persisted)
+            ).invalidates_prior_validation
+        )
 
         revalidated = _digest_for_tool_history(
             [
@@ -1000,8 +998,21 @@ class PromptWindowManagerTest(unittest.TestCase):
         restored = ConversationHistoryDigest.from_dict(dict(payload))
 
         self.assertNotIn("unresolved_failures", payload)
+        self.assertEqual(payload["schema_version"], 4)
+        self.assertNotIn("invalidates_prior_validation", payload)
         self.assertEqual(restored.state_evidence, digest.state_evidence)
         self.assertFalse(hasattr(restored, "unresolved_failures"))
+        with self.assertRaisesRegex(ValueError, "unsupported.*schema_version"):
+            ConversationHistoryDigest.from_dict({**payload, "schema_version": 3})
+        with self.assertRaisesRegex(ValueError, "unsupported tool state status"):
+            ToolStateDigest(
+                state_key="old-stale-state",
+                tool_name="python_validation",
+                check_type="pytest",
+                validation_target="tests",
+                status="stale",
+                observation_excerpt="historical",
+            )
 
     def test_resource_hints_are_deduplicated_and_latest_n_bounded(self) -> None:
         entries = [

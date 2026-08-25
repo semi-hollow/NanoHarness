@@ -194,7 +194,7 @@ class PromptWindowManager:
         压缩时不得伪称已经满足 hard limit。
         """
 
-        # region 1. 增量基线：Thread-owned 旧摘要 + Repository 返回的未覆盖 raw tail
+        # region 1. 增量基线：Thread-owned 旧摘要 + Repository 返回的未覆盖 journal tail
         # ``conversation_history`` 已从 ``covered_sequence`` 之后有界读取，因此本层
         # 不再维护第二个 Session cursor。transient message 也永远不会进入摘要。
         current_session_delta = request.conversation_history
@@ -203,12 +203,10 @@ class PromptWindowManager:
             previous_digest is not None
             and previous_digest.authority_turn_id != request.current_turn_id
         ):
-            # Digest coverage/state 可以跨 Turn 继续滚动，但 non-droppable authority
-            # 只能属于当前 Turn。旧 Turn updates 仍在 raw journal，不进入新 Turn prompt。
-            previous_digest = replace(
-                previous_digest,
-                authority_turn_id=request.current_turn_id,
-                authority_updates=[],
+            # 正常 ownership transition 由新 Turn snapshot 的 ContextState CAS 完成。
+            # Prompt Window 只消费 durable state；不在这里制造 disk/in-memory 双重真相。
+            raise ValueError(
+                "conversation digest authority owner does not match current Turn"
             )
         if previous_digest is not None:
             self._validate_durable_capacity(previous_digest)
@@ -634,17 +632,6 @@ def _latest_state_by_key(values: list[ToolStateDigest]) -> list[ToolStateDigest]
     return [by_key[key] for key in key_order]
 
 
-def _mark_state_evidence_stale(
-    values: list[ToolStateDigest],
-) -> list[ToolStateDigest]:
-    """成功 workspace mutation 后，旧验证仍保留但不能继续宣称 current。"""
-
-    return [
-        value if value.status == "stale" else replace(value, status="stale")
-        for value in values
-    ]
-
-
 def _build_digest(
     current_turn_id: str,
     current_turn_input_item_id: str,
@@ -727,7 +714,7 @@ def _build_digest(
     recent_tool_transactions: list[ToolTransactionDigest] = []
     resource_hints: list[str] = []
     state_evidence: list[ToolStateDigest] = []
-    workspace_mutation_observed = False
+    invalidates_prior_validation = False
     for history_segment in history_segments:
         tool_messages = {
             message.tool_call_id: (message, observation)
@@ -782,10 +769,10 @@ def _build_digest(
                     tool_succeeded is True
                     and tool_name in WORKSPACE_WRITE_TOOL_NAMES
                 ):
-                    # 修改后的 workspace 可能使之前 PASS/FAIL 都过时；保留证据但降级为
-                    # stale，直到相同 key 或其他验证 key 被重新执行。
-                    workspace_mutation_observed = True
-                    state_evidence = _mark_state_evidence_stale(state_evidence)
+                    # POC 不维护文件级 validation dependency graph：任何成功写入都
+                    # 保守地使此前 correctness evidence 失效；重新验证才建立新状态。
+                    invalidates_prior_validation = True
+                    state_evidence = []
                 if tool_name == _VALIDATION_STATE_TOOL_NAME:
                     validation_contract = _python_validation_contract(tool_arguments)
                     if validation_contract is None:
@@ -833,7 +820,7 @@ def _build_digest(
         ],
         estimated_tokens_before=estimated_tokens_before,
         estimated_tokens_after=0,
-        workspace_mutation_observed=workspace_mutation_observed,
+        invalidates_prior_validation=invalidates_prior_validation,
     )
 
 
@@ -882,8 +869,8 @@ def _merge_digest(
         state_evidence=_latest_state_by_key(
             [
                 *(
-                    _mark_state_evidence_stale(previous_digest.state_evidence)
-                    if delta_digest.workspace_mutation_observed
+                    []
+                    if delta_digest.invalidates_prior_validation
                     else previous_digest.state_evidence
                 ),
                 *delta_digest.state_evidence,
@@ -897,9 +884,9 @@ def _merge_digest(
         ),
         estimated_tokens_before=estimated_tokens_before,
         estimated_tokens_after=0,
-        workspace_mutation_observed=(
-            previous_digest.workspace_mutation_observed
-            or delta_digest.workspace_mutation_observed
+        invalidates_prior_validation=(
+            previous_digest.invalidates_prior_validation
+            or delta_digest.invalidates_prior_validation
         ),
     )
 

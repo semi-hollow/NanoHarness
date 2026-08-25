@@ -228,6 +228,7 @@ class SuccessfulPythonValidationTool:
             self.name,
             True,
             f"validation_command=python -m {check_type} .\n{check_type} ok",
+            validation_status="passed",
         )
 
 
@@ -249,6 +250,7 @@ class ValidationFailureRecoveryTool(SuccessfulPythonValidationTool):
                 f"exit_code={0 if passed else 1}"
             ),
             execution_succeeded=True,
+            validation_status="passed" if passed else "failed",
         )
 
 
@@ -805,6 +807,21 @@ class AgentLoopPolicyTest(unittest.TestCase):
         )
 
         self.assertIsNone(evidence)
+
+    def test_python_validation_evidence_uses_typed_status_not_text_markers(self):
+        evidence = ToolFeedback.build_validation_evidence(
+            "python_validation",
+            {"check_type": "pytest", "validation_target": "tests"},
+            Observation(
+                "python_validation",
+                True,
+                "misleading text: missing dependency",
+                validation_status="passed",
+            ),
+        )
+
+        assert evidence is not None
+        self.assertEqual(evidence["status"], "passed")
 
     def test_compile_diagnostic_is_not_counted_as_correctness_validation(self):
         with tempfile.TemporaryDirectory() as tmp:

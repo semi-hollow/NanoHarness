@@ -221,7 +221,7 @@ class ModelStepPreparation:
             max_steps=session.max_iterations,
         )
         # 历史超过单页时，先逐页做 deterministic rolling merge 并 CAS 推进 state。
-        # 每次内存中最多保留一页；只有追到最终 recent raw tail 后才构造模型请求，
+        # 每次内存中最多保留一页；只有追到最终 protocol-preserving tail 后才构造请求，
         # 因而不会出现“模型看到旧 200 条，却遗漏最新 user Turn”的错误视图。
         while has_more_uncovered:
             page_window = self.prompt_window.prepare(
@@ -307,7 +307,7 @@ class ModelStepPreparation:
         self,
         session: AgentRunSession,
     ) -> tuple[ThreadContextState, ConversationHistoryDigest | None, bool]:
-        """从 Thread state 与 journal 重建有界 raw tail，并刷新最新 human focus。"""
+        """从 Thread state 与 journal 重建有界 uncovered tail，并刷新 human focus。"""
 
         state = session.conversation_threads.load_context_state(session.thread_id)
         if state is None:

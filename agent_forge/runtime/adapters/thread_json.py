@@ -173,7 +173,11 @@ class JsonConversationThreadRepository(ConversationThreadRepository):
                         or item.turn_id == turn.turn_id
                     ),
                 )
-                updated_context = current_context.with_snapshot(normalized_snapshot)
+                # 新 Turn 的 stable snapshot 与 digest authority retarget 属于同一个
+                # ContextState CAS；Model Step 不应再临时修正 owner。
+                updated_context = current_context.with_started_turn_snapshot(
+                    normalized_snapshot
+                )
                 if updated_context is not current_context:
                     self._save_context_state_unlocked(
                         updated_context,
@@ -496,7 +500,7 @@ class JsonConversationThreadRepository(ConversationThreadRepository):
         *,
         expected_revision: int,
     ) -> ThreadContextState:
-        """以 context revision CAS 保存 immutable snapshot；已有值只能幂等复用。"""
+        """CAS 保存 snapshot，并让该 Turn 同时成为 digest authority owner。"""
 
         if snapshot.turn_id.strip() == "":
             raise ValueError("turn snapshot requires turn_id")
@@ -506,7 +510,7 @@ class JsonConversationThreadRepository(ConversationThreadRepository):
             current = self._load_context_state_unlocked(thread_id) or ThreadContextState(
                 thread_id=thread_id
             )
-            updated = current.with_snapshot(snapshot)
+            updated = current.with_started_turn_snapshot(snapshot)
             if updated is current:
                 return current
             return self._save_context_state_unlocked(

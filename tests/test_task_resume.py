@@ -155,7 +155,7 @@ def _seed_resumable_turn(
             thread_id=thread_id,
             covered_sequence=7,
             conversation_history_digest={
-                "schema_version": 3,
+                "schema_version": 4,
                 "authority_turn_id": turn_id,
                 "covered_message_count": 7,
                 "source_hash": source_hash,
@@ -165,7 +165,6 @@ def _seed_resumable_turn(
                 "recent_tool_transactions": [],
                 "estimated_tokens_before": 1_200,
                 "estimated_tokens_after": 600,
-                "workspace_mutation_observed": False,
             },
         ),
         expected_revision=0,

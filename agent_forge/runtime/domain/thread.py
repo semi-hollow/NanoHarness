@@ -662,6 +662,27 @@ class ThreadContextState:
             turn_snapshots=tuple(sorted(by_id.values(), key=lambda item: item.turn_id)),
         )
 
+    def with_started_turn_snapshot(
+        self,
+        snapshot: StableTurnContextSnapshot,
+    ) -> "ThreadContextState":
+        """原子冻结新 Turn stable context，并切换 digest authority owner。
+
+        Digest 的 coverage、hash、validation 与 breadcrumbs 是 Thread-level projection，
+        继续保留；只有 non-droppable human updates 随新 Turn 清空。Prompt assembly
+        不再负责这项 ownership transition。
+        """
+
+        updated = self.with_snapshot(snapshot)
+        if not updated.conversation_history_digest:
+            return updated
+        digest = dict(updated.conversation_history_digest)
+        if str(digest.get("authority_turn_id") or "") == snapshot.turn_id:
+            return updated
+        digest["authority_turn_id"] = snapshot.turn_id
+        digest["authority_updates"] = []
+        return replace(updated, conversation_history_digest=digest)
+
     def to_dict(self) -> dict[str, object]:
         return {
             "schema_version": 1,

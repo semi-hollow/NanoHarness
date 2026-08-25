@@ -40,7 +40,7 @@ class ConversationThreadRepository(Protocol):
         snapshot: StableTurnContextSnapshot | None = None,
         expected_context_revision: int | None = None,
     ) -> tuple[ConversationThread, ConversationItem]:
-        """同锁冻结可选 snapshot，再创建 active Turn + initial Run 导航。"""
+        """同锁冻结 snapshot、retarget digest authority，再创建 active Turn。"""
 
     def record_run(
         self,
@@ -134,7 +134,7 @@ class ConversationThreadRepository(Protocol):
         *,
         expected_revision: int,
     ) -> ThreadContextState:
-        """CAS 写入一个 Turn snapshot，并返回新的整体 context revision。"""
+        """CAS 写入 Turn snapshot、retarget digest authority，并返回新 revision。"""
 
 
 __all__ = ["ConversationThreadRepository"]

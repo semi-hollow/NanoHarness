@@ -9,10 +9,8 @@ from typing import Any
 from agent_forge.contracts import JsonObject
 
 
-CONVERSATION_DIGEST_SCHEMA_VERSION = 3
-TOOL_STATE_STATUSES = frozenset(
-    {"passed", "failed", "blocked", "unknown", "stale"}
-)
+CONVERSATION_DIGEST_SCHEMA_VERSION = 4
+TOOL_STATE_STATUSES = frozenset({"passed", "failed", "blocked", "unknown"})
 AUTHORITY_UPDATE_MAX_CHARS = 480
 RECENT_TOOL_TRANSACTION_LIMIT = 8
 RESOURCE_HINT_LIMIT = 24
@@ -119,6 +117,9 @@ class ConversationHistoryDigest:
     ``conversation.jsonl`` 才是无损 authority。本对象只保留当前 Turn 的后续 human
     authority 与 keyed validation state；Turn.root_task 由 Turn/StableTurnContextSnapshot
     拥有，不复制进 digest。可重建 Tool event 只作为有界 recent breadcrumbs。
+
+    State 只描述截至 ``ThreadContextState.covered_sequence`` 的 compacted prefix；
+    后面的 protocol-preserving recent tail 可能按时间顺序覆盖这里的状态。
     """
 
     authority_turn_id: str
@@ -130,7 +131,13 @@ class ConversationHistoryDigest:
     recent_tool_transactions: list[ToolTransactionDigest]
     estimated_tokens_before: int
     estimated_tokens_after: int
-    workspace_mutation_observed: bool = False
+    # 仅在一次 rolling merge 内传递“先丢弃 previous validation”的增量命令；它既不
+    # 持久化，也不渲染给模型。落盘前 state_evidence 已经反映 invalidate 结果。
+    invalidates_prior_validation: bool = field(
+        default=False,
+        compare=False,
+        repr=False,
+    )
     created_at: float = field(default_factory=time.time)
 
     def __post_init__(self) -> None:
@@ -184,7 +191,6 @@ class ConversationHistoryDigest:
             ],
             "estimated_tokens_before": self.estimated_tokens_before,
             "estimated_tokens_after": self.estimated_tokens_after,
-            "workspace_mutation_observed": self.workspace_mutation_observed,
             "created_at": self.created_at,
         }
 
@@ -193,10 +199,10 @@ class ConversationHistoryDigest:
         cls,
         data: dict[str, Any],
     ) -> "ConversationHistoryDigest":
-        """从 Thread Context State 恢复 canonical V3 continuation projection。
+        """从 Thread Context State 恢复 canonical V4 continuation projection。
 
         这是 clean-break schema boundary：旧的 Thread-wide authority 与 generic command
-        state 不会被静默解释成新的 Turn-scoped validation projection。
+        state/stale validation 不会被静默解释成当前 projection。
         """
 
         if int(data.get("schema_version") or 0) != CONVERSATION_DIGEST_SCHEMA_VERSION:
@@ -229,11 +235,6 @@ class ConversationHistoryDigest:
             raise ValueError("conversation history digest state evidence is malformed")
         if not all(isinstance(item, dict) for item in transaction_payloads):
             raise ValueError("conversation history digest recent transactions are malformed")
-        raw_workspace_mutation_observed = data.get("workspace_mutation_observed")
-        if not isinstance(raw_workspace_mutation_observed, bool):
-            raise ValueError(
-                "conversation history digest workspace mutation flag must be boolean"
-            )
         return cls(
             authority_turn_id=authority_turn_id,
             covered_message_count=max(
@@ -259,7 +260,6 @@ class ConversationHistoryDigest:
                 0,
                 int(data.get("estimated_tokens_after") or 0),
             ),
-            workspace_mutation_observed=raw_workspace_mutation_observed,
             created_at=float(data.get("created_at") or time.time()),
         )
 
@@ -289,7 +289,8 @@ class ConversationHistoryDigest:
                 "current_turn_authority_updates:",
                 authority or "- none",
                 f"resource_hints: {self.resource_hints}",
-                "validation_state (latest value per check_type + target):",
+                "validation_state "
+                "(as of compacted prefix; recent tail may supersede):",
                 state or "- none",
                 "recent_tool_transactions (breadcrumbs only):",
                 transactions or "- none",
