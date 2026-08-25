@@ -228,9 +228,11 @@ class Harness:
                     root_task=run_request.task.strip(),
                 )
             elif turn_snapshot is None:
-                turn_snapshot = agent_loop.run_preparation.build_stable_turn_context_snapshot(
-                    turn_id=run_request.turn_id,
-                    root_task=run_request.task.strip(),
+                turn_snapshot = (
+                    agent_loop.run_preparation.build_stable_turn_context_snapshot(
+                        turn_id=run_request.turn_id,
+                        root_task=run_request.task.strip(),
+                    )
                 )
             else:
                 agent_loop.run_preparation.validate_snapshot_contract(
@@ -570,6 +572,7 @@ class Harness:
                 ),
             )
         )
+
     def _build_owned_environment(
         self,
         requested_workspace: Path,
@@ -635,9 +638,9 @@ class Harness:
     ) -> tuple[RunRequest, str, str, str]:
         """解析 Thread/Turn 身份；此阶段绝不发布 active Run ownership。"""
 
-        requested_workspace = Path(
-            request.workspace or self._config.workspace
-        ).expanduser().resolve()
+        requested_workspace = (
+            Path(request.workspace or self._config.workspace).expanduser().resolve()
+        )
         # region 1. Resume：同 Thread、同 Turn、新 Run；禁止覆盖 root task / workspace / context
         if request.resume_state:
             restored = (
@@ -653,7 +656,9 @@ class Harness:
                 raise ValueError("resume turn_id does not match checkpoint")
             thread = repository.get(restored.thread_id)
             if thread is None:
-                raise RuntimeError(f"checkpoint Thread does not exist: {restored.thread_id}")
+                raise RuntimeError(
+                    f"checkpoint Thread does not exist: {restored.thread_id}"
+                )
             if requested_workspace != Path(thread.workspace).resolve():
                 raise ValueError("resume workspace does not match ConversationThread")
             turn = thread.require_turn(restored.turn_id)
@@ -672,7 +677,10 @@ class Harness:
 
             # Resume 继续的是原 Turn，不能在发布新 Run ownership 后才发现稳定规则丢失。
             # 缺少快照时直接拒绝，避免按当前 AGENTS/Skill/Memory 静默重建另一套契约。
-            if repository.load_stable_turn_snapshot(thread.thread_id, turn.turn_id) is None:
+            if (
+                repository.load_stable_turn_snapshot(thread.thread_id, turn.turn_id)
+                is None
+            ):
                 raise RuntimeError(
                     "cannot resume Turn without durable StableTurnContextSnapshot"
                 )
@@ -763,8 +771,15 @@ class Harness:
         snapshot: StableTurnContextSnapshot | None,
         expected_context_revision: int,
     ) -> None:
-        """在 bootstrap checkpoint durable 后，原子发布本 Run ownership。"""
+        """在 bootstrap checkpoint durable 后，原子发布本 Run ownership。
 
+        ``claim`` 的含义不是执行模型，而是把这个 ``run_id`` 写进 Turn 的 durable
+        navigation，并令它成为 ``current_run_id``。从此只有该 Attempt 可以更新当前
+        Turn；并发或迟到的 Resume 会在 repository CAS 处被拒绝。
+        """
+
+        # ThreadRun 是导航记录，只保存 artifact/checkpoint 路径和 lifecycle 摘要；
+        # 真正可恢复的 messages/cursor 仍由 Conversation 与 TaskCheckpoint 拥有。
         run = ThreadRun(
             run_id=run_id,
             artifact_dir=artifact_dir,
@@ -776,6 +791,8 @@ class Harness:
             updated_at=started_at,
         )
         if relationship == "resume":
+            # Resume 不创建新 Turn。repository 会比较 expected_current_run_id：只有
+            # 当前父 Attempt 仍未被别人续跑时，才把这个新 run_id 设为 current。
             repository.claim_resume_run(
                 request.thread_id,
                 request.turn_id,
@@ -783,6 +800,9 @@ class Harness:
                 run=run,
             )
             return
+
+        # Initial/follow-up 会创建新 Turn。start_turn 在同一 Thread lock 下验证
+        # CREATED checkpoint、保存 stable snapshot、append 用户输入并发布 active Turn。
         repository.start_turn(
             request.thread_id,
             Turn(
@@ -845,7 +865,10 @@ class Harness:
             raise RuntimeError(
                 f"checkpoint Thread does not exist: {restored_checkpoint.thread_id}"
             )
-        if Path(thread.workspace).resolve() != Path(restored_checkpoint.workspace).resolve():
+        if (
+            Path(thread.workspace).resolve()
+            != Path(restored_checkpoint.workspace).resolve()
+        ):
             raise RuntimeError("checkpoint workspace does not match ConversationThread")
         turn = thread.require_turn(restored_checkpoint.turn_id)
         if not turn.is_active:

@@ -135,12 +135,15 @@ class ModelStepPreparation:
         # endregion 1. Model Step 起点结束
 
         # region 2. Thread view 与工具路由：从 canonical ContextState 重建本次输入
+        # 返回三个相互关联的事实：当前 CAS state、已覆盖历史的 digest、journal 是否
+        # 还有下一页。后面所有 compaction 都必须基于这同一个 revision。
         thread_context_state, previous_digest, has_more_uncovered = (
             self._refresh_thread_context_view(session)
         )
         # 收敛模型可见 schema，并保持权限摘要一致。
         # ToolRouter 同时返回 schema 和 allowed_names：前者发给模型，后者供执行时复核。
         # 两份视图来自同一 ToolRoute，避免模型看见的工具与 Runtime 放行集合不一致。
+        # base_tool_schemas 来自 Turn snapshot，是 capability 上限；route 只能从中选择。
         registered_tool_schemas = [dict(schema) for schema in session.base_tool_schemas]
         tool_route = self.tool_router.route(
             ToolRoutingRequest(
@@ -153,6 +156,8 @@ class ModelStepPreparation:
                 mode=self.config.tool_routing_mode,
             )
         )
+        # Memory candidates 只附加到 remember_memory mutation schema，不会混进普通
+        # reasoning Context；这样“模型可更新哪些 record”与“模型应参考哪些 memory”分离。
         memory_management_candidates = self._management_candidates_for_turn(
             session,
             step,
@@ -161,6 +166,8 @@ class ModelStepPreparation:
             tool_route.schemas,
             memory_management_candidates,
         )
+        # schemas 发给模型；allowed_tool_names 随 PreparedModelStep 保存，Tool execution
+        # 会再次核对同一集合，避免模型可见面与 Runtime 执行面漂移。
         allowed_tool_names = set(tool_route.allowed_names)
         model_permission_summary = (
             "read/list/search allowed; replace_text/write_file asks approval; "
@@ -216,6 +223,8 @@ class ModelStepPreparation:
             role="system",
             content=model_step_system_context.render(),
         )
+        # 预算控制提示只服务这一轮，例如“最后一次可用 Tool step”；它不是用户事实，
+        # 因此作为 transient message 传给 PromptWindow，而不 append Conversation。
         runtime_control_message = self._model_step_budget_control_message(
             step=step,
             max_steps=session.max_iterations,
@@ -224,6 +233,8 @@ class ModelStepPreparation:
         # 每次内存中最多保留一页；只有追到最终 protocol-preserving tail 后才构造请求，
         # 因而不会出现“模型看到旧 200 条，却遗漏最新 user Turn”的错误视图。
         while has_more_uncovered:
+            # 当前页后面还有 journal 数据，所以这一页不能直接发给模型。强制把至少一个
+            # legal prefix 合入 digest，持久化 cursor，再读取下一页，直到追上真实尾部。
             page_window = self.prompt_window.prepare(
                 PromptWindowRequest(
                     model_step_system_message=model_step_system_message,
@@ -240,6 +251,8 @@ class ModelStepPreparation:
                 page_window.conversation_history_digest is None
                 or page_window.covered_delta_count <= 0
             ):
+                # 不允许“循环读取同一页但 cursor 不前进”；这会让最新用户消息永远
+                # 不可见。找不到 legal boundary 时明确失败比发送过时历史更安全。
                 raise RuntimeError(
                     "bounded Conversation page could not advance to the recent tail"
                 )
@@ -254,6 +267,7 @@ class ModelStepPreparation:
             )
 
         # 预算提示作为 transient tail 发送；它不进入 session.messages、digest 或 cursor。
+        # 追到 journal 尾部后才进行最终窗口决策；这一次的 llm_messages 才会交给 ModelPort。
         prompt_window = self.prompt_window.prepare(
             PromptWindowRequest(
                 model_step_system_message=model_step_system_message,
@@ -277,12 +291,16 @@ class ModelStepPreparation:
             prompt_window.conversation_history_digest is not None
             and prompt_window.covered_delta_count > 0
         ):
+            # Model 只能看到已经成功 CAS 的 digest。若持久化冲突，_save_thread_digest
+            # 会抛错，本次 PreparedModelStep 不会被返回，也就不会基于未提交视图调用模型。
             thread_context_state = self._save_thread_digest(
                 session=session,
                 state=thread_context_state,
                 digest=prompt_window.conversation_history_digest,
                 covered_delta_count=prompt_window.covered_delta_count,
             )
+        # 此对象同时冻结 messages、schemas、allowed names 和预算证据。返回后 ModelPort
+        # 直接消费它；调用方不能再单独增删 Tool 或消息。
         return PreparedModelStep(
             step=step,
             model_step_system_message=model_step_system_message,
@@ -309,27 +327,36 @@ class ModelStepPreparation:
     ) -> tuple[ThreadContextState, ConversationHistoryDigest | None, bool]:
         """从 Thread state 与 journal 重建有界 uncovered tail，并刷新 human focus。"""
 
+        # ContextState 缺失表示这个 Thread 尚未产生 snapshot/digest，使用 revision=0 的
+        # 空 state 作为 CAS 基线；不把“缺文件”误解释成已经覆盖任何 journal item。
         state = session.conversation_threads.load_context_state(session.thread_id)
         if state is None:
             state = ThreadContextState(thread_id=session.thread_id)
+
+        # Session.context_revision 是当前 Run 对 ContextState 的 optimistic-lock pointer。
+        # 不一致说明另一个 writer 已更新 snapshot/digest；继续组装会把不同版本的
+        # digest、cursor 和 raw tail 混在一个 Prompt 中，因此必须重新开始而非自动合并。
         if state.revision != session.context_revision:
             raise RuntimeError(
                 "Thread context revision changed outside this Run; "
                 f"session={session.context_revision}, actual={state.revision}"
             )
+        # Digest 直接从 ContextState JSON 恢复；不会重读 covered_sequence 之前的 raw history。
         digest = (
-            ConversationHistoryDigest.from_dict(
-                dict(state.conversation_history_digest)
-            )
+            ConversationHistoryDigest.from_dict(dict(state.conversation_history_digest))
             if state.conversation_history_digest
             else None
         )
+        # Repository 从 covered_sequence 后取一页，并做 provider-valid transaction
+        # projection（尤其 ask_human）；page boundary 仍保证 ToolCall/Observation 完整。
         items = load_transaction_safe_conversation_page(
             session.conversation_threads,
             thread_id=session.thread_id,
             after_sequence=state.covered_sequence,
             limit=200,
         )
+        # Session 保存三种对齐视图：Message 给 Prompt、Observation 给 digest 的 typed
+        # validation、sequence 给 CAS 成功后的 raw cursor 推进。
         session.messages = [self._message_from_item(item) for item in items]
         session.observations = [
             self._observation_from_item(item) for item in items if item.role == "tool"
@@ -344,6 +371,8 @@ class ModelStepPreparation:
             after_sequence=max(0, thread.sequence - 200),
             limit=200,
         )
+        # 倒序查找当前 Turn 最新 human-authority item，作为动态检索和 Tool route focus。
+        # `next(..., None)` 只选择已有 item，不创建或修改 Conversation。
         latest_human_item = next(
             (
                 item
@@ -361,6 +390,8 @@ class ModelStepPreparation:
 
         # ask_human 的 provider-valid projection 会把授权 user item 移到 batch
         # 末尾，因此 projection 顺序不等于 journal sequence 顺序。
+        # projection 可能重排 ask_human answer，所以不能用列表最后一项判断页尾；
+        # max(raw sequence) 才代表这页实际读取到的最远 journal 位置。
         last_loaded_sequence = max(
             session.message_sequences,
             default=state.covered_sequence,
@@ -377,11 +408,17 @@ class ModelStepPreparation:
     ) -> ThreadContextState:
         """CAS 推进 digest 与 covered sequence；Checkpoint 只更新 revision pointer。"""
 
+        # covered_delta_count 来自 PromptWindow 的 legal compact prefix。它必须落在当前
+        # Session page 内，防止错误计数把尚未摘要的 raw item 越过 cursor。
         if not 0 < covered_delta_count <= len(session.message_sequences):
-            raise ValueError("digest covered delta is outside bounded Conversation view")
+            raise ValueError(
+                "digest covered delta is outside bounded Conversation view"
+            )
         # Compaction 只在完整事务 segment 之后切分；用覆盖前缀的
         # 最大 raw sequence 推进 journal cursor，不被 ask_human 投影重排影响。
         covered_sequence = max(session.message_sequences[:covered_delta_count])
+        # candidate 仍沿用 state.revision；repository.save_context_state 会比较
+        # expected_revision，成功后生成 revision+1 的 saved state。
         candidate = replace(
             state,
             covered_sequence=covered_sequence,
@@ -398,6 +435,8 @@ class ModelStepPreparation:
                 "Thread context CAS conflict; model input was not committed"
             ) from exc
         session.context_revision = saved.revision
+        # Checkpoint 只保存新 revision pointer，不复制 digest。Resume 通过 pointer 加载
+        # ThreadContextState，避免出现 checkpoint 与 context_state 两份摘要真相。
         session.lifecycle.update_checkpoint(
             TaskCheckpointUpdate(context_revision=saved.revision)
         )
@@ -506,8 +545,7 @@ class ModelStepPreparation:
         """只给 remember_memory schema 附加当前 Turn 冻结的 ID 候选。"""
 
         candidate_lines = [
-            memory_record.render_management_line()
-            for memory_record in candidates
+            memory_record.render_management_line() for memory_record in candidates
         ]
         candidate_text = "\n".join(f"- {line}" for line in candidate_lines) or "- none"
         augmented_schemas: list[ToolSchema] = []
@@ -589,7 +627,9 @@ class ModelStepPreparation:
             context={
                 "selected_files": model_step_system_context.selected_files,
                 "retrieved_docs_count": len(model_step_system_context.retrieved_docs),
-                "working_memory_summary": (model_step_system_context.working_memory_summary),
+                "working_memory_summary": (
+                    model_step_system_context.working_memory_summary
+                ),
                 "total_chars": model_step_system_context.total_chars,
                 "max_chars": model_step_system_context.max_chars,
                 "truncated": model_step_system_context.truncated,

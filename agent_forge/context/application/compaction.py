@@ -197,6 +197,8 @@ class PromptWindowManager:
         # region 1. 增量基线：Thread-owned 旧摘要 + Repository 返回的未覆盖 journal tail
         # ``conversation_history`` 已从 ``covered_sequence`` 之后有界读取，因此本层
         # 不再维护第二个 Session cursor。transient message 也永远不会进入摘要。
+        # current_session_delta 只包含 covered_sequence 之后的一页；previous_digest 已经
+        # 代表更早 prefix。两者拼起来才是当前模型可见的完整 continuation history。
         current_session_delta = request.conversation_history
         previous_digest = request.previous_digest
         if (
@@ -210,6 +212,8 @@ class PromptWindowManager:
             )
         if previous_digest is not None:
             self._validate_durable_capacity(previous_digest)
+        # Digest 以 system message 投影给模型，但它仍是 derived state；raw Conversation
+        # 的唯一 owner 保持在 journal。本方法从不回写或删除 request 中的 Message。
         previous_digest_message = (
             [Message(role="system", content=previous_digest.render())]
             if previous_digest is not None
@@ -221,6 +225,8 @@ class PromptWindowManager:
             *current_session_delta,
             *request.transient_messages,
         ]
+        # 估算必须覆盖完整请求，而不是只数 history；Tool schemas 和 reserved output
+        # 也会占用 Provider window。
         estimated_tokens_before = estimate_prompt_tokens(
             full_llm_messages,
             request.tool_schemas,
@@ -230,6 +236,8 @@ class PromptWindowManager:
             estimated_tokens_before <= self.budget.soft_input_limit
             and not request.force_compaction
         ):
+            # 未超 soft limit 时复用 previous digest + 新 raw delta，不推进 cursor。
+            # “有 previous digest”只说明旧历史已压缩，不代表本次又做了 compaction。
             return PromptWindowResult(
                 llm_messages=full_llm_messages,
                 conversation_history_digest=previous_digest,
@@ -289,10 +297,17 @@ class PromptWindowManager:
             if request.force_compaction
             else self.budget.soft_input_limit
         )
+        # force_compaction 来自 Provider overflow recovery。65% 只是给 tokenizer 估算误差
+        # 留余量的 tuning target；legal boundary 与 retention policy 完全不变。
         best_compaction_result: PromptWindowResult | None = None
         rolling_delta_digest: ConversationHistoryDigest | None = None
         for cut_index in range(1, len(history_segments)):
+            # cut_index 表示“前多少个 segment 被移入 digest”。循环从 1 开始，所以先
+            # 尝试最小 legal prefix S1；成功即返回，不会一开始就压掉大段 recent history。
             next_segment = history_segments[cut_index - 1]
+
+            # _build_digest 只读取本轮新增的一个 segment；rolling_delta_digest 保存
+            # S1..Sn 的累计结果，下一轮不会重新解析已经处理过的 S1..S(n-1)。
             segment_digest = _build_digest(
                 request.current_turn_id,
                 request.current_turn_input_item_id,
@@ -304,17 +319,24 @@ class PromptWindowManager:
                 segment_digest,
                 estimated_tokens_before=estimated_tokens_before,
             )
+
+            # cut_index 之后的 segments 继续按原 protocol 顺序留在 recent tail；只对
+            # oversized content 做 deterministic truncation，不拆 Tool transaction。
             recent_messages = _flatten(history_segments[cut_index:])
             recent_messages = _trim_large_messages(
                 recent_messages,
                 max_chars=800 if request.force_compaction else 2_000,
             )
+            # 到这里才把“本次 delta digest”并入磁盘恢复的 previous digest。这个 merge
+            # 不读取旧 raw journal，只按 authority/state/breadcrumb contract 合并字段。
             conversation_history_digest = _merge_digest(
                 previous_digest,
                 rolling_delta_digest,
                 estimated_tokens_before=estimated_tokens_before,
             )
             self._validate_durable_capacity(conversation_history_digest)
+            # 每个 candidate 都重新构造完整请求并计数，因此选择依据是最终 Prompt，
+            # 不是“被压缩消息条数”这种与实际 token 大小无关的近似。
             candidate_llm_messages = [
                 request.model_step_system_message,
                 Message(
@@ -329,6 +351,8 @@ class PromptWindowManager:
                 request.tool_schemas,
                 self.budget,
             )
+            # 第一次估算得到候选大小，再把该数字写进 digest evidence。render() 后正文
+            # 会多出/改变这个数字，所以替换 system message 后再估算一次作为最终值。
             conversation_history_digest = replace(
                 conversation_history_digest,
                 estimated_tokens_after=estimated_tokens_after,
@@ -373,6 +397,8 @@ class PromptWindowManager:
                 estimated_tokens_after <= target_token_count
                 and estimated_tokens_after < estimated_tokens_before
             ):
+                # 候选按 cut_index 从小到大尝试；这里的首次命中就是“最小可行
+                # compact prefix”。第二个条件防止摘要反而比原文更大却被当作成功。
                 return candidate_window_result
         # endregion 3. Rolling 候选搜索结束
 
@@ -524,8 +550,7 @@ def _normalized_argument_value(value: object) -> object:
 
     if isinstance(value, Mapping):
         return {
-            str(key): _normalized_argument_value(item)
-            for key, item in value.items()
+            str(key): _normalized_argument_value(item) for key, item in value.items()
         }
     if isinstance(value, list):
         return [_normalized_argument_value(item) for item in value]
@@ -647,11 +672,15 @@ def _build_digest(
     """
 
     # region 1. 来源边界：冻结覆盖消息、配对 Observation 与稳定 hash
+    # covered_messages 的顺序就是本次 compact prefix 的 protocol 顺序；后面的计数和
+    # authority 提取都只作用于这批新消息，不会触碰 previous digest 已覆盖的历史。
     covered_messages = [
         message
         for history_segment in history_segments
         for message in history_segment.messages
     ]
+    # source payload 同时包含 Message 与对应 typed Observation。hash 用来证明相同
+    # delta 会生成相同 projection；它是增量来源 hash，不冒充 journal 的原始 hash chain。
     digest_source_payload = json.dumps(
         [
             {
@@ -696,6 +725,8 @@ def _build_digest(
     # root 和历史 Turn，不比较文本，也拒绝 runtime-generated role=user 信号。
     authority_updates: list[str] = []
     for message in covered_messages:
+        # 四个条件分别排除：非 user、runtime-generated user、历史 Turn、当前 Turn root。
+        # 这里不比较文本内容，也不根据位置猜哪条 clarification 更重要。
         if (
             message.role != "user"
             or not message.human_authority
@@ -716,6 +747,8 @@ def _build_digest(
     state_evidence: list[ToolStateDigest] = []
     invalidates_prior_validation = False
     for history_segment in history_segments:
+        # tool_messages 让 assistant ToolCall id 精确连接到对应 Tool Message 和 typed
+        # Observation。Tool Message 提供模型可见文本；Observation 提供 success/status。
         tool_messages = {
             message.tool_call_id: (message, observation)
             for message, observation in zip(
@@ -728,6 +761,8 @@ def _build_digest(
             if message.role != "assistant":
                 continue
             for tool_call_payload in message.tool_calls or []:
+                # Provider payload 常见为 {function:{name,arguments}}；内部测试/Adapter
+                # 也可能直接提供 {name,arguments}。两种 shape 在这里统一一次。
                 tool_call_id = str(tool_call_payload.get("id") or "")
                 function_payload = (
                     tool_call_payload.get("function")
@@ -744,6 +779,8 @@ def _build_digest(
                     tool_call_id,
                     (None, None),
                 )
+                # 找不到 Tool Message 表示只有 intent、结果尚未发生或历史不完整；
+                # success 必须保持 None，不能从 assistant proposal 推测执行成功。
                 tool_observation_content = (
                     tool_message.content if tool_message is not None else ""
                 )
@@ -751,6 +788,8 @@ def _build_digest(
                     observation.success if observation is not None else None
                 )
                 canonical_arguments = _canonical_tool_arguments(tool_arguments)
+                # 每个调用都会形成 recent breadcrumb，不论它属于 read/write/validation。
+                # breadcrumb 只保存 bounded intent/result excerpt，不承担长期事实保存。
                 tool_transaction = ToolTransactionDigest(
                     tool_name=tool_name,
                     arguments_summary=_excerpt(
@@ -764,16 +803,17 @@ def _build_digest(
                     ),
                 )
                 recent_tool_transactions.append(tool_transaction)
+                # resource hints 只读固定 argument keys，不扫描 Observation 正文，避免
+                # 通过文本 heuristic 猜测资源重要性。
                 resource_hints.extend(_resource_hints_from_arguments(tool_arguments))
-                if (
-                    tool_succeeded is True
-                    and tool_name in WORKSPACE_WRITE_TOOL_NAMES
-                ):
+                if tool_succeeded is True and tool_name in WORKSPACE_WRITE_TOOL_NAMES:
                     # POC 不维护文件级 validation dependency graph：任何成功写入都
                     # 保守地使此前 correctness evidence 失效；重新验证才建立新状态。
                     invalidates_prior_validation = True
                     state_evidence = []
                 if tool_name == _VALIDATION_STATE_TOOL_NAME:
+                    # 只有 python_validation 的 typed arguments + validation_status 能建立
+                    # durable current state；generic run_command 即使运行 pytest 也只留 breadcrumb。
                     validation_contract = _python_validation_contract(tool_arguments)
                     if validation_contract is None:
                         continue
@@ -795,8 +835,7 @@ def _build_digest(
                                 validation_target,
                                 max(
                                     1,
-                                    STATE_ARGUMENTS_MAX_CHARS
-                                    - len(check_type_excerpt),
+                                    STATE_ARGUMENTS_MAX_CHARS - len(check_type_excerpt),
                                 ),
                             ),
                             status=_tool_state_status(observation),
@@ -808,16 +847,25 @@ def _build_digest(
                     )
     # endregion 3. 工具事务结束
 
+    # 最后统一应用各字段自己的 retention：authority 全部保留；resource recent-unique；
+    # validation 按 key latest-value-wins；Tool breadcrumb 只留 latest N。
+    bounded_resource_hints = _latest_unique_strings(
+        resource_hints,
+        RESOURCE_HINT_LIMIT,
+    )
+    latest_validation_state = _latest_state_by_key(state_evidence)
+    recent_breadcrumbs = recent_tool_transactions[-RECENT_TOOL_TRANSACTION_LIMIT:]
+    delta_source_hash = hashlib.sha256(
+        digest_source_payload.encode("utf-8")
+    ).hexdigest()
     return ConversationHistoryDigest(
         authority_turn_id=current_turn_id,
         covered_message_count=len(covered_messages),
-        source_hash=hashlib.sha256(digest_source_payload.encode("utf-8")).hexdigest(),
+        source_hash=delta_source_hash,
         authority_updates=authority_updates,
-        resource_hints=_latest_unique_strings(resource_hints, RESOURCE_HINT_LIMIT),
-        state_evidence=_latest_state_by_key(state_evidence),
-        recent_tool_transactions=recent_tool_transactions[
-            -RECENT_TOOL_TRANSACTION_LIMIT:
-        ],
+        resource_hints=bounded_resource_hints,
+        state_evidence=latest_validation_state,
+        recent_tool_transactions=recent_breadcrumbs,
         estimated_tokens_before=estimated_tokens_before,
         estimated_tokens_after=0,
         invalidates_prior_validation=invalidates_prior_validation,
@@ -839,9 +887,15 @@ def _merge_digest(
     """
 
     if previous_digest is None:
+        # 第一个 delta 已经是完整结果；无需制造一次“空 previous”的特殊 hash。
         return delta_digest
     if previous_digest.authority_turn_id != delta_digest.authority_turn_id:
+        # Authority 是 Turn-owned。不同 Turn 的 authority updates 不能通过普通增量 merge
+        # 混在一起；正常 Turn transition 应由 ContextState retarget 先完成。
         raise ValueError("cannot merge digests with different authority Turn owners")
+
+    # source hash 链证明 merge 顺序：previous projection + 本次 raw delta。它允许恢复后
+    # 继续增量推进，而不需要重新读取 previous covered raw Conversation。
     chained_source_hash = hashlib.sha256(
         json.dumps(
             {
@@ -851,37 +905,46 @@ def _merge_digest(
             sort_keys=True,
         ).encode("utf-8")
     ).hexdigest()
+
+    # Human authority 不使用数量淘汰；若总容量越界，PromptWindow 的 capacity check
+    # 会 fail closed，而不是在 merge 时静默删除某条用户约束。
+    merged_authority_updates = [
+        *previous_digest.authority_updates,
+        *delta_digest.authority_updates,
+    ]
+
+    # Resource hints 和 breadcrumbs 都是辅助导航信息，因此按 recency 有界保留。
+    merged_resource_hints = _latest_unique_strings(
+        [*previous_digest.resource_hints, *delta_digest.resource_hints],
+        RESOURCE_HINT_LIMIT,
+    )
+    merged_recent_transactions = [
+        *previous_digest.recent_tool_transactions,
+        *delta_digest.recent_tool_transactions,
+    ][-RECENT_TOOL_TRANSACTION_LIMIT:]
+
+    # delta 中出现成功 workspace write 时，旧 correctness evidence 已不再代表当前代码。
+    # 先清空 previous state，再合入 write 之后可能出现的新 validation；没有 write 时
+    # 则保留 previous keys，并由 delta 中相同 key 的新值覆盖。
+    validation_base = (
+        []
+        if delta_digest.invalidates_prior_validation
+        else previous_digest.state_evidence
+    )
+    merged_validation_state = _latest_state_by_key(
+        [*validation_base, *delta_digest.state_evidence]
+    )
+
     return ConversationHistoryDigest(
         authority_turn_id=previous_digest.authority_turn_id,
         covered_message_count=(
-            previous_digest.covered_message_count
-            + delta_digest.covered_message_count
+            previous_digest.covered_message_count + delta_digest.covered_message_count
         ),
         source_hash=chained_source_hash,
-        authority_updates=[
-            *previous_digest.authority_updates,
-            *delta_digest.authority_updates,
-        ],
-        resource_hints=_latest_unique_strings(
-            [*previous_digest.resource_hints, *delta_digest.resource_hints],
-            RESOURCE_HINT_LIMIT,
-        ),
-        state_evidence=_latest_state_by_key(
-            [
-                *(
-                    []
-                    if delta_digest.invalidates_prior_validation
-                    else previous_digest.state_evidence
-                ),
-                *delta_digest.state_evidence,
-            ],
-        ),
-        recent_tool_transactions=(
-            [
-                *previous_digest.recent_tool_transactions,
-                *delta_digest.recent_tool_transactions,
-            ][-RECENT_TOOL_TRANSACTION_LIMIT:]
-        ),
+        authority_updates=merged_authority_updates,
+        resource_hints=merged_resource_hints,
+        state_evidence=merged_validation_state,
+        recent_tool_transactions=merged_recent_transactions,
         estimated_tokens_before=estimated_tokens_before,
         estimated_tokens_after=0,
         invalidates_prior_validation=(

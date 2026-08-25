@@ -54,9 +54,13 @@ class JsonConversationThreadRepository(ConversationThreadRepository):
         with self._thread_lock(thread.thread_id):
             path = self._thread_path(thread.thread_id)
             if path.exists():
-                raise FileExistsError(f"conversation thread already exists: {thread.thread_id}")
+                raise FileExistsError(
+                    f"conversation thread already exists: {thread.thread_id}"
+                )
             if thread.turns or thread.sequence or thread.tail_hash:
-                raise ValueError("new conversation thread must not contain turns or journal state")
+                raise ValueError(
+                    "new conversation thread must not contain turns or journal state"
+                )
             atomic_write_json(path, thread.to_dict())
             return thread
 
@@ -84,7 +88,9 @@ class JsonConversationThreadRepository(ConversationThreadRepository):
                 or thread.sequence != current.sequence
                 or thread.tail_hash != current.tail_hash
             ):
-                raise ValueError("save_metadata may only change thread navigation fields")
+                raise ValueError(
+                    "save_metadata may only change thread navigation fields"
+                )
             atomic_write_json(self._thread_path(thread.thread_id), thread.to_dict())
             return thread
 
@@ -102,6 +108,9 @@ class JsonConversationThreadRepository(ConversationThreadRepository):
 
         伪代码：验证 CREATED checkpoint → 拒绝 active Turn 冲突 → 可选保存 snapshot
         → append turn_start → CAS 更新 ``thread.json``。
+
+        这里的 claim 是 ownership 发布：成功返回后，Thread 才正式承认该 Turn/Run
+        是当前执行者。checkpoint 必须先存在，避免 Thread 指向一个无法恢复的 Run。
         """
 
         with self._thread_lock(thread_id):
@@ -148,19 +157,16 @@ class JsonConversationThreadRepository(ConversationThreadRepository):
             candidate = thread if existing_turn is not None else thread.with_turn(turn)
             if snapshot is not None:
                 if expected_context_revision is None:
-                    raise ValueError(
-                        "Turn snapshot requires expected_context_revision"
-                    )
+                    raise ValueError("Turn snapshot requires expected_context_revision")
                 normalized_snapshot = snapshot.normalized()
                 if (
                     normalized_snapshot.turn_id != turn.turn_id
                     or normalized_snapshot.root_task != turn.root_task
                 ):
                     raise ValueError("Turn snapshot identity does not match new Turn")
-                current_context = (
-                    self._load_context_state_unlocked(thread_id)
-                    or ThreadContextState(thread_id=thread_id)
-                )
+                current_context = self._load_context_state_unlocked(
+                    thread_id
+                ) or ThreadContextState(thread_id=thread_id)
                 # snapshot 先于 turn_start durable；若上次进程死在两者之间，未被
                 # Thread/journal claim 的孤立 snapshot 可在本次新 Turn 原子替换。
                 claimed_turn_ids = {item.turn_id for item in thread.turns}
@@ -201,7 +207,9 @@ class JsonConversationThreadRepository(ConversationThreadRepository):
         with self._thread_lock(thread_id):
             thread = self._require_thread_unlocked(thread_id)
             turn = thread.require_turn(turn_id)
-            existing = next((item for item in turn.runs if item.run_id == run.run_id), None)
+            existing = next(
+                (item for item in turn.runs if item.run_id == run.run_id), None
+            )
             if existing is None:
                 raise ValueError(
                     f"record_run cannot introduce an unclaimed Run: {run.run_id}"
@@ -230,7 +238,12 @@ class JsonConversationThreadRepository(ConversationThreadRepository):
         expected_current_run_id: str,
         run: ThreadRun,
     ) -> ConversationThread:
-        """在 Thread 锁内完成 compare-and-swap，保证只有一个 resume claimant。"""
+        """在 Thread 锁内完成 compare-and-swap，保证只有一个 resume claimant。
+
+        两个进程可以同时准备各自的 CREATED checkpoint，但只有第一个仍匹配
+        ``expected_current_run_id`` 的进程能把新 Run 发布为 current；另一个留下的
+        未 claim bootstrap 不具备 Turn ownership，可由 Harness 作为 orphan 清理。
+        """
 
         with self._thread_lock(thread_id):
             thread = self._require_thread_unlocked(thread_id)
@@ -243,6 +256,8 @@ class JsonConversationThreadRepository(ConversationThreadRepository):
             if not turn.is_active:
                 raise RuntimeError(f"cannot resume terminal Turn: {turn_id}")
             if turn.current_run_id != expected_current_run_id:
+                # current_run_id 已变化表示另一个 Resume 先完成了 claim。本进程不能
+                # 继续，否则两个 Attempt 会同时修改同一 Turn。
                 raise RuntimeError(
                     "stale or concurrent resume claim rejected: "
                     f"expected={expected_current_run_id} current={turn.current_run_id}"
@@ -289,9 +304,13 @@ class JsonConversationThreadRepository(ConversationThreadRepository):
         try:
             raw: Any = json.loads(path.read_text(encoding="utf-8"))
         except FileNotFoundError as exc:
-            raise ValueError("bootstrap checkpoint must exist before Run claim") from exc
+            raise ValueError(
+                "bootstrap checkpoint must exist before Run claim"
+            ) from exc
         except (OSError, json.JSONDecodeError) as exc:
-            raise ValueError("bootstrap checkpoint is not readable canonical JSON") from exc
+            raise ValueError(
+                "bootstrap checkpoint is not readable canonical JSON"
+            ) from exc
         if not isinstance(raw, dict):
             raise ValueError("bootstrap checkpoint payload must be a JSON object")
         checkpoint = TaskCheckpoint.from_dict(raw)
@@ -348,6 +367,7 @@ class JsonConversationThreadRepository(ConversationThreadRepository):
                     raise ValueError("terminal intent status conflicts for current Run")
             atomic_write_json(path, payload)
             return thread
+
     # endregion 1. Thread / Turn / Run ownership结束
 
     # region 2. Conversation journal 与 Turn 终态提交
@@ -465,6 +485,7 @@ class JsonConversationThreadRepository(ConversationThreadRepository):
 
             self._scan_items_unlocked(thread_id, collect)
             return list(recent)
+
     # endregion 2. Conversation journal 与 Turn 终态提交结束
 
     # region 3. Thread context state 与 immutable Turn snapshot CAS
@@ -507,9 +528,9 @@ class JsonConversationThreadRepository(ConversationThreadRepository):
         with self._thread_lock(thread_id):
             thread = self._require_thread_unlocked(thread_id)
             thread.require_turn(snapshot.turn_id)
-            current = self._load_context_state_unlocked(thread_id) or ThreadContextState(
-                thread_id=thread_id
-            )
+            current = self._load_context_state_unlocked(
+                thread_id
+            ) or ThreadContextState(thread_id=thread_id)
             updated = current.with_started_turn_snapshot(snapshot)
             if updated is current:
                 return current
@@ -517,6 +538,7 @@ class JsonConversationThreadRepository(ConversationThreadRepository):
                 updated,
                 expected_revision=expected_revision,
             )
+
     # endregion 3. Thread context state 与 Turn snapshot CAS结束
 
     # region 4. Journal append、崩溃修复与一致性校验
@@ -552,7 +574,10 @@ class JsonConversationThreadRepository(ConversationThreadRepository):
                 draft.run_id == current_turn.current_run_id
                 and replay_payload == current_payload
             )
-            if existing_payload != draft_payload and not same_fact_replayed_by_current_run:
+            if (
+                existing_payload != draft_payload
+                and not same_fact_replayed_by_current_run
+            ):
                 raise ValueError(
                     f"conversation item idempotency conflict: {draft.item_id}"
                 )
@@ -634,9 +659,13 @@ class JsonConversationThreadRepository(ConversationThreadRepository):
             collect_turn_start,
         )
         if thread.sequence > journal_sequence:
-            raise ValueError("thread metadata is ahead of authoritative conversation journal")
+            raise ValueError(
+                "thread metadata is ahead of authoritative conversation journal"
+            )
         if thread.sequence == journal_sequence and thread.tail_hash != journal_tail:
-            raise ValueError("thread metadata tail hash disagrees with conversation journal")
+            raise ValueError(
+                "thread metadata tail hash disagrees with conversation journal"
+            )
         repaired = self._reconcile_turn_starts_unlocked(thread, turn_starts)
         if repaired.sequence < journal_sequence:
             repaired = repaired.with_journal_tail(
@@ -750,10 +779,10 @@ class JsonConversationThreadRepository(ConversationThreadRepository):
             if not isinstance(raw_initial_run, Mapping):
                 raise ValueError("turn-start item lacks initial Run metadata")
             initial_run = ThreadRun.from_dict(raw_initial_run)
-            if (
-                initial_run.run_id != item.run_id
-                or initial_run.status not in {"created", "running"}
-            ):
+            if initial_run.run_id != item.run_id or initial_run.status not in {
+                "created",
+                "running",
+            }:
                 raise ValueError("turn-start initial Run metadata is invalid")
             existing = next(
                 (turn for turn in repaired.turns if turn.turn_id == item.turn_id),
@@ -764,10 +793,10 @@ class JsonConversationThreadRepository(ConversationThreadRepository):
                     existing.input_item_id != item.item_id
                     or existing.root_task != root_task
                 ):
-                    raise ValueError("turn-start journal conflicts with thread metadata")
-                if not any(
-                    run.run_id == initial_run.run_id for run in existing.runs
-                ):
+                    raise ValueError(
+                        "turn-start journal conflicts with thread metadata"
+                    )
+                if not any(run.run_id == initial_run.run_id for run in existing.runs):
                     raise ValueError("active Turn metadata omitted its initial Run")
                 continue
             if item.sequence <= repaired.sequence:
@@ -814,7 +843,12 @@ class JsonConversationThreadRepository(ConversationThreadRepository):
                     if not isinstance(payload, Mapping):
                         raise ValueError("conversation journal line must be an object")
                     item = ConversationItem.from_dict(payload)
-                except (UnicodeDecodeError, json.JSONDecodeError, TypeError, ValueError) as exc:
+                except (
+                    UnicodeDecodeError,
+                    json.JSONDecodeError,
+                    TypeError,
+                    ValueError,
+                ) as exc:
                     if not complete_line:
                         self.last_read_warning = (
                             f"repaired crash-truncated final line: {exc}"
@@ -827,7 +861,9 @@ class JsonConversationThreadRepository(ConversationThreadRepository):
                         f"corrupt conversation journal at line {line_number}: {exc}"
                     ) from exc
                 if item.thread_id != thread_id:
-                    raise ValueError("conversation item thread_id does not match journal")
+                    raise ValueError(
+                        "conversation item thread_id does not match journal"
+                    )
                 if item.sequence != sequence + 1:
                     raise ValueError("conversation journal sequence is not contiguous")
                 if item.previous_hash != previous_hash:
@@ -844,6 +880,7 @@ class JsonConversationThreadRepository(ConversationThreadRepository):
                 if collect is not None:
                     collect(item)
         return sequence, previous_hash
+
     # endregion 4. Journal append、崩溃修复与一致性校验结束
 
     # region 5. Context 序列化、进程锁与路径
@@ -880,11 +917,15 @@ class JsonConversationThreadRepository(ConversationThreadRepository):
                 f"expected={expected_revision}, actual={actual_revision}"
             )
         if state.revision not in {actual_revision, actual_revision + 1}:
-            raise ValueError("caller context state revision is not based on current state")
+            raise ValueError(
+                "caller context state revision is not based on current state"
+            )
         if current is not None and state.covered_sequence < current.covered_sequence:
             raise ValueError("context covered_sequence must not move backwards")
         if state.covered_sequence > thread.sequence:
-            raise ValueError("context state cannot cover conversation items that do not exist")
+            raise ValueError(
+                "context state cannot cover conversation items that do not exist"
+            )
         for snapshot in state.turn_snapshots:
             thread.require_turn(snapshot.turn_id)
         updated = replace(
@@ -924,7 +965,9 @@ class JsonConversationThreadRepository(ConversationThreadRepository):
     def _terminal_intent_path(self, thread_id: str, turn_id: str) -> Path:
         if not re.fullmatch(r"[A-Za-z0-9._-]+", turn_id):
             raise ValueError(f"invalid Turn id: {turn_id!r}")
-        return self._thread_directory(thread_id) / "terminal_intents" / f"{turn_id}.json"
+        return (
+            self._thread_directory(thread_id) / "terminal_intents" / f"{turn_id}.json"
+        )
 
     @staticmethod
     def _fsync_directory(directory: Path) -> None:
@@ -936,6 +979,7 @@ class JsonConversationThreadRepository(ConversationThreadRepository):
             os.fsync(descriptor)
         finally:
             os.close(descriptor)
+
     # endregion 5. Context 序列化、进程锁与路径结束
 
 
