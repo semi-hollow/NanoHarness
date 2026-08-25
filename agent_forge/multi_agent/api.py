@@ -6,7 +6,7 @@ Tool catalog 和唯一 composition root；没有业务逻辑或第二条执行�
 进入 ``FanoutCoordinator.run(...)``。
 """
 
-from .adapters.plan_files import load_resume_initial_plan
+from .adapters.plan_files import load_resume_plan
 from .application.planning import (
     AdaptivePlanner,
     PlanningOutcome,
@@ -15,11 +15,12 @@ from .application.planning import (
 )
 from .application.fanout import FanoutCoordinator
 from .application.live_handoff import LiveHandoffRuntime
-from .domain.fanout import FanoutConflict, SubagentTask
-from .domain.live import (
+from .domain.fanout import (
+    FanoutConflict,
     FanoutPlan,
     FanoutSummary,
     FanoutTaskResult,
+    SubagentTask,
     WorkerAttemptResult,
     WorkerHandoff,
 )
@@ -50,7 +51,7 @@ __all__ = [
     "PlanningOutcome",
     "SubagentTask",
     "build_fanout",
-    "load_resume_initial_plan",
+    "load_resume_plan",
     "fanout_available_tools",
     "resumed_planning_outcome",
     "write_planning_artifact",

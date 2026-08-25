@@ -208,7 +208,10 @@ forge ui        打开只读 Evidence Workbench
 | Context 与 Compaction | [`agent_forge/context/application/`](agent_forge/context/application/) |
 | Tool 治理 | [`agent_forge/runtime/application/tool_execution.py`](agent_forge/runtime/application/tool_execution.py) |
 | Multi-Agent Single/Ultra 路由 | [`apps/repository_run.py`](apps/repository_run.py) |
+| Multi-Agent COMMON Domain | [`agent_forge/multi_agent/domain/fanout.py`](agent_forge/multi_agent/domain/fanout.py) |
 | Multi-Agent 统一 Scheduler | [`agent_forge/multi_agent/application/fanout.py`](agent_forge/multi_agent/application/fanout.py) |
+| LIVE coordination consistency | [`agent_forge/multi_agent/application/live_handoff.py`](agent_forge/multi_agent/application/live_handoff.py) |
+| Fanout Checkpoint / Summary | [`agent_forge/multi_agent/adapters/fanout_files.py`](agent_forge/multi_agent/adapters/fanout_files.py) |
 | Benchmark / Evaluation | [`agent_forge/bench/`](agent_forge/bench/)、[`agent_forge/evaluation/`](agent_forge/evaluation/) |
 | Evidence Workbench | [`apps/workbench/`](apps/workbench/) |
 

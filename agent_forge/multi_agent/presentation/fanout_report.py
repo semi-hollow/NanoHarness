@@ -1,6 +1,6 @@
 """把 canonical ``FanoutSummary`` 投影成只读 Markdown 报告。"""
 
-from ..domain.live import FanoutSummary
+from ..domain.fanout import FanoutSummary
 
 
 def render_fanout_report(summary: FanoutSummary) -> str:

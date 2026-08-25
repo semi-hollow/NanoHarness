@@ -958,7 +958,7 @@ class WorkbenchRunStoryTest(unittest.TestCase):
             (fanout_run / "fanout_summary.json").write_text(
                 json.dumps(
                     {
-                        "schema_version": 3,
+                        "schema_version": 4,
                         "run_id": "fanout-run",
                         "status": "passed",
                         "goal": "parallel evidence",
@@ -1099,7 +1099,7 @@ class WorkbenchRunStoryTest(unittest.TestCase):
             summary_path.write_text(
                 json.dumps(
                     {
-                        "schema_version": 3,
+                        "schema_version": 4,
                         "run_id": "fanout-1",
                         "goal": "repair pricing and shipping",
                         "status": "passed",

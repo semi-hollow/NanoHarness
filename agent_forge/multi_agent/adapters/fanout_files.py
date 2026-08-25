@@ -16,9 +16,9 @@ from typing import Any
 
 from agent_forge.infrastructure.atomic_json import atomic_write_json
 
-from ..domain.live import FanoutCheckpoint, FanoutPlan, FanoutSummary
+from ..domain.fanout import FanoutCheckpoint, FanoutPlan, FanoutSummary
 from ..ports import FanoutArtifactPort
-from ..presentation.live_report import render_fanout_report
+from ..presentation.fanout_report import render_fanout_report
 
 
 class FanoutFileRepository(FanoutArtifactPort):

@@ -2,6 +2,9 @@ import json
 import unittest
 from pathlib import Path
 
+from agent_forge.multi_agent.domain.fanout import (
+    FANOUT_MECHANISM_EVIDENCE_SCHEMA_VERSION,
+)
 from apps.workbench.adapters.evidence_files import FileEvidenceCatalog
 from apps.workbench.application.review_projection import (
     build_fanout_review,
@@ -27,7 +30,10 @@ class ReviewReadyTest(unittest.TestCase):
         configured = manifest["sources"]["orchestration"]
         evidence_path = PROJECT_ROOT / configured["canonical_artifact"]
         evidence = json.loads(evidence_path.read_text(encoding="utf-8"))
-        self.assertEqual(evidence["schema_version"], 3)
+        self.assertEqual(
+            evidence["schema_version"],
+            FANOUT_MECHANISM_EVIDENCE_SCHEMA_VERSION,
+        )
         self.assertEqual(evidence["status"], "passed")
         self.assertEqual(len(evidence["plan_digest"]), 64)
         self.assertTrue(all(evidence["assertions"].values()))

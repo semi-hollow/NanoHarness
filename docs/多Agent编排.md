@@ -42,8 +42,9 @@ AdaptivePlanner.decide()
         read-only Finalizer
 ```
 
-Planner 只在执行前生成一次 Plan。`FanoutPlan.tasks`、Task 内的依赖、写域、工具和验收
-条件都在 Domain 边界转成 tuple；Run 中 `plan_digest` 不变。Runtime 不允许在执行中改写 DAG。
+Planning phase 只发生在执行前：一次 structured planning request 最多允许一次 bounded
+schema/domain repair。`FanoutPlan.tasks`、Task 内的依赖、写域、工具和验收条件都在 Domain
+边界转成 tuple；Run 中 `plan_digest` 不变。Runtime 不允许在执行中改写 DAG 或重新规划。
 
 ## 公共机制、严格依赖与实时协作（COMMON、HARD、LIVE）
 
@@ -61,10 +62,11 @@ COMMON 是所有 Task 共用的执行机制：
 ### HARD：可信集成后就绪
 
 `A ──HARD──→ B` 表示 B 依赖 A 的可信代码或结构化结果。A 的 Worker 完成并不够；
-只有 A candidate 通过全部门禁并进入 `successful_task_ids` 后，B 才能启动。
+只有 A candidate 通过全部门禁并追加到严格连续的 `merged_task_ids` 后，B 才能启动。
 
-B 只接收直接 predecessor 的 `WorkerHandoff`，不接收 A 的 private Conversation、模型
-上下文、worktree 或未合入 Diff。
+B 只接收直接 predecessor 的 `WorkerHandoff` 语义载荷，不接收 A 的 private Conversation、
+模型上下文、worktree 或未合入 Diff。Handoff 本身没有生命周期 status；是否可交付只由
+Coordinator 检查 upstream `FanoutTaskResult.status == integrated`。
 
 ### LIVE：语义证据提前就绪
 
@@ -159,6 +161,9 @@ Trace 使用：
 merged_task_ids == integration_order[:k]
 ```
 
+它是 trusted integrated identity 的唯一 authority；HARD/LIVE readiness 临时从该前缀
+派生集合，不再维护第二份成功状态。
+
 如果当前 frontier Task 已终止且没有合法 retry，Scheduler 停止提交新 Attempt；已运行
 Attempt 可以结束并保留证据，但后续 candidate 只能成为：
 
@@ -171,7 +176,7 @@ failure_kind=integration_frontier_blocked
 
 ## Checkpoint、Summary 与 Resume
 
-`fanout_checkpoint.json` 是唯一恢复 authority。当前 schema 保存：
+`fanout_checkpoint.json` 是唯一恢复 authority。当前 clean-break schema v4 保存：
 
 - `schema_version`、`plan_digest`、`base_head`、`status`；
 - `merged_task_ids`、`task_results`、`attempt_results`、`launch_waves`；
@@ -207,7 +212,7 @@ benchmarks/experiments/multi-agent-v1/mechanism-evidence.json
 
 ## 代码阅读顺序
 
-1. `domain/live.py` → `FanoutPlan`：冻结输入、Attempt/Task Result、持久化 schema；
+1. `domain/fanout.py` → `FanoutPlan`、`WorkerAttemptResult`、`FanoutTaskResult`：COMMON Domain；
 2. `application/fanout.py` → `run()`：完整 Fanout 生命周期骨架；
 3. 同文件 → `_execute_plan()`：统一 readiness scheduler；
 4. 同文件 → `_run_worker_attempt()`：唯一真实 Attempt owner；
@@ -216,3 +221,6 @@ benchmarks/experiments/multi-agent-v1/mechanism-evidence.json
 7. `adapters/local_worker.py` → `run_worker()`：隔离 AgentLoop 和 candidate artifact；
 8. `adapters/fanout_files.py`：checkpoint / summary / coordination 持久化；
 9. `wiring.py` → `build_fanout()`：composition root。
+
+文件边界：`ports/fanout.py` 只放 COMMON 外部能力契约，`ports/live.py` 只放
+Worker-bound LIVE Port；`domain/live_handoff.py` 只放 LIVE route/event value object。

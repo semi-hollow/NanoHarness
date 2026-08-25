@@ -303,7 +303,7 @@ class PublicCliSmokeTest(unittest.TestCase):
             (fanout_dir / "fanout_summary.json").write_text(
                 json.dumps(
                     {
-                        "schema_version": 3,
+                        "schema_version": 4,
                         "run_id": "run-fanout",
                         "goal": "audit runtime and safety",
                         "status": "passed",

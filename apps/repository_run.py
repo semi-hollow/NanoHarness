@@ -36,7 +36,7 @@ from agent_forge.multi_agent.api import (
     PlanningOutcome,
     build_fanout,
     fanout_available_tools,
-    load_resume_initial_plan,
+    load_resume_plan,
     resumed_planning_outcome,
     write_planning_artifact,
 )
@@ -403,7 +403,7 @@ def _run_ultra_repository_task(
     if resume_from:
         # 先完成 schema/graph 读取，再进入与 Fresh Run 相同的 Multi-Agent 执行入口。
         try:
-            plan = load_resume_initial_plan(resume_from)
+            plan = load_resume_plan(resume_from)
         except (OSError, ValueError, json.JSONDecodeError) as exc:
             raise SystemExit(f"invalid Multi-Agent resume: {exc}") from exc
         outcome = resumed_planning_outcome(plan)

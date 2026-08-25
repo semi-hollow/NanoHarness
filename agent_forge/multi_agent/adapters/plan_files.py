@@ -1,6 +1,6 @@
 """把持久化 JSON 边界转换成经过领域校验的 ``FanoutPlan``。
 
-直接启动时读取显式计划文件；恢复时只定位 prior run 的 immutable initial plan。
+直接启动时读取显式计划文件；恢复时只定位 prior run 的 frozen FanoutPlan。
 两条路径最终都进入 ``FanoutPlan.from_mapping``，因此文件层不复制 schema 规则，
 也不会在恢复阶段重新调用 Planner。
 """
@@ -10,7 +10,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from ..domain.live import FanoutPlan
+from ..domain.fanout import FanoutPlan
 
 
 def load_fanout_plan(path: str | Path) -> FanoutPlan:
@@ -23,8 +23,8 @@ def load_fanout_plan(path: str | Path) -> FanoutPlan:
     return FanoutPlan.from_mapping(data)
 
 
-def load_resume_initial_plan(path: str | Path) -> FanoutPlan:
-    """从 prior run 定位不可变 initial plan；不调用 Planner。
+def load_resume_plan(path: str | Path) -> FanoutPlan:
+    """从 prior run 定位唯一 frozen FanoutPlan；不调用 Planner。
 
     伪代码：把文件或目录展开成有限候选 roots -> 按顺序查 ``fanout_plan.json``
     -> 找到后仍走 canonical loader -> 否则明确失败。

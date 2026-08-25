@@ -19,6 +19,9 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from agent_forge.multi_agent.domain.fanout import (
+    FANOUT_MECHANISM_EVIDENCE_SCHEMA_VERSION,
+)
 from apps.workbench.domain import EvidenceSource
 
 
@@ -260,13 +263,17 @@ def build_lab1_review(project_dir: Path, source: EvidenceSource) -> Lab1Review:
 
 # region 3. Current Multi-Agent：冻结计划、Attempt、Task governance 与 LIVE 事实
 def build_fanout_review(project_dir: Path, source: EvidenceSource) -> FanoutReview:
-    """只读取 schema_version=3 的当前 Runtime 原生机制证据。"""
+    """只读取当前 schema 的 Runtime 原生机制证据。"""
 
     contract = _contract(project_dir, "orchestration")
     evidence = _read_json(source.primary_path)
     plan = evidence.get("fanout_plan")
     plan = plan if isinstance(plan, dict) else {}
-    if evidence.get("schema_version") == 3 and not plan and source.primary_path:
+    if (
+        evidence.get("schema_version") == FANOUT_MECHANISM_EVIDENCE_SCHEMA_VERSION
+        and not plan
+        and source.primary_path
+    ):
         plan = _read_json(source.primary_path.parent / "fanout_plan.json")
         evidence = {
             **evidence,

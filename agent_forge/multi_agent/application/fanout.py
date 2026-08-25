@@ -15,17 +15,19 @@ from typing import Any
 
 from agent_forge.runtime.config import RuntimeConfig
 
-from ..domain.fanout import FanoutConflict, SubagentTask, detect_write_scope_conflicts
-from ..domain.live import (
+from ..domain.fanout import (
     FANOUT_CHECKPOINT_SCHEMA_VERSION,
     FANOUT_SUMMARY_SCHEMA_VERSION,
+    FanoutConflict,
     FanoutCheckpoint,
     FanoutPlan,
     FanoutSummary,
     FanoutTaskResult,
+    SubagentTask,
     WorkerAttemptResult,
     WorkerHandoff,
     aggregate_fanout_metrics,
+    detect_write_scope_conflicts,
     project_worker_handoff,
 )
 from .dependencies import FanoutDependencies
@@ -52,12 +54,10 @@ class FanoutExecutionState:
     task_results: dict[str, FanoutTaskResult] = field(default_factory=dict)
     attempt_results: list[WorkerAttemptResult] = field(default_factory=list)
     attempt_counts: dict[str, int] = field(default_factory=dict)
-    successful_task_ids: set[str] = field(default_factory=set)
     merged_task_ids: list[str] = field(default_factory=list)
     launch_waves: list[list[dict[str, int | str]]] = field(default_factory=list)
     conflicts: list[FanoutConflict] = field(default_factory=list)
     pending: set[str] = field(default_factory=set)
-    retry_ready: set[str] = field(default_factory=set)
     candidates: dict[str, WorkerAttemptResult] = field(default_factory=dict)
     running: dict[Future[WorkerAttemptResult], RunningAttempt] = field(
         default_factory=dict
@@ -190,7 +190,7 @@ class FanoutCoordinator:
         )
         if self.resume_from:
             self._restore_hard_prefix(state, base_head)
-        state.pending.difference_update(state.successful_task_ids)
+        state.pending.difference_update(state.merged_task_ids)
         return state
 
     def _frontier_task_id(self, state: FanoutExecutionState) -> str:
@@ -264,7 +264,7 @@ class FanoutCoordinator:
                 continue
             if task.id in state.task_results or task.id in state.candidates:
                 continue
-            if not self._hard_dependencies_ready(task, state.successful_task_ids):
+            if not self._hard_dependencies_ready(task, set(state.merged_task_ids)):
                 continue
             if not self._live_dependencies_ready(task):
                 continue
@@ -286,7 +286,6 @@ class FanoutCoordinator:
         for task, attempt in selected:
             state.attempt_counts[task.id] = attempt
             state.pending.remove(task.id)
-            state.retry_ready.discard(task.id)
             coordination = self._prepare_live_worker_context(task, attempt)
             future = executor.submit(
                 self._run_worker_attempt,
@@ -332,7 +331,6 @@ class FanoutCoordinator:
                 and self._worker_retry_allowed(attempt_result)
             ):
                 state.pending.add(attempt_result.task_id)
-                state.retry_ready.add(attempt_result.task_id)
                 self._record_worker_retry(attempt_result)
                 continue
 
@@ -383,9 +381,9 @@ class FanoutCoordinator:
     @staticmethod
     def _hard_dependencies_ready(
         task: SubagentTask,
-        successful_task_ids: set[str],
+        integrated_task_ids: set[str],
     ) -> bool:
-        return set(task.depends_on).issubset(successful_task_ids)
+        return set(task.depends_on).issubset(integrated_task_ids)
 
     def _dependency_handoffs(
         self,
@@ -422,13 +420,13 @@ class FanoutCoordinator:
     def _live_producers_integrated(
         self,
         task: SubagentTask,
-        successful_task_ids: set[str],
+        integrated_task_ids: set[str],
     ) -> bool:
         producers = {
             dependency.producer_task_id
             for dependency in self.plan.live_dependencies_for(task.id)
         }
-        return producers.issubset(successful_task_ids)
+        return producers.issubset(integrated_task_ids)
 
     def _authorize_live_freshness(
         self,
@@ -586,7 +584,8 @@ class FanoutCoordinator:
                 CandidateDecision.DEFERRED,
             )
             return CandidateDecision.DEFERRED
-        if not self._hard_dependencies_ready(task, state.successful_task_ids):
+        integrated_task_ids = set(state.merged_task_ids)
+        if not self._hard_dependencies_ready(task, integrated_task_ids):
             self._record_candidate_gate(
                 task.id,
                 attempt.attempt,
@@ -594,7 +593,7 @@ class FanoutCoordinator:
                 CandidateDecision.DEFERRED,
             )
             return CandidateDecision.DEFERRED
-        if not self._live_producers_integrated(task, state.successful_task_ids):
+        if not self._live_producers_integrated(task, integrated_task_ids):
             self._record_candidate_gate(
                 task.id,
                 attempt.attempt,
@@ -676,7 +675,6 @@ class FanoutCoordinator:
             final_attempt=attempt.attempt,
             handoff=handoff,
         )
-        state.successful_task_ids.add(task.id)
         state.merged_task_ids.append(task.id)
         if self.live_handoff is not None and task.id in self.plan.live_task_ids:
             self.live_handoff.seal_integration(task.id, attempt.attempt, success=True)
@@ -833,7 +831,6 @@ class FanoutCoordinator:
             if (
                 task_result.handoff is None
                 or task_result.handoff.task_id != task_id
-                or task_result.handoff.status != "candidate_produced"
             ):
                 raise RuntimeError(
                     f"fanout resume integrated task has no canonical Handoff: {task_id}"
@@ -876,7 +873,6 @@ class FanoutCoordinator:
                     )
                 recovery_diffs.append((task_id, candidate))
             state.task_results[task_id] = task_result
-            state.successful_task_ids.add(task_id)
             state.merged_task_ids.append(task_id)
             restored_attempts.extend(
                 restored_attempt
@@ -1047,7 +1043,10 @@ class FanoutCoordinator:
         attempts_by_task: dict[str, list[WorkerAttemptResult]] = {}
         for attempt in state.attempt_results:
             attempts_by_task.setdefault(attempt.task_id, []).append(attempt)
-        for task in self.plan.tasks:
+        task_by_id = {task.id: task for task in self.plan.tasks}
+        # 按验证过的依赖顺序投影，确保 A -> B -> C 的失败闭包不受声明顺序影响。
+        for task_id in self._integration_order:
+            task = task_by_id[task_id]
             if task.id in state.task_results:
                 continue
             attempts = attempts_by_task.get(task.id, [])

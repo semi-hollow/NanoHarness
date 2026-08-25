@@ -59,16 +59,16 @@ from agent_forge.runtime.wiring import (
 from agent_forge.safety.guardrails import sanitize_quoted_evidence
 from agent_forge.tools.registry import ToolRegistry
 
-from ..domain.fanout import SubagentTask
-from ..domain.tool_policy import FINALIZER_READ_TOOLS, READ_TOOLS, WRITE_TOOLS
-from ..domain.live import (
+from ..domain.fanout import (
     FanoutPlan,
     CriterionResult,
     FinalizerResult,
+    SubagentTask,
     WorkerAttemptResult,
     WorkerHandoff,
     project_worker_handoff,
 )
+from ..domain.tool_policy import FINALIZER_READ_TOOLS, READ_TOOLS, WRITE_TOOLS
 from ..ports import FanoutWorkerPort, LiveWorkerContextPort
 from .live_agent_worker import LiveHandoffRunControl, PublishHandoffEventTool
 from .git_workspace import apply_unified_diff_to_workspace, commit_worker_baseline

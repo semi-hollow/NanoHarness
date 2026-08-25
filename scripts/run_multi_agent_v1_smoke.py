@@ -26,6 +26,9 @@ from agent_forge.multi_agent.application.planning import (
     AdaptivePlanner,
     write_planning_artifact,
 )
+from agent_forge.multi_agent.domain.fanout import (
+    FANOUT_MECHANISM_EVIDENCE_SCHEMA_VERSION,
+)
 from agent_forge.multi_agent.wiring import FanoutBuildRequest, build_fanout
 from agent_forge.observability.adapters.json_trace import TraceRecorder
 from agent_forge.runtime.adapters.execution_environment import ExecutionEnvironment
@@ -530,7 +533,7 @@ def _project_evidence(
 
     # region 5.3 脱敏输出：区分 Reused、New、Omitted 和性能 Claim Boundary
     return {
-        "schema_version": 3,
+        "schema_version": FANOUT_MECHANISM_EVIDENCE_SCHEMA_VERSION,
         "evidence_class": "deterministic_real_agent_loop_mechanism",
         "natural_language_task": NATURAL_LANGUAGE_TASK,
         "planning_decision": planning["decision"],

@@ -9,8 +9,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Iterable
 
-from .fanout import SubagentTask
-from .live import FanoutPlan
+from .fanout import FanoutPlan, SubagentTask
 from .live_handoff import LiveDependency
 
 MAX_CRITERIA = 16

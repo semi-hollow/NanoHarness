@@ -21,7 +21,7 @@ from agent_forge.runtime.domain.conversation import Message
 from agent_forge.runtime.ports.model import ModelPort
 from agent_forge.runtime.domain.structured_output import StructuredOutputParser
 
-from ..domain.live import FanoutPlan
+from ..domain.fanout import FanoutPlan
 from ..domain.planning import PlanningDecision
 
 MAX_REPO_MAP_CHARS = 12_000
@@ -202,7 +202,7 @@ class AdaptivePlanner:
         -> 可选 FanoutPlan 图校验 -> 失败时追加一次 repair -> 仍失败则 fallback_to_single。
         """
 
-        # region 1. 固定请求：同一 Schema 同时约束首轮规划和剩余任务重规划
+        # region 1. 固定请求：执行前 structured planning，失败时最多一次 bounded repair
         parser = StructuredOutputParser(PLANNING_SCHEMA, max_repair_attempts=1)
         model = self.model_factory()
         messages = [

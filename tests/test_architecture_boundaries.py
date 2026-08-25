@@ -243,13 +243,13 @@ class ArchitectureBoundaryTest(unittest.TestCase):
             root / "application" / "fanout.py",
             root / "application" / "live_handoff.py",
             root / "domain" / "fanout.py",
-            root / "domain" / "live.py",
             root / "domain" / "live_handoff.py",
             root / "domain" / "planning.py",
+            root / "ports" / "fanout.py",
             root / "ports" / "live.py",
             root / "adapters" / "local_worker.py",
             root / "adapters" / "live_agent_worker.py",
-            root / "presentation" / "live_report.py",
+            root / "presentation" / "fanout_report.py",
             root / "wiring.py",
         ]
         self.assertEqual([str(path) for path in expected if not path.is_file()], [])

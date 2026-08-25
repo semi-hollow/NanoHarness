@@ -23,7 +23,7 @@ from .adapters.git_workspace import GitFanoutWorkspace
 from .adapters.local_worker import LocalAgentWorkerAdapter
 from .application.dependencies import FanoutDependencies
 from .application.fanout import FanoutCoordinator
-from .domain.live import FanoutPlan
+from .domain.fanout import FanoutPlan
 from .ports import FanoutEvents
 
 RegistryFactory = Callable[[Path, ExecutionEnvironment], ToolRegistry]

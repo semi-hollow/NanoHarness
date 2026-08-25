@@ -17,7 +17,7 @@ import time
 from threading import Condition, RLock
 from typing import Any
 
-from ..domain.live import FanoutPlan
+from ..domain.fanout import FanoutPlan
 from ..domain.live_handoff import LiveEventType, LiveHandoffEvent
 from ..ports import FanoutArtifactPort, LiveWorkerContextPort
 

@@ -1,25 +1,34 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import threading
 import time
 import unittest
 from dataclasses import FrozenInstanceError
 from pathlib import Path
+from tempfile import TemporaryDirectory
 from typing import Any, Callable
 
+from agent_forge.multi_agent.adapters.plan_files import load_resume_plan
 from agent_forge.multi_agent.application.dependencies import FanoutDependencies
-from agent_forge.multi_agent.application.fanout import FanoutCoordinator
+from agent_forge.multi_agent.application.fanout import (
+    FanoutCoordinator,
+    FanoutExecutionState,
+)
 from agent_forge.multi_agent.application.live_handoff import LiveHandoffRuntime
-from agent_forge.multi_agent.domain.fanout import SubagentTask
-from agent_forge.multi_agent.domain.live import (
+from agent_forge.multi_agent.domain.fanout import (
     FANOUT_CHECKPOINT_SCHEMA_VERSION,
     FanoutPlan,
     FanoutTaskResult,
     FinalizerResult,
+    SubagentTask,
     WorkerAttemptResult,
+    project_worker_handoff,
 )
 from agent_forge.multi_agent.domain.live_handoff import LiveDependency
+from agent_forge.multi_agent.ports import fanout as fanout_ports
+from agent_forge.multi_agent.ports import live as live_ports
 from agent_forge.runtime.config import RuntimeConfig
 
 
@@ -295,6 +304,26 @@ class FanoutDomainTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             FanoutTaskResult(task_id="A", status="candidate_produced")
 
+    def test_worker_handoff_is_semantic_payload_without_lifecycle_status(self) -> None:
+        attempt = WorkerAttemptResult(
+            task_id="A",
+            attempt=1,
+            launch_wave_index=1,
+            status="candidate_produced",
+            summary="bounded result",
+        )
+        handoff = project_worker_handoff(attempt)
+
+        self.assertEqual(handoff.task_id, "A")
+        self.assertEqual(handoff.summary, "bounded result")
+        self.assertNotIn("status", handoff.to_dict())
+
+    def test_execution_state_has_one_trusted_authority_and_no_retry_mirror(self) -> None:
+        fields = FanoutExecutionState.__dataclass_fields__
+        self.assertIn("merged_task_ids", fields)
+        self.assertNotIn("successful_task" + "_ids", fields)
+        self.assertNotIn("retry" + "_ready", fields)
+
 
 class FanoutSchedulerAndFrontierTests(unittest.TestCase):
     def test_independent_workers_overlap_but_trusted_integration_order_is_stable(
@@ -380,10 +409,9 @@ class FanoutSchedulerAndFrontierTests(unittest.TestCase):
             [handoff.task_id for handoff in workers.handoffs[("B", 1)]],
             ["A"],
         )
-        self.assertEqual(
-            workers.handoffs[("B", 1)][0].status,
-            "candidate_produced",
-        )
+        results = {result.task_id: result for result in summary.task_results}
+        self.assertEqual(results["A"].status, "integrated")
+        self.assertNotIn("status", workers.handoffs[("B", 1)][0].to_dict())
         self.assertEqual(summary.merged_task_ids, ["A", "B"])
 
     def test_blocked_task_has_no_worker_attempt(self) -> None:
@@ -409,6 +437,44 @@ class FanoutSchedulerAndFrontierTests(unittest.TestCase):
         self.assertEqual(summary.metrics["task_count"], 2)
         self.assertEqual(summary.metrics["attempt_count"], 1)
         self.assertEqual(workers.finalizer_calls, 0)
+
+    def test_reverse_declared_multi_hop_hard_failure_materializes_blocked_closure(
+        self,
+    ) -> None:
+        artifacts = _Artifacts()
+        # Planner 声明顺序故意逆序；治理语义必须跟 HARD graph，而不是数组位置。
+        plan = _plan(
+            _task("C", depends_on=("B",)),
+            _task("B", depends_on=("A",)),
+            _task("A"),
+        )
+
+        def behavior(task: SubagentTask, attempt: int, _: Any) -> WorkerAttemptResult:
+            self.assertEqual(task.id, "A")
+            return _attempt(
+                artifacts,
+                task,
+                attempt,
+                status="terminal_failure",
+                failure_kind="worker_execution_failed",
+            )
+
+        workers = _Workers(artifacts, behavior)
+        started = time.monotonic()
+        summary = _coordinator(plan, artifacts, workers)[0].run()
+        results = {result.task_id: result for result in summary.task_results}
+
+        self.assertLess(time.monotonic() - started, 2)
+        self.assertEqual(results["A"].status, "failed")
+        for task_id in ("B", "C"):
+            self.assertEqual(results[task_id].status, "blocked")
+            self.assertEqual(results[task_id].failure_kind, "blocked_dependency")
+            self.assertIsNone(results[task_id].final_attempt)
+        self.assertEqual(
+            [(row.task_id, row.attempt) for row in summary.attempt_results],
+            [("A", 1)],
+        )
+        self.assertEqual([(row[0], row[1]) for row in workers.calls], [("A", 1)])
 
     def test_terminal_frontier_stops_launch_and_later_candidate_is_not_integrated(self) -> None:
         artifacts = _Artifacts()
@@ -840,6 +906,20 @@ class FanoutLiveTests(unittest.TestCase):
 
 
 class FanoutResumeTests(unittest.TestCase):
+    def test_load_resume_plan_reads_the_single_persisted_frozen_plan(self) -> None:
+        plan = _plan(_task("A"))
+        with TemporaryDirectory() as temporary:
+            fanout_dir = Path(temporary) / "fanout"
+            fanout_dir.mkdir()
+            (fanout_dir / "fanout_plan.json").write_text(
+                json.dumps(plan.to_dict()),
+                encoding="utf-8",
+            )
+
+            restored = load_resume_plan(temporary)
+
+        self.assertEqual(restored.digest, plan.digest)
+
     def test_checkpoint_is_only_authority_and_replays_strict_prefix(self) -> None:
         first_artifacts = _Artifacts()
         plan = _plan(
@@ -987,6 +1067,17 @@ class FanoutResumeTests(unittest.TestCase):
 
 
 class MultiAgentVocabularyTests(unittest.TestCase):
+    def test_common_ports_and_live_bound_port_are_physically_separate(self) -> None:
+        for name in (
+            "FanoutWorkspacePort",
+            "FanoutArtifactPort",
+            "FanoutWorkerPort",
+            "FanoutEvents",
+        ):
+            self.assertTrue(hasattr(fanout_ports, name))
+            self.assertFalse(hasattr(live_ports, name))
+        self.assertTrue(hasattr(live_ports, "LiveWorkerContextPort"))
+
     def test_current_production_has_no_removed_architecture_vocabulary(self) -> None:
         root = Path(__file__).resolve().parents[1]
         forbidden = (
@@ -1006,6 +1097,9 @@ class MultiAgentVocabularyTests(unittest.TestCase):
             "LiveFanout" + "BuildRequest",
             "build_live" + "_fanout",
             "LiveFanout" + "Events",
+            "load_resume_" + "initial_plan",
+            "retry" + "_ready",
+            "successful_task" + "_ids",
         )
         production_roots = (root / "agent_forge", root / "apps")
         matches: dict[str, list[str]] = {}
@@ -1016,6 +1110,10 @@ class MultiAgentVocabularyTests(unittest.TestCase):
                     if token in text:
                         matches.setdefault(token, []).append(str(path.relative_to(root)))
         self.assertEqual(matches, {})
+        self.assertFalse((root / "agent_forge/multi_agent/domain/live.py").exists())
+        self.assertFalse(
+            (root / "agent_forge/multi_agent/presentation/live_report.py").exists()
+        )
 
 
 if __name__ == "__main__":

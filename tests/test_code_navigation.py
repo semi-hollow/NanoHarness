@@ -90,7 +90,7 @@ CORE_WORKFLOW_ENTRYPOINTS = {
         "LocalAgentWorkerAdapter.run_worker": 5,
         "LocalAgentWorkerAdapter.run_finalizer": 4,
     },
-    "agent_forge/multi_agent/domain/live.py": {
+    "agent_forge/multi_agent/domain/fanout.py": {
         "aggregate_fanout_metrics": 3,
     },
     "agent_forge/bench/application/swebench.py": {
@@ -487,7 +487,7 @@ MULTI_AGENT_FOLD_MAP = {
         "Finalizer",
         "恢复验证",
     },
-    "agent_forge/multi_agent/domain/live.py": {
+    "agent_forge/multi_agent/domain/fanout.py": {
         "深度不可变计划",
         "结果与持久化契约",
         "输入规范化与依赖图校验",

@@ -20,6 +20,7 @@ from pathlib import Path
 from typing import Any
 
 from agent_forge.bench.domain.campaign import CampaignState, summarize_campaign
+from agent_forge.multi_agent.domain.fanout import FANOUT_SUMMARY_SCHEMA_VERSION
 from agent_forge.observability.api import RunStory, load_run_story
 from apps.workbench.domain import EvidenceSource
 from apps.workbench.ports import EvidenceCatalogPort
@@ -235,7 +236,7 @@ class FileEvidenceCatalog(EvidenceCatalogPort):
         )
         for summary_path in summaries:
             summary = read_json_file(summary_path)
-            if summary.get("schema_version") != 3:
+            if summary.get("schema_version") != FANOUT_SUMMARY_SCHEMA_VERSION:
                 continue
             run_dir = summary_path.parent
             run_title = _run_display_title(run_dir.parent.name)
@@ -953,7 +954,12 @@ class FileEvidenceCatalog(EvidenceCatalogPort):
         candidate = run_dir / "fanout" / "fanout_summary.json"
         if not candidate.is_file():
             return None
-        return candidate if read_json_file(candidate).get("schema_version") == 3 else None
+        return (
+            candidate
+            if read_json_file(candidate).get("schema_version")
+            == FANOUT_SUMMARY_SCHEMA_VERSION
+            else None
+        )
 
     def latest_orchestration_fanout_path(self) -> Path | None:
         """返回最近一次并行 Fanout 证据，不受其他 Lab 的运行顺序影响。"""
@@ -969,7 +975,8 @@ class FileEvidenceCatalog(EvidenceCatalogPort):
             candidate
             for candidate in candidates
             if candidate.is_file()
-            and read_json_file(candidate).get("schema_version") == 3
+            and read_json_file(candidate).get("schema_version")
+            == FANOUT_SUMMARY_SCHEMA_VERSION
         ]
         return _newest_existing(current_candidates)
 

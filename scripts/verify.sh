@@ -100,7 +100,7 @@ PY
 
   echo "== Real-model Ultra policy smoke =="
   ULTRA_OUTPUT="$("${PYTHON_BIN}" -m agent_forge run \
-    "分别审查 runtime 与 safety 证据并汇总结论，不要修改文件" \
+    "只调用 read_file 分别读取 agent_forge/multi_agent/application/fanout.py 和 agent_forge/multi_agent/application/live_handoff.py 各一次，然后仅根据已读源码说明两者职责边界；不要运行测试，不要声称验证通过，不要修改文件" \
     --agent-mode ultra \
     --max-workers 2 \
     --provider deepseek \
