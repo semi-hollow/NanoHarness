@@ -43,7 +43,7 @@ class FileEvidenceCatalog(EvidenceCatalogPort):
     def evidence_sources(self) -> tuple[EvidenceSource, ...]:
         """返回“能力类型 → 不可变 Run → Case/Worker”的稳定叶子列表。
 
-        主动面只保留 Lab 1、Lab 2 与 Mini-50。普通 latest 指针和历史实验不再与
+        主动面只保留 Lab 1、当前 Multi-Agent 与 Mini-50。普通 latest 指针和历史实验不再与
         这些权威入口平铺；它们仍可通过 ``forge inspect`` 或归档文件读取。
         """
 
@@ -175,116 +175,90 @@ class FileEvidenceCatalog(EvidenceCatalogPort):
         )
 
     def _orchestration_sources(self) -> tuple[EvidenceSource, ...]:
-        """把 Lab 2 总览与每个 Worker/Finalizer Trace 投影成同一导航树。"""
+        """只发现当前 schema 的原生 Fanout evidence。"""
 
-        root = self.project_dir / SHOWCASE_RUN_ROOT
-        summaries = sorted(
-            root.glob("*/fanout/fanout_summary.json") if root.is_dir() else (),
-            key=lambda path: path.stat().st_mtime,
-            reverse=True,
+        config = _review_source_config(self.project_dir, "orchestration")
+        canonical_path = _safe_local_path(
+            self.project_dir,
+            str(config.get("canonical_artifact") or ""),
         )
-        canonical_name = _review_canonical_run(self.project_dir, "orchestration")
-        if canonical_name:
-            summaries = sorted(
-                summaries,
-                key=lambda path: (path.parent.parent.name != canonical_name,),
-            )
-        canonical_available = bool(
-            canonical_name
-            and summaries
-            and summaries[0].parent.parent.name == canonical_name
-        )
-        missing_source = None
-        # 固定 Run 缺失时先创建显式故障叶子，随后才附带可读的非 canonical Run。
-        if canonical_name and not canonical_available:
-            missing = root / canonical_name / "fanout/fanout_summary.json"
-            missing_source = EvidenceSource(
-                key="orchestration",
-                title="Lab 2 · Canonical evidence unavailable",
-                description="Manifest 固定的本机 immutable Run 尚不可读取",
-                source_type="scenario",
-                task="Coordinated Agent review",
-                status="not_observed",
-                primary_path=missing,
-                run_dir=missing.parent.parent,
-                category_key="orchestration",
-                category_title="Lab 2 · Coordinated Agents",
-                run_key=canonical_name,
-                run_title="Canonical Run · missing",
-                item_key="overview",
-                item_title="整体编排",
-            )
-        if not summaries:
-            if missing_source is not None:
-                return (missing_source,)
-            source = self._orchestration_source()
-            return (
-                _with_navigation(
-                    source,
-                    category_key="orchestration",
-                    category_title="Lab 2 · Coordinated Agents",
-                    run_key="not-run",
-                    run_title="尚未运行",
-                ),
-            )
         sources: list[EvidenceSource] = []
-        # 每个 Run 先生成 overview，再生成只指向该 Run 内部 Trace 的 Worker 叶子。
-        for run_index, summary_path in enumerate(summaries):
-            summary = read_json_file(summary_path)
-            run_root = summary_path.parent.parent
-            run_title = _run_display_title(run_root.name)
-            traces = _fanout_trace_entries(summary)
-            base_key = (
-                "orchestration"
-                if run_index == 0 and canonical_available
-                else f"orchestration:{run_root.name}"
+        if canonical_path is not None and canonical_path.is_file():
+            evidence = read_json_file(canonical_path)
+            sources.append(
+                EvidenceSource(
+                    key="orchestration",
+                    title="Multi-Agent Runtime · LIVE mechanism",
+                    description="Frozen Plan、Launch Waves、LIVE coordination 与 strict integration frontier",
+                    source_type="mechanism-evidence",
+                    task=str(evidence.get("natural_language_task") or "Multi-Agent mechanism"),
+                    status=str(evidence.get("status") or "not_observed"),
+                    primary_path=canonical_path,
+                    run_dir=canonical_path.parent,
+                    category_key="orchestration",
+                    category_title="Multi-Agent Runtime",
+                    run_key="canonical-mechanism",
+                    run_title="Canonical LIVE Mechanism",
+                    item_key="overview",
+                    item_title="当前架构总览",
+                )
+            )
+        else:
+            missing = canonical_path or (
+                self.project_dir / "benchmarks/experiments/multi-agent-v1/mechanism-evidence.json"
             )
             sources.append(
                 EvidenceSource(
-                    key=base_key,
-                    title=f"Lab 2 · {run_title}",
-                    description="依赖批次、隔离 Worker、冲突门禁与只读 Finalizer",
-                    source_type="scenario",
-                    task=str(summary.get("goal") or "Coordinated Agent workflow"),
-                    status=str(summary.get("status") or "not_run"),
-                    primary_path=summary_path,
-                    run_dir=run_root,
-                    trace_entries=traces,
+                    key="orchestration",
+                    title="Multi-Agent Runtime · evidence unavailable",
+                    description="当前 schema 的 canonical mechanism evidence 不可读取",
+                    source_type="mechanism-evidence",
+                    task="Multi-Agent mechanism",
+                    status="not_observed",
+                    primary_path=missing,
+                    run_dir=missing.parent,
                     category_key="orchestration",
-                    category_title="Lab 2 · Coordinated Agents",
-                    run_key=run_root.name,
-                    run_title=run_title,
+                    category_title="Multi-Agent Runtime",
+                    run_key="canonical-mechanism",
+                    run_title="Canonical LIVE Mechanism · missing",
                     item_key="overview",
-                    item_title="整体编排",
+                    item_title="当前架构总览",
                 )
             )
-            for item_index, (label, trace_path) in enumerate(traces, start=1):
-                usage_path = trace_path.parent / "usage.json"
-                sources.append(
-                    EvidenceSource(
-                        key=f"{base_key}:worker:{item_index}",
-                        title=f"{run_title} · {label}",
-                        description="单个 Worker/Finalizer 的模型、工具与结果证据",
-                        source_type="scenario-worker",
-                        task=str(read_json_file(trace_path).get("task") or label),
-                        status=str(summary.get("status") or "not_run"),
-                        primary_path=trace_path,
-                        run_dir=trace_path.parent,
-                        trace_entries=((label, trace_path),),
-                        usage_path=usage_path if usage_path.is_file() else None,
-                        category_key="orchestration",
-                        category_title="Lab 2 · Coordinated Agents",
-                        run_key=run_root.name,
-                        run_title=run_title,
-                        item_key=f"worker-{item_index}",
-                        item_title=label,
-                    )
-                )
-        return (
-            (missing_source, *sources)
-            if missing_source is not None
-            else tuple(sources)
+
+        # Future local Runs appear only when they already speak the current clean-break schema.
+        run_root = self.project_dir / RUNS_ROOT
+        summaries = sorted(
+            run_root.glob("**/fanout_summary.json") if run_root.is_dir() else (),
+            key=lambda path: path.stat().st_mtime,
+            reverse=True,
         )
+        for summary_path in summaries:
+            summary = read_json_file(summary_path)
+            if summary.get("schema_version") != 3:
+                continue
+            run_dir = summary_path.parent
+            run_title = _run_display_title(run_dir.parent.name)
+            sources.append(
+                EvidenceSource(
+                    key=f"orchestration:{run_dir.parent.name}",
+                    title=f"Multi-Agent Runtime · {run_title}",
+                    description="当前 schema 的本机 immutable Fanout Run",
+                    source_type="fanout-run",
+                    task=str(summary.get("goal") or "Multi-Agent Run"),
+                    status=str(summary.get("status") or "not_observed"),
+                    primary_path=summary_path,
+                    run_dir=run_dir,
+                    trace_entries=_fanout_trace_entries(summary),
+                    category_key="orchestration",
+                    category_title="Multi-Agent Runtime",
+                    run_key=run_dir.parent.name,
+                    run_title=run_title,
+                    item_key="overview",
+                    item_title="Fanout Run 总览",
+                )
+            )
+        return tuple(sources)
 
     def _mini50_sources(self) -> tuple[EvidenceSource, ...]:
         """仅在完整 50 Case closure 可读时暴露逐 Case raw evidence。"""
@@ -455,7 +429,7 @@ class FileEvidenceCatalog(EvidenceCatalogPort):
         summary_path = self.latest_orchestration_fanout_path()
         summary = read_json_file(summary_path)
         trace_entries: list[tuple[str, Path]] = []
-        for result in summary.get("results") or []:
+        for result in summary.get("attempt_results") or []:
             if not isinstance(result, dict):
                 continue
             trace_path = Path(str(result.get("trace_path") or ""))
@@ -472,8 +446,8 @@ class FileEvidenceCatalog(EvidenceCatalogPort):
         run_dir = summary_path.parent.parent if summary_path is not None else None
         return EvidenceSource(
             key="orchestration",
-            title="并行多 Agent",
-            description="依赖批次、隔离 Worker、冲突门禁与只读 Finalizer",
+            title="Multi-Agent Runtime",
+            description="Frozen Plan、Launch Waves、Candidate Gates 与只读 Finalizer",
             source_type="scenario",
             task=str(summary.get("goal") or "尚未运行"),
             status=str(summary.get("status") or "not_run"),
@@ -972,34 +946,14 @@ class FileEvidenceCatalog(EvidenceCatalogPort):
         candidates.extend(sorted(run_dir.glob("cases/*/*/comparison.json")))
         return _newest_existing(candidates)
 
-    def latest_multi_agent_summary_path(self) -> Path | None:
-        run_dir = self.latest_run_dir()
-        if not run_dir:
-            return None
-        candidates = [run_dir / "multi_agent/multi_agent_summary.json"]
-        candidates.extend(
-            sorted(run_dir.glob("cases/**/multi_agent/multi_agent_summary.json"))
-        )
-        return _newest_existing(candidates)
-
     def latest_fanout_summary_path(self) -> Path | None:
         run_dir = self.latest_run_dir()
         if not run_dir:
             return None
         candidate = run_dir / "fanout" / "fanout_summary.json"
-        return candidate if candidate.exists() else None
-
-    def latest_orchestration_summary_path(self) -> Path | None:
-        """返回最近一次多 Agent 证据，不受当前 Single-Run 指针影响。"""
-
-        runs_dir = self.project_dir / RUNS_ROOT
-        candidates: list[Path] = []
-        current = self.latest_multi_agent_summary_path()
-        if current is not None:
-            candidates.append(current)
-        if runs_dir.exists():
-            candidates.extend(runs_dir.glob("**/multi_agent_summary.json"))
-        return _newest_existing(candidates)
+        if not candidate.is_file():
+            return None
+        return candidate if read_json_file(candidate).get("schema_version") == 3 else None
 
     def latest_orchestration_fanout_path(self) -> Path | None:
         """返回最近一次并行 Fanout 证据，不受其他 Lab 的运行顺序影响。"""
@@ -1011,7 +965,13 @@ class FileEvidenceCatalog(EvidenceCatalogPort):
             candidates.append(current)
         if runs_dir.exists():
             candidates.extend(runs_dir.glob("**/fanout_summary.json"))
-        return _newest_existing(candidates)
+        current_candidates = [
+            candidate
+            for candidate in candidates
+            if candidate.is_file()
+            and read_json_file(candidate).get("schema_version") == 3
+        ]
+        return _newest_existing(current_candidates)
 
     def latest_benchmark_run_dir(self) -> Path | None:
         """返回最近一次 SWE-bench 运行，和交互式 Single-Run 分开选取。"""
@@ -1037,14 +997,6 @@ class FileEvidenceCatalog(EvidenceCatalogPort):
         candidates = [run_dir / "comparison.json"]
         candidates.extend(run_dir.glob("cases/**/comparison.json"))
         return _newest_existing(candidates)
-
-    def latest_benchmark_multi_agent_summary_path(self) -> Path | None:
-        """返回最近 Benchmark Run 内的多 Agent 摘要。"""
-
-        run_dir = self.latest_benchmark_run_dir()
-        if run_dir is None:
-            return None
-        return _newest_existing(list(run_dir.glob("cases/**/multi_agent_summary.json")))
 
     def latest_benchmark_usage_path(self) -> Path | None:
         """返回最近 Benchmark Run 内的用量证据。"""
@@ -1294,14 +1246,17 @@ def _run_display_title(name: str) -> str:
 def _review_canonical_run(project_dir: Path, category: str) -> str:
     """读取版本化 Review manifest 中固定的本机 raw Run identity。"""
 
+    return str(_review_source_config(project_dir, category).get("canonical_run") or "")
+
+
+def _review_source_config(project_dir: Path, category: str) -> dict[str, Any]:
     manifest = read_json_file(
         project_dir / "benchmarks/showcase/evidence-review-v1.json"
     )
     sources = manifest.get("sources")
     sources = sources if isinstance(sources, dict) else {}
     source = sources.get(category)
-    source = source if isinstance(source, dict) else {}
-    return str(source.get("canonical_run") or "")
+    return source if isinstance(source, dict) else {}
 
 
 def _canonical_first(paths: list[Path], canonical_name: str) -> list[Path]:
@@ -1312,7 +1267,7 @@ def _canonical_first(paths: list[Path], canonical_name: str) -> list[Path]:
 
 def _fanout_trace_entries(summary: dict[str, Any]) -> tuple[tuple[str, Path], ...]:
     entries: list[tuple[str, Path]] = []
-    for item in summary.get("results") or summary.get("role_results") or []:
+    for item in summary.get("attempt_results") or []:
         if not isinstance(item, dict):
             continue
         raw_path = str(item.get("trace_path") or "").strip()

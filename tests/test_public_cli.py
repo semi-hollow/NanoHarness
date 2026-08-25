@@ -301,31 +301,45 @@ class PublicCliSmokeTest(unittest.TestCase):
                 "# Live Fanout Report\n", encoding="utf-8"
             )
             (fanout_dir / "fanout_summary.json").write_text(
-                """
-{
-  "goal": "audit runtime and safety",
-  "status": "passed",
-  "batches": [["runtime-audit", "safety-audit"]],
-  "merged_task_ids": ["runtime-audit", "safety-audit"],
-  "final_decision": "PASS",
-  "metrics": {
-    "task_count": 2,
-    "completed_count": 2,
-    "max_workers": 2,
-    "wall_time_ms": 1200,
-    "summed_worker_duration_ms": 2100,
-    "llm_calls": 3,
-    "total_tokens": 900,
-    "estimated_cost_usd": 0.01,
-    "tool_calls": 4,
-    "failed_tool_calls": 0
-  },
-  "results": [
-    {"task_id": "runtime-audit", "status": "completed", "resumed": false, "touched_files": []},
-    {"task_id": "safety-audit", "status": "completed", "resumed": false, "touched_files": []}
-  ]
-}
-""",
+                json.dumps(
+                    {
+                        "schema_version": 3,
+                        "run_id": "run-fanout",
+                        "goal": "audit runtime and safety",
+                        "status": "passed",
+                        "plan_digest": "a" * 64,
+                        "base_head": "base",
+                        "launch_waves": [
+                            [
+                                {"task_id": "runtime-audit", "attempt": 1},
+                                {"task_id": "safety-audit", "attempt": 1},
+                            ]
+                        ],
+                        "task_results": [
+                            {"task_id": "runtime-audit", "status": "integrated", "failure_kind": "", "final_attempt": 1},
+                            {"task_id": "safety-audit", "status": "integrated", "failure_kind": "", "final_attempt": 1},
+                        ],
+                        "attempt_results": [
+                            {"task_id": "runtime-audit", "attempt": 1, "launch_wave_index": 1, "status": "candidate_produced", "touched_files": [], "usage_summary": {}},
+                            {"task_id": "safety-audit", "attempt": 1, "launch_wave_index": 1, "status": "candidate_produced", "touched_files": [], "usage_summary": {}},
+                        ],
+                        "merged_task_ids": ["runtime-audit", "safety-audit"],
+                        "conflicts": [],
+                        "final_decision": "PASS",
+                        "metrics": {
+                            "task_count": 2,
+                            "attempt_count": 2,
+                            "max_workers": 2,
+                            "wall_time_ms": 1200,
+                            "summed_worker_duration_ms": 2100,
+                            "llm_calls": 3,
+                            "total_tokens": 900,
+                            "estimated_cost_usd": 0.01,
+                            "tool_calls": 4,
+                            "failed_tool_calls": 0,
+                        },
+                    }
+                ),
                 encoding="utf-8",
             )
 
@@ -402,39 +416,6 @@ class PublicCliSmokeTest(unittest.TestCase):
         self.assertIn("工具调用规范化", html)
         self.assertIn("targeted_code_edit", html)
 
-    def test_run_evidence_renders_artifact_content_and_handoff(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
-            run_dir = root / ".agent_forge" / "runs" / "run-1"
-            multi_dir = run_dir / "cases" / "case" / "multi_agent"
-            artifact_path = multi_dir / "artifacts" / "review.md"
-            artifact_path.parent.mkdir(parents=True)
-            artifact_path.write_text(
-                "# Review\nPASS: root cause evidence is sufficient.", encoding="utf-8"
-            )
-            (multi_dir / "multi_agent_summary.json").write_text(
-                """
-{
-  "status": "passed",
-  "role_results": [{"role": "Reviewer", "decision": "PASS", "round_index": 0, "final_answer": "PASS"}],
-  "artifacts": [{"id": "review", "role": "Reviewer", "kind": "review_report", "round_index": 0, "path": "%s"}]
-}
-"""
-                % artifact_path.as_posix(),
-                encoding="utf-8",
-            )
-            (run_dir / "trace.json").write_text('{"events": []}', encoding="utf-8")
-            latest = root / ".agent_forge" / "internal" / "index"
-            latest.mkdir(parents=True)
-            (latest / "run.txt").write_text(str(run_dir), encoding="utf-8")
-
-            html = _render_evidence_html(root, "evidence")
-
-        self.assertIn("root cause evidence is sufficient", html)
-        self.assertIn("生产者", html)
-        self.assertIn("消费者", html)
-        self.assertIn("协调器 + 验证者", html)
-
     def test_runtime_controls_only_claim_events_observed_in_trace(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -483,15 +464,6 @@ class PublicCliSmokeTest(unittest.TestCase):
         self.assertIn("覆盖写入 1 个当前状态文件", html)
         self.assertIn("不是每个 Model Step 固定写一次", html)
         self.assertIn("class='fact-list'", html)
-
-    def test_compare_evidence_view_has_clear_single_multi_story(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            html = _render_evidence_html(Path(tmp), "compare")
-        self.assertIn("单 Agent 与多 Agent 对比", html)
-        self.assertIn("单 Agent", html)
-        self.assertIn("多 Agent 协调器", html)
-        self.assertIn("工程决策", html)
-        self.assertIn("生成的产物", html)
 
     def test_timeline_explains_scope_order_and_color_semantics(self):
         with tempfile.TemporaryDirectory() as tmp:

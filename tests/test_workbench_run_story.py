@@ -958,26 +958,56 @@ class WorkbenchRunStoryTest(unittest.TestCase):
             (fanout_run / "fanout_summary.json").write_text(
                 json.dumps(
                     {
+                        "schema_version": 3,
+                        "run_id": "fanout-run",
                         "status": "passed",
                         "goal": "parallel evidence",
-                        "batches": [["a", "b"]],
+                        "plan_digest": "a" * 64,
+                        "base_head": "base",
+                        "launch_waves": [
+                            [
+                                {"task_id": "a", "attempt": 1},
+                                {"task_id": "b", "attempt": 1},
+                            ]
+                        ],
                         "metrics": {
                             "task_count": 2,
-                            "completed_count": 2,
+                            "attempt_count": 2,
                             "max_workers": 2,
                         },
-                        "results": [
+                        "task_results": [
                             {
                                 "task_id": "a",
-                                "status": "completed",
+                                "status": "integrated",
+                                "failure_kind": "",
+                                "final_attempt": 1,
+                            },
+                            {
+                                "task_id": "b",
+                                "status": "integrated",
+                                "failure_kind": "",
+                                "final_attempt": 1,
+                            },
+                        ],
+                        "attempt_results": [
+                            {
+                                "task_id": "a",
+                                "attempt": 1,
+                                "launch_wave_index": 1,
+                                "status": "candidate_produced",
                                 "trace_path": str(worker_a_trace),
                             },
                             {
                                 "task_id": "b",
-                                "status": "completed",
+                                "attempt": 1,
+                                "launch_wave_index": 1,
+                                "status": "candidate_produced",
                                 "trace_path": str(worker_b_trace),
                             },
                         ],
+                        "merged_task_ids": ["a", "b"],
+                        "conflicts": [],
+                        "final_decision": "PASS",
                         "finalizer_trace_path": str(finalizer_trace),
                     }
                 ),
@@ -992,7 +1022,7 @@ class WorkbenchRunStoryTest(unittest.TestCase):
 
         self.assertIn("parallel evidence", rendered)
         self.assertIn("这次运行要回答的问题", rendered)
-        self.assertIn("两个写入范围不重叠的策略修复", rendered)
+        self.assertIn("冻结计划中的独立 Worker", rendered)
         self.assertIn("本次可复现运行使用确定性 Worker 模型", rendered)
         self.assertIn("为什么允许并行", rendered)
         self.assertIn("a", rendered)
@@ -1069,14 +1099,38 @@ class WorkbenchRunStoryTest(unittest.TestCase):
             summary_path.write_text(
                 json.dumps(
                     {
+                        "schema_version": 3,
                         "run_id": "fanout-1",
                         "goal": "repair pricing and shipping",
                         "status": "passed",
-                        "batches": [["pricing", "shipping"]],
-                        "results": [
+                        "plan_digest": "b" * 64,
+                        "base_head": "base",
+                        "launch_waves": [
+                            [
+                                {"task_id": "pricing", "attempt": 1},
+                                {"task_id": "shipping", "attempt": 1},
+                            ]
+                        ],
+                        "task_results": [
                             {
                                 "task_id": "pricing",
-                                "status": "completed",
+                                "status": "integrated",
+                                "failure_kind": "",
+                                "final_attempt": 1,
+                            },
+                            {
+                                "task_id": "shipping",
+                                "status": "integrated",
+                                "failure_kind": "",
+                                "final_attempt": 1,
+                            },
+                        ],
+                        "attempt_results": [
+                            {
+                                "task_id": "pricing",
+                                "attempt": 1,
+                                "launch_wave_index": 1,
+                                "status": "candidate_produced",
                                 "touched_files": ["pricing.py"],
                                 "usage_summary": {
                                     "tool_calls": 1,
@@ -1085,7 +1139,9 @@ class WorkbenchRunStoryTest(unittest.TestCase):
                             },
                             {
                                 "task_id": "shipping",
-                                "status": "completed",
+                                "attempt": 1,
+                                "launch_wave_index": 1,
+                                "status": "candidate_produced",
                                 "touched_files": ["shipping.py"],
                                 "usage_summary": {
                                     "tool_calls": 1,
@@ -1096,6 +1152,8 @@ class WorkbenchRunStoryTest(unittest.TestCase):
                         "merged_task_ids": ["pricing", "shipping"],
                         "conflicts": [],
                         "metrics": {
+                            "task_count": 2,
+                            "attempt_count": 2,
                             "llm_calls": 6,
                             "tool_calls": 3,
                             "total_tokens": 0,
@@ -1126,7 +1184,7 @@ class WorkbenchRunStoryTest(unittest.TestCase):
         self.assertIn("正常路径与异常分支", rendered)
         self.assertIn("invalid discount", rendered)
         self.assertIn("edge verifier waits for both policy workers", rendered)
-        self.assertIn("无前置依赖：允许与同批次任务并行", rendered)
+        self.assertIn("无 HARD 前置依赖", rendered)
         self.assertIn("replace_text", rendered)
         self.assertIn("失败调用：0 次", rendered)
         self.assertIn("FanoutCoordinator.run", rendered)
@@ -1142,9 +1200,9 @@ class WorkbenchRunStoryTest(unittest.TestCase):
             rendered_entrypoints,
             {
                 "FanoutCoordinator.run",
-                "FanoutCoordinator._run_plan",
+                "FanoutCoordinator._execute_plan",
                 "FanoutCoordinator._candidate_scope_error",
-                "FanoutCoordinator._integrate_result",
+                "FanoutCoordinator._integrate_candidate",
                 "LocalAgentWorkerAdapter.run_finalizer",
             },
         )
@@ -1153,9 +1211,9 @@ class WorkbenchRunStoryTest(unittest.TestCase):
     def test_workbench_fanout_entrypoints_exist_in_code(self):
         entrypoints = (
             (FanoutCoordinator, "run"),
-            (FanoutCoordinator, "_run_plan"),
+            (FanoutCoordinator, "_execute_plan"),
             (FanoutCoordinator, "_candidate_scope_error"),
-            (FanoutCoordinator, "_integrate_result"),
+            (FanoutCoordinator, "_integrate_candidate"),
             (LocalAgentWorkerAdapter, "run_finalizer"),
         )
 
@@ -1163,7 +1221,7 @@ class WorkbenchRunStoryTest(unittest.TestCase):
             with self.subTest(entrypoint=f"{owner.__name__}.{method_name}"):
                 self.assertTrue(hasattr(owner, method_name))
 
-    def test_governed_view_keeps_lab1_evidence_after_lab2_updates_latest_run(self):
+    def test_governed_view_keeps_lab1_evidence_after_fanout_updates_latest_run(self):
         with tempfile.TemporaryDirectory() as tmp:
             project_dir = Path(tmp)
             runs = project_dir / ".agent_forge/runs"

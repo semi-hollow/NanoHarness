@@ -3,17 +3,18 @@
 from .fanout import (
     FanoutConflict,
     SubagentTask,
-    build_execution_batches,
     detect_write_scope_conflicts,
+    validate_acyclic_dependencies,
 )
 from .live import (
     CriterionResult,
     FanoutPlan,
     FinalizerResult,
-    LiveFanoutSummary,
-    LiveSubagentResult,
+    FanoutSummary,
+    FanoutTaskResult,
+    WorkerAttemptResult,
     WorkerHandoff,
-    aggregate_live_metrics,
+    aggregate_fanout_metrics,
 )
 from .planning import PlannedTask, PlanningDecision
 from .live_handoff import LiveDependency, LiveEventType, LiveHandoffEvent
@@ -23,16 +24,17 @@ __all__ = [
     "FanoutPlan",
     "FinalizerResult",
     "CriterionResult",
-    "LiveFanoutSummary",
-    "LiveSubagentResult",
+    "FanoutSummary",
+    "FanoutTaskResult",
+    "WorkerAttemptResult",
     "LiveDependency",
     "LiveEventType",
     "LiveHandoffEvent",
     "WorkerHandoff",
     "PlannedTask",
     "PlanningDecision",
-    "aggregate_live_metrics",
+    "aggregate_fanout_metrics",
     "SubagentTask",
-    "build_execution_batches",
     "detect_write_scope_conflicts",
+    "validate_acyclic_dependencies",
 ]

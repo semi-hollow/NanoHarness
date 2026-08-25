@@ -25,7 +25,7 @@ from agent_forge.tools.base import Tool
 from ..ports import LiveWorkerContextPort
 
 
-# region 1. Publish Tool：模型只填写语义字段，publisher/generation/attempt 由 Runtime 注入
+# region 1. Publish Tool：模型只填写语义字段，publisher/plan/attempt 由 Runtime 注入
 class PublishHandoffEventTool(Tool):
     """发布 Runtime 授权的 READY、FEEDBACK 或 UPDATE；模型不能填写身份。"""
 
@@ -137,7 +137,7 @@ class LiveHandoffRunControl(RunControlPort):
     ) -> list[RuntimeCoordinationSignal]:
         """把当前 mailbox 事件投影为 AgentLoop 可消费的非人工协调信号。
 
-        伪代码：按 safe boundary drain mailbox -> 保留 generation/attempt/route/version
+        伪代码：按 safe boundary drain mailbox -> 保留 plan/attempt/route/version
         -> 编码紧凑内容 -> 固定 ``human_authority=False`` -> 交给 RunControlHandler。
         """
 
@@ -145,7 +145,7 @@ class LiveHandoffRunControl(RunControlPort):
             RuntimeCoordinationSignal(
                 event_id=event.event_id,
                 content=json.dumps(event.to_dict(), ensure_ascii=False, sort_keys=True),
-                plan_generation_id=event.plan_generation_id,
+                plan_digest=event.plan_digest,
                 worker_attempt_id=event.worker_attempt_id,
                 publisher_task_id=event.publisher_task_id,
                 target_task_id=event.target_task_id,

@@ -131,18 +131,23 @@ if not summary_path.exists():
     raise SystemExit(0)
 
 summary = json.loads(summary_path.read_text(encoding="utf-8"))
-results = summary.get("results") or []
+task_results = summary.get("task_results") or []
+attempt_results = summary.get("attempt_results") or []
 if summary.get("status") != "passed" or summary.get("final_decision") != "PASS":
     raise SystemExit(
         f"real-model Multi-Agent run did not pass: status={summary.get('status')} "
         f"final_decision={summary.get('final_decision')}"
     )
-if not results or any(result.get("status") != "completed" for result in results):
-    raise SystemExit(f"real-model Multi-Agent run has incomplete workers: {results}")
-if any(result.get("touched_files") for result in results):
+if not task_results or any(
+    task_result.get("status") != "integrated" for task_result in task_results
+):
+    raise SystemExit(
+        f"real-model Multi-Agent run has untrusted Tasks: {task_results}"
+    )
+if any(attempt_result.get("touched_files") for attempt_result in attempt_results):
     raise SystemExit("read-only real-model Multi-Agent run modified a worker workspace")
 metrics = summary.get("metrics") or {}
-if int(metrics.get("llm_calls") or 0) < len(results) + 1:
+if int(metrics.get("llm_calls") or 0) < len(attempt_results) + 1:
     raise SystemExit("real-model Multi-Agent run is missing worker or finalizer LLM usage")
 if int(metrics.get("finalizer_llm_calls") or 0) < 1:
     raise SystemExit("real-model Multi-Agent finalizer did not run")

@@ -189,7 +189,7 @@ class CoordinationController(RunController):
         signal = RuntimeCoordinationSignal(
             event_id="feedback-1",
             content="upstream contract changed",
-            plan_generation_id="generation-1",
+            plan_digest="a" * 64,
             worker_attempt_id=1,
             publisher_task_id="worker-b",
             target_task_id="worker-a",
@@ -465,6 +465,7 @@ class RuntimeProductizationTest(unittest.TestCase):
                             event["event_type"] == "recovery_decision"
                             and event.get("failure_kind")
                             in {"operator_steer", "runtime_coordination"}
+                            and event.get("model_step_outcome") == "refresh_input"
                             for event in trace.events
                         )
                     )

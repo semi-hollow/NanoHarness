@@ -32,9 +32,9 @@ from agent_forge.harness import HarnessExtensions, RunResult
 from agent_forge.multi_agent.api import (
     AdaptivePlanner,
     FanoutPlan,
-    LiveFanoutBuildRequest,
+    FanoutBuildRequest,
     PlanningOutcome,
-    build_live_fanout,
+    build_fanout,
     fanout_available_tools,
     load_resume_initial_plan,
     resumed_planning_outcome,
@@ -97,8 +97,6 @@ def _run_multi_agent_plan(
     *,
     plan: FanoutPlan,
     planning_outcome: PlanningOutcome | None = None,
-    replanner: AdaptivePlanner | None = None,
-    allow_replan: bool = True,
     resume_from: str | None = None,
 ) -> Path:
     """执行一个已校验 Multi-Agent Plan，并发布完整 Run artifact。
@@ -199,8 +197,6 @@ def _run_multi_agent_plan(
             llm_config,
             registry_factory,
             plan=plan,
-            replanner=replanner,
-            allow_replan=allow_replan,
             resume_from=resume_from,
         )
         run_status = trace.stop_reason.removeprefix("fanout_") or "completed"
@@ -346,17 +342,15 @@ def _execute_validated_plan(
     registry_factory: Callable[[Path, ExecutionEnvironment], ToolRegistry],
     *,
     plan: FanoutPlan,
-    replanner: AdaptivePlanner | None = None,
-    allow_replan: bool = True,
     resume_from: str | None = None,
 ) -> str:
     """执行 Runtime 已接受的 plan；正常用户无法从文件绕过 Planner。"""
 
     # region 4.1 Coordinator：构造唯一 Multi-Agent Runtime，并同步执行 validated plan
-    # build_live_fanout 只做 composition；run() 才进入统一 dependency-aware scheduler。
+    # build_fanout 只做 composition；run() 才进入统一 dependency-aware scheduler。
     trace.set_run_context(task=args.task)
-    summary = build_live_fanout(
-        LiveFanoutBuildRequest(
+    summary = build_fanout(
+        FanoutBuildRequest(
             plan=plan,
             base_config=config,
             trace=trace,
@@ -365,8 +359,6 @@ def _execute_validated_plan(
             registry_factory=registry_factory,
             max_workers=getattr(args, "max_workers", 4),
             resume_from=resume_from,
-            replanner=replanner,
-            allow_replan=allow_replan,
         )
     ).run()
     # endregion 4.1 Coordinator 结束
@@ -420,8 +412,6 @@ def _run_ultra_repository_task(
             config_document,
             plan=plan,
             planning_outcome=outcome,
-            replanner=None,
-            allow_replan=False,
             resume_from=resume_from,
         )
     # endregion 4.4 Resume 结束
@@ -451,7 +441,6 @@ def _run_ultra_repository_task(
         config_document,
         plan=plan,
         planning_outcome=outcome,
-        replanner=planner,
     )
     # endregion 4.6 Strategy selection 结束
 

@@ -1,8 +1,8 @@
 """自然语言任务到唯一 ``FanoutPlan`` 之前的有界提议层。
 
 系统角色：让模型选择 Single/Multi 并提出结构化任务图，但不授予任何执行权。
-输入：原始任务、bounded repository map、可用工具和失败/完成 handoff。
-输出：``PlanningOutcome`` 或 remaining-work ``PlanningDecision``。
+输入：原始任务、bounded repository map 和可用工具。
+输出：一次 ``PlanningOutcome``。
 相邻边界：``StructuredOutputParser`` 解析 JSON；Planner 至多发起一次结构或领域约束修复；
 ``FanoutPlan`` 再校验 HARD/LIVE 图；``FanoutCoordinator`` 才执行。
 
@@ -11,7 +11,6 @@
 
 from __future__ import annotations
 
-import json
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable
@@ -22,7 +21,7 @@ from agent_forge.runtime.domain.conversation import Message
 from agent_forge.runtime.ports.model import ModelPort
 from agent_forge.runtime.domain.structured_output import StructuredOutputParser
 
-from ..domain.live import FanoutPlan, LiveSubagentResult, WorkerHandoff
+from ..domain.live import FanoutPlan
 from ..domain.planning import PlanningDecision
 
 MAX_REPO_MAP_CHARS = 12_000
@@ -124,9 +123,9 @@ class PlanningOutcome:
 
 # region 2. Planner 主链：一次正常请求 + 至多一次结构/领域修复，不直接启动 Worker
 class AdaptivePlanner:
-    """一次提议、至多一次结构或领域约束修复的有界 Planner/Replanner。"""
+    """一次提议、至多一次结构或领域约束修复的有界 Planner。"""
 
-    # region 1. Public 决策：首轮 decide 与 remaining-work replan 共用同一请求边界
+    # region 1. Public 决策：Planner 在 Fanout Run 之前只执行一次
     def __init__(
         self,
         *,
@@ -188,41 +187,6 @@ class AdaptivePlanner:
             )
         return outcome
 
-    def replan(
-        self,
-        *,
-        goal: str,
-        current_plan: FanoutPlan,
-        completed_handoffs: list[WorkerHandoff],
-        failed_results: list[LiveSubagentResult],
-    ) -> PlanningDecision:
-        """仅替换未完成工作；completed history 的冻结由 Coordinator 校验。
-
-        伪代码：把当前计划、完成 Handoff、失败结果压缩进 Prompt -> 请求有界新计划
-        -> 必须返回 multi -> 交给 Coordinator 校验完成前缀和 generation 边界。
-        """
-
-        prompt = "\n".join(
-            [
-                "Replan only the unfinished part of this multi-agent run.",
-                "Return mode=multi and tasks for remaining work only.",
-                "Completed task IDs may be dependencies but must not be redefined.",
-                f"Maximum remaining tasks: {self.max_fanout_tasks}",
-                f"Available tools: {self.available_tools}",
-                f"Goal: {goal}",
-                "Current plan:",
-                _bounded_json(current_plan.to_dict()),
-                "Frozen completed handoffs:",
-                _bounded_json([handoff.to_dict() for handoff in completed_handoffs]),
-                "Failed remaining results:",
-                _bounded_json([_failure_evidence(result) for result in failed_results]),
-            ]
-        )
-        outcome = self._request(prompt)
-        # Replan 不能退回 Single 或空决定，否则剩余图没有可执行 contract。
-        if outcome.decision is None or outcome.decision.mode != "multi":
-            raise PlanningError(outcome.failure or "replanner did not return multi")
-        return outcome.decision
     # endregion 1. Public 决策结束
 
     # region 2. 模型请求：解析、Domain 校验、一次 repair，失败则显式 fallback
@@ -351,21 +315,3 @@ def resumed_planning_outcome(plan: FanoutPlan) -> PlanningOutcome:
         source="resume",
     )
 # endregion 3. Artifact 与 resume 结束
-
-
-# region 4. 纯投影 helper：限制 Prompt 体积并提取失败事实，不做调度决策
-def _bounded_json(value: Any, limit: int = 8_000) -> str:
-    return json.dumps(value, ensure_ascii=False, sort_keys=True)[:limit]
-
-
-def _failure_evidence(result: LiveSubagentResult) -> dict[str, Any]:
-    return {
-        "task_id": result.task_id,
-        "status": result.status,
-        "attempt": result.attempt,
-        "failure_kind": result.failure_kind,
-        "retryable": result.retryable,
-        "error": result.error[:1000],
-        "handoff": result.handoff.to_dict() if result.handoff else None,
-    }
-# endregion 4. 纯投影 helper 结束

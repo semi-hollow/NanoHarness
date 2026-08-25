@@ -24,11 +24,19 @@ class PlannedTask:
 
     id: str
     task: str
-    depends_on: list[str] = field(default_factory=list)
-    write_scope: list[str] = field(default_factory=list)
-    allowed_tools: list[str] = field(default_factory=list)
-    acceptance_criteria: list[str] = field(default_factory=list)
+    depends_on: tuple[str, ...] = field(default_factory=tuple)
+    write_scope: tuple[str, ...] = field(default_factory=tuple)
+    allowed_tools: tuple[str, ...] = field(default_factory=tuple)
+    acceptance_criteria: tuple[str, ...] = field(default_factory=tuple)
     max_steps: int = 12
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "depends_on", tuple(self.depends_on))
+        object.__setattr__(self, "write_scope", tuple(self.write_scope))
+        object.__setattr__(self, "allowed_tools", tuple(self.allowed_tools))
+        object.__setattr__(
+            self, "acceptance_criteria", tuple(self.acceptance_criteria)
+        )
 
     def to_mapping(self) -> dict[str, Any]:
         """投影成 ``FanoutPlan.from_mapping`` 可继续校验的结构。"""
@@ -52,9 +60,18 @@ class PlanningDecision:
 
     mode: str
     reason: str
-    global_acceptance_criteria: list[str] = field(default_factory=list)
-    tasks: list[PlannedTask] = field(default_factory=list)
-    live_dependencies: list[LiveDependency] = field(default_factory=list)
+    global_acceptance_criteria: tuple[str, ...] = field(default_factory=tuple)
+    tasks: tuple[PlannedTask, ...] = field(default_factory=tuple)
+    live_dependencies: tuple[LiveDependency, ...] = field(default_factory=tuple)
+
+    def __post_init__(self) -> None:
+        object.__setattr__(
+            self,
+            "global_acceptance_criteria",
+            tuple(self.global_acceptance_criteria),
+        )
+        object.__setattr__(self, "tasks", tuple(self.tasks))
+        object.__setattr__(self, "live_dependencies", tuple(self.live_dependencies))
 
     @classmethod
     def from_mapping(
@@ -131,13 +148,13 @@ class PlanningDecision:
                 PlannedTask(
                     id=str(row.get("id") or "").strip(),
                     task=str(row.get("task") or "").strip(),
-                    depends_on=_strings(row.get("depends_on"), "depends_on"),
-                    write_scope=_strings(row.get("write_scope"), "write_scope"),
-                    allowed_tools=task_tools,
-                    acceptance_criteria=_criteria(
+                    depends_on=tuple(_strings(row.get("depends_on"), "depends_on")),
+                    write_scope=tuple(_strings(row.get("write_scope"), "write_scope")),
+                    allowed_tools=tuple(task_tools),
+                    acceptance_criteria=tuple(_criteria(
                         row.get("acceptance_criteria"),
                         "acceptance_criteria",
-                    ),
+                    )),
                     max_steps=max_steps,
                 )
             )
@@ -147,32 +164,28 @@ class PlanningDecision:
         return cls(
             mode=mode,
             reason=reason,
-            global_acceptance_criteria=global_criteria,
-            tasks=tasks,
-            live_dependencies=[
+            global_acceptance_criteria=tuple(global_criteria),
+            tasks=tuple(tasks),
+            live_dependencies=tuple(
                 LiveDependency.from_mapping(row) for row in live_rows
-            ],
+            ),
         )
         # endregion 3. Decision 收口结束
 
     def to_fanout_plan(
         self,
         goal: str,
-        *,
-        completed_tasks: Iterable[SubagentTask] = (),
     ) -> FanoutPlan:
-        """把模型提议与冻结完成前缀合并，再送入 ``FanoutPlan`` 确定性校验。"""
+        """把一次 Planner 提议送入唯一 ``FanoutPlan`` 确定性校验。"""
 
         # Single decision 没有 Task graph，不能被错误转换成 FanoutPlan。
         if self.mode != "multi":
             raise ValueError("single planning decision has no fanout plan")
-        task_rows = [_subagent_mapping(task) for task in completed_tasks]
-        task_rows.extend(task.to_mapping() for task in self.tasks)
         return FanoutPlan.from_mapping(
             {
                 "goal": goal,
-                "global_acceptance_criteria": self.global_acceptance_criteria,
-                "tasks": task_rows,
+                "global_acceptance_criteria": list(self.global_acceptance_criteria),
+                "tasks": [task.to_mapping() for task in self.tasks],
                 "live_dependencies": [
                     dependency.to_dict() for dependency in self.live_dependencies
                 ],

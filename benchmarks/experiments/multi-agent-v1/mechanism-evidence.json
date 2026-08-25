@@ -1,9 +1,9 @@
 {
-  "schema_version": 1,
+  "schema_version": 3,
   "evidence_class": "deterministic_real_agent_loop_mechanism",
   "natural_language_task": "升级配置加载能力以支持新的 timeout 字段，同时保持现有调用方兼容，并完成必要实现和验证。请选择最小安全的执行策略。",
   "planning_decision": {
-    "mode": "fanout",
+    "mode": "multi",
     "reason": "two isolated files need one bounded semantic contract",
     "global_acceptance_criteria": [
       "legacy and new timeout inputs produce the same normalized value"
@@ -48,12 +48,243 @@
       }
     ]
   },
-  "fanout_plan_digest": "a52267f2acf38841c9bf68a5ac58a928c5145f4f710ff4539a30fe1b0ffe33e5",
-  "plan_generation_id": "g1-a52267f2acf38841",
-  "worker_attempt_ids": {
-    "producer": 1,
-    "consumer": 1
+  "fanout_plan": {
+    "goal": "升级配置加载能力以支持新的 timeout 字段，同时保持现有调用方兼容，并完成必要实现和验证。请选择最小安全的执行策略。",
+    "tasks": [
+      {
+        "id": "producer",
+        "task": "Publish the config contract and implement compatibility feedback.",
+        "depends_on": [],
+        "write_scope": [
+          "config_schema.py"
+        ],
+        "allowed_tools": [
+          "replace_text"
+        ],
+        "expected_artifact": "task_output",
+        "max_steps": 6,
+        "acceptance_criteria": [
+          "normalize_config accepts timeout and legacy_timeout"
+        ]
+      },
+      {
+        "id": "consumer",
+        "task": "Report the legacy constraint and implement the consumer against v2.",
+        "depends_on": [],
+        "write_scope": [
+          "service_consumer.py"
+        ],
+        "allowed_tools": [
+          "replace_text"
+        ],
+        "expected_artifact": "task_output",
+        "max_steps": 6,
+        "acceptance_criteria": [
+          "boot_service consumes the compatible normalized config"
+        ]
+      }
+    ],
+    "global_acceptance_criteria": [
+      "legacy and new timeout inputs produce the same normalized value"
+    ],
+    "live_dependencies": [
+      {
+        "producer_task_id": "producer",
+        "target_task_id": "consumer",
+        "semantic_key": "config_schema"
+      }
+    ]
   },
+  "plan_digest": "a52267f2acf38841c9bf68a5ac58a928c5145f4f710ff4539a30fe1b0ffe33e5",
+  "status": "passed",
+  "launch_waves": [
+    [
+      {
+        "task_id": "producer",
+        "attempt": 1
+      }
+    ],
+    [
+      {
+        "task_id": "consumer",
+        "attempt": 1
+      }
+    ]
+  ],
+  "task_results": [
+    {
+      "task_id": "producer",
+      "status": "integrated",
+      "failure_kind": "",
+      "final_attempt": 1,
+      "handoff": {
+        "task_id": "producer",
+        "status": "candidate_produced",
+        "summary": "producer candidate complete 证据: - replace_text:replace_text:ok:replaced text once: config_schema.py",
+        "touched_files": [
+          "config_schema.py"
+        ],
+        "validation_evidence": [],
+        "unresolved_issues": [],
+        "artifact_path": "workers/producer/attempt-1/task_output.md"
+      },
+      "error": "",
+      "unresolved_issues": []
+    },
+    {
+      "task_id": "consumer",
+      "status": "integrated",
+      "failure_kind": "",
+      "final_attempt": 1,
+      "handoff": {
+        "task_id": "consumer",
+        "status": "candidate_produced",
+        "summary": "consumer candidate complete 证据: - replace_text:replace_text:ok:replaced text once: service_consumer.py",
+        "touched_files": [
+          "service_consumer.py"
+        ],
+        "validation_evidence": [],
+        "unresolved_issues": [],
+        "artifact_path": "workers/consumer/attempt-1/task_output.md"
+      },
+      "error": "",
+      "unresolved_issues": []
+    }
+  ],
+  "attempt_results": [
+    {
+      "task_id": "producer",
+      "attempt": 1,
+      "launch_wave_index": 1,
+      "status": "candidate_produced",
+      "failure_kind": "",
+      "retryable": false,
+      "final_answer": "producer candidate complete\n证据:\n- replace_text:replace_text:ok:replaced text once: config_schema.py",
+      "summary": "",
+      "touched_files": [
+        "config_schema.py"
+      ],
+      "candidate_diff_path": "workers/producer/attempt-1/candidate_changes.diff",
+      "candidate_diff_sha256": "c5118790ca73bb07b11d9f1c2c341702aac0443020add0d6b94072c85d011120",
+      "artifact_path": "workers/producer/attempt-1/task_output.md",
+      "trace_path": "workers/producer/attempt-1/trace.json",
+      "usage_path": "workers/producer/attempt-1/usage.json",
+      "environment_manifest_path": "workers/producer/attempt-1/execution_environment.json",
+      "duration_ms": 959,
+      "validation_evidence": [],
+      "unresolved_issues": [],
+      "handoff": {
+        "task_id": "producer",
+        "status": "candidate_produced",
+        "summary": "producer candidate complete 证据: - replace_text:replace_text:ok:replaced text once: config_schema.py",
+        "touched_files": [
+          "config_schema.py"
+        ],
+        "validation_evidence": [],
+        "unresolved_issues": [],
+        "artifact_path": "workers/producer/attempt-1/task_output.md"
+      },
+      "error": "",
+      "workspace": "isolated-worktree:producer:attempt-1",
+      "usage_summary": {
+        "llm_calls": 4,
+        "prompt_tokens": 0,
+        "completion_tokens": 0,
+        "total_tokens": 0,
+        "cache_hit_tokens": 0,
+        "cache_miss_tokens": 0,
+        "cache_hit_rate": 0.0,
+        "reasoning_tokens": 0,
+        "estimated_cost_usd": 0.0,
+        "llm_latency_ms": 0,
+        "steps": 6,
+        "tool_calls": 3,
+        "failed_tool_calls": 0,
+        "failed_validations": 0,
+        "hook_checks": 7,
+        "latest_task_status": "completed",
+        "truncated_context_steps": 0,
+        "compacted_context_turns": 0,
+        "context_overflow_recoveries": 0,
+        "hard_context_limit_exceeded_turns": 0,
+        "memory_recalled": 0,
+        "active_skills": [
+          "targeted_code_edit"
+        ],
+        "tool_call_repairs": 0,
+        "bounded_tool_call_bursts": 0,
+        "trace_event_count": 83
+      },
+      "stop_reason": "final_answer",
+      "resumed": false
+    },
+    {
+      "task_id": "consumer",
+      "attempt": 1,
+      "launch_wave_index": 2,
+      "status": "candidate_produced",
+      "failure_kind": "",
+      "retryable": false,
+      "final_answer": "consumer candidate complete\n证据:\n- replace_text:replace_text:ok:replaced text once: service_consumer.py",
+      "summary": "",
+      "touched_files": [
+        "service_consumer.py"
+      ],
+      "candidate_diff_path": "workers/consumer/attempt-1/candidate_changes.diff",
+      "candidate_diff_sha256": "0cfc593cc9f53cc3ad3ea3fd013429764506046e043c07b93cdbec3bbb1e76f9",
+      "artifact_path": "workers/consumer/attempt-1/task_output.md",
+      "trace_path": "workers/consumer/attempt-1/trace.json",
+      "usage_path": "workers/consumer/attempt-1/usage.json",
+      "environment_manifest_path": "workers/consumer/attempt-1/execution_environment.json",
+      "duration_ms": 763,
+      "validation_evidence": [],
+      "unresolved_issues": [],
+      "handoff": {
+        "task_id": "consumer",
+        "status": "candidate_produced",
+        "summary": "consumer candidate complete 证据: - replace_text:replace_text:ok:replaced text once: service_consumer.py",
+        "touched_files": [
+          "service_consumer.py"
+        ],
+        "validation_evidence": [],
+        "unresolved_issues": [],
+        "artifact_path": "workers/consumer/attempt-1/task_output.md"
+      },
+      "error": "",
+      "workspace": "isolated-worktree:consumer:attempt-1",
+      "usage_summary": {
+        "llm_calls": 4,
+        "prompt_tokens": 0,
+        "completion_tokens": 0,
+        "total_tokens": 0,
+        "cache_hit_tokens": 0,
+        "cache_miss_tokens": 0,
+        "cache_hit_rate": 0.0,
+        "reasoning_tokens": 0,
+        "estimated_cost_usd": 0.0,
+        "llm_latency_ms": 0,
+        "steps": 6,
+        "tool_calls": 2,
+        "failed_tool_calls": 0,
+        "failed_validations": 0,
+        "hook_checks": 6,
+        "latest_task_status": "completed",
+        "truncated_context_steps": 0,
+        "compacted_context_turns": 0,
+        "context_overflow_recoveries": 0,
+        "hard_context_limit_exceeded_turns": 0,
+        "memory_recalled": 0,
+        "active_skills": [
+          "targeted_code_edit"
+        ],
+        "tool_call_repairs": 0,
+        "bounded_tool_call_bursts": 0,
+        "trace_event_count": 75
+      },
+      "stop_reason": "final_answer",
+      "resumed": false
+    }
+  ],
   "coordination_timeline": [
     {
       "sequence": 1,
@@ -69,12 +300,13 @@
       "task_id": "producer",
       "boundary": "",
       "event": {
-        "event_id": "2a862b8506ae86763db4ac9a67d412bae98f98fa917b0873f76d57934609a7bf",
+        "event_id": "aab0d9fdba13b5451e00b0cd52c441d8a679c1e1adc8ed1a792406b94a67bd66",
         "event_type": "READY",
         "publisher_task_id": "producer",
         "target_task_id": "consumer",
         "semantic_key": "config_schema",
         "version": 1,
+        "plan_digest": "a52267f2acf38841c9bf68a5ac58a928c5145f4f710ff4539a30fe1b0ffe33e5",
         "worker_attempt_id": 1,
         "caused_by_event_id": ""
       },
@@ -102,14 +334,15 @@
       "task_id": "consumer",
       "boundary": "",
       "event": {
-        "event_id": "a67fbaabfe5a5dbbbcef6111d75fe43d73d1f342c1bd548d1f012c91226a7a68",
+        "event_id": "2ab710fb588be1e337418e487392c071a08b430beaab05c5bd50680e67afeadd",
         "event_type": "FEEDBACK",
         "publisher_task_id": "consumer",
         "target_task_id": "producer",
         "semantic_key": "config_schema",
         "version": 1,
+        "plan_digest": "a52267f2acf38841c9bf68a5ac58a928c5145f4f710ff4539a30fe1b0ffe33e5",
         "worker_attempt_id": 1,
-        "caused_by_event_id": "2a862b8506ae86763db4ac9a67d412bae98f98fa917b0873f76d57934609a7bf"
+        "caused_by_event_id": "aab0d9fdba13b5451e00b0cd52c441d8a679c1e1adc8ed1a792406b94a67bd66"
       },
       "human_authority": false
     },
@@ -127,14 +360,15 @@
       "task_id": "producer",
       "boundary": "",
       "event": {
-        "event_id": "195fa5da69a31ba1c3a0e867c091ad5e38e3824fce43ee8968503c8d3896b9c8",
+        "event_id": "dd87e20c1d711fd5f0f26938e7877ddb3284acc710e9b690bf729f7d06819d16",
         "event_type": "UPDATE",
         "publisher_task_id": "producer",
         "target_task_id": "consumer",
         "semantic_key": "config_schema",
         "version": 2,
+        "plan_digest": "a52267f2acf38841c9bf68a5ac58a928c5145f4f710ff4539a30fe1b0ffe33e5",
         "worker_attempt_id": 1,
-        "caused_by_event_id": "a67fbaabfe5a5dbbbcef6111d75fe43d73d1f342c1bd548d1f012c91226a7a68"
+        "caused_by_event_id": "2ab710fb588be1e337418e487392c071a08b430beaab05c5bd50680e67afeadd"
       },
       "human_authority": false
     },
@@ -156,7 +390,7 @@
     },
     {
       "sequence": 10,
-      "record_type": "integration_authorized",
+      "record_type": "integration_sealed",
       "task_id": "producer",
       "boundary": "",
       "event": null,
@@ -164,14 +398,6 @@
     },
     {
       "sequence": 11,
-      "record_type": "integration_sealed",
-      "task_id": "producer",
-      "boundary": "",
-      "event": null,
-      "human_authority": null
-    },
-    {
-      "sequence": 12,
       "record_type": "worker_attempt_finished",
       "task_id": "consumer",
       "boundary": "",
@@ -179,7 +405,7 @@
       "human_authority": null
     },
     {
-      "sequence": 13,
+      "sequence": 12,
       "record_type": "integration_authorized",
       "task_id": "consumer",
       "boundary": "",
@@ -187,7 +413,7 @@
       "human_authority": null
     },
     {
-      "sequence": 14,
+      "sequence": 13,
       "record_type": "integration_sealed",
       "task_id": "consumer",
       "boundary": "",
@@ -195,14 +421,61 @@
       "human_authority": null
     }
   ],
-  "candidate_diff_sha256": {
-    "producer": "c5118790ca73bb07b11d9f1c2c341702aac0443020add0d6b94072c85d011120",
-    "consumer": "0cfc593cc9f53cc3ad3ea3fd013429764506046e043c07b93cdbec3bbb1e76f9"
+  "candidate_gate_facts": [
+    {
+      "task_id": "producer",
+      "attempt": 1,
+      "gate": "candidate_local_validation",
+      "decision": "ACCEPTED",
+      "detail": ""
+    },
+    {
+      "task_id": "producer",
+      "attempt": 1,
+      "gate": "trusted_commit",
+      "decision": "INTEGRATED",
+      "detail": ""
+    },
+    {
+      "task_id": "consumer",
+      "attempt": 1,
+      "gate": "candidate_local_validation",
+      "decision": "ACCEPTED",
+      "detail": ""
+    },
+    {
+      "task_id": "consumer",
+      "attempt": 1,
+      "gate": "trusted_commit",
+      "decision": "INTEGRATED",
+      "detail": ""
+    }
+  ],
+  "finalizer_evidence": {
+    "decision": "PASS",
+    "criterion_results": [
+      {
+        "criterion": "legacy and new timeout inputs produce the same normalized value",
+        "status": "PASS",
+        "evidence": "integrated behavior validated"
+      },
+      {
+        "criterion": "normalize_config accepts timeout and legacy_timeout",
+        "status": "PASS",
+        "evidence": "producer candidate integrated"
+      },
+      {
+        "criterion": "boot_service consumes the compatible normalized config",
+        "status": "PASS",
+        "evidence": "consumer candidate integrated"
+      }
+    ],
+    "read_only": true
   },
-  "integration_status": "passed",
-  "finalizer_decision": "PASS",
   "assertions": {
-    "planner_selected_fanout": true,
+    "planner_selected_multi": true,
+    "plan_is_deeply_immutable": true,
+    "plan_digest_stable": true,
     "isolated_worker_worktrees": true,
     "consumer_started_before_producer_completed": true,
     "ready_feedback_update_observed": true,
@@ -211,7 +484,10 @@
     "consumer_consumed_latest_version": true,
     "consumer_waited_for_producer_final_integration": true,
     "integration_and_finalizer_passed": true,
-    "stale_model_response_discarded": true
+    "stale_model_response_discarded": true,
+    "stale_response_uses_refresh_input": true,
+    "strict_frontier_integrated_prefix": true,
+    "candidate_gates_observed": true
   },
   "reused": [
     "AdaptivePlanner",

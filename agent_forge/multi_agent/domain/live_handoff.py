@@ -2,7 +2,7 @@
 
 系统角色：定义 frozen route 和 Runtime 接受的 READY/FEEDBACK/UPDATE 数据形状。
 输入：Planner mapping 或 Runtime 注入身份后的事件字段。
-输出：可哈希、可持久化、带 generation/attempt provenance 的事实。
+输出：可哈希、可持久化、带 frozen plan/attempt provenance 的事实。
 本文件不拥有 mailbox、调度或授权状态；这些都属于 ``LiveHandoffRuntime``。
 
 折叠导航：1 LIVE route；2 Event contract。
@@ -90,7 +90,7 @@ class LiveHandoffEvent:
     version: int
     summary: str
     evidence: tuple[str, ...]
-    plan_generation_id: str
+    plan_digest: str
     worker_attempt_id: int
     caused_by_event_id: str = ""
     emitted_at: float = field(default_factory=time.time, compare=False)
@@ -102,13 +102,13 @@ class LiveHandoffEvent:
         是否真实送达由持锁的 ``LiveHandoffRuntime`` 校验。
         """
 
-        # region 1. Identity：事件类型、generation、attempt 和 Worker route
+        # region 1. Identity：事件类型、plan digest、attempt 和 Worker route
         # 事件类型必须已经由 Runtime 规范为 enum，不能接受任意字符串。
         if not isinstance(self.event_type, LiveEventType):
             raise ValueError("event_type must be READY, FEEDBACK, or UPDATE")
-        # Generation 绑定事件所属计划代际，缺失时无法判断 stale。
-        if not self.plan_generation_id.strip():
-            raise ValueError("event requires plan_generation_id")
+        # 完整 Plan digest 绑定事件所属 frozen Plan，缺失时无法判断 stale。
+        if not self.plan_digest.strip():
+            raise ValueError("event requires plan_digest")
         # bool 不能冒充 int；Attempt 必须是正整数。
         if (
             isinstance(self.worker_attempt_id, bool)
@@ -168,7 +168,7 @@ class LiveHandoffEvent:
             "version": self.version,
             "summary": self.summary,
             "evidence": list(self.evidence),
-            "plan_generation_id": self.plan_generation_id,
+            "plan_digest": self.plan_digest,
             "worker_attempt_id": self.worker_attempt_id,
             "caused_by_event_id": self.caused_by_event_id,
         }
@@ -187,7 +187,7 @@ class LiveHandoffEvent:
             "version": self.version,
             "summary": self.summary,
             "evidence": list(self.evidence),
-            "plan_generation_id": self.plan_generation_id,
+            "plan_digest": self.plan_digest,
             "worker_attempt_id": self.worker_attempt_id,
             "caused_by_event_id": self.caused_by_event_id,
             "emitted_at": self.emitted_at,

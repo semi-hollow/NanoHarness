@@ -10,12 +10,12 @@ from urllib.parse import quote
 
 from apps.workbench.application.review_projection import (
     REVIEW_MANIFEST,
+    FanoutReview,
     Lab1Review,
-    Lab2Review,
     Mini50Review,
     ReviewContract,
+    build_fanout_review,
     build_lab1_review,
-    build_lab2_review,
     build_mini50_review,
     current_git_revision,
 )
@@ -45,7 +45,7 @@ def render_review_overview(
     if source.category_key == "governed":
         return _render_lab1(build_lab1_review(project_dir, source), revision)
     if source.category_key == "orchestration":
-        return _render_lab2(build_lab2_review(project_dir, source), revision)
+        return _render_fanout(build_fanout_review(project_dir, source), revision)
     if source.category_key == "evaluation":
         return _render_mini50(
             build_mini50_review(project_dir, source, sources),
@@ -130,74 +130,57 @@ def _render_lab1(review: Lab1Review, revision: str) -> str:
     )
 
 
-def _render_lab2(review: Lab2Review, revision: str) -> str:
+def _render_fanout(review: FanoutReview, revision: str) -> str:
     task_rows = "".join(
         "<tr>"
         f"<td><b>{_escape(task.task_id)}</b></td>"
-        f"<td>{_escape(', '.join(task.depends_on) or '—')}</td>"
+        f"<td>{_escape(', '.join(task.hard_dependencies) or '—')}</td>"
+        f"<td>{_escape(', '.join(task.live_dependencies) or '—')}</td>"
         f"<td>{_escape(', '.join(task.write_scope) or '∅')}</td>"
-        f"<td>{_escape(', '.join(task.touched_files) or '∅')}</td>"
+        f"<td>{_escape(', '.join(task.attempt_statuses) or '未启动')}</td>"
         f"<td>{_status(task.status)}</td></tr>"
         for task in review.tasks
     )
-    batch_cards = "".join(
+    wave_cards = "".join(
         "<div class='batch-card'>"
-        f"<small>BATCH {index}</small><strong>{_escape(' || '.join(batch))}</strong>"
-        f"<span>{'parallel workers' if len(batch) > 1 else 'dependency continuation'}</span>"
+        f"<small>LAUNCH WAVE {index}</small><strong>{_escape(' || '.join(wave))}</strong>"
+        "<span>one scheduler scan · no completion barrier</span>"
         "</div>"
-        for index, batch in enumerate(review.batches)
+        for index, wave in enumerate(review.launch_waves, start=1)
     )
-    conflict_status = "PASS" if not review.conflicts else "BLOCKED"
+    coordination = " → ".join(review.coordination_events) or "not observed"
+    gates = " → ".join(review.candidate_gates) or "not observed"
     return (
         "<div class='evidence review-overview'>"
-        "<div class='view-heading'><div><span class='view-kicker'>AGENT COORDINATION</span>"
+        "<div class='view-heading'><div><span class='view-kicker'>CURRENT MULTI-AGENT RUNTIME</span>"
         f"<h2>{_escape(review.contract.title)}</h2></div>{_status(review.status)}</div>"
         + _render_contract_cards(review.contract, review.observed_result)
         + "<section class='evidence-section'><div class='section-title'>"
-        "<h3>Historical Lab 2 · OBSERVED STATIC PLAN</h3><span>显式 FanoutPlan 证据，不冒充 Planner / LIVE 观测</span></div>"
+        "<h3>Frozen Plan → Trusted State</h3><span>当前 Runtime 原生 evidence</span></div>"
         "<div class='algorithm-map'>"
-        "<div><b>FanoutPlan → Coordinator → Batch</b><span>DAG + ready level + declared write_scope</span></div><i>→</i>"
-        "<div><b>Worker AgentLoop → Worktree</b><span>ThreadPool + isolated code tree</span></div><i>→</i>"
-        "<div><b>Candidate Diff → Conflict Gates</b><span>actual touched_files · four gates</span></div><i>→</i>"
-        "<div><b>Integration → Finalizer</b><span>stable apply；cumulative = Git diff vs baseline, not concat；read-only verify</span></div>"
+        "<div><b>Deeply Frozen FanoutPlan</b><span>one plan_digest for the whole Run</span></div><i>→</i>"
+        "<div><b>Readiness Scheduler</b><span>COMMON + HARD + LIVE semantics</span></div><i>→</i>"
+        "<div><b>Isolated Worker Attempt</b><span>candidate_produced is not integrated</span></div><i>→</i>"
+        "<div><b>Strict Integration Frontier</b><span>deterministic gates → trusted prefix → Finalizer</span></div>"
         "</div></section>"
         "<section class='evidence-section'><div class='section-title'>"
-        "<h3>Current Capability and Future Boundary</h3><span>当前源码与历史观测分开</span></div>"
-        "<div class='answer-strip'>"
-        "<div><b>Planner Agent · CURRENT</b><span>natural-language task → AdaptivePlanner → validated FanoutPlan</span></div>"
-        "<div><b>Unified Scheduler · CURRENT</b><span>HARD integrated-state readiness + optional LIVE semantic readiness</span></div>"
-        "<div><b>Conflict Resolver Agent</b><span>FUTURE / NOT IMPLEMENTED · semantic conflict repair</span></div>"
-        "</div></section>"
-        "<section class='evidence-section'><div class='section-title'>"
-        "<h3>Observed Batches</h3><span>无绝对时间戳，不伪造时间轴</span></div>"
-        f"<div class='batch-grid'>{batch_cards}"
+        "<h3>Observed Launch Waves</h3><span>展示 submit grouping，不是 scheduling barrier</span></div>"
+        f"<div class='batch-grid'>{wave_cards}"
         f"<div class='batch-card final'><small>FINAL</small><strong>Finalizer</strong>"
         f"<span>{_escape(review.final_decision)}</span></div></div></section>"
         "<section class='evidence-section'><div class='section-title'>"
-        "<h3>Four Conflict Gates</h3><span>设计契约与本次观测分开标注</span></div>"
-        "<div class='gate-grid'>"
-        "<article><small>CURRENT CONTRACT</small><b>Scheduler Admission Gate</b>"
-        "<p>HARD/LIVE readiness + running write_scope + max_workers</p></article>"
-        "<article><small>DESIGN CONTRACT</small><b>Scope Violation Gate</b>"
-        "<p>actual touched_files ⊆ declared write_scope；violation blocks merge</p></article>"
-        f"<article><small>OBSERVED ARTIFACT</small><b>Dynamic Result Gate · {conflict_status}</b>"
-        f"<p>actual touched_files；observed conflicts = {len(review.conflicts)}</p></article>"
-        "<article><small>DESIGN CONTRACT</small><b>Merge Applicability Gate</b>"
-        "<p>candidate diff → check_only=True → apply in stable task order</p></article>"
+        "<h3>LIVE Coordination and Candidate Gates</h3><span>bounded evidence + fail closed</span></div>"
+        "<div class='answer-strip'>"
+        f"<div><b>LIVE timeline</b><span>{_escape(coordination)}</span></div>"
+        f"<div><b>Candidate gates</b><span>{_escape(gates)}</span></div>"
+        f"<div><b>Frozen plan digest</b><span><code>{_escape(review.plan_digest[:16])}</code></span></div>"
         "</div></section>"
-        "<details class='drilldown'><summary>查看 Task Contract 与实际 touched files</summary>"
+        "<details class='drilldown'><summary>查看 Task / Attempt 治理结果</summary>"
         "<div class='drilldown-body review-table-scroll'><table><thead><tr><th>任务</th>"
-        "<th>依赖</th><th>允许写入</th><th>实际 touched</th><th>结果</th></tr></thead>"
+        "<th>HARD</th><th>LIVE inbound</th><th>允许写入</th><th>真实 Attempts</th><th>Task 结果</th></tr></thead>"
         f"<tbody>{task_rows}</tbody></table></div></details>"
-        "<section class='evidence-section'><div class='section-title'>"
-        "<h3>Read-only Finalizer Contract</h3><span>只验证 integrated candidate</span></div>"
-        "<div class='finalizer-contract'>"
-        "<div><b>Runs only if</b><span>all planned tasks integrated · conflicts = 0</span></div>"
-        "<div><b>Allowed</b><span>git_status · git_diff · python_validation</span></div>"
-        "<div><b>Forbidden</b><span>candidate repair；mutation forces BLOCKED</span></div>"
-        "</div></section>"
         "<div class='review-footer'>"
-        "<span>Shared _git_lock: worktree prepare / cleanup only</span>"
+        "<span>LIVE relaxes start barrier, never the integration trust barrier</span>"
         + _architecture_link(review.contract, revision)
         + "</div></div>"
     )

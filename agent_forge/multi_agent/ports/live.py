@@ -1,7 +1,7 @@
 """Multi-Agent Application 依赖的全部外部能力契约。
 
 这里没有实现逻辑。折叠后只看四组 Port：1 workspace/artifact；2 worker-bound LIVE；
-3 Worker/Finalizer/Replanner；4 事件流。Application 只依赖这些 Protocol。
+3 Worker/Finalizer；4 事件流。Application 只依赖这些 Protocol。
 """
 
 from __future__ import annotations
@@ -15,12 +15,11 @@ from ..domain.live import (
     FanoutCheckpoint,
     FanoutPlan,
     FinalizerResult,
-    LiveFanoutSummary,
-    LiveSubagentResult,
+    FanoutSummary,
+    WorkerAttemptResult,
     WorkerHandoff,
 )
 from ..domain.live_handoff import LiveHandoffEvent
-from ..domain.planning import PlanningDecision
 
 
 # region 1. Workspace 与 Artifact Ports：隔离 Git 副作用和持久化格式
@@ -57,11 +56,11 @@ class FanoutArtifactPort(Protocol):
     def write_integrated_diff(self, diff_text: str) -> str:
         """保存所有成功 worker 合并后的 unified diff。"""
 
-    def write_summary(self, summary: LiveFanoutSummary) -> None:
+    def write_summary(self, summary: FanoutSummary) -> None:
         """保存 JSON summary 和人类可读报告。"""
 
     def load_resume(self, path: str) -> dict[str, Any]:
-        """读取 summary/checkpoint 并返回未信任边界数据。"""
+        """只读取 canonical checkpoint 并返回未信任边界数据。"""
 
     def read_text(self, path: str) -> str:
         """读取结果中已经记录的文本 artifact。"""
@@ -89,58 +88,42 @@ class LiveWorkerContextPort(Protocol):
         evidence: list[str],
         caused_by_event_id: str = "",
     ) -> LiveHandoffEvent:
-        """由 Runtime 注入 publisher/generation/attempt 后发布事实。"""
+        """由 Runtime 注入 publisher/frozen-plan/attempt 后发布事实。"""
 
     def drain_mailbox(self, *, boundary: str) -> list[LiveHandoffEvent]:
         """在真实 AgentLoop 安全边界消费当前 attempt 的事实。"""
 # endregion 2. Worker-bound LIVE Port 结束
 
 
-# region 3. Worker、Finalizer 与 Replanner Ports：执行端和模型端均可替换但语义固定
+# region 3. Worker 与 Finalizer Ports：执行端可替换但语义固定
 class FanoutWorkerPort(Protocol):
     """隔离 AgentLoop worker 和 finalizer 的执行边界。"""
-
-    def bind_effective_plan(self, plan: FanoutPlan) -> None:
-        """在新 generation 启动前绑定本代 Worker prompt 所需的计划事实。"""
 
     def run_worker(
         self,
         task: SubagentTask,
-        batch_index: int,
+        launch_wave_index: int,
         base_diff_text: str,
         dependency_handoffs: list[WorkerHandoff],
         attempt: int,
         coordination: LiveWorkerContextPort | None = None,
-    ) -> LiveSubagentResult:
+    ) -> WorkerAttemptResult:
         """在隔离 workspace 中执行一个真实 AgentLoop。"""
 
     def run_finalizer(
         self,
         plan: FanoutPlan,
-        results: list[LiveSubagentResult],
+        results: list[WorkerAttemptResult],
     ) -> FinalizerResult:
         """运行只读整合验证器。"""
 
     def validate_recovery_diffs(self, diffs: list[tuple[str, str]]) -> str:
         """在临时 workspace 中重放恢复所需的 unified diff。"""
 
-
-class FanoutReplannerPort(Protocol):
-    """一次剩余任务重规划所需的最小模型边界。"""
-
-    def replan(
-        self,
-        *,
-        goal: str,
-        current_plan: FanoutPlan,
-        completed_handoffs: list[WorkerHandoff],
-        failed_results: list[LiveSubagentResult],
-    ) -> PlanningDecision:
-        """返回未完成工作的替换提议；Coordinator 再做确定性校验。"""
-# endregion 3. Worker、Finalizer 与 Replanner Ports 结束
+# endregion 3. Worker 与 Finalizer Ports 结束
 
 
 # region 4. 事件流 Port：与 Runtime 共用同一 Trace sink
-class LiveFanoutEvents(EventSink, Protocol):
+class FanoutEvents(EventSink, Protocol):
     """别名，强调 fanout 与 Runtime 共用同一事实流端口。"""
 # endregion 4. 事件流 Port 结束

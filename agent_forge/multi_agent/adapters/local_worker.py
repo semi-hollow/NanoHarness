@@ -2,7 +2,7 @@
 
 系统角色：这是 Multi-Agent Application 与 Single-Agent Runtime 之间的执行桥梁。
 输入是 ``SubagentTask``、已集成的前置 Diff 和依赖 Handoff；输出是
-``LiveSubagentResult`` 或只读 ``FinalizerResult``。Coordinator 只消费这些稳定
+``WorkerAttemptResult`` 或只读 ``FinalizerResult``。Coordinator 只消费这些稳定
 结果，不接触 Worker 内部的 AgentLoop、临时 worktree 或模型对象。
 
 相邻边界：
@@ -65,7 +65,7 @@ from ..domain.live import (
     FanoutPlan,
     CriterionResult,
     FinalizerResult,
-    LiveSubagentResult,
+    WorkerAttemptResult,
     WorkerHandoff,
     project_worker_handoff,
 )
@@ -103,22 +103,17 @@ class LocalAgentWorkerAdapter(FanoutWorkerPort):
         self._git_lock = threading.Lock()
     # endregion 1. 构造依赖
 
-    def bind_effective_plan(self, plan: FanoutPlan) -> None:
-        """切换 Worker prompt 使用的 generation goal、routes 与计划身份。"""
-
-        self.plan = plan
-
     # region 2. Worker 生命周期：隔离 -> AgentLoop -> 候选 Diff -> 稳定结果
     # 主要入口：把一个 SubagentTask 变成隔离运行、候选 Diff 和可合并 Worker 结果。
     def run_worker(
         self,
         task: SubagentTask,
-        batch_index: int,
+        launch_wave_index: int,
         base_diff_text: str,
         dependency_handoffs: list[WorkerHandoff],
         attempt: int,
         coordination: LiveWorkerContextPort | None = None,
-    ) -> LiveSubagentResult:
+    ) -> WorkerAttemptResult:
         """在临时 worktree 中运行一个受 scope 限制的 AgentLoop。
 
         伪代码：准备稳定输出路径 -> 创建隔离 worktree/带入前置 Diff
@@ -128,7 +123,7 @@ class LocalAgentWorkerAdapter(FanoutWorkerPort):
 
         # region 1. 输出契约准备（实现细节）：固定目录，并先准备失败兜底值
         # 先创建所有稳定路径和默认失败值，保证后续任意阶段抛异常时仍能返回结构完整的
-        # LiveSubagentResult，而不是让 Coordinator 依赖临时 worktree 内部状态。
+        # WorkerAttemptResult，而不是让 Coordinator 依赖临时 worktree 内部状态。
         started = time.monotonic()
         worker_dir = self.root / "workers" / task.id / f"attempt-{attempt}"
         worker_dir.mkdir(parents=True, exist_ok=True)
@@ -147,7 +142,7 @@ class LocalAgentWorkerAdapter(FanoutWorkerPort):
         active_workspace = self.workspace
         manifest_path = worker_dir / "execution_environment.json"
         final_answer = ""
-        status = "failed"
+        status = "terminal_failure"
         error = ""
         touched_files: list[str] = []
         usage_summary: dict[str, object] = {}
@@ -273,22 +268,28 @@ class LocalAgentWorkerAdapter(FanoutWorkerPort):
             # endregion 4. AgentLoop 执行结束
 
             # region 5. 候选结果收集（主链）：提取本任务 Diff，并校验实际改动没有越界
-            # touched_files 是动态冲突和 scope_violation 的共同事实来源；即使最终文本声称
-            # 完成，_worker_status 也会依据真实文件范围决定是否允许 Coordinator 合并。
+            # touched_files 只作为 Coordinator scope gate 的事实；Adapter 不拥有治理判断。
             candidate_diff_text = collect_workspace_diff(active_workspace)
             candidate_diff_path.write_text(candidate_diff_text, encoding="utf-8")
             candidate_diff_sha256 = hashlib.sha256(
                 candidate_diff_text.encode("utf-8")
             ).hexdigest()
             touched_files = collect_changed_files(active_workspace)
-            status, error = _worker_status(task, final_answer, touched_files)
             stop_reason, failure_kind, retryable, validation_evidence = _trace_outcome(
                 trace_path
             )
+            status, failure_kind, error = _worker_attempt_outcome(
+                final_answer=final_answer,
+                stop_reason=stop_reason,
+                failure_kind=failure_kind,
+                retryable=retryable,
+            )
             unresolved_issues = _unresolved_issues(status, error)
             handoff = project_worker_handoff(
-                LiveSubagentResult(
+                WorkerAttemptResult(
                     task_id=task.id,
+                    attempt=attempt,
+                    launch_wave_index=launch_wave_index,
                     status=status,
                     final_answer=final_answer,
                     touched_files=touched_files,
@@ -320,9 +321,11 @@ class LocalAgentWorkerAdapter(FanoutWorkerPort):
             validation_evidence = []
             unresolved_issues = [error]
             handoff = project_worker_handoff(
-                LiveSubagentResult(
+                WorkerAttemptResult(
                     task_id=task.id,
-                    status="failed",
+                    attempt=attempt,
+                    launch_wave_index=launch_wave_index,
+                    status="terminal_failure",
                     final_answer=final_answer,
                     touched_files=touched_files,
                     artifact_path=str(artifact_path),
@@ -335,7 +338,7 @@ class LocalAgentWorkerAdapter(FanoutWorkerPort):
             artifact_path.write_text(
                 _render_worker_artifact(
                     task,
-                    "failed",
+                    "terminal_failure",
                     final_answer,
                     touched_files,
                     error,
@@ -371,8 +374,10 @@ class LocalAgentWorkerAdapter(FanoutWorkerPort):
                         environment.cleanup()
 
         # 返回的是 Coordinator 唯一依赖的 Worker 数据契约，不暴露内部 AgentLoop 对象。
-        return LiveSubagentResult(
+        result = WorkerAttemptResult(
             task_id=task.id,
+            attempt=attempt,
+            launch_wave_index=launch_wave_index,
             status=status,
             final_answer=final_answer,
             touched_files=touched_files,
@@ -383,11 +388,9 @@ class LocalAgentWorkerAdapter(FanoutWorkerPort):
             candidate_diff_sha256=candidate_diff_sha256,
             artifact_path=str(artifact_path),
             environment_manifest_path=str(manifest_path),
-            batch_index=batch_index,
             error=error,
             duration_ms=int((time.monotonic() - started) * 1000),
             usage_summary=usage_summary,
-            attempt=attempt,
             stop_reason=stop_reason,
             failure_kind=failure_kind,
             retryable=retryable,
@@ -395,6 +398,9 @@ class LocalAgentWorkerAdapter(FanoutWorkerPort):
             unresolved_issues=unresolved_issues,
             handoff=handoff,
         )
+        if result.handoff is None:
+            result.handoff = project_worker_handoff(result)
+        return result
     # endregion 2. Worker 生命周期
 
     # region 3. Finalizer：在独立只读环境验收已集成候选
@@ -402,7 +408,7 @@ class LocalAgentWorkerAdapter(FanoutWorkerPort):
     def run_finalizer(
         self,
         plan: FanoutPlan,
-        results: list[LiveSubagentResult],
+        results: list[WorkerAttemptResult],
     ) -> FinalizerResult:
         """把已集成 diff 复制到独立 worktree，并用只读 Runtime 做最终验收。
 
@@ -608,7 +614,7 @@ class LocalAgentWorkerAdapter(FanoutWorkerPort):
             trace_path=str(trace_path),
             usage_path=str(usage_path),
             usage_summary=usage_summary,
-            criterion_results=criterion_results,
+            criterion_results=tuple(criterion_results),
         )
     # endregion 3. 只读 Finalizer
 
@@ -886,7 +892,7 @@ def worker_task_prompt(
 
 def finalizer_task_prompt(
     goal: str,
-    results: list[LiveSubagentResult],
+    results: list[WorkerAttemptResult],
     *,
     plan: FanoutPlan | None = None,
 ) -> str:
@@ -924,29 +930,25 @@ def finalizer_task_prompt(
 
 
 # region 6. 结果投影：从真实文件、Trace 和 Finalizer 文本推导结构化事实
-def _worker_status(
-    task: SubagentTask,
+def _worker_attempt_outcome(
+    *,
     final_answer: str,
-    touched_files: list[str],
-) -> tuple[str, str]:
-    """按 Human/blocked 信号和真实 touched-files 投影 Worker 业务状态。"""
+    stop_reason: str,
+    failure_kind: str,
+    retryable: bool,
+) -> tuple[str, str, str]:
+    """只投影 Worker execution；scope/no-patch 等治理判断留给 Coordinator。"""
 
-    # AgentLoop 等待人工输入时保留可恢复状态，不按普通失败处理。
+    if retryable:
+        kind = failure_kind or "runtime_retryable_failure"
+        return "retryable_failure", kind, stop_reason or kind
     if final_answer.startswith("waiting_human:"):
-        return "waiting_human", ""
-    # AgentLoop 显式 blocked 时保留阻断语义。
+        return "terminal_failure", "waiting_human", "worker requires human input"
     if final_answer.startswith("blocked:"):
-        return "blocked", ""
-    # 实际文件越过声明 scope 时，模型即使声称成功也必须 fail closed。
-    if not _within_scopes(touched_files, task.write_scope):
-        return (
-            "scope_violation",
-            f"actual touched files escaped declared scope: {touched_files}",
-        )
-    # read-only Task 的任意文件修改都属于 scope violation。
-    if not task.write_scope and touched_files:
-        return "scope_violation", f"read-only task modified files: {touched_files}"
-    return "completed", ""
+        return "terminal_failure", "worker_blocked", "worker reported blocked"
+    if failure_kind and stop_reason and stop_reason not in {"completed", "final_answer"}:
+        return "terminal_failure", failure_kind, stop_reason
+    return "candidate_produced", failure_kind, ""
 
 
 def _render_worker_artifact(
@@ -976,28 +978,6 @@ def _render_worker_artifact(
     )
 
 
-def _within_scopes(paths: list[str], scopes: list[str]) -> bool:
-    """验证每条实际路径都落在至少一个声明 scope 本身或其子路径内。"""
-
-    # 没有实际改动时天然不越界。
-    if not paths:
-        return True
-    # 有改动却没声明任何 scope 时必然越界。
-    if not scopes:
-        return False
-    # 每条 touched path 都必须被某个 scope 覆盖，任一越界立即返回 False。
-    for path in paths:
-        normalized = path.strip("/")
-        # scope 可精确匹配文件，也可作为目录前缀覆盖其子路径。
-        if not any(
-            normalized == scope.rstrip("/")
-            or normalized.startswith(f"{scope.rstrip('/')}/")
-            for scope in scopes
-        ):
-            return False
-    return True
-
-
 def _trace_outcome(
     trace_path: Path,
 ) -> tuple[str, str, bool, list[dict[str, object]]]:
@@ -1013,7 +993,8 @@ def _trace_outcome(
         # 非 object 事件不是 canonical TraceEvent，直接忽略。
         if not isinstance(event, dict):
             continue
-        # recovery_decision 明确给出 failure_kind 与是否可重试。
+        # recovery_decision 是 Runtime-owned taxonomy；但一次 Model Step 的
+        # REFRESH_INPUT 不等于整个 Worker Attempt 失败。
         if event.get("event_type") == "recovery_decision":
             failure_kind = str(event.get("failure_kind") or "")
             retryable = event.get("retryable") is True
@@ -1022,12 +1003,15 @@ def _trace_outcome(
             event.get("validation"), dict
         ):
             validation_evidence.append(dict(event["validation"]))
+    if stop_reason in {"completed", "final_answer"}:
+        failure_kind = ""
+        retryable = False
     return stop_reason, failure_kind, retryable, validation_evidence
 
 
 def _unresolved_issues(status: str, error: str) -> list[str]:
-    # completed 没有未解决问题；其他状态至少保留错误或稳定状态说明。
-    if status == "completed":
+    # candidate_produced 没有未解决问题；其他 Attempt 状态保留错误或稳定说明。
+    if status == "candidate_produced":
         return []
     return [error or f"worker ended with status {status}"]
 
@@ -1073,15 +1057,15 @@ def _criterion_results(answer: str, criteria: list[str]) -> list[CriterionResult
 
 def _has_failed_runtime_evidence(
     plan: FanoutPlan,
-    results: list[LiveSubagentResult],
+    results: list[WorkerAttemptResult],
 ) -> bool:
     """检查 Worker 结构化结果中是否存在 Finalizer 不能覆盖的失败事实。"""
 
     task_by_id = {task.id: task for task in plan.tasks}
     # 每个结果依次检查状态、Task 身份、写任务 candidate 和 validation evidence。
     for result in results:
-        # 非 completed Worker 已经是失败事实。
-        if result.status != "completed":
+        # 未产生 Candidate 的 Worker Attempt 已经是失败事实。
+        if result.status != "candidate_produced":
             return True
         task = task_by_id.get(result.task_id)
         # 结果引用未知 Task 时 provenance 不成立。

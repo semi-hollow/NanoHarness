@@ -323,11 +323,12 @@ class DocumentationLanguageTest(unittest.TestCase):
             "Runtime decides",
             "Fixed Case Cohort",
             "AdaptivePlanner.decide()",
-            "build_live_fanout()",
+            "build_fanout()",
             "FanoutCoordinator.run()",
-            "_run_plan()",
+            "_execute_plan()",
             "HARD: integrated-state readiness",
             "LIVE: semantic early readiness",
+            "Strict Integration Frontier",
             "生产化边界与扩展.md",
         ):
             if contract not in architecture:
@@ -358,14 +359,10 @@ class DocumentationLanguageTest(unittest.TestCase):
         lab = lab_path.read_text(encoding="utf-8")
         required_lab_contracts = (
             "NanoHarness Lab 1 - Governed Repair",
-            "NanoHarness Lab 2 - Coordinated Agents",
             "NanoHarness Evidence Workbench - Read Only",
-            "scripts/install_pycharm_debug_lab.py",
-            "Debugger 看动态因果；Workbench 看最终留下的可验证 Evidence",
-            "Pause",
-            "Cancel",
-            "不可变 Run",
-            "SWE-bench Verified Mini-50",
+            "scripts/run_multi_agent_v1_smoke.py",
+            "strict integration frontier",
+            "本次不可变 Run",
         )
         for contract in required_lab_contracts:
             if contract not in lab:
@@ -375,13 +372,9 @@ class DocumentationLanguageTest(unittest.TestCase):
             "examples/debug_lab/support.py",
             "examples/debug_lab/repository/calculator.py",
             "examples/debug_lab/repository/test_calculator.py",
-            "examples/debug_lab/multi_agent_repository/pricing.py",
-            "examples/debug_lab/multi_agent_repository/shipping.py",
-            "examples/debug_lab/multi_agent_repository/test_checkout.py",
             "scripts/install_pycharm_debug_lab.py",
             "scripts/showcase_demo.sh",
             ".run/NanoHarness Lab 1 - Governed Repair.run.xml",
-            ".run/NanoHarness Lab 2 - Coordinated Agents.run.xml",
             ".run/NanoHarness Evidence Workbench - Read Only.run.xml",
         ):
             if not (PROJECT_ROOT / relative_path).is_file():

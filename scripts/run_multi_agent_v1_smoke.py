@@ -26,7 +26,7 @@ from agent_forge.multi_agent.application.planning import (
     AdaptivePlanner,
     write_planning_artifact,
 )
-from agent_forge.multi_agent.wiring import LiveFanoutBuildRequest, build_live_fanout
+from agent_forge.multi_agent.wiring import FanoutBuildRequest, build_fanout
 from agent_forge.observability.adapters.json_trace import TraceRecorder
 from agent_forge.runtime.adapters.execution_environment import ExecutionEnvironment
 from agent_forge.runtime.config import RuntimeConfig
@@ -318,8 +318,8 @@ def run_smoke(
         waiter = _AcceptedEventWaiter()
         model = _ScriptedModelPort(waiter)
         trace = TraceRecorder(str(run_dir / "trace.json"))
-        coordinator = build_live_fanout(
-            LiveFanoutBuildRequest(
+        coordinator = build_fanout(
+            FanoutBuildRequest(
                 plan=plan,
                 base_config=RuntimeConfig(
                     workspace=str(repository),
@@ -347,6 +347,7 @@ def run_smoke(
             summary=summary,
             model=model,
             behavior_passed=behavior_passed,
+            fanout_events=trace.events,
         )
         atomic_write_json(selected_summary, projection)
         return projection
@@ -419,6 +420,7 @@ def _project_evidence(
     summary: Any,
     model: _ScriptedModelPort,
     behavior_passed: bool,
+    fanout_events: list[dict[str, Any]],
 ) -> dict[str, Any]:
     """从 canonical Runtime/Trace 事实生成不含私有 Prompt 的机制证据。"""
 
@@ -441,7 +443,7 @@ def _project_evidence(
     ]
     traces = [
         json.loads(Path(result.trace_path).read_text(encoding="utf-8"))
-        for result in summary.results
+        for result in summary.attempt_results
     ]
     stale_discards = [
         event
@@ -450,13 +452,40 @@ def _project_evidence(
         if event.get("event_type") == "recovery_decision"
         and event.get("failure_kind") == "runtime_coordination"
     ]
+    candidate_gate_facts = [
+        {
+            key: event.get(key)
+            for key in ("task_id", "attempt", "gate", "decision", "detail")
+        }
+        for event in fanout_events
+        if event.get("event_type") == "candidate_gate"
+    ]
+    start_event = next(
+        event for event in fanout_events if event.get("event_type") == "fanout_start"
+    )
+    checkpoint = json.loads(
+        (coordinator.artifacts.root / "fanout_checkpoint.json").read_text(
+            encoding="utf-8"
+        )
+    )
     # endregion 5.1 事实提取
 
     # region 5.2 机制断言：每条结论都绑定真实 Timeline、输入或集成结果
     assertions = {
         "planner_selected_multi": planning["decision"]["mode"] == "multi",
+        "plan_is_deeply_immutable": (
+            isinstance(plan.tasks, tuple)
+            and isinstance(plan.tasks[0].write_scope, tuple)
+            and isinstance(plan.live_dependencies, tuple)
+        ),
+        "plan_digest_stable": (
+            start_event.get("plan_digest")
+            == plan.digest
+            == summary.plan_digest
+            == checkpoint.get("plan_digest")
+        ),
         "isolated_worker_worktrees": len(
-            {result.workspace for result in summary.results}
+            {result.workspace for result in summary.attempt_results}
         )
         == 2,
         "consumer_started_before_producer_completed": (
@@ -484,6 +513,16 @@ def _project_evidence(
             and behavior_passed
         ),
         "stale_model_response_discarded": len(stale_discards) >= 2,
+        "stale_response_uses_refresh_input": all(
+            event.get("model_step_outcome") == "refresh_input"
+            for event in stale_discards
+        ),
+        "strict_frontier_integrated_prefix": summary.merged_task_ids
+        == ["producer", "consumer"],
+        "candidate_gates_observed": (
+            "candidate_local_validation" in {row["gate"] for row in candidate_gate_facts}
+            and "trusted_commit" in {row["gate"] for row in candidate_gate_facts}
+        ),
     }
     if not all(assertions.values()):
         raise AssertionError(f"Multi-Agent V1 smoke failed: {assertions}")
@@ -491,15 +530,20 @@ def _project_evidence(
 
     # region 5.3 脱敏输出：区分 Reused、New、Omitted 和性能 Claim Boundary
     return {
-        "schema_version": 1,
+        "schema_version": 3,
         "evidence_class": "deterministic_real_agent_loop_mechanism",
         "natural_language_task": NATURAL_LANGUAGE_TASK,
         "planning_decision": planning["decision"],
-        "fanout_plan_digest": plan.digest,
-        "plan_generation_id": runtime.plan_generation_id,
-        "worker_attempt_ids": {
-            result.task_id: result.attempt for result in summary.results
-        },
+        "fanout_plan": plan.to_dict(),
+        "plan_digest": plan.digest,
+        "status": summary.status,
+        "launch_waves": summary.launch_waves,
+        "task_results": [
+            _public_task_result(result) for result in summary.task_results
+        ],
+        "attempt_results": [
+            _public_attempt_result(result) for result in summary.attempt_results
+        ],
         "coordination_timeline": [
             {
                 "sequence": row["sequence"],
@@ -516,6 +560,7 @@ def _project_evidence(
                             "target_task_id",
                             "semantic_key",
                             "version",
+                            "plan_digest",
                             "worker_attempt_id",
                             "caused_by_event_id",
                         )
@@ -527,12 +572,14 @@ def _project_evidence(
             }
             for row in timeline
         ],
-        "candidate_diff_sha256": {
-            result.task_id: result.candidate_diff_sha256
-            for result in summary.results
+        "candidate_gate_facts": candidate_gate_facts,
+        "finalizer_evidence": {
+            "decision": summary.final_decision,
+            "criterion_results": [
+                result.to_dict() for result in summary.criterion_results
+            ],
+            "read_only": True,
         },
-        "integration_status": summary.status,
-        "finalizer_decision": summary.final_decision,
         "assertions": assertions,
         "reused": [
             "AdaptivePlanner",
@@ -562,6 +609,39 @@ def _project_evidence(
 
 
 # region 6. 因果辅助断言与脚本启动
+def _public_attempt_result(result: Any) -> dict[str, Any]:
+    """保留 current schema，但把本机临时绝对路径投影为稳定 evidence 路径。"""
+
+    payload = result.to_dict()
+    prefix = f"workers/{result.task_id}/attempt-{result.attempt}"
+    replacements = {
+        "candidate_diff_path": f"{prefix}/candidate_changes.diff",
+        "artifact_path": f"{prefix}/task_output.md",
+        "trace_path": f"{prefix}/trace.json",
+        "usage_path": f"{prefix}/usage.json",
+        "environment_manifest_path": f"{prefix}/execution_environment.json",
+        "workspace": f"isolated-worktree:{result.task_id}:attempt-{result.attempt}",
+    }
+    for key, value in replacements.items():
+        if payload.get(key):
+            payload[key] = value
+    handoff = payload.get("handoff")
+    if isinstance(handoff, dict) and handoff.get("artifact_path"):
+        handoff["artifact_path"] = replacements["artifact_path"]
+    return payload
+
+
+def _public_task_result(result: Any) -> dict[str, Any]:
+    payload = result.to_dict()
+    handoff = payload.get("handoff")
+    if isinstance(handoff, dict) and handoff.get("artifact_path"):
+        attempt = result.final_attempt or 0
+        handoff["artifact_path"] = (
+            f"workers/{result.task_id}/attempt-{attempt}/task_output.md"
+        )
+    return payload
+
+
 def _require_runtime_evidence(text: str, event_type: str) -> None:
     if (
         "RUNTIME COORDINATION EVIDENCE" not in text

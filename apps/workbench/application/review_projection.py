@@ -1,14 +1,14 @@
-"""把 immutable evidence 投影成三条稳定的技术审阅路径。
+"""把 immutable evidence 投影成稳定的技术审阅路径。
 
 本模块只读取版本化 contract 和 Runtime 已写入的 artifact。它不会补写 Run、推断
 未观测状态，或把设计说明伪装成 Trace 事实。
 
-系统角色：分别回答 Lab 1 的 durable governance、Lab 2 的协作执行和 Mini-50 的
+系统角色：分别回答 Lab 1 的 durable governance、当前 Multi-Agent 协作和 Mini-50 的
 能力评测问题，并把 contract 与 observed evidence 保持分栏。
 输入：``EvidenceSource`` 与 manifest/raw artifact；输出：三个 typed Review model。
 相邻边界：Evidence Catalog 负责定位文件；本 Application 负责事实投影；UI 只展示。
 
-折叠导航：1 Review contract；2 Lab 1；3 Lab 2；4 Mini-50；5 manifest/event helper。
+折叠导航：1 Review contract；2 Lab 1；3 Multi-Agent；4 Mini-50；5 helper。
 """
 
 from __future__ import annotations
@@ -69,25 +69,26 @@ class Lab1Review:
 
 
 @dataclass(frozen=True)
-class Lab2Task:
+class FanoutTaskReview:
     task_id: str
-    depends_on: tuple[str, ...]
+    hard_dependencies: tuple[str, ...]
+    live_dependencies: tuple[str, ...]
     write_scope: tuple[str, ...]
-    allowed_tools: tuple[str, ...]
-    touched_files: tuple[str, ...]
     status: str
-    batch_index: int
+    final_attempt: int | None
+    attempt_statuses: tuple[str, ...]
 
 
 @dataclass(frozen=True)
-class Lab2Review:
+class FanoutReview:
     contract: ReviewContract
     status: str
-    tasks: tuple[Lab2Task, ...]
-    batches: tuple[tuple[str, ...], ...]
-    conflicts: tuple[str, ...]
+    plan_digest: str
+    tasks: tuple[FanoutTaskReview, ...]
+    launch_waves: tuple[tuple[str, ...], ...]
+    coordination_events: tuple[str, ...]
+    candidate_gates: tuple[str, ...]
     final_decision: str
-    finalizer_trace: Path | None
     observed_result: str
 
 
@@ -257,60 +258,107 @@ def build_lab1_review(project_dir: Path, source: EvidenceSource) -> Lab1Review:
 # endregion 2. Lab 1 结束
 
 
-# region 3. Lab 2：计划约束与 Worker 实际结果逐 Task 对齐
-def build_lab2_review(project_dir: Path, source: EvidenceSource) -> Lab2Review:
-    """读取 FanoutPlan 与 summary，保持设计门禁和观测结果来源分离。"""
+# region 3. Current Multi-Agent：冻结计划、Attempt、Task governance 与 LIVE 事实
+def build_fanout_review(project_dir: Path, source: EvidenceSource) -> FanoutReview:
+    """只读取 schema_version=3 的当前 Runtime 原生机制证据。"""
 
     contract = _contract(project_dir, "orchestration")
-    summary = _read_json(source.primary_path)
-    run_root = source.primary_path.parent.parent if source.primary_path else Path()
-    plan = _read_json(run_root / "fanout/fanout_plan.json")
-    result_by_id = {
+    evidence = _read_json(source.primary_path)
+    plan = evidence.get("fanout_plan")
+    plan = plan if isinstance(plan, dict) else {}
+    if evidence.get("schema_version") == 3 and not plan and source.primary_path:
+        plan = _read_json(source.primary_path.parent / "fanout_plan.json")
+        evidence = {
+            **evidence,
+            "fanout_plan": plan,
+            "finalizer_evidence": {
+                "decision": evidence.get("final_decision") or "not_observed",
+                "criterion_results": evidence.get("criterion_results") or [],
+            },
+        }
+    task_rows = evidence.get("task_results")
+    task_rows = task_rows if isinstance(task_rows, list) else []
+    attempt_rows = evidence.get("attempt_results")
+    attempt_rows = attempt_rows if isinstance(attempt_rows, list) else []
+    task_result_by_id = {
         str(item.get("task_id") or ""): item
-        for item in summary.get("results") or ()
+        for item in task_rows
         if isinstance(item, dict)
     }
-    tasks: list[Lab2Task] = []
-    # Plan 提供约束，summary 提供实际 touched/status；二者按 task_id 连接但不互相覆盖。
+    attempts_by_id: dict[str, list[dict[str, Any]]] = {}
+    for item in attempt_rows:
+        if isinstance(item, dict):
+            attempts_by_id.setdefault(str(item.get("task_id") or ""), []).append(item)
+    live_by_target: dict[str, list[str]] = {}
+    for edge in plan.get("live_dependencies") or ():
+        if isinstance(edge, dict):
+            target = str(edge.get("target_task_id") or "")
+            producer = str(edge.get("producer_task_id") or "")
+            key = str(edge.get("semantic_key") or "")
+            live_by_target.setdefault(target, []).append(f"{producer}:{key}")
+    tasks: list[FanoutTaskReview] = []
     for task in plan.get("tasks") or ():
         if not isinstance(task, dict):
             continue
         task_id = str(task.get("id") or "")
-        result = result_by_id.get(task_id, {})
+        result = task_result_by_id.get(task_id, {})
+        attempts = sorted(
+            attempts_by_id.get(task_id, ()),
+            key=lambda item: int(item.get("attempt") or 0),
+        )
+        raw_final_attempt = result.get("final_attempt")
         tasks.append(
-            Lab2Task(
+            FanoutTaskReview(
                 task_id=task_id,
-                depends_on=_strings(task.get("depends_on")),
+                hard_dependencies=_strings(task.get("depends_on")),
+                live_dependencies=tuple(live_by_target.get(task_id, ())),
                 write_scope=_strings(task.get("write_scope")),
-                allowed_tools=_strings(task.get("allowed_tools")),
-                touched_files=_strings(result.get("touched_files")),
                 status=str(result.get("status") or "not_observed"),
-                batch_index=int(result.get("batch_index") or 0),
+                final_attempt=(int(raw_final_attempt) if raw_final_attempt is not None else None),
+                attempt_statuses=tuple(
+                    f"#{int(item.get('attempt') or 0)} {item.get('status') or 'unknown'}"
+                    for item in attempts
+                ),
             )
         )
-    batches = tuple(
-        tuple(str(task_id) for task_id in batch)
-        for batch in summary.get("batches") or ()
-        if isinstance(batch, list)
+    launch_waves = tuple(
+        tuple(
+            f"{item.get('task_id')}#{int(item.get('attempt') or 0)}"
+            for item in wave
+            if isinstance(item, dict)
+        )
+        for wave in evidence.get("launch_waves") or ()
+        if isinstance(wave, list)
     )
-    conflicts = tuple(str(item) for item in summary.get("conflicts") or ())
-    finalizer = _safe_path(str(summary.get("finalizer_trace_path") or ""))
-    completed = sum(task.status == "completed" for task in tasks)
-    return Lab2Review(
+    coordination_events = tuple(
+        str((row.get("event") or {}).get("event_type"))
+        for row in evidence.get("coordination_timeline") or ()
+        if isinstance(row, dict) and isinstance(row.get("event"), dict)
+    )
+    candidate_gates = tuple(
+        str(item.get("gate"))
+        for item in evidence.get("candidate_gate_facts") or ()
+        if isinstance(item, dict) and item.get("gate")
+    )
+    integrated = sum(task.status == "integrated" for task in tasks)
+    finalizer = evidence.get("finalizer_evidence")
+    finalizer = finalizer if isinstance(finalizer, dict) else {}
+    return FanoutReview(
         contract=contract,
-        status=str(summary.get("status") or source.status),
+        status=str(evidence.get("status") or source.status),
+        plan_digest=str(evidence.get("plan_digest") or ""),
         tasks=tuple(tasks),
-        batches=batches,
-        conflicts=conflicts,
-        final_decision=str(summary.get("final_decision") or "not_observed"),
-        finalizer_trace=finalizer,
+        launch_waves=launch_waves,
+        coordination_events=coordination_events,
+        candidate_gates=candidate_gates,
+        final_decision=str(finalizer.get("decision") or "not_observed"),
         observed_result=(
-            f"{completed}/{len(tasks)} tasks completed；"
-            f"{len(conflicts)} conflicts；Finalizer "
-            f"{summary.get('final_decision') or 'not observed'}"
+            f"{integrated}/{len(tasks)} tasks trusted integrated；"
+            f"{len(attempt_rows)} real Worker Attempts；"
+            f"Finalizer {finalizer.get('decision') or 'not observed'}"
         ),
     )
-# endregion 3. Lab 2 结束
+# endregion 3. Current Multi-Agent 结束
 
 
 # region 4. Mini-50：固定分母、代表 Case 与 provenance closure

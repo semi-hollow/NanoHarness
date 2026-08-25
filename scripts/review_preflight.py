@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# ruff: noqa: E402
 """只读检查本机 Evidence Review 是否具备完整、可追溯的演示输入。"""
 
 from __future__ import annotations
@@ -16,9 +17,8 @@ if str(PROJECT_ROOT) not in sys.path:
 
 from apps.workbench.adapters.evidence_files import FileEvidenceCatalog
 from apps.workbench.application.review_projection import (
-    REVIEW_MANIFEST,
+    build_fanout_review,
     build_lab1_review,
-    build_lab2_review,
     build_mini50_review,
     load_review_manifest,
 )
@@ -46,7 +46,7 @@ def main() -> int:
         *_check_docs(),
         *_check_workbench(),
         *_check_lab1(),
-        *_check_lab2(),
+        *_check_fanout(),
         *_check_mini50(),
         *_check_boundary(),
     ]
@@ -122,7 +122,7 @@ def _check_docs() -> list[Check]:
                     "source=evaluation",
                 )
             ),
-            "Lab 1 / Lab 2 / Mini-50 deep links",
+            "Lab 1 / current Multi-Agent / Mini-50 deep links",
         ),
     ]
 
@@ -218,47 +218,46 @@ def _check_lab1() -> list[Check]:
     ]
 
 
-def _check_lab2() -> list[Check]:
+def _check_fanout() -> list[Check]:
     manifest = load_review_manifest(PROJECT_ROOT)
     configured = _source_config(manifest, "orchestration")
     source = _source("orchestration")
-    review = build_lab2_review(PROJECT_ROOT, source)
-    expected_hash = str(configured.get("canonical_sha256") or "")
-    run_root = (
-        source.primary_path.parent.parent if source.primary_path is not None else Path()
-    )
-    tree_ok, tree_detail = _evidence_tree_integrity(run_root, configured)
+    review = build_fanout_review(PROJECT_ROOT, source)
+    canonical = PROJECT_ROOT / str(configured.get("canonical_artifact") or "")
     task_ids = {task.task_id for task in review.tasks}
     return [
         Check(
-            "Lab 2",
-            "Canonical plan and summary",
-            source.run_key == configured.get("canonical_run")
-            and source.primary_path is not None
-            and _sha256(source.primary_path) == expected_hash,
-            f"{source.run_key} · {expected_hash[:12]}",
+            "Multi-Agent",
+            "Current native mechanism evidence",
+            source.primary_path == canonical
+            and canonical.is_file()
+            and review.status == "passed"
+            and len(review.plan_digest) == 64,
+            f"{canonical.relative_to(PROJECT_ROOT)} · {review.plan_digest[:12]}",
         ),
         Check(
-            "Lab 2",
-            "Critical evidence tree",
-            tree_ok,
-            tree_detail,
+            "Multi-Agent",
+            "Frozen plan, Worker Attempts and launch waves",
+            task_ids == {"producer", "consumer"}
+            and review.launch_waves == (("producer#1",), ("consumer#1",))
+            and all(task.attempt_statuses == ("#1 candidate_produced",) for task in review.tasks),
+            f"tasks={len(review.tasks)} · waves={len(review.launch_waves)}",
         ),
         Check(
-            "Lab 2",
-            "Batches and workers",
-            task_ids == {"pricing-policy", "shipping-policy", "edge-case-verifier"}
-            and review.batches
-            == (("pricing-policy", "shipping-policy"), ("edge-case-verifier",)),
-            "Batch 0 parallel · Batch 1 verifier",
+            "Multi-Agent",
+            "LIVE coordination and candidate gates",
+            {"READY", "FEEDBACK", "UPDATE"}.issubset(review.coordination_events)
+            and {"candidate_local_validation", "trusted_commit"}.issubset(
+                review.candidate_gates
+            ),
+            f"coordination={len(review.coordination_events)} · gates={len(review.candidate_gates)}",
         ),
         Check(
-            "Lab 2",
-            "Conflict gates and Finalizer",
-            not review.conflicts
-            and review.final_decision == "PASS"
-            and review.finalizer_trace is not None,
-            f"conflicts={len(review.conflicts)} · Finalizer={review.final_decision}",
+            "Multi-Agent",
+            "Trusted Task results and Finalizer",
+            all(task.status == "integrated" for task in review.tasks)
+            and review.final_decision == "PASS",
+            f"trusted={sum(task.status == 'integrated' for task in review.tasks)}/{len(review.tasks)} · Finalizer={review.final_decision}",
         ),
     ]
 
@@ -351,12 +350,14 @@ def _source_config(manifest: dict[str, object], key: str) -> dict[str, object]:
 def _raw_evidence_fingerprints() -> tuple[tuple[str, str], ...]:
     manifest = load_review_manifest(PROJECT_ROOT)
     values: list[tuple[str, str]] = []
-    for key in ("governed", "orchestration"):
-        configured = _source_config(manifest, key)
-        run_name = str(configured.get("canonical_run") or "")
-        root = PROJECT_ROOT / ".agent_forge/runs/showcases" / run_name
-        count, digest = _evidence_tree(root, _evidence_tree_patterns(configured))
-        values.append((str(root), f"{count}:{digest}"))
+    configured = _source_config(manifest, "governed")
+    run_name = str(configured.get("canonical_run") or "")
+    root = PROJECT_ROOT / ".agent_forge/runs/showcases" / run_name
+    count, digest = _evidence_tree(root, _evidence_tree_patterns(configured))
+    values.append((str(root), f"{count}:{digest}"))
+    orchestration = _source_config(manifest, "orchestration")
+    artifact = PROJECT_ROOT / str(orchestration.get("canonical_artifact") or "")
+    values.append((str(artifact), _sha256(artifact) if artifact.is_file() else "missing"))
     return tuple(values)
 
 

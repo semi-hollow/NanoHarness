@@ -81,19 +81,17 @@ CORE_WORKFLOW_ENTRYPOINTS = {
         "ToolRouter.route": 4,
     },
     "agent_forge/multi_agent/application/fanout.py": {
-        "FanoutCoordinator.run": 3,
-        "FanoutCoordinator._run_plan": 3,
-        "FanoutCoordinator._integrate_result": 3,
+        "FanoutCoordinator._execute_plan": 3,
+        "FanoutCoordinator._integrate_candidate": 3,
         "FanoutCoordinator._run_worker_attempt": 3,
-        "FanoutCoordinator._replan_remaining": 3,
-        "FanoutCoordinator._restore_previous": 4,
+        "FanoutCoordinator._restore_hard_prefix": 4,
     },
     "agent_forge/multi_agent/adapters/local_worker.py": {
         "LocalAgentWorkerAdapter.run_worker": 5,
         "LocalAgentWorkerAdapter.run_finalizer": 4,
     },
     "agent_forge/multi_agent/domain/live.py": {
-        "aggregate_live_metrics": 3,
+        "aggregate_fanout_metrics": 3,
     },
     "agent_forge/bench/application/swebench.py": {
         "RunSwebench.run_benchmark": 4,
@@ -464,17 +462,21 @@ REMOVED_PATCH_API_MARKERS = {
 # 阻碍正常重构。
 MULTI_AGENT_FOLD_MAP = {
     "agent_forge/multi_agent/application/fanout.py": {
-        "Public 主链",
-        "Worker 调度",
-        "Candidate 集成",
-        "有界恢复与 checkpoint",
-        "Trace 证据",
+        "Public Fanout lifecycle",
+        "Execution state",
+        "COMMON readiness scheduler",
+        "HARD dependency rules",
+        "LIVE coordination rules",
+        "COMMON Worker execution",
+        "COMMON candidate integration",
+        "HARD-only Resume / checkpoint",
+        "Trace / Summary projections",
     },
     "agent_forge/multi_agent/application/live_handoff.py": {
         "Attempt 生命周期",
         "发布与投递",
         "最终集成门禁",
-        "Generation、唤醒与只读查询",
+        "唤醒与只读查询",
     },
     "agent_forge/multi_agent/application/planning.py": {
         "Planner 主链",
@@ -486,9 +488,33 @@ MULTI_AGENT_FOLD_MAP = {
         "恢复验证",
     },
     "agent_forge/multi_agent/domain/live.py": {
-        "唯一执行计划",
-        "结果与持久化 contract",
-        "输入规范化与组合图校验",
+        "深度不可变计划",
+        "结果与持久化契约",
+        "输入规范化与依赖图校验",
+    },
+}
+
+MULTI_AGENT_PSEUDOCODE_OWNERS = {
+    "agent_forge/multi_agent/application/fanout.py": {
+        "FanoutCoordinator.run": (
+            "_prepare_execution_state",
+            "_execute_plan",
+            "_materialize_untrusted_results",
+            "_fanout_status",
+        ),
+        "FanoutCoordinator._execute_plan": (
+            "_launch_ready_attempts",
+            "_collect_completed_attempts",
+            "_advance_integration_frontier",
+            "_wait_for_progress",
+        ),
+        "FanoutCoordinator._integrate_candidate": (
+            "_candidate_local_failure",
+            "_hard_dependencies_ready",
+            "_live_producers_integrated",
+            "_authorize_live_freshness",
+            "apply_unified_diff",
+        ),
     },
 }
 
@@ -750,53 +776,22 @@ class CodeNavigationContractTest(unittest.TestCase):
                     )
 
     def test_multi_agent_control_flow_reads_like_pseudocode(self) -> None:
-        """Multi-Agent、产品入口及协调主链的分支前必须先说明业务目的。"""
+        """主链用稳定 helper 顺序表达业务阶段，不机械要求每个 guard 都写注释。"""
 
-        missing_navigation_comments: list[str] = []
-        multi_agent_root = PROJECT_ROOT / "agent_forge/multi_agent"
-        coordination_runtime_paths = [
-            PROJECT_ROOT / "apps/repository_run.py",
-            PROJECT_ROOT / "agent_forge/runtime/domain/run_control.py",
-            PROJECT_ROOT / "agent_forge/runtime/application/run_control.py",
-            PROJECT_ROOT / "agent_forge/runtime/application/agent_loop.py",
-        ]
-        navigation_paths = [
-            *sorted(multi_agent_root.rglob("*.py")),
-            *coordination_runtime_paths,
-        ]
-
-        # 一条粗粒度规则覆盖产品入口、能力包及真实 AgentLoop 接缝，避免再遗漏
-        # “文件有架构标题、核心方法内部却没有伪代码导航”的情况。
-        for path in navigation_paths:
-            source_lines = path.read_text(encoding="utf-8").splitlines()
-            tree = ast.parse("\n".join(source_lines), filename=str(path))
-
-            # 只约束会改变执行路径的语句；简单赋值、返回和序列化不机械加注释。
-            for node in ast.walk(tree):
-                if not isinstance(
-                    node,
-                    (ast.If, ast.For, ast.AsyncFor, ast.While, ast.Try),
-                ):
-                    continue
-                previous_line_index = node.lineno - 2
-                while (
-                    previous_line_index >= 0
-                    and not source_lines[previous_line_index].strip()
-                ):
-                    previous_line_index -= 1
-                if previous_line_index < 0 or not source_lines[
-                    previous_line_index
-                ].lstrip().startswith("#"):
-                    relative_path = path.relative_to(PROJECT_ROOT)
-                    missing_navigation_comments.append(
-                        f"{relative_path}:{node.lineno}:{type(node).__name__}"
-                    )
-
-        self.assertEqual(
-            missing_navigation_comments,
-            [],
-            "Multi-Agent control flow needs a preceding navigation comment",
-        )
+        for relative_path, owners in MULTI_AGENT_PSEUDOCODE_OWNERS.items():
+            tree = ast.parse((PROJECT_ROOT / relative_path).read_text(encoding="utf-8"))
+            for owner_name, expected_calls in owners.items():
+                owner = _find_owner(tree, owner_name)
+                self.assertIsInstance(owner, (ast.FunctionDef, ast.AsyncFunctionDef))
+                assert isinstance(owner, (ast.FunctionDef, ast.AsyncFunctionDef))
+                call_nodes = sorted(
+                    (node for node in ast.walk(owner) if isinstance(node, ast.Call)),
+                    key=lambda node: (node.lineno, node.col_offset),
+                )
+                called = [_called_symbol_name(node) for node in call_nodes]
+                positions = [called.index(name) for name in expected_calls]
+                with self.subTest(path=relative_path, owner=owner_name):
+                    self.assertEqual(positions, sorted(positions))
 
     def test_control_adapters_explicitly_expose_their_port_hierarchy(self) -> None:
         """关键控制面牺牲一点结构化自由，换取 PyCharm 可直接导航实现。"""

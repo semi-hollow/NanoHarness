@@ -55,7 +55,7 @@ class RuntimeCoordinationSignal:
 
     event_id: str
     content: str
-    plan_generation_id: str
+    plan_digest: str
     worker_attempt_id: int
     publisher_task_id: str
     target_task_id: str
@@ -76,7 +76,7 @@ class RuntimeCoordinationSignal:
 
         return {
             "event_id": self.event_id,
-            "plan_generation_id": self.plan_generation_id,
+            "plan_digest": self.plan_digest,
             "worker_attempt_id": self.worker_attempt_id,
             "publisher_task_id": self.publisher_task_id,
             "target_task_id": self.target_task_id,

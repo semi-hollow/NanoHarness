@@ -1,4 +1,0 @@
-.agent_forge/
-.pytest_cache/
-__pycache__/
-*.py[cod]

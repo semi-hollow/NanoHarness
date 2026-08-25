@@ -8,19 +8,17 @@ from dataclasses import dataclass
 
 from ..ports import (
     FanoutArtifactPort,
-    FanoutReplannerPort,
     FanoutWorkerPort,
     FanoutWorkspacePort,
-    LiveFanoutEvents,
+    FanoutEvents,
 )
 
 
 @dataclass(frozen=True)
-class LiveFanoutDependencies:
+class FanoutDependencies:
     """由 ``multi_agent.wiring`` 装配的一组 outbound ports。"""
 
-    events: LiveFanoutEvents
+    events: FanoutEvents
     workspace: FanoutWorkspacePort
     artifacts: FanoutArtifactPort
     workers: FanoutWorkerPort
-    replanner: FanoutReplannerPort | None = None

@@ -11,15 +11,14 @@ from __future__ import annotations
 
 import json
 import threading
-import time
 from pathlib import Path
 from typing import Any
 
 from agent_forge.infrastructure.atomic_json import atomic_write_json
 
-from ..domain.live import FanoutCheckpoint, FanoutPlan, LiveFanoutSummary
+from ..domain.live import FanoutCheckpoint, FanoutPlan, FanoutSummary
 from ..ports import FanoutArtifactPort
-from ..presentation.live_report import render_live_fanout_report
+from ..presentation.live_report import render_fanout_report
 
 
 class FanoutFileRepository(FanoutArtifactPort):
@@ -41,24 +40,22 @@ class FanoutFileRepository(FanoutArtifactPort):
         atomic_write_json(
             path,
             {
-                "schema_version": 2,
+                "schema_version": checkpoint.schema_version,
                 "status": checkpoint.status,
                 "plan_digest": checkpoint.plan_digest,
-                "initial_plan_identity": checkpoint.initial_plan_identity,
-                "effective_plan": (
-                    checkpoint.effective_plan.to_dict()
-                    if checkpoint.effective_plan is not None
-                    else None
-                ),
-                "effective_plan_digest": checkpoint.effective_plan_digest,
-                "replan_round": checkpoint.replan_round,
                 "base_head": checkpoint.base_head,
                 "merged_task_ids": list(checkpoint.merged_task_ids),
-                "results": [result.to_dict() for result in checkpoint.results],
+                "task_results": [
+                    result.to_dict() for result in checkpoint.task_results
+                ],
                 "attempt_results": [
                     result.to_dict() for result in checkpoint.attempt_results
                 ],
-                "updated_at": time.time(),
+                "launch_waves": [
+                    [dict(attempt) for attempt in wave]
+                    for wave in checkpoint.launch_waves
+                ],
+                "updated_at": checkpoint.updated_at,
             },
         )
         return str(path)
@@ -70,25 +67,25 @@ class FanoutFileRepository(FanoutArtifactPort):
         path.write_text(diff_text, encoding="utf-8")
         return str(path)
 
-    def write_summary(self, summary: LiveFanoutSummary) -> None:
+    def write_summary(self, summary: FanoutSummary) -> None:
         summary_path = self.root / "fanout_summary.json"
         report_path = self.root / "fanout_report.md"
         summary.summary_path = str(summary_path)
         summary.report_path = str(report_path)
         atomic_write_json(summary_path, summary.to_dict())
         report_path.write_text(
-            render_live_fanout_report(summary),
+            render_fanout_report(summary),
             encoding="utf-8",
         )
     # endregion 1. Canonical 写入结束
 
     # region 2. Resume 与只读 artifact：返回未信任 mapping，由 Application 继续校验
     def load_resume(self, path: str) -> dict[str, Any]:
-        """定位 Summary/Checkpoint，读取后只做物理 object 校验。"""
+        """只定位 canonical Checkpoint；Summary 从不拥有恢复 authority。"""
 
         resume_path = _resolve_resume_artifact(Path(path))
         data = json.loads(resume_path.read_text(encoding="utf-8"))
-        # Application 需要 mapping 才能继续做 digest/base/effective plan 校验。
+        # Application 需要 mapping 才能继续做 schema/plan digest/Git base 校验。
         if not isinstance(data, dict):
             raise ValueError("fanout resume artifact must contain an object")
         return data
@@ -110,21 +107,20 @@ class FanoutFileRepository(FanoutArtifactPort):
     # endregion 3. Coordination 结束
 
 
-# region 4. 路径解析：兼容 run root 或直接 artifact 文件，不承载 schema fallback
+# region 4. 路径解析：显式文件或 canonical fanout checkpoint
 def _resolve_resume_artifact(path: Path) -> Path:
     """按稳定优先级解析显式文件、fanout 子目录或 Run 根目录。"""
 
     # 调用方直接给出文件时原样使用，不猜其他 latest 路径。
     if path.is_file():
+        if path.name != "fanout_checkpoint.json":
+            raise ValueError("fanout resume accepts fanout_checkpoint.json only")
         return path
-    roots = [path / "fanout", path]
-    # Summary 优先于 Checkpoint；每种文件先查 canonical fanout/，再查兼容 Run 根。
-    for filename in ("fanout_summary.json", "fanout_checkpoint.json"):
-        # 对同一种 artifact，先查 canonical fanout 子目录，再查直接 Run 根。
-        for root in roots:
-            candidate = root / filename
-            # 找到首个稳定候选立即返回；都不存在才报告明确错误。
-            if candidate.exists():
-                return candidate
-    raise FileNotFoundError(f"no fanout summary or checkpoint found under {path}")
+    candidate = path / "fanout" / "fanout_checkpoint.json"
+    if candidate.exists():
+        return candidate
+    candidate = path / "fanout_checkpoint.json"
+    if candidate.exists():
+        return candidate
+    raise FileNotFoundError(f"no fanout checkpoint found under {path}")
 # endregion 4. 路径解析结束

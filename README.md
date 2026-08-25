@@ -139,21 +139,25 @@ Observation。`ask_human` 与 Approval 是可恢复屏障，不是临时终端�
 ```text
 Natural-language Task
 → AdaptivePlanner
-→ validated FanoutPlan
+→ deeply frozen FanoutPlan
+→ readiness-driven Scheduler
 → HARD dependencies / LIVE routes
-→ isolated Worker AgentLoops
-→ scoped candidate integration
+→ isolated Worker Attempts
+→ Strict Integration Frontier
 → read-only Finalizer
 ```
 
 Worker 和 Finalizer 复用 canonical `AgentLoop`，但各自拥有私有 durable
 `ConversationThread`、执行目录和上下文；内部 raw token/tool history 不写入用户主 Thread。
-Coordinator 只拥有计划、调度、Handoff 与确定性集成，不拥有 AgentLoop conversation。
+Coordinator 是唯一 execution authority，拥有调度、Candidate gates 与确定性集成，
+不拥有 AgentLoop conversation。
 
 - HARD dependency 等待可信代码集成后再启动消费者；
-- LIVE route 允许 Worker 在运行中传递进度、约束和反馈；
+- LIVE route 通过 READY / FEEDBACK / UPDATE 交换有界语义证据，只放松启动门；
 - Worker 在独立 Git worktree 中执行，并受写入范围与工具集合约束；
-- 候选 Patch 经过版本、范围、冲突、可应用性和验证检查；
+- Worker Attempt 的 `candidate_produced` 不等于 Task `integrated`；
+- Candidate 经过本地完整性/范围检查，再由 strict frontier、HARD/LIVE readiness、freshness 和 Patch applicability 授权；
+- 只有确定性 Runtime failure taxonomy 可以触发最多一次 Worker retry；
 - Finalizer 使用独立只读执行对最终结果做语义检查。
 
 Public API 与控制流见 [`agent_forge/multi_agent/api.py`](agent_forge/multi_agent/api.py) 和
@@ -161,13 +165,13 @@ Public API 与控制流见 [`agent_forge/multi_agent/api.py`](agent_forge/multi_
 
 ## 运行证据与 Workbench
 
-`forge ui` 启动只读 Workbench。当前 Runtime 使用 `model_step_started` 等 canonical 事件；
-Workbench 仍可只读解释冻结 Evidence 中的历史事件名称，但该兼容层不进入生产恢复路径。
+`forge ui` 启动只读 Workbench。Workbench 只投影已有证据，不运行 Agent，也不拥有
+Checkpoint、Task result 或 Benchmark outcome。
 
 Workbench 可以审阅三类冻结证据：
 
-1. [Lab 1 · Durable Control](http://127.0.0.1:8765/?source=governed&view=overview)：人工输入、审批、Ledger 与恢复；
-2. [Lab 2 · Agent Coordination](http://127.0.0.1:8765/?source=orchestration&view=overview)：隔离 Worker、冲突门禁与 Finalizer；
+1. [Durable Control](http://127.0.0.1:8765/?source=governed&view=overview)：人工输入、审批、Ledger 与恢复；
+2. [Multi-Agent Runtime](http://127.0.0.1:8765/?source=orchestration&view=overview)：Frozen Plan、Launch Waves、LIVE timeline、Candidate gates 与 Finalizer；
 3. [Mini-50 · Repository Capability](http://127.0.0.1:8765/?source=evaluation&view=overview)：固定 Case、代表案例与版本来源。
 
 实验对比页保留 [R0→R1](http://127.0.0.1:8765/?mode=experiments&source=tool-aci-r1%3Aoverview)、

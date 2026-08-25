@@ -33,7 +33,7 @@ class ModelStepOutcomeKind(str, Enum):
     """一个 model step 结束后，主循环唯一允许的三个动作。"""
 
     CONTINUE = "continue"
-    REPLAN = "replan"
+    REFRESH_INPUT = "refresh_input"
     STOP = "stop"
 
 
@@ -172,7 +172,7 @@ class AgentLoop:
                     run_control_outcome.stop,
                 )
             model_step_outcome = self._run_model_step(run_session, step)
-            # 只有 STOP 离开循环；CONTINUE/REPLAN 都由下一次迭代重建输入。
+            # 只有 STOP 离开循环；CONTINUE/REFRESH_INPUT 都由下一次迭代重建输入。
             if model_step_outcome.kind == ModelStepOutcomeKind.STOP:
                 # STOP 没有 StopRequest 属于内部契约损坏，不能猜测终态。
                 if model_step_outcome.stop_request is None:  # pragma: no cover - invariant
@@ -181,7 +181,7 @@ class AgentLoop:
                     run_session,
                     model_step_outcome.stop_request,
                 )
-            # CONTINUE 表示工具事务完成；REPLAN 表示 steer/coordination 使旧响应失效。
+            # CONTINUE 表示工具事务完成；REFRESH_INPUT 表示新输入使旧响应失效。
             # 两者都进入下一 Model Step，但语义不再由 ``None`` 隐式承载。
         # endregion 2. 有界 Model Step Loop结束
 
@@ -372,7 +372,7 @@ class AgentLoop:
         # steer/coordination 改变了模型输入；旧响应必须丢弃后重规划。
         if run_control_outcome.model_input_changed:
             self._record_stale_model_response(session, step, run_control_outcome)
-            return ModelStepOutcome(ModelStepOutcomeKind.REPLAN)
+            return ModelStepOutcome(ModelStepOutcomeKind.REFRESH_INPUT)
 
         # 成本和 wall-clock 已计入后再判断预算，超限响应不能执行 Tool。
         budget_stop_request = self._budget_stop_request(session, step)
@@ -502,6 +502,7 @@ class AgentLoop:
             session.agent_name,
             "recovery_decision",
             recovery_hint="discard stale model response and rebuild current input",
+            model_step_outcome=ModelStepOutcomeKind.REFRESH_INPUT.value,
             retryable=True,
             failure_kind=(
                 "runtime_coordination"

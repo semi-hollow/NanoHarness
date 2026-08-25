@@ -237,8 +237,6 @@ def _render_evidence_html(project_dir: Path, kind: str) -> str:
         return _render_orchestration_trace_timeline(project_dir)
     if kind == "evidence":
         return _render_run_evidence(project_dir)
-    if kind == "compare":
-        return _render_compare_dashboard(project_dir)
     if kind == "controls":
         return _render_runtime_controls(project_dir)
     if kind == "orchestration":
@@ -439,22 +437,26 @@ def _source_overview_facts(
     ):
         fanout = _read_json_file(source.primary_path)
         metrics = fanout.get("metrics") or {}
-        task_count = int(metrics.get("task_count") or len(fanout.get("results") or []))
-        completed_count = int(metrics.get("completed_count") or 0)
+        task_results = fanout.get("task_results") or []
+        task_count = int(metrics.get("task_count") or len(task_results))
+        integrated_count = sum(
+            isinstance(item, dict) and item.get("status") == "integrated"
+            for item in task_results
+        )
         conflicts = len(fanout.get("conflicts") or [])
-        batches = len(fanout.get("batches") or [])
+        launch_waves = len(fanout.get("launch_waves") or [])
         return (
             [
                 (
                     "任务完成",
-                    f"{completed_count}/{task_count}",
-                    "Worker 最终状态",
-                    "ok" if task_count and completed_count == task_count else "warn",
+                    f"{integrated_count}/{task_count}",
+                    "trusted Task 状态",
+                    "ok" if task_count and integrated_count == task_count else "warn",
                 ),
                 (
                     "启动波次",
-                    str(batches),
-                    "动态调度观测；兼容字段 batches",
+                    str(launch_waves),
+                    "Scheduler submit grouping",
                     "neutral",
                 ),
                 (
@@ -985,16 +987,8 @@ def _latest_comparison_path(project_dir: Path) -> Path | None:
     return build_evidence_catalog(project_dir).latest_comparison_path()
 
 
-def _latest_multi_agent_summary_path(project_dir: Path) -> Path | None:
-    return build_evidence_catalog(project_dir).latest_multi_agent_summary_path()
-
-
 def _latest_fanout_summary_path(project_dir: Path) -> Path | None:
     return build_evidence_catalog(project_dir).latest_fanout_summary_path()
-
-
-def _latest_orchestration_summary_path(project_dir: Path) -> Path | None:
-    return build_evidence_catalog(project_dir).latest_orchestration_summary_path()
 
 
 def _latest_orchestration_fanout_path(project_dir: Path) -> Path | None:
@@ -1007,12 +1001,6 @@ def _latest_benchmark_run_dir(project_dir: Path) -> Path | None:
 
 def _latest_benchmark_comparison_path(project_dir: Path) -> Path | None:
     return build_evidence_catalog(project_dir).latest_benchmark_comparison_path()
-
-
-def _latest_benchmark_multi_agent_summary_path(project_dir: Path) -> Path | None:
-    return build_evidence_catalog(
-        project_dir
-    ).latest_benchmark_multi_agent_summary_path()
 
 
 def _latest_benchmark_usage_path(project_dir: Path) -> Path | None:
@@ -1139,9 +1127,7 @@ def _render_observability_overview(project_dir: Path) -> str:
     }
 
     fanout_path = _latest_orchestration_fanout_path(project_dir)
-    fanout = _read_json_file(fanout_path)
-    orchestration_path = _latest_orchestration_summary_path(project_dir)
-    orchestration = fanout or _read_json_file(orchestration_path)
+    orchestration = _read_json_file(fanout_path)
     orchestration_status = str(orchestration.get("status") or "not_observed")
     orchestration_metrics = orchestration.get("metrics") or {}
 
@@ -1175,7 +1161,7 @@ def _render_observability_overview(project_dir: Path) -> str:
     )
     task_count = int(
         orchestration_metrics.get("task_count")
-        or len(orchestration.get("role_results") or [])
+        or len(orchestration.get("task_results") or [])
     )
     canonical_path = build_evidence_catalog(
         project_dir
@@ -1566,19 +1552,35 @@ def _render_fanout_task_contract(
     plan_path = summary_path.parent / "fanout_plan.json" if summary_path else None
     plan = _read_json_file(plan_path)
     task_specs = [task for task in plan.get("tasks") or [] if isinstance(task, dict)]
-    results = [
-        result for result in fanout.get("results") or [] if isinstance(result, dict)
+    task_results = [
+        result
+        for result in fanout.get("task_results") or []
+        if isinstance(result, dict)
     ]
-    result_by_task = {str(result.get("task_id") or ""): result for result in results}
+    attempts = [
+        result
+        for result in fanout.get("attempt_results") or []
+        if isinstance(result, dict)
+    ]
+    result_by_task = {
+        str(result.get("task_id") or ""): result for result in task_results
+    }
     rows = []
     for task in task_specs:
         task_id = str(task.get("id") or "unknown")
         result = result_by_task.get(task_id, {})
-        usage = result.get("usage_summary") or {}
+        task_attempts = [item for item in attempts if item.get("task_id") == task_id]
+        final_attempt = max(
+            task_attempts,
+            key=lambda item: int(item.get("attempt") or 0),
+            default={},
+        )
+        usage = final_attempt.get("usage_summary") or {}
         dependencies = _string_items(task.get("depends_on"))
-        dependency_facts = dependencies or ["无前置依赖：允许与同批次任务并行"]
+        dependency_facts = dependencies or ["无 HARD 前置依赖"]
         outcome_facts = [
-            f"状态：{_display_value(result.get('status') or 'not_observed')}",
+            f"Task：{_display_value(result.get('status') or 'not_observed')}",
+            f"Final Attempt：{result.get('final_attempt') if result.get('final_attempt') is not None else '未启动'}",
             f"工具调用：{int(usage.get('tool_calls') or 0)} 次",
             f"失败调用：{int(usage.get('failed_tool_calls') or 0)} 次",
         ]
@@ -1588,7 +1590,7 @@ def _render_fanout_task_contract(
             f"<td>{_render_fact_list(dependency_facts, empty_message='无')}</td>"
             f"<td>{_render_fact_list(task.get('write_scope'), empty_message='未声明写入范围')}</td>"
             f"<td>{_render_fact_list(task.get('allowed_tools'), empty_message='未声明工具白名单')}</td>"
-            f"<td>{_render_fact_list(result.get('touched_files'), empty_message='没有改动文件')}</td>"
+            f"<td>{_render_fact_list(final_attempt.get('touched_files'), empty_message='没有改动文件')}</td>"
             f"<td>{_render_fact_list(outcome_facts, empty_message='未产生结果')}</td>"
             "</tr>"
         )
@@ -1601,7 +1603,7 @@ def _render_fanout_task_contract(
         "<span>先限定依赖、写入范围和工具，再核对实际改动</span></div>"
         "<table><thead><tr><th>任务</th><th>依赖关系</th><th>允许写入</th><th>允许工具</th><th>实际改动</th><th>执行结果</th></tr></thead>"
         f"<tbody>{rows_html}</tbody></table>"
-        "<p class='boundary-note'>Worker 只有在依赖满足且写入范围不重叠时才进入同一并发批次；合并后由独立 Finalizer 做只读验证。</p></section>"
+        "<p class='boundary-note'>Worker 只有在依赖满足且写入范围不重叠时才会被 Scheduler 提交；Launch Wave 只记录实际启动，不构成调度屏障。合并后由独立 Finalizer 做只读验证。</p></section>"
     )
 
 
@@ -1642,13 +1644,20 @@ def _render_fanout_scenario_contract(summary_path: Path | None) -> str:
 
 def _render_fanout_result_summary(fanout: dict[str, Any], path: Path | None) -> str:
     metrics = fanout.get("metrics") or {}
-    results = [
-        result for result in fanout.get("results") or [] if isinstance(result, dict)
+    attempts = [
+        result
+        for result in fanout.get("attempt_results") or []
+        if isinstance(result, dict)
     ]
-    batches = fanout.get("batches") or []
+    task_results = [
+        result
+        for result in fanout.get("task_results") or []
+        if isinstance(result, dict)
+    ]
+    launch_waves = fanout.get("launch_waves") or []
     conflicts = fanout.get("conflicts") or []
     task_cards = []
-    for result in results:
+    for result in attempts:
         touched_files = ", ".join(
             str(item) for item in result.get("touched_files") or []
         )
@@ -1656,7 +1665,7 @@ def _render_fanout_result_summary(fanout: dict[str, Any], path: Path | None) -> 
         task_cards.append(
             "<article class='worker-card'>"
             "<div class='artifact-head'><div>"
-            f"<span>Worker · 启动波次 {int(result.get('batch_index') or 0) + 1}</span>"
+            f"<span>Worker Attempt · Launch Wave {int(result.get('launch_wave_index') or 0)}</span>"
             f"<h4>{_escape(result.get('task_id') or '未命名任务')}</h4></div>"
             f"{_badge(str(result.get('status') or 'unknown'), _tone_for_status(str(result.get('status') or '')))}</div>"
             f"<p><b>改动范围：</b>{_escape(touched_files or '没有文件改动')}</p>"
@@ -1673,12 +1682,19 @@ def _render_fanout_result_summary(fanout: dict[str, Any], path: Path | None) -> 
         if task_cards
         else "<div class='empty-inline'>没有 Worker 结果。</div>"
     )
-    batch_text = (
+    wave_text = (
         "；".join(
-            f"Wave {index}: {', '.join(str(task) for task in batch)}"
-            for index, batch in enumerate(batches, start=1)
+            "Wave " + str(index) + ": " + ", ".join(
+                f"{item.get('task_id')}#{item.get('attempt')}"
+                for item in wave
+                if isinstance(item, dict)
+            )
+            for index, wave in enumerate(launch_waves, start=1)
         )
         or "未记录"
+    )
+    integrated_count = sum(
+        result.get("status") == "integrated" for result in task_results
     )
     body = [
         "<div class='view-heading'><div><span class='view-kicker'>并行多 Agent</span>"
@@ -1687,8 +1703,8 @@ def _render_fanout_result_summary(fanout: dict[str, Any], path: Path | None) -> 
         f"{_badge(str(fanout.get('status') or 'unknown'), _tone_for_status(str(fanout.get('status') or '')))}</div></div>",
         _render_lab_brief(
             question=(
-                "两个写入范围不重叠的策略修复能否并发执行，并让依赖它们的异常"
-                "分支验证在合并后运行，最后再由独立 Finalizer 收口？"
+                "冻结计划中的独立 Worker 能否按 HARD/LIVE readiness 并发启动，"
+                "并由严格 Integration Frontier 确定性地进入可信工作区？"
             ),
             input_label="本次总任务",
             input_items=[str(fanout.get("goal") or "未记录总体目标")],
@@ -1697,8 +1713,8 @@ def _render_fanout_result_summary(fanout: dict[str, Any], path: Path | None) -> 
                 "确定性合并 → 只读 Finalizer"
             ),
             success_criteria=(
-                f"{metrics.get('completed_count', 0)}/{metrics.get('task_count', 0)} "
-                f"个任务完成，冲突 {len(conflicts)} 个，最终决策 "
+                f"{integrated_count}/{metrics.get('task_count', len(task_results))} "
+                f"个任务可信集成，冲突 {len(conflicts)} 个，最终决策 "
                 f"{_display_value(fanout.get('final_decision') or 'not_run')}。"
             ),
             boundary=(
@@ -1717,13 +1733,13 @@ def _render_fanout_result_summary(fanout: dict[str, Any], path: Path | None) -> 
                 ),
                 (
                     "任务完成",
-                    f"{metrics.get('completed_count', 0)}/{metrics.get('task_count', 0)}",
-                    "通过依赖与范围校验",
+                    f"{integrated_count}/{metrics.get('task_count', len(task_results))}",
+                    "Task governance result",
                     "ok",
                 ),
                 (
                     "启动波次",
-                    str(len(batches)),
+                    str(len(launch_waves)),
                     f"动态观测；最大并发 {metrics.get('max_workers', 0)}",
                     "neutral",
                 ),
@@ -1751,7 +1767,7 @@ def _render_fanout_result_summary(fanout: dict[str, Any], path: Path | None) -> 
         "<section class='evidence-section'><div class='section-title'><h3>为什么允许并行</h3>"
         "<span>依赖和改动范围先于并发</span></div>"
         "<div class='answer-strip'>"
-        f"<div><b>依赖批次</b><span>{_escape(batch_text)}</span></div>"
+        f"<div><b>Launch Waves</b><span>{_escape(wave_text)}</span></div>"
         f"<div><b>范围冲突</b><span>{'发现 ' + str(len(conflicts)) + ' 项' if conflicts else '未发现重叠写入'}</span></div>"
         f"<div><b>最终收口</b><span>{_escape(_display_value(fanout.get('final_decision') or 'not_run'))}</span></div>"
         "</div></section>",
@@ -1761,7 +1777,7 @@ def _render_fanout_result_summary(fanout: dict[str, Any], path: Path | None) -> 
         "<p class='boundary-note'>最终验证通过只证明这次合并后的本地检查通过，不等于官方 Benchmark 已解决。</p>",
         "<details class='drilldown'><summary>查看并发成本与恢复统计</summary>"
         "<div class='drilldown-body'>"
-        f"{_metric_grid([('模型调用', str(metrics.get('llm_calls', 0)), 'Worker 与最终验证器', 'neutral'), ('工具调用', str(metrics.get('tool_calls', 0)), '全部执行链', 'neutral'), ('失败工具调用', str(metrics.get('failed_tool_calls', 0)), '实际失败观察', 'bad' if metrics.get('failed_tool_calls') else 'ok'), ('恢复任务', str(metrics.get('resumed_count', 0)), '复用历史 Worker 结果', 'neutral')])}"
+        f"{_metric_grid([('模型调用', str(metrics.get('llm_calls', 0)), 'Worker 与最终验证器', 'neutral'), ('工具调用', str(metrics.get('tool_calls', 0)), '全部执行链', 'neutral'), ('失败工具调用', str(metrics.get('failed_tool_calls', 0)), '实际失败观察', 'bad' if metrics.get('failed_tool_calls') else 'ok'), ('恢复 Attempt', str(metrics.get('resumed_attempt_count', 0)), '来自 verified prefix', 'neutral')])}"
         "</div></details>",
         f"<details class='provenance'><summary>多 Agent 证据来源</summary><code>{_escape(str(path or '未找到'))}</code></details>",
     ]
@@ -1771,7 +1787,7 @@ def _render_fanout_result_summary(fanout: dict[str, Any], path: Path | None) -> 
 def _render_fanout_usage_dashboard(fanout: dict[str, Any], path: Path | None) -> str:
     metrics = fanout.get("metrics") or {}
     body = [
-        "<h2>Live Fanout 成本与并发证据</h2>",
+        "<h2>Fanout 成本与并发证据</h2>",
         "<p class='help strong'>总模型指标包含 workers 与 finalizer；worker time 和 wall time 分开显示。</p>",
         _metric_grid(
             [
@@ -1844,18 +1860,20 @@ def _render_trace_timeline(project_dir: Path) -> str:
 
 
 def _render_orchestration_trace_timeline(project_dir: Path) -> str:
-    """只展示 Lab 2 当前 Fanout 的 Worker 与 Finalizer Trace。"""
+    """只展示当前 schema Fanout 的 Worker Attempt 与 Finalizer Trace。"""
 
     fanout_path = _latest_orchestration_fanout_path(project_dir)
     fanout = _read_json_file(fanout_path)
     trace_entries: list[tuple[str, Path]] = []
-    for result in fanout.get("results") or []:
+    for result in fanout.get("attempt_results") or []:
         if not isinstance(result, dict):
             continue
         trace_path = Path(str(result.get("trace_path") or ""))
         if trace_path.is_file():
             task_id = str(result.get("task_id") or "未命名任务")
-            trace_entries.append((f"Worker · {task_id}", trace_path))
+            trace_entries.append(
+                (f"Worker · {task_id}#{result.get('attempt') or '?'}", trace_path)
+            )
     finalizer_path = Path(str(fanout.get("finalizer_trace_path") or ""))
     if finalizer_path.is_file():
         trace_entries.append(("Finalizer · 合并后验证", finalizer_path))
@@ -2309,7 +2327,10 @@ _TRACE_EVENT_LABELS = {
     "artifact_created": "产物写入",
     "multi_agent_done": "多 Agent 完成",
     "fanout_start": "并发编排开始",
-    "fanout_batch_done": "并发批次完成",
+    "fanout_wave_launched": "Worker Attempts 已提交",
+    "worker_attempt_finished": "Worker Attempt 完成",
+    "candidate_gate": "Candidate 门禁判断",
+    "worker_retry": "Worker Attempt 重新排队",
     "fanout_done": "并发编排完成",
     "finalizer_error": "最终验证失败",
 }
@@ -2358,8 +2379,11 @@ _TRACE_EVENT_PURPOSES = {
     "agent_stage_end": "记录角色职责的结果和产物，供下一角色消费与复核。",
     "artifact_created": "登记新产物的生产者和位置，使跨 Agent 交付可以追溯。",
     "multi_agent_done": "记录协调器最终状态，区分单个 Worker 完成与整体任务完成。",
-    "fanout_start": "记录依赖批次和并发边界，解释哪些任务为什么能够同时执行。",
-    "fanout_batch_done": "记录一批 Worker 的结果和冲突检查，决定是否可以进入合并。",
+    "fanout_start": "记录唯一 frozen Plan 和 digest，建立整个 Fanout Run 的身份。",
+    "fanout_wave_launched": "记录一次 Scheduler scan 实际提交了哪些 Task/Attempt；它不是完成屏障。",
+    "worker_attempt_finished": "记录一次真实 Worker execution 的终态，不把 Candidate 提升为 trusted Task。",
+    "candidate_gate": "记录 Candidate 被延后、拒绝或可信集成时的具体确定性门禁。",
+    "worker_retry": "记录 retryable Attempt-1 返回 Scheduler，等待下一 Launch Wave 异步提交。",
     "fanout_done": "记录合并与最终验证结论，作为并发执行的整体收口。",
     "finalizer_error": "记录最终验证阶段失败，避免 Worker 完成被误报为整体通过。",
 }
@@ -3225,12 +3249,10 @@ def _render_run_evidence(project_dir: Path) -> str:
     except (OSError, ValueError) as exc:
         run_story_error = str(exc)
     comparison_path = _latest_comparison_path(project_dir)
-    multi_path = _latest_multi_agent_summary_path(project_dir)
     usage_path = _latest_usage_path(project_dir)
     trace_path = _latest_trace_path(project_dir)
 
     comparison = _read_json_file(comparison_path)
-    multi = _read_json_file(multi_path)
     usage = _read_json_file(usage_path)
     trace = _read_json_file(trace_path)
     summary = usage.get("summary") or {}
@@ -3246,21 +3268,11 @@ def _render_run_evidence(project_dir: Path) -> str:
         run_story.task
         if run_story is not None and run_story.task
         else comparison.get("task_id")
-        or multi.get("task")
         or trace.get("task")
         or "最近一次本地运行"
     )
     active_skills = summary.get("active_skills") or []
     heading_status = run_story.status if run_story is not None else single_status
-    optional_multi_sections = ""
-    if multi.get("role_results") or multi.get("artifacts"):
-        optional_multi_sections = (
-            "<details class='drilldown'><summary>查看本次运行的角色决策与交接产物</summary>"
-            "<div class='drilldown-body'><h4>角色决策</h4>"
-            "<table><thead><tr><th>角色</th><th>决策</th><th>轮次</th><th>证据摘要</th></tr></thead>"
-            f"<tbody>{_render_role_decision_rows(multi)}</tbody></table>"
-            f"{_render_artifact_cards(multi)}</div></details>"
-        )
     body = [
         "<div class='view-heading'><div><span class='view-kicker'>单次运行</span><h2>运行证据总览</h2></div>"
         f"{_badge(heading_status, _tone_for_status(heading_status))}</div>",
@@ -3314,7 +3326,6 @@ def _render_run_evidence(project_dir: Path) -> str:
         "</div>"
         f"<p><span class='label'>已激活 Skill</span>{_escape(', '.join(str(item) for item in active_skills) or '本次未观测')}</p>"
         "<p class='boundary-note'>数值为 0 表示本次没有触发，不代表该能力已经验证通过。</p></div></details>",
-        optional_multi_sections,
         "<details class='provenance'><summary>产物来源</summary>"
         f"<code>{_escape(str(run_dir or '未找到'))}</code><code>{_escape(str(comparison_path or '未找到'))}</code>"
         f"<code>{_escape(str(trace_path or '未找到'))}</code></details>",
@@ -3329,10 +3340,17 @@ def _render_fanout_run_evidence(
     """把 Fanout 的分散 Worker/合并/Finalizer 产物投影成一条可读主链。"""
 
     metrics = fanout.get("metrics") or {}
-    results = [
-        result for result in fanout.get("results") or [] if isinstance(result, dict)
+    attempts = [
+        result
+        for result in fanout.get("attempt_results") or []
+        if isinstance(result, dict)
     ]
-    batches = fanout.get("batches") or []
+    task_results = [
+        result
+        for result in fanout.get("task_results") or []
+        if isinstance(result, dict)
+    ]
+    launch_waves = fanout.get("launch_waves") or []
     conflicts = fanout.get("conflicts") or []
     merged_task_ids = fanout.get("merged_task_ids") or []
     fanout_dir = summary_path.parent if summary_path is not None else None
@@ -3355,7 +3373,7 @@ def _render_fanout_run_evidence(
     )
     worker_tools = sum(
         int((result.get("usage_summary") or {}).get("tool_calls") or 0)
-        for result in results
+        for result in attempts
     )
     finalizer_tools = int(
         (fanout.get("finalizer_usage_summary") or {}).get("tool_calls") or 0
@@ -3364,41 +3382,45 @@ def _render_fanout_run_evidence(
     tool_calls = int(metrics.get("tool_calls") or worker_tools + finalizer_tools)
     failed_tool_calls = sum(
         int((result.get("usage_summary") or {}).get("failed_tool_calls") or 0)
-        for result in results
+        for result in attempts
     ) + int((fanout.get("finalizer_usage_summary") or {}).get("failed_tool_calls") or 0)
     final_decision = str(fanout.get("final_decision") or "not_run")
     status = str(fanout.get("status") or "unknown")
     checkpoint_count = int(checkpoint_path is not None and checkpoint_path.is_file())
 
     touched_files = sorted(
-        {str(path) for result in results for path in result.get("touched_files") or []}
+        {str(path) for result in attempts for path in result.get("touched_files") or []}
     )
     worker_evidence = (
         ", ".join(
             f"{result.get('task_id', 'worker')}={_display_value(result.get('status', 'unknown'))}"
-            for result in results
+            for result in attempts
         )
         or "没有 Worker 结果"
     )
     stages = [
         (
             "计划与依赖检查",
-            bool(batches),
-            f"{len(results)} 个任务；观测到 {len(batches)} 个动态启动 wave",
+            bool(launch_waves),
+            f"{len(task_results)} 个任务；观测到 {len(launch_waves)} 个 Launch Waves",
             "FanoutCoordinator.run",
             plan_path,
         ),
         (
             "Worker 隔离执行",
-            bool(results)
-            and all(result.get("status") == "completed" for result in results),
+            bool(attempts)
+            and all(
+                result.get("status")
+                in {"candidate_produced", "retryable_failure", "terminal_failure"}
+                for result in attempts
+            ),
             worker_evidence,
-            "FanoutCoordinator._run_plan",
+            "FanoutCoordinator._execute_plan",
             None,
         ),
         (
             "改动范围与冲突门禁",
-            not conflicts and bool(results),
+            not conflicts and bool(attempts),
             (
                 f"改动文件：{', '.join(touched_files) or '无'}；"
                 f"记录 {len(conflicts)} 个未解决集成冲突"
@@ -3410,7 +3432,7 @@ def _render_fanout_run_evidence(
             "候选改动合并",
             bool(merged_task_ids) and _path_is_file(diff_path),
             f"已合并：{', '.join(str(item) for item in merged_task_ids) or '无'}",
-            "FanoutCoordinator._integrate_result",
+            "FanoutCoordinator._integrate_candidate",
             diff_path,
         ),
         (
@@ -3508,7 +3530,7 @@ def _render_fanout_run_evidence(
                 (
                     "模型调用（确定性）",
                     str(model_calls),
-                    f"{len(results)} 个 Worker + Finalizer",
+                    f"{len(attempts)} 个 Worker Attempts + Finalizer",
                     "neutral",
                 ),
                 (
@@ -3722,58 +3744,6 @@ def _claim_step(title: str, state: str, detail: str, tone: str) -> str:
         f"<div class='claim-step {tone}'><span>{_escape(title)}</span>"
         f"<strong>{_escape(_display_value(state))}</strong><small>{_escape(detail)}</small></div>"
     )
-
-
-def _render_role_decision_rows(summary: dict[str, Any]) -> str:
-    rows = []
-    for result in summary.get("role_results") or []:
-        excerpt = str(result.get("final_answer") or result.get("output") or "")
-        excerpt = " ".join(excerpt.replace("#", " ").split())[:360]
-        decision = str(result.get("decision") or result.get("status") or "-")
-        rows.append(
-            "<tr>"
-            f"<td><b>{_escape(_display_value(result.get('role') or result.get('name') or '-'))}</b></td>"
-            f"<td>{_badge(_display_value(decision), _tone_for_status(decision))}</td>"
-            f"<td>{_escape(result.get('round_index', 0))}</td>"
-            f"<td>{_escape(excerpt or '-')}</td>"
-            "</tr>"
-        )
-    return "".join(rows) or "<tr><td colspan='4'>本次运行没有观测到角色决策。</td></tr>"
-
-
-def _render_artifact_cards(summary: dict[str, Any]) -> str:
-    artifacts = summary.get("artifacts") or []
-    if not isinstance(artifacts, list) or not artifacts:
-        return "<div class='empty-inline'>本次运行没有生成多 Agent 产物。</div>"
-    consumers = {
-        "Implementer": "Reviewer",
-        "Reviewer": "Coordinator + Verifier",
-        "Verifier": "Coordinator",
-        "Coordinator": "Run result",
-    }
-    cards = []
-    for artifact in artifacts:
-        if not isinstance(artifact, dict):
-            continue
-        role = str(artifact.get("role") or "Unknown")
-        path = Path(str(artifact.get("path") or ""))
-        content = ""
-        if path.exists() and path.is_file():
-            content = path.read_text(encoding="utf-8", errors="replace")
-        excerpt = " ".join(
-            (content or str(artifact.get("summary") or "")).replace("#", " ").split()
-        )[:460]
-        cards.append(
-            "<article class='artifact-card'>"
-            f"<div class='artifact-head'><div><span>{_escape(_display_value(role))}</span><h4>{_escape(artifact.get('kind') or artifact.get('id') or '产物')}</h4></div>"
-            f"{_badge('第 ' + str(artifact.get('round_index', 0)) + ' 轮', 'neutral')}</div>"
-            f"<p>{_escape(excerpt or '没有可展示的内容摘要。')}</p>"
-            f"<div class='artifact-handoff'><span>生产者 <b>{_escape(_display_value(role))}</b></span>"
-            f"<span>消费者 <b>{_escape(_display_value(consumers.get(role, 'next stage')))}</b></span></div>"
-            f"<details><summary>来源</summary><code>{_escape(str(path) if path else '未找到')}</code></details>"
-            "</article>"
-        )
-    return "<div class='artifact-grid'>" + "".join(cards) + "</div>"
 
 
 def _render_runtime_controls(
@@ -4263,51 +4233,9 @@ def _render_orchestration_dashboard(project_dir: Path) -> str:
     fanout = _read_json_file(fanout_path)
     if fanout:
         return _render_fanout_result_summary(fanout, fanout_path)
-    summary_path = _latest_orchestration_summary_path(project_dir)
-    summary = _read_json_file(summary_path)
-    if not summary:
-        return _empty_evidence("尚未找到多 Agent 编排产物，请先执行并行协同运行。")
-    decisions = summary.get("role_results") or []
-    body = [
-        "<div class='view-heading'><div><span class='view-kicker'>并行多 AGENT</span><h2>多 Agent 编排证据</h2></div>"
-        f"{_badge(str(summary.get('status') or 'unknown'), _tone_for_status(str(summary.get('status') or '')))}</div>",
-        _metric_grid(
-            [
-                ("编排模式", "顺序角色链", "通过显式产物交接", "neutral"),
-                ("角色数量", str(len(decisions)), "实现 / 审查 / 验证", "neutral"),
-                (
-                    "修订轮次",
-                    str(summary.get("revision_rounds", 0)),
-                    "受上限约束的循环",
-                    "neutral",
-                ),
-                (
-                    "产物数量",
-                    str(len(summary.get("artifacts") or [])),
-                    "角色间显式交接",
-                    "ok",
-                ),
-            ]
-        ),
-        "<section class='evidence-section'><div class='section-title'><h3>协同关系</h3><span>本次运行采用顺序角色链</span></div>"
-        "<div class='coordination-graph'><div><b>实现者</b><span>候选改动 + 证据</span></div>"
-        "<i>产物</i><div><b>审查者</b><span>风险 + 修订判断</span></div>"
-        "<i>产物</i><div><b>验证者</b><span>独立验证</span></div>"
-        "<i>结论</i><div><b>协调器</b><span>结束或进入修订</span></div></div></section>",
-        "<section class='evidence-section'><div class='section-title'><h3>角色结果</h3><span>决策与证据摘要</span></div>"
-        "<table><thead><tr><th>角色</th><th>决策</th><th>轮次</th><th>证据摘要</th></tr></thead>"
-        f"<tbody>{_render_role_decision_rows(summary)}</tbody></table></section>",
-        "<section class='evidence-section'><div class='section-title'><h3>产物交接</h3><span>直接查看角色交付内容</span></div>"
-        f"{_render_artifact_cards(summary)}</section>",
-        "<section class='evidence-section'><div class='section-title'><h3>三种执行模式的边界</h3><span>支持某模式，不等于本次运行已触发</span></div>"
-        "<table><thead><tr><th>模式</th><th>本次证据</th><th>Runtime 契约</th></tr></thead><tbody>"
-        "<tr><td>单 Agent</td><td>配对对比中已观测</td><td>标准 AgentLoop，协调开销最低</td></tr>"
-        "<tr><td>顺序多 Agent</td><td>本次已观测</td><td>角色隔离、产物交接、受限修订</td></tr>"
-        "<tr><td>并行 Fanout</td><td>代码支持，本次未执行</td><td>DAG 校验、Worktree Worker、改动范围门禁、确定性合并、隔离 Finalizer、选择性恢复</td></tr>"
-        "</tbody></table></section>",
-        f"<details class='provenance'><summary>编排证据来源</summary><code>{_escape(str(summary_path))}</code></details>",
-    ]
-    return "<div class='evidence'>" + "".join(body) + "</div>"
+    return _empty_evidence(
+        "尚未找到当前 schema 的 Multi-Agent Fanout 产物，请先运行当前架构场景。"
+    )
 
 
 def _quality_metric(metrics: dict[str, Any], *names: str) -> int:
@@ -6248,122 +6176,6 @@ def _render_feedback_dashboard(project_dir: Path) -> str:
     return "<div class='evidence'>" + "".join(body) + "</div>"
 
 
-def _render_compare_dashboard(project_dir: Path) -> str:
-    run_dir = _latest_benchmark_run_dir(project_dir)
-    comparison_path = _latest_benchmark_comparison_path(project_dir)
-    multi_path = _latest_benchmark_multi_agent_summary_path(project_dir)
-    usage_path = _latest_benchmark_usage_path(project_dir)
-
-    comparison = _read_json_file(comparison_path)
-    multi = _read_json_file(multi_path)
-    usage = _read_json_file(usage_path)
-    summary = usage.get("summary") or {}
-
-    task_id = comparison.get("task_id") or multi.get("task") or "最近一次本地运行"
-    single_status = str(comparison.get("single_status") or "-")
-    multi_status = str(comparison.get("multi_status") or multi.get("status") or "-")
-    single_patch = comparison.get("single_patch_generated", "-")
-    multi_patch = comparison.get("multi_patch_generated", "-")
-    single_cost = comparison.get("single_cost_usd")
-    multi_cost = comparison.get("multi_cost_usd")
-    cost_delta = None
-    if single_cost is not None and multi_cost is not None:
-        cost_delta = float(multi_cost) - float(single_cost)
-    verifier_status = comparison.get("verifier_status") or "-"
-    revision_rounds = comparison.get("revision_rounds", multi.get("revision_rounds", 0))
-    recommendation = _translate_evidence_text(
-        comparison.get("recommendation") or "请先运行一个配对对比 Case 以生成建议。"
-    )
-    reviewer_findings = comparison.get("reviewer_findings") or []
-    reviewer_text = "<br>".join(_escape(item) for item in reviewer_findings[:3]) or "-"
-
-    body = [
-        "<h2>单 Agent 与多 Agent 对比</h2>",
-        "<p class='help strong'>这个面板只回答一个问题：同一个真实缺陷，单 Agent 和多 Agent Coordinator 的工程取舍是什么。</p>",
-        _metric_grid(
-            [
-                ("Case", str(task_id)[:90], "固定参考任务", "neutral"),
-                (
-                    "单 Agent",
-                    _display_value(single_status),
-                    "标准 AgentLoop",
-                    _tone_for_status(single_status),
-                ),
-                (
-                    "多 Agent 协调器",
-                    _display_value(multi_status),
-                    "实现者 / 审查者 / 验证者",
-                    _tone_for_status(multi_status),
-                ),
-                (
-                    "候选改动",
-                    f"{_display_value(single_patch)} / {_display_value(multi_patch)}",
-                    "单 Agent / 多 Agent 是否生成",
-                    "ok" if single_patch and multi_patch else "warn",
-                ),
-                (
-                    "验证角色",
-                    _display_value(verifier_status),
-                    "多 Agent 内部验证结论",
-                    _tone_for_status(str(verifier_status)),
-                ),
-                (
-                    "成本差值",
-                    "-" if cost_delta is None else f"${cost_delta:.6f}",
-                    "多 Agent - 单 Agent",
-                    "warn" if cost_delta and cost_delta > 0 else "ok",
-                ),
-            ]
-        ),
-        "<div class='lane-grid'>",
-        "<div class='lane-card'>",
-        "<h3>单 Agent 路径</h3>",
-        "<div class='mini-flow'><span>用户任务</span><span>AgentLoop</span><span>工具</span><span>候选改动</span></div>",
-        "<p class='help'>优点是成本低、路径短、容易理解；风险是缺少独立 review/verifier 控制点。</p>",
-        "<table><tbody>",
-        f"<tr><td>状态</td><td>{_badge(single_status, _tone_for_status(single_status))}</td></tr>",
-        f"<tr><td>是否生成候选改动</td><td>{_escape(_display_value(single_patch))}</td></tr>",
-        f"<tr><td>模型调用</td><td>{_escape(comparison.get('single_llm_calls', '-'))}</td></tr>",
-        f"<tr><td>工具调用</td><td>{_escape(comparison.get('single_tool_calls', '-'))}</td></tr>",
-        f"<tr><td>失败工具调用</td><td>{_escape(comparison.get('single_failed_tool_calls', '-'))}</td></tr>",
-        f"<tr><td>估算成本</td><td>{_format_optional_cost(single_cost)}</td></tr>",
-        "</tbody></table>",
-        "</div>",
-        "<div class='lane-card'>",
-        "<h3>多 Agent 协调路径</h3>",
-        "<div class='mini-flow'><span>实现者</span><span>审查者</span><span>验证者</span><span>显式产物</span></div>",
-        "<p class='help'>优点是把实现、审查、验证拆成显式控制点；代价是 token、延迟和工具调用更多。</p>",
-        "<table><tbody>",
-        f"<tr><td>状态</td><td>{_badge(multi_status, _tone_for_status(multi_status))}</td></tr>",
-        f"<tr><td>是否生成候选改动</td><td>{_escape(_display_value(multi_patch))}</td></tr>",
-        f"<tr><td>模型调用</td><td>{_escape(comparison.get('multi_llm_calls', summary.get('llm_calls', '-')))}</td></tr>",
-        f"<tr><td>工具调用</td><td>{_escape(comparison.get('multi_tool_calls', summary.get('tool_calls', '-')))}</td></tr>",
-        f"<tr><td>失败工具调用</td><td>{_escape(comparison.get('multi_failed_tool_calls', summary.get('failed_tool_calls', '-')))}</td></tr>",
-        f"<tr><td>估算成本</td><td>{_format_optional_cost(multi_cost)}</td></tr>",
-        f"<tr><td>修订轮次</td><td>{_escape(revision_rounds)}</td></tr>",
-        "</tbody></table>",
-        "</div>",
-        "</div>",
-        "<h3>工程决策</h3>",
-        f"<p class='diagnosis'>{_escape(recommendation)}</p>",
-        "<p class='boundary-note'>多 Agent 增加显式审查与验证控制点；这项代价是否值得，要由同任务的成本、失败与评测证据决定。</p>",
-        "<h3>审查者 / 验证者结论</h3>",
-        "<table><tbody>",
-        f"<tr><td>验证状态</td><td>{_escape(_display_value(verifier_status))}</td></tr>",
-        f"<tr><td>审查发现</td><td>{reviewer_text}</td></tr>",
-        f"<tr><td>建议</td><td>{_escape(recommendation)}</td></tr>",
-        "</tbody></table>",
-        "<h3>生成的产物</h3>",
-        _render_artifact_cards(multi),
-        "<details class='provenance'><summary>产物来源</summary>"
-        f"<code>{_escape(str(run_dir or '未找到'))}</code>"
-        f"<code>{_escape(str(comparison_path or '未找到'))}</code>"
-        f"<code>{_escape(str(multi_path or '未找到'))}</code>"
-        f"<code>{_escape(str(usage_path or '未找到'))}</code></details>",
-    ]
-    return "<div class='evidence'>" + "".join(body) + "</div>"
-
-
 _DISPLAY_VALUES = {
     "completed": "已完成",
     "completed_with_failures": "完成但存在失败",
@@ -6637,52 +6449,6 @@ def _format_optional_cost(value: Any) -> str:
         return f"${float(value):.6f}"
     except (TypeError, ValueError):
         return _escape(value)
-
-
-def _render_role_rows(summary: dict[str, Any]) -> str:
-    rows = []
-    for result in summary.get("role_results") or []:
-        final_answer = str(result.get("final_answer") or result.get("output") or "")
-        rows.append(
-            "<tr>"
-            f"<td>{_escape(_display_value(result.get('role') or result.get('name') or '-'))}</td>"
-            f"<td>{_badge(str(result.get('decision') or result.get('status') or '-'), _tone_for_status(str(result.get('decision') or result.get('status') or '')))}</td>"
-            f"<td>{_escape(result.get('steps', '-'))}</td>"
-            f"<td class='mono'>{_escape(result.get('artifact_path') or result.get('artifact') or '-')}</td>"
-            f"<td>{_escape(final_answer[:220])}</td>"
-            "</tr>"
-        )
-    if rows:
-        return "".join(rows)
-    return "<tr><td colspan='5'>尚未找到多 Agent 角色摘要。请运行多 Agent/配对模式，或把此页作为离线证据导航入口。</td></tr>"
-
-
-def _render_artifact_rows(summary: dict[str, Any]) -> str:
-    artifacts = summary.get("artifacts") or summary.get("artifact_index") or []
-    if isinstance(artifacts, dict):
-        artifacts = artifacts.get("artifacts") or list(artifacts.values())
-    rows = []
-    for artifact in artifacts:
-        if not isinstance(artifact, dict):
-            continue
-        rows.append(
-            "<tr>"
-            f"<td>{_escape(artifact.get('name') or artifact.get('kind') or artifact.get('artifact_id') or '-')}</td>"
-            f"<td>{_escape(_display_value(artifact.get('producer') or artifact.get('role') or '-'))}</td>"
-            f"<td class='mono'>{_escape(artifact.get('path') or artifact.get('relative_path') or '-')}</td>"
-            "<td>后续角色只读取显式 artifact，避免把中间思考和无关上下文全部塞进 prompt。</td>"
-            "</tr>"
-        )
-    if rows:
-        return "".join(rows)
-    return (
-        "<tr><td>implementer_output</td><td>实现者</td><td class='mono'>multi_agent/artifacts/*.md</td>"
-        "<td>候选 patch / 方案交给 reviewer。</td></tr>"
-        "<tr><td>review_findings</td><td>审查者</td><td class='mono'>multi_agent/artifacts/*.md</td>"
-        "<td>明确 PASS / NEEDS_REVISION / BLOCKED。</td></tr>"
-        "<tr><td>verification_result</td><td>验证者</td><td class='mono'>multi_agent/artifacts/*.md</td>"
-        "<td>验证结果触发修订或结束。</td></tr>"
-    )
 
 
 def _metric_grid(items: list[tuple[str, str, str, str]]) -> str:

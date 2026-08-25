@@ -34,26 +34,13 @@
       "boundary": "确定性模型只固定工具意图；本场景证明 Runtime 控制语义，不评价真实模型的代码修复能力。"
     },
     "orchestration": {
-      "title": "Lab 2 · Coordinated Agents",
-      "canonical_run": "lab2-checkout-policy-agents__2026-08-17_00-03-39__4028377",
-      "canonical_artifact": "fanout/fanout_summary.json",
-      "canonical_sha256": "15f484c6c0a77ead302d823c677d5cdcfff140a5f14b878b5e48178b47506be3",
-      "evidence_tree": {
-        "algorithm": "sha256-relative-path-and-content-v1",
-        "include": [
-          "scenario_contract.json",
-          "trace.json",
-          "trace.jsonl",
-          "fanout/**/*"
-        ],
-        "file_count": 41,
-        "sha256": "3e01b34e77d5239e29ad980f543fb3ce665d35416434f7bb0cc77e7f61e94691"
-      },
+      "title": "Multi-Agent Runtime · LIVE Mechanism",
+      "canonical_artifact": "benchmarks/experiments/multi-agent-v1/mechanism-evidence.json",
       "expected_status": "passed",
       "architecture_anchor": "#system",
-      "question": "显式依赖任务能否安全并行、隔离执行、确定性合并，并由只读 Finalizer 验证整体结果？",
-      "mechanism": "DAG 与声明写域形成静态批次，Worker 在隔离 worktree 执行，实际 touched files 与 diff applicability 再经过两层门禁。",
-      "boundary": "本场景证明当前显式 FanoutPlan 的协调契约，不证明多 Agent 对任意任务都优于单 Agent。"
+      "question": "一张冻结计划能否统一承载 HARD 与 LIVE 依赖，在 Worker 并发执行时仍保持确定性的 trusted integration？",
+      "mechanism": "Readiness-driven Scheduler 启动隔离 Worker Attempt；LIVE 仅放松启动门，Strict Integration Frontier 与 Candidate Gates 决定 trusted prefix。",
+      "boundary": "本场景用确定性模型证明当前 Runtime 机制和 evidence contract，不评价真实模型质量，也不声称 Multi-Agent 普遍优于 Single Agent。"
     },
     "evaluation": {
       "title": "Mini-50 · SWE-bench Verified",

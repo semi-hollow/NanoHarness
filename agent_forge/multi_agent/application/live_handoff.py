@@ -1,14 +1,14 @@
 """LIVE coordination 的唯一一致性 Owner。
 
 系统角色：在多个真实 Worker 并发运行时，集中维护 READY/FEEDBACK/UPDATE、mailbox、
-版本、generation、attempt 和最终 freshness；它不负责调度 Worker，也不应用 Diff。
+版本、frozen plan provenance、attempt 和最终 freshness；它不负责调度 Worker，也不应用 Diff。
 输入：已冻结 ``FanoutPlan``、worker-bound publish/drain 请求和集成阶段通知。
 输出：可交付语义证据、LIVE readiness、集成授权以及追加式 coordination timeline。
 相邻边界：``FanoutCoordinator`` 决定何时启动/集成；``LiveWorkerContext`` 隐藏发布者
 身份；``AgentLoop`` 只在 safe model boundary 消费 mailbox。
 
 折叠导航：1 状态容器；2 Attempt 生命周期；3 发布与投递；4 最终集成门禁；
-5 Generation/查询；6 锁内不变量；7 Worker-bound facade。
+5 唤醒/查询；6 锁内不变量；7 Worker-bound facade。
 """
 
 from __future__ import annotations
@@ -30,13 +30,13 @@ class LiveHandoffRuntime:
         self.plan = plan
         self.artifacts = artifacts
         self._condition = Condition(RLock())
-        self._generation_number = 1
-        self._plan_generation_id = self._generation_identity(plan)
+        self._plan_digest = plan.digest
+        self.live_task_ids = plan.live_task_ids
         self._state_revision = 0
         self._sequence = 0
         self._attempts: dict[str, int] = {}
         self._worker_states: dict[str, str] = {
-            task.id: "pending" for task in plan.tasks
+            task_id: "pending" for task_id in self.live_task_ids
         }
         self._sealed_attempts: dict[str, int] = {}
         self._events: dict[str, LiveHandoffEvent] = {}
@@ -50,9 +50,9 @@ class LiveHandoffRuntime:
         self._started_at = time.monotonic()
 
     @property
-    def plan_generation_id(self) -> str:
+    def plan_digest(self) -> str:
         with self._condition:
-            return self._plan_generation_id
+            return self._plan_digest
 
     @property
     def state_revision(self) -> int:
@@ -102,7 +102,7 @@ class LiveHandoffRuntime:
         *,
         success: bool,
     ) -> None:
-        """记录 Worker 终态；只有 completed Attempt 才可能进入集成授权。"""
+        """记录 Worker 终态；只有成功产生 Candidate 的 Attempt 才可能进入集成授权。"""
 
         with self._condition:
             self._require_current_attempt(task_id, worker_attempt_id)
@@ -158,7 +158,7 @@ class LiveHandoffRuntime:
                 version=version,
                 summary=summary,
                 evidence=tuple(evidence),
-                plan_generation_id=self._plan_generation_id,
+                plan_digest=self._plan_digest,
                 worker_attempt_id=worker_attempt_id,
                 caused_by_event_id=caused_by_event_id,
             )
@@ -193,7 +193,7 @@ class LiveHandoffRuntime:
         *,
         boundary: str,
     ) -> list[LiveHandoffEvent]:
-        """只在命名的模型安全边界交付当前 generation/attempt 的事实。
+        """只在命名的模型安全边界交付当前 frozen plan/attempt 的事实。
 
         伪代码：验证 boundary/Attempt -> 取出 mailbox -> 丢弃 stale 事件
         -> 记录已交付与已消费版本 -> 写 timeline -> 返回下一 Model Step 输入。
@@ -239,7 +239,7 @@ class LiveHandoffRuntime:
         """
 
         with self._condition:
-            # 每条入站 LIVE 边都必须已有当前 generation/Attempt 的正向版本。
+            # 每条入站 LIVE 边都必须已有当前 frozen Plan/Attempt 的正向版本。
             for dependency in self.plan.live_dependencies_for(task_id):
                 event = self._latest.get(
                     (
@@ -285,7 +285,7 @@ class LiveHandoffRuntime:
                 consumed = self._consumed.get(
                     (task_id, producer, dependency.semantic_key)
                 )
-                # latest 必须仍属于当前 generation 和 Producer 当前 Attempt。
+                # latest 必须仍属于当前 frozen Plan 和 Producer 当前 Attempt。
                 if latest is None or not self._event_is_current_locked(latest):
                     raise RuntimeError(f"LIVE dependency {producer} has no final version")
                 # Consumer 必须精确消费最新 event/版本/Attempt，消费旧 v1 不能绑定 Producer v2。
@@ -343,28 +343,7 @@ class LiveHandoffRuntime:
             self._bump_locked()
     # endregion 4. 最终集成门禁结束
 
-    # region 5. Generation、唤醒与只读查询：replan 后旧事件不能跨代复用
-    def replace_plan(self, plan: FanoutPlan) -> None:
-        """Remaining-plan replan 开启新代际；旧 mailbox/event 状态不跨代复制。"""
-
-        with self._condition:
-            self.plan = plan
-            self._generation_number += 1
-            self._plan_generation_id = self._generation_identity(plan)
-            self._attempts.clear()
-            self._worker_states = {task.id: "pending" for task in plan.tasks}
-            self._sealed_attempts.clear()
-            self._events.clear()
-            self._latest.clear()
-            self._mailboxes.clear()
-            self._consumed.clear()
-            self._delivered.clear()
-            self._append_locked(
-                "plan_generation_replaced",
-                plan_digest=plan.digest,
-            )
-            self._bump_locked()
-
+    # region 5. 唤醒与只读查询：Plan 在整个 Runtime 生命周期内冻结
     def wait_for_change(self, state_revision: int, timeout: float) -> int:
         """等待状态版本变化；revision 检查避免通知先于 wait 时丢失唤醒。"""
 
@@ -397,7 +376,7 @@ class LiveHandoffRuntime:
                 )
                 if publisher == task_id and self._event_is_current_locked(event)
             }
-    # endregion 5. Generation、唤醒与只读查询结束
+    # endregion 5. 唤醒与只读查询结束
 
     # region 6. 锁内不变量：route、因果、attempt freshness、timeline commit 与 notify
     def _validate_publish_locked(self, event: LiveHandoffEvent) -> None:
@@ -469,7 +448,7 @@ class LiveHandoffRuntime:
             raise ValueError("UPDATE requires an accepted FEEDBACK cause")
         # 一次性检查代际、方向、semantic key、delivery 和 Attempt freshness。
         if (
-            cause.plan_generation_id != self._plan_generation_id
+            cause.plan_digest != self._plan_digest
             or cause.target_task_id != event.publisher_task_id
             or cause.publisher_task_id != event.target_task_id
             or cause.semantic_key != event.semantic_key
@@ -515,7 +494,7 @@ class LiveHandoffRuntime:
 
     def _event_is_current_locked(self, event: LiveHandoffEvent) -> bool:
         return (
-            event.plan_generation_id == self._plan_generation_id
+            event.plan_digest == self._plan_digest
             and self._attempts.get(event.publisher_task_id)
             == event.worker_attempt_id
         )
@@ -539,9 +518,6 @@ class LiveHandoffRuntime:
             event.semantic_key,
         )
 
-    def _generation_identity(self, plan: FanoutPlan) -> str:
-        return f"g{self._generation_number}-{plan.digest[:16]}"
-
     def _append_locked(self, record_type: str, **data: Any) -> None:
         self._sequence += 1
         record = {
@@ -549,7 +525,7 @@ class LiveHandoffRuntime:
             "sequence": self._sequence,
             "elapsed_ms": int((time.monotonic() - self._started_at) * 1_000),
             "record_type": record_type,
-            "plan_generation_id": self._plan_generation_id,
+            "plan_digest": self._plan_digest,
             "state_revision": self._state_revision,
             **data,
         }
@@ -562,7 +538,7 @@ class LiveHandoffRuntime:
     # endregion 6. 锁内不变量结束
 
 
-# region 7. Worker-bound facade：调用方不能覆盖 publisher/generation/attempt 身份
+# region 7. Worker-bound facade：调用方不能覆盖 publisher/plan/attempt 身份
 class LiveWorkerContext(LiveWorkerContextPort):
     """只向一个 Worker 暴露绑定后的发布与消费能力。"""
 

@@ -115,41 +115,6 @@ TARGETS = (
         class_name="RunLifecycle",
         function_name="finalize_run",
     ),
-    BreakpointTarget(
-        scenario="coordinated",
-        label="Lab 2 - Fanout coordinator",
-        relative_path="agent_forge/multi_agent/application/fanout.py",
-        class_name="FanoutCoordinator",
-        function_name="run",
-    ),
-    BreakpointTarget(
-        scenario="coordinated",
-        label="Lab 2 - Unified scheduler",
-        relative_path="agent_forge/multi_agent/application/fanout.py",
-        class_name="FanoutCoordinator",
-        function_name="_run_plan",
-    ),
-    BreakpointTarget(
-        scenario="coordinated",
-        label="Lab 2 - Isolated worker",
-        relative_path="agent_forge/multi_agent/adapters/local_worker.py",
-        class_name="LocalAgentWorkerAdapter",
-        function_name="run_worker",
-    ),
-    BreakpointTarget(
-        scenario="coordinated",
-        label="Lab 2 - Candidate integration",
-        relative_path="agent_forge/multi_agent/application/fanout.py",
-        class_name="FanoutCoordinator",
-        function_name="_integrate_result",
-    ),
-    BreakpointTarget(
-        scenario="coordinated",
-        label="Lab 2 - Finalizer",
-        relative_path="agent_forge/multi_agent/adapters/local_worker.py",
-        class_name="LocalAgentWorkerAdapter",
-        function_name="run_finalizer",
-    ),
 )
 
 
