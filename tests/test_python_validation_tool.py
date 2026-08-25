@@ -35,6 +35,7 @@ class PythonValidationToolTest(unittest.TestCase):
                     {"check_type": check_type, "validation_target": "tests"}
                 )
                 self.assertTrue(observation.success, observation.content)
+                self.assertEqual(observation.validation_status, "passed")
 
         self.assertEqual([timeout for _, timeout in environment.calls], [600, 600, 600])
 
@@ -219,6 +220,7 @@ class PythonValidationToolTest(unittest.TestCase):
 
         self.assertFalse(observation.success)
         self.assertTrue(observation.execution_succeeded)
+        self.assertEqual(observation.validation_status, "failed")
         self.assertIn("exit_code=1", observation.content)
 
     def test_pytest_target_rejects_cli_flags_with_actionable_message(self):
@@ -237,6 +239,7 @@ class PythonValidationToolTest(unittest.TestCase):
             )
 
         self.assertFalse(observation.success)
+        self.assertEqual(observation.validation_status, "blocked")
         self.assertIn("invalid arguments", observation.content)
         self.assertIn("do not append pytest flags", observation.content)
 
@@ -266,6 +269,7 @@ class PythonValidationToolTest(unittest.TestCase):
             )
 
             self.assertTrue(observation.success, observation.content)
+            self.assertEqual(observation.validation_status, "blocked")
             self.assertIn("validation_blocked", observation.content)
 
     def test_unittest_zero_collection_is_not_reported_as_a_pass(self):
@@ -294,6 +298,7 @@ class PythonValidationToolTest(unittest.TestCase):
             )
 
         self.assertTrue(observation.success, observation.content)
+        self.assertEqual(observation.validation_status, "blocked")
         self.assertIn(
             "validation_blocked: unittest collected 0 tests", observation.content
         )
@@ -325,6 +330,7 @@ class PythonValidationToolTest(unittest.TestCase):
 
         self.assertTrue(observation.success, observation.content)
         self.assertTrue(observation.execution_succeeded)
+        self.assertEqual(observation.validation_status, "blocked")
         self.assertIn("pytest collected no tests", observation.content)
         self.assertIn("allowlisted run_command fallback", observation.content)
 

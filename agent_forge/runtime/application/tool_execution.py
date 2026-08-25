@@ -748,6 +748,8 @@ class ToolExecutionPipeline:
                 content=item.content,
                 reasoning_content=item.reasoning_content,
                 tool_calls=[dict(call) for call in item.tool_calls],
+                item_id=item.item_id,
+                turn_id=item.turn_id,
             )
         )
         session.message_sequences.append(item.sequence)
@@ -762,6 +764,8 @@ class ToolExecutionPipeline:
                 content=item.content,
                 name=item.name,
                 tool_call_id=item.tool_call_id,
+                item_id=item.item_id,
+                turn_id=item.turn_id,
             )
         )
         session.message_sequences.append(item.sequence)
@@ -1448,6 +1452,11 @@ class ToolExecutionPipeline:
                     content=human_answer_content,
                     origin="operator",
                     human_authority=True,
+                    item_id=human_answer_item.item_id,
+                    turn_id=human_answer_item.turn_id,
+                    human_input_request_id=str(
+                        human_answer_item.metadata.get("human_input_request_id") or ""
+                    ),
                 )
             )
             session.message_sequences.append(human_answer_item.sequence)

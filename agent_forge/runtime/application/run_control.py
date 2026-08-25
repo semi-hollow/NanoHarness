@@ -140,7 +140,16 @@ class RunControlHandler:
             )
             # 幂等 append 已存在时不重复注入当前进程的模型输入视图。
             if steer_item.sequence not in session.message_sequences:
-                session.messages.append(Message(role="user", content=steer_content))
+                session.messages.append(
+                    Message(
+                        role="user",
+                        content=steer_content,
+                        origin="operator",
+                        human_authority=True,
+                        item_id=steer_item.item_id,
+                        turn_id=steer_item.turn_id,
+                    )
+                )
                 session.message_sequences.append(steer_item.sequence)
             session.turn_focus = steer_content
             session.turn_focus_item_id = steer_item.item_id
@@ -171,7 +180,14 @@ class RunControlHandler:
             # 同一 coordination event 在 resume 时只恢复一份进程内视图。
             if coordination_item.sequence not in session.message_sequences:
                 session.messages.append(
-                    Message(role="user", content=coordination_content)
+                    Message(
+                        role="user",
+                        content=coordination_content,
+                        origin="runtime_coordination",
+                        human_authority=False,
+                        item_id=coordination_item.item_id,
+                        turn_id=coordination_item.turn_id,
+                    )
                 )
                 session.message_sequences.append(coordination_item.sequence)
             self._record_coordination_signal(

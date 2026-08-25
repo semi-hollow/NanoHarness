@@ -592,13 +592,13 @@ class ConversationThreadRepositoryTest(unittest.TestCase):
                     expected_revision=state.revision,
                 )
 
-    def test_context_digest_is_rooted_in_thread_initial_task(self) -> None:
+    def test_context_digest_requires_explicit_authority_turn_owner(self) -> None:
         state = ThreadContextState(
             thread_id="thread-1",
             covered_sequence=1,
             conversation_history_digest={
-                "schema_version": 2,
-                "initial_task": "thread root",
+                "schema_version": 3,
+                "authority_turn_id": "turn-1",
                 "covered_message_count": 1,
                 "source_hash": "digest-source",
                 "authority_updates": [],
@@ -611,14 +611,14 @@ class ConversationThreadRepositoryTest(unittest.TestCase):
             },
         )
         self.assertEqual(
-            state.conversation_history_digest["initial_task"],
-            "thread root",
+            state.conversation_history_digest["authority_turn_id"],
+            "turn-1",
         )
-        with self.assertRaisesRegex(ValueError, "canonical initial_task"):
+        with self.assertRaisesRegex(ValueError, "authority_turn_id"):
             ThreadContextState(
                 thread_id="thread-1",
                 conversation_history_digest={
-                    "root_task": "turn-only task",
+                    "root_task": "must stay owned by Turn",
                     "covered_message_count": 0,
                 },
             )

@@ -185,7 +185,7 @@ class AgentRunSession:
     # Thread/Turn 是 Conversation 身份；Run 只持有本 attempt 的有界视图。
     thread_id: str
     turn_id: str
-    thread_initial_task: str
+    turn_input_item_id: str
     root_task: str
     turn_focus: str
     turn_focus_item_id: str

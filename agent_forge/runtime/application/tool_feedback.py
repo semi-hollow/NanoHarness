@@ -60,6 +60,7 @@ class ToolFeedback:
                     "tool_name": observation.tool_name,
                     "success": observation.success,
                     "execution_succeeded": observation.execution_succeeded,
+                    "validation_status": observation.validation_status,
                 },
                 origin="tool_runtime",
                 human_authority=False,
@@ -73,6 +74,8 @@ class ToolFeedback:
                     content=observation.content,
                     name=tool_call.name,
                     tool_call_id=tool_call.id,
+                    item_id=conversation_item.item_id,
+                    turn_id=conversation_item.turn_id,
                 )
             )
             session.message_sequences.append(conversation_item.sequence)
@@ -126,6 +129,7 @@ class ToolFeedback:
             tool_call_id=tool_call.id,
             success=observation.success,
             execution_succeeded=observation.execution_succeeded,
+            validation_status=observation.validation_status,
             observation=observation.content,
         )
 

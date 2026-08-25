@@ -148,13 +148,29 @@ def build_stable_turn_context(
         raise ValueError(
             "stable context budget cannot contain the complete governing System Prompt"
         )
-    remaining_budget = max_chars - len(mandatory_system_block)
+    # Turn.root_task 是本 Turn 的 canonical human authority。它必须完整进入冻结前缀，
+    # 这样 raw root message 被 Conversation compaction 覆盖后仍然模型可见；这里不做
+    # excerpt，也不让 digest 复制第二份 task truth。
+    root_task = request.root_task.strip()
+    if not root_task:
+        raise ValueError("stable context requires a non-empty current Turn root task")
+    mandatory_root_task_block = f"current_turn_root_task:\n{root_task}\n"
+    mandatory_context = mandatory_system_block + mandatory_root_task_block
+    if len(mandatory_context) > max_chars:
+        raise ValueError(
+            "stable context budget cannot contain the complete current Turn root task"
+        )
+    remaining_budget = max_chars - len(mandatory_context)
     optional_rendered, included, truncated_sections = _fit_sections(
         sections,
         remaining_budget,
     )
-    rendered = mandatory_system_block + optional_rendered
-    included = {"system": len(system_content), **included}
+    rendered = mandatory_context + optional_rendered
+    included = {
+        "system": len(system_content),
+        "current_turn_root_task": len(root_task),
+        **included,
+    }
     dropped = [f"{name} truncated to stable-prefix budget" for name in truncated_sections]
     return StableTurnContextBuildReport(
         rendered_prefix=rendered,

@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import hashlib
 import json
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, replace
 from typing import Mapping
 
 from agent_forge.context.domain import (
@@ -31,13 +31,14 @@ from agent_forge.context.domain import (
     ToolTransactionDigest,
 )
 from agent_forge.context.application.text_budget import truncate_middle
-from agent_forge.contracts import ToolSchema
+from agent_forge.contracts import ToolSchema, WORKSPACE_WRITE_TOOL_NAMES
 from agent_forge.runtime.domain.conversation import Message, Observation
 
 
 _AUTHORITY_INPUT_RATIO = 0.25
 _STATE_INPUT_RATIO = 0.25
 _RESOURCE_ARGUMENT_KEYS = ("path", "validation_target", "keyword")
+_VALIDATION_STATE_TOOL_NAME = "python_validation"
 
 
 class DeterministicContextOverflowError(RuntimeError):
@@ -89,7 +90,7 @@ class PromptBudget:
 
     @property
     def authority_context_char_limit(self) -> int:
-        """预留最多四分之一 input 给不可静默淘汰的 human authority。"""
+        """当前 Turn authority 的 POC safety limit；比例只是 tuning parameter。"""
 
         return max(
             512,
@@ -98,7 +99,7 @@ class PromptBudget:
 
     @property
     def state_context_char_limit(self) -> int:
-        """预留最多四分之一 input 给 keyed latest-state projection。"""
+        """Validation state 的 POC safety limit；比例不是架构不变量。"""
 
         return max(
             512,
@@ -136,11 +137,16 @@ class PromptWindowRequest:
     conversation_history: list[Message]
     observations: list[Observation]
     tool_schemas: list[ToolSchema]
-    conversation_initial_task: str
+    current_turn_id: str
+    current_turn_input_item_id: str
     previous_digest: ConversationHistoryDigest | None = None
-    tool_metadata: Mapping[str, Mapping[str, object]] = field(default_factory=dict)
     transient_messages: tuple[Message, ...] = ()
     force_compaction: bool = False
+
+    def __post_init__(self) -> None:
+        if not self.current_turn_id or not self.current_turn_input_item_id:
+            raise ValueError("PromptWindowRequest requires current Turn identity")
+
 
 @dataclass(frozen=True)
 class _HistorySegment:
@@ -192,11 +198,23 @@ class PromptWindowManager:
         # ``conversation_history`` 已从 ``covered_sequence`` 之后有界读取，因此本层
         # 不再维护第二个 Session cursor。transient message 也永远不会进入摘要。
         current_session_delta = request.conversation_history
-        if request.previous_digest is not None:
-            self._validate_durable_capacity(request.previous_digest)
+        previous_digest = request.previous_digest
+        if (
+            previous_digest is not None
+            and previous_digest.authority_turn_id != request.current_turn_id
+        ):
+            # Digest coverage/state 可以跨 Turn 继续滚动，但 non-droppable authority
+            # 只能属于当前 Turn。旧 Turn updates 仍在 raw journal，不进入新 Turn prompt。
+            previous_digest = replace(
+                previous_digest,
+                authority_turn_id=request.current_turn_id,
+                authority_updates=[],
+            )
+        if previous_digest is not None:
+            self._validate_durable_capacity(previous_digest)
         previous_digest_message = (
-            [Message(role="system", content=request.previous_digest.render())]
-            if request.previous_digest is not None
+            [Message(role="system", content=previous_digest.render())]
+            if previous_digest is not None
             else []
         )
         full_llm_messages = [
@@ -216,11 +234,11 @@ class PromptWindowManager:
         ):
             return PromptWindowResult(
                 llm_messages=full_llm_messages,
-                conversation_history_digest=request.previous_digest,
-                compacted=request.previous_digest is not None,
+                conversation_history_digest=previous_digest,
+                compacted=previous_digest is not None,
                 covered_message_count=(
-                    request.previous_digest.covered_message_count
-                    if request.previous_digest is not None
+                    previous_digest.covered_message_count
+                    if previous_digest is not None
                     else 0
                 ),
                 covered_delta_count=0,
@@ -229,7 +247,7 @@ class PromptWindowManager:
                 hard_input_limit=self.budget.hard_input_limit,
                 reason=(
                     "reused_previous_digest"
-                    if request.previous_digest is not None
+                    if previous_digest is not None
                     else "within_soft_limit"
                 ),
             )
@@ -245,11 +263,11 @@ class PromptWindowManager:
         if len(history_segments) < 2:
             return PromptWindowResult(
                 llm_messages=full_llm_messages,
-                conversation_history_digest=request.previous_digest,
-                compacted=request.previous_digest is not None,
+                conversation_history_digest=previous_digest,
+                compacted=previous_digest is not None,
                 covered_message_count=(
-                    request.previous_digest.covered_message_count
-                    if request.previous_digest is not None
+                    previous_digest.covered_message_count
+                    if previous_digest is not None
                     else 0
                 ),
                 covered_delta_count=0,
@@ -258,7 +276,7 @@ class PromptWindowManager:
                 hard_input_limit=self.budget.hard_input_limit,
                 reason=(
                     "insufficient_delta_to_compact"
-                    if request.previous_digest is not None
+                    if previous_digest is not None
                     else "insufficient_history_to_compact"
                 ),
             )
@@ -275,25 +293,14 @@ class PromptWindowManager:
         )
         best_compaction_result: PromptWindowResult | None = None
         rolling_delta_digest: ConversationHistoryDigest | None = None
-        root_user_message_pending = request.previous_digest is None
         for cut_index in range(1, len(history_segments)):
             next_segment = history_segments[cut_index - 1]
             segment_digest = _build_digest(
-                (
-                    request.previous_digest.initial_task
-                    if request.previous_digest is not None
-                    else request.conversation_initial_task
-                ),
+                request.current_turn_id,
+                request.current_turn_input_item_id,
                 [next_segment],
                 estimated_tokens_before=estimated_tokens_before,
-                skip_initial_user_message=root_user_message_pending,
-                tool_metadata=request.tool_metadata,
             )
-            if root_user_message_pending and any(
-                message.role == "user" and message.human_authority
-                for message in next_segment.messages
-            ):
-                root_user_message_pending = False
             rolling_delta_digest = _merge_digest(
                 rolling_delta_digest,
                 segment_digest,
@@ -305,7 +312,7 @@ class PromptWindowManager:
                 max_chars=800 if request.force_compaction else 2_000,
             )
             conversation_history_digest = _merge_digest(
-                request.previous_digest,
+                previous_digest,
                 rolling_delta_digest,
                 estimated_tokens_before=estimated_tokens_before,
             )
@@ -388,11 +395,11 @@ class PromptWindowManager:
             )
         return PromptWindowResult(
             llm_messages=full_llm_messages,
-            conversation_history_digest=request.previous_digest,
-            compacted=request.previous_digest is not None,
+            conversation_history_digest=previous_digest,
+            compacted=previous_digest is not None,
             covered_message_count=(
-                request.previous_digest.covered_message_count
-                if request.previous_digest is not None
+                previous_digest.covered_message_count
+                if previous_digest is not None
                 else 0
             ),
             covered_delta_count=0,
@@ -401,7 +408,7 @@ class PromptWindowManager:
             hard_input_limit=self.budget.hard_input_limit,
             reason=(
                 "no_safe_incremental_boundary"
-                if request.previous_digest is not None
+                if previous_digest is not None
                 else "no_safe_compaction_boundary"
             ),
         )
@@ -467,9 +474,7 @@ def _group_history_segments(
                 and messages[index].role == "user"
                 and messages[index].human_authority
                 and messages[index].origin == "operator"
-                and (messages[index].content or "").startswith(
-                    "Operator answer to the requested question:\n"
-                )
+                and bool(messages[index].human_input_request_id)
             ):
                 segment_messages.append(messages[index])
                 segment_observations.append(None)
@@ -556,17 +561,6 @@ def _canonical_tool_arguments(raw_arguments: object) -> str:
     )
 
 
-def _tool_classification(
-    tool_name: str,
-    tool_metadata: Mapping[str, Mapping[str, object]],
-) -> tuple[str, str]:
-    metadata = tool_metadata.get(tool_name, {})
-    return (
-        str(metadata.get("capability") or "external"),
-        str(metadata.get("mode") or "unknown"),
-    )
-
-
 def _resource_hints_from_arguments(raw_arguments: object) -> list[str]:
     """只从固定 argument keys 提取小型资源标识，不扫描 Observation 正文。"""
 
@@ -586,22 +580,34 @@ def _resource_hints_from_arguments(raw_arguments: object) -> list[str]:
     return hints
 
 
+def _python_validation_contract(raw_arguments: object) -> tuple[str, str] | None:
+    """投影 PythonValidationTool 的真实参数语义；无结构参数时不制造 state key。"""
+
+    arguments = _normalized_tool_arguments(raw_arguments)
+    if not isinstance(arguments, Mapping):
+        return None
+    check_type = str(arguments.get("check_type") or "compile").strip().lower()
+    validation_target = str(arguments.get("validation_target") or ".").strip() or "."
+    if not check_type:
+        return None
+    return check_type, validation_target
+
+
 def _tool_state_status(observation: Observation | None) -> str:
-    if observation is None:
+    if observation is None or observation.validation_status is None:
         return "unknown"
-    # ``validation_blocked`` 是 Validation Tool 的显式协议标记，不是对自然语言
-    # Observation 做 semantic classification。
-    if (
-        observation.execution_succeeded is False
-        or "validation_blocked:" in observation.content.lower()
-    ):
-        return "blocked"
-    return "passed" if observation.success else "failed"
+    return observation.validation_status
 
 
-def _tool_state_key(tool_name: str, capability: str, canonical_arguments: str) -> str:
-    arguments_hash = hashlib.sha256(canonical_arguments.encode("utf-8")).hexdigest()[:16]
-    return f"{capability}:{tool_name}:{arguments_hash}"
+def _tool_state_key(tool_name: str, check_type: str, validation_target: str) -> str:
+    contract = json.dumps(
+        {"check_type": check_type, "validation_target": validation_target},
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    contract_hash = hashlib.sha256(contract.encode("utf-8")).hexdigest()[:16]
+    return f"validation:{tool_name}:{contract_hash}"
 
 
 def _latest_unique_strings(values: list[str], limit: int) -> list[str]:
@@ -640,21 +646,18 @@ def _mark_state_evidence_stale(
 
 
 def _build_digest(
-    initial_task: str,
+    current_turn_id: str,
+    current_turn_input_item_id: str,
     history_segments: list[_HistorySegment],
     *,
     estimated_tokens_before: int,
-    skip_initial_user_message: bool,
-    tool_metadata: Mapping[str, Mapping[str, object]] | None = None,
 ) -> ConversationHistoryDigest:
     """只处理本次新 compact 的 raw prefix，生成 deterministic delta digest。
 
-    Human authority 逐条做有界 excerpt 但不按位置淘汰；validation/command 形成
-    keyed latest state；所有 ToolCall 只形成 recent breadcrumb。raw 消息仍保留在
-    ConversationThread journal，本函数不读取或修改已覆盖历史。
+    当前 Turn 的 root input 由 Turn 拥有；同 Turn 后续 human authority 逐条做有界
+    excerpt 但不按位置淘汰。只有 ``python_validation`` 形成 keyed state，所有
+    ToolCall 都只形成 recent breadcrumb。raw journal 不在这里读取或修改。
     """
-
-    effective_tool_metadata = tool_metadata or {}
 
     # region 1. 来源边界：冻结覆盖消息、配对 Observation 与稳定 hash
     covered_messages = [
@@ -674,6 +677,9 @@ def _build_digest(
                     "reasoning_content": message.reasoning_content,
                     "origin": message.origin,
                     "human_authority": message.human_authority,
+                    "item_id": message.item_id,
+                    "turn_id": message.turn_id,
+                    "human_input_request_id": message.human_input_request_id,
                 },
                 "observation": (
                     {
@@ -681,6 +687,7 @@ def _build_digest(
                         "success": observation.success,
                         "content": observation.content,
                         "execution_succeeded": observation.execution_succeeded,
+                        "validation_status": observation.validation_status,
                     }
                     if observation is not None
                     else None
@@ -697,16 +704,17 @@ def _build_digest(
     )
     # endregion 1. 来源边界结束
 
-    # region 2. Human authority：初始任务单独保存，后续授权输入不得按数量静默淘汰
-    # ``initial_task`` 单独保留 Thread 起点；后续 human-authority user message 才进入
-    # authority_updates，避免摘要重复发送起点，也拒绝 runtime-generated role=user 信号。
-    initial_user_message_seen = not skip_initial_user_message
+    # region 2. Human authority：只保留当前 Turn 的非 root authoritative updates
+    # Turn.root_task 已在 StableTurnContextSnapshot 中；这里用 item/Turn identity 排除
+    # root 和历史 Turn，不比较文本，也拒绝 runtime-generated role=user 信号。
     authority_updates: list[str] = []
     for message in covered_messages:
-        if message.role != "user" or not message.human_authority:
-            continue
-        if not initial_user_message_seen:
-            initial_user_message_seen = True
+        if (
+            message.role != "user"
+            or not message.human_authority
+            or message.turn_id != current_turn_id
+            or message.item_id == current_turn_input_item_id
+        ):
             continue
         authority_update = _excerpt(message.content, AUTHORITY_UPDATE_MAX_CHARS)
         if authority_update:
@@ -755,15 +763,9 @@ def _build_digest(
                 tool_succeeded = (
                     observation.success if observation is not None else None
                 )
-                capability, mode = _tool_classification(
-                    tool_name,
-                    effective_tool_metadata,
-                )
                 canonical_arguments = _canonical_tool_arguments(tool_arguments)
                 tool_transaction = ToolTransactionDigest(
                     tool_name=tool_name,
-                    capability=capability,
-                    mode=mode,
                     arguments_summary=_excerpt(
                         canonical_arguments,
                         STATE_ARGUMENTS_MAX_CHARS,
@@ -776,26 +778,39 @@ def _build_digest(
                 )
                 recent_tool_transactions.append(tool_transaction)
                 resource_hints.extend(_resource_hints_from_arguments(tool_arguments))
-                if tool_succeeded is True and (
-                    capability == "edit" or mode == "write"
+                if (
+                    tool_succeeded is True
+                    and tool_name in WORKSPACE_WRITE_TOOL_NAMES
                 ):
                     # 修改后的 workspace 可能使之前 PASS/FAIL 都过时；保留证据但降级为
                     # stale，直到相同 key 或其他验证 key 被重新执行。
                     workspace_mutation_observed = True
                     state_evidence = _mark_state_evidence_stale(state_evidence)
-                if capability == "validate" or mode == "command":
+                if tool_name == _VALIDATION_STATE_TOOL_NAME:
+                    validation_contract = _python_validation_contract(tool_arguments)
+                    if validation_contract is None:
+                        continue
+                    check_type, validation_target = validation_contract
+                    check_type_excerpt = _excerpt(
+                        check_type,
+                        min(64, STATE_ARGUMENTS_MAX_CHARS),
+                    )
                     state_evidence.append(
                         ToolStateDigest(
                             state_key=_tool_state_key(
                                 tool_name,
-                                capability,
-                                canonical_arguments,
+                                check_type,
+                                validation_target,
                             ),
                             tool_name=tool_name,
-                            capability=capability,
-                            arguments_summary=_excerpt(
-                                canonical_arguments,
-                                STATE_ARGUMENTS_MAX_CHARS,
+                            check_type=check_type_excerpt,
+                            validation_target=_excerpt(
+                                validation_target,
+                                max(
+                                    1,
+                                    STATE_ARGUMENTS_MAX_CHARS
+                                    - len(check_type_excerpt),
+                                ),
                             ),
                             status=_tool_state_status(observation),
                             observation_excerpt=_excerpt(
@@ -807,7 +822,7 @@ def _build_digest(
     # endregion 3. 工具事务结束
 
     return ConversationHistoryDigest(
-        initial_task=initial_task,
+        authority_turn_id=current_turn_id,
         covered_message_count=len(covered_messages),
         source_hash=hashlib.sha256(digest_source_payload.encode("utf-8")).hexdigest(),
         authority_updates=authority_updates,
@@ -838,8 +853,8 @@ def _merge_digest(
 
     if previous_digest is None:
         return delta_digest
-    if previous_digest.initial_task != delta_digest.initial_task:
-        raise ValueError("cannot merge conversation digests with different initial tasks")
+    if previous_digest.authority_turn_id != delta_digest.authority_turn_id:
+        raise ValueError("cannot merge digests with different authority Turn owners")
     chained_source_hash = hashlib.sha256(
         json.dumps(
             {
@@ -850,7 +865,7 @@ def _merge_digest(
         ).encode("utf-8")
     ).hexdigest()
     return ConversationHistoryDigest(
-        initial_task=previous_digest.initial_task,
+        authority_turn_id=previous_digest.authority_turn_id,
         covered_message_count=(
             previous_digest.covered_message_count
             + delta_digest.covered_message_count
@@ -906,6 +921,9 @@ def _trim_large_messages(messages: list[Message], max_chars: int) -> list[Messag
                 ),
                 origin=message.origin,
                 human_authority=message.human_authority,
+                item_id=message.item_id,
+                turn_id=message.turn_id,
+                human_input_request_id=message.human_input_request_id,
             )
         )
     return trimmed

@@ -1,233 +1,183 @@
 # 多 Agent 编排
 
-Multi-Agent Runtime 解决的是：多个隔离 Worker 可以并发产生候选结果，但最终只有一处
-能够决定哪些候选进入可信工作区。
+> 核心结论：LLM 只提议如何拆分；Runtime 冻结并治理 Plan；隔离 Worker 只产生 candidate；只有 Coordinator 能把 candidate 变成可信集成结果。
 
-- 输入：自然语言目标、受校验且深度不可变的 `FanoutPlan`、Runtime 配置；
-- 输出：`FanoutSummary`、严格连续的 `merged_task_ids`、Worker Attempt 证据与最终 Diff；
-- 唯一执行权：`FanoutCoordinator`；
-- Worker 只产生 candidate，不能自行声明 Task 已可信集成。
+## 1. 为什么需要 Multi-Agent
 
-## 主链
+Multi-Agent 只适合存在可隔离工作面的任务。假设目标是：
 
 ```text
-AdaptivePlanner.decide()
-        │
-        ├── Single → canonical AgentLoop
-        │
-        └── Multi
-              ↓
-       deeply frozen FanoutPlan
-              ↓
-         build_fanout()
-              ↓
-       FanoutCoordinator.run()
-              ↓
-          _execute_plan()
-              ↓
-    readiness-driven Scheduler
-       ┌──────┴──────┐
-       │             │
-      HARD          LIVE
-       └──────┬──────┘
-              ↓
-       isolated Worker Attempt
-              ↓
-          candidate
-              ↓
-     Strict Integration Frontier
-              ↓
-       trusted integrated state
-              ↓
-        read-only Finalizer
+同时修改 auth module，并补独立的 tests/docs module
 ```
 
-Planning phase 只发生在执行前：一次 structured planning request 最多允许一次 bounded
-schema/domain repair。`FanoutPlan.tasks`、Task 内的依赖、写域、工具和验收条件都在 Domain
-边界转成 tuple；Run 中 `plan_digest` 不变。Runtime 不允许在执行中改写 DAG 或重新规划。
-
-## 公共机制、严格依赖与实时协作（COMMON、HARD、LIVE）
-
-### COMMON：公共执行机制
-
-COMMON 是所有 Task 共用的执行机制：
-
-- readiness scan 与 `max_workers`；
-- 隔离 worktree 和 canonical `AgentLoop`；
-- 最多两个真实 Worker Attempts；
-- candidate artifact integrity、实际写域、patch contract；
-- deterministic patch dry-check / apply；
-- checkpoint、summary、trace 与 read-only Finalizer。
-
-### HARD：可信集成后就绪
-
-`A ──HARD──→ B` 表示 B 依赖 A 的可信代码或结构化结果。A 的 Worker 完成并不够；
-只有 A candidate 通过全部门禁并追加到严格连续的 `merged_task_ids` 后，B 才能启动。
-
-B 只接收直接 predecessor 的 `WorkerHandoff` 语义载荷，不接收 A 的 private Conversation、
-模型上下文、worktree 或未合入 Diff。Handoff 本身没有生命周期 status；是否可交付只由
-Coordinator 检查 upstream `FanoutTaskResult.status == integrated`。
-
-### LIVE：语义证据提前就绪
-
-`A ──LIVE──→ B` 允许 B 在 A 完成前启动。`READY` 或 `UPDATE` 只放松 start barrier。
-
-Worker 通过 `LiveHandoffRuntime` 交换有界语义证据：
+Planner 可以提议：
 
 ```text
-READY → FEEDBACK → UPDATE
+A: 修改 auth module
+   write_scope = src/auth/
+
+B: 补独立 tests/docs
+   write_scope = tests/auth/, docs/auth.md
 ```
 
-事件绑定：
+A/B 写域独立时可以并发。若工作高度耦合，`AdaptivePlanner` 应选择 Single，继续使用 canonical `AgentLoop`。Multi 不是默认更强，而是用隔离与并发换取特定任务的吞吐。
 
-- frozen `plan_digest`；
-- `worker_attempt_id`；
-- producer / target / semantic key；
-- 单调 version 与可选 cause event。
+## 2. 从提议到可信结果
 
-事件只在 Model Step 安全边界进入 Worker。如果模型调用中途出现新 coordination，旧响应
-返回后会被标为 stale，并以 `REFRESH_INPUT` 进入下一 Model Step。该动作不是 Task retry。
-
-最终集成时，Producer 必须先可信集成并冻结 final latest；Consumer 必须实际消费 exact
-latest version。否则 `stale_live_dependency` fail closed。LIVE 从不放松 trust barrier。
-
-`LiveHandoffRuntime` 只管理 LIVE edge 两端的 Task；普通 Task 不进入它的 Attempt、mailbox
-或 freshness 生命周期。
-
-## Attempt 与 Task Result
-
-`WorkerAttemptResult` 表示一次真实 Worker execution：
+完整主链是：
 
 ```text
-candidate_produced | retryable_failure | terminal_failure
+Ultra
+-> AdaptivePlanner.decide()
+-> Single | Multi proposal
+-> parser + domain validation
+-> deeply frozen FanoutPlan
+-> FanoutCoordinator.run()
+-> readiness scheduler
+-> isolated LocalAgentWorkerAdapter
+-> WorkerAttemptResult(candidate)
+-> FanoutCoordinator._integrate_candidate()
+-> strict trusted integration prefix
+-> read-only Finalizer
 ```
 
-`FanoutTaskResult` 表示逻辑 Task 的治理结论：
+### 模型提议，运行时治理
+
+`AdaptivePlanner.decide()` 给模型 bounded repository map、可用工具与任务上限。模型最多获得一次结构/领域 repair；输出必须经过 Schema、Task identity、依赖无环、write scope 与工具约束校验。单任务 Multi proposal 会规范化为 Single。
+
+通过校验后形成深度不可变的 `FanoutPlan`。执行期不改写 DAG、不动态追加 Task，也不把模型输出直接当成调度命令。这是“模型提议、Runtime 治理”的实际边界。
+
+### Worker 产生候选，Coordinator 负责集成
+
+`LocalAgentWorkerAdapter.run_worker()` 为每次 Attempt 创建隔离 Git worktree，按 Task 收窄工具和 write scope，并在其中复用同一套 canonical `AgentLoop`。Worker 的输出是：
 
 ```text
-integrated | failed | blocked | not_integrated
+WorkerAttemptResult
+candidate diff
+artifact / validation evidence
+actual touched files
 ```
 
-核心区别：`candidate_produced` 不等于 `integrated`。
+Worker 无权 merge，也无权把自己标记为 integrated。隔离 worktree 防止并发 Worker 直接共享可变 workspace；即使 Worker 成功完成，主 workspace 仍未发生可信变化。
 
-从未启动的 HARD blocked Task 只有：
+`FanoutCoordinator._integrate_candidate()` 是唯一集成 authority。它依次检查 candidate artifact、实际写域、patch contract、当前 integration frontier、dependency trust、LIVE freshness、patch dry-check，最后才 apply 并建立 trusted commit。
+
+因此：
 
 ```text
-status=blocked
-failure_kind=blocked_dependency
-final_attempt=null
+candidate_produced != Task integrated
 ```
 
-它不会进入 `attempt_results`。`task_count` 来自 Plan；`attempt_count` 来自真实
-`WorkerAttemptResult`。
+## 3. Readiness 与并发
 
-## Scheduler、Retry 与 Launch Wave
+`FanoutCoordinator._execute_plan()` 按 readiness 和 `max_workers` 提交 Worker Attempt，而不是按固定 wave 等待整批结束。
 
-Launch Wave 是一次 Scheduler scan 实际 submit 的 Worker Attempts，只用于 Evidence、
-Trace 和 Workbench 分组。它不是依赖单位、完成单位或调度屏障，不同 Wave 可以重叠。
+对上面的 A/B，若没有依赖，两者都可以立即进入线程池。谁先完成只影响 candidate 到达时间，不改变可信集成顺序。
 
-Attempt-1 只有被 Runtime 确定性分类为 retryable Worker execution failure 时，Task 才返回
-Scheduler；Attempt-2 在后续 Wave 异步提交。不存在 Attempt-3。
+### HARD dependency 等可信集成
 
-以下结果永不 retry：scope violation、no patch、merge conflict、LIVE stale、policy / approval /
-permission / guardrail denial、blocked dependency 等确定性拒绝结果。
+若 B 必须基于 A 的代码，则 Plan 表达：
 
-Trace 使用：
-
-```json
-{
-  "event_type": "fanout_wave_launched",
-  "launch_wave_index": 2,
-  "attempts": [{"task_id": "A", "attempt": 2}]
-}
+```text
+A --HARD--> B
 ```
 
-单个 Attempt 的结束由 `worker_attempt_finished` 表达。
+B 的 ready 条件不是“A Worker finished”，而是“A 已出现在 `merged_task_ids` 的 trusted prefix 中”。原因是 A 可能已经产生 candidate，但随后在 scope、merge、policy 或 validation gate 失败；让 B 基于这种未可信结果启动会制造第二套真相。
 
-## Candidate Gate 与 Strict Integration Frontier
+B 启动时只获得已集成 upstream diff 和有界 `WorkerHandoff`，不会继承 A 的 private Conversation、模型上下文或临时 worktree。
 
-`_integrate_candidate()` 是唯一 candidate authority，分两阶段：
+## 4. 严格集成前沿
 
-1. 候选本地校验（Candidate-local validation）：artifact integrity → actual touched scope → patch contract；
-2. 可信集成授权（Trusted authorization）：frontier → HARD readiness → LIVE producer integrated → freshness →
-   patch dry-check → apply → trusted commit。
-
-非当前 frontier 的 candidate 仍立即做 local validation；因此越界和 write-task empty patch
-不会被延迟或掩盖。
-
-`merged_task_ids` 必须始终满足：
+Runtime 为 Plan 计算稳定 `integration_order`，并始终保持：
 
 ```text
 merged_task_ids == integration_order[:k]
 ```
 
-它是 trusted integrated identity 的唯一 authority；HARD/LIVE readiness 临时从该前缀
-派生集合，不再维护第二份成功状态。
+Worker execution 可以并发，trusted integration 必须形成连续前缀。即使 B 比 A 先完成，B candidate 也不能绕过 A 进入主 workspace。当前 frontier Task 终止失败后，后续 candidate 可以保留审计证据，但只能成为 `not_integrated`。
 
-如果当前 frontier Task 已终止且没有合法 retry，Scheduler 停止提交新 Attempt；已运行
-Attempt 可以结束并保留证据，但后续 candidate 只能成为：
+这是有意的 POC trade-off：牺牲 out-of-order salvage，换取单一 trusted frontier、确定性顺序、简单恢复和可审计性。当前不扩张为 partial merge-state recovery。
 
-```text
-status=not_integrated
-failure_kind=integration_frontier_blocked
-```
+## 5. Retry 只有一个分类 owner
 
-它们不能越过 frontier，也不能被误判为 LIVE stale。
-
-## Checkpoint、Summary 与 Resume
-
-`fanout_checkpoint.json` 是唯一恢复 authority。当前 clean-break schema v4 保存：
-
-- `schema_version`、`plan_digest`、`base_head`、`status`；
-- `merged_task_ids`、`task_results`、`attempt_results`、`launch_waves`；
-- `updated_at`。
-
-`fanout_summary.json` 只用于 observation、reporting 和 Workbench。
-
-HARD-only Resume 会验证当前 schema、相同 Plan digest、相同 Git base、严格 merged prefix、
-canonical integrated Task result、candidate SHA、`validate_recovery_diffs()` 和 replay
-applicability。入口只接受 `status=running` 的 Checkpoint；任意 terminal status 都在启动
-Worker 前 fail closed。单独的 Attempt evidence 不能提升为 trusted Task。
-
-LIVE V1 不支持 Resume，因为当前没有 durable mailbox / consumed-version replay。
-
-三条执行语义彼此独立：
-
-- **Worker Retry**：同一 Fanout Run 内，Runtime 明确分类为 retryable 的 Worker failure 最多进入 Attempt-2；
-- **Resume**：外部中断后，继续同一个 HARD-only Fanout execution 的 verified trusted prefix；
-- **New Run**：terminal result 后由用户显式发起的新执行，不能伪装成 Resume。
-
-## 最小验证
-
-当前原生机制验证：
-
-```bash
-.venv/bin/python scripts/run_multi_agent_v1_smoke.py
-```
-
-版本化证据：
+一次 Attempt 的 typed outcome 是：
 
 ```text
-benchmarks/experiments/multi-agent-v1/mechanism-evidence.json
+candidate_produced
+retryable_failure
+terminal_failure
 ```
 
-核心测试：
+Producer 在形成 `WorkerAttemptResult` 时一次性决定 `status` 与 `retryable`。Domain 强制二者一致：只有 `retryable_failure` 才能令 `retryable=true`。
 
-```bash
-.venv/bin/python -m pytest -q tests/test_multi_agent_clean_break.py
+Coordinator 只消费：
+
+```text
+attempt == 1
+AND status == retryable_failure
+AND retryable == true
 ```
 
-## 代码阅读顺序
+它不解析 `failure_kind` 字符串。Timeout 与 transient connection failure 可以 retry；scope violation、merge conflict、policy denial 等确定性拒绝由 producer 生成 terminal outcome，不 retry。`failure_kind` 仅用于诊断。
 
-1. `domain/fanout.py` → `FanoutPlan`、`WorkerAttemptResult`、`FanoutTaskResult`：COMMON Domain；
-2. `application/fanout.py` → `run()`：完整 Fanout 生命周期骨架；
-3. 同文件 → `_execute_plan()`：统一 readiness scheduler；
-4. 同文件 → `_run_worker_attempt()`：唯一真实 Attempt owner；
-5. 同文件 → `_integrate_candidate()`：唯一 candidate authority；
-6. `application/live_handoff.py` → `LiveHandoffRuntime`：LIVE mailbox 与 freshness；
-7. `adapters/local_worker.py` → `run_worker()`：隔离 AgentLoop 和 candidate artifact；
-8. `adapters/fanout_files.py`：checkpoint / summary / coordination 持久化；
-9. `wiring.py` → `build_fanout()`：composition root。
+## 6. LIVE 只放松启动屏障
 
-文件边界：`ports/fanout.py` 只放 COMMON 外部能力契约，`ports/live.py` 只放
-Worker-bound LIVE Port；`domain/live_handoff.py` 只放 LIVE route/event value object。
+HARD 要等 upstream 集成后才启动 downstream；LIVE 用于 downstream 只需要一小段语义证据就能提前工作的情况。例如：
+
+```text
+A 发布 READY v1：auth 接口已确定
+B 消费 v1，提前开始写 docs
+A 后来发布 UPDATE v2：接口细节修正
+```
+
+`LiveHandoffRuntime` 是 LIVE consistency owner，管理 attempt identity、mailbox、单调 version、消费记录和 final freshness。事件只在 Model Step 安全边界进入 Worker。
+
+READY 只表示 B 可以提前启动，不表示 B 可以 merge。最终授权必须同时满足：
+
+```text
+A 已可信 integrated
+AND B 消费了 A 的 exact latest version
+```
+
+若 B 只消费 v1 而最终版本是 v2，`authorize_integration()` fail closed。LIVE 放松 start barrier，从不放松 final trust barrier；COMMON scheduler 不拥有 mailbox 内部状态。
+
+## 7. Resume 与 Finalizer
+
+HARD-only resume 恢复的是经过验证的 trusted prefix：
+
+```text
+verify same frozen plan digest
+AND same Git base
+AND merged_task_ids is strict prefix
+AND candidate evidence and replay are valid
+-> replay trusted prefix
+-> continue remaining plan
+```
+
+单独存在 Worker Attempt 或 candidate artifact 不能被提升为 trusted Task。LIVE 当前不支持 resume，因为 mailbox 与 consumed-version lifecycle 没有 durable replay contract；这是明确的 POC 边界。
+
+所有 Task 都进入 trusted prefix 后，Finalizer 对最终 workspace 和全局 acceptance criteria 做只读语义验证。它可以给出 PASS/FAIL/BLOCKED，但不拥有 merge 或 fix 权，因此不会成为第二个 Coordinator。
+
+## 8. 设计不变量
+
+1. LLM proposes, Runtime governs。
+2. Worker 只产生 candidate，Coordinator 拥有 integration authority。
+3. Worker finished / candidate produced 不等于 integrated。
+4. HARD readiness 只依赖 trusted integrated state。
+5. Worker 使用隔离 worktree，并复用 canonical `AgentLoop`。
+6. `merged_task_ids` 是唯一 strict trusted integration prefix。
+7. LIVE 只放松 start barrier，不放松 final trust barrier。
+8. Retry classification 只在 typed Attempt outcome 生成阶段完成。
+9. Resume 只恢复经过验证的 HARD trusted prefix。
+10. Finalizer 只验证，不 merge、不修复。
+
+## 核心源码入口
+
+1. `agent_forge/multi_agent/application/planning.py::AdaptivePlanner.decide()`：Single/Multi proposal 与 Runtime validation。
+2. `agent_forge/multi_agent/domain/fanout.py::FanoutPlan`：冻结 Plan 与 Domain invariants。
+3. `agent_forge/multi_agent/application/fanout.py::FanoutCoordinator.run()`：完整 Fanout 生命周期。
+4. 同文件 `_execute_plan()` / `_integrate_candidate()`：readiness scheduler 与唯一 integration gate。
+5. `agent_forge/multi_agent/adapters/local_worker.py::LocalAgentWorkerAdapter.run_worker()`：隔离 worktree、canonical AgentLoop 与 candidate。
+6. `agent_forge/multi_agent/application/live_handoff.py::LiveHandoffRuntime.authorize_integration()`：LIVE final freshness。
+
+HARD resume 的严格检查在 `FanoutCoordinator._restore_hard_prefix()`；artifact 文件布局、trace 字段和内部 lock map 属于实现与审计细节，不是理解主控制流的前置知识。

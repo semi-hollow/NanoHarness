@@ -211,12 +211,7 @@ class ToolRouter:
 
     @classmethod
     def metadata_for(cls, tool_names: set[str]) -> dict[str, dict]:
-        """返回给定工具目录的 deterministic metadata，不受本轮可见性裁剪影响。
-
-        Compaction 会处理旧 ToolCall；如果只传当前 ``ToolRoute.metadata``，finalize
-        或路由变化可能让同一历史事务失去 capability。这里让 Router 继续作为工具
-        分类的唯一 owner，而 Context 只消费冻结的 metadata projection。
-        """
+        """返回路由与可观测性使用的 deterministic Tool metadata。"""
 
         return {
             name: dict(cls.DEFAULT_METADATA.get(name, cls._EXTERNAL_METADATA))

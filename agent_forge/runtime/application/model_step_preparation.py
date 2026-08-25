@@ -142,14 +142,6 @@ class ModelStepPreparation:
         # ToolRouter 同时返回 schema 和 allowed_names：前者发给模型，后者供执行时复核。
         # 两份视图来自同一 ToolRoute，避免模型看见的工具与 Runtime 放行集合不一致。
         registered_tool_schemas = [dict(schema) for schema in session.base_tool_schemas]
-        compaction_tool_metadata = self.tool_router.metadata_for(
-            set(self.tool_router.DEFAULT_METADATA)
-            | {
-                str(schema.get("name") or "")
-                for schema in registered_tool_schemas
-                if str(schema.get("name") or "")
-            }
-        )
         tool_route = self.tool_router.route(
             ToolRoutingRequest(
                 task=session.turn_focus,
@@ -238,9 +230,9 @@ class ModelStepPreparation:
                     conversation_history=list(session.messages),
                     observations=session.observations,
                     tool_schemas=visible_tool_schemas,
-                    conversation_initial_task=session.thread_initial_task,
+                    current_turn_id=session.turn_id,
+                    current_turn_input_item_id=session.turn_input_item_id,
                     previous_digest=previous_digest,
-                    tool_metadata=compaction_tool_metadata,
                     force_compaction=True,
                 )
             )
@@ -268,9 +260,9 @@ class ModelStepPreparation:
                 conversation_history=list(session.messages),
                 observations=session.observations,
                 tool_schemas=visible_tool_schemas,
-                conversation_initial_task=session.thread_initial_task,
+                current_turn_id=session.turn_id,
+                current_turn_input_item_id=session.turn_input_item_id,
                 previous_digest=previous_digest,
-                tool_metadata=compaction_tool_metadata,
                 transient_messages=(
                     (runtime_control_message,)
                     if runtime_control_message is not None
@@ -332,9 +324,6 @@ class ModelStepPreparation:
             if state.conversation_history_digest
             else None
         )
-        if digest is not None and digest.initial_task != session.thread_initial_task:
-            raise ValueError("Thread digest initial_task does not match ConversationThread")
-
         items = load_transaction_safe_conversation_page(
             session.conversation_threads,
             thread_id=session.thread_id,
@@ -425,6 +414,11 @@ class ModelStepPreparation:
             reasoning_content=item.reasoning_content,
             origin=item.origin,
             human_authority=item.human_authority,
+            item_id=item.item_id,
+            turn_id=item.turn_id,
+            human_input_request_id=str(
+                item.metadata.get("human_input_request_id") or ""
+            ),
         )
 
     @staticmethod
@@ -436,6 +430,11 @@ class ModelStepPreparation:
             execution_succeeded=(
                 bool(item.metadata["execution_succeeded"])
                 if item.metadata.get("execution_succeeded") is not None
+                else None
+            ),
+            validation_status=(
+                str(item.metadata["validation_status"])
+                if item.metadata.get("validation_status") is not None
                 else None
             ),
         )

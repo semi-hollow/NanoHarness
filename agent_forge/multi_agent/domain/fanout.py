@@ -403,8 +403,10 @@ class WorkerAttemptResult:
             raise ValueError("WorkerAttemptResult attempt must be 1 or 2")
         if self.launch_wave_index < 1:
             raise ValueError("launch_wave_index must start at 1")
-        if self.retryable and self.status != "retryable_failure":
-            raise ValueError("only retryable_failure may set retryable=true")
+        if self.retryable != (self.status == "retryable_failure"):
+            raise ValueError(
+                "retryable must be true exactly when status=retryable_failure"
+            )
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)

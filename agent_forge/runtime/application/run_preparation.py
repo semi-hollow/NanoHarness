@@ -169,7 +169,7 @@ class RunPreparation:
         session = AgentRunSession(
             thread_id=thread.thread_id,
             turn_id=turn.turn_id,
-            thread_initial_task=thread.initial_task,
+            turn_input_item_id=turn.input_item_id,
             root_task=root_task,
             turn_focus=turn_focus,
             turn_focus_item_id=turn_focus_item_id,
@@ -531,6 +531,11 @@ class RunPreparation:
             reasoning_content=item.reasoning_content,
             origin=item.origin,
             human_authority=item.human_authority,
+            item_id=item.item_id,
+            turn_id=item.turn_id,
+            human_input_request_id=str(
+                item.metadata.get("human_input_request_id") or ""
+            ),
         )
 
     @staticmethod
@@ -543,6 +548,11 @@ class RunPreparation:
             execution_succeeded=(
                 bool(metadata["execution_succeeded"])
                 if metadata.get("execution_succeeded") is not None
+                else None
+            ),
+            validation_status=(
+                str(metadata["validation_status"])
+                if metadata.get("validation_status") is not None
                 else None
             ),
         )

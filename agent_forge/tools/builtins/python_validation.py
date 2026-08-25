@@ -83,6 +83,7 @@ class PythonValidationTool(Tool):
             tool_name=self.name,
             success=False,
             content=f"unknown Python validation check_type: {check_type}",
+            validation_status="blocked",
         )
     # endregion 1. 公开入口结束
 
@@ -97,6 +98,7 @@ class PythonValidationTool(Tool):
                 tool_name=self.name,
                 success=False,
                 content=f"compile target does not exist in workspace: {validation_target}",
+                validation_status="blocked",
             )
 
         # 2. 有隔离执行环境时，把相对目标交给环境内固定 compileall argv；
@@ -120,6 +122,9 @@ class PythonValidationTool(Tool):
                     f"{output or f'compile ok: {relative_target}'}"
                 ),
                 execution_succeeded=True,
+                validation_status=(
+                    "passed" if process.returncode == 0 else "failed"
+                ),
             )
 
         # 3. 无隔离执行环境时才使用本地 py_compile fallback；逐文件收集语法错误，
@@ -137,6 +142,7 @@ class PythonValidationTool(Tool):
                     "validation_blocked: compile found no Python files under "
                     f"{validation_target}"
                 ),
+                validation_status="blocked",
             )
         compile_errors: list[str] = []
         for path in python_files:
@@ -151,11 +157,13 @@ class PythonValidationTool(Tool):
                 success=False,
                 content="\n".join(compile_errors[:20]),
                 execution_succeeded=True,
+                validation_status="failed",
             )
         return Observation(
             tool_name=self.name,
             success=True,
             content=f"compile ok: {len(python_files)} python files",
+            validation_status="passed",
         )
     # endregion 2. Compile 结束
 
@@ -229,6 +237,7 @@ class PythonValidationTool(Tool):
                     "validation_blocked: pytest is not installed in this benchmark workspace; "
                     "candidate diff remains unverified by focused tests."
                 ),
+                validation_status="blocked",
             )
         if check_type == "unittest" and "Ran 0 tests" in output:
             return Observation(
@@ -239,6 +248,7 @@ class PythonValidationTool(Tool):
                     "validation_blocked: unittest collected 0 tests; use "
                     "check_type=pytest for pytest-style test files."
                 ),
+                validation_status="blocked",
             )
         if check_type == "pytest" and process.returncode == 5:
             return Observation(
@@ -251,6 +261,7 @@ class PythonValidationTool(Tool):
                     "run_command fallback when project-specific flags are required."
                 ),
                 execution_succeeded=True,
+                validation_status="blocked",
             )
 
         # 3. 只有真正执行且有可裁决返回码的检查，才把 returncode 映射为验证成败。
@@ -259,6 +270,7 @@ class PythonValidationTool(Tool):
             success=process.returncode == 0,
             content=(f"{command_evidence}\nexit_code={process.returncode}\n{output}"),
             execution_succeeded=True,
+            validation_status=("passed" if process.returncode == 0 else "failed"),
         )
     # endregion 3. Test execution 结束
 
@@ -318,11 +330,13 @@ class PythonValidationTool(Tool):
                         "path or path::node_id; do not append pytest flags. "
                         f"Use {target_parts[0]!r}, not {path_target!r}."
                     ),
+                    validation_status="blocked",
                 )
             return Observation(
                 tool_name=self.name,
                 success=False,
                 content=f"pytest target does not exist in workspace: {path_target}",
+                validation_status="blocked",
             )
         relative_target = (
             resolved_target.relative_to(self.sandbox.workspace_root).as_posix() or "."
@@ -333,6 +347,7 @@ class PythonValidationTool(Tool):
                     tool_name=self.name,
                     success=False,
                     content="invalid pytest node id",
+                    validation_status="blocked",
                 )
             relative_target = f"{relative_target}::{node_id}"
         return [

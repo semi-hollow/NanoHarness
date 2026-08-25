@@ -155,8 +155,8 @@ def _seed_resumable_turn(
             thread_id=thread_id,
             covered_sequence=7,
             conversation_history_digest={
-                "schema_version": 2,
-                "initial_task": task,
+                "schema_version": 3,
+                "authority_turn_id": turn_id,
                 "covered_message_count": 7,
                 "source_hash": source_hash,
                 "authority_updates": ["keep the public API"],
@@ -510,6 +510,8 @@ class TaskResumeTest(unittest.TestCase):
             ]
             self.assertEqual(len(digest_messages), 1)
             self.assertIn("digest-old", digest_messages[0].content or "")
+            self.assertIn("current_turn_authority: turn-resume", digest_messages[0].content or "")
+            self.assertIn("keep the public API", digest_messages[0].content or "")
             self.assertNotIn("conversation_history_digest", result.checkpoint.to_dict())
             assert result.trace_path is not None
             trace = json.loads(result.trace_path.read_text(encoding="utf-8"))

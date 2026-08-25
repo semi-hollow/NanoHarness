@@ -523,22 +523,12 @@ class FanoutCoordinator:
 
     @staticmethod
     def _worker_retry_allowed(result: WorkerAttemptResult) -> bool:
-        fail_closed_markers = (
-            "scope",
-            "no_patch",
-            "merge",
-            "stale",
-            "policy",
-            "approval",
-            "permission",
-            "guardrail",
-            "blocked",
-        )
+        """只消费 Worker producer 的 typed outcome；failure_kind 仅用于诊断。"""
+
         return (
             result.attempt == 1
             and result.status == "retryable_failure"
             and result.retryable
-            and not any(marker in result.failure_kind.lower() for marker in fail_closed_markers)
         )
     # endregion 6. COMMON Worker execution（公共 Worker 执行）
 

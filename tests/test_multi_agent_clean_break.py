@@ -10,6 +10,10 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from typing import Any, Callable
 
+from agent_forge.multi_agent.adapters.local_worker import (
+    _trace_outcome,
+    _worker_attempt_outcome,
+)
 from agent_forge.multi_agent.adapters.plan_files import load_resume_plan
 from agent_forge.multi_agent.application.dependencies import FanoutDependencies
 from agent_forge.multi_agent.application.fanout import (
@@ -536,6 +540,10 @@ class FanoutSchedulerAndFrontierTests(unittest.TestCase):
         results = {result.task_id: result for result in summary.task_results}
         self.assertEqual(results["A"].status, "integrated")
         self.assertEqual(results["B"].failure_kind, "scope_violation")
+        self.assertEqual(
+            [(task_id, attempt) for task_id, attempt, *_ in workers.calls if task_id == "B"],
+            [("B", 1)],
+        )
         self.assertEqual(summary.merged_task_ids, ["A"])
 
     def test_write_empty_patch_fails_but_read_only_empty_patch_integrates(self) -> None:
@@ -621,29 +629,120 @@ class FanoutSchedulerAndFrontierTests(unittest.TestCase):
         self.assertEqual(summary.metrics["attempt_count"], 2)
         self.assertEqual(workers.finalizer_calls, 0)
 
-    def test_fail_closed_failure_kinds_never_retry(self) -> None:
-        failure_kinds = (
-            "scope_violation",
-            "no_patch",
-            "merge_conflict",
-            "stale_live_dependency",
-            "policy_denial",
-            "approval_denial",
-            "permission_denial",
-            "guardrail_denial",
-            "blocked_dependency",
+    def test_retry_contract_rejects_contradictory_status_and_flag(self) -> None:
+        with self.assertRaisesRegex(ValueError, "retryable must be true exactly"):
+            WorkerAttemptResult(
+                task_id="A",
+                attempt=1,
+                launch_wave_index=1,
+                status="retryable_failure",
+                failure_kind="provider_timeout",
+                retryable=False,
+            )
+        with self.assertRaisesRegex(ValueError, "retryable must be true exactly"):
+            WorkerAttemptResult(
+                task_id="A",
+                attempt=1,
+                launch_wave_index=1,
+                status="terminal_failure",
+                failure_kind="policy_denial",
+                retryable=True,
+            )
+
+    def test_coordinator_retry_uses_typed_outcome_not_failure_kind_text(self) -> None:
+        retryable = WorkerAttemptResult(
+            task_id="A",
+            attempt=1,
+            launch_wave_index=1,
+            status="retryable_failure",
+            failure_kind="diagnostic_mentions_scope_merge_policy",
+            retryable=True,
         )
-        for failure_kind in failure_kinds:
-            with self.subTest(failure_kind=failure_kind):
-                result = WorkerAttemptResult(
-                    task_id="A",
-                    attempt=1,
-                    launch_wave_index=1,
-                    status="retryable_failure",
-                    failure_kind=failure_kind,
-                    retryable=True,
-                )
-                self.assertFalse(FanoutCoordinator._worker_retry_allowed(result))
+        policy_denial = WorkerAttemptResult(
+            task_id="A",
+            attempt=1,
+            launch_wave_index=1,
+            status="terminal_failure",
+            failure_kind="policy_denial",
+            retryable=False,
+        )
+
+        self.assertTrue(FanoutCoordinator._worker_retry_allowed(retryable))
+        self.assertFalse(FanoutCoordinator._worker_retry_allowed(policy_denial))
+
+        artifacts = _Artifacts()
+        plan = _plan(_task("A"))
+        workers = _Workers(
+            artifacts,
+            lambda task, attempt, _: _attempt(
+                artifacts,
+                task,
+                attempt,
+                status="terminal_failure",
+                failure_kind="policy_denial",
+                retryable=False,
+            ),
+        )
+        summary = _coordinator(plan, artifacts, workers)[0].run()
+        self.assertEqual([(row[0], row[1]) for row in workers.calls], [("A", 1)])
+        self.assertFalse(summary.attempt_results[0].retryable)
+
+    def test_transient_worker_port_failures_are_classified_retryable(self) -> None:
+        for failure in (TimeoutError("timeout"), ConnectionError("connection")):
+            with self.subTest(failure=type(failure).__name__):
+                artifacts = _Artifacts()
+                plan = _plan(_task("A"))
+
+                def behavior(
+                    task: SubagentTask,
+                    attempt: int,
+                    _: Any,
+                ) -> WorkerAttemptResult:
+                    if attempt == 1:
+                        raise failure
+                    return _attempt(artifacts, task, attempt)
+
+                summary = _coordinator(
+                    plan,
+                    artifacts,
+                    _Workers(artifacts, behavior),
+                )[0].run()
+
+                first = summary.attempt_results[0]
+                self.assertEqual(first.status, "retryable_failure")
+                self.assertTrue(first.retryable)
+                self.assertEqual(summary.merged_task_ids, ["A"])
+
+    def test_worker_adapter_projects_typed_provider_retry_decision(self) -> None:
+        with TemporaryDirectory() as temporary:
+            trace_path = Path(temporary) / "trace.json"
+            trace_path.write_text(
+                json.dumps(
+                    {
+                        "stop_reason": "invalid_llm_response",
+                        "events": [
+                            {
+                                "event_type": "recovery_decision",
+                                "failure_kind": "model_response",
+                                "retryable": True,
+                            }
+                        ],
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            stop_reason, failure_kind, retryable, _ = _trace_outcome(trace_path)
+            status, projected_kind, _ = _worker_attempt_outcome(
+                final_answer="blocked: invalid llm response",
+                stop_reason=stop_reason,
+                failure_kind=failure_kind,
+                retryable=retryable,
+            )
+
+        self.assertEqual(status, "retryable_failure")
+        self.assertEqual(projected_kind, "model_response")
+        self.assertTrue(retryable)
 
     def test_merge_conflict_fails_closed_without_worker_recovery(self) -> None:
         artifacts = _Artifacts()

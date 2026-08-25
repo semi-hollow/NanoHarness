@@ -9,7 +9,11 @@ from typing import Any
 # 核心数据：Runtime 传给 ModelPort 的 provider 无关消息。
 @dataclass
 class Message:
-    """进入模型端口的规范化消息。"""
+    """进入模型端口的规范化消息，以及 Runtime-only journal provenance。
+
+    ``item_id`` / ``turn_id`` / ``human_input_request_id`` 不会传给 Provider；它们让
+    compaction 使用持久化身份判断 Turn authority 和 ask_human 事务，而不是比较文本。
+    """
 
     role: str
     content: str
@@ -19,6 +23,9 @@ class Message:
     reasoning_content: str | None = None
     origin: str = ""
     human_authority: bool = False
+    item_id: str = ""
+    turn_id: str = ""
+    human_input_request_id: str = ""
 
 
 # 核心数据：模型请求执行某个工具的规范化意图。
@@ -40,12 +47,21 @@ class Observation:
     表示工具基础设施本身是否完成调用。大多数工具两者含义相同，因此后者默认
     为 ``None``。验证工具会显式区分“pytest 成功运行但测试未通过”和“pytest
     根本没有运行起来”，避免 Runtime 把正常的修复反馈误判成工具故障。
+    ``validation_status`` 只由具有结构化验证契约的 Tool 设置，供 continuation
+    state 直接消费 ``passed/failed/blocked``，不从 Observation 文本猜状态。
     """
 
     tool_name: str
     success: bool
     content: str
     execution_succeeded: bool | None = None
+    validation_status: str | None = None
+
+    def __post_init__(self) -> None:
+        if self.validation_status not in {None, "passed", "failed", "blocked"}:
+            raise ValueError(
+                f"unsupported Observation validation_status: {self.validation_status}"
+            )
 
 
 # 核心数据：ModelPort 返回的文本、工具意图、错误与用量事实。

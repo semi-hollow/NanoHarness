@@ -607,7 +607,11 @@ class StableTurnContextSnapshot:
 
 @dataclass(frozen=True, kw_only=True)
 class ThreadContextState:
-    """Conversation digest 与每 Turn 稳定快照的 CAS 持久化边界。"""
+    """Conversation digest 与每 Turn 稳定快照的 CAS 持久化边界。
+
+    Digest coverage/state 可以跨 Turn 滚动；其中 non-droppable authority 由
+    ``authority_turn_id`` 显式归属当前 Turn，root task 仍只由 ``Turn`` 拥有。
+    """
 
     thread_id: str
     revision: int = 0
@@ -620,8 +624,8 @@ class ThreadContextState:
         if self.revision < 0 or self.covered_sequence < 0:
             raise ValueError("context revision/covered sequence must not be negative")
         if self.conversation_history_digest:
-            if not str(self.conversation_history_digest.get("initial_task") or ""):
-                raise ValueError("conversation digest requires canonical initial_task")
+            if not str(self.conversation_history_digest.get("authority_turn_id") or ""):
+                raise ValueError("conversation digest requires authority_turn_id")
             raw_digest_covered = self.conversation_history_digest.get(
                 "covered_message_count"
             )

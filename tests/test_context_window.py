@@ -53,6 +53,11 @@ def _tool_history(
                 success,
                 content,
                 execution_succeeded=execution_succeeded,
+                validation_status=(
+                    ("passed" if success else "failed")
+                    if tool_name == "python_validation"
+                    else None
+                ),
             )
         )
     return messages, observations
@@ -60,16 +65,13 @@ def _tool_history(
 
 def _digest_for_tool_history(
     entries: list[tuple[str, dict[str, object], bool, str, bool | None]],
-    *,
-    tool_metadata: dict[str, dict[str, object]] | None = None,
 ) -> ConversationHistoryDigest:
     messages, observations = _tool_history(entries)
     return compaction_module._build_digest(
-        "initial task",
+        "turn-current",
+        "user:turn-current",
         compaction_module._group_history_segments(messages, observations),
         estimated_tokens_before=1_000,
-        skip_initial_user_message=False,
-        tool_metadata=tool_metadata,
     )
 
 
@@ -221,6 +223,11 @@ class PromptWindowManagerTest(unittest.TestCase):
                 reasoning_content=item.reasoning_content,
                 origin=item.origin,
                 human_authority=item.human_authority,
+                item_id=str(getattr(item, "item_id", "")),
+                turn_id=str(getattr(item, "turn_id", "")),
+                human_input_request_id=str(
+                    getattr(item, "metadata", {}).get("human_input_request_id") or ""
+                ),
             )
             for item in projected
         ]
@@ -285,7 +292,8 @@ class PromptWindowManagerTest(unittest.TestCase):
                 conversation_history=history,
                 observations=observations,
                 tool_schemas=[{"name": "read_file", "arguments": {"path": "str"}}],
-                conversation_initial_task="fix the parser and run tests",
+                current_turn_id="turn-current",
+                current_turn_input_item_id="user:turn-current",
                 force_compaction=True,
             )
         )
@@ -317,7 +325,8 @@ class PromptWindowManagerTest(unittest.TestCase):
                 conversation_history=history,
                 observations=[],
                 tool_schemas=[],
-                conversation_initial_task="inspect target.py",
+                current_turn_id="turn-current",
+                current_turn_input_item_id="user:turn-current",
             )
         )
 
@@ -342,7 +351,8 @@ class PromptWindowManagerTest(unittest.TestCase):
                 conversation_history=history,
                 observations=[],
                 tool_schemas=[],
-                conversation_initial_task="continue",
+                current_turn_id="turn-current",
+                current_turn_input_item_id="user:turn-current",
             )
         )
         forced = manager.prepare(
@@ -351,7 +361,8 @@ class PromptWindowManagerTest(unittest.TestCase):
                 conversation_history=history,
                 observations=[],
                 tool_schemas=[],
-                conversation_initial_task="continue",
+                current_turn_id="turn-current",
+                current_turn_input_item_id="user:turn-current",
                 force_compaction=True,
             )
         )
@@ -363,15 +374,24 @@ class PromptWindowManagerTest(unittest.TestCase):
             forced.estimated_tokens_before,
         )
 
-    def test_digest_keeps_initial_task_and_later_authority_updates_separate(self) -> None:
+    def test_digest_keeps_turn_root_out_of_current_turn_authority_updates(self) -> None:
         history = [
-            Message("user", "initial task", human_authority=True, origin="human"),
+            Message(
+                "user",
+                "initial task",
+                human_authority=True,
+                origin="human",
+                item_id="user:turn-current",
+                turn_id="turn-current",
+            ),
             Message("assistant", "a" * 3_000),
             Message(
                 "user",
                 "steer: preserve public API",
                 human_authority=True,
                 origin="operator",
+                item_id="steer:1",
+                turn_id="turn-current",
             ),
             Message("assistant", "b" * 3_000),
             Message(
@@ -379,6 +399,8 @@ class PromptWindowManagerTest(unittest.TestCase):
                 "constraint: run focused tests",
                 human_authority=True,
                 origin="human",
+                item_id="clarification:2",
+                turn_id="turn-current",
             ),
             Message("assistant", "c" * 3_000),
         ]
@@ -395,14 +417,19 @@ class PromptWindowManagerTest(unittest.TestCase):
                 conversation_history=history,
                 observations=[],
                 tool_schemas=[],
-                conversation_initial_task="initial task",
+                current_turn_id="turn-current",
+                current_turn_input_item_id="user:turn-current",
                 force_compaction=True,
             )
         )
 
         self.assertIsNotNone(result.conversation_history_digest)
         assert result.conversation_history_digest is not None
-        self.assertEqual(result.conversation_history_digest.initial_task, "initial task")
+        self.assertEqual(
+            result.conversation_history_digest.authority_turn_id,
+            "turn-current",
+        )
+        self.assertFalse(hasattr(result.conversation_history_digest, "initial_task"))
         self.assertEqual(
             result.conversation_history_digest.authority_updates,
             ["steer: preserve public API"],
@@ -431,7 +458,8 @@ class PromptWindowManagerTest(unittest.TestCase):
             conversation_history=history,
             observations=[Observation("read_file", True, "content")],
             tool_schemas=[{"name": "read_file"}],
-            conversation_initial_task="initial task",
+            current_turn_id="turn-current",
+            current_turn_input_item_id="user:turn-current",
             force_compaction=True,
         )
         manager = PromptWindowManager(
@@ -471,10 +499,10 @@ class PromptWindowManagerTest(unittest.TestCase):
                 [],
             )
             return compaction_module._build_digest(
-                "inspect parser",
+                "turn-current",
+                "user:turn-current",
                 segments,
                 estimated_tokens_before=100,
-                skip_initial_user_message=False,
             )
 
         self.assertNotEqual(
@@ -511,10 +539,10 @@ class PromptWindowManagerTest(unittest.TestCase):
                 ],
             )
             return compaction_module._build_digest(
-                "inspect parser",
+                "turn-current",
+                "user:turn-current",
                 segments,
                 estimated_tokens_before=100,
-                skip_initial_user_message=False,
             )
 
         successful = build(True)
@@ -529,44 +557,66 @@ class PromptWindowManagerTest(unittest.TestCase):
 
     def test_runtime_coordination_is_not_a_human_authority_update(self) -> None:
         messages = [
-            Message("user", "initial", origin="human", human_authority=True),
+            Message(
+                "user",
+                "initial",
+                origin="human",
+                human_authority=True,
+                item_id="user:turn-current",
+                turn_id="turn-current",
+            ),
             Message(
                 "user",
                 "RUNTIME COORDINATION EVIDENCE: worker ready",
                 origin="runtime_coordination",
                 human_authority=False,
+                item_id="coordination:1",
+                turn_id="turn-current",
             ),
             Message(
                 "user",
                 "operator steer",
                 origin="operator",
                 human_authority=True,
+                item_id="steer:1",
+                turn_id="turn-current",
             ),
         ]
         digest = compaction_module._build_digest(
-            "initial",
+            "turn-current",
+            "user:turn-current",
             compaction_module._group_history_segments(messages, []),
             estimated_tokens_before=100,
-            skip_initial_user_message=True,
         )
         self.assertEqual(digest.authority_updates, ["operator steer"])
 
     def test_authority_updates_are_not_silently_evicted_by_history_length(self) -> None:
-        messages = [Message("user", "initial", origin="human", human_authority=True)]
+        messages = [
+            Message(
+                "user",
+                "initial",
+                origin="human",
+                human_authority=True,
+                item_id="user:turn-current",
+                turn_id="turn-current",
+            )
+        ]
         messages.extend(
             Message(
                 "user",
                 f"authoritative constraint {index}",
                 origin="operator",
                 human_authority=True,
+                item_id=f"steer:{index}",
+                turn_id="turn-current",
             )
             for index in range(6)
         )
         previous = compaction_module._build_digest(
-            "initial",
+            "turn-current",
+            "user:turn-current",
             compaction_module._group_history_segments(messages, []),
             estimated_tokens_before=1_000,
-            skip_initial_user_message=True,
         )
         delta_messages = [
             Message(
@@ -574,14 +624,16 @@ class PromptWindowManagerTest(unittest.TestCase):
                 f"authoritative constraint {index}",
                 origin="operator",
                 human_authority=True,
+                item_id=f"steer:{index}",
+                turn_id="turn-current",
             )
             for index in range(6, 12)
         ]
         delta = compaction_module._build_digest(
-            "initial",
+            "turn-current",
+            "user:turn-current",
             compaction_module._group_history_segments(delta_messages, []),
             estimated_tokens_before=1_200,
-            skip_initial_user_message=False,
         )
         digest = compaction_module._merge_digest(
             previous,
@@ -594,22 +646,111 @@ class PromptWindowManagerTest(unittest.TestCase):
             [f"authoritative constraint {index}" for index in range(12)],
         )
 
+    def test_new_turn_drops_previous_turn_authority_from_model_projection(self) -> None:
+        turn_a_digest = ConversationHistoryDigest(
+            authority_turn_id="turn-a",
+            covered_message_count=20,
+            source_hash="turn-a-history",
+            authority_updates=["Turn A: do not change the public API"],
+            resource_hints=["auth.py"],
+            state_evidence=[],
+            recent_tool_transactions=[],
+            estimated_tokens_before=1_000,
+            estimated_tokens_after=500,
+        )
+
+        result = PromptWindowManager(PromptBudget()).prepare(
+            PromptWindowRequest(
+                model_step_system_message=Message(
+                    "system",
+                    "Turn B root task: add regression tests",
+                ),
+                conversation_history=[
+                    Message(
+                        "user",
+                        "add regression tests",
+                        origin="human",
+                        human_authority=True,
+                        item_id="user:turn-b",
+                        turn_id="turn-b",
+                    )
+                ],
+                observations=[],
+                tool_schemas=[],
+                current_turn_id="turn-b",
+                current_turn_input_item_id="user:turn-b",
+                previous_digest=turn_a_digest,
+            )
+        )
+
+        digest = result.conversation_history_digest
+        assert digest is not None
+        self.assertEqual(digest.authority_turn_id, "turn-b")
+        self.assertEqual(digest.authority_updates, [])
+        self.assertEqual(digest.source_hash, "turn-a-history")
+        self.assertNotIn(
+            "Turn A: do not change the public API",
+            "\n".join(message.content for message in result.llm_messages),
+        )
+        self.assertIn("add regression tests", result.llm_messages[-1].content)
+
+    def test_same_turn_reuses_persisted_authority_updates(self) -> None:
+        digest = ConversationHistoryDigest(
+            authority_turn_id="turn-a",
+            covered_message_count=20,
+            source_hash="turn-a-history",
+            authority_updates=["do not change the public API"],
+            resource_hints=[],
+            state_evidence=[],
+            recent_tool_transactions=[],
+            estimated_tokens_before=1_000,
+            estimated_tokens_after=500,
+        )
+
+        result = PromptWindowManager(PromptBudget()).prepare(
+            PromptWindowRequest(
+                model_step_system_message=Message("system", "Turn A root task"),
+                conversation_history=[Message("assistant", "continue")],
+                observations=[],
+                tool_schemas=[],
+                current_turn_id="turn-a",
+                current_turn_input_item_id="user:turn-a",
+                previous_digest=digest,
+            )
+        )
+
+        self.assertEqual(
+            result.conversation_history_digest.authority_updates,  # type: ignore[union-attr]
+            ["do not change the public API"],
+        )
+
     def test_authority_capacity_overflow_fails_closed(self) -> None:
-        messages = [Message("user", "initial", origin="human", human_authority=True)]
+        messages = [
+            Message(
+                "user",
+                "initial",
+                origin="human",
+                human_authority=True,
+                item_id="user:turn-current",
+                turn_id="turn-current",
+            )
+        ]
         messages.extend(
             Message(
                 "user",
                 f"constraint-{index}-" + (str(index) * 800),
                 origin="operator",
                 human_authority=True,
+                item_id=f"steer:{index}",
+                turn_id="turn-current",
             )
             for index in range(3)
         )
         digest = compaction_module._build_digest(
-            "initial",
+            "turn-current",
+            "user:turn-current",
             compaction_module._group_history_segments(messages, []),
             estimated_tokens_before=1_000,
-            skip_initial_user_message=True,
         )
 
         with self.assertRaisesRegex(
@@ -624,7 +765,8 @@ class PromptWindowManagerTest(unittest.TestCase):
                     conversation_history=[Message("assistant", "recent tail")],
                     observations=[],
                     tool_schemas=[],
-                    conversation_initial_task="initial",
+                    current_turn_id="turn-current",
+                    current_turn_input_item_id="user:turn-current",
                     previous_digest=digest,
                 )
             )
@@ -662,22 +804,33 @@ class PromptWindowManagerTest(unittest.TestCase):
                     "tests/test_auth.py:12",
                     None,
                 ),
-            ],
-            tool_metadata={
-                "read_file": {"capability": "inspect", "mode": "read"},
-                "grep_search": {"capability": "search", "mode": "read"},
-            },
+            ]
         )
 
         self.assertEqual(digest.state_evidence, [])
-        self.assertEqual(digest.unresolved_failures, [])
         self.assertEqual(digest.resource_hints, ["auth.py", "tests", "TokenManager"])
         self.assertEqual(len(digest.recent_tool_transactions), 2)
 
+    def test_generic_run_command_is_only_a_recent_breadcrumb(self) -> None:
+        digest = _digest_for_tool_history(
+            [
+                (
+                    "run_command",
+                    {"command": "pytest tests/test_auth.py"},
+                    False,
+                    "exit_code=1",
+                    True,
+                )
+            ]
+        )
+
+        self.assertEqual(digest.state_evidence, [])
+        self.assertEqual(
+            [item.tool_name for item in digest.recent_tool_transactions],
+            ["run_command"],
+        )
+
     def test_validation_fail_then_pass_supersedes_failure_across_merge(self) -> None:
-        metadata = {
-            "python_validation": {"capability": "validate", "mode": "read"}
-        }
         arguments = {"check_type": "pytest", "validation_target": "tests/test_auth.py"}
         failed = _digest_for_tool_history(
             [
@@ -688,8 +841,7 @@ class PromptWindowManagerTest(unittest.TestCase):
                     "validation_command=pytest tests/test_auth.py\n1 failed",
                     True,
                 )
-            ],
-            tool_metadata=metadata,
+            ]
         )
         passed = _digest_for_tool_history(
             [
@@ -700,11 +852,10 @@ class PromptWindowManagerTest(unittest.TestCase):
                     "validation_command=pytest tests/test_auth.py\n1 passed",
                     True,
                 )
-            ],
-            tool_metadata=metadata,
+            ]
         )
 
-        self.assertEqual([item.status for item in failed.unresolved_failures], ["failed"])
+        self.assertEqual([item.status for item in failed.state_evidence], ["failed"])
         merged = compaction_module._merge_digest(
             failed,
             passed,
@@ -712,12 +863,8 @@ class PromptWindowManagerTest(unittest.TestCase):
         )
         self.assertEqual(len(merged.state_evidence), 1)
         self.assertEqual(merged.state_evidence[0].status, "passed")
-        self.assertEqual(merged.unresolved_failures, [])
 
     def test_successful_edit_marks_prior_validation_stale_until_revalidated(self) -> None:
-        validation_metadata = {
-            "python_validation": {"capability": "validate", "mode": "read"}
-        }
         validation_arguments = {
             "check_type": "pytest",
             "validation_target": "tests/test_auth.py",
@@ -731,8 +878,7 @@ class PromptWindowManagerTest(unittest.TestCase):
                     "1 passed",
                     True,
                 )
-            ],
-            tool_metadata=validation_metadata,
+            ]
         )
         edit = _digest_for_tool_history(
             [
@@ -743,10 +889,7 @@ class PromptWindowManagerTest(unittest.TestCase):
                     "replaced text once: auth.py",
                     None,
                 )
-            ],
-            tool_metadata={
-                "replace_text": {"capability": "edit", "mode": "write"}
-            },
+            ]
         )
 
         after_edit = compaction_module._merge_digest(
@@ -757,7 +900,6 @@ class PromptWindowManagerTest(unittest.TestCase):
 
         self.assertTrue(after_edit.workspace_mutation_observed)
         self.assertEqual(after_edit.state_evidence[0].status, "stale")
-        self.assertEqual(after_edit.unresolved_failures, after_edit.state_evidence)
 
         revalidated = _digest_for_tool_history(
             [
@@ -768,8 +910,7 @@ class PromptWindowManagerTest(unittest.TestCase):
                     "1 passed after edit",
                     True,
                 )
-            ],
-            tool_metadata=validation_metadata,
+            ]
         )
         after_revalidation = compaction_module._merge_digest(
             after_edit,
@@ -777,12 +918,8 @@ class PromptWindowManagerTest(unittest.TestCase):
             estimated_tokens_before=2_200,
         )
         self.assertEqual(after_revalidation.state_evidence[0].status, "passed")
-        self.assertEqual(after_revalidation.unresolved_failures, [])
 
     def test_distinct_validation_keys_keep_independent_latest_state(self) -> None:
-        metadata = {
-            "python_validation": {"capability": "validate", "mode": "read"}
-        }
         digest = _digest_for_tool_history(
             [
                 (
@@ -799,8 +936,7 @@ class PromptWindowManagerTest(unittest.TestCase):
                     "1 passed",
                     True,
                 ),
-            ],
-            tool_metadata=metadata,
+            ]
         )
 
         self.assertEqual(len(digest.state_evidence), 2)
@@ -809,59 +945,45 @@ class PromptWindowManagerTest(unittest.TestCase):
             digest.state_evidence[1].state_key,
         )
         self.assertEqual(
-            [item.arguments_summary for item in digest.unresolved_failures],
-            ['{"check_type":"pytest","validation_target":"tests/test_auth.py"}'],
-        )
-
-    def test_state_key_preserves_argument_string_whitespace(self) -> None:
-        digest = _digest_for_tool_history(
             [
-                (
-                    "run_command",
-                    {"command": 'pytest -k "a  b"'},
-                    True,
-                    "exit_code=0",
-                    None,
-                ),
-                (
-                    "run_command",
-                    {"command": 'pytest -k "a b"'},
-                    True,
-                    "exit_code=0",
-                    None,
-                ),
+                (item.validation_target, item.status)
+                for item in digest.state_evidence
             ],
-            tool_metadata={
-                "run_command": {"capability": "validate", "mode": "command"}
-            },
+            [("tests/test_auth.py", "failed"), ("tests/test_api.py", "passed")],
         )
 
-        self.assertEqual(len(digest.state_evidence), 2)
-        self.assertNotEqual(
-            digest.state_evidence[0].state_key,
-            digest.state_evidence[1].state_key,
-        )
-
-    def test_validation_blocked_is_not_rendered_as_passed(self) -> None:
-        digest = _digest_for_tool_history(
+    def test_validation_blocked_uses_typed_status_not_observation_text(self) -> None:
+        messages, _ = _tool_history(
             [
                 (
                     "python_validation",
                     {"check_type": "pytest", "validation_target": "tests"},
                     True,
-                    "validation_blocked: pytest is not installed",
+                    "environment unavailable",
                     None,
                 )
-            ],
-            tool_metadata={
-                "python_validation": {"capability": "validate", "mode": "read"}
-            },
+            ]
+        )
+        digest = compaction_module._build_digest(
+            "turn-current",
+            "user:turn-current",
+            compaction_module._group_history_segments(
+                messages,
+                [
+                    Observation(
+                        "python_validation",
+                        True,
+                        "environment unavailable",
+                        validation_status="blocked",
+                    )
+                ],
+            ),
+            estimated_tokens_before=1_000,
         )
 
         self.assertEqual(digest.state_evidence[0].status, "blocked")
-        self.assertEqual(digest.unresolved_failures, digest.state_evidence)
 
-    def test_digest_round_trip_derives_unresolved_failures_from_state_evidence(self) -> None:
+    def test_digest_round_trip_has_one_validation_state_authority(self) -> None:
         digest = _digest_for_tool_history(
             [
                 (
@@ -871,10 +993,7 @@ class PromptWindowManagerTest(unittest.TestCase):
                     "1 failed",
                     True,
                 )
-            ],
-            tool_metadata={
-                "python_validation": {"capability": "validate", "mode": "read"}
-            },
+            ]
         )
 
         payload = digest.to_dict()
@@ -882,7 +1001,7 @@ class PromptWindowManagerTest(unittest.TestCase):
 
         self.assertNotIn("unresolved_failures", payload)
         self.assertEqual(restored.state_evidence, digest.state_evidence)
-        self.assertEqual(restored.unresolved_failures, restored.state_evidence)
+        self.assertFalse(hasattr(restored, "unresolved_failures"))
 
     def test_resource_hints_are_deduplicated_and_latest_n_bounded(self) -> None:
         entries = [
@@ -902,15 +1021,15 @@ class PromptWindowManagerTest(unittest.TestCase):
             ToolStateDigest(
                 state_key=f"validate:key-{index}",
                 tool_name="python_validation",
-                capability="validate",
-                arguments_summary=f"target-{index}",
+                check_type="pytest",
+                validation_target=f"target-{index}",
                 status="passed",
                 observation_excerpt="ok",
             )
             for index in range(compaction_module.STATE_EVIDENCE_LIMIT + 1)
         ]
         digest = ConversationHistoryDigest(
-            initial_task="initial",
+            authority_turn_id="turn-current",
             covered_message_count=len(state_evidence),
             source_hash="state-overflow",
             authority_updates=[],
@@ -931,7 +1050,8 @@ class PromptWindowManagerTest(unittest.TestCase):
                     conversation_history=[Message("assistant", "tail")],
                     observations=[],
                     tool_schemas=[],
-                    conversation_initial_task="initial",
+                    current_turn_id="turn-current",
+                    current_turn_input_item_id="user:turn-current",
                     previous_digest=digest,
                 )
             )
@@ -941,7 +1061,14 @@ class PromptWindowManagerTest(unittest.TestCase):
             PromptBudget(max_prompt_tokens=1_200, reserved_output_tokens=100)
         )
         initial_history = [
-            Message("user", "initial task", human_authority=True, origin="human"),
+            Message(
+                "user",
+                "initial task",
+                human_authority=True,
+                origin="human",
+                item_id="user:turn-current",
+                turn_id="turn-current",
+            ),
             Message("assistant", "analysis-a " + ("a" * 3_000)),
             Message("user", "preserve API"),
             Message("assistant", "analysis-b " + ("b" * 3_000)),
@@ -952,7 +1079,8 @@ class PromptWindowManagerTest(unittest.TestCase):
                 conversation_history=initial_history,
                 observations=[],
                 tool_schemas=[],
-                conversation_initial_task="initial task",
+                current_turn_id="turn-current",
+                current_turn_input_item_id="user:turn-current",
                 force_compaction=True,
             )
         )
@@ -965,6 +1093,8 @@ class PromptWindowManagerTest(unittest.TestCase):
                 "steer: tests still use pytest",
                 human_authority=True,
                 origin="operator",
+                item_id="steer:pytest",
+                turn_id="turn-current",
             ),
             Message("assistant", "analysis-c " + ("c" * 3_000)),
             Message(
@@ -972,6 +1102,8 @@ class PromptWindowManagerTest(unittest.TestCase):
                 "also run a regression test",
                 human_authority=True,
                 origin="human",
+                item_id="clarification:regression",
+                turn_id="turn-current",
             ),
             Message("assistant", "analysis-d " + ("d" * 3_000)),
         ]
@@ -981,7 +1113,8 @@ class PromptWindowManagerTest(unittest.TestCase):
                 conversation_history=new_delta,
                 observations=[],
                 tool_schemas=[],
-                conversation_initial_task="initial task",
+                current_turn_id="turn-current",
+                current_turn_input_item_id="user:turn-current",
                 previous_digest=first.conversation_history_digest,
                 force_compaction=True,
             )
@@ -1029,7 +1162,8 @@ class PromptWindowManagerTest(unittest.TestCase):
                     conversation_history=history,
                     observations=[],
                     tool_schemas=[],
-                    conversation_initial_task="initial task",
+                    current_turn_id="turn-current",
+                    current_turn_input_item_id="user:turn-current",
                 )
             )
 
@@ -1037,7 +1171,7 @@ class PromptWindowManagerTest(unittest.TestCase):
         self.assertEqual(group_segments.call_count, 1)
         self.assertGreater(build_digest.call_count, 1)
         self.assertTrue(
-            all(len(call.args[1]) == 1 for call in build_digest.call_args_list)
+            all(len(call.args[2]) == 1 for call in build_digest.call_args_list)
         )
 
     def test_selects_first_legal_prefix_that_restores_budget(self) -> None:
@@ -1078,7 +1212,8 @@ class PromptWindowManagerTest(unittest.TestCase):
                     conversation_history=history,
                     observations=[],
                     tool_schemas=[],
-                    conversation_initial_task="initial task",
+                    current_turn_id="turn-current",
+                    current_turn_input_item_id="user:turn-current",
                 )
             )
 
@@ -1106,7 +1241,7 @@ class PromptWindowManagerTest(unittest.TestCase):
             lifecycle=lifecycle,
         )
         digest = ConversationHistoryDigest(
-            initial_task="initial",
+            authority_turn_id="turn-current",
             covered_message_count=1,
             source_hash="source",
             authority_updates=[],

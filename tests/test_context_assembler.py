@@ -22,9 +22,10 @@ def _stable_request(
     *,
     profile: str = "single_agent",
     max_chars: int = 6_000,
+    root_task: str = "inspect target.py",
 ) -> StableTurnContextRequest:
     return StableTurnContextRequest(
-        root_task="inspect target.py",
+        root_task=root_task,
         workspace=workspace,
         base_tool_schemas=[{"name": "read_file", "arguments": {"path": "str"}}],
         active_skill_cards=[],
@@ -89,6 +90,7 @@ class RepositorySystemContextAssemblerTest(unittest.TestCase):
 
         self.assertEqual(before, after)
         self.assertIn("system:\n", before)
+        self.assertIn("current_turn_root_task:\ninspect target.py", before)
         self.assertNotIn("... [middle truncated]", before.split("project_instructions:", 1)[0])
 
     def test_stable_budget_too_small_for_system_fails_closed(self) -> None:
@@ -96,6 +98,17 @@ class RepositorySystemContextAssemblerTest(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "complete governing System Prompt"):
                 RepositorySystemContextAssembler().freeze_stable(
                     _stable_request(tmp, max_chars=256)
+                )
+
+    def test_stable_prefix_fails_closed_instead_of_truncating_turn_root_task(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            with self.assertRaisesRegex(ValueError, "complete current Turn root task"):
+                RepositorySystemContextAssembler().freeze_stable(
+                    _stable_request(
+                        tmp,
+                        max_chars=6_000,
+                        root_task="preserve every constraint " + ("x" * 10_000),
+                    )
                 )
 
     def test_repo_map_does_not_ignore_workspace_because_of_parent_directory(self) -> None:
