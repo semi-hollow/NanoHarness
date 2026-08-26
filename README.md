@@ -106,8 +106,8 @@ ModelPort.chat(...)
 ```
 
 `PromptWindowManager` 只压缩模型输入投影：原始 Thread journal 不会因窗口收缩而被删除。
-滚动摘要只合并尚未覆盖的对话前缀，并保留最近 raw tail；assistant ToolCall batch 与对应
-Observation 在窗口切分和 Provider 投影中保持协议完整。
+滚动摘要只合并尚未覆盖的对话前缀，并保留 protocol-preserving recent tail；assistant
+ToolCall batch 与对应 Observation 在窗口切分和 Provider 投影中保持协议完整，超大正文仍可做确定性截断。
 
 核心入口：[`model_step_preparation.py`](agent_forge/runtime/application/model_step_preparation.py)、
 [`compaction.py`](agent_forge/context/application/compaction.py) 和
@@ -132,7 +132,7 @@ assistant batch durable append
 副作用由 operation identity/fingerprint 防止重复执行；每个 ToolCall 最终只能对应一条合法
 Observation。`ask_human` 与 Approval 是可恢复屏障，不是临时终端交互。
 
-完整设计见 [`运行治理与工具执行`](docs/运行治理与工具执行.md)。
+完整设计见 [`运行治理与副作用`](docs/运行治理与副作用.md)。
 
 ## 多 Agent 协作
 
@@ -219,14 +219,13 @@ forge ui        打开只读 Evidence Workbench
 ## 文档
 
 - [`架构导览`](docs/架构导览.md)：Ownership 与端到端主链；
-- [`Agent 运行数据结构与模型输入`](docs/Agent运行数据结构与模型输入.md)：Thread、Turn、Run、Model Step 与输入快照；
-- [`上下文工程`](docs/上下文工程.md)：System Context、Memory、Instructions 与 Tool Schema；
-- [`上下文压缩与长任务设计`](docs/上下文压缩与长任务设计.md)：raw Thread、Digest、窗口投影与恢复；
-- [`运行治理与工具执行`](docs/运行治理与工具执行.md)：Tool batch、权限、Approval、Ledger 与 Observation；
+- [`单 Agent 运行链路`](docs/单Agent运行链路.md)：Thread、Turn、Run、Model Step 与 Same-Turn Resume；
+- [`运行治理与副作用`](docs/运行治理与副作用.md)：Tool batch、权限、Approval、Ledger 与 Observation；
+- [`上下文工程与长任务`](docs/上下文工程与长任务.md)：Stable/Dynamic Context、Prompt Window、Digest 与 LTM；
 - [`多 Agent 编排`](docs/多Agent编排.md)：Planning、HARD/LIVE、私有 Worker Thread 与集成；
+- [`持久化与恢复`](docs/持久化与恢复.md)：Durable files、pointer、crash window 与恢复顺序；
 - [`核心能力与代码入口`](docs/核心能力与代码入口.md)：能力到唯一代码 owner；
-- [`运行产物与持久化契约`](docs/运行产物与持久化契约.md)：权威状态、执行证据和派生视图；
-- [`生产化边界与扩展`](docs/生产化边界与扩展.md)：当前实现与规模边界；
+- [`技术文档规范`](docs/DOCUMENTATION_RULES.md)：Canonical 文档边界与验证规则；
 - [`Debug Lab`](examples/debug_lab/README.md)：确定性运行和按钮式观察；
 - [`实验总览`](benchmarks/experiments/README.md)：版本化实验配置与结果入口。
 

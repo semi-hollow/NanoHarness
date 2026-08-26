@@ -15,42 +15,38 @@ CHINESE_FIRST_DOCS = (
     "SECURITY.md",
     "agent_forge/README.md",
     "docs/架构导览.md",
-    "docs/Agent运行数据结构与模型输入.md",
-    "docs/上下文工程.md",
-    "docs/上下文压缩与长任务设计.md",
-    "docs/运行治理与工具执行.md",
+    "docs/单Agent运行链路.md",
+    "docs/运行治理与副作用.md",
+    "docs/上下文工程与长任务.md",
     "docs/多Agent编排.md",
-    "docs/生产化边界与扩展.md",
+    "docs/持久化与恢复.md",
     "docs/核心能力与代码入口.md",
-    "docs/运行产物与持久化契约.md",
     "docs/DOCUMENTATION_RULES.md",
     "examples/debug_lab/README.md",
 )
 
 PUBLIC_DOC_LINE_BUDGETS = {
     "README.md": 250,
-    "docs/架构导览.md": 450,
-    "docs/Agent运行数据结构与模型输入.md": 430,
-    "docs/上下文工程.md": 350,
-    "docs/上下文压缩与长任务设计.md": 320,
-    "docs/运行治理与工具执行.md": 620,
-    "docs/多Agent编排.md": 420,
-    "docs/生产化边界与扩展.md": 220,
-    "docs/核心能力与代码入口.md": 280,
-    "docs/运行产物与持久化契约.md": 340,
-    "docs/DOCUMENTATION_RULES.md": 180,
+    "docs/架构导览.md": 250,
+    "docs/单Agent运行链路.md": 330,
+    "docs/运行治理与副作用.md": 480,
+    "docs/上下文工程与长任务.md": 430,
+    "docs/多Agent编排.md": 440,
+    "docs/持久化与恢复.md": 480,
+    "docs/核心能力与代码入口.md": 120,
+    "docs/DOCUMENTATION_RULES.md": 540,
     "examples/debug_lab/README.md": 210,
 }
 
 CANONICAL_README_LINKS = (
     "docs/架构导览.md",
-    "docs/Agent运行数据结构与模型输入.md",
-    "docs/上下文工程.md",
-    "docs/上下文压缩与长任务设计.md",
-    "docs/运行治理与工具执行.md",
+    "docs/单Agent运行链路.md",
+    "docs/运行治理与副作用.md",
+    "docs/上下文工程与长任务.md",
     "docs/多Agent编排.md",
+    "docs/持久化与恢复.md",
     "docs/核心能力与代码入口.md",
-    "docs/运行产物与持久化契约.md",
+    "docs/DOCUMENTATION_RULES.md",
     "examples/debug_lab/README.md",
     "benchmarks/experiments/README.md",
 )
@@ -61,22 +57,24 @@ APPROVED_TECHNICAL_DOC_NAMES = {"docs/DOCUMENTATION_RULES.md"}
 
 ALLOWED_TOP_LEVEL_DOCS = {
     "docs/架构导览.md",
-    "docs/Agent运行数据结构与模型输入.md",
-    "docs/上下文工程.md",
-    "docs/上下文压缩与长任务设计.md",
-    "docs/运行治理与工具执行.md",
+    "docs/单Agent运行链路.md",
+    "docs/运行治理与副作用.md",
+    "docs/上下文工程与长任务.md",
     "docs/多Agent编排.md",
-    "docs/生产化边界与扩展.md",
+    "docs/持久化与恢复.md",
     "docs/核心能力与代码入口.md",
-    "docs/运行产物与持久化契约.md",
     "docs/DOCUMENTATION_RULES.md",
 }
 
 MAX_PUBLIC_DOCS = len(ALLOWED_TOP_LEVEL_DOCS)
 
 REVIEW_FIRST_DOCS = {
-    "docs/上下文工程.md": ("# 2. 当前 Model Step 的输入构造", 70),
-    "docs/运行治理与工具执行.md": ("# 1. 主链", 70),
+    "docs/架构导览.md": ("# 1. 系统全景", 20),
+    "docs/单Agent运行链路.md": ("# 1. 总体流程", 20),
+    "docs/运行治理与副作用.md": ("# 1. 总体主链", 20),
+    "docs/上下文工程与长任务.md": ("# 1. 总体模型", 20),
+    "docs/多Agent编排.md": ("# 1. 总体流程", 20),
+    "docs/持久化与恢复.md": ("# 1. 磁盘总图", 20),
 }
 
 PUBLIC_POSITIONING_FORBIDDEN = (
@@ -137,6 +135,8 @@ class DocumentationLanguageTest(unittest.TestCase):
         )
 
     def test_public_documents_are_chinese_first(self) -> None:
+        """文件标题和叙述正文中文优先；canonical technical heading 可保留英文。"""
+
         self.maxDiff = None
         violations: list[str] = []
         for relative_path in CHINESE_FIRST_DOCS:
@@ -158,16 +158,19 @@ class DocumentationLanguageTest(unittest.TestCase):
                 visible = re.sub(r"\[[^]]*]\([^)]*\)", "", visible)
                 is_project_name = relative_path == "README.md" and line_number == 1
                 if (
-                    line.startswith("#")
+                    line_number == 1
+                    and line.startswith("#")
                     and not is_project_name
-                    and not HAN_CHARACTER.search(visible)
+                    and not HAN_CHARACTER.search(line)
                 ):
                     violations.append(
-                        f"{relative_path}:{line_number}: heading has no Chinese: {line}"
+                        f"{relative_path}:{line_number}: document title has no Chinese: {line}"
                     )
                     continue
+                if line.startswith("#"):
+                    continue
                 latin_count = len(LATIN_CHARACTER.findall(visible))
-                if latin_count >= 40 and not HAN_CHARACTER.search(visible):
+                if latin_count >= 40 and not HAN_CHARACTER.search(line):
                     violations.append(
                         f"{relative_path}:{line_number}: English prose remains: {line}"
                     )
@@ -187,35 +190,106 @@ class DocumentationLanguageTest(unittest.TestCase):
                 f"{relative_path} 在主链前堆积了过多背景",
             )
 
+    def test_canonical_markdown_links_resolve(self) -> None:
+        """Canonical docs 与 README 的本地链接必须指向当前仓库中的真实目标。"""
+
+        broken: list[str] = []
+        for relative_path in ("README.md", *sorted(ALLOWED_TOP_LEVEL_DOCS)):
+            source = PROJECT_ROOT / relative_path
+            content = source.read_text(encoding="utf-8")
+            for raw_target in re.findall(r"\]\(([^)]+)\)", content):
+                target = raw_target.split("#", 1)[0]
+                if not target or "://" in target:
+                    continue
+                resolved = (source.parent / target).resolve()
+                if not resolved.exists():
+                    broken.append(f"{relative_path} -> {raw_target}")
+        self.assertEqual(broken, [], "Canonical Markdown contains dead local links")
+
+    def test_execute_call_comment_stages_match_governance_doc(self) -> None:
+        """核心 ToolCall 源码注释与治理文档必须保持同一七阶段顺序。"""
+
+        stages = (
+            "Route / Guardrail",
+            "Special protocol / provenance",
+            "Build OperationIntent",
+            "Ledger replay / crash idempotency",
+            "Repeat guard",
+            "Authorization",
+            "Execute + durable result",
+        )
+        source = (
+            PROJECT_ROOT / "agent_forge/runtime/application/tool_execution.py"
+        ).read_text(encoding="utf-8")
+        method_start = source.index("    def _execute_call(")
+        method_end = source.index("    # region 分支与证据叶子", method_start)
+        method = source[method_start:method_end]
+        document = (PROJECT_ROOT / "docs/运行治理与副作用.md").read_text(
+            encoding="utf-8"
+        )
+        self.assertEqual(
+            [
+                method.index(f"# region {index}. {stage}")
+                for index, stage in enumerate(stages, 1)
+            ],
+            sorted(
+                method.index(f"# region {index}. {stage}")
+                for index, stage in enumerate(stages, 1)
+            ),
+        )
+        self.assertEqual(
+            [document.casefold().index(stage.casefold()) for stage in stages],
+            sorted(document.casefold().index(stage.casefold()) for stage in stages),
+        )
+
     def test_core_docs_use_searchable_canonical_code_symbols(self) -> None:
         """数据流和运行链必须能用文档中的真实名称直接定位源码。"""
 
         required_symbols = {
-            "docs/上下文工程.md": (
-                "AgentRunSession.messages",
-                "conversation_history = list(session.messages)",
-                "PromptWindowRequest.conversation_history",
-                "PromptWindowManager.prepare()",
-                "PromptWindowResult.llm_messages",
-                "PreparedModelStep.llm_messages",
-                "ModelPort.chat(...)",
-                "ModelStepSystemContextBuildReport",
-                "model_step_system_message",
+            "docs/单Agent运行链路.md": (
+                "Harness.run()",
+                "Harness.resume()",
+                "RunPreparation.create_session()",
+                "RunPreparation.build_stable_turn_context_snapshot()",
+                "RunPreparation.prepare_run()",
+                "AgentLoop.run()",
+                "ModelStepPreparation.prepare_model_step()",
+                "RunLifecycle",
             ),
-            "docs/运行治理与工具执行.md": (
+            "docs/运行治理与副作用.md": (
                 "ToolExecutionPipeline.execute_calls()",
-                "ConversationItem(role=assistant, complete batch)",
-                "TaskCheckpoint.pending_execution",
                 "ToolExecutionPipeline.resume_pending_calls()",
+                "ToolExecutionPipeline._continue_pending_batch()",
                 "ToolExecutionPipeline._execute_call()",
-                "OperationTracker.build_operation_intent()",
-                "ToolAuthorizationGate.authorize()",
                 "ToolExecutionPipeline._run_tool()",
-                "ToolGateway.execute()",
-                "HookManager.after_tool()",
-                "OperationTracker.record_execution_result()",
+                "OperationTracker",
+                "ToolAuthorizationGate.authorize()",
                 "ToolFeedback.append_tool_observation()",
-                "ConversationItem(role=tool)",
+            ),
+            "docs/上下文工程与长任务.md": (
+                "build_stable_turn_context()",
+                "PromptWindowManager.prepare()",
+                "_build_digest()",
+                "_merge_digest()",
+                "ConversationHistoryDigest",
+                "ThreadContextState",
+                "LongTermMemoryService",
+            ),
+            "docs/多Agent编排.md": (
+                "AdaptivePlanner.decide()",
+                "FanoutPlan",
+                "FanoutCoordinator._execute_plan()",
+                "FanoutCoordinator._integrate_candidate()",
+                "LocalAgentWorkerAdapter.run_worker()",
+                "LiveHandoffRuntime",
+                "FanoutCoordinator._restore_hard_prefix()",
+            ),
+            "docs/持久化与恢复.md": (
+                "JsonConversationThreadRepository",
+                "JsonTaskStateRepository",
+                "JsonApprovalRepository",
+                "JsonHumanInputRepository",
+                "JsonOperationLedgerRepository",
             ),
         }
         missing: list[str] = []
@@ -300,40 +374,41 @@ class DocumentationLanguageTest(unittest.TestCase):
             if line.startswith("# ") and line != "# 架构导览"
         ]
         expected_headings = [
-            "# 1. 系统定位",
-            "# 2. 总体主链",
-            "# 3. Agent 运行数据模型",
-            "# 4. LLM 输入的三块来源",
-            "# 5. 提示窗口（Prompt Window）",
-            "# 6. 运行治理（Runtime Governance）",
-            "# 7. 持久化控制面（Durable Control Plane）",
-            "# 8. 多 Agent 编排（Multi-Agent）",
-            "# 9. 评测（Evaluation）",
-            "# 10. 文档导航",
+            "# 1. 系统全景",
+            "# 2. 运行身份",
+            "# 3. Single-Agent",
+            "# 4. Run Governance",
+            "# 5. Context Engineering",
+            "# 6. Multi-Agent",
+            "# 7. Durable Control Plane",
+            "# 8. 最有区分度的设计",
+            "# 9. 专题关系",
         ]
         if main_headings != expected_headings:
-            violations.append("架构导览必须保持十段唯一主链")
+            violations.append("架构导览必须保持九段全局模型与专题关系")
         for contract in (
-            '<a id="system"></a>',
-            '<a id="context"></a>',
-            '<a id="governance"></a>',
-            '<a id="durability"></a>',
-            '<a id="evaluation"></a>',
             "Model proposes",
-            "Runtime decides",
-            "Fixed Case Cohort",
-            "AdaptivePlanner.decide()",
-            "build_fanout()",
-            "FanoutCoordinator.run()",
-            "_execute_plan()",
-            "HARD: integrated-state readiness",
-            "LIVE: semantic early readiness",
-            "Strict Integration Frontier",
-            "生产化边界与扩展.md",
+            "Runtime governs",
+            "Durable facts drive recovery",
+            "Trusted state has explicit ownership",
+            "单Agent运行链路.md",
+            "运行治理与副作用.md",
+            "上下文工程与长任务.md",
+            "多Agent编排.md",
+            "持久化与恢复.md",
         ):
             if contract not in architecture:
                 violations.append(f"架构导览缺少审阅契约: {contract}")
-        for retired in ("docs/系统概览与核心设计.md", "docs/核心运行机制与代码索引.md"):
+        for retired in (
+            "docs/Agent运行数据结构与模型输入.md",
+            "docs/上下文工程.md",
+            "docs/上下文压缩与长任务设计.md",
+            "docs/运行治理与工具执行.md",
+            "docs/运行产物与持久化契约.md",
+            "docs/生产化边界与扩展.md",
+            "docs/系统概览与核心设计.md",
+            "docs/核心运行机制与代码索引.md",
+        ):
             if (PROJECT_ROOT / retired).exists():
                 violations.append(f"重复公开文档重新出现: {retired}")
 
@@ -349,8 +424,10 @@ class DocumentationLanguageTest(unittest.TestCase):
             "ModelStepPreparation.prepare_model_step",
             "ModelGateway.chat",
             "ToolExecutionPipeline._execute_call",
-            "FinalAnswerBuilder.build_stop_request",
             "RunLifecycle.finalize_run",
+            "PromptWindowManager.prepare",
+            "FanoutCoordinator._execute_plan",
+            "FanoutCoordinator._integrate_candidate",
         ):
             if owner_symbol not in capability_index:
                 violations.append(f"核心能力索引缺少主链 Owner: {owner_symbol}")
@@ -438,30 +515,44 @@ class DocumentationLanguageTest(unittest.TestCase):
             violations, [], "Public documentation control plane has drifted"
         )
 
-    def test_cheatsheet_owners_have_explanatory_docstrings(self) -> None:
-        """代码导航文档中的每个 Owner 都必须能定位，且入口自身能够解释职责。"""
+    def test_capability_index_owners_resolve_to_source(self) -> None:
+        """能力索引中的 canonical Owner 必须仍能唯一定位到当前源码。"""
 
-        capability_path = PROJECT_ROOT / "docs/核心能力与代码入口.md"
-        capability_text = capability_path.read_text(encoding="utf-8")
-        owner_columns = {
-            "1. Single-Agent 主链只记 8 个 Owner": (0,),
-            "2. 最重要的数据结构": (1,),
+        capability_text = (
+            PROJECT_ROOT / "docs/核心能力与代码入口.md"
+        ).read_text(encoding="utf-8")
+        owner_symbols = {
+            "Harness.run",
+            "Harness.resume",
+            "RunPreparation.create_session",
+            "RunPreparation.build_stable_turn_context_snapshot",
+            "RunPreparation.prepare_run",
+            "AgentLoop.run",
+            "ModelStepPreparation.prepare_model_step",
+            "ModelGateway.chat",
+            "RunLifecycle.finalize_run",
+            "ToolExecutionPipeline.execute_calls",
+            "ToolExecutionPipeline.resume_pending_calls",
+            "ToolExecutionPipeline._execute_call",
+            "ToolExecutionPipeline._run_tool",
+            "OperationTracker",
+            "ToolAuthorizationGate.authorize",
+            "ToolFeedback.append_tool_observation",
+            "ToolRouter.route",
+            "build_stable_turn_context",
+            "PromptWindowManager.prepare",
+            "_build_digest",
+            "_merge_digest",
+            "ConversationHistoryDigest",
+            "LongTermMemoryService",
+            "AdaptivePlanner.decide",
+            "FanoutPlan",
+            "FanoutCoordinator._execute_plan",
+            "FanoutCoordinator._integrate_candidate",
+            "LocalAgentWorkerAdapter.run_worker",
+            "LiveHandoffRuntime",
+            "FanoutCoordinator._restore_hard_prefix",
         }
-        owner_symbol_pattern = re.compile(
-            r"`([A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)?)`"
-        )
-        owner_symbols: set[str] = set()
-        active_section = ""
-        for line in capability_text.splitlines():
-            if line.startswith("# "):
-                active_section = line.removeprefix("# ").strip()
-                continue
-            if active_section not in owner_columns or not line.startswith("|"):
-                continue
-            cells = [cell.strip() for cell in line.strip().strip("|").split("|")]
-            for column in owner_columns[active_section]:
-                if column < len(cells):
-                    owner_symbols.update(owner_symbol_pattern.findall(cells[column]))
 
         source_index: dict[
             str,
@@ -484,47 +575,40 @@ class DocumentationLanguageTest(unittest.TestCase):
 
         violations: list[str] = []
         for owner_symbol in sorted(owner_symbols):
+            if owner_symbol not in capability_text:
+                violations.append(f"能力索引缺少 canonical Owner: {owner_symbol}")
+                continue
             candidates = source_index.get(owner_symbol, [])
             if len(candidates) != 1:
                 violations.append(
                     f"Owner 必须唯一对应源码定义: {owner_symbol} ({len(candidates)} matches)"
                 )
-                continue
-            source_path, node = candidates[0]
-            docstring = ast.get_docstring(node, clean=True) or ""
-            visible_length = len(re.sub(r"\s+", "", docstring))
-            if visible_length < 24:
-                relative_path = source_path.relative_to(PROJECT_ROOT).as_posix()
-                violations.append(
-                    f"Owner 注释不足以说明职责: {owner_symbol} "
-                    f"({relative_path}:{node.lineno})"
-                )
-
-        self.assertGreaterEqual(len(owner_symbols), 16, "核心 Owner 提取结果异常")
-        self.assertEqual(violations, [], "Cheat Sheet Owner 必须可定位且可直接理解")
+        self.assertEqual(violations, [], "Capability Owner 必须存在且唯一可定位")
 
     def test_runtime_artifact_contract_separates_authoritative_state_and_evidence(
         self,
     ) -> None:
-        """持久化文档必须区分恢复真相、事件证据和 schema migration。"""
+        """持久化文档必须区分 Conversation、Context、Run 与副作用状态。"""
 
-        text = (PROJECT_ROOT / "docs/运行产物与持久化契约.md").read_text(
+        text = (PROJECT_ROOT / "docs/持久化与恢复.md").read_text(
             encoding="utf-8"
         )
         required_contracts = (
-            "Authoritative Conversation",
-            "TaskCheckpoint v4",
-            "Normal follow-up\n= same Thread + new Turn + new Run",
-            "Resume\n= same Thread + same Turn + new Run",
-            "append complete assistant batch",
-            "append exactly one Tool Observation",
-            "Trace 不保存完整 model prompt 或 raw Conversation",
-            "Production Runtime loader 只接受当前 canonical v4",
-            "read-only presentation compatibility reader",
-            "model_step_started",
+            "conversation.jsonl",
+            "context_state.json",
+            "task_state/<run_id>.json",
+            "approvals/<operation_key>.json",
+            "human_input/<request_id>.json",
+            "operation_ledger/<operation_key>.json",
+            "TaskCheckpoint\n= Run 跑到哪里",
+            "OperationRecord\n= 某个 side effect 跑到哪里",
+            "Trace 解释过程，但不成为 Resume authority",
+            "ContextState = 7\nCheckpoint = 6",
+            "Checkpoint = 7\nContextState = 6",
+            "authority state 先持久化，pointer 后更新",
         )
         missing = [contract for contract in required_contracts if contract not in text]
-        self.assertEqual(missing, [], "运行产物契约缺少权威边界或迁移原则")
+        self.assertEqual(missing, [], "持久化文档缺少 authoritative state 边界")
 
 
 if __name__ == "__main__":

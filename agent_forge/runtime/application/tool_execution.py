@@ -770,7 +770,7 @@ class ToolExecutionPipeline:
         )
         session.message_sequences.append(item.sequence)
 
-    # 核心主干：一个 ToolCall 从入口控制走到人工屏障、防重复、授权或执行。
+    # 核心主干：一个 ToolCall 沿七段治理链走到拒绝、等待、复用或真实执行。
     def _execute_call(
         self,
         session: AgentRunSession,
@@ -779,19 +779,19 @@ class ToolExecutionPipeline:
         step: int,
         allowed_tool_names: set[str],
     ) -> ToolCallOutcome:
-        """让一个 ToolCall 依次经过路由、HITL、操作防重、重复保护和授权门。
+        """让一个 ToolCall 依次经过七段 Runtime Governance。
 
-        伪代码：路由与 Guardrail -> ask_human durable barrier
-        -> remember_memory provenance -> Operation Ledger replay/fail-closed
-        -> repeat limit -> authorization -> 唯一真实执行入口 ``_run_tool``。
+        伪代码：Route / Guardrail -> Special protocol / provenance
+        -> Build OperationIntent -> Ledger replay / crash idempotency
+        -> Repeat guard -> Authorization -> Execute + durable result。
 
         只有前述阶段均允许时才进入 ``_run_tool``；每个拒绝、等待、回填或执行分支都返回
         明确的 ``ToolCallOutcome``，并在对应阶段提交 Observation、Trace 或 Checkpoint。
         """
 
-        # region 1. 调用意图预检：唯一计数器观察连续相同调用，并确认本轮可见性
+        # region 1. Route / Guardrail：路由与可见性门禁
         # 重复检测回答“模型是否原地打转”；路由复核回答“本轮是否向模型暴露该工具”。
-        # 两者都在持久状态变化风险分类和授权前完成，但路由失败优先返回明确 Observation。
+        # 计数器在入口观察调用，但 repeat 决策延后到第 5 段；路由失败在此直接闭合 Observation。
         repeat_limit_signal = (
             session.controller.observe_tool_intent_for_repeat_limit(tool_call)
         )
@@ -813,22 +813,16 @@ class ToolExecutionPipeline:
                 status=ToolCallStatus.FAILED,
                 reason="tool_not_routed_for_this_turn",
             )
-        # endregion 1. 调用意图预检结束
+        # endregion 1. Route / Guardrail：路由与可见性门禁结束
 
-        # region 2. 协议分支：记录工具意图，ask_human 转入 durable HITL
+        # region 2. Special protocol / provenance：特殊协议与人类来源验证
         self._record_model_tool_intent(session, step, tool_call)
         # ask_human 是协议特殊分支：建立可恢复人工屏障，不按普通 Tool 执行。
         if tool_call.name == "ask_human":
             return self._handle_human_question(session, tool_call, step)
-        # endregion 2. 协议分支结束
 
         # tool_guardrail 只形成语义检查证据；真正的阻断条件是上面的路由复核结果。
 
-        # region 3. 操作状态表：状态变更操作先复用确定结果，再考虑无进展重复
-        # 这里是 OperationLedgerRepository（操作状态表）的唯一入口。ToolCall 只是模型给出的原始工具名和参数；
-        # 在查询旧记录、申请权限或真正执行前，必须先得到三者共用的状态变更风险分类、
-        # operation key 和执行前目标指纹。无需操作状态表治理的调用也会归一化，
-        # 但不会创建 operation record。
         memory_provenance: JsonObject | None = None
         # Memory 写入必须先绑定当前 Session 的 user 原文，模型声明本身不构成授权。
         if tool_call.name == "remember_memory":
@@ -854,6 +848,11 @@ class ToolExecutionPipeline:
                     step,
                     memory_validation_error,
                 )
+        # endregion 2. Special protocol / provenance：特殊协议与来源验证结束
+
+        # region 3. Build OperationIntent：建立统一操作事实
+        # ToolCall 是模型提案；OperationIntent 才是 Ledger、Authorization 与 _run_tool 共用的
+        # Runtime 操作事实。无需 Ledger 治理的调用同样归一化，但不会创建 OperationRecord。
         operation_intent = self.operation_tracker.build_operation_intent(
             session,
             tool_call,
@@ -866,6 +865,9 @@ class ToolExecutionPipeline:
                 operation_key=operation_intent.operation_key,
                 provenance=memory_provenance,
             )
+        # endregion 3. Build OperationIntent：统一操作事实建立结束
+
+        # region 4. Ledger replay / crash idempotency：副作用恢复与防重
         # 持久状态变更进入 Ledger 防重与恢复判断。run_command 以 canonical
         # ToolCall invocation 为 key：同一调用 crash resume 不重跑，新调用仍可执行。
         if operation_intent.ledger_tracked:
@@ -888,9 +890,10 @@ class ToolExecutionPipeline:
                     status=ToolCallStatus.SKIPPED,
                     reason="replayed_executed_operation_fact",
                 )
-        # endregion 3. 操作状态表结束
+        # endregion 4. Ledger replay / crash idempotency：副作用恢复与防重结束
 
-        # region 4. 连续重复策略：无持久状态变化的调用跳过，可能改变持久状态的调用停止
+        # region 5. Repeat guard：连续无进展调用保护
+        # 无持久状态变化的调用可以跳过；可能改变持久状态的重复调用必须更保守地停止。
         # Ledger 没有可复用事实后，才按连续 ToolCall 计数处理模型无进展循环。
         if repeat_limit_signal is not None:
             return self._handle_exceeded_repeat_limit(
@@ -900,11 +903,11 @@ class ToolExecutionPipeline:
                 repeat_limit_signal=repeat_limit_signal,
                 step=step,
             )
-        # endregion 4. 连续重复策略结束
+        # endregion 5. Repeat guard：连续调用保护结束
 
-        # region 5. 权限门与真实执行：只有 proceed 才能到达 ToolGateway
-        # authorize 只返回治理结论，不执行工具；唯一真实执行入口仍是 _run_tool，
-        # 从而保证 DENY、WAITING_APPROVAL 和 stale approval 都无法触达 ToolGateway。
+        # region 6. Authorization：具体操作授权
+        # authorize 只返回治理结论，不执行工具；DENY、WAITING_APPROVAL 和 stale approval
+        # 都必须在这里终止，不能触达 ToolGateway。
         authorization_decision = self.authorization_gate.authorize(
             session,
             tool_call,
@@ -925,8 +928,13 @@ class ToolExecutionPipeline:
                 reason="tool_authorization_rejected",
                 end_batch=authorization_decision.end_batch,
             )
+        # endregion 6. Authorization：具体操作授权结束
+
+        # region 7. Execute + durable result：真实执行与持久结果
+        # _run_tool 是唯一真实执行入口：它提交 executing 状态，执行 ToolGateway，并持久化
+        # Operation 结果与唯一 Observation；调用方随后才推进 pending batch cursor。
         return self._run_tool(session, tool_call, operation_intent, step)
-        # endregion 5. 权限门与真实执行结束
+        # endregion 7. Execute + durable result：真实执行与持久结果结束
 
     # region 分支与证据叶子
     def _find_user_memory_provenance(
